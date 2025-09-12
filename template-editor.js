@@ -832,6 +832,55 @@ class IframeManager {
                 }, 180000);
             });
         };
+        // callGenerate 桥接：iframe 内直接调用，主应用路由并回传
+        window.callGenerate = function(options){
+            return new Promise(function(resolve, reject){
+                try{
+                    if(!options || typeof options !== 'object'){ reject(new Error('Invalid options')); return; }
+                    var id = Date.now().toString(36) + Math.random().toString(36).slice(2);
+                    function onMessage(e){
+                        var d = e && e.data || {};
+                        if (d.source !== 'xiaobaix-host' || d.id !== id) return;
+                        if (d.type === 'generateStreamStart' && options.streaming && options.streaming.onStart) {
+                            try { options.streaming.onStart(d.sessionId); } catch (_) {}
+                        } else if (d.type === 'generateStreamChunk' && options.streaming && options.streaming.onChunk) {
+                            try { options.streaming.onChunk(d.chunk, d.accumulated); } catch (_) {}
+                        } else if (d.type === 'generateStreamComplete') {
+                            window.removeEventListener('message', onMessage);
+                            resolve(d.result);
+                        } else if (d.type === 'generateStreamError') {
+                            window.removeEventListener('message', onMessage);
+                            reject(new Error(d.error || 'Stream failed'));
+                        } else if (d.type === 'generateResult') {
+                            window.removeEventListener('message', onMessage);
+                            resolve(d.result);
+                        } else if (d.type === 'generateError') {
+                            window.removeEventListener('message', onMessage);
+                            reject(new Error(d.error || 'Generation failed'));
+                        }
+                    }
+                    window.addEventListener('message', onMessage);
+                    // 仅发送可克隆数据，剔除函数回调
+                    function sanitize(val){
+                        if (val === null || val === undefined) return val;
+                        var t = typeof val;
+                        if (t === 'function') return undefined;
+                        if (t !== 'object') return val;
+                        if (Array.isArray(val)){
+                            var arr = [];
+                            for (var i=0;i<val.length;i++){ var v=sanitize(val[i]); if (v !== undefined) arr.push(v); }
+                            return arr;
+                        }
+                        var obj = {};
+                        for (var k in val){ if (Object.prototype.hasOwnProperty.call(val,k)){ var v=sanitize(val[k]); if (v !== undefined) obj[k]=v; } }
+                        return obj;
+                    }
+                    var safeOptions = sanitize(options);
+                    try { window.parent.postMessage({ type: 'generateRequest', id: id, options: safeOptions }, '*'); } catch (e) {}
+                    setTimeout(function(){ try{ window.removeEventListener('message', onMessage); }catch(e){}; reject(new Error('Generation timeout')); }, 300000);
+                }catch(e){ reject(e); }
+            });
+        };
         function setup() {
             window.STBridge.updateHeight();
             new MutationObserver(() => window.STBridge.updateHeight())

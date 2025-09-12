@@ -12,6 +12,12 @@ import { initDynamicPrompt } from "./dynamic-prompt.js";
 import { initButtonCollapse } from "./button-collapse.js";
 import { initVariablesPanel, getVariablesPanelInstance, cleanupVariablesPanel } from "./variables-panel.js";
 import { initStreamingGeneration } from "./streaming-generation.js";
+import { handleGenerateRequest } from "./call-generate-service.js";
+
+// Ensure service is reachable via window for dynamic callers
+if (typeof window !== 'undefined') {
+	try { (window).handleGenerateRequest = handleGenerateRequest; } catch (e) {}
+}
 
 const EXT_ID = "LittleWhiteBox";
 const EXT_NAME = "小白X";
@@ -360,6 +366,35 @@ function iframeClientScript(){return `
       }catch(e){reject(e)}
     })
   }
+  // Inject callGenerate API for iframe templates
+  window.callGenerate=function(options){
+    return new Promise(function(resolve,reject){
+      try{
+        if(!options||typeof options!=='object'){reject(new Error('Invalid options'));return}
+        var id=Date.now().toString(36)+Math.random().toString(36).slice(2);
+        function onMessage(e){
+          var d=e&&e.data||{};
+          if(d.source!=='xiaobaix-host'||d.id!==id)return;
+          if(d.type==='generateStreamStart'&&options.streaming&&options.streaming.onStart){
+            try{options.streaming.onStart(d.sessionId)}catch(_){}}
+          else if(d.type==='generateStreamChunk'&&options.streaming&&options.streaming.onChunk){
+            try{options.streaming.onChunk(d.chunk,d.accumulated)}catch(_){}}
+          else if(d.type==='generateStreamComplete'){
+            window.removeEventListener('message',onMessage);resolve(d.result);
+          } else if(d.type==='generateStreamError'){
+            window.removeEventListener('message',onMessage);reject(new Error(d.error||'Stream failed'));
+          } else if(d.type==='generateResult'){
+            window.removeEventListener('message',onMessage);resolve(d.result);
+          } else if(d.type==='generateError'){
+            window.removeEventListener('message',onMessage);reject(new Error(d.error||'Generation failed'));
+          }
+        }
+        window.addEventListener('message',onMessage);
+        post({type:'generateRequest',id:id,options:options});
+        setTimeout(function(){try{window.removeEventListener('message',onMessage)}catch(e){};reject(new Error('Generation timeout'))},300000);
+      }catch(e){reject(e)}
+    })
+  }
 })();`}
 
 function buildWrappedHtml(html){
@@ -492,6 +527,21 @@ function handleIframeMessage(event) {
         executeSlashCommand(data.command)
             .then(result => event.source.postMessage({ source: 'xiaobaix-host', type: 'commandResult', id: data.id, result }, '*'))
             .catch(err => event.source.postMessage({ source: 'xiaobaix-host', type: 'commandError', id: data.id, error: err.message || String(err) }, '*'));
+        return;
+    }
+    if (data && data.type === 'generateRequest') {
+        try {
+            if (!window.handleGenerateRequest) {
+                // lazy import if available
+                // no-op if service not present
+            }
+            const handler = window.handleGenerateRequest || (async () => { throw new Error('callGenerate service not available'); });
+            handler(data.options, data.id, event.source)
+                .catch(err => event.source.postMessage({ source: 'xiaobaix-host', type: 'generateError', id: data.id, error: err?.message || String(err) }, '*'));
+        } catch (e) {
+            try { event.source.postMessage({ source: 'xiaobaix-host', type: 'generateError', id: data.id, error: e?.message || String(e) }, '*'); } catch {}
+        }
+        return;
     }
 }
 
