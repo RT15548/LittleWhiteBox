@@ -13,6 +13,30 @@ class CallGenerateService {
         this._lastToggleSnapshot = null;
     }
 
+    // ===== 通用错误处理 =====
+    normalizeError(err, fallbackCode = 'API_ERROR', details = null) {
+        try {
+            if (!err) return { code: fallbackCode, message: 'Unknown error', details };
+            if (typeof err === 'string') return { code: fallbackCode, message: err, details };
+            const msg = err?.message || String(err);
+            // Map known cases
+            if (msg === 'INVALID_MODE') return { code: 'INVALID_MODE', message: 'Invalid mode', details };
+            if (msg === 'MISSING_MESSAGES') return { code: 'MISSING_MESSAGES', message: 'Missing messages', details };
+            if (msg === 'UNSUPPORTED_MODE') return { code: 'UNSUPPORTED_MODE', message: 'Unsupported mode', details };
+            if (msg === 'Unsupported provider') return { code: 'PROVIDER_UNSUPPORTED', message: msg, details };
+            if (err?.name === 'AbortError') return { code: 'CANCELLED', message: 'Request cancelled', details };
+            return { code: fallbackCode, message: msg, details };
+        } catch {
+            return { code: fallbackCode, message: 'Error serialization failed', details };
+        }
+    }
+
+    sendError(sourceWindow, requestId, streamingEnabled, err, fallbackCode = 'API_ERROR', details = null) {
+        const e = this.normalizeError(err, fallbackCode, details);
+        const type = streamingEnabled ? 'generateStreamError' : 'generateError';
+        try { sourceWindow?.postMessage({ source: SOURCE_TAG, type, id: requestId, error: e }, '*'); } catch {}
+    }
+
     /**
      * @param {string|undefined} rawId
      * @returns {string}
@@ -48,7 +72,7 @@ class CallGenerateService {
      * @param {any} options
      */
     validateOptions(options) {
-        if (!options || typeof options !== 'object') throw new Error('Invalid options');
+        if (!options || typeof options !== 'object') throw new Error('INVALID_OPTIONS');
         const mode = String(options.mode || '').toLowerCase();
         if (!['pure', 'hybrid-explicit', 'hybrid-inherit'].includes(mode)) {
             throw new Error('INVALID_MODE');
@@ -122,13 +146,12 @@ class CallGenerateService {
             proxy_password: undefined,
             custom_url: undefined,
             custom_include_body: undefined,
-            custom_exclude_body: undefined,
+            custom_exCLUDE_body: undefined,
             custom_include_headers: undefined,
         };
 
         // 继承代理/自定义配置
         if (inherit) {
-            // 支持反向代理的源（对齐 openai.js 的 PROXY 支持列表）
             const proxySupported = new Set([
                 chat_completion_sources.CLAUDE,
                 chat_completion_sources.OPENAI,
@@ -145,12 +168,12 @@ class CallGenerateService {
             if (source === chat_completion_sources.CUSTOM) {
                 if (oai_settings?.custom_url) resolved.custom_url = String(oai_settings.custom_url);
                 if (oai_settings?.custom_include_body) resolved.custom_include_body = oai_settings.custom_include_body;
-                if (oai_settings?.custom_exclude_body) resolved.custom_exclude_body = oai_settings.custom_exclude_body;
+                if (oai_settings?.custom_exclude_body) resolved.custom_exCLUDE_body = oai_settings.custom_exclude_body;
                 if (oai_settings?.custom_include_headers) resolved.custom_include_headers = oai_settings.custom_include_headers;
             }
         }
 
-        // 显式 baseURL 覆写：CUSTOM 走 custom_url；其他源走 reverse_proxy
+        // 显式 baseURL 覆写
         const baseURL = overrides?.baseURL || api?.baseURL;
         if (baseURL) {
             if (resolved.chat_completion_source === chat_completion_sources.CUSTOM) {
@@ -160,7 +183,6 @@ class CallGenerateService {
             }
         }
 
-        // 细节覆写
         const ovw = inherit ? (api?.overrides || {}) : api || {};
         ['temperature', 'maxTokens', 'topP', 'topK', 'frequencyPenalty', 'presencePenalty', 'repetitionPenalty', 'stop', 'responseFormat', 'seed']
             .forEach((k) => {
@@ -514,62 +536,68 @@ class CallGenerateService {
                 return result;
             }
         } catch (err) {
-            const errorText = err?.message || String(err);
-            this.postToTarget(sourceWindow, streamingEnabled ? 'generateStreamError' : 'generateError', { id: requestId, error: errorText });
-            throw err;
+            this.sendError(sourceWindow, requestId, streamingEnabled, err);
+            return null;
         }
     }
 
     async handleHybridExplicit(options, requestId, sourceWindow) {
-        const includeConfig = options?.includeComponents || null;
-        const userMessages = Array.isArray(options?.messages) ? options.messages : [];
-        const skipWIAN = includeConfig?.worldInfo ? false : true;
-        const quietText = userMessages.find(m => m?.role === 'user')?.content || '';
-        const captured = await this._capturePromptMessages({ includeConfig, quietText, skipWIAN });
-        // chatHistory 高级选择器
-        const selector = includeConfig?.chatHistory?.selector || (includeConfig?.chatHistory?.messageCount != null ? { last: includeConfig.chatHistory.messageCount } : null);
-        const selected = selector ? this.applyChatHistorySelector(captured, selector) : captured;
-        const finalMessages = this._mergeMessages(selected, userMessages);
-        // Debug: 导出提示词预览
-        const shouldExport = !!(options?.debug?.enabled || options?.debug?.exportPrompt);
-        if (shouldExport) this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: finalMessages.map(m => ({ role: m.role, content: m.content })) });
-        // 复用 pure 路径发送
-        const next = { ...options, mode: 'pure', messages: finalMessages, debug: { ...(options?.debug||{}), _exported: true } };
-        return await this.handlePure(next, requestId, sourceWindow);
+        try {
+            const includeConfig = options?.includeComponents || null;
+            const userMessages = Array.isArray(options?.messages) ? options.messages : [];
+            const skipWIAN = includeConfig?.worldInfo ? false : true;
+            const quietText = userMessages.find(m => m?.role === 'user')?.content || '';
+            const captured = await this._capturePromptMessages({ includeConfig, quietText, skipWIAN });
+            const selector = includeConfig?.chatHistory?.selector || (includeConfig?.chatHistory?.messageCount != null ? { last: includeConfig.chatHistory.messageCount } : null);
+            const selected = selector ? this.applyChatHistorySelector(captured, selector) : captured;
+            const finalMessages = this._mergeMessages(selected, userMessages);
+            const shouldExport = !!(options?.debug?.enabled || options?.debug?.exportPrompt);
+            if (shouldExport) this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: finalMessages.map(m => ({ role: m.role, content: m.content })) });
+            const next = { ...options, mode: 'pure', messages: finalMessages, debug: { ...(options?.debug||{}), _exported: true } };
+            return await this.handlePure(next, requestId, sourceWindow);
+        } catch (err) {
+            const streamingEnabled = options?.streaming?.enabled !== false;
+            this.sendError(sourceWindow, requestId, streamingEnabled, err);
+            return null;
+        }
     }
 
     async handleHybridInherit(options, requestId, sourceWindow) {
-        const includeConfig = options?.includeComponents || null; // 允许 inherit 也传 chatHistory.selector
-        const userMessages = Array.isArray(options?.messages) ? options.messages : [];
-        const quietText = userMessages.find(m => m?.role === 'user')?.content || '';
-        const captured = await this._capturePromptMessages({ includeConfig: null, quietText, skipWIAN: false });
-        const selector = includeConfig?.chatHistory?.selector || (includeConfig?.chatHistory?.messageCount != null ? { last: includeConfig.chatHistory.messageCount } : null);
-        const selected = selector ? this.applyChatHistorySelector(captured, selector) : captured;
-        const finalMessages = this._mergeMessages(selected, userMessages);
-        const shouldExport = !!(options?.debug?.enabled || options?.debug?.exportPrompt);
-        if (shouldExport) this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: finalMessages.map(m => ({ role: m.role, content: m.content })) });
-        const next = { ...options, mode: 'pure', messages: finalMessages, debug: { ...(options?.debug||{}), _exported: true } };
-        return await this.handlePure(next, requestId, sourceWindow);
+        try {
+            const includeConfig = options?.includeComponents || null; // 允许 inherit 也传 chatHistory.selector
+            const userMessages = Array.isArray(options?.messages) ? options.messages : [];
+            const quietText = userMessages.find(m => m?.role === 'user')?.content || '';
+            const captured = await this._capturePromptMessages({ includeConfig: null, quietText, skipWIAN: false });
+            const selector = includeConfig?.chatHistory?.selector || (includeConfig?.chatHistory?.messageCount != null ? { last: includeConfig.chatHistory.messageCount } : null);
+            const selected = selector ? this.applyChatHistorySelector(captured, selector) : captured;
+            const finalMessages = this._mergeMessages(selected, userMessages);
+            const shouldExport = !!(options?.debug?.enabled || options?.debug?.exportPrompt);
+            if (shouldExport) this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: finalMessages.map(m => ({ role: m.role, content: m.content })) });
+            const next = { ...options, mode: 'pure', messages: finalMessages, debug: { ...(options?.debug||{}), _exported: true } };
+            return await this.handlePure(next, requestId, sourceWindow);
+        } catch (err) {
+            const streamingEnabled = options?.streaming?.enabled !== false;
+            this.sendError(sourceWindow, requestId, streamingEnabled, err);
+            return null;
+        }
     }
 
     /**
      * 入口：处理 generateRequest
-     * @param {any} options
-     * @param {string} requestId
-     * @param {Window} sourceWindow
      */
     async handleGenerateRequest(options, requestId, sourceWindow) {
-        const { mode } = this.validateOptions(options);
-        if (mode === 'pure') {
-            return await this.handlePure(options, requestId, sourceWindow);
+        let streamingEnabled = false;
+        try {
+            const { mode } = this.validateOptions(options);
+            streamingEnabled = options?.streaming?.enabled !== false;
+            if (mode === 'pure') return await this.handlePure(options, requestId, sourceWindow);
+            if (mode === 'hybrid-explicit') return await this.handleHybridExplicit(options, requestId, sourceWindow);
+            if (mode === 'hybrid-inherit') return await this.handleHybridInherit(options, requestId, sourceWindow);
+            throw new Error('UNSUPPORTED_MODE');
+        } catch (err) {
+            this.sendError(sourceWindow, requestId, streamingEnabled, err, 'BAD_REQUEST');
+            return null;
         }
-        if (mode === 'hybrid-explicit') {
-            return await this.handleHybridExplicit(options, requestId, sourceWindow);
-        }
-        if (mode === 'hybrid-inherit') {
-            return await this.handleHybridInherit(options, requestId, sourceWindow);
-        }
-        throw new Error('UNSUPPORTED_MODE');
     }
 
     /** 取消会话 */
