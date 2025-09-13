@@ -1,5 +1,7 @@
-import { oai_settings, chat_completion_sources, getChatCompletionModel } from "../../../openai.js";
+import { oai_settings, chat_completion_sources, getChatCompletionModel, promptManager } from "../../../openai.js";
 import { ChatCompletionService } from "../../../custom-request.js";
+import { eventSource, event_types } from "../../../../script.js";
+import { getContext } from "../../../st-context.js";
 
 const SOURCE_TAG = 'xiaobaix-host';
 
@@ -7,6 +9,8 @@ class CallGenerateService {
     constructor() {
         /** @type {Map<string, { id: string, abortController: AbortController, accumulated: string, startedAt: number }>} */
         this.sessions = new Map();
+        this._toggleBusy = false;
+        this._lastToggleSnapshot = null;
     }
 
     /**
@@ -149,7 +153,7 @@ class CallGenerateService {
         // 显式 baseURL 覆写：CUSTOM 走 custom_url；其他源走 reverse_proxy
         const baseURL = overrides?.baseURL || api?.baseURL;
         if (baseURL) {
-            if (source === chat_completion_sources.CUSTOM) {
+            if (resolved.chat_completion_source === chat_completion_sources.CUSTOM) {
                 resolved.custom_url = String(baseURL);
             } else {
                 resolved.reverse_proxy = String(baseURL).replace(/\/?$/, '');
@@ -219,9 +223,253 @@ class CallGenerateService {
         } catch (e) {}
     }
 
-    /**
-     * 处理 pure 模式
-     */
+    // ===== ST Prompt 干跑捕获与组件切换 =====
+
+    _computeEnableIds(includeConfig) {
+        const ids = new Set();
+        if (!includeConfig || typeof includeConfig !== 'object') return ids;
+        const c = includeConfig;
+        if (c.chatHistory?.enabled) ids.add('chatHistory');
+        if (c.worldInfo?.enabled || c.worldInfo?.beforeHistory || c.worldInfo?.afterHistory) {
+            if (c.worldInfo?.beforeHistory !== false) ids.add('worldInfoBefore');
+            if (c.worldInfo?.afterHistory !== false) ids.add('worldInfoAfter');
+        }
+        if (c.character?.description) ids.add('charDescription');
+        if (c.character?.personality) ids.add('charPersonality');
+        if (c.character?.scenario) ids.add('scenario');
+        if (c.persona?.description) ids.add('personaDescription');
+        return ids;
+    }
+
+    async _withTemporaryPromptToggles(includeConfig, fn) {
+        // 如果没有 promptManager，直接执行
+        if (!promptManager || typeof promptManager.getPromptOrderForCharacter !== 'function') {
+            return await fn();
+        }
+        // 防止并发切换
+        while (this._toggleBusy) await new Promise(r => setTimeout(r, 10));
+        this._toggleBusy = true;
+        let snapshot = [];
+        try {
+            const pm = promptManager;
+            const activeChar = pm?.activeCharacter ?? null;
+            const order = pm?.getPromptOrderForCharacter(activeChar) ?? [];
+            snapshot = order.map(e => ({ identifier: e.identifier, enabled: !!e.enabled }));
+            this._lastToggleSnapshot = snapshot.map(s => ({ ...s }));
+            const enableIds = this._computeEnableIds(includeConfig);
+            // 全部禁用后按需启用
+            order.forEach(e => { e.enabled = false; });
+            order.forEach(e => { if (enableIds.has(e.identifier)) e.enabled = true; });
+            return await fn();
+        } finally {
+            try {
+                const pm = promptManager;
+                const activeChar = pm?.activeCharacter ?? null;
+                const order = pm?.getPromptOrderForCharacter(activeChar) ?? [];
+                const mapSnap = new Map((this._lastToggleSnapshot || snapshot).map(s => [s.identifier, s.enabled]));
+                order.forEach(e => { if (mapSnap.has(e.identifier)) e.enabled = mapSnap.get(e.identifier); });
+            } catch {}
+            this._toggleBusy = false;
+            this._lastToggleSnapshot = null;
+        }
+    }
+
+    async _capturePromptMessages({ includeConfig = null, quietText = '', skipWIAN = false }) {
+        const ctx = getContext();
+        let capturedData = null;
+        const listener = (data) => {
+            if (data && typeof data === 'object' && Array.isArray(data.prompt)) {
+                capturedData = { ...data, prompt: data.prompt.slice() };
+            } else if (Array.isArray(data)) {
+                capturedData = data.slice();
+            }
+        };
+        eventSource.on(event_types.GENERATE_AFTER_DATA, listener);
+        try {
+            const run = async () => {
+                await ctx.generate('normal', { quiet_prompt: String(quietText || ''), quietToLoud: false, skipWIAN, force_name2: true }, true);
+            };
+            if (includeConfig) {
+                await this._withTemporaryPromptToggles(includeConfig, run);
+            } else {
+                await run();
+            }
+        } finally {
+            eventSource.removeListener(event_types.GENERATE_AFTER_DATA, listener);
+        }
+        if (!capturedData) return [];
+        if (capturedData && typeof capturedData === 'object' && Array.isArray(capturedData.prompt)) return capturedData.prompt.slice();
+        if (Array.isArray(capturedData)) return capturedData.slice();
+        return [];
+    }
+
+    _mergeMessages(baseMessages, extraMessages) {
+        const out = [];
+        const seen = new Set();
+        const norm = (s) => String(s || '').replace(/[\r\t\u200B\u00A0]/g, '').replace(/\s+/g, ' ').replace(/^[("']+|[("']+$/g, '').trim();
+        const push = (m) => {
+            if (!m || !m.content) return;
+            const key = `${m.role}:${norm(m.content)}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            out.push({ role: m.role, content: m.content });
+        };
+        baseMessages.forEach(push);
+        (extraMessages || []).forEach(push);
+        return out;
+    }
+
+    _splitMessagesForHistoryOps(messages) {
+        // history: user/assistant; systemOther: 其余
+        const history = [];
+        const systemOther = [];
+        for (const m of messages) {
+            if (!m || typeof m.content !== 'string') continue;
+            if (m.role === 'user' || m.role === 'assistant') history.push(m);
+            else systemOther.push(m);
+        }
+        return { history, systemOther };
+    }
+
+    _applyRolesFilter(list, rolesCfg) {
+        if (!rolesCfg || (!rolesCfg.include && !rolesCfg.exclude)) return list;
+        const inc = Array.isArray(rolesCfg.include) && rolesCfg.include.length ? new Set(rolesCfg.include) : null;
+        const exc = Array.isArray(rolesCfg.exclude) && rolesCfg.exclude.length ? new Set(rolesCfg.exclude) : null;
+        return list.filter(m => {
+            const r = m.role;
+            if (inc && !inc.has(r)) return false;
+            if (exc && exc.has(r)) return false;
+            return true;
+        });
+    }
+
+    _applyContentFilter(list, filterCfg) {
+        if (!filterCfg) return list;
+        const { contains, regex, fromUserNames, beforeTs, afterTs } = filterCfg;
+        let out = list.slice();
+        if (contains) {
+            const needles = Array.isArray(contains) ? contains : [contains];
+            out = out.filter(m => needles.some(k => String(m.content).includes(String(k))));
+        }
+        if (regex) {
+            try {
+                const re = new RegExp(regex);
+                out = out.filter(m => re.test(String(m.content)));
+            } catch {}
+        }
+        if (fromUserNames && fromUserNames.length) {
+            // 仅当 messages 中附带 name 时生效；否则忽略
+            out = out.filter(m => !m.name || fromUserNames.includes(m.name));
+        }
+        // 时间戳过滤需要原始数据支持，这里忽略（占位）
+        return out;
+    }
+
+    _applyAnchorWindow(list, anchorCfg) {
+        if (!anchorCfg || !list.length) return list;
+        const { anchor = 'lastUser', before = 0, after = 0 } = anchorCfg;
+        // 找到锚点索引
+        let idx = -1;
+        if (anchor === 'lastUser') {
+            for (let i = list.length - 1; i >= 0; i--) if (list[i].role === 'user') { idx = i; break; }
+        } else if (anchor === 'lastAssistant') {
+            for (let i = list.length - 1; i >= 0; i--) if (list[i].role === 'assistant') { idx = i; break; }
+        } else if (anchor === 'lastSystem') {
+            for (let i = list.length - 1; i >= 0; i--) if (list[i].role === 'system') { idx = i; break; }
+        }
+        if (idx === -1) return list;
+        const start = Math.max(0, idx - Number(before || 0));
+        const end = Math.min(list.length - 1, idx + Number(after || 0));
+        return list.slice(start, end + 1);
+    }
+
+    _applyIndicesRange(list, selector) {
+        const idxBase = selector?.indexBase === 'all' ? 'all' : 'history';
+        let result = list.slice();
+        // indices 优先
+        if (Array.isArray(selector?.indices?.values) && selector.indices.values.length) {
+            const vals = selector.indices.values;
+            const picked = [];
+            const n = list.length;
+            for (const v0 of vals) {
+                let v = Number(v0);
+                if (Number.isNaN(v)) continue;
+                if (v < 0) v = n + v; // 负索引
+                if (v >= 0 && v < n) picked.push(list[v]);
+            }
+            result = picked;
+            return result;
+        }
+        if (selector?.range && (selector.range.start !== undefined || selector.range.end !== undefined)) {
+            let { start = 0, end = list.length - 1 } = selector.range;
+            const n = list.length;
+            start = Number(start); end = Number(end);
+            if (Number.isNaN(start)) start = 0;
+            if (Number.isNaN(end)) end = n - 1;
+            if (start < 0) start = n + start;
+            if (end < 0) end = n + end;
+            start = Math.max(0, start); end = Math.min(n - 1, end);
+            if (start > end) return [];
+            return list.slice(start, end + 1);
+        }
+        if (selector?.last !== undefined && selector.last !== null) {
+            const k = Math.max(0, Number(selector.last) || 0);
+            if (k === 0) return [];
+            const n = list.length;
+            return list.slice(Math.max(0, n - k));
+        }
+        return result;
+    }
+
+    _applyTakeEvery(list, step) {
+        const s = Math.max(1, Number(step) || 1);
+        if (s === 1) return list;
+        const out = [];
+        for (let i = 0; i < list.length; i += s) out.push(list[i]);
+        return out;
+    }
+
+    _applyLimit(list, limitCfg) {
+        if (!limitCfg) return list;
+        // 仅实现 count，tokenBudget 预留
+        const count = Number(limitCfg.count || 0);
+        if (count > 0 && list.length > count) {
+            const how = limitCfg.truncateStrategy || 'last';
+            if (how === 'first') return list.slice(0, count);
+            if (how === 'middle') {
+                const left = Math.floor(count / 2);
+                const right = count - left;
+                return list.slice(0, left).concat(list.slice(-right));
+            }
+            if (how === 'even') {
+                const step = Math.ceil(list.length / count);
+                const out = [];
+                for (let i = 0; i < list.length && out.length < count; i += step) out.push(list[i]);
+                return out;
+            }
+            // default: 'last' → 取末尾
+            return list.slice(-count);
+        }
+        return list;
+    }
+
+    applyChatHistorySelector(messages, selector) {
+        if (!selector || !Array.isArray(messages) || !messages.length) return messages;
+        const { history, systemOther } = this._splitMessagesForHistoryOps(messages);
+        let list = history;
+        // roles/filter/anchor → indices/range/last → takeEvery → limit
+        list = this._applyRolesFilter(list, selector.roles);
+        list = this._applyContentFilter(list, selector.filter);
+        list = this._applyAnchorWindow(list, selector.anchorWindow);
+        list = this._applyIndicesRange(list, selector);
+        list = this._applyTakeEvery(list, selector.takeEvery);
+        list = this._applyLimit(list, selector.limit || (selector.last ? { count: Number(selector.last) } : null));
+        // 合并非历史部分
+        return systemOther.concat(list);
+    }
+
+    // ===== 模式处理 =====
+
     async handlePure(options, requestId, sourceWindow) {
         const sessionId = this.normalizeSessionId(options?.session?.id || 'xb1');
         const session = this.ensureSession(sessionId);
@@ -230,6 +478,12 @@ class CallGenerateService {
         const payload = this.buildChatPayload(options.messages, apiCfg, streamingEnabled);
 
         try {
+            const shouldExport = !!(options?.debug?.enabled || options?.debug?.exportPrompt);
+            const already = options?.debug?._exported === true;
+            if (shouldExport && !already) {
+                this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: (options?.messages || []).map(m => ({ role: m.role, content: m.content })) });
+            }
+
             if (streamingEnabled) {
                 this.postToTarget(sourceWindow, 'generateStreamStart', { id: requestId, sessionId });
                 const streamFn = await ChatCompletionService.sendRequest(payload, false, session.abortController.signal);
@@ -266,6 +520,38 @@ class CallGenerateService {
         }
     }
 
+    async handleHybridExplicit(options, requestId, sourceWindow) {
+        const includeConfig = options?.includeComponents || null;
+        const userMessages = Array.isArray(options?.messages) ? options.messages : [];
+        const skipWIAN = includeConfig?.worldInfo ? false : true;
+        const quietText = userMessages.find(m => m?.role === 'user')?.content || '';
+        const captured = await this._capturePromptMessages({ includeConfig, quietText, skipWIAN });
+        // chatHistory 高级选择器
+        const selector = includeConfig?.chatHistory?.selector || (includeConfig?.chatHistory?.messageCount != null ? { last: includeConfig.chatHistory.messageCount } : null);
+        const selected = selector ? this.applyChatHistorySelector(captured, selector) : captured;
+        const finalMessages = this._mergeMessages(selected, userMessages);
+        // Debug: 导出提示词预览
+        const shouldExport = !!(options?.debug?.enabled || options?.debug?.exportPrompt);
+        if (shouldExport) this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: finalMessages.map(m => ({ role: m.role, content: m.content })) });
+        // 复用 pure 路径发送
+        const next = { ...options, mode: 'pure', messages: finalMessages, debug: { ...(options?.debug||{}), _exported: true } };
+        return await this.handlePure(next, requestId, sourceWindow);
+    }
+
+    async handleHybridInherit(options, requestId, sourceWindow) {
+        const includeConfig = options?.includeComponents || null; // 允许 inherit 也传 chatHistory.selector
+        const userMessages = Array.isArray(options?.messages) ? options.messages : [];
+        const quietText = userMessages.find(m => m?.role === 'user')?.content || '';
+        const captured = await this._capturePromptMessages({ includeConfig: null, quietText, skipWIAN: false });
+        const selector = includeConfig?.chatHistory?.selector || (includeConfig?.chatHistory?.messageCount != null ? { last: includeConfig.chatHistory.messageCount } : null);
+        const selected = selector ? this.applyChatHistorySelector(captured, selector) : captured;
+        const finalMessages = this._mergeMessages(selected, userMessages);
+        const shouldExport = !!(options?.debug?.enabled || options?.debug?.exportPrompt);
+        if (shouldExport) this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: finalMessages.map(m => ({ role: m.role, content: m.content })) });
+        const next = { ...options, mode: 'pure', messages: finalMessages, debug: { ...(options?.debug||{}), _exported: true } };
+        return await this.handlePure(next, requestId, sourceWindow);
+    }
+
     /**
      * 入口：处理 generateRequest
      * @param {any} options
@@ -277,7 +563,12 @@ class CallGenerateService {
         if (mode === 'pure') {
             return await this.handlePure(options, requestId, sourceWindow);
         }
-        // 预留：hybrid-explicit / hybrid-inherit 将在后续任务中实现
+        if (mode === 'hybrid-explicit') {
+            return await this.handleHybridExplicit(options, requestId, sourceWindow);
+        }
+        if (mode === 'hybrid-inherit') {
+            return await this.handleHybridInherit(options, requestId, sourceWindow);
+        }
         throw new Error('UNSUPPORTED_MODE');
     }
 
