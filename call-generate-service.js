@@ -78,10 +78,15 @@ class CallGenerateService {
         return this.sessions.get(id);
     }
 
-    /** V3 选项校验（宽松） */
-    validateV3Options(options) {
+    /**
+     * 选项校验（宽松）。
+     * 支持仅 injections 或仅 userInput 构建场景。
+     * @param {Object} options
+     * @throws {Error} INVALID_OPTIONS 当 options 非对象
+     */
+    validateOptions(options) {
         if (!options || typeof options !== 'object') throw new Error('INVALID_OPTIONS');
-        // V3 下允许仅凭 injections 或 userInput 构建
+        // 允许仅凭 injections 或 userInput 构建
         const hasComponents = options.components && Array.isArray(options.components.list);
         const hasInjections = Array.isArray(options.injections) && options.injections.length > 0;
         const hasUserInput = typeof options.userInput === 'string' && options.userInput.length >= 0;
@@ -372,7 +377,7 @@ class CallGenerateService {
         return [];
     }
 
-    // ===== V3 工具函数：组件与消息辅助 =====
+    // ===== 工具函数：组件与消息辅助 =====
 
     /**
      * 获取消息的 component key（用于匹配与排序）。
@@ -1118,7 +1123,7 @@ class CallGenerateService {
         return systemOther.concat(list);
     }
 
-    // ===== 发送实现（V3 构建后的统一发送） =====
+    // ===== 发送实现（构建后的统一发送） =====
 
     async _sendMessages(messages, options, requestId, sourceWindow) {
         const sessionId = this.normalizeSessionId(options?.session?.id || 'xb1');
@@ -1169,10 +1174,10 @@ class CallGenerateService {
         }
     }
 
-    // ===== V3 主流程 =====
-    async handleV3(options, requestId, sourceWindow) {
+    // ===== 主流程 =====
+    async handleRequestInternal(options, requestId, sourceWindow) {
         // 1) 校验
-        this.validateV3Options(options);
+        this.validateOptions(options);
 
         // 2) 解析组件列表与内联注入
         const list = Array.isArray(options?.components?.list) ? options.components.list.slice() : undefined;
@@ -1248,7 +1253,7 @@ class CallGenerateService {
         // 8) 调试导出
         this._exportDebugData({ sourceWindow, requestId, working, baseStrategy, orderedRefs, inlineMapped, listLevelOverrides, debug: options?.debug });
 
-        // 10) 发送
+        // 9) 发送
         return await this._sendMessages(working, { ...options, debug: { ...(options?.debug || {}), _exported: true } }, requestId, sourceWindow);
     }
 
@@ -1326,13 +1331,13 @@ class CallGenerateService {
     }
 
     /**
-     * 入口：处理 generateRequest（V3 单一入口）
+     * 入口：处理 generateRequest（统一入口）
      */
     async handleGenerateRequest(options, requestId, sourceWindow) {
         let streamingEnabled = false;
         try {
             streamingEnabled = options?.streaming?.enabled !== false;
-            return await this.handleV3(options, requestId, sourceWindow);
+            return await this.handleRequestInternal(options, requestId, sourceWindow);
         } catch (err) {
             this.sendError(sourceWindow, requestId, streamingEnabled, err, 'BAD_REQUEST');
             return null;
