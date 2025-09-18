@@ -1,0 +1,22 @@
+{
+    "printWidth": 200,
+    "tabWidth": 4,
+    "useTabs": false,
+    "semi": true,
+    "singleQuote": false,
+    "quoteProps": "as-needed",
+    "jsxSingleQuote": false,
+    "trailingComma": "none",
+    "bracketSpacing": true,
+    "arrowParens": "avoid",
+    "proseWrap": "preserve",
+    "endOfLine": "auto",
+    "overrides": [
+        {
+            "files": "*.min.js",
+            "options": {
+                "printWidth": 10000
+            }
+        }
+    ]
+}
