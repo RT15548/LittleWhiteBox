@@ -687,6 +687,7 @@ const recordInterceptedId = (id) => { if ((S.isPreview || S.isLong) && !S.interc
 async function deleteMessageById(id) {
   try {
     const ctx = getContext();
+    /* global deleteLastMessage */
     if (id === ctx.chat?.length - 1) { if (typeof deleteLastMessage === "function") { await deleteLastMessage(); return true; } }
     if (ctx.chat && ctx.chat[id]) { ctx.chat.splice(id, 1); $(`#chat .mes[mesid="${id}"]`).remove(); if (ctx.chat_metadata) ctx.chat_metadata.tainted = true; return true; }
     const el = $(`#chat .mes[mesid="${id}"]`); if (el.length) { el.remove(); return true; }
