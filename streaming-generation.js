@@ -1,5 +1,5 @@
 import { eventSource, event_types, main_api, chat, name1, getRequestHeaders, extractMessageFromData, activateSendButtons, deactivateSendButtons } from "../../../../script.js";
-import { getStreamingReply, chat_completion_sources, oai_settings, promptManager, getChatCompletionModel } from "../../../openai.js";
+import { getStreamingReply, chat_completion_sources, oai_settings, promptManager, getChatCompletionModel, tryParseStreamingError } from "../../../openai.js";
 import { ChatCompletionService } from "../../../custom-request.js";
 import { getEventSourceStream } from "../../../sse-stream.js";
 import { getContext } from "../../../st-context.js";
@@ -171,7 +171,7 @@ class StreamingGeneration {
         const effectiveFrequency = isUnset('frequency_penalty') ? undefined : (fpUser ?? fpUI);
         const effectiveTopP = isUnset('top_p') ? undefined : (tpUser ?? (source === chat_completion_sources.MAKERSUITE ? tpUI_Gemini : tpUI_OpenAI));
         const effectiveTopK = isUnset('top_k') ? undefined : (tkUser ?? (source === chat_completion_sources.MAKERSUITE ? tkUI_Gemini : undefined));
-        const effectiveMaxT = isUnset('max_tokens') ? undefined : (mtUser ?? (source === chat_completion_sources.MAKERSUITE ? (mtUI_Gemini ?? mtUI_OpenAI) : mtUI_OpenAI) ?? 1024);
+        const effectiveMaxT = isUnset('max_tokens') ? undefined : (mtUser ?? (source === chat_completion_sources.MAKERSUITE ? (mtUI_Gemini ?? mtUI_OpenAI) : mtUI_OpenAI) ?? 4000);
         const body = {
             messages, model, stream,
             chat_completion_source: source,
@@ -227,6 +227,8 @@ class StreamingGeneration {
             });
             if (!response.ok) {
                 const txt = await response.text().catch(() => '');
+                // 使用酒馆的错误解析逻辑
+                tryParseStreamingError(response, txt);
                 throw new Error(txt || `后端响应错误: ${response.status}`);
             }
             const eventStream = getEventSourceStream();
@@ -238,17 +240,44 @@ class StreamingGeneration {
                 try {
                     while (true) {
                         const { done, value } = await reader.read();
-                        if (done || !value?.data || value.data === '[DONE]') return;
+                        if (done) return;
+                        
+                        // 检查是否有数据
+                        if (!value?.data) continue;
+                        
+                        const rawData = value.data;
+                        if (rawData === '[DONE]') return;
+                        
+                        // 关键：每次都检查流式错误，就像酒馆做的那样
+                        tryParseStreamingError(response, rawData);
+                        
+                        // 解析 JSON
                         let parsed;
-                        try { parsed = JSON.parse(value.data); } catch { continue; }
+                        try {
+                            parsed = JSON.parse(rawData);
+                        } catch (e) {
+                            console.warn('[StreamingGeneration] JSON parse error:', e, 'rawData:', rawData);
+                            continue;
+                        }
+                        
+                        // 提取回复内容
                         const chunk = getStreamingReply(parsed, state, { chatCompletionSource: source });
-                        if (typeof chunk === 'string' && chunk) {
-                            text += chunk;
-                            yield text;
+                        
+                        // getStreamingReply 可能返回字符串或对象，需要正确处理
+                        if (chunk) {
+                            const chunkText = typeof chunk === 'string' ? chunk : String(chunk);
+                            if (chunkText) {
+                                text += chunkText;
+                                yield text;
+                            }
                         }
                     }
                 } catch (err) {
-                    if (err?.name !== 'AbortError') throw err;
+                    // 只忽略用户主动中止的错误
+                    if (err?.name !== 'AbortError') {
+                        console.error('[StreamingGeneration] Stream error:', err);
+                        throw err;
+                    }
                 } finally {
                     try { reader.releaseLock?.(); } catch {}
                 }
@@ -282,6 +311,10 @@ class StreamingGeneration {
             if (stream) {
                 const generator = await this.callAPI(generateData, abortController.signal, true);
                 for await (const chunk of generator) {
+                    // 检查是否被中止
+                    if (abortController.signal.aborted) {
+                        break;
+                    }
                     this.updateTempReply(chunk, session.id);
                 }
             } else {
@@ -293,7 +326,12 @@ class StreamingGeneration {
             this.postToFrames(EVT_DONE, payload);
             try { window?.postMessage?.({ type: EVT_DONE, payload, from: 'xiaobaix' }, '*'); } catch {}
             return String(session.text || '');
-        } catch {
+        } catch (err) {
+            // 改进错误处理：不要完全吞掉错误，至少记录日志
+            if (err?.name !== 'AbortError') {
+                console.error('[StreamingGeneration] Generation error:', err);
+            }
+            // 即使出错也返回已生成的内容
             return String(session.text || '');
         } finally {
             session.isStreaming = false;

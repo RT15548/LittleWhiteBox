@@ -326,22 +326,22 @@ async function removeTaskByScope(scope, taskId, fallbackIndex = -1) {
 const __taskRunMap = new Map();
 
 async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
-    const old = __taskRunMap.get(taskName);
-    if (old) {
-        if (signature && old.signature === signature) {
-            return;
-        }
-        try { old.abort.abort(); } catch {}
+    const existing = __taskRunMap.get(taskName);
+    if (existing) {
+        try { existing.abort?.abort?.(); } catch {}
         try {
-            old.timers.forEach((id) => clearTimeout(id));
-            old.intervals.forEach((id) => clearInterval(id));
+            await Promise.resolve(existing.completion).catch(() => {});
         } catch {}
         __taskRunMap.delete(taskName);
+        try { console.log(`[任务清理完成] ${taskName}`); } catch {}
     }
 
     const abort = new AbortController();
     const timers = new Set();
     const intervals = new Set();
+
+    const entry = { abort, timers, intervals, signature, completion: null };
+    __taskRunMap.set(taskName, entry);
 
     const addListener = (target, type, handler, opts = {}) => {
         if (!target?.addEventListener) return;
@@ -363,18 +363,21 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
     };
     const clearIntervalSafe = (id) => { clearInterval(id); intervals.delete(id); };
 
-    __taskRunMap.set(taskName, { abort, timers, intervals, signature });
-
-    try {
-        await jsRunner({ addListener, setTimeoutSafe, clearTimeoutSafe, setIntervalSafe, clearIntervalSafe, abortSignal: abort.signal });
-    } finally {
-        try { abort.abort(); } catch {}
+    entry.completion = (async () => {
         try {
-            timers.forEach((id) => clearTimeout(id));
-            intervals.forEach((id) => clearInterval(id));
-        } catch {}
-        __taskRunMap.delete(taskName);
-    }
+            await jsRunner({ addListener, setTimeoutSafe, clearTimeoutSafe, setIntervalSafe, clearIntervalSafe, abortSignal: abort.signal });
+        } finally {
+            try { abort.abort(); } catch {}
+            try {
+                timers.forEach((id) => clearTimeout(id));
+                intervals.forEach((id) => clearInterval(id));
+            } catch {}
+            try { window?.dispatchEvent?.(new CustomEvent('xiaobaix-task-cleaned', { detail: { taskName, signature } })); } catch {}
+            __taskRunMap.delete(taskName);
+        }
+    })();
+
+    return entry.completion;
 }
 
 // ------------- Command execution ---------
@@ -437,15 +440,7 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
 
     const old = __taskRunMap.get(stableKey);
     if (old) {
-        try { 
-            old.abort.abort(); 
-            console.log(`[强制清理旧任务] ${stableKey}`);
-        } catch {}
-        try {
-            old.timers.forEach((id) => clearTimeout(id));
-            old.intervals.forEach((id) => clearInterval(id));
-        } catch {}
-        __taskRunMap.delete(stableKey);
+        console.log(`[强制清理旧任务] ${stableKey}`);
     }
     
     const callbackPrefix = `${stableKey}_fl_`;
@@ -481,36 +476,73 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
 
         const timeouts = new Set();
         const intervals = new Set();
-        const listeners = [];
+        const listeners = new Set();
         const createdNodes = new Set();
+        const waiters = new Set();
+        
+        const notifyActivityChange = () => {
+            if (waiters.size === 0) return;
+            for (const cb of Array.from(waiters)) {
+                try { cb(); } catch {}
+            }
+        };
+
+        const normalizeListenerOptions = (options) => (
+            typeof options === 'boolean' ? options : !!options?.capture
+        );
 
         window.setTimeout = function(fn, t, ...args) {
             const id = originals.setTimeout(function(...inner) {
-                try { fn?.(...inner); } finally { timeouts.delete(id); }
+                try { fn?.(...inner); }
+                finally {
+                    timeouts.delete(id);
+                    notifyActivityChange();
+                }
             }, t, ...args);
             timeouts.add(id);
+            notifyActivityChange();
             return id;
         };
         window.clearTimeout = function(id) {
             originals.clearTimeout(id);
             timeouts.delete(id);
+            notifyActivityChange();
         };
 
         window.setInterval = function(fn, t, ...args) {
             const id = originals.setInterval(fn, t, ...args);
             intervals.add(id);
+            notifyActivityChange();
             return id;
         };
         window.clearInterval = function(id) {
             originals.clearInterval(id);
             intervals.delete(id);
+            notifyActivityChange();
+        };
+
+        const addListenerEntry = (entry) => {
+            listeners.add(entry);
+            notifyActivityChange();
+        };
+        const removeListenerEntry = (target, type, listener, options) => {
+            let removed = false;
+            for (const entry of listeners) {
+                if (entry.target === target && entry.type === type && entry.listener === listener && entry.capture === normalizeListenerOptions(options)) {
+                    listeners.delete(entry);
+                    removed = true;
+                    break;
+                }
+            }
+            if (removed) notifyActivityChange();
         };
 
         EventTarget.prototype.addEventListener = function(type, listener, options) {
-            listeners.push({ target: this, type, listener, options });
+            addListenerEntry({ target: this, type, listener, capture: normalizeListenerOptions(options) });
             return originals.addEventListener.call(this, type, listener, options);
         };
         EventTarget.prototype.removeEventListener = function(type, listener, options) {
+            removeListenerEntry(this, type, listener, options);
             return originals.removeEventListener.call(this, type, listener, options);
         };
 
@@ -535,9 +567,10 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
             try { timeouts.forEach(id => originals.clearTimeout(id)); } catch {}
             try { intervals.forEach(id => originals.clearInterval(id)); } catch {}
             try {
-                listeners.forEach(({ target, type, listener, options }) => {
-                    originals.removeEventListener.call(target, type, listener, options);
-                });
+                for (const entry of listeners) {
+                    const { target, type, listener, capture } = entry;
+                    originals.removeEventListener.call(target, type, listener, capture);
+                }
             } catch {}
             try {
                 createdNodes.forEach(node => {
@@ -547,6 +580,8 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
                     }
                 });
             } catch {}
+            listeners.clear();
+            waiters.clear();
         };
 
         const addFloorListener = (callback, options = {}) => {
@@ -599,14 +634,45 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
             );
         };
 
+        const hasActiveResources = () => (
+            timeouts.size > 0 ||
+            intervals.size > 0 ||
+            listeners.size > 0
+        );
+
+        const waitForAsyncSettled = () => new Promise((resolve) => {
+            if (abortSignal?.aborted) return resolve();
+            if (!hasActiveResources()) return resolve();
+
+            let finished = false;
+
+            const finalize = () => {
+                if (finished) return;
+                finished = true;
+                waiters.delete(checkStatus);
+                try { abortSignal?.removeEventListener?.('abort', finalize); } catch {}
+                resolve();
+            };
+
+            const checkStatus = () => {
+                if (finished) return;
+                if (abortSignal?.aborted) return finalize();
+                if (!hasActiveResources()) finalize();
+            };
+
+            waiters.add(checkStatus);
+            try { abortSignal?.addEventListener?.('abort', finalize, { once: true }); } catch {}
+            checkStatus();
+        });
+
         try {
             await runInScope(jsCode);
+            await waitForAsyncSettled();
         } finally {
             try { hardCleanup(); } finally { restoreGlobals(); }
         }
     }, codeSig);
 }
-
 
 function handleTaskMessage(event) {
     if (!event.data || event.data.source !== 'xiaobaix-iframe' || event.data.type !== 'executeTaskJS') return;
@@ -797,15 +863,32 @@ async function onChatChanged(chatId) {
     });
 
     try {
-        state.floorCounts = { all: 0, user: 0, llm: 0 };
+        let user = 0, llm = 0, all = 0;
+        if (Array.isArray(chat)) {
+            for (const m of chat) {
+                all++;
+                if (m.is_system) continue;
+                if (m.is_user) user++; else llm++;
+            }
+        }
+        state.floorCounts = { all, user, llm };
     } catch {}
 
     setTimeout(() => { state.chatJustChanged = state.isNewChat = false; }, 2000);
 }
 
 async function onChatCreated() {
+    Object.assign(state, { isNewChat: true, chatJustChanged: true });	
     try {
-        state.floorCounts = { all: 0, user: 0, llm: 0 };
+        let user = 0, llm = 0, all = 0;
+        if (Array.isArray(chat)) {
+            for (const m of chat) {
+                all++;
+                if (m.is_system) continue;
+                if (m.is_user) user++; else llm++;
+            }
+        }
+        state.floorCounts = { all, user, llm };
     } catch {}
     await checkAndExecuteTasks('chat_created', false, false);
 }
