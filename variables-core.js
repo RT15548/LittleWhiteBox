@@ -387,161 +387,188 @@ function parseBlock(innerText) {
     const kl = String(k).toLowerCase().trim();
     return OP_MAP[kl] || null;
   }
-  const tryParseJsonFirst = (text) => {
-    const s = String(text || '').trim();
-    if (!s) return false;
-    if (s[0] !== '{' && s[0] !== '[') return false;
-    try {
-      const data = JSON.parse(text);
-      const decodeKey = (rawKey) => {
-        const { directives, remainder, original } = extractDirectiveInfo(rawKey);
-        const path = (remainder || original || String(rawKey)).trim();
-        if (directives && directives.length) recordGuardDirective(path, directives);
-        return path;
-      };
-      const walkSetLike = (top, node, basePath = '') => {
-        if (node === null || node === undefined) return;
-        if (typeof node !== 'object' || Array.isArray(node)) { putSet(top, norm(basePath), node); return; }
-        for (const [rawK, v] of Object.entries(node)) {
-          const k = decodeKey(rawK);
-          const p0 = basePath ? `${basePath}.${k}` : k;
-          const p = norm(p0);
-          if (Array.isArray(v)) putSet(top, p, v);
-          else if (v && typeof v === 'object') walkSetLike(top, v, p);
-          else putSet(top, p, v);
-        }
-      };
-      const walkPushLike = (top, node, basePath = '') => {
-        if (!node || typeof node !== 'object' || Array.isArray(node)) return;
-        for (const [rawK, v] of Object.entries(node)) {
-          const k = decodeKey(rawK);
-          const p0 = basePath ? `${basePath}.${k}` : k;
-          const p = norm(p0);
-          if (Array.isArray(v)) for (const it of v) putPush(top, p, it);
-          else if (v && typeof v === 'object') walkPushLike(top, v, p);
-          else putPush(top, p, v);
-        }
-      };
-      const walkBumpLike = (top, node, basePath = '') => {
-        if (!node || typeof node !== 'object' || Array.isArray(node)) return;
-        for (const [rawK, v] of Object.entries(node)) {
-          const k = decodeKey(rawK);
-          const p0 = basePath ? `${basePath}.${k}` : k;
-          const p = norm(p0);
-          if (v && typeof v === 'object' && !Array.isArray(v)) walkBumpLike(top, v, p);
-          else putBump(top, p, v);
-        }
-      };
-      const collectDelPaths = (acc, node, basePath = '') => {
-        if (Array.isArray(node)) { for (const it of node) if (typeof it === 'string') acc.push(norm(basePath ? `${basePath}.${decodeKey(it)}` : decodeKey(it))); return; }
-        if (node && typeof node === 'object') {
-          for (const [rawK, v] of Object.entries(node)) {
+  // ========== 统一解析器：JSON/TOML/YAML 统一处理逻辑 ==========
+  const decodeKey = (rawKey) => {
+    const { directives, remainder, original } = extractDirectiveInfo(rawKey);
+    const path = (remainder || original || String(rawKey)).trim();
+    if (directives && directives.length) recordGuardDirective(path, directives);
+    return path;
+  };
+
+  const walkNode = (op, top, node, basePath = '') => {
+    if (op === 'set') {
+      if (node === null || node === undefined) return;
+      if (typeof node !== 'object' || Array.isArray(node)) {
+        putSet(top, norm(basePath), node);
+        return;
+      }
+      for (const [rawK, v] of Object.entries(node)) {
+        const k = decodeKey(rawK);
+        const p = norm(basePath ? `${basePath}.${k}` : k);
+        if (Array.isArray(v)) putSet(top, p, v);
+        else if (v && typeof v === 'object') walkNode(op, top, v, p);
+        else putSet(top, p, v);
+      }
+    } else if (op === 'push') {
+      if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+      for (const [rawK, v] of Object.entries(node)) {
+        const k = decodeKey(rawK);
+        const p = norm(basePath ? `${basePath}.${k}` : k);
+        if (Array.isArray(v)) for (const it of v) putPush(top, p, it);
+        else if (v && typeof v === 'object') walkNode(op, top, v, p);
+        else putPush(top, p, v);
+      }
+    } else if (op === 'bump') {
+      if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+      for (const [rawK, v] of Object.entries(node)) {
+        const k = decodeKey(rawK);
+        const p = norm(basePath ? `${basePath}.${k}` : k);
+        if (v && typeof v === 'object' && !Array.isArray(v)) walkNode(op, top, v, p);
+        else putBump(top, p, v);
+      }
+    } else if (op === 'del') {
+      const acc = new Set();
+      const collect = (n, base = '') => {
+        if (Array.isArray(n)) {
+          for (const it of n) {
+            if (typeof it === 'string') {
+              const full = base ? `${base}.${decodeKey(it)}` : decodeKey(it);
+              if (full) acc.add(norm(full));
+            } else if (it && typeof it === 'object') collect(it, base);
+          }
+        } else if (n && typeof n === 'object') {
+          let hasChild = false;
+          for (const [rawK, v] of Object.entries(n)) {
+            hasChild = true;
             const k = decodeKey(rawK);
-            const p0 = basePath ? `${basePath}.${k}` : k;
-            const p = norm(p0);
-            if (v === true) acc.push(p); else collectDelPaths(acc, v, p);
+            const nextBase = base ? `${base}.${k}` : k;
+            if (v && typeof v === 'object') collect(v, nextBase);
+            else if (nextBase) acc.add(norm(nextBase));
           }
-        }
+          if (!hasChild && base) acc.add(norm(base));
+        } else if (base) acc.add(norm(base));
       };
-      const putDelFullPath = (pathStr) => {
-        if (typeof pathStr !== 'string') return;
-        const std = pathStr.replace(/\[(\d+)\]/g, '.$1');
+      collect(node, basePath);
+      if (acc.size === 0 && !Array.isArray(node) && node && typeof node === 'object' && Object.keys(node).length === 0) {
+        const full = norm(basePath || top);
+        if (full) acc.add(full);
+      }
+      for (const p of acc) {
+        const std = p.replace(/\[(\d+)\]/g, '.$1');
         const parts = std.split('.').filter(Boolean);
-        const top = parts.shift();
+        const t = parts.shift();
         const rel = parts.join('.');
-        if (top) putDel(top, rel);
-      };
-      if (Array.isArray(data)) {
-        for (const entry of data) {
-          if (!entry || typeof entry !== 'object') continue;
-          for (const [k, v] of Object.entries(entry)) {
-            const op = normalizeOpName(k); if (!op || v == null) continue;
-            if (op === 'del' && Array.isArray(v)) { for (const it of v) putDelFullPath(it); continue; }
-            if (!v || typeof v !== 'object') continue;
-            for (const [rawTop, payload] of Object.entries(v)) {
-              const top = decodeKey(rawTop);
-              if (op === 'set') {
-                walkSetLike(top, payload);
-              } else if (op === 'push') {
-                if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-                  walkPushLike(top, payload);
-                } else {
-                  const items = Array.isArray(payload) ? payload : [payload];
-                  for (const it of items) putPush(top, '', it);
-                }
-              } else if (op === 'bump') {
-                if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-                  walkBumpLike(top, payload);
-                } else {
-                  putBump(top, '', payload);
-                }
-              } else if (op === 'del') {
-                if (payload && typeof payload === 'object') {
-                  const acc = []; collectDelPaths(acc, payload);
-                  for (const p of acc) putDel(top, p);
-                } else {
-                  putDel(top, '');
-                }
-              }
-            }
+        if (t) putDel(t, rel);
+      }
+    }
+  };
+
+  const processStructuredData = (data) => {
+    const process = (d) => {
+      if (!d || typeof d !== 'object') return;
+      for (const [k, v] of Object.entries(d)) {
+        const op = normalizeOpName(k);
+        if (!op || v == null) continue;
+        if (op === 'del' && Array.isArray(v)) {
+          for (const it of v) {
+            const std = String(it).replace(/\[(\d+)\]/g, '.$1');
+            const parts = std.split('.').filter(Boolean);
+            const top = parts.shift();
+            const rel = parts.join('.');
+            if (top) putDel(top, rel);
           }
+          continue;
         }
-      } else if (data && typeof data === 'object') {
-        for (const [k, v] of Object.entries(data)) {
-          const op = normalizeOpName(k); if (!op || v == null) continue;
-          if (op === 'del' && Array.isArray(v)) { for (const it of v) putDelFullPath(it); continue; }
-          if (typeof v !== 'object') continue;
-          for (const [rawTop, payload] of Object.entries(v)) {
-            const top = decodeKey(rawTop);
-            if (op === 'set') {
-              walkSetLike(top, payload);
-            } else if (op === 'push') {
-              if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-                walkPushLike(top, payload);
-              } else {
-                const items = Array.isArray(payload) ? payload : [payload];
-                for (const it of items) putPush(top, '', it);
-              }
-            } else if (op === 'bump') {
-              if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-                walkBumpLike(top, payload);
-              } else {
-                putBump(top, '', payload);
-              }
-            } else if (op === 'del') {
-              if (payload && typeof payload === 'object') {
-                const acc = []; collectDelPaths(acc, payload);
-                for (const p of acc) putDel(top, p);
-              } else {
-                putDel(top, '');
-              }
+        if (typeof v !== 'object') continue;
+        for (const [rawTop, payload] of Object.entries(v)) {
+          const top = decodeKey(rawTop);
+          if (op === 'push' && !payload) {
+            const items = Array.isArray(payload) ? payload : [payload];
+            for (const it of items) putPush(top, '', it);
+          } else if (op === 'bump' && (typeof payload !== 'object' || Array.isArray(payload))) {
+            putBump(top, '', payload);
+          } else if (op === 'del' && (!payload || typeof payload !== 'object')) {
+            const full = norm(top);
+            if (full) {
+              const std = full.replace(/\[(\d+)\]/g, '.$1');
+              const parts = std.split('.').filter(Boolean);
+              const t = parts.shift();
+              const rel = parts.join('.');
+              if (t) putDel(t, rel);
             }
+          } else {
+            walkNode(op, top, payload);
           }
         }
       }
-      return true;
-    } catch { return false; }
+    };
+
+    if (Array.isArray(data)) {
+      for (const entry of data) {
+        if (entry && typeof entry === 'object') process(entry);
+      }
+    } else {
+      process(data);
+    }
+    return true;
   };
-  const tryParseTomlSecond = (text) => {
-    const src = String(text || '');
-    const s = src.trim();
-    if (!s) return false;
-    if (!s.includes('[') || !s.includes('=')) return false;
+
+  const tryParseJson = (text) => {
+    const s = String(text || '').trim();
+    if (!s || (s[0] !== '{' && s[0] !== '[')) return false;
+
+    const relaxJson = (src) => {
+      let out = '', i = 0, inStr = false, q = '', esc = false;
+      const numRe = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+      const bareRe = /[A-Za-z_$]|[^\x00-\x7F]/;
+      while (i < src.length) {
+        const ch = src[i];
+        if (inStr) {
+          out += ch;
+          if (esc) esc = false;
+          else if (ch === '\\') esc = true;
+          else if (ch === q) { inStr = false; q = ''; }
+          i++;
+          continue;
+        }
+        if (ch === '"' || ch === "'") { inStr = true; q = ch; out += ch; i++; continue; }
+        if (ch === ':') {
+          out += ch; i++;
+          let j = i;
+          while (j < src.length && /\s/.test(src[j])) { out += src[j]; j++; }
+          if (j >= src.length || !bareRe.test(src[j])) { i = j; continue; }
+          let k = j;
+          while (k < src.length && !/[,}\]\s:]/.test(src[k])) k++;
+          const tok = src.slice(j, k), low = tok.toLowerCase();
+          if (low === 'true' || low === 'false' || low === 'null' || numRe.test(tok)) out += tok;
+          else out += `"${tok.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+          i = k;
+          continue;
+        }
+        out += ch; i++;
+      }
+      return out;
+    };
+
+    const attempt = (src) => {
+      try {
+        const parsed = JSON.parse(src);
+        return processStructuredData(parsed);
+      } catch {
+        return false;
+      }
+    };
+
+    if (attempt(s)) return true;
+    const relaxed = relaxJson(s);
+    return relaxed !== s && attempt(relaxed);
+  };
+
+  const tryParseToml = (text) => {
+    const src = String(text || '').trim();
+    if (!src || !src.includes('[') || !src.includes('=')) return false;
     try {
-      const decodeTomlKey = (rawKey) => {
-        const cleaned = stripQ(String(rawKey ?? '').trim());
-        const { directives, remainder, original } = extractDirectiveInfo(cleaned);
-        const core = remainder || original || cleaned;
-        const segs = core.split('.').map(seg => stripQ(String(seg).trim())).filter(Boolean);
-        return { directives, segs, core };
-      };
-      const applyGuardForKey = (directives, segments) => {
-        if (!directives || !directives.length || !segments || !segments.length) return;
-        const target = norm(segments.join('.'));
-        if (!target) return;
-        recordGuardDirective(target, directives);
-      };
-      const parseScalar = (raw) => {
+      const parseVal = (raw) => {
         const v = String(raw ?? '').trim();
         if (v === 'true') return true;
         if (v === 'false') return false;
@@ -549,84 +576,52 @@ function parseBlock(innerText) {
         if (/^-?\d+\.\d+$/.test(v)) return parseFloat(v);
         if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
           const inner = v.slice(1, -1);
-          if (v.startsWith('"')) return inner.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\');
-          return inner;
+          return v.startsWith('"') ? inner.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\') : inner;
         }
         if (v.startsWith('[') && v.endsWith(']')) {
           try { return JSON.parse(v.replace(/'/g, '"')); } catch { return v; }
         }
         return v;
       };
+
       const L = src.split(/\r?\n/);
-      let i = 0;
-      let currentOp = '';
+      let i = 0, curOp = '';
       while (i < L.length) {
         let line = L[i].trim();
         i++;
         if (!line || line.startsWith('#')) continue;
         const sec = line.match(/\[\s*([^\]]+)\s*\]$/);
-        if (sec) { currentOp = normalizeOpName(sec[1]) || ''; continue; }
-        if (!currentOp) continue;
+        if (sec) { curOp = normalizeOpName(sec[1]) || ''; continue; }
+        if (!curOp) continue;
         const kv = line.match(/^([^=]+)=(.*)$/);
         if (!kv) continue;
         const keyRaw = kv[1].trim();
         const rhsRaw = kv[2];
         const hasTriple = rhsRaw.includes('"""') || rhsRaw.includes("'''");
         const rhs = hasTriple ? rhsRaw : stripYamlInlineComment(rhsRaw);
-        const decoded = decodeTomlKey(keyRaw);
-        const segs = decoded.segs;
+        const cleaned = stripQ(keyRaw);
+        const { directives, remainder, original } = extractDirectiveInfo(cleaned);
+        const core = remainder || original || cleaned;
+        const segs = core.split('.').map(seg => stripQ(String(seg).trim())).filter(Boolean);
         if (!segs.length) continue;
         const top = segs[0];
         const rest = segs.slice(1);
-        const relRaw = rest.join('.');
-        const relNorm = norm(relRaw);
-        applyGuardForKey(decoded.directives, [top, ...rest].filter(Boolean));
+        const relNorm = norm(rest.join('.'));
+        if (directives && directives.length) recordGuardDirective(norm(segs.join('.')), directives);
         if (!hasTriple) {
-          const value = parseScalar(rhs);
-          const fallback = relNorm || norm(segs.join('.'));
-          if (currentOp === 'set') putSet(top, relNorm, value);
-          else if (currentOp === 'push') putPush(top, relNorm, value);
-          else if (currentOp === 'bump') putBump(top, relNorm, value);
-          else if (currentOp === 'del') putDel(top, relNorm || fallback);
-          continue;
+          const value = parseVal(rhs);
+          if (curOp === 'set') putSet(top, relNorm, value);
+          else if (curOp === 'push') putPush(top, relNorm, value);
+          else if (curOp === 'bump') putBump(top, relNorm, value);
+          else if (curOp === 'del') putDel(top, relNorm || norm(segs.join('.')));
         }
-        const isTripleBasic = rhs.includes('"""');
-        const isTripleLiteral = rhs.includes("'''");
-        const delim = isTripleBasic ? '"""' : "'''";
-        const startIdx = rhs.indexOf(delim);
-        let tail = rhs.slice(startIdx + delim.length);
-        const buf = [];
-        if (tail.length) buf.push(tail);
-        let closedInline = false;
-        if (tail.includes(delim)) {
-          const endIdx = tail.indexOf(delim);
-          const firstPart = tail.slice(0, endIdx);
-          buf.length = 0;
-          buf.push(firstPart);
-          closedInline = true;
-        }
-        if (!closedInline) {
-          while (i < L.length) {
-            const ln = L[i];
-            i++;
-            const pos = ln.indexOf(delim);
-            if (pos !== -1) { buf.push(ln.slice(0, pos)); break; }
-            buf.push(ln);
-          }
-        }
-        let value = buf.join('\n').replace(/\r\n/g, '\n');
-        if (value.startsWith('\n')) value = value.slice(1);
-        const fallback = relNorm || norm(segs.join('.'));
-        if (currentOp === 'set') putSet(top, relNorm, value);
-        else if (currentOp === 'push') putPush(top, relNorm, value);
-        else if (currentOp === 'bump') putBump(top, relNorm, value);
-        else if (currentOp === 'del') putDel(top, relNorm || fallback);
       }
       return true;
     } catch { return false; }
   };
-  if (tryParseJsonFirst(textForJsonToml)) return finalizeResults();
-  if (tryParseTomlSecond(textForJsonToml)) return finalizeResults();
+
+  if (tryParseJson(textForJsonToml)) return finalizeResults();
+  if (tryParseToml(textForJsonToml)) return finalizeResults();
   const readList = (startIndex, parentIndent) => {
     const out = [];
     let i = startIndex;
