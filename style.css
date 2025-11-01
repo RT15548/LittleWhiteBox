@@ -1,16 +1,7 @@
 /* ==================== 基础工具样式 ==================== */
-.xiaobaix-iframe {
-    transition: height 0.3s ease;
-}
-
 pre:has(+ .xiaobaix-iframe) {
     display: none;
 }
-
-.xiaobaix-iframe-wrapper {
-    margin: 10px 0;
-}
-
 /* ==================== 动画效果 ==================== */
 @keyframes fadeIn {
     from {
@@ -1096,4 +1087,5 @@ body.immersive-mode .flex-container.flex1.alignitemscenter {
     border-radius: 3px;
 
 }
+
 
