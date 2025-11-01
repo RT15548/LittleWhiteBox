@@ -1,3 +1,4 @@
+
 /* ============= 模块常量与基础状态区 ============= */
 import { getContext, extension_settings } from "../../../extensions.js";
 import { updateMessageBlock } from "../../../../script.js";
@@ -482,23 +483,29 @@ function parseBlock(innerText) {
         if (typeof v !== 'object') continue;
         for (const [rawTop, payload] of Object.entries(v)) {
           const top = decodeKey(rawTop);
-          if (op === 'push' && !payload) {
-            const items = Array.isArray(payload) ? payload : [payload];
-            for (const it of items) putPush(top, '', it);
-          } else if (op === 'bump' && (typeof payload !== 'object' || Array.isArray(payload))) {
-            putBump(top, '', payload);
-          } else if (op === 'del' && (!payload || typeof payload !== 'object')) {
-            const full = norm(top);
-            if (full) {
-              const std = full.replace(/\[(\d+)\]/g, '.$1');
-              const parts = std.split('.').filter(Boolean);
-              const t = parts.shift();
-              const rel = parts.join('.');
-              if (t) putDel(t, rel);
-            }
-          } else {
-            walkNode(op, top, payload);
-          }
+		if (op === 'push') {
+		  if (Array.isArray(payload)) {
+		    for (const it of payload) putPush(top, '', it);
+		  } else if (payload && typeof payload === 'object') {
+		    walkNode(op, top, payload);
+		  } else {
+		    putPush(top, '', payload);
+		  }
+		} else if (op === 'bump' && (typeof payload !== 'object' || Array.isArray(payload))) {
+		  putBump(top, '', payload);
+		} else if (op === 'del' && (!payload || typeof payload !== 'object')) {
+		  const full = norm(top);
+		  if (full) {
+		    const std = full.replace(/\[(\d+)\]/g, '.$1');
+		    const parts = std.split('.').filter(Boolean);
+		    const t = parts.shift();
+		    const rel = parts.join('.');
+		    if (t) putDel(t, rel);
+		  }
+		} else {
+		  walkNode(op, top, payload);
+		}
+          
         }
       }
     };
