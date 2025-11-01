@@ -311,7 +311,7 @@ function iframeClientScript(){return `
   function measureVisibleHeight(){
     try{
       var doc = document;
-      var target = doc.querySelector('.calendar-wrapper') || doc.body;
+      var target = doc.body;
       if(!target) return 0;
       
       var minTop = Infinity, maxBottom = 0;
@@ -379,12 +379,12 @@ function iframeClientScript(){return `
   });
 
   try{
-    var root = document.querySelector('.calendar-wrapper') || document.body || document.documentElement;
+    var root = document.body || document.documentElement;
     var ro = new ResizeObserver(function(){ send(false) });
     ro.observe(root);
   }catch(e){
     try{
-      var rootMO = document.querySelector('.calendar-wrapper') || document.body || document.documentElement;
+      var rootMO = document.body || document.documentElement;
       new MutationObserver(function(){ send(false) })
         .observe(rootMO, {childList:true, subtree:true, attributes:true, characterData:true});
     }catch(e){}
