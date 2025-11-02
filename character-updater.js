@@ -1,10 +1,8 @@
 /* 公共工具区 */
 /* eslint-disable no-console */
-import { extension_settings, getContext, writeExtensionField } from "../../../extensions.js";
-import { saveSettingsDebounced, eventSource, event_types, characters, this_chid } from "../../../../script.js";
-import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from "../../../popup.js";
+import { extension_settings, writeExtensionField } from "../../../extensions.js";
+import { eventSource, event_types, characters, this_chid } from "../../../../script.js";
 import { getPresetManager } from "../../../preset-manager.js";
-import { download, uuidv4 } from "../../../utils.js";
 import { oai_settings } from "../../../openai.js";
 
 const EXT_ID="LittleWhiteBox", MODULE_NAME="characterUpdater", extensionFolderPath=`scripts/extensions/third-party/${EXT_ID}`;
@@ -16,41 +14,15 @@ const SECURITY_CONFIG={
   TRUSTED_DOMAINS:["rentry.org","discord.com","discordapp.net","discordapp.com"]
 };
 const moduleState={ isInitialized:false, eventHandlers:{}, timers:{}, observers:{} };
-let PresetRegexUI;
+
 const defaultSettings={ enabled:true, showNotifications:true };
-const PRESET_REGEX_FLAG="preset-regex";
-const PRESET_REGEX_AUTO_DISABLED="preset-regex-auto";
-const PRESET_REGEX_DOM={ BLOCK_ID:"preset_regex_scripts_block", LIST_ID:"preset_regex_scripts", LABEL_ID:"preset_regex_active_preset" };
-let presetUsageDirty=true;
-function markPresetUsageDirty(){ presetUsageDirty=true; }
+
 
 /* 统一启用状态检查 */
 function isFeatureEnabled(){
   return Settings.get().enabled;
 }
 
-const VersionHelper = {
-  _cached: null,
-  async getSTVersion() {
-    if (this._cached) return this._cached;
-    try {
-      const response = await fetch('/version');
-      const data = await response.json();
-      this._cached = data.pkgVersion || '0.0.0';
-      return this._cached;
-    } catch(e) {
-      console.error('[小白X] 获取版本失败', e);
-      return '0.0.0';
-    }
-  },
-  versionCompare(srcVersion, minVersion) {
-    return (srcVersion || '0.0.0').localeCompare(minVersion, undefined, { numeric: true, sensitivity: 'base' }) > -1;
-  },
-  async isVersion1_13_5OrAbove() {
-    const version = await this.getSTVersion();
-    return this.versionCompare(version, '1.13.5');
-  }
-};
 
 const Settings={
   get(){
@@ -272,7 +244,6 @@ const CharacterUpdater=UpdaterFactory(CharacterAdapter);
 const PresetStore=(()=>{
   const DEFAULT_CHARACTER_ID=100000;
   const BINDING_KEY="binding";
-  const REGEX_KEY="regexBindings";
 
   const deepClone=(obj)=>{
     if(obj==null) return obj;
@@ -395,7 +366,6 @@ const PresetStore=(()=>{
     },
     updateExt,
     readExt(name){ return readExt(name); },
-    REGEX_KEY,
   };
 })();
 
@@ -427,7 +397,7 @@ const PresetAdapter={
     let bound=false; try{ const local=PresetStore.readMerged(name); bound=!!(local?.uniqueValue && local?.timestamp); }catch{}
     $status.removeClass().addClass(bound?"bound":"unbound").text(bound?"已绑定":"未提醒");
     if(!bound) this.onUpdateIndicator(name,false);
-    PresetRegexUI?.refresh?.();
+
   },
   afterBatch(updates){
     try{ cleanPresetDropdown(); }catch{}
@@ -588,7 +558,7 @@ const PresetUI={
       }
     }
     this.setButton(highlight);
-    PresetRegexUI?.refresh?.();
+
   }
 };
 
@@ -750,613 +720,8 @@ const Menu={
   }
 };
 
-/* 预设区 - 正则绑定核心 */
-const PRB=(()=>{
-  /* 核心引用 */
-  const pm=()=>{ try{return getPresetManager("openai");}catch{return null;} };
-  const curName=()=>{ try{return pm()?.getSelectedPresetName?.()||"";}catch{return"";} };
-  /** @type {any} */
-  const toaster=globalThis.toastr;
-  const popupFn=typeof globalThis.callGenericPopup==="function"?globalThis.callGenericPopup:null;
 
-  /* 兼容读取 */
-  function readRegexBindingsFromBPrompt(data){
-    try{
-      const prompts = data?.chatCompletionSettings?.prompts || data?.prompts || [];
-      const p = prompts.find(x => x?.identifier === 'regexes-bindings');
-      if(!p?.content) return null;
-      const arr = JSON.parse(String(p.content));
-      if(Array.isArray(arr)) return { strategy:'byEmbed', scripts: arr };
-    }catch(e){ console.warn('[PRB][CompatB] parse prompts failed', e); }
-    return null;
-  }
-  function readRegexBindingsFromRuntimePrompt(name){
-    try{
-      const cur = curName() || '';
-      if(!name || name !== cur) return null;
-      const ST = (typeof window!=='undefined' && window.SillyTavern) ? window.SillyTavern : (typeof SillyTavern!=='undefined' ? SillyTavern : null);
-      const prompts = ST?.chatCompletionSettings?.prompts;
-      if(!Array.isArray(prompts)) return null;
-      const p = prompts.find(x => x?.identifier === 'regexes-bindings');
-      if(!p?.content) return null;
-      const arr = JSON.parse(String(p.content));
-      if(Array.isArray(arr)) return { strategy:'byEmbed', scripts: arr };
-    }catch(e){ console.warn('[PRB][CompatB] runtime read failed', e); }
-    return null;
-  }
 
-  /* 绑定读写 */
-  const hasScripts=(binding)=>Array.isArray(binding?.scripts) && binding.scripts.length>0;
-
-  const materializeBindingScripts=(binding)=>{
-    if(!hasScripts(binding)) return [];
-    if(binding.strategy==="byName"){
-      const names=new Set(binding.scripts.map(name=>String(name)));
-      return allRegex().filter(script=>names.has(String(script?.scriptName)));
-    }
-    return binding.scripts;
-  };
-
-  const dedupeScriptsById=(scripts)=>{
-    if(!Array.isArray(scripts)) return { list:[], duplicates:0 };
-    if(scripts.length<=1) return { list:scripts.slice(), duplicates:0 };
-    const seen=new Set();
-    const list=[];
-    for(let i=scripts.length-1;i>=0;i-=1){
-      const item=scripts[i];
-      const id=item&&typeof item==="object"?item.id:null;
-      if(id){
-        if(seen.has(id)) continue;
-        seen.add(id);
-      }
-      list.unshift(item);
-    }
-    return { list, duplicates:scripts.length-list.length };
-  };
-
-  const read=name=>{
-    const ext=PresetStore.readExt(name);
-    let binding=fromPayload(ext?.[PresetStore.REGEX_KEY]);
-    if(hasScripts(binding)) return binding;
-
-    const runtime=readRegexBindingsFromRuntimePrompt(name);
-    if(hasScripts(runtime)){
-      PresetStore.updateExt(name,extData=>{ extData[PresetStore.REGEX_KEY]=toPayload(runtime); }).catch(()=>{});
-      return runtime;
-    }
-
-    try{
-      const presetData=pm()?.getCompletionPresetByName?.(name);
-      const fallback=readRegexBindingsFromBPrompt(presetData);
-      if(hasScripts(fallback)){
-        PresetStore.updateExt(name,extData=>{ extData[PresetStore.REGEX_KEY]=toPayload(fallback); }).catch(()=>{});
-        return fallback;
-      }
-    }catch{}
-
-    return { strategy:"byEmbed", scripts:[] };
-  };
-
-  const write=async(name,val)=>{
-    const payload=toPayload(val);
-    await PresetStore.updateExt(name,ext=>{
-      if(payload && hasScripts(fromPayload(payload))) ext[PresetStore.REGEX_KEY]=payload;
-      else delete ext[PresetStore.REGEX_KEY];
-    });
-    markPresetUsageDirty();
-  };
-  const allRegex=()=>Array.isArray(extension_settings.regex)?extension_settings.regex:[];
-  const filtered=()=>allRegex().filter(s=>/\[.+?\]-/.test(String(s?.scriptName||"")));
-  const uniqMerge=(scripts)=>{
-    extension_settings.regex=Array.isArray(extension_settings.regex)?extension_settings.regex:[];
-    const norm=s=>String(s??"").trim().toLowerCase();
-    const incoming=new Map(); scripts?.forEach(s=>{ if(s?.scriptName) incoming.set(norm(s.scriptName), structuredClone(s)); });
-    const names=new Set(incoming.keys()); const removedCount=new Map();
-    extension_settings.regex=extension_settings.regex.filter(old=>{ const n=norm(old?.scriptName); const ok=!names.has(n); if(!ok) removedCount.set(n,(removedCount.get(n)||0)+1); return ok; });
-    let added=0, replaced=0;
-    for(const [n,sc] of incoming.entries()){ const c=structuredClone(sc); if(!c.id) c.id=uuidv4(); extension_settings.regex.push(c); ((removedCount.get(n)||0)>0)?(replaced++):(added++); }
-    saveSettingsDebounced();
-    markPresetUsageDirty();
-    return { added, replaced };
-  };
-  const toPayload=b=>!b?null:(b.strategy==="byName"?{ strategy:"byName", scripts:(b.scripts||[]).map(String) }:{ strategy:"byEmbed", scripts:Array.isArray(b.scripts)?b.scripts:[] });
-  const fromPayload=p=>!p||typeof p!=="object"?{ strategy:"byEmbed", scripts:[] }:(p.strategy==="byName"?{ strategy:"byName", scripts:(p.scripts||[]).map(String) }:{ strategy:"byEmbed", scripts:Array.isArray(p.scripts)?p.scripts:[] });
-
-  /* 正则刷新辅助 */
-  function cloneScript(script){
-    if(script==null) return script;
-    try{ return structuredClone(script); }
-    catch{ try{ return JSON.parse(JSON.stringify(script)); }catch{ return script; } }
-  }
-
-  function refreshBindingScripts(binding){
-    if(!binding || binding.strategy!=="byEmbed") return { binding, changed:false };
-    const current=allRegex(); if(!Array.isArray(current)||!current.length) return { binding, changed:false };
-    const norm=s=>String(s??"").trim().toLowerCase();
-    const latest=new Map();
-    current.forEach(script=>{
-      const name=script?.scriptName; if(!name) return;
-      latest.set(norm(name), cloneScript(script));
-    });
-    let changed=false;
-    const refreshed=binding.scripts.map(item=>{
-      const name=typeof item==="string"?item:(item?.scriptName||"");
-      const key=norm(name); if(!key) return item;
-      const fresh=latest.get(key); if(!fresh) return item;
-      const preservedId=typeof item==="object" && item?.id ? item.id : fresh.id;
-      if(preservedId && preservedId!==fresh.id){ fresh.id=preservedId; }
-      const itemString=JSON.stringify(item);
-      const freshString=JSON.stringify(fresh);
-      if(itemString!==freshString) changed=true;
-      return fresh;
-    });
-    if(!changed) return { binding, changed:false };
-    return { binding:{ ...binding, scripts:refreshed }, changed:true };
-  }
-
-  /* UI 同步 */
-  function refreshUI(){
-    const name=curName(); const bind=read(name);
-    $("#prb-current-preset").text(name||"(未选择)");
-    const list=$("#prb-bound-list"); if(!list.length) return;
-    list.empty();
-    for(const item of bind.scripts){
-      const n=typeof item==="string"?item:(item?.scriptName||"(未命名)");
-      const chip=$('<span class="prb-chip"></span>');
-      $('<span/>').text(n).appendTo(chip);
-      $('<span class="remove">✕</span>').appendTo(chip);
-      chip.find(".remove").on("click",async()=>{
-        const idx=bind.scripts.indexOf(item);
-        if(idx>=0){
-          bind.scripts.splice(idx,1);
-          await write(name,bind);
-          refreshUI();
-        }
-      });
-      list.append(chip);
-    }
-    PresetRegexUI?.refresh?.();
-  }
-  async function bindUI(){
-    const is1_13_5Plus = await VersionHelper.isVersion1_13_5OrAbove();
-    if(is1_13_5Plus) return;
-    
-    $(document)
-    .off("click.prb","#prb-header-row").on("click.prb","#prb-header-row",()=>{
-      const name=curName(); if(!name) return toaster?.info?.("请先选择一个 OpenAI 预设");
-      const bc=$("#prb-bound-container"), ac=$("#prb-actions"); const hide=bc.css("display")==="none";
-      bc.css("display",hide?"block":"none"); ac.css("display",hide?"flex":"none");
-    })
-    .off("click.prb","#prb-add").on("click.prb","#prb-add", async ()=>{
-      const all=filtered(); if(!all.length) return toaster?.info?.("请将需要绑定的全局正则改名为该格式:[xyz]-xyz");
-      const name=curName(); if(!name) return toaster?.info?.("请先选择一个 OpenAI 预设");
-      const bind=read(name); bind.strategy="byEmbed";
-      const dlg=$("<div/>");
-      dlg.append("<div><b>选择要为预设绑定的正则名称：</b><br>(限制格式为[前缀]-名称)</div>");
-      const cont=$('<div class="prb-popup-container vm-move-variables-container"></div>'); const list=$('<div class="vm-variables-list"></div>');
-      const currentNames=new Set(bind.scripts.map(x=>(typeof x==="string"?x:x?.scriptName)).filter(Boolean));
-      for(const s of all){
-        const n=s.scriptName||"(未命名)";
-        const id=`prb_chk_${Math.random().toString(36).slice(2,10)}`;
-        const label=$('<label class="checkbox_label vm-variable-checkbox"></label>');
-        label.attr('title', n);
-        const input=$(`<input type="checkbox" id="${id}">`).val(n);
-        const span=$('<span/>').text(n);
-        if(currentNames.has(n)) input.prop("checked",true);
-        label.append(input, span);
-        list.append(label);
-      }
-      cont.append(list); dlg.append(cont);
-      const generic=popupFn||callGenericPopup;
-      const result=await generic?.(dlg[0],POPUP_TYPE.CONFIRM,"",{ okButton:"确定", cancelButton:"取消", wide:false, allowVerticalScrolling:true });
-      if(result===POPUP_RESULT.AFFIRMATIVE){
-        const checked=Array.from(dlg.find("input:checked"))
-          .map(cb=>{
-            const val=$(cb).val();
-            return typeof val==="string"?val:"";
-          })
-          .filter(Boolean);
-        const target=new Set(checked);
-        bind.scripts=bind.scripts.filter(x=>target.has(typeof x==="string"?x:x?.scriptName));
-        const existing=new Set(bind.scripts.map(x=>(typeof x==="string"?x:x?.scriptName)).filter(Boolean));
-        for(const s of all){
-          const n=s.scriptName||"(未命名)";
-          if(target.has(n)&&!existing.has(n)) bind.scripts.push(structuredClone(s));
-        }
-        await write(name,bind);
-        refreshUI();
-      }
-    })
-    .off("click.prb","#prb-clear").on("click.prb","#prb-clear", async ()=>{
-      const name=curName(); if(!name) return toaster?.info?.("请先选择一个 OpenAI 预设");
-      const payload=read(name);
-      const binding=fromPayload(payload); if(!binding?.scripts?.length) return toaster?.info?.("该预设没有已保存的全局正则绑定");
-      const norm=s=>String(s??"").trim().toLowerCase();
-      const names=new Set((binding.strategy==="byName"?binding.scripts:binding.scripts.map(x=>x?.scriptName)).filter(Boolean).map(norm));
-      const before=Array.isArray(extension_settings.regex)?extension_settings.regex.length:0;
-      extension_settings.regex=(extension_settings.regex||[]).filter(s=>!names.has(norm(s?.scriptName)));
-      saveSettingsDebounced();
-      toaster?.success?.(`已清理全局正则：删除 ${before-(extension_settings.regex.length)} 条`);
-    });
-    refreshUI();
-  }
-
-  /* 导入导出钩子 */
-  function onExportReady(preset){
-    if(!isFeatureEnabled()) return;
-    try{
-      const name = PresetStore.currentName();
-      if (!name) return;
-
-      if(!Array.isArray(preset.prompt_order)) preset.prompt_order=[];
-      let entry=preset.prompt_order.find(item=>Number(item?.character_id)===100000);
-      if(!entry){ entry={ character_id:100000, order:[] }; preset.prompt_order.push(entry); }
-      entry.xiaobai_ext=entry.xiaobai_ext||{};
-
-      let binding = PRB.read(name);
-      const refreshed = refreshBindingScripts(binding);
-      if(refreshed.changed){
-        binding = refreshed.binding;
-        PresetStore.updateExt(name,ext=>{ ext[PresetStore.REGEX_KEY]=toPayload(binding); }).catch(()=>{});
-      }
-      if (hasScripts(binding)) entry.xiaobai_ext[PresetStore.REGEX_KEY]=toPayload(binding);
-
-      const detail = PresetAdapter.getLocalData(name);
-      if (detail && detail.uniqueValue && detail.timestamp){ entry.xiaobai_ext.binding={ ...detail }; }
-    } catch (e) {
-      console.warn('[PRB.onExportReady] export failed', e);
-    }
-  PresetRegexUI?.refresh?.();
-  }
-
-  async function onImportReady({ data, presetName }){
-    if(!isFeatureEnabled()) return;
-    try{
-      const is1_13_5OrAbove = await VersionHelper.isVersion1_13_5OrAbove();
-      
-      const promptOrder=Array.isArray(data?.prompt_order)?data.prompt_order:[];
-      let entry=promptOrder.find(item=>Number(item?.character_id)===100000);
-      if(!entry){ entry={ character_id:100000, order:[] }; promptOrder.push(entry); }
-      entry.xiaobai_ext=entry.xiaobai_ext||{};
-      data.prompt_order=promptOrder;
-
-      let binding = fromPayload(entry.xiaobai_ext?.[PresetStore.REGEX_KEY] ?? data?.extensions?.regexBindings);
-      if(!binding || !Array.isArray(binding.scripts) || binding.scripts.length===0){
-        const bCompat = readRegexBindingsFromBPrompt(data);
-        if(bCompat) binding = bCompat;
-      }
-
-      if(is1_13_5OrAbove) {
-        if(entry.xiaobai_ext?.[PresetStore.REGEX_KEY]){
-          const rawScripts=materializeBindingScripts(binding);
-          const { list:dedupedScripts, duplicates }=dedupeScriptsById(rawScripts);
-          if(duplicates>0) console.log(`[小白X] 已清理 ${duplicates} 个重复ID的正则`);
-          if(dedupedScripts.length){
-            if(!data.extensions) data.extensions={};
-            const existing = Array.isArray(data.extensions.regex_scripts) ? data.extensions.regex_scripts : [];
-            const combined = [...existing, ...dedupedScripts.map(cloneScript)];
-            const { list:finalScripts } = dedupeScriptsById(combined);
-            data.extensions.regex_scripts = finalScripts;
-            console.log(`[小白X] 已转换 ${dedupedScripts.length} 个正则为预设正则脚本`);
-          }
-          delete entry.xiaobai_ext[PresetStore.REGEX_KEY];
-        }
-      } else {
-        const incomingScripts=Array.isArray(data?.extensions?.regex_scripts)?data.extensions.regex_scripts:null;
-        if(incomingScripts?.length){
-          const { list:dedupedScripts, duplicates }=dedupeScriptsById(incomingScripts);
-          if(duplicates>0) console.log(`[小白X] 已清理 ${duplicates} 个重复ID的正则`);
-          if(dedupedScripts.length){
-            const prepared=dedupedScripts.map(cloneScript);
-            const result=uniqMerge(prepared)||{ added:0, replaced:0 };
-            const newBinding={ strategy:"byEmbed", scripts:prepared };
-            entry.xiaobai_ext[PresetStore.REGEX_KEY]=toPayload(newBinding);
-            if(data.extensions) delete data.extensions.regex_scripts;
-            try{ await eventSource.emit?.(event_types.CHAT_CHANGED); }catch{}
-            if(presetName) await write(presetName,newBinding);
-            toaster?.success?.(`已导入为全局正则：新增 ${Number(result.added)||0}，替换 ${Number(result.replaced)||0}`);
-          }
-        } else if(hasScripts(binding)){
-          const rawScripts=materializeBindingScripts(binding);
-          const { list:dedupedScripts, duplicates }=dedupeScriptsById(rawScripts);
-          if(duplicates>0) console.log(`[小白X] 已清理 ${duplicates} 个重复ID的正则`);
-          if(dedupedScripts.length){
-            const prepared=dedupedScripts.map(cloneScript);
-            const result=uniqMerge(prepared)||{ added:0, replaced:0 };
-            try{ await eventSource.emit?.(event_types.CHAT_CHANGED); }catch{}
-            const bindingForSave=binding.strategy==="byName"?binding:{ ...binding, scripts:prepared };
-            entry.xiaobai_ext[PresetStore.REGEX_KEY]=toPayload(bindingForSave);
-            if(presetName) await write(presetName,bindingForSave);
-            toaster?.success?.(`已更新全局正则：新增 ${Number(result.added)||0}，替换 ${Number(result.replaced)||0}`);
-          }
-        }
-      }
-
-      const detail=data?.extensions?.presetdetailnfo;
-      if(detail && presetName){
-        const current = PresetStore.read(presetName) || {};
-        const merged = { ...current, uniqueValue:detail.uniqueValue||"", timestamp:detail.timestamp||"", nameGroup:detail.nameGroup||"", linkAddress:detail.linkAddress||"", updateNote:detail.updateNote||"" };
-        entry.xiaobai_ext.binding=merged;
-        await PresetStore.write(presetName, merged);
-        try{ PresetAdapter.onHeaderBoundState(); }catch{}
-      }
-    }catch(e){ console.error('[PRB.onImportReady] 导入失败', e); }
-  PresetRegexUI?.refresh?.();
-  }
-
-  try{ globalThis.PRB_bindUI=bindUI; }catch{}
-  async function remove(name){ await PresetStore.updateExt(name,ext=>{ delete ext[PresetStore.REGEX_KEY]; }); markPresetUsageDirty(); }
-  return { bindUI, refreshUI, onExportReady, onImportReady, read, write, remove, toPayload };
-})();
-/* 预设区 - 正则脚本 UI */
-PresetRegexUI=(()=>{
-  const scripts=()=>Array.isArray(extension_settings?.regex)?extension_settings.regex:[];
-  const cache={ signature:"", flagged:new Set(), usage:new Map() };
-  let observer=null;
-  let syncing=false;
-  let is1_13_5Plus = null;
-
-  const ensureBlock=async ()=>{
-    if(!isFeatureEnabled()) return null;
-    if(is1_13_5Plus === null) {
-      is1_13_5Plus = await VersionHelper.isVersion1_13_5OrAbove();
-    }
-    if(is1_13_5Plus) return null;
-    
-    const host=document.getElementById("global_scripts_block");
-    if(!host) return null;
-    let block=document.getElementById(PRESET_REGEX_DOM.BLOCK_ID);
-    if(block) return block;
-    block=document.createElement("div");
-    block.id=PRESET_REGEX_DOM.BLOCK_ID;
-    block.className="padding5";
-    block.style.display="none";
-    block.innerHTML=
-      `<div class="flex-container alignItemsBaseline">
-          <strong class="flex1">预设正则脚本</strong>
-          <small id="${PRESET_REGEX_DOM.LABEL_ID}" class="preset-regex-active"></small>
-        </div>
-        <small class="preset-regex-hint">仅在切换到绑定的预设时显示，绑定预设正则请到小白X菜单中进行管理。</small>
-        <div id="${PRESET_REGEX_DOM.LIST_ID}" no-scripts-text="暂无正则脚本" class="flex-container regex-script-container flexFlowColumn"></div>`;
-    host.parentNode?.insertBefore(block,host);
-    return block;
-  };
-
-  const getDom=async ()=>{
-    const block=await ensureBlock();
-    return {
-      global:document.getElementById("saved_regex_scripts"),
-      block,
-      list:block?document.getElementById(PRESET_REGEX_DOM.LIST_ID):null,
-      label:block?document.getElementById(PRESET_REGEX_DOM.LABEL_ID):null
-    };
-  };
-
-  const dedupe=(container)=>{
-    if(!container) return;
-    const labels=Array.from(container.querySelectorAll(".regex-script-label"));
-    const seen=new Set();
-    for(let i=labels.length-1;i>=0;i-=1){
-      const node=labels[i];
-      const id=node.id;
-      if(!id||seen.has(id)) node.remove();
-      else seen.add(id);
-    }
-  };
-
-  const buildLookup=()=>{
-    const list=scripts();
-    const byId=new Map();
-    const byName=new Map();
-    list.forEach(script=>{
-      if(!script||typeof script!=="object") return;
-      if(!script.id){ script.id=uuidv4(); presetUsageDirty=true; }
-      if(script.id) byId.set(script.id,script);
-      if(script.scriptName){ byName.set(String(script.scriptName).toLowerCase(),script); }
-    });
-    return { scripts:list, byId, byName };
-  };
-
-  const resolvePresetUsage=(name,lookup)=>{
-    const binding=PRB.read(name);
-    if(!binding||!Array.isArray(binding.scripts)) return { order:[], ids:new Set() };
-    const order=[];
-    const ids=new Set();
-    binding.scripts.forEach(entry=>{
-      let script=null;
-      if(typeof entry==="string") script=lookup.byName.get(entry.toLowerCase());
-      else if(entry?.id) script=lookup.byId.get(entry.id);
-      else if(entry?.scriptName) script=lookup.byName.get(String(entry.scriptName).toLowerCase());
-      if(script?.id&&!ids.has(script.id)){
-        ids.add(script.id);
-        order.push(script.id);
-      }
-    });
-    return { order, ids };
-  };
-
-  const getPresetNames=()=>{
-    const names=new Set();
-    try{ PresetStore.allBound()?.forEach(n=>n&&names.add(n)); }catch{}
-    try{ PresetStore.getPM?.()?.getAllPresets?.()?.forEach(n=>n&&names.add(n)); }catch{}
-    return names;
-  };
-
-  const computeSignature=list=>list.map(script=>`${script?.id||""}:${script?.scriptName||""}:${String(script?.[PRESET_REGEX_FLAG]??"")}`).join("|");
-
-  const ensureUsage=lookup=>{
-    const signature=computeSignature(lookup.scripts);
-    if(signature!==cache.signature){ cache.signature=signature; presetUsageDirty=true; }
-    if(!presetUsageDirty) return cache;
-    const flagged=new Set();
-    const usage=new Map();
-    getPresetNames().forEach(name=>{
-      const info=resolvePresetUsage(name,lookup);
-      usage.set(name,info);
-      info.ids.forEach(id=>flagged.add(id));
-    });
-    lookup.byId.forEach(script=>{
-      if(String(script?.[PRESET_REGEX_FLAG]??"").toLowerCase()==="true"&&script.id){ flagged.add(script.id); }
-    });
-    cache.flagged=flagged;
-    cache.usage=usage;
-    presetUsageDirty=false;
-    return cache;
-  };
-
-  const applyMetadata=(lookup,flagged,activeIds)=>{
-    let changed=false;
-    lookup.scripts.forEach(script=>{
-      if(!script||typeof script!=="object") return;
-      if(!script.id){ script.id=uuidv4(); changed=true; }
-      const id=script.id;
-      const isPreset=id&&flagged.has(id);
-      const hasFlag=String(script[PRESET_REGEX_FLAG]??"").toLowerCase()==="true";
-      if(isPreset!==hasFlag){
-        if(isPreset) script[PRESET_REGEX_FLAG]="true";
-        else delete script[PRESET_REGEX_FLAG];
-        changed=true;
-        presetUsageDirty=true;
-      }
-      const marker=script[PRESET_REGEX_AUTO_DISABLED];
-      if(!isPreset){
-        if(marker){
-          if(typeof marker==="object"&&"previous" in marker){
-            const prev=marker.previous===true;
-            if(script.disabled!==prev){ script.disabled=prev; changed=true; }
-          }
-          delete script[PRESET_REGEX_AUTO_DISABLED];
-          changed=true;
-        }
-        return;
-      }
-      const active=activeIds.has(id);
-      if(!active){
-        if(!marker||typeof marker!=="object"||!Object.prototype.hasOwnProperty.call(marker,"previous")){
-          script[PRESET_REGEX_AUTO_DISABLED]={ previous:script.disabled===true };
-          changed=true;
-        }
-        if(script.disabled!==true){ script.disabled=true; changed=true; }
-      }else if(marker&&typeof marker==="object"&&Object.prototype.hasOwnProperty.call(marker,"previous")){
-        const prev=marker.previous===true;
-        if(script.disabled!==prev){ script.disabled=prev; changed=true; }
-        delete script[PRESET_REGEX_AUTO_DISABLED];
-        changed=true;
-      }
-    });
-    if(changed) saveSettingsDebounced();
-  };
-
-  const applyCheckboxState=(node,script)=>{
-    const checkbox=node?.querySelector?.(".disable_regex");
-    if(checkbox instanceof HTMLInputElement){ checkbox.checked=!!(script?.disabled); }
-  };
-
-  const syncDom=async ({ lookup, flagged, activeOrder, activeIds, presetName })=>{
-    const { global, block, list, label }=await getDom();
-    if(!global||!list||!block) return;
-    dedupe(global);
-    dedupe(list);
-
-    flagged.forEach(id=>{
-      const node=document.getElementById(id);
-      if(node instanceof HTMLElement && node.parentElement!==list){ list.appendChild(node); }
-    });
-
-    const listNodes=new Map();
-    Array.from(list.children).forEach(node=>{ if(node instanceof HTMLElement&&node.id) listNodes.set(node.id,node); });
-    const ordered=document.createDocumentFragment();
-    activeOrder.forEach(id=>{ const node=listNodes.get(id); if(node) ordered.appendChild(node); });
-    if(ordered.childNodes.length) list.appendChild(ordered);
-
-    Array.from(list.children).forEach(node=>{
-      if(!(node instanceof HTMLElement)) return;
-      const id=node.id;
-      const script=lookup.byId.get(id);
-      const isActive=activeIds.has(id);
-      node.style.display=isActive?"":"none";
-      applyCheckboxState(node,script);
-    });
-
-    Array.from(global.children).forEach(node=>{
-      if(!(node instanceof HTMLElement)) return;
-      const id=node.id;
-      if(flagged.has(id)){ list.appendChild(node); return; }
-      const script=lookup.byId.get(id);
-      node.style.display="";
-      applyCheckboxState(node,script);
-    });
-
-    dedupe(list);
-
-    const hasActive=activeIds.size>0||activeOrder.length>0;
-    if(label) label.textContent=hasActive&&presetName?`当前预设: ${presetName}`:"";
-    block.style.display=hasActive?"":"none";
-  };
-
-  const clearDom=()=>{
-    const global=document.getElementById("saved_regex_scripts");
-    const list=document.getElementById(PRESET_REGEX_DOM.LIST_ID);
-    if(!global||!list) return;
-    Array.from(list.children).forEach(node=>{
-      if(node instanceof HTMLElement){ node.style.display=""; global.appendChild(node); }
-    });
-  };
-
-  const attachObserver=()=>{
-    const global=document.getElementById("saved_regex_scripts");
-    if(!global) return;
-    if(!observer){
-      observer=new MutationObserver(()=>{ if(!syncing) refresh(); });
-    }
-    try{ observer.disconnect(); }catch{}
-    observer.observe(global,{ childList:true });
-  };
-
-  const computeState=()=>{
-    const lookup=buildLookup();
-    const usage=ensureUsage(lookup);
-    const presetName=PresetStore.currentName?.()||"";
-    const info=usage.usage.get(presetName)||{ order:[], ids:new Set() };
-    const activeOrder=Array.isArray(info.order)?info.order.slice():[];
-    const activeIds=info.ids instanceof Set?new Set(info.ids):new Set(activeOrder);
-    return { lookup, presetName, flagged:new Set(usage.flagged), activeOrder, activeIds };
-  };
-
-  const refresh=async ()=>{
-    if(!isFeatureEnabled()) {
-      destroy();
-      return;
-    }
-    if(is1_13_5Plus === null) {
-      is1_13_5Plus = await VersionHelper.isVersion1_13_5OrAbove();
-    }
-    if(is1_13_5Plus) return;
-    
-    if(syncing) return;
-    syncing=true;
-    try{
-      observer?.disconnect?.();
-      const state=computeState();
-      applyMetadata(state.lookup,state.flagged,state.activeIds);
-      await syncDom(state);
-    }finally{
-      syncing=false;
-    }
-    attachObserver();
-  };
-
-  const destroy=()=>{
-    observer?.disconnect?.();
-    observer=null;
-    clearDom();
-  };
-
-  const markDirty=()=>{ presetUsageDirty=true; };
-
-  return { refresh, destroy, markDirty };
-})();
-PresetRegexUI.refresh();
 
 async function addMenusHTML(){
   try{ const res=await fetch(`${extensionFolderPath}/character-updater-menus.html`); if(res.ok) $("body").append(await res.text()); }
@@ -1425,13 +790,13 @@ function wireEvents(){
       await CharacterUpdater.batchStartupCheck();
       await PresetUpdater.batchStartupCheck();
       try{ cleanPresetDropdown(); }catch{}
-  PresetRegexUI?.refresh?.();
+
     },
     [event_types.CHAT_CHANGED]: async ()=>{
       if(!isFeatureEnabled()) return;
       CharacterAdapter.onHeaderBoundState();
       if(CharacterAdapter.getCurrentId()!=null && CharacterAdapter.isBound(CharacterAdapter.getCurrentId())) await CharacterUI.checkCurrent();
-  PresetRegexUI?.refresh?.();
+
     },
     [event_types.CHARACTER_EDITED]: ()=>{ if(isFeatureEnabled()) CharacterAdapter.onHeaderBoundState(); },
     [event_types.CHARACTER_PAGE_LOADED]: async ()=>{
@@ -1449,23 +814,14 @@ function wireEvents(){
         cleanup();
         return;
       }
-      try{ PRB.refreshUI(); }catch{}
+
       try{ PresetUI.addButton(); }catch{}
       try{ cleanPresetDropdown(); }catch{}
       PresetAdapter.onHeaderBoundState();
       await PresetUI.checkCurrent();
-  PresetRegexUI?.refresh?.();
+
     },
-    [event_types.OAI_PRESET_EXPORT_READY]: (preset)=>{
-      if(!isFeatureEnabled()) return;
-      try{ PRB.onExportReady(preset); }catch{}
-  PresetRegexUI?.refresh?.();
-    },
-    [event_types.OAI_PRESET_IMPORT_READY]: (payload)=>{
-      if(!isFeatureEnabled()) return;
-      try{ PRB.onImportReady(payload); }catch{}
-  PresetRegexUI?.refresh?.();
-    },
+
   };
   Object.entries(handlers).forEach(([evt,fn])=>{ moduleState.eventHandlers[evt]=fn; eventSource.on(evt,fn); });
 }
@@ -1481,7 +837,7 @@ async function addMenusAndBind(){
   CharacterAdapter.onHeaderBoundState(); PresetAdapter.onHeaderBoundState();
   wireCharacter(); wireEvents();
   try{ cleanPresetDropdown(); }catch{}
-  PresetRegexUI?.refresh?.();
+
 }
 
 function cleanup(){
@@ -1496,7 +852,7 @@ function cleanup(){
     });
   }catch{}
   moduleState.eventHandlers={};
-  try{ $(document.body).off(".cu").off(".cuClose").off(".cuOverlay").off(".cuContent").off(".preset").off(".presetClose").off(".prb"); }catch{}
+  try{ $(document.body).off(".cu").off(".cuClose").off(".cuOverlay").off(".cuContent").off(".preset").off(".presetClose"); }catch{}
   try{ $(document).off(".lwbPreset"); }catch{}
   try{ if(moduleState.observers?.presetButton){ try{ moduleState.observers.presetButton.disconnect(); }catch{} moduleState.observers.presetButton=null; } }catch{}
   try{ if(moduleState.timers?.presetAddButtonTimer){ clearTimeout(moduleState.timers.presetAddButtonTimer); moduleState.timers.presetAddButtonTimer=null; } }catch{}
@@ -1504,7 +860,7 @@ function cleanup(){
   try{ $(".character-menu-overlay, #character-updater-edit-button, .character-update-notification, .xiaobaix-confirm-modal").remove(); }catch{}
   try{ $("#preset-updater-edit-button, #preset-updater-green-style").remove(); }catch{}
   try{ cleanPresetDropdown(); }catch{}
-  try{ PresetRegexUI.destroy?.(); $("#preset_regex_scripts_block").remove(); }catch{}
+
   try{ Cache.clear(); }catch{}
   moduleState.isInitialized=false;
 }
@@ -1514,7 +870,7 @@ async function initCharacterUpdater(){
     cleanup();
     return;
   }
-  
+
   if(moduleState.isInitialized) return;
   try{
     const registrar=/** @type {any} */ (globalThis).registerModuleCleanup;
