@@ -2,7 +2,6 @@ import { extension_settings, getContext } from "../../../extensions.js";
 import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } from "../../../../script.js";
 import { getUserAvatar } from '../../../personas.js';
 import { default_user_avatar, default_avatar } from '../../../../script.js';
-import { statsTracker } from "./relationship-metrics.js";
 import { initTasks } from "./scheduledTasks.js";
 import { initScriptAssistant } from "./scriptAssistant.js";
 import { initMessagePreview, addHistoryButtonsDebounced } from "./message-preview.js";
@@ -25,9 +24,6 @@ const extensionFolderPath = `scripts/extensions/third-party/${EXT_ID}`;
 extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     enabled: true,
     sandboxMode: false,
-    memoryEnabled: false,
-    memoryInjectEnabled: false,
-    memoryInjectDepth: 4,
     recorded: { enabled: true },
     templateEditor: { enabled: true, characterBindings: {} },
     tasks: { enabled: true, globalTasks: [], processedMessages: [], character_allowed_tasks: [] },
@@ -47,7 +43,6 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
 
 const settings = extension_settings[EXT_ID];
 let isXiaobaixEnabled = settings.enabled;
-let moduleInstances = { statsTracker: null };
 let globalEventListeners = [];
 let globalTimers = [];
 let moduleCleanupFunctions = new Map();
@@ -313,7 +308,7 @@ function iframeClientScript(){return `
       var doc = document;
       var target = doc.body;
       if(!target) return 0;
-      
+    
       var minTop = Infinity, maxBottom = 0;
       var addRect = function(el){
         try{
@@ -324,7 +319,7 @@ function iframeClientScript(){return `
           }
         }catch(e){}
       };
-      
+    
       addRect(target);
       var children = target.children || [];
       for(var i=0;i<children.length;i++){
@@ -337,7 +332,7 @@ function iframeClientScript(){return `
         }catch(e){}
         addRect(child);
       }
-      
+    
       return maxBottom > 0 ? Math.ceil(maxBottom - Math.min(minTop, 0)) : (target.scrollHeight || 0);
     }catch(e){
       return (document.body && document.body.scrollHeight) || 0;
@@ -345,7 +340,7 @@ function iframeClientScript(){return `
   }  function post(m){ try{ parent.postMessage(m,'*') }catch(e){} }
 
     var rafPending=false, lastH=0;
-    var HYSTERESIS = 2; // px
+    var HYSTERESIS = 2;
 
   function send(force){
     if(rafPending && !force) return;
@@ -512,7 +507,6 @@ let pendingHeight = null;
 let pendingRec = null;
 function resolveAvatarUrls() {
     const origin = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
-
     const toAbsUrl = (relOrUrl) => {
         if (!relOrUrl) return '';
         const s = String(relOrUrl);
@@ -523,7 +517,6 @@ function resolveAvatarUrls() {
         const encoded = s.split('/').map(seg => encodeURIComponent(seg)).join('/');
         return `${origin}/${encoded.replace(/^\/+/, '')}`;
     };
-
     const pickSrc = (selectors) => {
         for (const sel of selectors) {
             const el = document.querySelector(sel);
@@ -535,7 +528,6 @@ function resolveAvatarUrls() {
         }
         return '';
     };
-
     let user = pickSrc([
         '#user_avatar_block img',
         '#avatar_user img',
@@ -547,16 +539,13 @@ function resolveAvatarUrls() {
     if (m) {
         user = `User Avatars/${decodeURIComponent(m[1])}`;
     }
-
     const ctx = getContext?.() || {};
     const chId = ctx.characterId ?? ctx.this_chid;
     const ch = Array.isArray(ctx.characters) ? ctx.characters[chId] : null;
-
     let char = ch?.avatar || default_avatar;
     if (char && !/^(data:|blob:|https?:)/i.test(char)) {
         char = /[\/]/.test(char) ? char.replace(/^\/+/, '') : `characters/${char}`;
     }
-
     return { user: toAbsUrl(user), char: toAbsUrl(char) };
 }
 function handleIframeMessage(event) {
@@ -701,8 +690,7 @@ function renderHtmlInIframe(htmlContent, container, preElement) {
 
 function toggleSettingsControls(enabled) {
     const controls = [
-        'xiaobaix_sandbox', 'xiaobaix_memory_enabled', 'xiaobaix_memory_inject',
-        'xiaobaix_memory_depth', 'xiaobaix_recorded_enabled', 'xiaobaix_preview_enabled',
+        'xiaobaix_sandbox', 'xiaobaix_recorded_enabled', 'xiaobaix_preview_enabled',
         'xiaobaix_script_assistant', 'scheduled_tasks_enabled', 'xiaobaix_template_enabled',
         'wallhaven_enabled', 'wallhaven_bg_mode', 'wallhaven_category',
         'wallhaven_purity', 'wallhaven_opacity',
@@ -753,7 +741,6 @@ function toggleAllFeatures(enabled) {
         }
         toggleSettingsControls(true);
         try { window.XB_applyPrevStates && window.XB_applyPrevStates(); } catch (e) {}
-        statsTracker.init(EXT_ID, MODULE_NAME, settings, executeSlashCommand);
         saveSettingsDebounced();
         processExistingMessages();
         setTimeout(() => processExistingMessages(), 100);
@@ -777,15 +764,12 @@ function toggleAllFeatures(enabled) {
         if (extension_settings[EXT_ID].preview?.enabled || extension_settings[EXT_ID].recorded?.enabled) {
             setTimeout(initMessagePreview, 200);
         }
-        if (settings.memoryEnabled && moduleInstances.statsTracker?.updateMemoryPrompt)
-            setTimeout(() => moduleInstances.statsTracker.updateMemoryPrompt(), 300);
         if (extension_settings[EXT_ID].scriptAssistant?.enabled && window.injectScriptDocs)
             setTimeout(() => window.injectScriptDocs(), 400);
         if (extension_settings[EXT_ID].preview?.enabled)
             setTimeout(() => { document.querySelectorAll('#message_preview_btn').forEach(btn => btn.style.display = ''); }, 500);
         if (extension_settings[EXT_ID].recorded?.enabled)
             setTimeout(() => addHistoryButtonsDebounced(), 600);
-        // Inject call-generate host (optional) and worldbook host bridge
         try{if(isXiaobaixEnabled&&settings.wrapperIframe&&!document.getElementById('xb-callgen'))document.head.appendChild(Object.assign(document.createElement('script'),{id:'xb-callgen',type:'module',src:`${extensionFolderPath}/call-generate-service.js`}))}catch(e){}
         try{if(isXiaobaixEnabled&&!document.getElementById('xb-worldbook'))document.head.appendChild(Object.assign(document.createElement('script'),{id:'xb-worldbook',type:'module',src:`${extensionFolderPath}/worldbook-bridge.js`}))}catch(e){}
         document.dispatchEvent(new CustomEvent('xiaobaixEnabledChanged', { detail: { enabled: true } }));
@@ -808,7 +792,6 @@ function toggleAllFeatures(enabled) {
             pre.style.display = '';
             delete pre.dataset.xiaobaixBound;
         });
-        moduleInstances.statsTracker?.removeMemoryPrompt?.();
         window.removeScriptDocs?.();
         try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById('xb-worldbook')?.remove(); } catch (e) {}
         try { window.cleanupCallGenerateHostBridge && window.cleanupCallGenerateHostBridge(); document.getElementById('xb-callgen')?.remove(); } catch (e) {}
@@ -899,12 +882,6 @@ function processCodeBlocks(messageElement, forceFinal=true) {
 function processExistingMessages() {
     if (!settings.enabled || !isXiaobaixEnabled) return;
     document.querySelectorAll('.mes_text').forEach(el=>processCodeBlocks(el,true));
-    if (settings.memoryEnabled) {
-        $('#chat .mes').each(function () {
-            const messageId = $(this).attr('mesid');
-            if (messageId) statsTracker.addMemoryButtonToMessage(messageId);
-        });
-    }
 }
 
 async function setupSettings() {
@@ -929,39 +906,6 @@ async function setupSettings() {
             if (!isXiaobaixEnabled) return;
             settings.sandboxMode = $(this).prop("checked");
             saveSettingsDebounced();
-        });
-        $("#xiaobaix_memory_enabled").prop("checked", settings.memoryEnabled).on("change", function () {
-            if (!isXiaobaixEnabled) return;
-            settings.memoryEnabled = $(this).prop("checked");
-            saveSettingsDebounced();
-            if (!settings.memoryEnabled) {
-                $('.memory-button').remove();
-                statsTracker.removeMemoryPrompt();
-            } else if (settings.memoryEnabled && settings.memoryInjectEnabled) {
-                statsTracker.updateMemoryPrompt();
-            }
-        });
-        $("#xiaobaix_memory_inject").prop("checked", settings.memoryInjectEnabled).on("change", function () {
-            if (!isXiaobaixEnabled) return;
-            settings.memoryInjectEnabled = $(this).prop("checked");
-            saveSettingsDebounced();
-            statsTracker.removeMemoryPrompt();
-            if (settings.memoryEnabled && settings.memoryInjectEnabled) {
-                statsTracker.updateMemoryPrompt();
-            }
-        });
-        $("#xiaobaix_memory_depth").val(settings.memoryInjectDepth).on("change", function () {
-            if (!isXiaobaixEnabled) return;
-            const inputValue = $(this).val();
-            const newDepth = inputValue === '' || inputValue === null || inputValue === undefined ? 4 : parseInt(inputValue);
-            settings.memoryInjectDepth = newDepth;
-            if (statsTracker && statsTracker.settings) {
-                statsTracker.settings.memoryInjectDepth = newDepth;
-            }
-            saveSettingsDebounced();
-            if (settings.memoryEnabled && settings.memoryInjectEnabled) {
-                statsTracker.updateMemoryPrompt();
-            }
         });
         const moduleConfigs = [
             { id: 'xiaobaix_recorded_enabled', key: 'recorded' },
@@ -1076,13 +1020,6 @@ function setupEventListeners() {
             const messageElement = document.querySelector(`div.mes[mesid="${messageId}"] .mes_text`);
             if (!messageElement) return;
             processCodeBlocks(messageElement, true);
-            if (settings.memoryEnabled) {
-                statsTracker.addMemoryButtonToMessage(messageId);
-                if (isReceived) {
-                    await statsTracker.updateStatisticsForNewMessage();
-                    $(`.mes[mesid="${messageId}"] .memory-button`).addClass('has-memory');
-                }
-            }
         }, isReceived ? 300 : 10);
     };
     const onMessageReceived = (data) => handleMessage(data, true);
@@ -1131,33 +1068,6 @@ function setupEventListeners() {
         isGenerating = false;
         invalidateAll();
         setTimeout(() => processExistingMessages(), 100);
-        if (!settings.memoryEnabled) return;
-        setTimeout(async () => {
-            try {
-                let stats = await executeSlashCommand('/getvar xiaobaix_stats');
-                if (!stats || stats === "undefined") {
-                    const messagesText = await executeSlashCommand('/messages names=on');
-                    if (messagesText) {
-                        const newStats = statsTracker.dataManager.createEmptyStats();
-                        const messageBlocks = messagesText.split('\n\n');
-                        for (const block of messageBlocks) {
-                            const colonIndex = block.indexOf(':');
-                            if (colonIndex !== -1) {
-                                const name = block.substring(0, colonIndex).trim();
-                                const content = block.substring(colonIndex + 1).trim();
-                                if (name !== getContext().name1 && content) {
-                                    statsTracker.textAnalysis.updateStatsFromText(newStats, content, name);
-                                }
-                            }
-                        }
-                        await executeSlashCommand(`/setvar key=xiaobaix_stats ${JSON.stringify(newStats)}`);
-                        if (settings.memoryInjectEnabled) statsTracker.updateMemoryPrompt();
-                    }
-                } else if (settings.memoryInjectEnabled) {
-                    statsTracker.updateMemoryPrompt();
-                }
-            } catch (error) {}
-        }, 300);
     };
     const CHAT_LOADED_EVENT = event_types.CHAT_CHANGED;
     if (CHAT_LOADED_EVENT) {
@@ -1213,8 +1123,6 @@ jQuery(async () => {
         const styleElement = document.createElement('style');
         styleElement.textContent = await response.text();
         document.head.appendChild(styleElement);
-        moduleInstances.statsTracker = statsTracker;
-        statsTracker.init(EXT_ID, MODULE_NAME, settings, executeSlashCommand);
         await setupSettings();
         try { initControlAudio(); } catch (e) {}
         if (isXiaobaixEnabled) setupEventListeners();
@@ -1250,23 +1158,6 @@ jQuery(async () => {
                 registerModuleCleanup('messagePreview', window.messagePreviewCleanup);
             }
         }, 2000));
-        const timer3 = setTimeout(async () => {
-            if (isXiaobaixEnabled) {
-                processExistingMessages();
-                if (settings.memoryEnabled) {
-                    const messages = await statsTracker.dataManager.processMessageHistory();
-                    if (messages?.length > 0) {
-                        const stats = statsTracker.dataManager.createEmptyStats();
-                        messages.forEach(message => {
-                            statsTracker.textAnalysis.updateStatsFromText(stats, message.content, message.name);
-                        });
-                        await executeSlashCommand(`/setvar key=xiaobaix_stats ${JSON.stringify(stats)}`);
-                        if (settings.memoryInjectEnabled) statsTracker.updateMemoryPrompt();
-                    }
-                }
-            }
-        }, 1000);
-        addGlobalTimer(timer3);
         const intervalId = setInterval(() => {
             if (isXiaobaixEnabled) processExistingMessages();
         }, 30000);

@@ -9,14 +9,10 @@
   <div class="inline-drawer-content">
     <div class="littlewhitebox settings-grid">
       <div class="settings-menu-vertical">
-        <div class="menu-tab active" data-target="js-memory" style="border-bottom:1px solid #303030;"><span
-            class="vertical-text">渲染交互</span></div>
-        <div class="menu-tab" data-target="task" style="border-bottom:1px solid #303030;"><span
-            class="vertical-text">循环任务</span></div>
-        <div class="menu-tab" data-target="template" style="border-bottom:1px solid #303030;"><span
-            class="vertical-text">数据互动</span></div>
-        <div class="menu-tab" data-target="wallhaven" style="border-bottom:1px solid #303030;"><span
-            class="vertical-text">辅助工具</span></div>
+        <div class="menu-tab active" data-target="js-memory" style="border-bottom:1px solid #303030;"><span class="vertical-text">渲染交互</span></div>
+        <div class="menu-tab" data-target="task" style="border-bottom:1px solid #303030;"><span class="vertical-text">循环任务</span></div>
+        <div class="menu-tab" data-target="template" style="border-bottom:1px solid #303030;"><span class="vertical-text">数据互动</span></div>
+        <div class="menu-tab" data-target="wallhaven" style="border-bottom:1px solid #303030;"><span class="vertical-text">辅助工具</span></div>
       </div>
       <div class="settings-content">
         <div class="js-memory settings-section" style="display:block;">
@@ -48,8 +44,7 @@
           </div>
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_use_blob" />
-            <label for="xiaobaix_use_blob" class="has-tooltip"
-              data-tooltip="可以常开，尤其是超大型html（1mb以上）也能极速完成渲染">启用Blob渲染</label>
+            <label for="xiaobaix_use_blob" class="has-tooltip" data-tooltip="可以常开，尤其是超大型html（1mb以上）也能极速完成渲染">启用Blob渲染</label>
           </div>
           <div class="flex-container">
             <input type="checkbox" id="Wrapperiframe" />
@@ -86,8 +81,7 @@
           </div>
           <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
             <div><a href="https://docs.littlewhitebox.qzz.io/" class="download-link" target="_blank">功能文档</a></div>
-            <button id="xiaobaix_reset_btn" class="menu_button menu_button_icon" type="button"
-              title="把小白X的功能按钮重置回默认功能设定">
+            <button id="xiaobaix_reset_btn" class="menu_button menu_button_icon" type="button" title="把小白X的功能按钮重置回默认功能设定">
               <small>默认开关</small>
             </button>
             <button id="xiaobaix_xposition_btn" class="menu_button menu_button_icon" type="button" title="切换X按钮的位置，仅两种">
@@ -101,16 +95,14 @@
           </div>
           <div class="flex-container">
             <input type="checkbox" id="character_updater_enabled" />
-            <label for="character_updater_enabled" class="has-tooltip"
-              data-tooltip="启用预设/角色卡推送通知及更新提示功能">启用预设/角色卡更新提醒</label>
+            <label for="character_updater_enabled" class="has-tooltip" data-tooltip="启用预设/角色卡推送通知及更新提示功能">启用预设/角色卡更新提醒</label>
           </div>
           <div class="current-character-info" id="current-character-info-trigger" title="单击更新角色提醒，长按3秒绑定/重绑定">
             <span>角色：</span><span id="current-character-name" class="current-character-name">未选择角色</span>
             <span id="current-character-status" class="character-status"></span>
           </div>
           <div class="current-character-info" id="current-preset-info-trigger" title="单击设置预设更新提醒，长按3秒绑定预设提醒/重绑定预设提醒">
-            <span>预设：</span><span id="prb-current-preset" class="current-character-name"
-              style="font-size:0.8em;">该预设无更新状态</span>
+            <span>预设：</span><span id="prb-current-preset" class="current-character-name" style="font-size:0.8em;">该预设无更新状态</span>
             <span id="current-preset-status" class="preset-status"></span>
           </div>
           <br>
@@ -119,19 +111,16 @@
           </div>
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_recorded_enabled" />
-            <label for="xiaobaix_recorded_enabled" class="has-tooltip"
-              data-tooltip="每条消息添加图标，点击可看到发送给时AI的记录">Log记录</label>
+            <label for="xiaobaix_recorded_enabled" class="has-tooltip" data-tooltip="每条消息添加图标，点击可看到发送给时AI的记录">Log记录</label>
             <input type="checkbox" id="xiaobaix_preview_enabled" />
-            <label for="xiaobaix_preview_enabled" class="has-tooltip"
-              data-tooltip="在聊天框显示图标，点击可拦截将发送给AI的消息并显示">Log拦截</label>
+            <label for="xiaobaix_preview_enabled" class="has-tooltip" data-tooltip="在聊天框显示图标，点击可拦截将发送给AI的消息并显示">Log拦截</label>
           </div>
           <div class="section-divider">写卡AI
             <hr class="sysHR" />
           </div>
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_script_assistant" />
-            <label for="xiaobaix_script_assistant" class="has-tooltip"
-              data-tooltip="勾选后，AI将获取小白X功能和ST脚本语言知识，内置 STscript 语法与示例，帮助您创作角色卡">启用写卡助手</label>
+            <label for="xiaobaix_script_assistant" class="has-tooltip" data-tooltip="勾选后，AI将获取小白X功能和ST脚本语言知识，内置 STscript 语法与示例，帮助您创作角色卡">启用写卡助手</label>
           </div>
           <div class="section-divider">视觉增强
             <hr class="sysHR" />
@@ -142,8 +131,7 @@
           </div>
           <div class="flex-container">
             <input type="checkbox" id="wallhaven_enabled" />
-            <label for="wallhaven_enabled" class="has-tooltip"
-              data-tooltip="AI回复时自动提取消息内容，转换为标签并获取Wallhaven图片作为聊天背景">自动消息配背景图</label>
+            <label for="wallhaven_enabled" class="has-tooltip" data-tooltip="AI回复时自动提取消息内容，转换为标签并获取Wallhaven图片作为聊天背景">自动消息配背景图</label>
           </div>
           <div id="wallhaven_settings_container" style="display:none;">
             <div class="flex-container">
@@ -171,16 +159,13 @@
               </select>
             </div>
             <div class="flex-container">
-              <label for="wallhaven_opacity" id="section-font">黑纱透明度: <span
-                  id="wallhaven_opacity_value">30%</span></label>
+              <label for="wallhaven_opacity" id="section-font">黑纱透明度: <span id="wallhaven_opacity_value">30%</span></label>
               <input type="range" id="wallhaven_opacity" min="0" max="0.8" step="0.1" value="0.3" class="wide50p" />
             </div>
             <hr class="sysHR">
             <div class="flex-container">
-              <input type="text" id="wallhaven_custom_tag_input" placeholder="输入英文标签，如: beautiful girl"
-                class="text_pole wide50p" />
-              <button id="wallhaven_add_custom_tag" class="menu_button" type="button"
-                style="width:auto;">+自定义TAG</button>
+              <input type="text" id="wallhaven_custom_tag_input" placeholder="输入英文标签，如: beautiful girl" class="text_pole wide50p" />
+              <button id="wallhaven_add_custom_tag" class="menu_button" type="button" style="width:auto;">+自定义TAG</button>
             </div>
             <div id="wallhaven_custom_tags_container" class="custom-tags-container">
               <div id="wallhaven_custom_tags_list" class="custom-tags-list"></div>
@@ -231,13 +216,11 @@
               <small>这些任务在所有角色中的聊天都会执行</small>
               <div id="global_tasks_list" class="flex-container task-container flexFlowColumn"></div>
             </div>
-            <div id="character_tasks_block" class="padding5 task-panel" data-panel="character_tasks_block"
-              style="display:none;">
+            <div id="character_tasks_block" class="padding5 task-panel" data-panel="character_tasks_block" style="display:none;">
               <small>这些任务只在当前角色的聊天中执行</small>
               <div id="character_tasks_list" class="flex-container task-container flexFlowColumn"></div>
             </div>
-            <div id="preset_tasks_block" class="padding5 task-panel" data-panel="preset_tasks_block"
-              style="display:none;">
+            <div id="preset_tasks_block" class="padding5 task-panel" data-panel="preset_tasks_block" style="display:none;">
               <small>这些任务会在使用<small id="preset_tasks_hint" class="preset-task-hint">未选择</small>预设时执行</small>
               <div id="preset_tasks_list" class="flex-container task-container flexFlowColumn"></div>
             </div>
@@ -245,24 +228,11 @@
           <input type="file" id="import_tasks_file" accept=".json" style="display:none;" />
         </div>
         <div class="template settings-section" style="display:none;">
-          <div class="section-divider">角色好感度统计及设定</div>
-          <hr class="sysHR" />
-          <div class="flex-container">
-            <input type="checkbox" id="xiaobaix_memory_enabled" />
-            <label for="xiaobaix_memory_enabled" class="has-tooltip" data-tooltip="启用后将统计消息数据">启用好感度统计</label>
-          </div>
-          <div class="flex-container">
-            <input type="checkbox" id="xiaobaix_memory_inject" />
-            <label for="xiaobaix_memory_inject" class="has-tooltip" data-tooltip="将统计信息注入到提示词中">注入到提示词 深度</label><input
-              type="number" id="xiaobaix_memory_depth" min="1" max="20" class="dark-number-input" />
-          </div>
-          <br>
           <div class="section-divider">分析/改善AI回复</div>
           <hr class="sysHR" />
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_dynamic_prompt_enabled" />
-            <label for="xiaobaix_dynamic_prompt_enabled" class="has-tooltip"
-              data-tooltip="对用户和AI的文字指纹分析，并注入改进提示词">动态提示词</label>
+            <label for="xiaobaix_dynamic_prompt_enabled" class="has-tooltip" data-tooltip="对用户和AI的文字指纹分析，并注入改进提示词">动态提示词</label>
           </div>
           <br>
           <div class="section-divider">变量控制､世界书执行</div>
@@ -286,7 +256,6 @@
   .littlewhitebox * {
     font-family: 'ZCOOL KuaiLe', 'ZCOOL XiaoWei', sans-serif !important
   }
-
   .littlewhitebox i,
   .littlewhitebox .fa,
   .littlewhitebox .fa-solid,
@@ -295,24 +264,20 @@
     font-family: 'Font Awesome 6 Free', 'FontAwesome', 'Font Awesome 5 Free', 'Font Awesome 5 Brands', sans-serif !important;
     font-weight: 900 !important
   }
-
   .littlewhitebox {
     display: flex;
     gap: 1px
   }
-
   .settings-menu-vertical {
     display: flex;
     flex-direction: column;
     flex: .5
   }
-
   .settings-content {
     flex: 19;
     margin-left: 1%;
     width: 89%
   }
-
   .menu-tab {
     flex: none;
     padding: 8px 6px;
@@ -325,33 +290,27 @@
     writing-mode: vertical-rl;
     text-orientation: mixed
   }
-
   .menu-tab:hover {
     color: #fff
   }
-
   .menu-tab.active {
     color: #e9e9e9;
     border-bottom: none;
     border-left: 2px solid #e9e9e9
   }
-
   .settings-section {
     padding: 1% 2%
   }
-
   .template-replacer-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 8px
   }
-
   .template-replacer-title {
     font-weight: bold;
     color: #cacaca
   }
-
   .template-replacer-status {
     padding: 5px 10px;
     background: #2a2a2a;
@@ -359,24 +318,20 @@
     margin-bottom: 10px;
     font-size: .9em
   }
-
   .template-replacer-status.has-settings {
     background: #1a4a1a;
     color: #90ee90
   }
-
   .template-replacer-status.no-character {
     background: #4a1a1a;
     color: #ffb3b3
   }
-
   .dark-number-input {
     background-color: rgba(0, 0, 0, .3) !important;
     color: var(--SmartThemeText) !important;
     border-color: var(--SmartThemeBorderColor) !important;
     width: 8vw !important
   }
-
   .littlewhitebox input[type="checkbox"] {
     width: 1.2rem;
     height: 1.2rem;
@@ -384,7 +339,6 @@
     border-radius: .25em;
     position: relative
   }
-
   .littlewhitebox input[type="checkbox"]:checked::after {
     content: "";
     display: block;
@@ -396,16 +350,13 @@
     background: #999;
     border-radius: .13em
   }
-
   .littlewhitebox input[type="checkbox"]+label {
     color: #888;
     transition: color .2s
   }
-
   .littlewhitebox input[type="checkbox"]:checked+label {
     color: #dbdbdb
   }
-
   .section-divider {
     font-size: .75em;
     color: #8f8f8f;
@@ -415,19 +366,15 @@
     text-align: left;
     user-select: none
   }
-
   #section-font {
     color: #979797
   }
-
   .preset-task-hint {
     color: #888;
   }
-
   .preset-task-hint.no-preset {
     color: #a66;
   }
-
   .task-tab-bar {
     gap: 12px;
     flex-wrap: nowrap;
@@ -435,7 +382,6 @@
     align-items: center;
     justify-content: space-between;
   }
-
   .task-tab {
     padding: 2px 0;
     border-bottom: 2px solid transparent;
@@ -445,27 +391,22 @@
     flex: 1 1 0;
     text-align: center;
   }
-
   .task-tab:hover {
     color: var(--SmartThemeBodyColor, #e9e9e9);
   }
-
   .task-tab.active {
     border-bottom-color: var(--SmartThemeAccentColor, #e9e9e9);
     color: var(--SmartThemeBodyColor, #e9e9e9);
   }
-
   .task-count {
     font-size: 0.85em;
     opacity: 0.7;
     margin-left: 0.25em;
   }
-
   .has-tooltip {
     position: relative;
     cursor: pointer
   }
-
   .has-tooltip::after {
     content: attr(data-tooltip);
     position: absolute;
@@ -486,32 +427,26 @@
     max-width: 300px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, .2)
   }
-
   .has-tooltip:hover::after {
     opacity: 1
   }
-
   label {
     margin-top: .3em
   }
-
   .littlewhitebox-update-text {
     color: green;
     margin-left: 5px
   }
-
   #littlewhitebox-update-extension {
     color: #28a745;
     cursor: pointer;
     margin: 0 0 0 5px;
     transition: .2s
   }
-
   #littlewhitebox-update-extension:hover {
     background-color: rgba(40, 167, 69, .1);
     transform: scale(1.1)
   }
-
   #littlewhitebox-update-extension.updating {
     color: #007bff;
     background-color: transparent;
@@ -524,7 +459,6 @@
     'use strict';
     const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s), $id = id => document.getElementById(id);
     const onReady = fn => { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true }); else fn(); };
-
     function setupUpdateButtonHandlers() {
       const btn = $id('littlewhitebox-update-extension'); if (!btn) return;
       const b = btn.cloneNode(true); btn.parentNode.replaceChild(b, btn);
@@ -550,7 +484,6 @@
       });
     }
     window.setupUpdateButtonInSettings = setupUpdateButtonHandlers;
-
     async function openInfoModal() {
       const modal = $id('xiaobaix_info_modal'); if (!modal) return;
       modal.style.display = 'flex';
@@ -587,17 +520,12 @@
       if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeInfoModal(); });
       document.addEventListener('keydown', e => { if (e.key === 'Escape') closeInfoModal(); });
     }
-
-    // X 按鈕位置
     function setupXBtnPositionButton() {
       const KEY = 'xiaobaix_x_btn_position';
       const LABEL = { 'edit-right': 'X按钮:左', 'name-left': 'X按钮:右' };
-
       const readLS = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
       const writeLS = (v) => { try { localStorage.setItem(KEY, v); } catch { } };
-
       let cur = window?.extension_settings?.LittleWhiteBox?.xBtnPosition || readLS() || 'name-left';
-
       const write = (v) => {
         cur = v;
         try {
@@ -608,16 +536,13 @@
         } catch { }
         writeLS(v);
       };
-
       const applyLabelTo = (el) => {
         if (!el) return;
         const sm = el.querySelector?.('small') || el;
         const txt = LABEL[cur] || LABEL['name-left'];
         if (sm.textContent !== txt) sm.textContent = txt;
       };
-
       document.querySelectorAll('#xiaobaix_xposition_btn').forEach(applyLabelTo);
-
       if (!document.getElementById('xiaobaix_xposition_btn')) {
         const mo = new MutationObserver((_, obs) => {
           const el = document.getElementById('xiaobaix_xposition_btn');
@@ -625,7 +550,6 @@
         });
         try { mo.observe(document.body, { childList: true, subtree: true }); } catch { }
       }
-
       const onClick = (ev) => {
         const el = ev.target?.closest?.('#xiaobaix_xposition_btn');
         if (!el) return;
@@ -634,7 +558,6 @@
         applyLabelTo(el);
       };
       document.addEventListener('click', onClick, { passive: false });
-
       window?.registerModuleCleanup?.('xbPosBtn', () => {
         document.removeEventListener('click', onClick);
       });
@@ -661,7 +584,6 @@
     const DEFAULTS_ON = ['templateEditor', 'tasks', 'dynamicPrompt', 'variablesCore', 'characterUpdater', 'audio'];
     const DEFAULTS_OFF = ['recorded', 'preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel'];
     const MODULE_KEYS = ['templateEditor', 'tasks', 'dynamicPrompt', 'variablesCore', 'characterUpdater', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'audio'];
-
     function setModuleEnabled(key, enabled) {
       try {
         if (!extension_settings[EXT_ID][key]) extension_settings[EXT_ID][key] = {};
@@ -758,15 +680,11 @@
   }();
 </script>
 
-
-
-<!-- 功能与更新公告区块 -->
 <div id="xiaobaix_info_modal" class="xiaobaix-modal" style="display:none;">
   <div class="xiaobaix-modal-content">
     <div class="xiaobaix-modal-header">
       <span class="xiaobaix-modal-title">小白X 功能与更新公告</span>
-      <button id="xiaobaix_info_close" class="menu_button menu_button_icon" title="关闭"><i
-          class="fa-solid fa-xmark"></i></button>
+      <button id="xiaobaix_info_close" class="menu_button menu_button_icon" title="关闭"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="xiaobaix-modal-body">
       <div id="xiaobaix_info_content" class="xiaobaix-info-content"></div>
@@ -777,7 +695,6 @@
       align-items: flex-end;
       margin-bottom: 0
     }
-
     .xiaobaix-modal {
       position: fixed;
       inset: 0;
@@ -789,7 +706,6 @@
       padding: 10px;
       padding-bottom: max(10px, env(safe-area-inset-bottom))
     }
-
     .xiaobaix-modal-content {
       background: var(--SmartThemeBlurTintColor, #1e1e1e);
       border: 1px solid var(--SmartThemeBorderColor, #333);
@@ -801,7 +717,6 @@
       box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
       backdrop-filter: blur(var(--SmartThemeBlurStrength, 0px))
     }
-
     .xiaobaix-modal-header {
       display: flex;
       align-items: center;
@@ -811,17 +726,14 @@
       background: var(--SmartThemeBlurTintColor, #1e1e1e);
       border-radius: 10px 10px 0 0
     }
-
     .xiaobaix-modal-title {
       color: var(--SmartThemeBodyColor, #e9e9e9);
       font-weight: 600
     }
-
     .xiaobaix-modal-body {
       flex: 1;
       overflow: auto
     }
-
     .xiaobaix-info-content {
       padding: 12px;
       display: flex;
@@ -830,49 +742,40 @@
       word-break: break-all;
       word-wrap: break-word
     }
-
     .xiaobaix-info-content h3,
     .xiaobaix-info-content h4 {
       margin: 4px 0 8px;
       color: var(--SmartThemeBodyColor, #e9e9e9)
     }
-
     .xiaobaix-info-content p {
       margin: 0;
       color: #ccc
     }
-
     .xiaobaix-info-grid {
       display: grid;
       gap: 12px;
       grid-template-columns: repeat(2, minmax(0, 1fr))
     }
-
     .xiaobaix-info-grid h4 {
       margin: 0 0 6px;
       color: #9be49b
     }
-
     .xiaobaix-info-grid ul {
       margin: 0;
       padding-left: 18px
     }
-
     .xiaobaix-info-grid li {
       margin: 4px 0
     }
-
     @media (max-width:680px) {
       .xiaobaix-info-grid {
         grid-template-columns: 1fr
       }
     }
-
     @media (max-width:999px) {
       .xiaobaix-modal {
         align-items: flex-start
       }
-
       .xiaobaix-modal-content {
         width: 100vw;
         height: calc(100svh - var(--topBarBlockSize, 0px) - 10px);
@@ -880,71 +783,57 @@
         border-radius: 12px
       }
     }
-
     .collapsible .toggle {
       display: none
     }
-
     .collapsible .title {
       cursor: pointer;
       display: block
     }
-
     .collapsible .title h4::after {
       content: ' ▼';
       font-size: .8em;
       transition: transform .3s
     }
-
     .collapsible .content {
       max-height: 0;
       overflow: hidden;
       transition: max-height .3s ease
     }
-
     .collapsible .toggle:checked~.content {
       max-height: 200px
     }
-
     .collapsible .toggle:checked~.title h4::after {
       transform: rotate(-180deg)
     }
   </style>
 </div>
 
-<!-- 循环任务子区块 -->
 <style>
   .cloud-tasks-modal {
     max-height: 70vh
   }
-
   .cloud-tasks-modal * {
     font-family: 'ZCOOL KuaiLe', 'ZCOOL XiaoWei', sans-serif !important
   }
-
   .cloud-tasks-modal h3 {
     margin-top: 0;
     color: var(--SmartThemeBodyColor, #e9e9e9)
   }
-
   .cloud-tasks-modal h4 {
     color: var(--SmartThemeBodyColor, #cacaca);
     margin-bottom: 10px
   }
-
   .cloud-tasks-section {
     margin-bottom: 15px
   }
-
   .cloud-tasks-list {
     max-height: 180px;
     overflow-y: auto
   }
-
   .cloud-task-item {
     transition: background-color .2s
   }
-
   .cloud-task-item:hover {
     background-color: rgba(255, 255, 255, .05)
   }
@@ -960,8 +849,7 @@
       </div>
       <div class="flex1">
         <label for="task_commands_edit">脚本命令</label>
-        <textarea class="task_commands_edit text_pole wide100p textarea_compact" style="height:200px;"
-          placeholder="输入要执行的斜杠命令或js, eg: &#10;&lt;&lt;taskjs&gt;&gt;&#10;count++;&#10;&lt;&lt;/taskjs&gt;&gt;&#10;/echo 已完成脚本！"></textarea>
+        <textarea class="task_commands_edit text_pole wide100p textarea_compact" style="height:200px;" placeholder="输入要执行的斜杠命令或js, eg: &#10;&lt;&lt;taskjs&gt;&gt;&#10;count++;&#10;&lt;&lt;/taskjs&gt;&gt;&#10;/echo 已完成脚本！"></textarea>
       </div>
       <div class="flex-container">
         <div class="flex1">
@@ -1064,8 +952,7 @@
 </div>
 
 <div id="cloud_task_item_template" style="display:none;">
-  <div class="cloud-task-item"
-    style="border:1px solid var(--SmartThemeBorderColor);padding:10px;margin:8px 0;border-radius:4px;">
+  <div class="cloud-task-item" style="border:1px solid var(--SmartThemeBorderColor);padding:10px;margin:8px 0;border-radius:4px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <strong class="cloud-task-name"></strong>
       <button class="cloud-task-download menu_button menu_button_icon" title="下载并导入此任务">
@@ -1074,6 +961,4 @@
     </div>
     <div class="cloud-task-intro" style="color:#888;font-size:.9em;text-align:left;"></div>
   </div>
-
 </div>
-
