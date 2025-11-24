@@ -437,12 +437,22 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
 
     const codeSig = __hashStringForKey(String(jsCode || ''));
     const stableKey = (String(taskName || '').trim()) || `js-${codeSig}`;
+    const isLightTask = stableKey.startsWith('[x]');
 
     const old = __taskRunMap.get(stableKey);
     if (old) {
         console.log(`[强制清理旧任务] ${stableKey}`);
+        try { old.abort?.abort?.(); } catch {}
+        if (!isLightTask) {
+            try {
+                await Promise.resolve(old.completion).catch(() => {});
+            } catch (e) {
+                console.warn('[任务调度] 等待旧实例 completion 出错：', stableKey, e);
+            }
+        }
+        __taskRunMap.delete(stableKey);
     }
-    
+
     const callbackPrefix = `${stableKey}_fl_`;
     for (const [id, entry] of state.dynamicCallbacks.entries()) {
         if (id.startsWith(callbackPrefix)) {
@@ -452,8 +462,15 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
         }
     }
 
-    await __runTaskSingleInstance(stableKey, async (utils) => {
-        const { addListener, setTimeoutSafe, clearTimeoutSafe, setIntervalSafe, clearIntervalSafe, abortSignal } = utils;
+    const jsRunner = async (utils) => {
+        const {
+            addListener,
+            setTimeoutSafe,
+            clearTimeoutSafe,
+            setIntervalSafe,
+            clearIntervalSafe,
+            abortSignal
+        } = utils;
 
         const originalWindowFns = {
             setTimeout: window.setTimeout,
@@ -479,7 +496,7 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
         const listeners = new Set();
         const createdNodes = new Set();
         const waiters = new Set();
-        
+
         const notifyActivityChange = () => {
             if (waiters.size === 0) return;
             for (const cb of Array.from(waiters)) {
@@ -586,17 +603,17 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
 
         const addFloorListener = (callback, options = {}) => {
             if (typeof callback !== 'function') throw new Error('callback 必须是函数');
-            
+
             const callbackId = `${stableKey}_fl_${uuidv4()}`;
             const entryAbort = new AbortController();
-            
-            try { 
-                abortSignal.addEventListener('abort', () => { 
-                    try { entryAbort.abort(); } catch {} 
-                    state.dynamicCallbacks.delete(callbackId); 
-                }); 
+
+            try {
+                abortSignal.addEventListener('abort', () => {
+                    try { entryAbort.abort(); } catch {}
+                    state.dynamicCallbacks.delete(callbackId);
+                });
             } catch {}
-            
+
             state.dynamicCallbacks.set(callbackId, {
                 callback,
                 options: {
@@ -606,12 +623,12 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
                 },
                 abortController: entryAbort
             });
-            
+
             console.log(`[注册新监听器] ${callbackId}`, options);
-            
-            return () => { 
-                try { entryAbort.abort(); } catch {} 
-                state.dynamicCallbacks.delete(callbackId); 
+
+            return () => {
+                try { entryAbort.abort(); } catch {}
+                state.dynamicCallbacks.delete(callbackId);
             };
         };
 
@@ -671,7 +688,14 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
         } finally {
             try { hardCleanup(); } finally { restoreGlobals(); }
         }
-    }, codeSig);
+    };
+
+    if (isLightTask) {
+        __runTaskSingleInstance(stableKey, jsRunner, codeSig);
+        return;
+    }
+
+    await __runTaskSingleInstance(stableKey, jsRunner, codeSig);
 }
 
 function handleTaskMessage(event) {
