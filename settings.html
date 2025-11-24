@@ -30,10 +30,16 @@
               <small>公告</small>
             </button>
           </div>
-          <div class="flex-container alignItemsCenter">
+          <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
             <input type="checkbox" id="xiaobaix_render_enabled" />
             <label for="xiaobaix_render_enabled" class="has-tooltip" data-tooltip="控制代码块转换为iframe渲染的功能
-关闭后将清理所有已渲染的iframe，代码块将以原始形式显示">渲染开关</label>
+关闭后将清理所有已渲染的iframe">渲染开关</label>
+            <label for="xiaobaix_max_rendered" style="margin-left:8px;">渲染楼层</label>
+            <input id="xiaobaix_max_rendered"
+                   type="number"
+                   class="text_pole dark-number-input"
+                   min="1" max="9999" step="1"
+                   style="width:5rem;margin-left:4px;" />
           </div>
           <div class="section-divider">渲染模式
             <hr class="sysHR" />
@@ -90,7 +96,7 @@
           </div>
         </div>
         <div class="wallhaven settings-section" style="display:none;">
-          <div class="section-divider">角色卡/预设更新提示
+          <div class="section-divider">提示更新及绑定对应角色卡/预设正则绑定
             <hr class="sysHR" />
           </div>
           <div class="flex-container">

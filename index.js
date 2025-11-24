@@ -38,7 +38,8 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     variablesCore: { enabled: true },
     useBlob: false,
     wrapperIframe: true,
-    renderEnabled: true
+    renderEnabled: true,
+    maxRenderedMessages: 5,
 };
 
 const settings = extension_settings[EXT_ID];
@@ -308,7 +309,7 @@ function iframeClientScript(){return `
       var doc = document;
       var target = doc.body;
       if(!target) return 0;
-    
+  
       var minTop = Infinity, maxBottom = 0;
       var addRect = function(el){
         try{
@@ -319,7 +320,7 @@ function iframeClientScript(){return `
           }
         }catch(e){}
       };
-    
+  
       addRect(target);
       var children = target.children || [];
       for(var i=0;i<children.length;i++){
@@ -332,7 +333,7 @@ function iframeClientScript(){return `
         }catch(e){}
         addRect(child);
       }
-    
+  
       return maxBottom > 0 ? Math.ceil(maxBottom - Math.min(minTop, 0)) : (target.scrollHeight || 0);
     }catch(e){
       return (document.body && document.body.scrollHeight) || 0;
@@ -696,7 +697,8 @@ function toggleSettingsControls(enabled) {
         'wallhaven_purity', 'wallhaven_opacity',
         'xiaobaix_immersive_enabled', 'character_updater_enabled', 'xiaobaix_dynamic_prompt_enabled',
         'xiaobaix_audio_enabled','xiaobaix_variables_panel_enabled',
-        'xiaobaix_use_blob', 'xiaobaix_variables_core_enabled', 'Wrapperiframe', 'xiaobaix_render_enabled'
+        'xiaobaix_use_blob', 'xiaobaix_variables_core_enabled', 'Wrapperiframe', 'xiaobaix_render_enabled',
+        'xiaobaix_max_rendered'
     ];
     controls.forEach(id => {
         $(`#${id}`).prop('disabled', !enabled).closest('.flex-container').toggleClass('disabled-control', !enabled);
@@ -842,10 +844,96 @@ function invalidateAll(){
     lastHeights = new WeakMap();
 }
 
+function shrinkRenderedWindowForLastMessage() {
+    if (!settings.enabled || !isXiaobaixEnabled) return;
+    if (settings.renderEnabled === false) return;
+    const max = Number.isFinite(settings.maxRenderedMessages) && settings.maxRenderedMessages > 0
+        ? settings.maxRenderedMessages
+        : 0;
+    if (max <= 0) return;
+    const ctx = getContext?.();
+    const chatArr = ctx?.chat;
+    if (!Array.isArray(chatArr) || chatArr.length === 0) return;
+    const lastId = chatArr.length - 1;
+    if (lastId < 0) return;
+    const keepFrom = Math.max(0, lastId - max + 1);
+    const mesList = document.querySelectorAll('div.mes');
+    for (const mes of mesList) {
+        const mesIdAttr = mes.getAttribute('mesid');
+        if (mesIdAttr == null) continue;
+        const mesId = Number(mesIdAttr);
+        if (!Number.isFinite(mesId)) continue;
+        if (mesId >= keepFrom) {
+            break;
+        }
+        const mesText = mes.querySelector('.mes_text');
+        if (!mesText) continue;
+        mesText.querySelectorAll('.xiaobaix-iframe-wrapper').forEach(w => {
+            w.querySelectorAll('.xiaobaix-iframe').forEach(ifr => {
+                try { ifr.src = 'about:blank'; } catch (e) {}
+                releaseIframeBlob(ifr);
+            });
+            w.remove();
+        });
+        mesText.querySelectorAll('pre[data-xiaobaix-bound="true"]').forEach(pre => {
+            pre.classList.remove('xb-show');
+            pre.removeAttribute('data-xbfinal');
+            pre.removeAttribute('data-xbhash');
+            delete pre.dataset.xbFinal;
+            delete pre.dataset.xbHash;
+            delete pre.dataset.xiaobaixBound;
+            pre.style.display = '';
+        });
+    }
+}
+
+function shrinkRenderedWindowFull() {
+    if (!settings.enabled || !isXiaobaixEnabled) return;
+    if (settings.renderEnabled === false) return;
+    const max = Number.isFinite(settings.maxRenderedMessages) && settings.maxRenderedMessages > 0
+        ? settings.maxRenderedMessages
+        : 0;
+    if (max <= 0) return;
+    const ctx = getContext?.();
+    const chatArr = ctx?.chat;
+    if (!Array.isArray(chatArr) || chatArr.length === 0) return;
+    const lastId = chatArr.length - 1;
+    const keepFrom = Math.max(0, lastId - max + 1);
+    const mesList = document.querySelectorAll('div.mes');
+    for (const mes of mesList) {
+        const mesIdAttr = mes.getAttribute('mesid');
+        if (mesIdAttr == null) continue;
+        const mesId = Number(mesIdAttr);
+        if (!Number.isFinite(mesId)) continue;
+        if (mesId >= keepFrom) {
+            continue;
+        }
+        const mesText = mes.querySelector('.mes_text');
+        if (!mesText) continue;
+        mesText.querySelectorAll('.xiaobaix-iframe-wrapper').forEach(w => {
+            w.querySelectorAll('.xiaobaix-iframe').forEach(ifr => {
+                try { ifr.src = 'about:blank'; } catch (e) {}
+                releaseIframeBlob(ifr);
+            });
+            w.remove();
+        });
+        mesText.querySelectorAll('pre[data-xiaobaix-bound="true"]').forEach(pre => {
+            pre.classList.remove('xb-show');
+            pre.removeAttribute('data-xbfinal');
+            pre.removeAttribute('data-xbhash');
+            delete pre.dataset.xbFinal;
+            delete pre.dataset.xbHash;
+            delete pre.dataset.xiaobaixBound;
+            pre.style.display = '';
+        });
+    }
+}
+
 function processMessageById(messageId, forceFinal = true) {
     const messageElement = document.querySelector(`div.mes[mesid="${messageId}"] .mes_text`);
     if (!messageElement) return;
     processCodeBlocks(messageElement, forceFinal);
+    try { shrinkRenderedWindowForLastMessage(); } catch (e) {}
 }
 
 function processCodeBlocks(messageElement, forceFinal=true) {
@@ -882,6 +970,7 @@ function processCodeBlocks(messageElement, forceFinal=true) {
 function processExistingMessages() {
     if (!settings.enabled || !isXiaobaixEnabled) return;
     document.querySelectorAll('.mes_text').forEach(el=>processCodeBlocks(el,true));
+    try { shrinkRenderedWindowFull(); } catch (e) {}
 }
 
 async function setupSettings() {
@@ -964,6 +1053,24 @@ async function setupSettings() {
                 setTimeout(() => processExistingMessages(), 100);
             }
         });
+
+        const normalizeMaxRendered = (raw) => {
+            let v = parseInt(raw, 10);
+            if (!Number.isFinite(v) || v < 1) v = 1;
+            if (v > 9999) v = 9999;
+            return v;
+        };
+        $("#xiaobaix_max_rendered")
+            .val(Number.isFinite(settings.maxRenderedMessages) ? settings.maxRenderedMessages : 5)
+            .on("input change", function () {
+                if (!isXiaobaixEnabled) return;
+                const v = normalizeMaxRendered($(this).val());
+                $(this).val(v);
+                settings.maxRenderedMessages = v;
+                saveSettingsDebounced();
+                try { shrinkRenderedWindowFull(); } catch (e) {}
+            });
+        
         $(document).off('click.xbreset', '#xiaobaix_reset_btn').on('click.xbreset', '#xiaobaix_reset_btn', function(e){
             e.preventDefault(); e.stopPropagation();
             const MAP={recorded:'xiaobaix_recorded_enabled',immersive:'xiaobaix_immersive_enabled',preview:'xiaobaix_preview_enabled',scriptAssistant:'xiaobaix_script_assistant',tasks:'scheduled_tasks_enabled',templateEditor:'xiaobaix_template_enabled',wallhaven:'wallhaven_enabled',characterUpdater:'character_updater_enabled',dynamicPrompt:'xiaobaix_dynamic_prompt_enabled',variablesPanel:'xiaobaix_variables_panel_enabled',variablesCore:'xiaobaix_variables_core_enabled'};
@@ -1020,6 +1127,7 @@ function setupEventListeners() {
             const messageElement = document.querySelector(`div.mes[mesid="${messageId}"] .mes_text`);
             if (!messageElement) return;
             processCodeBlocks(messageElement, true);
+            try { shrinkRenderedWindowForLastMessage(); } catch (e) {}
         }, isReceived ? 300 : 10);
     };
     const onMessageReceived = (data) => handleMessage(data, true);
@@ -1067,7 +1175,9 @@ function setupEventListeners() {
     const chatChanged = () => {
         isGenerating = false;
         invalidateAll();
-        setTimeout(() => processExistingMessages(), 100);
+        setTimeout(() => {
+            processExistingMessages();
+        }, 100);
     };
     const CHAT_LOADED_EVENT = event_types.CHAT_CHANGED;
     if (CHAT_LOADED_EVENT) {
@@ -1085,7 +1195,10 @@ function setupEventListeners() {
             const ctx = getContext();
             const lastId = ctx.chat?.length - 1;
             if (lastId != null && lastId >= 0) {
-                setTimeout(() => processMessageById(lastId, true), 60);
+                setTimeout(() => {
+                    processMessageById(lastId, true);
+                    try { shrinkRenderedWindowForLastMessage(); } catch (e) {}
+                }, 60);
             }
             stopStreamingScan();
         };
