@@ -863,12 +863,33 @@ function buildWrappedHtml(content) {
     const origin = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
     const baseTag = `<base href="${origin}/">`;
     const wrapperToggle = !!(extension_settings && extension_settings[EXT_ID] && extension_settings[EXT_ID].wrapperIframe);
-    const wrapperScript = wrapperToggle ? `<script src="${origin}/${extensionFolderPath}/Wrapperiframe.js"></script>` : '';
-    const vhFix = `<style>html,body{height:auto!important;min-height:0!important;max-height:none!important}[style*="100vh"]{height:auto!important;min-height:600px!important}[style*="height:100%"]{height:auto!important;min-height:100%!important}</style>`;
-    const reset = `<style>html,body{margin:0;padding:0;background:transparent;font-family:inherit;color:inherit}</style>`;
+    const wrapperScript = wrapperToggle
+        ? `<script src="${origin}/${extensionFolderPath}/Wrapperiframe.js"></script>`
+        : '';
+    const vhFix = `<style>
+  html, body {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+  [style*="100vh"] {
+    height: auto !important;
+    min-height: 600px !important;
+  }
+  [style*="height:100%"] {
+    height: auto !important;
+    min-height: 100% !important;
+  }
+</style>`;
+    const reset = `<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+  }
+</style>`;
     const headBits = `
 <meta charset="UTF-8">
-<meta name="color-scheme" content="dark light">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 ${baseTag}
 <script>${iframeClientScript()}</script>
@@ -877,8 +898,12 @@ ${vhFix}
 ${reset}
 `;
     if (content.includes('<html') && content.includes('</html')) {
-        if (content.includes('<head>')) return content.replace('<head>', `<head>${headBits}`);
-        if (content.includes('</head>')) return content.replace('</head>', `${headBits}</head>`);
+        if (content.includes('<head>')) {
+            return content.replace('<head>', `<head>${headBits}`);
+        }
+        if (content.includes('</head>')) {
+            return content.replace('</head>', `${headBits}</head>`);
+        }
         return content.replace('<body', `<head>${headBits}</head><body`);
     }
     return `<!DOCTYPE html>
@@ -895,30 +920,48 @@ class IframeManager {
         let processed = content;
         try {
             const { substituteParams } = getContext() || {};
-            if (typeof substituteParams === 'function') processed = substituteParams(content);
+            if (typeof substituteParams === 'function') {
+                processed = substituteParams(content);
+            }
         } catch {}
+
         const iframeId = `xiaobaix-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
         const wrapperHtml = `
         <div class="xiaobaix-iframe-wrapper" style="margin:0;">
             <iframe id="${iframeId}" class="xiaobaix-iframe"
                 style="width:100%;border:none;background:transparent;overflow:hidden;height:0;margin:0;padding:0;display:block;contain:layout paint style;will-change:height;min-height:50px"
                 frameborder="0" scrolling="no" loading="eager"></iframe>
         </div>`;
+
         setTimeout(() => {
             const iframe = document.getElementById(iframeId);
-            if (iframe) this.writeContentToIframe(iframe, processed);
+            if (iframe) {
+                this.writeContentToIframe(iframe, processed);
+            }
         }, 0);
+
         return wrapperHtml;
     }
+
     static writeContentToIframe(iframe, content) {
         try {
             const html = buildWrappedHtml(content);
-            const sbox = !!(extension_settings && extension_settings[EXT_ID] && extension_settings[EXT_ID].sandboxMode);
-            iframe.setAttribute('sandbox', sbox ? 'allow-scripts' : 'allow-scripts allow-same-origin');
+            const sbox = !!(extension_settings
+                && extension_settings[EXT_ID]
+                && extension_settings[EXT_ID].sandboxMode);
+
+            if (sbox) {
+                iframe.setAttribute('sandbox', 'allow-scripts allow-modals');
+            }
             iframe.srcdoc = html;
+
             const probe = () => {
-                try { iframe.contentWindow?.postMessage({ type: 'probe' }, '*'); } catch {}
+                try {
+                    iframe.contentWindow?.postMessage({ type: 'probe' }, '*');
+                } catch {}
             };
+
             if (iframe.complete) {
                 setTimeout(probe, 0);
             } else {
@@ -928,6 +971,7 @@ class IframeManager {
             console.error('[Template Editor] 写入 iframe 內容失败:', err);
         }
     }
+
     static async sendUpdate(messageId, vars) {
         const iframe = await this.waitForIframe(messageId);
         if (!iframe?.contentWindow) return;
@@ -937,23 +981,25 @@ class IframeManager {
                 messageId,
                 timestamp: Date.now(),
                 variables: vars,
-                source: 'xiaobaix-host'
+                source: 'xiaobaix-host',
             }, '*');
         } catch (error) {
-            console.error(`[LittleWhiteBox] Failed to send iframe message:`, error);
+            console.error('[LittleWhiteBox] Failed to send iframe message:', error);
         }
     }
+
     static async waitForIframe(messageId, maxAttempts = 20, delay = 50) {
         const selector = `#chat .mes[mesid="${messageId}"] iframe.xiaobaix-iframe`;
         const cachedIframe = state.getElement(selector);
         if (cachedIframe?.contentWindow && cachedIframe.contentDocument?.readyState === 'complete') {
             return cachedIframe;
         }
+
         return new Promise((resolve) => {
             const checkIframe = () => {
                 const iframe = document.querySelector(selector);
                 if (iframe?.contentWindow && iframe instanceof HTMLIFrameElement) {
-                    var doc = iframe.contentDocument;
+                    const doc = iframe.contentDocument;
                     if (doc && doc.readyState === 'complete') {
                         resolve(iframe);
                     } else {
@@ -963,32 +1009,39 @@ class IframeManager {
                 }
                 return false;
             };
+
             if (checkIframe()) return;
+
             const messageElement = document.querySelector(`#chat .mes[mesid="${messageId}"]`);
             if (!messageElement) {
                 resolve(null);
                 return;
             }
+
             const observer = new MutationObserver(() => {
                 if (checkIframe()) observer.disconnect();
             });
             observer.observe(messageElement, { childList: true, subtree: true });
+
             setTimeout(() => { observer.disconnect(); resolve(null); }, maxAttempts * delay);
         });
     }
+
     static updateVariables(messageId, vars) {
         const selector = `#chat .mes[mesid="${messageId}"] iframe.xiaobaix-iframe`;
         const iframe = state.getElement(selector) || document.querySelector(selector);
         if (!iframe?.contentWindow) return;
+
         const update = () => {
             try {
                 if (iframe.contentWindow.updateTemplateVariables) {
                     iframe.contentWindow.updateTemplateVariables(vars);
                 }
             } catch (error) {
-                console.error(`[LittleWhiteBox] Failed to update iframe variables:`, error);
+                console.error('[LittleWhiteBox] Failed to update iframe variables:', error);
             }
         };
+
         if (iframe.contentDocument?.readyState === 'complete') {
             update();
         } else {

@@ -429,22 +429,26 @@ function buildWrappedHtml(html){
     const headHints = buildResourceHints(html);
     const vhFix = `<style>html,body{height:auto!important;min-height:0!important;max-height:none!important}.profile-container,[style*="100vh"]{height:auto!important;min-height:600px!important}[style*="height:100%"]{height:auto!important;min-height:100%!important}</style>`;
     if (html.includes('<html') && html.includes('</html')) {
-        if (html.includes('<head>')) return html.replace('<head>', `<head>${baseTag}${api}${optWrapper}${headHints}${vhFix}`);
-        if (html.includes('</head>')) return html.replace('</head>', `${baseTag}${api}${optWrapper}${headHints}${vhFix}</head>`);
+        if (html.includes('<head>')) 
+            return html.replace('<head>', `<head>${baseTag}${api}${optWrapper}${headHints}${vhFix}`);
+        if (html.includes('</head>')) 
+            return html.replace('</head>', `${baseTag}${api}${optWrapper}${headHints}${vhFix}</head>`);
         return html.replace('<body', `<head>${baseTag}${api}${optWrapper}${headHints}${vhFix}</head><body`);
     }
+
     return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<meta name="color-scheme" content="dark light">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 ${baseTag}
 ${api}
 ${optWrapper}
 ${headHints}
 ${vhFix}
-<style>html,body{margin:0;padding:0;background:transparent;font-family:inherit;color:inherit}</style>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+</style>
 </head>
 <body>${html}</body></html>`;
 }
@@ -660,8 +664,6 @@ function renderHtmlInIframe(htmlContent, container, preElement) {
         iframe.loading = 'eager';
         if (settings.sandboxMode) {
             iframe.setAttribute('sandbox', 'allow-scripts');
-        } else {
-            iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
         }
         const wrapper = getOrCreateWrapper(preElement);
         wrapper.querySelectorAll('.xiaobaix-iframe').forEach(old => {
