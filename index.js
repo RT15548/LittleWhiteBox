@@ -15,6 +15,7 @@ import { initVariablesPanel, getVariablesPanelInstance, cleanupVariablesPanel } 
 import { initStreamingGeneration } from "./streaming-generation.js";
 import { initVariablesCore, cleanupVariablesCore, replaceXbGetVarInString } from "./variables-core.js";
 import { initControlAudio } from "./control-audio.js";
+import "./story-summary/story-summary.js";
 
 const EXT_ID = "LittleWhiteBox";
 const EXT_NAME = "小白X";
@@ -36,6 +37,7 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     audio: { enabled: true },
     variablesPanel: { enabled: false },
     variablesCore: { enabled: true },
+    storySummary: { enabled: true },
     useBlob: false,
     wrapperIframe: true,
     renderEnabled: true,
@@ -1009,7 +1011,8 @@ async function setupSettings() {
             { id: 'character_updater_enabled', key: 'characterUpdater', init: initCharacterUpdater },
             { id: 'xiaobaix_dynamic_prompt_enabled', key: 'dynamicPrompt', init: initDynamicPrompt },
             { id: 'xiaobaix_variables_panel_enabled', key: 'variablesPanel', init: initVariablesPanel },
-            { id: 'xiaobaix_variables_core_enabled', key: 'variablesCore', init: initVariablesCore }
+            { id: 'xiaobaix_variables_core_enabled', key: 'variablesCore', init: initVariablesCore },
+            { id: 'xiaobaix_story_summary_enabled', key: 'storySummary' }
         ];
         moduleConfigs.forEach(({ id, key, init }) => {
             $(`#${id}`).prop("checked", settings[key]?.enabled || false).on("change", function () {
@@ -1027,6 +1030,10 @@ async function setupSettings() {
                     moduleCleanupFunctions.delete(key);
                 }
                 if (enabled && init) init();
+                // 触发 storySummary 开关事件
+                if (key === 'storySummary') {
+                    $(document).trigger('xiaobaix:storySummary:toggle', [enabled]);
+                }
             });
         });
         $("#xiaobaix_use_blob").prop("checked", !!settings.useBlob).on("change", function () {

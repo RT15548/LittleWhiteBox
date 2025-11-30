@@ -44,7 +44,46 @@ const splitPathSegments=(path)=> String(path||'').split('.').map(s=>s.trim()).fi
 function ensureDeepContainer(root,segs){ let cur=root; for(let i=0;i<segs.length-1;i++){ const key=segs[i]; const nextKey=segs[i+1]; const shouldBeArray= typeof nextKey==='number'; let val=cur?.[key]; if(val===undefined || val===null || typeof val!=='object'){ cur[key]= shouldBeArray ? [] : {}; } cur=cur[key]; } return { parent:cur, lastKey: segs[segs.length-1] }; }
 function setDeepValue(root, path, value){ const segs=splitPathSegments(path); if(segs.length===0) return false; const {parent,lastKey}=ensureDeepContainer(root,segs); const prev=parent[lastKey]; if(prev!==value){ parent[lastKey]=value; return true; } return false; }
 function pushDeepValue(root, path, values){ const segs=splitPathSegments(path); if(segs.length===0) return false; const {parent,lastKey}=ensureDeepContainer(root,segs); let arr=parent[lastKey]; let changed=false; if(!Array.isArray(arr)) arr = arr===undefined?[]:[arr]; const incoming=Array.isArray(values)?values:[values]; for(const v of incoming){ if(!arr.includes(v)){ arr.push(v); changed=true; } } if(changed){ parent[lastKey]=arr; } return changed; }
-function deleteDeepKey(root, path){ const segs=splitPathSegments(path); if(segs.length===0) return false; const {parent,lastKey}=ensureDeepContainer(root,segs); if(Object.prototype.hasOwnProperty.call(parent,lastKey)){ if(Array.isArray(parent) && typeof lastKey==='number' && lastKey>=0 && lastKey<parent.length){ parent.splice(lastKey,1); return true; } delete parent[lastKey]; return true; } return false; }
+function deleteDeepKey(root, path) {
+  const segs = splitPathSegments(path);
+  if (segs.length === 0) return false;
+
+  const { parent, lastKey } = ensureDeepContainer(root, segs);
+
+  // 新增：数组场景
+  if (Array.isArray(parent)) {
+    // 1) 传统：按下标删除
+    if (typeof lastKey === 'number' && lastKey >= 0 && lastKey < parent.length) {
+      parent.splice(lastKey, 1);
+      return true;
+    }
+    // 2) 新增：按值删除（删除所有等于 lastKey 的元素）
+    const equal = (a, b) => {
+      if (a === b) return true;
+      // 宽松等价（'1' 与 1 等同），以及字符串化比较（去除潜在的隐式差异）
+      // 注意：此处仅用于删除匹配，风险较低
+      // eslint-disable-next-line eqeqeq
+      if (a == b) return true;
+      return String(a) === String(b);
+    };
+    let changed = false;
+    for (let i = parent.length - 1; i >= 0; i--) {
+      if (equal(parent[i], lastKey)) {
+        parent.splice(i, 1);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  // 对象场景：按键删除（保持原逻辑）
+  if (Object.prototype.hasOwnProperty.call(parent, lastKey)) {
+    delete parent[lastKey];
+    return true;
+  }
+
+  return false;
+}
 const getRootAndPath=(name)=>{ const segs=String(name||'').split('.').map(s=>s.trim()).filter(Boolean); if(segs.length<=1) return {root:String(name||'').trim(), subPath:''}; return {root:segs[0], subPath: segs.slice(1).join('.')}; };
 const joinPath=(base, more)=> base ? (more ? base + '.' + more : base) : more;
 
@@ -432,8 +471,9 @@ function parseBlock(innerText) {
       const collect = (n, base = '') => {
         if (Array.isArray(n)) {
           for (const it of n) {
-            if (typeof it === 'string') {
-              const full = base ? `${base}.${decodeKey(it)}` : decodeKey(it);
+            if (typeof it === 'string' || typeof it === 'number') {
+              const seg = typeof it === 'number' ? String(it) : decodeKey(it);
+              const full = base ? `${base}.${seg}` : seg;
               if (full) acc.add(norm(full));
             } else if (it && typeof it === 'object') collect(it, base);
           }
@@ -483,29 +523,41 @@ function parseBlock(innerText) {
         if (typeof v !== 'object') continue;
         for (const [rawTop, payload] of Object.entries(v)) {
           const top = decodeKey(rawTop);
-		if (op === 'push') {
-		  if (Array.isArray(payload)) {
-		    for (const it of payload) putPush(top, '', it);
-		  } else if (payload && typeof payload === 'object') {
-		    walkNode(op, top, payload);
-		  } else {
-		    putPush(top, '', payload);
-		  }
-		} else if (op === 'bump' && (typeof payload !== 'object' || Array.isArray(payload))) {
-		  putBump(top, '', payload);
-		} else if (op === 'del' && (!payload || typeof payload !== 'object')) {
-		  const full = norm(top);
-		  if (full) {
-		    const std = full.replace(/\[(\d+)\]/g, '.$1');
-		    const parts = std.split('.').filter(Boolean);
-		    const t = parts.shift();
-		    const rel = parts.join('.');
-		    if (t) putDel(t, rel);
-		  }
-		} else {
-		  walkNode(op, top, payload);
-		}
-          
+          if (op === 'push') {
+            if (Array.isArray(payload)) {
+              for (const it of payload) putPush(top, '', it);
+            } else if (payload && typeof payload === 'object') {
+              walkNode(op, top, payload);
+            } else {
+              putPush(top, '', payload);
+            }
+          } else if (op === 'bump' && (typeof payload !== 'object' || Array.isArray(payload))) {
+            putBump(top, '', payload);
+          } else if (op === 'del') {
+            // 支持三种形式：
+            // 1) 删除节点：删除: { "世界.森.状态": null }
+            // 2) 按值删除（标量）：删除: { "世界.森.状态": "饥饿" }
+            // 3) 按值删除（数组）：删除: { "世界.森.状态": ["饥饿", 0] }
+            if (Array.isArray(payload) || (payload && typeof payload === 'object')) {
+              // 对象/数组：将 basePath 设为 top，交给 walkNode 收集子路径
+              walkNode(op, top, payload, top);
+            } else {
+              const base = norm(top);
+              if (base) {
+                // payload 为标量：视为在 base 下按值删除该元素；
+                // payload 为 null/undefined/空串：删除整个 base 节点
+                const hasValue = payload !== undefined && payload !== null && String(payload).trim ? String(payload).trim() !== '' : payload !== undefined && payload !== null;
+                const full = hasValue ? norm(`${base}.${payload}`) : base;
+                const std = full.replace(/\[(\d+)\]/g, '.$1');
+                const parts = std.split('.').filter(Boolean);
+                const t = parts.shift();
+                const rel = parts.join('.');
+                if (t) putDel(t, rel);
+              }
+            }
+          } else {
+            walkNode(op, top, payload);
+          }
         }
       }
     };
@@ -735,10 +787,18 @@ function parseBlock(innerText) {
       }
       const [top, ...rest] = curPath.split('.');
       const rel = rest.join('.');
-      if (curOp === 'set') putSet(top, rel, stripQ(rhs));
-      else if (curOp === 'push') putPush(top, rel, stripQ(rhs));
-      else if (curOp === 'del') putDel(top, rel);
-      else if (curOp === 'bump') putBump(top, rel, Number(stripQ(rhs)));
+      if (curOp === 'set') {
+        putSet(top, rel, stripQ(rhs));
+      } else if (curOp === 'push') {
+        putPush(top, rel, stripQ(rhs));
+      } else if (curOp === 'del') {
+        // YAML 标量 RHS 下的删除：按值删除（等价于列表形式中的单个值）
+        const val = stripQ(rhs);
+        const target = rel ? `${rel}.${val}` : val;
+        putDel(top, target);
+      } else if (curOp === 'bump') {
+        putBump(top, rel, Number(stripQ(rhs)));
+      }
       continue;
     }
     const mArr = t.match(/^-+\s*(.+)$/);

@@ -25,10 +25,7 @@
                         提供STscript(command)异步函数执行酒馆命令:
 
                         await STscript('/echo 你好世界！')">启用小白X</label>
-            <button id="xiaobaix_info_btn" class="menu_button menu_button_icon" type="button" title="查看功能与更新公告">
-              <i class="fa-solid fa-circle-info"></i>
-              <small>公告</small>
-            </button>
+
           </div>
           <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
             <input type="checkbox" id="xiaobaix_render_enabled" />
@@ -239,6 +236,13 @@
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_dynamic_prompt_enabled" />
             <label for="xiaobaix_dynamic_prompt_enabled" class="has-tooltip" data-tooltip="对用户和AI的文字指纹分析，并注入改进提示词">动态提示词</label>
+          </div>
+          <br>
+          <div class="section-divider">剧情总结</div>
+          <hr class="sysHR" />
+          <div class="flex-container">
+            <input type="checkbox" id="xiaobaix_story_summary_enabled" />
+            <label for="xiaobaix_story_summary_enabled" class="has-tooltip" data-tooltip="在消息楼层添加总结按钮，点击可打开剧情总结面板，AI分析生成关键词云、时间线、人物关系、角色弧光">剧情总结面板</label>
           </div>
           <br>
           <div class="section-divider">变量控制､世界书执行</div>
@@ -490,42 +494,7 @@
       });
     }
     window.setupUpdateButtonInSettings = setupUpdateButtonHandlers;
-    async function openInfoModal() {
-      const modal = $id('xiaobaix_info_modal'); if (!modal) return;
-      modal.style.display = 'flex';
-      const container = $id('xiaobaix_info_content'); if (!container || container.dataset.loaded === 'true') return;
-      try {
-        const r = await fetch('/scripts/extensions/third-party/LittleWhiteBox/info&upda.html', { cache: 'no-store' });
-        if (r.ok) {
-          const html = await r.text(), doc = new DOMParser().parseFromString(html, 'text/html');
-          const sections = doc.querySelectorAll('main > .section, .section'); container.innerHTML = '';
-          sections.forEach(s => container.appendChild(s.cloneNode(true)));
-        }
-      } catch { }
-      try {
-        const p = new URLSearchParams(location.search), repo = p.get('repo') || 'RT15548/LittleWhiteBox', path = p.get('path') || 'info&upda.html', branch = p.get('branch') || 'main';
-        const url = `https://raw.githubusercontent.com/${repo}/${branch}/${path}`;
-        const r = await fetch(url, { cache: 'no-store' });
-        if (r.ok) {
-          const remoteHtml = await r.text(), remoteDoc = new DOMParser().parseFromString(remoteHtml, 'text/html');
-          const remoteLatest = remoteDoc.getElementById('LATESTUPDATE'), localLatest = container.querySelector('#LATESTUPDATE');
-          if (remoteLatest && localLatest) {
-            const keepTitle = localLatest.querySelector('h2')?.outerHTML || '<h2>最新更新</h2>';
-            const children = [...remoteLatest.children].filter(el => el.tagName.toLowerCase() !== 'h2');
-            if (children.length > 0) localLatest.innerHTML = keepTitle + children.map(el => el.outerHTML).join('');
-          }
-        }
-      } catch { }
-      container.dataset.loaded = 'true';
-    }
-    function closeInfoModal() { const m = $id('xiaobaix_info_modal'); if (m) m.style.display = 'none'; }
-    function initInfoAnnouncement() {
-      const btn = $id('xiaobaix_info_btn'); if (btn) { const n = btn.cloneNode(true); btn.parentNode.replaceChild(n, btn); n.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); openInfoModal(); }); }
-      const closeBtn = $id('xiaobaix_info_close'), modal = $id('xiaobaix_info_modal');
-      if (closeBtn) closeBtn.addEventListener('click', closeInfoModal);
-      if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeInfoModal(); });
-      document.addEventListener('keydown', e => { if (e.key === 'Escape') closeInfoModal(); });
-    }
+
     function setupXBtnPositionButton() {
       const KEY = 'xiaobaix_x_btn_position';
       const LABEL = { 'edit-right': 'X按钮:左', 'name-left': 'X按钮:右' };
@@ -676,7 +645,6 @@
     window.XB_applyPrevStates = function () { try { const st = extension_settings[EXT_ID].prevModuleStatesV2; if (st) applyStates(st); } catch (e) { } };
     onReady(() => {
       setupUpdateButtonHandlers();
-      initInfoAnnouncement();
       setupXBtnPositionButton();
       initTaskTabs();
       try { $(document).off('click.xbreset', '#xiaobaix_reset_btn').on('click.xbreset', '#xiaobaix_reset_btn', e => { e.preventDefault(); e.stopPropagation(); applyResetDefaults(); }); } catch (e) {
@@ -686,134 +654,7 @@
   }();
 </script>
 
-<div id="xiaobaix_info_modal" class="xiaobaix-modal" style="display:none;">
-  <div class="xiaobaix-modal-content">
-    <div class="xiaobaix-modal-header">
-      <span class="xiaobaix-modal-title">小白X 功能与更新公告</span>
-      <button id="xiaobaix_info_close" class="menu_button menu_button_icon" title="关闭"><i class="fa-solid fa-xmark"></i></button>
-    </div>
-    <div class="xiaobaix-modal-body">
-      <div id="xiaobaix_info_content" class="xiaobaix-info-content"></div>
-    </div>
-  </div>
-  <style>
-    #xiaobaix_info_btn {
-      align-items: flex-end;
-      margin-bottom: 0
-    }
-    .xiaobaix-modal {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, .6);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-      padding: 10px;
-      padding-bottom: max(10px, env(safe-area-inset-bottom))
-    }
-    .xiaobaix-modal-content {
-      background: var(--SmartThemeBlurTintColor, #1e1e1e);
-      border: 1px solid var(--SmartThemeBorderColor, #333);
-      border-radius: 10px;
-      width: min(900px, 90vw);
-      height: min(85vh, 92vh);
-      display: flex;
-      flex-direction: column;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
-      backdrop-filter: blur(var(--SmartThemeBlurStrength, 0px))
-    }
-    .xiaobaix-modal-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--SmartThemeBorderColor, #2a2a2a);
-      background: var(--SmartThemeBlurTintColor, #1e1e1e);
-      border-radius: 10px 10px 0 0
-    }
-    .xiaobaix-modal-title {
-      color: var(--SmartThemeBodyColor, #e9e9e9);
-      font-weight: 600
-    }
-    .xiaobaix-modal-body {
-      flex: 1;
-      overflow: auto
-    }
-    .xiaobaix-info-content {
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      word-break: break-all;
-      word-wrap: break-word
-    }
-    .xiaobaix-info-content h3,
-    .xiaobaix-info-content h4 {
-      margin: 4px 0 8px;
-      color: var(--SmartThemeBodyColor, #e9e9e9)
-    }
-    .xiaobaix-info-content p {
-      margin: 0;
-      color: #ccc
-    }
-    .xiaobaix-info-grid {
-      display: grid;
-      gap: 12px;
-      grid-template-columns: repeat(2, minmax(0, 1fr))
-    }
-    .xiaobaix-info-grid h4 {
-      margin: 0 0 6px;
-      color: #9be49b
-    }
-    .xiaobaix-info-grid ul {
-      margin: 0;
-      padding-left: 18px
-    }
-    .xiaobaix-info-grid li {
-      margin: 4px 0
-    }
-    @media (max-width:680px) {
-      .xiaobaix-info-grid {
-        grid-template-columns: 1fr
-      }
-    }
-    @media (max-width:999px) {
-      .xiaobaix-modal {
-        align-items: flex-start
-      }
-      .xiaobaix-modal-content {
-        width: 100vw;
-        height: calc(100svh - var(--topBarBlockSize, 0px) - 10px);
-        margin-top: var(--topBarBlockSize, 0px);
-        border-radius: 12px
-      }
-    }
-    .collapsible .toggle {
-      display: none
-    }
-    .collapsible .title {
-      cursor: pointer;
-      display: block
-    }
-    .collapsible .title h4::after {
-      content: ' ▼';
-      font-size: .8em;
-      transition: transform .3s
-    }
-    .collapsible .content {
-      max-height: 0;
-      overflow: hidden;
-      transition: max-height .3s ease
-    }
-    .collapsible .toggle:checked~.content {
-      max-height: 200px
-    }
-    .collapsible .toggle:checked~.title h4::after {
-      transform: rotate(-180deg)
-    }
-  </style>
-</div>
+
 
 <style>
   .cloud-tasks-modal {

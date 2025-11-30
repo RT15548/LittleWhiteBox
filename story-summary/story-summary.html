@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>剧情总结 · Story Summary</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    --bg-primary: #fafafa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f5f5f5;
+    --text-primary: #1a1a1a;
+    --text-secondary: #666666;
+    --text-muted: #999999;
+    --border-color: #e5e5e5;
+    --border-light: #f0f0f0;
+    --accent: #1a1a1a;
+    --accent-light: #333333;
+    --highlight: #ff4444;
+    --highlight-soft: rgba(255, 68, 68, 0.1);
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+.summary-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 24px 40px;
+    max-width: 1800px;
+    margin: 0 auto;
+    overflow: hidden;
+}
+
+.summary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 24px;
+}
+
+.header-left h1 {
+    font-size: 2rem;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+}
+
+.header-left h1 span { font-weight: 600; }
+
+.header-subtitle {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.header-stats { display: flex; gap: 48px; text-align: right; }
+.stat-item { display: flex; flex-direction: column; }
+
+.stat-value {
+    font-size: 2.5rem;
+    font-weight: 200;
+    line-height: 1;
+    letter-spacing: -0.03em;
+}
+
+.stat-value .highlight { color: var(--highlight); }
+
+.stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+}
+
+.controls-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 0;
+    margin-bottom: 20px;
+}
+
+.status-badge {
+    padding: 8px 20px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.btn {
+    padding: 12px 28px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn:hover { border-color: var(--accent); background: var(--bg-tertiary); }
+.btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent-light); }
+.btn-primary:disabled { background: #999; border-color: #999; cursor: not-allowed; opacity: 0.7; }
+.btn-icon { padding: 10px 16px; display: flex; align-items: center; gap: 6px; }
+.btn-icon svg { width: 16px; height: 16px; }
+.spacer { flex: 1; }
+
+.summary-main {
+    display: grid;
+    grid-template-columns: 1fr 480px;
+    gap: 24px;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.section-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-secondary);
+}
+
+.section-edit-btn {
+    padding: 4px 12px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.section-edit-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.left-content {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.keywords-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    padding: 24px;
+}
+
+.keywords-cloud { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+
+.keyword-tag {
+    padding: 8px 20px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    transition: all 0.2s;
+    cursor: default;
+}
+
+.keyword-tag.primary { background: var(--accent); color: white; border-color: var(--accent); font-weight: 500; }
+.keyword-tag.secondary { background: var(--highlight-soft); border-color: rgba(255, 68, 68, 0.2); color: var(--highlight); }
+.keyword-tag:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+
+.timeline-section {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.timeline-list {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 8px;
+    min-height: 0;
+}
+
+.timeline-list::-webkit-scrollbar { width: 4px; }
+.timeline-list::-webkit-scrollbar-thumb { background: var(--border-color); }
+
+.timeline-item {
+    position: relative;
+    padding-left: 32px;
+    padding-bottom: 32px;
+    border-left: 1px solid var(--border-color);
+    margin-left: 8px;
+}
+
+.timeline-item:last-child { border-left-color: transparent; padding-bottom: 0; }
+
+.timeline-dot {
+    position: absolute;
+    left: -5px;
+    top: 0;
+    width: 9px;
+    height: 9px;
+    background: var(--bg-secondary);
+    border: 2px solid var(--text-muted);
+    border-radius: 50%;
+    transition: all 0.2s;
+}
+
+.timeline-item:hover .timeline-dot { border-color: var(--highlight); background: var(--highlight); transform: scale(1.3); }
+.timeline-item.critical .timeline-dot { border-color: var(--highlight); background: var(--highlight); }
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+}
+
+.timeline-title { font-size: 1rem; font-weight: 500; color: var(--text-primary); }
+.timeline-time { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.timeline-brief { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.7; margin-bottom: 12px; }
+.timeline-meta { display: flex; gap: 16px; font-size: 0.75rem; color: var(--text-muted); }
+.timeline-meta .importance { color: var(--highlight); font-weight: 500; }
+
+.right-panel { display: flex; flex-direction: column; gap: 24px; min-height: 0; }
+
+.relations-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    padding: 24px;
+    flex: 1;
+    min-height: 320px;
+    display: flex;
+    flex-direction: column;
+}
+
+#relation-chart { width: 100%; flex: 1; min-height: 200px; }
+
+.arcs-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    padding: 24px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.arcs-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding-right: 8px;
+}
+
+.arcs-list::-webkit-scrollbar { width: 4px; }
+.arcs-list::-webkit-scrollbar-thumb { background: var(--border-color); }
+
+.arc-card {
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.arc-card:hover { border-color: var(--accent); box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+
+.arc-card-active {
+    border-color: var(--highlight);
+    background: var(--highlight-soft);
+    box-shadow: 0 4px 20px rgba(255, 68, 68, 0.15);
+    transform: scale(1.02);
+}
+
+.arc-card-active .arc-name { color: var(--highlight); }
+.arc-card-active .arc-progress-inner { background: var(--highlight); }
+
+.arc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.arc-name { font-size: 0.9375rem; font-weight: 600; }
+.arc-phase { font-size: 0.75rem; color: var(--text-muted); }
+.arc-progress { height: 3px; background: var(--border-color); margin-bottom: 12px; overflow: hidden; }
+.arc-progress-inner { height: 100%; background: var(--accent); transition: width 0.6s ease-out; }
+.arc-info { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; }
+.arc-beats { font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6; }
+.arc-beat { position: relative; padding-left: 12px; margin-bottom: 4px; }
+.arc-beat::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    width: 4px;
+    height: 4px;
+    background: var(--border-color);
+    border-radius: 50%;
+}
+
+.empty-state { text-align: center; padding: 40px; color: var(--text-muted); font-size: 0.875rem; }
+
+/* 通用弹窗样式 */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-overlay.active { display: flex; }
+
+.modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.modal-panel {
+    position: relative;
+    width: 100%;
+    max-width: 720px;
+    max-height: 90vh;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h2 { font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; }
+
+.modal-close {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.modal-close:hover { background: var(--bg-tertiary); border-color: var(--accent); }
+.modal-close svg { width: 14px; height: 14px; }
+
+.modal-body { flex: 1; overflow-y: auto; padding: 24px; }
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 24px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* 编辑器样式 */
+.editor-textarea {
+    width: 100%;
+    min-height: 300px;
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    resize: vertical;
+    outline: none;
+}
+
+.editor-textarea:focus { border-color: var(--accent); }
+
+.editor-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+
+.editor-error {
+    padding: 12px;
+    background: var(--highlight-soft);
+    border: 1px solid rgba(255, 68, 68, 0.3);
+    color: var(--highlight);
+    font-size: 0.8125rem;
+    margin-top: 12px;
+    display: none;
+}
+
+.editor-error.visible { display: block; }
+
+/* 设置弹窗继续使用已有样式 */
+.settings-modal { position: fixed; inset: 0; z-index: 10000; display: none; align-items: center; justify-content: center; }
+.settings-modal.active { display: flex; }
+.settings-overlay { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
+
+.settings-panel {
+    position: relative;
+    width: 100%;
+    max-width: 720px;
+    max-height: 90vh;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.settings-header h2 { font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; }
+
+.settings-close {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.settings-close:hover { background: var(--bg-tertiary); border-color: var(--accent); }
+.settings-close svg { width: 14px; height: 14px; }
+
+.settings-body { flex: 1; overflow-y: auto; padding: 24px; }
+.settings-section { margin-bottom: 32px; }
+.settings-section:last-child { margin-bottom: 0; }
+
+.settings-section-title {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.settings-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.settings-row:last-child { margin-bottom: 0; }
+.settings-field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
+.settings-field.full { flex: 100%; }
+.settings-field label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.settings-field input,
+.settings-field select {
+    padding: 10px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.settings-field input:focus,
+.settings-field select:focus { border-color: var(--accent); }
+.settings-field input[type="password"] { letter-spacing: 0.15em; }
+
+.settings-field-inline { display: flex; align-items: center; gap: 8px; }
+.settings-field-inline input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+.settings-field-inline label { font-size: 0.8125rem; color: var(--text-secondary); text-transform: none; letter-spacing: 0; }
+
+.settings-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+.settings-btn-row { display: flex; gap: 12px; margin-top: 8px; }
+
+.btn-sm { padding: 8px 16px; font-size: 0.8125rem; }
+.btn-connect { background: var(--accent); color: white; border-color: var(--accent); }
+.btn-connect:hover { background: var(--accent-light); }
+.btn-connect:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.model-select-wrap { display: none; }
+.model-select-wrap.active { display: flex; flex-direction: column; gap: 6px; }
+
+.hidden { display: none !important; }
+
+@media (max-width: 1200px) {
+    .summary-container { padding: 16px 24px; }
+    .summary-main { grid-template-columns: 1fr; }
+    .right-panel { flex-direction: row; }
+    .relations-section, .arcs-section { flex: 1; min-height: 300px; }
+}
+
+@media (max-width: 768px) {
+    html, body { height: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .summary-container { height: auto; min-height: 100vh; overflow: visible; padding: 16px; }
+    .summary-header { flex-direction: column; gap: 16px; padding-bottom: 16px; margin-bottom: 16px; }
+    .header-left h1 { font-size: 1.5rem; }
+    .header-stats { width: 100%; justify-content: space-between; gap: 16px; text-align: center; }
+    .stat-value { font-size: 1.75rem; }
+    .stat-label { font-size: 0.625rem; }
+    .controls-bar { flex-wrap: wrap; gap: 10px; padding: 10px 0; margin-bottom: 16px; }
+    .status-badge { order: 3; width: 100%; text-align: center; padding: 6px 12px; font-size: 0.75rem; }
+    .spacer { display: none; }
+    .btn { padding: 10px 20px; font-size: 0.8125rem; }
+    .btn-icon { padding: 10px 14px; }
+    .summary-main, .left-content { gap: 16px; overflow: visible; }
+    .right-panel { flex-direction: column; gap: 16px; }
+    .timeline-section { padding: 16px; max-height: 400px; }
+    .relations-section, .arcs-section { min-height: 280px; max-height: 320px; padding: 16px; }
+    .section-header { margin-bottom: 12px; }
+    .keywords-section { padding: 16px; }
+    .keywords-cloud { gap: 8px; margin-top: 12px; }
+    .keyword-tag { padding: 6px 14px; font-size: 0.8125rem; }
+    .timeline-item { padding-left: 24px; padding-bottom: 24px; }
+    .timeline-title { font-size: 0.9375rem; }
+    .timeline-brief { font-size: 0.8125rem; line-height: 1.6; }
+    .modal-panel, .settings-panel { max-width: 100%; max-height: 100%; height: 100%; border: none; }
+    .modal-header, .modal-body, .modal-footer, .settings-header, .settings-body { padding: 16px; }
+    .settings-row { flex-direction: column; gap: 12px; }
+    .settings-field { min-width: 100%; }
+    .settings-field input, .settings-field select { padding: 12px 14px; font-size: 1rem; }
+}
+
+@media (max-width: 480px) {
+    .summary-container { padding: 12px; }
+    .summary-header { padding-bottom: 12px; margin-bottom: 12px; }
+    .header-left h1 { font-size: 1.25rem; }
+    .header-subtitle { font-size: 0.6875rem; }
+    .header-stats { gap: 8px; }
+    .stat-item { flex: 1; }
+    .stat-value { font-size: 1.5rem; }
+    .controls-bar { gap: 8px; padding: 8px 0; margin-bottom: 12px; }
+    .btn { flex: 1; padding: 10px 12px; font-size: 0.75rem; text-align: center; justify-content: center; }
+    .btn-icon { padding: 10px 12px; }
+    .btn-icon svg { width: 14px; height: 14px; }
+    .summary-main, .left-content, .right-panel { gap: 12px; }
+    .keywords-section, .timeline-section, .relations-section, .arcs-section { padding: 12px; }
+    .section-title { font-size: 0.6875rem; }
+    .section-edit-btn { font-size: 0.625rem; padding: 3px 8px; }
+    .relations-section, .arcs-section { min-height: 240px; }
+    #relation-chart { min-height: 180px; }
+    .keywords-cloud { gap: 6px; margin-top: 10px; }
+    .keyword-tag { padding: 5px 10px; font-size: 0.75rem; }
+    .timeline-item { padding-left: 20px; padding-bottom: 20px; margin-left: 6px; }
+    .timeline-dot { width: 7px; height: 7px; left: -4px; }
+    .timeline-header { flex-direction: column; align-items: flex-start; gap: 2px; }
+    .timeline-title { font-size: 0.875rem; }
+    .timeline-time { font-size: 0.6875rem; }
+    .timeline-brief { font-size: 0.75rem; margin-bottom: 8px; }
+    .timeline-meta { flex-direction: column; gap: 4px; font-size: 0.6875rem; }
+    .arc-card { padding: 12px; }
+    .arc-name { font-size: 0.875rem; }
+    .arc-phase, .arc-info { font-size: 0.6875rem; }
+    .arc-beats { font-size: 0.75rem; }
+    .arc-beat { padding-left: 10px; }
+    .arc-beat::before { width: 3px; height: 3px; top: 7px; }
+    .settings-header h2, .modal-header h2 { font-size: 0.875rem; }
+    .settings-section-title { font-size: 0.625rem; }
+    .settings-field label { font-size: 0.6875rem; }
+    .settings-field-inline label { font-size: 0.75rem; }
+    .settings-hint { font-size: 0.6875rem; }
+    .btn-sm { padding: 10px 14px; font-size: 0.75rem; width: 100%; }
+    .editor-textarea { min-height: 200px; font-size: 0.75rem; }
+}
+
+@media (hover: none) and (pointer: coarse) {
+    .btn { min-height: 44px; }
+    .keyword-tag { min-height: 36px; display: flex; align-items: center; }
+    .keyword-tag:hover { transform: none; }
+    .timeline-item:hover .timeline-dot { transform: none; }
+    .arc-card:hover { box-shadow: none; }
+    .settings-close, .modal-close { width: 44px; height: 44px; }
+    .settings-field input, .settings-field select { min-height: 44px; }
+    .settings-field-inline input[type="checkbox"] { width: 22px; height: 22px; }
+    .section-edit-btn { min-height: 32px; padding: 6px 12px; }
+}
+</style>
+</head>
+<body>
+
+<div class="summary-container">
+    <header class="summary-header">
+        <div class="header-left">
+            <h1>剧情<span>总结</span></h1>
+            <div class="header-subtitle">Story Summary · Timeline · Character Arcs</div>
+        </div>
+        <div class="header-stats">
+            <div class="stat-item">
+                <div class="stat-value" id="stat-events">0</div>
+                <div class="stat-label">已记录事件</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-summarized">0</div>
+                <div class="stat-label">已总结楼层</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value"><span class="highlight" id="stat-pending">0</span></div>
+                <div class="stat-label">待总结</div>
+            </div>
+        </div>
+    </header>
+
+    <div class="controls-bar">
+        <span class="status-badge" id="status-badge">已总结至第 0 楼 · 等待新内容</span>
+        <span class="spacer"></span>
+        <button class="btn btn-icon" id="btn-settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            设置
+        </button>
+        <button class="btn" id="btn-clear">清空</button>
+        <button class="btn btn-primary" id="btn-generate">总结</button>
+    </div>
+
+    <main class="summary-main">
+        <div class="left-content">
+            <section class="keywords-section">
+                <div class="section-header">
+                    <div class="section-title">核心关键词</div>
+                    <button class="section-edit-btn" data-section="keywords">编辑</button>
+                </div>
+                <div class="keywords-cloud" id="keywords-cloud"></div>
+            </section>
+
+            <section class="timeline-section">
+                <div class="section-header">
+                    <div class="section-title">剧情时间线</div>
+                    <button class="section-edit-btn" data-section="events">编辑</button>
+                </div>
+                <div class="timeline-list" id="timeline-list"></div>
+            </section>
+        </div>
+
+        <div class="right-panel">
+            <section class="relations-section">
+                <div class="section-header">
+                    <div class="section-title">人物关系</div>
+                    <button class="section-edit-btn" data-section="characters">编辑</button>
+                </div>
+                <div id="relation-chart"></div>
+            </section>
+
+            <section class="arcs-section">
+                <div class="section-header">
+                    <div class="section-title">角色弧光</div>
+                    <button class="section-edit-btn" data-section="arcs">编辑</button>
+                </div>
+                <div class="arcs-list" id="arcs-list"></div>
+            </section>
+        </div>
+    </main>
+</div>
+
+<!-- 编辑弹窗 -->
+<div class="modal-overlay" id="editor-modal">
+    <div class="modal-backdrop" id="editor-backdrop"></div>
+    <div class="modal-panel">
+        <div class="modal-header">
+            <h2 id="editor-title">编辑</h2>
+            <button class="modal-close" id="editor-close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="editor-hint" id="editor-hint"></div>
+            <textarea class="editor-textarea" id="editor-textarea"></textarea>
+            <div class="editor-error" id="editor-error"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn" id="editor-cancel">取消</button>
+            <button class="btn btn-primary" id="editor-save">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 设置弹窗 -->
+<div class="settings-modal" id="settings-modal">
+    <div class="settings-overlay" id="settings-overlay"></div>
+    <div class="settings-panel">
+        <div class="settings-header">
+            <h2>设置</h2>
+            <button class="settings-close" id="settings-close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+        <div class="settings-body">
+            <div class="settings-section">
+                <div class="settings-section-title">API 配置</div>
+                <div class="settings-row">
+                    <div class="settings-field">
+                        <label>渠道</label>
+                        <select id="api-provider">
+                            <option value="st">酒馆主 API（沿用当前）</option>
+                            <option value="openai">OpenAI 兼容</option>
+                            <option value="google">Google (Gemini)</option>
+                            <option value="claude">Claude (Anthropic)</option>
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="cohere">Cohere</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="settings-row" id="api-url-row">
+                    <div class="settings-field full">
+                        <label>API URL</label>
+                        <input type="text" id="api-url" placeholder="https://api.openai.com 或代理地址">
+                        <div class="settings-hint">不同渠道默认端点：OpenAI 用 /v1，Gemini 用 /v1beta，Claude 用 /v1</div>
+                    </div>
+                </div>
+                <div class="settings-row" id="api-key-row">
+                    <div class="settings-field full">
+                        <label>API KEY</label>
+                        <input type="password" id="api-key" placeholder="仅保存在本地，不会上传">
+                    </div>
+                </div>
+                <div class="settings-row" id="api-model-row">
+                    <div class="settings-field">
+                        <label>模型</label>
+                        <input type="text" id="api-model-text" placeholder="如 gpt-4o-mini、claude-3-haiku">
+                    </div>
+                    <div class="settings-field model-select-wrap" id="model-select-wrap">
+                        <label>可用模型</label>
+                        <select id="api-model-select"></select>
+                    </div>
+                </div>
+                <div class="settings-btn-row" id="api-connect-row">
+                    <button class="btn btn-sm btn-connect" id="btn-connect">连接 / 拉取模型列表</button>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-section-title">生成参数</div>
+                <div class="settings-row">
+                    <div class="settings-field">
+                        <label>Temperature</label>
+                        <input type="number" id="gen-temp" step="0.01" min="0" max="2" placeholder="未设置">
+                    </div>
+                    <div class="settings-field">
+                        <label>Top P</label>
+                        <input type="number" id="gen-top-p" step="0.01" min="0" max="1" placeholder="未设置">
+                    </div>
+                    <div class="settings-field">
+                        <label>Top K</label>
+                        <input type="number" id="gen-top-k" step="1" min="1" placeholder="未设置">
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-field">
+                        <label>存在惩罚</label>
+                        <input type="number" id="gen-presence" step="0.01" min="-2" max="2" placeholder="未设置">
+                    </div>
+                    <div class="settings-field">
+                        <label>频率惩罚</label>
+                        <input type="number" id="gen-frequency" step="0.01" min="-2" max="2" placeholder="未设置">
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-section-title">自动触发</div>
+                <div class="settings-row">
+                    <div class="settings-field">
+                        <label>总结间隔（楼）</label>
+                        <input type="number" id="trigger-interval" min="5" step="5" value="20">
+                    </div>
+                    <div class="settings-field">
+                        <label>触发时机</label>
+                        <select id="trigger-timing">
+                            <option value="after_ai">AI 回复后</option>
+                            <option value="before_user">用户发送前</option>
+                            <option value="manual">仅手动</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-field-inline">
+                        <input type="checkbox" id="trigger-enabled">
+                        <label for="trigger-enabled">启用自动总结</label>
+                    </div>
+                    <div class="settings-field-inline">
+                        <input type="checkbox" id="api-stream" checked>
+                        <label for="api-stream">启用流式传输</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script>
+// ====== 数据存储 ======
+const config = {
+    api: { provider: 'st', url: '', key: '', model: '', modelCache: [], stream: true },
+    gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
+    trigger: { enabled: false, interval: 20, timing: 'after_ai' }
+};
+
+let summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] };
+let localGenerating = false;
+let relationChart = null;
+let currentEditSection = null;
+
+const providerDefaults = {
+    st: { url: '', needKey: false, canFetch: false },
+    openai: { url: 'https://api.openai.com', needKey: true, canFetch: true },
+    google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false },
+    claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false },
+    deepseek: { url: 'https://api.deepseek.com', needKey: true, canFetch: true },
+    cohere: { url: 'https://api.cohere.ai', needKey: true, canFetch: false },
+    custom: { url: '', needKey: true, canFetch: true }
+};
+
+const sectionMeta = {
+    keywords: {
+        title: '编辑关键词',
+        hint: '每行一个关键词，格式：关键词|权重（核心/重要/一般）\n例如：\n命运之轮|核心\n神秘组织|重要\n古老预言|一般'
+    },
+    events: {
+        title: '编辑事件时间线',
+        hint: 'JSON数组格式，每个事件包含：id, title, timeLabel, summary, participants, type, impact'
+    },
+    characters: {
+        title: '编辑人物关系',
+        hint: 'JSON对象格式，包含 main（主要角色数组）和 relationships（关系数组）'
+    },
+    arcs: {
+        title: '编辑角色弧光',
+        hint: 'JSON数组格式，每个角色包含：name, trajectory, progress(0-1), moments'
+    }
+};
+
+function loadConfig() {
+    try {
+        const saved = localStorage.getItem('summary_panel_config');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            Object.assign(config.api, parsed.api || {});
+            Object.assign(config.gen, parsed.gen || {});
+            Object.assign(config.trigger, parsed.trigger || {});
+        }
+    } catch {}
+}
+
+function saveConfig() {
+    try { localStorage.setItem('summary_panel_config', JSON.stringify(config)); } catch {}
+}
+
+// ====== 渲染函数 ======
+function renderKeywords(keywords) {
+    summaryData.keywords = keywords || [];
+    const weightClass = { '核心': 'primary', '重要': 'secondary', '一般': 'normal', high: 'primary', medium: 'secondary', low: 'normal' };
+    document.getElementById('keywords-cloud').innerHTML = keywords.map(k => {
+        const cls = weightClass[k.weight] || weightClass[k.level] || 'normal';
+        return `<span class="keyword-tag ${cls}">${k.text}</span>`;
+    }).join('') || '<div class="empty-state">暂无关键词</div>';
+}
+
+function renderTimeline(events) {
+    summaryData.events = events || [];
+    const container = document.getElementById('timeline-list');
+
+    if (!events?.length) {
+        container.innerHTML = '<div class="empty-state">暂无事件记录</div>';
+        return;
+    }
+
+    const impactText = { '高': '关键', '中': '重要', '低': '次要', high: '关键', medium: '重要', low: '次要' };
+
+    container.innerHTML = events.map(ev => {
+        const timeLabel = ev.timeLabel || `${Math.round((ev.position || 0) * 100)}%`;
+        const summary = ev.summary || ev.brief || '';
+        const participants = ev.participants || ev.characters || [];
+        const isCritical = ev.impact === '高' || ev.impact === 'high' || ev.critical;
+        const typeText = ev.type || '';
+        const impactLabel = impactText[ev.impact] || '';
+
+        return `
+            <div class="timeline-item ${isCritical ? 'critical' : ''}">
+                <div class="timeline-dot"></div>
+                <div class="timeline-header">
+                    <div class="timeline-title">${ev.title || ''}</div>
+                    <div class="timeline-time">${timeLabel}</div>
+                </div>
+                <div class="timeline-brief">${summary}</div>
+                <div class="timeline-meta">
+                    <span>人物：${participants.join('、') || '—'}</span>
+                    <span class="importance">${typeText}${typeText && impactLabel ? ' · ' : ''}${impactLabel}</span>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+function renderRelations(data) {
+    summaryData.characters = data || { main: [], relationships: [] };
+    const dom = document.getElementById('relation-chart');
+    if (!relationChart) {
+        relationChart = echarts.init(dom);
+        window.addEventListener('resize', () => relationChart?.resize());
+    }
+
+    let nodeList, linkList;
+    if (data?.nodes && data?.links) {
+        nodeList = data.nodes;
+        linkList = data.links;
+    } else if (data?.main || data?.relationships) {
+        const mainChars = data.main || [];
+        const rels = data.relationships || [];
+        const allNames = new Set(mainChars);
+        rels.forEach(r => { if (r.from) allNames.add(r.from); if (r.to) allNames.add(r.to); });
+
+        nodeList = Array.from(allNames).map(name => ({
+            id: name, name, importance: mainChars.includes(name) ? 0.9 : 0.5
+        }));
+
+        const trendStrength = { '亲近': 0.9, '疏远': 0.4, '不变': 0.6, '新建': 0.7, '破裂': 0.3, closer: 0.9, distant: 0.4, unchanged: 0.6, new: 0.7, broken: 0.3 };
+        linkList = rels.map(r => ({
+            source: r.from, target: r.to, type: r.label || r.type || '关系', strength: trendStrength[r.trend] || 0.6
+        }));
+    } else {
+        nodeList = [];
+        linkList = [];
+    }
+
+    if (!nodeList.length) { relationChart.clear(); return; }
+
+    const getTextWidth = text => Math.max(text.length * 14 + 24, 60);
+    const nodes = nodeList.map(n => ({
+        id: n.id, name: n.name, symbol: 'roundRect',
+        symbolSize: [getTextWidth(n.name), 36],
+        itemStyle: {
+            color: n.importance > 0.8 ? '#ff4444' : n.importance > 0.6 ? '#1a1a1a' : '#666',
+            borderColor: n.importance > 0.8 ? '#ff4444' : '#1a1a1a',
+            borderWidth: 2, borderRadius: 4, shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.15)'
+        },
+        label: { show: true, color: '#fff', fontSize: 13, fontWeight: 600, position: 'inside' }
+    }));
+
+    const links = linkList.map(l => ({
+        source: l.source || l.from, target: l.target || l.to, value: l.type || l.label || '',
+        lineStyle: { width: 1.5 + (l.strength || 0.5) * 2, color: '#999', curveness: 0.2 },
+        label: {
+            show: true, formatter: l.type || l.label || '', fontSize: 11, fontWeight: 500, color: '#333',
+            padding: [3, 6], backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 3, borderColor: '#ddd', borderWidth: 1
+        }
+    }));
+
+    const nodeCount = nodes.length;
+    const minDim = Math.min(dom.clientHeight || 280, dom.clientWidth || 400);
+    const baseRepulsion = Math.max(300, minDim * 1.2);
+    const repulsion = nodeCount <= 3 ? baseRepulsion * 1.5 : nodeCount <= 5 ? baseRepulsion : baseRepulsion * 0.7;
+    const edgeLengthBase = minDim * 0.35;
+    const edgeLength = nodeCount <= 3 ? [edgeLengthBase, edgeLengthBase * 1.8] : nodeCount <= 5 ? [edgeLengthBase * 0.6, edgeLengthBase * 1.4] : [edgeLengthBase * 0.4, edgeLengthBase];
+
+    relationChart.setOption({
+        tooltip: { show: false },
+        series: [{
+            type: 'graph', layout: 'force', roam: false, draggable: true,
+            left: '5%', right: '5%', top: '5%', bottom: '5%',
+            data: nodes, links,
+            force: { repulsion, edgeLength, gravity: 0.08, friction: 0.6, layoutAnimation: true },
+            emphasis: {
+                focus: 'adjacency',
+                itemStyle: { shadowBlur: 16, shadowColor: 'rgba(0,0,0,0.3)' },
+                lineStyle: { width: 4, color: '#1a1a1a' }
+            },
+            select: { itemStyle: { borderWidth: 3, borderColor: '#ff4444' } }
+        }]
+    });
+
+    relationChart.off('click');
+    relationChart.on('click', params => { if (params.dataType === 'node') highlightAndScrollArc(params.data.id); });
+    setTimeout(() => relationChart?.resize(), 100);
+}
+
+function highlightAndScrollArc(characterId) {
+    const container = document.getElementById('arcs-list');
+    const cards = container.querySelectorAll('.arc-card');
+    cards.forEach(card => card.classList.remove('arc-card-active'));
+
+    let targetCard = null;
+    cards.forEach(card => { if (card.dataset.characterId === characterId) targetCard = card; });
+
+    if (targetCard) {
+        targetCard.classList.add('arc-card-active');
+        container.insertBefore(targetCard, container.firstChild);
+        container.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+}
+
+function renderArcs(arcs) {
+    summaryData.arcs = arcs || [];
+    const container = document.getElementById('arcs-list');
+
+    if (!arcs?.length) {
+        container.innerHTML = '<div class="empty-state">暂无角色数据</div>';
+        return;
+    }
+
+    container.innerHTML = arcs.map(arc => {
+        const charId = arc.id || arc.name;
+        const trajectory = arc.trajectory || arc.phase || '';
+        const beats = arc.moments || arc.beats || [];
+        const progress = arc.progress || 0;
+
+        return `
+            <div class="arc-card" data-character-id="${charId}">
+                <div class="arc-header">
+                    <span class="arc-name">${arc.name || '角色'}</span>
+                    <span class="arc-phase">${trajectory.slice(0, 20)}${trajectory.length > 20 ? '...' : ''}</span>
+                </div>
+                <div class="arc-progress">
+                    <div class="arc-progress-inner" style="width:${progress * 100}%"></div>
+                </div>
+                <div class="arc-info">
+                    <span>角色弧光</span>
+                    <span>${Math.round(progress * 100)}%</span>
+                </div>
+                <div class="arc-beats">
+                    ${beats.map(b => `<div class="arc-beat">${b}</div>`).join('')}
+                </div>
+            </div>`;
+    }).join('');
+
+    container.querySelectorAll('.arc-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const charId = card.dataset.characterId;
+            container.querySelectorAll('.arc-card').forEach(c => c.classList.remove('arc-card-active'));
+            card.classList.add('arc-card-active');
+
+            if (relationChart) {
+                const option = relationChart.getOption();
+                if (option?.series?.[0]?.data) {
+                    const idx = option.series[0].data.findIndex(n => n.id === charId || n.name === charId);
+                    if (idx >= 0) relationChart.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex: idx });
+                }
+            }
+        });
+    });
+}
+
+function updateStats(stats) {
+    if (!stats) return;
+    document.getElementById('stat-summarized').textContent = stats.summarizedUpTo ?? 0;
+    document.getElementById('stat-events').textContent = stats.eventsCount ?? 0;
+    document.getElementById('stat-pending').textContent = stats.pendingFloors ?? 0;
+}
+
+// ====== 编辑器 ======
+const editorModal = document.getElementById('editor-modal');
+const editorTextarea = document.getElementById('editor-textarea');
+const editorError = document.getElementById('editor-error');
+
+function openEditor(section) {
+    currentEditSection = section;
+    const meta = sectionMeta[section];
+    document.getElementById('editor-title').textContent = meta.title;
+    document.getElementById('editor-hint').textContent = meta.hint;
+    editorError.classList.remove('visible');
+    editorError.textContent = '';
+
+    let content = '';
+    if (section === 'keywords') {
+        content = summaryData.keywords.map(k => `${k.text}|${k.weight || '一般'}`).join('\n');
+    } else if (section === 'events') {
+        content = JSON.stringify(summaryData.events, null, 2);
+    } else if (section === 'characters') {
+        content = JSON.stringify(summaryData.characters, null, 2);
+    } else if (section === 'arcs') {
+        content = JSON.stringify(summaryData.arcs, null, 2);
+    }
+
+    editorTextarea.value = content;
+    editorModal.classList.add('active');
+    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'EDITOR_OPENED' }, '*');
+}
+
+function closeEditor() {
+    editorModal.classList.remove('active');
+    currentEditSection = null;
+    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'EDITOR_CLOSED' }, '*');
+}
+
+function saveEditor() {
+    const section = currentEditSection;
+    const raw = editorTextarea.value.trim();
+    let parsed;
+
+    try {
+        if (section === 'keywords') {
+            parsed = raw.split('\n').filter(l => l.trim()).map(line => {
+                const [text, weight] = line.split('|').map(s => s.trim());
+                return { text: text || '', weight: weight || '一般' };
+            });
+        } else {
+            parsed = JSON.parse(raw);
+        }
+    } catch (e) {
+        editorError.textContent = `格式错误: ${e.message}`;
+        editorError.classList.add('visible');
+        return;
+    }
+
+    window.parent.postMessage({
+        source: 'LittleWhiteBox-StoryFrame',
+        type: 'UPDATE_SECTION',
+        section,
+        data: parsed
+    }, '*');
+
+    if (section === 'keywords') {
+        renderKeywords(parsed);
+    } else if (section === 'events') {
+        renderTimeline(parsed);
+        document.getElementById('stat-events').textContent = parsed.length;
+    } else if (section === 'characters') {
+        renderRelations(parsed);
+    } else if (section === 'arcs') {
+        renderArcs(parsed);
+    }
+
+    closeEditor();
+}
+
+document.querySelectorAll('.section-edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => openEditor(btn.dataset.section));
+});
+document.getElementById('editor-backdrop').addEventListener('click', closeEditor);
+document.getElementById('editor-close').addEventListener('click', closeEditor);
+document.getElementById('editor-cancel').addEventListener('click', closeEditor);
+document.getElementById('editor-save').addEventListener('click', saveEditor);
+
+// ====== 设置弹窗 ======
+const settingsModal = document.getElementById('settings-modal');
+
+function openSettings() {
+    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'SETTINGS_OPENED' }, '*');
+
+    document.getElementById('api-provider').value = config.api.provider;
+    document.getElementById('api-url').value = config.api.url;
+    document.getElementById('api-key').value = config.api.key;
+    document.getElementById('api-model-text').value = config.api.model;
+    document.getElementById('api-stream').checked = config.api.stream;
+
+    document.getElementById('gen-temp').value = config.gen.temperature ?? '';
+    document.getElementById('gen-top-p').value = config.gen.top_p ?? '';
+    document.getElementById('gen-top-k').value = config.gen.top_k ?? '';
+    document.getElementById('gen-presence').value = config.gen.presence_penalty ?? '';
+    document.getElementById('gen-frequency').value = config.gen.frequency_penalty ?? '';
+
+    document.getElementById('trigger-enabled').checked = config.trigger.enabled;
+    document.getElementById('trigger-interval').value = config.trigger.interval;
+    document.getElementById('trigger-timing').value = config.trigger.timing;
+
+    if (config.api.modelCache.length > 0) {
+        const select = document.getElementById('api-model-select');
+        select.innerHTML = config.api.modelCache.map(m =>
+            `<option value="${m}" ${m === config.api.model ? 'selected' : ''}>${m}</option>`
+        ).join('');
+        document.getElementById('model-select-wrap').classList.add('active');
+    }
+
+    updateProviderUI(config.api.provider);
+    settingsModal.classList.add('active');
+}
+
+function closeSettings() {
+    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'SETTINGS_CLOSED' }, '*');
+
+    config.api.provider = document.getElementById('api-provider').value;
+    config.api.url = document.getElementById('api-url').value;
+    config.api.key = document.getElementById('api-key').value;
+    config.api.model = document.getElementById('api-model-text').value;
+    config.api.stream = document.getElementById('api-stream').checked;
+
+    const parseNum = id => { const v = document.getElementById(id).value; return v === '' ? null : parseFloat(v); };
+    config.gen.temperature = parseNum('gen-temp');
+    config.gen.top_p = parseNum('gen-top-p');
+    config.gen.top_k = parseNum('gen-top-k');
+    config.gen.presence_penalty = parseNum('gen-presence');
+    config.gen.frequency_penalty = parseNum('gen-frequency');
+
+    config.trigger.enabled = document.getElementById('trigger-enabled').checked;
+    config.trigger.interval = parseInt(document.getElementById('trigger-interval').value) || 20;
+    config.trigger.timing = document.getElementById('trigger-timing').value;
+
+    saveConfig();
+    settingsModal.classList.remove('active');
+}
+
+function updateProviderUI(provider) {
+    const pv = providerDefaults[provider] || providerDefaults.custom;
+    document.getElementById('api-url-row').classList.toggle('hidden', provider === 'st');
+    document.getElementById('api-key-row').classList.toggle('hidden', !pv.needKey);
+    document.getElementById('api-connect-row').classList.toggle('hidden', !pv.canFetch);
+
+    const urlInput = document.getElementById('api-url');
+    if (!urlInput.value && pv.url) urlInput.value = pv.url;
+}
+
+async function fetchModels() {
+    const btn = document.getElementById('btn-connect');
+    const provider = document.getElementById('api-provider').value;
+
+    if (!providerDefaults[provider]?.canFetch) { alert('当前渠道不支持自动拉取模型'); return; }
+
+    const baseUrl = document.getElementById('api-url').value.trim().replace(/\/+$/, '');
+    const apiKey = document.getElementById('api-key').value.trim();
+
+    if (!apiKey) { alert('请先填写 API KEY'); return; }
+
+    btn.disabled = true;
+    btn.textContent = '连接中...';
+
+    try {
+        const tryFetch = async url => {
+            const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } });
+            return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null;
+        };
+
+        let models = await tryFetch(`${baseUrl}/v1/models`);
+        if (!models && baseUrl.includes('/v1')) models = await tryFetch(`${baseUrl.replace(/\/v1\/?$/, '')}/v1/models`);
+        if (!models) models = await tryFetch(`${baseUrl}/models`);
+        if (!models?.length) throw new Error('未获取到模型列表');
+
+        config.api.modelCache = [...new Set(models)];
+        const select = document.getElementById('api-model-select');
+        select.innerHTML = config.api.modelCache.map(m => `<option value="${m}">${m}</option>`).join('');
+        document.getElementById('model-select-wrap').classList.add('active');
+
+        if (!config.api.model && models.length) {
+            config.api.model = models[0];
+            document.getElementById('api-model-text').value = models[0];
+            select.value = models[0];
+        }
+
+        saveConfig();
+        alert(`成功获取 ${models.length} 个模型`);
+    } catch (e) {
+        alert('连接失败：' + (e.message || '请检查 URL 和 KEY'));
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '连接 / 拉取模型列表';
+    }
+}
+
+document.getElementById('btn-settings').addEventListener('click', openSettings);
+document.getElementById('settings-overlay').addEventListener('click', closeSettings);
+document.getElementById('settings-close').addEventListener('click', closeSettings);
+document.getElementById('api-provider').addEventListener('change', e => {
+    document.getElementById('api-url').value = '';
+    updateProviderUI(e.target.value);
+});
+document.getElementById('btn-connect').addEventListener('click', fetchModels);
+document.getElementById('api-model-select').addEventListener('change', e => {
+    document.getElementById('api-model-text').value = e.target.value;
+    config.api.model = e.target.value;
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'REQUEST_CLEAR' }, '*');
+});
+
+document.getElementById('btn-generate').addEventListener('click', () => {
+    const badge = document.getElementById('status-badge');
+    const btn = document.getElementById('btn-generate');
+
+    if (!localGenerating) {
+        localGenerating = true;
+        btn.textContent = '停止';
+        badge.textContent = '正在生成增量总结...';
+        window.parent.postMessage({
+            source: 'LittleWhiteBox-StoryFrame',
+            type: 'REQUEST_GENERATE',
+            config: { api: config.api, gen: config.gen, trigger: config.trigger }
+        }, '*');
+    } else {
+        localGenerating = false;
+        btn.textContent = '总结';
+        badge.textContent = '正在尝试停止...';
+        window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'REQUEST_CANCEL' }, '*');
+    }
+});
+
+// ====== 父窗口通讯 ======
+window.addEventListener('message', event => {
+    const data = event.data;
+    if (!data || data.source !== 'LittleWhiteBox') return;
+
+    const badge = document.getElementById('status-badge');
+    const btn = document.getElementById('btn-generate');
+
+    switch (data.type) {
+        case 'GENERATION_STATE':
+            localGenerating = !!data.isGenerating;
+            btn.textContent = localGenerating ? '停止' : '总结';
+            break;
+
+        case 'SUMMARY_BASE_DATA':
+            if (data.stats) {
+                updateStats(data.stats);
+                if (data.stats.pendingFloors > 0) {
+                    badge.textContent = `已总结至第 ${data.stats.summarizedUpTo} 楼 · ${data.stats.pendingFloors} 楼待总结`;
+                } else if (data.stats.summarizedUpTo > 0) {
+                    badge.textContent = `已总结至第 ${data.stats.summarizedUpTo} 楼 · 已是最新`;
+                } else {
+                    badge.textContent = `共 ${data.stats.totalFloors} 楼 · 点击总结`;
+                }
+            }
+            break;
+
+        case 'SUMMARY_STATUS':
+            if (data.statusText) badge.textContent = data.statusText;
+            break;
+
+        case 'SUMMARY_FULL_DATA':
+            if (data.payload) {
+                const p = data.payload;
+                if (p.keywords) renderKeywords(p.keywords);
+                if (p.events) renderTimeline(p.events);
+                if (p.characters) renderRelations(p.characters);
+                if (p.arcs) renderArcs(p.arcs);
+                document.getElementById('stat-events').textContent = p.events?.length || 0;
+                if (p.lastSummarizedMesId != null) {
+                    document.getElementById('stat-summarized').textContent = p.lastSummarizedMesId + 1;
+                }
+                if (p.stats) updateStats(p.stats);
+            }
+            break;
+
+        case 'SUMMARY_ERROR':
+            badge.textContent = `错误: ${data.message || '生成失败'}`;
+            break;
+
+        case 'SUMMARY_CLEARED': {
+            const total = data.payload?.totalFloors || 0;
+            document.getElementById('stat-events').textContent = 0;
+            document.getElementById('stat-summarized').textContent = 0;
+            document.getElementById('stat-pending').textContent = total;
+            badge.textContent = `已清空本聊天的剧情总结 · 共 ${total} 楼`;
+            summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] };
+            renderKeywords([]);
+            renderTimeline([]);
+            renderRelations(null);
+            renderArcs([]);
+            break;
+        }
+    }
+});
+
+// ====== 初始化 ======
+document.addEventListener('DOMContentLoaded', () => {
+    loadConfig();
+    document.getElementById('stat-events').textContent = '—';
+    document.getElementById('stat-summarized').textContent = '—';
+    document.getElementById('stat-pending').textContent = '—';
+    document.getElementById('status-badge').textContent = '等待加载数据...';
+    renderKeywords([]);
+    renderTimeline([]);
+    renderArcs([]);
+    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'FRAME_READY' }, '*');
+});
+</script>
+</body>
+</html>

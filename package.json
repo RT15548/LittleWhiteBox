@@ -1,0 +1,30 @@
+{
+  "name": "you2api",
+  "version": "2.0.0",
+  "description": "You.com to OpenAI API proxy using Camoufox browser",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "save-cookie": "node save-cookie.js"
+  },
+  "keywords": [
+    "you.com",
+    "openai",
+    "api",
+    "proxy",
+    "camoufox",
+    "playwright"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "express-session": "^1.18.2",
+    "playwright": "^1.57.0",
+    "ws": "^8.18.3"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
