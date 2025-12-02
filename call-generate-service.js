@@ -1433,4 +1433,100 @@ if (typeof window !== 'undefined') {
         });
         window.addEventListener('beforeunload', () => { try { cleanupCallGenerateHostBridge(); } catch (_) {} });
     } catch (_) {}
+
+    // ===== 全局 API 暴露：与 iframe 调用方式完全一致 =====
+    // 创建命名空间
+    window.LittleWhiteBox = window.LittleWhiteBox || {};
+    
+    /**
+     * 全局 callGenerate 函数
+     * 使用方式与 iframe 中完全一致：await window.callGenerate(options)
+     *
+     * @param {Object} options - 生成选项
+     * @returns {Promise<Object>} 生成结果
+     *
+     * @example
+     * // iframe 中的调用方式：
+     * const res = await window.callGenerate({
+     *     components: { list: ['ALL_PREON'] },
+     *     userInput: '你好',
+     *     streaming: { enabled: true },
+     *     api: { inherit: true }
+     * });
+     *
+     * // 全局调用方式（完全一致）：
+     * const res = await window.LittleWhiteBox.callGenerate({
+     *     components: { list: ['ALL_PREON'] },
+     *     userInput: '你好',
+     *     streaming: { enabled: true },
+     *     api: { inherit: true }
+     * });
+     */
+    window.LittleWhiteBox.callGenerate = async function(options) {
+        return new Promise((resolve, reject) => {
+            const requestId = `global-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            const streamingEnabled = options?.streaming?.enabled !== false;
+            
+            // 处理流式回调
+            let onChunkCallback = null;
+            if (streamingEnabled && typeof options?.streaming?.onChunk === 'function') {
+                onChunkCallback = options.streaming.onChunk;
+            }
+            
+            // 监听响应
+            const listener = (event) => {
+                const data = event.data;
+                if (!data || data.source !== SOURCE_TAG || data.id !== requestId) return;
+                
+                if (data.type === 'generateStreamChunk' && onChunkCallback) {
+                    // 流式文本块回调
+                    try {
+                        onChunkCallback(data.chunk, data.accumulated);
+                    } catch (err) {
+                        console.error('[callGenerate] onChunk callback error:', err);
+                    }
+                } else if (data.type === 'generateStreamComplete') {
+                    window.removeEventListener('message', listener);
+                    resolve(data.result);
+                } else if (data.type === 'generateResult') {
+                    window.removeEventListener('message', listener);
+                    resolve(data.result);
+                } else if (data.type === 'generateStreamError' || data.type === 'generateError') {
+                    window.removeEventListener('message', listener);
+                    reject(data.error);
+                }
+            };
+            
+            window.addEventListener('message', listener);
+            
+            // 发送请求
+            handleGenerateRequest(options, requestId, window).catch(err => {
+                window.removeEventListener('message', listener);
+                reject(err);
+            });
+        });
+    };
+    
+    /**
+     * 取消指定会话
+     * @param {string} sessionId - 会话 ID（如 'xb1', 'xb2' 等）
+     */
+    window.LittleWhiteBox.callGenerate.cancel = function(sessionId) {
+        callGenerateService.cancel(sessionId);
+    };
+    
+    /**
+     * 清理所有会话
+     */
+    window.LittleWhiteBox.callGenerate.cleanup = function() {
+        callGenerateService.cleanup();
+    };
+    
+    // 保持向后兼容：保留原有的内部接口
+    window.LittleWhiteBox._internal = {
+        service: callGenerateService,
+        handleGenerateRequest,
+        init: initCallGenerateHostBridge,
+        cleanup: cleanupCallGenerateHostBridge
+    };
 }
