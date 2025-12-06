@@ -44,7 +44,44 @@ const splitPathSegments=(path)=> String(path||'').split('.').map(s=>s.trim()).fi
 function ensureDeepContainer(root,segs){ let cur=root; for(let i=0;i<segs.length-1;i++){ const key=segs[i]; const nextKey=segs[i+1]; const shouldBeArray= typeof nextKey==='number'; let val=cur?.[key]; if(val===undefined || val===null || typeof val!=='object'){ cur[key]= shouldBeArray ? [] : {}; } cur=cur[key]; } return { parent:cur, lastKey: segs[segs.length-1] }; }
 function setDeepValue(root, path, value){ const segs=splitPathSegments(path); if(segs.length===0) return false; const {parent,lastKey}=ensureDeepContainer(root,segs); const prev=parent[lastKey]; if(prev!==value){ parent[lastKey]=value; return true; } return false; }
 function pushDeepValue(root, path, values){ const segs=splitPathSegments(path); if(segs.length===0) return false; const {parent,lastKey}=ensureDeepContainer(root,segs); let arr=parent[lastKey]; let changed=false; if(!Array.isArray(arr)) arr = arr===undefined?[]:[arr]; const incoming=Array.isArray(values)?values:[values]; for(const v of incoming){ if(!arr.includes(v)){ arr.push(v); changed=true; } } if(changed){ parent[lastKey]=arr; } return changed; }
-function deleteDeepKey(root, path){ const segs=splitPathSegments(path); if(segs.length===0) return false; const {parent,lastKey}=ensureDeepContainer(root,segs); if(Object.prototype.hasOwnProperty.call(parent,lastKey)){ if(Array.isArray(parent) && typeof lastKey==='number' && lastKey>=0 && lastKey<parent.length){ parent.splice(lastKey,1); return true; } delete parent[lastKey]; return true; } return false; }
+function deleteDeepKey(root, path) {
+  console.log('[LWB:deleteDeepKey] 输入 root:', JSON.stringify(root), 'path:', path);
+  const segs = splitPathSegments(path);
+  if (segs.length === 0) {
+    console.log('[LWB:deleteDeepKey] 路径为空，返回false');
+    return false;
+  }
+
+  const { parent, lastKey } = ensureDeepContainer(root, segs);
+  console.log('[LWB:deleteDeepKey] parent:', JSON.stringify(parent), 'lastKey:', lastKey, 'parent是数组:', Array.isArray(parent));
+
+  if (Array.isArray(parent)) {
+    if (typeof lastKey === 'number' && lastKey >= 0 && lastKey < parent.length) {
+      parent.splice(lastKey, 1);
+      return true;
+    }
+    const equal = (a, b) => {
+      if (a === b) return true;
+      if (a == b) return true;
+      return String(a) === String(b);
+    };
+    let changed = false;
+    for (let i = parent.length - 1; i >= 0; i--) {
+      if (equal(parent[i], lastKey)) {
+        parent.splice(i, 1);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(parent, lastKey)) {
+    delete parent[lastKey];
+    return true;
+  }
+
+  return false;
+}
 const getRootAndPath=(name)=>{ const segs=String(name||'').split('.').map(s=>s.trim()).filter(Boolean); if(segs.length<=1) return {root:String(name||'').trim(), subPath:''}; return {root:segs[0], subPath: segs.slice(1).join('.')}; };
 const joinPath=(base, more)=> base ? (more ? base + '.' + more : base) : more;
 
@@ -432,8 +469,9 @@ function parseBlock(innerText) {
       const collect = (n, base = '') => {
         if (Array.isArray(n)) {
           for (const it of n) {
-            if (typeof it === 'string') {
-              const full = base ? `${base}.${decodeKey(it)}` : decodeKey(it);
+            if (typeof it === 'string' || typeof it === 'number') {
+              const seg = typeof it === 'number' ? String(it) : decodeKey(it);
+              const full = base ? `${base}.${seg}` : seg;
               if (full) acc.add(norm(full));
             } else if (it && typeof it === 'object') collect(it, base);
           }
@@ -443,8 +481,17 @@ function parseBlock(innerText) {
             hasChild = true;
             const k = decodeKey(rawK);
             const nextBase = base ? `${base}.${k}` : k;
-            if (v && typeof v === 'object') collect(v, nextBase);
-            else if (nextBase) acc.add(norm(nextBase));
+            if (v && typeof v === 'object') {
+              collect(v, nextBase);
+            } else {
+              const valStr = (v !== null && v !== undefined) ? String(v).trim() : '';
+              if (valStr) {
+                const full = nextBase ? `${nextBase}.${valStr}` : valStr;
+                acc.add(norm(full));
+              } else if (nextBase) {
+                acc.add(norm(nextBase));
+              }
+            }
           }
           if (!hasChild && base) acc.add(norm(base));
         } else if (base) acc.add(norm(base));
@@ -483,29 +530,34 @@ function parseBlock(innerText) {
         if (typeof v !== 'object') continue;
         for (const [rawTop, payload] of Object.entries(v)) {
           const top = decodeKey(rawTop);
-		if (op === 'push') {
-		  if (Array.isArray(payload)) {
-		    for (const it of payload) putPush(top, '', it);
-		  } else if (payload && typeof payload === 'object') {
-		    walkNode(op, top, payload);
-		  } else {
-		    putPush(top, '', payload);
-		  }
-		} else if (op === 'bump' && (typeof payload !== 'object' || Array.isArray(payload))) {
-		  putBump(top, '', payload);
-		} else if (op === 'del' && (!payload || typeof payload !== 'object')) {
-		  const full = norm(top);
-		  if (full) {
-		    const std = full.replace(/\[(\d+)\]/g, '.$1');
-		    const parts = std.split('.').filter(Boolean);
-		    const t = parts.shift();
-		    const rel = parts.join('.');
-		    if (t) putDel(t, rel);
-		  }
-		} else {
-		  walkNode(op, top, payload);
-		}
-          
+          if (op === 'push') {
+            if (Array.isArray(payload)) {
+              for (const it of payload) putPush(top, '', it);
+            } else if (payload && typeof payload === 'object') {
+              walkNode(op, top, payload);
+            } else {
+              putPush(top, '', payload);
+            }
+          } else if (op === 'bump' && (typeof payload !== 'object' || Array.isArray(payload))) {
+            putBump(top, '', payload);
+          } else if (op === 'del') {
+            if (Array.isArray(payload) || (payload && typeof payload === 'object')) {
+              walkNode(op, top, payload, top);
+            } else {
+              const base = norm(top);
+              if (base) {
+                const hasValue = payload !== undefined && payload !== null && String(payload).trim ? String(payload).trim() !== '' : payload !== undefined && payload !== null;
+                const full = hasValue ? norm(`${base}.${payload}`) : base;
+                const std = full.replace(/\[(\d+)\]/g, '.$1');
+                const parts = std.split('.').filter(Boolean);
+                const t = parts.shift();
+                const rel = parts.join('.');
+                if (t) putDel(t, rel);
+              }
+            }
+          } else {
+            walkNode(op, top, payload);
+          }
         }
       }
     };
@@ -709,23 +761,32 @@ function parseBlock(innerText) {
         let j = i + 1;
         while (j < lines.length && !lines[j].trim()) j++;
         let handledList = false;
+        let hasDeeper = false;
+        
         if (j < lines.length) {
           const t2 = lines[j].trim();
           const ind2 = indentOf(lines[j]);
-          if (ind2 > ind && /^-+\s+/.test(t2)) {
-            const { arr, next } = readList(j, ind);
-            i = next;
-            const [top, ...rest] = curPath.split('.');
-            const rel = rest.join('.');
-            if (curOp === 'set') putSet(top, rel, arr);
-            else if (curOp === 'push') putPush(top, rel, arr);
-            else if (curOp === 'del') for (const item of arr) putDel(top, rel ? `${rel}.${item}` : item);
-            else if (curOp === 'bump') for (const item of arr) putBump(top, rel, Number(item));
-            stack.pop();
-            handledList = true;
+          
+          if (ind2 > ind && t2) {
+            hasDeeper = true;
+            
+            if (/^-+\s+/.test(t2)) {
+              const { arr, next } = readList(j, ind);
+              i = next;
+              const [top, ...rest] = curPath.split('.');
+              const rel = rest.join('.');
+              if (curOp === 'set') putSet(top, rel, arr);
+              else if (curOp === 'push') putPush(top, rel, arr);
+              else if (curOp === 'del') for (const item of arr) putDel(top, rel ? `${rel}.${item}` : item);
+              else if (curOp === 'bump') for (const item of arr) putBump(top, rel, Number(item));
+              stack.pop();
+              handledList = true;
+              hasDeeper = false;
+            }
           }
         }
-        if (!handledList && curOp === 'del') {
+        
+        if (!handledList && !hasDeeper && curOp === 'del') {
           const [top, ...rest] = curPath.split('.');
           const rel = rest.join('.');
           putDel(top, rel);
@@ -735,10 +796,26 @@ function parseBlock(innerText) {
       }
       const [top, ...rest] = curPath.split('.');
       const rel = rest.join('.');
-      if (curOp === 'set') putSet(top, rel, stripQ(rhs));
-      else if (curOp === 'push') putPush(top, rel, stripQ(rhs));
-      else if (curOp === 'del') putDel(top, rel);
-      else if (curOp === 'bump') putBump(top, rel, Number(stripQ(rhs)));
+      if (curOp === 'set') {
+        putSet(top, rel, stripQ(rhs));
+      } else if (curOp === 'push') {
+        putPush(top, rel, stripQ(rhs));
+      } else if (curOp === 'del') {
+        const val = stripQ(rhs);
+        const normRel = norm(rel);
+        const segs = normRel.split('.').filter(Boolean);
+        const lastSeg = segs.length > 0 ? segs[segs.length - 1] : '';
+        const pathEndsWithIndex = /^\d+$/.test(lastSeg);
+        
+        if (pathEndsWithIndex) {
+          putDel(top, normRel);
+        } else {
+          const target = normRel ? `${normRel}.${val}` : val;
+          putDel(top, target);
+        }
+      } else if (curOp === 'bump') {
+        putBump(top, rel, Number(stripQ(rhs)));
+      }
       continue;
     }
     const mArr = t.match(/^-+\s*(.+)$/);
@@ -786,7 +863,9 @@ async function applyVariablesForMessage(messageId){
 
     const ops=[]; const delVarNames=new Set();
     blocks.forEach((b,idx)=>{
+      console.log('[LWB:parseBlock] 原始块内容:', b);
       const parts=parseBlock(b);
+      console.log('[LWB:parseBlock] 解析结果:', JSON.stringify(parts));
       for(const p of parts){
         if(p.operation==='guard' && Array.isArray(p.data) && p.data.length>0){
           ops.push({operation:'guard',data:p.data});
@@ -931,11 +1010,14 @@ async function applyVariablesForMessage(messageId){
       }
 
       else if(op.operation==='del'){
+        console.log('[LWB:DEL] 开始删除操作, root:', root, 'subPath:', subPath, 'op.data:', op.data);
         const obj=asObject(rec);
+        console.log('[LWB:DEL] asObject后的obj:', JSON.stringify(obj));
 
         const pending = [];
         for(const key of op.data){
           const localPath=joinPath(subPath,key);
+          console.log('[LWB:DEL] 处理key:', key, 'localPath:', localPath);
 
           if(!localPath){
             const absRoot = root;
@@ -963,9 +1045,13 @@ async function applyVariablesForMessage(messageId){
           let allow = true;
           if (typeof guardValidate==='function') {
             const res = guardValidate('delNode', stdPath);
+            console.log('[LWB:DEL] guardValidate结果:', stdPath, res);
             allow = !!res?.allow;
           }
-          if(!allow) continue;
+          if(!allow) {
+            console.log('[LWB:DEL] 被拒绝，跳过:', stdPath);
+            continue;
+          }
 
           const normLocal = norm(localPath);
           const segs = splitPathSegments(normLocal);
@@ -2069,7 +2155,7 @@ async function runImmediateVarEvents() {
       while((mm=TAG_RE.varevent.exec(originalText))!==null){ const inner=mm[1]??''; vareventBlocks.push({ inner }); }
 
       const parseFn = typeof window.parseVareventEvents === 'function' ? window.parseVareventEvents : parseVareventEvents;
-      if (typeof window.parseVareventEvents !== 'function') window.parseVareventEvents = parseFn; // 兼容旧调用
+      if (typeof window.parseVareventEvents !== 'function') window.parseVareventEvents = parseFn;
 
       const pageInitialized=new Set();
       const renderPage=(pageIdx)=>{
@@ -2822,7 +2908,6 @@ function getVarDict() {
   const meta = getMeta();
   return structuredClone(meta.variables || {});
 }
-// 【变量守护·快照】回溯快照需要把守护规则一并备份
 function cloneRulesTableForSnapshot() {
   if (typeof rulesGetTable !== 'function') return {};
   try {
@@ -2833,7 +2918,6 @@ function cloneRulesTableForSnapshot() {
     try { return JSON.parse(JSON.stringify(rulesGetTable() || {})); } catch { return {}; }
   }
 }
-// 【变量守护·快照】回放快照时同步守护表并刷新缓存
 function applyRulesSnapshot(tableLike) {
   if (typeof rulesSetTable !== 'function') return;
   const safe = (tableLike && typeof tableLike === 'object') ? tableLike : {};
@@ -2952,7 +3036,6 @@ function snapshotForMessageId(currentId) {
   try {
     if (typeof currentId !== 'number' || currentId < 0) return;
     const dict = getVarDict();
-    // 【变量守护·快照】同时备份守护规则
     const rules = cloneRulesTableForSnapshot();
     setSnapshot(currentId, { vars: dict, rules });
   } catch {}
@@ -2964,7 +3047,6 @@ function rollbackToPreviousOf(messageId) {
   if (prevId < 0) return;
   const snap = getSnapshot(prevId);
   if (snap) {
-    // 【变量守护·快照】回滚时还原变量 + 守护规则
     const normalized = normalizeSnapshotRecord(snap);
     try {
       if (typeof guardBypass === 'function') guardBypass(true);
@@ -3497,7 +3579,142 @@ function clampNumberWithConstraints(v, node) { let out = Number(v); if (!Number.
 function checkStringWithConstraints(v, node) { const s = String(v); const c = node?.constraints || {}; if (Array.isArray(c.enum) && c.enum.length) { if (!c.enum.includes(s)) return { ok: false } } if (c.regex && c.regex.source) { let re = guardianState.regexCache[normalizePath(node.__path || '')]; if (!re) { try { re = new RegExp(c.regex.source, c.regex.flags || ''); guardianState.regexCache[normalizePath(node.__path || '')] = re } catch {} } if (re && !re.test(s)) return { ok: false } } return { ok: true, value: s } }
 function getParentPath(absPath) { const segs = lwbSplitPathWithBrackets(absPath); if (segs.length <= 1) return ''; return segs.slice(0, -1).map(s => String(s)).join('.') }
 function getEffectiveParentNode(p) { let parentPath = getParentPath(p); while (parentPath) { const pNode = getRuleNode(parentPath); if (pNode && (pNode.objectPolicy !== 'none' || pNode.arrayPolicy !== 'lock')) { return pNode; } parentPath = getParentPath(parentPath); } return null; }
-function guardValidate(op, absPath, payload) { if (guardianState.bypass) return { allow: true, value: payload }; const p = normalizePath(absPath); const node = getRuleNode(p) || { typeLock: 'unknown', ro: false, objectPolicy: 'none', arrayPolicy: 'lock', constraints: {} }; if (node.ro) return { allow: false, reason: 'ro' }; const parentPath = getParentPath(p); const parentNode = parentPath ? (getEffectiveParentNode(p) || { objectPolicy: 'none', arrayPolicy: 'lock' }) : null; const currentValue = getValueAtPath(p); if (op === 'delNode') { if (!parentPath) return { allow: false, reason: 'no-parent' }; const pp = getRuleNode(parentPath) || { objectPolicy: 'none', arrayPolicy: 'lock' }; const lastSeg = p.split('.').pop() || ''; const isIndex = /^\d+$/.test(lastSeg); if (isIndex) { if (!(pp.arrayPolicy === 'shrink' || pp.arrayPolicy === 'list')) return { allow: false, reason: 'array-no-shrink' }; return { allow: true } } else { if (!(pp.objectPolicy === 'prune' || pp.objectPolicy === 'free')) return { allow: false, reason: 'object-no-prune' }; return { allow: true } } } if (op === 'push') { const arr = getValueAtPath(p); if (arr === undefined) { const lastSeg = p.split('.').pop() || ''; const isIndex = /^\d+$/.test(lastSeg); if (parentPath) { const parentVal = getValueAtPath(parentPath); const pp = parentNode || { objectPolicy: 'none', arrayPolicy: 'lock' }; if (isIndex) { if (!Array.isArray(parentVal)) return { allow: false, reason: 'parent-not-array' }; if (!(pp.arrayPolicy === 'grow' || pp.arrayPolicy === 'list')) return { allow: false, reason: 'array-no-grow' } } else { if (!(pp.objectPolicy === 'ext' || pp.objectPolicy === 'free')) return { allow: false, reason: 'object-no-ext' } } } const nn = ensureRuleNode(p); nn.typeLock = 'array'; rulesSaveToMeta(); return { allow: true, value: payload } } if (!Array.isArray(arr)) { if (node.typeLock !== 'unknown' && node.typeLock !== 'array') return { allow: false, reason: 'type-locked-not-array' }; return { allow: false, reason: 'not-array' } } if (!(node.arrayPolicy === 'grow' || node.arrayPolicy === 'list')) return { allow: false, reason: 'array-no-grow' }; return { allow: true, value: payload } } if (op === 'bump') { let d = Number(payload); if (!Number.isFinite(d)) return { allow: false, reason: 'delta-nan' }; if (currentValue === undefined) { if (parentPath) { const lastSeg = p.split('.').pop() || ''; const isIndex = /^\d+$/.test(lastSeg); if (isIndex) { if (!(parentNode && (parentNode.arrayPolicy === 'grow' || parentNode.arrayPolicy === 'list'))) return { allow: false, reason: 'array-no-grow' } } else { if (!(parentNode && (parentNode.objectPolicy === 'ext' || parentNode.objectPolicy === 'free'))) return { allow: false, reason: 'object-no-ext' } } } } const c = node?.constraints || {}; const step = Number.isFinite(c.step) ? Math.abs(c.step) : Infinity; if (isFinite(step)) { if (d > step) d = step; if (d < -step) d = -step } const cur = Number(currentValue); if (!Number.isFinite(cur)) { const base = 0 + d; const cl = clampNumberWithConstraints(base, node); if (!cl.ok) return { allow: false, reason: 'number-constraint' }; setTypeLockIfUnknown(p, base); return { allow: true, value: cl.value } } const next = cur + d; const clamped = clampNumberWithConstraints(next, node); if (!clamped.ok) return { allow: false, reason: 'number-constraint' }; return { allow: true, value: clamped.value } } if (op === 'set') { const exists = currentValue !== undefined; if (!exists) { if (parentNode) { const lastSeg = p.split('.').pop() || ''; const isIndex = /^\d+$/.test(lastSeg); if (isIndex) { if (!(parentNode.arrayPolicy === 'grow' || parentNode.arrayPolicy === 'list')) return { allow: false, reason: 'array-no-grow' } } else { if (!(parentNode.objectPolicy === 'ext' || parentNode.objectPolicy === 'free')) return { allow: false, reason: 'object-no-ext' } } } } const incomingType = typeOfValue(payload); if (node.typeLock !== 'unknown' && node.typeLock !== incomingType) return { allow: false, reason: 'type-locked-mismatch' }; if (incomingType === 'number') { let incoming = Number(payload); if (!Number.isFinite(incoming)) return { allow: false, reason: 'number-constraint' }; const c = node?.constraints || {}; const step = Number.isFinite(c.step) ? Math.abs(c.step) : Infinity; const curNum = Number(currentValue); const base = Number.isFinite(curNum) ? curNum : 0; if (isFinite(step)) { let diff = incoming - base; if (diff > step) diff = step; if (diff < -step) diff = -step; incoming = base + diff } const clamped = clampNumberWithConstraints(incoming, node); if (!clamped.ok) return { allow: false, reason: 'number-constraint' }; setTypeLockIfUnknown(p, incoming); return { allow: true, value: clamped.value } } if (incomingType === 'string') { const n2 = { ...node, __path: p }; const ok = checkStringWithConstraints(payload, n2); if (!ok.ok) return { allow: false, reason: 'string-constraint' }; setTypeLockIfUnknown(p, payload); return { allow: true, value: ok.value } } setTypeLockIfUnknown(p, payload); return { allow: true, value: payload } } return { allow: true, value: payload } }
+function guardValidate(op, absPath, payload) {
+  if (guardianState.bypass) return { allow: true, value: payload };
+  const p = normalizePath(absPath);
+  const node = getRuleNode(p) || { typeLock: 'unknown', ro: false, objectPolicy: 'none', arrayPolicy: 'lock', constraints: {} };
+  if (node.ro) return { allow: false, reason: 'ro' };
+  const parentPath = getParentPath(p);
+  const parentNode = parentPath ? (getEffectiveParentNode(p) || { objectPolicy: 'none', arrayPolicy: 'lock' }) : null;
+  const currentValue = getValueAtPath(p);
+
+  if (op === 'delNode') {
+    if (!parentPath) return { allow: false, reason: 'no-parent' };
+    
+    const parentValue = getValueAtPath(parentPath);
+    const parentIsArray = Array.isArray(parentValue);
+    
+    const pp = getRuleNode(parentPath) || { objectPolicy: 'none', arrayPolicy: 'lock' };
+    const lastSeg = p.split('.').pop() || '';
+    const isIndex = /^\d+$/.test(lastSeg);
+    
+    if (parentIsArray || isIndex) {
+      if (!(pp.arrayPolicy === 'shrink' || pp.arrayPolicy === 'list')) return { allow: false, reason: 'array-no-shrink' };
+      return { allow: true };
+    } else {
+      if (!(pp.objectPolicy === 'prune' || pp.objectPolicy === 'free')) return { allow: false, reason: 'object-no-prune' };
+      return { allow: true };
+    }
+  }
+
+  if (op === 'push') {
+    const arr = getValueAtPath(p);
+    if (arr === undefined) {
+      const lastSeg = p.split('.').pop() || '';
+      const isIndex = /^\d+$/.test(lastSeg);
+      if (parentPath) {
+        const parentVal = getValueAtPath(parentPath);
+        const pp = parentNode || { objectPolicy: 'none', arrayPolicy: 'lock' };
+        if (isIndex) {
+          if (!Array.isArray(parentVal)) return { allow: false, reason: 'parent-not-array' };
+          if (!(pp.arrayPolicy === 'grow' || pp.arrayPolicy === 'list')) return { allow: false, reason: 'array-no-grow' };
+        } else {
+          if (!(pp.objectPolicy === 'ext' || pp.objectPolicy === 'free')) return { allow: false, reason: 'object-no-ext' };
+        }
+      }
+      const nn = ensureRuleNode(p);
+      nn.typeLock = 'array';
+      rulesSaveToMeta();
+      return { allow: true, value: payload };
+    }
+    if (!Array.isArray(arr)) {
+      if (node.typeLock !== 'unknown' && node.typeLock !== 'array') return { allow: false, reason: 'type-locked-not-array' };
+      return { allow: false, reason: 'not-array' };
+    }
+    if (!(node.arrayPolicy === 'grow' || node.arrayPolicy === 'list')) return { allow: false, reason: 'array-no-grow' };
+    return { allow: true, value: payload };
+  }
+
+  if (op === 'bump') {
+    let d = Number(payload);
+    if (!Number.isFinite(d)) return { allow: false, reason: 'delta-nan' };
+    if (currentValue === undefined) {
+      if (parentPath) {
+        const lastSeg = p.split('.').pop() || '';
+        const isIndex = /^\d+$/.test(lastSeg);
+        if (isIndex) {
+          if (!(parentNode && (parentNode.arrayPolicy === 'grow' || parentNode.arrayPolicy === 'list'))) return { allow: false, reason: 'array-no-grow' };
+        } else {
+          if (!(parentNode && (parentNode.objectPolicy === 'ext' || parentNode.objectPolicy === 'free'))) return { allow: false, reason: 'object-no-ext' };
+        }
+      }
+    }
+    const c = node?.constraints || {};
+    const step = Number.isFinite(c.step) ? Math.abs(c.step) : Infinity;
+    if (isFinite(step)) {
+      if (d > step) d = step;
+      if (d < -step) d = -step;
+    }
+    const cur = Number(currentValue);
+    if (!Number.isFinite(cur)) {
+      const base = 0 + d;
+      const cl = clampNumberWithConstraints(base, node);
+      if (!cl.ok) return { allow: false, reason: 'number-constraint' };
+      setTypeLockIfUnknown(p, base);
+      return { allow: true, value: cl.value };
+    }
+    const next = cur + d;
+    const clamped = clampNumberWithConstraints(next, node);
+    if (!clamped.ok) return { allow: false, reason: 'number-constraint' };
+    return { allow: true, value: clamped.value };
+  }
+
+  if (op === 'set') {
+    const exists = currentValue !== undefined;
+    if (!exists) {
+      if (parentNode) {
+        const lastSeg = p.split('.').pop() || '';
+        const isIndex = /^\d+$/.test(lastSeg);
+        if (isIndex) {
+          if (!(parentNode.arrayPolicy === 'grow' || parentNode.arrayPolicy === 'list')) return { allow: false, reason: 'array-no-grow' };
+        } else {
+          if (!(parentNode.objectPolicy === 'ext' || parentNode.objectPolicy === 'free')) return { allow: false, reason: 'object-no-ext' };
+        }
+      }
+    }
+    const incomingType = typeOfValue(payload);
+    if (node.typeLock !== 'unknown' && node.typeLock !== incomingType) return { allow: false, reason: 'type-locked-mismatch' };
+    if (incomingType === 'number') {
+      let incoming = Number(payload);
+      if (!Number.isFinite(incoming)) return { allow: false, reason: 'number-constraint' };
+      const c = node?.constraints || {};
+      const step = Number.isFinite(c.step) ? Math.abs(c.step) : Infinity;
+      const curNum = Number(currentValue);
+      const base = Number.isFinite(curNum) ? curNum : 0;
+      if (isFinite(step)) {
+        let diff = incoming - base;
+        if (diff > step) diff = step;
+        if (diff < -step) diff = -step;
+        incoming = base + diff;
+      }
+      const clamped = clampNumberWithConstraints(incoming, node);
+      if (!clamped.ok) return { allow: false, reason: 'number-constraint' };
+      setTypeLockIfUnknown(p, incoming);
+      return { allow: true, value: clamped.value };
+    }
+    if (incomingType === 'string') {
+      const n2 = { ...node, __path: p };
+      const ok = checkStringWithConstraints(payload, n2);
+      if (!ok.ok) return { allow: false, reason: 'string-constraint' };
+      setTypeLockIfUnknown(p, payload);
+      return { allow: true, value: ok.value };
+    }
+    setTypeLockIfUnknown(p, payload);
+    return { allow: true, value: payload };
+  }
+
+  return { allow: true, value: payload };
+}
 function installVariableApiPatch() { try { const ctx = getContext(); const api = ctx?.variables?.local; if (!api || guardianState.origVarApi) return; guardianState.origVarApi = { set: api.set?.bind(api), add: api.add?.bind(api), inc: api.inc?.bind(api), dec: api.dec?.bind(api), del: api.del?.bind(api) }; if (guardianState.origVarApi.set) { api.set = (name, value) => { try { if (guardianState.bypass) return guardianState.origVarApi.set(name, value); let finalValue = value; if (value && typeof value === 'object' && !Array.isArray(value)) { let hasRuleKey = false; for (const k of Object.keys(value)) { if (k.startsWith('$')) { hasRuleKey = true; break } } if (hasRuleKey) { const { cleanValue, rulesDelta } = rulesLoadFromTree(value, normalizePath(name)); finalValue = cleanValue; applyRulesDeltaToTable(rulesDelta) } } const res = guardValidate('set', normalizePath(name), finalValue); if (!res.allow) return; return guardianState.origVarApi.set(name, res.value) } catch { return } } } if (guardianState.origVarApi.add) { api.add = (name, delta) => { try { if (guardianState.bypass) return guardianState.origVarApi.add(name, delta); const res = guardValidate('bump', normalizePath(name), delta); if (!res.allow) return; const cur = Number(getValueAtPath(normalizePath(name))); if (!Number.isFinite(cur)) { return guardianState.origVarApi.set(name, res.value) } const next = res.value; const diff = Number(next) - cur; return guardianState.origVarApi.add(name, diff) } catch { return } } } if (guardianState.origVarApi.inc) { api.inc = (name) => api.add ? api.add(name, 1) : undefined } if (guardianState.origVarApi.dec) { api.dec = (name) => api.add ? api.add(name, -1) : undefined } if (guardianState.origVarApi.del) { api.del = (name) => { try { if (guardianState.bypass) return guardianState.origVarApi.del(name); const res = guardValidate('delNode', normalizePath(name)); if (!res.allow) return; return guardianState.origVarApi.del(name) } catch { return } } } } catch {} }
 function uninstallVariableApiPatch() { try { const ctx = getContext(); const api = ctx?.variables?.local; if (!api || !guardianState.origVarApi) return; if (guardianState.origVarApi.set) api.set = guardianState.origVarApi.set; if (guardianState.origVarApi.add) api.add = guardianState.origVarApi.add; if (guardianState.origVarApi.inc) api.inc = guardianState.origVarApi.inc; if (guardianState.origVarApi.dec) api.dec = guardianState.origVarApi.dec; if (guardianState.origVarApi.del) api.del = guardianState.origVarApi.del; guardianState.origVarApi = null } catch {} }
 /* ============= 第八区：模块导出/初始化/清理 ============= */
