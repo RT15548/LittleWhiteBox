@@ -16,10 +16,10 @@ const TAG_RE = {
 };
 
 const OP_ALIASES = {
-  set: ['set', '记下', '记录', '录入', 'record'],
-  push: ['push', '添入', '增录', '追加', 'append'],
-  bump: ['bump', '推移', '变更', '调整', 'adjust'],
-  del: ['del', '遗忘', '抹去', '删除', 'erase'],
+  set: ['set', '记下', '記下', '记录', '記錄', '录入', '錄入', 'record'],
+  push: ['push', '添入', '增录', '增錄', '追加', 'append'],
+  bump: ['bump', '推移', '变更', '變更', '调整', '調整', 'adjust'],
+  del: ['del', '遗忘', '遺忘', '抹去', '删除', '刪除', 'erase'],
 };
 const reEscape = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ALL_OP_WORDS = Object.values(OP_ALIASES).flat();
