@@ -8,7 +8,6 @@
 <title>剧情总结 · Story Summary</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-
 :root {
     --bg-primary: #fafafa;
     --bg-secondary: #ffffff;
@@ -23,25 +22,23 @@
     --highlight: #ff4444;
     --highlight-soft: rgba(255, 68, 68, 0.1);
 }
-
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
     line-height: 1.6;
     min-height: 100vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
-
 .summary-container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    min-height: 100vh;
     padding: 24px 40px;
     max-width: 1800px;
     margin: 0 auto;
-    overflow: hidden;
 }
-
 .summary-header {
     display: flex;
     justify-content: space-between;
@@ -50,59 +47,30 @@ body {
     border-bottom: 1px solid var(--border-color);
     margin-bottom: 24px;
 }
-
-.header-left h1 {
-    font-size: 2rem;
-    font-weight: 300;
-    letter-spacing: -0.02em;
-    margin-bottom: 4px;
-}
-
+.header-left h1 { font-size: 2rem; font-weight: 300; letter-spacing: -0.02em; margin-bottom: 4px; }
 .header-left h1 span { font-weight: 600; }
-
-.header-subtitle {
-    font-size: 0.875rem;
-    color: var(--text-muted);
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-}
-
+.header-subtitle { font-size: 0.875rem; color: var(--text-muted); letter-spacing: 0.05em; text-transform: uppercase; }
 .header-stats { display: flex; gap: 48px; text-align: right; }
 .stat-item { display: flex; flex-direction: column; }
-
-.stat-value {
-    font-size: 2.5rem;
-    font-weight: 200;
-    line-height: 1;
-    letter-spacing: -0.03em;
-}
-
+.stat-value { font-size: 2.5rem; font-weight: 200; line-height: 1; letter-spacing: -0.03em; }
 .stat-value .highlight { color: var(--highlight); }
-
-.stat-label {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-top: 4px;
-}
-
-.controls-bar {
+.stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px; }
+.controls-bar { display: flex; align-items: center; gap: 16px; padding: 12px 0; margin-bottom: 20px; }
+.status-checkbox {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 12px 0;
-    margin-bottom: 20px;
-}
-
-.status-badge {
-    padding: 8px 20px;
+    gap: 8px;
+    padding: 8px 16px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     font-size: 0.8125rem;
     color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
 }
-
+.status-checkbox:hover { border-color: var(--accent); }
+.status-checkbox input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--highlight); cursor: pointer; }
+.status-checkbox strong { color: var(--highlight); }
 .btn {
     padding: 12px 28px;
     background: var(--bg-secondary);
@@ -113,39 +81,22 @@ body {
     cursor: pointer;
     transition: all 0.2s;
 }
-
 .btn:hover { border-color: var(--accent); background: var(--bg-tertiary); }
 .btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
 .btn-primary:hover { background: var(--accent-light); }
 .btn-primary:disabled { background: #999; border-color: #999; cursor: not-allowed; opacity: 0.7; }
 .btn-icon { padding: 10px 16px; display: flex; align-items: center; gap: 6px; }
 .btn-icon svg { width: 16px; height: 16px; }
+.btn-sm { padding: 8px 16px; font-size: 0.8125rem; }
+.btn-connect { background: var(--accent); color: white; border-color: var(--accent); }
+.btn-connect:hover { background: var(--accent-light); }
+.btn-connect:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-delete { background: transparent; color: var(--highlight); border-color: var(--highlight); }
+.btn-delete:hover { background: var(--highlight-soft); }
 .spacer { flex: 1; }
-
-.summary-main {
-    display: grid;
-    grid-template-columns: 1fr 480px;
-    gap: 24px;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-}
-
-.section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-}
-
-.section-title {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-    color: var(--text-secondary);
-}
-
+.summary-main { display: grid; grid-template-columns: 1fr 480px; gap: 24px; flex: 1; min-height: 0; }
+.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.section-title { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-secondary); }
 .section-edit-btn {
     padding: 4px 12px;
     background: transparent;
@@ -157,29 +108,10 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
-
-.section-edit-btn:hover {
-    border-color: var(--accent);
-    color: var(--text-primary);
-    background: var(--bg-tertiary);
-}
-
-.left-content {
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-    min-height: 0;
-    overflow: hidden;
-}
-
-.keywords-section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    padding: 24px;
-}
-
+.section-edit-btn:hover { border-color: var(--accent); color: var(--text-primary); background: var(--bg-tertiary); }
+.left-content { display: flex; flex-direction: column; gap: 24px; min-height: 0; }
+.keywords-section { background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 24px; }
 .keywords-cloud { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
-
 .keyword-tag {
     padding: 8px 20px;
     background: var(--bg-tertiary);
@@ -189,11 +121,9 @@ body {
     transition: all 0.2s;
     cursor: default;
 }
-
 .keyword-tag.primary { background: var(--accent); color: white; border-color: var(--accent); font-weight: 500; }
 .keyword-tag.secondary { background: var(--highlight-soft); border-color: rgba(255, 68, 68, 0.2); color: var(--highlight); }
 .keyword-tag:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-
 .timeline-section {
     flex: 1;
     background: var(--bg-secondary);
@@ -202,19 +132,11 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    overflow: hidden;
+    max-height: 500px;
 }
-
-.timeline-list {
-    flex: 1;
-    overflow-y: auto;
-    padding-right: 8px;
-    min-height: 0;
-}
-
+.timeline-list { flex: 1; overflow-y: auto; padding-right: 8px; min-height: 0; }
 .timeline-list::-webkit-scrollbar { width: 4px; }
 .timeline-list::-webkit-scrollbar-thumb { background: var(--border-color); }
-
 .timeline-item {
     position: relative;
     padding-left: 32px;
@@ -222,9 +144,7 @@ body {
     border-left: 1px solid var(--border-color);
     margin-left: 8px;
 }
-
 .timeline-item:last-child { border-left-color: transparent; padding-bottom: 0; }
-
 .timeline-dot {
     position: absolute;
     left: -5px;
@@ -236,37 +156,26 @@ body {
     border-radius: 50%;
     transition: all 0.2s;
 }
-
 .timeline-item:hover .timeline-dot { border-color: var(--highlight); background: var(--highlight); transform: scale(1.3); }
 .timeline-item.critical .timeline-dot { border-color: var(--highlight); background: var(--highlight); }
-
-.timeline-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 8px;
-}
-
+.timeline-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
 .timeline-title { font-size: 1rem; font-weight: 500; color: var(--text-primary); }
 .timeline-time { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .timeline-brief { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.7; margin-bottom: 12px; }
 .timeline-meta { display: flex; gap: 16px; font-size: 0.75rem; color: var(--text-muted); }
 .timeline-meta .importance { color: var(--highlight); font-weight: 500; }
-
 .right-panel { display: flex; flex-direction: column; gap: 24px; min-height: 0; }
-
 .relations-section {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     padding: 24px;
     flex: 1;
     min-height: 320px;
+    max-height: 400px;
     display: flex;
     flex-direction: column;
 }
-
 #relation-chart { width: 100%; flex: 1; min-height: 200px; }
-
 .arcs-section {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
@@ -275,20 +184,11 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    max-height: 400px;
 }
-
-.arcs-list {
-    flex: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    padding-right: 8px;
-}
-
+.arcs-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding-right: 8px; }
 .arcs-list::-webkit-scrollbar { width: 4px; }
 .arcs-list::-webkit-scrollbar-thumb { background: var(--border-color); }
-
 .arc-card {
     padding: 16px;
     background: var(--bg-tertiary);
@@ -296,59 +196,23 @@ body {
     transition: all 0.3s ease;
     cursor: pointer;
 }
-
 .arc-card:hover { border-color: var(--accent); box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
-
-.arc-card-active {
-    border-color: var(--highlight);
-    background: var(--highlight-soft);
-    box-shadow: 0 4px 20px rgba(255, 68, 68, 0.15);
-    transform: scale(1.02);
-}
-
+.arc-card-active { border-color: var(--highlight); background: var(--highlight-soft); box-shadow: 0 4px 20px rgba(255, 68, 68, 0.15); }
 .arc-card-active .arc-name { color: var(--highlight); }
 .arc-card-active .arc-progress-inner { background: var(--highlight); }
-
-.arc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.arc-header { display: flex; justify-content: flex-start; align-items: center; gap: 12px; margin-bottom: 12px; }
 .arc-name { font-size: 0.9375rem; font-weight: 600; }
-.arc-phase { font-size: 0.75rem; color: var(--text-muted); }
+.arc-phase { font-size: 0.75rem; color: var(--text-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .arc-progress { height: 3px; background: var(--border-color); margin-bottom: 12px; overflow: hidden; }
 .arc-progress-inner { height: 100%; background: var(--accent); transition: width 0.6s ease-out; }
 .arc-info { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; }
 .arc-beats { font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6; }
 .arc-beat { position: relative; padding-left: 12px; margin-bottom: 4px; }
-.arc-beat::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 8px;
-    width: 4px;
-    height: 4px;
-    background: var(--border-color);
-    border-radius: 50%;
-}
-
+.arc-beat::before { content: ''; position: absolute; left: 0; top: 8px; width: 4px; height: 4px; background: var(--border-color); border-radius: 50%; }
 .empty-state { text-align: center; padding: 40px; color: var(--text-muted); font-size: 0.875rem; }
-
-/* 通用弹窗样式 */
-.modal-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 10000;
-    display: none;
-    align-items: center;
-    justify-content: center;
-}
-
+.modal-overlay { position: fixed; inset: 0; z-index: 10000; display: none; align-items: center; justify-content: center; }
 .modal-overlay.active { display: flex; }
-
-.modal-backdrop {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
-}
-
+.modal-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
 .modal-panel {
     position: relative;
     width: 100%;
@@ -360,17 +224,8 @@ body {
     display: flex;
     flex-direction: column;
 }
-
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border-color);
-}
-
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border-color); }
 .modal-header h2 { font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; }
-
 .modal-close {
     width: 32px;
     height: 32px;
@@ -382,21 +237,10 @@ body {
     cursor: pointer;
     transition: all 0.2s;
 }
-
 .modal-close:hover { background: var(--bg-tertiary); border-color: var(--accent); }
 .modal-close svg { width: 14px; height: 14px; }
-
 .modal-body { flex: 1; overflow-y: auto; padding: 24px; }
-
-.modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: 12px;
-    padding: 16px 24px;
-    border-top: 1px solid var(--border-color);
-}
-
-/* 编辑器样式 */
+.modal-footer { display: flex; justify-content: flex-end; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--border-color); }
 .editor-textarea {
     width: 100%;
     min-height: 300px;
@@ -410,130 +254,53 @@ body {
     resize: vertical;
     outline: none;
 }
-
 .editor-textarea:focus { border-color: var(--accent); }
-
-.editor-hint {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-bottom: 12px;
-    line-height: 1.5;
-}
-
-.editor-error {
-    padding: 12px;
-    background: var(--highlight-soft);
-    border: 1px solid rgba(255, 68, 68, 0.3);
-    color: var(--highlight);
-    font-size: 0.8125rem;
-    margin-top: 12px;
-    display: none;
-}
-
+.editor-hint { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5; }
+.editor-error { padding: 12px; background: var(--highlight-soft); border: 1px solid rgba(255, 68, 68, 0.3); color: var(--highlight); font-size: 0.8125rem; margin-top: 12px; display: none; }
 .editor-error.visible { display: block; }
-
-/* 设置弹窗继续使用已有样式 */
-.settings-modal { position: fixed; inset: 0; z-index: 10000; display: none; align-items: center; justify-content: center; }
-.settings-modal.active { display: flex; }
-.settings-overlay { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
-
-.settings-panel {
-    position: relative;
-    width: 100%;
-    max-width: 720px;
-    max-height: 90vh;
+.struct-item { border: 1px solid var(--border-color); background: var(--bg-tertiary); padding: 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
+.struct-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.struct-row input, .struct-row select, .struct-row textarea {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.2s;
 }
-
-.settings-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.settings-header h2 { font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; }
-
-.settings-close {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: 1px solid var(--border-color);
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.settings-close:hover { background: var(--bg-tertiary); border-color: var(--accent); }
-.settings-close svg { width: 14px; height: 14px; }
-
-.settings-body { flex: 1; overflow-y: auto; padding: 24px; }
+.struct-row input:focus, .struct-row select:focus, .struct-row textarea:focus { border-color: var(--accent); }
+.struct-row textarea { resize: vertical; font-family: inherit; min-height: 60px; }
+.struct-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+.struct-actions span { font-size: 0.75rem; color: var(--text-muted); }
+#editor-structured .btn-sm { padding: 4px 8px; font-size: 0.75rem; }
 .settings-section { margin-bottom: 32px; }
 .settings-section:last-child { margin-bottom: 0; }
-
-.settings-section-title {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-    color: var(--text-muted);
-    margin-bottom: 16px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border-light);
-}
-
+.settings-section-title { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-muted); margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border-light); }
 .settings-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
 .settings-row:last-child { margin-bottom: 0; }
 .settings-field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
 .settings-field.full { flex: 100%; }
 .settings-field label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-
-.settings-field input,
-.settings-field select {
-    padding: 10px 14px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    font-size: 0.875rem;
-    color: var(--text-primary);
-    outline: none;
-    transition: border-color 0.2s;
-}
-
-.settings-field input:focus,
-.settings-field select:focus { border-color: var(--accent); }
+.settings-field input, .settings-field select { padding: 10px 14px; background: var(--bg-tertiary); border: 1px solid var(--border-color); font-size: 0.875rem; color: var(--text-primary); outline: none; transition: border-color 0.2s; }
+.settings-field input:focus, .settings-field select:focus { border-color: var(--accent); }
 .settings-field input[type="password"] { letter-spacing: 0.15em; }
-
 .settings-field-inline { display: flex; align-items: center; gap: 8px; }
 .settings-field-inline input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
 .settings-field-inline label { font-size: 0.8125rem; color: var(--text-secondary); text-transform: none; letter-spacing: 0; }
-
 .settings-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
 .settings-btn-row { display: flex; gap: 12px; margin-top: 8px; }
-
-.btn-sm { padding: 8px 16px; font-size: 0.8125rem; }
-.btn-connect { background: var(--accent); color: white; border-color: var(--accent); }
-.btn-connect:hover { background: var(--accent-light); }
-.btn-connect:disabled { opacity: 0.6; cursor: not-allowed; }
-
 .model-select-wrap { display: none; }
 .model-select-wrap.active { display: flex; flex-direction: column; gap: 6px; }
-
 .hidden { display: none !important; }
-
 @media (max-width: 1200px) {
     .summary-container { padding: 16px 24px; }
     .summary-main { grid-template-columns: 1fr; }
     .right-panel { flex-direction: row; }
     .relations-section, .arcs-section { flex: 1; min-height: 300px; }
 }
-
 @media (max-width: 768px) {
     html, body { height: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .summary-container { height: auto; min-height: 100vh; overflow: visible; padding: 16px; }
@@ -543,7 +310,6 @@ body {
     .stat-value { font-size: 1.75rem; }
     .stat-label { font-size: 0.625rem; }
     .controls-bar { flex-wrap: wrap; gap: 10px; padding: 10px 0; margin-bottom: 16px; }
-    .status-badge { order: 3; width: 100%; text-align: center; padding: 6px 12px; font-size: 0.75rem; }
     .spacer { display: none; }
     .btn { padding: 10px 20px; font-size: 0.8125rem; }
     .btn-icon { padding: 10px 14px; }
@@ -558,13 +324,12 @@ body {
     .timeline-item { padding-left: 24px; padding-bottom: 24px; }
     .timeline-title { font-size: 0.9375rem; }
     .timeline-brief { font-size: 0.8125rem; line-height: 1.6; }
-    .modal-panel, .settings-panel { max-width: 100%; max-height: 100%; height: 100%; border: none; }
-    .modal-header, .modal-body, .modal-footer, .settings-header, .settings-body { padding: 16px; }
+    .modal-panel { max-width: 100%; max-height: 100%; height: 100%; border: none; }
+    .modal-header, .modal-body, .modal-footer { padding: 16px; }
     .settings-row { flex-direction: column; gap: 12px; }
     .settings-field { min-width: 100%; }
     .settings-field input, .settings-field select { padding: 12px 14px; font-size: 1rem; }
 }
-
 @media (max-width: 480px) {
     .summary-container { padding: 12px; }
     .summary-header { padding-bottom: 12px; margin-bottom: 12px; }
@@ -598,7 +363,7 @@ body {
     .arc-beats { font-size: 0.75rem; }
     .arc-beat { padding-left: 10px; }
     .arc-beat::before { width: 3px; height: 3px; top: 7px; }
-    .settings-header h2, .modal-header h2 { font-size: 0.875rem; }
+    .modal-header h2 { font-size: 0.875rem; }
     .settings-section-title { font-size: 0.625rem; }
     .settings-field label { font-size: 0.6875rem; }
     .settings-field-inline label { font-size: 0.75rem; }
@@ -606,14 +371,13 @@ body {
     .btn-sm { padding: 10px 14px; font-size: 0.75rem; width: 100%; }
     .editor-textarea { min-height: 200px; font-size: 0.75rem; }
 }
-
 @media (hover: none) and (pointer: coarse) {
     .btn { min-height: 44px; }
     .keyword-tag { min-height: 36px; display: flex; align-items: center; }
     .keyword-tag:hover { transform: none; }
     .timeline-item:hover .timeline-dot { transform: none; }
     .arc-card:hover { box-shadow: none; }
-    .settings-close, .modal-close { width: 44px; height: 44px; }
+    .modal-close { width: 44px; height: 44px; }
     .settings-field input, .settings-field select { min-height: 44px; }
     .settings-field-inline input[type="checkbox"] { width: 22px; height: 22px; }
     .section-edit-btn { min-height: 32px; padding: 6px 12px; }
@@ -621,7 +385,6 @@ body {
 </style>
 </head>
 <body>
-
 <div class="summary-container">
     <header class="summary-header">
         <div class="header-left">
@@ -643,9 +406,11 @@ body {
             </div>
         </div>
     </header>
-
     <div class="controls-bar">
-        <span class="status-badge" id="status-badge">已总结至第 0 楼 · 等待新内容</span>
+        <label class="status-checkbox">
+            <input type="checkbox" id="hide-summarized">
+            <span>聊天时隐藏已总结 ·  <strong id="summarized-count">0</strong> 楼（保留2楼）</span>
+        </label>
         <span class="spacer"></span>
         <button class="btn btn-icon" id="btn-settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -657,7 +422,6 @@ body {
         <button class="btn" id="btn-clear">清空</button>
         <button class="btn btn-primary" id="btn-generate">总结</button>
     </div>
-
     <main class="summary-main">
         <div class="left-content">
             <section class="keywords-section">
@@ -667,7 +431,6 @@ body {
                 </div>
                 <div class="keywords-cloud" id="keywords-cloud"></div>
             </section>
-
             <section class="timeline-section">
                 <div class="section-header">
                     <div class="section-title">剧情时间线</div>
@@ -676,7 +439,6 @@ body {
                 <div class="timeline-list" id="timeline-list"></div>
             </section>
         </div>
-
         <div class="right-panel">
             <section class="relations-section">
                 <div class="section-header">
@@ -685,7 +447,6 @@ body {
                 </div>
                 <div id="relation-chart"></div>
             </section>
-
             <section class="arcs-section">
                 <div class="section-header">
                     <div class="section-title">角色弧光</div>
@@ -696,22 +457,16 @@ body {
         </div>
     </main>
 </div>
-
-<!-- 编辑弹窗 -->
 <div class="modal-overlay" id="editor-modal">
     <div class="modal-backdrop" id="editor-backdrop"></div>
     <div class="modal-panel">
         <div class="modal-header">
             <h2 id="editor-title">编辑</h2>
-            <button class="modal-close" id="editor-close">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-            </button>
+            <button class="modal-close" id="editor-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
         </div>
         <div class="modal-body">
             <div class="editor-hint" id="editor-hint"></div>
+            <div id="editor-structured" class="hidden"></div>
             <textarea class="editor-textarea" id="editor-textarea"></textarea>
             <div class="editor-error" id="editor-error"></div>
         </div>
@@ -721,21 +476,14 @@ body {
         </div>
     </div>
 </div>
-
-<!-- 设置弹窗 -->
-<div class="settings-modal" id="settings-modal">
-    <div class="settings-overlay" id="settings-overlay"></div>
-    <div class="settings-panel">
-        <div class="settings-header">
+<div class="modal-overlay" id="settings-modal">
+    <div class="modal-backdrop" id="settings-backdrop"></div>
+    <div class="modal-panel">
+        <div class="modal-header">
             <h2>设置</h2>
-            <button class="settings-close" id="settings-close">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-            </button>
+            <button class="modal-close" id="settings-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
         </div>
-        <div class="settings-body">
+        <div class="modal-body">
             <div class="settings-section">
                 <div class="settings-section-title">API 配置</div>
                 <div class="settings-row">
@@ -779,42 +527,22 @@ body {
                     <button class="btn btn-sm btn-connect" id="btn-connect">连接 / 拉取模型列表</button>
                 </div>
             </div>
-
             <div class="settings-section">
                 <div class="settings-section-title">生成参数</div>
                 <div class="settings-row">
-                    <div class="settings-field">
-                        <label>Temperature</label>
-                        <input type="number" id="gen-temp" step="0.01" min="0" max="2" placeholder="未设置">
-                    </div>
-                    <div class="settings-field">
-                        <label>Top P</label>
-                        <input type="number" id="gen-top-p" step="0.01" min="0" max="1" placeholder="未设置">
-                    </div>
-                    <div class="settings-field">
-                        <label>Top K</label>
-                        <input type="number" id="gen-top-k" step="1" min="1" placeholder="未设置">
-                    </div>
+                    <div class="settings-field"><label>Temperature</label><input type="number" id="gen-temp" step="0.01" min="0" max="2" placeholder="未设置"></div>
+                    <div class="settings-field"><label>Top P</label><input type="number" id="gen-top-p" step="0.01" min="0" max="1" placeholder="未设置"></div>
+                    <div class="settings-field"><label>Top K</label><input type="number" id="gen-top-k" step="1" min="1" placeholder="未设置"></div>
                 </div>
                 <div class="settings-row">
-                    <div class="settings-field">
-                        <label>存在惩罚</label>
-                        <input type="number" id="gen-presence" step="0.01" min="-2" max="2" placeholder="未设置">
-                    </div>
-                    <div class="settings-field">
-                        <label>频率惩罚</label>
-                        <input type="number" id="gen-frequency" step="0.01" min="-2" max="2" placeholder="未设置">
-                    </div>
+                    <div class="settings-field"><label>存在惩罚</label><input type="number" id="gen-presence" step="0.01" min="-2" max="2" placeholder="未设置"></div>
+                    <div class="settings-field"><label>频率惩罚</label><input type="number" id="gen-frequency" step="0.01" min="-2" max="2" placeholder="未设置"></div>
                 </div>
             </div>
-
             <div class="settings-section">
                 <div class="settings-section-title">自动触发</div>
                 <div class="settings-row">
-                    <div class="settings-field">
-                        <label>总结间隔（楼）</label>
-                        <input type="number" id="trigger-interval" min="5" step="5" value="20">
-                    </div>
+                    <div class="settings-field"><label>总结间隔（楼）</label><input type="number" id="trigger-interval" min="5" step="5" value="20"></div>
                     <div class="settings-field">
                         <label>触发时机</label>
                         <select id="trigger-timing">
@@ -829,30 +557,26 @@ body {
                         <input type="checkbox" id="trigger-enabled">
                         <label for="trigger-enabled">启用自动总结</label>
                     </div>
-                    <div class="settings-field-inline">
-                        <input type="checkbox" id="api-stream" checked>
-                        <label for="api-stream">启用流式传输</label>
-                    </div>
                 </div>
             </div>
         </div>
+        <div class="modal-footer">
+            <button class="btn" id="settings-cancel">取消</button>
+            <button class="btn btn-primary" id="settings-save">保存</button>
+        </div>
     </div>
 </div>
-
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <script>
-// ====== 数据存储 ======
 const config = {
-    api: { provider: 'st', url: '', key: '', model: '', modelCache: [], stream: true },
+    api: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
     gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
     trigger: { enabled: false, interval: 20, timing: 'after_ai' }
 };
-
 let summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] };
 let localGenerating = false;
 let relationChart = null;
 let currentEditSection = null;
-
 const providerDefaults = {
     st: { url: '', needKey: false, canFetch: false },
     openai: { url: 'https://api.openai.com', needKey: true, canFetch: true },
@@ -862,247 +586,193 @@ const providerDefaults = {
     cohere: { url: 'https://api.cohere.ai', needKey: true, canFetch: false },
     custom: { url: '', needKey: true, canFetch: true }
 };
-
 const sectionMeta = {
-    keywords: {
-        title: '编辑关键词',
-        hint: '每行一个关键词，格式：关键词|权重（核心/重要/一般）\n例如：\n命运之轮|核心\n神秘组织|重要\n古老预言|一般'
-    },
-    events: {
-        title: '编辑事件时间线',
-        hint: 'JSON数组格式，每个事件包含：id, title, timeLabel, summary, participants, type, impact'
-    },
-    characters: {
-        title: '编辑人物关系',
-        hint: 'JSON对象格式，包含 main（主要角色数组）和 relationships（关系数组）'
-    },
-    arcs: {
-        title: '编辑角色弧光',
-        hint: 'JSON数组格式，每个角色包含：name, trajectory, progress(0-1), moments'
-    }
+    keywords: { title: '编辑关键词', hint: '每行一个关键词，格式：关键词|权重（核心/重要/一般）' },
+    events: { title: '编辑事件时间线', hint: '编辑时，每个事件要素都应完整' },
+    characters: { title: '编辑人物关系', hint: '编辑时，每个要素都应完整' },
+    arcs: { title: '编辑角色弧光', hint: '编辑时，每个要素都应完整' }
 };
-
+function getCharName(c) { return typeof c === 'string' ? c : c.name; }
+function preserveAddedAt(newItem, oldItem) { if (oldItem?._addedAt != null) newItem._addedAt = oldItem._addedAt; return newItem; }
 function loadConfig() {
     try {
         const saved = localStorage.getItem('summary_panel_config');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            Object.assign(config.api, parsed.api || {});
-            Object.assign(config.gen, parsed.gen || {});
-            Object.assign(config.trigger, parsed.trigger || {});
-        }
+        if (saved) { const p = JSON.parse(saved); Object.assign(config.api, p.api || {}); Object.assign(config.gen, p.gen || {}); Object.assign(config.trigger, p.trigger || {}); }
     } catch {}
 }
-
-function saveConfig() {
-    try { localStorage.setItem('summary_panel_config', JSON.stringify(config)); } catch {}
-}
-
-// ====== 渲染函数 ======
+function saveConfig() { try { localStorage.setItem('summary_panel_config', JSON.stringify(config)); } catch {} }
 function renderKeywords(keywords) {
     summaryData.keywords = keywords || [];
-    const weightClass = { '核心': 'primary', '重要': 'secondary', '一般': 'normal', high: 'primary', medium: 'secondary', low: 'normal' };
-    document.getElementById('keywords-cloud').innerHTML = keywords.map(k => {
-        const cls = weightClass[k.weight] || weightClass[k.level] || 'normal';
-        return `<span class="keyword-tag ${cls}">${k.text}</span>`;
-    }).join('') || '<div class="empty-state">暂无关键词</div>';
+    const wc = { '核心': 'primary', '重要': 'secondary', high: 'primary', medium: 'secondary' };
+    document.getElementById('keywords-cloud').innerHTML = keywords.map(k => `<span class="keyword-tag ${wc[k.weight] || wc[k.level] || ''}">${k.text}</span>`).join('') || '<div class="empty-state">暂无关键词</div>';
 }
-
 function renderTimeline(events) {
     summaryData.events = events || [];
-    const container = document.getElementById('timeline-list');
-
-    if (!events?.length) {
-        container.innerHTML = '<div class="empty-state">暂无事件记录</div>';
-        return;
-    }
-
-    const impactText = { '高': '关键', '中': '重要', '低': '次要', high: '关键', medium: '重要', low: '次要' };
-
-    container.innerHTML = events.map(ev => {
-        const timeLabel = ev.timeLabel || `${Math.round((ev.position || 0) * 100)}%`;
-        const summary = ev.summary || ev.brief || '';
-        const participants = ev.participants || ev.characters || [];
-        const isCritical = ev.impact === '高' || ev.impact === 'high' || ev.critical;
-        const typeText = ev.type || '';
-        const impactLabel = impactText[ev.impact] || '';
-
-        return `
-            <div class="timeline-item ${isCritical ? 'critical' : ''}">
-                <div class="timeline-dot"></div>
-                <div class="timeline-header">
-                    <div class="timeline-title">${ev.title || ''}</div>
-                    <div class="timeline-time">${timeLabel}</div>
-                </div>
-                <div class="timeline-brief">${summary}</div>
-                <div class="timeline-meta">
-                    <span>人物：${participants.join('、') || '—'}</span>
-                    <span class="importance">${typeText}${typeText && impactLabel ? ' · ' : ''}${impactLabel}</span>
-                </div>
-            </div>`;
+    const c = document.getElementById('timeline-list');
+    if (!events?.length) { c.innerHTML = '<div class="empty-state">暂无事件记录</div>'; return; }
+    const it = { '高': '关键', '中': '重要', '低': '次要', high: '关键', medium: '重要', low: '次要' };
+    c.innerHTML = events.map(ev => {
+        const tl = ev.timeLabel || `${Math.round((ev.position || 0) * 100)}%`;
+        const p = ev.participants || ev.characters || [];
+        const cr = ev.impact === '高' || ev.impact === 'high' || ev.critical;
+        const il = it[ev.impact] || '';
+        return `<div class="timeline-item ${cr ? 'critical' : ''}"><div class="timeline-dot"></div><div class="timeline-header"><div class="timeline-title">${ev.title || ''}</div><div class="timeline-time">${tl}</div></div><div class="timeline-brief">${ev.summary || ev.brief || ''}</div><div class="timeline-meta"><span>人物：${p.join('、') || '—'}</span><span class="importance">${ev.type || ''}${ev.type && il ? ' · ' : ''}${il}</span></div></div>`;
     }).join('');
 }
-
 function renderRelations(data) {
     summaryData.characters = data || { main: [], relationships: [] };
     const dom = document.getElementById('relation-chart');
-    if (!relationChart) {
-        relationChart = echarts.init(dom);
-        window.addEventListener('resize', () => relationChart?.resize());
-    }
-
-    let nodeList, linkList;
-    if (data?.nodes && data?.links) {
-        nodeList = data.nodes;
-        linkList = data.links;
-    } else if (data?.main || data?.relationships) {
-        const mainChars = data.main || [];
-        const rels = data.relationships || [];
-        const allNames = new Set(mainChars);
-        rels.forEach(r => { if (r.from) allNames.add(r.from); if (r.to) allNames.add(r.to); });
-
-        nodeList = Array.from(allNames).map(name => ({
-            id: name, name, importance: mainChars.includes(name) ? 0.9 : 0.5
-        }));
-
-        const trendStrength = { '亲近': 0.9, '疏远': 0.4, '不变': 0.6, '新建': 0.7, '破裂': 0.3, closer: 0.9, distant: 0.4, unchanged: 0.6, new: 0.7, broken: 0.3 };
-        linkList = rels.map(r => ({
-            source: r.from, target: r.to, type: r.label || r.type || '关系', strength: trendStrength[r.trend] || 0.6
-        }));
-    } else {
-        nodeList = [];
-        linkList = [];
-    }
-
+    if (!relationChart) { relationChart = echarts.init(dom); window.addEventListener('resize', () => relationChart?.resize()); }
+    const mainChars = (data?.main || []).map(getCharName);
+    const rels = data?.relationships || [];
+    const allNames = new Set(mainChars);
+    rels.forEach(r => { if (r.from) allNames.add(r.from); if (r.to) allNames.add(r.to); });
+    const nodeList = Array.from(allNames).map(name => ({ id: name, name, importance: mainChars.includes(name) ? 0.9 : 0.5 }));
+    const ts = { '亲近': 0.9, '疏远': 0.4, '不变': 0.6, '新建': 0.7, '破裂': 0.3 };
+    const linkList = rels.map(r => ({ source: r.from, target: r.to, type: r.label || r.type || '关系', strength: ts[r.trend] || 0.6 }));
     if (!nodeList.length) { relationChart.clear(); return; }
-
-    const getTextWidth = text => Math.max(text.length * 14 + 24, 60);
+    const gtw = t => Math.max(t.length * 14 + 24, 60);
     const nodes = nodeList.map(n => ({
-        id: n.id, name: n.name, symbol: 'roundRect',
-        symbolSize: [getTextWidth(n.name), 36],
-        itemStyle: {
-            color: n.importance > 0.8 ? '#ff4444' : n.importance > 0.6 ? '#1a1a1a' : '#666',
-            borderColor: n.importance > 0.8 ? '#ff4444' : '#1a1a1a',
-            borderWidth: 2, borderRadius: 4, shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.15)'
-        },
+        id: n.id, name: n.name, symbol: 'roundRect', symbolSize: [gtw(n.name), 36],
+        itemStyle: { color: n.importance > 0.8 ? '#ff4444' : n.importance > 0.6 ? '#1a1a1a' : '#666', borderColor: n.importance > 0.8 ? '#ff4444' : '#1a1a1a', borderWidth: 2, borderRadius: 4, shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.15)' },
         label: { show: true, color: '#fff', fontSize: 13, fontWeight: 600, position: 'inside' }
     }));
-
     const links = linkList.map(l => ({
-        source: l.source || l.from, target: l.target || l.to, value: l.type || l.label || '',
+        source: l.source, target: l.target, value: l.type,
         lineStyle: { width: 1.5 + (l.strength || 0.5) * 2, color: '#999', curveness: 0.2 },
-        label: {
-            show: true, formatter: l.type || l.label || '', fontSize: 11, fontWeight: 500, color: '#333',
-            padding: [3, 6], backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 3, borderColor: '#ddd', borderWidth: 1
-        }
+        label: { show: true, formatter: l.type, fontSize: 11, fontWeight: 400, color: '#000', padding: [3, 6], backgroundColor: 'rgba(255,255,255,0.95)', borderRadius: 3, borderColor: '#ddd', borderWidth: 1 }
     }));
-
-    const nodeCount = nodes.length;
-    const minDim = Math.min(dom.clientHeight || 280, dom.clientWidth || 400);
-    const baseRepulsion = Math.max(300, minDim * 1.2);
-    const repulsion = nodeCount <= 3 ? baseRepulsion * 1.5 : nodeCount <= 5 ? baseRepulsion : baseRepulsion * 0.7;
-    const edgeLengthBase = minDim * 0.35;
-    const edgeLength = nodeCount <= 3 ? [edgeLengthBase, edgeLengthBase * 1.8] : nodeCount <= 5 ? [edgeLengthBase * 0.6, edgeLengthBase * 1.4] : [edgeLengthBase * 0.4, edgeLengthBase];
-
+    const w = dom.clientWidth || 400, h = dom.clientHeight || 280, minDim = Math.min(w, h);
     relationChart.setOption({
         tooltip: { show: false },
-        series: [{
-            type: 'graph', layout: 'force', roam: false, draggable: true,
-            left: '5%', right: '5%', top: '5%', bottom: '5%',
-            data: nodes, links,
-            force: { repulsion, edgeLength, gravity: 0.08, friction: 0.6, layoutAnimation: true },
-            emphasis: {
-                focus: 'adjacency',
-                itemStyle: { shadowBlur: 16, shadowColor: 'rgba(0,0,0,0.3)' },
-                lineStyle: { width: 4, color: '#1a1a1a' }
-            },
-            select: { itemStyle: { borderWidth: 3, borderColor: '#ff4444' } }
-        }]
+        series: [{ type: 'graph', layout: 'force', roam: false, draggable: true, left: '5%', right: '5%', top: '5%', bottom: '5%', data: nodes, links, force: { repulsion: minDim * 2.5, edgeLength: [minDim * 0.25, minDim * 0.55], gravity: 0.005, friction: 0.5, layoutAnimation: true }, emphasis: { focus: 'adjacency', itemStyle: { shadowBlur: 16, shadowColor: 'rgba(0,0,0,0.3)' }, lineStyle: { width: 4, color: '#1a1a1a' } }, select: { itemStyle: { borderWidth: 3, borderColor: '#ff4444' } } }]
     });
-
     relationChart.off('click');
-    relationChart.on('click', params => { if (params.dataType === 'node') highlightAndScrollArc(params.data.id); });
+    relationChart.on('click', params => { if (params.dataType === 'node') highlightArc(params.data.id); });
     setTimeout(() => relationChart?.resize(), 100);
 }
-
-function highlightAndScrollArc(characterId) {
-    const container = document.getElementById('arcs-list');
-    const cards = container.querySelectorAll('.arc-card');
-    cards.forEach(card => card.classList.remove('arc-card-active'));
-
-    let targetCard = null;
-    cards.forEach(card => { if (card.dataset.characterId === characterId) targetCard = card; });
-
-    if (targetCard) {
-        targetCard.classList.add('arc-card-active');
-        container.insertBefore(targetCard, container.firstChild);
-        container.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+function highlightArc(charId) {
+    const c = document.getElementById('arcs-list');
+    c.querySelectorAll('.arc-card').forEach(card => {
+        card.classList.toggle('arc-card-active', card.dataset.characterId === charId);
+        if (card.dataset.characterId === charId) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
 }
-
 function renderArcs(arcs) {
     summaryData.arcs = arcs || [];
-    const container = document.getElementById('arcs-list');
-
-    if (!arcs?.length) {
-        container.innerHTML = '<div class="empty-state">暂无角色数据</div>';
-        return;
-    }
-
-    container.innerHTML = arcs.map(arc => {
-        const charId = arc.id || arc.name;
-        const trajectory = arc.trajectory || arc.phase || '';
-        const beats = arc.moments || arc.beats || [];
-        const progress = arc.progress || 0;
-
-        return `
-            <div class="arc-card" data-character-id="${charId}">
-                <div class="arc-header">
-                    <span class="arc-name">${arc.name || '角色'}</span>
-                    <span class="arc-phase">${trajectory.slice(0, 20)}${trajectory.length > 20 ? '...' : ''}</span>
-                </div>
-                <div class="arc-progress">
-                    <div class="arc-progress-inner" style="width:${progress * 100}%"></div>
-                </div>
-                <div class="arc-info">
-                    <span>角色弧光</span>
-                    <span>${Math.round(progress * 100)}%</span>
-                </div>
-                <div class="arc-beats">
-                    ${beats.map(b => `<div class="arc-beat">${b}</div>`).join('')}
-                </div>
-            </div>`;
+    const c = document.getElementById('arcs-list');
+    if (!arcs?.length) { c.innerHTML = '<div class="empty-state">暂无角色数据</div>'; return; }
+    c.innerHTML = arcs.map(arc => {
+        const beats = (arc.moments || arc.beats || []).map(m => typeof m === 'string' ? m : m.text);
+        return `<div class="arc-card" data-character-id="${arc.id || arc.name}"><div class="arc-header"><span class="arc-name">${arc.name || '角色'}</span><span class="arc-phase">${arc.trajectory || arc.phase || ''}</span></div><div class="arc-progress"><div class="arc-progress-inner" style="width:${(arc.progress || 0) * 100}%"></div></div><div class="arc-info"><span>弧光进度</span><span>${Math.round((arc.progress || 0) * 100)}%</span></div><div class="arc-beats">${beats.map(b => `<div class="arc-beat">${b}</div>`).join('')}</div></div>`;
     }).join('');
-
-    container.querySelectorAll('.arc-card').forEach(card => {
+    c.querySelectorAll('.arc-card').forEach(card => {
         card.addEventListener('click', () => {
-            const charId = card.dataset.characterId;
-            container.querySelectorAll('.arc-card').forEach(c => c.classList.remove('arc-card-active'));
+            c.querySelectorAll('.arc-card').forEach(x => x.classList.remove('arc-card-active'));
             card.classList.add('arc-card-active');
-
             if (relationChart) {
-                const option = relationChart.getOption();
-                if (option?.series?.[0]?.data) {
-                    const idx = option.series[0].data.findIndex(n => n.id === charId || n.name === charId);
-                    if (idx >= 0) relationChart.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex: idx });
-                }
+                const opt = relationChart.getOption();
+                const idx = opt?.series?.[0]?.data?.findIndex(n => n.id === card.dataset.characterId || n.name === card.dataset.characterId);
+                if (idx >= 0) relationChart.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex: idx });
             }
         });
     });
 }
-
-function updateStats(stats) {
-    if (!stats) return;
-    document.getElementById('stat-summarized').textContent = stats.summarizedUpTo ?? 0;
-    document.getElementById('stat-events').textContent = stats.eventsCount ?? 0;
-    document.getElementById('stat-pending').textContent = stats.pendingFloors ?? 0;
-}
-
-// ====== 编辑器 ======
+function updateStats(s) { if (!s) return; document.getElementById('stat-summarized').textContent = s.summarizedUpTo ?? 0; document.getElementById('stat-events').textContent = s.eventsCount ?? 0; document.getElementById('stat-pending').textContent = s.pendingFloors ?? 0; }
 const editorModal = document.getElementById('editor-modal');
 const editorTextarea = document.getElementById('editor-textarea');
 const editorError = document.getElementById('editor-error');
-
+const editorStructured = document.getElementById('editor-structured');
+function createDeleteBtn() { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-sm btn-delete'; b.textContent = '删除'; return b; }
+function renderEventsEditor(events) {
+    const list = events?.length ? events : [{ id: 'evt-1', title: '', timeLabel: '', summary: '', participants: [], type: '铺垫', impact: '中' }];
+    const evtMap = new Map((summaryData.events || []).map(e => [e.id, e]));
+    let maxId = 0;
+    list.forEach(e => { const m = e.id?.match(/evt-(\d+)/); if (m) maxId = Math.max(maxId, parseInt(m[1])); });
+    editorStructured.innerHTML = list.map((ev, idx) => {
+        const id = ev.id || `evt-${maxId + idx + 1}`;
+        return `<div class="struct-item event-item" data-id="${id}"><div class="struct-row"><input type="text" class="event-title" placeholder="事件标题" value="${ev.title || ''}"><input type="text" class="event-time" placeholder="时间标签" value="${ev.timeLabel || ''}"></div><div class="struct-row"><textarea class="event-summary" rows="2" placeholder="一句话描述">${ev.summary || ''}</textarea></div><div class="struct-row"><input type="text" class="event-participants" placeholder="人物（顿号分隔）" value="${(ev.participants || []).join('、')}"></div><div class="struct-row"><select class="event-type">${['铺垫','冲突','揭示','转折','发展','解决','日常'].map(t => `<option value="${t}" ${ev.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select><select class="event-impact">${['高','中','低'].map(t => `<option value="${t}" ${ev.impact === t ? 'selected' : ''}>影响：${t}</option>`).join('')}</select></div><div class="struct-actions"><span>ID：${id}</span></div></div>`;
+    }).join('') + '<div style="margin-top:8px;"><button type="button" class="btn btn-sm" id="event-add">＋ 新增事件</button></div>';
+    editorStructured.querySelectorAll('.event-item').forEach(item => {
+        const del = createDeleteBtn();
+        item.querySelector('.struct-actions').appendChild(del);
+        del.addEventListener('click', () => item.remove());
+    });
+    document.getElementById('event-add')?.addEventListener('click', () => {
+        const items = editorStructured.querySelectorAll('.event-item');
+        let newMax = maxId;
+        items.forEach(it => { const m = it.dataset.id?.match(/evt-(\d+)/); if (m) newMax = Math.max(newMax, parseInt(m[1])); });
+        const newId = `evt-${newMax + 1}`;
+        const div = document.createElement('div');
+        div.className = 'struct-item event-item';
+        div.dataset.id = newId;
+        div.innerHTML = `<div class="struct-row"><input type="text" class="event-title" placeholder="事件标题"><input type="text" class="event-time" placeholder="时间标签"></div><div class="struct-row"><textarea class="event-summary" rows="2" placeholder="一句话描述"></textarea></div><div class="struct-row"><input type="text" class="event-participants" placeholder="人物（顿号分隔）"></div><div class="struct-row"><select class="event-type">${['铺垫','冲突','揭示','转折','发展','解决','日常'].map(t => `<option value="${t}">${t}</option>`).join('')}</select><select class="event-impact">${['高','中','低'].map(t => `<option value="${t}">影响：${t}</option>`).join('')}</select></div><div class="struct-actions"><span>ID：${newId}</span></div>`;
+        const del = createDeleteBtn();
+        div.querySelector('.struct-actions').appendChild(del);
+        del.addEventListener('click', () => div.remove());
+        editorStructured.insertBefore(div, document.getElementById('event-add').parentElement);
+    });
+}
+function renderCharactersEditor(data) {
+    const d = data || { main: [], relationships: [] };
+    const main = (d.main || []).map(getCharName);
+    const rels = d.relationships || [];
+    editorStructured.innerHTML = `<div class="struct-item"><div class="struct-row"><strong>主要角色</strong></div><div id="char-main-list">${(main.length ? main : ['']).map(name => `<div class="struct-row char-main-item"><input type="text" class="char-main-name" placeholder="角色名" value="${name || ''}"></div>`).join('')}</div><div style="margin-top:8px;"><button type="button" class="btn btn-sm" id="char-main-add">＋ 新增主要角色</button></div></div><div class="struct-item"><div class="struct-row"><strong>人物关系</strong></div><div id="char-rel-list">${(rels.length ? rels : [{ from: '', to: '', label: '', trend: '不变' }]).map((r, i) => `<div class="struct-row char-rel-item" data-idx="${i}"><input type="text" class="char-rel-from" placeholder="角色 A" value="${r.from || ''}"><input type="text" class="char-rel-to" placeholder="角色 B" value="${r.to || ''}"><input type="text" class="char-rel-label" placeholder="关系" value="${r.label || ''}"><select class="char-rel-trend">${['亲近','疏远','不变','新建','破裂'].map(t => `<option value="${t}" ${r.trend === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`).join('')}</div><div style="margin-top:8px;"><button type="button" class="btn btn-sm" id="char-rel-add">＋ 新增关系</button></div></div>`;
+    editorStructured.querySelectorAll('.char-main-item').forEach(item => {
+        const del = createDeleteBtn();
+        item.appendChild(del);
+        del.addEventListener('click', () => item.remove());
+    });
+    document.getElementById('char-main-add')?.addEventListener('click', () => {
+        const list = document.getElementById('char-main-list');
+        const div = document.createElement('div');
+        div.className = 'struct-row char-main-item';
+        div.innerHTML = '<input type="text" class="char-main-name" placeholder="角色名">';
+        const del = createDeleteBtn();
+        div.appendChild(del);
+        del.addEventListener('click', () => div.remove());
+        list.appendChild(div);
+    });
+    editorStructured.querySelectorAll('.char-rel-item').forEach(item => {
+        const del = createDeleteBtn();
+        item.appendChild(del);
+        del.addEventListener('click', () => item.remove());
+    });
+    document.getElementById('char-rel-add')?.addEventListener('click', () => {
+        const list = document.getElementById('char-rel-list');
+        const div = document.createElement('div');
+        div.className = 'struct-row char-rel-item';
+        div.innerHTML = `<input type="text" class="char-rel-from" placeholder="角色 A"><input type="text" class="char-rel-to" placeholder="角色 B"><input type="text" class="char-rel-label" placeholder="关系"><select class="char-rel-trend">${['亲近','疏远','不变','新建','破裂'].map(t => `<option value="${t}">${t}</option>`).join('')}</select>`;
+        const del = createDeleteBtn();
+        div.appendChild(del);
+        del.addEventListener('click', () => div.remove());
+        list.appendChild(div);
+    });
+}
+function renderArcsEditor(arcs) {
+    const list = arcs?.length ? arcs : [{ name: '', trajectory: '', progress: 0, moments: [] }];
+    editorStructured.innerHTML = `<div id="arc-list">${list.map((arc, idx) => {
+        const momentsText = (arc.moments || []).map(m => typeof m === 'string' ? m : m.text).join('\n');
+        return `<div class="struct-item arc-item" data-index="${idx}"><div class="struct-row"><input type="text" class="arc-name" placeholder="角色名" value="${arc.name || ''}"></div><div class="struct-row"><textarea class="arc-trajectory" rows="2" placeholder="当前状态描述">${arc.trajectory || ''}</textarea></div><div class="struct-row"><label style="font-size:0.75rem;color:var(--text-muted);">进度：<input type="number" class="arc-progress" min="0" max="100" value="${Math.round((arc.progress || 0) * 100)}" style="width:64px;display:inline-block;"> %</label></div><div class="struct-row"><textarea class="arc-moments" rows="3" placeholder="关键时刻，一行一个">${momentsText}</textarea></div><div class="struct-actions"><span>角色弧光 ${idx + 1}</span></div></div>`;
+    }).join('')}</div><div style="margin-top:8px;"><button type="button" class="btn btn-sm" id="arc-add">＋ 新增角色弧光</button></div>`;
+    editorStructured.querySelectorAll('.arc-item').forEach(item => {
+        const del = createDeleteBtn();
+        item.querySelector('.struct-actions').appendChild(del);
+        del.addEventListener('click', () => item.remove());
+    });
+    document.getElementById('arc-add')?.addEventListener('click', () => {
+        const listEl = document.getElementById('arc-list');
+        const idx = listEl.querySelectorAll('.arc-item').length;
+        const div = document.createElement('div');
+        div.className = 'struct-item arc-item';
+        div.dataset.index = idx;
+        div.innerHTML = `<div class="struct-row"><input type="text" class="arc-name" placeholder="角色名"></div><div class="struct-row"><textarea class="arc-trajectory" rows="2" placeholder="当前状态描述"></textarea></div><div class="struct-row"><label style="font-size:0.75rem;color:var(--text-muted);">进度：<input type="number" class="arc-progress" min="0" max="100" value="0" style="width:64px;display:inline-block;"> %</label></div><div class="struct-row"><textarea class="arc-moments" rows="3" placeholder="关键时刻，一行一个"></textarea></div><div class="struct-actions"><span>角色弧光 ${idx + 1}</span></div>`;
+        const del = createDeleteBtn();
+        div.querySelector('.struct-actions').appendChild(del);
+        del.addEventListener('click', () => div.remove());
+        listEl.appendChild(div);
+    });
+}
 function openEditor(section) {
     currentEditSection = section;
     const meta = sectionMeta[section];
@@ -1110,261 +780,212 @@ function openEditor(section) {
     document.getElementById('editor-hint').textContent = meta.hint;
     editorError.classList.remove('visible');
     editorError.textContent = '';
-
-    let content = '';
+    editorStructured.classList.add('hidden');
+    editorTextarea.classList.remove('hidden');
     if (section === 'keywords') {
-        content = summaryData.keywords.map(k => `${k.text}|${k.weight || '一般'}`).join('\n');
+        editorTextarea.value = summaryData.keywords.map(k => `${k.text}|${k.weight || '一般'}`).join('\n');
     } else if (section === 'events') {
-        content = JSON.stringify(summaryData.events, null, 2);
+        editorTextarea.classList.add('hidden');
+        editorStructured.classList.remove('hidden');
+        renderEventsEditor(summaryData.events || []);
     } else if (section === 'characters') {
-        content = JSON.stringify(summaryData.characters, null, 2);
+        editorTextarea.classList.add('hidden');
+        editorStructured.classList.remove('hidden');
+        renderCharactersEditor(summaryData.characters || { main: [], relationships: [] });
     } else if (section === 'arcs') {
-        content = JSON.stringify(summaryData.arcs, null, 2);
+        editorTextarea.classList.add('hidden');
+        editorStructured.classList.remove('hidden');
+        renderArcsEditor(summaryData.arcs || []);
     }
-
-    editorTextarea.value = content;
     editorModal.classList.add('active');
     window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'EDITOR_OPENED' }, '*');
 }
-
-function closeEditor() {
-    editorModal.classList.remove('active');
-    currentEditSection = null;
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'EDITOR_CLOSED' }, '*');
-}
-
+function closeEditor() { editorModal.classList.remove('active'); currentEditSection = null; window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'EDITOR_CLOSED' }, '*'); }
 function saveEditor() {
     const section = currentEditSection;
-    const raw = editorTextarea.value.trim();
     let parsed;
-
     try {
         if (section === 'keywords') {
-            parsed = raw.split('\n').filter(l => l.trim()).map(line => {
+            const oldMap = new Map((summaryData.keywords || []).map(k => [k.text, k]));
+            parsed = editorTextarea.value.trim().split('\n').filter(l => l.trim()).map(line => {
                 const [text, weight] = line.split('|').map(s => s.trim());
-                return { text: text || '', weight: weight || '一般' };
+                return preserveAddedAt({ text: text || '', weight: weight || '一般' }, oldMap.get(text));
             });
-        } else {
-            parsed = JSON.parse(raw);
+        } else if (section === 'events') {
+            const oldMap = new Map((summaryData.events || []).map(e => [e.id, e]));
+            parsed = Array.from(editorStructured.querySelectorAll('.event-item')).map(item => {
+                const id = item.dataset.id;
+                const title = item.querySelector('.event-title').value.trim();
+                const timeLabel = item.querySelector('.event-time').value.trim();
+                const summary = item.querySelector('.event-summary').value.trim();
+                const participants = item.querySelector('.event-participants').value.trim().split(/[,、，]/).map(s => s.trim()).filter(Boolean);
+                const type = item.querySelector('.event-type').value;
+                const impact = item.querySelector('.event-impact').value;
+                return preserveAddedAt({ id, title, timeLabel, summary, participants, type, impact }, oldMap.get(id));
+            }).filter(ev => ev.title || ev.summary);
+        } else if (section === 'characters') {
+            const oldMainMap = new Map((summaryData.characters?.main || []).map(m => [getCharName(m), m]));
+            const mainNames = Array.from(editorStructured.querySelectorAll('.char-main-name')).map(i => i.value.trim()).filter(Boolean);
+            const main = mainNames.map(name => preserveAddedAt({ name }, oldMainMap.get(name)));
+            const oldRelMap = new Map((summaryData.characters?.relationships || []).map(r => [`${r.from}->${r.to}`, r]));
+            const rels = Array.from(editorStructured.querySelectorAll('.char-rel-item')).map(item => {
+                const from = item.querySelector('.char-rel-from').value.trim();
+                const to = item.querySelector('.char-rel-to').value.trim();
+                const label = item.querySelector('.char-rel-label').value.trim();
+                const trend = item.querySelector('.char-rel-trend').value;
+                return preserveAddedAt({ from, to, label, trend }, oldRelMap.get(`${from}->${to}`));
+            }).filter(r => r.from && r.to);
+            parsed = { main, relationships: rels };
+        } else if (section === 'arcs') {
+            const oldArcMap = new Map((summaryData.arcs || []).map(a => [a.name, a]));
+            parsed = Array.from(editorStructured.querySelectorAll('.arc-item')).map(item => {
+                const name = item.querySelector('.arc-name').value.trim();
+                const trajectory = item.querySelector('.arc-trajectory').value.trim();
+                let progress = parseFloat(item.querySelector('.arc-progress').value || '0') / 100;
+                progress = Math.max(0, Math.min(1, progress || 0));
+                const momentsRaw = item.querySelector('.arc-moments').value.trim();
+                const oldArc = oldArcMap.get(name);
+                const oldMomentMap = new Map((oldArc?.moments || []).map(m => [typeof m === 'string' ? m : m.text, m]));
+                const moments = momentsRaw ? momentsRaw.split('\n').map(s => s.trim()).filter(Boolean).map(text => preserveAddedAt({ text }, oldMomentMap.get(text))) : [];
+                return preserveAddedAt({ name, trajectory, progress, moments }, oldArc);
+            }).filter(a => a.name || a.trajectory || a.moments?.length);
         }
-    } catch (e) {
-        editorError.textContent = `格式错误: ${e.message}`;
-        editorError.classList.add('visible');
-        return;
-    }
-
-    window.parent.postMessage({
-        source: 'LittleWhiteBox-StoryFrame',
-        type: 'UPDATE_SECTION',
-        section,
-        data: parsed
-    }, '*');
-
-    if (section === 'keywords') {
-        renderKeywords(parsed);
-    } else if (section === 'events') {
-        renderTimeline(parsed);
-        document.getElementById('stat-events').textContent = parsed.length;
-    } else if (section === 'characters') {
-        renderRelations(parsed);
-    } else if (section === 'arcs') {
-        renderArcs(parsed);
-    }
-
+    } catch (e) { editorError.textContent = `格式错误: ${e.message}`; editorError.classList.add('visible'); return; }
+    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'UPDATE_SECTION', section, data: parsed }, '*');
+    if (section === 'keywords') renderKeywords(parsed);
+    else if (section === 'events') { renderTimeline(parsed); document.getElementById('stat-events').textContent = parsed.length; }
+    else if (section === 'characters') renderRelations(parsed);
+    else if (section === 'arcs') renderArcs(parsed);
     closeEditor();
 }
-
-document.querySelectorAll('.section-edit-btn').forEach(btn => {
-    btn.addEventListener('click', () => openEditor(btn.dataset.section));
-});
+document.querySelectorAll('.section-edit-btn').forEach(btn => btn.addEventListener('click', () => openEditor(btn.dataset.section)));
 document.getElementById('editor-backdrop').addEventListener('click', closeEditor);
 document.getElementById('editor-close').addEventListener('click', closeEditor);
 document.getElementById('editor-cancel').addEventListener('click', closeEditor);
 document.getElementById('editor-save').addEventListener('click', saveEditor);
-
-// ====== 设置弹窗 ======
 const settingsModal = document.getElementById('settings-modal');
-
+let tempConfig = null;
 function openSettings() {
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'SETTINGS_OPENED' }, '*');
-
+    tempConfig = JSON.parse(JSON.stringify(config));
     document.getElementById('api-provider').value = config.api.provider;
     document.getElementById('api-url').value = config.api.url;
     document.getElementById('api-key').value = config.api.key;
     document.getElementById('api-model-text').value = config.api.model;
-    document.getElementById('api-stream').checked = config.api.stream;
-
     document.getElementById('gen-temp').value = config.gen.temperature ?? '';
     document.getElementById('gen-top-p').value = config.gen.top_p ?? '';
     document.getElementById('gen-top-k').value = config.gen.top_k ?? '';
     document.getElementById('gen-presence').value = config.gen.presence_penalty ?? '';
     document.getElementById('gen-frequency').value = config.gen.frequency_penalty ?? '';
-
     document.getElementById('trigger-enabled').checked = config.trigger.enabled;
     document.getElementById('trigger-interval').value = config.trigger.interval;
     document.getElementById('trigger-timing').value = config.trigger.timing;
-
     if (config.api.modelCache.length > 0) {
-        const select = document.getElementById('api-model-select');
-        select.innerHTML = config.api.modelCache.map(m =>
-            `<option value="${m}" ${m === config.api.model ? 'selected' : ''}>${m}</option>`
-        ).join('');
+        const sel = document.getElementById('api-model-select');
+        sel.innerHTML = config.api.modelCache.map(m => `<option value="${m}" ${m === config.api.model ? 'selected' : ''}>${m}</option>`).join('');
         document.getElementById('model-select-wrap').classList.add('active');
     }
-
     updateProviderUI(config.api.provider);
     settingsModal.classList.add('active');
+    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'SETTINGS_OPENED' }, '*');
 }
-
-function closeSettings() {
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'SETTINGS_CLOSED' }, '*');
-
-    config.api.provider = document.getElementById('api-provider').value;
-    config.api.url = document.getElementById('api-url').value;
-    config.api.key = document.getElementById('api-key').value;
-    config.api.model = document.getElementById('api-model-text').value;
-    config.api.stream = document.getElementById('api-stream').checked;
-
-    const parseNum = id => { const v = document.getElementById(id).value; return v === '' ? null : parseFloat(v); };
-    config.gen.temperature = parseNum('gen-temp');
-    config.gen.top_p = parseNum('gen-top-p');
-    config.gen.top_k = parseNum('gen-top-k');
-    config.gen.presence_penalty = parseNum('gen-presence');
-    config.gen.frequency_penalty = parseNum('gen-frequency');
-
-    config.trigger.enabled = document.getElementById('trigger-enabled').checked;
-    config.trigger.interval = parseInt(document.getElementById('trigger-interval').value) || 20;
-    config.trigger.timing = document.getElementById('trigger-timing').value;
-
-    saveConfig();
+function closeSettings(save) {
+    if (save) {
+        const pn = id => { const v = document.getElementById(id).value; return v === '' ? null : parseFloat(v); };
+        config.api.provider = document.getElementById('api-provider').value;
+        config.api.url = document.getElementById('api-url').value;
+        config.api.key = document.getElementById('api-key').value;
+        config.api.model = document.getElementById('api-model-text').value;
+        config.gen.temperature = pn('gen-temp');
+        config.gen.top_p = pn('gen-top-p');
+        config.gen.top_k = pn('gen-top-k');
+        config.gen.presence_penalty = pn('gen-presence');
+        config.gen.frequency_penalty = pn('gen-frequency');
+        config.trigger.enabled = document.getElementById('trigger-enabled').checked;
+        config.trigger.interval = parseInt(document.getElementById('trigger-interval').value) || 20;
+        config.trigger.timing = document.getElementById('trigger-timing').value;
+        saveConfig();
+    }
+    tempConfig = null;
     settingsModal.classList.remove('active');
+    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'SETTINGS_CLOSED' }, '*');
 }
-
 function updateProviderUI(provider) {
     const pv = providerDefaults[provider] || providerDefaults.custom;
     document.getElementById('api-url-row').classList.toggle('hidden', provider === 'st');
     document.getElementById('api-key-row').classList.toggle('hidden', !pv.needKey);
     document.getElementById('api-connect-row').classList.toggle('hidden', !pv.canFetch);
-
     const urlInput = document.getElementById('api-url');
     if (!urlInput.value && pv.url) urlInput.value = pv.url;
 }
-
 async function fetchModels() {
     const btn = document.getElementById('btn-connect');
     const provider = document.getElementById('api-provider').value;
-
     if (!providerDefaults[provider]?.canFetch) { alert('当前渠道不支持自动拉取模型'); return; }
-
-    const baseUrl = document.getElementById('api-url').value.trim().replace(/\/+$/, '');
+    let baseUrl = document.getElementById('api-url').value.trim().replace(/\/+$/, '');
     const apiKey = document.getElementById('api-key').value.trim();
-
     if (!apiKey) { alert('请先填写 API KEY'); return; }
-
     btn.disabled = true;
     btn.textContent = '连接中...';
-
     try {
         const tryFetch = async url => {
             const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } });
             return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null;
         };
-
+        if (baseUrl.endsWith('/v1')) baseUrl = baseUrl.slice(0, -3);
         let models = await tryFetch(`${baseUrl}/v1/models`);
-        if (!models && baseUrl.includes('/v1')) models = await tryFetch(`${baseUrl.replace(/\/v1\/?$/, '')}/v1/models`);
         if (!models) models = await tryFetch(`${baseUrl}/models`);
         if (!models?.length) throw new Error('未获取到模型列表');
-
         config.api.modelCache = [...new Set(models)];
-        const select = document.getElementById('api-model-select');
-        select.innerHTML = config.api.modelCache.map(m => `<option value="${m}">${m}</option>`).join('');
+        const sel = document.getElementById('api-model-select');
+        sel.innerHTML = config.api.modelCache.map(m => `<option value="${m}">${m}</option>`).join('');
         document.getElementById('model-select-wrap').classList.add('active');
-
         if (!config.api.model && models.length) {
             config.api.model = models[0];
             document.getElementById('api-model-text').value = models[0];
-            select.value = models[0];
+            sel.value = models[0];
         }
-
         saveConfig();
         alert(`成功获取 ${models.length} 个模型`);
-    } catch (e) {
-        alert('连接失败：' + (e.message || '请检查 URL 和 KEY'));
-    } finally {
-        btn.disabled = false;
-        btn.textContent = '连接 / 拉取模型列表';
-    }
+    } catch (e) { alert('连接失败：' + (e.message || '请检查 URL 和 KEY')); }
+    finally { btn.disabled = false; btn.textContent = '连接 / 拉取模型列表'; }
 }
-
 document.getElementById('btn-settings').addEventListener('click', openSettings);
-document.getElementById('settings-overlay').addEventListener('click', closeSettings);
-document.getElementById('settings-close').addEventListener('click', closeSettings);
-document.getElementById('api-provider').addEventListener('change', e => {
-    document.getElementById('api-url').value = '';
-    updateProviderUI(e.target.value);
-});
+document.getElementById('settings-backdrop').addEventListener('click', () => closeSettings(false));
+document.getElementById('settings-close').addEventListener('click', () => closeSettings(false));
+document.getElementById('settings-cancel').addEventListener('click', () => closeSettings(false));
+document.getElementById('settings-save').addEventListener('click', () => closeSettings(true));
+document.getElementById('api-provider').addEventListener('change', e => { document.getElementById('api-url').value = ''; updateProviderUI(e.target.value); });
 document.getElementById('btn-connect').addEventListener('click', fetchModels);
-document.getElementById('api-model-select').addEventListener('change', e => {
-    document.getElementById('api-model-text').value = e.target.value;
-    config.api.model = e.target.value;
-});
-
-document.getElementById('btn-clear').addEventListener('click', () => {
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'REQUEST_CLEAR' }, '*');
-});
-
+document.getElementById('api-model-select').addEventListener('change', e => { document.getElementById('api-model-text').value = e.target.value; config.api.model = e.target.value; });
+document.getElementById('btn-clear').addEventListener('click', () => { window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'REQUEST_CLEAR' }, '*'); });
 document.getElementById('btn-generate').addEventListener('click', () => {
-    const badge = document.getElementById('status-badge');
     const btn = document.getElementById('btn-generate');
-
     if (!localGenerating) {
         localGenerating = true;
         btn.textContent = '停止';
-        badge.textContent = '正在生成增量总结...';
-        window.parent.postMessage({
-            source: 'LittleWhiteBox-StoryFrame',
-            type: 'REQUEST_GENERATE',
-            config: { api: config.api, gen: config.gen, trigger: config.trigger }
-        }, '*');
+        window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'REQUEST_GENERATE', config: { api: config.api, gen: config.gen, trigger: config.trigger } }, '*');
     } else {
         localGenerating = false;
         btn.textContent = '总结';
-        badge.textContent = '正在尝试停止...';
         window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'REQUEST_CANCEL' }, '*');
     }
 });
-
-// ====== 父窗口通讯 ======
 window.addEventListener('message', event => {
     const data = event.data;
     if (!data || data.source !== 'LittleWhiteBox') return;
-
-    const badge = document.getElementById('status-badge');
     const btn = document.getElementById('btn-generate');
-
     switch (data.type) {
         case 'GENERATION_STATE':
             localGenerating = !!data.isGenerating;
             btn.textContent = localGenerating ? '停止' : '总结';
             break;
-
         case 'SUMMARY_BASE_DATA':
-            if (data.stats) {
-                updateStats(data.stats);
-                if (data.stats.pendingFloors > 0) {
-                    badge.textContent = `已总结至第 ${data.stats.summarizedUpTo} 楼 · ${data.stats.pendingFloors} 楼待总结`;
-                } else if (data.stats.summarizedUpTo > 0) {
-                    badge.textContent = `已总结至第 ${data.stats.summarizedUpTo} 楼 · 已是最新`;
-                } else {
-                    badge.textContent = `共 ${data.stats.totalFloors} 楼 · 点击总结`;
-                }
+            if (data.stats) { 
+                updateStats(data.stats); 
+                document.getElementById('summarized-count').textContent = data.stats.hiddenCount ?? 0;
             }
-            break;
-
-        case 'SUMMARY_STATUS':
-            if (data.statusText) badge.textContent = data.statusText;
-            break;
-
+            if (data.hideSummarized !== undefined) document.getElementById('hide-summarized').checked = data.hideSummarized;
+            break;            
         case 'SUMMARY_FULL_DATA':
             if (data.payload) {
                 const p = data.payload;
@@ -1373,45 +994,42 @@ window.addEventListener('message', event => {
                 if (p.characters) renderRelations(p.characters);
                 if (p.arcs) renderArcs(p.arcs);
                 document.getElementById('stat-events').textContent = p.events?.length || 0;
-                if (p.lastSummarizedMesId != null) {
-                    document.getElementById('stat-summarized').textContent = p.lastSummarizedMesId + 1;
-                }
+                if (p.lastSummarizedMesId != null) document.getElementById('stat-summarized').textContent = p.lastSummarizedMesId + 1;
                 if (p.stats) updateStats(p.stats);
             }
             break;
-
         case 'SUMMARY_ERROR':
-            badge.textContent = `错误: ${data.message || '生成失败'}`;
+            console.error('Summary error:', data.message);
             break;
-
-        case 'SUMMARY_CLEARED': {
+        case 'SUMMARY_CLEARED':
             const total = data.payload?.totalFloors || 0;
             document.getElementById('stat-events').textContent = 0;
             document.getElementById('stat-summarized').textContent = 0;
             document.getElementById('stat-pending').textContent = total;
-            badge.textContent = `已清空本聊天的剧情总结 · 共 ${total} 楼`;
+            document.getElementById('summarized-count').textContent = 0;
             summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] };
             renderKeywords([]);
             renderTimeline([]);
             renderRelations(null);
             renderArcs([]);
             break;
-        }
     }
 });
-
-// ====== 初始化 ======
 document.addEventListener('DOMContentLoaded', () => {
     loadConfig();
     document.getElementById('stat-events').textContent = '—';
     document.getElementById('stat-summarized').textContent = '—';
     document.getElementById('stat-pending').textContent = '—';
-    document.getElementById('status-badge').textContent = '等待加载数据...';
+    document.getElementById('summarized-count').textContent = '0';
     renderKeywords([]);
     renderTimeline([]);
     renderArcs([]);
+    document.getElementById('hide-summarized').addEventListener('change', e => {
+        window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'TOGGLE_HIDE_SUMMARIZED', enabled: e.target.checked }, '*');
+    });
     window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'FRAME_READY' }, '*');
 });
 </script>
 </body>
-</html>
+</html>	
+}
