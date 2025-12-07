@@ -301,6 +301,7 @@ class StreamingGeneration {
         const session = this._ensureSession(sessionId, prompt);
         const abortController = new AbortController();
         session.abortController = abortController;
+
         try {
             this.isStreaming = true;
             this.activeCount++;
@@ -308,10 +309,10 @@ class StreamingGeneration {
             session.text = '';
             session.updatedAt = Date.now();
             this.tempreply = '';
+
             if (stream) {
                 const generator = await this.callAPI(generateData, abortController.signal, true);
                 for await (const chunk of generator) {
-                    // 检查是否被中止
                     if (abortController.signal.aborted) {
                         break;
                     }
@@ -321,23 +322,65 @@ class StreamingGeneration {
                 const result = await this.callAPI(generateData, abortController.signal, false);
                 this.updateTempReply(result, session.id);
             }
+
             const payload = { finalText: session.text, originalPrompt: prompt, sessionId: session.id };
-            try { eventSource?.emit?.(EVT_DONE, payload); } catch {}
+            try { eventSource?.emit?.(EVT_DONE, payload); } catch { }
             this.postToFrames(EVT_DONE, payload);
-            try { window?.postMessage?.({ type: EVT_DONE, payload, from: 'xiaobaix' }, '*'); } catch {}
+            try { window?.postMessage?.({ type: EVT_DONE, payload, from: 'xiaobaix' }, '*'); } catch { }
+
             return String(session.text || '');
         } catch (err) {
-            // 改进错误处理：不要完全吞掉错误，至少记录日志
-            if (err?.name !== 'AbortError') {
-                console.error('[StreamingGeneration] Generation error:', err);
+            if (err?.name === 'AbortError') {
+                return String(session.text || '');
             }
-            // 即使出错也返回已生成的内容
-            return String(session.text || '');
+
+            console.error('[StreamingGeneration] Generation error:', err);
+            console.error('[StreamingGeneration] error.error =', err?.error);
+
+            let errorMessage = '生成失败';
+
+            if (err && typeof err === 'object' && err.error && typeof err.error === 'object') {
+                const detail = err.error;
+                const rawMsg = String(detail.message || '').trim();
+                const code = String(detail.code || '').trim().toLowerCase();
+
+                if (
+                    /input is too long/i.test(rawMsg) ||
+                    /context length/i.test(rawMsg) ||
+                    /maximum context length/i.test(rawMsg) ||
+                    /too many tokens/i.test(rawMsg)
+                ) {
+                    errorMessage =
+                        '输入过长：当前对话内容超过了所选模型或代理的上下文长度限制。\n' +
+                        `原始信息：${rawMsg}`;
+                } else if (
+                    /quota/i.test(rawMsg) ||
+                    /rate limit/i.test(rawMsg) ||
+                    code === 'insufficient_quota'
+                ) {
+                    errorMessage =
+                        '请求被配额或限流拒绝：当前 API 额度可能已用尽，或触发了限流。\n' +
+                        `原始信息：${rawMsg || code}`;
+                } else if (code === 'bad_request') {
+                    errorMessage =
+                        '请求被上游 API 以 Bad Request 拒绝。\n' +
+                        '可能原因：参数格式不符合要求、模型名错误，或输入内容不被当前通道接受。\n\n' +
+                        `原始信息：${rawMsg || code}`;
+                } else {
+                    errorMessage = rawMsg || code || JSON.stringify(detail);
+                }
+            } else if (err && typeof err === 'object' && err.message) {
+                errorMessage = err.message;
+            } else if (typeof err === 'string') {
+                errorMessage = err;
+            }
+
+            throw new Error(errorMessage);
         } finally {
             session.isStreaming = false;
             this.activeCount = Math.max(0, this.activeCount - 1);
             this.isStreaming = this.activeCount > 0;
-            try { session.abortController = null; } catch {}
+            try { session.abortController = null; } catch { }
         }
     }
 
