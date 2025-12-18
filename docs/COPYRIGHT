@@ -1,0 +1,73 @@
+LittleWhiteBox (小白X) - Copyright and Attribution Requirements
+================================================================
+
+Copyright 2025 biex
+
+This software is licensed under the Apache License 2.0
+with additional custom attribution requirements.
+
+MANDATORY ATTRIBUTION REQUIREMENTS
+==================================
+
+1. AUTHOR ATTRIBUTION
+   - The original author "biex" MUST be prominently credited in any derivative work
+   - This credit must appear in:
+     * Software user interface (visible to end users)
+     * Documentation and README files
+     * Source code headers
+     * About/Credits sections
+     * Any promotional or marketing materials
+
+2. PROJECT ATTRIBUTION
+   - The project name "LittleWhiteBox" and "小白X" must be credited
+   - Required attribution format: "Based on LittleWhiteBox by biex"
+   - Project URL must be included: https://github.com/RT15548/LittleWhiteBox
+
+3. SOURCE CODE DISCLOSURE
+   - Any modification, enhancement, or derivative work MUST be open source
+   - Source code must be publicly accessible under the same license terms
+   - All changes must be clearly documented and attributed
+
+4. COMMERCIAL USE
+   - Commercial use is permitted under the Apache License 2.0 terms
+   - Attribution requirements still apply for commercial use
+   - No additional permission required for commercial use
+
+5. TRADEMARK PROTECTION
+   - "LittleWhiteBox" and "小白X" are trademarks of the original author
+   - Derivative works may not use these names without explicit permission
+   - Alternative naming must clearly indicate the derivative nature
+
+VIOLATION CONSEQUENCES
+=====================
+
+Any violation of these attribution requirements will result in:
+- Immediate termination of the license grant
+- Legal action for copyright infringement
+- Demand for removal of infringing content
+
+COMPLIANCE EXAMPLES
+==================
+
+✅ CORRECT Attribution Examples:
+- "Powered by LittleWhiteBox by biex"
+- "Based on LittleWhiteBox (https://github.com/RT15548/LittleWhiteBox) by biex"
+- "Enhanced version of LittleWhiteBox by biex - Original: [repository URL]"
+
+❌ INCORRECT Examples:
+- Using the code without any attribution
+- Claiming original authorship
+- Using "LittleWhiteBox" name for derivative works
+- Commercial use without permission
+- Closed-source modifications
+
+CONTACT INFORMATION
+==================
+
+For licensing inquiries or attribution questions:
+- Repository: https://github.com/RT15548/LittleWhiteBox
+- Author: biex
+- License: Apache-2.0 WITH Custom-Attribution-Requirements
+
+This copyright notice and attribution requirements must be included in all
+copies or substantial portions of the software.

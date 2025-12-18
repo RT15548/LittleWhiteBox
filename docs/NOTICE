@@ -1,0 +1,95 @@
+LittleWhiteBox (小白X) - Third-Party Notices and Attributions
+================================================================
+
+This software contains code and dependencies from various third-party sources.
+The following notices and attributions are required by their respective licenses.
+
+PRIMARY SOFTWARE
+================
+
+LittleWhiteBox (小白X)
+Copyright 2025 biex
+Licensed under Apache-2.0 WITH Custom-Attribution-Requirements
+Repository: https://github.com/RT15548/LittleWhiteBox
+
+RUNTIME DEPENDENCIES
+====================
+
+This extension is designed to work with SillyTavern and relies on the following
+SillyTavern modules and APIs:
+
+1. SillyTavern Core Framework
+   - Copyright: SillyTavern Contributors
+   - License: AGPL-3.0
+   - Repository: https://github.com/SillyTavern/SillyTavern
+
+2. SillyTavern Extensions API
+   - Used modules: extensions.js, script.js
+   - Provides: Extension framework, settings management, event system
+
+3. SillyTavern Slash Commands
+   - Used modules: slash-commands.js, SlashCommandParser.js
+   - Provides: Command execution framework
+
+4. SillyTavern UI Components
+   - Used modules: popup.js, utils.js
+   - Provides: User interface components and utilities
+
+BROWSER APIS AND STANDARDS
+==========================
+
+This software uses standard web browser APIs:
+- DOM API (Document Object Model)
+- Fetch API for HTTP requests
+- PostMessage API for iframe communication
+- Local Storage API for data persistence
+- Mutation Observer API for DOM monitoring
+
+JAVASCRIPT LIBRARIES
+====================
+
+The software may interact with the following JavaScript libraries
+that are part of the SillyTavern environment:
+
+1. jQuery
+   - Copyright: jQuery Foundation and contributors
+   - License: MIT License
+   - Used for: DOM manipulation and event handling
+
+2. Toastr (if available)
+   - Copyright: CodeSeven
+   - License: MIT License
+   - Used for: Notification display
+
+DEVELOPMENT TOOLS
+=================
+
+The following tools were used in development (not distributed):
+- Visual Studio Code
+- Git version control
+- Various Node.js development tools
+
+ATTRIBUTION REQUIREMENTS
+========================
+
+When distributing this software or derivative works, you must:
+
+1. Include this NOTICE file
+2. Maintain all copyright notices in source code
+3. Provide attribution to the original author "biex"
+4. Include a link to the original repository
+5. Comply with Apache-2.0 license requirements
+6. Follow the custom attribution requirements in LICENSE.md
+
+DISCLAIMER
+==========
+
+This software is provided "AS IS" without warranty of any kind.
+The author disclaims all warranties, express or implied, including
+but not limited to the warranties of merchantability, fitness for
+a particular purpose, and non-infringement.
+
+For complete license terms, see LICENSE.md
+For attribution requirements, see COPYRIGHT
+
+Last updated: 2025-01-14

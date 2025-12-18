@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>皮下交流</title>
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    --bg-primary: #f5f6f7;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f0f2f4;
+    --bg-bubble-user: #4c9aff;
+    --bg-bubble-ai: #ffffff;
+    --text-primary: #111827;
+    --text-secondary: #6b7280;
+    --text-muted: #9ca3af;
+    --border-color: rgba(17, 24, 39, 0.12);
+    --accent: #4c9aff;
+    --accent-hover: #2f7eea;
+    --shadow: 0 10px 30px rgba(0,0,0,0.08);
+}
+
+html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow: hidden;
+}
+
+.fw-container { display: flex; flex-direction: column; height: 100%; }
+
+.fw-header {
+    padding: 8px 12px;
+    background: radial-gradient(1200px 700px at 0% 0%, rgba(76,154,255,0.08) 0%, rgba(76,154,255,0) 55%),
+                radial-gradient(1000px 600px at 100% 30%, rgba(16,185,129,0.06) 0%, rgba(16,185,129,0) 55%),
+                var(--bg-primary);
+    flex-shrink: 0;
+}
+
+.fw-header-row { display: flex; justify-content: space-between; align-items: center; }
+
+.fw-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    transition: opacity 0.2s;
+}
+
+.fw-title.hidden { opacity: 0; pointer-events: none; }
+
+.fw-header-right { display: flex; align-items: center; gap: 6px; }
+
+.fw-back-btn, .fw-menu-toggle {
+    width: 32px; height: 32px; border: none; background: transparent;
+    color: var(--text-secondary); cursor: pointer; display: flex;
+    align-items: center; justify-content: center; font-size: 18px; transition: color 0.2s;
+}
+
+.fw-back-btn:hover, .fw-menu-toggle:hover { color: var(--accent); }
+.fw-menu-toggle.expanded { color: var(--accent); }
+
+.fw-header-actions { display: none; gap: 6px; align-items: center; }
+.fw-header-actions.visible { display: flex; }
+
+.fw-btn {
+    padding: 5px 10px; background: var(--bg-secondary); color: var(--text-primary);
+    border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.75rem;
+    cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 5px;
+}
+
+.fw-btn:hover { background: rgba(76,154,255,0.12); border-color: rgba(76,154,255,0.35); }
+.fw-btn-icon { padding: 5px 7px; }
+.fw-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.fw-btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.fw-btn-danger { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #f87171; }
+.fw-btn-danger:hover { background: rgba(239,68,68,0.25); }
+
+.fw-settings { display: none; padding: 10px 12px 12px; flex-direction: column; gap: 10px; }
+.fw-settings.open { display: flex; }
+
+.fw-settings-card {
+    background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 10px 12px 12px; max-height: min(52vh, 420px); overflow: auto;
+}
+
+.fw-settings-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border-color); margin-bottom: 2px;
+    position: sticky; top: 0; background: var(--bg-secondary); z-index: 1;
+}
+
+.fw-settings-header h4 { font-size: 0.8125rem; font-weight: 600; color: var(--text-secondary); }
+
+.fw-settings-close {
+    width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border-color);
+    background: transparent; color: var(--text-secondary); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-size: 11px; transition: all 0.2s;
+}
+
+.fw-settings-close:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.fw-settings-group { padding-top: 10px; }
+.fw-settings-group:first-of-type { padding-top: 6px; }
+.fw-settings-group + .fw-settings-group { border-top: 1px dashed rgba(17, 24, 39, 0.12); }
+
+.fw-settings-group-title {
+    display: flex; align-items: center; gap: 8px; margin: 8px 2px 6px; padding: 6px 0 2px;
+    font-size: 0.75rem; font-weight: 600; color: var(--text-muted);
+}
+
+.fw-settings-row {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 6px 10px;
+    background: var(--bg-tertiary); border: 1px solid rgba(17, 24, 39, 0.10); border-radius: 12px;
+}
+
+.fw-field { display: flex; align-items: center; gap: 5px; font-size: 0.75rem; }
+.fw-field label { color: var(--text-secondary); white-space: nowrap; }
+
+.fw-field select, .fw-field input[type="number"] {
+    padding: 2px 6px; background: var(--bg-tertiary); border: 1px solid var(--border-color);
+    border-radius: 4px; color: var(--text-primary); font-size: 0.75rem; height: 24px;
+}
+
+.fw-field input[type="number"] { width: 60px; }
+.fw-field input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent); }
+.fw-field input[type="range"] { accent-color: var(--accent); height: 18px; margin: 0; }
+.fw-field .speed-val, .fw-field .prob-val { min-width: 32px; text-align: center; font-size: 0.7rem; color: var(--text-muted); }
+
+.fw-session-manager { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+.fw-session-manager select { min-width: 120px; }
+
+.fw-messages {
+    flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+    background: radial-gradient(1200px 700px at 0% 0%, rgba(76,154,255,0.08) 0%, rgba(76,154,255,0) 55%),
+                radial-gradient(1000px 600px at 100% 30%, rgba(16,185,129,0.06) 0%, rgba(16,185,129,0) 55%),
+                var(--bg-primary);
+}
+
+.fw-messages::-webkit-scrollbar { width: 6px; }
+.fw-messages::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+
+.fw-row { display: flex; align-items: flex-end; gap: 10px; max-width: 85%; }
+.fw-row.user { align-self: flex-end; flex-direction: row-reverse; }
+.fw-row.assistant { align-self: flex-start; }
+
+.fw-avatar {
+    width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 14px;
+    border: 1px solid var(--border-color); background-size: cover;
+    background-position: center; background-repeat: no-repeat; box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+}
+
+.fw-avatar.user-avatar { background-image: var(--fw-user-avatar, none), linear-gradient(135deg, #4c9aff, #2f7eea); background-color: #4c9aff; }
+.fw-avatar.char-avatar { background-image: var(--fw-char-avatar, none), linear-gradient(135deg, #f59e0b, #ef4444); background-color: #f59e0b; }
+
+.fw-bubble {
+    position: relative; padding: 10px 14px; border-radius: 16px;
+    font-size: 0.9375rem; line-height: 1.6; word-break: break-word;
+}
+
+.fw-bubble.user {
+    background: var(--bg-bubble-user); color: #fff;
+    border-bottom-right-radius: 4px; box-shadow: 0 10px 24px rgba(76,154,255,0.25);
+}
+
+.fw-bubble.assistant {
+    background: var(--bg-bubble-ai); color: var(--text-primary);
+    border-bottom-left-radius: 4px; border: 1px solid rgba(17,24,39,0.08); box-shadow: var(--shadow);
+}
+
+.fw-bubble-actions { position: absolute; top: -6px; right: -6px; display: none; gap: 4px; }
+.fw-row:hover .fw-bubble-actions { display: flex; }
+
+.fw-bubble-btn {
+    width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border-color);
+    background: var(--bg-secondary); color: var(--text-secondary);
+    display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 10px;
+}
+
+.fw-bubble-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.fw-bubble-time { font-size: 0.6875rem; color: var(--text-muted); margin-top: 4px; }
+.fw-row.user .fw-bubble-time { text-align: right; }
+.fw-row.assistant .fw-bubble-time { text-align: left; }
+
+.fw-edit-area {
+    width: 100%; min-height: 60px; padding: 8px; background: var(--bg-tertiary);
+    border: 1px solid var(--border-color); border-radius: 8px;
+    color: var(--text-primary); font-size: 0.875rem; resize: vertical;
+}
+
+.fw-streaming { opacity: 0.8; font-style: italic; }
+.fw-empty { text-align: center; color: var(--text-muted); padding: 40px; font-size: 0.875rem; }
+
+.fw-img-slot { margin: 8px 0; }
+.fw-img-slot img { max-width: min(300px, 70vw); max-height: 50vh; border-radius: 8px; display: block; }
+.fw-img-loading { font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+
+.fw-img-error {
+    width: 200px; height: 140px; background: var(--bg-tertiary);
+    border: 1px dashed var(--border-color); border-radius: 8px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 0.75rem;
+}
+
+.fw-voice-bubble {
+    display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px;
+    background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+    border-radius: 20px; cursor: pointer; user-select: none; transition: all 0.2s;
+    min-width: 100px; margin: 4px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.fw-bubble.user .fw-voice-bubble { background: linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.15) 100%); }
+.fw-bubble.assistant .fw-voice-bubble { background: linear-gradient(135deg, #e0f7fa 0%, #e8f5e9 100%); }
+.fw-voice-bubble:hover { transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+.fw-voice-bubble:active { transform: scale(0.98); }
+
+.fw-voice-icon {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.6); flex-shrink: 0;
+}
+
+.fw-bubble.user .fw-voice-icon { background: rgba(255,255,255,0.3); }
+.fw-voice-icon i { font-size: 12px; color: #4c9aff; }
+.fw-bubble.user .fw-voice-icon i { color: #fff; }
+
+.fw-voice-waves { display: flex; align-items: center; gap: 3px; height: 20px; }
+.fw-voice-bar { width: 3px; background: #4c9aff; border-radius: 2px; transition: height 0.1s; }
+.fw-bubble.user .fw-voice-bar { background: rgba(255,255,255,0.9); }
+.fw-voice-bar:nth-child(1) { height: 8px; }
+.fw-voice-bar:nth-child(2) { height: 14px; }
+.fw-voice-bar:nth-child(3) { height: 10px; }
+.fw-voice-bar:nth-child(4) { height: 16px; }
+.fw-voice-bar:nth-child(5) { height: 12px; }
+
+.fw-voice-bubble.playing .fw-voice-bar { animation: voice-wave 0.6s infinite ease-in-out; }
+.fw-voice-bubble.playing .fw-voice-bar:nth-child(1) { animation-delay: 0.0s; }
+.fw-voice-bubble.playing .fw-voice-bar:nth-child(2) { animation-delay: 0.1s; }
+.fw-voice-bubble.playing .fw-voice-bar:nth-child(3) { animation-delay: 0.2s; }
+.fw-voice-bubble.playing .fw-voice-bar:nth-child(4) { animation-delay: 0.15s; }
+.fw-voice-bubble.playing .fw-voice-bar:nth-child(5) { animation-delay: 0.25s; }
+
+@keyframes voice-wave {
+    0%, 100% { height: 6px; opacity: 0.5; }
+    50% { height: 18px; opacity: 1; }
+}
+
+.fw-voice-duration { font-size: 0.75rem; font-weight: 600; color: #555; min-width: 24px; }
+.fw-bubble.user .fw-voice-duration { color: rgba(255,255,255,0.9); }
+.fw-voice-bubble.loading .fw-voice-waves { display: none; }
+.fw-voice-bubble.loading .fw-voice-icon i::before { content: "\f110"; animation: fa-spin 1s infinite linear; }
+.fw-voice-bubble.error { background: linear-gradient(135deg, #ffeaea 0%, #ffdbdb 100%) !important; }
+.fw-voice-bubble.error .fw-voice-icon { background: rgba(239,68,68,0.2); }
+.fw-voice-bubble.error .fw-voice-icon i { color: #ef4444; }
+
+.fw-input-area { padding: 12px 16px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); flex-shrink: 0; }
+.fw-input-row { display: flex; gap: 10px; align-items: flex-end; }
+
+.fw-textarea {
+    flex: 1; padding: 10px 14px; background: #ffffff; border: 1px solid var(--border-color);
+    border-radius: 20px; color: var(--text-primary); font-size: 0.9375rem;
+    resize: none; max-height: 120px; line-height: 1.5; overflow-y: auto;
+    -ms-overflow-style: none; scrollbar-width: none;
+}
+
+.fw-textarea::-webkit-scrollbar { display: none; }
+.fw-textarea:focus { outline: none; border-color: rgba(76,154,255,0.7); box-shadow: 0 0 0 3px rgba(76,154,255,0.12); }
+
+.fw-send-btn, .fw-regen-btn {
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    font-size: 16px; transition: all 0.2s;
+}
+
+.fw-send-btn { background: var(--accent); color: #fff; }
+.fw-send-btn:hover { background: var(--accent-hover); }
+.fw-regen-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+.fw-regen-btn:hover { background: var(--accent); color: #fff; }
+
+.fw-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center; z-index: 1000;
+}
+
+.fw-modal-overlay.open { display: flex; }
+
+.fw-modal {
+    width: 90%; max-width: 700px; max-height: 85vh; background: var(--bg-secondary);
+    border: 1px solid var(--border-color); border-radius: 12px;
+    display: flex; flex-direction: column; overflow: hidden;
+}
+
+.fw-modal-header {
+    padding: 14px 16px; border-bottom: 1px solid var(--border-color);
+    display: flex; justify-content: space-between; align-items: center;
+}
+
+.fw-modal-header h3 { font-size: 1rem; font-weight: 600; }
+
+.fw-modal-close {
+    width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border-color);
+    background: transparent; color: var(--text-secondary); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+}
+
+.fw-modal-close:hover { background: var(--accent); color: #fff; }
+
+.fw-modal-body { flex: 1; overflow-y: auto; padding: 16px; }
+
+.fw-modal-footer {
+    padding: 12px 16px; border-top: 1px solid var(--border-color);
+    display: flex; justify-content: flex-end; gap: 10px;
+}
+
+.fw-prompt-section { margin-bottom: 16px; }
+.fw-prompt-section:last-child { margin-bottom: 0; }
+.fw-prompt-label { font-size: 0.8125rem; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary); }
+
+.fw-prompt-textarea {
+    width: 100%; min-height: 100px; padding: 10px; background: var(--bg-tertiary);
+    border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary);
+    font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 0.8125rem; resize: vertical;
+}
+
+.fw-prompt-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+
+/* 思考折叠UI - 一体化卡片设计 */
+.fw-thinking-card {
+    margin-bottom: 6px;
+    background: rgba(0,0,0,0.03);
+    border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 12px;
+    overflow: hidden;
+    max-width: 100%;
+}
+
+.fw-thinking-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    transition: background 0.2s, color 0.2s;
+    user-select: none;
+}
+
+.fw-thinking-header:hover {
+    background: rgba(0,0,0,0.04);
+    color: var(--text-secondary);
+}
+
+.fw-thinking-header .chevron {
+    font-size: 10px;
+    transition: transform 0.2s;
+}
+
+.fw-thinking-header.expanded .chevron {
+    transform: rotate(90deg);
+}
+
+.fw-thinking-body {
+    display: none;
+    padding: 0 12px 10px;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.fw-thinking-body.expanded {
+    display: block;
+    animation: thinkingFadeIn 0.2s ease;
+}
+
+@keyframes thinkingFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.fw-thinking-body::-webkit-scrollbar { width: 4px; }
+.fw-thinking-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
+
+/* 流式思考指示器 */
+.fw-thinking-header.streaming span::after {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 4px;
+    margin-left: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: thinkingPulse 1s infinite;
+}
+
+@keyframes thinkingPulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+/* 编辑模式宽度最大化 */
+.fw-row.editing {
+    max-width: 100%;
+}
+
+.fw-row.editing .fw-bubble {
+    width: 100%;
+}
+
+.fw-row.editing .fw-edit-area {
+    min-height: 80px;
+}
+
+@media (max-width: 600px) {
+    .fw-header { padding: 6px 12px; }
+    .fw-settings { padding: 8px 10px 10px; }
+    .fw-settings-card { padding: 10px; border-radius: 12px; max-height: min(56vh, 520px); }
+    .fw-messages { padding: 12px; }
+    .fw-input-area { padding: 10px 12px; }
+    .fw-row { max-width: 90%; }
+    .fw-bubble { padding: 8px 12px; font-size: 0.875rem; }
+    .fw-avatar { width: 32px; height: 32px; }
+}
+</style>
+</head>
+
+<body>
+<div class="fw-container">
+
+    <header class="fw-header">
+        <div class="fw-header-row">
+            <button class="fw-back-btn" id="btn-close" title="返回"><i class="fa-solid fa-chevron-left"></i></button>
+            <span class="fw-title" id="fw-title">皮下交流</span>
+            <div class="fw-header-right">
+                <div class="fw-header-actions" id="header-actions">
+                    <button class="fw-btn fw-btn-icon" id="btn-fullscreen" title="全屏"><i class="fa-solid fa-expand"></i></button>
+                    <button class="fw-btn fw-btn-icon" id="btn-settings" title="设置"><i class="fa-solid fa-gear"></i></button>
+                    <button class="fw-btn fw-btn-icon" id="btn-prompt" title="提示词"><i class="fa-solid fa-file-lines"></i></button>
+                    <button class="fw-btn fw-btn-danger" id="btn-reset">重开</button>
+                </div>
+                <button class="fw-menu-toggle" id="btn-menu-toggle" title="菜单"><i class="fa-solid fa-bars"></i></button>
+            </div>
+        </div>
+    </header>
+
+    <div class="fw-settings" id="settings-panel">
+        <div class="fw-settings-card">
+            <div class="fw-settings-header">
+                <h4>设置</h4>
+                <button class="fw-settings-close" id="btn-settings-close" title="关闭设置"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="fw-settings-group-title"><i class="fa-solid fa-folder-open"></i>会话</div>
+            <div class="fw-settings-row">
+                <div class="fw-session-manager">
+                    <label>记录</label>
+                    <select id="session-select"></select>
+                    <button class="fw-btn fw-btn-icon" id="session-add" title="新建"><i class="fa-solid fa-plus"></i></button>
+                    <button class="fw-btn fw-btn-icon" id="session-rename" title="重命名"><i class="fa-solid fa-edit"></i></button>
+                    <button class="fw-btn fw-btn-icon fw-btn-danger" id="session-delete" title="删除"><i class="fa-solid fa-trash"></i></button>
+                </div>
+            </div>
+
+            <div class="fw-settings-group-title"><i class="fa-solid fa-sliders"></i>生成</div>
+            <div class="fw-settings-row">
+                <div class="fw-field">
+                    <label>历史楼层</label>
+                    <input type="number" id="layers-input" value="9999" min="1" max="9999">
+                </div>
+                <div class="fw-field">
+                    <label>记忆上限</label>
+                    <input type="number" id="turns-input" value="9999" min="1" max="9999">
+                </div>
+                <div class="fw-field">
+                    <input type="checkbox" id="stream-enabled" checked>
+                    <label for="stream-enabled">流式传输</label>
+                </div>
+            </div>
+
+            <div class="fw-settings-group-title"><i class="fa-solid fa-photo-film"></i>媒体</div>
+            <div class="fw-settings-row">
+                <div class="fw-field">
+                    <label>图像类型</label>
+                    <select id="img-kind">
+                        <option value="anime">动漫</option>
+                        <option value="people">真人</option>
+                    </select>
+                </div>
+                <div class="fw-field">
+                    <input type="checkbox" id="img-prompt-enabled">
+                    <label for="img-prompt-enabled">允许发图</label>
+                </div>
+            </div>
+            <div class="fw-settings-row">
+                <div class="fw-field">
+                    <input type="checkbox" id="voice-enabled">
+                    <label for="voice-enabled">允许语音</label>
+                </div>
+                <div class="fw-field fw-voice-select-wrap" style="display: none;">
+                    <label>声音</label>
+                    <select id="voice-select">
+                        <optgroup label="👩 女声">
+                            <option value="桃夭" selected>桃夭 · 温柔治愈</option>
+                            <option value="青梅">青梅 · 邻家清新</option>
+                            <option value="苏菲">苏菲 · 优雅御姐</option>
+                            <option value="奶糖">奶糖 · 甜软学妹</option>
+                            <option value="兔姬">兔姬 · 元气少女</option>
+                            <option value="诗织">诗织 · 文静书卷</option>
+                            <option value="顾姐">顾姐 · 成熟知性</option>
+                            <option value="可莉">可莉 · 奶音萝莉</option>
+                            <option value="神乐">神乐 · 神秘巫女</option>
+                            <option value="霜华">霜华 · 清冷仙子</option>
+                        </optgroup>
+                        <optgroup label="👨 男声">
+                            <option value="君泽">君泽 · 温润公子</option>
+                            <option value="梓辛">梓辛 · 青春少年</option>
+                            <option value="霆御">霆御 · 冷酷霸总</option>
+                            <option value="夜枭">夜枭 · 深夜电台</option>
+                            <option value="疯批">疯批 · 危险病娇</option>
+                            <option value="奶俊">奶俊 · 奶音正太</option>
+                            <option value="沐阳">沐阳 · 青涩学长</option>
+                            <option value="阿铭">阿铭 · 磁性大叔</option>
+                            <option value="博文">博文 · 知性绅士</option>
+                            <option value="晨曦">晨曦 · 阳光暖男</option>
+                            <option value="秦主">秦主 · 帝王霸气</option>
+                            <option value="阿峰">阿峰 · 憨厚忠犬</option>
+                            <option value="邻风">邻风 · 邻家哥哥</option>
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="fw-field fw-voice-speed-wrap" style="display: none;">
+                    <label>语速</label>
+                    <input type="range" id="voice-speed" min="0.25" max="2" step="0.05" value="0.8" style="width:70px;">
+                    <span class="speed-val" id="voice-speed-val">0.80</span>
+                </div>
+            </div>
+
+            <div class="fw-settings-group-title"><i class="fa-solid fa-comment-dots"></i>实时吐槽</div>
+            <div class="fw-settings-row">
+                <div class="fw-field">
+                    <input type="checkbox" id="commentary-enabled" checked>
+                    <label for="commentary-enabled">实时吐槽</label>
+                </div>
+                <div class="fw-field fw-commentary-prob-wrap">
+                    <label>概率</label>
+                    <input type="range" id="commentary-prob" min="1" max="99" value="30" style="width:70px;">
+                    <span class="prob-val" id="commentary-prob-val">30%</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="fw-messages" id="messages"></div>
+
+    <div class="fw-input-area">
+        <div class="fw-input-row">
+            <textarea class="fw-textarea" id="input-textarea" rows="1" placeholder="和TA皮下聊点什么..."></textarea>
+            <button class="fw-regen-btn" id="btn-regen" title="重答"><i class="fa-solid fa-arrows-rotate"></i></button>
+            <button class="fw-send-btn" id="btn-send" title="发送"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+    </div>
+</div>
+
+<div class="fw-modal-overlay" id="prompt-modal">
+    <div class="fw-modal">
+        <div class="fw-modal-header">
+            <h3>提示词设置</h3>
+            <button class="fw-modal-close" id="prompt-close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="fw-modal-body">
+            <div class="fw-prompt-section">
+                <div class="fw-prompt-label">顶部提示词 (User)</div>
+                <textarea class="fw-prompt-textarea" id="prompt-topuser" rows="4"></textarea>
+            </div>
+            <div class="fw-prompt-section">
+                <div class="fw-prompt-label">确认消息 (Assistant)</div>
+                <textarea class="fw-prompt-textarea" id="prompt-confirm" rows="2"></textarea>
+                <div class="fw-prompt-hint">模型确认理解任务的回复，作为第二条消息</div>
+            </div>
+            <div class="fw-prompt-section">
+                <div class="fw-prompt-label">扮演需求 (User)</div>
+                <textarea class="fw-prompt-textarea" id="prompt-meta" rows="10"></textarea>
+                <div class="fw-prompt-hint">可用变量：{{USER_NAME}}、{{CHAR_NAME}}</div>
+            </div>
+            <div class="fw-prompt-section">
+                <div class="fw-prompt-label">底部提示词 (Assistant)</div>
+                <textarea class="fw-prompt-textarea" id="prompt-bottom" rows="4"></textarea>
+                <div class="fw-prompt-hint">可用变量：{{USER_INPUT}}</div>
+            </div>
+        </div>
+        <div class="fw-modal-footer">
+            <button class="fw-btn" id="prompt-cancel">取消</button>
+            <button class="fw-btn fw-btn-danger" id="prompt-restore-default">恢复默认</button>
+            <button class="fw-btn fw-btn-primary" id="prompt-save">保存</button>
+        </div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<script>
+function escapeHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+}
+
+function renderThinking(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/^[\\*\\-]\\s+/gm, '• ')
+        .replace(/\n/g, '<br>');
+}
+
+function updateFullscreenButton(isFullscreen) {
+    const btn = document.getElementById('btn-fullscreen');
+    if (!btn) return;
+    const icon = btn.querySelector('i');
+    if (!icon) return;
+    if (isFullscreen) {
+        icon.className = 'fa-solid fa-compress';
+        btn.title = '退出全屏';
+    } else {
+        icon.className = 'fa-solid fa-expand';
+        btn.title = '全屏';
+    }
+}
+
+const TTS_WORKER = 'https://tts.velure.top';
+
+let state = {
+    history: [],
+    isStreaming: false,
+    editingIndex: null,
+    menuExpanded: false,
+    settingsOpen: false,
+    settings: { maxChatLayers: 9999, maxMetaTurns: 9999, stream: true },
+    sessions: [],
+    activeSessionId: null,
+    imgSettings: { categoryPreference: 'anime', enablePrompt: false },
+    voiceSettings: { enabled: false, voice: '桃夭', speed: 0.8 },
+    commentarySettings: { enabled: true, probability: 30 },
+    promptTemplates: {}
+};
+
+let currentAudio = null;
+
+function formatTimeDisplay(ts) {
+    if (!ts) return '';
+    const date = new Date(ts);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
+    const msgDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const pad = n => String(n).padStart(2, '0');
+    const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    if (msgDate.getTime() === today.getTime()) return time;
+    if (msgDate.getTime() === yesterday.getTime()) return `昨天 ${time}`;
+    return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${time}`;
+}
+
+function postToParent(payload) {
+    window.parent.postMessage({ source: 'LittleWhiteBox-FourthWall', ...payload }, '*');
+}
+
+const FW_IMG = { proxy: 'https://wallhaven.velure.top/?url=', maxPickSpan: 24, cacheTTLms: 600000 };
+const imageCache = new Map();
+
+function parseImageToken(rawCSV) {
+    let txt = String(rawCSV || '').trim();
+    let isNSFW = false;
+    while (true) {
+        const m = txt.match(/^(nsfw|sketchy)\s*:\s*/i);
+        if (!m) break;
+        isNSFW = true;
+        txt = txt.replace(/^(nsfw|sketchy)\s*:\s*/i, '');
+    }
+    return { tagCSV: txt.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).join(','), isNSFW };
+}
+
+async function searchWallhaven(tagCSV, { category, purity }) {
+    const q = tagCSV.split(',').filter(Boolean).join(' ');
+    const api = `https://wallhaven.cc/api/v1/search?q=${encodeURIComponent(q)}&categories=${category}&purity=${purity}&ratios=${encodeURIComponent('9x16,10x16,1x1,16x9,16x10,21x9')}&sorting=favorites&page=1`;
+    const res = await fetch(FW_IMG.proxy + encodeURIComponent(api));
+    if (!res.ok) throw new Error('Search failed');
+    const data = await res.json();
+    const list = data?.data || [];
+    if (list.length) {
+        const pick = list[Math.floor(Math.random() * Math.min(FW_IMG.maxPickSpan, list.length))];
+        return { ok: true, url: FW_IMG.proxy + encodeURIComponent(pick.path) };
+    }
+    return { ok: false };
+}
+
+async function hydrateImageSlots(container) {
+    for (const slot of container.querySelectorAll('.fw-img-slot:not([data-loaded])')) {
+        slot.setAttribute('data-loaded', '1');
+        const raw = decodeURIComponent(slot.dataset.raw || '');
+        const { tagCSV, isNSFW } = parseImageToken(raw);
+        if (!tagCSV) continue;
+        const catMap = { anime: '010', people: '001' };
+        const category = catMap[state.imgSettings.categoryPreference] || '010';
+        const purity = isNSFW ? '001' : '111';
+        const cacheKey = [tagCSV, purity, category].join('|');
+        try {
+            let rec = imageCache.get(cacheKey);
+            if (!rec || Date.now() - rec.at > FW_IMG.cacheTTLms) {
+                const result = await searchWallhaven(tagCSV, { category, purity });
+                if (!result.ok) throw new Error('No results');
+                rec = { url: result.url, at: Date.now() };
+                imageCache.set(cacheKey, rec);
+            }
+            slot.innerHTML = `<a href="${rec.url}" target="_blank"><img src="${rec.url}" alt="${tagCSV}"></a>`;
+        } catch {
+            slot.innerHTML = `<div class="fw-img-error"><i class="fa-solid fa-image"></i><div>无法加载图片</div><div style="font-size:10px;">${tagCSV}</div></div>`;
+        }
+    }
+}
+
+async function playVoice(text, bubbleEl) {
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+        document.querySelectorAll('.fw-voice-bubble.playing').forEach(el => el.classList.remove('playing'));
+    }
+    bubbleEl.classList.add('loading');
+    bubbleEl.classList.remove('error');
+    try {
+        const res = await fetch(TTS_WORKER, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, voice: state.voiceSettings.voice || '桃夭', speed: state.voiceSettings.speed || 0.8 })
+        });
+        if (!res.ok) throw new Error('TTS failed');
+        const url = URL.createObjectURL(await res.blob());
+        bubbleEl.classList.remove('loading');
+        bubbleEl.classList.add('playing');
+        currentAudio = new Audio(url);
+        currentAudio.onended = () => { bubbleEl.classList.remove('playing'); URL.revokeObjectURL(url); currentAudio = null; };
+        currentAudio.onerror = () => { bubbleEl.classList.remove('playing'); bubbleEl.classList.add('error'); currentAudio = null; };
+        await currentAudio.play();
+    } catch {
+        bubbleEl.classList.remove('loading', 'playing');
+        bubbleEl.classList.add('error');
+        setTimeout(() => bubbleEl.classList.remove('error'), 2000);
+    }
+}
+
+function hydrateVoiceSlots(container) {
+    container.querySelectorAll('.fw-voice-bubble:not([data-bound])').forEach(bubble => {
+        bubble.setAttribute('data-bound', '1');
+        const text = decodeURIComponent(bubble.dataset.text || '');
+        if (text) {
+            bubble.onclick = e => {
+                e.stopPropagation();
+                if (bubble.classList.contains('loading')) return;
+                if (bubble.classList.contains('playing') && currentAudio) {
+                    currentAudio.pause();
+                    currentAudio = null;
+                    bubble.classList.remove('playing');
+                } else {
+                    playVoice(text, bubble);
+                }
+            };
+        }
+    });
+}
+
+function renderContent(text) {
+    if (!text) return '';
+    let html = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    
+    html = html.replace(/\[(?:image|图片)\s*:\s*([^\]]+)\]/gi, (_, inner) => {
+        const { tagCSV } = parseImageToken(inner);
+        if (!tagCSV) return _;
+        const key = btoa(unescape(encodeURIComponent(tagCSV))).replace(/=+$/, '');
+        return `<div class="fw-img-slot" data-raw="${encodeURIComponent(inner)}" id="fwimg_${key}"><div class="fw-img-loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中...</div></div>`;
+    });
+    
+    html = html.replace(/\[(?:voice|语音)\s*:\s*([^\]]+)\]/gi, (_, inner) => {
+        const voiceText = inner.trim();
+        if (!voiceText) return _;
+        const duration = Math.max(1, Math.ceil(voiceText.length / 4)) + '"';
+        return `<div class="fw-voice-bubble" data-text="${encodeURIComponent(voiceText)}">
+            <div class="fw-voice-icon"><i class="fa-solid fa-microphone"></i></div>
+            <div class="fw-voice-waves"><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div></div>
+            <span class="fw-voice-duration">${duration}</span>
+        </div>`;
+    });
+    
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.1);padding:2px 4px;border-radius:3px;">$1</code>');
+    html = html.replace(/\n/g, '<br>');
+    return html;
+}
+
+function renderMessages() {
+    const container = document.getElementById('messages');
+    const { history, isStreaming, editingIndex } = state;
+  
+    if (!history.length && !isStreaming) {
+        container.innerHTML = '<div class="fw-empty">开始与TA皮下交流吧~</div>';
+        return;
+    }
+  
+    let html = history.map((msg, idx) => {
+        const isUser = msg.role === 'user';
+        const isEditing = editingIndex === idx;
+        const timeStr = formatTimeDisplay(msg.ts);
+        const bubbleContent = isEditing 
+            ? `<textarea class="fw-edit-area" data-index="${idx}">${msg.content || ''}</textarea>`
+            : renderContent(msg.content);
+        const actions = isEditing
+            ? `<div class="fw-bubble-actions" style="display:flex;"><button class="fw-bubble-btn fw-save-btn" data-index="${idx}" title="保存"><i class="fa-solid fa-check"></i></button><button class="fw-bubble-btn fw-cancel-btn" data-index="${idx}" title="取消"><i class="fa-solid fa-xmark"></i></button></div>`
+            : `<div class="fw-bubble-actions"><button class="fw-bubble-btn fw-edit-btn" data-index="${idx}" title="编辑"><i class="fa-solid fa-pen"></i></button><button class="fw-bubble-btn fw-delete-btn" data-index="${idx}" title="删除"><i class="fa-solid fa-trash"></i></button></div>`;
+      
+        let thinkingHtml = '';
+        if (!isUser && msg.thinking) {
+            thinkingHtml = `
+                <div class="fw-thinking-card">
+                    <div class="fw-thinking-header" data-index="${idx}">
+                        <i class="fa-solid fa-chevron-right chevron"></i>
+                        <span>思考过程</span>
+                    </div>
+                    <div class="fw-thinking-body" data-index="${idx}">${renderThinking(msg.thinking)}</div>
+                </div>
+            `;
+        }
+      
+        return `
+        <div class="fw-row ${isUser ? 'user' : 'assistant'}${isEditing ? ' editing' : ''}">
+            <div class="fw-avatar ${isUser ? 'user-avatar' : 'char-avatar'}"></div>
+            <div style="display:flex;flex-direction:column;align-items:${isUser ? 'flex-end' : 'flex-start'};">
+                ${thinkingHtml}
+                <div class="fw-bubble ${isUser ? 'user' : 'assistant'}">${actions}${bubbleContent}</div>
+                ${timeStr ? `<div class="fw-bubble-time">${timeStr}</div>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+  
+    if (isStreaming) {
+        html += `
+        <div class="fw-row assistant">
+            <div class="fw-avatar char-avatar"></div>
+            <div style="display:flex;flex-direction:column;align-items:flex-start;">
+                <div class="fw-thinking-card" id="streaming-thinking-card" style="display:none;">
+                    <div class="fw-thinking-header expanded streaming">
+                        <i class="fa-solid fa-chevron-right chevron"></i>
+                        <span>思考中</span>
+                    </div>
+                    <div class="fw-thinking-body expanded" id="streaming-thinking"></div>
+                </div>
+                <div class="fw-bubble assistant fw-streaming" id="streaming-bubble">(等待回应...)</div>
+            </div>
+        </div>`;
+    }
+  
+    container.innerHTML = html;
+    hydrateImageSlots(container);
+    hydrateVoiceSlots(container);
+    container.scrollTop = container.scrollHeight;
+  
+    container.querySelectorAll('.fw-thinking-header:not(.streaming)').forEach(header => {
+        header.onclick = () => {
+            const idx = header.dataset.index;
+            header.classList.toggle('expanded');
+            container.querySelector(`.fw-thinking-body[data-index="${idx}"]`)?.classList.toggle('expanded');
+        };
+    });
+  
+    container.querySelectorAll('.fw-edit-btn').forEach(btn => {
+        btn.onclick = () => { state.editingIndex = parseInt(btn.dataset.index); renderMessages(); const ta = container.querySelector('.fw-edit-area'); if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.focus(); } };
+    });
+    container.querySelectorAll('.fw-save-btn').forEach(btn => {
+        btn.onclick = () => { const idx = parseInt(btn.dataset.index); const ta = container.querySelector(`.fw-edit-area[data-index="${idx}"]`); if (ta) state.history[idx].content = ta.value; state.editingIndex = null; renderMessages(); postToParent({ type: 'SAVE_HISTORY', history: state.history }); };
+    });
+    container.querySelectorAll('.fw-cancel-btn').forEach(btn => {
+        btn.onclick = () => { state.editingIndex = null; renderMessages(); };
+    });
+    container.querySelectorAll('.fw-delete-btn').forEach(btn => {
+        btn.onclick = () => { if (confirm('确定要删除这条消息吗？')) { state.history.splice(parseInt(btn.dataset.index), 1); renderMessages(); postToParent({ type: 'SAVE_HISTORY', history: state.history }); } };
+    });
+    container.querySelectorAll('.fw-edit-area').forEach(ta => {
+        ta.oninput = function() { this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px'; };
+    });
+}
+
+function renderSessionSelect() {
+    document.getElementById('session-select').innerHTML = state.sessions.map(s => 
+        `<option value="${s.id}" ${s.id === state.activeSessionId ? 'selected' : ''}>${s.name || s.id}</option>`
+    ).join('');
+}
+
+function updateMenuUI() {
+    const actions = document.getElementById('header-actions');
+    const toggle = document.getElementById('btn-menu-toggle');
+    const title = document.getElementById('fw-title');
+    if (state.menuExpanded) {
+        actions.classList.add('visible');
+        toggle.classList.add('expanded');
+        title.classList.add('hidden');
+    } else {
+        actions.classList.remove('visible');
+        toggle.classList.remove('expanded');
+        title.classList.remove('hidden');
+        document.getElementById('settings-panel').classList.remove('open');
+    }
+}
+
+function updateVoiceUI(enabled) {
+    document.querySelector('.fw-voice-select-wrap').style.display = enabled ? '' : 'none';
+    document.querySelector('.fw-voice-speed-wrap').style.display = enabled ? '' : 'none';
+}
+
+function updateCommentaryUI(enabled) {
+    document.querySelector('.fw-commentary-prob-wrap').style.display = enabled ? '' : 'none';
+}
+
+function updateSendButton() {
+    const btn = document.getElementById('btn-send');
+    btn.innerHTML = state.isStreaming ? '<i class="fa-solid fa-stop"></i>' : '<i class="fa-solid fa-paper-plane"></i>';
+    btn.title = state.isStreaming ? '停止' : '发送';
+}
+
+function loadPromptFields() {
+    const t = state.promptTemplates || {};
+    document.getElementById('prompt-topuser').value = t.topuser || '';
+    document.getElementById('prompt-confirm').value = t.confirm || '';
+    document.getElementById('prompt-meta').value = t.metaProtocol || '';
+    document.getElementById('prompt-bottom').value = t.bottom || '';
+}
+
+function sendMessage() {
+    const textarea = document.getElementById('input-textarea');
+    const text = textarea.value.trim();
+    if (!text || state.isStreaming) return;
+    state.history.push({ role: 'user', content: text, ts: Date.now() });
+    state.isStreaming = true;
+    textarea.value = '';
+    textarea.style.height = 'auto';
+    renderMessages();
+    updateSendButton();
+    postToParent({ type: 'SEND_MESSAGE', userInput: text, history: state.history, settings: state.settings, imgSettings: state.imgSettings, voiceSettings: state.voiceSettings });
+}
+
+function regenerate() {
+    if (state.isStreaming || !state.history.length) return;
+    let lastUserText = null;
+    for (let i = state.history.length - 1; i >= 0; i--) {
+        if (state.history[i].role === 'user') { lastUserText = state.history[i].content; break; }
+    }
+    if (!lastUserText) return;
+    if (state.history[state.history.length - 1].role === 'ai') state.history.pop();
+    state.isStreaming = true;
+    renderMessages();
+    updateSendButton();
+    postToParent({ type: 'REGENERATE', userInput: lastUserText, history: state.history, settings: state.settings, imgSettings: state.imgSettings, voiceSettings: state.voiceSettings });
+}
+
+window.addEventListener('message', event => {
+    const data = event.data;
+    if (!data || data.source !== 'LittleWhiteBox') return;
+    
+    switch (data.type) {
+        case 'INIT_DATA':
+            state.settings = data.settings || state.settings;
+            state.sessions = data.sessions || [];
+            state.activeSessionId = data.activeSessionId;
+            state.history = data.history || [];
+            state.imgSettings = data.imgSettings || state.imgSettings;
+            state.voiceSettings = data.voiceSettings || state.voiceSettings;
+            state.promptTemplates = data.promptTemplates || state.promptTemplates;
+            state.commentarySettings = data.commentarySettings || state.commentarySettings;
+            
+            if (data.avatars) {
+                document.documentElement.style.setProperty('--fw-user-avatar', data.avatars.user ? `url("${data.avatars.user}")` : 'none');
+                document.documentElement.style.setProperty('--fw-char-avatar', data.avatars.char ? `url("${data.avatars.char}")` : 'none');
+            }
+            
+            document.getElementById('layers-input').value = state.settings.maxChatLayers;
+            document.getElementById('turns-input').value = state.settings.maxMetaTurns;
+            document.getElementById('stream-enabled').checked = state.settings.stream;
+            document.getElementById('img-kind').value = state.imgSettings.categoryPreference;
+            document.getElementById('img-prompt-enabled').checked = state.imgSettings.enablePrompt;
+            document.getElementById('voice-enabled').checked = state.voiceSettings.enabled;
+            document.getElementById('voice-select').value = state.voiceSettings.voice || '桃夭';
+            document.getElementById('voice-speed').value = state.voiceSettings.speed || 0.8;
+            document.getElementById('voice-speed-val').textContent = (state.voiceSettings.speed || 0.8).toFixed(2);
+            updateVoiceUI(state.voiceSettings.enabled);
+            document.getElementById('commentary-enabled').checked = state.commentarySettings.enabled;
+            document.getElementById('commentary-prob').value = state.commentarySettings.probability;
+            document.getElementById('commentary-prob-val').textContent = state.commentarySettings.probability + '%';
+            updateCommentaryUI(state.commentarySettings.enabled);
+            
+            renderSessionSelect();
+            if (document.getElementById('prompt-modal').classList.contains('open')) loadPromptFields();
+            renderMessages();
+            break;
+            
+        case 'STREAM_UPDATE':
+            const bubble = document.getElementById('streaming-bubble');
+            const thinkingCard = document.getElementById('streaming-thinking-card');
+            const thinkingBody = document.getElementById('streaming-thinking');
+            if (bubble) {
+                if (data.thinking && thinkingCard && thinkingBody) {
+                    thinkingCard.style.display = '';
+                    thinkingBody.innerHTML = renderThinking(data.thinking);
+                }
+                bubble.innerHTML = renderContent(data.text);
+                hydrateVoiceSlots(bubble.closest('.fw-messages'));
+                bubble.closest('.fw-messages').scrollTop = bubble.closest('.fw-messages').scrollHeight;
+            }
+            break;
+            
+        case 'STREAM_COMPLETE':
+            state.isStreaming = false;
+            state.history.push({ role: 'ai', content: data.finalText, thinking: data.thinking || undefined, ts: Date.now() });
+            renderMessages();
+            updateSendButton();
+            break;
+            
+        case 'GENERATION_CANCELLED':
+            state.isStreaming = false;
+            renderMessages();
+            updateSendButton();
+            break;
+
+        case 'FULLSCREEN_STATE':
+            updateFullscreenButton(data.isFullscreen);
+            break;
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('btn-menu-toggle').onclick = () => { state.menuExpanded = !state.menuExpanded; updateMenuUI(); };
+    document.getElementById('btn-settings').onclick = () => { state.settingsOpen = !state.settingsOpen; document.getElementById('settings-panel').classList.toggle('open', state.settingsOpen); };
+    document.getElementById('btn-settings-close').onclick = () => { state.settingsOpen = false; document.getElementById('settings-panel').classList.remove('open'); };
+    document.getElementById('btn-close').onclick = () => postToParent({ type: 'CLOSE_OVERLAY' });
+    document.getElementById('btn-fullscreen').onclick = () => { postToParent({ type: 'TOGGLE_FULLSCREEN' }); };
+    
+    document.getElementById('btn-reset').onclick = () => {
+        if (confirm('确定要清空当前对话吗？')) { state.history = []; renderMessages(); postToParent({ type: 'RESET_HISTORY' }); }
+    };
+    
+    ['layers-input', 'turns-input', 'stream-enabled'].forEach(id => {
+        document.getElementById(id).onchange = () => {
+            state.settings.maxChatLayers = parseInt(document.getElementById('layers-input').value) || 9999;
+            state.settings.maxMetaTurns = parseInt(document.getElementById('turns-input').value) || 9999;
+            state.settings.stream = document.getElementById('stream-enabled').checked;
+            postToParent({ type: 'SAVE_SETTINGS', settings: state.settings });
+        };
+    });
+    
+    document.getElementById('img-kind').onchange = () => { state.imgSettings.categoryPreference = document.getElementById('img-kind').value; postToParent({ type: 'SAVE_IMG_SETTINGS', imgSettings: state.imgSettings }); };
+    document.getElementById('img-prompt-enabled').onchange = () => { state.imgSettings.enablePrompt = document.getElementById('img-prompt-enabled').checked; postToParent({ type: 'SAVE_IMG_SETTINGS', imgSettings: state.imgSettings }); };
+    
+    document.getElementById('voice-enabled').onchange = function() { state.voiceSettings.enabled = this.checked; updateVoiceUI(this.checked); postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings }); };
+    document.getElementById('voice-select').onchange = function() { state.voiceSettings.voice = this.value; postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings }); };
+    document.getElementById('voice-speed').oninput = function() { const val = parseFloat(this.value); document.getElementById('voice-speed-val').textContent = val.toFixed(2); state.voiceSettings.speed = val; postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings }); };
+    
+    document.getElementById('commentary-enabled').onchange = function() { state.commentarySettings.enabled = this.checked; updateCommentaryUI(this.checked); postToParent({ type: 'SAVE_COMMENTARY_SETTINGS', commentarySettings: state.commentarySettings }); };
+    document.getElementById('commentary-prob').oninput = function() { const val = parseInt(this.value); document.getElementById('commentary-prob-val').textContent = val + '%'; state.commentarySettings.probability = val; postToParent({ type: 'SAVE_COMMENTARY_SETTINGS', commentarySettings: state.commentarySettings }); };
+    
+    document.getElementById('session-select').onchange = e => postToParent({ type: 'SWITCH_SESSION', sessionId: e.target.value });
+    document.getElementById('session-add').onclick = () => { const name = prompt('新记录名称：', '新记录'); if (name) postToParent({ type: 'ADD_SESSION', name: name.trim() }); };
+    document.getElementById('session-rename').onclick = () => { const current = state.sessions.find(s => s.id === state.activeSessionId); const name = prompt('重命名记录：', current?.name || ''); if (name) postToParent({ type: 'RENAME_SESSION', sessionId: state.activeSessionId, name: name.trim() }); };
+    document.getElementById('session-delete').onclick = () => { if (state.sessions.length <= 1) { alert('至少保留一份记录。'); return; } if (confirm('确定删除当前记录吗？')) postToParent({ type: 'DELETE_SESSION', sessionId: state.activeSessionId }); };
+    
+    document.getElementById('btn-prompt').onclick = () => { loadPromptFields(); document.getElementById('prompt-modal').classList.add('open'); };
+    document.getElementById('prompt-close').onclick = () => document.getElementById('prompt-modal').classList.remove('open');
+    document.getElementById('prompt-cancel').onclick = () => document.getElementById('prompt-modal').classList.remove('open');
+    document.getElementById('prompt-restore-default').onclick = () => { if (confirm('确定恢复默认提示词吗？')) postToParent({ type: 'RESTORE_DEFAULT_PROMPT_TEMPLATES' }); };
+    document.getElementById('prompt-save').onclick = () => {
+        state.promptTemplates = {
+            topuser: document.getElementById('prompt-topuser').value,
+            confirm: document.getElementById('prompt-confirm').value,
+            metaProtocol: document.getElementById('prompt-meta').value,
+            bottom: document.getElementById('prompt-bottom').value,
+            imgGuideline: state.promptTemplates?.imgGuideline || ''
+        };
+        postToParent({ type: 'SAVE_PROMPT_TEMPLATES', templates: state.promptTemplates });
+        document.getElementById('prompt-modal').classList.remove('open');
+    };
+    
+    const textarea = document.getElementById('input-textarea');
+    textarea.oninput = function() { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px'; };
+    textarea.addEventListener('keydown', function(e) {
+        if (/Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth <= 768)) return;
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); state.isStreaming ? postToParent({ type: 'CANCEL_GENERATION' }) : sendMessage(); }
+    });
+    
+    document.getElementById('btn-send').onclick = () => { state.isStreaming ? postToParent({ type: 'CANCEL_GENERATION' }) : sendMessage(); };
+    document.getElementById('btn-regen').onclick = regenerate;
+    
+    postToParent({ type: 'FRAME_READY' });
+});
+</script>
+</body>
+</html>

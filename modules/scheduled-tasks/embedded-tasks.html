@@ -1,0 +1,75 @@
+<div class="scheduled-tasks-embedded-warning">
+    <h3>检测到嵌入的循环任务及可能的统计好感度设定</h3>
+    <p>此角色包含循环任务，这些任务可能会自动执行斜杠命令。</p>
+    <p>您是否允许此角色使用这些任务？</p>
+    <div class="warning-note">
+        <i class="fa-solid fa-exclamation-triangle"></i>
+        <span>注意：这些任务将在对话过程中自动执行，请确认您信任此角色的创建者。</span>
+    </div>
+</div>
+
+<style>
+.scheduled-tasks-embedded-warning {
+    max-width: 500px;
+    padding: 20px;
+}
+
+.scheduled-tasks-embedded-warning h3 {
+    color: #ff6b6b;
+    margin-bottom: 15px;
+}
+
+.task-preview-container {
+    margin: 15px 0;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 5px;
+}
+
+.task-list {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 10px;
+}
+
+.task-preview {
+    margin: 8px 0;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    border-left: 3px solid #4CAF50;
+}
+
+.task-preview strong {
+    color: #4CAF50;
+    display: block;
+    margin-bottom: 5px;
+}
+
+.task-commands {
+    font-family: monospace;
+    font-size: 0.9em;
+    color: #ccc;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 5px;
+    border-radius: 3px;
+    margin-top: 5px;
+    white-space: pre-wrap;
+}
+
+.warning-note {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 15px;
+    padding: 10px;
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 5px;
+    color: #ffc107;
+}
+
+.warning-note i {
+    font-size: 1.2em;
+}
+</style>

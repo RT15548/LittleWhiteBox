@@ -1,0 +1,1776 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>剧情地图</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        :root{--bg:#f7f7f7;--bg2:#fff;--bg3:#f0f0f0;--c:#222;--c2:#666;--c3:#999;--bd:#ddd}
+        html,body{width:100%;height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--c)}
+
+        /* 工具类 */
+        .fc{display:flex;align-items:center}
+        .fcc{display:flex;align-items:center;justify-content:center}
+        .col{flex-direction:column}
+        .g4{gap:4px}.g6{gap:6px}.g8{gap:8px}.g10{gap:10px}.g12{gap:12px}
+        .p12{padding:12px}.p14{padding:14px}
+        .r4{border-radius:4px}.r6{border-radius:6px}.r50{border-radius:50%}
+        .bd{border:1px solid var(--bd)}
+        .bg2{background:var(--bg2)}.bg3{background:var(--bg3)}
+        .fs11{font-size:11px}.fs12{font-size:12px}.fs13{font-size:13px}.fs14{font-size:14px}
+        .fw5{font-weight:500}.fw6{font-weight:600}
+        .c2{color:var(--c2)}.c3{color:var(--c3)}
+        .flex1{flex:1}.shrink0{flex-shrink:0}
+        .ofy{overflow-y:auto}.usn{user-select:none}
+        .trans{transition:all .15s}
+
+        /* 按钮 */
+        .btn{padding:8px 16px;background:var(--bg2);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid var(--bd);border-radius:4px;color:var(--c)}
+        .btn:hover{border-color:var(--c);background:var(--bg3)}
+        .btn:disabled{opacity:.5;cursor:not-allowed}
+        .btn-p{background:var(--c);color:#fff;border-color:var(--c)}
+        .btn-s{padding:6px 12px;font-size:12px}
+        .btn-c{width:28px;height:28px;padding:0;background:#888;border-color:#777;color:#fff;border-radius:50%}
+        .btn-add{width:32px;height:32px;padding:0;border-radius:50%;flex-shrink:0}
+
+        /* 折叠面板 */
+        .fold{background:var(--bg2);border:1px solid var(--bd);border-radius:6px;margin-bottom:8px;overflow:hidden}
+        .fold-h{padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+        .fold-h:hover{background:var(--bg3)}
+        .fold-a{transition:transform .2s;color:var(--c3);font-size:10px}
+        .fold.exp .fold-a{transform:rotate(180deg)}
+        .fold-b{max-height:0;overflow:hidden;transition:all .25s}
+        .fold.exp .fold-b{max-height:300px}
+
+        /* 侧边导航 */
+        .side-nav-wrap{position:fixed;left:10px;top:50%;transform:translateY(-50%);z-index:500;display:flex;flex-direction:column;gap:6px}
+        .side-glass{background:rgba(255,255,255,.3);backdrop-filter:blur(4px);box-shadow:0 2px 12px rgba(0,0,0,.05);border:1px solid rgba(221,221,221,.3);opacity:.4;transition:opacity .2s,background .2s}
+        .side-glass:hover{opacity:1;background:rgba(255,255,255,.85);backdrop-filter:blur(8px)}
+        .side-nav,.side-menu{display:flex;flex-direction:column;border-radius:20px}
+        .side-nav{gap:4px;padding:8px 5px}
+        .side-menu{position:relative;padding:6px 5px;align-items:center}
+        .side-menu-btn,.nav-i{display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:6px;transition:all .15s;color:var(--c3)}
+        .side-menu-btn{width:28px;height:28px;font-size:11px}
+        .nav-i{width:32px;height:32px;border-radius:50%}
+        .nav-i i{font-size:13px}
+        .side-menu-btn:hover,.nav-i:hover{background:var(--bg3);color:var(--c2)}
+        .side-menu-btn.act,.nav-i.act{background:var(--c);color:#fff}
+        .side-menu-panel{position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:8px;display:none;flex-direction:column;gap:4px;padding:6px;background:rgba(255,255,255,.95);backdrop-filter:blur(8px);border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.15);border:1px solid var(--bd);white-space:nowrap;z-index:600}
+        .side-menu-panel.show{display:flex}
+        .side-menu-panel .btn{font-size:11px;padding:5px 10px}
+
+        /* 工具栏 */
+        .toolbar{height:44px;background:var(--bg2);border-bottom:1px solid var(--bd);padding:0 12px 0 56px}
+        .toolbar-t{font-size:14px;font-weight:600;margin-right:auto}
+        .toolbar-t span{font-weight:400;color:var(--c3);margin-left:8px;font-size:12px}
+
+        /* 页面容器 */
+        .main-wrap{width:100%;height:calc(100% - 44px);position:relative}
+        .page{position:absolute;inset:0;background:var(--bg);display:none;overflow:hidden}
+        .page.act{display:block}
+        .page-pad{padding:20px 20px 20px 56px;overflow-y:auto;height:100%}
+
+        /* 横幅 */
+        .banner{width:100%;height:160px;border-radius:8px;overflow:hidden;margin-bottom:20px;position:relative;background:var(--bg3)}
+        .banner img{width:100%;height:100%;object-fit:cover;filter:grayscale(30%)}
+        .banner-ov{position:absolute;inset:0;background:linear-gradient(transparent 40%,rgba(0,0,0,.5));display:flex;align-items:flex-end;padding:16px}
+        .banner-ov div{color:#fff;font-size:13px}
+
+        /* 章节标题 */
+        .sec-t{font-size:12px;color:var(--c3);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px}
+
+        /* 新闻 */
+        .news-sec{margin-bottom:24px}
+        .news-t{font-size:13px;font-weight:500}
+        .news-time{font-size:11px;color:var(--c3)}
+        .fold.exp .news-b{padding:0 14px 14px}
+        .news-b p{font-size:12px;color:var(--c2);line-height:1.7}
+
+        /* 用户指南 */
+        .user-guide,.prog{padding:14px;background:var(--bg2);border-radius:6px;border:1px solid var(--bd)}
+        .user-guide{margin-bottom:20px}
+        .user-guide-state{font-size:13px;font-weight:500;margin-bottom:8px}
+        .user-guide-actions{display:flex;flex-direction:column;gap:6px}
+        .user-guide-action{padding:8px 12px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;font-size:12px;color:var(--c2);cursor:pointer;transition:all .15s}
+        .user-guide-action:hover{border-color:var(--c);background:var(--bg3)}
+
+        /* 进度条 */
+        .prog-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden}
+        .prog-fill{height:100%;background:var(--c);border-radius:3px}
+        .prog-txt{font-size:11px;color:var(--c3);margin-top:8px;text-align:right}
+
+        /* 地图 */
+        #mapWrap{width:100%;height:100%;background:var(--bg);cursor:grab;overflow:hidden;position:relative;touch-action:none}
+        #inner{position:absolute;width:4000px;height:4000px;transform-origin:0 0}
+        #lines{position:absolute;width:4000px;height:4000px;pointer-events:none}
+        .item{position:absolute;padding:8px 14px;background:var(--bg3);border:1px solid var(--bd);border-radius:6px;font-size:12px;font-weight:500;white-space:nowrap;cursor:pointer;user-select:none;box-shadow:0 1px 4px rgba(0,0,0,.06);transition:all .15s}
+        .item:hover{transform:scale(1.05);box-shadow:0 3px 12px rgba(0,0,0,.1);z-index:10}
+        .item.node-main{background:var(--c);color:#fff;border-color:#111}
+        .item.node-home{background:#4a5568;color:#fff;border-color:#2d3748}
+        .item.node-sub{background:var(--bg2)}
+        .item.hl{border-color:#666;box-shadow:0 0 0 3px rgba(0,0,0,.2);z-index:20}
+
+        /* 地图操作 */
+        .map-act{position:absolute;top:10px;right:10px;z-index:100}
+        #btn-goto{display:none}
+        #btn-goto.show{display:flex}
+        .map-lbl{position:absolute;top:10px;left:56px;z-index:100;background:var(--bg2);border:1px solid var(--bd);border-radius:4px;padding:6px 12px;font-size:11px;color:var(--c2);cursor:pointer;transition:all .15s;display:flex;align-items:center}
+        .map-lbl:hover{border-color:var(--c);background:var(--bg3)}
+        .map-lbl i:first-child{margin-right:6px}
+        .map-lbl-sel{position:absolute;opacity:0;cursor:pointer;inset:0;border:none;background:transparent;-webkit-appearance:none;appearance:none}
+
+        /* 面板 */
+        .panel{position:fixed;background:var(--bg2);padding:6px 12px;border-radius:4px;font-size:11px;color:var(--c3);border:1px solid var(--bd)}
+        #zoom-ind{bottom:12px;right:12px}
+        #tip{bottom:12px;left:56px;max-width:240px;padding:12px 14px;line-height:1.6;max-height:180px;overflow-y:auto;display:none}
+        #tip .desc{display:none}
+        #tip .info-w{display:block}
+        #tip.show{display:block;border-color:var(--c)}
+        .loc-lk{color:var(--c);font-weight:500;cursor:pointer;border-bottom:1px dashed var(--c3)}
+        .loc-lk:hover{background:var(--bg3);border-radius:2px}
+        .local-map-title{font-size:14px;font-weight:600;color:var(--c);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--bd)}
+        .info-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+        .info-t{font-weight:600;color:var(--c);font-size:13px}
+        .info-bk{font-size:11px;color:var(--c3);cursor:pointer;padding:2px 6px;border-radius:3px}
+        .info-bk:hover{background:var(--bg3)}
+        .info-c{color:var(--c2);font-size:12px;line-height:1.6}
+
+        /* 通讯录 */
+        .comm-hd{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+        .comm-tabs{display:flex;flex:1}
+        .comm-tab{flex:1;padding:10px;text-align:center;background:var(--bg2);border:1px solid var(--bd);cursor:pointer;font-size:12px;font-weight:500;transition:all .15s}
+        .comm-tab:first-child{border-radius:6px 0 0 6px}
+        .comm-tab:last-child{border-radius:0 6px 6px 0;border-left:none}
+        .comm-tab:hover{background:var(--bg3)}
+        .comm-tab.act{background:var(--c);color:#fff;border-color:var(--c)}
+        .comm-sec{display:none}
+        .comm-sec.act{display:block}
+
+        /* 联系人卡片 */
+        .ct-hd{gap:10px}
+        .ct-av,.chat-av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:13px;flex-shrink:0}
+        .ct-info{flex:1}
+        .ct-name{font-size:13px;font-weight:500}
+        .ct-st{font-size:11px;color:var(--c3)}
+        .ct-det{padding:0 14px 14px}
+        .ct-info-text{font-size:12px;color:var(--c2);line-height:1.7;margin:0 0 12px}
+        .ct-acts{display:flex;gap:8px}
+        .ct-acts .btn{flex:1;justify-content:center;font-size:12px}
+        .empty{text-align:center;padding:40px 20px;color:var(--c3);font-size:13px}
+
+        /* 弹窗 */
+        .modal{position:fixed;inset:0;z-index:10000;display:none;justify-content:center;align-items:center}
+        .modal.act{display:flex}
+        .modal-bd{position:absolute;inset:0;background:rgba(0,0,0,.4);backdrop-filter:blur(2px)}
+        .modal-p{position:relative;width:90%;max-width:700px;max-height:85vh;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+        .modal-p.sm{max-width:360px}
+        .modal-p.lg{max-width:560px}
+        .modal-hd,.modal-ft{padding:14px 18px}
+        .modal-hd{justify-content:space-between;border-bottom:1px solid var(--bd)}
+        .modal-hd h2{font-size:14px;font-weight:600}
+        .modal-ft{justify-content:flex-end;gap:10px;border-top:1px solid var(--bd)}
+        .modal-x{width:28px;height:28px;background:transparent;cursor:pointer;border:1px solid var(--bd);border-radius:4px}
+        .modal-x:hover{background:var(--bg3)}
+        .modal-by{flex:1;overflow-y:auto;padding:18px}
+
+        /* 编辑器 */
+        .ed-ta{width:100%;min-height:200px;padding:12px;background:var(--bg);border:none;border-top:1px solid var(--bd);font-family:'SF Mono',Monaco,Consolas,monospace;font-size:11px;line-height:1.5;color:var(--c);resize:none;outline:none}
+        .ed-preview{margin-top:10px;padding:10px;background:var(--bg3);border:1px solid var(--bd);border-radius:4px;font-size:11px;font-family:'SF Mono',Monaco,Consolas,monospace;white-space:pre-wrap;display:none;color:var(--c2)}
+        .ed-err{padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;color:#b91c1c;font-size:12px;margin-top:10px;display:none}
+        .ed-err.vis{display:block}
+
+        /* 表单 */
+        .form-g{margin-bottom:14px}
+        .form-l{display:block;font-size:12px;font-weight:500;margin-bottom:6px;color:var(--c2)}
+        .form-in{width:100%;padding:10px 12px;border:1px solid var(--bd);border-radius:4px;font-size:13px;outline:none;background:var(--bg2)}
+        .form-ta{min-height:80px;resize:vertical;font-family:inherit}
+        .goto-d{font-size:13px;color:var(--c);font-weight:500;padding:10px 14px;background:var(--bg3);border-radius:4px;margin-bottom:14px}
+
+        /* 聊天 */
+        .chat{position:fixed;top:0;right:-400px;width:300px;height:100%;background:var(--bg2);border-left:1px solid var(--bd);z-index:600;display:flex;flex-direction:column;transition:right .3s}
+        .chat.act{right:0}
+        .chat-hd{padding:14px 18px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:12px;flex-shrink:0}
+        .chat-t{flex:1}
+        .chat-nm{font-size:14px;font-weight:600}
+        .chat-st{font-size:11px;color:var(--c3)}
+        .chat-hd-acts{display:flex;align-items:center;gap:4px}
+        .chat-compress,.chat-clr,.chat-x{width:32px;height:32px;border:none;background:transparent;cursor:pointer;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--c3)}
+        .chat-compress:hover,.chat-clr:hover,.chat-x:hover{background:var(--bg3);color:var(--c)}
+        .chat-compress:hover{color:#3498db}
+        .chat-compress:disabled{opacity:.4;cursor:not-allowed}
+        .chat-clr:hover{color:#e74c3c}
+        .chat-divider{width:100%;text-align:center;padding:8px 0;color:var(--c3);font-size:11px;position:relative}
+        .chat-divider::before,.chat-divider::after{content:'';position:absolute;top:50%;width:30%;height:1px;background:var(--bd)}
+        .chat-divider::before{left:0}
+        .chat-divider::after{right:0}
+        .chat-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+        .chat-msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.5;white-space:pre-wrap}
+        .chat-msg.sent{align-self:flex-end;background:var(--c);color:#fff;border-bottom-right-radius:4px}
+        .chat-msg.recv{align-self:flex-start;background:var(--bg3);border-bottom-left-radius:4px}
+        .chat-msg.typing{font-style:italic;opacity:.7}
+        .chat-in-w{padding:12px;border-top:1px solid var(--bd);display:flex;gap:10px;flex-shrink:0}
+        .chat-in{flex:1;padding:10px 14px;border:1px solid var(--bd);border-radius:20px;font-size:13px;outline:none;background:var(--bg)}
+        .chat-in:focus{border-color:var(--c)}
+        .chat-in:disabled,.chat-send:disabled{opacity:.5;cursor:not-allowed}
+        .chat-send{width:36px;height:36px;border:none;background:var(--c);color:#fff;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}
+        .chat-send:hover{opacity:.9}
+        .chat-emp{text-align:center;color:var(--c3);font-size:12px;padding:40px 20px}
+
+        /* 地点列表 */
+        .loc-list{max-height:300px;overflow-y:auto}
+        .loc-i{padding:12px 14px;border:1px solid var(--bd);border-radius:6px;margin-bottom:8px;cursor:pointer;transition:all .15s}
+        .loc-i:hover{border-color:var(--c);background:var(--bg3)}
+        .loc-i.sel{border-color:var(--c);background:var(--c);color:#fff}
+        .loc-i-nm{font-size:13px;font-weight:500}
+        .loc-i-info{font-size:11px;opacity:.7;margin-top:2px}
+
+        /* 底部弹窗 */
+        .mob-pop{position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-top:1px solid var(--bd);border-radius:12px 12px 0 0;box-shadow:0 -2px 16px rgba(0,0,0,.1);z-index:200;display:none;flex-direction:column}
+        .mob-pop.act{display:flex}
+        .mob-pop.drag{transition:none!important}
+        .mob-pop:not(.drag){transition:height .2s ease-out}
+        .pop-hd{padding:8px;cursor:grab;touch-action:none;flex-shrink:0}
+        .pop-handle{width:36px;height:4px;background:var(--bd);border-radius:2px;margin:0 auto}
+        .pop-ct{flex:1;overflow-y:auto;padding:0 20px 20px;-webkit-overflow-scrolling:touch}
+        .pop-desc{display:none}
+        .pop-info{display:block}
+        .pop-info-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+        .pop-info-t{font-weight:600;font-size:14px}
+        .pop-info-bk{font-size:12px;color:var(--c3);cursor:pointer;padding:4px 8px;border-radius:4px}
+        .pop-h-ind{position:absolute;top:50%;right:6px;transform:translateY(-50%);display:flex;flex-direction:column;gap:3px;opacity:0;transition:opacity .15s}
+        .mob-pop.drag .pop-h-ind{opacity:1}
+        .pop-h-ind span{width:3px;height:8px;background:var(--bd);border-radius:1px}
+        .pop-h-ind span.act{background:var(--c)}
+
+        /* 右侧面板 */
+        .side-pop{position:fixed;top:44px;right:0;bottom:0;background:var(--bg2);border-left:1px solid var(--bd);z-index:90;display:none;width:8px}
+        .side-pop.show{display:flex}
+        .side-pop:not(.drag){transition:width .2s ease-out}
+        .side-pop.drag{transition:none}
+        .side-pop-handle{width:8px;background:var(--bg3);cursor:ew-resize;flex-shrink:0;display:flex;align-items:center;justify-content:center;touch-action:none}
+        .side-pop-bar{width:3px;height:36px;background:var(--bd);border-radius:2px;transition:background .15s}
+        .side-pop-handle:hover .side-pop-bar{background:var(--c3)}
+        .side-pop-ct{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px;margin-bottom:30vh;min-width:0}
+        .side-pop-hd{font-size:11px;color:var(--c3);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px}
+        .side-pop-desc{font-size:13px;color:var(--c2);line-height:1.7}
+
+        /* 设置 */
+        .set-sec{margin-bottom:16px}
+        .set-sec-t{font-size:13px;font-weight:600;color:var(--c);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--bd)}
+        .set-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+        .set-row .form-in{flex:1}
+        .set-row .btn{flex-shrink:0}
+        .set-hint{font-size:11px;color:var(--c3);margin-top:4px}
+        .set-test{display:flex;align-items:center;gap:8px;margin-top:8px}
+        .set-test-res{font-size:12px;padding:6px 10px;border-radius:4px;display:none}
+        .set-test-res.ok{display:block;background:#dcfce7;color:#166534;border:1px solid #86efac}
+        .set-test-res.err{display:block;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
+
+        /* 数据项 */
+        .data-item{display:flex;align-items:flex-start;gap:10px;padding:12px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;margin-bottom:8px;cursor:pointer;transition:all .15s}
+        .data-item:hover{border-color:var(--c2);background:var(--bg3)}
+        .data-item.sel{border-color:var(--c);background:rgba(34,34,34,.05)}
+        .data-ck{width:18px;height:18px;border:2px solid var(--bd);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;margin-top:2px}
+        .data-item.sel .data-ck{background:var(--c);border-color:var(--c);color:#fff}
+        .data-ck i{font-size:10px;opacity:0}
+        .data-item.sel .data-ck i{opacity:1}
+        .data-info{flex:1;min-width:0}
+        .data-nm{font-size:13px;font-weight:500;margin-bottom:4px}
+        .data-desc{font-size:11px;color:var(--c3);line-height:1.4}
+        .data-edit{width:28px;height:28px;border:1px solid var(--bd);border-radius:4px;background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;color:var(--c3)}
+        .data-edit:hover{border-color:var(--c);color:var(--c);background:var(--bg3)}
+
+        /* 响应式 */
+        @media(max-width:550px){
+            .chat{width:100%;right:-100%}
+            .side-pop{bottom:0}
+            .side-nav-wrap{left:6px}
+            .side-nav{padding:6px 4px}
+            .side-menu{padding:5px 4px}
+            .nav-i{width:28px;height:28px}
+            .nav-i i{font-size:11px}
+            .toolbar{padding:20px}
+            .toolbar-t span{display:none}
+            .btn{padding:6px 10px;font-size:11px}
+            .modal-p{max-width:100%;max-height:100%;border-radius:0}
+            #tip{display:none!important}
+            .page-pad{padding:14px 14px 14px 48px}
+            .map-lbl{left:48px}
+        }
+    </style>
+</head>
+<body>
+    <!-- 侧边导航 -->
+    <div class="side-nav-wrap">
+        <div class="side-menu side-glass">
+            <div class="side-menu-btn" id="btn-side-menu-toggle" title="快捷操作"><i class="fa-solid fa-ellipsis"></i></div>
+            <div class="side-menu-panel" id="side-menu-panel">
+                <button class="btn btn-s fc g4" id="btn-gen-local-map"><i class="fa-solid fa-plus"></i>局部地图</button>
+                <button class="btn btn-s fc g4" id="btn-simulate"><i class="fa-solid fa-rotate"></i>推演</button>
+                <button class="btn btn-s fc g4" id="btn-gen-local-scene"><i class="fa-solid fa-feather-pointed"></i>局部剧情</button>
+            </div>
+        </div>
+        <nav class="side-nav side-glass">
+            <div class="nav-i" data-p="world"><i class="fa-solid fa-earth-americas"></i></div>
+            <div class="nav-i act" data-p="map"><i class="fa-solid fa-map"></i></div>
+            <div class="nav-i" data-p="comm"><i class="fa-solid fa-phone"></i></div>
+        </nav>
+    </div>
+
+    <!-- 工具栏 -->
+    <div class="toolbar fc g10 usn">
+        <div class="toolbar-t">剧情地图<span>Story Outline</span></div>
+        <button class="btn btn-s fc g6" id="btn-deduce"><i class="fa-solid fa-wand-magic-sparkles"></i>生成</button>
+        <button class="btn btn-s fc g6" id="btn-settings"><i class="fa-solid fa-gear"></i>设置</button>
+        <button class="btn btn-c fcc" id="btn-close">✕</button>
+    </div>
+
+    <!-- 主内容区 -->
+    <div class="main-wrap">
+        <!-- 世界页 -->
+        <div class="page page-pad" id="page-world">
+            <div class="banner"><img src="https://picsum.photos/800/300" alt=""><div class="banner-ov"><div>探索未知的世界...</div></div></div>
+            <div class="news-sec"><h3 class="sec-t">最新消息</h3><div id="news-list"></div></div>
+            <div class="user-guide" id="user-guide">
+                <h3 class="sec-t">当前状态</h3>
+                <div class="user-guide-state" id="ug-state">尚未生成世界数据...</div>
+                <h3 class="sec-t" style="margin-top:12px">行动指南</h3>
+                <div class="user-guide-actions" id="ug-actions"><div class="user-guide-action">等待世界生成...</div></div>
+            </div>
+        </div>
+
+        <!-- 地图页 -->
+        <div class="page act" id="page-map">
+            <div id="mapWrap">
+                <div class="map-lbl" id="map-lbl">
+                    <i class="fa-solid fa-map-location-dot"></i>
+                    <span id="map-lbl-t">大地图</span>
+                    <i class="fa-solid fa-chevron-down" style="margin-left:6px;font-size:9px"></i>
+                    <select id="map-lbl-select" class="map-lbl-sel"></select>
+                </div>
+                <div class="map-act"><button class="btn btn-s btn-p fc g6" id="btn-goto"><i class="fa-solid fa-location-arrow"></i><span id="goto-t">前往</span></button></div>
+                <div id="inner"><svg id="lines"></svg></div>
+            </div>
+            <div class="panel" id="zoom-ind">100%</div>
+            <div class="panel" id="tip">
+                <div class="desc" id="desc"></div>
+                <div class="info-w">
+                    <div class="info-h"><div class="info-t" id="info-t"></div><div class="info-bk" id="info-bk">← 返回</div></div>
+                    <div class="info-c" id="info-c"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 通讯录页 -->
+        <div class="page page-pad" id="page-comm">
+            <div class="comm-hd">
+                <div class="comm-tabs">
+                    <div class="comm-tab act" data-t="stranger">陌路人</div>
+                    <div class="comm-tab" data-t="contact">联络人</div>
+                </div>
+                <button class="btn btn-add fcc" id="btn-refresh-strangers" title="摇一摇"><i class="fa-solid fa-rotate"></i></button>
+                <button class="btn btn-add fcc" id="btn-add-ct"><i class="fa-solid fa-plus"></i></button>
+            </div>
+            <div id="sec-stranger" class="comm-sec act"></div>
+            <div id="sec-contact" class="comm-sec"></div>
+        </div>
+    </div>
+
+    <!-- 聊天面板 -->
+    <div class="chat" id="chat">
+        <div class="chat-hd">
+            <div class="chat-av" id="chat-av"></div>
+            <div class="chat-t"><div class="chat-nm" id="chat-nm"></div><div class="chat-st" id="chat-st"></div></div>
+            <div class="chat-hd-acts">
+                <button class="chat-compress" id="chat-compress" title="压缩总结"><i class="fa-solid fa-compress"></i></button>
+                <button class="chat-clr" id="chat-clr" title="清空记录"><i class="fa-solid fa-trash"></i></button>
+                <button class="chat-x" id="chat-x"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+        </div>
+        <div class="chat-msgs" id="chat-msgs"></div>
+        <div class="chat-in-w">
+            <button class="chat-send" id="chat-back" title="回退"><i class="fa-solid fa-rotate-left"></i></button>
+            <input type="text" class="chat-in" id="chat-in" placeholder="输入消息...">
+            <button class="chat-send" id="chat-send"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+    </div>
+
+    <!-- 右侧描述面板 -->
+    <div class="side-pop" id="side-pop">
+        <div class="side-pop-handle" id="side-pop-handle"><div class="side-pop-bar"></div></div>
+        <div class="side-pop-ct">
+            <div class="side-pop-hd fc" style="justify-content:space-between">
+                <span>场景描述</span>
+                <button class="btn btn-s fc g4" id="btn-refresh-local-map"><i class="fa-solid fa-rotate-right"></i>刷新</button>
+            </div>
+            <div class="side-pop-desc" id="side-desc"></div>
+        </div>
+    </div>
+
+    <!-- 移动端底部弹窗 -->
+    <div class="mob-pop" id="mob-pop">
+        <div class="pop-h-ind"><span data-l="2"></span><span data-l="1"></span><span data-l="0"></span></div>
+        <div class="pop-hd" id="pop-hd"><div class="pop-handle"></div></div>
+        <div class="pop-ct">
+            <div class="pop-desc" id="mob-desc"></div>
+            <div class="pop-info">
+                <div class="pop-info-h"><div class="pop-info-t" id="mob-info-t"></div><div class="pop-info-bk" id="mob-info-bk">← 返回</div></div>
+                <div id="mob-info-c"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 设置弹窗 -->
+    <div class="modal" id="m-settings">
+        <div class="modal-bd"></div>
+        <div class="modal-p lg">
+            <div class="modal-hd fc"><h2>设置</h2><button class="modal-x fcc">✕</button></div>
+            <div class="modal-by">
+                <div class="set-sec">
+                    <div class="set-sec-t">剧情状态</div>
+                    <div class="set-row" style="gap:20px">
+                        <div class="form-g" style="flex:1"><label class="form-l">当前阶段</label><input type="number" class="form-in" id="set-stage" min="0" max="10" value="0"><div class="set-hint">决定可见的洋葱层级</div></div>
+                        <div class="form-g" style="flex:1"><label class="form-l">偏离分数</label><input type="number" class="form-in" id="set-deviation" min="0" max="100" value="0"><div class="set-hint">玩家行为对世界的影响</div></div>
+                    </div>
+                    <div class="set-row" style="gap:20px">
+                        <div class="form-g" style="flex:1"><label class="form-l">推演进度</label><input type="number" class="form-in" id="set-sim-progress" min="0" value="0"><div class="set-hint">当前累计推演点数</div></div>
+                        <div class="form-g" style="flex:1"><label class="form-l">推演目标</label><input type="number" class="form-in" id="set-sim-target" min="1" value="5"><div class="set-hint">达到目标自动推演</div></div>
+                    </div>
+                </div>
+                <div class="set-sec">
+                    <div class="set-sec-t">模式设置</div>
+                    <div class="form-g"><label class="form-l">运行模式</label>
+                        <select class="form-in" id="set-mode">
+                            <option value="story">故事模式（包含世界大纲与时间线）</option>
+                            <option value="assist">辅助模式（只生成地图/新闻/轻松小剧情）</option>
+                        </select>
+                        <div class="set-hint">可在游玩过程中自由切换</div>
+                    </div>
+                </div>
+                <div class="set-sec">
+                    <div class="set-sec-t">全局设定</div>
+                    <div class="form-g"><label class="form-l">API端点</label><input type="text" class="form-in" id="set-api-url" placeholder="留空则使用当前酒馆的API"><div class="set-hint">例如: https://api.openai.com/v1</div></div>
+                    <div class="form-g"><label class="form-l">API密钥</label><input type="password" class="form-in" id="set-api-key" placeholder="输入API密钥"></div>
+                    <div class="form-g"><label class="form-l">模型</label>
+                        <div class="set-row"><input type="text" class="form-in" id="set-model" placeholder="输入模型名称"><button class="btn btn-s" id="btn-fetch-models">获取</button><button class="btn btn-s btn-p" id="btn-test-conn">测试连接</button></div>
+                        <select class="form-in" id="set-model-list" style="display:none;margin-top:8px"></select>
+                    </div>
+                    <div class="set-test"><label class="form-l">聊天历史楼层数</label><input type="number" class="form-in" id="set-history-count" min="0" max="200" value="50" style="width:100px"><div class="set-test-res" id="test-res"></div></div>
+                    <div class="set-sec-t" style="margin-top:16px">NPC 世界书条目</div>
+                    <div class="set-row" style="gap:20px">
+                        <div class="form-g" style="flex:1"><label class="form-l">插入位置</label>
+                            <select class="form-in" id="set-npc-position">
+                                <option value="0">↑Char 角色定义前</option><option value="1">↓Char 角色定义后</option>
+                                <option value="2">↑AN 作者注释前</option><option value="3">↓AN 作者注释后</option>
+                                <option value="5">↑EM 增强定义前</option><option value="6">↓EM 增强定义后</option>
+                            </select>
+                            <div class="set-hint">生成的NPC条目插入位置</div>
+                        </div>
+                        <div class="form-g" style="flex:1"><label class="form-l">条目顺序</label><input type="number" class="form-in" id="set-npc-order" min="0" max="1000" value="100"><div class="set-hint">数值越小越靠前</div></div>
+                    </div>
+                </div>
+                <div class="set-sec"><div class="set-sec-t">预设 Story Outline 数据</div><div class="set-hint" style="margin-bottom:12px">勾选的条目将写入预设</div><div id="data-list"></div></div>
+                <div class="set-sec"><div class="set-sec-t">高级设置 · 自定义提示词</div><div class="set-hint" style="margin-bottom:12px">UAUA四段 + JSON 模板</div><div id="prompt-list"></div></div>
+            </div>
+            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="set-save">保存</button></div>
+        </div>
+    </div>
+
+    <!-- 数据编辑弹窗 -->
+    <div class="modal" id="m-data-edit">
+        <div class="modal-bd"></div>
+        <div class="modal-p">
+            <div class="modal-hd fc"><h2 id="data-edit-title">编辑数据</h2><button class="modal-x fcc">✕</button></div>
+            <div class="modal-by">
+                <textarea class="ed-ta" id="data-edit-ta" style="min-height:300px"></textarea>
+                <pre class="ed-preview" id="data-edit-preview"></pre>
+                <div class="ed-err" id="data-edit-err"></div>
+            </div>
+            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="data-edit-save">保存</button></div>
+        </div>
+    </div>
+
+    <!-- 前往确认弹窗 -->
+    <div class="modal" id="m-goto">
+        <div class="modal-bd"></div>
+        <div class="modal-p sm">
+            <div class="modal-hd fc"><h2>确认前往</h2><button class="modal-x fcc">✕</button></div>
+            <div class="modal-by">
+                <div class="goto-d" id="goto-d"></div>
+                <div class="form-g"><label class="form-l">任务目标（可选）</label><textarea class="form-in form-ta" id="goto-task" placeholder="描述你要做什么..."></textarea></div>
+            </div>
+            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="goto-ok">确认前往</button></div>
+        </div>
+    </div>
+
+    <!-- 邀请弹窗 -->
+    <div class="modal" id="m-invite">
+        <div class="modal-bd"></div>
+        <div class="modal-p sm">
+            <div class="modal-hd fc"><h2>邀请前往</h2><button class="modal-x fcc">✕</button></div>
+            <div class="modal-by">
+                <div class="goto-d" id="inv-t"></div>
+                <div class="form-g"><label class="form-l">选择地点</label><div class="loc-list" id="loc-list"></div></div>
+            </div>
+            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="inv-ok">发送邀请</button></div>
+        </div>
+    </div>
+
+    <!-- 世界生成弹窗 -->
+    <div class="modal" id="m-world-gen">
+        <div class="modal-bd"></div>
+        <div class="modal-p">
+            <div class="modal-hd fc"><h2>世界生成</h2><button class="modal-x fcc">✕</button></div>
+            <div class="modal-by">
+                <div class="form-g"><label class="form-l">玩家特殊需求（可选）</label><textarea class="form-in form-ta" id="world-gen-req" rows="4" placeholder="例如：希望有更多悬疑元素、增加一个神秘组织..."></textarea><div class="set-hint">AI 会根据当前世界观和你的需求生成完整的世界数据</div></div>
+                <div id="world-gen-status" class="set-hint" style="color:#4a9;display:none"></div>
+            </div>
+            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="world-gen-ok"><i class="fa-solid fa-wand-magic-sparkles"></i> 开始生成</button></div>
+        </div>
+    </div>
+
+    <!-- 世界推演弹窗 -->
+    <div class="modal" id="m-world-sim">
+        <div class="modal-bd"></div>
+        <div class="modal-p">
+            <div class="modal-hd fc"><h2>世界推演</h2><button class="modal-x fcc">✕</button></div>
+            <div class="modal-by">
+                <div class="form-g">
+                    <div class="set-hint" style="margin-bottom:12px"><strong>推演模式</strong>：根据玩家行为和时间流逝，演化世界状态。
+                        <ul style="margin:8px 0;padding-left:20px;font-size:12px"><li>L1/L2 将大幅更新</li><li>L3/L4 适度调整</li><li>L5 保持不变</li><li>Stage 将推进到下一阶段</li></ul>
+                    </div>
+                    <div class="set-hint" style="color:#f80">⚠️ 此操作会覆盖当前世界数据，建议先备份</div>
+                </div>
+                <div id="world-sim-status" class="set-hint" style="color:#4a9;display:none"></div>
+            </div>
+            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="world-sim-ok"><i class="fa-solid fa-rotate"></i> 开始推演</button></div>
+        </div>
+    </div>
+
+    <!-- 添加联络人弹窗 -->
+    <div class="modal" id="m-add-ct">
+        <div class="modal-bd"></div>
+        <div class="modal-p sm">
+            <div class="modal-hd fc"><h2>添加联络人</h2><button class="modal-x fcc">✕</button></div>
+            <div class="modal-by">
+                <div class="form-g"><label class="form-l">UID（世界书条目UID）</label>
+                    <div class="set-row"><input type="text" class="form-in" id="add-uid" placeholder="请输入世界书条目UID"><button class="btn btn-s" id="btn-check-uid"><i class="fa-solid fa-search"></i> 检查</button></div>
+                    <div class="set-hint">输入角色卡绑定世界书的条目UID</div>
+                </div>
+                <div class="form-g" id="name-select-group" style="display:none"><label class="form-l">选择名字</label><select class="form-in" id="add-name"><option value="">-- 请选择 --</option></select></div>
+                <div id="uid-check-err" class="ed-err"></div>
+            </div>
+            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="add-ct-ok" disabled>确定</button></div>
+        </div>
+    </div>
+
+    <!-- 结果弹窗 -->
+    <div class="modal" id="m-result">
+        <div class="modal-bd"></div>
+        <div class="modal-p sm">
+            <div class="modal-hd fc"><h2 id="res-title">操作结果</h2><button class="modal-x fcc">✕</button></div>
+            <div class="modal-by">
+                <div id="res-msg" style="margin-bottom:10px;line-height:1.5"></div>
+                <div id="res-record-box" style="display:none">
+                    <div class="set-hint" style="margin-bottom:4px">详细记录：</div>
+                    <pre id="res-record" style="max-height:200px;overflow-y:auto;background:var(--bg3);padding:8px;border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-all"></pre>
+                </div>
+            </div>
+            <div class="modal-ft fc"><button class="btn btn-s" id="res-action" style="display:none"></button><button class="btn btn-s btn-p m-cancel">确定</button></div>
+        </div>
+    </div>
+
+<script>
+// ================== 数据 ==================
+const D = {
+    stage: 0, deviationScore: 0, simulationProgress: 0, simulationTarget: 5,
+    meta: { truth: null, onion_layers: null, timeline: null, user_guide: null },
+    world: {}, maps: { outdoor: { nodes: [] }, indoor: null }, sceneSetup: null,
+    contacts: { strangers: [], contacts: [{ name: '{{characterName}}', avatar: '', color: '#555', location: '在线', info: '角色卡联络人', online: true, worldbookUid: '__CHARACTER_CARD__', messages: [], summarizedCount: 0 }] }
+};
+
+let charSmsHistory = { messages: [], summarizedCount: 0, summaries: {} };
+
+// ================== 工具函数 ==================
+const $ = id => document.getElementById(id);
+const $$ = s => document.querySelectorAll(s);
+const isMob = () => innerWidth <= 550;
+const escHtml = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const stripXml = s => s ? s.replace(/<(\w+)[^>]*>[\s\S]*?<\/\1>/g, '').replace(/<[^>]+\/?>/g, '').trim() : '';
+const parseLinks = t => t.replace(/\*\*([^*]+)\*\*/g, '<span class="loc-lk" data-loc="$1">$1</span>');
+const post = (type, data = {}) => parent.postMessage({ source: 'LittleWhiteBox-OutlineFrame', type, ...data }, '*');
+
+const BtnState = {
+    load: (btn, t) => { btn.disabled = true; btn._o = btn.innerHTML; btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${t}` },
+    reset: (btn, t) => { btn.disabled = false; btn.innerHTML = t || btn._o }
+};
+
+const Req = {
+    _p: {}, _id: 0,
+    create(k) { const id = k + '_' + (++this._id); this._p[k] = { id }; return id },
+    get(k) { return this._p[k] },
+    match(id) { const k = id?.split('_')[0]; return this._p[k]?.id === id ? this._p[k] : null },
+    set(k, d) { Object.assign(this._p[k] || {}, d) },
+    clear(k) { delete this._p[k] }
+};
+
+const openM = id => $(id).classList.add('act');
+const closeM = id => $(id).classList.remove('act');
+
+// ================== 地图状态 ==================
+const dirMap = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0], northeast: [1, -1], northwest: [-1, -1], southeast: [1, 1], southwest: [-1, 1] };
+let playerLocation = '未知', curNode = null, drag = false, scale = 1, offX = 0, offY = 0, seed = 123456789, nodes = [], lines = [], anim = false;
+let chatTgt = null, invTgt = null, selLoc = null, smsGen = false, selectedMapValue = 'current';
+
+const inner = $("inner"), svg = $("lines"), mapWrap = $("mapWrap"), popup = $('mob-pop'), chat = $('chat'), sidePop = $('side-pop');
+const rand = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+
+// 获取当前位置的 inside 数据
+const getCurInside = () => {
+    return D.maps?.indoor?.[playerLocation] || null;
+};
+
+// ================== 弹窗拖拽 ==================
+const snaps = () => [($('pop-hd')?.offsetHeight || 0), innerHeight * .30, innerHeight * .65];
+let popH = 0, popDrag = false, popSY = 0, popSH = 0, popLv = 1;
+const inds = popup.querySelectorAll('.pop-h-ind span');
+
+const setPopH = h => {
+    const s = snaps();
+    popH = Math.max(s[0], Math.min(innerHeight * .85, h));
+    popup.style.height = popH + 'px';
+    popLv = s.map((v, i) => [i, Math.abs(popH - v)]).sort((a, b) => a[1] - b[1])[0][0];
+    inds.forEach((x, i) => x.classList.toggle('act', i === popLv));
+};
+const snapTo = l => { popLv = Math.max(0, Math.min(2, l)); setPopH(snaps()[popLv]); };
+const openPop = (l = 1) => { popup.classList.add('act'); snapTo(l); };
+
+// 右侧面板
+const sideMinW = 8, sideMaxW = () => Math.floor(innerWidth * (isMob() ? 0.8 : 1 / 3));
+let sideW = sideMinW, sideDrag = false, sideSX = 0, sideSW = 0;
+const setSideW = w => { sideW = Math.max(sideMinW, Math.min(sideMaxW(), w)); sidePop.style.width = sideW + 'px'; };
+
+// 拖拽事件
+$('pop-hd').onmousedown = e => { popDrag = true; popSY = e.clientY; popSH = popH || snaps()[1]; popup.classList.add('drag'); e.preventDefault(); };
+$('pop-hd').ontouchstart = e => { e.preventDefault(); popDrag = true; popSY = e.touches[0].clientY; popSH = popH || snaps()[1]; popup.classList.add('drag'); };
+$('side-pop-handle').onmousedown = e => { sideDrag = true; sideSX = e.clientX; sideSW = sideW; sidePop.classList.add('drag'); e.preventDefault(); };
+$('side-pop-handle').ontouchstart = e => { e.preventDefault(); sideDrag = true; sideSX = e.touches[0].clientX; sideSW = sideW; sidePop.classList.add('drag'); };
+
+document.onmousemove = e => { if (popDrag) setPopH(popSH + popSY - e.clientY); if (sideDrag) setSideW(sideSW + (sideSX - e.clientX)); };
+document.ontouchmove = e => {
+    if (popDrag && e.touches.length) { e.preventDefault(); setPopH(popSH + popSY - e.touches[0].clientY); }
+    if (sideDrag && e.touches.length) { e.preventDefault(); setSideW(sideSW + (sideSX - e.touches[0].clientX)); }
+};
+
+const endDrag = () => {
+    if (popDrag) { popDrag = false; popup.classList.remove('drag'); snapTo(popLv); }
+    if (sideDrag) { sideDrag = false; sidePop.classList.remove('drag'); }
+};
+document.onmouseup = endDrag;
+document.ontouchend = endDrag;
+document.ontouchcancel = endDrag;
+
+// ================== 链接绑定 ==================
+const bindLinks = el => el.querySelectorAll('.loc-lk').forEach(l => l.onclick = e => {
+    e.stopPropagation();
+    const locName = l.dataset.loc;
+    const outdoorNode = nodes.find(x => x.name === locName);
+    if (outdoorNode) { panTo(outdoorNode); showInfo(outdoorNode); return; }
+    const inside = getCurInside();
+    const insideNode = inside?.nodes?.find(x => x.name === locName);
+    if (insideNode) {
+        $('info-t').textContent = insideNode.name;
+        $('info-c').textContent = insideNode.info || '暂无信息...';
+        $('tip').classList.add('show');
+        $('btn-goto').classList.remove('show');
+        if (isMob()) { $('mob-info-t').textContent = insideNode.name; $('mob-info-c').textContent = insideNode.info || '暂无信息...'; if (!popup.classList.contains('act')) openPop(1); }
+    }
+});
+
+const bindFold = el => el.querySelector('.fold-h').onclick = () => el.classList.toggle('exp');
+
+// ================== 弹窗通用关闭 ==================
+$$('.modal-bd,.modal-x,.m-cancel').forEach(el => el.onclick = () => el.closest('.modal').classList.remove('act'));
+
+// ================== 聊天功能 ==================
+const openChat = c => {
+    chatTgt = c;
+    $('chat-av').textContent = c.avatar;
+    $('chat-av').style.background = c.color;
+    $('chat-nm').textContent = c.name;
+    $('chat-st').textContent = c.online ? '● 在线' : c.location;
+    if (c.worldbookUid && (!c.messages || !c.messages.length)) post('LOAD_SMS_HISTORY', { worldbookUid: c.worldbookUid });
+    else renderMsgs();
+    chat.classList.add('act');
+    $('chat-in').focus();
+};
+const closeChat = () => { chat.classList.remove('act'); chatTgt = null; smsGen = false; };
+
+const renderMsgs = () => {
+    if (!chatTgt) return;
+    const m = chatTgt.messages || [], sc = chatTgt.summarizedCount || 0;
+    let h = '';
+    if (m.length) {
+        m.forEach((x, i) => {
+            if (sc > 0 && i === sc) h += '<div class="chat-divider">—— 以上为已总结消息 ——</div>';
+            h += `<div class="chat-msg ${x.type === 'sent' ? 'sent' : 'recv'}${x.typing ? ' typing' : ''}"><div>${escHtml(stripXml(x.text))}</div></div>`;
+        });
+    } else h = '<div class="chat-emp">暂无消息，开始聊天吧</div>';
+    $('chat-msgs').innerHTML = h;
+    $('chat-msgs').scrollTop = $('chat-msgs').scrollHeight;
+    $('chat-compress').disabled = (m.length - sc) < 2 || smsGen;
+    $('chat-back').disabled = !m.length || smsGen;
+};
+
+const sendMsg = () => {
+    const t = $('chat-in').value.trim();
+    if (!t || !chatTgt || smsGen) return;
+    chatTgt.messages = chatTgt.messages || [];
+    chatTgt.messages.push({ type: 'sent', text: t });
+    $('chat-in').value = '';
+    renderMsgs();
+    smsGen = true;
+    $('chat-in').disabled = $('chat-send').disabled = $('chat-back').disabled = true;
+    chatTgt.messages.push({ type: 'received', text: '正在输入...', typing: true });
+    renderMsgs();
+    const id = Req.create('sms');
+    Req.set('sms', { tgt: chatTgt });
+    post('SEND_SMS', { requestId: id, contactName: chatTgt.name, worldbookUid: chatTgt.worldbookUid, userMessage: t, chatHistory: chatTgt.messages.filter(m => !m.typing).slice(-20), summarizedCount: chatTgt.summarizedCount || 0 });
+};
+
+const isCharCardContact = c => c?.worldbookUid === '__CHARACTER_CARD__';
+const contactsForSave = () => (D.contacts.contacts || []).filter(c => !isCharCardContact(c));
+const saveCt = () => post('SAVE_CONTACTS', { contacts: contactsForSave(), strangers: D.contacts.strangers });
+const saveChat = c => post('SAVE_SMS_HISTORY', { worldbookUid: c.worldbookUid, contactName: c.name, messages: c.messages.filter(m => !m.typing), summarizedCount: c.summarizedCount || 0 });
+
+$('chat-x').onclick = closeChat;
+$('chat-back').onclick = () => {
+    if (!chatTgt || smsGen) return;
+    const m = chatTgt.messages || [];
+    if (!m.length) return;
+    m.pop();
+    while (m[m.length - 1]?.typing) m.pop();
+    chatTgt.summarizedCount = Math.min(chatTgt.summarizedCount || 0, m.length);
+    renderMsgs();
+    saveCt();
+    if (chatTgt.worldbookUid) saveChat(chatTgt);
+};
+$('chat-clr').onclick = () => {
+    if (!chatTgt || !confirm(`确定要清空与 ${chatTgt.name} 的所有聊天记录吗？`)) return;
+    chatTgt.messages = [];
+    chatTgt.summarizedCount = 0;
+    renderMsgs();
+    saveCt();
+    if (chatTgt.worldbookUid) saveChat(chatTgt);
+};
+$('chat-compress').onclick = () => {
+    if (!chatTgt || smsGen) return;
+    const m = chatTgt.messages || [], sc = chatTgt.summarizedCount || 0, um = m.slice(sc);
+    if (um.length < 2) { alert('至少需要2条未总结的消息才能压缩'); return; }
+    if (!confirm(`确定要压缩总结 ${um.length} 条消息吗？`)) return;
+    smsGen = true;
+    $('chat-compress').disabled = $('chat-in').disabled = $('chat-send').disabled = $('chat-back').disabled = true;
+    const id = Req.create('compress');
+    Req.set('compress', { tgt: chatTgt });
+    post('COMPRESS_SMS', { requestId: id, contactName: chatTgt.name, worldbookUid: chatTgt.worldbookUid, messages: m.filter(x => !x.typing), summarizedCount: sc });
+};
+$('chat-send').onclick = sendMsg;
+
+const chatIn = $('chat-in');
+['keydown', 'keypress', 'keyup'].forEach(e => chatIn.addEventListener(e, ev => ev.stopPropagation()));
+chatIn.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } });
+
+// ================== 邀请功能 ==================
+const openInv = c => {
+    invTgt = c; selLoc = null;
+    $('inv-t').textContent = `邀请：${c.name}`;
+    $('loc-list').innerHTML = D.maps.outdoor.nodes.map(l => `<div class="loc-i" data-n="${l.name}"><div class="loc-i-nm">${l.name}</div><div class="loc-i-info">${l.info || ''}</div></div>`).join('');
+    $$('#loc-list .loc-i').forEach(i => i.onclick = () => { $$('#loc-list .loc-i').forEach(x => x.classList.remove('sel')); i.classList.add('sel'); selLoc = i.dataset.n; });
+    openM('m-invite');
+};
+
+$('inv-ok').onclick = () => {
+    if (!selLoc || !invTgt) return;
+    const btn = $('inv-ok');
+    BtnState.load(btn, '询问中...');
+    const id = Req.create('invite');
+    const loc = canonicalLoc(selLoc);
+    Req.set('invite', { contact: invTgt, loc, btn });
+    post('SEND_INVITE', { requestId: id, contactName: invTgt.name, contactUid: invTgt.worldbookUid, targetLocation: loc, smsHistory: (invTgt.messages || []).map(m => m.type === 'sent' ? `{{user}}: ${m.text}` : `${invTgt.name}: ${m.text}`).join('\n') });
+};
+
+// ================== 添加联络人 ==================
+let addCtState = { uid: '', name: '', keys: [] };
+const resetAddCt = () => {
+    addCtState = { uid: '', name: '', keys: [] };
+    $('add-uid').value = '';
+    $('add-name').value = '';
+    $('add-name').innerHTML = '<option value="">-- 请选择 --</option>';
+    $('name-select-group').style.display = 'none';
+    $('uid-check-err').classList.remove('vis');
+    $('add-ct-ok').disabled = true;
+    BtnState.reset($('btn-check-uid'), '<i class="fa-solid fa-search"></i> 检查');
+};
+const showUidErr = m => { $('uid-check-err').textContent = m; $('uid-check-err').classList.add('vis'); };
+
+$('btn-check-uid').onclick = () => {
+    const uid = $('add-uid').value.trim();
+    if (!uid) { showUidErr('请输入UID'); return; }
+    $('uid-check-err').classList.remove('vis');
+    BtnState.load($('btn-check-uid'), '检查中');
+    $('name-select-group').style.display = 'none';
+    $('add-ct-ok').disabled = true;
+    addCtState.uid = uid;
+    post('CHECK_WORLDBOOK_UID', { uid, requestId: Req.create('uidck') });
+};
+$('btn-add-ct').onclick = () => { resetAddCt(); openM('m-add-ct'); };
+$('add-ct-ok').onclick = () => {
+    const uid = addCtState.uid || $('add-uid').value.trim(), name = addCtState.name || $('add-name').value.trim();
+    if (!uid || !name) return;
+    if (D.contacts.contacts.some(c => c.worldbookUid === uid)) { showUidErr('该联络人已存在'); return; }
+    D.contacts.contacts.push({ name, avatar: name[0], color: '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'), location: '未知', worldbookUid: uid, messages: [] });
+    saveCt();
+    closeM('m-add-ct');
+    render();
+};
+
+// ================== 陌路人生成NPC ==================
+const genAddCt = (name, info, btn) => {
+    BtnState.load(btn, '检查中');
+    const id = Req.create('stgwb');
+    Req.set('stgwb', { name, info, btn });
+    post('CHECK_STRANGER_WORLDBOOK', { requestId: id, strangerName: name });
+};
+$('btn-refresh-strangers').onclick = () => {
+    const btn = $('btn-refresh-strangers');
+    BtnState.load(btn, '');
+    const id = Req.create('extract');
+    Req.set('extract', { btn });
+    post('EXTRACT_STRANGERS', { requestId: id, existingContacts: D.contacts.contacts, existingStrangers: D.contacts.strangers });
+};
+
+// ================== 世界生成与推演 ==================
+$('world-gen-ok').onclick = () => {
+    const btn = $('world-gen-ok'), st = $('world-gen-status');
+    BtnState.load(btn, '生成中');
+    st.style.display = 'block';
+    st.textContent = '正在生成世界数据，请稍候...';
+    post('GENERATE_WORLD', { requestId: Req.create('wgen'), playerRequests: $('world-gen-req').value.trim() });
+};
+$('world-sim-ok').onclick = () => {
+    if (!D.meta && !D.timeline && !D.maps?.outdoor) { alert('请先生成世界数据，再进行推演'); return; }
+    const btn = $('world-sim-ok'), st = $('world-sim-status');
+    BtnState.load(btn, '推演中');
+    st.style.display = 'block';
+    st.style.color = '#4a9';
+    st.textContent = '正在分析玩家行为并推演世界变化...';
+    post('SIMULATE_WORLD', { requestId: Req.create('wsim'), currentData: JSON.stringify({ meta: D.meta, timeline: D.timeline, world: D.world, maps: D.maps }, null, 2) });
+};
+$('btn-deduce').onclick = () => openM('m-world-gen');
+$('btn-simulate').onclick = () => openM('m-world-sim');
+
+// ================== 侧边菜单 ==================
+$('btn-side-menu-toggle').onclick = () => {
+    const p = $('side-menu-panel'), btn = $('btn-side-menu-toggle');
+    p.classList.toggle('show');
+    btn.classList.toggle('act', p.classList.contains('show'));
+};
+document.addEventListener('click', e => {
+    if (e.target.closest('.side-menu')) return;
+    $('side-menu-panel')?.classList.remove('show');
+    $('btn-side-menu-toggle')?.classList.remove('act');
+});
+
+// ================== 场景切换 ==================
+function canonicalLoc(s) { return String(s || '').trim().replace(/^\u90ae\u8f6e/, ''); }
+const getWaitingContacts = loc => {
+    const target = canonicalLoc(loc);
+    if (!target) return [];
+    return (D.contacts.contacts || []).filter(c => c?.waitingAt && canonicalLoc(c.waitingAt) === target);
+};
+const finishTravel = (targetName, prevName) => {
+    playerLocation = targetName;
+    selectedMapValue = 'current';
+    const wc = getWaitingContacts(targetName);
+    wc.forEach(c => delete c.waitingAt);
+    saveAll();
+    render();
+    hideInfo();
+    const action = $('goto-task')?.value;
+    let sm = `{{user}}离开了${prevName || '上一地点'}，来到${targetName}。${action ? '意图：' + action : ''}`;
+    if (wc.length) sm += ` ${wc.map(c => c.name).join('、')}已经在这里等你了。`;
+    post('EXECUTE_SLASH_COMMAND', { command: `/sendas name="剧情任务" ${sm}` });
+};
+
+$('goto-ok').onclick = () => {
+    if (!curNode) return;
+    const btn = $('goto-ok');
+    const prevNode = D.maps?.outdoor?.nodes?.find(n => n.name === playerLocation);
+    const prev = { name: playerLocation, info: prevNode?.info || '' };
+    const targetName = curNode.name;
+    const indoorTarget = D.maps?.indoor?.[targetName];
+    const hasExistingLocal = !!(indoorTarget?.description);
+
+    if (hasExistingLocal) {
+        BtnState.reset(btn, '确认前往');
+        closeM('m-goto');
+        finishTravel(targetName, prev.name);
+        switchMapView('current');
+        return;
+    }
+
+    let tt = curNode.type === 'main' ? 'main' : curNode.type === 'home' ? 'home' : 'sub';
+    const id = Req.create('scene');
+    Req.set('scene', { node: curNode, prev: prev.name });
+    BtnState.load(btn, '生成中');
+    post('SCENE_SWITCH', { requestId: id, prevLocationName: prev.name, prevLocationInfo: prev.info, targetLocationName: curNode.name, targetLocationType: tt, targetLocationInfo: curNode.data?.info || '', playerAction: $('goto-task').value || '' });
+};
+
+// ================== 局部地图生成/刷新 ==================
+$('btn-gen-local-map').onclick = () => {
+    const btn = $('btn-gen-local-map');
+    BtnState.load(btn, '生成中');
+    const id = Req.create('localmap');
+    Req.set('localmap', { btn });
+    post('GENERATE_LOCAL_MAP', { requestId: id, outdoorDescription: D.maps?.outdoor?.description || '' });
+};
+
+$('btn-refresh-local-map').onclick = () => {
+    if (!playerLocation) { showResultModal('提示', '请先生成世界数据', true); return; }
+    const btn = $('btn-refresh-local-map');
+    const indoor = D.maps?.indoor?.[playerLocation];
+    const current = indoor;
+    if (!current) { showResultModal('提示', '当前区域没有局部地图，请先生成', true); return; }
+    BtnState.load(btn, '刷新中');
+    const id = Req.create('localmaprf');
+    Req.set('localmaprf', { btn, loc: playerLocation });
+    post('REFRESH_LOCAL_MAP', { requestId: id, locationName: playerLocation, currentLocalMap: current, outdoorDescription: D.maps?.outdoor?.description || '' });
+};
+
+$('btn-gen-local-scene').onclick = () => {
+    if (!playerLocation || playerLocation === '未知') { showResultModal('提示', '请先生成世界数据', true); return; }
+    const btn = $('btn-gen-local-scene');
+    BtnState.load(btn, '生成中');
+    const outdoorNode = D.maps?.outdoor?.nodes?.find(n => n.name === playerLocation);
+    const indoorNode = D.maps?.indoor?.[playerLocation];
+    const locationInfo = indoorNode?.description || outdoorNode?.info || outdoorNode?.data?.info || '';
+    const id = Req.create('localscene');
+    Req.set('localscene', { btn, loc: playerLocation });
+    post('GENERATE_LOCAL_SCENE', { requestId: id, locationName: playerLocation, locationInfo });
+};
+
+// ================== 保存数据 ==================
+const saveAll = () => post('SAVE_ALL_DATA', { allData: { meta: D.meta, world: D.world, outdoor: D.maps.outdoor, indoor: D.maps.indoor, sceneSetup: D.sceneSetup, strangers: D.contacts.strangers, contacts: contactsForSave() }, playerLocation });
+
+// ================== 设置相关 ==================
+const dataKeys = [['meta', '大纲', '核心真相、洋葱结构、时间线、用户指南', () => D.meta, v => D.meta = v], ['world', '世界资讯', '世界新闻等信息', () => D.world, v => D.world = v], ['outdoor', '大地图', '室外区域的地点和路线', () => D.maps.outdoor, v => D.maps.outdoor = v], ['indoor', '局部地图', '隐藏的室内/局部场景地图', () => D.maps.indoor, v => D.maps.indoor = v], ['sceneSetup', '区域剧情', '当前区域的 Side Story', () => D.sceneSetup, v => D.sceneSetup = v], ['characterContactSms', '角色卡短信', '角色卡联络人的短信记录', () => ({ messages: charSmsHistory?.messages || [], summarizedCount: charSmsHistory?.summarizedCount || 0, summaries: charSmsHistory?.summaries || {} }), v => { if (v && typeof v === 'object') charSmsHistory = { messages: charSmsHistory?.messages || [], summarizedCount: charSmsHistory?.summarizedCount || 0, ...(v || {}) }; }], ['strangers', '陌路人', '已遇见但未建立联系的角色', () => D.contacts.strangers, v => D.contacts.strangers = v], ['contacts', '联络人', '已添加的联系人', () => contactsForSave(), v => { const keep = (D.contacts.contacts || []).find(isCharCardContact); D.contacts.contacts = (keep ? [keep] : []).concat(Array.isArray(v) ? v : []); }]];
+const promptKeys = [['jsonTemplates', 'JSON 模板', 'JSON 输出模板合集', 'templates'], ['sms', '短信回复', 'UAUA 短信模拟', 'prompt'], ['summary', '总结压缩', '新增剧情要素提取', 'prompt'], ['invite', '邀请回复', '短信邀请场景', 'prompt'], ['npc', 'NPC 生成', '陌路人扩写为 NPC', 'prompt'], ['stranger', '提取陌路人', '从剧情中提取 NPC', 'prompt'], ['worldGen', '世界生成（故事模式）', '初始世界构建', 'prompt'], ['worldSim', '世界推演（故事模式）', '根据历史演化世界', 'prompt'], ['sceneSwitch', '场景切换（故事模式）', '结算上一地点 + 新场景', 'prompt'], ['worldGenAssist', '世界生成（辅助模式）', '仅生成地图/新闻', 'prompt'], ['worldSimAssist', '世界推演（辅助模式）', '仅更新地图/新闻', 'prompt'], ['sceneSwitchAssist', '场景切换（辅助模式）', '生成轻松小剧情', 'prompt'], ['localMapGen', '局部地图生成', '生成室内/局部场景', 'prompt']];
+let gSet = { apiUrl: '', apiKey: '', model: '', mode: 'assist' }, dataCk = {}, editCtx = null, commSet = { historyCount: 50, npcPosition: 0, npcOrder: 100 }, promptSources = {}, promptTemplates = {}, promptDefaults = { jsonTemplates: {}, promptSources: {} };
+
+const reqSet = () => post('GET_SETTINGS');
+
+const renderDataList = () => {
+    $('data-list').innerHTML = dataKeys.map(([k, t, d]) => `<div class="data-item ${dataCk[k] ? 'sel' : ''}" data-k="${k}"><div class="data-ck"><i class="fa-solid fa-check"></i></div><div class="data-info"><div class="data-nm">${t}</div><div class="data-desc">${d}</div></div><button class="data-edit" data-k="${k}" title="编辑"><i class="fa-solid fa-pen"></i></button></div>`).join('');
+    $$('#data-list .data-item').forEach(i => i.onclick = e => { if (e.target.closest('.data-edit')) return; const k = i.dataset.k; dataCk[k] = !dataCk[k]; i.classList.toggle('sel', dataCk[k]); });
+    $$('#data-list .data-edit').forEach(b => b.onclick = e => { e.stopPropagation(); openDataEdit(b.dataset.k); });
+};
+
+const renderPromptList = () => {
+    $('prompt-list').innerHTML = promptKeys.map(([k, t, d, tp]) => `<div class="data-item" data-k="${k}" data-t="${tp}"><div class="data-ck"><i class="fa-solid fa-pen"></i></div><div class="data-info"><div class="data-nm">${t}</div><div class="data-desc">${d}</div></div><button class="data-edit" data-k="${k}" data-t="${tp}" title="编辑"><i class="fa-solid fa-pen"></i></button></div>`).join('');
+    $$('#prompt-list .data-item').forEach(i => i.onclick = e => { const k = i.dataset.k, tp = i.dataset.t; if (e.target.closest('.data-edit')) { e.stopPropagation(); openPromptEdit(k, tp); return; } openPromptEdit(k, tp); });
+    $$('#prompt-list .data-edit').forEach(b => b.onclick = e => { e.stopPropagation(); openPromptEdit(b.dataset.k, b.dataset.t); });
+};
+
+const unescapePromptStr = s => String(s || '').replace(/\\\\/g, '\\').replace(/\\t/g, '    ').replace(/\\n/g, '\n');
+const parseJsonLoose = (input) => {
+    const str = String(input ?? '').trim();
+    if (!str) throw new Error('空内容');
+    try { return JSON.parse(str); } catch { }
+
+    const fenced = str.match(/```[^\n]*\n([\s\S]*?)\n```/);
+    if (fenced?.[1]) {
+        const inner = fenced[1].trim();
+        try { return JSON.parse(inner); } catch { }
+    }
+
+    const sliceBetween = (open, close) => {
+        const s = str.indexOf(open);
+        const e = str.lastIndexOf(close);
+        if (s === -1 || e === -1 || e <= s) return null;
+        return str.slice(s, e + 1);
+    };
+
+    const objStr = sliceBetween('{', '}') ?? sliceBetween('[', ']');
+    if (objStr) return JSON.parse(objStr);
+
+    return JSON.parse(str);
+};
+const updateEditPreview = () => {
+    const p = $('data-edit-preview');
+    if (!p || editCtx?.type !== 'prompt') { p.style.display = 'none'; p.textContent = ''; return; }
+    p.style.display = 'block';
+    const raw = $('data-edit-ta').value || '';
+    let txt = raw;
+    try {
+        const obj = parseJsonLoose(raw);
+        if (obj && typeof obj === 'object') txt = Object.entries(obj).map(([k, v]) => `${k}: ${typeof v === 'string' ? unescapePromptStr(v) : typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)}`).join('\n\n');
+    } catch { txt = unescapePromptStr(raw); }
+    p.textContent = txt;
+};
+
+const setEditContent = (title, val) => { $('data-edit-title').textContent = title; $('data-edit-ta').value = val; $('data-edit-err').classList.remove('vis'); updateEditPreview(); openM('m-data-edit'); };
+const openDataEdit = k => { const i = dataKeys.find(([x]) => x === k); if (!i) return; editCtx = { type: k === 'characterContactSms' ? 'charSms' : 'data', key: k }; setEditContent(`编辑 - ${i[1]}`, JSON.stringify(i[3](), null, 2)); };
+const openPromptEdit = (k, tp) => { const i = promptKeys.find(([x]) => x === k); editCtx = { type: 'prompt', key: k }; const val = tp === 'templates' ? (promptTemplates || promptDefaults.jsonTemplates || {}) : (promptSources[k] || promptDefaults.promptSources[k] || { u1: '', a1: '', u2: '', a2: '' }); setEditContent(`编辑 - ${i?.[1] || k}`, JSON.stringify(val, null, 2)); };
+
+$('data-edit-save').onclick = () => {
+    if (!editCtx) return;
+    try {
+        const parsed = parseJsonLoose($('data-edit-ta').value);
+        if (editCtx.type === 'data') {
+            const i = dataKeys.find(([k]) => k === editCtx.key);
+            if (!i) return;
+            i[4](parsed);
+            render();
+            saveAll();
+        } else if (editCtx.type === 'charSms') {
+            const sums = parsed?.summaries ?? parsed;
+            if (!sums || typeof sums !== 'object' || Array.isArray(sums)) throw new Error('需要 summaries 对象');
+            charSmsHistory.summaries = sums;
+            post('SAVE_CHAR_SMS_HISTORY', { summaries: sums });
+        } else if (editCtx.type === 'prompt') {
+            if (editCtx.key === 'jsonTemplates') {
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('JSON 模板需要是对象');
+                promptTemplates = parsed;
+            } else {
+                if (!parsed || typeof parsed !== 'object') throw new Error('需要包含 u1/a1/u2/a2 字符串');
+                const miss = ['u1', 'a1', 'u2', 'a2'].some(k => typeof parsed?.[k] !== 'string');
+                if (miss) throw new Error('需要包含 u1/a1/u2/a2 字符串');
+                promptSources[editCtx.key] = parsed;
+            }
+            renderPromptList();
+            post('SAVE_PROMPTS', { promptConfig: { jsonTemplates: promptTemplates, promptSources } });
+        }
+        closeM('m-data-edit');
+        editCtx = null;
+    } catch (e) { $('data-edit-err').textContent = `JSON错误: ${e.message}`; $('data-edit-err').classList.add('vis'); }
+};
+$('data-edit-ta').addEventListener('input', updateEditPreview);
+
+const showTestRes = (ok, m) => { const r = $('test-res'); r.textContent = m; r.className = 'set-test-res ' + (ok ? 'ok' : 'err'); };
+const showResultModal = (title, msg, isError = false, record = null) => {
+    $('res-title').textContent = title;
+    $('res-title').style.color = isError ? '#ff6b6b' : '';
+    $('res-msg').textContent = msg;
+    const box = $('res-record-box'), pre = $('res-record');
+    if (record) { box.style.display = 'block'; pre.textContent = typeof record === 'object' ? JSON.stringify(record, null, 2) : String(record); }
+    else { box.style.display = 'none'; pre.textContent = ''; }
+    const actBtn = $('res-action');
+    actBtn.style.display = 'none';
+    actBtn.textContent = '';
+    actBtn.onclick = null;
+    openM('m-result');
+};
+
+$('btn-settings').onclick = () => {
+    reqSet();
+    $('set-api-url').value = gSet.apiUrl || '';
+    $('set-api-key').value = gSet.apiKey || '';
+    $('set-model').value = gSet.model || '';
+    $('set-model-list').style.display = 'none';
+    $('test-res').className = 'set-test-res';
+    $('set-stage').value = D.stage || 0;
+    $('set-deviation').value = D.deviationScore || 0;
+    $('set-sim-progress').value = D.simulationProgress || 0;
+    $('set-sim-target').value = D.simulationTarget || 5;
+    $('set-mode').value = gSet.mode || 'story';
+    $('set-history-count').value = commSet.historyCount || 50;
+    $('set-npc-position').value = commSet.npcPosition || 0;
+    $('set-npc-order').value = commSet.npcOrder || 100;
+    renderDataList();
+    renderPromptList();
+    openM('m-settings');
+};
+
+$('btn-fetch-models').onclick = () => { BtnState.load($('btn-fetch-models'), '加载'); post('FETCH_MODELS', { apiUrl: $('set-api-url').value.trim(), apiKey: $('set-api-key').value.trim() }); };
+$('btn-test-conn').onclick = () => { $('test-res').className = 'set-test-res'; BtnState.load($('btn-test-conn'), '测试'); post('TEST_CONNECTION', { apiUrl: $('set-api-url').value.trim(), apiKey: $('set-api-key').value.trim(), model: $('set-model').value.trim() }); };
+
+$('set-save').onclick = () => {
+    gSet = { apiUrl: $('set-api-url').value.trim(), apiKey: $('set-api-key').value.trim(), model: $('set-model').value.trim(), mode: $('set-mode').value || 'assist' };
+    D.stage = Math.max(0, Math.min(10, parseInt($('set-stage').value, 10) || 0));
+    D.deviationScore = Math.max(0, Math.min(100, parseInt($('set-deviation').value, 10) || 0));
+    D.simulationProgress = Math.max(0, parseInt($('set-sim-progress').value, 10) || 0);
+    D.simulationTarget = Math.max(1, parseInt($('set-sim-target').value, 10) || 5);
+    commSet = { historyCount: Math.max(0, Math.min(200, parseInt($('set-history-count').value, 10) || 50)), npcPosition: parseInt($('set-npc-position').value, 10) || 0, npcOrder: Math.max(0, Math.min(1000, parseInt($('set-npc-order').value, 10) || 100)) };
+    const od = {};
+    dataKeys.forEach(([k, , , get]) => { if (dataCk[k]) od[k] = get(); });
+    post('SAVE_SETTINGS', { globalSettings: gSet, commSettings: commSet, stage: D.stage, deviationScore: D.deviationScore, simulationProgress: D.simulationProgress, simulationTarget: D.simulationTarget, playerLocation, dataChecked: dataCk, outlineData: od, allData: { meta: D.meta, timeline: D.timeline, world: D.world, outdoor: D.maps.outdoor, indoor: D.maps.indoor, strangers: D.contacts.strangers, contacts: contactsForSave() } });
+    closeM('m-settings');
+};
+$('btn-close').onclick = () => post('CLOSE_PANEL');
+
+// ================== 消息处理 ==================
+window.addEventListener('message', e => {
+    if (e.data?.source !== 'LittleWhiteBox') return;
+    const d = e.data, t = d.type;
+
+    if (t === 'LOAD_SETTINGS') {
+        if (d.globalSettings) gSet = d.globalSettings;
+        if (d.stage !== undefined) D.stage = d.stage;
+        if (d.deviationScore !== undefined) D.deviationScore = d.deviationScore;
+        if (d.simulationProgress !== undefined) D.simulationProgress = d.simulationProgress;
+        if (d.simulationTarget !== undefined) D.simulationTarget = d.simulationTarget;
+        if (d.playerLocation) playerLocation = d.playerLocation;
+        if (d.commSettings) commSet = { historyCount: d.commSettings.historyCount ?? 50, npcPosition: d.commSettings.npcPosition ?? 0, npcOrder: d.commSettings.npcOrder ?? 100 };
+        if (d.dataChecked) dataCk = d.dataChecked;
+        if (d.promptConfig) { promptTemplates = d.promptConfig.current?.jsonTemplates || {}; promptSources = d.promptConfig.current?.promptSources || {}; promptDefaults = d.promptConfig.defaults || promptDefaults; }
+        if (d.outlineData) {
+            const o = d.outlineData;
+            if (o.meta) D.meta = o.meta;
+            if (o.world) D.world = o.world;
+            if (o.outdoor) D.maps.outdoor = o.outdoor;
+            if (o.indoor) D.maps.indoor = o.indoor;
+            if (o.sceneSetup) D.sceneSetup = o.sceneSetup;
+            if (o.strangers) D.contacts.strangers = o.strangers;
+            if (o.contacts) D.contacts.contacts = o.contacts;
+        }
+
+        {
+            const h = d.characterContactSmsHistory || {};
+            charSmsHistory = { messages: Array.isArray(h.messages) ? h.messages : [], summarizedCount: h.summarizedCount || 0, summaries: h.summaries || {} };
+        }
+
+        let charContact = D.contacts.contacts.find(c => c.worldbookUid === '__CHARACTER_CARD__');
+        if (!charContact) {
+            charContact = D.contacts.contacts.find(c => !c.worldbookUid && c.name === '炒饭智能');
+            if (charContact) {
+                charContact.worldbookUid = '__CHARACTER_CARD__';
+                charContact.info = '角色卡联络人';
+                charContact.location = '在线';
+                charContact.online = true;
+            } else {
+                D.contacts.contacts.unshift({ name: d.characterCardName || '{{characterName}}', avatar: '', color: '#555', location: '在线', info: '角色卡联络人', online: true, worldbookUid: '__CHARACTER_CARD__', messages: [], summarizedCount: 0 });
+                charContact = D.contacts.contacts[0];
+            }
+        }
+        if (charContact && d.characterCardName) {
+            charContact.name = d.characterCardName;
+            charContact.avatar = (d.characterCardName || '')[0] || charContact.avatar || '';
+        }
+        render();
+        if ($('m-settings').classList.contains('act')) {
+            $('set-api-url').value = gSet.apiUrl || '';
+            $('set-api-key').value = gSet.apiKey || '';
+            $('set-model').value = gSet.model || '';
+            $('set-stage').value = D.stage;
+            $('set-deviation').value = D.deviationScore;
+            $('set-sim-progress').value = D.simulationProgress || 0;
+            $('set-sim-target').value = D.simulationTarget || 5;
+            $('set-mode').value = gSet.mode || 'story';
+            $('set-history-count').value = commSet.historyCount;
+            $('set-npc-position').value = commSet.npcPosition;
+            $('set-npc-order').value = commSet.npcOrder;
+            renderDataList();
+            renderPromptList();
+        }
+    } else if (t === 'PROMPT_CONFIG_UPDATED') {
+        if (d.promptConfig) { promptTemplates = d.promptConfig.current?.jsonTemplates || {}; promptSources = d.promptConfig.current?.promptSources || {}; promptDefaults = d.promptConfig.defaults || promptDefaults; if ($('m-settings').classList.contains('act')) renderPromptList(); }
+    } else if (t === 'FETCH_MODELS_RESULT') {
+        BtnState.reset($('btn-fetch-models'), '获取');
+        const s = $('set-model-list');
+        if (d.error) { s.style.display = 'none'; showTestRes(false, '获取模型失败: ' + d.error); return; }
+        if (!d.models?.length) { s.style.display = 'none'; showTestRes(false, '未找到可用模型'); return; }
+        s.innerHTML = '<option value="">-- 选择模型 --</option>' + d.models.map(m => `<option value="${m}">${m}</option>`).join('');
+        s.style.display = 'block';
+        s.onchange = () => { if (s.value) $('set-model').value = s.value; };
+        showTestRes(true, `找到 ${d.models.length} 个模型`);
+    } else if (t === 'TEST_CONN_RESULT') {
+        BtnState.reset($('btn-test-conn'), '测试连接');
+        showTestRes(d.success, d.message);
+    } else if (t === 'CHECK_WORLDBOOK_UID_RESULT') {
+        BtnState.reset($('btn-check-uid'), '<i class="fa-solid fa-search"></i> 检查');
+        if (!Req.match(d.requestId)) return;
+        if (d.error) { showUidErr(d.error); return; }
+        if (!d.primaryKeys?.length) { showUidErr('该条目没有主要关键字'); return; }
+        addCtState.keys = d.primaryKeys;
+        const sel = $('add-name');
+        sel.innerHTML = '<option value="">-- 请选择 --</option>' + d.primaryKeys.map(k => `<option value="${k}">${k}</option>`).join('');
+        sel.onchange = () => { addCtState.name = sel.value; $('add-ct-ok').disabled = !sel.value; };
+        $('name-select-group').style.display = 'block';
+        if (d.primaryKeys.length === 1) { addCtState.name = d.primaryKeys[0]; sel.value = addCtState.name; $('add-ct-ok').disabled = false; }
+    } else if (t === 'SMS_RESULT') {
+        const r = Req.get('sms');
+        if (!r || r.id !== d.requestId) return;
+        Req.clear('sms');
+        smsGen = false;
+        $('chat-in').disabled = $('chat-send').disabled = $('chat-back').disabled = false;
+        if (!chatTgt) return;
+        chatTgt.messages = chatTgt.messages.filter(m => !m.typing);
+        if (d.error) chatTgt.messages.push({ type: 'received', text: `[错误] ${d.error}` });
+        else if (d.reply) chatTgt.messages.push({ type: 'received', text: stripXml(d.reply) });
+        renderMsgs();
+        saveCt();
+        if (chatTgt.worldbookUid) saveChat(chatTgt);
+    } else if (t === 'SMS_STREAM') {
+        const r = Req.get('sms');
+        if (!r || r.id !== d.requestId || !chatTgt) return;
+        const tm = chatTgt.messages.find(m => m.typing);
+        if (tm && d.text) { tm.text = d.text; renderMsgs(); }
+    } else if (t === 'LOAD_SMS_HISTORY_RESULT') {
+        if (!chatTgt || chatTgt.worldbookUid !== d.worldbookUid) return;
+        if (d.messages?.length) { chatTgt.messages = d.messages; chatTgt.summarizedCount = d.summarizedCount || 0; saveCt(); }
+        renderMsgs();
+    } else if (t === 'COMPRESS_SMS_RESULT') {
+        const r = Req.get('compress');
+        if (!r || r.id !== d.requestId) return;
+        Req.clear('compress');
+        smsGen = false;
+        $('chat-compress').disabled = $('chat-in').disabled = $('chat-send').disabled = $('chat-back').disabled = false;
+        if (!chatTgt) return;
+        if (d.error) { alert(`压缩失败: ${d.error}`); return; }
+        if (d.newSummarizedCount !== undefined) { chatTgt.summarizedCount = d.newSummarizedCount; renderMsgs(); saveCt(); }
+    } else if (t === 'CHECK_STRANGER_WORLDBOOK_RESULT') {
+        const r = Req.get('stgwb');
+        if (!r || r.id !== d.requestId) return;
+        const { name, info, btn } = r;
+        Req.clear('stgwb');
+        if (d.found && d.worldbookUid) {
+            BtnState.reset(btn, '<i class="fa-solid fa-user-plus"></i> 添加');
+            const i = D.contacts.strangers.findIndex(s => s.name === name);
+            if (i > -1) {
+                const st = D.contacts.strangers.splice(i, 1)[0];
+                D.contacts.contacts.push({ name: st.name, avatar: st.avatar || st.name[0], color: st.color || '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'), location: st.location || '未知', info: st.info || '', worldbookUid: d.worldbookUid, messages: [] });
+                saveCt();
+                render();
+            }
+        } else {
+            BtnState.load(btn, '生成中');
+            const id = Req.create('npcgen');
+            Req.set('npcgen', { name, info, btn });
+            post('GENERATE_NPC', { requestId: id, strangerName: name, strangerInfo: info });
+        }
+    } else if (t === 'GENERATE_NPC_RESULT') {
+        const r = Req.get('npcgen');
+        if (!r || r.id !== d.requestId) return;
+        const { name, btn } = r;
+        Req.clear('npcgen');
+        BtnState.reset(btn, '<i class="fa-solid fa-user-plus"></i> 添加');
+        if (d.error) { showResultModal('生成角色失败', '生成 NPC 失败', true, d.error); return; }
+        if (d.success && d.worldbookUid) {
+            const i = D.contacts.strangers.findIndex(s => s.name === name);
+            if (i > -1) {
+                const st = D.contacts.strangers.splice(i, 1)[0], np = d.npcData || {};
+                D.contacts.contacts.push({ name: np.name || st.name, avatar: (np.name || st.name)[0], color: st.color || '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'), location: st.location || '未知', info: np.intro || st.info || '', worldbookUid: d.worldbookUid, messages: [] });
+                saveCt();
+                render();
+                showResultModal('生成成功', `NPC ${name} 已生成并添加到联络人`, false, d.npcData);
+            }
+        }
+    } else if (t === 'EXTRACT_STRANGERS_RESULT') {
+        const r = Req.get('extract');
+        if (!r || r.id !== d.requestId) return;
+        const { btn } = r;
+        Req.clear('extract');
+        BtnState.reset(btn, '<i class="fa-solid fa-rotate"></i>');
+        if (d.error) { showResultModal('提取失败', '提取陌路人失败', true, d.error); return; }
+        if (d.success && Array.isArray(d.strangers)) {
+            if (!d.strangers.length) { showResultModal('提取结果', '没有发现新的陌路人'); return; }
+            const ex = [...D.contacts.contacts.map(c => c.name), ...D.contacts.strangers.map(s => s.name)];
+            const nw = d.strangers.filter(s => !ex.includes(s.name));
+            if (!nw.length) { showResultModal('提取结果', '提取到的角色都已存在'); return; }
+            D.contacts.strangers = D.contacts.strangers.concat(nw);
+            saveCt();
+            render();
+            showResultModal('提取成功', `成功提取 ${nw.length} 个新陌路人`, false, nw);
+        }
+    } else if (t === 'GENERATE_WORLD_STATUS') {
+        if (!Req.match(d.requestId)) return;
+        const st = $('world-gen-status');
+        st.style.display = 'block';
+        st.style.color = '#4a9';
+        st.textContent = d.message;
+    } else if (t === 'GENERATE_WORLD_RESULT') {
+        if (!Req.match(d.requestId)) return;
+        Req.clear('wgen');
+        const btn = $('world-gen-ok'), st = $('world-gen-status');
+        BtnState.reset(btn, '<i class="fa-solid fa-wand-magic-sparkles"></i> 开始生成');
+        if (d.error) {
+            st.style.display = 'none';
+            showResultModal('生成失败', '世界生成失败', true, d.error);
+            if (String(d.error || '').includes('Step 2')) {
+                const actBtn = $('res-action');
+                actBtn.style.display = 'inline-block';
+                actBtn.textContent = '重试 Step2';
+                actBtn.onclick = () => {
+                    closeM('m-result');
+                    const rid = Req.create('wgen');
+                    BtnState.load(btn, '重试中');
+                    st.style.display = 'block';
+                    st.style.color = '#4a9';
+                    st.textContent = '准备重试 Step 2/2...';
+                    post('RETRY_WORLD_GEN_STEP2', { requestId: rid });
+                };
+            }
+            return;
+        }
+        if (d.success && d.worldData) {
+            st.style.color = '#4a9';
+            st.textContent = '生成成功！正在应用数据...';
+            const wd = d.worldData;
+            if (wd.meta) D.meta = wd.meta;
+            if (wd.world) D.world = wd.world;
+            if (wd.maps?.outdoor) D.maps.outdoor = wd.maps.outdoor;
+            D.stage = 0;
+            D.deviationScore = 0;
+            if (wd.playerLocation) playerLocation = wd.playerLocation;
+            else {
+                const homeNode = D.maps?.outdoor?.nodes?.find(n => n.type === 'home');
+                playerLocation = homeNode?.name || D.maps?.outdoor?.nodes?.[0]?.name || '未知';
+            }
+            if (wd.maps?.inside && playerLocation) { D.maps.indoor = D.maps.indoor || {}; D.maps.indoor[playerLocation] = wd.maps.inside; }
+            selectedMapValue = 'current';
+            saveAll();
+            render();
+            setTimeout(() => { closeM('m-world-gen'); st.style.display = 'none'; $('world-gen-req').value = ''; showResultModal('生成成功', '世界数据生成完成！Stage 和 Deviation 已重置为 0', false, d.worldData); }, 500);
+        }
+    } else if (t === 'SIMULATE_WORLD_RESULT') {
+        if (!d.isAuto && !Req.match(d.requestId)) return;
+        if (!d.isAuto) {
+            Req.clear('wsim');
+            const btn = $('world-sim-ok'), st = $('world-sim-status');
+            BtnState.reset(btn, '<i class="fa-solid fa-rotate"></i> 开始推演');
+            if (d.error) { st.style.display = 'none'; showResultModal('推演失败', '世界推演失败', true, d.error); return; }
+        }
+        if (d.success && d.simData) {
+            if (!d.isAuto) { const st = $('world-sim-status'); st.style.color = '#4a9'; st.textContent = '推演成功！正在应用数据...'; }
+            const sd = d.simData;
+            if (sd.meta) D.meta = sd.meta;
+            if (sd.world) D.world = sd.world;
+            if (sd.maps?.outdoor) D.maps.outdoor = sd.maps.outdoor;
+            D.stage = (D.stage || 0) + 1;
+            saveAll();
+            render();
+            if (!d.isAuto) setTimeout(() => { closeM('m-world-sim'); $('world-sim-status').style.display = 'none'; showResultModal('推演成功', `世界推演完成！Stage 已推进到 ${D.stage}`, false, d.simData); }, 500);
+        }
+    } else if (t === 'SCENE_SWITCH_RESULT') {
+        const r = Req.get('scene');
+        if (!r || r.id !== d.requestId) return;
+        const { node, prev } = r;
+        Req.clear('scene');
+        BtnState.reset($('goto-ok'), '确认前往');
+        closeM('m-goto');
+        if (d.error) { showResultModal('切换失败', '场景切换失败', true, d.error); return; }
+        if (d.success && d.sceneData) {
+            const sc = d.sceneData;
+            if (typeof sc.newScore === 'number') D.deviationScore = sc.newScore;
+            if (sc.localMap) {
+                D.maps.indoor = D.maps.indoor || {};
+                D.maps.indoor[node.name] = sc.localMap;
+            }
+            if (sc.strangers?.length) {
+                const ex = new Set((D.contacts.strangers || []).map(s => s.name));
+                const nw = sc.strangers.filter(s => !ex.has(s.name));
+                D.contacts.strangers = [...(D.contacts.strangers || []), ...nw];
+            }
+            finishTravel(node.name, prev);
+            if (sc.scoreDelta !== 0) showResultModal('切换成功', `场景切换完成！\n偏差值变化: ${sc.scoreDelta > 0 ? '+' : ''}${sc.scoreDelta} (当前: ${sc.newScore})`, false, d.sceneData);
+        }
+    } else if (t === 'REFRESH_LOCAL_MAP_RESULT') {
+        const r = Req.get('localmaprf');
+        if (!r || r.id !== d.requestId) return;
+        const { btn, loc } = r;
+        Req.clear('localmaprf');
+        BtnState.reset(btn, '<i class="fa-solid fa-rotate-right"></i>刷新');
+        if (d.error) { showResultModal('刷新失败', '刷新局部地图失败', true, d.error); return; }
+        if (d.success && d.localMapData) {
+            const lm = d.localMapData;
+            const locName = lm.name || loc || playerLocation || '当前位置';
+            D.maps.indoor = D.maps.indoor || {};
+            D.maps.indoor[locName] = lm;
+            playerLocation = locName;
+            selectedMapValue = 'current';
+            saveAll();
+            render();
+            if (lm.description) { $('side-desc').innerHTML = `<div class="local-map-title">📍 ${locName}</div>` + parseLinks(lm.description); bindLinks($('side-desc')); }
+            showResultModal('刷新成功', `局部地图已刷新！当前位置: ${locName}`, false, d.localMapData);
+        }
+    } else if (t === 'GENERATE_LOCAL_SCENE_RESULT') {
+        const r = Req.get('localscene');
+        if (!r || r.id !== d.requestId) return;
+        const { btn, loc } = r;
+        Req.clear('localscene');
+        BtnState.reset(btn, '<i class="fa-solid fa-feather-pointed"></i>局部剧情');
+        if (d.error) { showResultModal('生成失败', '局部剧情生成失败', true, d.error); return; }
+        if (d.success && d.sceneSetup) {
+            D.sceneSetup = { ...(D.sceneSetup || {}), ...(d.sceneSetup || {}) };
+            saveAll();
+            render();
+            const intro = String(d.introduce || '').replace(/^\s*(?:\/?\s*(?:sendas|as)\s+name\s*=\s*(?:"[^"]*"|'[^']*'|\S+)\s+)/i, '').replace(/\s+/g, ' ').trim();
+            if (intro) post('EXECUTE_SLASH_COMMAND', { command: `/sendas name="剧情任务" ${intro}` });
+            showResultModal('生成成功', `局部剧情已生成：${loc || playerLocation}`, false, d.sceneSetup);
+        }
+    } else if (t === 'SEND_INVITE_RESULT') {
+        const r = Req.get('invite');
+        if (!r || r.id !== d.requestId) return;
+        const { contact, loc, btn } = r;
+        Req.clear('invite');
+        BtnState.reset(btn, '发送邀请');
+        if (d.error) { showResultModal('邀请失败', '邀请发送失败', true, d.error); return; }
+        if (d.success && d.inviteData) {
+            const inv = d.inviteData;
+            const targetLoc = canonicalLoc(inv.targetLocation || loc || '');
+            const live = D.contacts.contacts.find(c => c && contact && c.worldbookUid && contact.worldbookUid && c.worldbookUid === contact.worldbookUid) || D.contacts.contacts.find(c => c && contact && c.name === contact.name) || contact;
+            live.messages = live.messages || [];
+            live.messages.push({ type: 'sent', text: `我邀请你前往「${targetLoc}」` });
+            live.messages.push({ type: 'received', text: inv.reply });
+            if (inv.accepted) {
+                const here = canonicalLoc(playerLocation);
+                live.location = targetLoc;
+                if (here && targetLoc && here === targetLoc) {
+                    delete live.waitingAt;
+                    post('EXECUTE_SLASH_COMMAND', { command: `/sendas name="剧情任务" ${live.name}过来了。` });
+                } else {
+                    live.waitingAt = targetLoc;
+                }
+                showResultModal('邀请成功', `${live.name} 接受了邀请！\n回复: ${inv.reply}`, false, inv);
+            }
+            else showResultModal('邀请被拒', `${live.name} 拒绝了邀请。\n回复: ${inv.reply}`, false, inv);
+            saveAll();
+            if (live.worldbookUid) saveChat(live);
+            closeM('m-invite');
+            render();
+            openChat(live);
+        }
+    } else if (t === 'GENERATE_LOCAL_MAP_RESULT') {
+        const r = Req.get('localmap');
+        if (!r || r.id !== d.requestId) return;
+        const { btn } = r;
+        Req.clear('localmap');
+        BtnState.reset(btn, '<i class="fa-solid fa-plus"></i>局部地图');
+        if (d.error) { showResultModal('生成失败', '局部地图生成失败', true, d.error); return; }
+        if (d.success && d.localMapData) {
+            const lm = d.localMapData;
+            const locName = lm.name || '当前位置';
+            D.sceneSetup = null;
+            D.maps.indoor = D.maps.indoor || {};
+            D.maps.indoor[locName] = lm;
+            playerLocation = locName;
+            selectedMapValue = 'current';
+            saveAll();
+            render();
+            if (lm.description) { $('side-desc').innerHTML = `<div class="local-map-title">📍 ${locName}</div>` + parseLinks(lm.description); bindLinks($('side-desc')); }
+            showResultModal('生成成功', `局部地图生成完成！当前位置: ${locName}`, false, lm);
+        }
+    }
+});
+
+// ================== 渲染 ==================
+function render() {
+    // 新闻
+    const news = D.world?.news || [];
+    $('news-list').innerHTML = news.length ? news.map(n => `<div class="fold"><div class="fold-h"><div><div class="news-t">${n.title}</div><div class="news-time">${n.time || ''}</div></div><i class="fa-solid fa-chevron-down fold-a"></i></div><div class="fold-b news-b"><p>${n.content}</p></div></div>`).join('') : '<div class="empty">暂无新闻</div>';
+    $$('#news-list .fold').forEach(bindFold);
+
+    // 用户指南
+    const ug = D.meta?.user_guide;
+    if (ug) {
+        $('ug-state').textContent = ug.current_state || '未知状态';
+        $('ug-actions').innerHTML = (ug.guides || []).map((g, i) => `<div class="user-guide-action" data-idx="${i}">${i + 1}. ${g}</div>`).join('') || '<div class="user-guide-action">暂无行动指南</div>';
+    }
+
+    // 联系人
+    const renderCt = (list, isS) => (list || []).length ? list.map(p => `<div class="fold" data-name="${p.name || ''}" data-info="${(p.info || '').replace(/"/g, '&quot;')}" data-uid="${p.worldbookUid || ''}"><div class="fold-h ct-hd fc"><div class="ct-av" style="background:${p.color}">${p.avatar}</div><div class="ct-info"><div class="ct-name">${p.name}</div><div class="ct-st">${p.online ? '● 在线' : p.location}</div></div><i class="fa-solid fa-chevron-down fold-a"></i></div><div class="fold-b"><div class="ct-det">${p.info ? `<div class="ct-info-text">${p.info}</div>` : ''}<div class="ct-acts">${isS ? `<button class="btn btn-s btn-p fc add-btn" data-name="${p.name || ''}" data-info="${(p.info || '').replace(/"/g, '&quot;')}"><i class="fa-solid fa-user-plus"></i> 添加</button><button class="btn btn-s fc ignore-btn" data-name="${p.name || ''}"><i class="fa-solid fa-eye-slash"></i> 忽略</button>` : `<button class="btn btn-s fc msg-btn" data-uid="${p.worldbookUid || ''}"><i class="fa-solid fa-message"></i> 短信</button><button class="btn btn-s btn-p fc inv-btn" data-uid="${p.worldbookUid || ''}"><i class="fa-solid fa-paper-plane"></i> 邀请</button>`}</div></div></div></div>`).join('') : '<div class="empty">暂无</div>';
+    $('sec-stranger').innerHTML = renderCt(D.contacts.strangers, true);
+    $('sec-contact').innerHTML = renderCt(D.contacts.contacts, false);
+    $$('.comm-sec .fold').forEach(bindFold);
+    $$('.add-btn').forEach(b => b.onclick = e => { e.stopPropagation(); genAddCt(b.dataset.name, b.dataset.info || '', b); });
+    $$('.ignore-btn').forEach(b => b.onclick = e => { e.stopPropagation(); const i = D.contacts.strangers.findIndex(s => s.name === b.dataset.name); if (i > -1) { D.contacts.strangers.splice(i, 1); saveCt(); render(); } });
+    $$('.msg-btn').forEach(b => b.onclick = e => { e.stopPropagation(); const c = D.contacts.contacts.find(x => x.worldbookUid === b.dataset.uid); if (c) openChat(c); });
+    $$('.inv-btn').forEach(b => b.onclick = e => { e.stopPropagation(); const c = D.contacts.contacts.find(x => x.worldbookUid === b.dataset.uid); if (c) openInv(c); });
+            // 更新右侧描述面板 - 根据当前视图选择展示内容
+            if (selectedMapValue === 'current') {
+                const inside = getCurInside();
+                if (inside?.description) {
+                    $('side-desc').innerHTML = `<div class="local-map-title">📍 ${playerLocation}</div>` + parseLinks(inside.description);
+                } else {
+                    $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+                }
+            } else {
+                $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+            }
+            bindLinks($('side-desc'));
+            $('mob-desc').innerHTML = '';
+            renderMapSelector();
+            renderMap();
+        }
+
+        function renderMap() {
+            const map = D.maps?.outdoor;
+            seed = 123456789;
+            inner.querySelectorAll('.item').forEach(e => e.remove());
+            svg.innerHTML = '';
+            nodes = [];
+            lines = [];
+            if (!map?.nodes?.length) return;
+
+            map.nodes.forEach((n, i) => {
+                const d = dirMap[n.position] || [0, 0], len = Math.hypot(d[0], d[1]) || 1, dist = (n.distant || 1) * 120;
+                nodes.push({ id: 'n' + i, name: n.name, type: n.type || 'sub', pos: n.position, distant: n.distant || 1, x: d[0] / len * dist, y: d[1] / len * dist, data: n });
+            });
+
+            const groups = {};
+            nodes.forEach(n => (groups[n.pos] = groups[n.pos] || []).push(n));
+            for (let p in groups) {
+                const arr = groups[p];
+                if (arr.length <= 1) continue;
+                const d = dirMap[p] || [0, 0], len = Math.hypot(d[0], d[1]) || 1, px = -d[1] / len, py = d[0] / len, mid = (arr.length - 1) / 2;
+                arr.sort((a, b) => a.distant - b.distant).forEach((n, i) => { n.x += px * (i - mid) * 50; n.y += py * (i - mid) * 50; });
+            }
+
+            for (let t = 0; t < 15; t++)
+                for (let i = 0; i < nodes.length; i++)
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        const a = nodes[i], b = nodes[j], dx = a.x - b.x, dy = a.y - b.y, d = Math.hypot(dx, dy);
+                        if (d < 80 && d > 0) { const p = (80 - d) / d * .5; a.x += dx * p; a.y += dy * p; b.x -= dx * p; b.y -= dy * p; }
+                    }
+
+            nodes.forEach(n => {
+                const el = document.createElement('div');
+                el.className = `item node-${n.type}`;
+                el.id = n.id;
+                el.textContent = n.type === 'home' ? '🏠 ' + n.name : n.name;
+                el.style.cssText = `left:${n.x + 2000}px;top:${n.y + 2000}px`;
+                el.onclick = e => { e.stopPropagation(); curNode?.id === n.id ? hideInfo() : showInfo(n); };
+                inner.appendChild(el);
+            });
+
+            for (let g in groups) {
+                const arr = groups[g].sort((a, b) => a.distant - b.distant);
+                for (let i = 0; i < arr.length - 1; i++) lines.push([arr[i], arr[i + 1]]);
+            }
+            const anchors = Object.values(groups).map(a => a.sort((x, y) => x.distant - y.distant)[0]).sort((a, b) => Math.atan2(a.y, a.x) - Math.atan2(b.y, b.x));
+            anchors.forEach((a, i) => lines.push([a, anchors[(i + 1) % anchors.length]]));
+            const exists = (a, b) => lines.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+            for (let i = 0, c = 0; c < Math.floor(nodes.length / 5) && i < 200; i++) {
+                const a = nodes[Math.floor(rand() * nodes.length)], b = nodes[Math.floor(rand() * nodes.length)];
+                if (a !== b && !exists(a, b)) { lines.push([a, b]); c++; }
+            }
+            drawLines();
+        }
+
+        function drawLines() {
+            svg.innerHTML = '';
+            const rect = mapWrap.getBoundingClientRect();
+            lines.forEach(([a, b]) => {
+                const elA = $(a.id), elB = $(b.id);
+                if (!elA || !elB) return;
+                const rA = elA.getBoundingClientRect(), rB = elB.getBoundingClientRect();
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', (rA.left + rA.width / 2 - rect.left) / scale - offX / scale);
+                line.setAttribute('y1', (rA.top + rA.height / 2 - rect.top) / scale - offY / scale);
+                line.setAttribute('x2', (rB.left + rB.width / 2 - rect.left) / scale - offX / scale);
+                line.setAttribute('y2', (rB.top + rB.height / 2 - rect.top) / scale - offY / scale);
+                const main = (a.type === 'main' && b.type === 'main') || a.type === 'home' || b.type === 'home';
+                line.setAttribute('stroke', main ? '#333' : '#aaa');
+                line.setAttribute('stroke-width', main ? '2' : '1');
+                if (!main) line.setAttribute('stroke-dasharray', '4 3');
+                svg.appendChild(line);
+            });
+        }
+
+        const updateTf = () => { inner.style.transform = `translate(${offX}px,${offY}px) scale(${scale})`; $('zoom-ind').textContent = Math.round(scale * 100) + '%'; requestAnimationFrame(drawLines); };
+        const initPos = () => { offX = -2000 + mapWrap.clientWidth / 2; offY = -2000 + mapWrap.clientHeight / 2; scale = 1; updateTf(); };
+
+        function panTo(node, dur = 350) {
+            if (!node || anim) return;
+            const el = $(node.id);
+            if (!el) return;
+            const tX = -(node.x + 2000) * scale + mapWrap.clientWidth / 2, tY = -(node.y + 2000) * scale + mapWrap.clientHeight * .25;
+            const sX = offX, sY = offY, st = performance.now();
+            anim = true;
+            (function step(now) {
+                const p = Math.min((now - st) / dur, 1), e = 1 - Math.pow(1 - p, 3);
+                offX = sX + (tX - sX) * e;
+                offY = sY + (tY - sY) * e;
+                updateTf();
+                p < 1 ? requestAnimationFrame(step) : anim = false;
+            })(st);
+        }
+
+        function showInfo(n) {
+            if (!n?.data) return;
+            curNode = n;
+            inner.querySelectorAll('.item').forEach(e => e.classList.remove('hl'));
+            $(n.id)?.classList.add('hl');
+            const isCurrentLoc = n.name === playerLocation;
+            $('btn-goto').classList.toggle('show', !isCurrentLoc);
+            if (!isCurrentLoc) $('goto-t').textContent = `前往 ${n.name}`;
+
+            const inside = D.maps?.indoor?.[n.name];
+            if (isCurrentLoc && inside?.description) {
+                $('side-desc').innerHTML = `<div class="local-map-title">📍 ${n.name}</div>` + parseLinks(inside.description);
+                bindLinks($('side-desc'));
+            } else {
+                $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+                bindLinks($('side-desc'));
+            }
+
+            if (isMob()) {
+                $('mob-info-t').textContent = n.name;
+                $('mob-info-c').textContent = isCurrentLoc ? (inside?.description || n.data.info || '暂无信息...') : (n.data.info || '暂无信息...');
+                if (!popup.classList.contains('act')) openPop(1);
+            } else {
+                $('info-t').textContent = n.name;
+                $('info-c').textContent = n.data.info || '暂无信息...';
+                $('tip').classList.add('show');
+            }
+        }
+
+        const hideInfo = () => { curNode = null; inner.querySelectorAll('.item').forEach(e => e.classList.remove('hl')); $('btn-goto').classList.remove('show'); $('tip').classList.remove('show'); };
+        $('info-bk').onclick = hideInfo;
+        $('mob-info-bk').onclick = () => popup.classList.remove('act');
+
+        // 地图选单
+        function renderMapSelector() {
+            const sel = $('map-lbl-select');
+            sel.innerHTML = '<option value="overview">🗺️ 大地图</option>';
+            const curIdx = D.maps?.outdoor?.nodes?.findIndex(n => n.name === playerLocation);
+            const isInIndoorMap = D.maps?.indoor && D.maps.indoor[playerLocation];
+            if (curIdx >= 0 || isInIndoorMap) sel.innerHTML += `<option value="current">📍 ${playerLocation}（你）</option>`;
+            sel.innerHTML += '<option disabled>──────────</option>';
+            if (D.maps?.outdoor?.nodes?.length) D.maps.outdoor.nodes.forEach((n, i) => { if (n.name !== playerLocation) sel.innerHTML += `<option value="node:${i}">${n.name}</option>`; });
+            if (D.maps?.indoor) {
+                const indoorKeys = Object.keys(D.maps.indoor).filter(k => k !== playerLocation && !D.maps?.outdoor?.nodes?.some(n => n.name === k));
+                if (indoorKeys.length) {
+                    sel.innerHTML += '<option disabled>── 隐藏地图 ──</option>';
+                    indoorKeys.forEach(k => sel.innerHTML += `<option value="indoor:${k}">🏠 ${k}</option>`);
+                }
+            }
+            sel.value = selectedMapValue;
+            updateMapLabel();
+        }
+
+        function updateMapLabel() {
+            const v = $('map-lbl-select').value;
+            if (v === 'overview') $('map-lbl-t').textContent = '大地图';
+            else if (v === 'current') $('map-lbl-t').textContent = playerLocation + '（你）';
+            else if (v.startsWith('node:')) { const idx = parseInt(v.split(':')[1]); $('map-lbl-t').textContent = D.maps?.outdoor?.nodes?.[idx]?.name || '未知'; }
+            else if (v.startsWith('indoor:')) $('map-lbl-t').textContent = v.replace('indoor:', '');
+        }
+
+        function switchMapView(value) {
+            selectedMapValue = value;
+            hideInfo();
+            if (value === 'overview') {
+                $('btn-goto').classList.remove('show');
+                $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+                bindLinks($('side-desc'));
+                initPos();
+            } else if (value === 'current') {
+                $('btn-goto').classList.remove('show');
+                const inside = getCurInside();
+                if (inside?.description) {
+                    $('side-desc').innerHTML = `<div class="local-map-title">📍 ${playerLocation}</div>` + parseLinks(inside.description);
+                    bindLinks($('side-desc'));
+                } else {
+                    $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+                    bindLinks($('side-desc'));
+                }
+                const n = nodes.find(x => x.name === playerLocation);
+                if (n) { panTo(n); showInfo(n); }
+            } else if (value.startsWith('node:')) {
+                const idx = parseInt(value.split(':')[1]);
+                const node = D.maps?.outdoor?.nodes?.[idx];
+                $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+                bindLinks($('side-desc'));
+                const n = nodes.find(x => x.name === node?.name);
+                if (n) { panTo(n); showInfo(n); }
+            } else if (value.startsWith('indoor:')) {
+                const name = value.replace('indoor:', '');
+                const indoorMap = D.maps?.indoor?.[name];
+                if (name !== playerLocation) {
+                    $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+                    bindLinks($('side-desc'));
+                    curNode = { name, type: 'sub', data: { info: stripXml(indoorMap?.description || '') }, isIndoor: true };
+                    $('btn-goto').classList.add('show');
+                    $('goto-t').textContent = `前往 ${name}`;
+                } else {
+                    $('btn-goto').classList.remove('show');
+                    if (indoorMap?.description) {
+                        $('side-desc').innerHTML = `<div class="local-map-title">🏠 ${name}</div>` + parseLinks(indoorMap.description);
+                        bindLinks($('side-desc'));
+                    }
+                }
+            }
+            updateMapLabel();
+        }
+        $('map-lbl-select').onchange = e => switchMapView(e.target.value);
+
+        // 地图交互
+        let sx, sy, lastDist = 0, lastCX = 0, lastCY = 0;
+        mapWrap.onmousedown = e => { if (anim || e.target.closest('.map-act,.map-lbl')) return; if (!e.target.classList.contains('item')) hideInfo(); drag = true; sx = e.clientX; sy = e.clientY; mapWrap.style.cursor = 'grabbing'; };
+        mapWrap.onmousemove = e => { if (!drag) return; offX += e.clientX - sx; offY += e.clientY - sy; sx = e.clientX; sy = e.clientY; updateTf(); };
+        mapWrap.onmouseup = mapWrap.onmouseleave = () => { drag = false; mapWrap.style.cursor = 'grab'; };
+        mapWrap.onwheel = e => { if (anim) return; e.preventDefault(); const ns = Math.max(.3, Math.min(3, scale + (e.deltaY > 0 ? -.1 : .1))), rect = mapWrap.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top, r = ns / scale; offX = mx - (mx - offX) * r; offY = my - (my - offY) * r; scale = ns; updateTf(); };
+
+        mapWrap.ontouchstart = e => {
+            if (anim || e.target.closest('.map-act,.map-lbl')) return;
+            const it = e.target.closest('.item');
+            if (it) { it._ts = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() }; return; }
+            hideInfo();
+            if (e.touches.length === 1) { drag = true; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }
+            else if (e.touches.length === 2) { drag = false; lastDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); lastCX = (e.touches[0].clientX + e.touches[1].clientX) / 2; lastCY = (e.touches[0].clientY + e.touches[1].clientY) / 2; }
+        };
+        mapWrap.ontouchmove = e => {
+            const it = e.target.closest('.item');
+            if (it && it._ts) { if (Math.hypot(e.touches[0].clientX - it._ts.x, e.touches[0].clientY - it._ts.y) > 10) { delete it._ts; drag = true; sx = e.touches[0].clientX; sy = e.touches[0].clientY; } return; }
+            if (e.touches.length === 1 && drag) { e.preventDefault(); offX += e.touches[0].clientX - sx; offY += e.touches[0].clientY - sy; sx = e.touches[0].clientX; sy = e.touches[0].clientY; updateTf(); }
+            else if (e.touches.length === 2) {
+                e.preventDefault();
+                const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2, cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                const ns = Math.max(.3, Math.min(3, scale * (d / lastDist))), rect = mapWrap.getBoundingClientRect(), mx = cx - rect.left, my = cy - rect.top, r = ns / scale;
+                offX = mx - (mx - offX) * r; offY = my - (my - offY) * r; offX += cx - lastCX; offY += cy - lastCY;
+                scale = ns; lastDist = d; lastCX = cx; lastCY = cy; updateTf();
+            }
+        };
+        mapWrap.ontouchend = e => {
+            const it = e.target.closest('.item');
+            if (it && it._ts) { const el = Date.now() - it._ts.t; delete it._ts; if (el < 300) { const n = nodes.find(n => n.id === it.id); if (n) { e.preventDefault(); curNode?.id === n.id ? hideInfo() : showInfo(n); } } }
+            drag = false;
+        };
+
+        // 导航
+        $$('.nav-i').forEach(i => i.onclick = () => {
+            $$('.nav-i').forEach(n => n.classList.remove('act'));
+            $$('.page').forEach(p => p.classList.remove('act'));
+            i.classList.add('act');
+            $(`page-${i.dataset.p}`).classList.add('act');
+            const isMap = i.dataset.p === 'map';
+            sidePop.classList.toggle('show', isMap);
+            if (isMob()) isMap ? openPop(1) : popup.classList.remove('act');
+            if (isMap) setTimeout(() => { initPos(); drawLines(); }, 50);
+        });
+        $$('.comm-tab').forEach(t => t.onclick = () => {
+            $$('.comm-tab').forEach(x => x.classList.remove('act'));
+            $$('.comm-sec').forEach(s => s.classList.remove('act'));
+            t.classList.add('act');
+            $(`sec-${t.dataset.t}`).classList.add('act');
+        });
+
+        $('btn-goto').onclick = e => { e.stopPropagation(); if (curNode) { $('goto-d').textContent = `目的地：${curNode.name}`; $('goto-task').value = ''; openM('m-goto'); } };
+        addEventListener('resize', () => requestAnimationFrame(drawLines));
+
+        document.addEventListener('DOMContentLoaded', () => {
+            render();
+            initPos();
+            sidePop.classList.add('show');
+            setSideW(sideMaxW());
+            if (isMob()) openPop(1);
+            post('FRAME_READY');
+            setTimeout(() => { if (selectedMapValue === 'current') switchMapView('current'); }, 100);
+        });
+    </script>
+</body>
+</html>

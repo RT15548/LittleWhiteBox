@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LittleWhiteBox 监控台</title>
+  <style>
+    :root {
+      --border: rgba(255,255,255,0.10);
+      --text: rgba(255,255,255,0.92);
+      --muted: rgba(255,255,255,0.65);
+      --info: #bdbdbd;
+      --warn: #ffcc66;
+      --error: #ff6b6b;
+      --accent: #7aa2ff;
+      --success: #4ade80;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+      font-size: 12px;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: transparent;
+      color: var(--text);
+    }
+    .root {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(18,18,18,0.65);
+      backdrop-filter: blur(6px);
+      flex-shrink: 0;
+    }
+    .content {
+      flex: 1;
+      overflow: auto;
+      padding: 10px;
+    }
+    .tabs {
+      display: flex;
+      gap: 6px;
+    }
+    .tab {
+      padding: 6px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      user-select: none;
+    }
+    .tab.active {
+      border-color: rgba(122,162,255,0.55);
+      background: rgba(122,162,255,0.10);
+    }
+    button {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    button:hover {
+      background: rgba(255,255,255,0.09);
+    }
+    select {
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.25);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 12px;
+      outline: none;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .card {
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,0.18);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .muted { color: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .empty-hint { padding: 20px; text-align: center; color: var(--muted); }
+
+    /* 日志 */
+    .log-item {
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .log-item:last-child { border-bottom: none; }
+    .log-header {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      flex-wrap: wrap;
+    }
+    .log-toggle {
+      width: 16px;
+      height: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 10px;
+      flex-shrink: 0;
+      border-radius: 4px;
+      user-select: none;
+      transition: transform 0.15s;
+    }
+    .log-toggle:hover { background: rgba(255,255,255,0.1); }
+    .log-toggle.empty { visibility: hidden; cursor: default; }
+    .log-item.open .log-toggle { transform: rotate(90deg); }
+    .time { color: var(--muted); }
+    .lvl { font-weight: 700; }
+    .lvl.info { color: var(--info); }
+    .lvl.warn { color: var(--warn); }
+    .lvl.error { color: var(--error); }
+    .mod { color: var(--accent); }
+    .msg { color: var(--text); word-break: break-word; }
+    .stack {
+      margin: 8px 0 0 24px;
+      padding: 10px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: rgba(255,255,255,0.85);
+      background: rgba(0,0,0,0.3);
+      border-radius: 6px;
+      font-size: 11px;
+      display: none;
+    }
+    .log-item.open .stack { display: block; }
+
+    /* 事件 */
+    .section-collapse { margin-bottom: 12px; }
+    .section-collapse-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      cursor: pointer;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      user-select: none;
+    }
+    .section-collapse-header:hover { background: rgba(255,255,255,0.06); }
+    .section-collapse-header .arrow {
+      transition: transform 0.2s;
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .section-collapse-header.open .arrow { transform: rotate(90deg); }
+    .section-collapse-header .title { flex: 1; }
+    .section-collapse-header .count { color: var(--muted); font-size: 11px; }
+    .section-collapse-content {
+      display: none;
+      padding: 8px 0 0 0;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .section-collapse-header.open + .section-collapse-content { display: block; }
+    .module-section { margin-bottom: 8px; }
+    .module-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06);
+      user-select: none;
+    }
+    .module-header:hover { background: rgba(255,255,255,0.05); }
+    .module-header .arrow { transition: transform 0.2s; color: var(--muted); font-size: 9px; }
+    .module-header.open .arrow { transform: rotate(90deg); }
+    .module-header .name { color: var(--accent); font-weight: 600; }
+    .module-header .count { color: var(--muted); }
+    .module-events { display: none; padding: 6px 10px 6px 28px; }
+    .module-header.open + .module-events { display: block; }
+    .event-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      margin: 2px 4px 2px 0;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      font-size: 11px;
+      font-family: ui-monospace, monospace;
+    }
+    .event-tag .dup { color: var(--error); font-weight: 700; margin-left: 4px; }
+    .pill {
+      display: inline-flex;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+    }
+    .repeat-badge {
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.12);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+      margin-left: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* 缓存 */
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; }
+    th { color: rgba(255,255,255,0.75); font-weight: 600; }
+    .right { text-align: right; }
+    .cache-detail-row { display: none; }
+    .cache-detail-row.open { display: table-row; }
+    .cache-detail-row td { padding: 0; }
+    .pre {
+      padding: 10px;
+      white-space: pre-wrap;
+      font-family: ui-monospace, monospace;
+      color: rgba(255,255,255,0.80);
+      background: rgba(0,0,0,0.25);
+      font-size: 11px;
+    }
+
+    /* 性能 */
+    .perf-overview {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      padding: 12px;
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.18);
+    }
+    .perf-stat { display: flex; flex-direction: column; gap: 2px; }
+    .perf-stat .label { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+    .perf-stat .value { font-size: 16px; font-weight: 700; }
+    .perf-stat .value.good { color: var(--success); }
+    .perf-stat .value.warn { color: var(--warn); }
+    .perf-stat .value.bad { color: var(--error); }
+    .perf-section { margin-bottom: 16px; }
+    .perf-section-title {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .perf-item { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .perf-item:last-child { border-bottom: none; }
+    .perf-item .top { display: flex; gap: 8px; align-items: baseline; }
+    .perf-item .url { flex: 1; font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; }
+    .perf-item .duration { font-weight: 700; }
+    .perf-item .duration.slow { color: var(--warn); }
+    .perf-item .duration.very-slow { color: var(--error); }
+  </style>
+</head>
+<body>
+  <div class="root">
+    <div class="topbar">
+      <div class="tabs">
+        <div class="tab active" data-tab="logs">日志</div>
+        <div class="tab" data-tab="events">事件</div>
+        <div class="tab" data-tab="caches">缓存</div>
+        <div class="tab" data-tab="performance">性能</div>
+      </div>
+      <button id="btn-refresh" type="button">刷新</button>
+    </div>
+
+    <div class="content">
+      <section id="tab-logs">
+        <div class="row">
+          <span class="muted">过滤</span>
+          <select id="log-level"><option value="all">全部</option><option value="info">INFO</option><option value="warn">WARN</option><option value="error">ERROR</option></select>
+          <span class="muted">模块</span>
+          <select id="log-module"><option value="all">全部</option></select>
+          <button id="btn-clear-logs" type="button">清空</button>
+          <span class="muted" id="log-count"></span>
+        </div>
+        <div class="card" id="log-list"></div>
+      </section>
+
+      <section id="tab-events" style="display:none">
+        <div class="section-collapse">
+          <div class="section-collapse-header" id="module-section-header">
+            <span class="arrow">▶</span>
+            <span class="title">模块事件监听</span>
+            <span class="count" id="module-count"></span>
+          </div>
+          <div class="section-collapse-content" id="module-list"></div>
+        </div>
+        <div class="row">
+          <span class="muted">触发历史</span>
+          <button id="btn-clear-events" type="button">清空历史</button>
+        </div>
+        <div class="card" id="event-list"></div>
+      </section>
+
+      <section id="tab-caches" style="display:none">
+        <div class="row">
+          <button id="btn-clear-all-caches" type="button">清理全部</button>
+          <span class="muted" id="cache-count"></span>
+        </div>
+        <div class="card" id="cache-card">
+          <table>
+            <thead><tr><th>缓存项目</th><th>条数</th><th>大小</th><th class="right">操作</th></tr></thead>
+            <tbody id="cache-tbody"></tbody>
+          </table>
+          <div id="cache-empty" class="empty-hint" style="display:none;">暂无缓存注册</div>
+        </div>
+      </section>
+
+      <section id="tab-performance" style="display:none">
+        <div class="perf-overview">
+          <div class="perf-stat"><span class="label">FPS</span><span class="value" id="perf-fps">--</span></div>
+          <div class="perf-stat" id="perf-memory-stat"><span class="label">内存</span><span class="value" id="perf-memory">--</span></div>
+          <div class="perf-stat"><span class="label">DOM</span><span class="value" id="perf-dom">--</span></div>
+          <div class="perf-stat"><span class="label">消息</span><span class="value" id="perf-messages">--</span></div>
+          <div class="perf-stat"><span class="label">图片</span><span class="value" id="perf-images">--</span></div>
+        </div>
+        <div class="perf-section">
+          <div class="perf-section-title"><span>慢请求 (≥500ms)</span><button id="btn-clear-requests" type="button">清空</button></div>
+          <div class="card" id="perf-requests"></div>
+        </div>
+        <div class="perf-section">
+          <div class="perf-section-title"><span>长任务</span><button id="btn-clear-tasks" type="button">清空</button></div>
+          <div class="card" id="perf-tasks"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script type="module">
+    const post = (payload) => {
+      try { parent.postMessage({ source: 'LittleWhiteBox-DebugFrame', ...payload }, '*'); } catch {}
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 状态
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    const state = {
+      logs: [],
+      events: [],
+      eventStatsDetail: {},
+      caches: [],
+      performance: {},
+      openCacheDetail: null,
+      cacheDetails: {},
+      openModules: new Set(),
+      openLogIds: new Set(),
+      pendingData: null,
+      mouseDown: false,
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 用户交互检测 - 核心：交互时不刷新
+    // ═══════════════════════════════════════════════════════════════════════
+
+    document.addEventListener('mousedown', () => { state.mouseDown = true; });
+    document.addEventListener('mouseup', () => { 
+      state.mouseDown = false;
+      // 鼠标抬起后，如果有待处理数据，延迟一点再应用（让用户完成选择）
+      if (state.pendingData) {
+        setTimeout(() => {
+          if (!isUserInteracting() && state.pendingData) {
+            applyData(state.pendingData);
+            state.pendingData = null;
+          }
+        }, 300);
+      }
+    });
+
+    function isUserInteracting() {
+      // 1. 鼠标按下中
+      if (state.mouseDown) return true;
+      // 2. 有文字被选中
+      const sel = document.getSelection();
+      if (sel && sel.toString().length > 0) return true;
+      // 3. 焦点在输入元素上
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA')) return true;
+      return false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 工具函数
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const fmtTime = (ts) => {
+      try {
+        const d = new Date(Number(ts) || Date.now());
+        return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+      } catch { return '--:--:--'; }
+    };
+
+    const fmtBytes = (n) => {
+      const v = Number(n);
+      if (!Number.isFinite(v) || v <= 0) return '-';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let idx = 0, x = v;
+      while (x >= 1024 && idx < units.length - 1) { x /= 1024; idx++; }
+      return `${x.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+    };
+
+    const fmtMB = (bytes) => Number.isFinite(bytes) && bytes > 0 ? (bytes / 1048576).toFixed(0) + 'MB' : '--';
+    const escapeHtml = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 日志渲染
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function getLogFilters() {
+      return {
+        level: document.getElementById('log-level').value,
+        module: document.getElementById('log-module').value
+      };
+    }
+
+    function filteredLogs() {
+      const f = getLogFilters();
+      return (state.logs || []).filter(l => {
+        if (!l) return false;
+        if (f.level !== 'all' && l.level !== f.level) return false;
+        if (f.module !== 'all' && String(l.module) !== f.module) return false;
+        return true;
+      });
+    }
+
+    function renderLogModuleOptions() {
+      const sel = document.getElementById('log-module');
+      const current = sel.value || 'all';
+      const mods = [...new Set((state.logs || []).map(l => l?.module).filter(Boolean))].sort();
+      sel.innerHTML = `<option value="all">全部</option>` + mods.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+      if ([...sel.options].some(o => o.value === current)) sel.value = current;
+    }
+
+    function renderLogs() {
+      renderLogModuleOptions();
+      const logs = filteredLogs();
+      document.getElementById('log-count').textContent = `共 ${logs.length} 条`;
+      const list = document.getElementById('log-list');
+      
+      if (!logs.length) {
+        list.innerHTML = `<div class="empty-hint">暂无日志</div>`;
+        return;
+      }
+
+      // 清理已不存在的ID
+      const currentIds = new Set(logs.map(l => l.id));
+      for (const id of state.openLogIds) {
+        if (!currentIds.has(id)) state.openLogIds.delete(id);
+      }
+
+      list.innerHTML = logs.map(l => {
+        const lvl = escapeHtml(l.level || 'info');
+        const mod = escapeHtml(l.module || 'unknown');
+        const msg = escapeHtml(l.message || '');
+        const stack = l.stack ? escapeHtml(String(l.stack)) : '';
+        const hasStack = !!stack;
+        const isOpen = state.openLogIds.has(l.id);
+        
+        return `<div class="log-item${isOpen ? ' open' : ''}" data-id="${l.id}">
+          <div class="log-header">
+            <span class="log-toggle${hasStack ? '' : ' empty'}" data-id="${l.id}">▶</span>
+            <span class="time">${fmtTime(l.timestamp)}</span>
+            <span class="lvl ${lvl}">[${lvl.toUpperCase()}]</span>
+            <span class="mod">${mod}</span>
+            <span class="msg">${msg}</span>
+          </div>
+          ${hasStack ? `<div class="stack">${stack}</div>` : ''}
+        </div>`;
+      }).join('');
+
+      // 绑定展开事件
+      list.querySelectorAll('.log-toggle:not(.empty)').forEach(toggle => {
+        toggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const id = Number(toggle.getAttribute('data-id'));
+          const item = toggle.closest('.log-item');
+          if (state.openLogIds.has(id)) {
+            state.openLogIds.delete(id);
+            item.classList.remove('open');
+          } else {
+            state.openLogIds.add(id);
+            item.classList.add('open');
+          }
+        });
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 事件渲染
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function renderModuleList() {
+      const detail = state.eventStatsDetail || {};
+      const modules = Object.keys(detail).sort();
+      const container = document.getElementById('module-list');
+      const countEl = document.getElementById('module-count');
+      const totalListeners = Object.values(detail).reduce((sum, m) => sum + (m.total || 0), 0);
+      if (countEl) countEl.textContent = `${modules.length} 模块 · ${totalListeners} 监听器`;
+      
+      if (!modules.length) {
+        container.innerHTML = `<div class="muted" style="padding:10px;">暂无模块监听</div>`;
+        return;
+      }
+      
+      container.innerHTML = modules.map(mod => {
+        const info = detail[mod] || {};
+        const events = info.events || {};
+        const isOpen = state.openModules.has(mod);
+        const eventTags = Object.keys(events).sort().map(ev => {
+          const cnt = events[ev];
+          return `<span class="event-tag">${escapeHtml(ev)}${cnt > 1 ? `<span class="dup">×${cnt}</span>` : ''}</span>`;
+        }).join('');
+        return `<div class="module-section">
+          <div class="module-header${isOpen ? ' open' : ''}" data-mod="${escapeHtml(mod)}">
+            <span class="arrow">▶</span>
+            <span class="name">${escapeHtml(mod)}</span>
+            <span class="count">(${info.total || 0})</span>
+          </div>
+          <div class="module-events">${eventTags || '<span class="muted">无事件</span>'}</div>
+        </div>`;
+      }).join('');
+      
+      container.querySelectorAll('.module-header').forEach(el => {
+        el.addEventListener('click', () => {
+          const mod = el.getAttribute('data-mod');
+          state.openModules.has(mod) ? state.openModules.delete(mod) : state.openModules.add(mod);
+          renderModuleList();
+        });
+      });
+    }
+
+    function renderEvents() {
+      renderModuleList();
+      const list = document.getElementById('event-list');
+      const events = state.events || [];
+      if (!events.length) {
+        list.innerHTML = `<div class="empty-hint">暂无事件历史</div>`;
+        return;
+      }
+      list.innerHTML = events.slice().reverse().map(e => {
+        const repeat = (e.repeatCount || 1) > 1 ? `<span class="repeat-badge">×${e.repeatCount}</span>` : '';
+        return `<div class="log-item"><div class="log-header">
+          <span class="time">${fmtTime(e.timestamp)}</span>
+          <span class="pill mono">${escapeHtml(e.type || 'CUSTOM')}</span>
+          <span class="mod">${escapeHtml(e.eventName || '')}</span>
+          ${repeat}
+          <span class="msg">${escapeHtml(e.dataSummary || '')}</span>
+        </div></div>`;
+      }).join('');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 缓存渲染
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function renderCaches() {
+      const caches = state.caches || [];
+      document.getElementById('cache-count').textContent = `共 ${caches.length} 项`;
+      const tbody = document.getElementById('cache-tbody');
+      const emptyHint = document.getElementById('cache-empty');
+      const table = tbody.closest('table');
+      
+      if (!caches.length) {
+        table.style.display = 'none';
+        emptyHint.style.display = '';
+        return;
+      }
+      table.style.display = '';
+      emptyHint.style.display = 'none';
+      
+      let html = '';
+      for (const c of caches) {
+        const mid = escapeHtml(c.moduleId);
+        const isOpen = state.openCacheDetail === c.moduleId;
+        const detailBtn = c.hasDetail ? `<button data-act="detail" data-mid="${mid}">${isOpen ? '收起' : '详情'}</button>` : '';
+        html += `<tr>
+          <td>${escapeHtml(c.name || c.moduleId)}<div class="muted mono">${mid}</div></td>
+          <td>${c.size == null ? '-' : c.size}</td>
+          <td>${fmtBytes(c.bytes)}</td>
+          <td class="right">${detailBtn}<button data-act="clear" data-mid="${mid}">清理</button></td>
+        </tr>`;
+        if (isOpen && state.cacheDetails[c.moduleId] !== undefined) {
+          html += `<tr class="cache-detail-row open"><td colspan="4"><div class="pre">${escapeHtml(JSON.stringify(state.cacheDetails[c.moduleId], null, 2))}</div></td></tr>`;
+        }
+      }
+      tbody.innerHTML = html;
+      
+      tbody.querySelectorAll('button[data-act]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          const act = btn.getAttribute('data-act');
+          const mid = btn.getAttribute('data-mid');
+          if (act === 'clear') {
+            if (confirm(`确定清理缓存：${mid}？`)) post({ type: 'XB_DEBUG_ACTION', action: 'clearCache', moduleId: mid });
+          } else if (act === 'detail') {
+            state.openCacheDetail = state.openCacheDetail === mid ? null : mid;
+            if (state.openCacheDetail) post({ type: 'XB_DEBUG_ACTION', action: 'cacheDetail', moduleId: mid });
+            else renderCaches();
+          }
+        });
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 性能渲染
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function renderPerformance() {
+      const perf = state.performance || {};
+      
+      const fps = perf.fps || 0;
+      const fpsEl = document.getElementById('perf-fps');
+      fpsEl.textContent = fps > 0 ? fps : '--';
+      fpsEl.className = 'value' + (fps >= 50 ? ' good' : fps >= 30 ? ' warn' : fps > 0 ? ' bad' : '');
+      
+      const memEl = document.getElementById('perf-memory');
+      const memStat = document.getElementById('perf-memory-stat');
+      if (perf.memory) {
+        const pct = perf.memory.total > 0 ? (perf.memory.used / perf.memory.total * 100) : 0;
+        memEl.textContent = fmtMB(perf.memory.used);
+        memEl.className = 'value' + (pct < 60 ? ' good' : pct < 80 ? ' warn' : ' bad');
+        memStat.style.display = '';
+      } else {
+        memStat.style.display = 'none';
+      }
+      
+      const dom = perf.domCount || 0;
+      const domEl = document.getElementById('perf-dom');
+      domEl.textContent = dom.toLocaleString();
+      domEl.className = 'value' + (dom < 3000 ? ' good' : dom < 6000 ? ' warn' : ' bad');
+      
+      const msg = perf.messageCount || 0;
+      document.getElementById('perf-messages').textContent = msg;
+      document.getElementById('perf-messages').className = 'value' + (msg < 100 ? ' good' : msg < 300 ? ' warn' : ' bad');
+      
+      const img = perf.imageCount || 0;
+      document.getElementById('perf-images').textContent = img;
+      document.getElementById('perf-images').className = 'value' + (img < 50 ? ' good' : img < 100 ? ' warn' : ' bad');
+      
+      const reqContainer = document.getElementById('perf-requests');
+      const requests = perf.requests || [];
+      reqContainer.innerHTML = requests.length ? requests.slice().reverse().map(r => {
+        const durClass = r.duration >= 2000 ? 'very-slow' : r.duration >= 1000 ? 'slow' : '';
+        return `<div class="perf-item"><div class="top"><span class="time">${fmtTime(r.timestamp)}</span><span class="pill mono">${escapeHtml(r.method)}</span><span class="url">${escapeHtml(r.url)}</span><span class="duration ${durClass}">${r.duration}ms</span></div></div>`;
+      }).join('') : `<div class="empty-hint">暂无慢请求</div>`;
+      
+      const taskContainer = document.getElementById('perf-tasks');
+      const tasks = perf.longTasks || [];
+      taskContainer.innerHTML = tasks.length ? tasks.slice().reverse().map(t => {
+        const durClass = t.duration >= 200 ? 'very-slow' : t.duration >= 100 ? 'slow' : '';
+        return `<div class="perf-item"><div class="top"><span class="time">${fmtTime(t.timestamp)}</span><span class="duration ${durClass}">${t.duration}ms</span><span class="muted">${escapeHtml(t.source || '未知')}</span></div></div>`;
+      }).join('') : `<div class="empty-hint">暂无长任务</div>`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Tab 切换
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+      ['logs', 'events', 'caches', 'performance'].forEach(name => {
+        document.getElementById(`tab-${name}`).style.display = name === tab ? '' : 'none';
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 数据应用
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function applyData(payload) {
+      state.logs = payload?.logs || [];
+      state.events = payload?.events || [];
+      state.eventStatsDetail = payload?.eventStatsDetail || {};
+      state.caches = payload?.caches || [];
+      state.performance = payload?.performance || {};
+      renderLogs();
+      renderEvents();
+      renderCaches();
+      renderPerformance();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 事件绑定
+    // ═══════════════════════════════════════════════════════════════════════
+
+    document.getElementById('btn-refresh').addEventListener('click', () => post({ type: 'XB_DEBUG_ACTION', action: 'refresh' }));
+    document.getElementById('btn-clear-logs').addEventListener('click', () => {
+      if (confirm('确定清空日志？')) {
+        state.openLogIds.clear();
+        post({ type: 'XB_DEBUG_ACTION', action: 'clearLogs' });
+      }
+    });
+    document.getElementById('btn-clear-events').addEventListener('click', () => {
+      if (confirm('确定清空事件历史？')) post({ type: 'XB_DEBUG_ACTION', action: 'clearEvents' });
+    });
+    document.getElementById('btn-clear-all-caches').addEventListener('click', () => {
+      if (confirm('确定清理全部缓存？')) post({ type: 'XB_DEBUG_ACTION', action: 'clearAllCaches' });
+    });
+    document.getElementById('btn-clear-requests').addEventListener('click', () => post({ type: 'XB_DEBUG_ACTION', action: 'clearRequests' }));
+    document.getElementById('btn-clear-tasks').addEventListener('click', () => post({ type: 'XB_DEBUG_ACTION', action: 'clearTasks' }));
+    document.getElementById('log-level').addEventListener('change', renderLogs);
+    document.getElementById('log-module').addEventListener('change', renderLogs);
+    document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+    document.getElementById('module-section-header')?.addEventListener('click', function() { this.classList.toggle('open'); });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 消息监听
+    // ═══════════════════════════════════════════════════════════════════════
+
+    window.addEventListener('message', (event) => {
+      const msg = event?.data;
+      if (!msg || msg.source !== 'LittleWhiteBox-DebugHost') return;
+      
+      if (msg.type === 'XB_DEBUG_DATA') {
+        // 核心逻辑：用户交互时暂存数据，不刷新DOM
+        if (isUserInteracting()) {
+          state.pendingData = msg.payload;
+        } else {
+          applyData(msg.payload);
+          state.pendingData = null;
+        }
+      }
+      if (msg.type === 'XB_DEBUG_CACHE_DETAIL') {
+        const mid = msg.payload?.moduleId;
+        if (mid) {
+          state.cacheDetails[mid] = msg.payload?.detail;
+          renderCaches();
+        }
+      }
+    });
+
+    post({ type: 'FRAME_READY' });
+  </script>
+</body>
+</html>

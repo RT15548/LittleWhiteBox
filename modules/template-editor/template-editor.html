@@ -1,0 +1,62 @@
+<div id="xiaobai_template_editor">
+    <div class="xiaobai_template_editor">
+        <h3 class="flex-container justifyCenter alignItemsBaseline">
+            <strong>模板编辑器</strong>
+        </h3>
+        <hr />
+
+        <div class="flex-container flexFlowColumn">
+            <div class="flex1">
+                <label for="fixed_text_custom_regex" class="title_restorable">
+                    <small>自定义正则表达式</small>
+                </label>
+                <div>
+                    <input id="fixed_text_custom_regex" class="text_pole textarea_compact" type="text"
+                        placeholder="\\[([^\\]]+)\\]([\\s\\S]*?)\\[\\/\\1\\]" />
+                </div>
+                <div class="flex-container" style="margin-top: 6px;">
+                    <label class="checkbox_label">
+                        <input type="checkbox" id="disable_parsers" />
+                        <span>文本不使用插件预设的正则及格式解析器</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+        <hr />
+
+        <div class="flex-container flexFlowColumn">
+            <div class="flex1">
+                <label class="title_restorable">
+                    <small>消息范围限制</small>
+                </label>
+                <div class="flex-container" style="margin-top: 10px;">
+                    <label class="checkbox_label">
+                        <input type="checkbox" id="skip_first_message" />
+                        <span>首条消息不插入模板</span>
+                    </label>
+                </div>
+                <div class="flex-container">
+                    <label class="checkbox_label">
+                        <input type="checkbox" id="limit_to_recent_messages" />
+                        <span>仅在最后几条消息中生效</span>
+                    </label>
+                </div>
+                <div class="flex-container" style="margin-top: 10px;">
+                    <label for="recent_message_count" style="margin-right: 10px;">消息数量:</label>
+                    <input id="recent_message_count" class="text_pole" type="number" min="1" max="50" value="5"
+                        style="width: 80px; max-height: 2.3vh;" />
+                </div>
+            </div>
+        </div>
+        <hr />
+        <div class="flex-container flexFlowColumn">
+            <label for="fixed_text_template" class="title_restorable">
+                <small>模板内容</small>
+            </label>
+            <div>
+                <textarea id="fixed_text_template" class="text_pole textarea_compact" rows="3"
+                    placeholder="例如：hi[[var1]], hello[[var2]], xx[[profile1]]" style="min-height: 20vh;"></textarea>
+            </div>
+        </div>
+    </div>
+</div>

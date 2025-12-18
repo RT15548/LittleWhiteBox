@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Novel 画图设置</title>
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    --bg-primary: #0f1419;
+    --bg-secondary: #1a2332;
+    --bg-tertiary: #0a0e14;
+    --bg-card: rgba(26, 35, 50, 0.6);
+    --bg-input: rgba(0, 0, 0, 0.35);
+    --text-primary: #e7e9ea;
+    --text-secondary: #8b98a5;
+    --text-muted: #5c6b7a;
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.15);
+    --accent: #d4a574;
+    --accent-hover: #e6b980;
+    --accent-soft: rgba(212, 165, 116, 0.12);
+    --accent-glow: rgba(212, 165, 116, 0.25);
+    --success: #3ecf8e;
+    --warning: #f0b429;
+    --danger: #f87171;
+    --danger-soft: rgba(248, 113, 113, 0.12);
+}
+
+html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow-x: hidden;
+    overflow-y: auto;
+    line-height: 1.5;
+}
+
+.nd-container {
+    min-height: 100%;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* Header */
+.nd-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    flex-wrap: wrap;
+}
+
+.nd-header-left { flex: 1; min-width: 240px; }
+
+.nd-title {
+    font-size: 1.375rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    letter-spacing: -0.02em;
+}
+
+.nd-title i { color: var(--accent); }
+
+.nd-subtitle {
+    margin-top: 8px;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.nd-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.nd-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.nd-badge.enabled { 
+    color: var(--success); 
+    border-color: rgba(62, 207, 142, 0.3);
+    background: rgba(62, 207, 142, 0.1);
+}
+.nd-badge.disabled { color: var(--text-muted); }
+
+/* 卡片 */
+.nd-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.nd-card {
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+}
+
+.nd-card-header {
+    padding: 16px 20px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.nd-card-header:hover { background: rgba(255, 255, 255, 0.04); }
+
+.nd-card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.nd-card-title i { color: var(--accent); font-size: 0.9375rem; }
+
+.nd-card-hint { 
+    font-size: 0.8125rem; 
+    color: var(--text-muted);
+    margin-left: auto;
+    margin-right: 12px;
+}
+
+.nd-card-chevron { color: var(--text-muted); transition: transform 0.25s ease; }
+.nd-card.collapsed .nd-card-chevron { transform: rotate(-90deg); }
+.nd-card.collapsed .nd-card-body { display: none; }
+
+.nd-card-body { padding: 20px; }
+
+/* 表单 */
+.nd-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.nd-row:last-child { margin-bottom: 0; }
+
+@media (min-width: 640px) {
+    .nd-row.cols-2 { grid-template-columns: repeat(2, 1fr); }
+    .nd-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .nd-row.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .nd-row.cols-5 { grid-template-columns: repeat(5, 1fr); }
+}
+
+.nd-field { display: flex; flex-direction: column; gap: 8px; }
+
+.nd-field label {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.nd-field label .nd-label-hint {
+    font-weight: 400;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.nd-input, .nd-select, .nd-textarea {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.nd-input:focus, .nd-select:focus, .nd-textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.nd-textarea {
+    min-height: 100px;
+    resize: vertical;
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    line-height: 1.6;
+}
+
+.nd-select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b98a5' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 40px;
+}
+
+.nd-help {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin-top: 4px;
+}
+
+.nd-custom-wrap { display: none; margin-top: 10px; }
+.nd-custom-wrap.visible { display: block; }
+
+.nd-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 20px 0;
+}
+
+.nd-section-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 14px;
+}
+
+/* 预设行：下拉 + 按钮组 */
+.nd-preset-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.nd-preset-row .nd-select {
+    flex: 1;
+    min-width: 180px;
+    max-width: 300px;
+}
+
+.nd-preset-row .nd-btn-group {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* Pill 开关 */
+.nd-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.nd-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.nd-pill:hover { 
+    background: rgba(255, 255, 255, 0.06); 
+    border-color: var(--border-hover);
+}
+
+.nd-pill input { display: none; }
+.nd-pill input:checked + span { color: var(--accent); font-weight: 600; }
+.nd-pill:has(input:checked) { 
+    border-color: var(--accent); 
+    background: var(--accent-soft);
+    box-shadow: 0 0 12px var(--accent-glow);
+}
+
+/* 按钮 - 统一风格 */
+.nd-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.nd-btn:hover { 
+    background: rgba(255, 255, 255, 0.08); 
+    border-color: var(--border-hover);
+}
+.nd-btn:active { transform: scale(0.98); }
+.nd-btn i { font-size: 0.8125rem; }
+
+.nd-btn-danger:hover { 
+    background: var(--danger-soft); 
+    border-color: rgba(248, 113, 113, 0.3); 
+    color: var(--danger); 
+}
+
+.nd-btn-close {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 1rem;
+}
+
+/* Radio 模式选择 */
+.nd-radio-group {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.nd-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.nd-radio:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--border-hover);
+}
+
+.nd-radio input { display: none; }
+
+.nd-radio-dot {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--text-muted);
+    border-radius: 50%;
+    position: relative;
+    transition: all 0.2s;
+}
+
+.nd-radio input:checked ~ .nd-radio-dot {
+    border-color: var(--accent);
+}
+
+.nd-radio input:checked ~ .nd-radio-dot::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    background: var(--accent);
+    border-radius: 50%;
+}
+
+.nd-radio:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.nd-radio-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.nd-radio-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.nd-radio-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* 密码输入框 */
+.nd-password-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.nd-password-wrap .nd-input {
+    padding-right: 44px;
+}
+
+.nd-password-toggle {
+    position: absolute;
+    right: 12px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 0.875rem;
+    transition: color 0.2s;
+}
+
+.nd-password-toggle:hover {
+    color: var(--text-primary);
+}
+
+/* 操作栏 */
+.nd-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.nd-actions .nd-btn {
+    min-width: 100px;
+}
+
+.nd-status {
+    margin-left: auto;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    min-height: 1.2em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.nd-status.loading { color: var(--warning); }
+.nd-status.loading::before {
+    content: '';
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--warning);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+.nd-status.success { color: var(--success); }
+.nd-status.error { color: var(--danger); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.nd-preview {
+    margin-top: 20px;
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    display: none;
+}
+.nd-preview.visible { display: block; }
+.nd-preview img {
+    width: 100%;
+    max-height: 500px;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+/* 提示框 */
+.nd-tip {
+    padding: 12px 16px;
+    background: rgba(212, 165, 116, 0.08);
+    border: 1px solid rgba(212, 165, 116, 0.2);
+    border-radius: 10px;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.nd-tip i {
+    color: var(--accent);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* 移动端 */
+@media (max-width: 640px) {
+    .nd-container { padding: 12px; }
+    .nd-header { padding: 16px; flex-direction: column; align-items: stretch; }
+    .nd-header-right { justify-content: space-between; }
+    .nd-card-body { padding: 16px; }
+    .nd-title { font-size: 1.2rem; }
+    .nd-preset-row { flex-direction: column; align-items: stretch; }
+    .nd-preset-row .nd-select { max-width: none; }
+    .nd-preset-row .nd-btn-group { justify-content: flex-start; }
+    .nd-actions { flex-direction: column; align-items: stretch; }
+    .nd-actions .nd-btn { justify-content: center; }
+    .nd-status { margin: 10px 0 0; justify-content: center; }
+    .nd-radio-group { flex-direction: column; }
+}
+</style>
+</head>
+
+<body>
+<div class="nd-container">
+
+    <!-- Header -->
+    <header class="nd-header">
+        <div class="nd-header-left">
+            <div class="nd-title">
+                <i class="fa-solid fa-palette"></i>
+                Novel 画图设置
+            </div>
+            <div class="nd-subtitle">配置画图预设与生成参数</div>
+        </div>
+        <div class="nd-header-right">
+            <div class="nd-badge disabled" id="nd_enabled_state">
+                <i class="fa-solid fa-circle"></i>
+                <span>未启用</span>
+            </div>
+            <select id="nd_mode" class="nd-select" style="width: auto; min-width: 130px;">
+                <option value="manual">手动模式</option>
+                <option value="auto">自动模式</option>
+            </select>
+            <button id="nd_close" class="nd-btn nd-btn-close" title="关闭">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    </header>
+
+    <div class="nd-cards">
+
+        <!-- API 设置 -->
+        <div class="nd-card">
+            <div class="nd-card-header">
+                <div class="nd-card-title"><i class="fa-solid fa-plug"></i> API 设置</div>
+                <i class="fa-solid fa-chevron-down nd-card-chevron"></i>
+            </div>
+            <div class="nd-card-body">
+                <div class="nd-section-title">连接模式</div>
+                <div class="nd-radio-group">
+                    <label class="nd-radio">
+                        <input type="radio" name="api_mode" value="tavern" checked>
+                        <span class="nd-radio-dot"></span>
+                        <div class="nd-radio-content">
+                            <span class="nd-radio-label">酒馆后端</span>
+                            <span class="nd-radio-hint">请求经由酒馆服务器转发，适合云端部署</span>
+                        </div>
+                    </label>
+                    <label class="nd-radio">
+                        <input type="radio" name="api_mode" value="direct">
+                        <span class="nd-radio-dot"></span>
+                        <div class="nd-radio-content">
+                            <span class="nd-radio-label">官网直连</span>
+                            <span class="nd-radio-hint">浏览器直接请求 NovelAI，需本机能访问</span>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="nd-divider"></div>
+
+                <div class="nd-section-title">API Key</div>
+                <div class="nd-field">
+                    <label>NovelAI API Key</label>
+                    <div class="nd-password-wrap">
+                        <input id="nd_api_key" class="nd-input" type="password" placeholder="输入你的 NovelAI API Key">
+                        <button id="nd_toggle_key" class="nd-password-toggle" type="button">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                    <div class="nd-help">可在 NovelAI 账号设置中获取。酒馆模式下会自动同步到酒馆全局配置。</div>
+                </div>
+
+                <div class="nd-tip">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <div>
+                        <strong>酒馆后端</strong>：请求走酒馆服务器的网络环境，云用户推荐使用。<br>
+                        <strong>官网直连</strong>：请求走你本机浏览器的网络，需要能访问 NovelAI（科学上网）。
+                    </div>
+                </div>
+
+                <div class="nd-actions" style="border-top: none; padding-top: 0; margin-top: 16px;">
+                    <button id="nd_save_api" class="nd-btn"><i class="fa-solid fa-floppy-disk"></i> 保存设置</button>
+                    <button id="nd_test_api" class="nd-btn"><i class="fa-solid fa-plug-circle-check"></i> 测试连接</button>
+                    <span id="nd_api_status" class="nd-status"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 预设管理 -->
+        <div class="nd-card">
+            <div class="nd-card-header">
+                <div class="nd-card-title"><i class="fa-solid fa-bookmark"></i> 预设管理</div>
+                <i class="fa-solid fa-chevron-down nd-card-chevron"></i>
+            </div>
+            <div class="nd-card-body">
+                <!-- 画图预设 -->
+                <div class="nd-section-title">画图预设</div>
+                <div class="nd-preset-row">
+                    <select id="nd_preset" class="nd-select"></select>
+                    <div class="nd-btn-group">
+                        <button id="nd_preset_add" class="nd-btn"><i class="fa-solid fa-plus"></i> 新增</button>
+                        <button id="nd_preset_rename" class="nd-btn"><i class="fa-solid fa-pen"></i> 更名</button>
+                        <button id="nd_preset_save" class="nd-btn"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                        <button id="nd_preset_del" class="nd-btn nd-btn-danger"><i class="fa-solid fa-trash-can"></i> 删除</button>
+                    </div>
+                </div>
+
+                <div class="nd-divider"></div>
+
+                <!-- LLM 预设 -->
+                <div class="nd-section-title">LLM 预设 <span style="color: var(--text-muted); font-weight: 400;">（用于 AI 生成场景标签）</span></div>
+                <div class="nd-preset-row">
+                    <select id="nd_llm_preset" class="nd-select">
+                        <option value="default">默认预设</option>
+                    </select>
+                    <div class="nd-btn-group">
+                        <button id="nd_llm_add" class="nd-btn" disabled><i class="fa-solid fa-plus"></i> 新增</button>
+                        <button id="nd_llm_rename" class="nd-btn" disabled><i class="fa-solid fa-pen"></i> 更名</button>
+                        <button id="nd_llm_save" class="nd-btn" disabled><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                        <button id="nd_llm_del" class="nd-btn nd-btn-danger" disabled><i class="fa-solid fa-trash-can"></i> 删除</button>
+                    </div>
+                </div>
+                <div class="nd-row cols-2" style="margin-top: 14px;">
+                    <div class="nd-field">
+                        <label>标签数量 <span class="nd-label-hint">（建议 25-60）</span></label>
+                        <input id="nd_tag_count" class="nd-input" type="number" value="40" min="10" max="100">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 模型与采样 -->
+        <div class="nd-card">
+            <div class="nd-card-header">
+                <div class="nd-card-title"><i class="fa-solid fa-microchip"></i> 模型与采样</div>
+                <i class="fa-solid fa-chevron-down nd-card-chevron"></i>
+            </div>
+            <div class="nd-card-body">
+                <div class="nd-row cols-3">
+                    <div class="nd-field">
+                        <label>生成模型</label>
+                        <select id="nd_model_sel" class="nd-select">
+                            <option value="nai-diffusion-4-5-full">NAI V4.5 Full</option>
+                            <option value="nai-diffusion-4-5-curated">NAI V4.5 Curated</option>
+                            <option value="nai-diffusion-4-full">NAI V4 Full</option>
+                            <option value="nai-diffusion-4-curated-preview">NAI V4 Curated</option>
+                            <option value="nai-diffusion-3">NAI V3</option>
+                            <option value="nai-diffusion-furry-3">NAI Furry V3</option>
+                            <option value="custom">自定义...</option>
+                        </select>
+                        <div id="nd_model_custom_wrap" class="nd-custom-wrap">
+                            <input id="nd_model" class="nd-input" type="text" placeholder="输入模型 ID">
+                        </div>
+                    </div>
+                    <div class="nd-field">
+                        <label>采样器</label>
+                        <select id="nd_sampler_sel" class="nd-select">
+                            <option value="k_euler_ancestral">Euler Ancestral</option>
+                            <option value="k_euler">Euler</option>
+                            <option value="k_dpmpp_2m">DPM++ 2M</option>
+                            <option value="k_dpmpp_sde">DPM++ SDE</option>
+                            <option value="ddim">DDIM</option>
+                            <option value="custom">自定义...</option>
+                        </select>
+                        <div id="nd_sampler_custom_wrap" class="nd-custom-wrap">
+                            <input id="nd_sampler" class="nd-input" type="text">
+                        </div>
+                    </div>
+                    <div class="nd-field">
+                        <label>调度器</label>
+                        <select id="nd_scheduler_sel" class="nd-select">
+                            <option value="karras">Karras</option>
+                            <option value="native">Native</option>
+                            <option value="exponential">Exponential</option>
+                            <option value="custom">自定义...</option>
+                        </select>
+                        <div id="nd_scheduler_custom_wrap" class="nd-custom-wrap">
+                            <input id="nd_scheduler" class="nd-input" type="text">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 生成参数 -->
+        <div class="nd-card">
+            <div class="nd-card-header">
+                <div class="nd-card-title"><i class="fa-solid fa-sliders"></i> 生成参数</div>
+                <i class="fa-solid fa-chevron-down nd-card-chevron"></i>
+            </div>
+            <div class="nd-card-body">
+                <div class="nd-section-title">画布尺寸</div>
+                <div class="nd-row cols-3">
+                    <div class="nd-field">
+                        <label>尺寸预设</label>
+                        <select id="nd_size_preset" class="nd-select">
+                            <option value="832x1216">832×1216 竖图</option>
+                            <option value="1216x832">1216×832 横图</option>
+                            <option value="1024x1024">1024×1024 方图</option>
+                            <option value="768x1280">768×1280 竖图</option>
+                            <option value="1280x768">1280×768 横图</option>
+                            <option value="custom">自定义尺寸...</option>
+                        </select>
+                    </div>
+                    <div class="nd-field nd-custom-wrap" id="nd_custom_w_wrap">
+                        <label>宽度 <span class="nd-label-hint">px</span></label>
+                        <input id="nd_width" class="nd-input" type="number" min="64" max="2048" step="64">
+                    </div>
+                    <div class="nd-field nd-custom-wrap" id="nd_custom_h_wrap">
+                        <label>高度 <span class="nd-label-hint">px</span></label>
+                        <input id="nd_height" class="nd-input" type="number" min="64" max="2048" step="64">
+                    </div>
+                </div>
+
+                <div class="nd-divider"></div>
+
+                <div class="nd-section-title">核心参数</div>
+                <div class="nd-row cols-4">
+                    <div class="nd-field">
+                        <label>步数 <span class="nd-label-hint">Steps</span></label>
+                        <input id="nd_steps" class="nd-input" type="number" min="1" max="80" value="28">
+                    </div>
+                    <div class="nd-field">
+                        <label>引导强度 <span class="nd-label-hint">CFG</span></label>
+                        <input id="nd_scale" class="nd-input" type="number" min="1" max="30" step="0.5" value="9">
+                    </div>
+                    <div class="nd-field">
+                        <label>随机种子 <span class="nd-label-hint">Seed</span></label>
+                        <input id="nd_seed" class="nd-input" type="number" min="-1" value="-1" placeholder="-1 随机">
+                    </div>
+                    <div class="nd-field">
+                        <label>放大倍数 <span class="nd-label-hint">Upscale</span></label>
+                        <input id="nd_upscale" class="nd-input" type="number" min="1" max="4" step="0.5" value="1">
+                    </div>
+                </div>
+
+                <div class="nd-divider"></div>
+
+                <div class="nd-section-title">增强选项</div>
+                <div class="nd-pills">
+                    <label class="nd-pill"><input type="checkbox" id="nd_sm"><span>SMEA 增强</span></label>
+                    <label class="nd-pill"><input type="checkbox" id="nd_sm_dyn"><span>SMEA 动态</span></label>
+                    <label class="nd-pill"><input type="checkbox" id="nd_decrisper"><span>降噪优化</span></label>
+                    <label class="nd-pill"><input type="checkbox" id="nd_variety_boost"><span>多样增强</span></label>
+                </div>
+            </div>
+        </div>
+
+        <!-- 固定标签 -->
+        <div class="nd-card">
+            <div class="nd-card-header">
+                <div class="nd-card-title"><i class="fa-solid fa-tags"></i> 固定标签</div>
+                <span class="nd-card-hint">风格 / 质量控制词</span>
+                <i class="fa-solid fa-chevron-down nd-card-chevron"></i>
+            </div>
+            <div class="nd-card-body">
+                <div class="nd-row cols-2">
+                    <div class="nd-field">
+                        <label>正向固定词 <span class="nd-label-hint">Positive</span></label>
+                        <textarea id="nd_positive" class="nd-textarea" placeholder="masterpiece, best quality, amazing details, ..."></textarea>
+                    </div>
+                    <div class="nd-field">
+                        <label>负向固定词 <span class="nd-label-hint">Negative</span></label>
+                        <textarea id="nd_negative" class="nd-textarea" placeholder="lowres, bad anatomy, bad hands, missing fingers, ..."></textarea>
+                    </div>
+                </div>
+                <div class="nd-help">这些标签会自动添加到每次生成中，AI 生成的场景标签不会与此重复。</div>
+            </div>
+        </div>
+
+        <!-- 场景标签测试 -->
+        <div class="nd-card">
+            <div class="nd-card-header">
+                <div class="nd-card-title"><i class="fa-solid fa-wand-magic-sparkles"></i> 场景标签测试</div>
+                <i class="fa-solid fa-chevron-down nd-card-chevron"></i>
+            </div>
+            <div class="nd-card-body">
+                <div class="nd-field">
+                    <label>场景标签 <span class="nd-label-hint">逗号分隔的英文标签</span></label>
+                    <textarea id="nd_scene_tags" class="nd-textarea" placeholder="1girl, classroom, sunlight through window, warm atmosphere, depth of field, ..."></textarea>
+                    <div class="nd-help">手动输入或让 AI 根据对话内容自动生成。</div>
+                </div>
+
+                <div class="nd-actions">
+                    <button id="nd_test_preview" class="nd-btn"><i class="fa-solid fa-image"></i> 生成预览</button>
+                    <button id="nd_ai_tags_attach" class="nd-btn"><i class="fa-solid fa-robot"></i> 智能生成</button>
+                    <button id="nd_attach_last" class="nd-btn"><i class="fa-solid fa-paperclip"></i> 追加楼层</button>
+                    <span id="nd_status" class="nd-status"></span>
+                </div>
+
+                <div id="nd_preview" class="nd-preview">
+                    <img id="nd_preview_img" alt="预览图">
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<script>
+let state = {
+    enabled: false,
+    mode: 'manual',
+    selectedPresetId: null,
+    presets: [],
+    api: {
+        mode: 'tavern',
+        apiKey: '',
+    },
+    dirty: false
+};
+
+const $ = id => document.getElementById(id);
+
+function postToParent(payload) {
+    window.parent.postMessage({ source: 'NovelDraw-Frame', ...payload }, '*');
+}
+
+window.addEventListener('message', event => {
+    const data = event.data;
+    if (!data || data.source !== 'LittleWhiteBox-NovelDraw') return;
+
+    switch (data.type) {
+        case 'INIT_DATA':
+            state = { ...state, ...data.settings, dirty: false };
+            applyStateToUI();
+            break;
+        case 'PREVIEW_RESULT':
+            $('nd_preview_img').src = data.url;
+            $('nd_preview').classList.add('visible');
+            break;
+        case 'AI_TAGS_RESULT':
+            $('nd_scene_tags').value = data.tags;
+            break;
+        case 'STATUS':
+            const statusEl = $('nd_status');
+            statusEl.textContent = data.text || '';
+            statusEl.className = 'nd-status ' + (data.state || '');
+            // 同时更新 API 状态
+            const apiStatusEl = $('nd_api_status');
+            apiStatusEl.textContent = data.text || '';
+            apiStatusEl.className = 'nd-status ' + (data.state || '');
+            break;
+    }
+});
+
+function applyStateToUI() {
+    const badge = $('nd_enabled_state');
+    badge.className = 'nd-badge ' + (state.enabled ? 'enabled' : 'disabled');
+    badge.querySelector('span').textContent = state.enabled ? '已启用' : '未启用';
+
+    $('nd_mode').value = state.mode || 'manual';
+
+    const presetSel = $('nd_preset');
+    presetSel.innerHTML = state.presets.map(p => 
+        `<option value="${p.id}">${p.name || p.id}</option>`
+    ).join('');
+    presetSel.value = state.selectedPresetId || '';
+
+    // API 设置
+    document.querySelector(`input[name="api_mode"][value="${state.api?.mode || 'tavern'}"]`).checked = true;
+    $('nd_api_key').value = state.api?.apiKey || '';
+
+    applyPresetToFields();
+}
+
+function applyPresetToFields() {
+    const p = state.presets.find(x => x.id === state.selectedPresetId) || state.presets[0];
+    if (!p) return;
+
+    $('nd_positive').value = p.positivePrefix || '';
+    $('nd_negative').value = p.negativePrefix || '';
+
+    const pm = p.params || {};
+    setSelectOrCustom('model', pm.model);
+    setSelectOrCustom('sampler', pm.sampler);
+    setSelectOrCustom('scheduler', pm.scheduler);
+
+    $('nd_steps').value = pm.steps ?? 28;
+    $('nd_scale').value = pm.scale ?? 9;
+    $('nd_width').value = pm.width ?? 832;
+    $('nd_height').value = pm.height ?? 1216;
+    $('nd_seed').value = pm.seed ?? -1;
+    $('nd_upscale').value = pm.upscale_ratio ?? 1;
+
+    $('nd_sm').checked = !!pm.sm;
+    $('nd_sm_dyn').checked = !!pm.sm_dyn;
+    $('nd_decrisper').checked = !!pm.decrisper;
+    $('nd_variety_boost').checked = !!pm.variety_boost;
+
+    updateSizePreset();
+    state.dirty = false;
+}
+
+function setSelectOrCustom(kind, value) {
+    const sel = $(`nd_${kind}_sel`);
+    const wrap = $(`nd_${kind}_custom_wrap`);
+    const input = $(`nd_${kind}`);
+    const has = [...sel.options].some(o => o.value === value);
+    sel.value = has ? value : 'custom';
+    wrap.classList.toggle('visible', sel.value === 'custom');
+    if (input) input.value = value || '';
+}
+
+function updateSizePreset() {
+    const w = $('nd_width').value;
+    const h = $('nd_height').value;
+    const val = `${w}x${h}`;
+    const sel = $('nd_size_preset');
+    const has = [...sel.options].some(o => o.value === val);
+    sel.value = has ? val : 'custom';
+    const isCustom = sel.value === 'custom';
+    $('nd_custom_w_wrap').classList.toggle('visible', isCustom);
+    $('nd_custom_h_wrap').classList.toggle('visible', isCustom);
+}
+
+function collectPresetFromFields() {
+    const p = state.presets.find(x => x.id === state.selectedPresetId);
+    if (!p) return;
+
+    p.positivePrefix = $('nd_positive').value;
+    p.negativePrefix = $('nd_negative').value;
+    p.params = p.params || {};
+    p.params.model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
+    p.params.sampler = $('nd_sampler_sel').value === 'custom' ? $('nd_sampler').value : $('nd_sampler_sel').value;
+    p.params.scheduler = $('nd_scheduler_sel').value === 'custom' ? $('nd_scheduler').value : $('nd_scheduler_sel').value;
+    p.params.steps = Number($('nd_steps').value) || 28;
+    p.params.scale = Number($('nd_scale').value) || 9;
+    p.params.width = Number($('nd_width').value) || 832;
+    p.params.height = Number($('nd_height').value) || 1216;
+    p.params.seed = Number($('nd_seed').value);
+    p.params.upscale_ratio = Number($('nd_upscale').value) || 1;
+    p.params.sm = $('nd_sm').checked;
+    p.params.sm_dyn = $('nd_sm_dyn').checked;
+    p.params.decrisper = $('nd_decrisper').checked;
+    p.params.variety_boost = $('nd_variety_boost').checked;
+
+    state.dirty = true;
+}
+
+function savePreset() {
+    collectPresetFromFields();
+    postToParent({ 
+        type: 'SAVE_PRESET', 
+        selectedPresetId: state.selectedPresetId, 
+        presets: state.presets 
+    });
+    state.dirty = false;
+    $('nd_status').textContent = '已保存';
+    $('nd_status').className = 'nd-status success';
+    setTimeout(() => {
+        $('nd_status').textContent = '';
+        $('nd_status').className = 'nd-status';
+    }, 1500);
+}
+
+function renamePreset() {
+    const p = state.presets.find(x => x.id === state.selectedPresetId);
+    if (!p) return;
+    const newName = prompt('输入新名称：', p.name || '');
+    if (newName && newName.trim()) {
+        p.name = newName.trim();
+        postToParent({ 
+            type: 'SAVE_PRESET', 
+            selectedPresetId: state.selectedPresetId, 
+            presets: state.presets 
+        });
+        applyStateToUI();
+    }
+}
+
+function getApiMode() {
+    return document.querySelector('input[name="api_mode"]:checked')?.value || 'tavern';
+}
+
+function saveApiConfig() {
+    const apiMode = getApiMode();
+    const apiKey = $('nd_api_key').value.trim();
+    state.api = { mode: apiMode, apiKey };
+    postToParent({ type: 'SAVE_API_CONFIG', apiMode, apiKey });
+}
+
+function testApiConnection() {
+    const apiMode = getApiMode();
+    const apiKey = $('nd_api_key').value.trim();
+    postToParent({ type: 'TEST_API_CONNECTION', apiMode, apiKey });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.nd-card-header').forEach(header => {
+        header.addEventListener('click', () => {
+            header.closest('.nd-card').classList.toggle('collapsed');
+        });
+    });
+
+    $('nd_close').addEventListener('click', () => {
+        if (state.dirty && !confirm('有未保存的更改，确定关闭？')) return;
+        postToParent({ type: 'CLOSE' });
+    });
+
+    $('nd_mode').addEventListener('change', () => {
+        state.mode = $('nd_mode').value;
+        postToParent({ type: 'SAVE_MODE', mode: state.mode });
+    });
+
+    $('nd_preset').addEventListener('change', () => {
+        if (state.dirty && !confirm('有未保存的更改，确定切换预设？')) {
+            $('nd_preset').value = state.selectedPresetId;
+            return;
+        }
+        state.selectedPresetId = $('nd_preset').value;
+        applyPresetToFields();
+        postToParent({ type: 'SELECT_PRESET', selectedPresetId: state.selectedPresetId });
+    });
+
+    $('nd_preset_add').addEventListener('click', () => postToParent({ type: 'ADD_PRESET' }));
+    $('nd_preset_rename').addEventListener('click', renamePreset);
+    $('nd_preset_save').addEventListener('click', savePreset);
+    $('nd_preset_del').addEventListener('click', () => {
+        if (confirm('确定删除当前预设？')) {
+            postToParent({ type: 'DEL_PRESET' });
+        }
+    });
+
+    // API 设置
+    $('nd_save_api').addEventListener('click', saveApiConfig);
+    $('nd_test_api').addEventListener('click', testApiConnection);
+
+    // 密码显示切换
+    $('nd_toggle_key').addEventListener('click', () => {
+        const input = $('nd_api_key');
+        const icon = $('nd_toggle_key').querySelector('i');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.className = 'fa-solid fa-eye-slash';
+        } else {
+            input.type = 'password';
+            icon.className = 'fa-solid fa-eye';
+        }
+    });
+
+    ['model', 'sampler', 'scheduler'].forEach(kind => {
+        $(`nd_${kind}_sel`).addEventListener('change', function() {
+            $(`nd_${kind}_custom_wrap`).classList.toggle('visible', this.value === 'custom');
+            collectPresetFromFields();
+        });
+    });
+
+    $('nd_size_preset').addEventListener('change', function() {
+        if (this.value === 'custom') {
+            $('nd_custom_w_wrap').classList.add('visible');
+            $('nd_custom_h_wrap').classList.add('visible');
+        } else {
+            const [w, h] = this.value.split('x');
+            $('nd_width').value = w;
+            $('nd_height').value = h;
+            $('nd_custom_w_wrap').classList.remove('visible');
+            $('nd_custom_h_wrap').classList.remove('visible');
+            collectPresetFromFields();
+        }
+    });
+
+    const fieldIds = [
+        'nd_positive', 'nd_negative',
+        'nd_model', 'nd_sampler', 'nd_scheduler',
+        'nd_steps', 'nd_scale', 'nd_width', 'nd_height', 'nd_seed', 'nd_upscale',
+        'nd_sm', 'nd_sm_dyn', 'nd_decrisper', 'nd_variety_boost'
+    ];
+    fieldIds.forEach(id => {
+        const el = $(id);
+        if (el) {
+            el.addEventListener('input', collectPresetFromFields);
+            el.addEventListener('change', collectPresetFromFields);
+        }
+    });
+
+    $('nd_test_preview').addEventListener('click', () => {
+        postToParent({ type: 'TEST_PREVIEW', sceneTags: $('nd_scene_tags').value });
+    });
+
+    $('nd_attach_last').addEventListener('click', () => {
+        postToParent({ type: 'ATTACH_LAST', sceneTags: $('nd_scene_tags').value });
+    });
+
+    $('nd_ai_tags_attach').addEventListener('click', () => {
+        postToParent({ type: 'AI_TAGS_ATTACH' });
+    });
+
+    postToParent({ type: 'FRAME_READY' });
+});
+</script>
+</body>
+</html>
