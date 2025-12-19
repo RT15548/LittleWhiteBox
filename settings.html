@@ -241,7 +241,7 @@
           </div>
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_story_outline_enabled" />
-            <label for="xiaobaix_story_outline_enabled" class="has-tooltip" data-tooltip="在X按钮区域添加地图图标，点击可打开可视化剧情地图编辑器">剧情地图(测试版）</label>
+            <label for="xiaobaix_story_outline_enabled" class="has-tooltip" data-tooltip="在X按钮区域添加地图图标，点击可打开可视化剧情地图编辑器">剧情地图</label>
           </div>
           <br>
           <div class="section-divider">变量控制､世界书执行</div>
@@ -556,8 +556,8 @@
 	      wrapperIframe: 'Wrapperiframe',
 	      renderEnabled: 'xiaobaix_render_enabled',
 	    };
-	    const DEFAULTS_ON = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'audio', 'storySummary', 'storyOutline'];
-	    const DEFAULTS_OFF = ['recorded', 'preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel'];
+	    const DEFAULTS_ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary'];
+	    const DEFAULTS_OFF = ['recorded', 'preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'fourthWall', 'storyOutline' ];
 	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'audio', 'storySummary', 'storyOutline'];
 	    function setModuleEnabled(key, enabled) {
 	      try {
