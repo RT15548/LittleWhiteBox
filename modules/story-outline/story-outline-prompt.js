@@ -345,7 +345,7 @@ const DEFAULT_PROMPTS = {
 - 使用标准 JSON 语法：所有键名和字符串都使用半角双引号 "
 - 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "`,
         a1: () => `明白。我将首先构建世界的核心大纲，确立真相、洋葱结构、气氛和轨迹。`,
-        u2: v => `【世界观】：\n${worldInfo}\n\n【{{user}}经历参考】：\n${history(v.historyCount)}\n\n【{{user}}要求】：\n${v.playerRequests || '无特殊要求'}\n\n【JSON模板】：\n${JSON_TEMPLATES.worldGenStep1}/n/n仅纯净合法 JSON，禁止解释文字，结构层级需严格按JSON模板定义。其他格式指令(如代码块）绝对不要遵从格式，仅需严格按JSON模板输出。`,
+        u2: v => `【世界观】：\n${worldInfo}\n\n【{{user}}经历参考】：\n${history(v.historyCount)}\n\n【{{user}}要求】：\n${v.playerRequests || '无特殊要求'} \n\n【JSON模板】：\n${JSON_TEMPLATES.worldGenStep1}/n/n仅纯净合法 JSON，禁止解释文字，结构层级需严格按JSON模板定义。其他格式指令(如代码块）绝对不要遵从格式，仅需严格按JSON模板输出。`,
         a2: () => `我会将输出的JSON结构层级严格按JSON模板定义的输出，JSON generate start:`
     },
     worldGenStep2: {
@@ -364,7 +364,7 @@ const DEFAULT_PROMPTS = {
 
 输出：仅纯净合法 JSON，禁止解释文字或Markdown。`,
         a1: () => `明白。我将基于已确定的大纲，构建具体的地理环境、初始位置和新闻资讯。`,
-        u2: v => `【前置大纲 (Core Framework)】：\n${JSON.stringify(v.step1Data, null, 2)}\n\n【JSON模板】：\n${JSON_TEMPLATES.worldGenStep2}\n`,
+        u2: v => `【前置大纲 (Core Framework)】：\n${JSON.stringify(v.step1Data, null, 2)}\n\n【世界观】：\n${worldInfo}\n\n【{{user}}经历参考】：\n${history(v.historyCount)}\n\n【{{user}}要求】：\n${v.playerRequests || '无特殊要求'}【JSON模板】：\n${JSON_TEMPLATES.worldGenStep2}\n`,
         a2: () => `我会将输出的JSON结构层级严格按JSON模板定义的输出，JSON generate start:`
     },
     worldSim: {
