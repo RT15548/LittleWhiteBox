@@ -233,22 +233,22 @@
             <label for="xiaobaix_fourth_wall_enabled" class="has-tooltip" data-tooltip="突破第四面墙，与角色进行元对话交流。悬浮按钮位于页面右侧中间。">四次元壁</label>
           </div>
           <br>
-          <div class="section-divider">剧情总结</div>
+          <div class="section-divider">剧情管理</div>
           <hr class="sysHR" />
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_story_summary_enabled" />
-            <label for="xiaobaix_story_summary_enabled" class="has-tooltip" data-tooltip="在消息楼层添加总结按钮，点击可打开剧情总结面板，AI分析生成关键词云、时间线、人物关系、角色弧光">剧情总结面板</label>
+            <label for="xiaobaix_story_summary_enabled" class="has-tooltip" data-tooltip="在消息楼层添加总结按钮，点击可打开剧情总结面板，AI分析生成关键词云、时间线、人物关系、角色弧光">剧情总结</label>
           </div>
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_story_outline_enabled" />
-            <label for="xiaobaix_story_outline_enabled" class="has-tooltip" data-tooltip="在X按钮区域添加地图图标，点击可打开可视化剧情地图编辑器">剧情地图</label>
+            <label for="xiaobaix_story_outline_enabled" class="has-tooltip" data-tooltip="在X按钮区域添加地图图标，点击可打开可视化剧情地图编辑器">小白板</label>
           </div>
           <br>
-          <div class="section-divider">变量控制､世界书执行</div>
+          <div class="section-divider">变量控制</div>
           <hr class="sysHR" />
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_variables_core_enabled" />
-            <label for="xiaobaix_variables_core_enabled">剧情管理</label>
+            <label for="xiaobaix_variables_core_enabled">变量管理</label>
           </div>
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_variables_panel_enabled" />
@@ -556,9 +556,9 @@
 	      wrapperIframe: 'Wrapperiframe',
 	      renderEnabled: 'xiaobaix_render_enabled',
 	    };
-	    const DEFAULTS_ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary'];
-	    const DEFAULTS_OFF = ['recorded', 'preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'fourthWall', 'storyOutline' ];
-	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'audio', 'storySummary', 'storyOutline'];
+	    const DEFAULTS_ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary', 'recorded'];
+	    const DEFAULTS_OFF = ['preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw'];
+	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'audio', 'storySummary', 'storyOutline', 'novelDraw'];
 	    function setModuleEnabled(key, enabled) {
 	      try {
 	        if (!extension_settings[EXT_ID][key]) extension_settings[EXT_ID][key] = {};

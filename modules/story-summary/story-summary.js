@@ -22,7 +22,6 @@ const events = createModuleEvents(MODULE_ID);
 const SUMMARY_SESSION_ID = 'xb9';
 const SUMMARY_PROMPT_KEY = 'LittleWhiteBox_StorySummary';
 const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.html`;
-const KEEP_VISIBLE_COUNT = 3;
 const VALID_SECTIONS = ['keywords', 'events', 'characters', 'arcs'];
 
 const PROVIDER_MAP = {
@@ -54,8 +53,14 @@ let eventsRegistered = false;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+function getKeepVisibleCount() {
+    const store = getSummaryStore();
+    return store?.keepVisibleCount ?? 3;
+}
+
 function calcHideRange(lastSummarized) {
-    const hideEnd = lastSummarized - KEEP_VISIBLE_COUNT;
+    const keepCount = getKeepVisibleCount();
+    const hideEnd = lastSummarized - keepCount;
     if (hideEnd < 0) return null;
     return { start: 0, end: hideEnd };
 }
@@ -217,25 +222,35 @@ function rollbackSummaryIfNeeded() {
     const currentLength = Array.isArray(chat) ? chat.length : 0;
     const store = getSummaryStore();
 
-    if (!store || store.lastSummarizedMesId == null || store.lastSummarizedMesId < 0) return false;
+    if (!store || store.lastSummarizedMesId == null || store.lastSummarizedMesId < 0) {
+        return false;
+    }
 
-    if (currentLength <= store.lastSummarizedMesId) {
-        const deletedCount = store.lastSummarizedMesId + 1 - currentLength;
-        if (deletedCount < 2) return false;
+    const lastSummarized = store.lastSummarizedMesId;
 
-        xbLog.warn(MODULE_ID, `删除已总结楼层 ${deletedCount} 个，触发回滚`);
+    if (currentLength <= lastSummarized) {
+        const deletedCount = lastSummarized + 1 - currentLength;
+
+        if (deletedCount < 2) {
+            return false;
+        }
+
+        xbLog.warn(MODULE_ID, `删除已总结楼层 ${deletedCount} 条，当前${currentLength}，原总结到${lastSummarized + 1}，触发回滚`);
 
         const history = store.summaryHistory || [];
         let targetEndMesId = -1;
+
         for (let i = history.length - 1; i >= 0; i--) {
             if (history[i].endMesId < currentLength) {
                 targetEndMesId = history[i].endMesId;
                 break;
             }
         }
+
         executeFilterRollback(store, targetEndMesId, currentLength);
         return true;
     }
+
     return false;
 }
 
@@ -251,6 +266,7 @@ function executeFilterRollback(store, targetEndMesId, currentLength) {
         store.hideSummarizedHistory = false;
     } else {
         const json = store.json || {};
+
         json.events = (json.events || []).filter(e => (e._addedAt ?? 0) <= targetEndMesId);
         json.keywords = (json.keywords || []).filter(k => (k._addedAt ?? 0) <= targetEndMesId);
         json.arcs = (json.arcs || []).filter(a => (a._addedAt ?? 0) <= targetEndMesId);
@@ -259,6 +275,7 @@ function executeFilterRollback(store, targetEndMesId, currentLength) {
                 typeof m === 'string' || (m._addedAt ?? 0) <= targetEndMesId
             );
         });
+
         if (json.characters) {
             json.characters.main = (json.characters.main || []).filter(m =>
                 typeof m === 'string' || (m._addedAt ?? 0) <= targetEndMesId
@@ -267,15 +284,20 @@ function executeFilterRollback(store, targetEndMesId, currentLength) {
                 (r._addedAt ?? 0) <= targetEndMesId
             );
         }
+
         store.json = json;
         store.lastSummarizedMesId = targetEndMesId;
         store.summaryHistory = (store.summaryHistory || []).filter(h => h.endMesId <= targetEndMesId);
     }
 
-    if (oldHideRange) {
-        const newHideRange = targetEndMesId >= 0 ? calcHideRange(targetEndMesId) : null;
-        const unhideStart = newHideRange ? newHideRange.end + 1 : 0;
+    if (oldHideRange && oldHideRange.end >= 0) {
+        const newHideRange = (targetEndMesId >= 0 && store.hideSummarizedHistory)
+            ? calcHideRange(targetEndMesId)
+            : null;
+
+        const unhideStart = newHideRange ? Math.min(newHideRange.end + 1, currentLength) : 0;
         const unhideEnd = Math.min(oldHideRange.end, currentLength - 1);
+
         if (unhideStart <= unhideEnd) {
             executeSlashCommand(`/unhide ${unhideStart}-${unhideEnd}`);
         }
@@ -440,6 +462,39 @@ function handleFrameMessage(event) {
             }
             break;
         }
+
+        case "UPDATE_KEEP_VISIBLE": {
+            const store = getSummaryStore();
+            if (!store) break;
+
+            const oldCount = store.keepVisibleCount ?? 3;
+            const newCount = Math.max(0, Math.min(50, parseInt(data.count) || 3));
+
+            if (newCount === oldCount) break;
+
+            store.keepVisibleCount = newCount;
+            saveSummaryStore();
+
+            const lastSummarized = store.lastSummarizedMesId ?? -1;
+
+            if (store.hideSummarizedHistory && lastSummarized >= 0) {
+                (async () => {
+                    await executeSlashCommand(`/unhide 0-${lastSummarized}`);
+                    const range = calcHideRange(lastSummarized);
+                    if (range) {
+                        await executeSlashCommand(`/hide ${range.start}-${range.end}`);
+                    }
+                    const { chat } = getContext();
+                    const totalFloors = Array.isArray(chat) ? chat.length : 0;
+                    sendFrameBaseData(store, totalFloors);
+                })();
+            } else {
+                const { chat } = getContext();
+                const totalFloors = Array.isArray(chat) ? chat.length : 0;
+                sendFrameBaseData(store, totalFloors);
+            }
+            break;
+        }
     }
 }
 
@@ -558,6 +613,7 @@ function sendFrameBaseData(store, totalFloors) {
             hiddenCount,
         },
         hideSummarized: store?.hideSummarizedHistory || false,
+        keepVisibleCount: store?.keepVisibleCount ?? 3,
     });
 }
 
@@ -721,11 +777,18 @@ function getSummaryPanelConfig() {
         const raw = localStorage.getItem('summary_panel_config');
         if (!raw) return defaults;
         const parsed = JSON.parse(raw);
-        return {
+        
+        const result = {
             api: { ...defaults.api, ...(parsed.api || {}) },
             gen: { ...defaults.gen, ...(parsed.gen || {}) },
             trigger: { ...defaults.trigger, ...(parsed.trigger || {}) },
         };
+        
+        if (result.trigger.timing === 'manual') {
+            result.trigger.enabled = false;
+        }
+        
+        return result;
     } catch {
         return defaults;
     }
@@ -876,10 +939,12 @@ async function maybeAutoRunSummary(reason) {
 
     const cfgAll = getSummaryPanelConfig();
     const trig = cfgAll.trigger || {};
+    
+    if (trig.timing === 'manual') return;
     if (!trig.enabled) return;
     if (trig.timing === 'after_ai' && reason !== 'after_ai') return;
     if (trig.timing === 'before_user' && reason !== 'before_user') return;
-    if (trig.timing === 'manual') return;
+    
     if (isSummaryGenerating()) return;
 
     const store = getSummaryStore();
@@ -976,29 +1041,34 @@ function clearSummaryExtensionPrompt() {
 
 function handleChatChanged() {
     const { chat } = getContext();
-    lastKnownChatLength = Array.isArray(chat) ? chat.length : 0;
+    const newLength = Array.isArray(chat) ? chat.length : 0;
+
+    rollbackSummaryIfNeeded();
+
+    lastKnownChatLength = newLength;
     initButtonsForAll();
     updateSummaryExtensionPrompt();
 
     const store = getSummaryStore();
     const lastSummarized = store?.lastSummarizedMesId ?? -1;
-    if (lastSummarized >= 0 && store?.hideSummarizedHistory) {
+
+    if (lastSummarized >= 0 && store?.hideSummarizedHistory === true) {
         const range = calcHideRange(lastSummarized);
         if (range) executeSlashCommand(`/hide ${range.start}-${range.end}`);
     }
 
     if (frameReady) {
-        sendFrameBaseData(store, lastKnownChatLength);
-        sendFrameFullData(store, lastKnownChatLength);
+        sendFrameBaseData(store, newLength);
+        sendFrameFullData(store, newLength);
     }
 }
 
 function handleMessageDeleted() {
     const { chat } = getContext();
     const currentLength = Array.isArray(chat) ? chat.length : 0;
-    if (currentLength < lastKnownChatLength) {
-        rollbackSummaryIfNeeded();
-    }
+
+    rollbackSummaryIfNeeded();
+
     lastKnownChatLength = currentLength;
     updateSummaryExtensionPrompt();
 }
@@ -1021,7 +1091,11 @@ function handleMessageSent() {
 
 function handleMessageUpdated() {
     const { chat } = getContext();
-    lastKnownChatLength = Array.isArray(chat) ? chat.length : 0;
+    const currentLength = Array.isArray(chat) ? chat.length : 0;
+
+    rollbackSummaryIfNeeded();
+
+    lastKnownChatLength = currentLength;
     updateSummaryExtensionPrompt();
     initButtonsForAll();
 }
@@ -1050,7 +1124,7 @@ function registerEvents() {
         getSize: () => pendingFrameMessages.length,
         getBytes: () => {
             try {
-                return JSON.stringify(pendingFrameMessages || []).length * 2; // UTF-16
+                return JSON.stringify(pendingFrameMessages || []).length * 2;
             } catch {
                 return 0;
             }
@@ -1061,15 +1135,18 @@ function registerEvents() {
         },
     });
 
+    const { chat } = getContext();
+    lastKnownChatLength = Array.isArray(chat) ? chat.length : 0;
+
     initButtonsForAll();
 
     events.on(event_types.CHAT_CHANGED, () => setTimeout(handleChatChanged, 80));
-    events.on(event_types.MESSAGE_DELETED, () => setTimeout(handleMessageDeleted, 100));
+    events.on(event_types.MESSAGE_DELETED, () => setTimeout(handleMessageDeleted, 50));
     events.on(event_types.MESSAGE_RECEIVED, () => setTimeout(handleMessageReceived, 150));
     events.on(event_types.MESSAGE_SENT, () => setTimeout(handleMessageSent, 150));
-    events.on(event_types.MESSAGE_SWIPED, () => setTimeout(handleMessageUpdated, 150));
-    events.on(event_types.MESSAGE_UPDATED, () => setTimeout(handleMessageUpdated, 150));
-    events.on(event_types.MESSAGE_EDITED, () => setTimeout(handleMessageUpdated, 150));
+    events.on(event_types.MESSAGE_SWIPED, () => setTimeout(handleMessageUpdated, 100));
+    events.on(event_types.MESSAGE_UPDATED, () => setTimeout(handleMessageUpdated, 100));
+    events.on(event_types.MESSAGE_EDITED, () => setTimeout(handleMessageUpdated, 100));
     events.on(event_types.USER_MESSAGE_RENDERED, data => setTimeout(() => handleMessageRendered(data), 50));
     events.on(event_types.CHARACTER_MESSAGE_RENDERED, data => setTimeout(() => handleMessageRendered(data), 50));
 }

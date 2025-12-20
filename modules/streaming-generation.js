@@ -1,7 +1,8 @@
-import { eventSource, event_types, main_api, chat, name1, getRequestHeaders, extractMessageFromData, activateSendButtons, deactivateSendButtons } from "../../../../../script.js";
-import { getStreamingReply, chat_completion_sources, oai_settings, promptManager, getChatCompletionModel, tryParseStreamingError } from "../../../../openai.js";
+// 删掉：getRequestHeaders, extractMessageFromData, getStreamingReply, tryParseStreamingError, getEventSourceStream
+
+import { eventSource, event_types, chat, name1, activateSendButtons, deactivateSendButtons } from "../../../../../script.js";
+import { chat_completion_sources, oai_settings, promptManager, getChatCompletionModel } from "../../../../openai.js";
 import { ChatCompletionService } from "../../../../custom-request.js";
-import { getEventSourceStream } from "../../../../sse-stream.js";
 import { getContext } from "../../../../st-context.js";
 import { SlashCommandParser } from "../../../../slash-commands/SlashCommandParser.js";
 import { SlashCommand } from "../../../../slash-commands/SlashCommand.js";
@@ -239,85 +240,55 @@ class StreamingGeneration {
             if (oai_settings?.custom_exclude_body) body.custom_exclude_body = oai_settings.custom_exclude_body;
         }
         if (stream) {
-            const response = await fetch('/api/backends/chat-completions/generate', {
-                method: 'POST', body: JSON.stringify(body),
-                headers: getRequestHeaders(), signal: abortSignal,
-            });
-            if (!response.ok) {
-                const txt = await response.text().catch(() => '');
-                tryParseStreamingError(response, txt);
-                throw new Error(txt || `后端响应错误: ${response.status}`);
-            }
-            const eventStream = getEventSourceStream();
-            response.body.pipeThrough(eventStream);
-            const reader = eventStream.readable.getReader();
-            const state = { reasoning: '', image: '' };
-            let text = '';
+            // 流式：走 ChatCompletionService 统一链路
+            const payload = ChatCompletionService.createRequestData(body);
+            const streamFactory = await ChatCompletionService.sendRequest(payload, false, abortSignal);
+            const generator = (typeof streamFactory === 'function') ? streamFactory() : streamFactory;
+
             return (async function* () {
+                let last = '';
                 try {
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) return;
-                        
-                        if (!value?.data) continue;
-                        
-                        const rawData = value.data;
-                        if (rawData === '[DONE]') return;
-                        
-                        tryParseStreamingError(response, rawData);
-                        
-                        let parsed;
-                        try {
-                            parsed = JSON.parse(rawData);
-                        } catch (e) {
-                            console.warn('[StreamingGeneration] JSON parse error:', e, 'rawData:', rawData);
-                            continue;
-                        }
-                        
-                        // 提取回复内容
-                        const chunk = getStreamingReply(parsed, state, { chatCompletionSource: source });
+                    for await (const item of (generator || [])) {
+                        if (abortSignal?.aborted) return;
 
-                        let chunkText = '';
-                        if (chunk) {
-                            chunkText = typeof chunk === 'string' ? chunk : String(chunk);
+                        let accumulated = '';
+                        if (typeof item === 'string') {
+                            accumulated = item;
+                        } else if (item && typeof item === 'object') {
+                            accumulated = (typeof item.text === 'string' ? item.text : '') ||
+                                          (typeof item.content === 'string' ? item.content : '') || '';
                         }
+                        if (!accumulated && item && typeof item === 'object') {
+                            const rc = item?.reasoning_content || item?.reasoning;
+                            if (typeof rc === 'string') accumulated = rc;
+                        }
+                        if (!accumulated) continue;
 
-                        // content 为空时回退到 reasoning_content
-                        if (!chunkText) {
-                            const delta = parsed?.choices?.[0]?.delta;
-                            const rc = delta?.reasoning_content ?? parsed?.reasoning_content;
-                            if (rc) {
-                                chunkText = typeof rc === 'string' ? rc : String(rc);
-                            }
+                        if (accumulated.startsWith(last)) {
+                            last = accumulated;
+                        } else {
+                            last += accumulated;
                         }
-
-                        if (chunkText) {
-                            text += chunkText;
-                            yield text;
-                        }
+                        yield last;
                     }
                 } catch (err) {
-                    if (err?.name !== 'AbortError') {
-                        console.error('[StreamingGeneration] Stream error:', err);
-                        try { xbLog.error('streamingGeneration', 'Stream error', err); } catch {}
-                        throw err;
-                    }
-                } finally {
-                    try { reader.releaseLock?.(); } catch {}
+                    if (err?.name === 'AbortError') return;
+                    console.error('[StreamingGeneration] Stream error:', err);
+                    try { xbLog.error('streamingGeneration', 'Stream error', err); } catch {}
+                    throw err;
                 }
             })();
         } else {
+            // 非流式：extract=true，返回抽取后的结果
             const payload = ChatCompletionService.createRequestData(body);
-            const json = await ChatCompletionService.sendRequest(payload, false, abortSignal);
-            let result = String(extractMessageFromData(json, ChatCompletionService.TYPE) || '');
+            const extracted = await ChatCompletionService.sendRequest(payload, true, abortSignal);
             
-            // content 为空时回退到 reasoning_content
-            if (!result) {
-                const msg = json?.choices?.[0]?.message;
-                const rc = msg?.reasoning_content ?? json?.reasoning_content;
-                if (rc) {
-                    result = typeof rc === 'string' ? rc : String(rc);
-                }
+            let result = String((extracted && extracted.content) || '');
+            
+            // reasoning_content 兜底
+            if (!result && extracted && typeof extracted === 'object') {
+                const rc = extracted?.reasoning_content || extracted?.reasoning;
+                if (typeof rc === 'string') result = rc;
             }
             
             return result;

@@ -368,11 +368,19 @@ function installWIHiddenTagStripper() {
     if (evtTypes?.GENERATION_ENDED) {
         events?.on(evtTypes.GENERATION_ENDED, async () => {
             try {
-                getContext()?.setExtensionPrompt?.(LWB_VAREVENT_PROMPT_KEY, '', 0, 0, false);
-                await executeQueuedVareventJsAfterTurn();
+                getContext()?.setExtensionPrompt?.(LWB_VAREVENT_PROMPT_KEY, '', 0, 0, false);      
+                const ctx = getContext();
+                const chat = ctx?.chat || [];
+                const lastMsg = chat[chat.length - 1];    
+                if (lastMsg && !lastMsg.is_user) {
+                    await executeQueuedVareventJsAfterTurn();
+                } else {
+
+                    drainPendingVareventBlocks();
+                }
             } catch {}
         });
-    }
+    }    
     if (evtTypes?.CHAT_CHANGED) {
         events?.on(evtTypes.CHAT_CHANGED, () => {
             try {

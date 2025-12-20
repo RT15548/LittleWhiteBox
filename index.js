@@ -1,6 +1,6 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// 导入
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Imports
+// ===========================================================================
 
 import { extension_settings, getContext } from "../../../extensions.js";
 import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } from "../../../../script.js";
@@ -35,9 +35,9 @@ import { initNovelDraw, cleanupNovelDraw } from "./modules/novel-draw/novel-draw
 import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 常量与默认设置
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Constants and Default Settings
+// ===========================================================================
 
 const MODULE_NAME = "xiaobaix-memory";
 
@@ -67,9 +67,9 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
 const settings = extension_settings[EXT_ID];
 if (settings.dynamicPrompt && !settings.fourthWall) settings.fourthWall = settings.dynamicPrompt;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 废弃数据清理
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Deprecated Data Cleanup
+// ===========================================================================
 
 const DEPRECATED_KEYS = [
     'characterUpdater',
@@ -87,19 +87,19 @@ function cleanupDeprecatedData() {
         if (key in s) {
             delete s[key];
             cleaned = true;
-            console.log(`[LittleWhiteBox] 清理废弃数据: ${key}`);
+            console.log(`[LittleWhiteBox] Cleaned deprecated data: ${key}`);
         }
     }
     
     if (cleaned) {
         saveSettingsDebounced();
-        console.log('[LittleWhiteBox] 废弃数据清理完成');
+        console.log('[LittleWhiteBox] Deprecated data cleanup complete');
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 状态变量
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// State Variables
+// ===========================================================================
 
 let isXiaobaixEnabled = settings.enabled;
 let moduleCleanupFunctions = new Map();
@@ -117,9 +117,9 @@ window.testRemoveUpdateUI = () => {
     removeAllUpdateNotices();
 };
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 更新检查
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Update Check
+// ===========================================================================
 
 async function checkLittleWhiteBoxUpdate() {
     try {
@@ -148,16 +148,16 @@ async function updateLittleWhiteBoxExtension() {
         });
         if (!response.ok) {
             const text = await response.text();
-            toastr.error(text || response.statusText, '小白X更新失败', { timeOut: 5000 });
+            toastr.error(text || response.statusText, 'LittleWhiteBox update failed', { timeOut: 5000 });
             return false;
         }
         const data = await response.json();
-        const message = data.isUpToDate ? '小白X已是最新版本' : `小白X已更新`;
+        const message = data.isUpToDate ? 'LittleWhiteBox is up to date' : `LittleWhiteBox updated`;
         const title = data.isUpToDate ? '' : '请刷新页面以应用更新';
         toastr.success(message, title);
         return true;
     } catch (error) {
-        toastr.error('更新过程中发生错误', '小白X更新失败');
+        toastr.error('Error during update', 'LittleWhiteBox update failed');
         return false;
     }
 }
@@ -213,7 +213,7 @@ function addUpdateDownloadButton() {
     const updateButton = document.createElement('div');
     updateButton.id = 'littlewhitebox-update-extension';
     updateButton.className = 'menu_button fa-solid fa-cloud-arrow-down interactable has-update';
-    updateButton.title = '下载并安装小白x的更新';
+    updateButton.title = '下载并安装小白X的更新';
     updateButton.tabIndex = 0;
     try {
         totalSwitchDivider.style.display = 'flex';
@@ -246,9 +246,9 @@ async function performExtensionUpdateCheck() {
     } catch (error) {}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 模块清理注册
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Module Cleanup Registration
+// ===========================================================================
 
 function registerModuleCleanup(moduleName, cleanupFunction) {
     moduleCleanupFunctions.set(moduleName, cleanupFunction);
@@ -295,9 +295,9 @@ function cleanupAllResources() {
     removeSkeletonStyles();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 工具函数
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Utility Functions
+// ===========================================================================
 
 async function waitForElement(selector, root = document, timeout = 10000) {
     const start = Date.now();
@@ -309,9 +309,9 @@ async function waitForElement(selector, root = document, timeout = 10000) {
     return null;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 设置控件禁用/启用
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Settings Controls Toggle
+// ===========================================================================
 
 function toggleSettingsControls(enabled) {
     const controls = [
@@ -360,11 +360,11 @@ function setActiveClass(enable) {
     document.body.classList.toggle('xiaobaix-active', !!enable);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 功能总开关切换
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Toggle All Features
+// ===========================================================================
 
-function toggleAllFeatures(enabled) {
+async function toggleAllFeatures(enabled) {
     if (enabled) {
         if (settings.renderEnabled !== false) {
             ensureHideCodeStyle(true);
@@ -376,8 +376,10 @@ function toggleAllFeatures(enabled) {
         initRenderer();
         try { initVarCommands(); } catch (e) {}
         try { initVareventEditor(); } catch (e) {}
+        if (extension_settings[EXT_ID].tasks?.enabled) {
+            await initTasks();
+        }
         const moduleInits = [
-            { condition: extension_settings[EXT_ID].tasks?.enabled, init: initTasks },
             { condition: extension_settings[EXT_ID].scriptAssistant?.enabled, init: initScriptAssistant },
             { condition: extension_settings[EXT_ID].immersive?.enabled, init: initImmersiveMode },
             { condition: extension_settings[EXT_ID].templateEditor?.enabled, init: initTemplateEditor },
@@ -441,9 +443,9 @@ function toggleAllFeatures(enabled) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 设置面板初始化
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Settings Panel Setup
+// ===========================================================================
 
 async function setupSettings() {
     try {
@@ -455,20 +457,20 @@ async function setupSettings() {
 
         setupDebugButtonInSettings();
 
-        $("#xiaobaix_enabled").prop("checked", settings.enabled).on("change", function () {
+        $("#xiaobaix_enabled").prop("checked", settings.enabled).on("change", async function () {
             const wasEnabled = settings.enabled;
             settings.enabled = $(this).prop("checked");
             isXiaobaixEnabled = settings.enabled;
             window.isXiaobaixEnabled = isXiaobaixEnabled;
             saveSettingsDebounced();
             if (settings.enabled !== wasEnabled) {
-                toggleAllFeatures(settings.enabled);
+                await toggleAllFeatures(settings.enabled);
             }
         });
 
         if (!settings.enabled) toggleSettingsControls(false);
 
-        $("#xiaobaix_sandbox").prop("checked", settings.sandboxMode).on("change", function () {
+        $("#xiaobaix_sandbox").prop("checked", settings.sandboxMode).on("change", async function () {
             if (!isXiaobaixEnabled) return;
             settings.sandboxMode = $(this).prop("checked");
             saveSettingsDebounced();
@@ -491,7 +493,7 @@ async function setupSettings() {
         ];
 
         moduleConfigs.forEach(({ id, key, init }) => {
-            $(`#${id}`).prop("checked", settings[key]?.enabled || false).on("change", function () {
+            $(`#${id}`).prop("checked", settings[key]?.enabled || false).on("change", async function () {
                 if (!isXiaobaixEnabled) return;
                 const enabled = $(this).prop('checked');
                 if (!enabled && key === 'fourthWall') {
@@ -508,7 +510,7 @@ async function setupSettings() {
                     moduleCleanupFunctions.get(key)();
                     moduleCleanupFunctions.delete(key);
                 }
-                if (enabled && init) init();
+                if (enabled && init) await init();
                 if (key === 'storySummary') {
                     $(document).trigger('xiaobaix:storySummary:toggle', [enabled]);
                 }
@@ -525,13 +527,13 @@ async function setupSettings() {
             }
         });
 
-        $("#xiaobaix_use_blob").prop("checked", !!settings.useBlob).on("change", function () {
+        $("#xiaobaix_use_blob").prop("checked", !!settings.useBlob).on("change", async function () {
             if (!isXiaobaixEnabled) return;
             settings.useBlob = $(this).prop("checked");
             saveSettingsDebounced();
         });
 
-        $("#Wrapperiframe").prop("checked", !!settings.wrapperIframe).on("change", function () {
+        $("#Wrapperiframe").prop("checked", !!settings.wrapperIframe).on("change", async function () {
             if (!isXiaobaixEnabled) return;
             settings.wrapperIframe = $(this).prop("checked");
             saveSettingsDebounced();
@@ -542,7 +544,7 @@ async function setupSettings() {
             } catch (e) {}
         });
 
-        $("#xiaobaix_render_enabled").prop("checked", settings.renderEnabled !== false).on("change", function () {
+        $("#xiaobaix_render_enabled").prop("checked", settings.renderEnabled !== false).on("change", async function () {
             if (!isXiaobaixEnabled) return;
             const wasEnabled = settings.renderEnabled !== false;
             settings.renderEnabled = $(this).prop("checked");
@@ -592,8 +594,8 @@ async function setupSettings() {
                 variablesCore: 'xiaobaix_variables_core_enabled',
                 novelDraw: 'xiaobaix_novel_draw_enabled'
             };
-            const ON = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore'];
-            const OFF = ['recorded', 'preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'novelDraw'];
+            const ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary', 'recorded'];
+            const OFF = ['preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw'];
             function setChecked(id, val) {
                 const el = document.getElementById(id);
                 if (el) {
@@ -646,9 +648,9 @@ function setupDebugButtonInSettings() {
     } catch (e) {}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 菜单标签切换
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Menu Tabs
+// ===========================================================================
 
 function setupMenuTabs() {
     $(document).on('click', '.menu-tab', function () {
@@ -666,9 +668,9 @@ function setupMenuTabs() {
     }, 300);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 全局导出
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Global Exports
+// ===========================================================================
 
 window.processExistingMessages = processExistingMessages;
 window.renderHtmlInIframe = renderHtmlInIframe;
@@ -676,13 +678,13 @@ window.registerModuleCleanup = registerModuleCleanup;
 window.updateLittleWhiteBoxExtension = updateLittleWhiteBoxExtension;
 window.removeAllUpdateNotices = removeAllUpdateNotices;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 入口初始化
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
+// Entry Point
+// ===========================================================================
 
 jQuery(async () => {
     try {
-    	   cleanupDeprecatedData();
+        cleanupDeprecatedData();
         isXiaobaixEnabled = settings.enabled;
         window.isXiaobaixEnabled = isXiaobaixEnabled;
 
@@ -729,8 +731,11 @@ jQuery(async () => {
             try { initVarCommands(); } catch (e) {}
             try { initVareventEditor(); } catch (e) {}
 
+            if (settings.tasks?.enabled) {
+                try { await initTasks(); } catch (e) { console.error('[Tasks] Init failed:', e); }
+            }
+
             const moduleInits = [
-                { condition: settings.tasks?.enabled, init: initTasks },
                 { condition: settings.scriptAssistant?.enabled, init: initScriptAssistant },
                 { condition: settings.immersive?.enabled, init: initImmersiveMode },
                 { condition: settings.templateEditor?.enabled, init: initTemplateEditor },

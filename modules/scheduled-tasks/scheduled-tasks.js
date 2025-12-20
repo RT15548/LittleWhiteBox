@@ -16,6 +16,7 @@ import { executeSlashCommand } from "../../core/slash-command.js";
 import { EXT_ID } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
+import { TasksStorage } from "../../core/server-storage.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量和默认值
@@ -27,80 +28,72 @@ const CONFIG = { MAX_PROCESSED: 20, MAX_COOLDOWN: 10, CLEANUP_INTERVAL: 30000, T
 const events = createModuleEvents('scheduledTasks');
 
 // ═══════════════════════════════════════════════════════════════════════════
-// IndexedDB 脚本存储
+// 数据迁移
 // ═══════════════════════════════════════════════════════════════════════════
 
-const TaskScriptDB = {
-    dbName: 'LittleWhiteBox_TaskScripts',
-    storeName: 'scripts',
-    _db: null,
-    _cache: new Map(),
+async function migrateToServerStorage() {
+    const FLAG = 'LWB_tasks_migrated_server_v1';
+    if (localStorage.getItem(FLAG)) return;
 
-    async open() {
-        if (this._db) return this._db;
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, 1);
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => { this._db = request.result; resolve(this._db); };
-            request.onupgradeneeded = (e) => {
-                const db = e.target.result;
-                if (!db.objectStoreNames.contains(this.storeName)) {
-                    db.createObjectStore(this.storeName);
-                }
-            };
-        });
-    },
+    let count = 0;
 
-    async get(taskId) {
-        if (!taskId) return '';
-        if (this._cache.has(taskId)) return this._cache.get(taskId);
-        try {
-            const db = await this.open();
-            return new Promise((resolve) => {
-                const tx = db.transaction(this.storeName, 'readonly');
-                const request = tx.objectStore(this.storeName).get(taskId);
-                request.onerror = () => resolve('');
-                request.onsuccess = () => {
-                    const val = request.result || '';
-                    this._cache.set(taskId, val);
-                    resolve(val);
-                };
-            });
-        } catch { return ''; }
-    },
-
-    async set(taskId, commands) {
-        if (!taskId) return;
-        this._cache.set(taskId, commands || '');
-        try {
-            const db = await this.open();
-            return new Promise((resolve) => {
-                const tx = db.transaction(this.storeName, 'readwrite');
-                tx.objectStore(this.storeName).put(commands || '', taskId);
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => resolve();
-            });
-        } catch {}
-    },
-
-    async delete(taskId) {
-        if (!taskId) return;
-        this._cache.delete(taskId);
-        try {
-            const db = await this.open();
-            return new Promise((resolve) => {
-                const tx = db.transaction(this.storeName, 'readwrite');
-                tx.objectStore(this.storeName).delete(taskId);
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => resolve();
-            });
-        } catch {}
-    },
-
-    clearCache() {
-        this._cache.clear();
+    const settings = getSettings();
+    for (const task of (settings.globalTasks || [])) {
+        if (!task) continue;
+        if (!task.id) task.id = uuidv4();
+        if (task.commands) {
+            await TasksStorage.set(task.id, task.commands);
+            delete task.commands;
+            count++;
+        }
     }
-};
+    if (count > 0) saveSettingsDebounced();
+
+    await new Promise((resolve) => {
+        const req = indexedDB.open('LittleWhiteBox_TaskScripts');
+        req.onerror = () => resolve();
+        req.onsuccess = async (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains('scripts')) {
+                db.close();
+                resolve();
+                return;
+            }
+            try {
+                const tx = db.transaction('scripts', 'readonly');
+                const store = tx.objectStore('scripts');
+                const keys = await new Promise(r => {
+                    const req = store.getAllKeys();
+                    req.onsuccess = () => r(req.result || []);
+                    req.onerror = () => r([]);
+                });
+                const vals = await new Promise(r => {
+                    const req = store.getAll();
+                    req.onsuccess = () => r(req.result || []);
+                    req.onerror = () => r([]);
+                });
+                for (let i = 0; i < keys.length; i++) {
+                    if (keys[i] && vals[i]) {
+                        await TasksStorage.set(keys[i], vals[i]);
+                        count++;
+                    }
+                }
+            } catch (err) {
+                console.warn('[Tasks] IndexedDB 迁移出错:', err);
+            }
+            db.close();
+            indexedDB.deleteDatabase('LittleWhiteBox_TaskScripts');
+            resolve();
+        };
+    });
+
+    if (count > 0) {
+        await TasksStorage.saveNow();
+        console.log(`[Tasks] 已迁移 ${count} 个脚本到服务器`);
+    }
+
+    localStorage.setItem(FLAG, 'true');
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -144,7 +137,7 @@ async function allTasksFull() {
     const globalMeta = getSettings().globalTasks || [];
     const globalTasks = await Promise.all(globalMeta.map(async (task) => ({
         ...task,
-        commands: await TaskScriptDB.get(task.id)
+        commands: await TasksStorage.get(task.id)
     })));
     return [
         ...globalTasks.map(mapTiming),
@@ -156,7 +149,7 @@ async function allTasksFull() {
 async function getTaskWithCommands(task, scope) {
     if (!task) return task;
     if (scope === 'global' && task.id && task.commands === undefined) {
-        return { ...task, commands: await TaskScriptDB.get(task.id) };
+        return { ...task, commands: await TasksStorage.get(task.id) };
     }
     return task;
 }
@@ -414,23 +407,22 @@ const getTaskListByScope = (scope) => {
 };
 
 async function persistTaskListByScope(scope, tasks) {
-    if (scope === 'character') {
-        await saveCharacterTasks(tasks);
-        return;
-    }
-    if (scope === 'preset') {
-        await savePresetTasks(tasks);
-        return;
-    }
-    
+    if (scope === 'character') return await saveCharacterTasks(tasks);
+    if (scope === 'preset') return await savePresetTasks(tasks);
+
     const metaOnly = [];
     for (const task of tasks) {
-        if (task.id) {
-            await TaskScriptDB.set(task.id, task.commands || '');
+        if (!task) continue;
+        if (!task.id) task.id = uuidv4();
+
+        if (Object.prototype.hasOwnProperty.call(task, 'commands')) {
+            await TasksStorage.set(task.id, String(task.commands ?? ''));
         }
+
         const { commands, ...meta } = task;
         metaOnly.push(meta);
     }
+
     getSettings().globalTasks = metaOnly;
     saveSettingsDebounced();
 }
@@ -442,7 +434,7 @@ async function removeTaskByScope(scope, taskId, fallbackIndex = -1) {
     
     const task = list[idx];
     if (scope === 'global' && task?.id) {
-        await TaskScriptDB.delete(task.id);
+        await TasksStorage.delete(task.id);
     }
     
     list.splice(idx, 1);
@@ -463,7 +455,7 @@ CacheRegistry.register('scheduledTasks', {
             const b = state.taskLastExecutionTime?.size || 0;
             const c = state.dynamicCallbacks?.size || 0;
             const d = __taskRunMap.size || 0;
-            const e = TaskScriptDB._cache?.size || 0;
+            const e = TasksStorage.getCacheSize() || 0;
             return a + b + c + d + e;
         } catch { return 0; }
     },
@@ -489,7 +481,7 @@ CacheRegistry.register('scheduledTasks', {
                 total += (entry?.timers?.size || 0) * 8;
                 total += (entry?.intervals?.size || 0) * 8;
             });
-            addMap(TaskScriptDB._cache, addStr);
+            total += TasksStorage.getCacheBytes();
             return total;
         } catch { return 0; }
     },
@@ -497,7 +489,7 @@ CacheRegistry.register('scheduledTasks', {
         try {
             state.processedMessagesSet?.clear?.();
             state.taskLastExecutionTime?.clear?.();
-            TaskScriptDB.clearCache();
+            TasksStorage.clearCache();
             const s = getSettings();
             if (s?.processedMessages) s.processedMessages = [];
             saveSettingsDebounced();
@@ -516,7 +508,7 @@ CacheRegistry.register('scheduledTasks', {
                 cooldown: state.taskLastExecutionTime?.size || 0,
                 dynamicCallbacks: state.dynamicCallbacks?.size || 0,
                 runningSingleInstances: __taskRunMap.size || 0,
-                scriptCache: TaskScriptDB._cache?.size || 0,
+                scriptCache: TasksStorage.getCacheSize() || 0,
             };
         } catch { return {}; }
     },
@@ -1024,7 +1016,7 @@ async function onChatChanged(chatId) {
         isCommandGenerated: false
     });
     state.taskLastExecutionTime.clear();
-    TaskScriptDB.clearCache();
+    TasksStorage.clearCache();
 
     requestAnimationFrame(() => {
         state.processedMessagesSet.clear();
@@ -1081,18 +1073,26 @@ function createTaskItemSimple(task, index, scope = 'global') {
         before_user: '用户前',
         any_message: '任意对话',
         initialization: '角色卡初始化',
+        character_init: '角色卡初始化',
         plugin_init: '插件初始化',
         only_this_floor: '仅该楼层',
         chat_changed: '切换聊天后'
     }[task.triggerTiming] || 'AI后';
 
     let displayName;
-    if (task.interval === 0) displayName = `${task.name} (手动触发)`;
-    else if (task.triggerTiming === 'initialization' || task.triggerTiming === 'character_init') displayName = `${task.name} (角色卡初始化)`;
-    else if (task.triggerTiming === 'plugin_init') displayName = `${task.name} (插件初始化)`;
-    else if (task.triggerTiming === 'chat_changed') displayName = `${task.name} (切换聊天后)`;
-    else if (task.triggerTiming === 'only_this_floor') displayName = `${task.name} (仅第${task.interval}${floorTypeText})`;
-    else displayName = `${task.name} (每${task.interval}${floorTypeText}·${triggerTimingText})`;
+    if (task.interval === 0) {
+        displayName = `${task.name} (手动触发)`;
+    } else if (task.triggerTiming === 'initialization' || task.triggerTiming === 'character_init') {
+        displayName = `${task.name} (角色卡初始化)`;
+    } else if (task.triggerTiming === 'plugin_init') {
+        displayName = `${task.name} (插件初始化)`;
+    } else if (task.triggerTiming === 'chat_changed') {
+        displayName = `${task.name} (切换聊天后)`;
+    } else if (task.triggerTiming === 'only_this_floor') {
+        displayName = `${task.name} (仅第${task.interval}${floorTypeText})`;
+    } else {
+        displayName = `${task.name} (每${task.interval}${floorTypeText}·${triggerTimingText})`;
+    }
 
     const taskElement = $('#task_item_template').children().first().clone();
     taskElement.attr({ id: task.id, 'data-index': index, 'data-type': taskType });
@@ -1293,7 +1293,7 @@ async function showTaskEditor(task = null, isEdit = false, scope = 'global') {
     const sourceList = getTaskListByScope(initialScope);
     
     if (task && scope === 'global' && task.id) {
-        task = { ...task, commands: await TaskScriptDB.get(task.id) };
+        task = { ...task, commands: await TasksStorage.get(task.id) };
     }
     
     state.currentEditingTask = task;
@@ -1601,7 +1601,7 @@ async function showCloudTasksModal() {
 function createCloudTaskItem(taskInfo) {
     const item = $('#cloud_task_item_template').children().first().clone();
     item.find('.cloud-task-name').text(taskInfo.name || '未命名任务');
-    item.find('.cloud-task-intro').text(taskInfo.简介 || '无简介');
+    item.find('.cloud-task-intro').text(taskInfo.简介 || taskInfo.intro || '无简介');
     item.find('.cloud-task-download').on('click', async function () {
         $(this).prop('disabled', true).find('i').removeClass('fa-download').addClass('fa-spinner fa-spin');
         try {
@@ -1631,7 +1631,7 @@ async function exportGlobalTasks() {
     
     const tasks = await Promise.all(metaList.map(async (meta) => ({
         ...meta,
-        commands: await TaskScriptDB.get(meta.id)
+        commands: await TasksStorage.get(meta.id)
     })));
     
     const fileName = `global_tasks_${new Date().toISOString().split('T')[0]}.json`;
@@ -1645,7 +1645,7 @@ async function exportSingleTask(index, scope) {
     
     let task = list[index];
     if (scope === 'global' && task.id) {
-        task = { ...task, commands: await TaskScriptDB.get(task.id) };
+        task = { ...task, commands: await TasksStorage.get(task.id) };
     }
     
     const fileName = `${scope}_task_${task?.name || 'unnamed'}_${new Date().toISOString().split('T')[0]}.json`;
@@ -1754,7 +1754,7 @@ function getMemoryUsage() {
         taskCooldowns: state.taskLastExecutionTime.size,
         globalTasks: getSettings().globalTasks.length,
         characterTasks: getCharacterTasks().length,
-        scriptCache: TaskScriptDB._cache.size,
+        scriptCache: TasksStorage.getCacheSize(),
         maxProcessedMessages: CONFIG.MAX_PROCESSED,
         maxCooldownEntries: CONFIG.MAX_COOLDOWN
     };
@@ -1792,7 +1792,7 @@ function cleanup() {
         state.cleanupTimer = null;
     }
     state.taskLastExecutionTime.clear();
-    TaskScriptDB.clearCache();
+    TasksStorage.clearCache();
 
     try {
         if (state.dynamicCallbacks && state.dynamicCallbacks.size > 0) {
@@ -1865,11 +1865,11 @@ function cleanup() {
     async function setCommands(name, commands, opts = {}) {
         const { mode = 'replace', scope = 'all' } = opts;
         const hit = find(name, scope);
-        if (!hit) throw new Error(`任务未找到: ${name}`);
+        if (!hit) throw new Error(`找不到任务: ${name}`);
         
         let old = hit.task.commands || '';
         if (hit.scope === 'global' && hit.task.id) {
-            old = await TaskScriptDB.get(hit.task.id);
+            old = await TasksStorage.get(hit.task.id);
         }
         
         const body = String(commands ?? '');
@@ -1891,7 +1891,7 @@ function cleanup() {
 
     async function setProps(name, props, scope = 'all') {
         const hit = find(name, scope);
-        if (!hit) throw new Error(`任务未找到: ${name}`);
+        if (!hit) throw new Error(`找不到任务: ${name}`);
         Object.assign(hit.task, props || {});
         await persistTaskListByScope(hit.scope, hit.list);
         refreshTaskLists();
@@ -1900,10 +1900,10 @@ function cleanup() {
 
     async function exec(name) {
         const hit = find(name, 'all');
-        if (!hit) throw new Error(`任务未找到: ${name}`);
+        if (!hit) throw new Error(`找不到任务: ${name}`);
         let commands = hit.task.commands || '';
         if (hit.scope === 'global' && hit.task.id) {
-            commands = await TaskScriptDB.get(hit.task.id);
+            commands = await TasksStorage.get(hit.task.id);
         }
         return await executeCommands(commands, hit.task.name);
     }
@@ -1911,7 +1911,7 @@ function cleanup() {
     async function dump(scope = 'all') {
         const g = await Promise.all((getSettings().globalTasks || []).map(async t => ({
             ...structuredClone(t),
-            commands: await TaskScriptDB.get(t.id)
+            commands: await TasksStorage.get(t.id)
         })));
         const c = structuredClone(getCharacterTasks() || []);
         const p = structuredClone(getPresetTasks() || []);
@@ -2078,37 +2078,7 @@ function registerSlashCommands() {
             helpString: `设置任务属性。用法: /xbset status=on/off interval=数字 timing=时机 floorType=类型 任务名`
         }));
     } catch (error) {
-        console.error("Error registering slash commands:", error);
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 数据迁移
-// ═══════════════════════════════════════════════════════════════════════════
-
-async function migrateGlobalTasksToIndexedDB() {
-    const settings = getSettings();
-    const tasks = settings.globalTasks || [];
-    let migrated = false;
-
-    const metaOnly = [];
-    for (const task of tasks) {
-        if (!task || !task.id) continue;
-
-        if (task.commands !== undefined && task.commands !== '') {
-            await TaskScriptDB.set(task.id, task.commands);
-            console.log(`[Tasks] 迁移脚本: ${task.name} (${(String(task.commands).length / 1024).toFixed(1)}KB)`);
-            migrated = true;
-        }
-
-        const { commands, ...meta } = task;
-        metaOnly.push(meta);
-    }
-
-    if (migrated) {
-        settings.globalTasks = metaOnly;
-        saveSettingsDebounced();
-        console.log('[Tasks] 全局任务迁移完成');
+        console.error("注册斜杠命令时出错:", error);
     }
 }
 
@@ -2116,14 +2086,14 @@ async function migrateGlobalTasksToIndexedDB() {
 // 初始化
 // ═══════════════════════════════════════════════════════════════════════════
 
-function initTasks() {
+async function initTasks() {
     if (window.__XB_TASKS_INITIALIZED__) {
         console.log('[小白X任务] 已经初始化，跳过重复注册');
         return;
     }
     window.__XB_TASKS_INITIALIZED__ = true;
 
-    migrateGlobalTasksToIndexedDB();
+    await migrateToServerStorage();
     hydrateProcessedSetFromSettings();
     scheduleCleanup();
 

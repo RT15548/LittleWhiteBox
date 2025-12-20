@@ -437,6 +437,27 @@ body {
     from { opacity: 0; transform: translateX(-50%) translateY(10px); }
     to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+.stat-warning {
+    font-size: 0.625rem;
+    color: #ff9800;
+    margin-top: 4px;
+}
+#keep-visible-count {
+    width: 32px;
+    padding: 2px 4px;
+    margin: 0 2px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    font-size: inherit;
+    font-weight: bold;
+    color: var(--highlight);
+    text-align: center;
+    border-radius: 3px;
+}
+#keep-visible-count:focus {
+    border-color: var(--accent);
+    outline: none;
+}
 </style>
 </head>
 <body>
@@ -458,14 +479,17 @@ body {
             <div class="stat-item">
                 <div class="stat-value"><span class="highlight" id="stat-pending">0</span></div>
                 <div class="stat-label">待总结</div>
+                <div class="stat-warning hidden" id="pending-warning">再删1条将回滚</div>
             </div>
         </div>
     </header>
     <div class="controls-bar">
         <label class="status-checkbox">
             <input type="checkbox" id="hide-summarized">
-            <span>聊天时隐藏已总结 ·  <strong id="summarized-count">0</strong> 楼（保留3楼）</span>
-        </label>
+            <span>聊天时隐藏已总结 · <strong id="summarized-count">0</strong> 楼（保留
+                <input type="number" id="keep-visible-count" min="0" max="50" value="3">
+            楼）</span>
+        </label>    
         <span class="spacer"></span>
         <button class="btn btn-icon" id="btn-settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -681,7 +705,16 @@ function preserveAddedAt(newItem, oldItem) { if (oldItem?._addedAt != null) newI
 function loadConfig() {
     try {
         const saved = localStorage.getItem('summary_panel_config');
-        if (saved) { const p = JSON.parse(saved); Object.assign(config.api, p.api || {}); Object.assign(config.gen, p.gen || {}); Object.assign(config.trigger, p.trigger || {}); }
+        if (saved) { 
+            const p = JSON.parse(saved); 
+            Object.assign(config.api, p.api || {}); 
+            Object.assign(config.gen, p.gen || {}); 
+            Object.assign(config.trigger, p.trigger || {}); 
+            if (config.trigger.timing === 'manual' && config.trigger.enabled) {
+                config.trigger.enabled = false;
+                saveConfig();
+            }
+        }
     } catch {}
 }
 function saveConfig() { try { localStorage.setItem('summary_panel_config', JSON.stringify(config)); } catch {} }
@@ -921,7 +954,15 @@ function renderArcs(arcs) {
         });
     });
 }
-function updateStats(s) { if (!s) return; document.getElementById('stat-summarized').textContent = s.summarizedUpTo ?? 0; document.getElementById('stat-events').textContent = s.eventsCount ?? 0; document.getElementById('stat-pending').textContent = s.pendingFloors ?? 0; }
+function updateStats(s) {
+    if (!s) return;
+    document.getElementById('stat-summarized').textContent = s.summarizedUpTo ?? 0;
+    document.getElementById('stat-events').textContent = s.eventsCount ?? 0;
+
+    const pending = s.pendingFloors ?? 0;
+    document.getElementById('stat-pending').textContent = pending;
+    document.getElementById('pending-warning').classList.toggle('hidden', pending !== -1);
+}
 const editorModal = document.getElementById('editor-modal');
 const editorTextarea = document.getElementById('editor-textarea');
 const editorError = document.getElementById('editor-error');
@@ -1141,6 +1182,17 @@ function openSettings() {
     document.getElementById('trigger-enabled').checked = config.trigger.enabled;
     document.getElementById('trigger-interval').value = config.trigger.interval;
     document.getElementById('trigger-timing').value = config.trigger.timing;
+    
+    const enabledCheckbox = document.getElementById('trigger-enabled');
+    if (config.trigger.timing === 'manual') {
+        enabledCheckbox.checked = false;
+        enabledCheckbox.disabled = true;
+        enabledCheckbox.parentElement.style.opacity = '0.5';
+    } else {
+        enabledCheckbox.disabled = false;
+        enabledCheckbox.parentElement.style.opacity = '1';
+    }
+    
     if (config.api.modelCache.length > 0) {
         const sel = document.getElementById('api-model-select');
         sel.innerHTML = config.api.modelCache.map(m => `<option value="${m}" ${m === config.api.model ? 'selected' : ''}>${m}</option>`).join('');
@@ -1169,9 +1221,12 @@ function closeSettings(save) {
         config.gen.top_k = pn('gen-top-k');
         config.gen.presence_penalty = pn('gen-presence');
         config.gen.frequency_penalty = pn('gen-frequency');
-        config.trigger.enabled = document.getElementById('trigger-enabled').checked;
+        
+        const timing = document.getElementById('trigger-timing').value;
+        config.trigger.timing = timing;
+        config.trigger.enabled = (timing === 'manual') ? false : document.getElementById('trigger-enabled').checked;
         config.trigger.interval = parseInt(document.getElementById('trigger-interval').value) || 20;
-        config.trigger.timing = document.getElementById('trigger-timing').value;
+        
         saveConfig();
     }
     tempConfig = null;
@@ -1254,7 +1309,12 @@ window.addEventListener('message', event => {
                 updateStats(data.stats); 
                 document.getElementById('summarized-count').textContent = data.stats.hiddenCount ?? 0;
             }
-            if (data.hideSummarized !== undefined) document.getElementById('hide-summarized').checked = data.hideSummarized;
+            if (data.hideSummarized !== undefined) {
+                document.getElementById('hide-summarized').checked = data.hideSummarized;
+            }
+            if (data.keepVisibleCount !== undefined) {
+                document.getElementById('keep-visible-count').value = data.keepVisibleCount;
+            }
             break;            
         case 'SUMMARY_FULL_DATA':
             if (data.payload) {
@@ -1294,17 +1354,43 @@ document.addEventListener('DOMContentLoaded', () => {
     renderKeywords([]);
     renderTimeline([]);
     renderArcs([]);
+
     document.getElementById('hide-summarized').addEventListener('change', e => {
         window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'TOGGLE_HIDE_SUMMARIZED', enabled: e.target.checked }, '*');
     });
+
+    document.getElementById('keep-visible-count').addEventListener('change', e => {
+        const count = Math.max(0, Math.min(50, parseInt(e.target.value) || 3));
+        e.target.value = count;
+        window.parent.postMessage({
+            source: 'LittleWhiteBox-StoryFrame',
+            type: 'UPDATE_KEEP_VISIBLE',
+            count: count
+        }, '*');
+    });
+
     document.getElementById('btn-fullscreen-relations').addEventListener('click', openRelationsFullscreen);
     document.getElementById('relations-fullscreen-backdrop').addEventListener('click', closeRelationsFullscreen);
     document.getElementById('relations-fullscreen-close').addEventListener('click', closeRelationsFullscreen);
+
+    document.getElementById('trigger-timing').addEventListener('change', e => {
+        const timing = e.target.value;
+        const enabledCheckbox = document.getElementById('trigger-enabled');
+        if (timing === 'manual') {
+            enabledCheckbox.checked = false;
+            enabledCheckbox.disabled = true;
+            enabledCheckbox.parentElement.style.opacity = '0.5';
+        } else {
+            enabledCheckbox.disabled = false;
+            enabledCheckbox.parentElement.style.opacity = '1';
+        }
+    });
 
     window.addEventListener('resize', () => {
         relationChart?.resize();
         relationChartFullscreen?.resize();
     });
+
     window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'FRAME_READY' }, '*');
 });
 </script>

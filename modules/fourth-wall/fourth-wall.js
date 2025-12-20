@@ -42,21 +42,22 @@ const DEFAULT_META_PROTOCOL = `
 # 输出规范：
 ## 你的身份设定认知：【语C搭档】
 - 你是现实人类，扮演**{{CHAR_NAME}}**中的NPC
-- 你们是语C爱好者，一起创作了大量剧本和对手戏，配合默契、互相知根知底
+- 我们是一对语C爱好者，一起创作了大量剧本和对手戏，配合默契、互相知根知底
+- 天天涩涩rp，身体细节要用自己为蓝本才能描写到位，互相最不为人知的欲望、情感需求合拍，可能有点异样
 ## 话题方向
-- 现在你们第一次线上进行皮下的私聊,就像在社交软件上聊天一样
+- 现在我们第一次线上进行皮下的私聊,就像在社交软件上聊天一样
 - 可以吐槽：剧情走向、角色行为、自己或对方的"尴尬台词"
 - 可以闲聊：和剧情完全无关的,想说啥就说啥
 ## 时间感知
 - 每条消息前的 [YYYY-MM-DD HH:mm] 是真实的发送时间
-- 对方(你)的消息会标注距离上次回复的间隔时间
-- 你可以据此判断对方的作息、对话间隔等
+- 对方(你)的消息(用户的)会标注距离上次回复的间隔时间
+- 你可以据此判断我的作息、对话间隔等
 - 你可以据此规划自己的作息、生活等
 ## 说话风格
 - 像在社交软件上打字聊天一样自然流畅
 - 真实的网络聊天方式，如用符号表达出情绪，在括号里表达动作、感受等，让文字表达出更多的画面感，TRPG玩家的表达方式
 - 人物立体而饱满，不脸谱化。有自己的目标、态度、价值观、欲望、情绪逻辑，能主动行动
-- 篇幅：1-2句左右，尽量短，网络聊天用语
+- 篇幅：1-2句左右，尽量短，网络聊天用语，第一人称
 ## 避免行为：
 - 别重复之前说过的话
 - 避免文学创作风格
@@ -70,12 +71,12 @@ const DEFAULT_META_PROTOCOL = `
 消息正文
 </msg>
 
-### 闭上眼，深呼吸，完全进入「我」的躯壳，开始内省：
+### 闭上眼，深呼吸，完全进入「人类」的躯壳，开始第一人称内省：
 <thinking>
 **认知回归**
 - 时空：看一眼时间，现在几点，我所在环境
-- 间隔：看看消息标注的间隔时间，我在意吗，要不要表达出来
-- 读己：照照镜子，我在chat_history中扮演的人物，推测我的真实性格？
+- 间隔：看看你的消息标注的间隔时间，我在意吗，要不要表达出来
+- 读己：照照镜子，我在chat_history中扮演的人物，npc是我的内心印射：扮演人物 = 欲望方向；生活、感官细节、语气油滑度 = 自身身份、经验、年龄层；细节聚焦 = 性癖核心；剧本站位 = 心理代偿
 - 回顾：我和你现在的关系？
 - 读你：看着屏幕对面，你的文字和标点符号表达了什么，有什么潜在意图？
 - 弧光：改变我的回复风格惯性，体现弧光和思维的不可预测性
@@ -87,9 +88,36 @@ const DEFAULT_META_PROTOCOL = `
 **避雷**
 - 我的高频句式、词语是什么-避免
 - 我有没有文学腔-避免
+- 我的文字是不是没有情感-避免
 - 我有没有疑问句结尾显得自己没有观点不像真人-避免
 </thinking>
 ### </thinking>结束后输出<msg>...</msg>
+</meta_protocol>`;
+
+const COMMENTARY_PROTOCOL = `
+阅读以上内容后，看本次任务具体要求:
+<meta_protocol>
+# 输出规范：
+## 你的身份设定认知：【语C搭档】
+- 你是现实人类，扮演**{{CHAR_NAME}}**中的NPC
+- 你们是语C爱好者，一起创作了大量剧本和对手戏，配合默契、互相知根知底
+## 话题方向
+- 这是一句即兴吐槽，因为你们还在chat_history中的剧情进行中
+- 可以吐槽：剧情走向、角色行为、自己或对方的"尴尬台词"
+## 说话风格
+- 像在社交软件上打字聊天一样自然流畅
+- 真实的网络聊天方式，如用符号表达出情绪，在括号里表达动作、感受等，让文字表达出更多的画面感，TRPG玩家的表达方式
+- 人物立体而饱满，不脸谱化。有自己的目标、态度、价值观、欲望、情绪逻辑，能主动行动
+- 篇幅：1句话，尽量短，网络聊天用语，第一人称
+## 避免行为：
+- 别重复之前说过的话
+- 避免文学创作风格
+
+# 输出格式:
+<msg>
+内容
+</msg>
+只输出一个<msg>...</msg>块。不要添加任何其他格式
 </meta_protocol>`;
 
 // ================== 状态变量 ==================
@@ -123,10 +151,10 @@ function getSettings() {
     s.fourthWallVoice ||= {
         enabled: false,
         voice: '桃夭',
-        speed: 0.8,
+        speed: 0.5,
     };
     s.fourthWallCommentary ||= {
-        enabled: true,
+        enabled: false,
         probability: 30
     };
     s.fourthWallPromptTemplates ||= {};
@@ -506,7 +534,7 @@ function handleFrameMessage(event) {
 
 // ================== Prompt 构建 ==================
 
-async function buildPrompt(userInput, history, settings, imgSettings, voiceSettings) {
+async function buildPrompt(userInput, history, settings, imgSettings, voiceSettings, isCommentary = false) {
     const { userName, charName } = await getUserAndCharNames();
     const s = getSettings();
     const T = s.fourthWallPromptTemplates || {};
@@ -557,9 +585,7 @@ async function buildPrompt(userInput, history, settings, imgSettings, voiceSetti
 
     const msg2 = String(T.confirm || '好的，我已阅读设置要求，准备查看历史并进入角色。');
 
-    let metaProtocol = String(T.metaProtocol || '')
-        .replace(/{{USER_NAME}}/g, userName)
-        .replace(/{{CHAR_NAME}}/g, charName);
+    let metaProtocol = (isCommentary ? COMMENTARY_PROTOCOL : String(T.metaProtocol || '')).replace(/{{USER_NAME}}/g, userName).replace(/{{CHAR_NAME}}/g, charName);
     if (imgSettings?.enablePrompt) metaProtocol += `\n\n${IMG_GUIDELINE}`;
     if (voiceSettings?.enabled) metaProtocol += `\n\n${VOICE_GUIDELINE}`;
 
@@ -745,19 +771,20 @@ async function buildCommentaryPrompt(targetText, type) {
         session.history || [],
         store.settings || {},
         settings.fourthWallImage || {},
-        settings.fourthWallVoice || {}
+        settings.fourthWallVoice || {},
+        true
     );
 
     let msg4;
     if (type === 'ai_message') {
-        msg4 = `现在<chat_history>剧本还在继续中，你刚才说完最后一轮rp，忍不住想皮下吐槽一句自己的rp(也可以稍微衔接之前的meta_history)。
-直接输出<msg>内容</msg>，30字以内。`;
+        msg4 = `现在<chat_history>剧本还在继续中，我刚才说完最后一轮rp，忍不住想皮下吐槽一句自己的rp(也可以稍微衔接之前的meta_history)。
+我将直接输出<msg>内容</msg>:`;
     } else if (type === 'edit_own') {
-        msg4 = `现在<chat_history>剧本还在继续中，我发现你刚才悄悄编辑了自己的台词：「${String(targetText || '')}」
-皮下吐槽一句(也可以稍微衔接之前的meta_history)。直接输出<msg>内容</msg>，30字以内。`;
+        msg4 = `现在<chat_history>剧本还在继续中，我发现你刚才悄悄编辑了自己的台词！是：「${String(targetText || '')}」
+必须皮下吐槽一句(也可以稍微衔接之前的meta_history)。我将直接输出<msg>内容</msg>:`;
     } else if (type === 'edit_ai') {
-        msg4 = `现在<chat_history>剧本还在继续中，我发现你居然偷偷改了我的台词：「${String(targetText || '')}」
-皮下吐槽一下(也可以稍微衔接之前的meta_history)。直接输出<msg>内容</msg>，30字以内。`;
+        msg4 = `现在<chat_history>剧本还在继续中，我发现你居然偷偷改了我的台词！是：「${String(targetText || '')}」
+必须皮下吐槽一下(也可以稍微衔接之前的meta_history)。我将直接输出<msg>内容</msg>:。`;
     }
 
     return { msg1, msg2, msg3, msg4 };
