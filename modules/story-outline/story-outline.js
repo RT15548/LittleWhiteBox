@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * Story Outline 模块 - 剧情地图系统
+ * Story Outline 模块 - 小白板
  * ============================================================================
  * 功能：生成和管理RPG式剧情世界，提供地图导航、NPC管理、短信系统、世界推演
  *
@@ -393,7 +393,7 @@ function formatOutlinePrompt() {
     if (!store?.outlineData) return "";
 
     const { outlineData: d, dataChecked: c, playerLocation } = store, stage = store.stage ?? 0;
-    let text = "## Story Outline (剧情地图数据)\n\n", has = false;
+    let text = "## Story Outline (剧情数据)\n\n", has = false;
 
     // 世界真相
     if (c?.meta && d.meta?.truth) {
@@ -1088,7 +1088,7 @@ function createOverlay() {
     setupDrag(overlay.querySelector(".xb-so-resize-mobile"), {
         shouldHandle: () => isMobile(),
         onStart(e) { setPtr('none'); return { sy: e.clientY, sh: wrap.offsetHeight }; },
-        onMove(e, s) { wrap.style.height = Math.max(200, Math.min(window.innerHeight * 0.9, s.sh + e.clientY - s.sy)) + 'px'; },
+        onMove(e, s) { wrap.style.height = Math.max(44, Math.min(window.innerHeight * 0.9, s.sh + e.clientY - s.sy)) + 'px'; },
         onEnd: () => setPtr('')
     });
 
@@ -1098,14 +1098,16 @@ function createOverlay() {
 function updateLayout() {
     const wrap = document.querySelector(".xb-so-frame-wrap"); if (!wrap) return;
     const drag = document.querySelector(".xb-so-drag-handle"), resize = document.querySelector(".xb-so-resize-handle"), mobile = document.querySelector(".xb-so-resize-mobile");
-    if (isMobile()) { if (drag) drag.style.display = 'none'; if (resize) resize.style.display = 'none'; if (mobile) mobile.style.display = 'flex'; wrap.style.cssText = MOBILE_LAYOUT_STYLE; }
+    if (isMobile()) { if (drag) drag.style.display = 'none'; if (resize) resize.style.display = 'none'; if (mobile) mobile.style.display = 'flex'; wrap.style.cssText = MOBILE_LAYOUT_STYLE; const fixedHeight = window.innerHeight * 0.4; wrap.style.height = Math.max(44, fixedHeight) + 'px'; wrap.style.top = '0px'; }
     else { if (drag) drag.style.display = 'block'; if (resize) resize.style.display = 'block'; if (mobile) mobile.style.display = 'none'; wrap.style.cssText = DESKTOP_LAYOUT_STYLE; }
 }
 
 function showOverlay() { if (!overlayCreated) createOverlay(); frameReady = false; const f = document.getElementById("xiaobaix-story-outline-iframe"); if (f) f.src = IFRAME_PATH; updateLayout(); $("#xiaobaix-story-outline-overlay").show(); }
 function hideOverlay() { $("#xiaobaix-story-outline-overlay").hide(); }
 
-$(window).on('resize', () => { if ($("#xiaobaix-story-outline-overlay").is(':visible')) updateLayout(); });
+let lastIsMobile = isMobile();
+window.addEventListener('resize', () => { const nowIsMobile = isMobile(); if (nowIsMobile !== lastIsMobile) { lastIsMobile = nowIsMobile; updateLayout(); } });
+
 
 // ==================== 11. 事件与初始化 ====================
 
@@ -1117,7 +1119,7 @@ function addBtnToMsg(mesId) {
     if (!msg || msg.querySelector('.xiaobaix-story-outline-btn')) return;
     const btn = document.createElement('div');
     btn.className = 'mes_btn xiaobaix-story-outline-btn';
-    btn.title = '剧情地图';
+    btn.title = '小白板';
     btn.dataset.mesid = mesId;
     btn.innerHTML = '<i class="fa-regular fa-map"></i>';
     btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); if (!getSettings().storyOutline?.enabled) return; currentMesId = Number(mesId); showOverlay(); loadAndSend(); });
