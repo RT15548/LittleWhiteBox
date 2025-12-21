@@ -139,6 +139,89 @@ const DEFAULT_JSON_TEMPLATES = {
     "nodes": [{ "name": "节点名", "info": "静态细节" }]
   }
 }`,
+    // ================== 辅助模式 JSON 模板 ==================
+    worldGenAssist: `{
+  "meta": null,
+  "world": {
+    "news": [
+      { "title": "新闻标题1", "time": "时间", "content": "以轻松日常的口吻描述世界现状" },
+      { "title": "新闻标题2", "time": "...", "content": "可以是小道消息、趣闻轶事" },
+      { "title": "新闻标题3", "time": "...", "content": "..." }
+    ]
+  },
+  "maps": {
+    "outdoor": {
+      "description": "全景描写，聚焦氛围与可探索要素。所有可去节点名用 **名字** 包裹。",
+      "nodes": [
+        {
+          "name": "{{user}}当前所在地点名（通常为 type=home）",
+          "position": "north/south/east/west/northeast/southwest/northwest/southeast",
+          "distant": 1,
+          "type": "home/sub/main",
+          "info": "地点特征与氛围"
+        },
+        {
+          "name": "其他地点名",
+          "position": "方向",
+          "distant": 2,
+          "type": "main/sub",
+          "info": "地点特征与氛围，适合作为舞台的小事件或偶遇"
+        }
+      ]
+    },
+    "inside": {
+      "name": "{{user}}当前所在位置名称",
+      "description": "局部地图全景描写",
+      "nodes": [
+        { "name": "节点名", "info": "微观描写" }
+      ]
+    }
+  },
+  "playerLocation": "{{user}}起始位置名称（与第一个节点的 name 一致）"
+}`,
+
+    worldSimAssist: `{
+  "world": {
+    "news": [
+      { "title": "新的头条", "time": "推演后的时间", "content": "用轻松/中性的语气，描述世界最近发生的小变化" },
+      { "title": "...", "time": "...", "content": "比如店家打折、节庆活动、某个 NPC 的日常糗事" },
+      { "title": "...", "time": "...", "content": "..." }
+    ]
+  },
+  "maps": {
+    "outdoor": {
+      "description": "更新后的全景描写，体现日常层面的变化（装修、节日装饰、天气等），包含所有节点 **名字**。",
+      "nodes": [
+        {
+          "name": "地点名（尽量沿用原有命名）",
+          "position": "north/south/east/west/northeast/southwest/northwest/southeast",
+          "distant": 1,
+          "type": "main/sub/home",
+          "info": "新的环境描写。偏生活流，只讲{{user}}能直接感受到的变化"
+        }
+      ]
+    }
+  }
+}`,
+
+    sceneSwitchAssist: `{
+  "review": {
+    "deviation": {
+      "cot_analysis": "简要分析{{user}}在上一地点的行为对氛围的影响（例如：让气氛更热闘/更安静）。",
+      "score_delta": 0
+    }
+  },
+  "local_map": {
+    "name": "当前地点名称",
+    "description": "局部地点全景描写（不写剧情），包含所有 nodes 的 **节点名**。",
+    "nodes": [
+      {
+        "name": "节点名",
+        "info": "该节点的静态细节/功能描述（不写剧情事件）"
+      }
+    ]
+  }
+}`,
     localMapGen: `{
   "review": { "deviation": { "cot_analysis": "分析{{user}}行为影响", "score_delta": 0 } },
   "inside": {
