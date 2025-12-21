@@ -1329,7 +1329,11 @@ export function rulesLoadFromTree(valueTree, basePath) {
                 String(t).trim().startsWith('$') ? String(t).trim() : ('$' + String(t).trim())
             );
 
-            const targetPath = curAbs ? `${curAbs}.${targetToken}` : targetToken;
+            const baseNorm = normalizePath(curAbs || '');
+            const tokenNorm = normalizePath(targetToken);
+            const targetPath = (baseNorm && (tokenNorm === baseNorm || tokenNorm.startsWith(baseNorm + '.')))
+                ? tokenNorm
+                : (curAbs ? `${curAbs}.${targetToken}` : targetToken);
             const absPath = normalizePath(targetPath);
             const delta = parseDirectivesTokenList(dirs);
 

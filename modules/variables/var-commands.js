@@ -405,8 +405,14 @@ export function lwbAssignVarPath(path, value) {
                 if (globalThis.LWB_Guard?.loadRules) {
                     const res = globalThis.LWB_Guard.loadRules(vParsed, rootName);
                     if (res?.cleanValue !== undefined) vParsed = res.cleanValue;
-                    if (res?.rulesDelta && globalThis.LWB_Guard?.applyDelta) {
-                        globalThis.LWB_Guard.applyDelta(res.rulesDelta);
+                    if (res?.rulesDelta && typeof res.rulesDelta === 'object') {
+                        if (globalThis.LWB_Guard?.applyDeltaTable) {
+                            globalThis.LWB_Guard.applyDeltaTable(res.rulesDelta);
+                        } else if (globalThis.LWB_Guard?.applyDelta) {
+                            for (const [p, d] of Object.entries(res.rulesDelta)) {
+                                globalThis.LWB_Guard.applyDelta(p, d);
+                            }
+                        }
                         globalThis.LWB_Guard.save?.();
                     }
                 }
