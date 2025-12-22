@@ -647,6 +647,13 @@ body {
                         <input type="checkbox" id="trigger-enabled">
                         <label for="trigger-enabled">启用自动总结</label>
                     </div>
+                    <div class="settings-field-inline">
+                        <input type="checkbox" id="trigger-stream" checked>
+                        <label for="trigger-stream">启用流式生成</label>
+                    </div>
+                </div>
+                <div class="settings-hint" style="margin-top: 8px; color: var(--text-muted);">
+                    若 API 不支持非流式请求，请勾选"启用流式生成"
                 </div>
             </div>
         </div>
@@ -678,7 +685,7 @@ body {
 const config = {
     api: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
     gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
-    trigger: { enabled: false, interval: 20, timing: 'after_ai' }
+    trigger: { enabled: false, interval: 20, timing: 'after_ai', useStream: true }
 };
 let summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] };
 let localGenerating = false;
@@ -1182,6 +1189,7 @@ function openSettings() {
     document.getElementById('trigger-enabled').checked = config.trigger.enabled;
     document.getElementById('trigger-interval').value = config.trigger.interval;
     document.getElementById('trigger-timing').value = config.trigger.timing;
+    document.getElementById('trigger-stream').checked = config.trigger.useStream !== false;
     
     const enabledCheckbox = document.getElementById('trigger-enabled');
     if (config.trigger.timing === 'manual') {
@@ -1226,6 +1234,7 @@ function closeSettings(save) {
         config.trigger.timing = timing;
         config.trigger.enabled = (timing === 'manual') ? false : document.getElementById('trigger-enabled').checked;
         config.trigger.interval = parseInt(document.getElementById('trigger-interval').value) || 20;
+        config.trigger.useStream = document.getElementById('trigger-stream').checked;
         
         saveConfig();
     }
