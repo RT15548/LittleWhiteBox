@@ -31,6 +31,8 @@
         .btn:hover{border-color:var(--c);background:var(--bg3)}
         .btn:disabled{opacity:.5;cursor:not-allowed}
         .btn-p{background:var(--c);color:#fff;border-color:var(--c)}
+        .btn-due{background:#ffe1e1!important;border-color:#ff9b9b!important;color:#7a1f1f!important}
+        .btn-due:hover{background:#ffd1d1!important}
         .btn-s{padding:6px 12px;font-size:12px}
         .btn-c{width:28px;height:28px;padding:0;background:#888;border-color:#777;color:#fff;border-radius:50%}
         .btn-add{width:32px;height:32px;padding:0;border-radius:50%;flex-shrink:0}
@@ -176,7 +178,7 @@
         .modal-by{flex:1;overflow-y:auto;padding:18px}
 
         /* 编辑器 */
-        .ed-ta{width:100%;min-height:200px;padding:12px;background:var(--bg);border:none;border-top:1px solid var(--bd);font-family:'SF Mono',Monaco,Consolas,monospace;font-size:11px;line-height:1.5;color:var(--c);resize:none;outline:none}
+        .ed-ta{width:100%;min-height:100px;padding:12px;background:var(--bg);border:none;border-top:1px solid var(--bd);font-family:'SF Mono',Monaco,Consolas,monospace;font-size:11px;line-height:1.5;color:var(--c);resize:vertical;outline:none;overflow:auto}
         .ed-preview{margin-top:10px;padding:10px;background:var(--bg3);border:1px solid var(--bd);border-radius:4px;font-size:11px;font-family:'SF Mono',Monaco,Consolas,monospace;white-space:pre-wrap;display:none;color:var(--c2)}
         .ed-err{padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;color:#b91c1c;font-size:12px;margin-top:10px;display:none}
         .ed-err.vis{display:block}
@@ -308,7 +310,7 @@
             <div class="side-menu-btn" id="btn-side-menu-toggle" title="快捷操作"><i class="fa-solid fa-ellipsis"></i></div>
             <div class="side-menu-panel" id="side-menu-panel">
                 <button class="btn btn-s fc g4" id="btn-gen-local-map"><i class="fa-solid fa-plus"></i>局部地图</button>
-                <button class="btn btn-s fc g4" id="btn-simulate"><i class="fa-solid fa-rotate"></i>推演</button>
+                <button class="btn btn-s fc g4" id="btn-simulate"><i class="fa-solid fa-rotate"></i>世界推演</button>
                 <button class="btn btn-s fc g4" id="btn-gen-local-scene"><i class="fa-solid fa-feather-pointed"></i>局部剧情</button>
             </div>
         </div>
@@ -370,7 +372,7 @@
                     <div class="comm-tab act" data-t="stranger">陌路人</div>
                     <div class="comm-tab" data-t="contact">联络人</div>
                 </div>
-                <button class="btn btn-add fcc" id="btn-refresh-strangers" title="摇一摇"><i class="fa-solid fa-rotate"></i></button>
+                <button class="btn btn-add fcc" id="btn-refresh-strangers" title="微信摇一摇，寻找遇过的陌生人"><i class="fa-solid fa-street-view"></i></button>
                 <button class="btn btn-add fcc" id="btn-add-ct"><i class="fa-solid fa-plus"></i></button>
             </div>
             <div id="sec-stranger" class="comm-sec act"></div>
@@ -435,8 +437,7 @@
                         <div class="form-g" style="flex:1"><label class="form-l">偏离分数</label><input type="number" class="form-in" id="set-deviation" min="0" max="100" value="0"><div class="set-hint">玩家行为对世界的影响</div></div>
                     </div>
                     <div class="set-row" style="gap:20px">
-                        <div class="form-g" style="flex:1"><label class="form-l">推演进度</label><input type="number" class="form-in" id="set-sim-progress" min="0" value="0"><div class="set-hint">当前累计推演点数</div></div>
-                        <div class="form-g" style="flex:1"><label class="form-l">推演目标</label><input type="number" class="form-in" id="set-sim-target" min="1" value="5"><div class="set-hint">达到目标自动推演</div></div>
+                        <div class="form-g" style="flex:1"><label class="form-l">推演倒计时</label><input type="number" class="form-in" id="set-sim-target" value="5"><div class="set-hint">局部地图/场景切换/局部剧情每次 -1；≤0 时提醒</div></div>
                     </div>
                 </div>
                 <div class="set-sec">
@@ -457,7 +458,7 @@
                         <div class="set-row"><input type="text" class="form-in" id="set-model" placeholder="输入模型名称"><button class="btn btn-s" id="btn-fetch-models">获取</button><button class="btn btn-s btn-p" id="btn-test-conn">测试连接</button></div>
                         <select class="form-in" id="set-model-list" style="display:none;margin-top:8px"></select>
                     </div>
-                    <div class="set-test"><label class="form-l">聊天历史楼层数</label><input type="number" class="form-in" id="set-history-count" min="0" max="200" value="50" style="width:100px"><div class="set-test-res" id="test-res"></div></div>
+                    <div class="set-test"><label class="form-l">聊天历史楼层数</label><input type="number" class="form-in" id="set-history-count" min="0" max="200" value="50" style="width:100px"><label class="fc g4 fs12 c2 usn" title="启用后使用流式请求"><input type="checkbox" id="set-use-stream">流式</label><div class="set-test-res" id="test-res"></div></div>
                     <div class="set-sec-t" style="margin-top:16px">NPC 世界书条目</div>
                     <div class="set-row" style="gap:20px">
                         <div class="form-g" style="flex:1"><label class="form-l">插入位置</label>
@@ -466,15 +467,112 @@
                                 <option value="2">↑AN 作者注释前</option><option value="3">↓AN 作者注释后</option>
                                 <option value="5">↑EM 增强定义前</option><option value="6">↓EM 增强定义后</option>
                             </select>
-                            <div class="set-hint">生成的NPC条目插入位置</div>
+                            <div class="set-hint">陌路人-生成的NPC条目插入位置</div>
                         </div>
                         <div class="form-g" style="flex:1"><label class="form-l">条目顺序</label><input type="number" class="form-in" id="set-npc-order" min="0" max="1000" value="100"><div class="set-hint">数值越小越靠前</div></div>
                     </div>
                 </div>
                 <div class="set-sec"><div class="set-sec-t">预设 Story Outline 数据</div><div class="set-hint" style="margin-bottom:12px">勾选的条目将写入预设</div><div id="data-list"></div></div>
-                <div class="set-sec"><div class="set-sec-t">高级设置 · 自定义提示词</div><div class="set-hint" style="margin-bottom:12px">UAUA四段 + JSON 模板</div><div id="prompt-list"></div></div>
+                <div class="set-sec">
+                    <div class="set-sec-t">提示词/JSON 模板 <button class="btn btn-s" id="btn-adv-prompts"><i class="fa-solid fa-pen"></i> 编辑模板</button></div>
+                </div>
             </div>
             <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="set-save">保存</button></div>
+        </div>
+    </div>
+
+    <!-- 提示词/JSON 模板编辑弹窗 -->
+    <div class="modal" id="m-adv-prompts">
+        <div class="modal-bd"></div>
+        <div class="modal-p lg">
+            <div class="modal-hd fc"><h2>高级设置 · 模板编辑</h2><button class="modal-x fcc">✕</button></div>
+            <div class="modal-by">
+                <div class="form-g">
+                    <label class="form-l">选择模板</label>
+                    <select class="form-in" id="adv-key"></select>
+                    <div class="set-hint">可编辑并保存；也可一键重置回 `story-outline-prompt.js` 预设</div>
+                </div>
+
+                <div class="set-sec-t" style="margin-top:12px">UAUA 提示词（JS function 字符串）</div>
+                <div class="form-g"><label class="form-l">u1</label><textarea class="ed-ta" id="adv-u1" style="height:85px;"></textarea></div>
+                <div class="form-g"><label class="form-l">a1</label><textarea class="ed-ta" id="adv-a1" style="height:85px;"></textarea></div>
+                <div class="form-g"><label class="form-l">u2</label><textarea class="ed-ta" id="adv-u2" style="height:85px;"></textarea></div>
+                <div class="form-g"><label class="form-l">a2</label><textarea class="ed-ta" id="adv-a2" style="height:85px;"></textarea></div>
+
+                <div class="set-sec-t" style="margin-top:12px">JSON 模板</div>
+                <div class="form-g" id="adv-json-wrap">
+                    <label class="form-l">模板字符串</label>
+                    <textarea class="ed-ta" id="adv-json" style="min-height:140px"></textarea>
+                    <div class="set-hint" id="adv-json-hint"></div>
+                </div>
+
+                <div class="bg3 bd r6 p12" style="margin-top:12px">
+                    <div class="fs12 fw6 c2">变量说明（写进模板里会被替换）</div>
+
+                    <div class="set-hint" style="margin-top:8px;line-height:1.65">
+                        <div class="fw6 c2" style="margin-bottom:4px">ST 宏（发送前自动替换）</div>
+                        <div><code>{{user}}</code>：你的名字/称呼</div>
+                        <div><code>{{persona}}</code>：你的 Persona（用户设定）</div>
+                        <div><code>{{description}}</code>：当前角色描述（角色卡 description）</div>
+                        <div><code>{$worldInfo}</code>：世界书（World Info）注入内容</div>
+                        <div><code>{$historyN}</code>：最近 N 条聊天历史（例：<code>{$history50}</code>）</div>
+                    </div>
+
+                    <div class="set-hint" style="margin-top:10px;line-height:1.65">
+                        <div class="fw6 c2" style="margin-bottom:4px">模板参数（在函数里用 <code>${v.xxx}</code> 取值）</div>
+                        <div class="c2">通用</div>
+                        <div><code>v.storyOutline</code>：剧情大纲文本</div>
+                        <div><code>v.historyCount</code>：历史条数（配合 <code>{$historyN}</code>）</div>
+                        <div><code>v.mode</code>：模式（assist/story）</div>
+
+                        <div class="c2" style="margin-top:6px">短信/邀请</div>
+                        <div><code>v.contactName</code>：联系人/NPC 名字</div>
+                        <div><code>v.userName</code>：用户名字（部分模板可能用到）</div>
+                        <div><code>v.smsHistoryContent</code>：已整理的短信历史块</div>
+                        <div><code>v.userMessage</code>：用户发来的新短信文本</div>
+                        <div><code>v.characterContent</code>：人物设定文本（可选）</div>
+                        <div><code>v.targetLocation</code>：邀请要去的地点</div>
+
+                        <div class="c2" style="margin-top:6px">总结/压缩</div>
+                        <div><code>v.existingSummaryContent</code>：已有摘要内容</div>
+                        <div><code>v.conversationText</code>：需要总结的对话文本</div>
+
+                        <div class="c2" style="margin-top:6px">NPC/陌路人提取</div>
+                        <div><code>v.strangerName</code>：新 NPC 名字</div>
+                        <div><code>v.strangerInfo</code>：新 NPC 描述</div>
+                        <div><code>v.existingContacts</code>：已有联络人列表（避免重复）</div>
+                        <div><code>v.existingStrangers</code>：已有陌路人列表（避免重复）</div>
+
+                        <div class="c2" style="margin-top:6px">场景切换/推进</div>
+                        <div><code>v.prevLocationName</code>：上一地点名</div>
+                        <div><code>v.prevLocationInfo</code>：上一地点描述（可选）</div>
+                        <div><code>v.targetLocationName</code>：目标地点名</div>
+                        <div><code>v.targetLocationType</code>：目标地点类型（home/sub 等）</div>
+                        <div><code>v.targetLocationInfo</code>：目标地点描述（可选）</div>
+                        <div><code>v.playerAction</code>：玩家行动/意图（可选）</div>
+                        <div><code>v.stage</code>：当前阶段/轮次</div>
+                        <div><code>v.currentTimeline</code>：当前时间线对象（可选）</div>
+
+                        <div class="c2" style="margin-top:6px">局部地图/局部剧情</div>
+                        <div><code>v.outdoorDescription</code>：大地图/户外地图描述（可选）</div>
+                        <div><code>v.locationName</code>：当前地点名</div>
+                        <div><code>v.locationInfo</code>：当前地点信息（可选）</div>
+                        <div><code>v.playerLocation</code>：玩家当前地点名（可选）</div>
+                        <div><code>v.currentLocalMap</code>：当前局部地图 JSON（可选）</div>
+
+                        <div class="c2" style="margin-top:6px">世界生成/推演</div>
+                        <div><code>v.playerRequests</code>：世界生成需求文本</div>
+                        <div><code>v.step1Data</code>：世界生成 Step 1 数据（meta）</div>
+                        <div><code>v.currentWorldData</code>：当前世界状态 JSON（字符串）</div>
+                        <div><code>v.deviationScore</code>：干扰评分/偏差值</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-ft fc">
+                <button class="btn btn-s" id="adv-reset"><i class="fa-solid fa-rotate-left"></i> 重置为预设</button>
+                <button class="btn btn-s m-cancel">取消</button>
+                <button class="btn btn-s btn-p" id="adv-save">保存</button>
+            </div>
         </div>
     </div>
 
@@ -585,7 +683,7 @@
 <script>
 // ================== 数据 ==================
 const D = {
-    stage: 0, deviationScore: 0, simulationProgress: 0, simulationTarget: 5,
+    stage: 0, deviationScore: 0, simulationTarget: 5,
     meta: { truth: null, onion_layers: null, timeline: null, user_guide: null },
     world: {}, maps: { outdoor: { nodes: [] }, indoor: null }, sceneSetup: null,
     contacts: { strangers: [], contacts: [{ name: '{{characterName}}', avatar: '', color: '#555', location: '在线', info: '角色卡联络人', online: true, worldbookUid: '__CHARACTER_CARD__', messages: [], summarizedCount: 0 }] }
@@ -601,6 +699,12 @@ const escHtml = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>
 const stripXml = s => s ? s.replace(/<(\w+)[^>]*>[\s\S]*?<\/\1>/g, '').replace(/<[^>]+\/?>/g, '').trim() : '';
 const parseLinks = t => t.replace(/\*\*([^*]+)\*\*/g, '<span class="loc-lk" data-loc="$1">$1</span>');
 const post = (type, data = {}) => parent.postMessage({ source: 'LittleWhiteBox-OutlineFrame', type, ...data }, '*');
+
+const syncSimDueUI = () => {
+    const due = (Number(D.simulationTarget) || 0) <= 0;
+    $('btn-simulate')?.classList.toggle('btn-due', due);
+    $('world-sim-ok')?.classList.toggle('btn-due', due);
+};
 
 const BtnState = {
     load: (btn, t) => { btn.disabled = true; btn._o = btn.innerHTML; btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${t}` },
@@ -966,8 +1070,7 @@ const saveAll = () => post('SAVE_ALL_DATA', { allData: { meta: D.meta, world: D.
 
 // ================== 设置相关 ==================
 const dataKeys = [['meta', '大纲', '核心真相、洋葱结构、时间线、用户指南', () => D.meta, v => D.meta = v], ['world', '世界资讯', '世界新闻等信息', () => D.world, v => D.world = v], ['outdoor', '大地图', '室外区域的地点和路线', () => D.maps.outdoor, v => D.maps.outdoor = v], ['indoor', '局部地图', '隐藏的室内/局部场景地图', () => D.maps.indoor, v => D.maps.indoor = v], ['sceneSetup', '区域剧情', '当前区域的 Side Story', () => D.sceneSetup, v => D.sceneSetup = v], ['characterContactSms', '角色卡短信', '角色卡联络人的短信记录', () => ({ messages: charSmsHistory?.messages || [], summarizedCount: charSmsHistory?.summarizedCount || 0, summaries: charSmsHistory?.summaries || {} }), v => { if (v && typeof v === 'object') charSmsHistory = { messages: charSmsHistory?.messages || [], summarizedCount: charSmsHistory?.summarizedCount || 0, ...(v || {}) }; }], ['strangers', '陌路人', '已遇见但未建立联系的角色', () => D.contacts.strangers, v => D.contacts.strangers = v], ['contacts', '联络人', '已添加的联系人', () => contactsForSave(), v => { const keep = (D.contacts.contacts || []).find(isCharCardContact); D.contacts.contacts = (keep ? [keep] : []).concat(Array.isArray(v) ? v : []); }]];
-const promptKeys = [['jsonTemplates', 'JSON 模板', 'JSON 输出模板合集', 'templates'], ['sms', '短信回复', 'UAUA 短信模拟', 'prompt'], ['summary', '总结压缩', '新增剧情要素提取', 'prompt'], ['invite', '邀请回复', '短信邀请场景', 'prompt'], ['npc', 'NPC 生成', '陌路人扩写为 NPC', 'prompt'], ['stranger', '提取陌路人', '从剧情中提取 NPC', 'prompt'], ['worldGen', '世界生成（故事模式）', '初始世界构建', 'prompt'], ['worldSim', '世界推演（故事模式）', '根据历史演化世界', 'prompt'], ['sceneSwitch', '场景切换（故事模式）', '结算上一地点 + 新场景', 'prompt'], ['worldGenAssist', '世界生成（辅助模式）', '仅生成地图/新闻', 'prompt'], ['worldSimAssist', '世界推演（辅助模式）', '仅更新地图/新闻', 'prompt'], ['sceneSwitchAssist', '场景切换（辅助模式）', '生成轻松小剧情', 'prompt'], ['localMapGen', '局部地图生成', '生成室内/局部场景', 'prompt']];
-let gSet = { apiUrl: '', apiKey: '', model: '', mode: 'assist' }, dataCk = {}, editCtx = null, commSet = { historyCount: 50, npcPosition: 0, npcOrder: 100 }, promptSources = {}, promptTemplates = {}, promptDefaults = { jsonTemplates: {}, promptSources: {} };
+let gSet = { apiUrl: '', apiKey: '', model: '', mode: 'assist' }, dataCk = {}, editCtx = null, commSet = { historyCount: 50, npcPosition: 0, npcOrder: 100, stream: false }, promptSources = {}, promptTemplates = {}, promptDefaults = { jsonTemplates: {}, promptSources: {} };
 
 const reqSet = () => post('GET_SETTINGS');
 
@@ -977,13 +1080,171 @@ const renderDataList = () => {
     $$('#data-list .data-edit').forEach(b => b.onclick = e => { e.stopPropagation(); openDataEdit(b.dataset.k); });
 };
 
-const renderPromptList = () => {
-    $('prompt-list').innerHTML = promptKeys.map(([k, t, d, tp]) => `<div class="data-item" data-k="${k}" data-t="${tp}"><div class="data-ck"><i class="fa-solid fa-pen"></i></div><div class="data-info"><div class="data-nm">${t}</div><div class="data-desc">${d}</div></div><button class="data-edit" data-k="${k}" data-t="${tp}" title="编辑"><i class="fa-solid fa-pen"></i></button></div>`).join('');
-    $$('#prompt-list .data-item').forEach(i => i.onclick = e => { const k = i.dataset.k, tp = i.dataset.t; if (e.target.closest('.data-edit')) { e.stopPropagation(); openPromptEdit(k, tp); return; } openPromptEdit(k, tp); });
-    $$('#prompt-list .data-edit').forEach(b => b.onclick = e => { e.stopPropagation(); openPromptEdit(b.dataset.k, b.dataset.t); });
+// ================== 高级设置：提示词/JSON 模板 ==================
+const ADV_PROMPT_ITEMS = [
+    ['sms', '短信回复'],
+    ['invite', '邀请回复'],
+    ['npc', 'NPC 生成'],
+    ['stranger', '提取陌路人'],
+    ['worldGenStep1', '世界生成 Step 1（故事模式）'],
+    ['worldGenStep2', '世界生成 Step 2（故事模式）'],
+    ['worldSim', '世界推演（故事模式）'],
+    ['sceneSwitch', '场景切换（故事模式）'],
+    ['worldGenAssist', '世界生成（辅助模式）'],
+    ['worldSimAssist', '世界推演（辅助模式）'],
+    ['sceneSwitchAssist', '场景切换（辅助模式）'],
+    ['localMapGen', '局部地图生成'],
+    ['localMapRefresh', '局部地图刷新'],
+    ['localSceneGen', '局部剧情生成'],
+    ['summary', '总结压缩（无独立 JSON 模板）'],
+];
+
+const advHasJsonTemplate = (key) => {
+    const defs = promptDefaults?.jsonTemplates || {};
+    return Object.prototype.hasOwnProperty.call(defs, key);
 };
 
-const unescapePromptStr = s => String(s || '').replace(/\\\\/g, '\\').replace(/\\t/g, '    ').replace(/\\n/g, '\n');
+const advGetPromptObj = (key, useDefaults = false) => {
+    const defs = promptDefaults?.promptSources || {};
+    const cur = promptSources || {};
+    const v = (useDefaults ? defs[key] : (cur[key] || defs[key])) || {};
+    return {
+        u1: typeof v.u1 === 'string' ? v.u1 : '',
+        a1: typeof v.a1 === 'string' ? v.a1 : '',
+        u2: typeof v.u2 === 'string' ? v.u2 : '',
+        a2: typeof v.a2 === 'string' ? v.a2 : '',
+    };
+};
+
+const advSplitFn = (s) => {
+    const str = String(s ?? '');
+    const first = str.indexOf('`');
+    const last = str.lastIndexOf('`');
+    if (first === -1 || last === -1 || last <= first) return null;
+    return { prefix: str.slice(0, first), body: str.slice(first + 1, last), suffix: str.slice(last + 1) };
+};
+
+const advDecodeTemplateEscapes = (body) => {
+    const s = String(body ?? '');
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (c !== '\\') { out += c; continue; }
+        const n = s[i + 1];
+        if (n === undefined) { out += '\\'; continue; }
+        if (n === 'n') { out += '\n'; i++; continue; }
+        if (n === 't') { out += '    '; i++; continue; }
+        if (n === '`') { out += '`'; i++; continue; }
+        if (n === '\\') { out += '\\'; i++; continue; }
+        out += '\\' + n;
+        i++;
+    }
+    return out;
+};
+
+const advEncodeTemplateEscapes = (pretty) => {
+    const s = String(pretty ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (c === '\n') out += '\\n';
+        else if (c === '\t') out += '\\t';
+        else if (c === '`') out += '\\`';
+        else out += c;
+    }
+    return out;
+};
+
+const advGetJsonTemplate = (key, useDefaults = false) => {
+    const defs = promptDefaults?.jsonTemplates || {};
+    const cur = promptTemplates || {};
+    if (!advHasJsonTemplate(key) && !Object.prototype.hasOwnProperty.call(cur, key)) return '';
+    const v = useDefaults ? defs[key] : (Object.prototype.hasOwnProperty.call(cur, key) ? cur[key] : defs[key]);
+    return typeof v === 'string' ? v : '';
+};
+
+const advApplyToUI = (key, useDefaults = false) => {
+    const p = advGetPromptObj(key, useDefaults);
+    const applyPart = (id, raw) => {
+        const el = $(id);
+        if (!el) return;
+        const rawStr = String(raw ?? '');
+        const split = advSplitFn(rawStr);
+        const pretty = split ? advDecodeTemplateEscapes(split.body) : rawStr;
+        el._meta = { raw: rawStr, split, pretty };
+        el.value = pretty;
+    };
+    applyPart('adv-u1', p.u1);
+    applyPart('adv-a1', p.a1);
+    applyPart('adv-u2', p.u2);
+    applyPart('adv-a2', p.a2);
+
+    const hasJson = advHasJsonTemplate(key) || Object.prototype.hasOwnProperty.call(promptTemplates || {}, key);
+    $('adv-json-wrap').style.display = hasJson ? '' : 'none';
+    const jRaw = hasJson ? advGetJsonTemplate(key, useDefaults) : '';
+    const jEl = $('adv-json');
+    if (jEl) jEl.value = hasJson ? String(jRaw ?? '') : '';
+    $('adv-json-hint').textContent = hasJson ? '' : '该模板没有独立 JSON 模板。';
+};
+
+const advCommitEdits = (key) => {
+    const build = (id) => {
+        const el = $(id);
+        const meta = el?._meta;
+        const prettyNow = String(el?.value ?? '');
+        if (meta && prettyNow === meta.pretty) return meta.raw;
+        if (meta?.split) return `${meta.split.prefix}\`${advEncodeTemplateEscapes(prettyNow)}\`${meta.split.suffix}`;
+        return meta?.raw ?? prettyNow;
+    };
+
+    promptSources[key] = {
+        u1: build('adv-u1'),
+        a1: build('adv-a1'),
+        u2: build('adv-u2'),
+        a2: build('adv-a2'),
+    };
+
+    if (advHasJsonTemplate(key) || Object.prototype.hasOwnProperty.call(promptTemplates || {}, key)) {
+        const jEl = $('adv-json');
+        const jt = String(jEl?.value ?? '');
+        promptTemplates[key] = jt;
+    }
+};
+
+const advInit = () => {
+    const sel = $('adv-key');
+    if (!sel || sel._inited) return;
+    sel._inited = true;
+    sel.innerHTML = ADV_PROMPT_ITEMS.map(([k, t]) => `<option value="${k}">${t} (${k})</option>`).join('');
+    sel.onchange = () => advApplyToUI(sel.value, false);
+};
+
+const advOpen = () => {
+    advInit();
+    const sel = $('adv-key');
+    const key = sel?.value || ADV_PROMPT_ITEMS[0]?.[0];
+    if (key) advApplyToUI(key, false);
+    openM('m-adv-prompts');
+};
+
+const advSave = () => {
+    advInit();
+    const key = $('adv-key')?.value;
+    if (!key) return;
+    advCommitEdits(key);
+    post('SAVE_PROMPTS', { promptConfig: { jsonTemplates: promptTemplates, promptSources } });
+    closeM('m-adv-prompts');
+};
+
+const advReset = () => {
+    advInit();
+    const key = $('adv-key')?.value;
+    if (!key) return;
+    advApplyToUI(key, true);
+    advCommitEdits(key);
+    post('SAVE_PROMPTS', { promptConfig: { jsonTemplates: promptTemplates, promptSources } });
+    closeM('m-adv-prompts');
+};
 const parseJsonLoose = (input) => {
     const str = String(input ?? '').trim();
     if (!str) throw new Error('空内容');
@@ -1009,20 +1270,13 @@ const parseJsonLoose = (input) => {
 };
 const updateEditPreview = () => {
     const p = $('data-edit-preview');
-    if (!p || editCtx?.type !== 'prompt') { p.style.display = 'none'; p.textContent = ''; return; }
-    p.style.display = 'block';
-    const raw = $('data-edit-ta').value || '';
-    let txt = raw;
-    try {
-        const obj = parseJsonLoose(raw);
-        if (obj && typeof obj === 'object') txt = Object.entries(obj).map(([k, v]) => `${k}: ${typeof v === 'string' ? unescapePromptStr(v) : typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)}`).join('\n\n');
-    } catch { txt = unescapePromptStr(raw); }
-    p.textContent = txt;
+    if (!p) return;
+    p.style.display = 'none';
+    p.textContent = '';
 };
 
 const setEditContent = (title, val) => { $('data-edit-title').textContent = title; $('data-edit-ta').value = val; $('data-edit-err').classList.remove('vis'); updateEditPreview(); openM('m-data-edit'); };
 const openDataEdit = k => { const i = dataKeys.find(([x]) => x === k); if (!i) return; editCtx = { type: k === 'characterContactSms' ? 'charSms' : 'data', key: k }; setEditContent(`编辑 - ${i[1]}`, JSON.stringify(i[3](), null, 2)); };
-const openPromptEdit = (k, tp) => { const i = promptKeys.find(([x]) => x === k); editCtx = { type: 'prompt', key: k }; const val = tp === 'templates' ? (promptTemplates || promptDefaults.jsonTemplates || {}) : (promptSources[k] || promptDefaults.promptSources[k] || { u1: '', a1: '', u2: '', a2: '' }); setEditContent(`编辑 - ${i?.[1] || k}`, JSON.stringify(val, null, 2)); };
 
 $('data-edit-save').onclick = () => {
     if (!editCtx) return;
@@ -1039,18 +1293,6 @@ $('data-edit-save').onclick = () => {
             if (!sums || typeof sums !== 'object' || Array.isArray(sums)) throw new Error('需要 summaries 对象');
             charSmsHistory.summaries = sums;
             post('SAVE_CHAR_SMS_HISTORY', { summaries: sums });
-        } else if (editCtx.type === 'prompt') {
-            if (editCtx.key === 'jsonTemplates') {
-                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('JSON 模板需要是对象');
-                promptTemplates = parsed;
-            } else {
-                if (!parsed || typeof parsed !== 'object') throw new Error('需要包含 u1/a1/u2/a2 字符串');
-                const miss = ['u1', 'a1', 'u2', 'a2'].some(k => typeof parsed?.[k] !== 'string');
-                if (miss) throw new Error('需要包含 u1/a1/u2/a2 字符串');
-                promptSources[editCtx.key] = parsed;
-            }
-            renderPromptList();
-            post('SAVE_PROMPTS', { promptConfig: { jsonTemplates: promptTemplates, promptSources } });
         }
         closeM('m-data-edit');
         editCtx = null;
@@ -1082,16 +1324,20 @@ $('btn-settings').onclick = () => {
     $('test-res').className = 'set-test-res';
     $('set-stage').value = D.stage || 0;
     $('set-deviation').value = D.deviationScore || 0;
-    $('set-sim-progress').value = D.simulationProgress || 0;
-    $('set-sim-target').value = D.simulationTarget || 5;
+    $('set-sim-target').value = (D.simulationTarget ?? 5);
     $('set-mode').value = gSet.mode || 'story';
     $('set-history-count').value = commSet.historyCount || 50;
+    $('set-use-stream').checked = !!commSet.stream;
     $('set-npc-position').value = commSet.npcPosition || 0;
     $('set-npc-order').value = commSet.npcOrder || 100;
     renderDataList();
-    renderPromptList();
+    syncSimDueUI();
     openM('m-settings');
 };
+
+$('btn-adv-prompts').onclick = () => advOpen();
+$('adv-save').onclick = () => advSave();
+$('adv-reset').onclick = () => advReset();
 
 $('btn-fetch-models').onclick = () => { BtnState.load($('btn-fetch-models'), '加载'); post('FETCH_MODELS', { apiUrl: $('set-api-url').value.trim(), apiKey: $('set-api-key').value.trim() }); };
 $('btn-test-conn').onclick = () => { $('test-res').className = 'set-test-res'; BtnState.load($('btn-test-conn'), '测试'); post('TEST_CONNECTION', { apiUrl: $('set-api-url').value.trim(), apiKey: $('set-api-key').value.trim(), model: $('set-model').value.trim() }); };
@@ -1100,12 +1346,13 @@ $('set-save').onclick = () => {
     gSet = { apiUrl: $('set-api-url').value.trim(), apiKey: $('set-api-key').value.trim(), model: $('set-model').value.trim(), mode: $('set-mode').value || 'assist' };
     D.stage = Math.max(0, Math.min(10, parseInt($('set-stage').value, 10) || 0));
     D.deviationScore = Math.max(0, Math.min(100, parseInt($('set-deviation').value, 10) || 0));
-    D.simulationProgress = Math.max(0, parseInt($('set-sim-progress').value, 10) || 0);
-    D.simulationTarget = Math.max(1, parseInt($('set-sim-target').value, 10) || 5);
-    commSet = { historyCount: Math.max(0, Math.min(200, parseInt($('set-history-count').value, 10) || 50)), npcPosition: parseInt($('set-npc-position').value, 10) || 0, npcOrder: Math.max(0, Math.min(1000, parseInt($('set-npc-order').value, 10) || 100)) };
+    D.simulationTarget = parseInt($('set-sim-target').value, 10);
+    if (Number.isNaN(D.simulationTarget)) D.simulationTarget = 5;
+    commSet = { historyCount: Math.max(0, Math.min(200, parseInt($('set-history-count').value, 10) || 50)), stream: !!$('set-use-stream').checked, npcPosition: parseInt($('set-npc-position').value, 10) || 0, npcOrder: Math.max(0, Math.min(1000, parseInt($('set-npc-order').value, 10) || 100)) };
     const od = {};
     dataKeys.forEach(([k, , , get]) => { if (dataCk[k]) od[k] = get(); });
-    post('SAVE_SETTINGS', { globalSettings: gSet, commSettings: commSet, stage: D.stage, deviationScore: D.deviationScore, simulationProgress: D.simulationProgress, simulationTarget: D.simulationTarget, playerLocation, dataChecked: dataCk, outlineData: od, allData: { meta: D.meta, timeline: D.timeline, world: D.world, outdoor: D.maps.outdoor, indoor: D.maps.indoor, strangers: D.contacts.strangers, contacts: contactsForSave() } });
+    syncSimDueUI();
+    post('SAVE_SETTINGS', { globalSettings: gSet, commSettings: commSet, stage: D.stage, deviationScore: D.deviationScore, simulationTarget: D.simulationTarget, playerLocation, dataChecked: dataCk, outlineData: od, allData: { meta: D.meta, timeline: D.timeline, world: D.world, outdoor: D.maps.outdoor, indoor: D.maps.indoor, strangers: D.contacts.strangers, contacts: contactsForSave() } });
     closeM('m-settings');
 };
 $('btn-close').onclick = () => post('CLOSE_PANEL');
@@ -1119,10 +1366,9 @@ window.addEventListener('message', e => {
         if (d.globalSettings) gSet = d.globalSettings;
         if (d.stage !== undefined) D.stage = d.stage;
         if (d.deviationScore !== undefined) D.deviationScore = d.deviationScore;
-        if (d.simulationProgress !== undefined) D.simulationProgress = d.simulationProgress;
         if (d.simulationTarget !== undefined) D.simulationTarget = d.simulationTarget;
         if (d.playerLocation) playerLocation = d.playerLocation;
-        if (d.commSettings) commSet = { historyCount: d.commSettings.historyCount ?? 50, npcPosition: d.commSettings.npcPosition ?? 0, npcOrder: d.commSettings.npcOrder ?? 100 };
+        if (d.commSettings) commSet = { historyCount: d.commSettings.historyCount ?? 50, npcPosition: d.commSettings.npcPosition ?? 0, npcOrder: d.commSettings.npcOrder ?? 100, stream: !!d.commSettings.stream };
         if (d.dataChecked) dataCk = d.dataChecked;
         if (d.promptConfig) { promptTemplates = d.promptConfig.current?.jsonTemplates || {}; promptSources = d.promptConfig.current?.promptSources || {}; promptDefaults = d.promptConfig.defaults || promptDefaults; }
         if (d.outlineData) {
@@ -1159,23 +1405,31 @@ window.addEventListener('message', e => {
             charContact.avatar = (d.characterCardName || '')[0] || charContact.avatar || '';
         }
         render();
+        syncSimDueUI();
         if ($('m-settings').classList.contains('act')) {
             $('set-api-url').value = gSet.apiUrl || '';
             $('set-api-key').value = gSet.apiKey || '';
             $('set-model').value = gSet.model || '';
             $('set-stage').value = D.stage;
             $('set-deviation').value = D.deviationScore;
-            $('set-sim-progress').value = D.simulationProgress || 0;
-            $('set-sim-target').value = D.simulationTarget || 5;
+            $('set-sim-target').value = (D.simulationTarget ?? 5);
             $('set-mode').value = gSet.mode || 'story';
             $('set-history-count').value = commSet.historyCount;
+            $('set-use-stream').checked = !!commSet.stream;
             $('set-npc-position').value = commSet.npcPosition;
             $('set-npc-order').value = commSet.npcOrder;
             renderDataList();
-            renderPromptList();
         }
     } else if (t === 'PROMPT_CONFIG_UPDATED') {
-        if (d.promptConfig) { promptTemplates = d.promptConfig.current?.jsonTemplates || {}; promptSources = d.promptConfig.current?.promptSources || {}; promptDefaults = d.promptConfig.defaults || promptDefaults; if ($('m-settings').classList.contains('act')) renderPromptList(); }
+        if (d.promptConfig) {
+            promptTemplates = d.promptConfig.current?.jsonTemplates || {};
+            promptSources = d.promptConfig.current?.promptSources || {};
+            promptDefaults = d.promptConfig.defaults || promptDefaults;
+            if ($('m-adv-prompts').classList.contains('act')) {
+                const key = $('adv-key')?.value;
+                if (key) advApplyToUI(key, false);
+            }
+        }
     } else if (t === 'FETCH_MODELS_RESULT') {
         BtnState.reset($('btn-fetch-models'), '获取');
         const s = $('set-model-list');

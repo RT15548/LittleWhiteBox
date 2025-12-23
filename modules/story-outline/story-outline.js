@@ -27,6 +27,7 @@ import { getContext } from "../../../../../st-context.js";
 import { streamingGeneration } from "../streaming-generation.js";
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
+import { StoryOutlinePromptStorage, StoryOutlineSettingsStorage } from "../../core/server-storage.js";
 import { promptManager } from "../../../../../openai.js";
 import {
     buildSmsMessages, buildSummaryMessages, buildSmsHistoryContent, buildExistingSummaryContent,
@@ -220,7 +221,7 @@ function getOutlineStore() {
     if (!chat_metadata) return null;
     const ext = chat_metadata.extensions ||= {}, lwb = ext[EXT_ID] ||= {};
     return lwb.storyOutline ||= {
-        mapData: null, stage: 0, deviationScore: 0, simulationProgress: 0, simulationTarget: 5, playerLocation: '家',
+        mapData: null, stage: 0, deviationScore: 0, simulationTarget: 5, playerLocation: '家',
         outlineData: { meta: null, world: null, outdoor: null, indoor: null, sceneSetup: null, strangers: null, contacts: null },
         dataChecked: { meta: true, world: true, outdoor: true, indoor: true, sceneSetup: true, strangers: false, contacts: false, characterContactSms: false }
     };
@@ -229,7 +230,7 @@ function getOutlineStore() {
 /** 全局/通讯设置读写 */
 const getGlobalSettings = () => getStore(STORAGE_KEYS.global, { apiUrl: '', apiKey: '', model: '', mode: 'assist' });
 const saveGlobalSettings = s => setStore(STORAGE_KEYS.global, s);
-const getCommSettings = () => ({ historyCount: 50, npcPosition: 0, npcOrder: 100, ...getStore(STORAGE_KEYS.comm, {}) });
+const getCommSettings = () => ({ historyCount: 50, npcPosition: 0, npcOrder: 100, stream: false, ...getStore(STORAGE_KEYS.comm, {}) });
 const saveCommSettings = s => setStore(STORAGE_KEYS.comm, s);
 
 /** 获取角色卡信息 */
@@ -252,10 +253,44 @@ function getCharSmsHistory() {
 
 // ==================== 5. LLM调用 ====================
 
+const STREAM_DONE_EVT = 'xiaobaix_streaming_completed';
+let streamLlmQueue = Promise.resolve();
+
+function createStreamingWaiter(sessionId, timeoutMs = 180000) {
+    let done = false;
+    let timer = null;
+    let handler = null;
+
+    const cleanup = () => {
+        if (done) return;
+        done = true;
+        try { if (timer) clearTimeout(timer); } catch {}
+        try { eventSource.removeListener?.(STREAM_DONE_EVT, handler); } catch {}
+    };
+
+    const promise = new Promise((resolve, reject) => {
+        handler = (payload) => {
+            if (!payload || payload.sessionId !== sessionId) return;
+            cleanup();
+            resolve(String(payload.finalText ?? ''));
+        };
+        timer = setTimeout(() => {
+            cleanup();
+            reject(new Error('Streaming timeout'));
+        }, timeoutMs);
+        try { eventSource.on?.(STREAM_DONE_EVT, handler); } catch (e) {
+            cleanup();
+            reject(e);
+        }
+    });
+
+    return { promise, cleanup };
+}
 
 /** 调用LLM */
 async function callLLM(promptOrMsgs, useRaw = false) {
     const { apiUrl, apiKey, model } = getGlobalSettings();
+    const useStream = !!getCommSettings()?.stream;
 
     const normalize = r => {
         if (r == null) return '';
@@ -271,47 +306,81 @@ async function callLLM(promptOrMsgs, useRaw = false) {
         return String(r);
     };
 
-    // 构建基础选项
-    const opts = { nonstream: 'true', lock: 'on' };
-    if (apiUrl?.trim()) Object.assign(opts, { api: 'openai', apiurl: apiUrl.trim(), ...(apiKey && { apipassword: apiKey }), ...(model && { model }) });
+    const baseOpts = { lock: 'on' };
+    if (!useStream) baseOpts.nonstream = 'true';
+    if (apiUrl?.trim()) Object.assign(baseOpts, { api: 'openai', apiurl: apiUrl.trim(), ...(apiKey && { apipassword: apiKey }), ...(model && { model }) });
 
-    if (useRaw) {
-        const messages = Array.isArray(promptOrMsgs)
-            ? promptOrMsgs
-            : [{ role: 'user', content: String(promptOrMsgs || '').trim() }];
+    if (!useStream) {
+        const opts = { ...baseOpts };
 
-        // 直接把消息转成 top 参数格式，不做预处理
-        // {$worldInfo} 和 {$historyN} 由 xbgenrawCommand 内部处理
-        const roleMap = { user: 'user', assistant: 'assistant', system: 'sys' };
-        const topParts = messages
-            .filter(m => m?.role && typeof m.content === 'string' && m.content.trim())
-            .map(m => {
-                const role = roleMap[m.role] || m.role;
-                return `${role}={${m.content}}`;
-            });
-        const topParam = topParts.join(';');
+        if (useRaw) {
+            const messages = Array.isArray(promptOrMsgs)
+                ? promptOrMsgs
+                : [{ role: 'user', content: String(promptOrMsgs || '').trim() }];
 
-        opts.top = topParam;
-        // 不设置 addon，让 xbgenrawCommand 自己处理 {$worldInfo} 占位符替换
+            const roleMap = { user: 'user', assistant: 'assistant', system: 'sys' };
+            const topParts = messages
+                .filter(m => m?.role && typeof m.content === 'string' && m.content.trim())
+                .map(m => {
+                    const role = roleMap[m.role] || m.role;
+                    return `${role}={${m.content}}`;
+                });
+            const topParam = topParts.join(';');
+            opts.top = topParam;
 
-        const raw = await streamingGeneration.xbgenrawCommand(opts, '');
-        const text = normalize(raw).trim();
+            const raw = await streamingGeneration.xbgenrawCommand(opts, '');
+            const text = normalize(raw).trim();
 
-        if (isDebug()) {
-            try {
-                console.groupCollapsed('[StoryOutline] callLLM(useRaw via xbgenrawCommand)');
-                console.log('opts.top.length', topParam.length);
-                console.log('raw', raw);
-                console.log('normalized.length', text.length);
-                console.groupEnd();
-            } catch { }
+            if (isDebug()) {
+                try {
+                    console.groupCollapsed('[StoryOutline] callLLM(useRaw via xbgenrawCommand)');
+                    console.log('opts.top.length', topParam.length);
+                    console.log('raw', raw);
+                    console.log('normalized.length', text.length);
+                    console.groupEnd();
+                } catch { }
+            }
+            return text;
         }
-        return text;
+
+        opts.as = 'user';
+        opts.position = 'history';
+        return normalize(await streamingGeneration.xbgenCommand(opts, promptOrMsgs)).trim();
     }
 
-    opts.as = 'user';
-    opts.position = 'history';
-    return normalize(await streamingGeneration.xbgenCommand(opts, promptOrMsgs)).trim();
+    const runStreaming = async () => {
+        const sessionId = 'xb10';
+        const waiter = createStreamingWaiter(sessionId);
+        const opts = { ...baseOpts, id: sessionId };
+        try {
+            if (useRaw) {
+                const messages = Array.isArray(promptOrMsgs)
+                    ? promptOrMsgs
+                    : [{ role: 'user', content: String(promptOrMsgs || '').trim() }];
+
+                const roleMap = { user: 'user', assistant: 'assistant', system: 'sys' };
+                const topParts = messages
+                    .filter(m => m?.role && typeof m.content === 'string' && m.content.trim())
+                    .map(m => {
+                        const role = roleMap[m.role] || m.role;
+                        return `${role}={${m.content}}`;
+                    });
+                opts.top = topParts.join(';');
+                await streamingGeneration.xbgenrawCommand(opts, '');
+                return (await waiter.promise).trim();
+            }
+
+            opts.as = 'user';
+            opts.position = 'history';
+            await streamingGeneration.xbgenCommand(opts, promptOrMsgs);
+            return (await waiter.promise).trim();
+        } finally {
+            waiter.cleanup();
+        }
+    };
+
+    streamLlmQueue = streamLlmQueue.then(runStreaming, runStreaming);
+    return streamLlmQueue;
 }
 
 /** 调用LLM并解析JSON */
@@ -447,7 +516,13 @@ function formatOutlinePrompt() {
     // 当前剧情
     if (c?.sceneSetup && d.sceneSetup) {
         const ss = d.sceneSetup.sideStory || d.sceneSetup.side_story || d.sceneSetup;
-        if (ss && (ss.surface || ss.inner)) { has = true; text += "### 当前剧情 (Current Scene)\n"; if (ss.surface) text += `* 表象: ${ss.surface}\n`; if (ss.inner) text += `* 里层 (潜台词): ${ss.inner}\n`; text += "\n"; }
+        if (ss && (ss.Facade || ss.Undercurrent)) {
+            has = true;
+            text += "### 当前剧情 (Current Scene)\n";
+            if (ss.Facade) text += `* 表现: ${ss.Facade}\n`;
+            if (ss.Undercurrent) text += `* 暗流: ${ss.Undercurrent}\n`;
+            text += "\n";
+        }
     }
 
     // 角色卡短信
@@ -539,7 +614,7 @@ function sendSettings() {
     const store = getOutlineStore(), { name: charName, desc: charDesc } = getCharInfo();
     postFrame({
         type: "LOAD_SETTINGS", globalSettings: getGlobalSettings(), commSettings: getCommSettings(),
-        stage: store?.stage ?? 0, deviationScore: store?.deviationScore ?? 0, simulationProgress: store?.simulationProgress ?? 0,
+        stage: store?.stage ?? 0, deviationScore: store?.deviationScore ?? 0,
         simulationTarget: store?.simulationTarget ?? 5, playerLocation: store?.playerLocation ?? '家',
         dataChecked: store?.dataChecked || {}, outlineData: store?.outlineData || {}, promptConfig: getPromptConfigPayload?.(),
         characterCardName: charName, characterCardDescription: charDesc,
@@ -548,6 +623,18 @@ function sendSettings() {
 }
 
 const loadAndSend = () => { const s = getOutlineStore(); if (s?.mapData) postFrame({ type: "LOAD_MAP_DATA", mapData: s.mapData }); sendSettings(); };
+
+function sendSimStateOnly() {
+    const store = getOutlineStore();
+    postFrame({
+        type: "LOAD_SETTINGS",
+        commSettings: getCommSettings(),
+        stage: store?.stage ?? 0,
+        deviationScore: store?.deviationScore ?? 0,
+        simulationTarget: store?.simulationTarget ?? 5,
+        playerLocation: store?.playerLocation ?? '家',
+    });
+}
 
 // ==================== 9. 请求处理器 ====================
 
@@ -578,19 +665,26 @@ function mergeSimData(orig, upd) {
     return r;
 }
 
-/** 检查自动推演 */
-async function checkAutoSim(reqId) {
-    const store = getOutlineStore();
-    if (!store || (store.simulationProgress || 0) < (store.simulationTarget ?? 5)) return;
-    const data = { meta: store.outlineData?.meta || {}, world: store.outlineData?.world || null, maps: { outdoor: store.outlineData?.outdoor || null, indoor: store.outlineData?.indoor || null } };
-    await handleSimWorld({ requestId: `wsim_auto_${Date.now()}`, currentData: JSON.stringify(data), isAuto: true });
+function tickSimCountdown(store) {
+    if (!store) return;
+    const prevRaw = Number(store.simulationTarget);
+    const prev = Number.isFinite(prevRaw) ? prevRaw : 5;
+    const next = prev - 1;
+    store.simulationTarget = next;
+    store.updatedAt = Date.now();
+    saveMetadataDebounced?.();
+    sendSimStateOnly();
+    if (prev > 0 && next <= 0) {
+        try { processCommands?.('/echo 该进行世界推演啦！'); } catch {}
+    }
 }
 
 // 验证器
 const V = {
     sum: o => o?.summary, npc: o => o?.name && o?.aliases, arr: o => Array.isArray(o),
     scene: o => !!o?.review?.deviation && !!(o?.local_map || o?.scene_setup?.local_map),
-    lscene: o => !!o?.side_story, inv: o => typeof o?.invite === 'boolean' && o?.reply,
+    lscene: o => !!(o?.side_story?.Incident && o?.side_story?.Facade && o?.side_story?.Undercurrent),
+    inv: o => typeof o?.invite === 'boolean' && o?.reply,
     sms: o => typeof o?.reply === 'string' && o.reply.length > 0,
     wg1: d => !!d && typeof d === 'object',  // 只要是对象就行，后续会 normalize
     wg2: d => !!(d?.world && (d?.maps || d?.world?.maps)?.outdoor),
@@ -783,10 +877,9 @@ async function handleSceneSwitch({ requestId, prevLocationName, prevLocationInfo
         const data = await callLLMJson({ messages: msgs, validate: V.scene });
         if (!data || !V.scene(data)) return replyErr('SCENE_SWITCH_RESULT', requestId, '场景生成失败：无法解析 JSON 数据');
         const delta = data.review?.deviation?.score_delta || 0, old = store?.deviationScore || 0, newS = Math.min(100, Math.max(0, old + delta));
-        if (store) { store.deviationScore = newS; if (targetLocationType !== 'home') store.simulationProgress = (store.simulationProgress || 0) + 1; saveMetadataDebounced?.(); }
+        if (store) { store.deviationScore = newS; tickSimCountdown(store); }
         const lm = data.local_map || data.scene_setup?.local_map || null;
         reply('SCENE_SWITCH_RESULT', requestId, { success: true, sceneData: { review: data.review, localMap: lm, strangers: [], scoreDelta: delta, newScore: newS } });
-        checkAutoSim(requestId);
     } catch (e) { replyErr('SCENE_SWITCH_RESULT', requestId, `场景切换失败: ${e.message}`); }
 }
 
@@ -816,6 +909,7 @@ async function handleGenLocalMap({ requestId, outdoorDescription }) {
         const msgs = buildLocalMapGenMessages({ storyOutline: formatOutlinePrompt(), outdoorDescription: outdoorDescription || '', historyCount: getCommSettings().historyCount || 50 });
         const data = await callLLMJson({ messages: msgs, validate: V.lm });
         if (!data?.inside) return replyErr('GENERATE_LOCAL_MAP_RESULT', requestId, '局部地图生成失败：无法解析 JSON 数据');
+        tickSimCountdown(getOutlineStore());
         reply('GENERATE_LOCAL_MAP_RESULT', requestId, { success: true, localMapData: data.inside });
     } catch (e) { replyErr('GENERATE_LOCAL_MAP_RESULT', requestId, `局部地图生成失败: ${e.message}`); }
 }
@@ -826,6 +920,7 @@ async function handleRefreshLocalMap({ requestId, locationName, currentLocalMap,
         const msgs = buildLocalMapRefreshMessages({ storyOutline: formatOutlinePrompt(), locationName: locationName || store?.playerLocation || '未知地点', locationInfo: currentLocalMap?.description || '', currentLocalMap: currentLocalMap || null, outdoorDescription: outdoorDescription || '', historyCount: comm.historyCount || 50, playerLocation: store?.playerLocation });
         const data = await callLLMJson({ messages: msgs, validate: V.lm });
         if (!data?.inside) return replyErr('REFRESH_LOCAL_MAP_RESULT', requestId, '局部地图刷新失败：无法解析 JSON 数据');
+        tickSimCountdown(store);
         reply('REFRESH_LOCAL_MAP_RESULT', requestId, { success: true, localMapData: data.inside });
     } catch (e) { replyErr('REFRESH_LOCAL_MAP_RESULT', requestId, `局部地图刷新失败: ${e.message}`); }
 }
@@ -836,11 +931,11 @@ async function handleGenLocalScene({ requestId, locationName, locationInfo }) {
         const msgs = buildLocalSceneGenMessages({ storyOutline: formatOutlinePrompt(), locationName: locationName || store?.playerLocation || '未知地点', locationInfo: locationInfo || '', stage: store?.stage || 0, currentAtmosphere: getAtmosphere(store), historyCount: comm.historyCount || 50, mode, playerLocation: store?.playerLocation });
         const data = await callLLMJson({ messages: msgs, validate: V.lscene });
         if (!data || !V.lscene(data)) return replyErr('GENERATE_LOCAL_SCENE_RESULT', requestId, '局部剧情生成失败：无法解析 JSON 数据');
-        if (store) { store.simulationProgress = (store.simulationProgress || 0) + 1; saveMetadataDebounced?.(); }
-        const ssf = data.side_story || null, intro = ssf?.Introduce || ssf?.introduce || '';
-        const ss = ssf ? (() => { const { Introduce, introduce: i2, story, ...rest } = ssf; return rest; })() : null;
+        tickSimCountdown(store);
+        const ssf = data.side_story || null;
+        const intro = (ssf?.Incident || '').trim();
+        const ss = ssf ? { Facade: ssf.Facade || '', Undercurrent: ssf.Undercurrent || '' } : null;
         reply('GENERATE_LOCAL_SCENE_RESULT', requestId, { success: true, sceneSetup: { sideStory: ss, review: data.review || null }, introduce: intro, loc: locationName });
-        checkAutoSim(requestId);
     } catch (e) { replyErr('GENERATE_LOCAL_SCENE_RESULT', requestId, `局部剧情生成失败: ${e.message}`); }
 }
 
@@ -898,7 +993,7 @@ async function handleGenWorld({ requestId, playerRequests }) {
             const msgs = buildWorldGenStep2Messages({ historyCount: comm.historyCount || 50, playerRequests, mode: 'assist' });
             const wd = await callLLMJson({ messages: msgs, validate: V.wga });
             if (!wd?.maps?.outdoor || !Array.isArray(wd.maps.outdoor.nodes)) return replyErr('GENERATE_WORLD_RESULT', requestId, '生成失败：返回数据缺少地图节点');
-            if (store) { Object.assign(store, { stage: 0, deviationScore: 0, simulationProgress: 0, simulationTarget: randRange(3, 7) }); store.outlineData = { ...wd }; saveMetadataDebounced?.(); }
+            if (store) { Object.assign(store, { stage: 0, deviationScore: 0, simulationTarget: randRange(3, 7) }); store.outlineData = { ...wd }; saveMetadataDebounced?.(); sendSimStateOnly(); }
             return reply('GENERATE_WORLD_RESULT', requestId, { success: true, worldData: wd });
         }
 
@@ -925,7 +1020,7 @@ async function handleGenWorld({ requestId, playerRequests }) {
 
         const final = { meta: s1d.meta, world: s2d.world, maps: s2d.maps, playerLocation: s2d.playerLocation };
         step1Cache = null;
-        if (store) { Object.assign(store, { stage: 0, deviationScore: 0, simulationProgress: 0, simulationTarget: randRange(3, 7) }); store.outlineData = final; saveMetadataDebounced?.(); }
+        if (store) { Object.assign(store, { stage: 0, deviationScore: 0, simulationTarget: randRange(3, 7) }); store.outlineData = final; saveMetadataDebounced?.(); sendSimStateOnly(); }
         reply('GENERATE_WORLD_RESULT', requestId, { success: true, worldData: final });
     } catch (e) { replyErr('GENERATE_WORLD_RESULT', requestId, `生成失败: ${e.message}`); }
 }
@@ -946,7 +1041,7 @@ async function handleRetryStep2({ requestId }) {
 
         const final = { meta: s1d.meta, world: s2d.world, maps: s2d.maps, playerLocation: s2d.playerLocation };
         step1Cache = null;
-        if (store) { Object.assign(store, { stage: 0, deviationScore: 0, simulationProgress: 0, simulationTarget: randRange(3, 7) }); store.outlineData = final; saveMetadataDebounced?.(); }
+        if (store) { Object.assign(store, { stage: 0, deviationScore: 0, simulationTarget: randRange(3, 7) }); store.outlineData = final; saveMetadataDebounced?.(); sendSimStateOnly(); }
         reply('GENERATE_WORLD_RESULT', requestId, { success: true, worldData: final });
     } catch (e) { replyErr('GENERATE_WORLD_RESULT', requestId, `Step 2 重试失败: ${e.message}`); }
 }
@@ -958,7 +1053,7 @@ async function handleSimWorld({ requestId, currentData, isAuto }) {
         const data = await callLLMJson({ messages: msgs, validate: V.w });
         if (!data || !V.w(data)) return replyErr('SIMULATE_WORLD_RESULT', requestId, mode === 'assist' ? '世界推演失败：无法解析 JSON 数据（需包含 world 或 maps 字段）' : '世界推演失败：无法解析 JSON 数据');
         const orig = safe(() => JSON.parse(currentData)) || {}, merged = mergeSimData(orig, data);
-        if (store) { store.stage = (store.stage || 0) + 1; store.simulationProgress = 0; store.simulationTarget = randRange(3, 7); saveMetadataDebounced?.(); }
+        if (store) { store.stage = (store.stage || 0) + 1; store.simulationTarget = randRange(3, 7); saveMetadataDebounced?.(); sendSimStateOnly(); }
         reply('SIMULATE_WORLD_RESULT', requestId, { success: true, simData: merged, isAuto: !!isAuto });
     } catch (e) { replyErr('SIMULATE_WORLD_RESULT', requestId, `推演失败: ${e.message}`); }
 }
@@ -968,18 +1063,25 @@ function handleSaveSettings(d) {
     if (d.commSettings) saveCommSettings(d.commSettings);
     const store = getOutlineStore();
     if (store) {
-        ['stage', 'deviationScore', 'simulationProgress', 'simulationTarget', 'playerLocation'].forEach(k => { if (d[k] !== undefined) store[k] = d[k]; });
+        ['stage', 'deviationScore', 'simulationTarget', 'playerLocation'].forEach(k => { if (d[k] !== undefined) store[k] = d[k]; });
         if (d.dataChecked) store.dataChecked = d.dataChecked;
         if (d.allData) store.outlineData = d.allData;
         store.updatedAt = Date.now();
         saveMetadataDebounced?.();
     }
     injectOutline();
+    try {
+        StoryOutlineSettingsStorage?.set?.('settings', {
+            globalSettings: getGlobalSettings(),
+            commSettings: getCommSettings(),
+        });
+    } catch {}
 }
 
 function handleSavePrompts(d) {
     if (!d?.promptConfig) return;
-    setPromptConfig?.(d.promptConfig, true);
+    const payload = setPromptConfig?.(d.promptConfig, true);
+    try { StoryOutlinePromptStorage?.set?.('promptConfig', payload || d.promptConfig); } catch {}
     postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
 }
 
@@ -1194,8 +1296,28 @@ document.addEventListener('xiaobaixEnabledChanged', e => {
 
 // ==================== 初始化 ====================
 
+async function initPromptConfigFromServer() {
+    try {
+        const cfg = await StoryOutlinePromptStorage?.get?.('promptConfig', null);
+        if (!cfg) return;
+        setPromptConfig?.(cfg, true);
+        postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
+    } catch { }
+}
+
+async function initSettingsFromServer() {
+    try {
+        const s = await StoryOutlineSettingsStorage?.get?.('settings', null);
+        if (!s || typeof s !== 'object') return;
+        if (s.globalSettings) saveGlobalSettings(s.globalSettings);
+        if (s.commSettings) saveCommSettings(s.commSettings);
+    } catch { }
+}
+
 jQuery(() => {
     if (!getSettings().storyOutline?.enabled) return;
+    initSettingsFromServer();
+    initPromptConfigFromServer();
     registerEvents();
     setTimeout(injectOutline, 200);
     window.registerModuleCleanup?.('storyOutline', cleanup);
