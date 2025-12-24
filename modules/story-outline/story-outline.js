@@ -27,7 +27,7 @@ import { getContext } from "../../../../../st-context.js";
 import { streamingGeneration } from "../streaming-generation.js";
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
-import { StoryOutlinePromptStorage, StoryOutlineSettingsStorage } from "../../core/server-storage.js";
+import { StoryOutlineStorage } from "../../core/server-storage.js";
 import { promptManager } from "../../../../../openai.js";
 import {
     buildSmsMessages, buildSummaryMessages, buildSmsHistoryContent, buildExistingSummaryContent,
@@ -264,8 +264,8 @@ function createStreamingWaiter(sessionId, timeoutMs = 180000) {
     const cleanup = () => {
         if (done) return;
         done = true;
-        try { if (timer) clearTimeout(timer); } catch {}
-        try { eventSource.removeListener?.(STREAM_DONE_EVT, handler); } catch {}
+        try { if (timer) clearTimeout(timer); } catch { }
+        try { eventSource.removeListener?.(STREAM_DONE_EVT, handler); } catch { }
     };
 
     const promise = new Promise((resolve, reject) => {
@@ -675,7 +675,7 @@ function tickSimCountdown(store) {
     saveMetadataDebounced?.();
     sendSimStateOnly();
     if (prev > 0 && next <= 0) {
-        try { processCommands?.('/echo 该进行世界推演啦！'); } catch {}
+        try { processCommands?.('/echo 该进行世界推演啦！'); } catch { }
     }
 }
 
@@ -1071,17 +1071,17 @@ function handleSaveSettings(d) {
     }
     injectOutline();
     try {
-        StoryOutlineSettingsStorage?.set?.('settings', {
+        StoryOutlineStorage?.set?.('settings', {
             globalSettings: getGlobalSettings(),
             commSettings: getCommSettings(),
         });
-    } catch {}
+    } catch { }
 }
 
 function handleSavePrompts(d) {
     if (!d?.promptConfig) return;
     const payload = setPromptConfig?.(d.promptConfig, true);
-    try { StoryOutlinePromptStorage?.set?.('promptConfig', payload || d.promptConfig); } catch {}
+    try { StoryOutlineStorage?.set?.('promptConfig', payload || d.promptConfig); } catch { }
     postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
 }
 
@@ -1298,7 +1298,7 @@ document.addEventListener('xiaobaixEnabledChanged', e => {
 
 async function initPromptConfigFromServer() {
     try {
-        const cfg = await StoryOutlinePromptStorage?.get?.('promptConfig', null);
+        const cfg = await StoryOutlineStorage?.get?.('promptConfig', null);
         if (!cfg) return;
         setPromptConfig?.(cfg, true);
         postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
@@ -1307,7 +1307,7 @@ async function initPromptConfigFromServer() {
 
 async function initSettingsFromServer() {
     try {
-        const s = await StoryOutlineSettingsStorage?.get?.('settings', null);
+        const s = await StoryOutlineStorage?.get?.('settings', null);
         if (!s || typeof s !== 'object') return;
         if (s.globalSettings) saveGlobalSettings(s.globalSettings);
         if (s.commSettings) saveCommSettings(s.commSettings);
