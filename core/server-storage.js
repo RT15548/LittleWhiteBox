@@ -136,3 +136,4 @@ class StorageFile {
 }
 
 export const TasksStorage = new StorageFile('LittleWhiteBox_Tasks.json');
+export const StoryOutlineStorage = new StorageFile('LittleWhiteBox_StoryOutline.json');
