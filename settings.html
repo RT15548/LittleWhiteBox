@@ -116,54 +116,12 @@
             <input type="checkbox" id="xiaobaix_immersive_enabled" />
             <label for="xiaobaix_immersive_enabled" class="has-tooltip" data-tooltip="重构界面布局与细节优化">沉浸布局显示(边框窄化)</label>
           </div>
-          <div class="flex-container">
-            <input type="checkbox" id="wallhaven_enabled" />
-            <label for="wallhaven_enabled" class="has-tooltip" data-tooltip="AI回复时自动提取消息内容，转换为标签并获取Wallhaven图片作为聊天背景">自动消息配背景图</label>
-          </div>
-          <div id="wallhaven_settings_container" style="display:none;">
-            <div class="flex-container">
-              <input type="checkbox" id="wallhaven_bg_mode" />
-              <label for="wallhaven_bg_mode">背景图模式（纯场景）</label>
-            </div>
-            <div class="flex-container">
-              <label for="wallhaven_category" id="section-font">图片分类:</label>
-              <select id="wallhaven_category" class="text_pole">
-                <option value="010">动漫漫画</option>
-                <option value="111">全部类型</option>
-                <option value="001">人物写真</option>
-                <option value="100">综合壁纸</option>
-              </select>
-            </div>
-            <div class="flex-container">
-              <label for="wallhaven_purity" id="section-font">内容分级:</label>
-              <select id="wallhaven_purity" class="text_pole">
-                <option value="100">仅 SFW</option>
-                <option value="010">仅 Sketchy (轻微)</option>
-                <option value="110">SFW + Sketchy</option>
-                <option value="001">仅 NSFW</option>
-                <option value="011">Sketchy + NSFW</option>
-                <option value="111">全部内容</option>
-              </select>
-            </div>
-            <div class="flex-container">
-              <label for="wallhaven_opacity" id="section-font">黑纱透明度: <span id="wallhaven_opacity_value">30%</span></label>
-              <input type="range" id="wallhaven_opacity" min="0" max="0.8" step="0.1" value="0.3" class="wide50p" />
-            </div>
-            <hr class="sysHR">
-            <div class="flex-container">
-              <input type="text" id="wallhaven_custom_tag_input" placeholder="输入英文标签，如: beautiful girl" class="text_pole wide50p" />
-              <button id="wallhaven_add_custom_tag" class="menu_button" type="button" style="width:auto;">+自定义TAG</button>
-            </div>
-            <div id="wallhaven_custom_tags_container" class="custom-tags-container">
-              <div id="wallhaven_custom_tags_list" class="custom-tags-list"></div>
-            </div>
-          </div>
           <div class="section-divider">Novel 画图
             <hr class="sysHR" />
           </div>
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_novel_draw_enabled" />
-            <label for="xiaobaix_novel_draw_enabled" class="has-tooltip" data-tooltip="使用 NovelAI 为 AI 回复自动或手动生成配图，需在酒馆设置中配置 NovelAI Key">启用 Novel 画图(暂不可用)</label>
+            <label for="xiaobaix_novel_draw_enabled" class="has-tooltip" data-tooltip="使用 NovelAI 为 AI 回复自动或手动生成配图，需在酒馆设置中配置 NovelAI Key">启用 Novel 画图</label>
             <button id="xiaobaix_novel_draw_open_settings" class="menu_button menu_button_icon" type="button" style="margin-left:auto;" title="打开 Novel 画图详细设置">
               <i class="fa-solid fa-palette"></i>
               <small>画图设置</small>
@@ -544,7 +502,6 @@
 	      scriptAssistant: 'xiaobaix_script_assistant',
 	      tasks: 'scheduled_tasks_enabled',
 	      templateEditor: 'xiaobaix_template_enabled',
-	      wallhaven: 'wallhaven_enabled',
 	      fourthWall: 'xiaobaix_fourth_wall_enabled',
 	      variablesPanel: 'xiaobaix_variables_panel_enabled',
 	      variablesCore: 'xiaobaix_variables_core_enabled',
@@ -557,8 +514,8 @@
 	      renderEnabled: 'xiaobaix_render_enabled',
 	    };
 	    const DEFAULTS_ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary', 'recorded'];
-	    const DEFAULTS_OFF = ['preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw'];
-	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'audio', 'storySummary', 'storyOutline', 'novelDraw'];
+	    const DEFAULTS_OFF = ['preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw'];
+	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'audio', 'storySummary', 'storyOutline', 'novelDraw'];
 	    function setModuleEnabled(key, enabled) {
 	      try {
 	        if (!extension_settings[EXT_ID][key]) extension_settings[EXT_ID][key] = {};

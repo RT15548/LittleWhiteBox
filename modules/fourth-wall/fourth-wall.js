@@ -5,7 +5,9 @@ import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog } from "../../core/debug-core.js";
 
-// ================== 常量定义 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// 常量定义
+// ════════════════════════════════════════════════════════════════════════════
 
 const events = createModuleEvents('fourthWall');
 const iframePath = `${extensionFolderPath}/modules/fourth-wall/fourth-wall.html`;
@@ -14,11 +16,11 @@ const COMMENTARY_COOLDOWN = 180000;
 
 const IMG_GUIDELINE = `## 模拟图片
 如果需要发图、照片给对方时，可以在聊天文本中穿插以下格式行，进行图片模拟：
-[image: Person/Subject, Appearance/Clothing, Background/Environment, Atmosphere/Lighting, Extra descriptors]
-- tag必须为英文，用逗号分隔，使用Wallhaven常见、可用的tag组合，5-8个tag
-- 第一个tag须固定为这四个人物标签之一:[boy, girl, man, woman]
+[image: Subject, Appearance, Background, Atmosphere, Extra descriptors]
+- tag必须为英文，用逗号分隔，使用Danbooru风格的tag，5-15个tag
+- 第一个tag须固定为人物数量标签，如: 1girl, 1boy, 2girls, solo, etc.
 - 可以多张照片: 每行一张 [image: ...]
-- 模拟社交软件发图的真实感，当需要发送的内容尺度较大时必须加上nsfw:前缀，即[image: nsfw: ...]
+- 当需要发送的内容尺度较大时加上nsfw相关tag
 - image部分也需要在<msg>内`;
 
 const VOICE_GUIDELINE = `## 模拟语音
@@ -29,11 +31,6 @@ const VOICE_GUIDELINE = `## 模拟语音
 - ……省略号：拖长音、犹豫、伤感
 - ！感叹号：语气有力、激动
 - ？问号：疑问语调、尾音上扬
-### 示例：
-[voice: 你好，今天天气真好。]  普通
-[voice: 我……不太确定……]  犹豫/拖长
-[voice: 太好了！我成功了！]  激动
-[voice: 你确定吗？]  疑问
 - voice部分也需要在<msg>内`;
 
 const DEFAULT_META_PROTOCOL = `
@@ -120,7 +117,9 @@ const COMMENTARY_PROTOCOL = `
 只输出一个<msg>...</msg>块。不要添加任何其他格式
 </meta_protocol>`;
 
-// ================== 状态变量 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// 状态变量
+// ════════════════════════════════════════════════════════════════════════════
 
 let overlayCreated = false;
 let frameReady = false;
@@ -135,28 +134,98 @@ let lastCommentaryTime = 0;
 let commentaryBubbleEl = null;
 let commentaryBubbleTimer = null;
 
-// ================== 设置管理 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// 图片缓存 (IndexedDB)
+// ════════════════════════════════════════════════════════════════════════════
+
+const FW_IMG_DB_NAME = 'xb_fourth_wall_images';
+const FW_IMG_DB_STORE = 'images';
+const FW_IMG_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+
+let fwImgDb = null;
+
+async function openFWImgDB() {
+    if (fwImgDb) return fwImgDb;
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(FW_IMG_DB_NAME, 1);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => { fwImgDb = request.result; resolve(fwImgDb); };
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(FW_IMG_DB_STORE)) {
+                db.createObjectStore(FW_IMG_DB_STORE, { keyPath: 'hash' });
+            }
+        };
+    });
+}
+
+function hashTags(tags) {
+    let hash = 0;
+    const str = String(tags || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+    }
+    return 'fw_' + Math.abs(hash).toString(36);
+}
+
+async function getCachedImage(tags) {
+    try {
+        const db = await openFWImgDB();
+        const hash = hashTags(tags);
+        return new Promise((resolve) => {
+            const tx = db.transaction(FW_IMG_DB_STORE, 'readonly');
+            const req = tx.objectStore(FW_IMG_DB_STORE).get(hash);
+            req.onsuccess = () => {
+                const result = req.result;
+                if (result && Date.now() - result.timestamp < FW_IMG_CACHE_TTL) {
+                    resolve(result.base64);
+                } else {
+                    resolve(null);
+                }
+            };
+            req.onerror = () => resolve(null);
+        });
+    } catch { return null; }
+}
+
+async function cacheImage(tags, base64) {
+    try {
+        const db = await openFWImgDB();
+        const hash = hashTags(tags);
+        const tx = db.transaction(FW_IMG_DB_STORE, 'readwrite');
+        tx.objectStore(FW_IMG_DB_STORE).put({ hash, tags, base64, timestamp: Date.now() });
+    } catch {}
+}
+
+async function clearExpiredFWImageCache() {
+    try {
+        const db = await openFWImgDB();
+        const cutoff = Date.now() - FW_IMG_CACHE_TTL;
+        const tx = db.transaction(FW_IMG_DB_STORE, 'readwrite');
+        const store = tx.objectStore(FW_IMG_DB_STORE);
+        store.openCursor().onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (cursor) {
+                if (cursor.value.timestamp < cutoff) cursor.delete();
+                cursor.continue();
+            }
+        };
+    } catch {}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 设置管理
+// ════════════════════════════════════════════════════════════════════════════
 
 function getSettings() {
     extension_settings[EXT_ID] ||= {};
     const s = extension_settings[EXT_ID];
     
     s.fourthWall ||= { enabled: true };
-    s.fourthWallImage ||= {
-        categoryPreference: 'anime',
-        purityDefault: '111',
-        purityWhenNSFW: '001',
-        enablePrompt: false,
-    };
-    s.fourthWallVoice ||= {
-        enabled: false,
-        voice: '桃夭',
-        speed: 0.5,
-    };
-    s.fourthWallCommentary ||= {
-        enabled: false,
-        probability: 30
-    };
+    s.fourthWallImage ||= { enablePrompt: false };
+    s.fourthWallVoice ||= { enabled: false, voice: '桃夭', speed: 0.5 };
+    s.fourthWallCommentary ||= { enabled: false, probability: 30 };
     s.fourthWallPromptTemplates ||= {};
     
     const t = s.fourthWallPromptTemplates;
@@ -173,23 +242,17 @@ Scene_Description_Requirements:
   - Symbolism_and_Implication: Use personification and symbolism to add depth and subtlety to scenes.
 </task_settings>`;
     }
-    if (t.confirm === undefined) {
-        t.confirm = '好的，我已阅读设置要求，准备查看历史并进入角色。';
-    }
-    if (t.bottom === undefined) {
-        t.bottom = `我将根据你的回应: {{USER_INPUT}}|按照<meta_protocol>内要求，进行<thinking>和<msg>互动，开始内省:`;
-    }
-    if (t.metaProtocol === undefined) {
-        t.metaProtocol = DEFAULT_META_PROTOCOL;
-    }
-    if (t.imgGuideline === undefined) {
-        t.imgGuideline = IMG_GUIDELINE;
-    }
+    if (t.confirm === undefined) t.confirm = '好的，我已阅读设置要求，准备查看历史并进入角色。';
+    if (t.bottom === undefined) t.bottom = `我将根据你的回应: {{USER_INPUT}}|按照<meta_protocol>内要求，进行<thinking>和<msg>互动，开始内省:`;
+    if (t.metaProtocol === undefined) t.metaProtocol = DEFAULT_META_PROTOCOL;
+    if (t.imgGuideline === undefined) t.imgGuideline = IMG_GUIDELINE;
     
     return s;
 }
 
-// ================== 工具函数 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// 工具函数
+// ════════════════════════════════════════════════════════════════════════════
 
 function b64UrlEncode(str) {
     const utf8 = new TextEncoder().encode(String(str));
@@ -301,10 +364,7 @@ function getAvatarUrls() {
         }
         return '';
     };
-    let user = pickSrc([
-        '#user_avatar_block img', '#avatar_user img', '.user_avatar img',
-        'img#avatar_user', '.st-user-avatar img'
-    ]) || (typeof default_user_avatar !== 'undefined' ? default_user_avatar : '');
+    let user = pickSrc(['#user_avatar_block img', '#avatar_user img', '.user_avatar img', 'img#avatar_user', '.st-user-avatar img']) || (typeof default_user_avatar !== 'undefined' ? default_user_avatar : '');
     const m = String(user).match(/\/thumbnail\?type=persona&file=([^&]+)/i);
     if (m) user = `User Avatars/${decodeURIComponent(m[1])}`;
     const ctx = getContext?.() || {};
@@ -336,7 +396,9 @@ async function getUserAndCharNames() {
     return { userName, charName };
 }
 
-// ================== 存储管理 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// 存储管理
+// ════════════════════════════════════════════════════════════════════════════
 
 function getFWStore(chatId = getCurrentChatIdSafe()) {
     if (!chatId) return null;
@@ -371,7 +433,9 @@ function saveFWStore() {
     saveMetadataDebounced?.();
 }
 
-// ================== iframe 通讯 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// iframe 通讯
+// ════════════════════════════════════════════════════════════════════════════
 
 function postToFrame(payload) {
     const iframe = document.getElementById('xiaobaix-fourth-wall-iframe');
@@ -409,6 +473,59 @@ function sendInitData() {
         avatars
     });
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// NovelDraw 图片生成 (带缓存)
+// ════════════════════════════════════════════════════════════════════════════
+
+async function handleCheckImageCache(data) {
+    const { requestId, tags } = data;
+    const cached = await getCachedImage(tags);
+    if (cached) {
+        postToFrame({ type: 'IMAGE_RESULT', requestId, base64: cached, fromCache: true });
+    } else {
+        postToFrame({ type: 'CACHE_MISS', requestId, tags });
+    }
+}
+
+async function handleGenerateImage(data) {
+    const { requestId, tags } = data;
+    
+    const novelDraw = window.xiaobaixNovelDraw;
+    if (!novelDraw) {
+        postToFrame({ type: 'IMAGE_RESULT', requestId, error: 'NovelDraw 模块未启用' });
+        return;
+    }
+    
+    try {
+        const settings = novelDraw.getSettings();
+        const paramsPreset = settings.paramsPresets?.find(p => p.id === settings.selectedParamsPresetId) || settings.paramsPresets?.[0];
+        
+        if (!paramsPreset) {
+            postToFrame({ type: 'IMAGE_RESULT', requestId, error: '无可用的参数预设' });
+            return;
+        }
+        
+        const positive = [paramsPreset.positivePrefix, tags].filter(Boolean).join(', ');
+        
+        const base64 = await novelDraw.generateNovelImage({
+            prompt: positive,
+            negativePrompt: paramsPreset.negativePrefix || '',
+            params: paramsPreset.params || {},
+            characters: []
+        });
+        
+        await cacheImage(tags, base64);
+        postToFrame({ type: 'IMAGE_RESULT', requestId, base64 });
+    } catch (e) {
+        console.error('[FourthWall] 图片生成失败:', e);
+        postToFrame({ type: 'IMAGE_RESULT', requestId, error: e.message || '生成失败' });
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 消息处理
+// ════════════════════════════════════════════════════════════════════════════
 
 function handleFrameMessage(event) {
     const data = event.data;
@@ -529,10 +646,20 @@ function handleFrameMessage(event) {
         case 'CLOSE_OVERLAY':
             hideOverlay();
             break;
+
+        case 'CHECK_IMAGE_CACHE':
+            handleCheckImageCache(data);
+            break;
+
+        case 'GENERATE_IMAGE':
+            handleGenerateImage(data);
+            break;
     }
 }
 
-// ================== Prompt 构建 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// Prompt 构建
+// ════════════════════════════════════════════════════════════════════════════
 
 async function buildPrompt(userInput, history, settings, imgSettings, voiceSettings, isCommentary = false) {
     const { userName, charName } = await getUserAndCharNames();
@@ -579,10 +706,7 @@ async function buildPrompt(userInput, history, settings, imgSettings, voiceSetti
         })
         .join('\n');
 
-    const msg1 = String(T.topuser || '')
-        .replace(/{{USER_NAME}}/g, userName)
-        .replace(/{{CHAR_NAME}}/g, charName);
-
+    const msg1 = String(T.topuser || '').replace(/{{USER_NAME}}/g, userName).replace(/{{CHAR_NAME}}/g, charName);
     const msg2 = String(T.confirm || '好的，我已阅读设置要求，准备查看历史并进入角色。');
 
     let metaProtocol = (isCommentary ? COMMENTARY_PROTOCOL : String(T.metaProtocol || '')).replace(/{{USER_NAME}}/g, userName).replace(/{{CHAR_NAME}}/g, charName);
@@ -604,7 +728,9 @@ ${metaProtocol}`.replace(/\|/g, '｜').trim();
     return { msg1, msg2, msg3, msg4 };
 }
 
-// ================== 生成处理 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// 生成处理
+// ════════════════════════════════════════════════════════════════════════════
 
 async function handleSendMessage(data) {
     if (isStreaming) return;
@@ -616,25 +742,15 @@ async function handleSendMessage(data) {
         saveFWStore();
     }
     
-    const { msg1, msg2, msg3, msg4 } = await buildPrompt(
-        data.userInput, 
-        data.history, 
-        data.settings,
-        data.imgSettings,
-        data.voiceSettings
-    );
-    
+    const { msg1, msg2, msg3, msg4 } = await buildPrompt(data.userInput, data.history, data.settings, data.imgSettings, data.voiceSettings);
     const top64 = b64UrlEncode(`user={${msg1}};assistant={${msg2}};user={${msg3}};assistant={${msg4}}`);
     const nonstreamArg = data.settings.stream ? '' : ' nonstream=true';
     const cmd = `/xbgenraw id=${STREAM_SESSION_ID} top64="${top64}"${nonstreamArg} ""`;
     
     try {
         await executeSlashCommand(cmd);
-        if (data.settings.stream) {
-            startStreamingPoll();
-        } else {
-            startNonstreamAwait();
-        }
+        if (data.settings.stream) startStreamingPoll();
+        else startNonstreamAwait();
     } catch {
         stopStreamingPoll();
         isStreaming = false;
@@ -652,25 +768,15 @@ async function handleRegenerate(data) {
         saveFWStore();
     }
     
-    const { msg1, msg2, msg3, msg4 } = await buildPrompt(
-        data.userInput,
-        data.history,
-        data.settings,
-        data.imgSettings,
-        data.voiceSettings
-    );
-    
+    const { msg1, msg2, msg3, msg4 } = await buildPrompt(data.userInput, data.history, data.settings, data.imgSettings, data.voiceSettings);
     const top64 = b64UrlEncode(`user={${msg1}};assistant={${msg2}};user={${msg3}};assistant={${msg4}}`);
     const nonstreamArg = data.settings.stream ? '' : ' nonstream=true';
     const cmd = `/xbgenraw id=${STREAM_SESSION_ID} top64="${top64}"${nonstreamArg} ""`;
     
     try {
         await executeSlashCommand(cmd);
-        if (data.settings.stream) {
-            startStreamingPoll();
-        } else {
-            startNonstreamAwait();
-        }
+        if (data.settings.stream) startStreamingPoll();
+        else startNonstreamAwait();
     } catch {
         stopStreamingPoll();
         isStreaming = false;
@@ -687,16 +793,10 @@ function startStreamingPoll() {
         const raw = gen.getLastGeneration(STREAM_SESSION_ID) || '...';
         const thinking = extractThinkingPartial(raw);
         const msg = extractMsg(raw) || extractMsgPartial(raw);
-        postToFrame({
-            type: 'STREAM_UPDATE',
-            text: msg || '...',
-            thinking: thinking || undefined
-        });
+        postToFrame({ type: 'STREAM_UPDATE', text: msg || '...', thinking: thinking || undefined });
         
         const st = gen.getStatus?.(STREAM_SESSION_ID);
-        if (st && st.isStreaming === false) {
-            finalizeGeneration();
-        }
+        if (st && st.isStreaming === false) finalizeGeneration();
     }, 80);
 }
 
@@ -705,9 +805,7 @@ function startNonstreamAwait() {
     streamTimerId = setInterval(() => {
         const gen = window.xiaobaixStreamingGeneration;
         const st = gen?.getStatus?.(STREAM_SESSION_ID);
-        if (st && st.isStreaming === false) {
-            finalizeGeneration();
-        }
+        if (st && st.isStreaming === false) finalizeGeneration();
     }, 120);
 }
 
@@ -729,12 +827,7 @@ function finalizeGeneration() {
     
     const session = getActiveSession();
     if (session) {
-        session.history.push({
-            role: 'ai',
-            content: finalText,
-            thinking: thinkingText || undefined,
-            ts: Date.now()
-        });
+        session.history.push({ role: 'ai', content: finalText, thinking: thinkingText || undefined, ts: Date.now() });
         saveFWStore();
     }
     
@@ -749,7 +842,9 @@ function cancelGeneration() {
     postToFrame({ type: 'GENERATION_CANCELLED' });
 }
 
-// ================== 实时吐槽 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// 实时吐槽
+// ════════════════════════════════════════════════════════════════════════════
 
 function shouldTriggerCommentary() {
     const settings = getSettings();
@@ -766,25 +861,15 @@ async function buildCommentaryPrompt(targetText, type) {
     const session = getActiveSession();
     if (!store || !session) return null;
 
-    const { msg1, msg2, msg3 } = await buildPrompt(
-        '',
-        session.history || [],
-        store.settings || {},
-        settings.fourthWallImage || {},
-        settings.fourthWallVoice || {},
-        true
-    );
+    const { msg1, msg2, msg3 } = await buildPrompt('', session.history || [], store.settings || {}, settings.fourthWallImage || {}, settings.fourthWallVoice || {}, true);
 
     let msg4;
     if (type === 'ai_message') {
-        msg4 = `现在<chat_history>剧本还在继续中，我刚才说完最后一轮rp，忍不住想皮下吐槽一句自己的rp(也可以稍微衔接之前的meta_history)。
-我将直接输出<msg>内容</msg>:`;
+        msg4 = `现在<chat_history>剧本还在继续中，我刚才说完最后一轮rp，忍不住想皮下吐槽一句自己的rp(也可以稍微衔接之前的meta_history)。我将直接输出<msg>内容</msg>:`;
     } else if (type === 'edit_own') {
-        msg4 = `现在<chat_history>剧本还在继续中，我发现你刚才悄悄编辑了自己的台词！是：「${String(targetText || '')}」
-必须皮下吐槽一句(也可以稍微衔接之前的meta_history)。我将直接输出<msg>内容</msg>:`;
+        msg4 = `现在<chat_history>剧本还在继续中，我发现你刚才悄悄编辑了自己的台词！是：「${String(targetText || '')}」必须皮下吐槽一句(也可以稍微衔接之前的meta_history)。我将直接输出<msg>内容</msg>:`;
     } else if (type === 'edit_ai') {
-        msg4 = `现在<chat_history>剧本还在继续中，我发现你居然偷偷改了我的台词！是：「${String(targetText || '')}」
-必须皮下吐槽一下(也可以稍微衔接之前的meta_history)。我将直接输出<msg>内容</msg>:。`;
+        msg4 = `现在<chat_history>剧本还在继续中，我发现你居然偷偷改了我的台词！是：「${String(targetText || '')}」必须皮下吐槽一下(也可以稍微衔接之前的meta_history)。我将直接输出<msg>内容</msg>:。`;
     }
 
     return { msg1, msg2, msg3, msg4 };
@@ -794,7 +879,6 @@ async function generateCommentary(targetText, type) {
     const built = await buildCommentaryPrompt(targetText, type);
     if (!built) return null;
     const { msg1, msg2, msg3, msg4 } = built;
-
     const top64 = b64UrlEncode(`user={${msg1}};assistant={${msg2}};user={${msg3}};assistant={${msg4}}`);
 
     try {
@@ -874,16 +958,8 @@ function getFloatBtnPosition() {
     if (!btn) return null;
     const rect = btn.getBoundingClientRect();
     let stored = {};
-    try {
-        stored = JSON.parse(localStorage.getItem(`${EXT_ID}:fourthWallFloatBtnPos`) || '{}') || {};
-    } catch {}
-    return {
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-        side: stored.side || 'right'
-    };
+    try { stored = JSON.parse(localStorage.getItem(`${EXT_ID}:fourthWallFloatBtnPos`) || '{}') || {}; } catch {}
+    return { top: rect.top, left: rect.left, width: rect.width, height: rect.height, side: stored.side || 'right' };
 }
 
 function showCommentaryBubble(text) {
@@ -895,19 +971,9 @@ function showCommentaryBubble(text) {
     bubble.textContent = text;
     bubble.onclick = hideCommentaryBubble;
     Object.assign(bubble.style, {
-        position: 'fixed',
-        zIndex: '10000',
-        maxWidth: '200px',
-        padding: '8px 12px',
-        background: 'rgba(255,255,255,0.95)',
-        borderRadius: '12px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-        fontSize: '13px',
-        color: '#333',
-        cursor: 'pointer',
-        opacity: '0',
-        transform: 'scale(0.8)',
-        transition: 'opacity 0.3s, transform 0.3s'
+        position: 'fixed', zIndex: '10000', maxWidth: '200px', padding: '8px 12px',
+        background: 'rgba(255,255,255,0.95)', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+        fontSize: '13px', color: '#333', cursor: 'pointer', opacity: '0', transform: 'scale(0.8)', transition: 'opacity 0.3s, transform 0.3s'
     });
     document.body.appendChild(bubble);
     commentaryBubbleEl = bubble;
@@ -930,10 +996,7 @@ function showCommentaryBubble(text) {
         bubble.style.right = '';
         bubble.style.borderBottomLeftRadius = '4px';
     }
-    requestAnimationFrame(() => {
-        bubble.style.opacity = '1';
-        bubble.style.transform = 'scale(1)';
-    });
+    requestAnimationFrame(() => { bubble.style.opacity = '1'; bubble.style.transform = 'scale(1)'; });
     const len = (text || '').length;
     const duration = Math.min(2000 + Math.ceil(len / 5) * 1000, 8000);
     commentaryBubbleTimer = setTimeout(hideCommentaryBubble, duration);
@@ -941,17 +1004,11 @@ function showCommentaryBubble(text) {
 }
 
 function hideCommentaryBubble() {
-    if (commentaryBubbleTimer) {
-        clearTimeout(commentaryBubbleTimer);
-        commentaryBubbleTimer = null;
-    }
+    if (commentaryBubbleTimer) { clearTimeout(commentaryBubbleTimer); commentaryBubbleTimer = null; }
     if (commentaryBubbleEl) {
         commentaryBubbleEl.style.opacity = '0';
         commentaryBubbleEl.style.transform = 'scale(0.8)';
-        setTimeout(() => {
-            commentaryBubbleEl?.remove();
-            commentaryBubbleEl = null;
-        }, 300);
+        setTimeout(() => { commentaryBubbleEl?.remove(); commentaryBubbleEl = null; }, 300);
     }
 }
 
@@ -967,7 +1024,9 @@ function cleanupCommentary() {
     lastCommentaryTime = 0;
 }
 
-// ================== Overlay 管理 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// Overlay 管理
+// ════════════════════════════════════════════════════════════════════════════
 
 function createOverlay() {
     if (overlayCreated) return;
@@ -979,26 +1038,10 @@ function createOverlay() {
     const framePadding = isMobile ? 'padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left) !important;' : '';
     
     const $overlay = $(`
-        <div id="xiaobaix-fourth-wall-overlay" style="
-            position: fixed !important; inset: 0 !important;
-            width: 100vw !important; height: 100vh !important; height: 100dvh !important;
-            z-index: 99999 !important; display: none; overflow: hidden !important;
-            background: #000 !important;
-        ">
-            <div class="fw-backdrop" style="
-                position: absolute !important; inset: 0 !important;
-                background: rgba(0,0,0,.55) !important;
-                backdrop-filter: blur(4px) !important;
-            "></div>
-            <div class="fw-frame-wrap" style="
-                position: absolute !important; inset: ${frameInset} !important; z-index: 1 !important; ${framePadding}
-            ">
-                <iframe id="xiaobaix-fourth-wall-iframe" class="xiaobaix-iframe"
-                    src="${iframePath}"
-                    style="width:100% !important; height:100% !important; border:none !important;
-                           border-radius:${iframeRadius} !important; box-shadow:0 0 30px rgba(0,0,0,.4) !important;
-                           background:#1a1a2e !important;">
-                </iframe>
+        <div id="xiaobaix-fourth-wall-overlay" style="position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;z-index:99999!important;display:none;overflow:hidden!important;background:#000!important;">
+            <div class="fw-backdrop" style="position:absolute!important;inset:0!important;background:rgba(0,0,0,.55)!important;backdrop-filter:blur(4px)!important;"></div>
+            <div class="fw-frame-wrap" style="position:absolute!important;inset:${frameInset}!important;z-index:1!important;${framePadding}">
+                <iframe id="xiaobaix-fourth-wall-iframe" class="xiaobaix-iframe" src="${iframePath}" style="width:100%!important;height:100%!important;border:none!important;border-radius:${iframeRadius}!important;box-shadow:0 0 30px rgba(0,0,0,.4)!important;background:#1a1a2e!important;"></iframe>
             </div>
         </div>
     `);
@@ -1035,9 +1078,7 @@ function showOverlay() {
 
 function hideOverlay() {
     $('#xiaobaix-fourth-wall-overlay').hide();
-    if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-    }
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     isFullscreen = false;
 }
 
@@ -1058,7 +1099,9 @@ function toggleFullscreen() {
     }
 }
 
-// ================== 悬浮按钮 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// 悬浮按钮
+// ════════════════════════════════════════════════════════════════════════════
 
 function createFloatingButton() {
     if (document.getElementById('xiaobaix-fw-float-btn')) return;
@@ -1068,12 +1111,8 @@ function createFloatingButton() {
     const margin = 8;
 
     const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
-    const readPos = () => {
-        try { return JSON.parse(localStorage.getItem(POS_KEY) || 'null'); } catch { return null; }
-    };
-    const writePos = (pos) => {
-        try { localStorage.setItem(POS_KEY, JSON.stringify(pos)); } catch {}
-    };
+    const readPos = () => { try { return JSON.parse(localStorage.getItem(POS_KEY) || 'null'); } catch { return null; } };
+    const writePos = (pos) => { try { localStorage.setItem(POS_KEY, JSON.stringify(pos)); } catch {} };
     const calcDockLeft = (side, w) => (side === 'left' ? -Math.round(w / 2) : (window.innerWidth - Math.round(w / 2)));
     const applyDocked = (side, topRatio) => {
         const btn = document.getElementById('xiaobaix-fw-float-btn');
@@ -1087,27 +1126,7 @@ function createFloatingButton() {
     };
 
     const $btn = $(`
-        <button id="xiaobaix-fw-float-btn" title="皮下交流" style="
-            position: fixed !important;
-            left: 0px !important;
-            top: 0px !important;
-            z-index: 9999 !important;
-            width: ${size}px !important;
-            height: ${size}px !important;
-            border-radius: 50% !important;
-            border: none !important;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-            color: #fff !important;
-            font-size: ${Math.round(size * 0.45)}px !important;
-            cursor: pointer !important;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4) !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            transition: left 0.2s, top 0.2s, transform 0.2s, box-shadow 0.2s !important;
-            touch-action: none !important;
-            user-select: none !important;
-        ">
+        <button id="xiaobaix-fw-float-btn" title="皮下交流" style="position:fixed!important;left:0px!important;top:0px!important;z-index:9999!important;width:${size}px!important;height:${size}px!important;border-radius:50%!important;border:none!important;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%)!important;color:#fff!important;font-size:${Math.round(size * 0.45)}px!important;cursor:pointer!important;box-shadow:0 4px 15px rgba(102,126,234,0.4)!important;display:flex!important;align-items:center!important;justify-content:center!important;transition:left 0.2s,top 0.2s,transform 0.2s,box-shadow 0.2s!important;touch-action:none!important;user-select:none!important;">
             <i class="fa-solid fa-comments"></i>
         </button>
     `);
@@ -1118,19 +1137,8 @@ function createFloatingButton() {
         showOverlay();
     });
     
-    $btn.on('mouseenter', function() {
-        $(this).css({
-            'transform': 'scale(1.08)',
-            'box-shadow': '0 6px 20px rgba(102, 126, 234, 0.5)'
-        });
-    });
-    
-    $btn.on('mouseleave', function() {
-        $(this).css({
-            'transform': 'none',
-            'box-shadow': '0 4px 15px rgba(102, 126, 234, 0.4)'
-        });
-    });
+    $btn.on('mouseenter', function() { $(this).css({ 'transform': 'scale(1.08)', 'box-shadow': '0 6px 20px rgba(102, 126, 234, 0.5)' }); });
+    $btn.on('mouseleave', function() { $(this).css({ 'transform': 'none', 'box-shadow': '0 4px 15px rgba(102, 126, 234, 0.4)' }); });
     
     document.body.appendChild($btn[0]);
 
@@ -1138,11 +1146,7 @@ function createFloatingButton() {
     applyDocked(initial?.side || 'right', Number.isFinite(initial?.topRatio) ? initial.topRatio : 0.5);
 
     let dragging = false;
-    let startX = 0;
-    let startY = 0;
-    let startLeft = 0;
-    let startTop = 0;
-    let pointerId = null;
+    let startX = 0, startY = 0, startLeft = 0, startTop = 0, pointerId = null;
 
     const onPointerDown = (e) => {
         if (e.button !== undefined && e.button !== 0) return;
@@ -1150,10 +1154,7 @@ function createFloatingButton() {
         pointerId = e.pointerId;
         try { btn.setPointerCapture(pointerId); } catch {}
         const rect = btn.getBoundingClientRect();
-        startX = e.clientX;
-        startY = e.clientY;
-        startLeft = rect.left;
-        startTop = rect.top;
+        startX = e.clientX; startY = e.clientY; startLeft = rect.left; startTop = rect.top;
         dragging = false;
         btn.style.transition = 'none';
     };
@@ -1216,7 +1217,9 @@ function removeFloatingButton() {
     }
 }
 
-// ================== 初始化和清理 ==================
+// ════════════════════════════════════════════════════════════════════════════
+// 初始化和清理
+// ════════════════════════════════════════════════════════════════════════════
 
 function initFourthWall() {
     try { xbLog.info('fourthWall', 'initFourthWall'); } catch {}
@@ -1225,14 +1228,13 @@ function initFourthWall() {
     
     createFloatingButton();
     initCommentary();
+    clearExpiredFWImageCache();
     
     events.on(event_types.CHAT_CHANGED, () => {
         cancelGeneration();
         currentLoadedChatId = null;
         pendingFrameMessages = [];
-        if ($('#xiaobaix-fourth-wall-overlay').is(':visible')) {
-            hideOverlay();
-        }
+        if ($('#xiaobaix-fourth-wall-overlay').is(':visible')) hideOverlay();
     });
 }
 

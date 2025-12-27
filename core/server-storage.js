@@ -137,3 +137,4 @@ class StorageFile {
 
 export const TasksStorage = new StorageFile('LittleWhiteBox_Tasks.json');
 export const StoryOutlineStorage = new StorageFile('LittleWhiteBox_StoryOutline.json');
+export const NovelDrawStorage = new StorageFile('LittleWhiteBox_NovelDraw.json', { debounceMs: 800 });

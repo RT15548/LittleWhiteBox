@@ -6,64 +6,79 @@ SillyTavern 扩展插件 - 小白X
 
 ```
 LittleWhiteBox/
-├── manifest.json          # 插件配置清单
-├── index.js               # 主入口文件
-├── settings.html          # 设置页面模板
-├── style.css              # 全局样式
+├── index.js                          # 主入口，初始化所有模块，管理总开关
+├── manifest.json                     # 插件清单，版本、依赖声明
+├── settings.html                     # 主设置页面，所有模块开关UI
+├── style.css                         # 全局样式
+├── README.md                         # 说明文档
 │
-├── modules/               # 功能模块目录
-│   ├── streaming-generation.js     # 流式生成
-│   ├── dynamic-prompt.js           # 动态提示词
-│   ├── immersive-mode.js           # 沉浸模式
-│   ├── message-preview.js          # 消息预览
-│   ├── wallhaven-background.js     # 壁纸背景
-│   ├── button-collapse.js          # 按钮折叠
-│   ├── control-audio.js            # 音频控制
-│   ├── script-assistant.js         # 脚本助手
-│   │
-│   ├── variables/                  # 变量系统
-│   │   ├── variables-core.js
-│   │   └── variables-panel.js
-│   │
-│   ├── template-editor/            # 模板编辑器
-│   │   ├── template-editor.js
-│   │   └── template-editor.html
-│   │
-│   ├── scheduled-tasks/            # 定时任务
-│   │   ├── scheduled-tasks.js
-│   │   ├── scheduled-tasks.html
-│   │   └── embedded-tasks.html
-│   │
-│   ├── story-summary/              # 故事摘要
-│   │   ├── story-summary.js
-│   │   └── story-summary.html
-│   │
-│   └── story-outline/              # 故事大纲
-│       ├── story-outline.js
-│       ├── story-outline-prompt.js
-│       └── story-outline.html
+├── core/                             # 核心公共模块
+│   ├── constants.js                  # 共享常量 EXT_ID, extensionFolderPath
+│   ├── event-manager.js              # 统一事件管理，createModuleEvents()
+│   ├── debug-core.js                 # 日志 xbLog + 缓存注册 CacheRegistry
+│   ├── slash-command.js              # 斜杠命令执行封装
+│   ├── variable-path.js              # 变量路径解析工具
+│   └── server-storage.js             # 服务器文件存储，防抖保存，自动重试
 │
-├── bridges/                        # 外部桥接模块
-│   ├── worldbook-bridge.js         # 世界书桥接
-│   ├── call-generate-service.js    # 生成服务调用
-│   └── wrapper-iframe.js           # iframe 包装器
+├── modules/                          # 功能模块
+│   ├── button-collapse.js            # 按钮折叠，消息区按钮收纳
+│   ├── control-audio.js              # 音频控制，iframe音频权限
+│   ├── iframe-renderer.js            # iframe渲染，代码块转交互界面
+│   ├── immersive-mode.js             # 沉浸模式，界面布局优化
+│   ├── message-preview.js            # 消息预览，Log记录/拦截
+│   ├── script-assistant.js           # 脚本助手，AI写卡知识注入
+│   ├── streaming-generation.js       # 流式生成，xbgenraw命令
+│   │
+│   ├── debug-panel/                  # 调试面板模块
+│   │   ├── debug-panel.js            # 悬浮窗控制，父子通信，懒加载
+│   │   └── debug-panel.html          # 三Tab界面：日志/事件/缓存
+│   │
+│   ├── fourth-wall/                  # 四次元壁模块（皮下交流）
+│   │   ├── fourth-wall.js            # 悬浮按钮，postMessage通讯
+│   │   └── fourth-wall.html          # iframe聊天界面，提示词编辑
+│   │
+│   ├── novel-draw/                   # Novel画图模块
+│   │   ├── novel-draw.js             # NovelAI画图，预设管理，LLM场景分析
+│   │   ├── novel-draw.html           # 参数配置，图片管理（画廊+缓存）
+│   │   ├── floating-panel.js         # 悬浮面板，状态显示，快捷操作
+│   │   └── gallery-cache.js          # IndexedDB缓存，小画廊UI
+│   │
+│   ├── scheduled-tasks/              # 定时任务模块
+│   │   ├── scheduled-tasks.js        # 全局/角色/预设任务调度
+│   │   ├── scheduled-tasks.html      # 任务设置面板
+│   │   └── embedded-tasks.html       # 嵌入式任务界面
+│   │
+│   ├── template-editor/              # 模板编辑器模块
+│   │   ├── template-editor.js        # 沉浸式模板，流式多楼层渲染
+│   │   └── template-editor.html      # 模板编辑界面
+│   │
+│   ├── story-outline/                # 故事大纲模块
+│   │   ├── story-outline.js          # 可视化剧情地图
+│   │   ├── story-outline.html        # 大纲编辑界面
+│   │   └── story-outline-prompt.js   # 大纲生成提示词
+│   │
+│   ├── story-summary/                # 剧情总结模块
+│   │   ├── story-summary.js          # 增量总结，时间线，关系图
+│   │   └── story-summary.html        # 总结面板界面
+│   │
+│   └── variables/                    # 变量系统模块
+│       ├── var-commands.js           # /xbgetvar /xbsetvar 命令，宏替换
+│       ├── varevent-editor.js        # 条件规则编辑器，varevent运行时
+│       ├── variables-core.js         # plot-log解析，快照回滚，变量守护
+│       └── variables-panel.js        # 变量面板UI
 │
-├── ui/                             # UI 模板
-│   └── character-updater-menus.html
+├── bridges/                          # 外部服务桥接
+│   ├── call-generate-service.js      # 父窗口：调用ST生成服务
+│   ├── worldbook-bridge.js           # 父窗口：世界书读写桥接
+│   └── wrapper-iframe.js             # iframe内部：提供CallGenerate API
 │
-└── docs/                           # 文档
-    ├── script-docs.md              # 脚本文档
-    ├── LICENSE.md                  # 许可证
-    ├── COPYRIGHT                   # 版权信息
-    └── NOTICE                      # 声明
+└── docs/                             # 文档与许可
+    ├── script-docs.md                # 脚本文档
+    ├── COPYRIGHT                     # 版权声明
+    ├── LICENSE.md                    # 许可证
+    └── NOTICE                        # 通知
+
 ```
-
-## 📝 模块组织规则
-
-- **单文件模块**：直接放在 `modules/` 目录下
-- **多文件模块**：创建子目录，包含相关的 JS、HTML 等文件
-- **桥接模块**：与外部系统交互的独立模块放在 `bridges/`
-- **避免使用 `index.js`**：每个模块文件直接命名，不使用 `index.js`
 
 ## 🔄 版本历史
 

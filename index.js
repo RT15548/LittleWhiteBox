@@ -1,7 +1,3 @@
-// ===========================================================================
-// Imports
-// ===========================================================================
-
 import { extension_settings, getContext } from "../../../extensions.js";
 import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } from "../../../../script.js";
 import { EXT_ID, EXT_NAME, extensionFolderPath } from "./core/constants.js";
@@ -12,7 +8,6 @@ import { initScriptAssistant } from "./modules/script-assistant.js";
 import { initMessagePreview, addHistoryButtonsDebounced } from "./modules/message-preview.js";
 import { initImmersiveMode } from "./modules/immersive-mode.js";
 import { initTemplateEditor, templateSettings } from "./modules/template-editor/template-editor.js";
-import { initWallhavenBackground } from "./modules/wallhaven-background.js";
 import { initFourthWall, fourthWallCleanup } from "./modules/fourth-wall/fourth-wall.js";
 import { initButtonCollapse } from "./modules/button-collapse.js";
 import { initVariablesPanel, getVariablesPanelInstance, cleanupVariablesPanel } from "./modules/variables/variables-panel.js";
@@ -35,10 +30,6 @@ import { initNovelDraw, cleanupNovelDraw } from "./modules/novel-draw/novel-draw
 import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
 
-// ===========================================================================
-// Constants and Default Settings
-// ===========================================================================
-
 const MODULE_NAME = "xiaobaix-memory";
 
 extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
@@ -49,7 +40,6 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     tasks: { enabled: true, globalTasks: [], processedMessages: [], character_allowed_tasks: [] },
     scriptAssistant: { enabled: false },
     preview: { enabled: false },
-    wallhaven: { enabled: false },
     immersive: { enabled: false },
     fourthWall: { enabled: false },
     audio: { enabled: true },
@@ -66,10 +56,6 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
 
 const settings = extension_settings[EXT_ID];
 if (settings.dynamicPrompt && !settings.fourthWall) settings.fourthWall = settings.dynamicPrompt;
-
-// ===========================================================================
-// Deprecated Data Cleanup
-// ===========================================================================
 
 const DEPRECATED_KEYS = [
     'characterUpdater',
@@ -97,10 +83,6 @@ function cleanupDeprecatedData() {
     }
 }
 
-// ===========================================================================
-// State Variables
-// ===========================================================================
-
 let isXiaobaixEnabled = settings.enabled;
 let moduleCleanupFunctions = new Map();
 let updateCheckPerformed = false;
@@ -116,10 +98,6 @@ window.testUpdateUI = () => {
 window.testRemoveUpdateUI = () => {
     removeAllUpdateNotices();
 };
-
-// ===========================================================================
-// Update Check
-// ===========================================================================
 
 async function checkLittleWhiteBoxUpdate() {
     try {
@@ -246,10 +224,6 @@ async function performExtensionUpdateCheck() {
     } catch (error) {}
 }
 
-// ===========================================================================
-// Module Cleanup Registration
-// ===========================================================================
-
 function registerModuleCleanup(moduleName, cleanupFunction) {
     moduleCleanupFunctions.set(moduleName, cleanupFunction);
 }
@@ -283,21 +257,8 @@ function cleanupAllResources() {
             btn.style.display = 'none';
         }
     });
-    document.getElementById('xiaobaix-hide-code')?.remove();
-    document.body.classList.remove('xiaobaix-active');
-    document.querySelectorAll('pre[data-xiaobaix-bound="true"]').forEach(pre => {
-        pre.classList.remove('xb-show');
-        pre.removeAttribute('data-xbfinal');
-        delete pre.dataset.xbFinal;
-        pre.style.display = '';
-        delete pre.dataset.xiaobaixBound;
-    });
     removeSkeletonStyles();
 }
-
-// ===========================================================================
-// Utility Functions
-// ===========================================================================
 
 async function waitForElement(selector, root = document, timeout = 10000) {
     const start = Date.now();
@@ -309,16 +270,10 @@ async function waitForElement(selector, root = document, timeout = 10000) {
     return null;
 }
 
-// ===========================================================================
-// Settings Controls Toggle
-// ===========================================================================
-
 function toggleSettingsControls(enabled) {
     const controls = [
         'xiaobaix_sandbox', 'xiaobaix_recorded_enabled', 'xiaobaix_preview_enabled',
         'xiaobaix_script_assistant', 'scheduled_tasks_enabled', 'xiaobaix_template_enabled',
-        'wallhaven_enabled', 'wallhaven_bg_mode', 'wallhaven_category',
-        'wallhaven_purity', 'wallhaven_opacity',
         'xiaobaix_immersive_enabled', 'xiaobaix_fourth_wall_enabled',
         'xiaobaix_audio_enabled', 'xiaobaix_variables_panel_enabled',
         'xiaobaix_use_blob', 'xiaobaix_variables_core_enabled', 'Wrapperiframe', 'xiaobaix_render_enabled',
@@ -339,37 +294,8 @@ function toggleSettingsControls(enabled) {
     }
 }
 
-function ensureHideCodeStyle(enable) {
-    const id = 'xiaobaix-hide-code';
-    const old = document.getElementById(id);
-    if (!enable) {
-        old?.remove();
-        return;
-    }
-    if (old) return;
-    const hideCodeStyle = document.createElement('style');
-    hideCodeStyle.id = id;
-    hideCodeStyle.textContent = `
-        .xiaobaix-active .mes_text pre { display: none !important; }
-        .xiaobaix-active .mes_text pre.xb-show { display: block !important; }
-    `;
-    document.head.appendChild(hideCodeStyle);
-}
-
-function setActiveClass(enable) {
-    document.body.classList.toggle('xiaobaix-active', !!enable);
-}
-
-// ===========================================================================
-// Toggle All Features
-// ===========================================================================
-
 async function toggleAllFeatures(enabled) {
     if (enabled) {
-        if (settings.renderEnabled !== false) {
-            ensureHideCodeStyle(true);
-            setActiveClass(true);
-        }
         toggleSettingsControls(true);
         try { window.XB_applyPrevStates && window.XB_applyPrevStates(); } catch (e) {}
         saveSettingsDebounced();
@@ -383,7 +309,6 @@ async function toggleAllFeatures(enabled) {
             { condition: extension_settings[EXT_ID].scriptAssistant?.enabled, init: initScriptAssistant },
             { condition: extension_settings[EXT_ID].immersive?.enabled, init: initImmersiveMode },
             { condition: extension_settings[EXT_ID].templateEditor?.enabled, init: initTemplateEditor },
-            { condition: extension_settings[EXT_ID].wallhaven?.enabled, init: initWallhavenBackground },
             { condition: extension_settings[EXT_ID].fourthWall?.enabled, init: initFourthWall },
             { condition: extension_settings[EXT_ID].variablesPanel?.enabled, init: initVariablesPanel },
             { condition: extension_settings[EXT_ID].variablesCore?.enabled, init: initVariablesCore },
@@ -426,15 +351,6 @@ async function toggleAllFeatures(enabled) {
         try { cleanupNovelDraw(); } catch (e) {}
         try { clearBlobCaches(); } catch (e) {}
         toggleSettingsControls(false);
-        document.getElementById('xiaobaix-hide-code')?.remove();
-        setActiveClass(false);
-        document.querySelectorAll('pre[data-xiaobaix-bound="true"]').forEach(pre => {
-            pre.classList.remove('xb-show');
-            pre.removeAttribute('data-xbfinal');
-            delete pre.dataset.xbFinal;
-            pre.style.display = '';
-            delete pre.dataset.xiaobaixBound;
-        });
         window.removeScriptDocs?.();
         try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById('xb-worldbook')?.remove(); } catch (e) {}
         try { window.cleanupCallGenerateHostBridge && window.cleanupCallGenerateHostBridge(); document.getElementById('xb-callgen')?.remove(); } catch (e) {}
@@ -442,10 +358,6 @@ async function toggleAllFeatures(enabled) {
         $(document).trigger('xiaobaix:enabled:toggle', [false]);
     }
 }
-
-// ===========================================================================
-// Settings Panel Setup
-// ===========================================================================
 
 async function setupSettings() {
     try {
@@ -483,7 +395,6 @@ async function setupSettings() {
             { id: 'xiaobaix_script_assistant', key: 'scriptAssistant', init: initScriptAssistant },
             { id: 'scheduled_tasks_enabled', key: 'tasks', init: initTasks },
             { id: 'xiaobaix_template_enabled', key: 'templateEditor', init: initTemplateEditor },
-            { id: 'wallhaven_enabled', key: 'wallhaven', init: initWallhavenBackground },
             { id: 'xiaobaix_fourth_wall_enabled', key: 'fourthWall', init: initFourthWall },
             { id: 'xiaobaix_variables_panel_enabled', key: 'variablesPanel', init: initVariablesPanel },
             { id: 'xiaobaix_variables_core_enabled', key: 'variablesCore', init: initVariablesCore },
@@ -550,12 +461,9 @@ async function setupSettings() {
             settings.renderEnabled = $(this).prop("checked");
             saveSettingsDebounced();
             if (!settings.renderEnabled && wasEnabled) {
-                document.getElementById('xiaobaix-hide-code')?.remove();
-                document.body.classList.remove('xiaobaix-active');
-                invalidateAll();
+                cleanupRenderer();
             } else if (settings.renderEnabled && !wasEnabled) {
-                ensureHideCodeStyle(true);
-                document.body.classList.add('xiaobaix-active');
+            	 initRenderer();
                 setTimeout(() => processExistingMessages(), 100);
             }
         });
@@ -588,14 +496,13 @@ async function setupSettings() {
                 scriptAssistant: 'xiaobaix_script_assistant',
                 tasks: 'scheduled_tasks_enabled',
                 templateEditor: 'xiaobaix_template_enabled',
-                wallhaven: 'wallhaven_enabled',
                 fourthWall: 'xiaobaix_fourth_wall_enabled',
                 variablesPanel: 'xiaobaix_variables_panel_enabled',
                 variablesCore: 'xiaobaix_variables_core_enabled',
                 novelDraw: 'xiaobaix_novel_draw_enabled'
             };
             const ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary', 'recorded'];
-            const OFF = ['preview', 'scriptAssistant', 'immersive', 'wallhaven', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw'];
+            const OFF = ['preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw'];
             function setChecked(id, val) {
                 const el = document.getElementById(id);
                 if (el) {
@@ -648,10 +555,6 @@ function setupDebugButtonInSettings() {
     } catch (e) {}
 }
 
-// ===========================================================================
-// Menu Tabs
-// ===========================================================================
-
 function setupMenuTabs() {
     $(document).on('click', '.menu-tab', function () {
         const targetId = $(this).attr('data-target');
@@ -668,30 +571,17 @@ function setupMenuTabs() {
     }, 300);
 }
 
-// ===========================================================================
-// Global Exports
-// ===========================================================================
-
 window.processExistingMessages = processExistingMessages;
 window.renderHtmlInIframe = renderHtmlInIframe;
 window.registerModuleCleanup = registerModuleCleanup;
 window.updateLittleWhiteBoxExtension = updateLittleWhiteBoxExtension;
 window.removeAllUpdateNotices = removeAllUpdateNotices;
 
-// ===========================================================================
-// Entry Point
-// ===========================================================================
-
 jQuery(async () => {
     try {
         cleanupDeprecatedData();
         isXiaobaixEnabled = settings.enabled;
         window.isXiaobaixEnabled = isXiaobaixEnabled;
-
-        if (isXiaobaixEnabled && settings.renderEnabled !== false) {
-            ensureHideCodeStyle(true);
-            setActiveClass(true);
-        }
 
         if (!document.getElementById('xiaobaix-skeleton-style')) {
             const skelStyle = document.createElement('style');
@@ -739,7 +629,6 @@ jQuery(async () => {
                 { condition: settings.scriptAssistant?.enabled, init: initScriptAssistant },
                 { condition: settings.immersive?.enabled, init: initImmersiveMode },
                 { condition: settings.templateEditor?.enabled, init: initTemplateEditor },
-                { condition: settings.wallhaven?.enabled, init: initWallhavenBackground },
                 { condition: settings.fourthWall?.enabled, init: initFourthWall },
                 { condition: settings.variablesPanel?.enabled, init: initVariablesPanel },
                 { condition: settings.variablesCore?.enabled, init: initVariablesCore },

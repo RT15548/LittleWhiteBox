@@ -118,182 +118,264 @@ class StreamingGeneration {
         return { api, model };
     }
 
-    async callAPI(generateData, abortSignal, stream = true) {
-        const messages = Array.isArray(generateData) ? generateData :
-            (generateData?.prompt || generateData?.messages || generateData);
-        const baseOptions = (!Array.isArray(generateData) && generateData?.apiOptions) ? generateData.apiOptions : {};
-        const opts = { ...baseOptions, ...this.resolveCurrentApiAndModel(baseOptions) };
-        const source = {
-            openai: chat_completion_sources.OPENAI,
-            claude: chat_completion_sources.CLAUDE,
-            gemini: chat_completion_sources.MAKERSUITE,
-            google: chat_completion_sources.MAKERSUITE,
-            cohere: chat_completion_sources.COHERE,
-            deepseek: chat_completion_sources.DEEPSEEK,
-            custom: chat_completion_sources.CUSTOM,
-        }[String(opts.api || '').toLowerCase()];
-        if (!source) {
-            try { xbLog.error('streamingGeneration', `unsupported api: ${opts.api}`, null); } catch {}
-        }
-        if (!source) throw new Error(`不支持的 api: ${opts.api}`);
-        const model = String(opts.model || '').trim();
-        if (!model) {
-            try { xbLog.error('streamingGeneration', 'missing model', null); } catch {}
-        }
-        if (!model) throw new Error('未检测到当前模型，请在聊天面板选择模型或在插件设置中为分析显式指定模型。');
-        try {
+
+        async callAPI(generateData, abortSignal, stream = true) {
+            const messages = Array.isArray(generateData) ? generateData :
+                (generateData?.prompt || generateData?.messages || generateData);   
+            const baseOptions = (!Array.isArray(generateData) && generateData?.apiOptions) ? generateData.apiOptions : {};
+            const opts = { ...baseOptions, ...this.resolveCurrentApiAndModel(baseOptions) };
+
+            const modelLower = String(opts.model || '').toLowerCase();
+            const isClaudeThinking = modelLower.includes('claude') && modelLower.includes('thinking');
+            
+            if (isClaudeThinking && Array.isArray(messages) && messages.length > 0) {
+                const lastMsg = messages[messages.length - 1];
+                if (lastMsg?.role === 'assistant') {
+                    const content = String(lastMsg.content || '');
+                    const hasCompleteThinkingBlock = 
+                        (content.includes('<thinking>') && content.includes('</thinking>')) ||
+                        content.includes('"type":"thinking"') ||
+                        content.includes('"type": "thinking"');
+                    
+                    if (!hasCompleteThinkingBlock) {
+                        console.log('[xbgen] Claude Thinking 模型：移除不完整的 assistant prefill');
+                        messages.pop();
+                    }
+                }
+            }         
+            
+            const source = {
+                openai: chat_completion_sources.OPENAI,
+                claude: chat_completion_sources.CLAUDE,
+                gemini: chat_completion_sources.MAKERSUITE,
+                google: chat_completion_sources.MAKERSUITE,
+                cohere: chat_completion_sources.COHERE,
+                deepseek: chat_completion_sources.DEEPSEEK,
+                custom: chat_completion_sources.CUSTOM,
+            }[String(opts.api || '').toLowerCase()];            
+            
+            if (!source) {
+                console.error('[xbgen:callAPI] 不支持的 api:', opts.api);
+                try { xbLog.error('streamingGeneration', `unsupported api: ${opts.api}`, null); } catch {}
+            }
+            if (!source) throw new Error(`不支持的 api: ${opts.api}`);
+            
+            const model = String(opts.model || '').trim();
+            
+            if (!model) {
+                try { xbLog.error('streamingGeneration', 'missing model', null); } catch {}
+            }
+            if (!model) throw new Error('未检测到当前模型，请在聊天面板选择模型或在插件设置中为分析显式指定模型。');
+            
             try {
-                if (xbLog.isEnabled?.()) {
-                    const msgCount = Array.isArray(messages) ? messages.length : null;
-                    xbLog.info('streamingGeneration', `callAPI stream=${!!stream} api=${String(opts.api || '')} model=${model} messages=${msgCount ?? '-'}`);
+                try {
+                    if (xbLog.isEnabled?.()) {
+                        const msgCount = Array.isArray(messages) ? messages.length : null;
+                        xbLog.info('streamingGeneration', `callAPI stream=${!!stream} api=${String(opts.api || '')} model=${model} messages=${msgCount ?? '-'}`);
+                    }
+                } catch {}
+                const provider = String(opts.api || '').toLowerCase();
+                const reverseProxyConfigured = String(opts.apiurl || '').trim().length > 0;
+                const pwd = String(opts.apipassword || '').trim();
+                if (!reverseProxyConfigured && pwd) {
+                    const providerToSecretKey = {
+                        openai: SECRET_KEYS.OPENAI,
+                        gemini: SECRET_KEYS.MAKERSUITE,
+                        google: SECRET_KEYS.MAKERSUITE,
+                        cohere: SECRET_KEYS.COHERE,
+                        deepseek: SECRET_KEYS.DEEPSEEK,
+                        custom: SECRET_KEYS.CUSTOM,
+                    };
+                    const secretKey = providerToSecretKey[provider];
+                    if (secretKey) {
+                        await writeSecret(secretKey, pwd, 'xbgen-inline');
+                    }
                 }
             } catch {}
-            const provider = String(opts.api || '').toLowerCase();
-            const reverseProxyConfigured = String(opts.apiurl || '').trim().length > 0;
-            const pwd = String(opts.apipassword || '').trim();
-            if (!reverseProxyConfigured && pwd) {
-                const providerToSecretKey = {
-                    openai: SECRET_KEYS.OPENAI,
-                    gemini: SECRET_KEYS.MAKERSUITE,
-                    google: SECRET_KEYS.MAKERSUITE,
-                    cohere: SECRET_KEYS.COHERE,
-                    deepseek: SECRET_KEYS.DEEPSEEK,
-                    custom: SECRET_KEYS.CUSTOM,
-                };
-                const secretKey = providerToSecretKey[provider];
-                if (secretKey) {
-                    await writeSecret(secretKey, pwd, 'xbgen-inline');
+            
+            const num = (v) => {
+                const n = Number(v);
+                return Number.isFinite(n) ? n : undefined;
+            };
+            const isUnset = (k) => baseOptions?.[k] === '__unset__';
+            const tUser = num(baseOptions?.temperature);
+            const ppUser = num(baseOptions?.presence_penalty);
+            const fpUser = num(baseOptions?.frequency_penalty);
+            const tpUser = num(baseOptions?.top_p);
+            const tkUser = num(baseOptions?.top_k);
+            const mtUser = num(baseOptions?.max_tokens);
+            const tUI = num(oai_settings?.temp_openai);
+            const ppUI = num(oai_settings?.pres_pen_openai);
+            const fpUI = num(oai_settings?.freq_pen_openai);
+            const tpUI_OpenAI = num(oai_settings?.top_p_openai ?? oai_settings?.top_p);
+            const mtUI_OpenAI = num(oai_settings?.openai_max_tokens ?? oai_settings?.max_tokens);
+            const tpUI_Gemini = num(oai_settings?.makersuite_top_p ?? oai_settings?.top_p);
+            const tkUI_Gemini = num(oai_settings?.makersuite_top_k ?? oai_settings?.top_k);
+            const mtUI_Gemini = num(oai_settings?.makersuite_max_tokens ?? oai_settings?.max_output_tokens ?? oai_settings?.openai_max_tokens ?? oai_settings?.max_tokens);
+            const effectiveTemperature = isUnset('temperature') ? undefined : (tUser ?? tUI);
+            const effectivePresence = isUnset('presence_penalty') ? undefined : (ppUser ?? ppUI);
+            const effectiveFrequency = isUnset('frequency_penalty') ? undefined : (fpUser ?? fpUI);
+            const effectiveTopP = isUnset('top_p') ? undefined : (tpUser ?? (source === chat_completion_sources.MAKERSUITE ? tpUI_Gemini : tpUI_OpenAI));
+            const effectiveTopK = isUnset('top_k') ? undefined : (tkUser ?? (source === chat_completion_sources.MAKERSUITE ? tkUI_Gemini : undefined));
+            const effectiveMaxT = isUnset('max_tokens') ? undefined : (mtUser ?? (source === chat_completion_sources.MAKERSUITE ? (mtUI_Gemini ?? mtUI_OpenAI) : mtUI_OpenAI) ?? 4000);            
+            
+            const body = {
+                messages, model, stream,
+                chat_completion_source: source,
+                temperature: effectiveTemperature,
+                presence_penalty: effectivePresence,
+                frequency_penalty: effectiveFrequency,
+                top_p: effectiveTopP,
+                max_tokens: effectiveMaxT,
+                stop: Array.isArray(generateData?.stop) ? generateData.stop : undefined,
+                use_makersuite_sysprompt: false,
+                claude_use_sysprompt: oai_settings?.claude_use_sysprompt ?? false,
+                custom_prompt_post_processing: undefined,
+                // thinking 模型支持
+                include_reasoning: oai_settings?.show_thoughts ?? true,
+                reasoning_effort: oai_settings?.reasoning_effort || 'medium',
+            };
+
+            // Claude 专用：top_k
+            if (source === chat_completion_sources.CLAUDE) {
+                body.top_k = Number(oai_settings?.top_k_openai) || undefined;
+            }
+            
+            if (source === chat_completion_sources.MAKERSUITE) {
+                if (effectiveTopK !== undefined) body.top_k = effectiveTopK;
+                body.max_output_tokens = effectiveMaxT;
+            }
+            const useNet = !!opts.enableNet;
+            if (source === chat_completion_sources.MAKERSUITE && useNet) {
+                body.tools = Array.isArray(body.tools) ? body.tools : [];
+                if (!body.tools.some(t => t && t.google_search_retrieval)) {
+                    body.tools.push({ google_search_retrieval: {} });
                 }
+                body.enable_web_search = true;
+                body.makersuite_use_google_search = true;
             }
-        } catch {}
-        const num = (v) => {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : undefined;
-        };
-        const isUnset = (k) => baseOptions?.[k] === '__unset__';
-        const tUser = num(baseOptions?.temperature);
-        const ppUser = num(baseOptions?.presence_penalty);
-        const fpUser = num(baseOptions?.frequency_penalty);
-        const tpUser = num(baseOptions?.top_p);
-        const tkUser = num(baseOptions?.top_k);
-        const mtUser = num(baseOptions?.max_tokens);
-        const tUI = num(oai_settings?.temp_openai);
-        const ppUI = num(oai_settings?.pres_pen_openai);
-        const fpUI = num(oai_settings?.freq_pen_openai);
-        const tpUI_OpenAI = num(oai_settings?.top_p_openai ?? oai_settings?.top_p);
-        const mtUI_OpenAI = num(oai_settings?.openai_max_tokens ?? oai_settings?.max_tokens);
-        const tpUI_Gemini = num(oai_settings?.makersuite_top_p ?? oai_settings?.top_p);
-        const tkUI_Gemini = num(oai_settings?.makersuite_top_k ?? oai_settings?.top_k);
-        const mtUI_Gemini = num(oai_settings?.makersuite_max_tokens ?? oai_settings?.max_output_tokens ?? oai_settings?.openai_max_tokens ?? oai_settings?.max_tokens);
-        const effectiveTemperature = isUnset('temperature') ? undefined : (tUser ?? tUI);
-        const effectivePresence = isUnset('presence_penalty') ? undefined : (ppUser ?? ppUI);
-        const effectiveFrequency = isUnset('frequency_penalty') ? undefined : (fpUser ?? fpUI);
-        const effectiveTopP = isUnset('top_p') ? undefined : (tpUser ?? (source === chat_completion_sources.MAKERSUITE ? tpUI_Gemini : tpUI_OpenAI));
-        const effectiveTopK = isUnset('top_k') ? undefined : (tkUser ?? (source === chat_completion_sources.MAKERSUITE ? tkUI_Gemini : undefined));
-        const effectiveMaxT = isUnset('max_tokens') ? undefined : (mtUser ?? (source === chat_completion_sources.MAKERSUITE ? (mtUI_Gemini ?? mtUI_OpenAI) : mtUI_OpenAI) ?? 4000);
-        const body = {
-            messages, model, stream,
-            chat_completion_source: source,
-            temperature: effectiveTemperature,
-            presence_penalty: effectivePresence,
-            frequency_penalty: effectiveFrequency,
-            top_p: effectiveTopP,
-            max_tokens: effectiveMaxT,
-            stop: Array.isArray(generateData?.stop) ? generateData.stop : undefined,
-        };
-        if (source === chat_completion_sources.MAKERSUITE) {
-            if (effectiveTopK !== undefined) body.top_k = effectiveTopK;
-            body.max_output_tokens = effectiveMaxT;
-        }
-        const useNet = !!opts.enableNet;
-        if (source === chat_completion_sources.MAKERSUITE && useNet) {
-            body.tools = Array.isArray(body.tools) ? body.tools : [];
-            if (!body.tools.some(t => t && t.google_search_retrieval)) {
-                body.tools.push({ google_search_retrieval: {} });
+            let reverseProxy = String(opts.apiurl || oai_settings?.reverse_proxy || '').trim();
+            let proxyPassword = String(oai_settings?.proxy_password || '').trim();
+            const cmdApiUrl = String(opts.apiurl || '').trim();
+            const cmdApiPwd = String(opts.apipassword || '').trim();
+            if (cmdApiUrl) {
+                if (cmdApiPwd) proxyPassword = cmdApiPwd;
+            } else if (cmdApiPwd) {
+                reverseProxy = '';
+                proxyPassword = '';
             }
-            body.enable_web_search = true;
-            body.makersuite_use_google_search = true;
-        }
-        let reverseProxy = String(opts.apiurl || oai_settings?.reverse_proxy || '').trim();
-        let proxyPassword = String(oai_settings?.proxy_password || '').trim();
-        const cmdApiUrl = String(opts.apiurl || '').trim();
-        const cmdApiPwd = String(opts.apipassword || '').trim();
-        if (cmdApiUrl) {
-            if (cmdApiPwd) proxyPassword = cmdApiPwd;
-        } else if (cmdApiPwd) {
-            reverseProxy = '';
-            proxyPassword = '';
-        }
-        if (PROXY_SUPPORTED.has(source) && reverseProxy) {
-            body.reverse_proxy = reverseProxy.replace(/\/?$/, '');
-            if (proxyPassword) body.proxy_password = proxyPassword;
-        }
-        if (source === chat_completion_sources.CUSTOM) {
-            const customUrl = String(cmdApiUrl || oai_settings?.custom_url || '').trim();
-            if (customUrl) {
-                body.custom_url = customUrl;
-            } else {
-                throw new Error('未配置自定义后端URL，请在命令中提供 apiurl 或在设置中填写 custom_url');
+            if (PROXY_SUPPORTED.has(source) && reverseProxy) {
+                body.reverse_proxy = reverseProxy.replace(/\/?$/, '');
+                if (proxyPassword) body.proxy_password = proxyPassword;
             }
-            if (oai_settings?.custom_include_headers) body.custom_include_headers = oai_settings.custom_include_headers;
-            if (oai_settings?.custom_include_body) body.custom_include_body = oai_settings.custom_include_body;
-            if (oai_settings?.custom_exclude_body) body.custom_exclude_body = oai_settings.custom_exclude_body;
-        }
-        if (stream) {
-            // 流式：走 ChatCompletionService 统一链路
-            const payload = ChatCompletionService.createRequestData(body);
-            const streamFactory = await ChatCompletionService.sendRequest(payload, false, abortSignal);
-            const generator = (typeof streamFactory === 'function') ? streamFactory() : streamFactory;
+            if (source === chat_completion_sources.CUSTOM) {
+                const customUrl = String(cmdApiUrl || oai_settings?.custom_url || '').trim();
+                if (customUrl) {
+                    body.custom_url = customUrl;
+                } else {
+                    throw new Error('未配置自定义后端URL，请在命令中提供 apiurl 或在设置中填写 custom_url');
+                }
+                if (oai_settings?.custom_include_headers) body.custom_include_headers = oai_settings.custom_include_headers;
+                if (oai_settings?.custom_include_body) body.custom_include_body = oai_settings.custom_include_body;
+                if (oai_settings?.custom_exclude_body) body.custom_exclude_body = oai_settings.custom_exclude_body;
+            }
+            
+            const bodyLog = { ...body, messages: `[${body.messages?.length || 0} messages]` };
+            
+            if (stream) {
+                const payload = ChatCompletionService.createRequestData(body);
+                
+                const streamFactory = await ChatCompletionService.sendRequest(payload, false, abortSignal);
+                
+                const generator = (typeof streamFactory === 'function') ? streamFactory() : streamFactory;
 
-            return (async function* () {
-                let last = '';
-                try {
-                    for await (const item of (generator || [])) {
-                        if (abortSignal?.aborted) return;
+                return (async function* () {
+                    let last = '';
+                    let chunkCount = 0;
+                    try {
+                        for await (const item of (generator || [])) {
+                            chunkCount++;
+                            if (abortSignal?.aborted) {
+                                return;
+                            }
 
-                        let accumulated = '';
-                        if (typeof item === 'string') {
-                            accumulated = item;
-                        } else if (item && typeof item === 'object') {
-                            accumulated = (typeof item.text === 'string' ? item.text : '') ||
-                                          (typeof item.content === 'string' ? item.content : '') || '';
-                        }
-                        if (!accumulated && item && typeof item === 'object') {
-                            const rc = item?.reasoning_content || item?.reasoning;
-                            if (typeof rc === 'string') accumulated = rc;
-                        }
-                        if (!accumulated) continue;
+                            if (chunkCount <= 5 || chunkCount % 20 === 0) {
+                                if (typeof item === 'object') {
+                                }
+                            }
 
-                        if (accumulated.startsWith(last)) {
-                            last = accumulated;
-                        } else {
-                            last += accumulated;
+                            let accumulated = '';
+                            if (typeof item === 'string') {
+                                accumulated = item;
+                            } else if (item && typeof item === 'object') {
+                                // 尝试多种字段
+                                accumulated = (typeof item.text === 'string' ? item.text : '') ||
+                                              (typeof item.content === 'string' ? item.content : '') || '';
+                                
+                                // thinking 相关字段
+                                if (!accumulated) {
+                                    const thinking = item?.delta?.thinking || item?.thinking;
+                                    if (typeof thinking === 'string') {
+                                        accumulated = thinking;
+                                    }
+                                }
+                                if (!accumulated) {
+                                    const rc = item?.reasoning_content || item?.reasoning;
+                                    if (typeof rc === 'string') {
+                                        accumulated = rc;
+                                    }
+                                }
+                                if (!accumulated) {
+                                    const rc = item?.choices?.[0]?.delta?.reasoning_content;
+                                    if (typeof rc === 'string') accumulated = rc;
+                                }
+                            }
+                            
+                            if (!accumulated) {
+                                if (chunkCount <= 5) {
+                                }
+                                continue;
+                            }
+
+                            if (accumulated.startsWith(last)) {
+                                last = accumulated;
+                            } else {
+                                last += accumulated;
+                            }
+                            yield last;
                         }
-                        yield last;
+                    } catch (err) {
+                        console.error('[xbgen:stream] 流式错误:', err);
+                        console.error('[xbgen:stream] err.name:', err?.name);
+                        console.error('[xbgen:stream] err.message:', err?.message);
+                        if (err?.name === 'AbortError') return;
+                        try { xbLog.error('streamingGeneration', 'Stream error', err); } catch {}
+                        throw err;
                     }
-                } catch (err) {
-                    if (err?.name === 'AbortError') return;
-                    console.error('[StreamingGeneration] Stream error:', err);
-                    try { xbLog.error('streamingGeneration', 'Stream error', err); } catch {}
-                    throw err;
+                })();
+            } else {
+                const payload = ChatCompletionService.createRequestData(body);
+                const extracted = await ChatCompletionService.sendRequest(payload, false, abortSignal);
+
+                let result = '';
+                if (extracted && typeof extracted === 'object') {
+                    const msg = extracted?.choices?.[0]?.message;
+                    result = String(
+                        msg?.content ??
+                        msg?.reasoning_content ??
+                        extracted?.choices?.[0]?.text ??
+                        extracted?.content ??
+                        extracted?.reasoning_content ??
+                        ''
+                    );
+                } else {
+                    result = String(extracted ?? '');
                 }
-            })();
-        } else {
-            // 非流式：extract=true，返回抽取后的结果
-            const payload = ChatCompletionService.createRequestData(body);
-            const extracted = await ChatCompletionService.sendRequest(payload, true, abortSignal);
-            
-            let result = String((extracted && extracted.content) || '');
-            
-            // reasoning_content 兜底
-            if (!result && extracted && typeof extracted === 'object') {
-                const rc = extracted?.reasoning_content || extracted?.reasoning;
-                if (typeof rc === 'string') result = rc;
+
+                return result;
             }
-            
-            return result;
         }
-    }
+
 
     async _emitPromptReady(chatArray) {
         try {
@@ -401,6 +483,29 @@ class StreamingGeneration {
     _parseCompositeParam(param) {
         const input = String(param || '').trim();
         if (!input) return [];
+
+        try {
+            const parsed = JSON.parse(input);
+            if (Array.isArray(parsed)) {
+                const normRole = (r) => {
+                    const x = String(r || '').trim().toLowerCase();
+                    if (x === 'sys' || x === 'system') return 'system';
+                    if (x === 'assistant' || x === 'asst' || x === 'ai') return 'assistant';
+                    if (x === 'user' || x === 'u') return 'user';
+                    return '';
+                };
+                const result = parsed
+                    .filter(m => m && typeof m === 'object')
+                    .map(m => ({ role: normRole(m.role), content: String(m.content || '') }))
+                    .filter(m => m.role);
+                if (result.length > 0) {
+                    return result;
+                }
+            }
+        } catch {
+
+        }
+
         const parts = [];
         let buf = '';
         let depth = 0;
@@ -416,6 +521,7 @@ class StreamingGeneration {
             }
         }
         if (buf) parts.push(buf);
+
         const normRole = (r) => {
             const x = String(r || '').trim().toLowerCase();
             if (x === 'sys' || x === 'system') return 'system';
@@ -425,11 +531,14 @@ class StreamingGeneration {
         };
         const extractValue = (v) => {
             let s = String(v || '').trim();
-            if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('"') && s.endsWith('"')) || (s.startsWith('\'') && s.endsWith('\''))) {
+            if ((s.startsWith('{') && s.endsWith('}')) ||
+                (s.startsWith('"') && s.endsWith('"')) ||
+                (s.startsWith('\'') && s.endsWith('\''))) {
                 s = s.slice(1, -1);
             }
             return s.trim();
         };
+
         const result = [];
         for (const seg of parts) {
             const idx = seg.indexOf('=');
@@ -739,18 +848,6 @@ class StreamingGeneration {
             return txt;
         };
         out = await expandVarMacros(out);
-        try {
-            if (typeof renderStoryString === 'function') {
-                const r = renderStoryString(out);
-                if (typeof r === 'string' && r.length) out = r;
-            }
-        } catch {}
-        try {
-            if (typeof evaluateMacros === 'function') {
-                const r2 = await evaluateMacros(out);
-                if (typeof r2 === 'string' && r2.length) out = r2;
-            }
-        } catch {}
         return out;
     }
 
@@ -872,8 +969,11 @@ class StreamingGeneration {
                 }
             }
         };
+
         await expandSegmentInline(topMsgs);
+
         await expandSegmentInline(bottomMsgs);
+
         if (typeof prompt === 'string' && prompt.trim()) {
             const beforeP = await resolveHistoryPlaceholder(prompt);
             const afterP = await this.expandInline(beforeP);
@@ -906,6 +1006,7 @@ class StreamingGeneration {
                 .concat(topMsgs.filter(m => typeof m?.content === 'string' && m.content.trim().length))
                 .concat(prompt && prompt.trim().length ? [{ role, content: prompt.trim() }] : [])
                 .concat(bottomMsgs.filter(m => typeof m?.content === 'string' && m.content.trim().length));
+            
             const common = { messages, apiOptions, stop: parsedStop };
             if (nonstream) {
                 try { if (lock) deactivateSendButtons(); } catch {}

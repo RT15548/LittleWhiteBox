@@ -646,6 +646,26 @@ function getAtmosphere(store) {
     return store?.outlineData?.meta?.atmosphere?.current || null;
 }
 
+function getCommonPromptVars(extra = {}) {
+    const store = getOutlineStore();
+    const comm = getCommSettings();
+    const mode = getGlobalSettings().mode || 'story';
+    const playerLocation = store?.playerLocation || store?.outlineData?.playerLocation || '未知';
+    return {
+        storyOutline: formatOutlinePrompt(),
+        historyCount: comm.historyCount || 50,
+        mode,
+        stage: store?.stage || 0,
+        deviationScore: store?.deviationScore || 0,
+        simulationTarget: store?.simulationTarget ?? 5,
+        playerLocation,
+        currentAtmosphere: getAtmosphere(store),
+        existingContacts: Array.isArray(store?.outlineData?.contacts) ? store.outlineData.contacts : [],
+        existingStrangers: Array.isArray(store?.outlineData?.strangers) ? store.outlineData.strangers : [],
+        ...(extra || {}),
+    };
+}
+
 /** 合并世界推演数据 */
 function mergeSimData(orig, upd) {
     if (!upd) return orig;
@@ -687,10 +707,22 @@ const V = {
     inv: o => typeof o?.invite === 'boolean' && o?.reply,
     sms: o => typeof o?.reply === 'string' && o.reply.length > 0,
     wg1: d => !!d && typeof d === 'object',  // 只要是对象就行，后续会 normalize
-    wg2: d => !!(d?.world && (d?.maps || d?.world?.maps)?.outdoor),
-    wga: d => !!(d?.world && d?.maps?.outdoor), ws: d => !!d, w: o => !!o && typeof o === 'object',
+    wg2: d => !!((d?.world && (d?.maps || d?.world?.maps)?.outdoor) || (d?.outdoor && d?.inside)),
+    wga: d => !!((d?.world && d?.maps?.outdoor) || d?.outdoor), ws: d => !!d, w: o => !!o && typeof o === 'object',
     lm: o => !!o?.inside?.name && !!o?.inside?.description
 };
+
+function normalizeStep2Maps(data) {
+    if (!data || typeof data !== 'object') return data;
+    if (data.maps || data?.world?.maps) return data;
+    if (!data.outdoor && !data.inside) return data;
+    const out = { ...data };
+    out.maps = { outdoor: data.outdoor, inside: data.inside };
+    if (!out.world || typeof out.world !== 'object') out.world = { news: [] };
+    delete out.outdoor;
+    delete out.inside;
+    return out;
+}
 
 // --- 处理器 ---
 
@@ -761,7 +793,7 @@ async function handleSendSms({ requestId, contactName, worldbookUid, userMessage
         if (sumKeys.length) histText = `[之前的对话摘要] ${sumKeys.map(k => existSum[k]).join('；')}\n\n`;
         if (chatHistory?.length > 1) { const msgs = chatHistory.slice(sc, -1); if (msgs.length) histText += msgs.map(m => `${m.type === 'sent' ? userName : contactName}：${m.text}`).join('\n'); }
 
-        const msgs = buildSmsMessages({ contactName, userName, storyOutline: formatOutlinePrompt(), historyCount: getCommSettings().historyCount || 50, smsHistoryContent: buildSmsHistoryContent(histText), userMessage, characterContent: charContent });
+        const msgs = buildSmsMessages(getCommonPromptVars({ contactName, userName, smsHistoryContent: buildSmsHistoryContent(histText), userMessage, characterContent: charContent }));
         const parsed = await callLLMJson({ messages: msgs, validate: V.sms });
         reply('SMS_RESULT', requestId, parsed?.reply ? { reply: parsed.reply } : { error: '生成回复失败，请调整重试' });
     } catch (e) { replyErr('SMS_RESULT', requestId, `生成失败: ${e.message}`); }
@@ -800,7 +832,7 @@ async function handleCompressSms({ requestId, worldbookUid, messages, contactNam
             const convText = toSum.map(m => `${m.type === 'sent' ? userName : contactName}：${m.text}`).join('\n');
             const sumKeys = Object.keys(existSum).filter(k => k !== '_count').sort((a, b) => a - b);
             const existText = sumKeys.map(k => `${k}. ${existSum[k]}`).join('\n');
-            const parsed = await callLLMJson({ messages: buildSummaryMessages({ existingSummaryContent: buildExistingSummaryContent(existText), conversationText: convText }), validate: V.sum });
+            const parsed = await callLLMJson({ messages: buildSummaryMessages(getCommonPromptVars({ existingSummaryContent: buildExistingSummaryContent(existText), conversationText: convText })), validate: V.sum });
             const sum = parsed?.summary?.trim?.(); if (!sum) return replyErr('COMPRESS_SMS_RESULT', requestId, 'ECHO：总结生成出错，请重试');
             const nextK = Math.max(0, ...Object.keys(existSum).filter(k => k !== '_count').map(k => parseInt(k, 10)).filter(n => !isNaN(n))) + 1;
             existSum[String(nextK)] = sum;
@@ -817,7 +849,7 @@ async function handleCompressSms({ requestId, worldbookUid, messages, contactNam
         const convText = toSum.map(m => `${m.type === 'sent' ? userName : contactName}：${m.text}`).join('\n');
         const sumKeys = Object.keys(existSum).filter(k => k !== '_count').sort((a, b) => a - b);
         const existText = sumKeys.map(k => `${k}. ${existSum[k]}`).join('\n');
-        const parsed = await callLLMJson({ messages: buildSummaryMessages({ existingSummaryContent: buildExistingSummaryContent(existText), conversationText: convText }), validate: V.sum });
+        const parsed = await callLLMJson({ messages: buildSummaryMessages(getCommonPromptVars({ existingSummaryContent: buildExistingSummaryContent(existText), conversationText: convText })), validate: V.sum });
         const sum = parsed?.summary?.trim?.(); if (!sum) return replyErr('COMPRESS_SMS_RESULT', requestId, 'ECHO：总结生成出错，请重试');
         const newSc = toEnd;
 
@@ -842,12 +874,12 @@ async function handleCheckStrangerWb({ requestId, strangerName }) {
 
 async function handleGenNpc({ requestId, strangerName, strangerInfo }) {
     try {
+        const comm = getCommSettings();
         const ctx = getContext(), char = ctx.characters?.[ctx.characterId];
         if (!char) return replyErr('GENERATE_NPC_RESULT', requestId, '未找到当前角色卡');
         const primary = char.data?.extensions?.world;
         if (!primary || !world_names?.includes(primary)) return replyErr('GENERATE_NPC_RESULT', requestId, '角色卡未绑定世界书，请先绑定世界书');
-        const comm = getCommSettings();
-        const msgs = buildNpcGenerationMessages({ strangerName, strangerInfo: strangerInfo || '(无描述)', storyOutline: formatOutlinePrompt(), historyCount: comm.historyCount || 50 });
+        const msgs = buildNpcGenerationMessages(getCommonPromptVars({ strangerName, strangerInfo: strangerInfo || '(无描述)' }));
         const npc = await callLLMJson({ messages: msgs, validate: V.npc });
         if (!npc?.name) return replyErr('GENERATE_NPC_RESULT', requestId, 'NPC 生成失败：无法解析 JSON 数据');
         const wd = await loadWorldInfo(primary); if (!wd) return replyErr('GENERATE_NPC_RESULT', requestId, `无法加载世界书: ${primary}`);
@@ -861,8 +893,7 @@ async function handleGenNpc({ requestId, strangerName, strangerInfo }) {
 
 async function handleExtractStrangers({ requestId, existingContacts, existingStrangers }) {
     try {
-        const comm = getCommSettings();
-        const msgs = buildExtractStrangersMessages({ storyOutline: formatOutlinePrompt(), historyCount: comm.historyCount || 50, existingContacts: existingContacts || [], existingStrangers: existingStrangers || [] });
+        const msgs = buildExtractStrangersMessages(getCommonPromptVars({ existingContacts: existingContacts || [], existingStrangers: existingStrangers || [] }));
         const data = await callLLMJson({ messages: msgs, isArray: true, validate: V.arr });
         if (!Array.isArray(data)) return replyErr('EXTRACT_STRANGERS_RESULT', requestId, '提取失败：无法解析 JSON 数据');
         const strangers = data.filter(s => s?.name).map(s => ({ name: s.name, avatar: s.name[0] || '?', color: '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'), location: s.location || '未知', info: s.info || '' }));
@@ -872,8 +903,8 @@ async function handleExtractStrangers({ requestId, existingContacts, existingStr
 
 async function handleSceneSwitch({ requestId, prevLocationName, prevLocationInfo, targetLocationName, targetLocationType, targetLocationInfo, playerAction }) {
     try {
-        const store = getOutlineStore(), comm = getCommSettings(), mode = getGlobalSettings().mode || 'story';
-        const msgs = buildSceneSwitchMessages({ prevLocationName: prevLocationName || '未知地点', prevLocationInfo: prevLocationInfo || '', targetLocationName: targetLocationName || '未知地点', targetLocationType: targetLocationType || 'sub', targetLocationInfo: targetLocationInfo || '', storyOutline: formatOutlinePrompt(), stage: store?.stage || 0, currentAtmosphere: getAtmosphere(store), historyCount: comm.historyCount || 50, playerAction: playerAction || '', mode });
+        const store = getOutlineStore();
+        const msgs = buildSceneSwitchMessages(getCommonPromptVars({ prevLocationName: prevLocationName || '未知地点', prevLocationInfo: prevLocationInfo || '', targetLocationName: targetLocationName || '未知地点', targetLocationType: targetLocationType || 'sub', targetLocationInfo: targetLocationInfo || '', playerAction: playerAction || '' }));
         const data = await callLLMJson({ messages: msgs, validate: V.scene });
         if (!data || !V.scene(data)) return replyErr('SCENE_SWITCH_RESULT', requestId, '场景生成失败：无法解析 JSON 数据');
         const delta = data.review?.deviation?.score_delta || 0, old = store?.deviationScore || 0, newS = Math.min(100, Math.max(0, old + delta));
@@ -897,7 +928,7 @@ async function handleSendInvite({ requestId, contactName, contactUid, targetLoca
         const comm = getCommSettings();
         let charC = '';
         if (contactUid) { const es = Object.values(world_info?.entries || world_info || {}); charC = es.find(e => e.uid?.toString() === contactUid.toString())?.content || ''; }
-        const msgs = buildInviteMessages({ contactName, userName: name1 || '{{user}}', targetLocation, storyOutline: formatOutlinePrompt(), historyCount: comm.historyCount || 50, smsHistoryContent: buildSmsHistoryContent(smsHistory || ''), characterContent: charC });
+        const msgs = buildInviteMessages(getCommonPromptVars({ contactName, userName: name1 || '{{user}}', targetLocation, smsHistoryContent: buildSmsHistoryContent(smsHistory || ''), characterContent: charC }));
         const data = await callLLMJson({ messages: msgs, validate: V.inv });
         if (typeof data?.invite !== 'boolean') return replyErr('SEND_INVITE_RESULT', requestId, '邀请处理失败：无法解析 JSON 数据');
         reply('SEND_INVITE_RESULT', requestId, { success: true, inviteData: { accepted: data.invite, reply: data.reply, targetLocation } });
@@ -906,7 +937,7 @@ async function handleSendInvite({ requestId, contactName, contactUid, targetLoca
 
 async function handleGenLocalMap({ requestId, outdoorDescription }) {
     try {
-        const msgs = buildLocalMapGenMessages({ storyOutline: formatOutlinePrompt(), outdoorDescription: outdoorDescription || '', historyCount: getCommSettings().historyCount || 50 });
+        const msgs = buildLocalMapGenMessages(getCommonPromptVars({ outdoorDescription: outdoorDescription || '' }));
         const data = await callLLMJson({ messages: msgs, validate: V.lm });
         if (!data?.inside) return replyErr('GENERATE_LOCAL_MAP_RESULT', requestId, '局部地图生成失败：无法解析 JSON 数据');
         tickSimCountdown(getOutlineStore());
@@ -916,8 +947,8 @@ async function handleGenLocalMap({ requestId, outdoorDescription }) {
 
 async function handleRefreshLocalMap({ requestId, locationName, currentLocalMap, outdoorDescription }) {
     try {
-        const store = getOutlineStore(), comm = getCommSettings();
-        const msgs = buildLocalMapRefreshMessages({ storyOutline: formatOutlinePrompt(), locationName: locationName || store?.playerLocation || '未知地点', locationInfo: currentLocalMap?.description || '', currentLocalMap: currentLocalMap || null, outdoorDescription: outdoorDescription || '', historyCount: comm.historyCount || 50, playerLocation: store?.playerLocation });
+        const store = getOutlineStore();
+        const msgs = buildLocalMapRefreshMessages(getCommonPromptVars({ locationName: locationName || store?.playerLocation || '未知地点', locationInfo: currentLocalMap?.description || '', currentLocalMap: currentLocalMap || null, outdoorDescription: outdoorDescription || '' }));
         const data = await callLLMJson({ messages: msgs, validate: V.lm });
         if (!data?.inside) return replyErr('REFRESH_LOCAL_MAP_RESULT', requestId, '局部地图刷新失败：无法解析 JSON 数据');
         tickSimCountdown(store);
@@ -927,8 +958,8 @@ async function handleRefreshLocalMap({ requestId, locationName, currentLocalMap,
 
 async function handleGenLocalScene({ requestId, locationName, locationInfo }) {
     try {
-        const store = getOutlineStore(), comm = getCommSettings(), mode = getGlobalSettings().mode || 'story';
-        const msgs = buildLocalSceneGenMessages({ storyOutline: formatOutlinePrompt(), locationName: locationName || store?.playerLocation || '未知地点', locationInfo: locationInfo || '', stage: store?.stage || 0, currentAtmosphere: getAtmosphere(store), historyCount: comm.historyCount || 50, mode, playerLocation: store?.playerLocation });
+        const store = getOutlineStore();
+        const msgs = buildLocalSceneGenMessages(getCommonPromptVars({ locationName: locationName || store?.playerLocation || '未知地点', locationInfo: locationInfo || '' }));
         const data = await callLLMJson({ messages: msgs, validate: V.lscene });
         if (!data || !V.lscene(data)) return replyErr('GENERATE_LOCAL_SCENE_RESULT', requestId, '局部剧情生成失败：无法解析 JSON 数据');
         tickSimCountdown(store);
@@ -990,8 +1021,9 @@ async function handleGenWorld({ requestId, playerRequests }) {
 
         // 辅助模式
         if (mode === 'assist') {
-            const msgs = buildWorldGenStep2Messages({ historyCount: comm.historyCount || 50, playerRequests, mode: 'assist' });
-            const wd = await callLLMJson({ messages: msgs, validate: V.wga });
+            const msgs = buildWorldGenStep2Messages(getCommonPromptVars({ playerRequests, mode: 'assist' }));
+            let wd = await callLLMJson({ messages: msgs, validate: V.wga });
+            wd = normalizeStep2Maps(wd);
             if (!wd?.maps?.outdoor || !Array.isArray(wd.maps.outdoor.nodes)) return replyErr('GENERATE_WORLD_RESULT', requestId, '生成失败：返回数据缺少地图节点');
             if (store) { Object.assign(store, { stage: 0, deviationScore: 0, simulationTarget: randRange(3, 7) }); store.outlineData = { ...wd }; saveMetadataDebounced?.(); sendSimStateOnly(); }
             return reply('GENERATE_WORLD_RESULT', requestId, { success: true, worldData: wd });
@@ -999,7 +1031,7 @@ async function handleGenWorld({ requestId, playerRequests }) {
 
         // Step 1
         postFrame({ type: 'GENERATE_WORLD_STATUS', requestId, message: '正在构思世界大纲 (Step 1/2)...' });
-        const s1m = buildWorldGenStep1Messages({ historyCount: comm.historyCount || 50, playerRequests });
+        const s1m = buildWorldGenStep1Messages(getCommonPromptVars({ playerRequests }));
         const s1d = normalizeStep1Data(await callLLMJson({ messages: s1m, validate: V.wg1 }));
 
         // 简化验证 - 只要有基本数据就行
@@ -1013,8 +1045,9 @@ async function handleGenWorld({ requestId, playerRequests }) {
         await new Promise(r => setTimeout(r, 1000));
         postFrame({ type: 'GENERATE_WORLD_STATUS', requestId, message: '正在构建世界细节 (Step 2/2)...' });
 
-        const s2m = buildWorldGenStep2Messages({ historyCount: comm.historyCount || 50, playerRequests, step1Data: s1d });
-        const s2d = await callLLMJson({ messages: s2m, validate: V.wg2 });
+        const s2m = buildWorldGenStep2Messages(getCommonPromptVars({ playerRequests, step1Data: s1d }));
+        let s2d = await callLLMJson({ messages: s2m, validate: V.wg2 });
+        s2d = normalizeStep2Maps(s2d);
         if (s2d?.world?.maps && !s2d?.maps) { s2d.maps = s2d.world.maps; delete s2d.world.maps; }
         if (!s2d?.world || !s2d?.maps) return replyErr('GENERATE_WORLD_RESULT', requestId, 'Step 2 失败：无法生成有效的地图');
 
@@ -1034,8 +1067,9 @@ async function handleRetryStep2({ requestId }) {
         await new Promise(r => setTimeout(r, 1000));
         postFrame({ type: 'GENERATE_WORLD_STATUS', requestId, message: '正在重试构建世界细节 (Step 2/2)...' });
 
-        const s2m = buildWorldGenStep2Messages({ historyCount: comm.historyCount || 50, playerRequests: pr, step1Data: s1d });
-        const s2d = await callLLMJson({ messages: s2m, validate: V.wg2 });
+        const s2m = buildWorldGenStep2Messages(getCommonPromptVars({ playerRequests: pr, step1Data: s1d }));
+        let s2d = await callLLMJson({ messages: s2m, validate: V.wg2 });
+        s2d = normalizeStep2Maps(s2d);
         if (s2d?.world?.maps && !s2d?.maps) { s2d.maps = s2d.world.maps; delete s2d.world.maps; }
         if (!s2d?.world || !s2d?.maps) return replyErr('GENERATE_WORLD_RESULT', requestId, 'Step 2 失败：无法生成有效的地图');
 
@@ -1048,8 +1082,8 @@ async function handleRetryStep2({ requestId }) {
 
 async function handleSimWorld({ requestId, currentData, isAuto }) {
     try {
-        const store = getOutlineStore(), mode = getGlobalSettings().mode || 'story';
-        const msgs = buildWorldSimMessages({ mode, currentWorldData: currentData || '{}', historyCount: getCommSettings().historyCount || 50, deviationScore: store?.deviationScore || 0 });
+        const store = getOutlineStore();
+        const msgs = buildWorldSimMessages(getCommonPromptVars({ currentWorldData: currentData || '{}' }));
         const data = await callLLMJson({ messages: msgs, validate: V.w });
         if (!data || !V.w(data)) return replyErr('SIMULATE_WORLD_RESULT', requestId, mode === 'assist' ? '世界推演失败：无法解析 JSON 数据（需包含 world 或 maps 字段）' : '世界推演失败：无法解析 JSON 数据');
         const orig = safe(() => JSON.parse(currentData)) || {}, merged = mergeSimData(orig, data);
@@ -1078,10 +1112,39 @@ function handleSaveSettings(d) {
     } catch { }
 }
 
-function handleSavePrompts(d) {
-    if (!d?.promptConfig) return;
-    const payload = setPromptConfig?.(d.promptConfig, true);
-    try { StoryOutlineStorage?.set?.('promptConfig', payload || d.promptConfig); } catch { }
+async function handleSavePrompts(d) {
+    // Back-compat: full payload (old iframe)
+    if (d?.promptConfig) {
+        const payload = setPromptConfig?.(d.promptConfig, false) || d.promptConfig;
+        try { await StoryOutlineStorage?.set?.('promptConfig', payload); } catch { }
+        postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
+        return;
+    }
+
+    // New: incremental update by key
+    const key = d?.key;
+    if (!key) return;
+
+    let current = null;
+    try { current = await StoryOutlineStorage?.get?.('promptConfig', null); } catch { }
+    const next = (current && typeof current === 'object') ? {
+        jsonTemplates: { ...(current.jsonTemplates || {}) },
+        promptSources: { ...(current.promptSources || {}) },
+    } : { jsonTemplates: {}, promptSources: {} };
+
+    if (d?.reset) {
+        delete next.promptSources[key];
+        delete next.jsonTemplates[key];
+    } else {
+        if (d?.prompt && typeof d.prompt === 'object') next.promptSources[key] = d.prompt;
+        if ('jsonTemplate' in (d || {})) {
+            if (d.jsonTemplate == null) delete next.jsonTemplates[key];
+            else next.jsonTemplates[key] = String(d.jsonTemplate ?? '');
+        }
+    }
+
+    const payload = setPromptConfig?.(next, false) || next;
+    try { await StoryOutlineStorage?.set?.('promptConfig', payload); } catch { }
     postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
 }
 
@@ -1300,7 +1363,7 @@ async function initPromptConfigFromServer() {
     try {
         const cfg = await StoryOutlineStorage?.get?.('promptConfig', null);
         if (!cfg) return;
-        setPromptConfig?.(cfg, true);
+        setPromptConfig?.(cfg, false);
         postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
     } catch { }
 }

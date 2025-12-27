@@ -1,684 +1,773 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>小白板</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        *{margin:0;padding:0;box-sizing:border-box}
-        :root{--bg:#f7f7f7;--bg2:#fff;--bg3:#f0f0f0;--c:#222;--c2:#666;--c3:#999;--bd:#ddd}
-        html,body{width:100%;height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--c)}
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>小白板</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    /* ========== Base / Vars ========== */
+    *{margin:0;padding:0;box-sizing:border-box}
+    :root{
+      --bg:#f7f7f7;--bg2:#fff;--bg3:#f0f0f0;
+      --c:#222;--c2:#666;--c3:#999;--bd:#ddd;
+      --r4:4px;--r6:6px;--r8:8px;
+    }
+    html,body{width:100%;height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--c)}
 
-        /* 工具类 */
-        .fc{display:flex;align-items:center}
-        .fcc{display:flex;align-items:center;justify-content:center}
-        .col{flex-direction:column}
-        .g4{gap:4px}.g6{gap:6px}.g8{gap:8px}.g10{gap:10px}.g12{gap:12px}
-        .p12{padding:12px}.p14{padding:14px}
-        .r4{border-radius:4px}.r6{border-radius:6px}.r50{border-radius:50%}
-        .bd{border:1px solid var(--bd)}
-        .bg2{background:var(--bg2)}.bg3{background:var(--bg3)}
-        .fs11{font-size:11px}.fs12{font-size:12px}.fs13{font-size:13px}.fs14{font-size:14px}
-        .fw5{font-weight:500}.fw6{font-weight:600}
-        .c2{color:var(--c2)}.c3{color:var(--c3)}
-        .flex1{flex:1}.shrink0{flex-shrink:0}
-        .ofy{overflow-y:auto}.usn{user-select:none}
-        .trans{transition:all .15s}
+    /* ========== Utils ========== */
+    .fc,.fcc{display:flex;align-items:center}.fcc{justify-content:center}
+    .g4{gap:4px}.g6{gap:6px}.g10{gap:10px}.g20{gap:20px}
+    .p12{padding:12px}.r6{border-radius:var(--r6)}.bd{border:1px solid var(--bd)}.bg3{background:var(--bg3)}
+    .fs12{font-size:12px}.fw6{font-weight:600}.c2{color:var(--c2)}.usn{user-select:none}
+    .f1{flex:1}.jsb{justify-content:space-between}
+    .mt6{margin-top:6px}.mt8{margin-top:8px}.mt10{margin-top:10px}.mt12{margin-top:12px}.mt16{margin-top:16px}
+    .mb4{margin-bottom:4px}.mb8{margin-bottom:8px}.mb10{margin-bottom:10px}.mb12{margin-bottom:12px}
+    .lh15{line-height:1.5}.lh165{line-height:1.65}
+    .w100{width:100px}
 
-        /* 按钮 */
-        .btn{padding:8px 16px;background:var(--bg2);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid var(--bd);border-radius:4px;color:var(--c)}
-        .btn:hover{border-color:var(--c);background:var(--bg3)}
-        .btn:disabled{opacity:.5;cursor:not-allowed}
-        .btn-p{background:var(--c);color:#fff;border-color:var(--c)}
-        .btn-due{background:#ffe1e1!important;border-color:#ff9b9b!important;color:#7a1f1f!important}
-        .btn-due:hover{background:#ffd1d1!important}
-        .btn-s{padding:6px 12px;font-size:12px}
-        .btn-c{width:28px;height:28px;padding:0;background:#888;border-color:#777;color:#fff;border-radius:50%}
-        .btn-add{width:32px;height:32px;padding:0;border-radius:50%;flex-shrink:0}
+    /* ========== Buttons / Small Controls ========== */
+    .btn{padding:8px 16px;background:var(--bg2);font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--bd);border-radius:var(--r4);color:var(--c)}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .btn-p{background:var(--c);color:#fff;border-color:var(--c)}
+    .btn-due{background:#ffe1e1!important;border-color:#ff9b9b!important;color:#7a1f1f!important}
+    .btn-s{padding:6px 12px;font-size:12px}
+    .btn-c,.btn-add{padding:0;border-radius:50%;flex-shrink:0}
+    .btn-c{width:28px;height:28px;background:#888;border-color:#777;color:#fff}
+    .btn-add{width:32px;height:32px}
 
-        /* 折叠面板 */
-        .fold{background:var(--bg2);border:1px solid var(--bd);border-radius:6px;margin-bottom:8px;overflow:hidden}
-        .fold-h{padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
-        .fold-h:hover{background:var(--bg3)}
-        .fold-a{transition:transform .2s;color:var(--c3);font-size:10px}
-        .fold.exp .fold-a{transform:rotate(180deg)}
-        .fold-b{max-height:0;overflow:hidden;transition:all .25s}
-        .fold.exp .fold-b{max-height:300px}
+    /* ========== Fold Panels ========== */
+    .fold{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r6);margin-bottom:8px;overflow:hidden}
+    .fold-h{padding:12px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+    .fold-a{color:var(--c3);font-size:10px;transition:transform .15s}
+    .fold.exp .fold-a{transform:rotate(180deg)}
+    .fold-b{max-height:0;overflow:hidden}
+    .fold.exp .fold-b{max-height:300px}
 
-        /* 侧边导航 */
-        .side-nav-wrap{position:fixed;left:10px;top:50%;transform:translateY(-50%);z-index:500;display:flex;flex-direction:column;gap:6px}
-        .side-glass{background:rgba(255,255,255,.3);backdrop-filter:blur(4px);box-shadow:0 2px 12px rgba(0,0,0,.05);border:1px solid rgba(221,221,221,.3);opacity:.4;transition:opacity .2s,background .2s}
-        .side-glass:hover{opacity:1;background:rgba(255,255,255,.85);backdrop-filter:blur(8px)}
-        .side-nav,.side-menu{display:flex;flex-direction:column;border-radius:20px}
-        .side-nav{gap:4px;padding:8px 5px}
-        .side-menu{position:relative;padding:6px 5px;align-items:center}
-        .side-menu-btn,.nav-i{display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:6px;transition:all .15s;color:var(--c3)}
-        .side-menu-btn{width:28px;height:28px;font-size:11px}
-        .nav-i{width:32px;height:32px;border-radius:50%}
-        .nav-i i{font-size:13px}
-        .side-menu-btn:hover,.nav-i:hover{background:var(--bg3);color:var(--c2)}
-        .side-menu-btn.act,.nav-i.act{background:var(--c);color:#fff}
-        .side-menu-panel{position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:8px;display:none;flex-direction:column;gap:4px;padding:6px;background:rgba(255,255,255,.95);backdrop-filter:blur(8px);border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.15);border:1px solid var(--bd);white-space:nowrap;z-index:600}
-        .side-menu-panel.show{display:flex}
-        .side-menu-panel .btn{font-size:11px;padding:5px 10px}
+    /* ========== Side Nav ========== */
+    .side-nav-wrap{position:fixed;left:10px;top:50%;transform:translateY(-50%);z-index:500;display:flex;flex-direction:column;gap:6px}
+    .side-glass{background:rgba(255,255,255,.3);border:1px solid rgba(221,221,221,.3);opacity:.4}
+    .side-nav,.side-menu{display:flex;flex-direction:column;border-radius:20px}
+    .side-nav{gap:4px;padding:8px 5px}
+    .side-menu{position:relative;padding:6px 5px;align-items:center}
+    .side-menu-btn,.nav-i{display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--c3)}
+    .side-menu-btn{width:28px;height:28px;font-size:11px;border-radius:6px}
+    .nav-i{width:32px;height:32px;border-radius:50%}
+    .nav-i i{font-size:13px}
+    .side-menu-btn.act,.nav-i.act{background:var(--c);color:#fff}
+    .side-menu-panel{position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:8px;display:none;flex-direction:column;gap:4px;padding:6px;background:rgba(255,255,255,.95);border-radius:8px;border:1px solid var(--bd);white-space:nowrap;z-index:600}
+    .side-menu-panel.show{display:flex}
+    .side-menu-panel .btn{font-size:11px;padding:5px 10px}
 
-        /* 工具栏 */
-        .toolbar{height:44px;background:var(--bg2);border-bottom:1px solid var(--bd);padding:0 12px 0 56px;position:relative;z-index:200}
-        .toolbar-t{font-size:14px;font-weight:600;margin-right:auto}
-        .toolbar-t span{font-weight:400;color:var(--c3);margin-left:8px;font-size:12px}
+    /* ========== Layout / Pages ========== */
+    .toolbar{height:44px;background:var(--bg2);border-bottom:1px solid var(--bd);padding:0 12px 0 56px;position:relative;z-index:200}
+    .toolbar-t{font-size:14px;font-weight:600;margin-right:auto}
+    .toolbar-t span{font-weight:400;color:var(--c3);margin-left:8px;font-size:12px}
+    .main-wrap{width:100%;height:calc(100% - 44px);position:relative}
+    .page{position:absolute;inset:0;background:var(--bg);display:none;overflow:hidden}
+    .page.act{display:block}
+    .page-pad{padding:20px 20px 20px 56px;overflow-y:auto;height:100%}
 
-        /* 页面容器 */
-        .main-wrap{width:100%;height:calc(100% - 44px);position:relative}
-        .page{position:absolute;inset:0;background:var(--bg);display:none;overflow:hidden}
-        .page.act{display:block}
-        .page-pad{padding:20px 20px 20px 56px;overflow-y:auto;height:100%}
+    /* ========== World Page ========== */
+    .banner{width:100%;height:160px;border-radius:var(--r8);overflow:hidden;margin-bottom:20px;position:relative;background:var(--bg3)}
+    .banner img{width:100%;height:100%;object-fit:cover}
+    .banner-ov{position:absolute;inset:0;background:linear-gradient(transparent 40%,rgba(0,0,0,.5));display:flex;align-items:flex-end;padding:16px}
+    .banner-ov div{color:#fff;font-size:13px}
+    .sec-t{font-size:12px;color:var(--c3);margin-bottom:10px}
+    .news-sec{margin-bottom:24px}
+    .news-t{font-size:13px;font-weight:500}
+    .news-time{font-size:11px;color:var(--c3)}
+    .fold.exp .news-b{padding:0 14px 14px}
+    .news-b p{font-size:12px;color:var(--c2);line-height:1.7}
+    .user-guide{padding:14px;background:var(--bg2);border-radius:var(--r6);border:1px solid var(--bd);margin-bottom:20px}
+    .user-guide-state{font-size:13px;font-weight:500;margin-bottom:8px}
+    .user-guide-actions{display:flex;flex-direction:column;gap:6px}
+    .user-guide-action{padding:8px 12px;background:var(--bg);border:1px solid var(--bd);border-radius:var(--r4);font-size:12px;color:var(--c2);cursor:pointer}
 
-        /* 横幅 */
-        .banner{width:100%;height:160px;border-radius:8px;overflow:hidden;margin-bottom:20px;position:relative;background:var(--bg3)}
-        .banner img{width:100%;height:100%;object-fit:cover;filter:grayscale(30%)}
-        .banner-ov{position:absolute;inset:0;background:linear-gradient(transparent 40%,rgba(0,0,0,.5));display:flex;align-items:flex-end;padding:16px}
-        .banner-ov div{color:#fff;font-size:13px}
+    /* ========== Map ========== */
+    #mapWrap{width:100%;height:100%;background:var(--bg);cursor:grab;overflow:hidden;position:relative;touch-action:none}
+    #inner,#lines{position:absolute;width:4000px;height:4000px;transform-origin:0 0}
+    #lines{pointer-events:none}
+    .item{position:absolute;padding:8px 14px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r6);font-size:12px;font-weight:500;white-space:nowrap;cursor:pointer;user-select:none}
+    .item.node-main{background:var(--c);color:#fff;border-color:#111}
+    .item.node-home{background:#4a5568;color:#fff;border-color:#2d3748}
+    .item.node-sub{background:var(--bg2)}
+    .item.hl{border-color:#666;z-index:20}
+    .map-act{position:absolute;top:10px;right:10px;z-index:100}
+    #btn-goto{display:none}
+    #btn-goto.show{display:flex}
+    .map-lbl{position:absolute;top:10px;left:56px;z-index:100;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r4);padding:6px 12px;font-size:11px;color:var(--c2);cursor:pointer;display:flex;align-items:center}
+    .map-lbl i:first-child{margin-right:6px}
+    .map-lbl .fa-chevron-down{margin-left:6px;font-size:9px}
+    .map-lbl-sel{position:absolute;opacity:0;cursor:pointer;inset:0;border:none;background:transparent;-webkit-appearance:none;appearance:none}
 
-        /* 章节标题 */
-        .sec-t{font-size:12px;color:var(--c3);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px}
+    /* ========== Panels / Info ========== */
+    .panel{position:fixed;background:var(--bg2);padding:6px 12px;border-radius:var(--r4);font-size:11px;color:var(--c3);border:1px solid var(--bd)}
+    #zoom-ind{bottom:12px;right:12px}
+    #tip{bottom:12px;left:56px;max-width:240px;padding:12px 14px;line-height:1.6;max-height:180px;overflow-y:auto;display:none}
+    #tip .desc{display:none}
+    #tip .info-w{display:block}
+    #tip.show{display:block;border-color:var(--c)}
+    .loc-lk{color:var(--c);font-weight:500;cursor:pointer;border-bottom:1px dashed var(--c3)}
+    .local-map-title{font-size:14px;font-weight:600;color:var(--c);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--bd)}
+    .info-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+    .info-t{font-weight:600;color:var(--c);font-size:13px}
+    .info-bk{font-size:11px;color:var(--c3);cursor:pointer;padding:2px 6px;border-radius:3px}
+    .info-c{color:var(--c2);font-size:12px;line-height:1.6}
 
-        /* 新闻 */
-        .news-sec{margin-bottom:24px}
-        .news-t{font-size:13px;font-weight:500}
-        .news-time{font-size:11px;color:var(--c3)}
-        .fold.exp .news-b{padding:0 14px 14px}
-        .news-b p{font-size:12px;color:var(--c2);line-height:1.7}
+    /* ========== Contacts ========== */
+    .comm-hd{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+    .comm-tabs{display:flex;flex:1}
+    .comm-tab{flex:1;padding:10px;text-align:center;background:var(--bg2);border:1px solid var(--bd);cursor:pointer;font-size:12px;font-weight:500}
+    .comm-tab:first-child{border-radius:var(--r6) 0 0 var(--r6)}
+    .comm-tab:last-child{border-radius:0 var(--r6) var(--r6) 0;border-left:none}
+    .comm-tab.act{background:var(--c);color:#fff;border-color:var(--c)}
+    .comm-sec{display:none}
+    .comm-sec.act{display:block}
+    .ct-hd{gap:10px}
+    .ct-av,.chat-av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:13px;flex-shrink:0}
+    .ct-info{flex:1;min-width:0}
+    .ct-name{font-size:13px;font-weight:500}
+    .ct-st{font-size:11px;color:var(--c3)}
+    .ct-det{padding:0 14px 14px}
+    .ct-info-text{font-size:12px;color:var(--c2);line-height:1.7;margin:0 0 12px}
+    .ct-acts{display:flex;gap:8px}
+    .ct-acts .btn{flex:1;justify-content:center;font-size:12px}
+    .empty{text-align:center;padding:40px 20px;color:var(--c3);font-size:13px}
 
-        /* 用户指南 */
-        .user-guide,.prog{padding:14px;background:var(--bg2);border-radius:6px;border:1px solid var(--bd)}
-        .user-guide{margin-bottom:20px}
-        .user-guide-state{font-size:13px;font-weight:500;margin-bottom:8px}
-        .user-guide-actions{display:flex;flex-direction:column;gap:6px}
-        .user-guide-action{padding:8px 12px;background:var(--bg);border:1px solid var(--bd);border-radius:4px;font-size:12px;color:var(--c2);cursor:pointer;transition:all .15s}
-        .user-guide-action:hover{border-color:var(--c);background:var(--bg3)}
+    /* ========== Modal / Forms / Editor ========== */
+    .modal{position:fixed;inset:0;z-index:10000;display:none;justify-content:center;align-items:center}
+    .modal.act{display:flex}
+    .modal-bd{position:absolute;inset:0;background:rgba(0,0,0,.4)}
+    .modal-p{position:relative;width:90%;max-width:700px;max-height:85vh;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r8);overflow:hidden;display:flex;flex-direction:column}
+    .modal-p.sm{max-width:360px}
+    .modal-p.lg{max-width:560px}
+    .modal-hd,.modal-ft{padding:14px 18px}
+    .modal-hd{justify-content:space-between;border-bottom:1px solid var(--bd)}
+    .modal-hd h2{font-size:14px;font-weight:600}
+    .modal-ft{justify-content:flex-end;gap:10px;border-top:1px solid var(--bd)}
+    .modal-x{width:28px;height:28px;background:transparent;cursor:pointer;border:1px solid var(--bd);border-radius:var(--r4)}
+    .modal-by{flex:1;overflow-y:auto;padding:18px}
 
-        /* 进度条 */
-        .prog-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden}
-        .prog-fill{height:100%;background:var(--c);border-radius:3px}
-        .prog-txt{font-size:11px;color:var(--c3);margin-top:8px;text-align:right}
+    .form-g{margin-bottom:14px}
+    .form-l{display:block;font-size:12px;font-weight:500;margin-bottom:6px;color:var(--c2)}
+    .form-in{width:100%;padding:10px 12px;border:1px solid var(--bd);border-radius:var(--r4);font-size:13px;outline:none;background:var(--bg2)}
+    .form-ta{min-height:80px;resize:vertical;font-family:inherit}
+    .goto-d{font-size:13px;color:var(--c);font-weight:500;padding:10px 14px;background:var(--bg3);border-radius:var(--r4);margin-bottom:14px}
 
-        /* 地图 */
-        #mapWrap{width:100%;height:100%;background:var(--bg);cursor:grab;overflow:hidden;position:relative;touch-action:none}
-        #inner{position:absolute;width:4000px;height:4000px;transform-origin:0 0}
-        #lines{position:absolute;width:4000px;height:4000px;pointer-events:none}
-        .item{position:absolute;padding:8px 14px;background:var(--bg3);border:1px solid var(--bd);border-radius:6px;font-size:12px;font-weight:500;white-space:nowrap;cursor:pointer;user-select:none;box-shadow:0 1px 4px rgba(0,0,0,.06);transition:all .15s}
-        .item:hover{transform:scale(1.05);box-shadow:0 3px 12px rgba(0,0,0,.1);z-index:10}
-        .item.node-main{background:var(--c);color:#fff;border-color:#111}
-        .item.node-home{background:#4a5568;color:#fff;border-color:#2d3748}
-        .item.node-sub{background:var(--bg2)}
-        .item.hl{border-color:#666;box-shadow:0 0 0 3px rgba(0,0,0,.2);z-index:20}
+    .ed-ta{width:100%;min-height:100px;padding:12px;background:var(--bg);border:0;border-top:1px solid var(--bd);font-family:"SF Mono",Monaco,Consolas,monospace;font-size:11px;line-height:1.5;color:var(--c);resize:vertical;outline:0;overflow:auto}
+    .ed-preview{margin-top:10px;padding:10px;background:var(--bg3);border:1px solid var(--bd);border-radius:var(--r4);font-size:11px;font-family:"SF Mono",Monaco,Consolas,monospace;white-space:pre-wrap;display:none;color:var(--c2)}
+    .ed-err{padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:var(--r4);color:#b91c1c;font-size:12px;margin-top:10px;display:none}
+    .ed-err.vis{display:block}
 
-        /* 地图操作 */
-        .map-act{position:absolute;top:10px;right:10px;z-index:100}
-        #btn-goto{display:none}
-        #btn-goto.show{display:flex}
-        .map-lbl{position:absolute;top:10px;left:56px;z-index:100;background:var(--bg2);border:1px solid var(--bd);border-radius:4px;padding:6px 12px;font-size:11px;color:var(--c2);cursor:pointer;transition:all .15s;display:flex;align-items:center}
-        .map-lbl:hover{border-color:var(--c);background:var(--bg3)}
-        .map-lbl i:first-child{margin-right:6px}
-        .map-lbl-sel{position:absolute;opacity:0;cursor:pointer;inset:0;border:none;background:transparent;-webkit-appearance:none;appearance:none}
+    /* ========== Chat ========== */
+    .chat{position:fixed;top:0;right:-400px;width:300px;height:100%;background:var(--bg2);border-left:1px solid var(--bd);z-index:600;display:flex;flex-direction:column}
+    .chat.act{right:0}
+    .chat-hd{padding:14px 18px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:12px;flex-shrink:0}
+    .chat-t{flex:1;min-width:0}
+    .chat-nm{font-size:14px;font-weight:600}
+    .chat-st{font-size:11px;color:var(--c3)}
+    .chat-hd-acts{display:flex;align-items:center;gap:4px}
+    .chat-compress,.chat-clr,.chat-x{width:32px;height:32px;border:none;background:transparent;cursor:pointer;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--c3)}
+    .chat-compress:disabled{opacity:.4;cursor:not-allowed}
+    .chat-divider{width:100%;text-align:center;padding:8px 0;color:var(--c3);font-size:11px;position:relative}
+    .chat-divider:before,.chat-divider:after{content:"";position:absolute;top:50%;width:30%;height:1px;background:var(--bd)}
+    .chat-divider:before{left:0}.chat-divider:after{right:0}
+    .chat-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+    .chat-msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.5;white-space:pre-wrap}
+    .chat-msg.sent{align-self:flex-end;background:var(--c);color:#fff;border-bottom-right-radius:4px}
+    .chat-msg.recv{align-self:flex-start;background:var(--bg3);border-bottom-left-radius:4px}
+    .chat-msg.typing{font-style:italic;opacity:.7}
+    .chat-in-w{padding:12px;border-top:1px solid var(--bd);display:flex;gap:10px;flex-shrink:0}
+    .chat-in{flex:1;padding:10px 14px;border:1px solid var(--bd);border-radius:20px;font-size:13px;outline:none;background:var(--bg)}
+    .chat-in:focus{border-color:var(--c)}
+    .chat-in:disabled,.chat-send:disabled{opacity:.5;cursor:not-allowed}
+    .chat-send{width:36px;height:36px;border:none;background:var(--c);color:#fff;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}
+    .chat-emp{text-align:center;color:var(--c3);font-size:12px;padding:40px 20px}
 
-        /* 面板 */
-        .panel{position:fixed;background:var(--bg2);padding:6px 12px;border-radius:4px;font-size:11px;color:var(--c3);border:1px solid var(--bd)}
-        #zoom-ind{bottom:12px;right:12px}
-        #tip{bottom:12px;left:56px;max-width:240px;padding:12px 14px;line-height:1.6;max-height:180px;overflow-y:auto;display:none}
-        #tip .desc{display:none}
-        #tip .info-w{display:block}
-        #tip.show{display:block;border-color:var(--c)}
-        .loc-lk{color:var(--c);font-weight:500;cursor:pointer;border-bottom:1px dashed var(--c3)}
-        .loc-lk:hover{background:var(--bg3);border-radius:2px}
-        .local-map-title{font-size:14px;font-weight:600;color:var(--c);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--bd)}
-        .info-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-        .info-t{font-weight:600;color:var(--c);font-size:13px}
-        .info-bk{font-size:11px;color:var(--c3);cursor:pointer;padding:2px 6px;border-radius:3px}
-        .info-bk:hover{background:var(--bg3)}
-        .info-c{color:var(--c2);font-size:12px;line-height:1.6}
+    /* ========== Lists / Cards ========== */
+    .loc-list{max-height:300px;overflow-y:auto}
+    .loc-i{padding:12px 14px;border:1px solid var(--bd);border-radius:var(--r6);margin-bottom:8px;cursor:pointer}
+    .loc-i.sel{border-color:var(--c);background:var(--c);color:#fff}
+    .loc-i-nm{font-size:13px;font-weight:500}
+    .loc-i-info{font-size:11px;opacity:.7;margin-top:2px}
 
-        /* 通讯录 */
-        .comm-hd{display:flex;align-items:center;gap:10px;margin-bottom:16px}
-        .comm-tabs{display:flex;flex:1}
-        .comm-tab{flex:1;padding:10px;text-align:center;background:var(--bg2);border:1px solid var(--bd);cursor:pointer;font-size:12px;font-weight:500;transition:all .15s}
-        .comm-tab:first-child{border-radius:6px 0 0 6px}
-        .comm-tab:last-child{border-radius:0 6px 6px 0;border-left:none}
-        .comm-tab:hover{background:var(--bg3)}
-        .comm-tab.act{background:var(--c);color:#fff;border-color:var(--c)}
-        .comm-sec{display:none}
-        .comm-sec.act{display:block}
+    /* ========== Mobile Bottom Sheet ========== */
+    .mob-pop{position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-top:1px solid var(--bd);border-radius:12px 12px 0 0;z-index:101;display:none;flex-direction:column}
+    .mob-pop.act{display:flex}
+    .pop-hd{padding:8px;cursor:grab;touch-action:none;flex-shrink:0}
+    .pop-handle{width:36px;height:4px;background:var(--bd);border-radius:2px;margin:0 auto}
+    .pop-ct{flex:1;overflow-y:auto;padding:0 20px 20px;-webkit-overflow-scrolling:touch}
+    .pop-desc{display:none}
+    .pop-info{display:block}
+    .pop-info-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+    .pop-info-t{font-weight:600;font-size:14px}
+    .pop-info-bk{font-size:12px;color:var(--c3);cursor:pointer;padding:4px 8px;border-radius:var(--r4)}
+    .pop-h-ind{position:absolute;top:50%;right:6px;transform:translateY(-50%);display:flex;flex-direction:column;gap:3px;opacity:0}
+    .mob-pop.drag .pop-h-ind{opacity:1}
+    .pop-h-ind span{width:3px;height:8px;background:var(--bd);border-radius:1px}
+    .pop-h-ind span.act{background:var(--c)}
 
-        /* 联系人卡片 */
-        .ct-hd{gap:10px}
-        .ct-av,.chat-av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:13px;flex-shrink:0}
-        .ct-info{flex:1}
-        .ct-name{font-size:13px;font-weight:500}
-        .ct-st{font-size:11px;color:var(--c3)}
-        .ct-det{padding:0 14px 14px}
-        .ct-info-text{font-size:12px;color:var(--c2);line-height:1.7;margin:0 0 12px}
-        .ct-acts{display:flex;gap:8px}
-        .ct-acts .btn{flex:1;justify-content:center;font-size:12px}
-        .empty{text-align:center;padding:40px 20px;color:var(--c3);font-size:13px}
+    /* ========== Right Panel (Map Desc) ========== */
+    .side-pop{position:fixed;top:44px;right:0;bottom:0;background:var(--bg2);border-left:1px solid var(--bd);z-index:90;display:none;width:8px}
+    .side-pop.show{display:flex}
+    .side-pop-handle{width:8px;background:var(--bg3);cursor:ew-resize;flex-shrink:0;display:flex;align-items:center;justify-content:center;touch-action:none}
+    .side-pop-bar{width:3px;height:36px;background:var(--bd);border-radius:2px}
+    .side-pop-ct{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px;margin-bottom:30vh;min-width:0}
+    .side-pop-hd{font-size:11px;color:var(--c3);margin-bottom:10px}
+    .side-pop-desc{font-size:13px;color:var(--c2);line-height:1.7}
 
-        /* 弹窗 */
-        .modal{position:fixed;inset:0;z-index:10000;display:none;justify-content:center;align-items:center}
-        .modal.act{display:flex}
-        .modal-bd{position:absolute;inset:0;background:rgba(0,0,0,.4);backdrop-filter:blur(2px)}
-        .modal-p{position:relative;width:90%;max-width:700px;max-height:85vh;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
-        .modal-p.sm{max-width:360px}
-        .modal-p.lg{max-width:560px}
-        .modal-hd,.modal-ft{padding:14px 18px}
-        .modal-hd{justify-content:space-between;border-bottom:1px solid var(--bd)}
-        .modal-hd h2{font-size:14px;font-weight:600}
-        .modal-ft{justify-content:flex-end;gap:10px;border-top:1px solid var(--bd)}
-        .modal-x{width:28px;height:28px;background:transparent;cursor:pointer;border:1px solid var(--bd);border-radius:4px}
-        .modal-x:hover{background:var(--bg3)}
-        .modal-by{flex:1;overflow-y:auto;padding:18px}
+    /* ========== Settings / Data ========== */
+    .set-sec{margin-bottom:16px}
+    .set-sec-t{font-size:13px;font-weight:600;color:var(--c);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--bd)}
+    .set-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+    .set-row .form-in{flex:1}
+    .set-row .btn{flex-shrink:0}
+    .set-hint{font-size:11px;color:var(--c3);margin-top:4px}
+    .set-test{display:flex;align-items:center;gap:8px;margin-top:8px}
+    .set-test-res{font-size:12px;padding:6px 10px;border-radius:var(--r4);display:none}
+    .set-test-res.ok{display:block;background:#dcfce7;color:#166534;border:1px solid #86efac}
+    .set-test-res.err{display:block;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
+    .warn{color:#f80}
 
-        /* 编辑器 */
-        .ed-ta{width:100%;min-height:100px;padding:12px;background:var(--bg);border:none;border-top:1px solid var(--bd);font-family:'SF Mono',Monaco,Consolas,monospace;font-size:11px;line-height:1.5;color:var(--c);resize:vertical;outline:none;overflow:auto}
-        .ed-preview{margin-top:10px;padding:10px;background:var(--bg3);border:1px solid var(--bd);border-radius:4px;font-size:11px;font-family:'SF Mono',Monaco,Consolas,monospace;white-space:pre-wrap;display:none;color:var(--c2)}
-        .ed-err{padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;color:#b91c1c;font-size:12px;margin-top:10px;display:none}
-        .ed-err.vis{display:block}
+    .data-item{display:flex;align-items:flex-start;gap:10px;padding:12px;background:var(--bg);border:1px solid var(--bd);border-radius:var(--r6);margin-bottom:8px;cursor:pointer}
+    .data-item.sel{border-color:var(--c);background:rgba(34,34,34,.05)}
+    .data-ck{width:18px;height:18px;border:2px solid var(--bd);border-radius:var(--r4);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+    .data-item.sel .data-ck{background:var(--c);border-color:var(--c);color:#fff}
+    .data-ck i{font-size:10px;opacity:0}
+    .data-item.sel .data-ck i{opacity:1}
+    .data-info{flex:1;min-width:0}
+    .data-nm{font-size:13px;font-weight:500;margin-bottom:4px}
+    .data-desc{font-size:11px;color:var(--c3);line-height:1.4}
+    .data-edit{width:28px;height:28px;border:1px solid var(--bd);border-radius:var(--r4);background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--c3)}
 
-        /* 表单 */
-        .form-g{margin-bottom:14px}
-        .form-l{display:block;font-size:12px;font-weight:500;margin-bottom:6px;color:var(--c2)}
-        .form-in{width:100%;padding:10px 12px;border:1px solid var(--bd);border-radius:4px;font-size:13px;outline:none;background:var(--bg2)}
-        .form-ta{min-height:80px;resize:vertical;font-family:inherit}
-        .goto-d{font-size:13px;color:var(--c);font-weight:500;padding:10px 14px;background:var(--bg3);border-radius:4px;margin-bottom:14px}
+    /* ========== Inline-style Cleanup Targets ========== */
+    #set-model-list{display:none;margin-top:8px}
+    #world-gen-status,#world-sim-status{display:none;color:#4a9}
+    #adv-u1,#adv-a1,#adv-u2,#adv-a2{height:85px}
+    #adv-json{min-height:140px}
+    #data-edit-ta{min-height:300px}
+    #res-msg{margin-bottom:10px;line-height:1.5}
+    #res-record-box{display:none}
+    #res-action{display:none}
+    #res-record{max-height:200px;overflow-y:auto;background:var(--bg3);padding:8px;border-radius:var(--r4);font-size:12px;white-space:pre-wrap;word-break:break-all}
 
-        /* 聊天 */
-        .chat{position:fixed;top:0;right:-400px;width:300px;height:100%;background:var(--bg2);border-left:1px solid var(--bd);z-index:600;display:flex;flex-direction:column;transition:right .3s}
-        .chat.act{right:0}
-        .chat-hd{padding:14px 18px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:12px;flex-shrink:0}
-        .chat-t{flex:1}
-        .chat-nm{font-size:14px;font-weight:600}
-        .chat-st{font-size:11px;color:var(--c3)}
-        .chat-hd-acts{display:flex;align-items:center;gap:4px}
-        .chat-compress,.chat-clr,.chat-x{width:32px;height:32px;border:none;background:transparent;cursor:pointer;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--c3)}
-        .chat-compress:hover,.chat-clr:hover,.chat-x:hover{background:var(--bg3);color:var(--c)}
-        .chat-compress:hover{color:#3498db}
-        .chat-compress:disabled{opacity:.4;cursor:not-allowed}
-        .chat-clr:hover{color:#e74c3c}
-        .chat-divider{width:100%;text-align:center;padding:8px 0;color:var(--c3);font-size:11px;position:relative}
-        .chat-divider::before,.chat-divider::after{content:'';position:absolute;top:50%;width:30%;height:1px;background:var(--bd)}
-        .chat-divider::before{left:0}
-        .chat-divider::after{right:0}
-        .chat-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
-        .chat-msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.5;white-space:pre-wrap}
-        .chat-msg.sent{align-self:flex-end;background:var(--c);color:#fff;border-bottom-right-radius:4px}
-        .chat-msg.recv{align-self:flex-start;background:var(--bg3);border-bottom-left-radius:4px}
-        .chat-msg.typing{font-style:italic;opacity:.7}
-        .chat-in-w{padding:12px;border-top:1px solid var(--bd);display:flex;gap:10px;flex-shrink:0}
-        .chat-in{flex:1;padding:10px 14px;border:1px solid var(--bd);border-radius:20px;font-size:13px;outline:none;background:var(--bg)}
-        .chat-in:focus{border-color:var(--c)}
-        .chat-in:disabled,.chat-send:disabled{opacity:.5;cursor:not-allowed}
-        .chat-send{width:36px;height:36px;border:none;background:var(--c);color:#fff;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}
-        .chat-send:hover{opacity:.9}
-        .chat-emp{text-align:center;color:var(--c3);font-size:12px;padding:40px 20px}
-
-        /* 地点列表 */
-        .loc-list{max-height:300px;overflow-y:auto}
-        .loc-i{padding:12px 14px;border:1px solid var(--bd);border-radius:6px;margin-bottom:8px;cursor:pointer;transition:all .15s}
-        .loc-i:hover{border-color:var(--c);background:var(--bg3)}
-        .loc-i.sel{border-color:var(--c);background:var(--c);color:#fff}
-        .loc-i-nm{font-size:13px;font-weight:500}
-        .loc-i-info{font-size:11px;opacity:.7;margin-top:2px}
-
-        /* 底部弹窗 */
-        .mob-pop{position:fixed;bottom:0;left:0;right:0;background:var(--bg2);border-top:1px solid var(--bd);border-radius:12px 12px 0 0;box-shadow:0 -2px 16px rgba(0,0,0,.1);z-index:101;display:none;flex-direction:column}
-        .mob-pop.act{display:flex}
-        .mob-pop.drag{transition:none!important}
-        .mob-pop:not(.drag){transition:height .2s ease-out}
-        .pop-hd{padding:8px;cursor:grab;touch-action:none;flex-shrink:0}
-        .pop-handle{width:36px;height:4px;background:var(--bd);border-radius:2px;margin:0 auto}
-        .pop-ct{flex:1;overflow-y:auto;padding:0 20px 20px;-webkit-overflow-scrolling:touch}
-        .pop-desc{display:none}
-        .pop-info{display:block}
-        .pop-info-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-        .pop-info-t{font-weight:600;font-size:14px}
-        .pop-info-bk{font-size:12px;color:var(--c3);cursor:pointer;padding:4px 8px;border-radius:4px}
-        .pop-h-ind{position:absolute;top:50%;right:6px;transform:translateY(-50%);display:flex;flex-direction:column;gap:3px;opacity:0;transition:opacity .15s}
-        .mob-pop.drag .pop-h-ind{opacity:1}
-        .pop-h-ind span{width:3px;height:8px;background:var(--bd);border-radius:1px}
-        .pop-h-ind span.act{background:var(--c)}
-
-        /* 右侧面板 */
-        .side-pop{position:fixed;top:44px;right:0;bottom:0;background:var(--bg2);border-left:1px solid var(--bd);z-index:90;display:none;width:8px}
-        .side-pop.show{display:flex}
-        .side-pop:not(.drag){transition:width .2s ease-out}
-        .side-pop.drag{transition:none}
-        .side-pop-handle{width:8px;background:var(--bg3);cursor:ew-resize;flex-shrink:0;display:flex;align-items:center;justify-content:center;touch-action:none}
-        .side-pop-bar{width:3px;height:36px;background:var(--bd);border-radius:2px;transition:background .15s}
-        .side-pop-handle:hover .side-pop-bar{background:var(--c3)}
-        .side-pop-ct{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px;margin-bottom:30vh;min-width:0}
-        .side-pop-hd{font-size:11px;color:var(--c3);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px}
-        .side-pop-desc{font-size:13px;color:var(--c2);line-height:1.7}
-
-        /* 设置 */
-        .set-sec{margin-bottom:16px}
-        .set-sec-t{font-size:13px;font-weight:600;color:var(--c);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--bd)}
-        .set-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-        .set-row .form-in{flex:1}
-        .set-row .btn{flex-shrink:0}
-        .set-hint{font-size:11px;color:var(--c3);margin-top:4px}
-        .set-test{display:flex;align-items:center;gap:8px;margin-top:8px}
-        .set-test-res{font-size:12px;padding:6px 10px;border-radius:4px;display:none}
-        .set-test-res.ok{display:block;background:#dcfce7;color:#166534;border:1px solid #86efac}
-        .set-test-res.err{display:block;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
-
-        /* 数据项 */
-        .data-item{display:flex;align-items:flex-start;gap:10px;padding:12px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;margin-bottom:8px;cursor:pointer;transition:all .15s}
-        .data-item:hover{border-color:var(--c2);background:var(--bg3)}
-        .data-item.sel{border-color:var(--c);background:rgba(34,34,34,.05)}
-        .data-ck{width:18px;height:18px;border:2px solid var(--bd);border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;margin-top:2px}
-        .data-item.sel .data-ck{background:var(--c);border-color:var(--c);color:#fff}
-        .data-ck i{font-size:10px;opacity:0}
-        .data-item.sel .data-ck i{opacity:1}
-        .data-info{flex:1;min-width:0}
-        .data-nm{font-size:13px;font-weight:500;margin-bottom:4px}
-        .data-desc{font-size:11px;color:var(--c3);line-height:1.4}
-        .data-edit{width:28px;height:28px;border:1px solid var(--bd);border-radius:4px;background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;color:var(--c3)}
-        .data-edit:hover{border-color:var(--c);color:var(--c);background:var(--bg3)}
-
-        /* 响应式 */
-        @media(max-width:550px){
-            .chat{width:100%;right:-100%}
-            .side-pop{bottom:0}
-            .side-nav-wrap{left:6px}
-            .side-nav{padding:6px 4px}
-            .side-menu{padding:5px 4px}
-            .nav-i{width:28px;height:28px}
-            .nav-i i{font-size:11px}
-            .toolbar{height:44px;padding:0 12px 0 56px;}
-            .toolbar-t span{display:none}
-            .btn{padding:6px 10px;font-size:11px}
-            .modal-p{max-width:100%;max-height:100%;border-radius:0}
-            #tip{display:none!important}
-            .page-pad{padding:14px 14px 14px 48px}
-            .map-lbl{left:48px}
-        }
-    </style>
+    /* ========== Responsive ========== */
+    @media(max-width:550px){
+      .chat{width:100%;right:-100%}
+      .side-pop{bottom:0}
+      .side-nav-wrap{left:6px}
+      .side-nav{padding:6px 4px}
+      .side-menu{padding:5px 4px}
+      .nav-i{width:28px;height:28px}
+      .nav-i i{font-size:11px}
+      .toolbar{padding:0 12px 0 56px}
+      .toolbar-t span{display:none}
+      .btn{padding:6px 10px;font-size:11px}
+      .modal-p{max-width:100%;max-height:100%;border-radius:0}
+      #tip{display:none!important}
+      .page-pad{padding:14px 14px 14px 48px}
+      .map-lbl{left:48px}
+    }
+  </style>
 </head>
 <body>
-    <!-- 侧边导航 -->
-    <div class="side-nav-wrap">
-        <div class="side-menu side-glass">
-            <div class="side-menu-btn" id="btn-side-menu-toggle" title="快捷操作"><i class="fa-solid fa-ellipsis"></i></div>
-            <div class="side-menu-panel" id="side-menu-panel">
-                <button class="btn btn-s fc g4" id="btn-gen-local-map"><i class="fa-solid fa-plus"></i>局部地图</button>
-                <button class="btn btn-s fc g4" id="btn-simulate"><i class="fa-solid fa-rotate"></i>世界推演</button>
-                <button class="btn btn-s fc g4" id="btn-gen-local-scene"><i class="fa-solid fa-feather-pointed"></i>局部剧情</button>
-            </div>
-        </div>
-        <nav class="side-nav side-glass">
-            <div class="nav-i" data-p="world"><i class="fa-solid fa-earth-americas"></i></div>
-            <div class="nav-i act" data-p="map"><i class="fa-solid fa-map"></i></div>
-            <div class="nav-i" data-p="comm"><i class="fa-solid fa-phone"></i></div>
-        </nav>
+  <!-- Side Nav -->
+  <div class="side-nav-wrap">
+    <div class="side-menu side-glass">
+      <div class="side-menu-btn" id="btn-side-menu-toggle" title="快捷操作"><i class="fa-solid fa-ellipsis"></i></div>
+      <div class="side-menu-panel" id="side-menu-panel">
+        <button class="btn btn-s fc g4" id="btn-gen-local-map"><i class="fa-solid fa-plus"></i>局部地图</button>
+        <button class="btn btn-s fc g4" id="btn-simulate"><i class="fa-solid fa-rotate"></i>世界推演</button>
+        <button class="btn btn-s fc g4" id="btn-gen-local-scene"><i class="fa-solid fa-feather-pointed"></i>局部剧情</button>
+      </div>
+    </div>
+    <nav class="side-nav side-glass">
+      <div class="nav-i" data-p="world"><i class="fa-solid fa-earth-americas"></i></div>
+      <div class="nav-i act" data-p="map"><i class="fa-solid fa-map"></i></div>
+      <div class="nav-i" data-p="comm"><i class="fa-solid fa-phone"></i></div>
+    </nav>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar fc g10 usn">
+    <div class="toolbar-t">小白板<span>预测试</span></div>
+    <button class="btn btn-s fc g6" id="btn-deduce"><i class="fa-solid fa-wand-magic-sparkles"></i>生成</button>
+    <button class="btn btn-s fc g6" id="btn-settings"><i class="fa-solid fa-gear"></i>设置</button>
+    <button class="btn btn-c fcc" id="btn-close">✕</button>
+  </div>
+
+  <!-- Main -->
+  <div class="main-wrap">
+    <!-- World -->
+    <div class="page page-pad" id="page-world">
+      <div class="banner">
+        <img src="https://picsum.photos/800/300" alt="" />
+        <div class="banner-ov"><div>探索未知的世界...</div></div>
+      </div>
+
+      <div class="news-sec">
+        <h3 class="sec-t">最新消息</h3>
+        <div id="news-list"></div>
+      </div>
+
+      <div class="user-guide" id="user-guide">
+        <h3 class="sec-t">当前状态</h3>
+        <div class="user-guide-state" id="ug-state">尚未生成世界数据...</div>
+        <h3 class="sec-t mt12">行动指南</h3>
+        <div class="user-guide-actions" id="ug-actions"><div class="user-guide-action">等待世界生成...</div></div>
+      </div>
     </div>
 
-    <!-- 工具栏 -->
-    <div class="toolbar fc g10 usn">
-        <div class="toolbar-t">小白板<span>预测试</span></div>
-        <button class="btn btn-s fc g6" id="btn-deduce"><i class="fa-solid fa-wand-magic-sparkles"></i>生成</button>
-        <button class="btn btn-s fc g6" id="btn-settings"><i class="fa-solid fa-gear"></i>设置</button>
-        <button class="btn btn-c fcc" id="btn-close">✕</button>
+    <!-- Map -->
+    <div class="page act" id="page-map">
+      <div id="mapWrap">
+        <div class="map-lbl" id="map-lbl">
+          <i class="fa-solid fa-map-location-dot"></i>
+          <span id="map-lbl-t">大地图</span>
+          <i class="fa-solid fa-chevron-down"></i>
+          <select id="map-lbl-select" class="map-lbl-sel"></select>
+        </div>
+        <div class="map-act">
+          <button class="btn btn-s btn-p fc g6" id="btn-goto"><i class="fa-solid fa-location-arrow"></i><span id="goto-t">前往</span></button>
+        </div>
+        <div id="inner"><svg id="lines"></svg></div>
+      </div>
+
+      <div class="panel" id="zoom-ind">100%</div>
+      <div class="panel" id="tip">
+        <div class="desc" id="desc"></div>
+        <div class="info-w">
+          <div class="info-h">
+            <div class="info-t" id="info-t"></div>
+            <div class="info-bk" id="info-bk">← 返回</div>
+          </div>
+          <div class="info-c" id="info-c"></div>
+        </div>
+      </div>
     </div>
 
-    <!-- 主内容区 -->
-    <div class="main-wrap">
-        <!-- 世界页 -->
-        <div class="page page-pad" id="page-world">
-            <div class="banner"><img src="https://picsum.photos/800/300" alt=""><div class="banner-ov"><div>探索未知的世界...</div></div></div>
-            <div class="news-sec"><h3 class="sec-t">最新消息</h3><div id="news-list"></div></div>
-            <div class="user-guide" id="user-guide">
-                <h3 class="sec-t">当前状态</h3>
-                <div class="user-guide-state" id="ug-state">尚未生成世界数据...</div>
-                <h3 class="sec-t" style="margin-top:12px">行动指南</h3>
-                <div class="user-guide-actions" id="ug-actions"><div class="user-guide-action">等待世界生成...</div></div>
-            </div>
+    <!-- Contacts -->
+    <div class="page page-pad" id="page-comm">
+      <div class="comm-hd">
+        <div class="comm-tabs">
+          <div class="comm-tab act" data-t="stranger">陌路人</div>
+          <div class="comm-tab" data-t="contact">联络人</div>
         </div>
-
-        <!-- 地图页 -->
-        <div class="page act" id="page-map">
-            <div id="mapWrap">
-                <div class="map-lbl" id="map-lbl">
-                    <i class="fa-solid fa-map-location-dot"></i>
-                    <span id="map-lbl-t">大地图</span>
-                    <i class="fa-solid fa-chevron-down" style="margin-left:6px;font-size:9px"></i>
-                    <select id="map-lbl-select" class="map-lbl-sel"></select>
-                </div>
-                <div class="map-act"><button class="btn btn-s btn-p fc g6" id="btn-goto"><i class="fa-solid fa-location-arrow"></i><span id="goto-t">前往</span></button></div>
-                <div id="inner"><svg id="lines"></svg></div>
-            </div>
-            <div class="panel" id="zoom-ind">100%</div>
-            <div class="panel" id="tip">
-                <div class="desc" id="desc"></div>
-                <div class="info-w">
-                    <div class="info-h"><div class="info-t" id="info-t"></div><div class="info-bk" id="info-bk">← 返回</div></div>
-                    <div class="info-c" id="info-c"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 通讯录页 -->
-        <div class="page page-pad" id="page-comm">
-            <div class="comm-hd">
-                <div class="comm-tabs">
-                    <div class="comm-tab act" data-t="stranger">陌路人</div>
-                    <div class="comm-tab" data-t="contact">联络人</div>
-                </div>
-                <button class="btn btn-add fcc" id="btn-refresh-strangers" title="微信摇一摇，寻找遇过的陌生人"><i class="fa-solid fa-street-view"></i></button>
-                <button class="btn btn-add fcc" id="btn-add-ct"><i class="fa-solid fa-plus"></i></button>
-            </div>
-            <div id="sec-stranger" class="comm-sec act"></div>
-            <div id="sec-contact" class="comm-sec"></div>
-        </div>
+        <button class="btn btn-add fcc" id="btn-refresh-strangers" title="微信摇一摇，寻找遇过的陌生人"><i class="fa-solid fa-street-view"></i></button>
+        <button class="btn btn-add fcc" id="btn-add-ct"><i class="fa-solid fa-plus"></i></button>
+      </div>
+      <div id="sec-stranger" class="comm-sec act"></div>
+      <div id="sec-contact" class="comm-sec"></div>
     </div>
+  </div>
 
-    <!-- 聊天面板 -->
-    <div class="chat" id="chat">
-        <div class="chat-hd">
-            <div class="chat-av" id="chat-av"></div>
-            <div class="chat-t"><div class="chat-nm" id="chat-nm"></div><div class="chat-st" id="chat-st"></div></div>
-            <div class="chat-hd-acts">
-                <button class="chat-compress" id="chat-compress" title="压缩总结"><i class="fa-solid fa-compress"></i></button>
-                <button class="chat-clr" id="chat-clr" title="清空记录"><i class="fa-solid fa-trash"></i></button>
-                <button class="chat-x" id="chat-x"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-        </div>
-        <div class="chat-msgs" id="chat-msgs"></div>
-        <div class="chat-in-w">
-            <button class="chat-send" id="chat-back" title="回退"><i class="fa-solid fa-rotate-left"></i></button>
-            <input type="text" class="chat-in" id="chat-in" placeholder="输入消息...">
-            <button class="chat-send" id="chat-send"><i class="fa-solid fa-paper-plane"></i></button>
-        </div>
+  <!-- Chat -->
+  <div class="chat" id="chat">
+    <div class="chat-hd">
+      <div class="chat-av" id="chat-av"></div>
+      <div class="chat-t">
+        <div class="chat-nm" id="chat-nm"></div>
+        <div class="chat-st" id="chat-st"></div>
+      </div>
+      <div class="chat-hd-acts">
+        <button class="chat-compress" id="chat-compress" title="压缩总结"><i class="fa-solid fa-compress"></i></button>
+        <button class="chat-clr" id="chat-clr" title="清空记录"><i class="fa-solid fa-trash"></i></button>
+        <button class="chat-x" id="chat-x"><i class="fa-solid fa-xmark"></i></button>
+      </div>
     </div>
-
-    <!-- 右侧描述面板 -->
-    <div class="side-pop" id="side-pop">
-        <div class="side-pop-handle" id="side-pop-handle"><div class="side-pop-bar"></div></div>
-        <div class="side-pop-ct">
-            <div class="side-pop-hd fc" style="justify-content:space-between">
-                <span>场景描述</span>
-                <button class="btn btn-s fc g4" id="btn-refresh-local-map"><i class="fa-solid fa-rotate-right"></i>刷新</button>
-            </div>
-            <div class="side-pop-desc" id="side-desc"></div>
-        </div>
+    <div class="chat-msgs" id="chat-msgs"></div>
+    <div class="chat-in-w">
+      <button class="chat-send" id="chat-back" title="回退"><i class="fa-solid fa-rotate-left"></i></button>
+      <input type="text" class="chat-in" id="chat-in" placeholder="输入消息..." />
+      <button class="chat-send" id="chat-send"><i class="fa-solid fa-paper-plane"></i></button>
     </div>
+  </div>
 
-    <!-- 移动端底部弹窗 -->
-    <div class="mob-pop" id="mob-pop">
-        <div class="pop-h-ind"><span data-l="2"></span><span data-l="1"></span><span data-l="0"></span></div>
-        <div class="pop-hd" id="pop-hd"><div class="pop-handle"></div></div>
-        <div class="pop-ct">
-            <div class="pop-desc" id="mob-desc"></div>
-            <div class="pop-info">
-                <div class="pop-info-h"><div class="pop-info-t" id="mob-info-t"></div><div class="pop-info-bk" id="mob-info-bk">← 返回</div></div>
-                <div id="mob-info-c"></div>
-            </div>
-        </div>
+  <!-- Right Panel -->
+  <div class="side-pop" id="side-pop">
+    <div class="side-pop-handle" id="side-pop-handle"><div class="side-pop-bar"></div></div>
+    <div class="side-pop-ct">
+      <div class="side-pop-hd fc jsb">
+        <span>场景描述</span>
+        <button class="btn btn-s fc g4" id="btn-refresh-local-map"><i class="fa-solid fa-rotate-right"></i>刷新</button>
+      </div>
+      <div class="side-pop-desc" id="side-desc"></div>
     </div>
+  </div>
 
-    <!-- 设置弹窗 -->
-    <div class="modal" id="m-settings">
-        <div class="modal-bd"></div>
-        <div class="modal-p lg">
-            <div class="modal-hd fc"><h2>设置</h2><button class="modal-x fcc">✕</button></div>
-            <div class="modal-by">
-                <div class="set-sec">
-                    <div class="set-sec-t">剧情状态</div>
-                    <div class="set-row" style="gap:20px">
-                        <div class="form-g" style="flex:1"><label class="form-l">当前阶段</label><input type="number" class="form-in" id="set-stage" min="0" max="10" value="0"><div class="set-hint">决定可见的洋葱层级</div></div>
-                        <div class="form-g" style="flex:1"><label class="form-l">偏离分数</label><input type="number" class="form-in" id="set-deviation" min="0" max="100" value="0"><div class="set-hint">玩家行为对世界的影响</div></div>
-                    </div>
-                    <div class="set-row" style="gap:20px">
-                        <div class="form-g" style="flex:1"><label class="form-l">推演倒计时</label><input type="number" class="form-in" id="set-sim-target" value="5"><div class="set-hint">局部地图/场景切换/局部剧情每次 -1；≤0 时提醒</div></div>
-                    </div>
-                </div>
-                <div class="set-sec">
-                    <div class="set-sec-t">模式设置</div>
-                    <div class="form-g"><label class="form-l">运行模式</label>
-                        <select class="form-in" id="set-mode">
-                            <option value="story">故事模式（包含世界大纲与时间线）</option>
-                            <option value="assist">辅助模式（只生成地图/新闻/轻松小剧情）</option>
-                        </select>
-                        <div class="set-hint">可在游玩过程中自由切换</div>
-                    </div>
-                </div>
-                <div class="set-sec">
-                    <div class="set-sec-t">全局设定</div>
-                    <div class="form-g"><label class="form-l">API端点</label><input type="text" class="form-in" id="set-api-url" placeholder="留空则使用当前酒馆的API"><div class="set-hint">例如: https://api.openai.com/v1</div></div>
-                    <div class="form-g"><label class="form-l">API密钥</label><input type="password" class="form-in" id="set-api-key" placeholder="输入API密钥"></div>
-                    <div class="form-g"><label class="form-l">模型</label>
-                        <div class="set-row"><input type="text" class="form-in" id="set-model" placeholder="输入模型名称"><button class="btn btn-s" id="btn-fetch-models">获取</button><button class="btn btn-s btn-p" id="btn-test-conn">测试连接</button></div>
-                        <select class="form-in" id="set-model-list" style="display:none;margin-top:8px"></select>
-                    </div>
-                    <div class="set-test"><label class="form-l">聊天历史楼层数</label><input type="number" class="form-in" id="set-history-count" min="0" max="200" value="50" style="width:100px"><label class="fc g4 fs12 c2 usn" title="启用后使用流式请求"><input type="checkbox" id="set-use-stream">流式</label><div class="set-test-res" id="test-res"></div></div>
-                    <div class="set-sec-t" style="margin-top:16px">NPC 世界书条目</div>
-                    <div class="set-row" style="gap:20px">
-                        <div class="form-g" style="flex:1"><label class="form-l">插入位置</label>
-                            <select class="form-in" id="set-npc-position">
-                                <option value="0">↑Char 角色定义前</option><option value="1">↓Char 角色定义后</option>
-                                <option value="2">↑AN 作者注释前</option><option value="3">↓AN 作者注释后</option>
-                                <option value="5">↑EM 增强定义前</option><option value="6">↓EM 增强定义后</option>
-                            </select>
-                            <div class="set-hint">陌路人-生成的NPC条目插入位置</div>
-                        </div>
-                        <div class="form-g" style="flex:1"><label class="form-l">条目顺序</label><input type="number" class="form-in" id="set-npc-order" min="0" max="1000" value="100"><div class="set-hint">数值越小越靠前</div></div>
-                    </div>
-                </div>
-                <div class="set-sec"><div class="set-sec-t">预设 Story Outline 数据</div><div class="set-hint" style="margin-bottom:12px">勾选的条目将写入预设</div><div id="data-list"></div></div>
-                <div class="set-sec">
-                    <div class="set-sec-t">提示词/JSON 模板 <button class="btn btn-s" id="btn-adv-prompts"><i class="fa-solid fa-pen"></i> 编辑模板</button></div>
-                </div>
-            </div>
-            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="set-save">保存</button></div>
+  <!-- Mobile Bottom Sheet -->
+  <div class="mob-pop" id="mob-pop">
+    <div class="pop-h-ind"><span data-l="2"></span><span data-l="1"></span><span data-l="0"></span></div>
+    <div class="pop-hd" id="pop-hd"><div class="pop-handle"></div></div>
+    <div class="pop-ct">
+      <div class="pop-desc" id="mob-desc"></div>
+      <div class="pop-info">
+        <div class="pop-info-h">
+          <div class="pop-info-t" id="mob-info-t"></div>
+          <div class="pop-info-bk" id="mob-info-bk">← 返回</div>
         </div>
+        <div id="mob-info-c"></div>
+      </div>
     </div>
+  </div>
 
-    <!-- 提示词/JSON 模板编辑弹窗 -->
-    <div class="modal" id="m-adv-prompts">
-        <div class="modal-bd"></div>
-        <div class="modal-p lg">
-            <div class="modal-hd fc"><h2>高级设置 · 模板编辑</h2><button class="modal-x fcc">✕</button></div>
-            <div class="modal-by">
-                <div class="form-g">
-                    <label class="form-l">选择模板</label>
-                    <select class="form-in" id="adv-key"></select>
-                    <div class="set-hint">可编辑并保存；也可一键重置回 `story-outline-prompt.js` 预设</div>
-                </div>
-
-                <div class="set-sec-t" style="margin-top:12px">UAUA 提示词（JS function 字符串）</div>
-                <div class="form-g"><label class="form-l">u1</label><textarea class="ed-ta" id="adv-u1" style="height:85px;"></textarea></div>
-                <div class="form-g"><label class="form-l">a1</label><textarea class="ed-ta" id="adv-a1" style="height:85px;"></textarea></div>
-                <div class="form-g"><label class="form-l">u2</label><textarea class="ed-ta" id="adv-u2" style="height:85px;"></textarea></div>
-                <div class="form-g"><label class="form-l">a2</label><textarea class="ed-ta" id="adv-a2" style="height:85px;"></textarea></div>
-
-                <div class="set-sec-t" style="margin-top:12px">JSON 模板</div>
-                <div class="form-g" id="adv-json-wrap">
-                    <label class="form-l">模板字符串</label>
-                    <textarea class="ed-ta" id="adv-json" style="min-height:140px"></textarea>
-                    <div class="set-hint" id="adv-json-hint"></div>
-                </div>
-
-                <div class="bg3 bd r6 p12" style="margin-top:12px">
-                    <div class="fs12 fw6 c2">变量说明（写进模板里会被替换）</div>
-
-                    <div class="set-hint" style="margin-top:8px;line-height:1.65">
-                        <div class="fw6 c2" style="margin-bottom:4px">ST 宏（发送前自动替换）</div>
-                        <div><code>{{user}}</code>：你的名字/称呼</div>
-                        <div><code>{{persona}}</code>：你的 Persona（用户设定）</div>
-                        <div><code>{{description}}</code>：当前角色描述（角色卡 description）</div>
-                        <div><code>{$worldInfo}</code>：世界书（World Info）注入内容</div>
-                        <div><code>{$historyN}</code>：最近 N 条聊天历史（例：<code>{$history50}</code>）</div>
-                    </div>
-
-                    <div class="set-hint" style="margin-top:10px;line-height:1.65">
-                        <div class="fw6 c2" style="margin-bottom:4px">模板参数（在函数里用 <code>${v.xxx}</code> 取值）</div>
-                        <div class="c2">通用</div>
-                        <div><code>v.storyOutline</code>：剧情大纲文本</div>
-                        <div><code>v.historyCount</code>：历史条数（配合 <code>{$historyN}</code>）</div>
-                        <div><code>v.mode</code>：模式（assist/story）</div>
-
-                        <div class="c2" style="margin-top:6px">短信/邀请</div>
-                        <div><code>v.contactName</code>：联系人/NPC 名字</div>
-                        <div><code>v.userName</code>：用户名字（部分模板可能用到）</div>
-                        <div><code>v.smsHistoryContent</code>：已整理的短信历史块</div>
-                        <div><code>v.userMessage</code>：用户发来的新短信文本</div>
-                        <div><code>v.characterContent</code>：人物设定文本（可选）</div>
-                        <div><code>v.targetLocation</code>：邀请要去的地点</div>
-
-                        <div class="c2" style="margin-top:6px">总结/压缩</div>
-                        <div><code>v.existingSummaryContent</code>：已有摘要内容</div>
-                        <div><code>v.conversationText</code>：需要总结的对话文本</div>
-
-                        <div class="c2" style="margin-top:6px">NPC/陌路人提取</div>
-                        <div><code>v.strangerName</code>：新 NPC 名字</div>
-                        <div><code>v.strangerInfo</code>：新 NPC 描述</div>
-                        <div><code>v.existingContacts</code>：已有联络人列表（避免重复）</div>
-                        <div><code>v.existingStrangers</code>：已有陌路人列表（避免重复）</div>
-
-                        <div class="c2" style="margin-top:6px">场景切换/推进</div>
-                        <div><code>v.prevLocationName</code>：上一地点名</div>
-                        <div><code>v.prevLocationInfo</code>：上一地点描述（可选）</div>
-                        <div><code>v.targetLocationName</code>：目标地点名</div>
-                        <div><code>v.targetLocationType</code>：目标地点类型（home/sub 等）</div>
-                        <div><code>v.targetLocationInfo</code>：目标地点描述（可选）</div>
-                        <div><code>v.playerAction</code>：玩家行动/意图（可选）</div>
-                        <div><code>v.stage</code>：当前阶段/轮次</div>
-                        <div><code>v.currentTimeline</code>：当前时间线对象（可选）</div>
-
-                        <div class="c2" style="margin-top:6px">局部地图/局部剧情</div>
-                        <div><code>v.outdoorDescription</code>：大地图/户外地图描述（可选）</div>
-                        <div><code>v.locationName</code>：当前地点名</div>
-                        <div><code>v.locationInfo</code>：当前地点信息（可选）</div>
-                        <div><code>v.playerLocation</code>：玩家当前地点名（可选）</div>
-                        <div><code>v.currentLocalMap</code>：当前局部地图 JSON（可选）</div>
-
-                        <div class="c2" style="margin-top:6px">世界生成/推演</div>
-                        <div><code>v.playerRequests</code>：世界生成需求文本</div>
-                        <div><code>v.step1Data</code>：世界生成 Step 1 数据（meta）</div>
-                        <div><code>v.currentWorldData</code>：当前世界状态 JSON（字符串）</div>
-                        <div><code>v.deviationScore</code>：干扰评分/偏差值</div>
-                    </div>
-                </div>
+  <!-- Settings Modal -->
+  <div class="modal" id="m-settings">
+    <div class="modal-bd"></div>
+    <div class="modal-p lg">
+      <div class="modal-hd fc"><h2>设置</h2><button class="modal-x fcc">✕</button></div>
+      <div class="modal-by">
+        <div class="set-sec">
+          <div class="set-sec-t">剧情状态</div>
+          <div class="set-row g20">
+            <div class="form-g f1">
+              <label class="form-l">当前阶段</label>
+              <input type="number" class="form-in" id="set-stage" min="0" max="10" value="0" />
+              <div class="set-hint">决定可见的洋葱层级</div>
             </div>
-            <div class="modal-ft fc">
-                <button class="btn btn-s" id="adv-reset"><i class="fa-solid fa-rotate-left"></i> 重置为预设</button>
-                <button class="btn btn-s m-cancel">取消</button>
-                <button class="btn btn-s btn-p" id="adv-save">保存</button>
+            <div class="form-g f1">
+              <label class="form-l">偏离分数</label>
+              <input type="number" class="form-in" id="set-deviation" min="0" max="100" value="0" />
+              <div class="set-hint">玩家行为对世界的影响</div>
             </div>
+          </div>
+          <div class="set-row g20">
+            <div class="form-g f1">
+              <label class="form-l">推演倒计时</label>
+              <input type="number" class="form-in" id="set-sim-target" value="5" />
+              <div class="set-hint">局部地图/场景切换/局部剧情每次 -1；≤0 时提醒</div>
+            </div>
+          </div>
         </div>
-    </div>
 
-    <!-- 数据编辑弹窗 -->
-    <div class="modal" id="m-data-edit">
-        <div class="modal-bd"></div>
-        <div class="modal-p">
-            <div class="modal-hd fc"><h2 id="data-edit-title">编辑数据</h2><button class="modal-x fcc">✕</button></div>
-            <div class="modal-by">
-                <textarea class="ed-ta" id="data-edit-ta" style="min-height:300px"></textarea>
-                <pre class="ed-preview" id="data-edit-preview"></pre>
-                <div class="ed-err" id="data-edit-err"></div>
-            </div>
-            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="data-edit-save">保存</button></div>
+        <div class="set-sec">
+          <div class="set-sec-t">模式设置</div>
+          <div class="form-g">
+            <label class="form-l">运行模式</label>
+            <select class="form-in" id="set-mode">
+              <option value="story">故事模式（包含世界大纲与时间线）</option>
+              <option value="assist">辅助模式（只生成地图/新闻/轻松小剧情）</option>
+            </select>
+            <div class="set-hint">可在游玩过程中自由切换</div>
+          </div>
         </div>
-    </div>
 
-    <!-- 前往确认弹窗 -->
-    <div class="modal" id="m-goto">
-        <div class="modal-bd"></div>
-        <div class="modal-p sm">
-            <div class="modal-hd fc"><h2>确认前往</h2><button class="modal-x fcc">✕</button></div>
-            <div class="modal-by">
-                <div class="goto-d" id="goto-d"></div>
-                <div class="form-g"><label class="form-l">任务目标（可选）</label><textarea class="form-in form-ta" id="goto-task" placeholder="描述你要做什么..."></textarea></div>
-            </div>
-            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="goto-ok">确认前往</button></div>
-        </div>
-    </div>
+        <div class="set-sec">
+          <div class="set-sec-t">全局设定</div>
+          <div class="form-g">
+            <label class="form-l">API端点</label>
+            <input type="text" class="form-in" id="set-api-url" placeholder="留空则使用当前酒馆的API" />
+            <div class="set-hint">例如: https://api.openai.com/v1</div>
+          </div>
+          <div class="form-g">
+            <label class="form-l">API密钥</label>
+            <input type="password" class="form-in" id="set-api-key" placeholder="输入API密钥" />
+          </div>
 
-    <!-- 邀请弹窗 -->
-    <div class="modal" id="m-invite">
-        <div class="modal-bd"></div>
-        <div class="modal-p sm">
-            <div class="modal-hd fc"><h2>邀请前往</h2><button class="modal-x fcc">✕</button></div>
-            <div class="modal-by">
-                <div class="goto-d" id="inv-t"></div>
-                <div class="form-g"><label class="form-l">选择地点</label><div class="loc-list" id="loc-list"></div></div>
+          <div class="form-g">
+            <label class="form-l">模型</label>
+            <div class="set-row">
+              <input type="text" class="form-in" id="set-model" placeholder="输入模型名称" />
+              <button class="btn btn-s" id="btn-fetch-models">获取</button>
+              <button class="btn btn-s btn-p" id="btn-test-conn">测试连接</button>
             </div>
-            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="inv-ok">发送邀请</button></div>
-        </div>
-    </div>
+            <select class="form-in" id="set-model-list"></select>
+          </div>
 
-    <!-- 世界生成弹窗 -->
-    <div class="modal" id="m-world-gen">
-        <div class="modal-bd"></div>
-        <div class="modal-p">
-            <div class="modal-hd fc"><h2>世界生成</h2><button class="modal-x fcc">✕</button></div>
-            <div class="modal-by">
-                <div class="form-g"><label class="form-l">玩家特殊需求（可选）</label><textarea class="form-in form-ta" id="world-gen-req" rows="4" placeholder="例如：希望有更多悬疑元素、增加一个神秘组织..."></textarea><div class="set-hint">AI 会根据当前世界观和你的需求生成完整的世界数据</div></div>
-                <div id="world-gen-status" class="set-hint" style="color:#4a9;display:none"></div>
-            </div>
-            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="world-gen-ok"><i class="fa-solid fa-wand-magic-sparkles"></i> 开始生成</button></div>
-        </div>
-    </div>
+          <div class="set-test">
+            <label class="form-l">聊天历史楼层数</label>
+            <input type="number" class="form-in w100" id="set-history-count" min="0" max="200" value="50" />
+            <label class="fc g4 fs12 c2 usn" title="启用后使用流式请求">
+              <input type="checkbox" id="set-use-stream" />流式
+            </label>
+            <div class="set-test-res" id="test-res"></div>
+          </div>
 
-    <!-- 世界推演弹窗 -->
-    <div class="modal" id="m-world-sim">
-        <div class="modal-bd"></div>
-        <div class="modal-p">
-            <div class="modal-hd fc"><h2>世界推演</h2><button class="modal-x fcc">✕</button></div>
-            <div class="modal-by">
-                <div class="form-g">
-                    <div class="set-hint" style="margin-bottom:12px"><strong>推演模式</strong>：根据玩家行为和时间流逝，演化世界状态。
-                        <ul style="margin:8px 0;padding-left:20px;font-size:12px"><li>L1/L2 将大幅更新</li><li>L3/L4 适度调整</li><li>L5 保持不变</li><li>Stage 将推进到下一阶段</li></ul>
-                    </div>
-                    <div class="set-hint" style="color:#f80">⚠️ 此操作会覆盖当前世界数据，建议先备份</div>
-                </div>
-                <div id="world-sim-status" class="set-hint" style="color:#4a9;display:none"></div>
+          <div class="set-sec-t mt16">NPC 世界书条目</div>
+          <div class="set-row g20">
+            <div class="form-g f1">
+              <label class="form-l">插入位置</label>
+              <select class="form-in" id="set-npc-position">
+                <option value="0">↑Char 角色定义前</option><option value="1">↓Char 角色定义后</option>
+                <option value="2">↑AN 作者注释前</option><option value="3">↓AN 作者注释后</option>
+                <option value="5">↑EM 增强定义前</option><option value="6">↓EM 增强定义后</option>
+              </select>
+              <div class="set-hint">陌路人-生成的NPC条目插入位置</div>
             </div>
-            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="world-sim-ok"><i class="fa-solid fa-rotate"></i> 开始推演</button></div>
-        </div>
-    </div>
 
-    <!-- 添加联络人弹窗 -->
-    <div class="modal" id="m-add-ct">
-        <div class="modal-bd"></div>
-        <div class="modal-p sm">
-            <div class="modal-hd fc"><h2>添加联络人</h2><button class="modal-x fcc">✕</button></div>
-            <div class="modal-by">
-                <div class="form-g"><label class="form-l">UID（世界书条目UID）</label>
-                    <div class="set-row"><input type="text" class="form-in" id="add-uid" placeholder="请输入世界书条目UID"><button class="btn btn-s" id="btn-check-uid"><i class="fa-solid fa-search"></i> 检查</button></div>
-                    <div class="set-hint">输入角色卡绑定世界书的条目UID</div>
-                </div>
-                <div class="form-g" id="name-select-group" style="display:none"><label class="form-l">选择名字</label><select class="form-in" id="add-name"><option value="">-- 请选择 --</option></select></div>
-                <div id="uid-check-err" class="ed-err"></div>
+            <div class="form-g f1">
+              <label class="form-l">条目顺序</label>
+              <input type="number" class="form-in" id="set-npc-order" min="0" max="1000" value="100" />
+              <div class="set-hint">数值越小越靠前</div>
             </div>
-            <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="add-ct-ok" disabled>确定</button></div>
+          </div>
         </div>
-    </div>
 
-    <!-- 结果弹窗 -->
-    <div class="modal" id="m-result">
-        <div class="modal-bd"></div>
-        <div class="modal-p sm">
-            <div class="modal-hd fc"><h2 id="res-title">操作结果</h2><button class="modal-x fcc">✕</button></div>
-            <div class="modal-by">
-                <div id="res-msg" style="margin-bottom:10px;line-height:1.5"></div>
-                <div id="res-record-box" style="display:none">
-                    <div class="set-hint" style="margin-bottom:4px">详细记录：</div>
-                    <pre id="res-record" style="max-height:200px;overflow-y:auto;background:var(--bg3);padding:8px;border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-all"></pre>
-                </div>
-            </div>
-            <div class="modal-ft fc"><button class="btn btn-s" id="res-action" style="display:none"></button><button class="btn btn-s btn-p m-cancel">确定</button></div>
+        <div class="set-sec">
+          <div class="set-sec-t">预设 Story Outline 数据</div>
+          <div class="set-hint mb12">勾选的条目将写入预设</div>
+          <div id="data-list"></div>
         </div>
+
+        <div class="set-sec">
+          <div class="set-sec-t">提示词/JSON 模板 <button class="btn btn-s" id="btn-adv-prompts"><i class="fa-solid fa-pen"></i> 编辑模板</button></div>
+        </div>
+      </div>
+
+      <div class="modal-ft fc">
+        <button class="btn btn-s m-cancel">取消</button>
+        <button class="btn btn-s btn-p" id="set-save">保存</button>
+      </div>
     </div>
+  </div>
+
+  <!-- Advanced Prompts Modal -->
+  <div class="modal" id="m-adv-prompts">
+    <div class="modal-bd"></div>
+    <div class="modal-p lg">
+      <div class="modal-hd fc"><h2>高级设置 · 模板编辑</h2><button class="modal-x fcc">✕</button></div>
+      <div class="modal-by">
+        <div class="form-g">
+          <label class="form-l">选择模板</label>
+          <select class="form-in" id="adv-key"></select>
+          <div class="set-hint">可编辑并保存；也可一键重置回 `story-outline-prompt.js` 预设</div>
+        </div>
+
+        <div class="set-sec-t mt12">UAUA 提示词（JS function 字符串）</div>
+        <div class="form-g"><label class="form-l">u1</label><textarea class="ed-ta" id="adv-u1"></textarea></div>
+        <div class="form-g"><label class="form-l">a1</label><textarea class="ed-ta" id="adv-a1"></textarea></div>
+        <div class="form-g"><label class="form-l">u2</label><textarea class="ed-ta" id="adv-u2"></textarea></div>
+        <div class="form-g"><label class="form-l">a2</label><textarea class="ed-ta" id="adv-a2"></textarea></div>
+
+        <div class="set-sec-t mt12">JSON 模板</div>
+        <div class="form-g" id="adv-json-wrap">
+          <label class="form-l">模板字符串</label>
+          <textarea class="ed-ta" id="adv-json"></textarea>
+        </div>
+
+        <div class="bg3 bd r6 p12 mt12">
+          <div class="fs12 fw6 c2">变量说明（写进模板里会被替换）</div>
+
+          <div class="set-hint mt8 lh165">
+            <div class="fw6 c2 mb4">ST 宏（发送前自动替换）</div>
+            <div><code>{{user}}</code>：你的名字/称呼</div>
+            <div><code>{{persona}}</code>：你的 Persona（用户设定）</div>
+            <div><code>{{description}}</code>：当前角色描述（角色卡 description）</div>
+            <div><code>{$worldInfo}</code>：世界书（World Info）注入内容</div>
+            <div><code>{$historyN}</code>：最近 N 条聊天历史（例：<code>{$history50}</code>）</div>
+          </div>
+
+          <div class="set-hint mt10 lh165">
+            <div class="fw6 c2 mb4">模板内可用函数/对象（在 <code>${...}</code> 里直接用）</div>
+            <div><code>worldInfo</code>：世界观块（包含 <code>{$worldInfo}</code>、<code>{{user}}</code>、<code>{{persona}}</code>）</div>
+            <div><code>wrap(tag, content)</code>：包一层 XML 标签</div>
+            <div><code>history(n)</code>：生成 <code>&lt;chat_history&gt;{$historyN}&lt;/chat_history&gt;</code></div>
+            <div><code>nameList(contacts, strangers)</code>：生成“已有角色名列表”提示</div>
+            <div><code>randomRange(min, max)</code>：随机整数</div>
+            <div><code>safeJson(() =&gt; ...)</code>：安全执行，异常返回 <code>null</code></div>
+            <div><code>JSON_TEMPLATES.xxx</code>：当前 JSON 模板（可被自定义覆盖）</div>
+          </div>
+
+          <div class="set-hint mt10 lh165">
+            <div class="fw6 c2 mb4">模板参数（在函数里用 <code>${v.xxx}</code> 取值）</div>
+            <div class="c2">说明：不同模板可用参数不同；没传入的字段为 <code>undefined</code></div>
+
+            <div class="c2 mt6">所有模板都会提供（通用上下文）</div>
+            <div><code>v.storyOutline</code>：剧情大纲文本</div>
+            <div><code>v.historyCount</code>：历史条数（配合 <code>{$historyN}</code>）</div>
+            <div><code>v.mode</code>：模式（assist/story）</div>
+            <div><code>v.stage</code>：当前阶段/轮次</div>
+            <div><code>v.deviationScore</code>：干扰评分/偏差值</div>
+            <div><code>v.simulationTarget</code>：推演倒计时目标（可选）</div>
+            <div><code>v.playerLocation</code>：玩家当前地点名（可选；未生成世界时可能是“未知”）</div>
+            <div><code>v.currentAtmosphere</code>：当前气氛/氛围（可选）</div>
+            <div><code>v.existingContacts</code>：已有联络人列表（可为空）</div>
+            <div><code>v.existingStrangers</code>：已有陌路人列表（可为空）</div>
+
+            <div class="adv-vars-group" data-adv-for="sms,invite">
+              <div class="c2 mt6">短信/邀请</div>
+              <div><code>v.contactName</code>：联系人/NPC 名字</div>
+              <div><code>v.userName</code>：用户名字（部分模板可能用到）</div>
+              <div><code>v.smsHistoryContent</code>：已整理的短信历史块</div>
+              <div><code>v.userMessage</code>：用户发来的新短信文本</div>
+              <div><code>v.characterContent</code>：人物设定文本（可选）</div>
+              <div><code>v.targetLocation</code>：邀请要去的地点</div>
+            </div>
+
+            <div class="adv-vars-group" data-adv-for="summary">
+              <div class="c2 mt6">总结/压缩</div>
+              <div><code>v.existingSummaryContent</code>：已有摘要内容</div>
+              <div><code>v.conversationText</code>：需要总结的对话文本</div>
+            </div>
+
+            <div class="adv-vars-group" data-adv-for="npc">
+              <div class="c2 mt6">NPC 生成</div>
+              <div><code>v.strangerName</code>：新 NPC 名字</div>
+              <div><code>v.strangerInfo</code>：新 NPC 描述</div>
+            </div>
+
+            <div class="adv-vars-group" data-adv-for="sceneSwitch">
+              <div class="c2 mt6">场景切换/推进</div>
+              <div><code>v.prevLocationName</code>：上一地点名</div>
+              <div><code>v.prevLocationInfo</code>：上一地点描述（可选）</div>
+              <div><code>v.targetLocationName</code>：目标地点名</div>
+              <div><code>v.targetLocationType</code>：目标地点类型（home/sub 等）</div>
+              <div><code>v.targetLocationInfo</code>：目标地点描述（可选）</div>
+              <div><code>v.playerAction</code>：玩家行动/意图（可选）</div>
+            </div>
+
+            <div class="adv-vars-group" data-adv-for="localMapGen">
+              <div class="c2 mt6">局部地图生成</div>
+              <div><code>v.outdoorDescription</code>：大地图/户外地图描述（可选）</div>
+            </div>
+
+            <div class="adv-vars-group" data-adv-for="localMapRefresh,localSceneGen">
+              <div class="c2 mt6">局部地图刷新 / 局部剧情生成</div>
+              <div><code>v.locationName</code>：当前地点名（本次请求指定）</div>
+              <div><code>v.locationInfo</code>：当前地点信息（可选）</div>
+              <div><code>v.currentLocalMap</code>：当前局部地图 JSON（可选；仅刷新时常用）</div>
+              <div><code>v.outdoorDescription</code>：大地图/户外地图描述（可选；仅刷新时常用）</div>
+            </div>
+
+            <div class="adv-vars-group" data-adv-for="worldGenStep1,worldGenStep2,worldSim,worldSimAssist">
+              <div class="c2 mt6">世界生成/推演</div>
+              <div><code>v.playerRequests</code>：世界生成需求文本</div>
+              <div><code>v.step1Data</code>：世界生成 Step 1 数据（meta）</div>
+              <div><code>v.currentWorldData</code>：当前世界状态 JSON（字符串）</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-ft fc">
+        <button class="btn btn-s" id="adv-reset"><i class="fa-solid fa-rotate-left"></i> 重置为预设</button>
+        <button class="btn btn-s m-cancel">取消</button>
+        <button class="btn btn-s btn-p" id="adv-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Edit Modal -->
+  <div class="modal" id="m-data-edit">
+    <div class="modal-bd"></div>
+    <div class="modal-p">
+      <div class="modal-hd fc"><h2 id="data-edit-title">编辑数据</h2><button class="modal-x fcc">✕</button></div>
+      <div class="modal-by">
+        <textarea class="ed-ta" id="data-edit-ta"></textarea>
+        <pre class="ed-preview" id="data-edit-preview"></pre>
+        <div class="ed-err" id="data-edit-err"></div>
+      </div>
+      <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="data-edit-save">保存</button></div>
+    </div>
+  </div>
+
+  <!-- Goto Modal -->
+  <div class="modal" id="m-goto">
+    <div class="modal-bd"></div>
+    <div class="modal-p sm">
+      <div class="modal-hd fc"><h2>确认前往</h2><button class="modal-x fcc">✕</button></div>
+      <div class="modal-by">
+        <div class="goto-d" id="goto-d"></div>
+        <div class="form-g"><label class="form-l">任务目标（可选）</label><textarea class="form-in form-ta" id="goto-task" placeholder="描述你要做什么..."></textarea></div>
+      </div>
+      <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="goto-ok">确认前往</button></div>
+    </div>
+  </div>
+
+  <!-- Invite Modal -->
+  <div class="modal" id="m-invite">
+    <div class="modal-bd"></div>
+    <div class="modal-p sm">
+      <div class="modal-hd fc"><h2>邀请前往</h2><button class="modal-x fcc">✕</button></div>
+      <div class="modal-by">
+        <div class="goto-d" id="inv-t"></div>
+        <div class="form-g"><label class="form-l">选择地点</label><div class="loc-list" id="loc-list"></div></div>
+      </div>
+      <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="inv-ok">发送邀请</button></div>
+    </div>
+  </div>
+
+  <!-- World Gen Modal -->
+  <div class="modal" id="m-world-gen">
+    <div class="modal-bd"></div>
+    <div class="modal-p">
+      <div class="modal-hd fc"><h2>世界生成</h2><button class="modal-x fcc">✕</button></div>
+      <div class="modal-by">
+        <div class="form-g">
+          <label class="form-l">玩家特殊需求（可选）</label>
+          <textarea class="form-in form-ta" id="world-gen-req" rows="4" placeholder="例如：希望有更多悬疑元素、增加一个神秘组织..."></textarea>
+          <div class="set-hint">AI 会根据当前世界观和你的需求生成完整的世界数据</div>
+        </div>
+        <div id="world-gen-status" class="set-hint"></div>
+      </div>
+      <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="world-gen-ok"><i class="fa-solid fa-wand-magic-sparkles"></i> 开始生成</button></div>
+    </div>
+  </div>
+
+  <!-- World Sim Modal -->
+  <div class="modal" id="m-world-sim">
+    <div class="modal-bd"></div>
+    <div class="modal-p">
+      <div class="modal-hd fc"><h2>世界推演</h2><button class="modal-x fcc">✕</button></div>
+      <div class="modal-by">
+        <div class="form-g">
+          <div class="set-hint mb12">
+            <strong>推演模式</strong>：根据玩家行为和时间流逝，演化世界状态。
+            <ul class="lh15" style="margin:8px 0;padding-left:20px;font-size:12px">
+              <li>L1/L2 将大幅更新</li><li>L3/L4 适度调整</li><li>L5 保持不变</li><li>Stage 将推进到下一阶段</li>
+            </ul>
+          </div>
+          <div class="set-hint warn">⚠️ 此操作会覆盖当前世界数据，建议先备份</div>
+        </div>
+        <div id="world-sim-status" class="set-hint"></div>
+      </div>
+      <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="world-sim-ok"><i class="fa-solid fa-rotate"></i> 开始推演</button></div>
+    </div>
+  </div>
+
+  <!-- Add Contact Modal -->
+  <div class="modal" id="m-add-ct">
+    <div class="modal-bd"></div>
+    <div class="modal-p sm">
+      <div class="modal-hd fc"><h2>添加联络人</h2><button class="modal-x fcc">✕</button></div>
+      <div class="modal-by">
+        <div class="form-g">
+          <label class="form-l">UID（世界书条目UID）</label>
+          <div class="set-row">
+            <input type="text" class="form-in" id="add-uid" placeholder="请输入世界书条目UID" />
+            <button class="btn btn-s" id="btn-check-uid"><i class="fa-solid fa-search"></i> 检查</button>
+          </div>
+          <div class="set-hint">输入角色卡绑定世界书的条目UID</div>
+        </div>
+        <div class="form-g" id="name-select-group" style="display:none">
+          <label class="form-l">选择名字</label>
+          <select class="form-in" id="add-name"><option value="">-- 请选择 --</option></select>
+        </div>
+        <div id="uid-check-err" class="ed-err"></div>
+      </div>
+      <div class="modal-ft fc"><button class="btn btn-s m-cancel">取消</button><button class="btn btn-s btn-p" id="add-ct-ok" disabled>确定</button></div>
+    </div>
+  </div>
+
+  <!-- Result Modal -->
+  <div class="modal" id="m-result">
+    <div class="modal-bd"></div>
+    <div class="modal-p sm">
+      <div class="modal-hd fc"><h2 id="res-title">操作结果</h2><button class="modal-x fcc">✕</button></div>
+      <div class="modal-by">
+        <div id="res-msg"></div>
+        <div id="res-record-box">
+          <div class="set-hint mb4">详细记录：</div>
+          <pre id="res-record"></pre>
+        </div>
+      </div>
+      <div class="modal-ft fc">
+        <button class="btn btn-s" id="res-action"></button>
+        <button class="btn btn-s btn-p m-cancel">确定</button>
+      </div>
+    </div>
+  </div>
 
 <script>
 // ================== 数据 ==================
@@ -1086,17 +1175,15 @@ const ADV_PROMPT_ITEMS = [
     ['invite', '邀请回复'],
     ['npc', 'NPC 生成'],
     ['stranger', '提取陌路人'],
-    ['worldGenStep1', '世界生成 Step 1（故事模式）'],
-    ['worldGenStep2', '世界生成 Step 2（故事模式）'],
+    ['worldGenStep1', '大纲生成'],
+    ['worldGenStep2', '世界生成'],
     ['worldSim', '世界推演（故事模式）'],
-    ['sceneSwitch', '场景切换（故事模式）'],
-    ['worldGenAssist', '世界生成（辅助模式）'],
     ['worldSimAssist', '世界推演（辅助模式）'],
-    ['sceneSwitchAssist', '场景切换（辅助模式）'],
+    ['sceneSwitch', '场景切换'],
     ['localMapGen', '局部地图生成'],
     ['localMapRefresh', '局部地图刷新'],
     ['localSceneGen', '局部剧情生成'],
-    ['summary', '总结压缩（无独立 JSON 模板）'],
+    ['summary', '总结压缩'],
 ];
 
 const advHasJsonTemplate = (key) => {
@@ -1116,44 +1203,15 @@ const advGetPromptObj = (key, useDefaults = false) => {
     };
 };
 
-const advSplitFn = (s) => {
-    const str = String(s ?? '');
-    const first = str.indexOf('`');
-    const last = str.lastIndexOf('`');
-    if (first === -1 || last === -1 || last <= first) return null;
-    return { prefix: str.slice(0, first), body: str.slice(first + 1, last), suffix: str.slice(last + 1) };
+const advNormalizeDisplayText = (raw) => {
+    let s = String(raw ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // Back-compat for old stored "\\n" style strings
+    if (!s.includes('\n') && s.includes('\\n')) s = s.replaceAll('\\n', '\n');
+    if (s.includes('\\t')) s = s.replaceAll('\\t', '\t');
+    if (s.includes('\\`')) s = s.replaceAll('\\`', '`');
+    return s;
 };
-
-const advDecodeTemplateEscapes = (body) => {
-    const s = String(body ?? '');
-    let out = '';
-    for (let i = 0; i < s.length; i++) {
-        const c = s[i];
-        if (c !== '\\') { out += c; continue; }
-        const n = s[i + 1];
-        if (n === undefined) { out += '\\'; continue; }
-        if (n === 'n') { out += '\n'; i++; continue; }
-        if (n === 't') { out += '    '; i++; continue; }
-        if (n === '`') { out += '`'; i++; continue; }
-        if (n === '\\') { out += '\\'; i++; continue; }
-        out += '\\' + n;
-        i++;
-    }
-    return out;
-};
-
-const advEncodeTemplateEscapes = (pretty) => {
-    const s = String(pretty ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    let out = '';
-    for (let i = 0; i < s.length; i++) {
-        const c = s[i];
-        if (c === '\n') out += '\\n';
-        else if (c === '\t') out += '\\t';
-        else if (c === '`') out += '\\`';
-        else out += c;
-    }
-    return out;
-};
+const advNormalizeSaveText = (pretty) => String(pretty ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
 const advGetJsonTemplate = (key, useDefaults = false) => {
     const defs = promptDefaults?.jsonTemplates || {};
@@ -1168,34 +1226,29 @@ const advApplyToUI = (key, useDefaults = false) => {
     const applyPart = (id, raw) => {
         const el = $(id);
         if (!el) return;
-        const rawStr = String(raw ?? '');
-        const split = advSplitFn(rawStr);
-        const pretty = split ? advDecodeTemplateEscapes(split.body) : rawStr;
-        el._meta = { raw: rawStr, split, pretty };
-        el.value = pretty;
+        el.value = advNormalizeDisplayText(raw);
     };
     applyPart('adv-u1', p.u1);
     applyPart('adv-a1', p.a1);
     applyPart('adv-u2', p.u2);
     applyPart('adv-a2', p.a2);
 
-    const hasJson = advHasJsonTemplate(key) || Object.prototype.hasOwnProperty.call(promptTemplates || {}, key);
-    $('adv-json-wrap').style.display = hasJson ? '' : 'none';
-    const jRaw = hasJson ? advGetJsonTemplate(key, useDefaults) : '';
+    $('adv-json-wrap').style.display = '';
+    const jRaw = advGetJsonTemplate(key, useDefaults);
     const jEl = $('adv-json');
-    if (jEl) jEl.value = hasJson ? String(jRaw ?? '') : '';
-    $('adv-json-hint').textContent = hasJson ? '' : '该模板没有独立 JSON 模板。';
+    if (jEl) jEl.value = String(jRaw ?? '');
+    advUpdateVarHelp(key);
+};
+
+const advUpdateVarHelp = (key) => {
+    $$('.adv-vars-group').forEach(el => {
+        const list = String(el.dataset.advFor || '').split(',').map(s => s.trim()).filter(Boolean);
+        el.style.display = !list.length || list.includes(key) ? '' : 'none';
+    });
 };
 
 const advCommitEdits = (key) => {
-    const build = (id) => {
-        const el = $(id);
-        const meta = el?._meta;
-        const prettyNow = String(el?.value ?? '');
-        if (meta && prettyNow === meta.pretty) return meta.raw;
-        if (meta?.split) return `${meta.split.prefix}\`${advEncodeTemplateEscapes(prettyNow)}\`${meta.split.suffix}`;
-        return meta?.raw ?? prettyNow;
-    };
+    const build = (id) => advNormalizeSaveText($(id)?.value ?? '');
 
     promptSources[key] = {
         u1: build('adv-u1'),
@@ -1204,11 +1257,8 @@ const advCommitEdits = (key) => {
         a2: build('adv-a2'),
     };
 
-    if (advHasJsonTemplate(key) || Object.prototype.hasOwnProperty.call(promptTemplates || {}, key)) {
-        const jEl = $('adv-json');
-        const jt = String(jEl?.value ?? '');
-        promptTemplates[key] = jt;
-    }
+    const jEl = $('adv-json');
+    promptTemplates[key] = advNormalizeSaveText(jEl?.value ?? '');
 };
 
 const advInit = () => {
@@ -1232,7 +1282,8 @@ const advSave = () => {
     const key = $('adv-key')?.value;
     if (!key) return;
     advCommitEdits(key);
-    post('SAVE_PROMPTS', { promptConfig: { jsonTemplates: promptTemplates, promptSources } });
+    const payload = { key, prompt: promptSources[key], jsonTemplate: promptTemplates[key] };
+    post('SAVE_PROMPTS', payload);
     closeM('m-adv-prompts');
 };
 
@@ -1240,9 +1291,9 @@ const advReset = () => {
     advInit();
     const key = $('adv-key')?.value;
     if (!key) return;
-    advApplyToUI(key, true);
-    advCommitEdits(key);
-    post('SAVE_PROMPTS', { promptConfig: { jsonTemplates: promptTemplates, promptSources } });
+    delete promptSources[key];
+    delete promptTemplates[key];
+    post('SAVE_PROMPTS', { key, reset: true });
     closeM('m-adv-prompts');
 };
 const parseJsonLoose = (input) => {
@@ -1742,289 +1793,338 @@ function render() {
     $$('.ignore-btn').forEach(b => b.onclick = e => { e.stopPropagation(); const i = D.contacts.strangers.findIndex(s => s.name === b.dataset.name); if (i > -1) { D.contacts.strangers.splice(i, 1); saveCt(); render(); } });
     $$('.msg-btn').forEach(b => b.onclick = e => { e.stopPropagation(); const c = D.contacts.contacts.find(x => x.worldbookUid === b.dataset.uid); if (c) openChat(c); });
     $$('.inv-btn').forEach(b => b.onclick = e => { e.stopPropagation(); const c = D.contacts.contacts.find(x => x.worldbookUid === b.dataset.uid); if (c) openInv(c); });
-            // 更新右侧描述面板 - 根据当前视图选择展示内容
-            if (selectedMapValue === 'current') {
-                const inside = getCurInside();
-                if (inside?.description) {
-                    $('side-desc').innerHTML = `<div class="local-map-title">📍 ${playerLocation}</div>` + parseLinks(inside.description);
-                } else {
-                    $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
-                }
-            } else {
-                $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+
+    // 更新右侧描述面板
+    if (selectedMapValue === 'current') {
+        const inside = getCurInside();
+        if (inside?.description) $('side-desc').innerHTML = `<div class="local-map-title">📍 ${playerLocation}</div>` + parseLinks(inside.description);
+        else $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+    } else $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+    bindLinks($('side-desc'));
+
+    $('mob-desc').innerHTML = '';
+    renderMapSelector();
+    renderMap();
+}
+
+function renderMap() {
+    const map = D.maps?.outdoor;
+    seed = 123456789;
+    inner.querySelectorAll('.item').forEach(e => e.remove());
+    svg.innerHTML = '';
+    nodes = [];
+    lines = [];
+    if (!map?.nodes?.length) return;
+
+    map.nodes.forEach((n, i) => {
+        const d = dirMap[n.position] || [0, 0], len = Math.hypot(d[0], d[1]) || 1, dist = (n.distant || 1) * 120;
+        nodes.push({ id: 'n' + i, name: n.name, type: n.type || 'sub', pos: n.position, distant: n.distant || 1, x: d[0] / len * dist, y: d[1] / len * dist, data: n });
+    });
+
+    const groups = {};
+    nodes.forEach(n => (groups[n.pos] = groups[n.pos] || []).push(n));
+    for (let p in groups) {
+        const arr = groups[p];
+        if (arr.length <= 1) continue;
+        const d = dirMap[p] || [0, 0], len = Math.hypot(d[0], d[1]) || 1, px = -d[1] / len, py = d[0] / len, mid = (arr.length - 1) / 2;
+        arr.sort((a, b) => a.distant - b.distant).forEach((n, i) => { n.x += px * (i - mid) * 50; n.y += py * (i - mid) * 50; });
+    }
+
+    for (let t = 0; t < 15; t++)
+        for (let i = 0; i < nodes.length; i++)
+            for (let j = i + 1; j < nodes.length; j++) {
+                const a = nodes[i], b = nodes[j], dx = a.x - b.x, dy = a.y - b.y, d = Math.hypot(dx, dy);
+                if (d < 80 && d > 0) { const p = (80 - d) / d * .5; a.x += dx * p; a.y += dy * p; b.x -= dx * p; b.y -= dy * p; }
             }
+
+    nodes.forEach(n => {
+        const el = document.createElement('div');
+        el.className = `item node-${n.type}`;
+        el.id = n.id;
+        el.textContent = n.type === 'home' ? '🏠 ' + n.name : n.name;
+        el.style.cssText = `left:${n.x + 2000}px;top:${n.y + 2000}px`;
+        el.onclick = e => { e.stopPropagation(); curNode?.id === n.id ? hideInfo() : showInfo(n); };
+        inner.appendChild(el);
+    });
+
+    for (let g in groups) {
+        const arr = groups[g].sort((a, b) => a.distant - b.distant);
+        for (let i = 0; i < arr.length - 1; i++) lines.push([arr[i], arr[i + 1]]);
+    }
+    const anchors = Object.values(groups).map(a => a.sort((x, y) => x.distant - y.distant)[0]).sort((a, b) => Math.atan2(a.y, a.x) - Math.atan2(b.y, b.x));
+    anchors.forEach((a, i) => lines.push([a, anchors[(i + 1) % anchors.length]]));
+    const exists = (a, b) => lines.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+    for (let i = 0, c = 0; c < Math.floor(nodes.length / 5) && i < 200; i++) {
+        const a = nodes[Math.floor(rand() * nodes.length)], b = nodes[Math.floor(rand() * nodes.length)];
+        if (a !== b && !exists(a, b)) { lines.push([a, b]); c++; }
+    }
+    drawLines();
+}
+
+function drawLines() {
+    svg.innerHTML = '';
+    const rect = mapWrap.getBoundingClientRect();
+    lines.forEach(([a, b]) => {
+        const elA = $(a.id), elB = $(b.id);
+        if (!elA || !elB) return;
+        const rA = elA.getBoundingClientRect(), rB = elB.getBoundingClientRect();
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', (rA.left + rA.width / 2 - rect.left) / scale - offX / scale);
+        line.setAttribute('y1', (rA.top + rA.height / 2 - rect.top) / scale - offY / scale);
+        line.setAttribute('x2', (rB.left + rB.width / 2 - rect.left) / scale - offX / scale);
+        line.setAttribute('y2', (rB.top + rB.height / 2 - rect.top) / scale - offY / scale);
+        const main = (a.type === 'main' && b.type === 'main') || a.type === 'home' || b.type === 'home';
+        line.setAttribute('stroke', main ? '#333' : '#aaa');
+        line.setAttribute('stroke-width', main ? '2' : '1');
+        if (!main) line.setAttribute('stroke-dasharray', '4 3');
+        svg.appendChild(line);
+    });
+}
+
+const updateTf = () => { inner.style.transform = `translate(${offX}px,${offY}px) scale(${scale})`; $('zoom-ind').textContent = Math.round(scale * 100) + '%'; requestAnimationFrame(drawLines); };
+const initPos = () => { offX = -2000 + mapWrap.clientWidth / 2; offY = -2000 + mapWrap.clientHeight / 2; scale = 1; updateTf(); };
+
+function panTo(node, dur = 350) {
+    if (!node || anim) return;
+    const el = $(node.id);
+    if (!el) return;
+    const tX = -(node.x + 2000) * scale + mapWrap.clientWidth / 2, tY = -(node.y + 2000) * scale + mapWrap.clientHeight * .25;
+    const sX = offX, sY = offY, st = performance.now();
+    anim = true;
+    (function step(now) {
+        const p = Math.min((now - st) / dur, 1), e = 1 - Math.pow(1 - p, 3);
+        offX = sX + (tX - sX) * e;
+        offY = sY + (tY - sY) * e;
+        updateTf();
+        p < 1 ? requestAnimationFrame(step) : anim = false;
+    })(st);
+}
+
+function showInfo(n) {
+    if (!n?.data) return;
+    curNode = n;
+    inner.querySelectorAll('.item').forEach(e => e.classList.remove('hl'));
+    $(n.id)?.classList.add('hl');
+    const isCurrentLoc = n.name === playerLocation;
+    $('btn-goto').classList.toggle('show', !isCurrentLoc);
+    if (!isCurrentLoc) $('goto-t').textContent = `前往 ${n.name}`;
+
+    const inside = D.maps?.indoor?.[n.name];
+    if (isCurrentLoc && inside?.description) {
+        $('side-desc').innerHTML = `<div class="local-map-title">📍 ${n.name}</div>` + parseLinks(inside.description);
+        bindLinks($('side-desc'));
+    } else {
+        $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+        bindLinks($('side-desc'));
+    }
+
+    if (isMob()) {
+        $('mob-info-t').textContent = n.name;
+        $('mob-info-c').textContent = isCurrentLoc ? (inside?.description || n.data.info || '暂无信息...') : (n.data.info || '暂无信息...');
+        if (!popup.classList.contains('act')) openPop(1);
+    } else {
+        $('info-t').textContent = n.name;
+        $('info-c').textContent = n.data.info || '暂无信息...';
+        $('tip').classList.add('show');
+    }
+}
+
+const hideInfo = () => { curNode = null; inner.querySelectorAll('.item').forEach(e => e.classList.remove('hl')); $('btn-goto').classList.remove('show'); $('tip').classList.remove('show'); };
+$('info-bk').onclick = hideInfo;
+$('mob-info-bk').onclick = () => popup.classList.remove('act');
+
+// 地图选单
+function renderMapSelector() {
+    const sel = $('map-lbl-select');
+    sel.innerHTML = '<option value="overview">🗺️ 大地图</option>';
+    const curIdx = D.maps?.outdoor?.nodes?.findIndex(n => n.name === playerLocation);
+    const isInIndoorMap = D.maps?.indoor && D.maps.indoor[playerLocation];
+    if (curIdx >= 0 || isInIndoorMap) sel.innerHTML += `<option value="current">📍 ${playerLocation}（你）</option>`;
+    sel.innerHTML += '<option disabled>──────────</option>';
+    if (D.maps?.outdoor?.nodes?.length) D.maps.outdoor.nodes.forEach((n, i) => { if (n.name !== playerLocation) sel.innerHTML += `<option value="node:${i}">${n.name}</option>`; });
+    if (D.maps?.indoor) {
+        const indoorKeys = Object.keys(D.maps.indoor).filter(k => k !== playerLocation && !D.maps?.outdoor?.nodes?.some(n => n.name === k));
+        if (indoorKeys.length) {
+            sel.innerHTML += '<option disabled>── 隐藏地图 ──</option>';
+            indoorKeys.forEach(k => sel.innerHTML += `<option value="indoor:${k}">🏠 ${k}</option>`);
+        }
+    }
+    sel.value = selectedMapValue;
+    updateMapLabel();
+}
+
+function updateMapLabel() {
+    const v = $('map-lbl-select').value;
+    if (v === 'overview') $('map-lbl-t').textContent = '大地图';
+    else if (v === 'current') $('map-lbl-t').textContent = playerLocation + '（你）';
+    else if (v.startsWith('node:')) { const idx = parseInt(v.split(':')[1]); $('map-lbl-t').textContent = D.maps?.outdoor?.nodes?.[idx]?.name || '未知'; }
+    else if (v.startsWith('indoor:')) $('map-lbl-t').textContent = v.replace('indoor:', '');
+}
+
+function switchMapView(value) {
+    selectedMapValue = value;
+    hideInfo();
+    if (value === 'overview') {
+        $('btn-goto').classList.remove('show');
+        $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+        bindLinks($('side-desc'));
+        initPos();
+    } else if (value === 'current') {
+        $('btn-goto').classList.remove('show');
+        const inside = getCurInside();
+        if (inside?.description) {
+            $('side-desc').innerHTML = `<div class="local-map-title">📍 ${playerLocation}</div>` + parseLinks(inside.description);
             bindLinks($('side-desc'));
-            $('mob-desc').innerHTML = '';
-            renderMapSelector();
-            renderMap();
+        } else {
+            $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+            bindLinks($('side-desc'));
         }
-
-        function renderMap() {
-            const map = D.maps?.outdoor;
-            seed = 123456789;
-            inner.querySelectorAll('.item').forEach(e => e.remove());
-            svg.innerHTML = '';
-            nodes = [];
-            lines = [];
-            if (!map?.nodes?.length) return;
-
-            map.nodes.forEach((n, i) => {
-                const d = dirMap[n.position] || [0, 0], len = Math.hypot(d[0], d[1]) || 1, dist = (n.distant || 1) * 120;
-                nodes.push({ id: 'n' + i, name: n.name, type: n.type || 'sub', pos: n.position, distant: n.distant || 1, x: d[0] / len * dist, y: d[1] / len * dist, data: n });
-            });
-
-            const groups = {};
-            nodes.forEach(n => (groups[n.pos] = groups[n.pos] || []).push(n));
-            for (let p in groups) {
-                const arr = groups[p];
-                if (arr.length <= 1) continue;
-                const d = dirMap[p] || [0, 0], len = Math.hypot(d[0], d[1]) || 1, px = -d[1] / len, py = d[0] / len, mid = (arr.length - 1) / 2;
-                arr.sort((a, b) => a.distant - b.distant).forEach((n, i) => { n.x += px * (i - mid) * 50; n.y += py * (i - mid) * 50; });
-            }
-
-            for (let t = 0; t < 15; t++)
-                for (let i = 0; i < nodes.length; i++)
-                    for (let j = i + 1; j < nodes.length; j++) {
-                        const a = nodes[i], b = nodes[j], dx = a.x - b.x, dy = a.y - b.y, d = Math.hypot(dx, dy);
-                        if (d < 80 && d > 0) { const p = (80 - d) / d * .5; a.x += dx * p; a.y += dy * p; b.x -= dx * p; b.y -= dy * p; }
-                    }
-
-            nodes.forEach(n => {
-                const el = document.createElement('div');
-                el.className = `item node-${n.type}`;
-                el.id = n.id;
-                el.textContent = n.type === 'home' ? '🏠 ' + n.name : n.name;
-                el.style.cssText = `left:${n.x + 2000}px;top:${n.y + 2000}px`;
-                el.onclick = e => { e.stopPropagation(); curNode?.id === n.id ? hideInfo() : showInfo(n); };
-                inner.appendChild(el);
-            });
-
-            for (let g in groups) {
-                const arr = groups[g].sort((a, b) => a.distant - b.distant);
-                for (let i = 0; i < arr.length - 1; i++) lines.push([arr[i], arr[i + 1]]);
-            }
-            const anchors = Object.values(groups).map(a => a.sort((x, y) => x.distant - y.distant)[0]).sort((a, b) => Math.atan2(a.y, a.x) - Math.atan2(b.y, b.x));
-            anchors.forEach((a, i) => lines.push([a, anchors[(i + 1) % anchors.length]]));
-            const exists = (a, b) => lines.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
-            for (let i = 0, c = 0; c < Math.floor(nodes.length / 5) && i < 200; i++) {
-                const a = nodes[Math.floor(rand() * nodes.length)], b = nodes[Math.floor(rand() * nodes.length)];
-                if (a !== b && !exists(a, b)) { lines.push([a, b]); c++; }
-            }
-            drawLines();
-        }
-
-        function drawLines() {
-            svg.innerHTML = '';
-            const rect = mapWrap.getBoundingClientRect();
-            lines.forEach(([a, b]) => {
-                const elA = $(a.id), elB = $(b.id);
-                if (!elA || !elB) return;
-                const rA = elA.getBoundingClientRect(), rB = elB.getBoundingClientRect();
-                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                line.setAttribute('x1', (rA.left + rA.width / 2 - rect.left) / scale - offX / scale);
-                line.setAttribute('y1', (rA.top + rA.height / 2 - rect.top) / scale - offY / scale);
-                line.setAttribute('x2', (rB.left + rB.width / 2 - rect.left) / scale - offX / scale);
-                line.setAttribute('y2', (rB.top + rB.height / 2 - rect.top) / scale - offY / scale);
-                const main = (a.type === 'main' && b.type === 'main') || a.type === 'home' || b.type === 'home';
-                line.setAttribute('stroke', main ? '#333' : '#aaa');
-                line.setAttribute('stroke-width', main ? '2' : '1');
-                if (!main) line.setAttribute('stroke-dasharray', '4 3');
-                svg.appendChild(line);
-            });
-        }
-
-        const updateTf = () => { inner.style.transform = `translate(${offX}px,${offY}px) scale(${scale})`; $('zoom-ind').textContent = Math.round(scale * 100) + '%'; requestAnimationFrame(drawLines); };
-        const initPos = () => { offX = -2000 + mapWrap.clientWidth / 2; offY = -2000 + mapWrap.clientHeight / 2; scale = 1; updateTf(); };
-
-        function panTo(node, dur = 350) {
-            if (!node || anim) return;
-            const el = $(node.id);
-            if (!el) return;
-            const tX = -(node.x + 2000) * scale + mapWrap.clientWidth / 2, tY = -(node.y + 2000) * scale + mapWrap.clientHeight * .25;
-            const sX = offX, sY = offY, st = performance.now();
-            anim = true;
-            (function step(now) {
-                const p = Math.min((now - st) / dur, 1), e = 1 - Math.pow(1 - p, 3);
-                offX = sX + (tX - sX) * e;
-                offY = sY + (tY - sY) * e;
-                updateTf();
-                p < 1 ? requestAnimationFrame(step) : anim = false;
-            })(st);
-        }
-
-        function showInfo(n) {
-            if (!n?.data) return;
-            curNode = n;
-            inner.querySelectorAll('.item').forEach(e => e.classList.remove('hl'));
-            $(n.id)?.classList.add('hl');
-            const isCurrentLoc = n.name === playerLocation;
-            $('btn-goto').classList.toggle('show', !isCurrentLoc);
-            if (!isCurrentLoc) $('goto-t').textContent = `前往 ${n.name}`;
-
-            const inside = D.maps?.indoor?.[n.name];
-            if (isCurrentLoc && inside?.description) {
-                $('side-desc').innerHTML = `<div class="local-map-title">📍 ${n.name}</div>` + parseLinks(inside.description);
-                bindLinks($('side-desc'));
-            } else {
-                $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+        const n = nodes.find(x => x.name === playerLocation);
+        if (n) { panTo(n); showInfo(n); }
+    } else if (value.startsWith('node:')) {
+        const idx = parseInt(value.split(':')[1]);
+        const node = D.maps?.outdoor?.nodes?.[idx];
+        $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+        bindLinks($('side-desc'));
+        const n = nodes.find(x => x.name === node?.name);
+        if (n) { panTo(n); showInfo(n); }
+    } else if (value.startsWith('indoor:')) {
+        const name = value.replace('indoor:', '');
+        const indoorMap = D.maps?.indoor?.[name];
+        if (name !== playerLocation) {
+            $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
+            bindLinks($('side-desc'));
+            curNode = { name, type: 'sub', data: { info: stripXml(indoorMap?.description || '') }, isIndoor: true };
+            $('btn-goto').classList.add('show');
+            $('goto-t').textContent = `前往 ${name}`;
+        } else {
+            $('btn-goto').classList.remove('show');
+            if (indoorMap?.description) {
+                $('side-desc').innerHTML = `<div class="local-map-title">🏠 ${name}</div>` + parseLinks(indoorMap.description);
                 bindLinks($('side-desc'));
             }
-
-            if (isMob()) {
-                $('mob-info-t').textContent = n.name;
-                $('mob-info-c').textContent = isCurrentLoc ? (inside?.description || n.data.info || '暂无信息...') : (n.data.info || '暂无信息...');
-                if (!popup.classList.contains('act')) openPop(1);
-            } else {
-                $('info-t').textContent = n.name;
-                $('info-c').textContent = n.data.info || '暂无信息...';
-                $('tip').classList.add('show');
-            }
         }
+    }
+    updateMapLabel();
+}
+$('map-lbl-select').onchange = e => switchMapView(e.target.value);
 
-        const hideInfo = () => { curNode = null; inner.querySelectorAll('.item').forEach(e => e.classList.remove('hl')); $('btn-goto').classList.remove('show'); $('tip').classList.remove('show'); };
-        $('info-bk').onclick = hideInfo;
-        $('mob-info-bk').onclick = () => popup.classList.remove('act');
+// 地图交互
+let sx, sy, lastDist = 0, lastCX = 0, lastCY = 0;
+mapWrap.onmousedown = e => { if (anim || e.target.closest('.map-act,.map-lbl')) return; if (!e.target.classList.contains('item')) hideInfo(); drag = true; sx = e.clientX; sy = e.clientY; mapWrap.style.cursor = 'grabbing'; };
+mapWrap.onmousemove = e => { if (!drag) return; offX += e.clientX - sx; offY += e.clientY - sy; sx = e.clientX; sy = e.clientY; updateTf(); };
+mapWrap.onmouseup = mapWrap.onmouseleave = () => { drag = false; mapWrap.style.cursor = 'grab'; };
+mapWrap.onwheel = e => {
+    if (anim) return;
+    e.preventDefault();
+    const ns = Math.max(.3, Math.min(3, scale + (e.deltaY > 0 ? -.1 : .1))),
+        rect = mapWrap.getBoundingClientRect(),
+        mx = e.clientX - rect.left,
+        my = e.clientY - rect.top,
+        r = ns / scale;
+    offX = mx - (mx - offX) * r;
+    offY = my - (my - offY) * r;
+    scale = ns;
+    updateTf();
+};
 
-        // 地图选单
-        function renderMapSelector() {
-            const sel = $('map-lbl-select');
-            sel.innerHTML = '<option value="overview">🗺️ 大地图</option>';
-            const curIdx = D.maps?.outdoor?.nodes?.findIndex(n => n.name === playerLocation);
-            const isInIndoorMap = D.maps?.indoor && D.maps.indoor[playerLocation];
-            if (curIdx >= 0 || isInIndoorMap) sel.innerHTML += `<option value="current">📍 ${playerLocation}（你）</option>`;
-            sel.innerHTML += '<option disabled>──────────</option>';
-            if (D.maps?.outdoor?.nodes?.length) D.maps.outdoor.nodes.forEach((n, i) => { if (n.name !== playerLocation) sel.innerHTML += `<option value="node:${i}">${n.name}</option>`; });
-            if (D.maps?.indoor) {
-                const indoorKeys = Object.keys(D.maps.indoor).filter(k => k !== playerLocation && !D.maps?.outdoor?.nodes?.some(n => n.name === k));
-                if (indoorKeys.length) {
-                    sel.innerHTML += '<option disabled>── 隐藏地图 ──</option>';
-                    indoorKeys.forEach(k => sel.innerHTML += `<option value="indoor:${k}">🏠 ${k}</option>`);
-                }
-            }
-            sel.value = selectedMapValue;
-            updateMapLabel();
+mapWrap.ontouchstart = e => {
+    if (anim || e.target.closest('.map-act,.map-lbl')) return;
+    const it = e.target.closest('.item');
+    if (it) { it._ts = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() }; return; }
+    hideInfo();
+    if (e.touches.length === 1) { drag = true; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }
+    else if (e.touches.length === 2) {
+        drag = false;
+        lastDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        lastCX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        lastCY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    }
+};
+mapWrap.ontouchmove = e => {
+    const it = e.target.closest('.item');
+    if (it && it._ts) {
+        if (Math.hypot(e.touches[0].clientX - it._ts.x, e.touches[0].clientY - it._ts.y) > 10) {
+            delete it._ts;
+            drag = true;
+            sx = e.touches[0].clientX;
+            sy = e.touches[0].clientY;
         }
-
-        function updateMapLabel() {
-            const v = $('map-lbl-select').value;
-            if (v === 'overview') $('map-lbl-t').textContent = '大地图';
-            else if (v === 'current') $('map-lbl-t').textContent = playerLocation + '（你）';
-            else if (v.startsWith('node:')) { const idx = parseInt(v.split(':')[1]); $('map-lbl-t').textContent = D.maps?.outdoor?.nodes?.[idx]?.name || '未知'; }
-            else if (v.startsWith('indoor:')) $('map-lbl-t').textContent = v.replace('indoor:', '');
+        return;
+    }
+    if (e.touches.length === 1 && drag) {
+        e.preventDefault();
+        offX += e.touches[0].clientX - sx;
+        offY += e.touches[0].clientY - sy;
+        sx = e.touches[0].clientX;
+        sy = e.touches[0].clientY;
+        updateTf();
+    } else if (e.touches.length === 2) {
+        e.preventDefault();
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2, cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        const ns = Math.max(.3, Math.min(3, scale * (d / lastDist))),
+            rect = mapWrap.getBoundingClientRect(),
+            mx = cx - rect.left,
+            my = cy - rect.top,
+            r = ns / scale;
+        offX = mx - (mx - offX) * r;
+        offY = my - (my - offY) * r;
+        offX += cx - lastCX;
+        offY += cy - lastCY;
+        scale = ns;
+        lastDist = d;
+        lastCX = cx;
+        lastCY = cy;
+        updateTf();
+    }
+};
+mapWrap.ontouchend = e => {
+    const it = e.target.closest('.item');
+    if (it && it._ts) {
+        const el = Date.now() - it._ts.t;
+        delete it._ts;
+        if (el < 300) {
+            const n = nodes.find(n => n.id === it.id);
+            if (n) { e.preventDefault(); curNode?.id === n.id ? hideInfo() : showInfo(n); }
         }
+    }
+    drag = false;
+};
 
-        function switchMapView(value) {
-            selectedMapValue = value;
-            hideInfo();
-            if (value === 'overview') {
-                $('btn-goto').classList.remove('show');
-                $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
-                bindLinks($('side-desc'));
-                initPos();
-            } else if (value === 'current') {
-                $('btn-goto').classList.remove('show');
-                const inside = getCurInside();
-                if (inside?.description) {
-                    $('side-desc').innerHTML = `<div class="local-map-title">📍 ${playerLocation}</div>` + parseLinks(inside.description);
-                    bindLinks($('side-desc'));
-                } else {
-                    $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
-                    bindLinks($('side-desc'));
-                }
-                const n = nodes.find(x => x.name === playerLocation);
-                if (n) { panTo(n); showInfo(n); }
-            } else if (value.startsWith('node:')) {
-                const idx = parseInt(value.split(':')[1]);
-                const node = D.maps?.outdoor?.nodes?.[idx];
-                $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
-                bindLinks($('side-desc'));
-                const n = nodes.find(x => x.name === node?.name);
-                if (n) { panTo(n); showInfo(n); }
-            } else if (value.startsWith('indoor:')) {
-                const name = value.replace('indoor:', '');
-                const indoorMap = D.maps?.indoor?.[name];
-                if (name !== playerLocation) {
-                    $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
-                    bindLinks($('side-desc'));
-                    curNode = { name, type: 'sub', data: { info: stripXml(indoorMap?.description || '') }, isIndoor: true };
-                    $('btn-goto').classList.add('show');
-                    $('goto-t').textContent = `前往 ${name}`;
-                } else {
-                    $('btn-goto').classList.remove('show');
-                    if (indoorMap?.description) {
-                        $('side-desc').innerHTML = `<div class="local-map-title">🏠 ${name}</div>` + parseLinks(indoorMap.description);
-                        bindLinks($('side-desc'));
-                    }
-                }
-            }
-            updateMapLabel();
-        }
-        $('map-lbl-select').onchange = e => switchMapView(e.target.value);
+// 导航
+$$('.nav-i').forEach(i => i.onclick = () => {
+    $$('.nav-i').forEach(n => n.classList.remove('act'));
+    $$('.page').forEach(p => p.classList.remove('act'));
+    i.classList.add('act');
+    $(`page-${i.dataset.p}`).classList.add('act');
+    const isMap = i.dataset.p === 'map';
+    sidePop.classList.toggle('show', isMap);
+    if (isMob()) isMap ? openPop(1) : popup.classList.remove('act');
+    if (isMap) setTimeout(() => { initPos(); drawLines(); }, 50);
+});
+$$('.comm-tab').forEach(t => t.onclick = () => {
+    $$('.comm-tab').forEach(x => x.classList.remove('act'));
+    $$('.comm-sec').forEach(s => s.classList.remove('act'));
+    t.classList.add('act');
+    $(`sec-${t.dataset.t}`).classList.add('act');
+});
 
-        // 地图交互
-        let sx, sy, lastDist = 0, lastCX = 0, lastCY = 0;
-        mapWrap.onmousedown = e => { if (anim || e.target.closest('.map-act,.map-lbl')) return; if (!e.target.classList.contains('item')) hideInfo(); drag = true; sx = e.clientX; sy = e.clientY; mapWrap.style.cursor = 'grabbing'; };
-        mapWrap.onmousemove = e => { if (!drag) return; offX += e.clientX - sx; offY += e.clientY - sy; sx = e.clientX; sy = e.clientY; updateTf(); };
-        mapWrap.onmouseup = mapWrap.onmouseleave = () => { drag = false; mapWrap.style.cursor = 'grab'; };
-        mapWrap.onwheel = e => { if (anim) return; e.preventDefault(); const ns = Math.max(.3, Math.min(3, scale + (e.deltaY > 0 ? -.1 : .1))), rect = mapWrap.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top, r = ns / scale; offX = mx - (mx - offX) * r; offY = my - (my - offY) * r; scale = ns; updateTf(); };
+$('btn-goto').onclick = e => {
+    e.stopPropagation();
+    if (curNode) { $('goto-d').textContent = `目的地：${curNode.name}`; $('goto-task').value = ''; openM('m-goto'); }
+};
+addEventListener('resize', () => requestAnimationFrame(drawLines));
 
-        mapWrap.ontouchstart = e => {
-            if (anim || e.target.closest('.map-act,.map-lbl')) return;
-            const it = e.target.closest('.item');
-            if (it) { it._ts = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() }; return; }
-            hideInfo();
-            if (e.touches.length === 1) { drag = true; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }
-            else if (e.touches.length === 2) { drag = false; lastDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); lastCX = (e.touches[0].clientX + e.touches[1].clientX) / 2; lastCY = (e.touches[0].clientY + e.touches[1].clientY) / 2; }
-        };
-        mapWrap.ontouchmove = e => {
-            const it = e.target.closest('.item');
-            if (it && it._ts) { if (Math.hypot(e.touches[0].clientX - it._ts.x, e.touches[0].clientY - it._ts.y) > 10) { delete it._ts; drag = true; sx = e.touches[0].clientX; sy = e.touches[0].clientY; } return; }
-            if (e.touches.length === 1 && drag) { e.preventDefault(); offX += e.touches[0].clientX - sx; offY += e.touches[0].clientY - sy; sx = e.touches[0].clientX; sy = e.touches[0].clientY; updateTf(); }
-            else if (e.touches.length === 2) {
-                e.preventDefault();
-                const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-                const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2, cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                const ns = Math.max(.3, Math.min(3, scale * (d / lastDist))), rect = mapWrap.getBoundingClientRect(), mx = cx - rect.left, my = cy - rect.top, r = ns / scale;
-                offX = mx - (mx - offX) * r; offY = my - (my - offY) * r; offX += cx - lastCX; offY += cy - lastCY;
-                scale = ns; lastDist = d; lastCX = cx; lastCY = cy; updateTf();
-            }
-        };
-        mapWrap.ontouchend = e => {
-            const it = e.target.closest('.item');
-            if (it && it._ts) { const el = Date.now() - it._ts.t; delete it._ts; if (el < 300) { const n = nodes.find(n => n.id === it.id); if (n) { e.preventDefault(); curNode?.id === n.id ? hideInfo() : showInfo(n); } } }
-            drag = false;
-        };
-
-        // 导航
-        $$('.nav-i').forEach(i => i.onclick = () => {
-            $$('.nav-i').forEach(n => n.classList.remove('act'));
-            $$('.page').forEach(p => p.classList.remove('act'));
-            i.classList.add('act');
-            $(`page-${i.dataset.p}`).classList.add('act');
-            const isMap = i.dataset.p === 'map';
-            sidePop.classList.toggle('show', isMap);
-            if (isMob()) isMap ? openPop(1) : popup.classList.remove('act');
-            if (isMap) setTimeout(() => { initPos(); drawLines(); }, 50);
-        });
-        $$('.comm-tab').forEach(t => t.onclick = () => {
-            $$('.comm-tab').forEach(x => x.classList.remove('act'));
-            $$('.comm-sec').forEach(s => s.classList.remove('act'));
-            t.classList.add('act');
-            $(`sec-${t.dataset.t}`).classList.add('act');
-        });
-
-        $('btn-goto').onclick = e => { e.stopPropagation(); if (curNode) { $('goto-d').textContent = `目的地：${curNode.name}`; $('goto-task').value = ''; openM('m-goto'); } };
-        addEventListener('resize', () => requestAnimationFrame(drawLines));
-
-        document.addEventListener('DOMContentLoaded', () => {
-            render();
-            initPos();
-            sidePop.classList.add('show');
-            setSideW(sideMaxW());
-            if (isMob()) openPop(1);
-            post('FRAME_READY');
-            setTimeout(() => { if (selectedMapValue === 'current') switchMapView('current'); }, 100);
-        });
-    </script>
+document.addEventListener('DOMContentLoaded', () => {
+    render();
+    initPos();
+    sidePop.classList.add('show');
+    setSideW(sideMaxW());
+    if (isMob()) openPop(1);
+    post('FRAME_READY');
+    setTimeout(() => { if (selectedMapValue === 'current') switchMapView('current'); }, 100);
+});
+</script>
 </body>
 </html>

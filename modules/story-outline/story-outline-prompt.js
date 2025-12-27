@@ -1,7 +1,6 @@
 // Story Outline 提示词模板配置
 // 统一 UAUA (User-Assistant-User-Assistant) 结构
 
-const PROMPT_STORAGE_KEY = 'LittleWhiteBox_StoryOutline_CustomPrompts_v2';
 
 // ================== 辅助函数 ==================
 const wrap = (tag, content) => content ? `<${tag}>\n${content}\n</${tag}>` : '';
@@ -22,6 +21,9 @@ const DEFAULT_JSON_TEMPLATES = {
     sms: `{
   "cot": "思维链：分析角色当前的处境、与用户的关系...",
   "reply": "角色用自己的语气写的回复短信内容（10-50字）"
+}`,
+    summary: `{
+  "summary": "只写增量总结（不要重复已有总结）"
 }`,
     invite: `{
   "cot": "思维链：分析角色当前的处境、与用户的关系、对邀请地点的看法...",
@@ -174,45 +176,6 @@ const DEFAULT_JSON_TEMPLATES = {
     ]
   }
  }`,
-    worldGenAssist: `{
-  "meta": null,
-  "world": {
-    "news": [
-      { "title": "新闻标题1", "time": "时间", "content": "以轻松日常的口吻描述世界现状" },
-      { "title": "新闻标题2", "time": "...", "content": "可以是小道消息、趣闻轶事" },
-      { "title": "新闻标题3", "time": "...", "content": "..." }
-    ]
-  },
-  "maps": {
-    "outdoor": {
-      "description": "全景描写，聚焦氛围与可探索要素。所有可去节点名用 **名字** 包裹。",
-      "nodes": [
-        {
-          "name": "{{user}}当前所在地点名（通常为 type=home）",
-          "position": "north/south/east/west/northeast/southwest/northwest/southeast",
-          "distant": 1,
-          "type": "home/sub/main",
-          "info": "地点特征与氛围"
-        },
-        {
-          "name": "其他地点名",
-          "position": "north/south/east/west/northeast/southwest/northwest/southeast",
-          "distant": 2,
-          "type": "main/sub",
-          "info": "地点特征与氛围，适合作为舞台的小事件或偶遇"
-        }
-      ]
-    },
-    "inside": {
-      "name": "{{user}}当前所在位置名称",
-      "description": "局部地图全景描写",
-      "nodes": [
-        { "name": "节点名", "info": "微观描写" }
-      ]
-    }
-  },
-  "playerLocation": "{{user}}起始位置名称（与第一个节点的 name 一致）"
-}`,
     worldSimAssist: `{
   "world": {
     "news": [
@@ -236,24 +199,6 @@ const DEFAULT_JSON_TEMPLATES = {
     }
   }
 }`,
-    sceneSwitchAssist: `{
-  "review": {
-    "deviation": {
-      "cot_analysis": "简要分析{{user}}在上一地点的行为对氛围的影响（例如：让气氛更热闹/更安静）。",
-      "score_delta": 0
-    }
-  },
-  "local_map": {
-    "name": "当前地点名称",
-    "description": "局部地点全景描写（不写剧情），包含所有 nodes 的 **节点名**。",
-    "nodes": [
-      {
-        "name": "节点名",
-        "info": "该节点的静态细节/功能描述（不写剧情事件）"
-      }
-    ]
-  }
- }`,
     localMapGen: `{
   "review": {
     "deviation": {
@@ -292,12 +237,12 @@ const DEFAULT_PROMPTS = {
         u1: v => `你是短信模拟器。{{user}}正在与${v.contactName}进行短信聊天。\n\n${wrap('story_outline', v.storyOutline)}${v.storyOutline ? '\n\n' : ''}${worldInfo}\n\n${history(v.historyCount)}\n\n以上是设定和聊天历史，遵守人设，忽略规则类信息和非${v.contactName}经历的内容。请回复{{user}}的短信。\n输出JSON："cot"(思维链)、"reply"(10-50字回复)\n\n要求：\n- 返回一个合法 JSON 对象\n- 使用标准 JSON 语法：所有键名和字符串都使用半角双引号 "\n- 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n\n模板：${JSON_TEMPLATES.sms}${v.characterContent ? `\n\n<${v.contactName}的人物设定>\n${v.characterContent}\n</${v.contactName}的人物设定>` : ''}`,
         a1: v => `明白，我将分析并以${v.contactName}身份回复，输出JSON。`,
         u2: v => `${v.smsHistoryContent}\n\n<{{user}}发来的新短信>\n${v.userMessage}`,
-        a2: () => `了解，开始以模板：${JSON_TEMPLATES.sms}生成JSON:`
+        a2: v => `了解，我是${v.contactName}，并以模板：${JSON_TEMPLATES.sms}生成JSON:`
     },
     summary: {
         u1: () => `你是剧情记录员。根据新短信聊天内容提取新增剧情要素。\n\n任务：只根据新对话输出增量内容，不重复已有总结。\n事件筛选：只记录有信息量的完整事件。`,
         a1: () => `明白，我只输出新增内容，请提供已有总结和新对话内容。`,
-        u2: v => `${v.existingSummaryContent}\n\n<新对话内容>\n${v.conversationText}\n</新对话内容>\n\n输出要求：\n- 只输出一个合法 JSON 对象\n- 使用标准 JSON 语法：所有键名和字符串都使用半角双引号 "\n- 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n\n格式示例：{"summary": "角色A向角色B打招呼，并表示会守护在旁边"}`,
+        u2: v => `${v.existingSummaryContent}\n\n<新对话内容>\n${v.conversationText}\n</新对话内容>\n\n输出要求：\n- 只输出一个合法 JSON 对象\n- 使用标准 JSON 语法：所有键名和字符串都使用半角双引号 "\n- 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n\n模板：${JSON_TEMPLATES.summary}\n\n格式示例：{"summary": "角色A向角色B打招呼，并表示会守护在旁边"}`,
         a2: () => `了解，开始生成JSON:`
     },
     invite: {
@@ -315,7 +260,7 @@ const DEFAULT_PROMPTS = {
     stranger: {
         u1: v => `你是TRPG数据整理助手。从剧情文本中提取{{user}}遇到的陌生人/NPC，整理为JSON数组。`,
         a1: () => `明白。请提供【世界观】和【剧情经历】，我将提取角色并以JSON数组输出。`,
-        u2: v => `### 上下文\n\n**1. 世界观：**\n${worldInfo}\n\n**2. {{user}}经历：**\n${history(v.historyCount)}${v.storyOutline ? `\n\n**剧情大纲：**\n${wrap('story_outline', v.storyOutline)}` : ''}${nameList(v.existingContacts, v.existingStrangers)}\n\n### 输出要求\n\n1. 返回一个合法 JSON 数组，使用标准 JSON 语法（键名和字符串都用半角双引号 "）\n2. 只提取有具体称呼的角色\n3. 每个角色只需 name / location / info 三个字段\n4. 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n5. 无新角色返回 []`,
+        u2: v => `### 上下文\n\n**1. 世界观：**\n${worldInfo}\n\n**2. {{user}}经历：**\n${history(v.historyCount)}${v.storyOutline ? `\n\n**剧情大纲：**\n${wrap('story_outline', v.storyOutline)}` : ''}${nameList(v.existingContacts, v.existingStrangers)}\n\n### 输出要求\n\n1. 返回一个合法 JSON 数组，使用标准 JSON 语法（键名和字符串都用半角双引号 "）\n2. 只提取有具体称呼的角色\n3. 每个角色只需 name / location / info 三个字段\n4. 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n5. 无新角色返回 []\n\n\n模板：${JSON_TEMPLATES.npc}`,
         a2: () => `了解，开始生成JSON:`
     },
     worldGenStep1: {
@@ -364,7 +309,7 @@ const DEFAULT_PROMPTS = {
 
 输出：仅纯净合法 JSON，禁止解释文字或Markdown。`,
         a1: () => `明白。我将基于已确定的大纲，构建具体的地理环境、初始位置和新闻资讯。`,
-        u2: v => `【前置大纲 (Core Framework)】：\n${JSON.stringify(v.step1Data, null, 2)}\n\n【世界观】：\n${worldInfo}\n\n【{{user}}经历参考】：\n${history(v.historyCount)}\n\n【{{user}}要求】：\n${v.playerRequests || '无特殊要求'}【JSON模板】：\n${JSON_TEMPLATES.worldGenStep2}\n`,
+        u2: v => `【前置大纲 (Core Framework)】：\n${JSON.stringify(v.step1Data, null, 2)}\n\n${worldInfo}\n\n【{{user}}经历参考】：\n${history(v.historyCount)}\n\n【{{user}}要求】：\n${v.playerRequests || '无特殊要求'}【JSON模板】：\n${JSON_TEMPLATES.worldGenStep2}\n`,
         a2: () => `我会将输出的JSON结构层级严格按JSON模板定义的输出，JSON generate start:`
     },
     worldSim: {
@@ -418,24 +363,8 @@ const DEFAULT_PROMPTS = {
             const lLevel = v.targetLocationType === 'main' ? Math.min(5, v.stage + 2) : v.targetLocationType === 'sub' ? 2 : Math.min(5, v.stage + 1);
             return `明白。我将结算偏差值，并生成目标地点的 local_map（静态描写/布局），不生成 side_story/剧情。请发送上下文。`;
         },
-        u2: v => `【上一地点】：\n${v.prevLocationName}: ${v.prevLocationInfo || '无详细信息'}\n\n【世界设定】：\n${worldInfo}\n\n【剧情大纲】：\n${wrap('story_outline', v.storyOutline) || '无大纲'}\n\n【当前时间段】：\n${v.currentTimeline ? `Stage ${v.currentTimeline.stage}: ${v.currentTimeline.state} - ${v.currentTimeline.event}` : `Stage ${v.stage}`}\n\n【历史记录】：\n${history(v.historyCount)}\n\n【{{user}}行动意图】：\n${v.playerAction || '无特定意图'}\n\n【目标地点】：\n名称: ${v.targetLocationName}\n类型: ${v.targetLocationType}\n描述: ${v.targetLocationInfo || '无详细信息'}\n\n【JSON模板】：\n${JSON_TEMPLATES.sceneSwitch}`,
+        u2: v => `【上一地点】：\n${v.prevLocationName}: ${v.prevLocationInfo || '无详细信息'}\n\n【世界设定】：\n${worldInfo}\n\n【剧情大纲】：\n${wrap('story_outline', v.storyOutline) || '无大纲'}\n\n【当前时间段】：\nStage ${v.stage}\n\n【历史记录】：\n${history(v.historyCount)}\n\n【{{user}}行动意图】：\n${v.playerAction || '无特定意图'}\n\n【目标地点】：\n名称: ${v.targetLocationName}\n类型: ${v.targetLocationType}\n描述: ${v.targetLocationInfo || '无详细信息'}\n\n【JSON模板】：\n${JSON_TEMPLATES.sceneSwitch}`,
         a2: () => `OK, JSON generate start:`
-    },
-    worldGenAssist: {
-        u1: v => `你是世界观布景助手。负责搭建【地图】和【世界新闻】等可见表层信息。
-
-核心要求：
-1. 给出可探索的舞台
-2. 重点是：有氛围、有地点、有事件线索，但不过度"剧透"故事
-3. **世界**：News至少${randomRange(3, 6)}条，Maps至少${randomRange(7, 15)}个地点
-4. **历史参考**：参考{{user}}经历构建世界
-
-输出：仅纯净合法 JSON，结构参考模板 worldGenAssist。
-- 使用标准 JSON 语法：所有键名和字符串都使用半角双引号 "
-- 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "`,
-        a1: () => `明白。我将只生成世界新闻与地图信息。`,
-        u2: v => `【世界观与要求】：\n${worldInfo}\n\n【{{user}}经历参考】：\n${history(v.historyCount)}\n\n【{{user}}需求】：\n${v.playerRequests || '无特殊要求'}\n\n【JSON模板（辅助模式）】：\n${JSON_TEMPLATES.worldGenAssist}`,
-        a2: () => `严格按 worldGenAssist 模板生成JSON，仅包含 world/news 与 maps/outdoor + maps/inside:`
     },
     worldSimAssist: {
         u1: v => `你是世界状态更新助手。根据当前 JSON 的 world/maps 和{{user}}历史，轻量更新世界现状。
@@ -444,20 +373,6 @@ const DEFAULT_PROMPTS = {
         a1: () => `明白。我将只更新 world.news 和 maps.outdoor，不写大纲。请提供当前世界数据。`,
         u2: v => `【世界观设定】：\n${worldInfo}\n\n【{{user}}历史】：\n${history(v.historyCount)}\n\n【当前世界状态JSON】（可能包含 meta/world/maps 等字段）：\n${v.currentWorldData || '{}'}\n\n【JSON模板（辅助模式）】：\n${JSON_TEMPLATES.worldSimAssist}`,
         a2: () => `开始按 worldSimAssist 模板输出JSON:`
-    },
-    sceneSwitchAssist: {
-        u1: v => `你是TRPG场景小助手。处理{{user}}从一个地点走向另一个地点，只做"结算 + 局部地图"。
-
-处理逻辑：
- 1. 上一地点结算：给出 deviation（cot_analysis/score_delta）
- 2. 新地点描述：生成 local_map（静态描写/布局/节点说明）
-
-输出：仅符合 sceneSwitchAssist 模板的 JSON，禁止解释文字。
-- 使用标准 JSON 语法：所有键名和字符串都使用半角双引号 "
-- 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "`,
-        a1: () => `明白。我会结算偏差并生成 local_map（不写剧情）。请发送上下文。`,
-        u2: v => `【上一地点】：\n${v.prevLocationName}: ${v.prevLocationInfo || '无详细信息'}\n\n【世界设定】：\n${worldInfo}\n\n【{{user}}行动意图】：\n${v.playerAction || '无特定意图'}\n\n【目标地点】：\n名称: ${v.targetLocationName}\n类型: ${v.targetLocationType}\n描述: ${v.targetLocationInfo || '无详细信息'}\n\n【已有聊天与剧情历史】：\n${history(v.historyCount)}\n\n【JSON模板（辅助模式）】：\n${JSON_TEMPLATES.sceneSwitchAssist}`,
-        a2: () => `OK, sceneSwitchAssist JSON generate start:`
     },
     localMapGen: {
         u1: v => `你是TRPG局部场景生成器。你的任务是根据聊天历史，推断{{user}}当前或将要前往的位置（视经历的最后一条消息而定），并为该位置生成详细的局部地图/室内场景。
@@ -481,7 +396,7 @@ const DEFAULT_PROMPTS = {
     localSceneGen: {
         u1: v => `你是TRPG临时区域剧情生成器。你的任务是基于剧情大纲与聊天历史，为{{user}}当前所在区域生成一段即时的故事剧情，让大纲变得生动丰富。`,
         a1: () => `明白，我只生成当前区域的临时 Side Story JSON。请提供历史与设定。`,
-        u2: v => `OK, here is the history and current location.\n\n【{{user}}当前区域】\n- 地点：${v.locationName || v.playerLocation || '未知'}\n- 地点信息：${v.locationInfo || '无'}\n\n【世界设定】\n${worldInfo}\n\n【剧情大纲】\n${wrap('story_outline', v.storyOutline) || '无大纲'}\n\n【当前阶段/时间线】\n- Stage：${v.stage ?? 0}\n- 当前时间线：${v.currentTimeline ? JSON.stringify(v.currentTimeline, null, 2) : '无'}\n\n【聊天历史】\n${history(v.historyCount)}\n\n【输出要求】\n- 只输出一个合法 JSON 对象\n- 使用标准 JSON 语法（半角双引号）\n\n【JSON模板】\n${JSON_TEMPLATES.localSceneGen}`,
+        u2: v => `OK, here is the history and current location.\n\n【{{user}}当前区域】\n- 地点：${v.locationName || v.playerLocation || '未知'}\n- 地点信息：${v.locationInfo || '无'}\n\n【世界设定】\n${worldInfo}\n\n【剧情大纲】\n${wrap('story_outline', v.storyOutline) || '无大纲'}\n\n【当前阶段】\n- Stage：${v.stage ?? 0}\n\n【聊天历史】\n${history(v.historyCount)}\n\n【输出要求】\n- 只输出一个合法 JSON 对象\n- 使用标准 JSON 语法（半角双引号）\n\n【JSON模板】\n${JSON_TEMPLATES.localSceneGen}`,
         a2: () => `好的，我会严格按照JSON模板生成JSON：`
     },
     localMapRefresh: {
@@ -494,52 +409,166 @@ const DEFAULT_PROMPTS = {
 
 export let PROMPTS = { ...DEFAULT_PROMPTS };
 
-// ================== 配置管理 ==================
-const serializePrompts = prompts => Object.fromEntries(
-    Object.entries(prompts).map(([k, v]) => [k, { u1: v.u1?.toString?.() || '', a1: v.a1?.toString?.() || '', u2: v.u2?.toString?.() || '', a2: v.a2?.toString?.() || '' }])
-);
+// ================== Prompt Config (template text + ${...} expressions) ==================
+let PROMPT_OVERRIDES = { jsonTemplates: {}, promptSources: {} };
 
-const compileFn = (src, fallback) => {
-    if (!src) return fallback;
-    try { const fn = eval(`(${src})`); return typeof fn === 'function' ? fn : fallback; } catch { return fallback; }
+const normalizeNewlines = (s) => String(s ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+const PARTS = ['u1', 'a1', 'u2', 'a2'];
+const mapParts = (fn) => Object.fromEntries(PARTS.map(p => [p, fn(p)]));
+
+const evalExprCached = (() => {
+    const cache = new Map();
+    return (expr) => {
+        const key = String(expr ?? '');
+        if (cache.has(key)) return cache.get(key);
+        const fn = new Function(
+            'v', 'wrap', 'worldInfo', 'history', 'nameList', 'randomRange', 'safeJson', 'JSON_TEMPLATES',
+            `"use strict"; return (${key});`
+        );
+        cache.set(key, fn);
+        return fn;
+    };
+})();
+
+const findExprEnd = (text, startIndex) => {
+    const s = String(text ?? '');
+    let depth = 1, quote = '', esc = false;
+    const returnDepth = [];
+    for (let i = startIndex; i < s.length; i++) {
+        const c = s[i], n = s[i + 1];
+
+        if (quote) {
+            if (esc) { esc = false; continue; }
+            if (c === '\\') { esc = true; continue; }
+            if (quote === '`' && c === '$' && n === '{') { depth++; returnDepth.push(depth - 1); quote = ''; i++; continue; }
+            if (c === quote) quote = '';
+            continue;
+        }
+
+        if (c === '\'' || c === '"' || c === '`') { quote = c; continue; }
+        if (c === '{') { depth++; continue; }
+        if (c === '}') {
+            depth--;
+            if (depth === 0) return i;
+            if (returnDepth.length && depth === returnDepth[returnDepth.length - 1]) { returnDepth.pop(); quote = '`'; }
+        }
+    }
+    return -1;
 };
 
-const hydratePrompts = sources => {
-    const out = {};
-    Object.entries(DEFAULT_PROMPTS).forEach(([k, v]) => {
-        const s = sources?.[k] || {};
-        out[k] = { u1: compileFn(s.u1, v.u1), a1: compileFn(s.a1, v.a1), u2: compileFn(s.u2, v.u2), a2: compileFn(s.a2, v.a2) };
-    });
+const renderTemplateText = (template, vars) => {
+    const s = normalizeNewlines(template);
+    let out = '';
+    let i = 0;
+
+    while (i < s.length) {
+        const j = s.indexOf('${', i);
+        if (j === -1) return out + s.slice(i).replace(/\\\$\{/g, '${');
+        if (j > 0 && s[j - 1] === '\\') { out += s.slice(i, j - 1) + '${'; i = j + 2; continue; }
+        out += s.slice(i, j);
+
+        const end = findExprEnd(s, j + 2);
+        if (end === -1) return out + s.slice(j);
+        const expr = s.slice(j + 2, end);
+
+        try {
+            const v = evalExprCached(expr)(vars, wrap, worldInfo, history, nameList, randomRange, safeJson, JSON_TEMPLATES);
+            out += (v === null || v === undefined) ? '' : String(v);
+        } catch (e) {
+            console.warn('[StoryOutline] prompt expr error:', expr, e);
+        }
+        i = end + 1;
+    }
     return out;
 };
 
-const applyPromptConfig = cfg => {
-    JSON_TEMPLATES = cfg?.jsonTemplates ? { ...DEFAULT_JSON_TEMPLATES, ...cfg.jsonTemplates } : { ...DEFAULT_JSON_TEMPLATES };
-    PROMPTS = hydratePrompts(cfg?.promptSources || cfg?.prompts);
+const replaceOutsideExpr = (text, replaceFn) => {
+    const s = String(text ?? '');
+    let out = '';
+    let i = 0;
+    while (i < s.length) {
+        const j = s.indexOf('${', i);
+        if (j === -1) { out += replaceFn(s.slice(i)); break; }
+        out += replaceFn(s.slice(i, j));
+        const end = findExprEnd(s, j + 2);
+        if (end === -1) { out += s.slice(j); break; }
+        out += s.slice(j, end + 1);
+        i = end + 1;
+    }
+    return out;
 };
 
-const loadPromptConfigFromStorage = () => safeJson(() => JSON.parse(localStorage.getItem(PROMPT_STORAGE_KEY)));
-const savePromptConfigToStorage = cfg => { try { localStorage.setItem(PROMPT_STORAGE_KEY, JSON.stringify(cfg)); } catch { } };
+const normalizePromptTemplateText = (raw) => {
+    let s = normalizeNewlines(raw);
+    if (s.includes('=>') || s.includes('function')) {
+        const a = s.indexOf('`'), b = s.lastIndexOf('`');
+        if (a !== -1 && b > a) s = s.slice(a + 1, b);
+    }
+    if (!s.includes('\n') && s.includes('\\n')) {
+        const fn = seg => seg.replaceAll('\\n', '\n');
+        s = s.includes('${') ? replaceOutsideExpr(s, fn) : fn(s);
+    }
+    if (s.includes('\\t')) {
+        const fn = seg => seg.replaceAll('\\t', '\t');
+        s = s.includes('${') ? replaceOutsideExpr(s, fn) : fn(s);
+    }
+    if (s.includes('\\`')) {
+        const fn = seg => seg.replaceAll('\\`', '`');
+        s = s.includes('${') ? replaceOutsideExpr(s, fn) : fn(s);
+    }
+    return s;
+};
+
+const DEFAULT_PROMPT_TEXTS = Object.fromEntries(Object.entries(DEFAULT_PROMPTS).map(([k, v]) => [k,
+    mapParts(p => normalizePromptTemplateText(v?.[p]?.toString?.() || '')),
+]));
+
+const normalizePromptOverrides = (cfg) => {
+    const inCfg = (cfg && typeof cfg === 'object') ? cfg : {};
+    const inSources = inCfg.promptSources || inCfg.prompts || {};
+    const inJson = inCfg.jsonTemplates || {};
+
+    const promptSources = {};
+    Object.entries(inSources || {}).forEach(([key, srcObj]) => {
+        if (srcObj == null || typeof srcObj !== 'object') return;
+        const nextParts = {};
+        PARTS.forEach((part) => { if (part in srcObj) nextParts[part] = normalizePromptTemplateText(srcObj[part]); });
+        if (Object.keys(nextParts).length) promptSources[key] = nextParts;
+    });
+
+    const jsonTemplates = {};
+    Object.entries(inJson || {}).forEach(([key, val]) => {
+        if (val == null) return;
+        jsonTemplates[key] = normalizeNewlines(String(val));
+    });
+
+    return { jsonTemplates, promptSources };
+};
+
+const rebuildPrompts = () => {
+    PROMPTS = Object.fromEntries(Object.entries(DEFAULT_PROMPTS).map(([k, v]) => [k,
+        mapParts(part => (vars) => {
+            const override = PROMPT_OVERRIDES?.promptSources?.[k]?.[part];
+            return typeof override === 'string' ? renderTemplateText(override, vars) : v?.[part]?.(vars);
+        }),
+    ]));
+};
+
+const applyPromptConfig = (cfg) => {
+    PROMPT_OVERRIDES = normalizePromptOverrides(cfg);
+    JSON_TEMPLATES = { ...DEFAULT_JSON_TEMPLATES, ...(PROMPT_OVERRIDES.jsonTemplates || {}) };
+    rebuildPrompts();
+    return PROMPT_OVERRIDES;
+};
 
 export const getPromptConfigPayload = () => ({
-    current: { jsonTemplates: JSON_TEMPLATES, promptSources: serializePrompts(PROMPTS) },
-    defaults: { jsonTemplates: DEFAULT_JSON_TEMPLATES, promptSources: serializePrompts(DEFAULT_PROMPTS) }
+    current: { jsonTemplates: PROMPT_OVERRIDES.jsonTemplates || {}, promptSources: PROMPT_OVERRIDES.promptSources || {} },
+    defaults: { jsonTemplates: DEFAULT_JSON_TEMPLATES, promptSources: DEFAULT_PROMPT_TEXTS },
 });
 
-export const setPromptConfig = (cfg, persist = false) => {
-    applyPromptConfig(cfg || {});
-    const payload = { jsonTemplates: JSON_TEMPLATES, promptSources: serializePrompts(PROMPTS) };
-    if (persist) savePromptConfigToStorage(payload);
-    return payload;
-};
+export const setPromptConfig = (cfg, _persist = false) => applyPromptConfig(cfg || {});
 
-export const reloadPromptConfigFromStorage = () => {
-    const saved = loadPromptConfigFromStorage();
-    applyPromptConfig(saved || {});
-    return getPromptConfigPayload().current;
-};
-
-reloadPromptConfigFromStorage();
+applyPromptConfig({});
 
 // ================== 构建函数 ==================
 const build = (type, vars) => {
@@ -560,7 +589,7 @@ export const buildExtractStrangersMessages = v => build('stranger', v);
 export const buildWorldGenStep1Messages = v => build('worldGenStep1', v);
 export const buildWorldGenStep2Messages = v => build('worldGenStep2', v);
 export const buildWorldSimMessages = v => build(v?.mode === 'assist' ? 'worldSimAssist' : 'worldSim', v);
-export const buildSceneSwitchMessages = v => build(v?.mode === 'assist' ? 'sceneSwitchAssist' : 'sceneSwitch', v);
+export const buildSceneSwitchMessages = v => build('sceneSwitch', v);
 export const buildLocalMapGenMessages = v => build('localMapGen', v);
 export const buildLocalMapRefreshMessages = v => build('localMapRefresh', v);
 export const buildLocalSceneGenMessages = v => build('localSceneGen', v);

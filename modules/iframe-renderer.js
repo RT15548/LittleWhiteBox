@@ -20,6 +20,7 @@ const BLOB_CACHE_LIMIT = 32;
 let lastApplyTs = 0;
 let pendingHeight = null;
 let pendingRec = null;
+let hideStyleInjected = false;
 
 CacheRegistry.register(MODULE_ID, {
     name: 'Blob URL 缓存',
@@ -38,6 +39,29 @@ CacheRegistry.register(MODULE_ID, {
 
 function getSettings() {
     return extension_settings[EXT_ID] || {};
+}
+
+function ensureHideCodeStyle(enable) {
+    const id = 'xiaobaix-hide-code';
+    const old = document.getElementById(id);
+    if (!enable) {
+        old?.remove();
+        hideStyleInjected = false;
+        return;
+    }
+    if (old) return;
+    const hideCodeStyle = document.createElement('style');
+    hideCodeStyle.id = id;
+    hideCodeStyle.textContent = `
+        .xiaobaix-active .mes_text pre { display: none !important; }
+        .xiaobaix-active .mes_text pre.xb-show { display: block !important; }
+    `;
+    document.head.appendChild(hideCodeStyle);
+    hideStyleInjected = true;
+}
+
+function setActiveClass(enable) {
+    document.body.classList.toggle('xiaobaix-active', !!enable);
 }
 
 function djb2(str) {
@@ -674,7 +698,16 @@ function shrinkRenderedWindowFull() {
 let messageListenerBound = false;
 
 export function initRenderer() {
+    const settings = getSettings();
+    if (!settings.enabled) return;
+    
     try { xbLog.info(MODULE_ID, 'initRenderer'); } catch {}
+    
+    if (settings.renderEnabled !== false) {
+        ensureHideCodeStyle(true);
+        setActiveClass(true);
+    }
+    
     events.on(event_types.GENERATION_STARTED, () => {
         isGenerating = true;
     });
@@ -770,6 +803,20 @@ export function cleanupRenderer() {
         window.removeEventListener('message', handleIframeMessage);
         messageListenerBound = false;
     }
+    
+    ensureHideCodeStyle(false);
+    setActiveClass(false);
+    
+    document.querySelectorAll('pre[data-xiaobaix-bound="true"]').forEach(pre => {
+        pre.classList.remove('xb-show');
+        pre.removeAttribute('data-xbfinal');
+        pre.removeAttribute('data-xbhash');
+        delete pre.dataset.xbFinal;
+        delete pre.dataset.xbHash;
+        pre.style.display = '';
+        delete pre.dataset.xiaobaixBound;
+    });
+    
     invalidateAll();
     isGenerating = false;
     pendingHeight = null;

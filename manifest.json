@@ -7,6 +7,6 @@
     "css": "style.css",
     "author": "biex",
     "version": "2.3.1",
-    "homePage": "https://github.com/RT15548/LittleWhiteBox"
-
+    "homePage": "https://github.com/RT15548/LittleWhiteBox",
+    "generate_interceptor": "xiaobaixGenerateInterceptor"
 }

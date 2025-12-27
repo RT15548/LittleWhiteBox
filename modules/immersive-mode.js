@@ -164,7 +164,7 @@ function bindMessageEvents() {
 
  messageEvents.on(event_types.MESSAGE_SENT, () => {});
  messageEvents.on(event_types.MESSAGE_RECEIVED, refreshOnAI);
- messageEvents.on(event_types.MESSAGE_DELETED, () => {});
+ messageEvents.on(event_types.MESSAGE_DELETED, refreshOnAI);
  messageEvents.on(event_types.MESSAGE_UPDATED, refreshOnAI);
  messageEvents.on(event_types.MESSAGE_SWIPED, refreshOnAI);
  if (event_types.GENERATION_STARTED) {
@@ -258,24 +258,30 @@ function findLastAIMessage() {
 }
 
 function showSingleModeMessages() {
- const $messages = $(SEL.mes);
- if (!$messages.length) return;
+    const $messages = $(SEL.mes);
+    if (!$messages.length) return;
 
- $messages.hide();
+    $messages.hide();
 
- const $targetAI = findLastAIMessage();
- if ($targetAI?.length) {
-   $targetAI.show();
+    const $targetAI = findLastAIMessage();
+    if ($targetAI?.length) {
+        $targetAI.show();
 
-   const $prevUser = $targetAI.prevAll('.mes[is_user="true"]').first();
-   if ($prevUser.length) {
-     $prevUser.show();
-   }
+        const $prevMessage = $targetAI.prevAll('.mes').first();
+        if ($prevMessage.length) {
+            $prevMessage.show();
+        }
 
-   $targetAI.nextAll('.mes').show();
+        $targetAI.nextAll('.mes').show();
 
-   addNavigationToLastTwoMessages();
- }
+        addNavigationToLastTwoMessages();
+    } else {
+        const $lastMessages = $messages.slice(-2);
+        if ($lastMessages.length) {
+            $lastMessages.show();
+            addNavigationToLastTwoMessages();
+        }
+    }
 }
 
 function addNavigationToLastTwoMessages() {
@@ -371,15 +377,22 @@ function updateSwipesCounter($targetMes) {
  }
  $swipesCounter.html('1&ZeroWidthSpace;/&ZeroWidthSpace;1');
 }
-
+function scrollToBottom() {
+    const chatContainer = document.getElementById('chat');
+    if (chatContainer) {
+        requestAnimationFrame(() => {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        });
+    }
+}
 function toggleDisplayMode() {
- if (!state.isActive) return;
-
- const settings = getSettings();
- settings.showAllMessages = !settings.showAllMessages;
- applyModeClasses();
- updateMessageDisplay();
- saveSettingsDebounced();
+    if (!state.isActive) return;
+    const settings = getSettings();
+    settings.showAllMessages = !settings.showAllMessages;
+    applyModeClasses();
+    updateMessageDisplay();
+    saveSettingsDebounced();
+    scrollToBottom();
 }
 
 function handleSwipe(swipeSelector, $targetMes) {

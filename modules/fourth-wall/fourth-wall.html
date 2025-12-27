@@ -199,17 +199,93 @@ html, body {
 .fw-streaming { opacity: 0.8; font-style: italic; }
 .fw-empty { text-align: center; color: var(--text-muted); padding: 40px; font-size: 0.875rem; }
 
-.fw-img-slot { margin: 8px 0; }
-.fw-img-slot img { max-width: min(300px, 70vw); max-height: 50vh; border-radius: 8px; display: block; }
-.fw-img-loading { font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
-
-.fw-img-error {
-    width: 200px; height: 140px; background: var(--bg-tertiary);
-    border: 1px dashed var(--border-color); border-radius: 8px;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    color: var(--text-muted); font-size: 0.75rem;
+/* 图片懒加载样式 */
+.fw-img-slot {
+    margin: 8px 0;
+    min-height: 80px;
+    position: relative;
 }
 
+.fw-img-slot img {
+    max-width: min(300px, 70vw);
+    max-height: 50vh;
+    border-radius: 8px;
+    display: block;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.fw-img-slot img:hover { opacity: 0.9; }
+
+.fw-img-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 24px 16px;
+    background: var(--bg-tertiary);
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.fw-img-placeholder i { font-size: 24px; opacity: 0.4; }
+
+.fw-img-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, rgba(76,154,255,0.08), rgba(118,75,162,0.08));
+    border: 1px solid rgba(76,154,255,0.15);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+}
+
+.fw-img-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px;
+    background: rgba(248,113,113,0.08);
+    border: 1px dashed rgba(248,113,113,0.25);
+    border-radius: 8px;
+    color: #f87171;
+    font-size: 0.75rem;
+    text-align: center;
+}
+
+.fw-img-retry {
+    margin-top: 4px;
+    padding: 4px 12px;
+    background: rgba(248,113,113,0.15);
+    border: 1px solid rgba(248,113,113,0.25);
+    border-radius: 4px;
+    color: #f87171;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.fw-img-retry:hover { background: rgba(248,113,113,0.25); }
+
+.fw-img-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: rgba(0,0,0,0.6);
+    color: #fbbf24;
+    font-size: 10px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    backdrop-filter: blur(4px);
+}
+
+/* 语音样式 */
 .fw-voice-bubble {
     display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px;
     background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
@@ -331,7 +407,6 @@ html, body {
 
 .fw-prompt-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
 
-/* 思考折叠UI - 一体化卡片设计 */
 .fw-thinking-card {
     margin-bottom: 6px;
     background: rgba(0,0,0,0.03);
@@ -363,9 +438,7 @@ html, body {
     transition: transform 0.2s;
 }
 
-.fw-thinking-header.expanded .chevron {
-    transform: rotate(90deg);
-}
+.fw-thinking-header.expanded .chevron { transform: rotate(90deg); }
 
 .fw-thinking-body {
     display: none;
@@ -391,7 +464,6 @@ html, body {
 .fw-thinking-body::-webkit-scrollbar { width: 4px; }
 .fw-thinking-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
 
-/* 流式思考指示器 */
 .fw-thinking-header.streaming span::after {
     content: '';
     display: inline-block;
@@ -408,18 +480,9 @@ html, body {
     50% { opacity: 1; }
 }
 
-/* 编辑模式宽度最大化 */
-.fw-row.editing {
-    max-width: 100%;
-}
-
-.fw-row.editing .fw-bubble {
-    width: 100%;
-}
-
-.fw-row.editing .fw-edit-area {
-    min-height: 80px;
-}
+.fw-row.editing { max-width: 100%; }
+.fw-row.editing .fw-bubble { width: 100%; }
+.fw-row.editing .fw-edit-area { min-height: 80px; }
 
 @media (max-width: 600px) {
     .fw-header { padding: 6px 12px; }
@@ -430,6 +493,12 @@ html, body {
     .fw-row { max-width: 90%; }
     .fw-bubble { padding: 8px 12px; font-size: 0.875rem; }
     .fw-avatar { width: 32px; height: 32px; }
+}
+
+@media (max-width: 480px) {
+    .fw-container { padding: 0; }
+    .fw-title { font-size: 0.875rem; }
+    .fw-btn { padding: 4px 8px; font-size: 0.7rem; }
 }
 </style>
 </head>
@@ -490,15 +559,8 @@ html, body {
             <div class="fw-settings-group-title"><i class="fa-solid fa-photo-film"></i>媒体</div>
             <div class="fw-settings-row">
                 <div class="fw-field">
-                    <label>图像类型</label>
-                    <select id="img-kind">
-                        <option value="anime">动漫</option>
-                        <option value="people">真人</option>
-                    </select>
-                </div>
-                <div class="fw-field">
                     <input type="checkbox" id="img-prompt-enabled">
-                    <label for="img-prompt-enabled">允许发图</label>
+                    <label for="img-prompt-enabled">允许发图 (需开启插件NovelAI画图)</label>
                 </div>
             </div>
             <div class="fw-settings-row">
@@ -548,7 +610,7 @@ html, body {
             <div class="fw-settings-group-title"><i class="fa-solid fa-comment-dots"></i>实时吐槽</div>
             <div class="fw-settings-row">
                 <div class="fw-field">
-                    <input type="checkbox" id="commentary-enabled" checked>
+                    <input type="checkbox" id="commentary-enabled">
                     <label for="commentary-enabled">实时吐槽</label>
                 </div>
                 <div class="fw-field fw-commentary-prob-wrap">
@@ -609,22 +671,17 @@ html, body {
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
 <script>
+// ═══════════════════════════════════════════════════════════════════════════
+// 工具函数
+// ═══════════════════════════════════════════════════════════════════════════
+
 function escapeHtml(text) {
-    return String(text || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
+    return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
 }
 
 function renderThinking(text) {
-    return String(text || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/^[\\*\\-]\\s+/gm, '• ')
-        .replace(/\n/g, '<br>');
+    return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/^[\\*\\-]\\s+/gm, '• ').replace(/\n/g, '<br>');
 }
 
 function updateFullscreenButton(isFullscreen) {
@@ -632,33 +689,9 @@ function updateFullscreenButton(isFullscreen) {
     if (!btn) return;
     const icon = btn.querySelector('i');
     if (!icon) return;
-    if (isFullscreen) {
-        icon.className = 'fa-solid fa-compress';
-        btn.title = '退出全屏';
-    } else {
-        icon.className = 'fa-solid fa-expand';
-        btn.title = '全屏';
-    }
+    icon.className = isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+    btn.title = isFullscreen ? '退出全屏' : '全屏';
 }
-
-const TTS_WORKER = 'https://tts.velure.top';
-
-let state = {
-    history: [],
-    isStreaming: false,
-    editingIndex: null,
-    menuExpanded: false,
-    settingsOpen: false,
-    settings: { maxChatLayers: 9999, maxMetaTurns: 9999, stream: true },
-    sessions: [],
-    activeSessionId: null,
-    imgSettings: { categoryPreference: 'anime', enablePrompt: false },
-    voiceSettings: { enabled: false, voice: '桃夭', speed: 0.8 },
-    commentarySettings: { enabled: true, probability: 30 },
-    promptTemplates: {}
-};
-
-let currentAudio = null;
 
 function formatTimeDisplay(ts) {
     if (!ts) return '';
@@ -678,59 +711,168 @@ function postToParent(payload) {
     window.parent.postMessage({ source: 'LittleWhiteBox-FourthWall', ...payload }, '*');
 }
 
-const FW_IMG = { proxy: 'https://wallhaven.velure.top/?url=', maxPickSpan: 24, cacheTTLms: 600000 };
-const imageCache = new Map();
+// ═══════════════════════════════════════════════════════════════════════════
+// 状态管理
+// ═══════════════════════════════════════════════════════════════════════════
+
+const TTS_WORKER = 'https://tts.velure.top';
+
+let state = {
+    history: [],
+    isStreaming: false,
+    editingIndex: null,
+    menuExpanded: false,
+    settingsOpen: false,
+    settings: { maxChatLayers: 9999, maxMetaTurns: 9999, stream: true },
+    sessions: [],
+    activeSessionId: null,
+    imgSettings: { enablePrompt: false },
+    voiceSettings: { enabled: false, voice: '桃夭', speed: 0.8 },
+    commentarySettings: { enabled: false, probability: 30 },
+    promptTemplates: {}
+};
+
+let currentAudio = null;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 图片懒加载系统
+// ═══════════════════════════════════════════════════════════════════════════
+
+const pendingImages = new Map();
+const generatingQueue = new Set();
+let imageObserver = null;
 
 function parseImageToken(rawCSV) {
     let txt = String(rawCSV || '').trim();
-    let isNSFW = false;
-    while (true) {
-        const m = txt.match(/^(nsfw|sketchy)\s*:\s*/i);
-        if (!m) break;
-        isNSFW = true;
-        txt = txt.replace(/^(nsfw|sketchy)\s*:\s*/i, '');
-    }
-    return { tagCSV: txt.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).join(','), isNSFW };
+    txt = txt.replace(/^(nsfw|sketchy)\s*:\s*/i, 'nsfw, ');
+    return txt.split(',').map(s => s.trim()).filter(Boolean).join(', ');
 }
 
-async function searchWallhaven(tagCSV, { category, purity }) {
-    const q = tagCSV.split(',').filter(Boolean).join(' ');
-    const api = `https://wallhaven.cc/api/v1/search?q=${encodeURIComponent(q)}&categories=${category}&purity=${purity}&ratios=${encodeURIComponent('9x16,10x16,1x1,16x9,16x10,21x9')}&sorting=favorites&page=1`;
-    const res = await fetch(FW_IMG.proxy + encodeURIComponent(api));
-    if (!res.ok) throw new Error('Search failed');
-    const data = await res.json();
-    const list = data?.data || [];
-    if (list.length) {
-        const pick = list[Math.floor(Math.random() * Math.min(FW_IMG.maxPickSpan, list.length))];
-        return { ok: true, url: FW_IMG.proxy + encodeURIComponent(pick.path) };
-    }
-    return { ok: false };
-}
-
-async function hydrateImageSlots(container) {
-    for (const slot of container.querySelectorAll('.fw-img-slot:not([data-loaded])')) {
-        slot.setAttribute('data-loaded', '1');
-        const raw = decodeURIComponent(slot.dataset.raw || '');
-        const { tagCSV, isNSFW } = parseImageToken(raw);
-        if (!tagCSV) continue;
-        const catMap = { anime: '010', people: '001' };
-        const category = catMap[state.imgSettings.categoryPreference] || '010';
-        const purity = isNSFW ? '001' : '111';
-        const cacheKey = [tagCSV, purity, category].join('|');
-        try {
-            let rec = imageCache.get(cacheKey);
-            if (!rec || Date.now() - rec.at > FW_IMG.cacheTTLms) {
-                const result = await searchWallhaven(tagCSV, { category, purity });
-                if (!result.ok) throw new Error('No results');
-                rec = { url: result.url, at: Date.now() };
-                imageCache.set(cacheKey, rec);
+function initImageObserver() {
+    if (imageObserver) return;
+    
+    imageObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const slot = entry.target;
+                if (slot.dataset.loaded === '1' || slot.dataset.loading === '1') return;
+                
+                slot.dataset.loading = '1';
+                const tags = parseImageToken(decodeURIComponent(slot.dataset.raw || ''));
+                if (!tags) return;
+                
+                const requestId = 'fwimg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+                pendingImages.set(requestId, { slot, tags });
+                
+                slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-search"></i> 查询缓存...</div>`;
+                postToParent({ type: 'CHECK_IMAGE_CACHE', requestId, tags });
             }
-            slot.innerHTML = `<a href="${rec.url}" target="_blank"><img src="${rec.url}" alt="${tagCSV}"></a>`;
-        } catch {
-            slot.innerHTML = `<div class="fw-img-error"><i class="fa-solid fa-image"></i><div>无法加载图片</div><div style="font-size:10px;">${tagCSV}</div></div>`;
+        });
+    }, {
+        root: document.getElementById('messages'),
+        rootMargin: '150px 0px',
+        threshold: 0.01
+    });
+}
+
+function hydrateImageSlots(container) {
+    initImageObserver();
+    
+    container.querySelectorAll('.fw-img-slot:not([data-observed])').forEach(slot => {
+        slot.setAttribute('data-observed', '1');
+        
+        if (!slot.dataset.loaded && !slot.dataset.loading) {
+            slot.innerHTML = `
+                <div class="fw-img-placeholder">
+                    <i class="fa-regular fa-image"></i>
+                    <span>滚动加载</span>
+                </div>
+            `;
+        }
+        
+        imageObserver.observe(slot);
+    });
+}
+
+function handleImageResult(data) {
+    const pending = pendingImages.get(data.requestId);
+    if (!pending) return;
+    
+    const { slot, tags } = pending;
+    pendingImages.delete(data.requestId);
+    generatingQueue.delete(tags);
+    
+    slot.dataset.loaded = '1';
+    slot.dataset.loading = '';
+    
+    if (data.error) {
+        slot.innerHTML = `
+            <div class="fw-img-error">
+                <i class="fa-solid fa-exclamation-triangle"></i>
+                <div>${escapeHtml(data.error)}</div>
+                <button class="fw-img-retry" data-tags="${encodeURIComponent(tags)}">重试</button>
+            </div>
+        `;
+        bindRetryButton(slot);
+    } else if (data.base64) {
+        const img = document.createElement('img');
+        img.src = `data:image/png;base64,${data.base64}`;
+        img.alt = 'Generated';
+        img.onclick = () => window.open(img.src, '_blank');
+        
+        slot.innerHTML = '';
+        slot.appendChild(img);
+        
+        if (data.fromCache) {
+            const badge = document.createElement('span');
+            badge.className = 'fw-img-badge';
+            badge.innerHTML = '<i class="fa-solid fa-bolt"></i>';
+            badge.title = '来自缓存';
+            slot.appendChild(badge);
         }
     }
 }
+
+function handleCacheMiss(data) {
+    const pending = pendingImages.get(data.requestId);
+    if (!pending) return;
+    
+    const { slot, tags } = pending;
+    
+    if (generatingQueue.has(tags)) {
+        slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-clock"></i> 排队中...</div>`;
+        return;
+    }
+    
+    generatingQueue.add(tags);
+    slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-palette"></i> 生成中...</div>`;
+    
+    postToParent({ type: 'GENERATE_IMAGE', requestId: data.requestId, tags });
+}
+
+function bindRetryButton(slot) {
+    const btn = slot.querySelector('.fw-img-retry');
+    if (!btn) return;
+    
+    btn.onclick = (e) => {
+        e.stopPropagation();
+        const tags = decodeURIComponent(btn.dataset.tags || '');
+        if (!tags) return;
+        
+        slot.dataset.loaded = '';
+        slot.dataset.loading = '1';
+        
+        const requestId = 'fwimg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+        pendingImages.set(requestId, { slot, tags });
+        
+        slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-palette"></i> 重新生成...</div>`;
+        postToParent({ type: 'GENERATE_IMAGE', requestId, tags });
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 语音处理
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function playVoice(text, bubbleEl) {
     if (currentAudio) {
@@ -781,15 +923,18 @@ function hydrateVoiceSlots(container) {
     });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 内容渲染
+// ═══════════════════════════════════════════════════════════════════════════
+
 function renderContent(text) {
     if (!text) return '';
     let html = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     
     html = html.replace(/\[(?:image|图片)\s*:\s*([^\]]+)\]/gi, (_, inner) => {
-        const { tagCSV } = parseImageToken(inner);
-        if (!tagCSV) return _;
-        const key = btoa(unescape(encodeURIComponent(tagCSV))).replace(/=+$/, '');
-        return `<div class="fw-img-slot" data-raw="${encodeURIComponent(inner)}" id="fwimg_${key}"><div class="fw-img-loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中...</div></div>`;
+        const tags = parseImageToken(inner);
+        if (!tags) return _;
+        return `<div class="fw-img-slot" data-raw="${encodeURIComponent(inner)}"></div>`;
     });
     
     html = html.replace(/\[(?:voice|语音)\s*:\s*([^\]]+)\]/gi, (_, inner) => {
@@ -805,7 +950,7 @@ function renderContent(text) {
     
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.1);padding:2px 4px;border-radius:3px;">$1</code>');
+    html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.06);padding:2px 4px;border-radius:3px;">$1</code>');
     html = html.replace(/\n/g, '<br>');
     return html;
 }
@@ -875,7 +1020,10 @@ function renderMessages() {
     hydrateImageSlots(container);
     hydrateVoiceSlots(container);
     container.scrollTop = container.scrollHeight;
-  
+    bindMessageEvents(container);
+}
+
+function bindMessageEvents(container) {
     container.querySelectorAll('.fw-thinking-header:not(.streaming)').forEach(header => {
         header.onclick = () => {
             const idx = header.dataset.index;
@@ -885,21 +1033,43 @@ function renderMessages() {
     });
   
     container.querySelectorAll('.fw-edit-btn').forEach(btn => {
-        btn.onclick = () => { state.editingIndex = parseInt(btn.dataset.index); renderMessages(); const ta = container.querySelector('.fw-edit-area'); if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.focus(); } };
+        btn.onclick = () => { 
+            state.editingIndex = parseInt(btn.dataset.index); 
+            renderMessages(); 
+            const ta = container.querySelector('.fw-edit-area'); 
+            if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.focus(); } 
+        };
     });
     container.querySelectorAll('.fw-save-btn').forEach(btn => {
-        btn.onclick = () => { const idx = parseInt(btn.dataset.index); const ta = container.querySelector(`.fw-edit-area[data-index="${idx}"]`); if (ta) state.history[idx].content = ta.value; state.editingIndex = null; renderMessages(); postToParent({ type: 'SAVE_HISTORY', history: state.history }); };
+        btn.onclick = () => { 
+            const idx = parseInt(btn.dataset.index); 
+            const ta = container.querySelector(`.fw-edit-area[data-index="${idx}"]`); 
+            if (ta) state.history[idx].content = ta.value; 
+            state.editingIndex = null; 
+            renderMessages(); 
+            postToParent({ type: 'SAVE_HISTORY', history: state.history }); 
+        };
     });
     container.querySelectorAll('.fw-cancel-btn').forEach(btn => {
         btn.onclick = () => { state.editingIndex = null; renderMessages(); };
     });
     container.querySelectorAll('.fw-delete-btn').forEach(btn => {
-        btn.onclick = () => { if (confirm('确定要删除这条消息吗？')) { state.history.splice(parseInt(btn.dataset.index), 1); renderMessages(); postToParent({ type: 'SAVE_HISTORY', history: state.history }); } };
+        btn.onclick = () => { 
+            if (confirm('确定要删除这条消息吗？')) { 
+                state.history.splice(parseInt(btn.dataset.index), 1); 
+                renderMessages(); 
+                postToParent({ type: 'SAVE_HISTORY', history: state.history }); 
+            } 
+        };
     });
     container.querySelectorAll('.fw-edit-area').forEach(ta => {
         ta.oninput = function() { this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px'; };
     });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI 更新函数
+// ═══════════════════════════════════════════════════════════════════════════
 
 function renderSessionSelect() {
     document.getElementById('session-select').innerHTML = state.sessions.map(s => 
@@ -946,6 +1116,10 @@ function loadPromptFields() {
     document.getElementById('prompt-bottom').value = t.bottom || '';
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 消息发送
+// ═══════════════════════════════════════════════════════════════════════════
+
 function sendMessage() {
     const textarea = document.getElementById('input-textarea');
     const text = textarea.value.trim();
@@ -973,6 +1147,10 @@ function regenerate() {
     postToParent({ type: 'REGENERATE', userInput: lastUserText, history: state.history, settings: state.settings, imgSettings: state.imgSettings, voiceSettings: state.voiceSettings });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 消息处理
+// ═══════════════════════════════════════════════════════════════════════════
+
 window.addEventListener('message', event => {
     const data = event.data;
     if (!data || data.source !== 'LittleWhiteBox') return;
@@ -996,7 +1174,6 @@ window.addEventListener('message', event => {
             document.getElementById('layers-input').value = state.settings.maxChatLayers;
             document.getElementById('turns-input').value = state.settings.maxMetaTurns;
             document.getElementById('stream-enabled').checked = state.settings.stream;
-            document.getElementById('img-kind').value = state.imgSettings.categoryPreference;
             document.getElementById('img-prompt-enabled').checked = state.imgSettings.enablePrompt;
             document.getElementById('voice-enabled').checked = state.voiceSettings.enabled;
             document.getElementById('voice-select').value = state.voiceSettings.voice || '桃夭';
@@ -1044,15 +1221,27 @@ window.addEventListener('message', event => {
         case 'FULLSCREEN_STATE':
             updateFullscreenButton(data.isFullscreen);
             break;
+
+        case 'IMAGE_RESULT':
+            handleImageResult(data);
+            break;
+
+        case 'CACHE_MISS':
+            handleCacheMiss(data);
+            break;
     }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 初始化
+// ═══════════════════════════════════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-menu-toggle').onclick = () => { state.menuExpanded = !state.menuExpanded; updateMenuUI(); };
     document.getElementById('btn-settings').onclick = () => { state.settingsOpen = !state.settingsOpen; document.getElementById('settings-panel').classList.toggle('open', state.settingsOpen); };
     document.getElementById('btn-settings-close').onclick = () => { state.settingsOpen = false; document.getElementById('settings-panel').classList.remove('open'); };
     document.getElementById('btn-close').onclick = () => postToParent({ type: 'CLOSE_OVERLAY' });
-    document.getElementById('btn-fullscreen').onclick = () => { postToParent({ type: 'TOGGLE_FULLSCREEN' }); };
+    document.getElementById('btn-fullscreen').onclick = () => postToParent({ type: 'TOGGLE_FULLSCREEN' });
     
     document.getElementById('btn-reset').onclick = () => {
         if (confirm('确定要清空当前对话吗？')) { state.history = []; renderMessages(); postToParent({ type: 'RESET_HISTORY' }); }
@@ -1067,8 +1256,10 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     });
     
-    document.getElementById('img-kind').onchange = () => { state.imgSettings.categoryPreference = document.getElementById('img-kind').value; postToParent({ type: 'SAVE_IMG_SETTINGS', imgSettings: state.imgSettings }); };
-    document.getElementById('img-prompt-enabled').onchange = () => { state.imgSettings.enablePrompt = document.getElementById('img-prompt-enabled').checked; postToParent({ type: 'SAVE_IMG_SETTINGS', imgSettings: state.imgSettings }); };
+    document.getElementById('img-prompt-enabled').onchange = () => { 
+        state.imgSettings.enablePrompt = document.getElementById('img-prompt-enabled').checked; 
+        postToParent({ type: 'SAVE_IMG_SETTINGS', imgSettings: state.imgSettings }); 
+    };
     
     document.getElementById('voice-enabled').onchange = function() { state.voiceSettings.enabled = this.checked; updateVoiceUI(this.checked); postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings }); };
     document.getElementById('voice-select').onchange = function() { state.voiceSettings.voice = this.value; postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings }); };
