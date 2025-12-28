@@ -4,7 +4,6 @@ import { EXT_ID, EXT_NAME, extensionFolderPath } from "./core/constants.js";
 import { executeSlashCommand } from "./core/slash-command.js";
 import { EventCenter } from "./core/event-manager.js";
 import { initTasks } from "./modules/scheduled-tasks/scheduled-tasks.js";
-import { initScriptAssistant } from "./modules/script-assistant.js";
 import { initMessagePreview, addHistoryButtonsDebounced } from "./modules/message-preview.js";
 import { initImmersiveMode } from "./modules/immersive-mode.js";
 import { initTemplateEditor, templateSettings } from "./modules/template-editor/template-editor.js";
@@ -38,7 +37,6 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     recorded: { enabled: true },
     templateEditor: { enabled: true, characterBindings: {} },
     tasks: { enabled: true, globalTasks: [], processedMessages: [], character_allowed_tasks: [] },
-    scriptAssistant: { enabled: false },
     preview: { enabled: false },
     immersive: { enabled: false },
     fourthWall: { enabled: false },
@@ -61,7 +59,8 @@ const DEPRECATED_KEYS = [
     'characterUpdater',
     'promptSections', 
     'promptPresets',
-    'relationshipGuidelines'
+    'relationshipGuidelines',
+    'scriptAssistant'
 ];
 
 function cleanupDeprecatedData() {
@@ -273,7 +272,7 @@ async function waitForElement(selector, root = document, timeout = 10000) {
 function toggleSettingsControls(enabled) {
     const controls = [
         'xiaobaix_sandbox', 'xiaobaix_recorded_enabled', 'xiaobaix_preview_enabled',
-        'xiaobaix_script_assistant', 'scheduled_tasks_enabled', 'xiaobaix_template_enabled',
+        'scheduled_tasks_enabled', 'xiaobaix_template_enabled',
         'xiaobaix_immersive_enabled', 'xiaobaix_fourth_wall_enabled',
         'xiaobaix_audio_enabled', 'xiaobaix_variables_panel_enabled',
         'xiaobaix_use_blob', 'xiaobaix_variables_core_enabled', 'Wrapperiframe', 'xiaobaix_render_enabled',
@@ -306,7 +305,6 @@ async function toggleAllFeatures(enabled) {
             await initTasks();
         }
         const moduleInits = [
-            { condition: extension_settings[EXT_ID].scriptAssistant?.enabled, init: initScriptAssistant },
             { condition: extension_settings[EXT_ID].immersive?.enabled, init: initImmersiveMode },
             { condition: extension_settings[EXT_ID].templateEditor?.enabled, init: initTemplateEditor },
             { condition: extension_settings[EXT_ID].fourthWall?.enabled, init: initFourthWall },
@@ -322,8 +320,6 @@ async function toggleAllFeatures(enabled) {
         if (extension_settings[EXT_ID].preview?.enabled || extension_settings[EXT_ID].recorded?.enabled) {
             setTimeout(initMessagePreview, 200);
         }
-        if (extension_settings[EXT_ID].scriptAssistant?.enabled && window.injectScriptDocs)
-            setTimeout(() => window.injectScriptDocs(), 400);
         if (extension_settings[EXT_ID].preview?.enabled)
             setTimeout(() => { document.querySelectorAll('#message_preview_btn').forEach(btn => btn.style.display = ''); }, 500);
         if (extension_settings[EXT_ID].recorded?.enabled)
@@ -351,7 +347,6 @@ async function toggleAllFeatures(enabled) {
         try { cleanupNovelDraw(); } catch (e) {}
         try { clearBlobCaches(); } catch (e) {}
         toggleSettingsControls(false);
-        window.removeScriptDocs?.();
         try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById('xb-worldbook')?.remove(); } catch (e) {}
         try { window.cleanupCallGenerateHostBridge && window.cleanupCallGenerateHostBridge(); document.getElementById('xb-callgen')?.remove(); } catch (e) {}
         document.dispatchEvent(new CustomEvent('xiaobaixEnabledChanged', { detail: { enabled: false } }));
@@ -392,7 +387,6 @@ async function setupSettings() {
             { id: 'xiaobaix_recorded_enabled', key: 'recorded' },
             { id: 'xiaobaix_immersive_enabled', key: 'immersive', init: initImmersiveMode },
             { id: 'xiaobaix_preview_enabled', key: 'preview', init: initMessagePreview },
-            { id: 'xiaobaix_script_assistant', key: 'scriptAssistant', init: initScriptAssistant },
             { id: 'scheduled_tasks_enabled', key: 'tasks', init: initTasks },
             { id: 'xiaobaix_template_enabled', key: 'templateEditor', init: initTemplateEditor },
             { id: 'xiaobaix_fourth_wall_enabled', key: 'fourthWall', init: initFourthWall },
@@ -502,7 +496,7 @@ async function setupSettings() {
                 novelDraw: 'xiaobaix_novel_draw_enabled'
             };
             const ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary', 'recorded'];
-            const OFF = ['preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw'];
+            const OFF = ['preview', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw'];
             function setChecked(id, val) {
                 const el = document.getElementById(id);
                 if (el) {
@@ -626,7 +620,6 @@ jQuery(async () => {
             }
 
             const moduleInits = [
-                { condition: settings.scriptAssistant?.enabled, init: initScriptAssistant },
                 { condition: settings.immersive?.enabled, init: initImmersiveMode },
                 { condition: settings.templateEditor?.enabled, init: initTemplateEditor },
                 { condition: settings.fourthWall?.enabled, init: initFourthWall },
