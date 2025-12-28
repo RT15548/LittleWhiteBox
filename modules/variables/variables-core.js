@@ -160,57 +160,6 @@ function normalizeOpName(k) {
     return OP_MAP[String(k).toLowerCase().trim()] || null;
 }
 
-function parseBumpSpec(payload) {
-    try {
-        if (payload && typeof payload === 'object' && payload.kind && Number.isFinite(Number(payload.value))) {
-            return { kind: String(payload.kind), value: Number(payload.value), raw: payload.raw };
-        }
-
-        if (typeof payload === 'number' && Number.isFinite(payload)) {
-            return { kind: 'delta', value: payload, raw: payload };
-        }
-
-        const raw = String(payload ?? '').trim();
-        if (!raw) return null;
-
-        const num = Number(raw);
-        if (Number.isFinite(num) && !/[*/^%]/.test(raw)) {
-            return { kind: 'delta', value: num, raw };
-        }
-
-        const mPct = raw.match(/^([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\s*%$/);
-        if (mPct) return { kind: 'percent', value: Number(mPct[1]), raw };
-
-        const mOp = raw.match(/^([*/^])\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)$/);
-        if (mOp) {
-            const op = mOp[1] === '*' ? 'mul' : (mOp[1] === '/' ? 'div' : 'pow');
-            return { kind: op, value: Number(mOp[2]), raw };
-        }
-    } catch {}
-    return null;
-}
-
-function computeBumpResult(payload, currentValue) {
-    const spec = parseBumpSpec(payload);
-    if (!spec) return { ok: false, reason: 'delta-nan' };
-
-    const baseRaw = Number(currentValue);
-    const base = Number.isFinite(baseRaw) ? baseRaw : 0;
-
-    let next;
-    if (spec.kind === 'delta') next = base + spec.value;
-    else if (spec.kind === 'percent') next = base + (base * (spec.value / 100));
-    else if (spec.kind === 'mul') next = base * spec.value;
-    else if (spec.kind === 'div') {
-        if (!Number.isFinite(spec.value) || spec.value === 0) return { ok: false, reason: 'div-zero', spec };
-        next = base / spec.value;
-    } else if (spec.kind === 'pow') next = Math.pow(base, spec.value);
-    else return { ok: false, reason: 'delta-nan', spec };
-
-    if (!Number.isFinite(next)) return { ok: false, reason: 'result-nan', spec };
-    return { ok: true, base, next, delta: next - base, spec };
-}
-
 /* ============= 应用签名追踪 ============= */
 
 function getAppliedMap() {
@@ -354,12 +303,10 @@ function parseBlock(innerText) {
         Array.isArray(value) ? arr.push(...value) : arr.push(value);
     };
     const putBump = (top, path, delta) => {
-        const spec = parseBumpSpec(delta);
-        if (!spec) return;
+        const n = Number(String(delta).replace(/^\+/, ''));
+        if (!Number.isFinite(n)) return;
         ops.bump[top] ||= {};
-        const list = (ops.bump[top][path] ||= []);
-        if (spec.kind === 'delta') list.push(spec.value);
-        else list.push(spec);
+        ops.bump[top][path] = (ops.bump[top][path] ?? 0) + n;
     };
     const putDel = (top, path) => {
         ops.del[top] ||= [];
@@ -790,7 +737,7 @@ function parseBlock(innerText) {
                 const rel = rest.join('.');
                 if (curOp === 'set') putSet(top, rel, text);
                 else if (curOp === 'push') putPush(top, rel, text);
-                else if (curOp === 'bump') putBump(top, rel, text);
+                else if (curOp === 'bump') putBump(top, rel, Number(text));
                 continue;
             }
 
@@ -826,7 +773,7 @@ function parseBlock(innerText) {
                                 for (const item of arr) putDel(top, rel ? `${rel}.${item}` : item);
                             }
                             else if (curOp === 'bump') {
-                                for (const item of arr) putBump(top, rel, item);
+                                for (const item of arr) putBump(top, rel, Number(item));
                             }
                             stack.pop();
                             handledList = true;
@@ -865,7 +812,7 @@ function parseBlock(innerText) {
                     putDel(top, target);
                 }
             } else if (curOp === 'bump') {
-                putBump(top, rel, stripQ(rhs));
+                putBump(top, rel, Number(stripQ(rhs)));
             }
             continue;
         }
@@ -901,7 +848,7 @@ function parseBlock(innerText) {
             } else if (curOp === 'del') {
                 putDel(top, rel ? `${rel}.${val}` : val);
             } else if (curOp === 'bump') {
-                putBump(top, rel, val);
+                putBump(top, rel, Number(val));
             }
         }
     }
@@ -1098,7 +1045,7 @@ function getEffectiveParentNode(p) {
 /**
  * 守护验证
  */
-export function guardValidate(op, absPath, payload, currentOverride) {
+export function guardValidate(op, absPath, payload) {
     if (guardianState.bypass) return { allow: true, value: payload };
 
     const p = normalizePath(absPath);
@@ -1179,19 +1126,10 @@ export function guardValidate(op, absPath, payload, currentOverride) {
 
     // 增量操作
     if (op === 'bump') {
-        const effectiveCurrent = (currentOverride !== undefined) ? currentOverride : currentValue;
-        const computed = computeBumpResult(payload, effectiveCurrent);
-        if (!computed?.ok) {
-            if (xbLog.isEnabled?.()) {
-                try { xbLog.warn(MODULE_ID, `bump payload rejected: path=${p} reason=${computed?.reason || 'delta-nan'}`); } catch {}
-            }
-            return { allow: false, reason: computed?.reason || 'delta-nan' };
-        }
+        let d = Number(payload);
+        if (!Number.isFinite(d)) return { allow: false, reason: 'delta-nan' };
 
-        let d = computed.delta;
-        const base = computed.base;
-
-        if (effectiveCurrent === undefined) {
+        if (currentValue === undefined) {
             if (parentPath) {
                 const lastSeg = p.split('.').pop() || '';
                 const isIndex = /^\d+$/.test(lastSeg);
@@ -1214,16 +1152,16 @@ export function guardValidate(op, absPath, payload, currentOverride) {
             if (d < -step) d = -step;
         }
 
-        const cur = Number(effectiveCurrent);
+        const cur = Number(currentValue);
         if (!Number.isFinite(cur)) {
-            const baseValue = 0 + d;
-            const cl = clampNumberWithConstraints(baseValue, node);
+            const base = 0 + d;
+            const cl = clampNumberWithConstraints(base, node);
             if (!cl.ok) return { allow: false, reason: 'number-constraint' };
-            setTypeLockIfUnknown(p, cl.value);
+            setTypeLockIfUnknown(p, base);
             return { allow: true, value: cl.value };
         }
 
-        const next = Number.isFinite(base) ? (base + d) : (cur + d);
+        const next = cur + d;
         const clamped = clampNumberWithConstraints(next, node);
         if (!clamped.ok) return { allow: false, reason: 'number-constraint' };
         return { allow: true, value: clamped.value };
@@ -1391,7 +1329,11 @@ export function rulesLoadFromTree(valueTree, basePath) {
                 String(t).trim().startsWith('$') ? String(t).trim() : ('$' + String(t).trim())
             );
 
-            const targetPath = curAbs ? `${curAbs}.${targetToken}` : targetToken;
+            const baseNorm = normalizePath(curAbs || '');
+            const tokenNorm = normalizePath(targetToken);
+            const targetPath = (baseNorm && (tokenNorm === baseNorm || tokenNorm.startsWith(baseNorm + '.')))
+                ? tokenNorm
+                : (curAbs ? `${curAbs}.${targetToken}` : targetToken);
             const absPath = normalizePath(targetPath);
             const delta = parseDirectivesTokenList(dirs);
 
@@ -2094,15 +2036,19 @@ async function applyVariablesForMessage(messageId) {
             // BUMP 操作
             else if (op.operation === 'bump') {
                 for (const [k, delta] of Object.entries(op.data)) {
+                    const num = Number(delta);
+                    if (!Number.isFinite(num)) continue;
+
                     const localPath = joinPath(subPath, k);
                     const absPath = localPath ? `${root}.${localPath}` : root;
                     const stdPath = normalizePath(absPath);
-                    const deltaList = Array.isArray(delta) ? delta : [delta];
 
-                    for (const entry of deltaList) {
-                        const spec = parseBumpSpec(entry);
-                        if (!spec) continue;
+                    let allow = true;
+                    let useDelta = num;
 
+                    const res = guardValidate('bump', stdPath, num);
+                    allow = !!res?.allow;
+                    if (allow && 'value' in res && Number.isFinite(res.value)) {
                         let curr;
                         try {
                             const pth = norm(localPath || '');
@@ -2116,39 +2062,17 @@ async function applyVariablesForMessage(messageId) {
                             }
                         } catch {}
 
-                        const res = guardValidate('bump', stdPath, spec, curr);
-                        const allow = !!res?.allow;
-                        if (!allow) {
-                            guardDenied++;
-                            if (debugOn && guardDeniedSamples.length < 8) guardDeniedSamples.push({ op: 'bump', path: stdPath });
-                            continue;
-                        }
-
                         const baseNum = Number(curr);
                         const targetNum = Number(res.value);
-                        const useDelta = Number.isFinite(targetNum)
-                            ? (targetNum - (Number.isFinite(baseNum) ? baseNum : 0))
-                            : (spec.kind === 'delta' ? spec.value : NaN);
-
-                        if (!Number.isFinite(useDelta)) {
-                            guardDenied++;
-                            if (debugOn && guardDeniedSamples.length < 8) guardDeniedSamples.push({ op: 'bump', path: stdPath });
-                            continue;
-                        }
-
-                        if (debugOn && spec.kind !== 'delta') {
-                            try {
-                                const baseVal = Number.isFinite(baseNum) ? baseNum : 0;
-                                const nextVal = Number.isFinite(targetNum) ? targetNum : (baseVal + useDelta);
-                                const expr = (spec.raw !== undefined && spec.raw !== null && String(spec.raw).trim() !== '')
-                                    ? String(spec.raw)
-                                    : `${spec.kind}:${spec.value}`;
-                                xbLog.info(MODULE_ID, `plot-log bump-math path=${stdPath} base=${baseVal} expr=${expr} next=${nextVal}`);
-                            } catch {}
-                        }
-
-                        bumpAtPath(rec, norm(localPath || ''), useDelta);
+                        useDelta = (Number.isFinite(targetNum) ? targetNum : num) - (Number.isFinite(baseNum) ? baseNum : 0);
                     }
+
+                    if (!allow) {
+                        guardDenied++;
+                        if (debugOn && guardDeniedSamples.length < 8) guardDeniedSamples.push({ op: 'bump', path: stdPath });
+                        continue;
+                    }
+                    bumpAtPath(rec, norm(localPath || ''), useDelta);
                 }
             }
         }
