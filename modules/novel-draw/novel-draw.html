@@ -7,6 +7,10 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>Novel Draw</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     样式
+     ═══════════════════════════════════════════════════════════════════════════ -->
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
@@ -34,6 +38,8 @@ body {
     line-height: 1.5;
     min-height: 100vh;
 }
+
+/* 布局 */
 .app-container { display: flex; flex-direction: column; min-height: 100vh; }
 .app-header {
     display: flex; align-items: center; gap: 12px;
@@ -47,6 +53,8 @@ body {
     display: flex; flex-direction: column; gap: 4px;
 }
 .app-main { flex: 1; padding: 24px; overflow-y: auto; }
+
+/* 头部 */
 .header-logo { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; white-space: nowrap; }
 .header-logo i { color: var(--accent); }
 .header-badge {
@@ -74,6 +82,15 @@ body {
     cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;
 }
 .header-close:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+.header-credit {
+    font-size: 11px; color: var(--text-muted); opacity: 0.5;
+    margin-left: 6px; letter-spacing: 0.02em; font-style: italic;
+    transition: opacity 0.2s; white-space: nowrap;
+}
+.header-credit:hover { opacity: 0.9; }
+.credit-author { font-style: normal; color: var(--text-secondary); }
+
+/* 导航 */
 .nav-item {
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
     border-radius: 8px; color: var(--text-secondary); cursor: pointer;
@@ -83,6 +100,8 @@ body {
 .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 .nav-item i { width: 18px; text-align: center; }
 .nav-divider { height: 1px; background: var(--border); margin: 8px 0; }
+
+/* 视图 */
 .view { display: none; max-width: 800px; margin: 0 auto; }
 .view.active { display: block; animation: viewIn 0.2s ease; }
 .view.wide { max-width: 1200px; }
@@ -90,11 +109,15 @@ body {
 .view-header { margin-bottom: 20px; }
 .view-title { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
 .view-desc { font-size: 13px; color: var(--text-secondary); }
+
+/* 卡片 */
 .card {
     background: var(--bg-secondary); border: 1px solid var(--border);
     border-radius: 12px; padding: 20px; margin-bottom: 16px;
 }
 .card-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* 表单 */
 .form-group { margin-bottom: 16px; }
 .form-group:last-child { margin-bottom: 0; }
 .form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
@@ -111,6 +134,8 @@ textarea.input { min-height: 80px; resize: vertical; font-family: inherit; }
 select.input { cursor: pointer; }
 .input-row { display: flex; gap: 8px; }
 .input-row .input { flex: 1; min-width: 0; }
+
+/* 按钮 */
 .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     padding: 10px 16px; min-height: 40px; border: 1px solid var(--border);
@@ -130,13 +155,20 @@ select.input { cursor: pointer; }
 .btn.saving { pointer-events: none; opacity: 0.7; }
 .btn.save-success { background: var(--success) !important; border-color: var(--success) !important; color: #fff !important; pointer-events: none; }
 .btn.save-success i { animation: checkBounce 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+.btn.save-failed { background: var(--danger) !important; border-color: var(--danger) !important; color: #fff !important; pointer-events: none; }
+.btn.save-failed i { animation: shakeFail 0.4s ease; }
 @keyframes checkBounce { 0% { transform: scale(0) rotate(-45deg); } 50% { transform: scale(1.3) rotate(0deg); } 100% { transform: scale(1) rotate(0deg); } }
+@keyframes shakeFail { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+
+/* 预设栏 */
 .preset-bar {
     display: flex; align-items: center; gap: 8px; padding: 12px 16px;
     background: var(--bg-tertiary); border: 1px solid var(--border);
     border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
 }
 .preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
+
+/* 角色卡片 */
 .char-grid { display: flex; flex-direction: column; gap: 12px; }
 .char-card {
     background: var(--bg-tertiary); border: 1px solid var(--border);
@@ -150,7 +182,7 @@ select.input { cursor: pointer; }
 }
 .char-info { flex: 1; min-width: 0; }
 .char-name { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
-.char-aliases { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.char-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
 .char-tags { font-size: 12px; color: var(--text-secondary); line-height: 1.5; word-break: break-word; }
 .char-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
 .char-actions .btn { padding: 6px 10px; min-height: 32px; font-size: 12px; }
@@ -161,7 +193,21 @@ select.input { cursor: pointer; }
 .char-edit-form .form-label { font-size: 11px; margin-bottom: 4px; }
 .char-edit-form .input { padding: 8px 10px; font-size: 12px; }
 .char-edit-form textarea.input { min-height: 60px; }
-.char-pos-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.char-edit-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+/* 折叠区块 */
+.char-section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+}
+.char-section-header .card-title { margin-bottom: 0; }
+.char-section-toggle { color: var(--text-muted); font-size: 12px; transition: transform 0.2s; }
+.card.collapsed .char-section-toggle { transform: rotate(-90deg); }
+.card.collapsed .char-section-content { display: none; }
+.char-section-content { margin-top: 16px; }
+
+/* 预览 */
 .preview-box {
     margin-top: 16px; background: var(--bg-input); border: 1px solid var(--border);
     border-radius: 10px; padding: 16px; text-align: center; display: none;
@@ -172,29 +218,29 @@ select.input { cursor: pointer; }
 .status-text.success { color: var(--success); }
 .status-text.error { color: var(--danger); }
 .status-text.loading { color: var(--warning); }
+
+/* 提示 */
 .tip-box {
     display: flex; gap: 10px; padding: 12px 14px; background: var(--accent-soft);
     border: 1px solid rgba(212, 165, 116, 0.2); border-radius: 8px;
     font-size: 12px; color: var(--text-secondary); line-height: 1.6;
 }
 .tip-box i { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
+
+/* 统计 */
 .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px; }
 .stat-item { text-align: center; }
 .stat-value { font-size: 28px; font-weight: 700; color: var(--accent); }
 .stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   画廊样式
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* 画廊 */
 .gallery-char-section { margin-bottom: 16px; }
 .gallery-char-header {
     display: flex; align-items: center; gap: 12px; padding: 14px 18px;
     background: var(--bg-tertiary); border: 1px solid var(--border);
     border-radius: 10px; cursor: pointer; transition: all 0.15s;
 }
-.gallery-char-section:not(.collapsed) .gallery-char-header {
-    border-radius: 10px 10px 0 0;
-}
+.gallery-char-section:not(.collapsed) .gallery-char-header { border-radius: 10px 10px 0 0; }
 .gallery-char-header:hover { background: rgba(255,255,255,0.05); }
 .gallery-char-avatar {
     width: 36px; height: 36px; border-radius: 50%; background: var(--accent-soft);
@@ -228,7 +274,7 @@ select.input { cursor: pointer; }
 }
 .gallery-slot:hover .gallery-slot-overlay { opacity: 1; }
 .gallery-slot-actions { display: flex; gap: 6px; justify-content: center; }
-.gallery-slot-actions .btn { padding: 6px 10px; min-height: 28px; font-size: 11px; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
+.gallery-slot-actions .btn { padding: 6px 10px; min-height: 28px; font-size: 11px; background: rgba(0,0,0,0.6); }
 .gallery-slot-info {
     padding: 10px 12px; font-size: 11px; color: var(--text-secondary);
     display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border);
@@ -239,20 +285,12 @@ select.input { cursor: pointer; }
 }
 .gallery-slot-badge.count { background: var(--accent-soft); color: var(--accent); }
 .gallery-slot-badge.saved { background: rgba(63, 185, 80, 0.15); color: var(--success); }
-.gallery-empty {
-    text-align: center; padding: 60px 20px; color: var(--text-muted);
-}
+.gallery-empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
 .gallery-empty i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; display: block; }
 .gallery-empty p { font-size: 13px; margin-top: 8px; }
-.gallery-loading {
-    grid-column: 1 / -1; text-align: center; padding: 40px 20px;
-    color: var(--text-muted); font-size: 13px;
-}
+.gallery-loading { grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 13px; }
 .gallery-loading i { margin-right: 8px; }
-.gallery-empty-hint {
-    grid-column: 1 / -1; text-align: center; padding: 30px 20px;
-    color: var(--text-muted); font-size: 13px;
-}
+.gallery-empty-hint { grid-column: 1 / -1; text-align: center; padding: 30px 20px; color: var(--text-muted); font-size: 13px; }
 
 /* 画廊弹窗 */
 .gallery-modal {
@@ -284,7 +322,7 @@ select.input { cursor: pointer; }
 .gallery-modal-actions { display: flex; gap: 12px; }
 .gallery-modal-info { font-size: 12px; color: rgba(255,255,255,0.6); text-align: center; }
 
-/* 移动端底部导航 */
+/* 移动端导航 */
 .mobile-nav {
     display: none; position: fixed; bottom: 0; left: 0; right: 0;
     height: 60px; background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 100;
@@ -292,13 +330,14 @@ select.input { cursor: pointer; }
 .mobile-nav-inner { display: flex; height: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .mobile-nav-inner::-webkit-scrollbar { display: none; }
 .mobile-nav-item {
-    flex: 1; min-width: 55px; display: flex; flex-direction: column;
+    flex: 1; min-width: 60px; display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 4px;
     color: var(--text-muted); font-size: 10px; cursor: pointer; padding: 8px 4px;
 }
 .mobile-nav-item i { font-size: 18px; }
 .mobile-nav-item.active { color: var(--accent); }
 
+/* 响应式 */
 @media (max-width: 768px) {
     .app-sidebar { display: none; }
     .mobile-nav { display: block; }
@@ -310,6 +349,7 @@ select.input { cursor: pointer; }
     .header-badge span { display: none; }
     .header-mode button { padding: 5px 10px; font-size: 11px; }
     .header-close { width: 32px; height: 32px; min-width: 32px; font-size: 14px; }
+    .header-credit { display: none; }
     .view-title { font-size: 18px; }
     .card { padding: 16px; }
     .form-row { grid-template-columns: 1fr; }
@@ -331,35 +371,24 @@ select.input { cursor: pointer; }
     .header-close { width: 44px; height: 44px; min-width: 44px; }
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
 }
+
+/* 滚动条 */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
 .hidden { display: none !important; }
-.header-credit {
-    font-size: 11px;
-    color: var(--text-muted);
-    opacity: 0.5;
-    margin-left: 6px;
-    letter-spacing: 0.02em;
-    font-style: italic;
-    transition: opacity 0.2s;
-    white-space: nowrap;
-}
-.header-credit:hover {
-    opacity: 0.9;
-}
-.credit-author {
-    font-style: normal;
-    color: var(--text-secondary);
-}
-@media (max-width: 768px) {
-    .header-credit { display: none; }
-}
 </style>
 </head>
+
 <body>
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     主容器
+     ═══════════════════════════════════════════════════════════════════════════ -->
 <div class="app-container">
+
+    <!-- 头部 -->
     <header class="app-header">
         <div class="header-logo"><i class="fa-solid fa-palette"></i><span>Novel Draw</span></div>
         <div id="nd_badge" class="header-badge"><i class="fa-solid fa-circle"></i><span>未启用</span></div>
@@ -371,20 +400,25 @@ select.input { cursor: pointer; }
         </div>
         <button id="nd_close" class="header-close">✕</button>
     </header>
+
     <div class="app-body">
+        <!-- 侧边栏 -->
         <nav class="app-sidebar">
             <div class="nav-item active" data-view="test"><i class="fa-solid fa-flask"></i>快速测试</div>
             <div class="nav-item" data-view="api"><i class="fa-solid fa-key"></i>API 配置</div>
             <div class="nav-divider"></div>
             <div class="nav-item" data-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</div>
-            <div class="nav-item" data-view="prompts"><i class="fa-solid fa-tags"></i>固定标签</div>
             <div class="nav-item" data-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</div>
             <div class="nav-divider"></div>
             <div class="nav-item" data-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
         </nav>
 
+        <!-- 主内容区 -->
         <main class="app-main">
-            <!-- 快速测试 -->
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 快速测试
+                 ═══════════════════════════════════════════════════════════════ -->
             <div id="view-test" class="view active">
                 <div class="view-header">
                     <h2 class="view-title">快速测试</h2>
@@ -407,7 +441,9 @@ select.input { cursor: pointer; }
                 </div>
             </div>
 
-            <!-- API 配置 -->
+            <!-- ═══════════════════════════════════════════════════════════════
+                 API 配置
+                 ═══════════════════════════════════════════════════════════════ -->
             <div id="view-api" class="view">
                 <div class="view-header">
                     <h2 class="view-title">API 配置</h2>
@@ -440,12 +476,15 @@ select.input { cursor: pointer; }
                 </div>
             </div>
 
-            <!-- 绘图参数 -->
+            <!-- ═══════════════════════════════════════════════════════════════
+                 绘图参数
+                 ═══════════════════════════════════════════════════════════════ -->
             <div id="view-params" class="view">
                 <div class="view-header">
                     <h2 class="view-title">绘图参数</h2>
-                    <p class="view-desc">模型与生成参数设置</p>
+                    <p class="view-desc">模型、生成参数与标签设置</p>
                 </div>
+                
                 <div class="preset-bar">
                     <select id="nd_params_preset" class="input"></select>
                     <div class="btn-group">
@@ -455,6 +494,21 @@ select.input { cursor: pointer; }
                         <button id="nd_params_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>
+                
+                <!-- 全局标签 -->
+                <div class="card">
+                    <div class="card-title">🌐 全局标签</div>
+                    <div class="form-group">
+                        <label class="form-label">正向固定</label>
+                        <textarea id="nd_positive" class="input" rows="3" placeholder="masterpiece, best quality..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">负向固定</label>
+                        <textarea id="nd_negative" class="input" rows="3" placeholder="lowres, bad anatomy..."></textarea>
+                    </div>
+                </div>
+                
+                <!-- 模型与采样 -->
                 <div class="card">
                     <div class="card-title">模型与采样</div>
                     <div class="form-row">
@@ -494,6 +548,8 @@ select.input { cursor: pointer; }
                         </div>
                     </div>
                 </div>
+                
+                <!-- 尺寸与参数 -->
                 <div class="card">
                     <div class="card-title">尺寸与参数</div>
                     <div class="form-row">
@@ -522,6 +578,8 @@ select.input { cursor: pointer; }
                         </div>
                     </div>
                 </div>
+                
+                <!-- 增强选项 -->
                 <div class="card">
                     <div class="card-title">增强选项</div>
                     <div class="form-row">
@@ -566,44 +624,32 @@ select.input { cursor: pointer; }
                         <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-top:8px;"><input type="checkbox" id="nd_decrisper"> Decrisper</label>
                     </div>
                 </div>
-            </div>
-
-            <!-- 固定标签 -->
-            <div id="view-prompts" class="view">
-                <div class="view-header">
-                    <h2 class="view-title">固定标签</h2>
-                    <p class="view-desc">全局标签和参数预设绑定，角色标签在所有预设间共享</p>
-                </div>
-                <div class="card">
-                    <div class="card-title">🌐 全局标签</div>
-                    <div class="form-group">
-                        <label class="form-label">正向固定</label>
-                        <textarea id="nd_positive" class="input" rows="3" placeholder="masterpiece, best quality..."></textarea>
+                
+                <!-- 角色标签 -->
+                <div class="card" id="nd_char_card">
+                    <div class="char-section-header" id="nd_char_header">
+                        <div class="card-title">👥 角色标签</div>
+                        <i class="fa-solid fa-chevron-down char-section-toggle"></i>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">负向固定</label>
-                        <textarea id="nd_negative" class="input" rows="3" placeholder="lowres, bad anatomy..."></textarea>
-                    </div>
-                    <div class="btn-group" style="margin-top:12px;justify-content:flex-end;">
-                        <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-title">👥 角色标签</div>
-                    <div class="btn-group" style="margin-bottom:16px;">
-                        <button id="nd_char_add" class="btn btn-primary"><i class="fa-solid fa-plus"></i> 添加角色</button>
-                        <button id="nd_char_export" class="btn"><i class="fa-solid fa-download"></i> 导出</button>
-                        <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="nd_char_import" accept=".json" style="display:none;"></label>
-                    </div>
-                    <div id="nd_char_list" class="char-grid"></div>
-                    <div id="nd_char_empty" class="char-empty">
-                        <i class="fa-solid fa-user-plus"></i>
-                        <div>暂无角色配置</div>
+                    <div class="char-section-content">
+                        <p class="form-hint" style="margin-bottom:16px;">预设角色外貌，LLM 只需补充动作和互动标签</p>
+                        <div class="btn-group" style="margin-bottom:16px;">
+                            <button id="nd_char_add" class="btn btn-primary"><i class="fa-solid fa-plus"></i> 添加角色</button>
+                            <button id="nd_char_export" class="btn"><i class="fa-solid fa-download"></i> 导出</button>
+                            <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="nd_char_import" accept=".json" style="display:none;"></label>
+                        </div>
+                        <div id="nd_char_list" class="char-grid"></div>
+                        <div id="nd_char_empty" class="char-empty">
+                            <i class="fa-solid fa-user-plus"></i>
+                            <div>暂无角色配置</div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- LLM 配置 -->
+            <!-- ═══════════════════════════════════════════════════════════════
+                 LLM 配置
+                 ═══════════════════════════════════════════════════════════════ -->
             <div id="view-llm" class="view">
                 <div class="view-header">
                     <h2 class="view-title">LLM 配置</h2>
@@ -654,7 +700,7 @@ select.input { cursor: pointer; }
                     </div>
                     <div class="form-group" style="margin-top:16px;">
                         <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
-                            <input type="checkbox" id="nd_use_stream" checked> 启用流式生成
+                            <input type="checkbox" id="nd_use_stream"> 启用流式生成
                         </label>
                     </div>
                     <div id="nd_llm_status" class="status-text"></div>
@@ -668,7 +714,9 @@ select.input { cursor: pointer; }
                 </div>
             </div>
 
-            <!-- 图片管理（画廊 + 缓存） -->
+            <!-- ═══════════════════════════════════════════════════════════════
+                 图片管理
+                 ═══════════════════════════════════════════════════════════════ -->
             <div id="view-gallery" class="view wide">
                 <div class="view-header">
                     <h2 class="view-title">图片管理</h2>
@@ -708,15 +756,16 @@ select.input { cursor: pointer; }
                     <p>生成的配图会显示在这里，点击角色展开查看</p>
                 </div>
             </div>
+
         </main>
     </div>
 
+    <!-- 移动端导航 -->
     <nav class="mobile-nav">
         <div class="mobile-nav-inner">
             <div class="mobile-nav-item active" data-view="test"><i class="fa-solid fa-flask"></i><span>测试</span></div>
             <div class="mobile-nav-item" data-view="api"><i class="fa-solid fa-key"></i><span>API</span></div>
             <div class="mobile-nav-item" data-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
-            <div class="mobile-nav-item" data-view="prompts"><i class="fa-solid fa-tags"></i><span>标签</span></div>
             <div class="mobile-nav-item" data-view="llm"><i class="fa-solid fa-robot"></i><span>LLM</span></div>
             <div class="mobile-nav-item" data-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
         </div>
@@ -736,13 +785,50 @@ select.input { cursor: pointer; }
             <div class="gallery-modal-info" id="nd_modal_info"></div>
         </div>
     </div>
+
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     脚本
+     ═══════════════════════════════════════════════════════════════════════════ -->
 <script>
+// ═══════════════════════════════════════════════════════════════════════════
+// 常量与默认值
+// ═══════════════════════════════════════════════════════════════════════════
+
 const DEFAULTS = {
-    timeout: 60000, requestDelay: { min: 15000, max: 30000 }, cacheDays: 3,
-    params: { model: 'nai-diffusion-4-5-full', sampler: 'k_euler_ancestral', scheduler: 'karras', steps: 28, scale: 6, width: 1216, height: 832, seed: -1, qualityToggle: true, autoSmea: false, ucPreset: 0, cfg_rescale: 0, variety_boost: false, sm: false, sm_dyn: false, decrisper: false }
+    timeout: 60000,
+    requestDelay: { min: 15000, max: 30000 },
+    cacheDays: 3,
+    params: {
+        model: 'nai-diffusion-4-5-full',
+        sampler: 'k_euler_ancestral',
+        scheduler: 'karras',
+        steps: 28,
+        scale: 6,
+        width: 1216,
+        height: 832,
+        seed: -1,
+        qualityToggle: true,
+        autoSmea: false,
+        ucPreset: 0,
+        cfg_rescale: 0,
+        variety_boost: false,
+        sm: false,
+        sm_dyn: false,
+        decrisper: false
+    }
 };
+
+const CHARACTER_TYPES = [
+    { value: 'girl', label: 'girl (少女)' },
+    { value: 'woman', label: 'woman (成年女性)' },
+    { value: 'boy', label: 'boy (少年)' },
+    { value: 'man', label: 'man (成年男性)' },
+    { value: 'other', label: 'other (其他)' },
+    { value: 'custom', label: '自定义...' }
+];
+
 const providerDefaults = {
     st: { url: '', needKey: false, canFetch: false, needManualModel: false },
     openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
@@ -752,26 +838,68 @@ const providerDefaults = {
     cohere: { url: 'https://api.cohere.ai', needKey: true, canFetch: false, needManualModel: true },
     custom: { url: '', needKey: true, canFetch: true, needManualModel: false }
 };
-const $ = id => document.getElementById(id);
-const $$ = sel => document.querySelectorAll(sel);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 状态
+// ═══════════════════════════════════════════════════════════════════════════
 
 let state = {
-    enabled: false, mode: 'manual', apiKey: '', timeout: DEFAULTS.timeout,
-    requestDelay: { ...DEFAULTS.requestDelay }, cacheDays: DEFAULTS.cacheDays,
+    enabled: false,
+    mode: 'manual',
+    apiKey: '',
+    timeout: DEFAULTS.timeout,
+    requestDelay: { ...DEFAULTS.requestDelay },
+    cacheDays: DEFAULTS.cacheDays,
     cacheStats: { count: 0, sizeMB: '0' },
-    selectedParamsPresetId: null, selectedLlmPresetId: null,
-    paramsPresets: [], llmPresets: [],
+    selectedParamsPresetId: null,
+    selectedLlmPresetId: null,
+    paramsPresets: [],
+    llmPresets: [],
     llmApi: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
-    useStream: true, characterTags: []
+    useStream: true,
+    characterTags: []
 };
 
-let gallerySummary = {};           // ★ 只存摘要
-let loadedCharPreviews = {};       // ★ 懒加载的完整数据
+let gallerySummary = {};
+let loadedCharPreviews = {};
 let editingCharId = null;
 let activeSaveBtn = null;
 let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
 
-function postToParent(payload) { window.parent.postMessage({ source: 'NovelDraw-Frame', ...payload }, '*'); }
+// ═══════════════════════════════════════════════════════════════════════════
+// 工具函数
+// ═══════════════════════════════════════════════════════════════════════════
+
+const $ = id => document.getElementById(id);
+const $$ = sel => document.querySelectorAll(sel);
+
+function postToParent(payload) {
+    window.parent.postMessage({ source: 'NovelDraw-Frame', ...payload }, '*');
+}
+
+function escapeHtml(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function getCharEmoji(name) {
+    const emojis = ['👤','👩','👨','🧑','👧','👦','👸','🤴','🧙','🧝','🧛','🦸'];
+    return emojis[String(name || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0) % emojis.length];
+}
+
+function parseDelay(str) {
+    const parts = String(str).split('-').map(s => parseInt(s.trim()));
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        return { min: Math.min(parts[0], parts[1]), max: Math.max(parts[0], parts[1]) };
+    }
+    const single = parseInt(str);
+    if (!isNaN(single) && single > 0) return { min: single, max: single };
+    return { ...DEFAULTS.requestDelay };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UI 更新
+// ═══════════════════════════════════════════════════════════════════════════
+
 function switchView(viewId) {
     $$('.view').forEach(v => v.classList.remove('active'));
     $$('.nav-item, .mobile-nav-item').forEach(n => n.classList.remove('active'));
@@ -779,17 +907,204 @@ function switchView(viewId) {
     $$(`[data-view="${viewId}"]`).forEach(n => n.classList.add('active'));
     if (viewId === 'gallery') postToParent({ type: 'REFRESH_CACHE_STATS' });
 }
-function updateModeButtons(mode) { $$('.header-mode button').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode)); }
-function updateBadge(enabled) { const b = $('nd_badge'); b.className = 'header-badge' + (enabled ? ' on' : ''); b.querySelector('span').textContent = enabled ? '已启用' : '未启用'; }
-function updateStatus(el, st, text) { if (!el) return; el.textContent = text || ''; el.className = 'status-text' + (st ? ' ' + st : ''); }
-function escapeHtml(str) { return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-function getCharEmoji(name) { const e = ['👤','👩','👨','🧑','👧','👦','👸','🤴','🧙','🧝','🧛','🦸']; return e[String(name||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0) % e.length]; }
-function setSavingState(btn) { if (!btn) return; activeSaveBtn = btn; const i = btn.querySelector('i'); if (i) { btn._origIcon = i.className; i.className = 'fa-solid fa-spinner fa-spin'; } btn.classList.add('saving'); }
-function handleSaveResult(success) { if (!activeSaveBtn) return; const btn = activeSaveBtn; activeSaveBtn = null; btn.classList.remove('saving'); const i = btn.querySelector('i'); if (success && i) { i.className = 'fa-solid fa-check'; btn.classList.add('save-success'); setTimeout(() => { btn.classList.remove('save-success'); i.className = btn._origIcon || 'fa-solid fa-floppy-disk'; }, 1500); } else if (i) { i.className = btn._origIcon || 'fa-solid fa-floppy-disk'; } }
+
+function updateModeButtons(mode) {
+    $$('.header-mode button').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
+}
+
+function updateBadge(enabled) {
+    const b = $('nd_badge');
+    b.className = 'header-badge' + (enabled ? ' on' : '');
+    b.querySelector('span').textContent = enabled ? '已启用' : '未启用';
+}
+
+function updateStatus(el, st, text) {
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'status-text' + (st ? ' ' + st : '');
+}
+
+function setSavingState(btn) {
+    if (!btn) return;
+    activeSaveBtn = btn;
+    const i = btn.querySelector('i');
+    if (i) { btn._origIcon = i.className; i.className = 'fa-solid fa-spinner fa-spin'; }
+    btn.classList.add('saving');
+}
+
+function handleSaveResult(success) {
+    if (!activeSaveBtn) return;
+    const btn = activeSaveBtn;
+    activeSaveBtn = null;
+    btn.classList.remove('saving');
+    const i = btn.querySelector('i');
+    
+    if (success && i) {
+        i.className = 'fa-solid fa-check';
+        btn.classList.add('save-success');
+        setTimeout(() => {
+            btn.classList.remove('save-success');
+            i.className = btn._origIcon || 'fa-solid fa-floppy-disk';
+        }, 1500);
+    } else if (i) {
+        i.className = 'fa-solid fa-xmark';
+        btn.classList.add('save-failed');
+        setTimeout(() => {
+            btn.classList.remove('save-failed');
+            i.className = btn._origIcon || 'fa-solid fa-floppy-disk';
+        }, 2000);
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 画廊（懒加载版）
+// 角色列表
 // ═══════════════════════════════════════════════════════════════════════════
+
+function renderCharList() {
+    const list = $('nd_char_list');
+    const empty = $('nd_char_empty');
+    const chars = state.characterTags || [];
+    
+    if (!chars.length) {
+        list.innerHTML = '';
+        list.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+    
+    list.style.display = 'flex';
+    empty.style.display = 'none';
+    
+    list.innerHTML = chars.map(c => {
+        const isEditing = editingCharId === c.id;
+        const aliasText = (c.aliases || []).length > 0 ? `别名: ${c.aliases.join(', ')}` : '';
+        const typeLabel = CHARACTER_TYPES.find(t => t.value === c.type)?.label || c.type || 'girl';
+        const appearance = c.appearance || '';
+        
+        if (isEditing) {
+            const typeOptions = CHARACTER_TYPES.map(t => 
+                `<option value="${t.value}"${t.value === (c.type || 'girl') ? ' selected' : ''}>${t.label}</option>`
+            ).join('');
+            
+            return `
+            <div class="char-card editing" data-id="${c.id}">
+                <div class="char-avatar">${getCharEmoji(c.name)}</div>
+                <div class="char-info">
+                    <div class="char-edit-form">
+                        <div class="char-edit-row">
+                            <div class="form-group">
+                                <label class="form-label">角色名称</label>
+                                <input type="text" class="input char-edit-name" value="${escapeHtml(c.name)}" placeholder="角色名称">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">类型</label>
+                                <select class="input char-edit-type">${typeOptions}</select>
+                                <input type="text" class="input char-edit-type-custom hidden" placeholder="如: mature female" style="margin-top:4px;">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">别名（逗号分隔）</label>
+                            <input type="text" class="input char-edit-aliases" value="${escapeHtml((c.aliases || []).join(', '))}" placeholder="小名, 昵称, ...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">外貌标签 (appearance)</label>
+                            <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(appearance)}</textarea>
+                            <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">负向标签（可选）</label>
+                            <textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(c.negativeTags || '')}</textarea>
+                        </div>
+                        <div class="char-edit-row">
+                            <div class="form-group">
+                                <label class="form-label">位置 X (0-1)</label>
+                                <input type="number" class="input char-edit-posx" value="${c.posX ?? 0.5}" min="0" max="1" step="0.1">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">位置 Y (0-1)</label>
+                                <input type="number" class="input char-edit-posy" value="${c.posY ?? 0.5}" min="0" max="1" step="0.1">
+                            </div>
+                        </div>
+                        <div class="btn-group" style="margin-top:12px;">
+                            <button class="btn btn-primary" data-action="save" data-id="${c.id}"><i class="fa-solid fa-check"></i> 保存</button>
+                            <button class="btn" data-action="cancel" data-id="${c.id}">取消</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+        
+        return `
+        <div class="char-card" data-id="${c.id}">
+            <div class="char-avatar">${getCharEmoji(c.name)}</div>
+            <div class="char-info">
+                <div class="char-name">${escapeHtml(c.name)}</div>
+                <div class="char-meta">[${escapeHtml(typeLabel.split(' ')[0])}] ${escapeHtml(aliasText)}</div>
+                <div class="char-tags">✅ ${escapeHtml(appearance || '未设置外貌')}</div>
+                ${c.negativeTags ? `<div class="char-tags" style="color:var(--text-muted);font-size:11px;">❌ ${escapeHtml(c.negativeTags.slice(0, 50))}...</div>` : ''}
+            </div>
+            <div class="char-actions">
+                <button class="btn" data-action="edit" data-id="${c.id}"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn btn-danger" data-action="delete" data-id="${c.id}"><i class="fa-solid fa-trash"></i></button>
+            </div>
+        </div>`;
+    }).join('');
+    
+    list.querySelectorAll('.char-edit-type').forEach(sel => {
+        sel.addEventListener('change', function() {
+            const customInput = this.closest('.char-edit-form').querySelector('.char-edit-type-custom');
+            if (customInput) {
+                customInput.classList.toggle('hidden', this.value !== 'custom');
+            }
+        });
+    });
+}
+
+function handleCharAction(action, id, card) {
+    if (action === 'edit') {
+        editingCharId = id;
+        renderCharList();
+    } else if (action === 'cancel') {
+        editingCharId = null;
+        renderCharList();
+    } else if (action === 'save') {
+        const char = state.characterTags.find(c => c.id === id);
+        if (!char) return;
+        
+        const name = card.querySelector('.char-edit-name')?.value?.trim();
+        if (!name) { alert('请输入角色名称'); return; }
+        
+        const typeSelect = card.querySelector('.char-edit-type');
+        const typeCustom = card.querySelector('.char-edit-type-custom');
+        let type = typeSelect?.value || 'girl';
+        if (type === 'custom' && typeCustom?.value?.trim()) {
+            type = typeCustom.value.trim();
+        }
+        
+        char.name = name;
+        char.type = type;
+        char.aliases = (card.querySelector('.char-edit-aliases')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+        char.appearance = card.querySelector('.char-edit-appearance')?.value?.trim() || '';
+        char.negativeTags = card.querySelector('.char-edit-neg')?.value?.trim() || '';
+        char.posX = Math.max(0, Math.min(1, parseFloat(card.querySelector('.char-edit-posx')?.value) || 0.5));
+        char.posY = Math.max(0, Math.min(1, parseFloat(card.querySelector('.char-edit-posy')?.value) || 0.5));
+        
+        editingCharId = null;
+        postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
+        renderCharList();
+    } else if (action === 'delete') {
+        if (confirm('确定删除此角色？')) {
+            state.characterTags = state.characterTags.filter(c => c.id !== id);
+            postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
+            renderCharList();
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 画廊
+// ═══════════════════════════════════════════════════════════════════════════
+
 function renderGalleryView() {
     const container = $('nd_gallery_container');
     const empty = $('nd_gallery_empty');
@@ -805,7 +1120,6 @@ function renderGalleryView() {
     container.style.display = 'block';
     empty.style.display = 'none';
     
-    // 按最新时间排序
     chars.sort((a, b) => (gallerySummary[b].latestTimestamp || 0) - (gallerySummary[a].latestTimestamp || 0));
     
     container.innerHTML = chars.map(charName => {
@@ -813,7 +1127,6 @@ function renderGalleryView() {
         const slotCount = Object.keys(charData.slots || {}).length;
         const sizeMB = ((charData.totalSize || 0) / 1024 / 1024).toFixed(2);
         
-        // ★ 默认折叠
         return `
         <div class="gallery-char-section collapsed" data-char="${escapeHtml(charName)}">
             <div class="gallery-char-header">
@@ -828,7 +1141,6 @@ function renderGalleryView() {
         </div>`;
     }).join('');
     
-    // 绑定展开事件
     container.querySelectorAll('.gallery-char-header').forEach(header => {
         header.addEventListener('click', () => {
             const section = header.closest('.gallery-char-section');
@@ -836,7 +1148,6 @@ function renderGalleryView() {
             const wasCollapsed = section.classList.contains('collapsed');
             section.classList.toggle('collapsed');
             
-            // ★ 展开时懒加载
             if (wasCollapsed && !loadedCharPreviews[charName]) {
                 const slotsDiv = section.querySelector('.gallery-slots');
                 slotsDiv.innerHTML = '<div class="gallery-loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中...</div>';
@@ -846,7 +1157,6 @@ function renderGalleryView() {
     });
 }
 
-// ★ 渲染某个角色的图片
 function renderCharacterSlots(charName, slots) {
     const slotsContainer = document.querySelector(`.gallery-slots[data-char="${CSS.escape(charName)}"]`);
     if (!slotsContainer) return;
@@ -857,7 +1167,6 @@ function renderCharacterSlots(charName, slots) {
         return;
     }
     
-    // 按最新时间排序
     slotEntries.sort((a, b) => (b[1][0]?.timestamp || 0) - (a[1][0]?.timestamp || 0));
     
     slotsContainer.innerHTML = slotEntries.map(([slotId, images]) => {
@@ -885,7 +1194,6 @@ function renderCharacterSlots(charName, slots) {
         </div>`;
     }).join('');
     
-    // 绑定事件
     slotsContainer.querySelectorAll('[data-action="view"]').forEach(btn => {
         btn.addEventListener('click', e => { e.stopPropagation(); openGalleryModalFromCache(btn.dataset.char, btn.dataset.slot); });
     });
@@ -896,13 +1204,16 @@ function renderCharacterSlots(charName, slots) {
 
 function openGalleryModalFromCache(charName, slotId) {
     const slots = loadedCharPreviews[charName];
-    if (!slots || !slots[slotId]) { console.warn('[Gallery] 未找到数据:', charName, slotId); return; }
+    if (!slots || !slots[slotId]) return;
     modalData = { slotId, images: slots[slotId], currentIndex: 0, charName };
     renderModalContent();
     $('nd_gallery_modal').classList.add('visible');
 }
 
-function closeGalleryModal() { $('nd_gallery_modal').classList.remove('visible'); modalData = { slotId: null, images: [], currentIndex: 0, charName: null }; }
+function closeGalleryModal() {
+    $('nd_gallery_modal').classList.remove('visible');
+    modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
+}
 
 function renderModalContent() {
     const { images, currentIndex } = modalData;
@@ -919,54 +1230,55 @@ function renderModalContent() {
         return `<img class="${cls.join(' ')}" src="${src}" data-index="${i}">`;
     }).join('');
     
-    $('nd_modal_thumbs').querySelectorAll('img').forEach(t => t.addEventListener('click', () => { modalData.currentIndex = parseInt(t.dataset.index); renderModalContent(); }));
+    $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
+        t.addEventListener('click', () => { modalData.currentIndex = parseInt(t.dataset.index); renderModalContent(); });
+    });
     
     const saveBtn = $('nd_modal_save');
-    if (current.savedUrl) { saveBtn.innerHTML = '<i class="fa-solid fa-check"></i> 已保存'; saveBtn.disabled = true; }
-    else { saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> 保存到服务器'; saveBtn.disabled = false; }
+    if (current.savedUrl) {
+        saveBtn.innerHTML = '<i class="fa-solid fa-check"></i> 已保存';
+        saveBtn.disabled = true;
+    } else {
+        saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> 保存到服务器';
+        saveBtn.disabled = false;
+    }
     
     $('nd_modal_info').textContent = `${currentIndex + 1} / ${images.length} · ${new Date(current.timestamp).toLocaleString()}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 角色列表
+// LLM 配置 UI
 // ═══════════════════════════════════════════════════════════════════════════
-function renderCharList() {
-    const list = $('nd_char_list'); const empty = $('nd_char_empty'); const chars = state.characterTags || [];
-    if (!chars.length) { list.innerHTML = ''; list.style.display = 'none'; empty.style.display = 'block'; return; }
-    list.style.display = 'flex'; empty.style.display = 'none';
-    list.innerHTML = chars.map(c => {
-        const isEditing = editingCharId === c.id;
-        const aliasText = (c.aliases || []).length > 0 ? `别名: ${c.aliases.join(', ')}` : '';
-        if (isEditing) return `<div class="char-card editing" data-id="${c.id}"><div class="char-avatar">${getCharEmoji(c.name)}</div><div class="char-info"><div class="char-edit-form"><div class="form-group"><label class="form-label">角色名称</label><input type="text" class="input char-edit-name" value="${escapeHtml(c.name)}" placeholder="角色名称"></div><div class="form-group"><label class="form-label">别名（逗号分隔）</label><input type="text" class="input char-edit-aliases" value="${escapeHtml((c.aliases || []).join(', '))}" placeholder="小名, 昵称, ..."></div><div class="form-group"><label class="form-label">正向标签</label><textarea class="input char-edit-tags" placeholder="1girl, black hair, blue eyes">${escapeHtml(c.tags)}</textarea></div><div class="form-group"><label class="form-label">负向标签（可选）</label><textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(c.negativeTags || '')}</textarea></div><div class="char-pos-row"><div class="form-group"><label class="form-label">位置 X (0-1)</label><input type="number" class="input char-edit-posx" value="${c.posX ?? 0.5}" min="0" max="1" step="0.1"></div><div class="form-group"><label class="form-label">位置 Y (0-1)</label><input type="number" class="input char-edit-posy" value="${c.posY ?? 0.5}" min="0" max="1" step="0.1"></div></div><div class="btn-group" style="margin-top:12px;"><button class="btn btn-primary" data-action="save" data-id="${c.id}"><i class="fa-solid fa-check"></i> 保存</button><button class="btn" data-action="cancel" data-id="${c.id}">取消</button></div></div></div></div>`;
-        return `<div class="char-card" data-id="${c.id}"><div class="char-avatar">${getCharEmoji(c.name)}</div><div class="char-info"><div class="char-name">${escapeHtml(c.name)}</div><div class="char-aliases">${escapeHtml(aliasText)}</div><div class="char-tags">✅ ${escapeHtml(c.tags || '未设置标签')}</div>${c.negativeTags ? `<div class="char-tags" style="color:var(--text-muted);font-size:11px;">❌ ${escapeHtml(c.negativeTags.slice(0, 50))}...</div>` : ''}</div><div class="char-actions"><button class="btn" data-action="edit" data-id="${c.id}"><i class="fa-solid fa-pen"></i></button><button class="btn btn-danger" data-action="delete" data-id="${c.id}"><i class="fa-solid fa-trash"></i></button></div></div>`;
-    }).join('');
-}
-function handleCharAction(action, id, card) {
-    if (action === 'edit') { editingCharId = id; renderCharList(); }
-    else if (action === 'cancel') { editingCharId = null; renderCharList(); }
-    else if (action === 'save') {
-        const char = state.characterTags.find(c => c.id === id); if (!char) return;
-        const name = card.querySelector('.char-edit-name')?.value?.trim(); if (!name) { alert('请输入角色名称'); return; }
-        char.name = name; char.aliases = (card.querySelector('.char-edit-aliases')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
-        char.tags = card.querySelector('.char-edit-tags')?.value?.trim() || ''; char.negativeTags = card.querySelector('.char-edit-neg')?.value?.trim() || '';
-        char.posX = Math.max(0, Math.min(1, parseFloat(card.querySelector('.char-edit-posx')?.value) || 0.5));
-        char.posY = Math.max(0, Math.min(1, parseFloat(card.querySelector('.char-edit-posy')?.value) || 0.5));
-        editingCharId = null; postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags }); renderCharList();
-    } else if (action === 'delete') { if (confirm('确定删除此角色？')) { state.characterTags = state.characterTags.filter(c => c.id !== id); postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags }); renderCharList(); } }
-}
 
 function updateLlmProviderUI() {
-    const provider = $('nd_llm_provider').value; const pv = providerDefaults[provider] || providerDefaults.custom; const isSt = provider === 'st';
+    const provider = $('nd_llm_provider').value;
+    const pv = providerDefaults[provider] || providerDefaults.custom;
+    const isSt = provider === 'st';
     const hasCache = (state.llmApi?.modelCache?.length || 0) > 0;
-    $('nd_llm_url_row').classList.toggle('hidden', isSt); $('nd_llm_key_row').classList.toggle('hidden', isSt);
+    
+    $('nd_llm_url_row').classList.toggle('hidden', isSt);
+    $('nd_llm_key_row').classList.toggle('hidden', isSt);
     $('nd_llm_model_manual_row').classList.toggle('hidden', isSt || !pv.needManualModel);
     $('nd_llm_model_select_row').classList.toggle('hidden', isSt || pv.needManualModel || !hasCache);
     $('nd_llm_connect_row').classList.toggle('hidden', isSt || !pv.canFetch);
 }
 
+function getCurrentLlmModel() {
+    const provider = $('nd_llm_provider').value;
+    const pv = providerDefaults[provider] || providerDefaults.custom;
+    if (pv.needManualModel) return $('nd_llm_model_manual').value.trim();
+    else if (pv.canFetch) return $('nd_llm_model_select').value || '';
+    return '';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 预设与设置
+// ═══════════════════════════════════════════════════════════════════════════
+
 function applyStateToUI() {
-    updateBadge(state.enabled); updateModeButtons(state.mode);
+    updateBadge(state.enabled);
+    updateModeButtons(state.mode);
+    
     $('nd_api_key').value = state.apiKey || '';
     $('nd_timeout').value = Math.round((state.timeout > 0 ? state.timeout : DEFAULTS.timeout) / 1000);
     const dMin = state.requestDelay?.min > 0 ? state.requestDelay.min : DEFAULTS.requestDelay.min;
@@ -975,44 +1287,148 @@ function applyStateToUI() {
     $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
     $('nd_cache_count').textContent = state.cacheStats?.count || 0;
     $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
-    const pSel = $('nd_params_preset'); pSel.innerHTML = state.paramsPresets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join(''); pSel.value = state.selectedParamsPresetId || '';
-    const lSel = $('nd_llm_preset'); lSel.innerHTML = state.llmPresets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join(''); lSel.value = state.selectedLlmPresetId || '';
-    applyParamsPreset(); applyLlmPreset(); applyLlmApi(); renderCharList(); renderGalleryView();
+    
+    const pSel = $('nd_params_preset');
+    pSel.innerHTML = state.paramsPresets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
+    pSel.value = state.selectedParamsPresetId || '';
+    
+    const lSel = $('nd_llm_preset');
+    lSel.innerHTML = state.llmPresets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
+    lSel.value = state.selectedLlmPresetId || '';
+    
+    applyParamsPreset();
+    applyLlmPreset();
+    applyLlmApi();
+    renderCharList();
+    renderGalleryView();
 }
+
 function applyParamsPreset() {
-    const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId) || state.paramsPresets[0]; if (!p) return;
-    $('nd_positive').value = p.positivePrefix || ''; $('nd_negative').value = p.negativePrefix || '';
-    const pm = p.params || {}; const dp = DEFAULTS.params;
-    setSelectOrCustom('model', pm.model || dp.model); setSelectOrCustom('sampler', pm.sampler || dp.sampler); setSelectOrCustom('scheduler', pm.scheduler || dp.scheduler);
-    $('nd_steps').value = pm.steps ?? dp.steps; $('nd_scale').value = pm.scale ?? dp.scale; $('nd_seed').value = pm.seed ?? dp.seed;
-    $('nd_width').value = pm.width ?? dp.width; $('nd_height').value = pm.height ?? dp.height; updateSizePreset();
+    const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId) || state.paramsPresets[0];
+    if (!p) return;
+    
+    $('nd_positive').value = p.positivePrefix || '';
+    $('nd_negative').value = p.negativePrefix || '';
+    
+    const pm = p.params || {};
+    const dp = DEFAULTS.params;
+    
+    setSelectOrCustom('model', pm.model || dp.model);
+    setSelectOrCustom('sampler', pm.sampler || dp.sampler);
+    setSelectOrCustom('scheduler', pm.scheduler || dp.scheduler);
+    
+    $('nd_steps').value = pm.steps ?? dp.steps;
+    $('nd_scale').value = pm.scale ?? dp.scale;
+    $('nd_seed').value = pm.seed ?? dp.seed;
+    $('nd_width').value = pm.width ?? dp.width;
+    $('nd_height').value = pm.height ?? dp.height;
+    updateSizePreset();
+    
     $('nd_quality_toggle').value = (pm.qualityToggle ?? dp.qualityToggle) ? 'true' : 'false';
     $('nd_auto_smea').value = (pm.autoSmea ?? dp.autoSmea) ? 'true' : 'false';
-    $('nd_uc_preset').value = pm.ucPreset ?? dp.ucPreset; $('nd_cfg_rescale').value = pm.cfg_rescale ?? dp.cfg_rescale;
-    $('nd_variety_boost').checked = pm.variety_boost ?? dp.variety_boost; $('nd_sm').checked = pm.sm ?? dp.sm;
-    $('nd_sm_dyn').checked = pm.sm_dyn ?? dp.sm_dyn; $('nd_decrisper').checked = pm.decrisper ?? dp.decrisper;
+    $('nd_uc_preset').value = pm.ucPreset ?? dp.ucPreset;
+    $('nd_cfg_rescale').value = pm.cfg_rescale ?? dp.cfg_rescale;
+    $('nd_variety_boost').checked = pm.variety_boost ?? dp.variety_boost;
+    $('nd_sm').checked = pm.sm ?? dp.sm;
+    $('nd_sm_dyn').checked = pm.sm_dyn ?? dp.sm_dyn;
+    $('nd_decrisper').checked = pm.decrisper ?? dp.decrisper;
+    
     updateModelOptions();
 }
-function applyLlmPreset() { const p = state.llmPresets.find(x => x.id === state.selectedLlmPresetId) || state.llmPresets[0]; if (!p) return; $('nd_llm_system').value = p.systemPrompt || ''; $('nd_llm_ack').value = p.assistantAck || ''; $('nd_llm_user').value = p.userTemplate || ''; $('nd_llm_prefix').value = p.assistantPrefix || ''; }
+
+function applyLlmPreset() {
+    const p = state.llmPresets.find(x => x.id === state.selectedLlmPresetId) || state.llmPresets[0];
+    if (!p) return;
+    $('nd_llm_system').value = p.systemPrompt || '';
+    $('nd_llm_ack').value = p.assistantAck || '';
+    $('nd_llm_user').value = p.userTemplate || '';
+    $('nd_llm_prefix').value = p.assistantPrefix || '';
+}
+
 function applyLlmApi() {
-    const api = state.llmApi || {}; const provider = api.provider || 'st'; const pv = providerDefaults[provider] || providerDefaults.custom;
-    $('nd_llm_provider').value = provider; $('nd_llm_url').value = api.url || pv.url || ''; $('nd_llm_key').value = api.key || ''; $('nd_use_stream').checked = state.useStream !== false;
+    const api = state.llmApi || {};
+    const provider = api.provider || 'st';
+    const pv = providerDefaults[provider] || providerDefaults.custom;
+    
+    $('nd_llm_provider').value = provider;
+    $('nd_llm_url').value = api.url || pv.url || '';
+    $('nd_llm_key').value = api.key || '';
+    $('nd_use_stream').checked = state.useStream !== false;
+    
     if (pv.needManualModel) $('nd_llm_model_manual').value = api.model || '';
-    const mc = api.modelCache || []; const sel = $('nd_llm_model_select');
-    sel.innerHTML = mc.length > 0 ? mc.map(m => `<option value="${escapeHtml(m)}"${m === api.model ? ' selected' : ''}>${escapeHtml(m)}</option>`).join('') : '<option value="">请先拉取模型列表</option>';
+    
+    const mc = api.modelCache || [];
+    const sel = $('nd_llm_model_select');
+    sel.innerHTML = mc.length > 0
+        ? mc.map(m => `<option value="${escapeHtml(m)}"${m === api.model ? ' selected' : ''}>${escapeHtml(m)}</option>`).join('')
+        : '<option value="">请先拉取模型列表</option>';
+    
     updateLlmProviderUI();
 }
-function setSelectOrCustom(kind, value) { const sel = $(`nd_${kind}_sel`); const input = $(`nd_${kind}`); const has = [...sel.options].some(o => o.value === value); sel.value = has ? value : 'custom'; input.classList.toggle('hidden', sel.value !== 'custom'); input.value = value || ''; }
-function updateSizePreset() { const w = $('nd_width').value; const h = $('nd_height').value; const val = `${w}x${h}`; const sel = $('nd_size_preset'); const has = [...sel.options].some(o => o.value === val); sel.value = has ? val : 'custom'; $('nd_custom_size').classList.toggle('hidden', sel.value !== 'custom'); }
-function updateModelOptions() { const model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value; const isV3 = model.includes('nai-diffusion-3') || model.includes('furry-3'); $('nd_v3_opts').classList.toggle('hidden', !isV3); }
-function collectParamsPreset() { const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId); if (!p) return; p.positivePrefix = $('nd_positive').value; p.negativePrefix = $('nd_negative').value; p.params = p.params || {}; p.params.model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value; p.params.sampler = $('nd_sampler_sel').value === 'custom' ? $('nd_sampler').value : $('nd_sampler_sel').value; p.params.scheduler = $('nd_scheduler_sel').value === 'custom' ? $('nd_scheduler').value : $('nd_scheduler_sel').value; p.params.steps = Number($('nd_steps').value) || 23; p.params.scale = Number($('nd_scale').value) || 5; p.params.seed = Number($('nd_seed').value); p.params.width = Number($('nd_width').value) || 832; p.params.height = Number($('nd_height').value) || 1216; p.params.qualityToggle = $('nd_quality_toggle').value === 'true'; p.params.autoSmea = $('nd_auto_smea').value === 'true'; p.params.ucPreset = Number($('nd_uc_preset').value) || 0; p.params.cfg_rescale = Number($('nd_cfg_rescale').value) || 0; p.params.variety_boost = $('nd_variety_boost').checked; p.params.sm = $('nd_sm').checked; p.params.sm_dyn = $('nd_sm_dyn').checked; p.params.decrisper = $('nd_decrisper').checked; }
-function collectLlmPreset() { const p = state.llmPresets.find(x => x.id === state.selectedLlmPresetId); if (!p) return; p.systemPrompt = $('nd_llm_system').value; p.assistantAck = $('nd_llm_ack').value; p.userTemplate = $('nd_llm_user').value; p.assistantPrefix = $('nd_llm_prefix').value; }
-function getCurrentLlmModel() { const provider = $('nd_llm_provider').value; const pv = providerDefaults[provider] || providerDefaults.custom; if (pv.needManualModel) return $('nd_llm_model_manual').value.trim(); else if (pv.canFetch) return $('nd_llm_model_select').value || ''; return ''; }
-function parseDelay(str) { const parts = String(str).split('-').map(s => parseInt(s.trim())); if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) return { min: Math.min(parts[0], parts[1]), max: Math.max(parts[0], parts[1]) }; const single = parseInt(str); if (!isNaN(single) && single > 0) return { min: single, max: single }; return { ...DEFAULTS.requestDelay }; }
+
+function setSelectOrCustom(kind, value) {
+    const sel = $(`nd_${kind}_sel`);
+    const input = $(`nd_${kind}`);
+    const has = [...sel.options].some(o => o.value === value);
+    sel.value = has ? value : 'custom';
+    input.classList.toggle('hidden', sel.value !== 'custom');
+    input.value = value || '';
+}
+
+function updateSizePreset() {
+    const w = $('nd_width').value;
+    const h = $('nd_height').value;
+    const val = `${w}x${h}`;
+    const sel = $('nd_size_preset');
+    const has = [...sel.options].some(o => o.value === val);
+    sel.value = has ? val : 'custom';
+    $('nd_custom_size').classList.toggle('hidden', sel.value !== 'custom');
+}
+
+function updateModelOptions() {
+    const model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
+    const isV3 = model.includes('nai-diffusion-3') || model.includes('furry-3');
+    $('nd_v3_opts').classList.toggle('hidden', !isV3);
+}
+
+function collectParamsPreset() {
+    const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId);
+    if (!p) return;
+    
+    p.positivePrefix = $('nd_positive').value;
+    p.negativePrefix = $('nd_negative').value;
+    p.params = p.params || {};
+    p.params.model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
+    p.params.sampler = $('nd_sampler_sel').value === 'custom' ? $('nd_sampler').value : $('nd_sampler_sel').value;
+    p.params.scheduler = $('nd_scheduler_sel').value === 'custom' ? $('nd_scheduler').value : $('nd_scheduler_sel').value;
+    p.params.steps = Number($('nd_steps').value) || 23;
+    p.params.scale = Number($('nd_scale').value) || 5;
+    p.params.seed = Number($('nd_seed').value);
+    p.params.width = Number($('nd_width').value) || 832;
+    p.params.height = Number($('nd_height').value) || 1216;
+    p.params.qualityToggle = $('nd_quality_toggle').value === 'true';
+    p.params.autoSmea = $('nd_auto_smea').value === 'true';
+    p.params.ucPreset = Number($('nd_uc_preset').value) || 0;
+    p.params.cfg_rescale = Number($('nd_cfg_rescale').value) || 0;
+    p.params.variety_boost = $('nd_variety_boost').checked;
+    p.params.sm = $('nd_sm').checked;
+    p.params.sm_dyn = $('nd_sm_dyn').checked;
+    p.params.decrisper = $('nd_decrisper').checked;
+}
+
+function collectLlmPreset() {
+    const p = state.llmPresets.find(x => x.id === state.selectedLlmPresetId);
+    if (!p) return;
+    p.systemPrompt = $('nd_llm_system').value;
+    p.assistantAck = $('nd_llm_ack').value;
+    p.userTemplate = $('nd_llm_user').value;
+    p.assistantPrefix = $('nd_llm_prefix').value;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 消息处理
 // ═══════════════════════════════════════════════════════════════════════════
+
 window.addEventListener('message', event => {
     const data = event.data;
     if (!data || data.source !== 'LittleWhiteBox-NovelDraw') return;
@@ -1021,12 +1437,11 @@ window.addEventListener('message', event => {
         case 'INIT_DATA':
             state = { ...state, ...data.settings, cacheStats: data.cacheStats || state.cacheStats };
             gallerySummary = data.gallerySummary || {};
-            loadedCharPreviews = {};  // ★ 重置已加载的数据
+            loadedCharPreviews = {};
             applyStateToUI();
             break;
             
         case 'CHARACTER_PREVIEWS_LOADED':
-            // ★ 懒加载数据到达
             loadedCharPreviews[data.charName] = data.slots;
             renderCharacterSlots(data.charName, data.slots);
             break;
@@ -1041,21 +1456,35 @@ window.addEventListener('message', event => {
             updateStatus($('nd_api_status'), data.state, data.text);
             updateStatus($('nd_llm_status'), data.state, data.text);
             const fetchBtn = $('nd_llm_fetch');
-            if (fetchBtn?.disabled) { fetchBtn.disabled = false; fetchBtn.innerHTML = '<i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表'; }
+            if (fetchBtn?.disabled) {
+                fetchBtn.disabled = false;
+                fetchBtn.innerHTML = '<i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表';
+            }
             if (data.state === 'success' || data.state === 'error') handleSaveResult(data.state === 'success');
             break;
             
         case 'GALLERY_IMAGE_DELETED':
             if (modalData.charName && loadedCharPreviews[modalData.charName]) {
                 const slots = loadedCharPreviews[modalData.charName];
-                for (const slotId in slots) { slots[slotId] = slots[slotId].filter(img => img.imgId !== data.imgId); if (slots[slotId].length === 0) delete slots[slotId]; }
-                if (Object.keys(slots).length === 0) { delete loadedCharPreviews[modalData.charName]; delete gallerySummary[modalData.charName]; renderGalleryView(); }
-                else renderCharacterSlots(modalData.charName, slots);
+                for (const slotId in slots) {
+                    slots[slotId] = slots[slotId].filter(img => img.imgId !== data.imgId);
+                    if (slots[slotId].length === 0) delete slots[slotId];
+                }
+                if (Object.keys(slots).length === 0) {
+                    delete loadedCharPreviews[modalData.charName];
+                    delete gallerySummary[modalData.charName];
+                    renderGalleryView();
+                } else {
+                    renderCharacterSlots(modalData.charName, slots);
+                }
             }
             if (modalData.slotId) {
                 modalData.images = modalData.images.filter(img => img.imgId !== data.imgId);
                 if (modalData.images.length === 0) closeGalleryModal();
-                else { if (modalData.currentIndex >= modalData.images.length) modalData.currentIndex = modalData.images.length - 1; renderModalContent(); }
+                else {
+                    if (modalData.currentIndex >= modalData.images.length) modalData.currentIndex = modalData.images.length - 1;
+                    renderModalContent();
+                }
             }
             postToParent({ type: 'REFRESH_CACHE_STATS' });
             break;
@@ -1064,10 +1493,17 @@ window.addEventListener('message', event => {
             if (modalData.charName && loadedCharPreviews[modalData.charName]) {
                 for (const slotId in loadedCharPreviews[modalData.charName]) {
                     const img = loadedCharPreviews[modalData.charName][slotId].find(i => i.imgId === data.imgId);
-                    if (img) { img.savedUrl = data.savedUrl; renderCharacterSlots(modalData.charName, loadedCharPreviews[modalData.charName]); break; }
+                    if (img) {
+                        img.savedUrl = data.savedUrl;
+                        renderCharacterSlots(modalData.charName, loadedCharPreviews[modalData.charName]);
+                        break;
+                    }
                 }
             }
-            if (modalData.slotId) { const img = modalData.images.find(i => i.imgId === data.imgId); if (img) { img.savedUrl = data.savedUrl; renderModalContent(); } }
+            if (modalData.slotId) {
+                const img = modalData.images.find(i => i.imgId === data.imgId);
+                if (img) { img.savedUrl = data.savedUrl; renderModalContent(); }
+            }
             break;
     }
 });
@@ -1075,35 +1511,181 @@ window.addEventListener('message', event => {
 // ═══════════════════════════════════════════════════════════════════════════
 // 初始化
 // ═══════════════════════════════════════════════════════════════════════════
+
 document.addEventListener('DOMContentLoaded', () => {
+    // 导航
     $$('.nav-item, .mobile-nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
-    $$('.header-mode button').forEach(btn => btn.addEventListener('click', () => { state.mode = btn.dataset.mode; updateModeButtons(state.mode); postToParent({ type: 'SAVE_MODE', mode: state.mode }); }));
+    
+    // 模式切换
+    $$('.header-mode button').forEach(btn => btn.addEventListener('click', () => {
+        state.mode = btn.dataset.mode;
+        updateModeButtons(state.mode);
+        postToParent({ type: 'SAVE_MODE', mode: state.mode });
+    }));
+    
+    // 关闭
     $('nd_close').addEventListener('click', () => postToParent({ type: 'CLOSE' }));
-    $('nd_toggle_key').addEventListener('click', () => { const i = $('nd_api_key'); const ic = $('nd_toggle_key').querySelector('i'); if (i.type === 'password') { i.type = 'text'; ic.className = 'fa-solid fa-eye-slash'; } else { i.type = 'password'; ic.className = 'fa-solid fa-eye'; } });
-    $('nd_save_api').addEventListener('click', () => { setSavingState($('nd_save_api')); postToParent({ type: 'SAVE_API_KEY', apiKey: $('nd_api_key').value.trim() }); postToParent({ type: 'SAVE_TIMEOUT', timeout: Number($('nd_timeout').value) * 1000 || 180000, requestDelay: parseDelay($('nd_delay').value) }); });
+    
+    // API Key 显示切换
+    $('nd_toggle_key').addEventListener('click', () => {
+        const i = $('nd_api_key');
+        const ic = $('nd_toggle_key').querySelector('i');
+        if (i.type === 'password') { i.type = 'text'; ic.className = 'fa-solid fa-eye-slash'; }
+        else { i.type = 'password'; ic.className = 'fa-solid fa-eye'; }
+    });
+    
+    // API 保存
+    $('nd_save_api').addEventListener('click', () => {
+        setSavingState($('nd_save_api'));
+        postToParent({ type: 'SAVE_API_KEY', apiKey: $('nd_api_key').value.trim() });
+        postToParent({ type: 'SAVE_TIMEOUT', timeout: Number($('nd_timeout').value) * 1000 || 180000, requestDelay: parseDelay($('nd_delay').value) });
+    });
+    
+    // API 测试
     $('nd_test_api').addEventListener('click', () => postToParent({ type: 'TEST_API', apiKey: $('nd_api_key').value.trim() }));
+    
+    // 快速测试
     $('nd_test_single').addEventListener('click', () => postToParent({ type: 'TEST_SINGLE', tags: $('nd_test_tags').value }));
-    ['model', 'sampler', 'scheduler'].forEach(k => $(`nd_${k}_sel`).addEventListener('change', function() { $(`nd_${k}`).classList.toggle('hidden', this.value !== 'custom'); if (k === 'model') updateModelOptions(); }));
-    $('nd_size_preset').addEventListener('change', function() { if (this.value === 'custom') $('nd_custom_size').classList.remove('hidden'); else { const [w, h] = this.value.split('x'); $('nd_width').value = w; $('nd_height').value = h; $('nd_custom_size').classList.add('hidden'); } });
+    
+    // 下拉框自定义
+    ['model', 'sampler', 'scheduler'].forEach(k => {
+        $(`nd_${k}_sel`).addEventListener('change', function() {
+            $(`nd_${k}`).classList.toggle('hidden', this.value !== 'custom');
+            if (k === 'model') updateModelOptions();
+        });
+    });
+    
+    // 尺寸预设
+    $('nd_size_preset').addEventListener('change', function() {
+        if (this.value === 'custom') {
+            $('nd_custom_size').classList.remove('hidden');
+        } else {
+            const [w, h] = this.value.split('x');
+            $('nd_width').value = w;
+            $('nd_height').value = h;
+            $('nd_custom_size').classList.add('hidden');
+        }
+    });
+    
+    // 参数预设操作
     $('nd_params_preset').addEventListener('change', () => { state.selectedParamsPresetId = $('nd_params_preset').value; applyParamsPreset(); });
-    $('nd_params_save').addEventListener('click', () => { setSavingState($('nd_params_save')); collectParamsPreset(); postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets }); });
+    $('nd_params_save').addEventListener('click', () => {
+        setSavingState($('nd_params_save'));
+        collectParamsPreset();
+        postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
+    });
     $('nd_params_add').addEventListener('click', () => postToParent({ type: 'ADD_PARAMS_PRESET' }));
     $('nd_params_del').addEventListener('click', () => { if (confirm('确定删除当前参数预设？')) postToParent({ type: 'DEL_PARAMS_PRESET' }); });
-    $('nd_params_rename').addEventListener('click', () => { const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId); if (!p) return; const name = prompt('输入新名称：', p.name || ''); if (name && name.trim()) { p.name = name.trim(); postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets }); } });
-    $('nd_prompts_save').addEventListener('click', () => { setSavingState($('nd_prompts_save')); collectParamsPreset(); postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets }); });
-    $('nd_llm_provider').addEventListener('change', function() { const pv = providerDefaults[this.value] || providerDefaults.custom; if (pv.url) $('nd_llm_url').value = pv.url; if (!pv.canFetch) { state.llmApi = state.llmApi || {}; state.llmApi.modelCache = []; } updateLlmProviderUI(); });
-    $('nd_llm_fetch').addEventListener('click', () => { const btn = $('nd_llm_fetch'); btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 连接中...'; postToParent({ type: 'FETCH_LLM_MODELS', llmApi: { provider: $('nd_llm_provider').value, url: $('nd_llm_url').value.trim(), key: $('nd_llm_key').value.trim() } }); });
+    $('nd_params_rename').addEventListener('click', () => {
+        const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId);
+        if (!p) return;
+        const name = prompt('输入新名称：', p.name || '');
+        if (name && name.trim()) {
+            p.name = name.trim();
+            postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
+        }
+    });
+    
+    // 角色区块折叠
+    $('nd_char_header').addEventListener('click', () => { $('nd_char_card').classList.toggle('collapsed'); });
+    
+    // 角色操作
+    $('nd_char_add').addEventListener('click', () => {
+        const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', posX: 0.5, posY: 0.5 };
+        state.characterTags.push(nc);
+        editingCharId = nc.id;
+        renderCharList();
+        setTimeout(() => document.querySelector('.char-edit-name')?.focus(), 50);
+    });
+    
+    $('nd_char_list').addEventListener('click', e => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const card = btn.closest('.char-card');
+        const id = btn.dataset.id || card?.dataset.id;
+        if (id) handleCharAction(btn.dataset.action, id, card);
+    });
+    
+    // 角色导入导出
+    $('nd_char_export').addEventListener('click', () => {
+        if (!state.characterTags?.length) { alert('没有可导出的角色'); return; }
+        const d = { type: 'novel-draw-characters', version: 2, characters: state.characterTags };
+        const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'character-tags.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+    
+    $('nd_char_import').addEventListener('change', async e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const d = JSON.parse(text);
+            if (d.type !== 'novel-draw-characters' || !Array.isArray(d.characters)) throw new Error('无效文件');
+            for (const char of d.characters) {
+                if (!char.name) continue;
+                // 兼容旧数据
+                if (char.tags && !char.appearance) char.appearance = char.tags;
+                if (!char.type) char.type = 'girl';
+                
+                const ex = state.characterTags.find(c => c.name === char.name);
+                if (ex) Object.assign(ex, char, { id: ex.id });
+                else state.characterTags.push({ ...char, id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` });
+            }
+            postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
+            renderCharList();
+            alert(`导入 ${d.characters.length} 个角色`);
+        } catch (err) {
+            alert('导入失败: ' + err.message);
+        }
+        e.target.value = '';
+    });
+    
+    // LLM 配置
+    $('nd_llm_provider').addEventListener('change', function() {
+        const pv = providerDefaults[this.value] || providerDefaults.custom;
+        if (pv.url) $('nd_llm_url').value = pv.url;
+        if (!pv.canFetch) { state.llmApi = state.llmApi || {}; state.llmApi.modelCache = []; }
+        updateLlmProviderUI();
+    });
+    
+    $('nd_llm_fetch').addEventListener('click', () => {
+        const btn = $('nd_llm_fetch');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 连接中...';
+        postToParent({ type: 'FETCH_LLM_MODELS', llmApi: { provider: $('nd_llm_provider').value, url: $('nd_llm_url').value.trim(), key: $('nd_llm_key').value.trim() } });
+    });
+    
     $('nd_llm_preset').addEventListener('change', () => { state.selectedLlmPresetId = $('nd_llm_preset').value; applyLlmPreset(); });
-    $('nd_llm_save').addEventListener('click', () => { setSavingState($('nd_llm_save')); collectLlmPreset(); postToParent({ type: 'SAVE_LLM_PRESET', selectedLlmPresetId: state.selectedLlmPresetId, llmPresets: state.llmPresets, llmApi: { provider: $('nd_llm_provider').value, url: $('nd_llm_url').value.trim(), key: $('nd_llm_key').value.trim(), model: getCurrentLlmModel(), modelCache: state.llmApi?.modelCache || [] }, useStream: $('nd_use_stream').checked }); });
+    $('nd_llm_save').addEventListener('click', () => {
+        setSavingState($('nd_llm_save'));
+        collectLlmPreset();
+        postToParent({
+            type: 'SAVE_LLM_PRESET',
+            selectedLlmPresetId: state.selectedLlmPresetId,
+            llmPresets: state.llmPresets,
+            llmApi: { provider: $('nd_llm_provider').value, url: $('nd_llm_url').value.trim(), key: $('nd_llm_key').value.trim(), model: getCurrentLlmModel(), modelCache: state.llmApi?.modelCache || [] },
+            useStream: $('nd_use_stream').checked
+        });
+    });
     $('nd_llm_add').addEventListener('click', () => postToParent({ type: 'ADD_LLM_PRESET' }));
     $('nd_llm_del').addEventListener('click', () => { if (confirm('确定删除当前 LLM 预设？')) postToParent({ type: 'DEL_LLM_PRESET' }); });
-    $('nd_llm_rename').addEventListener('click', () => { const p = state.llmPresets.find(x => x.id === state.selectedLlmPresetId); if (!p) return; const name = prompt('输入新名称：', p.name || ''); if (name && name.trim()) { p.name = name.trim(); postToParent({ type: 'SAVE_LLM_PRESET', selectedLlmPresetId: state.selectedLlmPresetId, llmPresets: state.llmPresets }); } });
+    $('nd_llm_rename').addEventListener('click', () => {
+        const p = state.llmPresets.find(x => x.id === state.selectedLlmPresetId);
+        if (!p) return;
+        const name = prompt('输入新名称：', p.name || '');
+        if (name && name.trim()) { p.name = name.trim(); postToParent({ type: 'SAVE_LLM_PRESET', selectedLlmPresetId: state.selectedLlmPresetId, llmPresets: state.llmPresets }); }
+    });
     $('nd_llm_reset').addEventListener('click', () => { if (confirm('确定将当前 LLM 预设恢复为插件内置默认值？')) postToParent({ type: 'RESET_CURRENT_LLM_PRESET' }); });
-    $('nd_char_add').addEventListener('click', () => { const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', aliases: [], tags: '', negativeTags: '', posX: 0.5, posY: 0.5 }; state.characterTags.push(nc); editingCharId = nc.id; renderCharList(); setTimeout(() => document.querySelector('.char-edit-name')?.focus(), 50); });
-    $('nd_char_list').addEventListener('click', e => { const btn = e.target.closest('[data-action]'); if (!btn) return; const card = btn.closest('.char-card'); const id = btn.dataset.id || card?.dataset.id; if (id) handleCharAction(btn.dataset.action, id, card); });
-    $('nd_char_export').addEventListener('click', () => { if (!state.characterTags?.length) { alert('没有可导出的角色'); return; } const d = { type: 'novel-draw-characters', version: 1, characters: state.characterTags }; const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'character-tags.json'; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); });
-    $('nd_char_import').addEventListener('change', async e => { const file = e.target.files[0]; if (!file) return; try { const text = await file.text(); const d = JSON.parse(text); if (d.type !== 'novel-draw-characters' || !Array.isArray(d.characters)) throw new Error('无效文件'); for (const char of d.characters) { if (!char.name) continue; const ex = state.characterTags.find(c => c.name === char.name); if (ex) Object.assign(ex, char, { id: ex.id }); else state.characterTags.push({ ...char, id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` }); } postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags }); renderCharList(); alert(`导入 ${d.characters.length} 个角色`); } catch (err) { alert('导入失败: ' + err.message); } e.target.value = ''; });
-    $('nd_save_cache_days').addEventListener('click', () => { setSavingState($('nd_save_cache_days')); postToParent({ type: 'SAVE_CACHE_DAYS', cacheDays: Number($('nd_cache_days').value) || 3 }); });
+    
+    // 缓存管理
+    $('nd_save_cache_days').addEventListener('click', () => {
+        setSavingState($('nd_save_cache_days'));
+        postToParent({ type: 'SAVE_CACHE_DAYS', cacheDays: Number($('nd_cache_days').value) || 3 });
+    });
     $('nd_clear_expired').addEventListener('click', () => postToParent({ type: 'CLEAR_EXPIRED_CACHE' }));
     $('nd_clear_all').addEventListener('click', () => { if (confirm('确定清空全部图片记录？已保存到服务器的文件不会被删除。')) postToParent({ type: 'CLEAR_ALL_CACHE' }); });
     $('nd_refresh_stats').addEventListener('click', () => postToParent({ type: 'REFRESH_CACHE_STATS' }));
@@ -1111,10 +1693,26 @@ document.addEventListener('DOMContentLoaded', () => {
     // 画廊弹窗
     $('nd_modal_close').addEventListener('click', closeGalleryModal);
     $('nd_gallery_modal').addEventListener('click', e => { if (e.target.id === 'nd_gallery_modal') closeGalleryModal(); });
-    $('nd_modal_use').addEventListener('click', () => { if (!modalData.slotId || !modalData.images.length) return; const c = modalData.images[modalData.currentIndex]; postToParent({ type: 'USE_GALLERY_IMAGE', slotId: modalData.slotId, imgId: c.imgId }); closeGalleryModal(); });
-    $('nd_modal_save').addEventListener('click', () => { if (!modalData.images.length) return; const c = modalData.images[modalData.currentIndex]; if (c.savedUrl) return; postToParent({ type: 'SAVE_GALLERY_IMAGE', imgId: c.imgId }); });
-    $('nd_modal_delete').addEventListener('click', () => { if (!modalData.images.length) return; const c = modalData.images[modalData.currentIndex]; const msg = c.savedUrl ? '确定删除这条记录吗？服务器上的图片文件不会被删除。' : '确定删除这张图片吗？'; if (confirm(msg)) postToParent({ type: 'DELETE_GALLERY_IMAGE', imgId: c.imgId }); });
+    $('nd_modal_use').addEventListener('click', () => {
+        if (!modalData.slotId || !modalData.images.length) return;
+        const c = modalData.images[modalData.currentIndex];
+        postToParent({ type: 'USE_GALLERY_IMAGE', slotId: modalData.slotId, imgId: c.imgId });
+        closeGalleryModal();
+    });
+    $('nd_modal_save').addEventListener('click', () => {
+        if (!modalData.images.length) return;
+        const c = modalData.images[modalData.currentIndex];
+        if (c.savedUrl) return;
+        postToParent({ type: 'SAVE_GALLERY_IMAGE', imgId: c.imgId });
+    });
+    $('nd_modal_delete').addEventListener('click', () => {
+        if (!modalData.images.length) return;
+        const c = modalData.images[modalData.currentIndex];
+        const msg = c.savedUrl ? '确定删除这条记录吗？服务器上的图片文件不会被删除。' : '确定删除这张图片吗？';
+        if (confirm(msg)) postToParent({ type: 'DELETE_GALLERY_IMAGE', imgId: c.imgId });
+    });
     
+    // 通知父窗口准备就绪
     postToParent({ type: 'FRAME_READY' });
 });
 </script>

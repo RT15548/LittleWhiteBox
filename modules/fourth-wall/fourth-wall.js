@@ -506,13 +506,13 @@ async function handleGenerateImage(data) {
             return;
         }
         
-        const positive = [paramsPreset.positivePrefix, tags].filter(Boolean).join(', ');
+        const scene = [paramsPreset.positivePrefix, tags].filter(Boolean).join(', ');
         
         const base64 = await novelDraw.generateNovelImage({
-            prompt: positive,
+            scene,
+            characterPrompts: [],
             negativePrompt: paramsPreset.negativePrefix || '',
-            params: paramsPreset.params || {},
-            characters: []
+            params: paramsPreset.params || {}
         });
         
         await cacheImage(tags, base64);

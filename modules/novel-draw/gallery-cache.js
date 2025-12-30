@@ -21,6 +21,7 @@ let db = null;
 let dbOpening = null;
 let galleryOverlayCreated = false;
 let currentGalleryData = null;
+let dbInitialized = false;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 日志
@@ -83,53 +84,41 @@ function isDbValid() {
 }
 
 export async function openDB() {
-    logDbState('openDB called');
+    if (!dbInitialized) {
+        dbInitialized = true;
+        log('openDB: first call');
+    }
     
     if (dbOpening) {
-        log('openDB: waiting for existing open...');
         return dbOpening;
     }
     
     if (isDbValid()) {
         if (db.objectStoreNames.contains(DB_SELECTIONS_STORE)) {
-            log('openDB: reusing existing connection');
             return db;
         }
-        log('openDB: missing store, closing...');
         try {
             db.close();
-        } catch (e) {
-            log('openDB: close error', e.message);
-        }
+        } catch (e) {}
         db = null;
     }
-    
-    log('openDB: creating new connection...');
     
     dbOpening = new Promise(function(resolve, reject) {
         var request = indexedDB.open(DB_NAME, DB_VERSION);
         
         request.onerror = function() {
-            log('openDB: onerror', request.error);
             dbOpening = null;
             reject(request.error);
         };
         
         request.onsuccess = function() {
             db = request.result;
-            log('openDB: success, version:', db.version);
             
             db.onclose = function() {
-                log('openDB: onclose event!');
                 db = null;
             };
             
-            db.onerror = function(e) {
-                log('openDB: db onerror', e);
-            };
-            
             db.onversionchange = function() {
-                log('openDB: onversionchange, closing...');
                 db.close();
                 db = null;
             };
@@ -139,11 +128,9 @@ export async function openDB() {
         };
         
         request.onupgradeneeded = function(e) {
-            log('openDB: upgrade', e.oldVersion, '->', e.newVersion);
             var database = e.target.result;
             
             if (!database.objectStoreNames.contains(DB_STORE)) {
-                log('openDB: creating', DB_STORE);
                 var store = database.createObjectStore(DB_STORE, { keyPath: 'imgId' });
                 ['messageId', 'chatId', 'timestamp', 'slotId'].forEach(function(idx) {
                     store.createIndex(idx, idx);
@@ -151,7 +138,6 @@ export async function openDB() {
             }
             
             if (!database.objectStoreNames.contains(DB_SELECTIONS_STORE)) {
-                log('openDB: creating', DB_SELECTIONS_STORE);
                 database.createObjectStore(DB_SELECTIONS_STORE, { keyPath: 'slotId' });
             }
         };
@@ -234,6 +220,8 @@ export async function storePreview(opts) {
     var status = opts.status || 'success';
     var errorType = opts.errorType || null;
     var errorMessage = opts.errorMessage || null;
+    var characterPrompts = opts.characterPrompts || null;
+    var negativePrompt = opts.negativePrompt || null;
     
     log('storePreview:', imgId);
     var database = await openDB();
@@ -255,6 +243,8 @@ export async function storePreview(opts) {
                 status: status,
                 errorType: errorType,
                 errorMessage: errorMessage,
+                characterPrompts: characterPrompts,
+                negativePrompt: negativePrompt,
                 timestamp: Date.now()
             });
             tx.oncomplete = function() { log('storePreview: done'); resolve(); };
@@ -277,7 +267,9 @@ export async function storeFailedPlaceholder(opts) {
         positive: opts.positive,
         status: 'failed',
         errorType: opts.errorType,
-        errorMessage: opts.errorMessage
+        errorMessage: opts.errorMessage,
+        characterPrompts: opts.characterPrompts || null,
+        negativePrompt: opts.negativePrompt || null,
     });
 }
 

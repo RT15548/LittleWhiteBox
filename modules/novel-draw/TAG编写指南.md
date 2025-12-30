@@ -300,13 +300,87 @@ masterpiece, best quality, very aesthetic, absurdres, ultra detailed
 
 ---
 
-## 八、注意事项
+### 七、多角色互动前缀
+
+多人场景里，动作有方向。谁主动、谁被动、还是互相的？用前缀区分：
+
+**三种前缀：**
+- `source#` — 发起动作的人
+- `target#` — 承受动作的人
+- `mutual#` — 双方同时参与
+
+**举例：**
+
+A 抱着 B：
+```
+A: source#hug
+B: target#hug
+```
+
+两人牵手（没有谁主动谁被动）：
+```
+A: mutual#holding hands
+B: mutual#holding hands
+```
+
+A 盯着 B 看：
+```
+A: source#staring
+B: target#staring
+```
+
+**常见动作词：**
+
+| 类型 | 动作 |
+|------|------|
+| 肢体 | hug, carry, push, pull, hold |
+| 亲密 | kiss, embrace, lap pillow, piggyback |
+| 视线 | eye contact, staring, looking away |
+
+如果需要加权重，正常用 `::` 语法包裹整个标签即可。
+
+---
+
+### 八、负值权重
+
+权重可以是负数。两个用途：
+
+**1. 移除特定元素**
+
+角色设定里自带眼镜，这张图不想要：
+```
+-1::glasses::
+```
+
+帽子挡脸了：
+```
+-1::hat::
+```
+
+**2. 反转概念**
+
+画面太平太素，想要反效果：
+```
+-1::flat color::        // 平涂的反面 → 层次丰富
+-1::simple background:: // 简单背景的反面 → 场景丰富
+-1::monochrome::        // 单色的反面 → 色彩丰富
+```
+
+**和 Undesired Content 的区别：**
+
+| 方式 | 特点 | 适合场景 |
+|------|------|----------|
+| 负值权重 | 精准、针对单个元素 | 移除某个具体东西、反转某个概念 |
+| Undesired Content | 批量、一次列很多 | 整体风格控制、排除一类东西 |
+
+---
+## 九、注意事项
 
 1. **具体优于抽象**：`blue pleated skirt` 优于 `skirt`
 2. **避免冲突 Tag**：如同时使用 `short hair` 和 `long hair`
 3. **肤色需明确指定**：不指定时默认倾向白皙
 4. **服装描述要分层**：每个部件单独描述效果更好
-5. **NSFW 场景必须明确**：如果场景涉及性内容，必须使用精确的标签。包括：
+5. **NSFW 场景必须明确**：如果场景涉及性内容，必须使用精确的标签，首先给上NSFW标签，然后：
    - 身体部位：`penis`, `anus`, `vagina`, `pubic_hair` 等
    - 性行为方式：`oral`, `fellatio`, `gokkun`, `anal sex`, `vaginal sex` 等
    - 体位：`missionary`, `doggystyle`, `mating_press`, `deepthroat` 等
