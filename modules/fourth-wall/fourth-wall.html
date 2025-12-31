@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>皮下交流</title>
 
+<!-- 样式保持不变，此处省略... -->
 <style>
+/* ... 所有样式保持原样 ... */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
@@ -199,100 +201,51 @@ html, body {
 .fw-streaming { opacity: 0.8; font-style: italic; }
 .fw-empty { text-align: center; color: var(--text-muted); padding: 40px; font-size: 0.875rem; }
 
-/* 图片懒加载样式 */
-.fw-img-slot {
-    margin: 8px 0;
-    min-height: 80px;
-    position: relative;
-}
-
+.fw-img-slot { margin: 8px 0; min-height: 80px; position: relative; }
 .fw-img-slot img {
-    max-width: min(300px, 70vw);
-    max-height: 50vh;
-    border-radius: 8px;
-    display: block;
-    cursor: pointer;
-    transition: opacity 0.2s;
+    max-width: min(300px, 70vw); max-height: 50vh; border-radius: 8px;
+    display: block; cursor: pointer; transition: opacity 0.2s;
 }
-
 .fw-img-slot img:hover { opacity: 0.9; }
 
 .fw-img-placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 24px 16px;
-    background: var(--bg-tertiary);
-    border: 1px dashed var(--border-color);
-    border-radius: 8px;
-    color: var(--text-muted);
-    font-size: 0.75rem;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    padding: 24px 16px; background: var(--bg-tertiary); border: 1px dashed var(--border-color);
+    border-radius: 8px; color: var(--text-muted); font-size: 0.75rem;
 }
-
 .fw-img-placeholder i { font-size: 24px; opacity: 0.4; }
 
 .fw-img-loading {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 16px 20px;
+    display: flex; align-items: center; gap: 8px; padding: 16px 20px;
     background: linear-gradient(135deg, rgba(76,154,255,0.08), rgba(118,75,162,0.08));
-    border: 1px solid rgba(76,154,255,0.15);
-    border-radius: 8px;
-    color: var(--text-secondary);
-    font-size: 0.8125rem;
+    border: 1px solid rgba(76,154,255,0.15); border-radius: 8px;
+    color: var(--text-secondary); font-size: 0.8125rem;
 }
 
 .fw-img-error {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    padding: 16px;
-    background: rgba(248,113,113,0.08);
-    border: 1px dashed rgba(248,113,113,0.25);
-    border-radius: 8px;
-    color: #f87171;
-    font-size: 0.75rem;
-    text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px;
+    background: rgba(248,113,113,0.08); border: 1px dashed rgba(248,113,113,0.25);
+    border-radius: 8px; color: #f87171; font-size: 0.75rem; text-align: center;
 }
 
 .fw-img-retry {
-    margin-top: 4px;
-    padding: 4px 12px;
-    background: rgba(248,113,113,0.15);
-    border: 1px solid rgba(248,113,113,0.25);
-    border-radius: 4px;
-    color: #f87171;
-    font-size: 0.7rem;
-    cursor: pointer;
-    transition: all 0.2s;
+    margin-top: 4px; padding: 4px 12px; background: rgba(248,113,113,0.15);
+    border: 1px solid rgba(248,113,113,0.25); border-radius: 4px;
+    color: #f87171; font-size: 0.7rem; cursor: pointer; transition: all 0.2s;
 }
-
 .fw-img-retry:hover { background: rgba(248,113,113,0.25); }
 
 .fw-img-badge {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    background: rgba(0,0,0,0.6);
-    color: #fbbf24;
-    font-size: 10px;
-    padding: 3px 6px;
-    border-radius: 4px;
-    backdrop-filter: blur(4px);
+    position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.6);
+    color: #fbbf24; font-size: 10px; padding: 3px 6px; border-radius: 4px; backdrop-filter: blur(4px);
 }
 
-/* 语音样式 */
 .fw-voice-bubble {
     display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px;
     background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
     border-radius: 20px; cursor: pointer; user-select: none; transition: all 0.2s;
     min-width: 100px; margin: 4px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
-
 .fw-bubble.user .fw-voice-bubble { background: linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.15) 100%); }
 .fw-bubble.assistant .fw-voice-bubble { background: linear-gradient(135deg, #e0f7fa 0%, #e8f5e9 100%); }
 .fw-voice-bubble:hover { transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
@@ -302,7 +255,6 @@ html, body {
     display: flex; align-items: center; justify-content: center;
     width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.6); flex-shrink: 0;
 }
-
 .fw-bubble.user .fw-voice-icon { background: rgba(255,255,255,0.3); }
 .fw-voice-icon i { font-size: 12px; color: #4c9aff; }
 .fw-bubble.user .fw-voice-icon i { color: #fff; }
@@ -330,6 +282,7 @@ html, body {
 
 .fw-voice-duration { font-size: 0.75rem; font-weight: 600; color: #555; min-width: 24px; }
 .fw-bubble.user .fw-voice-duration { color: rgba(255,255,255,0.9); }
+.fw-voice-emotion-tag { font-size: 12px; margin-left: 4px; opacity: 0.8; }
 .fw-voice-bubble.loading .fw-voice-waves { display: none; }
 .fw-voice-bubble.loading .fw-voice-icon i::before { content: "\f110"; animation: fa-spin 1s infinite linear; }
 .fw-voice-bubble.error { background: linear-gradient(135deg, #ffeaea 0%, #ffdbdb 100%) !important; }
@@ -345,7 +298,6 @@ html, body {
     resize: none; max-height: 120px; line-height: 1.5; overflow-y: auto;
     -ms-overflow-style: none; scrollbar-width: none;
 }
-
 .fw-textarea::-webkit-scrollbar { display: none; }
 .fw-textarea:focus { outline: none; border-color: rgba(76,154,255,0.7); box-shadow: 0 0 0 3px rgba(76,154,255,0.12); }
 
@@ -354,7 +306,6 @@ html, body {
     display: flex; align-items: center; justify-content: center; cursor: pointer;
     font-size: 16px; transition: all 0.2s;
 }
-
 .fw-send-btn { background: var(--accent); color: #fff; }
 .fw-send-btn:hover { background: var(--accent-hover); }
 .fw-regen-btn { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); }
@@ -364,7 +315,6 @@ html, body {
     position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
     display: none; align-items: center; justify-content: center; z-index: 1000;
 }
-
 .fw-modal-overlay.open { display: flex; }
 
 .fw-modal {
@@ -377,7 +327,6 @@ html, body {
     padding: 14px 16px; border-bottom: 1px solid var(--border-color);
     display: flex; justify-content: space-between; align-items: center;
 }
-
 .fw-modal-header h3 { font-size: 1rem; font-weight: 600; }
 
 .fw-modal-close {
@@ -385,7 +334,6 @@ html, body {
     background: transparent; color: var(--text-secondary); cursor: pointer;
     display: flex; align-items: center; justify-content: center;
 }
-
 .fw-modal-close:hover { background: var(--accent); color: #fff; }
 
 .fw-modal-body { flex: 1; overflow-y: auto; padding: 16px; }
@@ -408,77 +356,35 @@ html, body {
 .fw-prompt-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
 
 .fw-thinking-card {
-    margin-bottom: 6px;
-    background: rgba(0,0,0,0.03);
-    border: 1px solid rgba(0,0,0,0.06);
-    border-radius: 12px;
-    overflow: hidden;
-    max-width: 100%;
+    margin-bottom: 6px; background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 12px; overflow: hidden; max-width: 100%;
 }
 
 .fw-thinking-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
-    cursor: pointer;
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    transition: background 0.2s, color 0.2s;
-    user-select: none;
+    display: flex; align-items: center; gap: 6px; padding: 8px 12px; cursor: pointer;
+    font-size: 0.75rem; color: var(--text-muted); transition: background 0.2s, color 0.2s; user-select: none;
 }
-
-.fw-thinking-header:hover {
-    background: rgba(0,0,0,0.04);
-    color: var(--text-secondary);
-}
-
-.fw-thinking-header .chevron {
-    font-size: 10px;
-    transition: transform 0.2s;
-}
-
+.fw-thinking-header:hover { background: rgba(0,0,0,0.04); color: var(--text-secondary); }
+.fw-thinking-header .chevron { font-size: 10px; transition: transform 0.2s; }
 .fw-thinking-header.expanded .chevron { transform: rotate(90deg); }
 
 .fw-thinking-body {
-    display: none;
-    padding: 0 12px 10px;
-    font-size: 0.8125rem;
-    line-height: 1.6;
-    color: var(--text-secondary);
-    word-break: break-word;
-    max-height: 300px;
-    overflow-y: auto;
+    display: none; padding: 0 12px 10px; font-size: 0.8125rem; line-height: 1.6;
+    color: var(--text-secondary); word-break: break-word; max-height: 300px; overflow-y: auto;
 }
+.fw-thinking-body.expanded { display: block; animation: thinkingFadeIn 0.2s ease; }
 
-.fw-thinking-body.expanded {
-    display: block;
-    animation: thinkingFadeIn 0.2s ease;
-}
-
-@keyframes thinkingFadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
+@keyframes thinkingFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 .fw-thinking-body::-webkit-scrollbar { width: 4px; }
 .fw-thinking-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 2px; }
 
 .fw-thinking-header.streaming span::after {
-    content: '';
-    display: inline-block;
-    width: 4px;
-    height: 4px;
-    margin-left: 6px;
-    background: var(--accent);
-    border-radius: 50%;
-    animation: thinkingPulse 1s infinite;
+    content: ''; display: inline-block; width: 4px; height: 4px; margin-left: 6px;
+    background: var(--accent); border-radius: 50%; animation: thinkingPulse 1s infinite;
 }
 
-@keyframes thinkingPulse {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 1; }
-}
+@keyframes thinkingPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
 
 .fw-row.editing { max-width: 100%; }
 .fw-row.editing .fw-bubble { width: 100%; }
@@ -504,8 +410,8 @@ html, body {
 </head>
 
 <body>
-<div class="fw-container">
 
+<div class="fw-container">
     <header class="fw-header">
         <div class="fw-header-row">
             <button class="fw-back-btn" id="btn-close" title="返回"><i class="fa-solid fa-chevron-left"></i></button>
@@ -570,40 +476,12 @@ html, body {
                 </div>
                 <div class="fw-field fw-voice-select-wrap" style="display: none;">
                     <label>声音</label>
-                    <select id="voice-select">
-                        <optgroup label="👩 女声">
-                            <option value="桃夭" selected>桃夭 · 温柔治愈</option>
-                            <option value="青梅">青梅 · 邻家清新</option>
-                            <option value="苏菲">苏菲 · 优雅御姐</option>
-                            <option value="奶糖">奶糖 · 甜软学妹</option>
-                            <option value="兔姬">兔姬 · 元气少女</option>
-                            <option value="诗织">诗织 · 文静书卷</option>
-                            <option value="顾姐">顾姐 · 成熟知性</option>
-                            <option value="可莉">可莉 · 奶音萝莉</option>
-                            <option value="神乐">神乐 · 神秘巫女</option>
-                            <option value="霜华">霜华 · 清冷仙子</option>
-                        </optgroup>
-                        <optgroup label="👨 男声">
-                            <option value="君泽">君泽 · 温润公子</option>
-                            <option value="梓辛">梓辛 · 青春少年</option>
-                            <option value="霆御">霆御 · 冷酷霸总</option>
-                            <option value="夜枭">夜枭 · 深夜电台</option>
-                            <option value="疯批">疯批 · 危险病娇</option>
-                            <option value="奶俊">奶俊 · 奶音正太</option>
-                            <option value="沐阳">沐阳 · 青涩学长</option>
-                            <option value="阿铭">阿铭 · 磁性大叔</option>
-                            <option value="博文">博文 · 知性绅士</option>
-                            <option value="晨曦">晨曦 · 阳光暖男</option>
-                            <option value="秦主">秦主 · 帝王霸气</option>
-                            <option value="阿峰">阿峰 · 憨厚忠犬</option>
-                            <option value="邻风">邻风 · 邻家哥哥</option>
-                        </optgroup>
-                    </select>
+                    <select id="voice-select"></select>
                 </div>
                 <div class="fw-field fw-voice-speed-wrap" style="display: none;">
                     <label>语速</label>
-                    <input type="range" id="voice-speed" min="0.25" max="2" step="0.05" value="0.8" style="width:70px;">
-                    <span class="speed-val" id="voice-speed-val">0.80</span>
+                    <input type="range" id="voice-speed" min="0.5" max="2.0" step="0.1" value="1.0" style="width:70px;">
+                    <span class="speed-val" id="voice-speed-val">1.0x</span>
                 </div>
             </div>
 
@@ -671,9 +549,24 @@ html, body {
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
 <script>
-// ═══════════════════════════════════════════════════════════════════════════
-// 工具函数
-// ═══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════
+   配置
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+const TTS_WORKER_URL = 'https://hstts.velure.top';
+
+const VALID_EMOTIONS = ['happy', 'sad', 'angry', 'surprise', 'scare', 'hate'];
+const EMOTION_ICONS = {
+    happy: '😄', sad: '😢', angry: '😠', surprise: '😮', scare: '😨', hate: '🤢'
+};
+
+// 动态加载的声音列表
+let voiceList = [];
+let defaultVoiceKey = 'female_1';
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   工具函数
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 function escapeHtml(text) {
     return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
@@ -682,15 +575,6 @@ function escapeHtml(text) {
 function renderThinking(text) {
     return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/^[\\*\\-]\\s+/gm, '• ').replace(/\n/g, '<br>');
-}
-
-function updateFullscreenButton(isFullscreen) {
-    const btn = document.getElementById('btn-fullscreen');
-    if (!btn) return;
-    const icon = btn.querySelector('i');
-    if (!icon) return;
-    icon.className = isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
-    btn.title = isFullscreen ? '退出全屏' : '全屏';
 }
 
 function formatTimeDisplay(ts) {
@@ -707,15 +591,24 @@ function formatTimeDisplay(ts) {
     return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${time}`;
 }
 
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
 function postToParent(payload) {
     window.parent.postMessage({ source: 'LittleWhiteBox-FourthWall', ...payload }, '*');
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 状态管理
-// ═══════════════════════════════════════════════════════════════════════════
+function getEmotionIcon(emotion) {
+    return EMOTION_ICONS[emotion] || '';
+}
 
-const TTS_WORKER = 'https://tts.velure.top';
+/* ══════════════════════════════════════════════════════════════════════════════
+   状态管理
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 let state = {
     history: [],
@@ -727,16 +620,35 @@ let state = {
     sessions: [],
     activeSessionId: null,
     imgSettings: { enablePrompt: false },
-    voiceSettings: { enabled: false, voice: '桃夭', speed: 0.8 },
+    voiceSettings: { enabled: false, voice: 'female_1', speed: 1.0 },
     commentarySettings: { enabled: false, probability: 30 },
     promptTemplates: {}
 };
 
 let currentAudio = null;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 图片懒加载系统
-// ═══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════
+   加载声音列表
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+async function loadVoices() {
+    try {
+        const res = await fetch(`${TTS_WORKER_URL}/voices`);
+        if (!res.ok) throw new Error('Failed to load voices');
+        const data = await res.json();
+        voiceList = data.voices || [];
+        defaultVoiceKey = data.defaultVoice || 'female_1';
+        renderVoiceSelect();
+    } catch (err) {
+        console.error('[FW Voice] 加载声音列表失败:', err);
+        // 降级：使用空列表
+        voiceList = [];
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   图片懒加载（保持不变）
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 const pendingImages = new Map();
 const generatingQueue = new Set();
@@ -750,46 +662,30 @@ function parseImageToken(rawCSV) {
 
 function initImageObserver() {
     if (imageObserver) return;
-    
     imageObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting) {
                 const slot = entry.target;
                 if (slot.dataset.loaded === '1' || slot.dataset.loading === '1') return;
-                
                 slot.dataset.loading = '1';
                 const tags = parseImageToken(decodeURIComponent(slot.dataset.raw || ''));
                 if (!tags) return;
-                
                 const requestId = 'fwimg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
                 pendingImages.set(requestId, { slot, tags });
-                
                 slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-search"></i> 查询缓存...</div>`;
                 postToParent({ type: 'CHECK_IMAGE_CACHE', requestId, tags });
             }
         });
-    }, {
-        root: document.getElementById('messages'),
-        rootMargin: '150px 0px',
-        threshold: 0.01
-    });
+    }, { root: document.getElementById('messages'), rootMargin: '150px 0px', threshold: 0.01 });
 }
 
 function hydrateImageSlots(container) {
     initImageObserver();
-    
     container.querySelectorAll('.fw-img-slot:not([data-observed])').forEach(slot => {
         slot.setAttribute('data-observed', '1');
-        
         if (!slot.dataset.loaded && !slot.dataset.loading) {
-            slot.innerHTML = `
-                <div class="fw-img-placeholder">
-                    <i class="fa-regular fa-image"></i>
-                    <span>滚动加载</span>
-                </div>
-            `;
+            slot.innerHTML = `<div class="fw-img-placeholder"><i class="fa-regular fa-image"></i><span>滚动加载</span></div>`;
         }
-        
         imageObserver.observe(slot);
     });
 }
@@ -797,32 +693,21 @@ function hydrateImageSlots(container) {
 function handleImageResult(data) {
     const pending = pendingImages.get(data.requestId);
     if (!pending) return;
-    
     const { slot, tags } = pending;
     pendingImages.delete(data.requestId);
     generatingQueue.delete(tags);
-    
     slot.dataset.loaded = '1';
     slot.dataset.loading = '';
-    
     if (data.error) {
-        slot.innerHTML = `
-            <div class="fw-img-error">
-                <i class="fa-solid fa-exclamation-triangle"></i>
-                <div>${escapeHtml(data.error)}</div>
-                <button class="fw-img-retry" data-tags="${encodeURIComponent(tags)}">重试</button>
-            </div>
-        `;
+        slot.innerHTML = `<div class="fw-img-error"><i class="fa-solid fa-exclamation-triangle"></i><div>${escapeHtml(data.error)}</div><button class="fw-img-retry" data-tags="${encodeURIComponent(tags)}">重试</button></div>`;
         bindRetryButton(slot);
     } else if (data.base64) {
         const img = document.createElement('img');
         img.src = `data:image/png;base64,${data.base64}`;
         img.alt = 'Generated';
         img.onclick = () => window.open(img.src, '_blank');
-        
         slot.innerHTML = '';
         slot.appendChild(img);
-        
         if (data.fromCache) {
             const badge = document.createElement('span');
             badge.className = 'fw-img-badge';
@@ -836,70 +721,84 @@ function handleImageResult(data) {
 function handleCacheMiss(data) {
     const pending = pendingImages.get(data.requestId);
     if (!pending) return;
-    
     const { slot, tags } = pending;
-    
     if (generatingQueue.has(tags)) {
         slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-clock"></i> 排队中...</div>`;
         return;
     }
-    
     generatingQueue.add(tags);
     slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-palette"></i> 生成中...</div>`;
-    
     postToParent({ type: 'GENERATE_IMAGE', requestId: data.requestId, tags });
 }
 
 function bindRetryButton(slot) {
     const btn = slot.querySelector('.fw-img-retry');
     if (!btn) return;
-    
     btn.onclick = (e) => {
         e.stopPropagation();
         const tags = decodeURIComponent(btn.dataset.tags || '');
         if (!tags) return;
-        
         slot.dataset.loaded = '';
         slot.dataset.loading = '1';
-        
         const requestId = 'fwimg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
         pendingImages.set(requestId, { slot, tags });
-        
         slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-palette"></i> 重新生成...</div>`;
         postToParent({ type: 'GENERATE_IMAGE', requestId, tags });
     };
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 语音处理
-// ═══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════
+   语音处理
+   ══════════════════════════════════════════════════════════════════════════════ */
 
-async function playVoice(text, bubbleEl) {
+async function playVoice(text, emotion, bubbleEl) {
     if (currentAudio) {
         currentAudio.pause();
         currentAudio = null;
         document.querySelectorAll('.fw-voice-bubble.playing').forEach(el => el.classList.remove('playing'));
     }
+
     bubbleEl.classList.add('loading');
     bubbleEl.classList.remove('error');
+
     try {
-        const res = await fetch(TTS_WORKER, {
+
+        const requestBody = {
+            voiceKey: state.voiceSettings.voice || defaultVoiceKey,
+            text: text,
+            speed: state.voiceSettings.speed || 1.0,
+            uid: 'fw_' + Date.now(),
+            reqid: generateUUID()
+        };
+
+        if (emotion && VALID_EMOTIONS.includes(emotion)) {
+            requestBody.emotion = emotion;
+            requestBody.emotionScale = 5;
+        }
+
+        const res = await fetch(TTS_WORKER_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, voice: state.voiceSettings.voice || '桃夭', speed: state.voiceSettings.speed || 0.8 })
+            body: JSON.stringify(requestBody)
         });
-        if (!res.ok) throw new Error('TTS failed');
-        const url = URL.createObjectURL(await res.blob());
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const data = await res.json();
+        if (data.code !== 3000) throw new Error(data.message || 'TTS失败');
+
         bubbleEl.classList.remove('loading');
         bubbleEl.classList.add('playing');
-        currentAudio = new Audio(url);
-        currentAudio.onended = () => { bubbleEl.classList.remove('playing'); URL.revokeObjectURL(url); currentAudio = null; };
+
+        currentAudio = new Audio(`data:audio/mp3;base64,${data.data}`);
+        currentAudio.onended = () => { bubbleEl.classList.remove('playing'); currentAudio = null; };
         currentAudio.onerror = () => { bubbleEl.classList.remove('playing'); bubbleEl.classList.add('error'); currentAudio = null; };
         await currentAudio.play();
-    } catch {
+    } catch (err) {
+        console.error('[FW Voice] TTS错误:', err);
         bubbleEl.classList.remove('loading', 'playing');
         bubbleEl.classList.add('error');
-        setTimeout(() => bubbleEl.classList.remove('error'), 2000);
+        setTimeout(() => bubbleEl.classList.remove('error'), 3000);
     }
 }
 
@@ -907,6 +806,7 @@ function hydrateVoiceSlots(container) {
     container.querySelectorAll('.fw-voice-bubble:not([data-bound])').forEach(bubble => {
         bubble.setAttribute('data-bound', '1');
         const text = decodeURIComponent(bubble.dataset.text || '');
+        const emotion = bubble.dataset.emotion || '';
         if (text) {
             bubble.onclick = e => {
                 e.stopPropagation();
@@ -916,38 +816,52 @@ function hydrateVoiceSlots(container) {
                     currentAudio = null;
                     bubble.classList.remove('playing');
                 } else {
-                    playVoice(text, bubble);
+                    playVoice(text, emotion, bubble);
                 }
             };
         }
     });
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 内容渲染
-// ═══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════
+   内容渲染（保持不变）
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 function renderContent(text) {
     if (!text) return '';
     let html = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    
+
     html = html.replace(/\[(?:image|图片)\s*:\s*([^\]]+)\]/gi, (_, inner) => {
         const tags = parseImageToken(inner);
         if (!tags) return _;
         return `<div class="fw-img-slot" data-raw="${encodeURIComponent(inner)}"></div>`;
     });
-    
-    html = html.replace(/\[(?:voice|语音)\s*:\s*([^\]]+)\]/gi, (_, inner) => {
-        const voiceText = inner.trim();
-        if (!voiceText) return _;
-        const duration = Math.max(1, Math.ceil(voiceText.length / 4)) + '"';
-        return `<div class="fw-voice-bubble" data-text="${encodeURIComponent(voiceText)}">
+
+    html = html.replace(/\[(?:voice|语音)\s*:([^:]*):([^\]]+)\]/gi, (_, emotionRaw, voiceText) => {
+        const emotion = (emotionRaw || '').trim().toLowerCase();
+        const txt = voiceText.trim();
+        if (!txt) return _;
+        const duration = Math.max(1, Math.ceil(txt.length / 4)) + '"';
+        const emotionIcon = getEmotionIcon(emotion);
+        return `<div class="fw-voice-bubble" data-text="${encodeURIComponent(txt)}" data-emotion="${emotion}">
+            <div class="fw-voice-icon"><i class="fa-solid fa-microphone"></i></div>
+            <div class="fw-voice-waves"><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div></div>
+            <span class="fw-voice-duration">${duration}</span>
+            ${emotionIcon ? `<span class="fw-voice-emotion-tag">${emotionIcon}</span>` : ''}
+        </div>`;
+    });
+
+    html = html.replace(/\[(?:voice|语音)\s*:\s*([^\]]+)\]/gi, (_, voiceText) => {
+        const txt = voiceText.trim();
+        if (!txt) return _;
+        const duration = Math.max(1, Math.ceil(txt.length / 4)) + '"';
+        return `<div class="fw-voice-bubble" data-text="${encodeURIComponent(txt)}" data-emotion="">
             <div class="fw-voice-icon"><i class="fa-solid fa-microphone"></i></div>
             <div class="fw-voice-waves"><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div></div>
             <span class="fw-voice-duration">${duration}</span>
         </div>`;
     });
-    
+
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
     html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.06);padding:2px 4px;border-radius:3px;">$1</code>');
@@ -958,38 +872,29 @@ function renderContent(text) {
 function renderMessages() {
     const container = document.getElementById('messages');
     const { history, isStreaming, editingIndex } = state;
-  
+
     if (!history.length && !isStreaming) {
         container.innerHTML = '<div class="fw-empty">开始与TA皮下交流吧~</div>';
         return;
     }
-  
+
     let html = history.map((msg, idx) => {
         const isUser = msg.role === 'user';
         const isEditing = editingIndex === idx;
         const timeStr = formatTimeDisplay(msg.ts);
-        const bubbleContent = isEditing 
+        const bubbleContent = isEditing
             ? `<textarea class="fw-edit-area" data-index="${idx}">${msg.content || ''}</textarea>`
             : renderContent(msg.content);
         const actions = isEditing
             ? `<div class="fw-bubble-actions" style="display:flex;"><button class="fw-bubble-btn fw-save-btn" data-index="${idx}" title="保存"><i class="fa-solid fa-check"></i></button><button class="fw-bubble-btn fw-cancel-btn" data-index="${idx}" title="取消"><i class="fa-solid fa-xmark"></i></button></div>`
             : `<div class="fw-bubble-actions"><button class="fw-bubble-btn fw-edit-btn" data-index="${idx}" title="编辑"><i class="fa-solid fa-pen"></i></button><button class="fw-bubble-btn fw-delete-btn" data-index="${idx}" title="删除"><i class="fa-solid fa-trash"></i></button></div>`;
-      
+
         let thinkingHtml = '';
         if (!isUser && msg.thinking) {
-            thinkingHtml = `
-                <div class="fw-thinking-card">
-                    <div class="fw-thinking-header" data-index="${idx}">
-                        <i class="fa-solid fa-chevron-right chevron"></i>
-                        <span>思考过程</span>
-                    </div>
-                    <div class="fw-thinking-body" data-index="${idx}">${renderThinking(msg.thinking)}</div>
-                </div>
-            `;
+            thinkingHtml = `<div class="fw-thinking-card"><div class="fw-thinking-header" data-index="${idx}"><i class="fa-solid fa-chevron-right chevron"></i><span>思考过程</span></div><div class="fw-thinking-body" data-index="${idx}">${renderThinking(msg.thinking)}</div></div>`;
         }
-      
-        return `
-        <div class="fw-row ${isUser ? 'user' : 'assistant'}${isEditing ? ' editing' : ''}">
+
+        return `<div class="fw-row ${isUser ? 'user' : 'assistant'}${isEditing ? ' editing' : ''}">
             <div class="fw-avatar ${isUser ? 'user-avatar' : 'char-avatar'}"></div>
             <div style="display:flex;flex-direction:column;align-items:${isUser ? 'flex-end' : 'flex-start'};">
                 ${thinkingHtml}
@@ -998,24 +903,20 @@ function renderMessages() {
             </div>
         </div>`;
     }).join('');
-  
+
     if (isStreaming) {
-        html += `
-        <div class="fw-row assistant">
+        html += `<div class="fw-row assistant">
             <div class="fw-avatar char-avatar"></div>
             <div style="display:flex;flex-direction:column;align-items:flex-start;">
                 <div class="fw-thinking-card" id="streaming-thinking-card" style="display:none;">
-                    <div class="fw-thinking-header expanded streaming">
-                        <i class="fa-solid fa-chevron-right chevron"></i>
-                        <span>思考中</span>
-                    </div>
+                    <div class="fw-thinking-header expanded streaming"><i class="fa-solid fa-chevron-right chevron"></i><span>思考中</span></div>
                     <div class="fw-thinking-body expanded" id="streaming-thinking"></div>
                 </div>
                 <div class="fw-bubble assistant fw-streaming" id="streaming-bubble">(等待回应...)</div>
             </div>
         </div>`;
     }
-  
+
     container.innerHTML = html;
     hydrateImageSlots(container);
     hydrateVoiceSlots(container);
@@ -1031,50 +932,73 @@ function bindMessageEvents(container) {
             container.querySelector(`.fw-thinking-body[data-index="${idx}"]`)?.classList.toggle('expanded');
         };
     });
-  
+
     container.querySelectorAll('.fw-edit-btn').forEach(btn => {
-        btn.onclick = () => { 
-            state.editingIndex = parseInt(btn.dataset.index); 
-            renderMessages(); 
-            const ta = container.querySelector('.fw-edit-area'); 
-            if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.focus(); } 
+        btn.onclick = () => {
+            state.editingIndex = parseInt(btn.dataset.index);
+            renderMessages();
+            const ta = container.querySelector('.fw-edit-area');
+            if (ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.focus(); }
         };
     });
+
     container.querySelectorAll('.fw-save-btn').forEach(btn => {
-        btn.onclick = () => { 
-            const idx = parseInt(btn.dataset.index); 
-            const ta = container.querySelector(`.fw-edit-area[data-index="${idx}"]`); 
-            if (ta) state.history[idx].content = ta.value; 
-            state.editingIndex = null; 
-            renderMessages(); 
-            postToParent({ type: 'SAVE_HISTORY', history: state.history }); 
+        btn.onclick = () => {
+            const idx = parseInt(btn.dataset.index);
+            const ta = container.querySelector(`.fw-edit-area[data-index="${idx}"]`);
+            if (ta) state.history[idx].content = ta.value;
+            state.editingIndex = null;
+            renderMessages();
+            postToParent({ type: 'SAVE_HISTORY', history: state.history });
         };
     });
+
     container.querySelectorAll('.fw-cancel-btn').forEach(btn => {
         btn.onclick = () => { state.editingIndex = null; renderMessages(); };
     });
+
     container.querySelectorAll('.fw-delete-btn').forEach(btn => {
-        btn.onclick = () => { 
-            if (confirm('确定要删除这条消息吗？')) { 
-                state.history.splice(parseInt(btn.dataset.index), 1); 
-                renderMessages(); 
-                postToParent({ type: 'SAVE_HISTORY', history: state.history }); 
-            } 
+        btn.onclick = () => {
+            if (confirm('确定要删除这条消息吗？')) {
+                state.history.splice(parseInt(btn.dataset.index), 1);
+                renderMessages();
+                postToParent({ type: 'SAVE_HISTORY', history: state.history });
+            }
         };
     });
+
     container.querySelectorAll('.fw-edit-area').forEach(ta => {
         ta.oninput = function() { this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px'; };
     });
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// UI 更新函数
-// ═══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════
+   UI 更新
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 function renderSessionSelect() {
-    document.getElementById('session-select').innerHTML = state.sessions.map(s => 
+    document.getElementById('session-select').innerHTML = state.sessions.map(s =>
         `<option value="${s.id}" ${s.id === state.activeSessionId ? 'selected' : ''}>${s.name || s.id}</option>`
     ).join('');
+}
+
+// 使用动态加载的声音列表渲染下拉框
+function renderVoiceSelect() {
+    const select = document.getElementById('voice-select');
+    if (!select || !voiceList.length) return;
+
+    const females = voiceList.filter(v => v.gender === 'female');
+    const males = voiceList.filter(v => v.gender === 'male');
+
+    select.innerHTML = `
+        <optgroup label="👩 女声">
+            ${females.map(v => `<option value="${v.key}">${v.name} · ${v.tag}</option>`).join('')}
+        </optgroup>
+        <optgroup label="👨 男声">
+            ${males.map(v => `<option value="${v.key}">${v.name} · ${v.tag}</option>`).join('')}
+        </optgroup>
+    `;
+    select.value = state.voiceSettings.voice || defaultVoiceKey;
 }
 
 function updateMenuUI() {
@@ -1108,6 +1032,15 @@ function updateSendButton() {
     btn.title = state.isStreaming ? '停止' : '发送';
 }
 
+function updateFullscreenButton(isFullscreen) {
+    const btn = document.getElementById('btn-fullscreen');
+    if (!btn) return;
+    const icon = btn.querySelector('i');
+    if (!icon) return;
+    icon.className = isFullscreen ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+    btn.title = isFullscreen ? '退出全屏' : '全屏';
+}
+
 function loadPromptFields() {
     const t = state.promptTemplates || {};
     document.getElementById('prompt-topuser').value = t.topuser || '';
@@ -1116,9 +1049,9 @@ function loadPromptFields() {
     document.getElementById('prompt-bottom').value = t.bottom || '';
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 消息发送
-// ═══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════
+   消息发送
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 function sendMessage() {
     const textarea = document.getElementById('input-textarea');
@@ -1147,14 +1080,23 @@ function regenerate() {
     postToParent({ type: 'REGENERATE', userInput: lastUserText, history: state.history, settings: state.settings, imgSettings: state.imgSettings, voiceSettings: state.voiceSettings });
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 消息处理
-// ═══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════
+   消息处理
+   ══════════════════════════════════════════════════════════════════════════════ */
 
 window.addEventListener('message', event => {
     const data = event.data;
     if (!data || data.source !== 'LittleWhiteBox') return;
-    
+
+    if (data.type === 'PING') {
+        window.parent.postMessage({
+            source: 'LittleWhiteBox-FourthWall',
+            type: 'PONG',
+            pingId: data.pingId
+        }, '*');
+        return;
+    }
+
     switch (data.type) {
         case 'INIT_DATA':
             state.settings = data.settings || state.settings;
@@ -1165,31 +1107,36 @@ window.addEventListener('message', event => {
             state.voiceSettings = data.voiceSettings || state.voiceSettings;
             state.promptTemplates = data.promptTemplates || state.promptTemplates;
             state.commentarySettings = data.commentarySettings || state.commentarySettings;
-            
+
             if (data.avatars) {
                 document.documentElement.style.setProperty('--fw-user-avatar', data.avatars.user ? `url("${data.avatars.user}")` : 'none');
                 document.documentElement.style.setProperty('--fw-char-avatar', data.avatars.char ? `url("${data.avatars.char}")` : 'none');
             }
-            
+
             document.getElementById('layers-input').value = state.settings.maxChatLayers;
             document.getElementById('turns-input').value = state.settings.maxMetaTurns;
             document.getElementById('stream-enabled').checked = state.settings.stream;
             document.getElementById('img-prompt-enabled').checked = state.imgSettings.enablePrompt;
             document.getElementById('voice-enabled').checked = state.voiceSettings.enabled;
-            document.getElementById('voice-select').value = state.voiceSettings.voice || '桃夭';
-            document.getElementById('voice-speed').value = state.voiceSettings.speed || 0.8;
-            document.getElementById('voice-speed-val').textContent = (state.voiceSettings.speed || 0.8).toFixed(2);
+
+            // 等声音列表加载完再设置值
+            if (voiceList.length) {
+                document.getElementById('voice-select').value = state.voiceSettings.voice || defaultVoiceKey;
+            }
+            document.getElementById('voice-speed').value = state.voiceSettings.speed || 1.0;
+            document.getElementById('voice-speed-val').textContent = (state.voiceSettings.speed || 1.0).toFixed(1) + 'x';
             updateVoiceUI(state.voiceSettings.enabled);
+
             document.getElementById('commentary-enabled').checked = state.commentarySettings.enabled;
             document.getElementById('commentary-prob').value = state.commentarySettings.probability;
             document.getElementById('commentary-prob-val').textContent = state.commentarySettings.probability + '%';
             updateCommentaryUI(state.commentarySettings.enabled);
-            
+
             renderSessionSelect();
             if (document.getElementById('prompt-modal').classList.contains('open')) loadPromptFields();
             renderMessages();
             break;
-            
+
         case 'STREAM_UPDATE':
             const bubble = document.getElementById('streaming-bubble');
             const thinkingCard = document.getElementById('streaming-thinking-card');
@@ -1204,14 +1151,14 @@ window.addEventListener('message', event => {
                 bubble.closest('.fw-messages').scrollTop = bubble.closest('.fw-messages').scrollHeight;
             }
             break;
-            
+
         case 'STREAM_COMPLETE':
             state.isStreaming = false;
             state.history.push({ role: 'ai', content: data.finalText, thinking: data.thinking || undefined, ts: Date.now() });
             renderMessages();
             updateSendButton();
             break;
-            
+
         case 'GENERATION_CANCELLED':
             state.isStreaming = false;
             renderMessages();
@@ -1232,21 +1179,24 @@ window.addEventListener('message', event => {
     }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 初始化
-// ═══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════
+   初始化
+   ══════════════════════════════════════════════════════════════════════════════ */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // 先加载声音列表
+    await loadVoices();
+
     document.getElementById('btn-menu-toggle').onclick = () => { state.menuExpanded = !state.menuExpanded; updateMenuUI(); };
     document.getElementById('btn-settings').onclick = () => { state.settingsOpen = !state.settingsOpen; document.getElementById('settings-panel').classList.toggle('open', state.settingsOpen); };
     document.getElementById('btn-settings-close').onclick = () => { state.settingsOpen = false; document.getElementById('settings-panel').classList.remove('open'); };
     document.getElementById('btn-close').onclick = () => postToParent({ type: 'CLOSE_OVERLAY' });
     document.getElementById('btn-fullscreen').onclick = () => postToParent({ type: 'TOGGLE_FULLSCREEN' });
-    
+
     document.getElementById('btn-reset').onclick = () => {
         if (confirm('确定要清空当前对话吗？')) { state.history = []; renderMessages(); postToParent({ type: 'RESET_HISTORY' }); }
     };
-    
+
     ['layers-input', 'turns-input', 'stream-enabled'].forEach(id => {
         document.getElementById(id).onchange = () => {
             state.settings.maxChatLayers = parseInt(document.getElementById('layers-input').value) || 9999;
@@ -1255,28 +1205,53 @@ document.addEventListener('DOMContentLoaded', () => {
             postToParent({ type: 'SAVE_SETTINGS', settings: state.settings });
         };
     });
-    
-    document.getElementById('img-prompt-enabled').onchange = () => { 
-        state.imgSettings.enablePrompt = document.getElementById('img-prompt-enabled').checked; 
-        postToParent({ type: 'SAVE_IMG_SETTINGS', imgSettings: state.imgSettings }); 
+
+    document.getElementById('img-prompt-enabled').onchange = () => {
+        state.imgSettings.enablePrompt = document.getElementById('img-prompt-enabled').checked;
+        postToParent({ type: 'SAVE_IMG_SETTINGS', imgSettings: state.imgSettings });
     };
-    
-    document.getElementById('voice-enabled').onchange = function() { state.voiceSettings.enabled = this.checked; updateVoiceUI(this.checked); postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings }); };
-    document.getElementById('voice-select').onchange = function() { state.voiceSettings.voice = this.value; postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings }); };
-    document.getElementById('voice-speed').oninput = function() { const val = parseFloat(this.value); document.getElementById('voice-speed-val').textContent = val.toFixed(2); state.voiceSettings.speed = val; postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings }); };
-    
-    document.getElementById('commentary-enabled').onchange = function() { state.commentarySettings.enabled = this.checked; updateCommentaryUI(this.checked); postToParent({ type: 'SAVE_COMMENTARY_SETTINGS', commentarySettings: state.commentarySettings }); };
-    document.getElementById('commentary-prob').oninput = function() { const val = parseInt(this.value); document.getElementById('commentary-prob-val').textContent = val + '%'; state.commentarySettings.probability = val; postToParent({ type: 'SAVE_COMMENTARY_SETTINGS', commentarySettings: state.commentarySettings }); };
-    
+
+    document.getElementById('voice-enabled').onchange = function() {
+        state.voiceSettings.enabled = this.checked;
+        updateVoiceUI(this.checked);
+        postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings });
+    };
+
+    document.getElementById('voice-select').onchange = function() {
+        state.voiceSettings.voice = this.value;
+        postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings });
+    };
+
+    document.getElementById('voice-speed').oninput = function() {
+        const val = parseFloat(this.value);
+        document.getElementById('voice-speed-val').textContent = val.toFixed(1) + 'x';
+        state.voiceSettings.speed = val;
+        postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings });
+    };
+
+    document.getElementById('commentary-enabled').onchange = function() {
+        state.commentarySettings.enabled = this.checked;
+        updateCommentaryUI(this.checked);
+        postToParent({ type: 'SAVE_COMMENTARY_SETTINGS', commentarySettings: state.commentarySettings });
+    };
+
+    document.getElementById('commentary-prob').oninput = function() {
+        const val = parseInt(this.value);
+        document.getElementById('commentary-prob-val').textContent = val + '%';
+        state.commentarySettings.probability = val;
+        postToParent({ type: 'SAVE_COMMENTARY_SETTINGS', commentarySettings: state.commentarySettings });
+    };
+
     document.getElementById('session-select').onchange = e => postToParent({ type: 'SWITCH_SESSION', sessionId: e.target.value });
     document.getElementById('session-add').onclick = () => { const name = prompt('新记录名称：', '新记录'); if (name) postToParent({ type: 'ADD_SESSION', name: name.trim() }); };
     document.getElementById('session-rename').onclick = () => { const current = state.sessions.find(s => s.id === state.activeSessionId); const name = prompt('重命名记录：', current?.name || ''); if (name) postToParent({ type: 'RENAME_SESSION', sessionId: state.activeSessionId, name: name.trim() }); };
     document.getElementById('session-delete').onclick = () => { if (state.sessions.length <= 1) { alert('至少保留一份记录。'); return; } if (confirm('确定删除当前记录吗？')) postToParent({ type: 'DELETE_SESSION', sessionId: state.activeSessionId }); };
-    
+
     document.getElementById('btn-prompt').onclick = () => { loadPromptFields(); document.getElementById('prompt-modal').classList.add('open'); };
     document.getElementById('prompt-close').onclick = () => document.getElementById('prompt-modal').classList.remove('open');
     document.getElementById('prompt-cancel').onclick = () => document.getElementById('prompt-modal').classList.remove('open');
     document.getElementById('prompt-restore-default').onclick = () => { if (confirm('确定恢复默认提示词吗？')) postToParent({ type: 'RESTORE_DEFAULT_PROMPT_TEMPLATES' }); };
+
     document.getElementById('prompt-save').onclick = () => {
         state.promptTemplates = {
             topuser: document.getElementById('prompt-topuser').value,
@@ -1288,17 +1263,17 @@ document.addEventListener('DOMContentLoaded', () => {
         postToParent({ type: 'SAVE_PROMPT_TEMPLATES', templates: state.promptTemplates });
         document.getElementById('prompt-modal').classList.remove('open');
     };
-    
+
     const textarea = document.getElementById('input-textarea');
     textarea.oninput = function() { this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 120) + 'px'; };
     textarea.addEventListener('keydown', function(e) {
         if (/Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth <= 768)) return;
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); state.isStreaming ? postToParent({ type: 'CANCEL_GENERATION' }) : sendMessage(); }
     });
-    
+
     document.getElementById('btn-send').onclick = () => { state.isStreaming ? postToParent({ type: 'CANCEL_GENERATION' }) : sendMessage(); };
     document.getElementById('btn-regen').onclick = regenerate;
-    
+
     postToParent({ type: 'FRAME_READY' });
 });
 </script>
