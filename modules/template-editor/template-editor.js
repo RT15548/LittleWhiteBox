@@ -7,6 +7,7 @@ import { executeSlashCommand } from "../../core/slash-command.js";
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
+import { getIframeBaseScript, getWrapperScript, getTemplateExtrasScript } from "../../core/wrapper-inline.js";
 
 const TEMPLATE_MODULE_NAME = "xiaobaix-template";
 const events = createModuleEvents('templateEditor');
@@ -606,167 +607,27 @@ class TemplateProcessor {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// iframe 客户端脚本（无改动）
+// iframe 客户端脚本
 // ═══════════════════════════════════════════════════════════════════════════
-
-function iframeClientScript() { return `
-(function(){
-  function measureVisibleHeight(){
-    try{
-      var doc = document;
-      var target = doc.body;
-      if(!target) return 0;
-      var minTop = Infinity, maxBottom = 0;
-      function addRect(el){
-        try{
-          var r = el.getBoundingClientRect();
-          if(r && r.height > 0){
-            if(minTop > r.top) minTop = r.top;
-            if(maxBottom < r.bottom) maxBottom = r.bottom;
-          }
-        }catch(e){}
-      }
-      addRect(target);
-      var children = target.children || [];
-      for(var i=0;i<children.length;i++){
-        var child = children[i];
-        if(!child) continue;
-        try{
-          var s = window.getComputedStyle(child);
-          if(s.display === 'none' || s.visibility === 'hidden') continue;
-          if(!child.offsetParent && s.position !== 'fixed') continue;
-        }catch(e){}
-        addRect(child);
-      }
-      return maxBottom > 0 ? Math.ceil(maxBottom - Math.min(minTop, 0)) : (target.scrollHeight || 0);
-    }catch(e){
-      return (document.body && document.body.scrollHeight) || 0;
-    }
-  }
-  function post(m){ try{ parent.postMessage(m,'*') }catch(e){} }
-  var rafPending=false, lastH=0;
-  var HYSTERESIS = 2;
-  function send(force){
-    if(rafPending && !force) return;
-    rafPending = true;
-    requestAnimationFrame(function(){
-      rafPending = false;
-      var h = measureVisibleHeight();
-      if(force || Math.abs(h - lastH) >= HYSTERESIS){
-        lastH = h;
-        post({height:h, force:!!force});
-      }
-    });
-  }
-  try{ send(true) }catch(e){}
-  document.addEventListener('DOMContentLoaded', function(){ send(true) }, {once:true});
-  window.addEventListener('load', function(){ send(true) }, {once:true});
-  try{
-    if(document.fonts){
-      document.fonts.ready.then(function(){ send(true) }).catch(function(){});
-      if(document.fonts.addEventListener){
-        document.fonts.addEventListener('loadingdone', function(){ send(true) });
-        document.fonts.addEventListener('loadingerror', function(){ send(true) });
-      }
-    }
-  }catch(e){}
-  ['transitionend','animationend'].forEach(function(evt){
-    document.addEventListener(evt, function(){ send(false) }, {passive:true, capture:true});
-  });
-  try{
-    var root = document.body || document.documentElement;
-    var ro = new ResizeObserver(function(){ send(false) });
-    ro.observe(root);
-  }catch(e){
-    try{
-      var rootMO = document.body || document.documentElement;
-      new MutationObserver(function(){ send(false) })
-        .observe(rootMO, {childList:true, subtree:true, attributes:true, characterData:true});
-    }catch(e){}
-    window.addEventListener('resize', function(){ send(false) }, {passive:true});
-  }
-  window.addEventListener('message', function(e){
-    var d = e && e.data || {};
-    if(d && d.type === 'probe') setTimeout(function(){ send(true) }, 10);
-  });
-  window.STscript = function(command){
-    return new Promise(function(resolve,reject){
-      try{
-        if(!command){ reject(new Error('empty')); return }
-        if(command[0] !== '/') command = '/' + command;
-        var id = Date.now().toString(36) + Math.random().toString(36).slice(2);
-        function onMessage(e){
-          var d = e && e.data || {};
-          if(d.source !== 'xiaobaix-host') return;
-          if((d.type === 'commandResult' || d.type === 'commandError') && d.id === id){
-            try{ window.removeEventListener('message', onMessage) }catch(e){}
-            if(d.type === 'commandResult') resolve(d.result);
-            else reject(new Error(d.error || 'error'));
-          }
-        }
-        try{ window.addEventListener('message', onMessage) }catch(e){}
-        post({type:'runCommand', id, command});
-        setTimeout(function(){
-          try{ window.removeEventListener('message', onMessage) }catch(e){}
-          reject(new Error('Command timeout'))
-        }, 180000);
-      }catch(e){ reject(e) }
-    })
-  };
-  if (typeof window.updateTemplateVariables !== 'function') {
-    window.updateTemplateVariables = function(variables) {
-      try{
-        Object.entries(variables || {}).forEach(function([k,v]){
-          document.querySelectorAll('[data-xiaobaix-var="'+k+'"]').forEach(function(el){
-            if (v == null) el.textContent = '';
-            else if (Array.isArray(v)) el.textContent = v.join(', ');
-            else if (typeof v === 'object') el.textContent = JSON.stringify(v);
-            else el.textContent = String(v);
-            el.style.display = '';
-          });
-        });
-      }catch(e){}
-      try{ window.dispatchEvent(new Event('contentUpdated')); }catch(e){}
-      try{ send(true) }catch(e){}
-    };
-  }
-})();` }
 
 function buildWrappedHtml(content) {
     const origin = (typeof location !== 'undefined' && location.origin) ? location.origin : '';
     const baseTag = `<base href="${origin}/">`;
     const wrapperToggle = !!(extension_settings && extension_settings[EXT_ID] && extension_settings[EXT_ID].wrapperIframe);
-    const wrapperScript = wrapperToggle
-        ? `<script src="${origin}/${extensionFolderPath}/Wrapperiframe.js"></script>`
-        : '';
-    const vhFix = `<style>
-  html, body {
-    height: auto !important;
-    min-height: 0 !important;
-    max-height: none !important;
-  }
-  [style*="100vh"] {
-    height: auto !important;
-    min-height: 600px !important;
-  }
-  [style*="height:100%"] {
-    height: auto !important;
-    min-height: 100% !important;
-  }
-</style>`;
-    const reset = `<style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: transparent;
-  }
-</style>`;
+    
+    // 内联脚本：wrapper + base + template extras
+    const scripts = wrapperToggle
+        ? `<script>${getWrapperScript()}${getIframeBaseScript()}${getTemplateExtrasScript()}</script>`
+        : `<script>${getIframeBaseScript()}${getTemplateExtrasScript()}</script>`;
+    
+    const vhFix = `<style>html,body{height:auto!important;min-height:0!important;max-height:none!important}[style*="100vh"]{height:auto!important;min-height:600px!important}[style*="height:100%"]{height:auto!important;min-height:100%!important}</style>`;
+    const reset = `<style>html,body{margin:0;padding:0;background:transparent}</style>`;
+    
     const headBits = `
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+${scripts}
 ${baseTag}
-<script>${iframeClientScript()}</script>
-${wrapperScript}
 ${vhFix}
 ${reset}
 `;
