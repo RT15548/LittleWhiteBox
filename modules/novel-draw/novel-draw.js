@@ -1651,11 +1651,10 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
     const message = ctx.chat?.[messageId];
     if (!message) throw new NovelDrawError('消息不存在', ErrorType.PARSE);
     
-    // ▼ 新增：创建中止控制器
     generationAbortController = new AbortController();
     const signal = generationAbortController.signal;
     
-    try {  // ▼ 新增 try 包裹整个函数体
+    try {
         const settings = getSettings();
         const preset = getActiveParamsPreset();
         const llmPreset = getActiveLlmPreset();
@@ -1667,7 +1666,6 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
         
         onStateChange?.('llm', {});
         
-        // ▼ 新增：检查中止
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
         
         let planRaw;
@@ -1681,7 +1679,6 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
                 timeout: settings.timeout || 120000
             });
         } catch (e) {
-            // ▼ 新增：中止检查
             if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
             if (e instanceof LLMServiceError) {
                 throw new NovelDrawError(`场景分析失败: ${e.message}`, ErrorType.LLM);
@@ -1689,7 +1686,6 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
             throw e;
         }
 
-        // ▼ 新增：检查中止
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
 
         const tasks = parseImagePlan(planRaw);
@@ -1705,7 +1701,6 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
         let successCount = 0;
 
         for (let i = 0; i < tasks.length; i++) {
-            // ▼ 新增：检查中止
             if (signal.aborted) {
                 console.log('[NovelDraw] 用户中止，停止生成');
                 break;
@@ -1749,7 +1744,7 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
                     characterPrompts,
                     negativePrompt: preset.negativePrefix || '',
                     params: preset.params || {},
-                    signal  // ▼ 新增：传递 signal
+                    signal
                 });
                 const imgId = generateImgId();
                 await storePreview({ imgId, slotId, messageId, base64, tags: tagsForStore, positive: scene, characterPrompts, negativePrompt: preset.negativePrefix });
@@ -1757,7 +1752,6 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
                 results.push({ slotId, imgId, tags: tagsForStore, success: true });
                 successCount++;
             } catch (e) {
-                // ▼ 新增：中止时不记录失败
                 if (signal.aborted) {
                     console.log('[NovelDraw] 图片生成被中止');
                     break;
@@ -1777,7 +1771,6 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
                 results.push({ slotId, tags: tagsForStore, success: false, error: errorType });
             }
 
-            // ▼ 新增：中止时跳过后续
             if (signal.aborted) break;
 
             const msgCheck = getContext().chat?.[messageId];
@@ -1801,14 +1794,12 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
                 message.mes += (needNewline ? '\n' : '') + placeholder;
             }
 
-            // ▼ 新增：中止时跳过冷却
             if (signal.aborted) break;
             
             if (i < tasks.length - 1) {
                 const delay = randomDelay(settings.requestDelay?.min, settings.requestDelay?.max);
                 onStateChange?.('cooldown', { duration: delay, nextIndex: i + 2, total: tasks.length });
                 
-                // ▼ 修改：可中止的延迟
                 await new Promise(r => {
                     const tid = setTimeout(r, delay);
                     signal.addEventListener('abort', () => { clearTimeout(tid); r(); }, { once: true });
@@ -1816,7 +1807,6 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
             }
         }
 
-        // ▼ 新增：中止时的返回处理
         if (signal.aborted) {
             onStateChange?.('success', { success: successCount, total: tasks.length, aborted: true });
             return { success: successCount, total: tasks.length, results, aborted: true };
@@ -1842,6 +1832,17 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
                 const { processMessageById } = await import('../iframe-renderer.js');
                 processMessageById(messageId, true);
             } catch {}
+            
+            // 保存聊天，持久化占位符到服务器
+            try {
+                const saveCtx = getContext();
+                if (typeof saveCtx.saveChat === 'function') {
+                    await saveCtx.saveChat();
+                    console.log('[NovelDraw] 聊天已保存，占位符已持久化');
+                }
+            } catch (e) {
+                console.warn('[NovelDraw] 保存聊天失败:', e);
+            }
         }
 
         const resultColor = successCount === tasks.length ? '#3ecf8e' : '#f0b429';
@@ -1851,7 +1852,6 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
         return { success: successCount, total: tasks.length, results };
         
     } finally {
-        // ▼ 新增：清理控制器
         generationAbortController = null;
     }
 }

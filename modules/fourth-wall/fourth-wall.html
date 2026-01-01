@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>皮下交流</title>
 
-<!-- 样式保持不变，此处省略... -->
 <style>
-/* ... 所有样式保持原样 ... */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
@@ -241,53 +239,63 @@ html, body {
 }
 
 .fw-voice-bubble {
-    display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px;
-    background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
-    border-radius: 20px; cursor: pointer; user-select: none; transition: all 0.2s;
-    min-width: 100px; margin: 4px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    background: #95ec69;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    min-width: 80px;
+    max-width: 200px;
+    margin: 4px 0;
+    transition: filter 0.15s;
 }
-.fw-bubble.user .fw-voice-bubble { background: linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.15) 100%); }
-.fw-bubble.assistant .fw-voice-bubble { background: linear-gradient(135deg, #e0f7fa 0%, #e8f5e9 100%); }
-.fw-voice-bubble:hover { transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
-.fw-voice-bubble:active { transform: scale(0.98); }
-
-.fw-voice-icon {
-    display: flex; align-items: center; justify-content: center;
-    width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.6); flex-shrink: 0;
+.fw-voice-bubble:hover { filter: brightness(0.95); }
+.fw-voice-bubble:active { filter: brightness(0.9); }
+.fw-voice-waves {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    width: 20px;
+    height: 18px;
+    flex-shrink: 0;
 }
-.fw-bubble.user .fw-voice-icon { background: rgba(255,255,255,0.3); }
-.fw-voice-icon i { font-size: 12px; color: #4c9aff; }
-.fw-bubble.user .fw-voice-icon i { color: #fff; }
-
-.fw-voice-waves { display: flex; align-items: center; gap: 3px; height: 20px; }
-.fw-voice-bar { width: 3px; background: #4c9aff; border-radius: 2px; transition: height 0.1s; }
-.fw-bubble.user .fw-voice-bar { background: rgba(255,255,255,0.9); }
-.fw-voice-bar:nth-child(1) { height: 8px; }
-.fw-voice-bar:nth-child(2) { height: 14px; }
-.fw-voice-bar:nth-child(3) { height: 10px; }
-.fw-voice-bar:nth-child(4) { height: 16px; }
-.fw-voice-bar:nth-child(5) { height: 12px; }
-
-.fw-voice-bubble.playing .fw-voice-bar { animation: voice-wave 0.6s infinite ease-in-out; }
-.fw-voice-bubble.playing .fw-voice-bar:nth-child(1) { animation-delay: 0.0s; }
-.fw-voice-bubble.playing .fw-voice-bar:nth-child(2) { animation-delay: 0.1s; }
-.fw-voice-bubble.playing .fw-voice-bar:nth-child(3) { animation-delay: 0.2s; }
-.fw-voice-bubble.playing .fw-voice-bar:nth-child(4) { animation-delay: 0.15s; }
-.fw-voice-bubble.playing .fw-voice-bar:nth-child(5) { animation-delay: 0.25s; }
-
-@keyframes voice-wave {
-    0%, 100% { height: 6px; opacity: 0.5; }
-    50% { height: 18px; opacity: 1; }
+.fw-voice-bar {
+    width: 3px;
+    background: #fff;
+    border-radius: 1.5px;
+    opacity: 0.9;
 }
-
-.fw-voice-duration { font-size: 0.75rem; font-weight: 600; color: #555; min-width: 24px; }
-.fw-bubble.user .fw-voice-duration { color: rgba(255,255,255,0.9); }
-.fw-voice-emotion-tag { font-size: 12px; margin-left: 4px; opacity: 0.8; }
-.fw-voice-bubble.loading .fw-voice-waves { display: none; }
-.fw-voice-bubble.loading .fw-voice-icon i::before { content: "\f110"; animation: fa-spin 1s infinite linear; }
-.fw-voice-bubble.error { background: linear-gradient(135deg, #ffeaea 0%, #ffdbdb 100%) !important; }
-.fw-voice-bubble.error .fw-voice-icon { background: rgba(239,68,68,0.2); }
-.fw-voice-bubble.error .fw-voice-icon i { color: #ef4444; }
+.fw-voice-bar:nth-child(1) { height: 6px; }
+.fw-voice-bar:nth-child(2) { height: 10px; }
+.fw-voice-bar:nth-child(3) { height: 14px; }
+.fw-voice-bubble.playing .fw-voice-bar {
+    animation: fw-wechat-wave 1.2s infinite ease-in-out;
+}
+.fw-voice-bubble.playing .fw-voice-bar:nth-child(1) { animation-delay: 0s; }
+.fw-voice-bubble.playing .fw-voice-bar:nth-child(2) { animation-delay: 0.2s; }
+.fw-voice-bubble.playing .fw-voice-bar:nth-child(3) { animation-delay: 0.4s; }
+@keyframes fw-wechat-wave {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+}
+.fw-voice-duration {
+    font-size: 14px;
+    color: #000;
+    opacity: 0.7;
+    margin-left: auto;
+}
+.fw-voice-bubble.loading { opacity: 0.7; }
+.fw-voice-bubble.loading .fw-voice-waves { animation: fw-voice-pulse 1s infinite; }
+@keyframes fw-voice-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+.fw-voice-bubble.error { background: #ffb3b3 !important; }
+/* 用户消息中的语音（白色背景） */
+.fw-row.user .fw-voice-bubble { background: #fff; }
+.fw-row.user .fw-voice-bar { background: #b2b2b2; }
+.fw-row.user .fw-voice-duration { color: #555; }
 
 .fw-input-area { padding: 12px 16px; background: var(--bg-secondary); border-top: 1px solid var(--border-color); flex-shrink: 0; }
 .fw-input-row { display: flex; gap: 10px; align-items: flex-end; }
@@ -730,6 +738,25 @@ function handleCacheMiss(data) {
     slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-palette"></i> 生成中...</div>`;
     postToParent({ type: 'GENERATE_IMAGE', requestId: data.requestId, tags });
 }
+function handleImageProgress(data) {
+    const pending = pendingImages.get(data.requestId);
+    if (!pending) return;
+    
+    const { slot } = pending;
+    if (!slot) return;
+    
+    switch (data.status) {
+        case 'queued':
+            slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-clock"></i> 排队中 #${data.position}</div>`;
+            break;
+        case 'generating':
+            slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-palette"></i> 生成中${data.position > 0 ? ` (${data.position} 排队)` : ''}...</div>`;
+            break;
+        case 'waiting':
+            slot.innerHTML = `<div class="fw-img-loading"><i class="fa-solid fa-clock"></i> 排队中 #${data.position} (${data.delay}s)</div>`;
+            break;
+    }
+}
 
 function bindRetryButton(slot) {
     const btn = slot.querySelector('.fw-img-retry');
@@ -824,7 +851,7 @@ function hydrateVoiceSlots(container) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   内容渲染（保持不变）
+   内容渲染
    ══════════════════════════════════════════════════════════════════════════════ */
 
 function renderContent(text) {
@@ -841,24 +868,28 @@ function renderContent(text) {
         const emotion = (emotionRaw || '').trim().toLowerCase();
         const txt = voiceText.trim();
         if (!txt) return _;
-        const duration = Math.max(1, Math.ceil(txt.length / 4)) + '"';
-        const emotionIcon = getEmotionIcon(emotion);
+        const duration = Math.max(2, Math.ceil(txt.length / 4));
         return `<div class="fw-voice-bubble" data-text="${encodeURIComponent(txt)}" data-emotion="${emotion}">
-            <div class="fw-voice-icon"><i class="fa-solid fa-microphone"></i></div>
-            <div class="fw-voice-waves"><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div></div>
-            <span class="fw-voice-duration">${duration}</span>
-            ${emotionIcon ? `<span class="fw-voice-emotion-tag">${emotionIcon}</span>` : ''}
+            <div class="fw-voice-waves">
+                <div class="fw-voice-bar"></div>
+                <div class="fw-voice-bar"></div>
+                <div class="fw-voice-bar"></div>
+            </div>
+            <span class="fw-voice-duration">${duration}"</span>
         </div>`;
     });
 
     html = html.replace(/\[(?:voice|语音)\s*:\s*([^\]]+)\]/gi, (_, voiceText) => {
         const txt = voiceText.trim();
         if (!txt) return _;
-        const duration = Math.max(1, Math.ceil(txt.length / 4)) + '"';
+        const duration = Math.max(2, Math.ceil(txt.length / 4));
         return `<div class="fw-voice-bubble" data-text="${encodeURIComponent(txt)}" data-emotion="">
-            <div class="fw-voice-icon"><i class="fa-solid fa-microphone"></i></div>
-            <div class="fw-voice-waves"><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div><div class="fw-voice-bar"></div></div>
-            <span class="fw-voice-duration">${duration}</span>
+            <div class="fw-voice-waves">
+                <div class="fw-voice-bar"></div>
+                <div class="fw-voice-bar"></div>
+                <div class="fw-voice-bar"></div>
+            </div>
+            <span class="fw-voice-duration">${duration}"</span>
         </div>`;
     });
 
@@ -1176,6 +1207,9 @@ window.addEventListener('message', event => {
         case 'CACHE_MISS':
             handleCacheMiss(data);
             break;
+        case 'IMAGE_PROGRESS':
+            handleImageProgress(data);
+            break;            
     }
 });
 

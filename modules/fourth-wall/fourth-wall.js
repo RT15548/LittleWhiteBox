@@ -18,7 +18,7 @@ import {
     DEFAULT_BOTTOM,
     DEFAULT_META_PROTOCOL 
 } from "./fw-prompt.js";
-
+import { initMessageEnhancer, cleanupMessageEnhancer } from "./fw-message-enhancer.js";
 // ════════════════════════════════════════════════════════════════════════════
 // 常量
 // ════════════════════════════════════════════════════════════════════════════
@@ -966,7 +966,8 @@ function initFourthWall() {
     
     createFloatingButton();
     initCommentary();
-    clearExpiredCache();
+    clearExpiredCache();    
+    initMessageEnhancer();
     
     events.on(event_types.CHAT_CHANGED, () => {
         cancelGeneration();
@@ -983,6 +984,7 @@ function fourthWallCleanup() {
     removeFloatingButton();
     hideOverlay();
     cancelGeneration();
+    cleanupMessageEnhancer();
     frameReady = false;
     pendingFrameMessages = [];
     overlayCreated = false;
