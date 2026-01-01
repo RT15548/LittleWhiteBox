@@ -158,21 +158,30 @@ function toggleImmersiveMode() {
 }
 
 function bindMessageEvents() {
- if (state.messageEventsBound) return;
-
- const refreshOnAI = () => state.isActive && updateMessageDisplay();
-
- messageEvents.on(event_types.MESSAGE_SENT, () => {});
- messageEvents.on(event_types.MESSAGE_RECEIVED, refreshOnAI);
- messageEvents.on(event_types.MESSAGE_DELETED, refreshOnAI);
- messageEvents.on(event_types.MESSAGE_UPDATED, refreshOnAI);
- messageEvents.on(event_types.MESSAGE_SWIPED, refreshOnAI);
- if (event_types.GENERATION_STARTED) {
-   messageEvents.on(event_types.GENERATION_STARTED, () => {});
- }
- messageEvents.on(event_types.GENERATION_ENDED, refreshOnAI);
-
- state.messageEventsBound = true;
+    if (state.messageEventsBound) return;
+    const onUserMessage = () => {
+        if (!state.isActive) return;
+        updateMessageDisplay();
+        scrollToBottom();
+    };
+    const onAIMessage = () => {
+        if (!state.isActive) return;
+        updateMessageDisplay();
+        if (getSettings().autoJumpOnAI) {
+            scrollToBottom();
+        }
+    };
+    const onMessageChange = () => {
+        if (!state.isActive) return;
+        updateMessageDisplay();
+    };
+    messageEvents.on(event_types.MESSAGE_SENT, onUserMessage);
+    messageEvents.on(event_types.MESSAGE_RECEIVED, onAIMessage);
+    messageEvents.on(event_types.MESSAGE_DELETED, onMessageChange);
+    messageEvents.on(event_types.MESSAGE_UPDATED, onMessageChange);
+    messageEvents.on(event_types.MESSAGE_SWIPED, onMessageChange);
+    messageEvents.on(event_types.GENERATION_ENDED, onAIMessage);
+    state.messageEventsBound = true;
 }
 
 function unbindMessageEvents() {
@@ -269,7 +278,11 @@ function showSingleModeMessages() {
 
         const $prevMessage = $targetAI.prevAll('.mes').first();
         if ($prevMessage.length) {
-            $prevMessage.show();
+
+            const isUserMessage = $prevMessage.attr('is_user') === 'true';
+            if (isUserMessage) {
+                $prevMessage.show();
+            }
         }
 
         $targetAI.nextAll('.mes').show();
@@ -377,13 +390,14 @@ function updateSwipesCounter($targetMes) {
  }
  $swipesCounter.html('1&ZeroWidthSpace;/&ZeroWidthSpace;1');
 }
-function scrollToBottom() {
+function scrollToBottom() {
     const chatContainer = document.getElementById('chat');
-    if (chatContainer) {
-        requestAnimationFrame(() => {
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        });
-    }
+    if (!chatContainer) return;
+    
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+    requestAnimationFrame(() => {
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    });
 }
 function toggleDisplayMode() {
     if (!state.isActive) return;
