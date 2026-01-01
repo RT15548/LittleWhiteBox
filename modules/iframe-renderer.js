@@ -5,7 +5,7 @@ import { xbLog, CacheRegistry } from "../core/debug-core.js";
 import { replaceXbGetVarInString } from "./variables/var-commands.js";
 import { executeSlashCommand } from "../core/slash-command.js";
 import { default_user_avatar, default_avatar } from "../../../../../script.js";
-
+import { getIframeBaseScript, getWrapperScript } from "../core/wrapper-inline.js";
 const MODULE_ID = 'iframeRenderer';
 const events = createModuleEvents(MODULE_ID);
 
@@ -150,144 +150,25 @@ function buildResourceHints(html) {
     return hints + preload;
 }
 
-function iframeClientScript() {
-    return `
-(function(){
-  function measureVisibleHeight(){
-    try{
-      var doc = document;
-      var target = doc.body;
-      if(!target) return 0;
-  
-      var minTop = Infinity, maxBottom = 0;
-      var addRect = function(el){
-        try{
-          var r = el.getBoundingClientRect();
-          if(r && r.height > 0){
-            if(minTop > r.top) minTop = r.top;
-            if(maxBottom < r.bottom) maxBottom = r.bottom;
-          }
-        }catch(e){}
-      };
-  
-      addRect(target);
-      var children = target.children || [];
-      for(var i=0;i<children.length;i++){
-        var child = children[i];
-        if(!child) continue;
-        try{
-          var s = window.getComputedStyle(child);
-          if(s.display === 'none' || s.visibility === 'hidden') continue;
-          if(!child.offsetParent && s.position !== 'fixed') continue;
-        }catch(e){}
-        addRect(child);
-      }
-  
-      return maxBottom > 0 ? Math.ceil(maxBottom - Math.min(minTop, 0)) : (target.scrollHeight || 0);
-    }catch(e){
-      return (document.body && document.body.scrollHeight) || 0;
-    }
-  }
-  
-  function post(m){ try{ parent.postMessage(m,'*') }catch(e){} }
-
-  var rafPending=false, lastH=0;
-  var HYSTERESIS = 2;
-
-  function send(force){
-    if(rafPending && !force) return;
-    rafPending = true;
-    requestAnimationFrame(function(){
-      rafPending = false;
-      var h = measureVisibleHeight();
-      if(force || Math.abs(h - lastH) >= HYSTERESIS){
-        lastH = h;
-        post({height:h, force:!!force});
-      }
-    });
-  }
-
-  try{ send(true) }catch(e){}
-  document.addEventListener('DOMContentLoaded', function(){ send(true) }, {once:true});
-  window.addEventListener('load', function(){ send(true) }, {once:true});
-
-  try{
-    if(document.fonts){
-      document.fonts.ready.then(function(){ send(true) }).catch(function(){});
-      if(document.fonts.addEventListener){
-        document.fonts.addEventListener('loadingdone', function(){ send(true) });
-        document.fonts.addEventListener('loadingerror', function(){ send(true) });
-      }
-    }
-  }catch(e){}
-
-  ['transitionend','animationend'].forEach(function(evt){
-    document.addEventListener(evt, function(){ send(false) }, {passive:true, capture:true});
-  });
-
-  try{
-    var root = document.body || document.documentElement;
-    var ro = new ResizeObserver(function(){ send(false) });
-    ro.observe(root);
-  }catch(e){
-    try{
-      var rootMO = document.body || document.documentElement;
-      new MutationObserver(function(){ send(false) })
-        .observe(rootMO, {childList:true, subtree:true, attributes:true, characterData:true});
-    }catch(e){}
-    window.addEventListener('resize', function(){ send(false) }, {passive:true});
-  }
-
-  window.addEventListener('message', function(e){
-    var d = e && e.data || {};
-    if(d && d.type === 'probe') setTimeout(function(){ send(true) }, 10);
-  });
-
-  window.STscript = function(command){
-    return new Promise(function(resolve,reject){
-      try{
-        if(!command){ reject(new Error('empty')); return }
-        if(command[0] !== '/') command = '/' + command;
-        var id = Date.now().toString(36) + Math.random().toString(36).slice(2);
-        function onMessage(e){
-          var d = e && e.data || {};
-          if(d.source !== 'xiaobaix-host') return;
-          if((d.type === 'commandResult' || d.type === 'commandError') && d.id === id){
-            try{ window.removeEventListener('message', onMessage) }catch(e){}
-            if(d.type === 'commandResult') resolve(d.result);
-            else reject(new Error(d.error || 'error'));
-          }
-        }
-        try{ window.addEventListener('message', onMessage) }catch(e){}
-        post({type:'runCommand', id, command});
-        setTimeout(function(){
-          try{ window.removeEventListener('message', onMessage) }catch(e){}
-          reject(new Error('Command timeout'))
-        }, 180000);
-      }catch(e){ reject(e) }
-    })
-  };
-  try{ if(typeof window['stscript'] !== 'function') window['stscript'] = window.STscript }catch(e){}
-})();`;
-}
-
 function buildWrappedHtml(html) {
     const settings = getSettings();
-    const api = `<script>${iframeClientScript()}</script>`;
     const wrapperToggle = settings.wrapperIframe ?? true;
     const origin = typeof location !== 'undefined' && location.origin ? location.origin : '';
-    const optWrapperUrl = `${origin}/scripts/extensions/third-party/${EXT_ID}/bridges/wrapper-iframe.js`;
-    const optWrapper = wrapperToggle ? `<script src="${optWrapperUrl}"></script>` : "";
     const baseTag = settings.useBlob ? `<base href="${origin}/">` : "";
     const headHints = buildResourceHints(html);
     const vhFix = `<style>html,body{height:auto!important;min-height:0!important;max-height:none!important}.profile-container,[style*="100vh"]{height:auto!important;min-height:600px!important}[style*="height:100%"]{height:auto!important;min-height:100%!important}</style>`;
     
+    // 内联脚本，按顺序：wrapper(callGenerate) -> base(高度+STscript)
+    const scripts = wrapperToggle 
+        ? `<script>${getWrapperScript()}${getIframeBaseScript()}</script>`
+        : `<script>${getIframeBaseScript()}</script>`;
+    
     if (html.includes('<html') && html.includes('</html')) {
         if (html.includes('<head>')) 
-            return html.replace('<head>', `<head>${baseTag}${api}${optWrapper}${headHints}${vhFix}`);
+            return html.replace('<head>', `<head>${scripts}${baseTag}${headHints}${vhFix}`);
         if (html.includes('</head>')) 
-            return html.replace('</head>', `${baseTag}${api}${optWrapper}${headHints}${vhFix}</head>`);
-        return html.replace('<body', `<head>${baseTag}${api}${optWrapper}${headHints}${vhFix}</head><body`);
+            return html.replace('</head>', `${scripts}${baseTag}${headHints}${vhFix}</head>`);
+        return html.replace('<body', `<head>${scripts}${baseTag}${headHints}${vhFix}</head><body`);
     }
     
     return `<!DOCTYPE html>
@@ -295,14 +176,11 @@ function buildWrappedHtml(html) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+${scripts}
 ${baseTag}
-${api}
-${optWrapper}
 ${headHints}
 ${vhFix}
-<style>
-  html, body { margin: 0; padding: 0; background: transparent; }
-</style>
+<style>html,body{margin:0;padding:0;background:transparent}</style>
 </head>
 <body>${html}</body></html>`;
 }
