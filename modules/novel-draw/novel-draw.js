@@ -1924,13 +1924,20 @@ function createOverlay() {
     overlayCreated = true;
     ensureStyles();
 
-    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent);
-    const isNarrowScreen = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
-    const overlayHeight = (isMobileUA || isNarrowScreen) ? '92.5vh' : '100vh';
-
     const overlay = document.createElement('div');
     overlay.id = 'xiaobaix-novel-draw-overlay';
-    overlay.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${overlayHeight}!important;z-index:99999!important;display:none;overflow:hidden!important;`;
+
+    overlay.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:99999!important;display:none;overflow:hidden!important;`;
+
+    const updateHeight = () => {
+        if (overlay.style.display !== 'none') {
+            overlay.style.height = `${window.innerHeight}px`;
+        }
+    };
+    window.addEventListener('resize', updateHeight);
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', updateHeight);
+    }
 
     const backdrop = document.createElement('div');
     backdrop.className = 'nd-backdrop';
@@ -1953,7 +1960,10 @@ function createOverlay() {
 function showOverlay() {
     if (!overlayCreated) createOverlay();
     const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
-    if (overlay) overlay.style.display = 'block';
+    if (overlay) {
+        overlay.style.height = `${window.innerHeight}px`;
+        overlay.style.display = 'block';
+    }
     if (frameReady) sendInitData();
 }
 
