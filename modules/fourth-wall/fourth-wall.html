@@ -858,7 +858,7 @@ function renderContent(text) {
     if (!text) return '';
     let html = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-    html = html.replace(/\[(?:image|图片)\s*:\s*([^\]]+)\]/gi, (_, inner) => {
+    html = html.replace(/\[(?:img|图片)\s*:\s*([^\]]+)\]/gi, (_, inner) => {
         const tags = parseImageToken(inner);
         if (!tags) return _;
         return `<div class="fw-img-slot" data-raw="${encodeURIComponent(inner)}"></div>`;
@@ -899,6 +899,7 @@ function renderContent(text) {
     html = html.replace(/\n/g, '<br>');
     return html;
 }
+
 
 function renderMessages() {
     const container = document.getElementById('messages');

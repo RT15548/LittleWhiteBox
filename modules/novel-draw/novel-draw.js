@@ -1545,7 +1545,74 @@ async function removePlaceholder(container) {
     container.remove();
     showToast('占位符已移除');
 }
-
+// ═══════════════════════════════════════════════════════════════════════════
+// 图片懒加载
+// ═══════════════════════════════════════════════════════════════════════════
+let slotObserver = null;
+function initSlotObserver() {
+    if (slotObserver) return;
+    
+    slotObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (!entry.isIntersecting) return;
+            const slot = entry.target;
+            if (slot.dataset.loaded === '1' || slot.dataset.loading === '1') return;
+            slot.dataset.loading = '1';
+            loadSlotImage(slot);
+        });
+    }, { rootMargin: '200px 0px', threshold: 0.01 });
+}
+async function loadSlotImage(slot) {
+    const slotId = slot.dataset.slotId;
+    const messageId = parseInt(slot.dataset.mesid);
+    
+    try {
+        const displayData = await getDisplayPreviewForSlot(slotId);
+        
+        if (displayData.isFailed) {
+            slot.outerHTML = buildFailedPlaceholderHtml({
+                slotId, messageId,
+                tags: displayData.failedInfo?.tags || '',
+                positive: displayData.failedInfo?.positive || '',
+                errorType: displayData.failedInfo?.errorType || ErrorType.CACHE_LOST.label,
+                errorMessage: displayData.failedInfo?.errorMessage || ErrorType.CACHE_LOST.desc
+            });
+        } else if (displayData.hasData && displayData.preview) {
+            const url = displayData.preview.savedUrl || `data:image/png;base64,${displayData.preview.base64}`;
+            slot.outerHTML = buildImageHtml({
+                slotId,
+                imgId: displayData.preview.imgId,
+                url,
+                tags: displayData.preview.tags,
+                positive: displayData.preview.positive,
+                messageId,
+                state: displayData.preview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW,
+                historyCount: displayData.historyCount,
+                currentIndex: 0
+            });
+        } else {
+            slot.outerHTML = buildFailedPlaceholderHtml({ 
+                slotId, messageId, tags: '', positive: '', 
+                errorType: ErrorType.CACHE_LOST.label, 
+                errorMessage: ErrorType.CACHE_LOST.desc 
+            });
+        }
+    } catch (e) {
+        slot.dataset.loading = '';
+    }
+}
+function buildLoadingPlaceholderHtml(slotId, messageId) {
+    return `<div class="xb-nd-img xb-nd-loading-slot" data-slot-id="${slotId}" data-mesid="${messageId}" style="margin:0.8em 0;text-align:center;padding:20px;background:rgba(0,0,0,0.03);border:1px dashed rgba(255,255,255,0.1);border-radius:14px;">
+        <div style="color:rgba(255,255,255,0.4);font-size:12px;">📷 滚动加载</div>
+    </div>`;
+}
+function hydrateSlots(container) {
+    initSlotObserver();
+    container.querySelectorAll('.xb-nd-loading-slot:not([data-observed])').forEach(slot => {
+        slot.dataset.observed = '1';
+        slotObserver.observe(slot);
+    });
+}
 // ═══════════════════════════════════════════════════════════════════════════
 // 预览渲染
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1560,59 +1627,25 @@ async function renderPreviewsForMessage(messageId) {
     
     const $mesText = $(`#chat .mes[mesid="${messageId}"] .mes_text`);
     if (!$mesText.length) return;
+    
     let html = $mesText.html();
     let replaced = false;
     
     for (const slotId of slotIds) {
         if (html.includes(`data-slot-id="${slotId}"`)) continue;
         
-        const displayData = await getDisplayPreviewForSlot(slotId);
         const placeholder = createPlaceholder(slotId);
         const escapedPlaceholder = placeholder.replace(/[[\]]/g, '\\$&');
         if (!new RegExp(escapedPlaceholder).test(html)) continue;
         
-        let imgHtml;
-        if (displayData.isFailed) {
-            imgHtml = buildFailedPlaceholderHtml({
-                slotId,
-                messageId,
-                tags: displayData.failedInfo?.tags || '',
-                positive: displayData.failedInfo?.positive || '',
-                errorType: displayData.failedInfo?.errorType || ErrorType.CACHE_LOST.label,
-                errorMessage: displayData.failedInfo?.errorMessage || ErrorType.CACHE_LOST.desc
-            });
-        } else if (displayData.hasData && displayData.preview) {
-            const url = displayData.preview.savedUrl || `data:image/png;base64,${displayData.preview.base64}`;
-            const allPreviews = await getPreviewsBySlot(slotId);
-            const successPreviews = allPreviews.filter(p => p.status !== 'failed' && p.base64);
-            const currentIndex = successPreviews.findIndex(p => p.imgId === displayData.preview.imgId);
-            imgHtml = buildImageHtml({
-                slotId,
-                imgId: displayData.preview.imgId,
-                url,
-                tags: displayData.preview.tags,
-                positive: displayData.preview.positive,
-                messageId,
-                state: displayData.preview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW,
-                historyCount: displayData.historyCount,
-                currentIndex: currentIndex >= 0 ? currentIndex : 0
-            });
-        } else {
-            imgHtml = buildFailedPlaceholderHtml({ 
-                slotId, 
-                messageId, 
-                tags: '', 
-                positive: '', 
-                errorType: ErrorType.CACHE_LOST.label, 
-                errorMessage: ErrorType.CACHE_LOST.desc 
-            });
-        }
-        html = html.replace(new RegExp(escapedPlaceholder, 'g'), imgHtml);
+        const loadingHtml = buildLoadingPlaceholderHtml(slotId, messageId);
+        html = html.replace(new RegExp(escapedPlaceholder, 'g'), loadingHtml);
         replaced = true;
     }
     
     if (replaced && !isMessageBeingEdited(messageId)) {
         $mesText.html(html);
+        hydrateSlots($mesText[0]);
     }
 }
 
@@ -1620,7 +1653,9 @@ async function renderAllPreviews() {
     const ctx = getContext();
     const chat = ctx.chat || [];
     for (let i = 0; i < chat.length; i++) {
-        if (extractSlotIds(chat[i]?.mes).size > 0) await renderPreviewsForMessage(i);
+        if (extractSlotIds(chat[i]?.mes).size > 0) {
+            await renderPreviewsForMessage(i);
+        }
     }
 }
 
@@ -1630,7 +1665,7 @@ async function handleMessageRendered(data) {
 }
 
 async function handleChatChanged() {
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 50));
     await renderAllPreviews();
 }
 
@@ -1640,6 +1675,20 @@ async function handleMessageModified(data) {
     if (isNaN(messageId)) return;
     await new Promise(r => setTimeout(r, 100));
     await renderPreviewsForMessage(messageId);
+}
+
+function handleVisibilityChange() {
+    if (document.visibilityState === 'visible' && moduleInitialized) {
+        document.querySelectorAll('.xb-nd-loading-slot[data-observed="1"]').forEach(slot => {
+            if (slot.dataset.loaded !== '1' && slot.dataset.loading !== '1') {
+                const rect = slot.getBoundingClientRect();
+                if (rect.bottom >= 0 && rect.top <= window.innerHeight + 200) {
+                    slot.dataset.loading = '1';
+                    loadSlotImage(slot);
+                }
+            }
+        });
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2375,6 +2424,8 @@ export async function initNovelDraw() {
     events.on(event_types.MESSAGE_SWIPED, handleMessageModified);
     events.on(event_types.GENERATION_ENDED, async () => { try { await autoGenerateForLastAI(); } catch (e) { console.error('[NovelDraw]', e); } });
 
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     window.xiaobaixNovelDraw = {
         getSettings,
         saveSettings,
@@ -2416,7 +2467,14 @@ export async function cleanupNovelDraw() {
     destroyGalleryCache();
     overlayCreated = false;
     frameReady = false;
+    
+    if (slotObserver) {
+        slotObserver.disconnect();
+        slotObserver = null;
+    }
+    
     window.removeEventListener('message', handleFrameMessage);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
     document.getElementById('xiaobaix-novel-draw-overlay')?.remove();
 
     const { destroyFloatingPanel } = await import('./floating-panel.js');

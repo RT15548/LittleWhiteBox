@@ -25,6 +25,7 @@ const CSS_INJECTED_KEY = 'xb-me-css-injected';
 
 let currentAudio = null;
 let imageObserver = null;
+let domObserver = null;  // ▼ 新增
 
 // ════════════════════════════════════════════════════════════════════════════
 // 初始化与清理
@@ -39,6 +40,7 @@ export async function initMessageEnhancer() {
     injectStyles();
     await loadVoices();
     initImageObserver();
+    initDomObserver();  // ▼ 新增
     
     events.on(event_types.CHAT_CHANGED, () => {
         clearQueue();
@@ -65,10 +67,97 @@ export function cleanupMessageEnhancer() {
         imageObserver = null;
     }
     
+    // ▼ 新增
+    if (domObserver) {
+        domObserver.disconnect();
+        domObserver = null;
+    }
+    
     if (currentAudio) {
         currentAudio.pause();
         currentAudio = null;
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// DOM 变化观察器（新增）
+// ════════════════════════════════════════════════════════════════════════════
+
+function initDomObserver() {
+    if (domObserver) return;
+    
+    const chatContainer = document.getElementById('chat');
+    if (!chatContainer) {
+        // 如果 chat 容器还没加载，延迟重试
+        setTimeout(initDomObserver, 500);
+        return;
+    }
+    
+    // 用于防抖处理
+    let pendingTexts = new Set();
+    let debounceTimer = null;
+    
+    domObserver = new MutationObserver((mutations) => {
+        const settings = extension_settings[EXT_ID];
+        if (!settings?.fourthWall?.enabled) return;
+        
+        for (const mutation of mutations) {
+            let mesText = null;
+            
+            if (mutation.type === 'childList') {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                    
+                    if (node.classList?.contains('mes_text')) {
+                        mesText = node;
+                    } else if (node.classList?.contains('mes')) {
+                        mesText = node.querySelector('.mes_text');
+                    } else {
+                        mesText = node.querySelector?.('.mes_text');
+                    }
+                    
+                    if (mesText && hasUnrenderedPlaceholders(mesText)) {
+                        pendingTexts.add(mesText);
+                    }
+                }
+            }
+            
+            if (mutation.target?.classList?.contains('mes_text')) {
+                if (hasUnrenderedPlaceholders(mutation.target)) {
+                    pendingTexts.add(mutation.target);
+                }
+            } else if (mutation.target?.closest?.('.mes_text')) {
+                const target = mutation.target.closest('.mes_text');
+                if (hasUnrenderedPlaceholders(target)) {
+                    pendingTexts.add(target);
+                }
+            }
+        }
+        
+        if (pendingTexts.size > 0 && !debounceTimer) {
+            debounceTimer = setTimeout(() => {
+                pendingTexts.forEach(mesText => {
+                    if (document.contains(mesText)) {
+                        enhanceMessageContent(mesText);
+                    }
+                });
+                pendingTexts.clear();
+                debounceTimer = null;
+            }, 50);
+        }
+    });
+    
+    domObserver.observe(chatContainer, {
+        childList: true,
+        subtree: true,
+    });
+}
+
+function hasUnrenderedPlaceholders(mesText) {
+    if (!mesText) return false;
+    const html = mesText.innerHTML;
+    return /\[(?:img|图片)\s*:\s*[^\]]+\]/i.test(html) ||
+           /\[(?:voice|语音)\s*:[^\]]+\]/i.test(html);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -271,7 +360,7 @@ function enhanceMessageContent(container) {
     let enhanced = html;
     let hasChanges = false;
     
-    enhanced = enhanced.replace(/\[(?:image|图片)\s*:\s*([^\]]+)\]/gi, (match, inner) => {
+    enhanced = enhanced.replace(/\[(?:img|图片)\s*:\s*([^\]]+)\]/gi, (match, inner) => {
         const tags = parseImageToken(inner);
         if (!tags) return match;
         hasChanges = true;
