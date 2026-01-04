@@ -38,8 +38,6 @@ body {
     line-height: 1.5;
     min-height: 100vh;
 }
-
-/* 布局 */
 .app-container { display: flex; flex-direction: column; min-height: 100vh; }
 .app-header {
     display: flex; align-items: center; gap: 12px;
@@ -53,8 +51,6 @@ body {
     display: flex; flex-direction: column; gap: 4px;
 }
 .app-main { flex: 1; padding: 24px; overflow-y: auto; }
-
-/* 头部 */
 .header-logo { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; white-space: nowrap; }
 .header-logo i { color: var(--accent); }
 .header-badge {
@@ -89,8 +85,6 @@ body {
 }
 .header-credit:hover { opacity: 0.9; }
 .credit-author { font-style: normal; color: var(--text-secondary); }
-
-/* 导航 */
 .nav-item {
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
     border-radius: 8px; color: var(--text-secondary); cursor: pointer;
@@ -100,8 +94,6 @@ body {
 .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 .nav-item i { width: 18px; text-align: center; }
 .nav-divider { height: 1px; background: var(--border); margin: 8px 0; }
-
-/* 视图 */
 .view { display: none; max-width: 800px; margin: 0 auto; }
 .view.active { display: block; animation: viewIn 0.2s ease; }
 .view.wide { max-width: 1200px; }
@@ -109,15 +101,11 @@ body {
 .view-header { margin-bottom: 20px; }
 .view-title { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
 .view-desc { font-size: 13px; color: var(--text-secondary); }
-
-/* 卡片 */
 .card {
     background: var(--bg-secondary); border: 1px solid var(--border);
     border-radius: 12px; padding: 20px; margin-bottom: 16px;
 }
 .card-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
-
-/* 表单 */
 .form-group { margin-bottom: 16px; }
 .form-group:last-child { margin-bottom: 0; }
 .form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
@@ -134,8 +122,6 @@ textarea.input { min-height: 80px; resize: vertical; font-family: inherit; }
 select.input { cursor: pointer; }
 .input-row { display: flex; gap: 8px; }
 .input-row .input { flex: 1; min-width: 0; }
-
-/* 按钮 */
 .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     padding: 10px 16px; min-height: 40px; border: 1px solid var(--border);
@@ -159,16 +145,12 @@ select.input { cursor: pointer; }
 .btn.save-failed i { animation: shakeFail 0.4s ease; }
 @keyframes checkBounce { 0% { transform: scale(0) rotate(-45deg); } 50% { transform: scale(1.3) rotate(0deg); } 100% { transform: scale(1) rotate(0deg); } }
 @keyframes shakeFail { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
-
-/* 预设栏 */
 .preset-bar {
     display: flex; align-items: center; gap: 8px; padding: 12px 16px;
     background: var(--bg-tertiary); border: 1px solid var(--border);
     border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
 }
 .preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
-
-/* 角色卡片 */
 .char-grid { display: flex; flex-direction: column; gap: 12px; }
 .char-card {
     background: var(--bg-tertiary); border: 1px solid var(--border);
@@ -194,9 +176,6 @@ select.input { cursor: pointer; }
 .char-edit-form .input { padding: 8px 10px; font-size: 12px; }
 .char-edit-form textarea.input { min-height: 60px; }
 .char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.char-edit-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-
-/* 折叠区块 */
 .char-section-header {
     display: flex; align-items: center; justify-content: space-between;
     cursor: pointer; user-select: none;
@@ -206,8 +185,6 @@ select.input { cursor: pointer; }
 .card.collapsed .char-section-toggle { transform: rotate(-90deg); }
 .card.collapsed .char-section-content { display: none; }
 .char-section-content { margin-top: 16px; }
-
-/* 预览 */
 .preview-box {
     margin-top: 16px; background: var(--bg-input); border: 1px solid var(--border);
     border-radius: 10px; padding: 16px; text-align: center; display: none;
@@ -218,22 +195,12 @@ select.input { cursor: pointer; }
 .status-text.success { color: var(--success); }
 .status-text.error { color: var(--danger); }
 .status-text.loading { color: var(--warning); }
-
-/* 提示 */
 .tip-box {
     display: flex; gap: 10px; padding: 12px 14px; background: var(--accent-soft);
     border: 1px solid rgba(212, 165, 116, 0.2); border-radius: 8px;
     font-size: 12px; color: var(--text-secondary); line-height: 1.6;
 }
 .tip-box i { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
-
-/* 统计 */
-.stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px; }
-.stat-item { text-align: center; }
-.stat-value { font-size: 28px; font-weight: 700; color: var(--accent); }
-.stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
-
-/* 画廊 */
 .gallery-char-section { margin-bottom: 16px; }
 .gallery-char-header {
     display: flex; align-items: center; gap: 12px; padding: 14px 18px;
@@ -291,8 +258,6 @@ select.input { cursor: pointer; }
 .gallery-loading { grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 13px; }
 .gallery-loading i { margin-right: 8px; }
 .gallery-empty-hint { grid-column: 1 / -1; text-align: center; padding: 30px 20px; color: var(--text-muted); font-size: 13px; }
-
-/* 画廊弹窗 */
 .gallery-modal {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     background: rgba(0,0,0,0.9); z-index: 1000;
@@ -321,8 +286,6 @@ select.input { cursor: pointer; }
 .gallery-modal-thumb.saved { border-color: var(--success); }
 .gallery-modal-actions { display: flex; gap: 12px; }
 .gallery-modal-info { font-size: 12px; color: rgba(255,255,255,0.6); text-align: center; }
-
-/* 移动端导航 */
 .mobile-nav {
     display: none; position: fixed; bottom: 0; left: 0; right: 0;
     height: 60px; background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 100;
@@ -336,8 +299,6 @@ select.input { cursor: pointer; }
 }
 .mobile-nav-item i { font-size: 18px; }
 .mobile-nav-item.active { color: var(--accent); }
-
-/* 响应式 */
 @media (max-width: 768px) {
     .app-sidebar { display: none; }
     .mobile-nav { display: block; }
@@ -355,7 +316,6 @@ select.input { cursor: pointer; }
     .form-row { grid-template-columns: 1fr; }
     .preset-bar { padding: 10px 12px; }
     .preset-bar select { max-width: none; }
-    .stat-value { font-size: 24px; }
     .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 12px; }
 }
 @media (max-width: 400px) {
@@ -371,13 +331,10 @@ select.input { cursor: pointer; }
     .header-close { width: 44px; height: 44px; min-width: 44px; }
     .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
 }
-
-/* 滚动条 */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-
 .hidden { display: none !important; }
 </style>
 </head>
@@ -388,7 +345,9 @@ select.input { cursor: pointer; }
      ═══════════════════════════════════════════════════════════════════════════ -->
 <div class="app-container">
 
-    <!-- 头部 -->
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         头部
+         ═══════════════════════════════════════════════════════════════════════ -->
     <header class="app-header">
         <div class="header-logo"><i class="fa-solid fa-palette"></i><span>Novel Draw</span></div>
         <div id="nd_badge" class="header-badge"><i class="fa-solid fa-circle"></i><span>未启用</span></div>
@@ -402,7 +361,9 @@ select.input { cursor: pointer; }
     </header>
 
     <div class="app-body">
-        <!-- 侧边栏 -->
+        <!-- ═══════════════════════════════════════════════════════════════════
+             侧边栏
+             ═══════════════════════════════════════════════════════════════════ -->
         <nav class="app-sidebar">
             <div class="nav-item active" data-view="test"><i class="fa-solid fa-flask"></i>快速测试</div>
             <div class="nav-item" data-view="api"><i class="fa-solid fa-key"></i>API 配置</div>
@@ -413,7 +374,9 @@ select.input { cursor: pointer; }
             <div class="nav-item" data-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
         </nav>
 
-        <!-- 主内容区 -->
+        <!-- ═══════════════════════════════════════════════════════════════════
+             主内容区
+             ═══════════════════════════════════════════════════════════════════ -->
         <main class="app-main">
 
             <!-- ═══════════════════════════════════════════════════════════════
@@ -491,11 +454,12 @@ select.input { cursor: pointer; }
                         <button id="nd_params_add" class="btn btn-icon" title="新建"><i class="fa-solid fa-plus"></i></button>
                         <button id="nd_params_rename" class="btn btn-icon" title="重命名"><i class="fa-solid fa-pen"></i></button>
                         <button id="nd_params_save" class="btn btn-primary" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
+                        <button id="nd_params_cloud" class="btn btn-icon" title="云端预设" style="color:#d4a574;"><i class="fa-solid fa-cloud-arrow-down"></i></button>
+                        <button id="nd_params_export" class="btn btn-icon" title="导出当前预设"><i class="fa-solid fa-share-from-square"></i></button>
                         <button id="nd_params_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>
                 
-                <!-- 全局标签 -->
                 <div class="card">
                     <div class="card-title">🌐 全局标签</div>
                     <div class="form-group">
@@ -508,7 +472,6 @@ select.input { cursor: pointer; }
                     </div>
                 </div>
                 
-                <!-- 模型与采样 -->
                 <div class="card">
                     <div class="card-title">模型与采样</div>
                     <div class="form-row">
@@ -549,7 +512,6 @@ select.input { cursor: pointer; }
                     </div>
                 </div>
                 
-                <!-- 尺寸与参数 -->
                 <div class="card">
                     <div class="card-title">尺寸与参数</div>
                     <div class="form-row">
@@ -579,7 +541,6 @@ select.input { cursor: pointer; }
                     </div>
                 </div>
                 
-                <!-- 增强选项 -->
                 <div class="card">
                     <div class="card-title">增强选项</div>
                     <div class="form-row">
@@ -625,7 +586,6 @@ select.input { cursor: pointer; }
                     </div>
                 </div>
                 
-                <!-- 角色标签 -->
                 <div class="card" id="nd_char_card">
                     <div class="char-section-header" id="nd_char_header">
                         <div class="card-title">👥 角色标签</div>
@@ -653,24 +613,15 @@ select.input { cursor: pointer; }
             <div id="view-llm" class="view">
                 <div class="view-header">
                     <h2 class="view-title">LLM 配置</h2>
-                    <p class="view-desc">场景分析所用的大语言模型设置</p>
+                    <p class="view-desc">场景分析所用的大语言模型渠道设置</p>
                 </div>
-                <div class="preset-bar">
-                    <select id="nd_llm_preset" class="input"></select>
-                    <div class="btn-group">
-                        <button id="nd_llm_add" class="btn btn-icon" title="新建"><i class="fa-solid fa-plus"></i></button>
-                        <button id="nd_llm_rename" class="btn btn-icon" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                        <button id="nd_llm_save" class="btn btn-primary" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
-                        <button id="nd_llm_reset" class="btn btn-icon" title="恢复默认"><i class="fa-solid fa-rotate-left"></i></button>
-                        <button id="nd_llm_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
-                    </div>
-                </div>
+                
                 <div class="card">
                     <div class="card-title">渠道配置</div>
                     <div class="form-group">
                         <label class="form-label">LLM 渠道</label>
                         <select id="nd_llm_provider" class="input">
-                            <option value="st">酒馆主 API (推荐)</option>
+                            <option value="st">酒馆主 API</option>
                             <option value="openai">OpenAI 兼容</option>
                             <option value="google">Google Gemini</option>
                             <option value="claude">Claude</option>
@@ -697,20 +648,29 @@ select.input { cursor: pointer; }
                     </div>
                     <div id="nd_llm_connect_row" class="btn-group hidden" style="margin-top:12px;">
                         <button id="nd_llm_fetch" class="btn"><i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表</button>
-                    </div>
-                    <div class="form-group" style="margin-top:16px;">
-                        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
-                            <input type="checkbox" id="nd_use_stream"> 启用流式生成
-                        </label>
-                    </div>
+                    </div>                    
+
+				<div class="form-group" style="margin-top:16px;">
+				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+				        <input type="checkbox" id="nd_use_stream"> 启用流式生成
+				    </label>
+				</div>
+				<div class="form-group" style="margin-top:8px;">
+				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+				        <input type="checkbox" id="nd_use_worldinfo"> 使用世界书
+				    </label>
+				    <p class="form-hint" style="margin-left:24px;">勾选后，注入世界书作为背景知识</p>
+				</div>
+                    
                     <div id="nd_llm_status" class="status-text"></div>
+                    <div class="btn-group" style="margin-top:16px;">
+                        <button id="nd_llm_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                    </div>
                 </div>
-                <div class="card">
-                    <div class="card-title">LLM 提示词</div>
-                    <div class="form-group"><label class="form-label">USER</label><textarea id="nd_llm_system" class="input" rows="5"></textarea></div>
-                    <div class="form-group"><label class="form-label">AI</label><input id="nd_llm_ack" type="text" class="input"></div>
-                    <div class="form-group"><label class="form-label">USER</label><textarea id="nd_llm_user" class="input" rows="5"></textarea><p class="form-hint">可用变量: {{lastMessage}} {{characterInfo}}</p></div>
-                    <div class="form-group"><label class="form-label">AI</label><input id="nd_llm_prefix" type="text" class="input"></div>
+                
+                <div class="tip-box">
+                    <i class="fa-solid fa-info-circle"></i>
+                    <div>场景分析提示词由插件内置，无需配置。勾选「使用世界书」后，会注入世界书作为背景知识。</div>
                 </div>
             </div>
 
@@ -760,7 +720,9 @@ select.input { cursor: pointer; }
         </main>
     </div>
 
-    <!-- 移动端导航 -->
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         移动端导航
+         ═══════════════════════════════════════════════════════════════════════ -->
     <nav class="mobile-nav">
         <div class="mobile-nav-inner">
             <div class="mobile-nav-item active" data-view="test"><i class="fa-solid fa-flask"></i><span>测试</span></div>
@@ -771,7 +733,9 @@ select.input { cursor: pointer; }
         </div>
     </nav>
 
-    <!-- 画廊弹窗 -->
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         画廊弹窗
+         ═══════════════════════════════════════════════════════════════════════ -->
     <div id="nd_gallery_modal" class="gallery-modal">
         <button class="gallery-modal-close" id="nd_modal_close">✕</button>
         <div class="gallery-modal-content">
@@ -793,7 +757,7 @@ select.input { cursor: pointer; }
      ═══════════════════════════════════════════════════════════════════════════ -->
 <script>
 // ═══════════════════════════════════════════════════════════════════════════
-// 常量与默认值
+// 常量
 // ═══════════════════════════════════════════════════════════════════════════
 
 const DEFAULTS = {
@@ -852,9 +816,7 @@ let state = {
     cacheDays: DEFAULTS.cacheDays,
     cacheStats: { count: 0, sizeMB: '0' },
     selectedParamsPresetId: null,
-    selectedLlmPresetId: null,
     paramsPresets: [],
-    llmPresets: [],
     llmApi: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
     useStream: true,
     characterTags: []
@@ -1053,9 +1015,7 @@ function renderCharList() {
     list.querySelectorAll('.char-edit-type').forEach(sel => {
         sel.addEventListener('change', function() {
             const customInput = this.closest('.char-edit-form').querySelector('.char-edit-type-custom');
-            if (customInput) {
-                customInput.classList.toggle('hidden', this.value !== 'custom');
-            }
+            if (customInput) customInput.classList.toggle('hidden', this.value !== 'custom');
         });
     });
 }
@@ -1077,9 +1037,7 @@ function handleCharAction(action, id, card) {
         const typeSelect = card.querySelector('.char-edit-type');
         const typeCustom = card.querySelector('.char-edit-type-custom');
         let type = typeSelect?.value || 'girl';
-        if (type === 'custom' && typeCustom?.value?.trim()) {
-            type = typeCustom.value.trim();
-        }
+        if (type === 'custom' && typeCustom?.value?.trim()) type = typeCustom.value.trim();
         
         char.name = name;
         char.type = type;
@@ -1292,12 +1250,7 @@ function applyStateToUI() {
     pSel.innerHTML = state.paramsPresets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
     pSel.value = state.selectedParamsPresetId || '';
     
-    const lSel = $('nd_llm_preset');
-    lSel.innerHTML = state.llmPresets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
-    lSel.value = state.selectedLlmPresetId || '';
-    
     applyParamsPreset();
-    applyLlmPreset();
     applyLlmApi();
     renderCharList();
     renderGalleryView();
@@ -1336,15 +1289,6 @@ function applyParamsPreset() {
     updateModelOptions();
 }
 
-function applyLlmPreset() {
-    const p = state.llmPresets.find(x => x.id === state.selectedLlmPresetId) || state.llmPresets[0];
-    if (!p) return;
-    $('nd_llm_system').value = p.systemPrompt || '';
-    $('nd_llm_ack').value = p.assistantAck || '';
-    $('nd_llm_user').value = p.userTemplate || '';
-    $('nd_llm_prefix').value = p.assistantPrefix || '';
-}
-
 function applyLlmApi() {
     const api = state.llmApi || {};
     const provider = api.provider || 'st';
@@ -1354,7 +1298,7 @@ function applyLlmApi() {
     $('nd_llm_url').value = api.url || pv.url || '';
     $('nd_llm_key').value = api.key || '';
     $('nd_use_stream').checked = state.useStream !== false;
-    
+    $('nd_use_worldinfo').checked = state.useWorldInfo === true;    
     if (pv.needManualModel) $('nd_llm_model_manual').value = api.model || '';
     
     const mc = api.modelCache || [];
@@ -1416,15 +1360,6 @@ function collectParamsPreset() {
     p.params.decrisper = $('nd_decrisper').checked;
 }
 
-function collectLlmPreset() {
-    const p = state.llmPresets.find(x => x.id === state.selectedLlmPresetId);
-    if (!p) return;
-    p.systemPrompt = $('nd_llm_system').value;
-    p.assistantAck = $('nd_llm_ack').value;
-    p.userTemplate = $('nd_llm_user').value;
-    p.assistantPrefix = $('nd_llm_prefix').value;
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // 消息处理
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1432,7 +1367,7 @@ function collectLlmPreset() {
 window.addEventListener('message', event => {
     const data = event.data;
     if (!data || data.source !== 'LittleWhiteBox-NovelDraw') return;
-    
+
     switch (data.type) {
         case 'INIT_DATA':
             state = { ...state, ...data.settings, cacheStats: data.cacheStats || state.cacheStats };
@@ -1513,20 +1448,28 @@ window.addEventListener('message', event => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 导航
+    // ═══════════════════════════════════════════════════════════════════════
+    // 导航切换
+    // ═══════════════════════════════════════════════════════════════════════
     $$('.nav-item, .mobile-nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
     
+    // ═══════════════════════════════════════════════════════════════════════
     // 模式切换
+    // ═══════════════════════════════════════════════════════════════════════
     $$('.header-mode button').forEach(btn => btn.addEventListener('click', () => {
         state.mode = btn.dataset.mode;
         updateModeButtons(state.mode);
         postToParent({ type: 'SAVE_MODE', mode: state.mode });
     }));
     
-    // 关闭
+    // ═══════════════════════════════════════════════════════════════════════
+    // 关闭按钮
+    // ═══════════════════════════════════════════════════════════════════════
     $('nd_close').addEventListener('click', () => postToParent({ type: 'CLOSE' }));
     
-    // API Key 显示切换
+    // ═══════════════════════════════════════════════════════════════════════
+    // API 配置
+    // ═══════════════════════════════════════════════════════════════════════
     $('nd_toggle_key').addEventListener('click', () => {
         const i = $('nd_api_key');
         const ic = $('nd_toggle_key').querySelector('i');
@@ -1534,20 +1477,19 @@ document.addEventListener('DOMContentLoaded', () => {
         else { i.type = 'password'; ic.className = 'fa-solid fa-eye'; }
     });
     
-    // API 保存
     $('nd_save_api').addEventListener('click', () => {
         setSavingState($('nd_save_api'));
         postToParent({ type: 'SAVE_API_KEY', apiKey: $('nd_api_key').value.trim() });
         postToParent({ type: 'SAVE_TIMEOUT', timeout: Number($('nd_timeout').value) * 1000 || 180000, requestDelay: parseDelay($('nd_delay').value) });
     });
     
-    // API 测试
     $('nd_test_api').addEventListener('click', () => postToParent({ type: 'TEST_API', apiKey: $('nd_api_key').value.trim() }));
     
-    // 快速测试
     $('nd_test_single').addEventListener('click', () => postToParent({ type: 'TEST_SINGLE', tags: $('nd_test_tags').value }));
     
-    // 下拉框自定义
+    // ═══════════════════════════════════════════════════════════════════════
+    // 模型/采样器/调度器选择
+    // ═══════════════════════════════════════════════════════════════════════
     ['model', 'sampler', 'scheduler'].forEach(k => {
         $(`nd_${k}_sel`).addEventListener('change', function() {
             $(`nd_${k}`).classList.toggle('hidden', this.value !== 'custom');
@@ -1555,7 +1497,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     
+    // ═══════════════════════════════════════════════════════════════════════
     // 尺寸预设
+    // ═══════════════════════════════════════════════════════════════════════
     $('nd_size_preset').addEventListener('change', function() {
         if (this.value === 'custom') {
             $('nd_custom_size').classList.remove('hidden');
@@ -1567,15 +1511,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // 参数预设操作
-    $('nd_params_preset').addEventListener('change', () => { state.selectedParamsPresetId = $('nd_params_preset').value; applyParamsPreset(); });
+    // ═══════════════════════════════════════════════════════════════════════
+    // 参数预设管理
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_params_preset').addEventListener('change', () => { 
+        state.selectedParamsPresetId = $('nd_params_preset').value; 
+        applyParamsPreset(); 
+    });
+    
     $('nd_params_save').addEventListener('click', () => {
         setSavingState($('nd_params_save'));
         collectParamsPreset();
         postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
     });
+    
     $('nd_params_add').addEventListener('click', () => postToParent({ type: 'ADD_PARAMS_PRESET' }));
-    $('nd_params_del').addEventListener('click', () => { if (confirm('确定删除当前参数预设？')) postToParent({ type: 'DEL_PARAMS_PRESET' }); });
+    
+    $('nd_params_del').addEventListener('click', () => { 
+        if (confirm('确定删除当前参数预设？')) postToParent({ type: 'DEL_PARAMS_PRESET' }); 
+    });
+    
     $('nd_params_rename').addEventListener('click', () => {
         const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId);
         if (!p) return;
@@ -1586,10 +1541,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // 角色区块折叠
+    // ═══════════════════════════════════════════════════════════════════════
+    // 云端预设（新增）
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_params_cloud').addEventListener('click', () => {
+        postToParent({ type: 'OPEN_CLOUD_PRESETS' });
+    });
+    
+    $('nd_params_export').addEventListener('click', () => {
+        postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: state.selectedParamsPresetId });
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 角色标签
+    // ═══════════════════════════════════════════════════════════════════════
     $('nd_char_header').addEventListener('click', () => { $('nd_char_card').classList.toggle('collapsed'); });
     
-    // 角色操作
     $('nd_char_add').addEventListener('click', () => {
         const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', posX: 0.5, posY: 0.5 };
         state.characterTags.push(nc);
@@ -1606,7 +1573,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (id) handleCharAction(btn.dataset.action, id, card);
     });
     
-    // 角色导入导出
     $('nd_char_export').addEventListener('click', () => {
         if (!state.characterTags?.length) { alert('没有可导出的角色'); return; }
         const d = { type: 'novel-draw-characters', version: 2, characters: state.characterTags };
@@ -1627,7 +1593,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (d.type !== 'novel-draw-characters' || !Array.isArray(d.characters)) throw new Error('无效文件');
             for (const char of d.characters) {
                 if (!char.name) continue;
-                // 兼容旧数据
                 if (char.tags && !char.appearance) char.appearance = char.tags;
                 if (!char.type) char.type = 'girl';
                 
@@ -1644,7 +1609,9 @@ document.addEventListener('DOMContentLoaded', () => {
         e.target.value = '';
     });
     
+    // ═══════════════════════════════════════════════════════════════════════
     // LLM 配置
+    // ═══════════════════════════════════════════════════════════════════════
     $('nd_llm_provider').addEventListener('change', function() {
         const pv = providerDefaults[this.value] || providerDefaults.custom;
         if (pv.url) $('nd_llm_url').value = pv.url;
@@ -1659,52 +1626,61 @@ document.addEventListener('DOMContentLoaded', () => {
         postToParent({ type: 'FETCH_LLM_MODELS', llmApi: { provider: $('nd_llm_provider').value, url: $('nd_llm_url').value.trim(), key: $('nd_llm_key').value.trim() } });
     });
     
-    $('nd_llm_preset').addEventListener('change', () => { state.selectedLlmPresetId = $('nd_llm_preset').value; applyLlmPreset(); });
     $('nd_llm_save').addEventListener('click', () => {
         setSavingState($('nd_llm_save'));
-        collectLlmPreset();
         postToParent({
-            type: 'SAVE_LLM_PRESET',
-            selectedLlmPresetId: state.selectedLlmPresetId,
-            llmPresets: state.llmPresets,
-            llmApi: { provider: $('nd_llm_provider').value, url: $('nd_llm_url').value.trim(), key: $('nd_llm_key').value.trim(), model: getCurrentLlmModel(), modelCache: state.llmApi?.modelCache || [] },
-            useStream: $('nd_use_stream').checked
+            type: 'SAVE_LLM_API',
+            llmApi: {
+                provider: $('nd_llm_provider').value,
+                url: $('nd_llm_url').value.trim(),
+                key: $('nd_llm_key').value.trim(),
+                model: getCurrentLlmModel(),
+                modelCache: state.llmApi?.modelCache || []
+            },
+            useStream: $('nd_use_stream').checked,
+            useWorldInfo: $('nd_use_worldinfo').checked
         });
     });
-    $('nd_llm_add').addEventListener('click', () => postToParent({ type: 'ADD_LLM_PRESET' }));
-    $('nd_llm_del').addEventListener('click', () => { if (confirm('确定删除当前 LLM 预设？')) postToParent({ type: 'DEL_LLM_PRESET' }); });
-    $('nd_llm_rename').addEventListener('click', () => {
-        const p = state.llmPresets.find(x => x.id === state.selectedLlmPresetId);
-        if (!p) return;
-        const name = prompt('输入新名称：', p.name || '');
-        if (name && name.trim()) { p.name = name.trim(); postToParent({ type: 'SAVE_LLM_PRESET', selectedLlmPresetId: state.selectedLlmPresetId, llmPresets: state.llmPresets }); }
-    });
-    $('nd_llm_reset').addEventListener('click', () => { if (confirm('确定将当前 LLM 预设恢复为插件内置默认值？')) postToParent({ type: 'RESET_CURRENT_LLM_PRESET' }); });
     
-    // 缓存管理
+    // ═══════════════════════════════════════════════════════════════════════
+    // 图片管理
+    // ═══════════════════════════════════════════════════════════════════════
     $('nd_save_cache_days').addEventListener('click', () => {
         setSavingState($('nd_save_cache_days'));
         postToParent({ type: 'SAVE_CACHE_DAYS', cacheDays: Number($('nd_cache_days').value) || 3 });
     });
+    
     $('nd_clear_expired').addEventListener('click', () => postToParent({ type: 'CLEAR_EXPIRED_CACHE' }));
-    $('nd_clear_all').addEventListener('click', () => { if (confirm('确定清空全部图片记录？已保存到服务器的文件不会被删除。')) postToParent({ type: 'CLEAR_ALL_CACHE' }); });
+    
+    $('nd_clear_all').addEventListener('click', () => { 
+        if (confirm('确定清空全部图片记录？已保存到服务器的文件不会被删除。')) postToParent({ type: 'CLEAR_ALL_CACHE' }); 
+    });
+    
     $('nd_refresh_stats').addEventListener('click', () => postToParent({ type: 'REFRESH_CACHE_STATS' }));
     
+    // ═══════════════════════════════════════════════════════════════════════
     // 画廊弹窗
+    // ═══════════════════════════════════════════════════════════════════════
     $('nd_modal_close').addEventListener('click', closeGalleryModal);
-    $('nd_gallery_modal').addEventListener('click', e => { if (e.target.id === 'nd_gallery_modal') closeGalleryModal(); });
+    
+    $('nd_gallery_modal').addEventListener('click', e => { 
+        if (e.target.id === 'nd_gallery_modal') closeGalleryModal(); 
+    });
+    
     $('nd_modal_use').addEventListener('click', () => {
         if (!modalData.slotId || !modalData.images.length) return;
         const c = modalData.images[modalData.currentIndex];
         postToParent({ type: 'USE_GALLERY_IMAGE', slotId: modalData.slotId, imgId: c.imgId });
         closeGalleryModal();
     });
+    
     $('nd_modal_save').addEventListener('click', () => {
         if (!modalData.images.length) return;
         const c = modalData.images[modalData.currentIndex];
         if (c.savedUrl) return;
         postToParent({ type: 'SAVE_GALLERY_IMAGE', imgId: c.imgId });
     });
+    
     $('nd_modal_delete').addEventListener('click', () => {
         if (!modalData.images.length) return;
         const c = modalData.images[modalData.currentIndex];
@@ -1712,7 +1688,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (confirm(msg)) postToParent({ type: 'DELETE_GALLERY_IMAGE', imgId: c.imgId });
     });
     
+    // ═══════════════════════════════════════════════════════════════════════
     // 通知父窗口准备就绪
+    // ═══════════════════════════════════════════════════════════════════════
     postToParent({ type: 'FRAME_READY' });
 });
 </script>

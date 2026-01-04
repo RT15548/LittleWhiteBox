@@ -1,5 +1,8 @@
 // novel-draw.js
-// Novel Draw 智能配图模块
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 导入
+// ═══════════════════════════════════════════════════════════════════════════
 
 import { getContext } from "../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../utils.js";
@@ -14,15 +17,18 @@ import {
     getGallerySummary, getCharacterPreviews, openGallery, closeGallery, destroyGalleryCache
 } from './gallery-cache.js';
 import {
-    PRESET_VERSION,
     PROVIDER_MAP,
-    DEFAULT_LLM_PRESET,
     LLMServiceError,
     loadTagGuide,
     generateScenePlan,
     parseImagePlan,
-    isLegacyFormat
 } from './llm-service.js';
+import {
+    openCloudPresetsModal,
+    downloadPresetAsFile,
+    parsePresetData,
+    destroyCloudPresets
+} from './cloud-presets.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -32,10 +38,11 @@ const MODULE_KEY = 'novelDraw';
 const SERVER_FILE_KEY = 'settings';
 const HTML_PATH = `${extensionFolderPath}/modules/novel-draw/novel-draw.html`;
 const NOVELAI_IMAGE_API = 'https://image.novelai.net/ai/generate-image';
-const CONFIG_VERSION = 3;
+const CONFIG_VERSION = 4;
 const MAX_SEED = 0xFFFFFFFF;
 const API_TEST_TIMEOUT = 15000;
 const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
+const INITIAL_RENDER_MESSAGE_LIMIT = 10;
 
 const events = createModuleEvents(MODULE_KEY);
 
@@ -53,7 +60,7 @@ const ErrorType = {
 };
 
 const DEFAULT_PARAMS_PRESET = {
-    id: '', name: '默认 (V4.5 Full)', version: PRESET_VERSION,
+    id: '', name: '默认 (V4.5 Full)',
     positivePrefix: 'best quality, amazing quality, very aesthetic, absurdres,',
     negativePrefix: 'lowres, bad anatomy, bad hands, missing fingers, extra digits, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
     params: {
@@ -71,17 +78,15 @@ const DEFAULT_SETTINGS = {
     apiKey: '',
     cacheDays: 3,
     selectedParamsPresetId: null,
-    selectedLlmPresetId: null,
     paramsPresets: [],
-    llmPresets: [],
     requestDelay: { min: 15000, max: 30000 },
     timeout: 60000,
     llmApi: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
     useStream: false,
+    useWorldInfo: false,    
     characterTags: [],
     overrideSize: 'default',
 };
-
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -96,6 +101,7 @@ let touchState = null;
 let settingsCache = null;
 let settingsLoaded = false;
 let generationAbortController = null;
+let messageObserver = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 样式
@@ -111,7 +117,7 @@ function ensureStyles() {
 .xb-nd-img[data-state="failed"]{border:1px dashed rgba(248,113,113,0.5);background:rgba(248,113,113,0.05);padding:20px}
 .xb-nd-img.busy img{opacity:0.5}
 .xb-nd-img-wrap{position:relative;overflow:hidden;border-radius:10px;touch-action:pan-y pinch-zoom}
-.xb-nd-img img{width:auto;height:auto;max-width: 100%;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);display:block;user-select:none;-webkit-user-drag:none;transition:transform 0.25s ease,opacity 0.2s ease;will-change:transform,opacity}
+.xb-nd-img img{width:auto;height:auto;max-width:100%;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);display:block;user-select:none;-webkit-user-drag:none;transition:transform 0.25s ease,opacity 0.2s ease;will-change:transform,opacity}
 .xb-nd-img img.sliding-left{animation:ndSlideOutLeft 0.25s ease forwards}
 .xb-nd-img img.sliding-right{animation:ndSlideOutRight 0.25s ease forwards}
 .xb-nd-img img.sliding-in-left{animation:ndSlideInLeft 0.25s ease forwards}
@@ -152,8 +158,6 @@ function ensureStyles() {
 .xb-nd-edit-btn:hover{background:rgba(255,255,255,0.2)}
 .xb-nd-remove-btn{border:1px solid rgba(248,113,113,0.3);background:transparent;color:rgba(248,113,113,0.8)}
 .xb-nd-remove-btn:hover{background:rgba(248,113,113,0.1)}
-.xb-nd-loading{padding:30px;text-align:center;color:rgba(255,255,255,0.6)}
-.xb-nd-loading-icon{font-size:24px;margin-bottom:8px}
 @keyframes nd-slide-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes fadeInOut{0%{opacity:0;transform:translateX(-50%) translateY(-10px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}85%{opacity:1;transform:translateX(-50%) translateY(0)}100%{opacity:0;transform:translateX(-50%) translateY(-10px)}}
 #xiaobaix-novel-draw-overlay .nd-backdrop{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7)}
@@ -319,13 +323,7 @@ function normalizeSettings(saved) {
         merged.paramsPresets = [{ ...JSON.parse(JSON.stringify(DEFAULT_PARAMS_PRESET)), id }];
         merged.selectedParamsPresetId = id;
     }
-    if (!merged.llmPresets?.length) {
-        const id = generateSlotId();
-        merged.llmPresets = [{ ...JSON.parse(JSON.stringify(DEFAULT_LLM_PRESET)), id }];
-        merged.selectedLlmPresetId = id;
-    }
     if (!merged.selectedParamsPresetId) merged.selectedParamsPresetId = merged.paramsPresets[0]?.id;
-    if (!merged.selectedLlmPresetId) merged.selectedLlmPresetId = merged.llmPresets[0]?.id;
     if (!Number.isFinite(Number(merged.updatedAt))) merged.updatedAt = 0;
 
     merged.characterTags = (merged.characterTags || []).map(char => ({
@@ -339,16 +337,19 @@ function normalizeSettings(saved) {
         posY: char.posY ?? 0.5,
     }));
 
+    delete merged.llmPresets;
+    delete merged.selectedLlmPresetId;
+
     return merged;
 }
 
 async function loadSettings() {
     if (settingsLoaded && settingsCache) return settingsCache;
-    
+
     try {
         const saved = await NovelDrawStorage.get(SERVER_FILE_KEY, null);
         settingsCache = normalizeSettings(saved || {});
-        
+
         if (!saved || saved.configVersion !== CONFIG_VERSION) {
             settingsCache.configVersion = CONFIG_VERSION;
             settingsCache.updatedAt = Date.now();
@@ -358,7 +359,7 @@ async function loadSettings() {
         console.error('[NovelDraw] 加载设置失败:', e);
         settingsCache = normalizeSettings({});
     }
-    
+
     settingsLoaded = true;
     return settingsCache;
 }
@@ -381,12 +382,12 @@ function saveSettings(s) {
 
 async function saveSettingsAndToast(s, okText = '已保存') {
     const next = saveSettings(s);
-    
+
     try {
         const data = await NovelDrawStorage.load();
         data[SERVER_FILE_KEY] = next;
         NovelDrawStorage._dirtyVersion = (NovelDrawStorage._dirtyVersion || 0) + 1;
-        
+
         await NovelDrawStorage.saveNow({ silent: false });
         postStatus('success', okText);
         return true;
@@ -399,34 +400,6 @@ async function saveSettingsAndToast(s, okText = '已保存') {
 function getActiveParamsPreset() {
     const s = getSettings();
     return s.paramsPresets.find(p => p.id === s.selectedParamsPresetId) || s.paramsPresets[0];
-}
-
-function getActiveLlmPreset() {
-    const s = getSettings();
-    return s.llmPresets.find(p => p.id === s.selectedLlmPresetId) || s.llmPresets[0];
-}
-
-function resetToDefaultPresets() {
-    const paramsId = generateSlotId();
-    const llmId = generateSlotId();
-    const old = getSettings();
-    const s = {
-        ...DEFAULT_SETTINGS,
-        apiKey: old.apiKey,
-        mode: old.mode,
-        cacheDays: old.cacheDays,
-        llmApi: old.llmApi || DEFAULT_SETTINGS.llmApi,
-        useStream: old.useStream ?? true,
-        characterTags: old.characterTags || [],
-        paramsPresets: [{ ...JSON.parse(JSON.stringify(DEFAULT_PARAMS_PRESET)), id: paramsId }],
-        llmPresets: [{ ...JSON.parse(JSON.stringify(DEFAULT_LLM_PRESET)), id: llmId }],
-        selectedParamsPresetId: paramsId,
-        selectedLlmPresetId: llmId,
-        configVersion: CONFIG_VERSION,
-        updatedAt: Date.now(),
-    };
-    saveSettings(s);
-    return s;
 }
 
 async function notifySettingsUpdated() {
@@ -481,7 +454,7 @@ function detectPresentCharacters(messageText, characterTags) {
     if (!messageText || !characterTags?.length) return [];
     const text = messageText.toLowerCase();
     const present = [];
-    
+
     for (const char of characterTags) {
         if (!char.name) continue;
         const names = [char.name, ...(char.aliases || [])].filter(Boolean);
@@ -489,7 +462,7 @@ function detectPresentCharacters(messageText, characterTags) {
             const lowerName = name.toLowerCase();
             return text.includes(lowerName) || new RegExp(`\\b${escapeRegexChars(lowerName)}\\b`, 'i').test(text);
         });
-        
+
         if (isPresent) {
             present.push({
                 name: char.name,
@@ -512,14 +485,16 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
         );
 
         if (known) {
+
             return {
-                prompt: joinTags(known.type, known.appearance, char.action, char.interact),
+                prompt: joinTags(known.type, known.appearance, char.costume, char.action, char.interact),
                 uc: known.negativeTags || '',
                 center: { x: known.posX ?? 0.5, y: known.posY ?? 0.5 }
             };
         } else {
+
             return {
-                prompt: joinTags(char.type, char.appear, char.action, char.interact),
+                prompt: joinTags(char.type, char.appear, char.costume, char.action, char.interact),
                 uc: '',
                 center: { x: 0.5, y: 0.5 }
             };
@@ -565,7 +540,7 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
         const allCharPrompts = characterPrompts.map(cp => cp.prompt).filter(Boolean).join(', ');
         const fullPrompt = scene ? `${scene}, ${allCharPrompts}` : allCharPrompts;
         const allNegative = [negativePrompt, ...characterPrompts.map(cp => cp.uc)].filter(Boolean).join(', ');
-        
+
         return {
             action: 'generate',
             input: String(fullPrompt || ''),
@@ -658,12 +633,12 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
     };
 }
 
-async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, signal }) {  // ▼ 新增 signal 参数
+async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, signal }) {
     const settings = getSettings();
     if (!settings.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
-    
+
     const finalParams = { ...params };
-    
+
     if (settings.overrideSize && settings.overrideSize !== 'default') {
         const { SIZE_OPTIONS } = await import('./floating-panel.js');
         const sizeOpt = SIZE_OPTIONS.find(o => o.value === settings.overrideSize);
@@ -672,29 +647,28 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
             finalParams.height = sizeOpt.height;
         }
     }
-    
+
     const controller = new AbortController();
     const timeout = (settings.timeout > 0) ? settings.timeout : DEFAULT_SETTINGS.timeout;
     const tid = setTimeout(() => controller.abort(), timeout);
-    
+
     if (signal) {
         signal.addEventListener('abort', () => controller.abort(), { once: true });
     }
-    
-    const t0 = Date.now();
-    
-    try {
 
+    const t0 = Date.now();
+
+    try {
         if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
-        
+
         const res = await fetch(NOVELAI_IMAGE_API, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.apiKey}` },
             signal: controller.signal,
-            body: JSON.stringify(buildNovelAIRequestBody({ 
-                scene, 
-                characterPrompts, 
-                negativePrompt, 
+            body: JSON.stringify(buildNovelAIRequestBody({
+                scene,
+                characterPrompts,
+                negativePrompt,
                 params: finalParams
             })),
         });
@@ -704,7 +678,6 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
         console.log(`[NovelDraw] 完成 ${Date.now() - t0}ms`);
         return base64;
     } catch (e) {
-
         if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
         throw handleFetchError(e);
     } finally {
@@ -747,21 +720,21 @@ function findAnchorPosition(mes, anchor) {
 function findNearestSentenceEnd(mes, startPos) {
     if (startPos < 0 || !mes) return startPos;
     if (startPos >= mes.length) return mes.length;
-    
+
     const maxLookAhead = 80;
     const endLimit = Math.min(mes.length, startPos + maxLookAhead);
     const basicEnders = new Set(['\u3002', '\uFF01', '\uFF1F', '!', '?', '\u2026']);
-    const closingMarks = new Set(['\u201D', '\u201C', '\u2019', '\u2018', '\u300D', '\u300F', '\u3011', '\uFF09', ')', '"', "'", '*', '~', '\uFF5E']);
-    
+    const closingMarks = new Set(['\u201D', '\u201C', '\u2019', '\u2018', '\u300D', '\u300F', '\u3011', '\uFF09', ')', '"', "'", '*', '~', '\uFF5E', ']']);
+
     const eatClosingMarks = (pos) => {
         while (pos < mes.length && closingMarks.has(mes[pos])) pos++;
         return pos;
     };
-    
+
     if (startPos > 0 && basicEnders.has(mes[startPos - 1])) {
         return eatClosingMarks(startPos);
     }
-    
+
     for (let i = 0; i < maxLookAhead && startPos + i < endLimit; i++) {
         const pos = startPos + i;
         const char = mes[pos];
@@ -769,7 +742,7 @@ function findNearestSentenceEnd(mes, startPos) {
         if (basicEnders.has(char)) return eatClosingMarks(pos + 1);
         if (char === '.' && mes.slice(pos, pos + 3) === '...') return eatClosingMarks(pos + 3);
     }
-    
+
     return startPos;
 }
 
@@ -1135,41 +1108,41 @@ async function handleImageClick(container) {
 async function toggleEditPanel(container, show) {
     const editPanel = container.querySelector('.xb-nd-edit');
     const btnsPanel = container.querySelector('.xb-nd-btns') || container.querySelector('.xb-nd-failed-btns');
-    
+
     if (!editPanel) return;
 
-    const origLabel = Array.from(editPanel.children).find(el => 
+    const origLabel = Array.from(editPanel.children).find(el =>
         el.tagName === 'DIV' && el.textContent.includes('编辑 TAG')
     );
-    const origTextarea = Array.from(editPanel.children).find(el => 
+    const origTextarea = Array.from(editPanel.children).find(el =>
         el.tagName === 'TEXTAREA' && !el.dataset.type
     );
 
     if (show) {
         const imgId = container.dataset.imgId;
         const currentTags = container.dataset.tags || '';
-        
+
         let preview = null;
         if (imgId) {
             try { preview = await getPreview(imgId); } catch {}
         }
-        
+
         if (origLabel) origLabel.style.display = 'none';
         if (origTextarea) origTextarea.style.display = 'none';
-        
+
         let scrollWrap = editPanel.querySelector('.xb-nd-edit-scroll');
         if (!scrollWrap) {
             scrollWrap = document.createElement('div');
             scrollWrap.className = 'xb-nd-edit-scroll';
             editPanel.insertBefore(scrollWrap, editPanel.firstChild);
         }
-        
+
         let html = `
             <div class="xb-nd-edit-group">
                 <div class="xb-nd-edit-group-label">🎬 场景</div>
                 <textarea class="xb-nd-edit-input" data-type="scene">${escapeHtml(currentTags)}</textarea>
             </div>`;
-        
+
         if (preview?.characterPrompts?.length > 0) {
             preview.characterPrompts.forEach((char, i) => {
                 const name = char.name || `角色 ${i + 1}`;
@@ -1180,28 +1153,27 @@ async function toggleEditPanel(container, show) {
                 </div>`;
             });
         }
-        
+
         scrollWrap.innerHTML = html;
         editPanel.style.display = 'block';
-        
+
         if (btnsPanel) {
             btnsPanel.style.opacity = '0.3';
             btnsPanel.style.pointerEvents = 'none';
         }
-        
-        scrollWrap.querySelector('[data-type="scene"]')?.focus();
-        
-    } else {
 
+        scrollWrap.querySelector('[data-type="scene"]')?.focus();
+
+    } else {
         const scrollWrap = editPanel.querySelector('.xb-nd-edit-scroll');
         if (scrollWrap) scrollWrap.remove();
-        
+
         if (origLabel) origLabel.style.display = '';
         if (origTextarea) {
             origTextarea.style.display = '';
             origTextarea.value = container.dataset.tags || '';
         }
-        
+
         editPanel.style.display = 'none';
         if (btnsPanel) {
             btnsPanel.style.opacity = '';
@@ -1215,36 +1187,35 @@ async function saveEditedTags(container) {
     const slotId = container.dataset.slotId;
     const messageId = parseInt(container.dataset.mesid);
     const editPanel = container.querySelector('.xb-nd-edit');
-    
+
     if (!editPanel) return;
-    
+
     const sceneInput = editPanel.querySelector('textarea[data-type="scene"]');
     if (!sceneInput) return;
-    
+
     const newSceneTags = sceneInput.value.trim();
-    if (!newSceneTags) { 
-        alert('场景 TAG 不能为空'); 
-        return; 
+    if (!newSceneTags) {
+        alert('场景 TAG 不能为空');
+        return;
     }
 
     let originalPreview = null;
-    try { 
-        originalPreview = await getPreview(imgId); 
+    try {
+        originalPreview = await getPreview(imgId);
     } catch (e) {
         console.error('[NovelDraw] 获取原始预览失败:', e);
     }
 
     const charInputs = editPanel.querySelectorAll('textarea[data-type="char"]');
     let newCharPrompts = null;
-    
+
     if (charInputs.length > 0 && originalPreview?.characterPrompts?.length > 0) {
         newCharPrompts = [];
         charInputs.forEach(input => {
             const index = parseInt(input.dataset.index);
             const newPrompt = input.value.trim();
-            
-            if (originalPreview.characterPrompts[index]) {
 
+            if (originalPreview.characterPrompts[index]) {
                 newCharPrompts.push({
                     ...originalPreview.characterPrompts[index],
                     prompt: newPrompt
@@ -1254,11 +1225,11 @@ async function saveEditedTags(container) {
     }
 
     container.dataset.tags = newSceneTags;
-    
+
     if (originalPreview) {
         const preset = getActiveParamsPreset();
         const newPositive = joinTags(preset?.positivePrefix, newSceneTags);
-        
+
         await storePreview({
             imgId,
             slotId: originalPreview.slotId || slotId,
@@ -1270,15 +1241,15 @@ async function saveEditedTags(container) {
             characterPrompts: newCharPrompts || originalPreview.characterPrompts,
             negativePrompt: originalPreview.negativePrompt,
         });
-        
+
         container.dataset.positive = escapeHtml(newPositive);
     }
 
     toggleEditPanel(container, false);
-    
+
     const charCount = newCharPrompts?.length || 0;
-    const msg = charCount > 0 
-        ? `TAG 已保存 (场景 + ${charCount} 个角色)` 
+    const msg = charCount > 0
+        ? `TAG 已保存 (场景 + ${charCount} 个角色)`
         : 'TAG 已保存';
     showToast(msg);
 }
@@ -1289,19 +1260,19 @@ async function refreshSingleImage(container) {
     const slotId = container.dataset.slotId;
     const messageId = parseInt(container.dataset.mesid);
     const currentImgId = container.dataset.imgId;
-    
+
     if (!tags || currentState === ImageState.SAVING || currentState === ImageState.REFRESHING || !slotId) return;
-    
+
     toggleEditPanel(container, false);
     setImageState(container, ImageState.REFRESHING);
-    
+
     try {
         const preset = getActiveParamsPreset();
         const settings = getSettings();
-        
+
         let characterPrompts = null;
         let negativePrompt = preset.negativePrefix || '';
-        
+
         if (currentImgId) {
             const existingPreview = await getPreview(currentImgId);
             if (existingPreview?.characterPrompts?.length) {
@@ -1311,7 +1282,7 @@ async function refreshSingleImage(container) {
                 negativePrompt = existingPreview.negativePrompt;
             }
         }
-        
+
         if (!characterPrompts) {
             const ctx = getContext();
             const message = ctx.chat?.[messageId];
@@ -1322,40 +1293,40 @@ async function refreshSingleImage(container) {
                 center: { x: c.posX ?? 0.5, y: c.posY ?? 0.5 }
             }));
         }
-        
+
         const scene = joinTags(preset.positivePrefix, tags);
-        
-        const base64 = await generateNovelImage({ 
-            scene, 
-            characterPrompts, 
-            negativePrompt, 
-            params: preset.params || {} 
+
+        const base64 = await generateNovelImage({
+            scene,
+            characterPrompts,
+            negativePrompt,
+            params: preset.params || {}
         });
-        
+
         const newImgId = generateImgId();
-        await storePreview({ 
-            imgId: newImgId, 
-            slotId, 
-            messageId, 
-            base64, 
-            tags, 
+        await storePreview({
+            imgId: newImgId,
+            slotId,
+            messageId,
+            base64,
+            tags,
             positive: scene,
             characterPrompts,
             negativePrompt,
         });
         await setSlotSelection(slotId, newImgId);
-        
+
         container.querySelector('img').src = `data:image/png;base64,${base64}`;
         container.dataset.imgId = newImgId;
         container.dataset.positive = escapeHtml(scene);
         container.dataset.currentIndex = '0';
         setImageState(container, ImageState.PREVIEW);
-        
+
         const previews = await getPreviewsBySlot(slotId);
         const successPreviews = previews.filter(p => p.status !== 'failed' && p.base64);
         container.dataset.historyCount = String(successPreviews.length);
         updateNavControls(container, 0, successPreviews.length);
-        
+
         showToast(`图片已刷新（共 ${successPreviews.length} 个版本）`);
     } catch (e) {
         console.error('[NovelDraw] 刷新失败:', e);
@@ -1437,22 +1408,22 @@ async function retryFailedImage(container) {
     const messageId = parseInt(container.dataset.mesid);
     const tags = container.dataset.tags;
     if (!slotId) return;
-    
-    container.innerHTML = `<div class="xb-nd-loading"><div class="xb-nd-loading-icon">🎨</div><div>生成中...</div></div>`;
-    
+
+    container.innerHTML = `<div style="padding:30px;text-align:center;color:rgba(255,255,255,0.6);"><div style="font-size:24px;margin-bottom:8px;">🎨</div><div>生成中...</div></div>`;
+
     try {
         const preset = getActiveParamsPreset();
         const settings = getSettings();
         const scene = tags ? joinTags(preset.positivePrefix, tags) : preset.positivePrefix;
         const negativePrompt = preset.negativePrefix || '';
-        
+
         let characterPrompts = null;
         const failedPreviews = await getPreviewsBySlot(slotId);
         const latestFailed = failedPreviews.find(p => p.status === 'failed');
         if (latestFailed?.characterPrompts?.length) {
             characterPrompts = latestFailed.characterPrompts;
         }
-        
+
         if (!characterPrompts) {
             const ctx = getContext();
             const message = ctx.chat?.[messageId];
@@ -1463,59 +1434,59 @@ async function retryFailedImage(container) {
                 center: { x: c.posX ?? 0.5, y: c.posY ?? 0.5 }
             }));
         }
-        
-        const base64 = await generateNovelImage({ 
-            scene, 
-            characterPrompts, 
-            negativePrompt, 
-            params: preset.params || {} 
+
+        const base64 = await generateNovelImage({
+            scene,
+            characterPrompts,
+            negativePrompt,
+            params: preset.params || {}
         });
-        
+
         const newImgId = generateImgId();
-        await storePreview({ 
-            imgId: newImgId, 
-            slotId, 
-            messageId, 
-            base64, 
-            tags: tags || '', 
+        await storePreview({
+            imgId: newImgId,
+            slotId,
+            messageId,
+            base64,
+            tags: tags || '',
             positive: scene,
             characterPrompts,
             negativePrompt,
         });
         await deleteFailedRecordsForSlot(slotId);
         await setSlotSelection(slotId, newImgId);
-        
-        const imgHtml = buildImageHtml({ 
-            slotId, 
-            imgId: newImgId, 
-            url: `data:image/png;base64,${base64}`, 
-            tags: tags || '', 
-            positive: scene, 
-            messageId, 
-            state: ImageState.PREVIEW, 
-            historyCount: 1, 
-            currentIndex: 0 
+
+        const imgHtml = buildImageHtml({
+            slotId,
+            imgId: newImgId,
+            url: `data:image/png;base64,${base64}`,
+            tags: tags || '',
+            positive: scene,
+            messageId,
+            state: ImageState.PREVIEW,
+            historyCount: 1,
+            currentIndex: 0
         });
         container.outerHTML = imgHtml;
         showToast('图片生成成功！');
     } catch (e) {
         console.error('[NovelDraw] 重试失败:', e);
         const errorType = classifyError(e);
-        await storeFailedPlaceholder({ 
-            slotId, 
-            messageId, 
-            tags: tags || '', 
-            positive: container.dataset.positive || '', 
-            errorType: errorType.code, 
-            errorMessage: errorType.desc 
+        await storeFailedPlaceholder({
+            slotId,
+            messageId,
+            tags: tags || '',
+            positive: container.dataset.positive || '',
+            errorType: errorType.code,
+            errorMessage: errorType.desc
         });
-        container.outerHTML = buildFailedPlaceholderHtml({ 
-            slotId, 
-            messageId, 
-            tags: tags || '', 
-            positive: container.dataset.positive || '', 
-            errorType: errorType.label, 
-            errorMessage: errorType.desc 
+        container.outerHTML = buildFailedPlaceholderHtml({
+            slotId,
+            messageId,
+            tags: tags || '',
+            positive: container.dataset.positive || '',
+            errorType: errorType.label,
+            errorMessage: errorType.desc
         });
         showToast(`重试失败: ${errorType.desc}`, 'error');
     }
@@ -1545,74 +1516,34 @@ async function removePlaceholder(container) {
     container.remove();
     showToast('占位符已移除');
 }
+
 // ═══════════════════════════════════════════════════════════════════════════
-// 图片懒加载
+// 消息级懒加载
 // ═══════════════════════════════════════════════════════════════════════════
-let slotObserver = null;
-function initSlotObserver() {
-    if (slotObserver) return;
-    
-    slotObserver = new IntersectionObserver((entries) => {
+
+function initMessageObserver() {
+    if (messageObserver) return;
+    messageObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (!entry.isIntersecting) return;
-            const slot = entry.target;
-            if (slot.dataset.loaded === '1' || slot.dataset.loading === '1') return;
-            slot.dataset.loading = '1';
-            loadSlotImage(slot);
+            const mesEl = entry.target;
+            messageObserver.unobserve(mesEl);
+            const messageId = parseInt(mesEl.getAttribute('mesid'), 10);
+            if (!Number.isNaN(messageId)) {
+                renderPreviewsForMessage(messageId);
+            }
         });
-    }, { rootMargin: '200px 0px', threshold: 0.01 });
+    }, { rootMargin: '600px 0px', threshold: 0.01 });
 }
-async function loadSlotImage(slot) {
-    const slotId = slot.dataset.slotId;
-    const messageId = parseInt(slot.dataset.mesid);
-    
-    try {
-        const displayData = await getDisplayPreviewForSlot(slotId);
-        
-        if (displayData.isFailed) {
-            slot.outerHTML = buildFailedPlaceholderHtml({
-                slotId, messageId,
-                tags: displayData.failedInfo?.tags || '',
-                positive: displayData.failedInfo?.positive || '',
-                errorType: displayData.failedInfo?.errorType || ErrorType.CACHE_LOST.label,
-                errorMessage: displayData.failedInfo?.errorMessage || ErrorType.CACHE_LOST.desc
-            });
-        } else if (displayData.hasData && displayData.preview) {
-            const url = displayData.preview.savedUrl || `data:image/png;base64,${displayData.preview.base64}`;
-            slot.outerHTML = buildImageHtml({
-                slotId,
-                imgId: displayData.preview.imgId,
-                url,
-                tags: displayData.preview.tags,
-                positive: displayData.preview.positive,
-                messageId,
-                state: displayData.preview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW,
-                historyCount: displayData.historyCount,
-                currentIndex: 0
-            });
-        } else {
-            slot.outerHTML = buildFailedPlaceholderHtml({ 
-                slotId, messageId, tags: '', positive: '', 
-                errorType: ErrorType.CACHE_LOST.label, 
-                errorMessage: ErrorType.CACHE_LOST.desc 
-            });
-        }
-    } catch (e) {
-        slot.dataset.loading = '';
-    }
+
+function observeMessageForLazyRender(messageId) {
+    const mesEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+    if (!mesEl || mesEl.dataset.ndLazyObserved === '1') return;
+    initMessageObserver();
+    mesEl.dataset.ndLazyObserved = '1';
+    messageObserver.observe(mesEl);
 }
-function buildLoadingPlaceholderHtml(slotId, messageId) {
-    return `<div class="xb-nd-img xb-nd-loading-slot" data-slot-id="${slotId}" data-mesid="${messageId}" style="margin:0.8em 0;text-align:center;padding:20px;background:rgba(0,0,0,0.03);border:1px dashed rgba(255,255,255,0.1);border-radius:14px;">
-        <div style="color:rgba(255,255,255,0.4);font-size:12px;">📷 滚动加载</div>
-    </div>`;
-}
-function hydrateSlots(container) {
-    initSlotObserver();
-    container.querySelectorAll('.xb-nd-loading-slot:not([data-observed])').forEach(slot => {
-        slot.dataset.observed = '1';
-        slotObserver.observe(slot);
-    });
-}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 预览渲染
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1621,40 +1552,93 @@ async function renderPreviewsForMessage(messageId) {
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
     if (!message?.mes) return;
-    
+
     const slotIds = extractSlotIds(message.mes);
     if (slotIds.size === 0) return;
-    
+
     const $mesText = $(`#chat .mes[mesid="${messageId}"] .mes_text`);
     if (!$mesText.length) return;
-    
+
     let html = $mesText.html();
     let replaced = false;
-    
+
     for (const slotId of slotIds) {
         if (html.includes(`data-slot-id="${slotId}"`)) continue;
-        
+
         const placeholder = createPlaceholder(slotId);
         const escapedPlaceholder = placeholder.replace(/[[\]]/g, '\\$&');
         if (!new RegExp(escapedPlaceholder).test(html)) continue;
-        
-        const loadingHtml = buildLoadingPlaceholderHtml(slotId, messageId);
-        html = html.replace(new RegExp(escapedPlaceholder, 'g'), loadingHtml);
+
+        let replacementHtml;
+
+        try {
+            const displayData = await getDisplayPreviewForSlot(slotId);
+
+            if (displayData.isFailed) {
+                replacementHtml = buildFailedPlaceholderHtml({
+                    slotId,
+                    messageId,
+                    tags: displayData.failedInfo?.tags || '',
+                    positive: displayData.failedInfo?.positive || '',
+                    errorType: displayData.failedInfo?.errorType || ErrorType.CACHE_LOST.label,
+                    errorMessage: displayData.failedInfo?.errorMessage || ErrorType.CACHE_LOST.desc
+                });
+            } else if (displayData.hasData && displayData.preview) {
+                const url = displayData.preview.savedUrl || `data:image/png;base64,${displayData.preview.base64}`;
+                replacementHtml = buildImageHtml({
+                    slotId,
+                    imgId: displayData.preview.imgId,
+                    url,
+                    tags: displayData.preview.tags || '',
+                    positive: displayData.preview.positive || '',
+                    messageId,
+                    state: displayData.preview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW,
+                    historyCount: displayData.historyCount,
+                    currentIndex: 0
+                });
+            } else {
+                replacementHtml = buildFailedPlaceholderHtml({
+                    slotId,
+                    messageId,
+                    tags: '',
+                    positive: '',
+                    errorType: ErrorType.CACHE_LOST.label,
+                    errorMessage: ErrorType.CACHE_LOST.desc
+                });
+            }
+        } catch (e) {
+            console.error(`[NovelDraw] 渲染 ${slotId} 失败:`, e);
+            replacementHtml = buildFailedPlaceholderHtml({
+                slotId,
+                messageId,
+                tags: '',
+                positive: '',
+                errorType: ErrorType.UNKNOWN.label,
+                errorMessage: e?.message || '未知错误'
+            });
+        }
+
+        html = html.replace(new RegExp(escapedPlaceholder, 'g'), replacementHtml);
         replaced = true;
     }
-    
+
     if (replaced && !isMessageBeingEdited(messageId)) {
         $mesText.html(html);
-        hydrateSlots($mesText[0]);
     }
 }
 
 async function renderAllPreviews() {
     const ctx = getContext();
     const chat = ctx.chat || [];
-    for (let i = 0; i < chat.length; i++) {
-        if (extractSlotIds(chat[i]?.mes).size > 0) {
+    let rendered = 0;
+
+    for (let i = chat.length - 1; i >= 0; i--) {
+        if (extractSlotIds(chat[i]?.mes).size === 0) continue;
+        if (rendered < INITIAL_RENDER_MESSAGE_LIMIT) {
             await renderPreviewsForMessage(i);
+            rendered++;
+        } else {
+            observeMessageForLazyRender(i);
         }
     }
 }
@@ -1677,54 +1661,40 @@ async function handleMessageModified(data) {
     await renderPreviewsForMessage(messageId);
 }
 
-function handleVisibilityChange() {
-    if (document.visibilityState === 'visible' && moduleInitialized) {
-        document.querySelectorAll('.xb-nd-loading-slot[data-observed="1"]').forEach(slot => {
-            if (slot.dataset.loaded !== '1' && slot.dataset.loading !== '1') {
-                const rect = slot.getBoundingClientRect();
-                if (rect.bottom >= 0 && rect.top <= window.innerHeight + 200) {
-                    slot.dataset.loading = '1';
-                    loadSlotImage(slot);
-                }
-            }
-        });
-    }
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // 多图生成
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function generateAndInsertImages({ messageId, onStateChange }) {
+    await loadSettings();
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
     if (!message) throw new NovelDrawError('消息不存在', ErrorType.PARSE);
-    
+
     generationAbortController = new AbortController();
     const signal = generationAbortController.signal;
-    
+
     try {
         const settings = getSettings();
         const preset = getActiveParamsPreset();
-        const llmPreset = getActiveLlmPreset();
-        
+
         const messageText = String(message.mes || '').replace(PLACEHOLDER_REGEX, '').trim();
         if (!messageText) throw new NovelDrawError('消息内容为空', ErrorType.PARSE);
-        
+
         const presentCharacters = detectPresentCharacters(messageText, settings.characterTags || []);
-        
+
         onStateChange?.('llm', {});
-        
+
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
-        
+
         let planRaw;
         try {
             planRaw = await generateScenePlan({
                 messageText,
                 presentCharacters,
-                llmPreset,
                 llmApi: settings.llmApi,
                 useStream: settings.useStream,
+                useWorldInfo: settings.useWorldInfo,
                 timeout: settings.timeout || 120000
             });
         } catch (e) {
@@ -1754,7 +1724,7 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
                 console.log('[NovelDraw] 用户中止，停止生成');
                 break;
             }
-            
+
             const currentCtx = getContext();
             if (currentCtx.chatId !== initialChatId) {
                 console.warn('[NovelDraw] 聊天已切换，中止生成');
@@ -1771,21 +1741,10 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
             onStateChange?.('progress', { current: i + 1, total: tasks.length });
 
             let position = findAnchorPosition(message.mes, task.anchor);
-            let scene, characterPrompts, tagsForStore;
 
-            if (isLegacyFormat([task])) {
-                scene = joinTags(preset.positivePrefix, task.legacyTags);
-                characterPrompts = presentCharacters.map(c => ({
-                    prompt: joinTags(c.type, c.appearance),
-                    uc: c.negativeTags || '',
-                    center: { x: c.posX ?? 0.5, y: c.posY ?? 0.5 }
-                }));
-                tagsForStore = task.legacyTags;
-            } else {
-                scene = joinTags(preset.positivePrefix, task.scene);
-                characterPrompts = assembleCharacterPrompts(task.chars, settings.characterTags || []);
-                tagsForStore = task.scene;
-            }
+            const scene = joinTags(preset.positivePrefix, task.scene);
+            const characterPrompts = assembleCharacterPrompts(task.chars, settings.characterTags || []);
+            const tagsForStore = task.scene;
 
             try {
                 const base64 = await generateNovelImage({
@@ -1796,7 +1755,16 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
                     signal
                 });
                 const imgId = generateImgId();
-                await storePreview({ imgId, slotId, messageId, base64, tags: tagsForStore, positive: scene, characterPrompts, negativePrompt: preset.negativePrefix });
+                await storePreview({
+                    imgId,
+                    slotId,
+                    messageId,
+                    base64,
+                    tags: tagsForStore,
+                    positive: scene,
+                    characterPrompts,
+                    negativePrompt: preset.negativePrefix
+                });
                 await setSlotSelection(slotId, imgId);
                 results.push({ slotId, imgId, tags: tagsForStore, success: true });
                 successCount++;
@@ -1815,7 +1783,7 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
                     errorType: errorType.code,
                     errorMessage: errorType.desc,
                     characterPrompts,
-                    negativePrompt: preset.negativePrefix,            
+                    negativePrompt: preset.negativePrefix,
                 });
                 results.push({ slotId, tags: tagsForStore, success: false, error: errorType });
             }
@@ -1844,11 +1812,11 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
             }
 
             if (signal.aborted) break;
-            
+
             if (i < tasks.length - 1) {
                 const delay = randomDelay(settings.requestDelay?.min, settings.requestDelay?.max);
                 onStateChange?.('cooldown', { duration: delay, nextIndex: i + 2, total: tasks.length });
-                
+
                 await new Promise(r => {
                     const tid = setTimeout(r, delay);
                     signal.addEventListener('abort', () => { clearTimeout(tid); r(); }, { once: true });
@@ -1863,8 +1831,8 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
 
         const finalCtx = getContext();
         const shouldUpdateDom = finalCtx.chatId === initialChatId &&
-                                finalCtx.chat?.[messageId] &&
-                                !isMessageBeingEdited(messageId);
+            finalCtx.chat?.[messageId] &&
+            !isMessageBeingEdited(messageId);
 
         if (shouldUpdateDom) {
             const formatted = messageFormatting(
@@ -1875,31 +1843,30 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
                 messageId
             );
             $('[mesid="' + messageId + '"] .mes_text').html(formatted);
+
             await renderPreviewsForMessage(messageId);
 
             try {
                 const { processMessageById } = await import('../iframe-renderer.js');
                 processMessageById(messageId, true);
             } catch {}
-            
-            // 保存聊天，持久化占位符到服务器
-            try {
-                const saveCtx = getContext();
-                if (typeof saveCtx.saveChat === 'function') {
-                    await saveCtx.saveChat();
-                    console.log('[NovelDraw] 聊天已保存，占位符已持久化');
-                }
-            } catch (e) {
-                console.warn('[NovelDraw] 保存聊天失败:', e);
-            }
         }
 
         const resultColor = successCount === tasks.length ? '#3ecf8e' : '#f0b429';
         console.log(`%c[NovelDraw] 完成: ${successCount}/${tasks.length} 张`, `color: ${resultColor}; font-weight: bold`);
 
         onStateChange?.('success', { success: successCount, total: tasks.length });
+
+        if (shouldUpdateDom) {
+            getContext().saveChat?.().then(() => {
+                console.log('[NovelDraw] 聊天已保存');
+            }).catch(e => {
+                console.warn('[NovelDraw] 保存聊天失败:', e);
+            });
+        }
+
         return { success: successCount, total: tasks.length, results };
-        
+
     } finally {
         generationAbortController = null;
     }
@@ -2030,7 +1997,21 @@ async function sendInitData() {
     iframe.contentWindow.postMessage({
         source: 'LittleWhiteBox-NovelDraw',
         type: 'INIT_DATA',
-        settings: { enabled: moduleInitialized, ...settings },
+        settings: {
+            enabled: moduleInitialized,
+            mode: settings.mode,
+            apiKey: settings.apiKey,
+            timeout: settings.timeout,
+            requestDelay: settings.requestDelay,
+            cacheDays: settings.cacheDays,
+            selectedParamsPresetId: settings.selectedParamsPresetId,
+            paramsPresets: settings.paramsPresets,
+            llmApi: settings.llmApi,
+            useStream: settings.useStream,
+            useWorldInfo: settings.useWorldInfo,
+            characterTags: settings.characterTags,
+            overrideSize: settings.overrideSize,
+        },
         cacheStats: stats,
         gallerySummary,
     }, '*');
@@ -2154,72 +2135,45 @@ async function handleFrameMessage(event) {
             break;
         }
 
-        case 'SAVE_LLM_PRESET': {
-            const s = getSettings();
-            if (data.selectedLlmPresetId) s.selectedLlmPresetId = data.selectedLlmPresetId;
-            if (Array.isArray(data.llmPresets) && data.llmPresets.length > 0) s.llmPresets = data.llmPresets;
-            if (data.llmApi && typeof data.llmApi === 'object') {
-                s.llmApi = { ...s.llmApi, ...data.llmApi, modelCache: data.llmApi.modelCache || s.llmApi?.modelCache || [] };
-            }
-            if (typeof data.useStream === 'boolean') s.useStream = data.useStream;
-            const ok = await saveSettingsAndToast(s, '已保存');
-            if (ok) sendInitData();
+        // ═══════════════════════════════════════════════════════════════
+        // 新增：云端预设
+        // ═══════════════════════════════════════════════════════════════
+        case 'OPEN_CLOUD_PRESETS': {
+            openCloudPresetsModal(async (presetData) => {
+                const s = getSettings();
+                const newPreset = parsePresetData(presetData, generateSlotId);
+                s.paramsPresets.push(newPreset);
+                s.selectedParamsPresetId = newPreset.id;
+                await saveSettingsAndToast(s, `已导入: ${newPreset.name}`);
+                await notifySettingsUpdated();
+                sendInitData();
+            });
             break;
         }
-
-        case 'ADD_LLM_PRESET': {
+        case 'EXPORT_CURRENT_PRESET': {
             const s = getSettings();
-            const id = generateSlotId();
-            const base = getActiveLlmPreset() || DEFAULT_LLM_PRESET;
-            const copy = JSON.parse(JSON.stringify(base));
-            copy.id = id;
-            copy.name = (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `预设-${s.llmPresets.length + 1}`;
-            s.llmPresets.push(copy);
-            s.selectedLlmPresetId = id;
-            const ok = await saveSettingsAndToast(s, '已创建');
-            if (ok) sendInitData();
-            break;
-        }
-
-        case 'DEL_LLM_PRESET': {
-            const s = getSettings();
-            if (s.llmPresets.length <= 1) {
-                postStatus('error', '至少保留一个预设');
+            const presetId = data.presetId || s.selectedParamsPresetId;
+            const preset = s.paramsPresets.find(p => p.id === presetId);
+            if (!preset) {
+                postStatus('error', '没有可导出的预设');
                 break;
             }
-            const idx = s.llmPresets.findIndex(p => p.id === s.selectedLlmPresetId);
-            if (idx >= 0) s.llmPresets.splice(idx, 1);
-            s.selectedLlmPresetId = s.llmPresets[0]?.id || null;
-            const ok = await saveSettingsAndToast(s, '已删除');
-            if (ok) sendInitData();
+            downloadPresetAsFile(preset);
+            postStatus('success', '已导出');
             break;
         }
 
-        case 'RESET_CURRENT_LLM_PRESET': {
+        // ═══════════════════════════════════════════════════════════════
+
+        case 'SAVE_LLM_API': {
             const s = getSettings();
-            const currentId = s.selectedLlmPresetId;
-            const idx = s.llmPresets.findIndex(p => p.id === currentId);
-            if (idx >= 0) {
-                const currentName = s.llmPresets[idx].name;
-                s.llmPresets[idx] = { ...JSON.parse(JSON.stringify(DEFAULT_LLM_PRESET)), id: currentId, name: currentName || DEFAULT_LLM_PRESET.name };
-                const ok = await saveSettingsAndToast(s, 'LLM 预设已恢复默认');
-                if (ok) sendInitData();
-            } else {
-                postStatus('error', '未找到当前预设');
+            if (data.llmApi && typeof data.llmApi === 'object') {
+                s.llmApi = { ...s.llmApi, ...data.llmApi };
             }
-            break;
-        }
-
-        case 'RESET_PRESETS': {
-            resetToDefaultPresets();
-            const ok = await saveSettingsAndToast(getSettings(), '已重置');
-            if (ok) {
-                sendInitData();
-                try {
-                    const { refreshPresetSelect } = await import('./floating-panel.js');
-                    refreshPresetSelect?.();
-                } catch {}
-            }
+            if (typeof data.useStream === 'boolean') s.useStream = data.useStream;
+            if (typeof data.useWorldInfo === 'boolean') s.useWorldInfo = data.useWorldInfo;
+            const ok = await saveSettingsAndToast(s, '已保存');
+            if (ok) sendInitData();
             break;
         }
 
@@ -2245,7 +2199,6 @@ async function handleFrameMessage(event) {
                 if (!models?.length) throw new Error('未获取到模型列表');
 
                 const s = getSettings();
-                s.llmApi = s.llmApi || {};
                 s.llmApi.provider = apiCfg.provider;
                 s.llmApi.url = apiCfg.url;
                 s.llmApi.key = apiCfg.key;
@@ -2424,12 +2377,9 @@ export async function initNovelDraw() {
     events.on(event_types.MESSAGE_SWIPED, handleMessageModified);
     events.on(event_types.GENERATION_ENDED, async () => { try { await autoGenerateForLastAI(); } catch (e) { console.error('[NovelDraw]', e); } });
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
     window.xiaobaixNovelDraw = {
         getSettings,
         saveSettings,
-        resetToDefaultPresets,
         generateNovelImage,
         generateAndInsertImages,
         refreshSingleImage,
@@ -2465,16 +2415,16 @@ export async function cleanupNovelDraw() {
     events.cleanup();
     hideOverlay();
     destroyGalleryCache();
+    destroyCloudPresets();
     overlayCreated = false;
     frameReady = false;
-    
-    if (slotObserver) {
-        slotObserver.disconnect();
-        slotObserver = null;
+
+    if (messageObserver) {
+        messageObserver.disconnect();
+        messageObserver = null;
     }
-    
+
     window.removeEventListener('message', handleFrameMessage);
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
     document.getElementById('xiaobaix-novel-draw-overlay')?.remove();
 
     const { destroyFloatingPanel } = await import('./floating-panel.js');
@@ -2494,16 +2444,13 @@ export {
     saveSettings,
     loadSettings,
     getActiveParamsPreset,
-    getActiveLlmPreset,
     isModuleEnabled,
     findLastAIMessageId,
     generateAndInsertImages,
     generateNovelImage,
     classifyError,
     ErrorType,
-    PRESET_VERSION,
     PROVIDER_MAP,
-    DEFAULT_LLM_PRESET,
     abortGeneration,
     isGenerating,
 };

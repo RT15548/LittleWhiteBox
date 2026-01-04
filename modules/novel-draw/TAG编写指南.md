@@ -1,28 +1,65 @@
-# NOVEL 图像生成 Tag 编写指南（LLM 专用）
+---
 
-## 一、基础语法规则
+# NovelAI V4.5 图像生成 Tag 编写指南
 
-### 1.1 格式规范
-- Tag 之间使用 **英文逗号 + 空格** 分隔
-- 示例：`1girl, flower field, sunset`
-- 所有 Tag 使用英文
-
-### 1.2 Tag 顺序原则
-**越靠前的 Tag 影响力越大**，编写时应按以下优先级排列：
-1. 核心主体（角色数量/性别）
-2. 整体风格/艺术家
-3. 品质 Tag
-4. 外观特征（发型、眼睛、皮肤等）
-5. 服装细节
-6. 构图/视角
-7. 场景/背景
-8. 氛围/光照/色彩
+> **核心原则**：V4.5 采用 **混合式写法 (Hybrid Prompting)**。
+> - **静态特征**（外貌、固有属性）使用 **Danbooru Tags** 以确保精准。
+> - **动态行为**（动作、互动、空间关系）使用 **自然语言短语 (Phrases)** 以增强连贯性。
+> - **禁止输出质量词**（如 `best quality`, `masterpiece`），这些由系统自动添加。
 
 ---
 
-## 二、核心 Tag 类别速查
+## 一、 基础语法规则
 
-### 2.1 主体定义
+### 1.1 格式规范
+- **分隔符**：所有元素之间使用英文逗号 `,` 分隔。
+- **语言**：必须使用英文。
+- **权重控制**：
+  - 增强：`{{tag}}` 或 `1.1::tag::`
+  - 减弱：`[[tag]]` 或 `0.9::tag::`
+
+### 1.2 Tag 顺序原则
+**越靠前的 Tag 影响力越大**，编写时应按以下优先级排列：
+1. **核心主体**（角色数量/性别）—— *必须在最前*
+2. **核心外貌**（发型、眼睛、皮肤等）
+3. **动态行为/互动**（短语描述）
+4. **服装细节**
+5. **构图/视角**
+6. **场景/背景**
+7. **氛围/光照/色彩**
+
+---
+
+## 二、 V4.5 特性：短语化描述 (Phrasing)
+
+V4.5 的重大升级在于能理解简短的**主谓宾 (SVO)** 结构和**介词关系**。
+
+### ✅ 推荐使用短语的场景
+1. **复杂动作 (Action)**
+   - *旧写法*: `holding, cup, drinking` (割裂)
+   - *新写法*: `drinking from a white cup`, `holding a sword tightly`
+2. **空间关系 (Position)**
+   - *旧写法*: `sitting, chair`
+   - *新写法*: `sitting on a wooden chair`, `leaning against the wall`
+3. **属性绑定 (Attribute Binding)**
+   - *旧写法*: `red scarf, blue gloves` (容易混色)
+   - *新写法*: `wearing a red scarf and blue gloves`
+4. **细腻互动 (Interaction)**
+   - *推荐*: `hugging him from behind`, `wiping tears from face`, `reaching out to viewer`
+
+### ❌ 禁止使用的语法 (能力边界)
+1. **否定句**: 禁止写 `not holding`, `no shoes`。模型听不懂“不”。
+   - *修正*: 使用反义词，如 `barefoot`，或忽略该描述。
+2. **时间/因果**: 禁止写 `after bath`, `because she is sad`。
+   - *修正*: 直接描述视觉状态 `wet hair, wrapped in towel`。
+3. **长难句**: 禁止超过 10 个单词的复杂从句。
+   - *修正*: 拆分为多个短语，用逗号分隔。
+
+---
+
+## 三、 核心 Tag 类别速查
+
+### 3.1 主体定义 (必须准确)
 
 | 场景 | 推荐 Tag |
 |------|----------|
@@ -35,357 +72,153 @@
 
 > `solo` 可防止背景出现额外人物
 
-### 2.2 头发描述
+### 3.2 外貌特征 (必须用 Tag)
 
-**长度：**
-- `very short hair` / `short hair` / `medium hair` / `long hair` / `very long hair` / `absurdly long hair`
+**头发：**
+- 长度：`short hair`, `medium hair`, `long hair`, `very long hair`
+- 发型：`ponytail`, `twintails`, `braid`, `messy hair`, `ahoge` (呆毛)
+- 颜色：`blonde hair`, `black hair`, `silver hair`, `gradient hair` (渐变)
 
-**发型：**
-- `bob cut`（波波头）
-- `ponytail` / `high ponytail` / `low ponytail`（马尾）
-- `twintails`（双马尾）
-- `bangs` / `blunt bangs` / `side bangs`（刘海）
-- `braid` / `twin braids`（辫子）
-- `curly hair`（卷发）
-- `messy hair`（凌乱）
-- `ahoge`（呆毛）
+**眼睛：**
+- 颜色：`blue eyes`, `red eyes`, `heterochromia` (异色瞳)
+- 特征：`slit pupils` (竖瞳), `glowing eyes`, `closed eyes`, `half-closed eyes`
 
-**颜色：**
-- 基础：`black hair`, `blonde hair`, `brown hair`, `red hair`, `blue hair`, `pink hair`, `white hair`, `silver hair`, `purple hair`, `green hair`
-- 特殊：`multicolored hair`, `gradient hair`, `streaked hair`
+**皮肤：**
+- `pale skin` (白皙), `tan` (小麦色), `dark skin` (深色)
+- 细节：`freckles` (雀斑), `mole` (痣), `blush` (脸红)
 
-### 2.3 眼睛描述
-
-**颜色：**
-`blue eyes`, `red eyes`, `green eyes`, `brown eyes`, `purple eyes`, `yellow eyes`, `golden eyes`, `heterochromia`（异色瞳）
-
-**特征：**
-- `slit pupils`（竖瞳/猫眼）
-- `glowing eyes`（发光）
-- `closed eyes`（闭眼）
-- `half-closed eyes`（半闭眼）
-
-### 2.4 皮肤描述
-
-**肤色：**
-- `pale skin`（白皙）
-- `fair skin`（浅肤色）
-- `tan` / `tanned`（小麦色）
-- `dark skin`（深色）
-- `colored skin`（幻想色，需配合具体颜色如 `blue skin`）
-
-**细节：**
-`freckles`（雀斑）, `mole`（痣）, `mole under eye`（眼下痣）, `makeup`（化妆）
-
-### 2.5 身体特征
-
-**体型：**
-`skinny`, `slim`, `curvy`, `muscular`, `muscular female`, `petite`, `tall`, `short`
-
-**胸部（女性）：**
-`flat chest`, `small breasts`, `medium breasts`, `large breasts`, `huge breasts`
-
-### 2.6 服装
+### 3.3 服装 (分层描述)
 
 **原则：需要具体描述每个组成部分**
 
-**头部：**
-`hat`, `witch hat`, `beret`, `crown`, `hair ribbon`, `hairband`, `glasses`
+- **头部**：`hat`, `hair ribbon`, `glasses`, `animal ears`
+- **上身**：`white shirt`, `black jacket`, `sweater`, `dress`, `armor`
+- **下身**：`pleated skirt`, `jeans`, `pantyhose`, `thighhighs`
+- **状态**：`clothes lift`, `shirt unbuttoned`, `messy clothes`
 
-**上身：**
-`shirt`, `dress shirt`, `blouse`, `sweater`, `hoodie`, `jacket`, `coat`, `vest`, `dress`, `kimono`
+### 3.4 构图与视角
 
-**下身：**
-`skirt`, `long skirt`, `miniskirt`, `pants`, `shorts`, `jeans`
+- **范围**：`close-up` (特写), `upper body`, `full body`, `wide shot` (远景)
+- **角度**：`from side`, `from behind`, `from above` (俯视), `from below` (仰视)
+- **特殊**：`dutch angle` (倾斜), `looking at viewer`, `looking away`, `profile` (侧颜)
 
-**足部：**
-`boots`, `high heels`, `sneakers`, `barefoot`, `thighhighs`, `pantyhose`, `socks`
+### 3.5 氛围、光照与色彩
 
-**配饰：**
-`scarf`, `necklace`, `earrings`, `gloves`, `bag`
+- **光照**：`cinematic lighting`, `backlighting` (逆光), `soft lighting`, `volumetric lighting` (丁达尔光)
+- **色彩**：`warm theme`, `cool theme`, `monochrome`, `high contrast`
+- **风格**：`anime screencap`, `illustration`, `thick painting` (厚涂)
 
-**颜色/材质前缀：**
-可在服装前加颜色或材质，如 `white dress`, `leather jacket`, `silk ribbon`
+### 3.6 场景深化 (Scene Details)
 
-### 2.7 艺术风格与媒介
-
-**数字媒介：**
-- `anime screencap`（动画截图风格）
-- `game cg`（游戏CG）
-- `pixel art`（像素艺术）
-- `3d`（3D渲染）
-- `official art`（官方设定风格）
-
-**传统艺术：**
-- `realistic` / `photorealistic`（写实/照片级写实）
-- `impressionism`（印象派）
-- `art nouveau`（新艺术运动）
-- `ukiyo-e`（浮世绘）
-- `sketch`（素描）
-- `lineart`（线稿）
-- `watercolor`（水彩）
-
-**年代风格：**
-- `retro artstyle`（复古）
-- `year 2014`（特定年份风格）
-
-### 2.8 品质 Tag
-
-**常用组合：**
-```
-masterpiece, best quality, very aesthetic, absurdres, ultra detailed
-```
-
-| Tag | 作用 |
-|-----|------|
-| `masterpiece` | 杰作级质量 |
-| `best quality` | 最佳质量 |
-| `high quality` | 高质量 |
-| `very aesthetic` | 高美感 |
-| `absurdres` | 超高分辨率 |
-| `ultra detailed` | 极致细节 |
-
-### 2.9 构图与取景
-
-**取景范围：**
-- `close-up`（特写）
-- `portrait`（肖像/头肩）
-- `upper body`（上半身）
-- `cowboy shot`（到大腿）
-- `full body`（全身）
-- `wide shot`（远景）
-
-**视角：**
-- `from front`（正面）
-- `from side`（侧面）
-- `from behind`（背面）
-- `from above`（俯视）
-- `from below`（仰视）
-- `dutch angle`（倾斜视角）
-- `profile`（正侧面轮廓）
-
-**特殊：**
-- `multiple views`（多视图）
-- `reference sheet`（角色设定图）
-
-### 2.10 氛围、光照与色彩
-
-**光照：**
-- `cinematic lighting`（电影感光照）
-- `volumetric lighting`（体积光）
-- `backlighting`（逆光）
-- `soft lighting`（柔光）
-- `dramatic lighting`（戏剧性光照）
-- `golden hour`（黄金时段光线）
-- `bloom`（光晕）
-- `bokeh`（焦外虚化）
-- `lens flare`（镜头光晕）
-
-**色彩风格：**
-- `monochrome`（单色）
-- `greyscale`（灰度）
-- `sepia`（棕褐色调）
-- `limited palette`（有限调色板）
-- `high contrast`（高对比度）
-- `flat color`（平涂）
-- `vibrant colors`（鲜艳色彩）
-
-**主题色：**
-`blue theme`, `red theme`, `dark theme`, `warm colors`, `cool colors`
-
-**氛围：**
-`mysterious`, `serene`, `melancholic`, `joyful`, `dark`, `ethereal`
-
+**不要只写 "indoors" 或 "room"，必须描述具体的环境物体：**
+- **室内**：`messy room`, `bookshelf`, `curtains`, `window`, `bed`, `carpet`, `clutter`, `plant`
+- **室外**：`tree`, `bush`, `flower`, `cloud`, `sky`, `road`, `building`, `rubble`
+- **幻想**：`magic circle`, `floating objects`, `glowing particles`, `ruins`
+- **质感**：`detailed background`, `intricate details`
 ---
 
-## 三、权重控制语法
+## 四、 多角色互动前缀 (Interaction Prefixes)
 
-### 3.1 增强权重
-
-**花括号方式：**
-```
-{tag}      → 约 1.05 倍
-{{tag}}    → 约 1.10 倍
-{{{tag}}}  → 约 1.16 倍
-```
-
-**数值化方式（推荐）：**
-```
-1.2::tag::        → 1.2 倍权重
-1.5::tag1, tag2:: → 对多个 tag 同时增强
-```
-
-### 3.2 削弱权重
-
-**方括号方式：**
-```
-[tag]      → 削弱
-[[tag]]    → 更强削弱
-```
-
-**数值化方式（推荐）：**
-```
-0.8::tag::  → 0.8 倍权重
-0.5::tag::  → 0.5 倍权重
-```
-
-### 3.3 语法技巧
-- `::` 可结束强调区域
-- `::` 可自动闭合未配对的括号，如 `{{{{{tag ::`
-
----
-
-## 四、从文本生成 Tag 的工作流程
-
-### 步骤 1：识别核心要素
-从描述中提取：
-- 人物数量和性别
-- 整体风格/氛围
-
-### 步骤 2：提取外观特征
-按顺序识别：
-- 发型、发色
-- 眼睛颜色/特征
-- 肤色
-- 体型
-
-### 步骤 3：识别服装
-分层描述：
-- 头饰
-- 上装
-- 下装
-- 鞋袜
-- 配饰
-
-### 步骤 4：确定构图
-- 取景范围
-- 视角
-- 特殊构图需求
-
-### 步骤 5：设定氛围
-- 光照条件
-- 色彩倾向
-- 情感基调
-
-### 步骤 6：添加品质和风格 Tag
-- 品质 Tag
-- 艺术风格（如需要）
-
-### 步骤 7：组装并调整权重
-- 按优先级排列
-- 对重要元素增强权重
-- 编写负面提示词
-
----
-
-## 五、输出格式模板
-
-```
-主体, 品质Tag, 艺术风格, 发型, 发色, 眼睛, 皮肤, 体型, 服装细节, 构图, 场景, 光照, 色彩氛围
-
-```
-
----
-
-## 六、实例演示
-
-### 输入描述：
-> "一个有着长长银色头发和红色眼睛的神秘女巫，穿着黑色斗篷和尖顶帽，站在月光下的森林中，整体氛围阴郁而神秘"
-
-### 输出 Tag：
-
-```
-1girl, solo, masterpiece, best quality, very aesthetic, witch, long hair, silver hair, red eyes, pale skin, witch hat, black cloak, black robe, full body, standing, forest, night, moonlight, dark atmosphere, mysterious, cinematic lighting, volumetric lighting, {{{dark theme}}}, high contrast
-```
-
----
-
-### 七、多角色互动前缀
-
-多人场景里，动作有方向。谁主动、谁被动、还是互相的？用前缀区分：
+多人场景里，动作有方向。谁主动、谁被动、还是互相的？**必须使用以下前缀区分**：
 
 **三种前缀：**
-- `source#` — 发起动作的人
-- `target#` — 承受动作的人
-- `mutual#` — 双方同时参与
+- `source#` — 发起动作的人 (主动方)
+- `target#` — 承受动作的人 (被动方)
+- `mutual#` — 双方同时参与 (无主被动之分)
 
-**举例：**
+**举例说明：**
 
-A 抱着 B：
-```
-A: source#hug
-B: target#hug
-```
+1. **A 抱着 B (单向)**：
+   - A: `source#hugging her tightly` (使用短语描述细节)
+   - B: `target#being hugged`
 
-两人牵手（没有谁主动谁被动）：
-```
-A: mutual#holding hands
-B: mutual#holding hands
-```
+2. **两人牵手 (双向)**：
+   - A: `mutual#holding hands`
+   - B: `mutual#holding hands`
 
-A 盯着 B 看：
-```
-A: source#staring
-B: target#staring
-```
+3. **A 盯着 B 看 (视线)**：
+   - A: `source#staring at him`
+   - B: `target#looking away` (B 没有回看)
 
-**常见动作词：**
+**常见动作词参考：**
 
-| 类型 | 动作 |
+| 类型 | 动作 (可配合短语扩展) |
 |------|------|
-| 肢体 | hug, carry, push, pull, hold |
-| 亲密 | kiss, embrace, lap pillow, piggyback |
-| 视线 | eye contact, staring, looking away |
+| 肢体 | `hug`, `carry`, `push`, `pull`, `hold`, `lean on` |
+| 亲密 | `kiss`, `embrace`, `lap pillow`, `piggyback` |
+| 视线 | `eye contact`, `staring`, `looking at each other` |
 
-如果需要加权重，正常用 `::` 语法包裹整个标签即可。
+> **注意**：即使使用 V4.5 的短语能力（如 `hugging her tightly`），也**必须**保留 `source#` 前缀，以便系统正确解析角色关系。
+
+---
+
+## 五、 NSFW 场景特别说明
+
+V4.5 对解剖学结构的理解更强，必须使用精确的解剖学术语，**切勿模糊描述**。
+
+1. **必须添加**: `nsfw` 标签。
+2. **身体部位**:
+   - `penis`, `vagina`, `anus`, `nipples`, `erection`
+   - `clitoris`, `testicles`
+3. **性行为方式**:
+   - `oral`, `fellatio` (口交), `cunnilingus`
+   - `anal sex`, `vaginal sex`, `paizuri` (乳交)
+4. **体位描述**:
+   - `missionary`, `doggystyle`, `mating press`
+   - `straddling`, `deepthroat`, `spooning`
+5. **液体与细节**:
+   - `cum`, `cum inside`, `cum on face`, `creampie`
+   - `sweat`, `saliva`, `heavy breathing`, `ahegao`
+6. **断面图**:
+   - 如需展示体内，必须加 `cross section`, `internal view`, `x-ray`。
 
 ---
 
-### 八、负值权重
+## 六、 权重控制语法
 
-权重可以是负数。两个用途：
+### 6.1 增强权重
+- **数值化方式（推荐）**：
+  ```
+  1.2::tag::        → 1.2 倍权重
+  1.5::tag1, tag2:: → 对多个 tag 同时增强
+  ```
+- **花括号方式**：`{{tag}}` (约 1.1 倍)
 
-**1. 移除特定元素**
+### 6.2 削弱权重
+- **数值化方式（推荐）**：
+  ```
+  0.8::tag::  → 0.8 倍权重
+  ```
+- **方括号方式**：`[[tag]]`
 
-角色设定里自带眼镜，这张图不想要：
-```
--1::glasses::
-```
-
-帽子挡脸了：
-```
--1::hat::
-```
-
-**2. 反转概念**
-
-画面太平太素，想要反效果：
-```
--1::flat color::        // 平涂的反面 → 层次丰富
--1::simple background:: // 简单背景的反面 → 场景丰富
--1::monochrome::        // 单色的反面 → 色彩丰富
-```
-
-**和 Undesired Content 的区别：**
-
-| 方式 | 特点 | 适合场景 |
-|------|------|----------|
-| 负值权重 | 精准、针对单个元素 | 移除某个具体东西、反转某个概念 |
-| Undesired Content | 批量、一次列很多 | 整体风格控制、排除一类东西 |
+### 6.3 负值权重 (特殊用法)
+- **移除特定元素**：`-1::glasses::` (角色自带眼镜但这张图不想要)
+- **反转概念**：`-1::flat color::` (平涂的反面 → 层次丰富)
 
 ---
-## 九、注意事项
 
-1. **具体优于抽象**：`blue pleated skirt` 优于 `skirt`
-2. **避免冲突 Tag**：如同时使用 `short hair` 和 `long hair`
-3. **肤色需明确指定**：不指定时默认倾向白皙
-4. **服装描述要分层**：每个部件单独描述效果更好
-5. **NSFW 场景必须明确**：如果场景涉及性内容，必须使用精确的标签，首先给上NSFW标签，然后：
-   - 身体部位：`penis`, `anus`, `vagina`, `pubic_hair` 等
-   - 性行为方式：`oral`, `fellatio`, `gokkun`, `anal sex`, `vaginal sex` 等
-   - 体位：`missionary`, `doggystyle`, `mating_press`, `deepthroat` 等
-   - 插入场景中：须添加 `cross section`, `X-ray` 展示体内透视效果
-   - 进程阶段：`gently thrusting`, `hard thrusting`, `squirting`, `orgasm` 等
-   - 射精相关：`cum inside`, `cum in uterus`, `stomach bulge`, `female_ejaculation` 等
-   
-   **切勿模糊描述**，NovelAI 需要具体的解剖学标签才能正确渲染。
+## 七、 示例 (Example)
+
+**输入文本**:
+> "雨夜，受伤的骑士靠在巷子的墙上，少女正焦急地为他包扎手臂。"
+
+**输出 JSON 参考**:
+```json
+{
+"scene": "1girl, 1boy, night, rain, raining, alley, brick wall, dark atmosphere, cinematic lighting",
+"characters": [
+  {
+    "name": "骑士",
+    "costume": "damaged armor, torn cape, leather boots",
+    "action": "sitting on ground, leaning against wall, injured, bleeding, painful expression, holding arm",
+    "interact": "target#being bandaged"
+  },
+  {
+    "name": "少女",
+    "costume": "white blouse, long skirt, apron, hair ribbon",
+    "action": "kneeling, worried expression, holding bandage, wrapping bandage around his arm",
+    "interact": "source#bandaging arm"
+  }
+]
+}
+```

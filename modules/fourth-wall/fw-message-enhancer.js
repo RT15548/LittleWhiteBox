@@ -25,7 +25,7 @@ const CSS_INJECTED_KEY = 'xb-me-css-injected';
 
 let currentAudio = null;
 let imageObserver = null;
-let domObserver = null;  // ▼ 新增
+let novelDrawObserver = null;
 
 // ════════════════════════════════════════════════════════════════════════════
 // 初始化与清理
@@ -40,18 +40,21 @@ export async function initMessageEnhancer() {
     injectStyles();
     await loadVoices();
     initImageObserver();
-    initDomObserver();  // ▼ 新增
+    initNovelDrawObserver();
     
     events.on(event_types.CHAT_CHANGED, () => {
         clearQueue();
         setTimeout(processAllMessages, 150);
     });
     
-    events.on(event_types.MESSAGE_EDITED, handleMessageChange);
-    events.on(event_types.MESSAGE_SWIPED, handleMessageChange);
-    events.on(event_types.MESSAGE_UPDATED, handleMessageChange);
-    events.on(event_types.CHARACTER_MESSAGE_RENDERED, handleMessageChange);
+    events.on(event_types.MESSAGE_RECEIVED, handleMessageChange);
     events.on(event_types.USER_MESSAGE_RENDERED, handleMessageChange);
+    events.on(event_types.MESSAGE_EDITED, handleMessageChange);
+    events.on(event_types.MESSAGE_UPDATED, handleMessageChange);
+    events.on(event_types.MESSAGE_SWIPED, handleMessageChange);
+    
+    events.on(event_types.GENERATION_STOPPED, () => setTimeout(processAllMessages, 150));
+    events.on(event_types.GENERATION_ENDED, () => setTimeout(processAllMessages, 150));
     
     processAllMessages();
 }
@@ -67,10 +70,9 @@ export function cleanupMessageEnhancer() {
         imageObserver = null;
     }
     
-    // ▼ 新增
-    if (domObserver) {
-        domObserver.disconnect();
-        domObserver = null;
+    if (novelDrawObserver) {
+        novelDrawObserver.disconnect();
+        novelDrawObserver = null;
     }
     
     if (currentAudio) {
@@ -80,56 +82,35 @@ export function cleanupMessageEnhancer() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// DOM 变化观察器（新增）
+// NovelDraw 兼容
 // ════════════════════════════════════════════════════════════════════════════
 
-function initDomObserver() {
-    if (domObserver) return;
+function initNovelDrawObserver() {
+    if (novelDrawObserver) return;
     
-    const chatContainer = document.getElementById('chat');
-    if (!chatContainer) {
-        // 如果 chat 容器还没加载，延迟重试
-        setTimeout(initDomObserver, 500);
+    const chat = document.getElementById('chat');
+    if (!chat) {
+        setTimeout(initNovelDrawObserver, 500);
         return;
     }
     
-    // 用于防抖处理
-    let pendingTexts = new Set();
     let debounceTimer = null;
+    const pendingTexts = new Set();
     
-    domObserver = new MutationObserver((mutations) => {
+    novelDrawObserver = new MutationObserver((mutations) => {
         const settings = extension_settings[EXT_ID];
         if (!settings?.fourthWall?.enabled) return;
         
         for (const mutation of mutations) {
-            let mesText = null;
-            
-            if (mutation.type === 'childList') {
-                for (const node of mutation.addedNodes) {
-                    if (node.nodeType !== Node.ELEMENT_NODE) continue;
-                    
-                    if (node.classList?.contains('mes_text')) {
-                        mesText = node;
-                    } else if (node.classList?.contains('mes')) {
-                        mesText = node.querySelector('.mes_text');
-                    } else {
-                        mesText = node.querySelector?.('.mes_text');
-                    }
-                    
-                    if (mesText && hasUnrenderedPlaceholders(mesText)) {
-                        pendingTexts.add(mesText);
-                    }
-                }
-            }
-            
-            if (mutation.target?.classList?.contains('mes_text')) {
-                if (hasUnrenderedPlaceholders(mutation.target)) {
-                    pendingTexts.add(mutation.target);
-                }
-            } else if (mutation.target?.closest?.('.mes_text')) {
-                const target = mutation.target.closest('.mes_text');
-                if (hasUnrenderedPlaceholders(target)) {
-                    pendingTexts.add(target);
+            for (const node of mutation.addedNodes) {
+                if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                
+                const hasNdImg = node.classList?.contains('xb-nd-img') || node.querySelector?.('.xb-nd-img');
+                if (!hasNdImg) continue;
+                
+                const mesText = node.closest('.mes_text');
+                if (mesText && hasUnrenderedVoice(mesText)) {
+                    pendingTexts.add(mesText);
                 }
             }
         }
@@ -137,9 +118,7 @@ function initDomObserver() {
         if (pendingTexts.size > 0 && !debounceTimer) {
             debounceTimer = setTimeout(() => {
                 pendingTexts.forEach(mesText => {
-                    if (document.contains(mesText)) {
-                        enhanceMessageContent(mesText);
-                    }
+                    if (document.contains(mesText)) enhanceMessageContent(mesText);
                 });
                 pendingTexts.clear();
                 debounceTimer = null;
@@ -147,17 +126,12 @@ function initDomObserver() {
         }
     });
     
-    domObserver.observe(chatContainer, {
-        childList: true,
-        subtree: true,
-    });
+    novelDrawObserver.observe(chat, { childList: true, subtree: true });
 }
 
-function hasUnrenderedPlaceholders(mesText) {
+function hasUnrenderedVoice(mesText) {
     if (!mesText) return false;
-    const html = mesText.innerHTML;
-    return /\[(?:img|图片)\s*:\s*[^\]]+\]/i.test(html) ||
-           /\[(?:voice|语音)\s*:[^\]]+\]/i.test(html);
+    return /\[(?:voice|语音)\s*:[^\]]+\]/i.test(mesText.innerHTML);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -172,9 +146,7 @@ function handleMessageChange(data) {
         
         if (Number.isFinite(messageId)) {
             const mesText = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
-            if (mesText) {
-                enhanceMessageContent(mesText);
-            }
+            if (mesText) enhanceMessageContent(mesText);
         } else {
             processAllMessages();
         }
@@ -208,7 +180,7 @@ function initImageObserver() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 样式
+// 样式注入
 // ════════════════════════════════════════════════════════════════════════════
 
 function injectStyles() {
@@ -251,100 +223,30 @@ function injectStyles() {
 .xb-voice-bar:nth-child(1) { height: 5px; }
 .xb-voice-bar:nth-child(2) { height: 8px; }
 .xb-voice-bar:nth-child(3) { height: 11px; }
-.xb-voice-bubble.playing .xb-voice-bar {
-    animation: xb-wechat-wave 1.2s infinite ease-in-out;
-}
+.xb-voice-bubble.playing .xb-voice-bar { animation: xb-wechat-wave 1.2s infinite ease-in-out; }
 .xb-voice-bubble.playing .xb-voice-bar:nth-child(1) { animation-delay: 0s; }
 .xb-voice-bubble.playing .xb-voice-bar:nth-child(2) { animation-delay: 0.2s; }
 .xb-voice-bubble.playing .xb-voice-bar:nth-child(3) { animation-delay: 0.4s; }
-@keyframes xb-wechat-wave {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 1; }
-}
-.xb-voice-duration {
-    font-size: 12px;
-    color: #000;
-    opacity: 0.7;
-    margin-left: auto;
-}
+@keyframes xb-wechat-wave { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+.xb-voice-duration { font-size: 12px; color: #000; opacity: 0.7; margin-left: auto; }
 .xb-voice-bubble.loading { opacity: 0.7; }
 .xb-voice-bubble.loading .xb-voice-waves { animation: xb-voice-pulse 1s infinite; }
 @keyframes xb-voice-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
 .xb-voice-bubble.error { background: #ffb3b3 !important; }
 .mes[is_user="true"] .xb-voice-bubble { background: #fff; }
 .mes[is_user="true"] .xb-voice-bar { background: #b2b2b2; }
-.xb-img-slot {
-    margin: 8px 0;
-    min-height: 60px;
-    position: relative;
-    display: inline-block;
-}
-.xb-img-slot img.xb-generated-img {
-    max-width: min(400px, 80%);
-    max-height: 60vh;
-    border-radius: 4px;
-    display: block;
-    cursor: pointer;
-    transition: opacity 0.2s;
-}
+.xb-img-slot { margin: 8px 0; min-height: 60px; position: relative; display: inline-block; }
+.xb-img-slot img.xb-generated-img { max-width: min(400px, 80%); max-height: 60vh; border-radius: 4px; display: block; cursor: pointer; transition: opacity 0.2s; }
 .xb-img-slot img.xb-generated-img:hover { opacity: 0.9; }
-.xb-img-placeholder {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 12px 16px;
-    background: rgba(0,0,0,0.04);
-    border: 1px dashed rgba(0,0,0,0.15);
-    border-radius: 4px;
-    color: #999;
-    font-size: 12px;
-}
+.xb-img-placeholder { display: inline-flex; align-items: center; gap: 6px; padding: 12px 16px; background: rgba(0,0,0,0.04); border: 1px dashed rgba(0,0,0,0.15); border-radius: 4px; color: #999; font-size: 12px; }
 .xb-img-placeholder i { font-size: 16px; opacity: 0.5; }
-.xb-img-loading {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 16px;
-    background: rgba(76,154,255,0.08);
-    border: 1px solid rgba(76,154,255,0.2);
-    border-radius: 4px;
-    color: #666;
-    font-size: 12px;
-}
+.xb-img-loading { display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; background: rgba(76,154,255,0.08); border: 1px solid rgba(76,154,255,0.2); border-radius: 4px; color: #666; font-size: 12px; }
 .xb-img-loading i { animation: fa-spin 1s infinite linear; }
 .xb-img-loading i.fa-clock { animation: none; }
-.xb-img-error {
-    display: inline-flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 12px 16px;
-    background: rgba(255,100,100,0.08);
-    border: 1px dashed rgba(255,100,100,0.3);
-    border-radius: 4px;
-    color: #e57373;
-    font-size: 12px;
-}
-.xb-img-retry {
-    padding: 4px 10px;
-    background: rgba(255,100,100,0.1);
-    border: 1px solid rgba(255,100,100,0.3);
-    border-radius: 3px;
-    color: #e57373;
-    font-size: 11px;
-    cursor: pointer;
-}
+.xb-img-error { display: inline-flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 16px; background: rgba(255,100,100,0.08); border: 1px dashed rgba(255,100,100,0.3); border-radius: 4px; color: #e57373; font-size: 12px; }
+.xb-img-retry { padding: 4px 10px; background: rgba(255,100,100,0.1); border: 1px solid rgba(255,100,100,0.3); border-radius: 3px; color: #e57373; font-size: 11px; cursor: pointer; }
 .xb-img-retry:hover { background: rgba(255,100,100,0.2); }
-.xb-img-badge {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    background: rgba(0,0,0,0.5);
-    color: #ffd700;
-    font-size: 10px;
-    padding: 2px 5px;
-    border-radius: 3px;
-}
+.xb-img-badge { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.5); color: #ffd700; font-size: 10px; padding: 2px 5px; border-radius: 3px; }
 `;
     document.head.appendChild(style);
 }
@@ -381,9 +283,7 @@ function enhanceMessageContent(container) {
         return createVoiceBubbleHTML(txt, '');
     });
     
-    if (hasChanges) {
-        container.innerHTML = enhanced;
-    }
+    if (hasChanges) container.innerHTML = enhanced;
     
     hydrateImageSlots(container);
     hydrateVoiceSlots(container);
@@ -398,11 +298,7 @@ function parseImageToken(rawCSV) {
 function createVoiceBubbleHTML(text, emotion) {
     const duration = Math.max(2, Math.ceil(text.length / 4));
     return `<div class="xb-voice-bubble" data-text="${encodeURIComponent(text)}" data-emotion="${emotion || ''}">
-        <div class="xb-voice-waves">
-            <div class="xb-voice-bar"></div>
-            <div class="xb-voice-bar"></div>
-            <div class="xb-voice-bar"></div>
-        </div>
+        <div class="xb-voice-waves"><div class="xb-voice-bar"></div><div class="xb-voice-bar"></div><div class="xb-voice-bar"></div></div>
         <span class="xb-voice-duration">${duration}"</span>
     </div>`;
 }
@@ -446,9 +342,7 @@ async function loadImage(slot, tags) {
             }
         });
         
-        if (base64) {
-            renderImage(slot, base64, false);
-        }
+        if (base64) renderImage(slot, base64, false);
         
     } catch (err) {
         slot.dataset.loaded = '1';
@@ -461,11 +355,7 @@ async function loadImage(slot, tags) {
             return;
         }
         
-        slot.innerHTML = `<div class="xb-img-error">
-            <i class="fa-solid fa-exclamation-triangle"></i>
-            <div>${escapeHtml(err?.message || '失败')}</div>
-            <button class="xb-img-retry" data-tags="${encodeURIComponent(tags)}">重试</button>
-        </div>`;
+        slot.innerHTML = `<div class="xb-img-error"><i class="fa-solid fa-exclamation-triangle"></i><div>${escapeHtml(err?.message || '失败')}</div><button class="xb-img-retry" data-tags="${encodeURIComponent(tags)}">重试</button></div>`;
         bindRetryButton(slot);
     }
 }

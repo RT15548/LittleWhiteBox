@@ -582,15 +582,22 @@ class StreamingGeneration {
             if (!pm || typeof pm.getPromptOrderForCharacter !== 'function') {
                 return await fn();
             }
-            const origGetter = pm.getPromptOrderForCharacter.bind(pm);
-            pm.getPromptOrderForCharacter = (...args) => {
-                const list = origGetter(...args) || [];
-                const PRESET_EXCLUDES = new Set([
-                    'chatHistory',
-                    'worldInfoBefore', 'worldInfoAfter',
-                    'charDescription', 'charPersonality', 'scenario', 'personaDescription',
-                ]);
+
+            // 记录原始状态
+            const hadOwn = Object.prototype.hasOwnProperty.call(pm, 'getPromptOrderForCharacter');
+            const original = pm.getPromptOrderForCharacter;
+
+            const PRESET_EXCLUDES = new Set([
+                'chatHistory',
+                'worldInfoBefore', 'worldInfoAfter',
+                'charDescription', 'charPersonality', 'scenario', 'personaDescription',
+            ]);
+
+            const wrapper = (...args) => {
+                const list = original.call(pm, ...args) || [];
+
                 const enableIds = new Set();
+
                 if (addonSet.has('preset')) {
                     for (const e of list) {
                         if (e?.identifier && e.enabled && !PRESET_EXCLUDES.has(e.identifier)) {
@@ -598,23 +605,44 @@ class StreamingGeneration {
                         }
                     }
                 }
+
                 if (addonSet.has('chatHistory')) enableIds.add('chatHistory');
-                if (addonSet.has('worldInfo')) { enableIds.add('worldInfoBefore'); enableIds.add('worldInfoAfter'); }
+                if (addonSet.has('worldInfo')) {
+                    enableIds.add('worldInfoBefore');
+                    enableIds.add('worldInfoAfter');
+                }
                 if (addonSet.has('charDescription')) enableIds.add('charDescription');
                 if (addonSet.has('charPersonality')) enableIds.add('charPersonality');
                 if (addonSet.has('scenario')) enableIds.add('scenario');
                 if (addonSet.has('personaDescription')) enableIds.add('personaDescription');
-                if (addonSet.has('worldInfo') && !addonSet.has('chatHistory')) enableIds.add('chatHistory');
+
+                if (addonSet.has('worldInfo') && !addonSet.has('chatHistory')) {
+                    enableIds.add('chatHistory');
+                }
+
                 return list.map(e => {
-                    const cloned = { ...e };
-                    cloned.enabled = enableIds.has(cloned.identifier);
-                    return cloned;
+                    if (!e?.identifier) return e;
+                    return { ...e, enabled: enableIds.has(e.identifier) };
                 });
             };
+
+            pm.getPromptOrderForCharacter = wrapper;
+
             try {
                 return await fn();
             } finally {
-                pm.getPromptOrderForCharacter = origGetter;
+                if (pm.getPromptOrderForCharacter === wrapper) {
+                    if (hadOwn) {
+                        pm.getPromptOrderForCharacter = original;
+                    } else {
+
+                        try {
+                            delete pm.getPromptOrderForCharacter;
+                        } catch {
+                            pm.getPromptOrderForCharacter = original;
+                        }
+                    }
+                }
             }
         });
     }
