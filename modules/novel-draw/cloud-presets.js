@@ -77,8 +77,8 @@ export function parsePresetData(data, generateId) {
 }
 
 export function exportPreset(preset) {
-    const author = prompt("请输入你的作者名 (将显示在云端):", "") || "";
-    const description = prompt("简介 (可选):", "") || "";
+    const author = prompt("请输入你的作者名:", "") || "";
+    const description = prompt("简介 (画风介绍):", "") || "";
     
     return {
         type: 'novel-draw-preset',

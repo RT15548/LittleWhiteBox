@@ -84,7 +84,17 @@ body {
     transition: opacity 0.2s; white-space: nowrap;
 }
 .header-credit:hover { opacity: 0.9; }
-.credit-author { font-style: normal; color: var(--text-secondary); }
+.credit-author {
+    font-style: normal;
+    color: var(--text-secondary);
+    transition: color 0.15s, opacity 0.15s;
+    cursor: default;
+}
+.credit-author:hover {
+    color: var(--accent);
+    opacity: 1;
+    text-shadow: 0 0 8px rgba(212, 165, 116, 0.5);
+}
 .nav-item {
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
     border-radius: 8px; color: var(--text-secondary); cursor: pointer;
@@ -351,7 +361,7 @@ select.input { cursor: pointer; }
     <header class="app-header">
         <div class="header-logo"><i class="fa-solid fa-palette"></i><span>Novel Draw</span></div>
         <div id="nd_badge" class="header-badge"><i class="fa-solid fa-circle"></i><span>未启用</span></div>
-        <span class="header-credit">· <span class="credit-author">𝓡𝓸𝓻𝓸𝓵𝓵𝓵𝓷</span></span>
+        <span class="header-credit" id="nd_credits"></span>
         <div class="header-spacer"></div>
         <div class="header-mode">
             <button data-mode="manual" class="active">手动</button>
@@ -858,6 +868,16 @@ function parseDelay(str) {
     return { ...DEFAULTS.requestDelay };
 }
 
+function shuffleCredits() {
+    const authors = ['𝓡𝓸𝓻𝓸𝓵𝓵𝓵𝓷', '纤濯', '小白狐'];
+    const shuffled = authors.sort(() => Math.random() - 0.5);
+    const el = document.getElementById('nd_credits');
+    if (el) {
+        el.innerHTML = shuffled
+            .map(name => `· <span class="credit-author">${name}</span>`)
+            .join(' ');
+    }
+}
 // ═══════════════════════════════════════════════════════════════════════════
 // UI 更新
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1374,6 +1394,7 @@ window.addEventListener('message', event => {
             gallerySummary = data.gallerySummary || {};
             loadedCharPreviews = {};
             applyStateToUI();
+            shuffleCredits();
             break;
             
         case 'CHARACTER_PREVIEWS_LOADED':
@@ -1448,6 +1469,7 @@ window.addEventListener('message', event => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', () => {
+    shuffleCredits();
     // ═══════════════════════════════════════════════════════════════════════
     // 导航切换
     // ═══════════════════════════════════════════════════════════════════════
