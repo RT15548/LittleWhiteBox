@@ -204,6 +204,8 @@ function b64UrlEncode(str) {
 // LLM 调用（简化：不再接收预设参数）
 // ═══════════════════════════════════════════════════════════════════════════
 
+// llm-service.js
+
 export async function generateScenePlan(options) {
     const {
         messageText,
@@ -220,10 +222,8 @@ export async function generateScenePlan(options) {
 
     const charInfo = buildCharacterInfoForLLM(presentCharacters);
 
-    // msg1: systemPrompt
     const msg1 = LLM_PROMPT_CONFIG.systemPrompt;
 
-    // msg2: assistantAck + TAG编写指南
     let msg2 = LLM_PROMPT_CONFIG.assistantAck;
     if (tagGuideContent) {
         msg2 = msg2.replace('{$tagGuide}', tagGuideContent);
@@ -231,20 +231,16 @@ export async function generateScenePlan(options) {
         msg2 = msg2.replace(/我已查阅以下.*?\n\s*\{\$tagGuide\}\s*\n/g, '');
     }
 
-    // msg3: userTemplate
     let msg3 = LLM_PROMPT_CONFIG.userTemplate
         .replace('{{lastMessage}}', messageText)
         .replace('{{characterInfo}}', charInfo);
 
-    // 不用世界书时：只清空占位符
     if (!useWorldInfo) {
         msg3 = msg3.replace(/\{\$worldInfo\}/gi, '');
     }
 
-    // msg4: assistantPrefix
     const msg4 = LLM_PROMPT_CONFIG.assistantPrefix;
 
-    // 只把 msg1+msg2 放到 top
     const topMessages = [
         { role: 'user', content: msg1 },
         { role: 'assistant', content: msg2 },
@@ -255,12 +251,21 @@ export async function generateScenePlan(options) {
         throw new LLMServiceError('xbgenraw 模块不可用', 'MODULE_UNAVAILABLE');
     }
 
+    const isSt = llmApi.provider === 'st';
+
     const args = {
         as: 'user',
         nonstream: useStream ? 'false' : 'true',
         top64: b64UrlEncode(JSON.stringify(topMessages)),
         bottomassistant: msg4,
-        id: 'xb_nd_scene_plan'
+        id: 'xb_nd_scene_plan',
+        ...(isSt ? {} : {
+            temperature: '0.7',
+            presence_penalty: 'off',
+            frequency_penalty: 'off',
+            top_p: 'off',
+            top_k: 'off',
+        }),
     };
 
     let rawOutput;
