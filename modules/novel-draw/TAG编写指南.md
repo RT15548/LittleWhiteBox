@@ -152,17 +152,17 @@ V4.5 的重大升级在于能理解简短的**主谓宾 (SVO)** 结构和**介�
 
 ---
 
-## 五、 NSFW 场景特别说明
+## 五、 特殊 场景特别说明
 
 V4.5 对解剖学结构的理解更强，必须使用精确的解剖学术语，**切勿模糊描述**。
 
-1. **必须添加**: `nsfw` 标签。
+1. **推荐添加**: `nsfw` 标签。
 2. **身体部位**:
    - `penis`, `vagina`, `anus`, `nipples`, `erection`
    - `clitoris`, `testicles`
 3. **性行为方式**:
-   - `oral`, `fellatio` (口交), `cunnilingus`
-   - `anal sex`, `vaginal sex`, `paizuri` (乳交)
+   - `oral`, `fellatio` , `cunnilingus`
+   - `anal sex`, `vaginal sex`, `paizuri` 
 4. **体位描述**:
    - `missionary`, `doggystyle`, `mating press`
    - `straddling`, `deepthroat`, `spooning`
@@ -170,7 +170,7 @@ V4.5 对解剖学结构的理解更强，必须使用精确的解剖学术语，
    - `cum`, `cum inside`, `cum on face`, `creampie`
    - `sweat`, `saliva`, `heavy breathing`, `ahegao`
 6. **断面图**:
-   - 如需展示体内，必须加 `cross section`, `internal view`, `x-ray`。
+   - 加入 `cross section`, `internal view`, `x-ray`。
 
 ---
 
@@ -202,23 +202,16 @@ V4.5 对解剖学结构的理解更强，必须使用精确的解剖学术语，
 **输入文本**:
 > "雨夜，受伤的骑士靠在巷子的墙上，少女正焦急地为他包扎手臂。"
 
-**输出 JSON 参考**:
-```json
-{
-"scene": "1girl, 1boy, night, rain, raining, alley, brick wall, dark atmosphere, cinematic lighting",
-"characters": [
-  {
-    "name": "骑士",
-    "costume": "damaged armor, torn cape, leather boots",
-    "action": "sitting on ground, leaning against wall, injured, bleeding, painful expression, holding arm",
-    "interact": "target#being bandaged"
-  },
-  {
-    "name": "少女",
-    "costume": "white blouse, long skirt, apron, hair ribbon",
-    "action": "kneeling, worried expression, holding bandage, wrapping bandage around his arm",
-    "interact": "source#bandaging arm"
-  }
-]
-}
+**输出 YAML 参考**:
+```yaml
+scene: 1girl, 1boy, night, rain, raining, alley, brick wall, dark atmosphere, cinematic lighting
+characters:
+  - name: 骑士
+    costume: damaged armor, torn cape, leather boots
+    action: sitting on ground, leaning against wall, injured, bleeding, painful expression, holding arm
+    interact: target#being bandaged
+  - name: 少女
+    costume: white blouse, long skirt, apron, hair ribbon
+    action: kneeling, worried expression, holding bandage, wrapping bandage around his arm
+    interact: source#bandaging arm
 ```
