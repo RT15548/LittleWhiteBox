@@ -1052,7 +1052,7 @@ function updateSummaryExtensionPrompt() {
     extension_prompts[SUMMARY_PROMPT_KEY] = {
         value: text,
         position: extension_prompt_types.IN_CHAT,
-        depth,
+        1000,
         role: extension_prompt_roles.ASSISTANT,
     };
 }
