@@ -1048,11 +1048,11 @@ function updateSummaryExtensionPrompt() {
 
     let depth = length - lastIdx - 1;
     if (depth < 0) depth = 0;
-
+    depth = 1000;
     extension_prompts[SUMMARY_PROMPT_KEY] = {
         value: text,
         position: extension_prompt_types.IN_CHAT,
-        1000,
+        depth,
         role: extension_prompt_roles.ASSISTANT,
     };
 }
