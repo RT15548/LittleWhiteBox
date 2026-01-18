@@ -126,24 +126,19 @@ class StreamingGeneration {
             const opts = { ...baseOptions, ...this.resolveCurrentApiAndModel(baseOptions) };
 
             const modelLower = String(opts.model || '').toLowerCase();
-            const isClaudeThinking = modelLower.includes('claude') && modelLower.includes('thinking');
-            
-            if (isClaudeThinking && Array.isArray(messages) && messages.length > 0) {
+            const isClaudeThinkingModel = 
+                modelLower.includes('claude') && 
+                modelLower.includes('thinking') && 
+                !modelLower.includes('nothinking');
+
+            if (isClaudeThinkingModel && Array.isArray(messages) && messages.length > 0) {
                 const lastMsg = messages[messages.length - 1];
                 if (lastMsg?.role === 'assistant') {
-                    const content = String(lastMsg.content || '');
-                    const hasCompleteThinkingBlock = 
-                        (content.includes('<thinking>') && content.includes('</thinking>')) ||
-                        content.includes('"type":"thinking"') ||
-                        content.includes('"type": "thinking"');
-                    
-                    if (!hasCompleteThinkingBlock) {
-                        console.log('[xbgen] Claude Thinking 模型：移除不完整的 assistant prefill');
-                        messages.pop();
-                    }
+                    console.log('[xbgen] Claude Thinking 模型：移除 assistant prefill');
+                    messages.pop();
                 }
-            }         
-            
+            } 
+
             const source = {
                 openai: chat_completion_sources.OPENAI,
                 claude: chat_completion_sources.CLAUDE,

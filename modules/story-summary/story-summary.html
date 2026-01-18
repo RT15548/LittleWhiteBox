@@ -1,1408 +1,1699 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<title>剧情总结 · Story Summary</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-:root {
-    --bg-primary: #fafafa;
-    --bg-secondary: #ffffff;
-    --bg-tertiary: #f5f5f5;
-    --text-primary: #1a1a1a;
-    --text-secondary: #666666;
-    --text-muted: #999999;
-    --border-color: #e5e5e5;
-    --border-light: #f0f0f0;
-    --accent: #1a1a1a;
-    --accent-light: #333333;
-    --highlight: #ff4444;
-    --highlight-soft: rgba(255, 68, 68, 0.1);
-}
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    line-height: 1.6;
-    min-height: 100vh;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-}
-.summary-container {
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-    padding: 24px 40px;
-    max-width: 1800px;
-    margin: 0 auto;
-}
-.summary-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    padding-bottom: 24px;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 24px;
-}
-.header-left h1 { font-size: 2rem; font-weight: 300; letter-spacing: -0.02em; margin-bottom: 4px; }
-.header-left h1 span { font-weight: 600; }
-.header-subtitle { font-size: 0.875rem; color: var(--text-muted); letter-spacing: 0.05em; text-transform: uppercase; }
-.header-stats { display: flex; gap: 48px; text-align: right; }
-.stat-item { display: flex; flex-direction: column; }
-.stat-value { font-size: 2.5rem; font-weight: 200; line-height: 1; letter-spacing: -0.03em; }
-.stat-value .highlight { color: var(--highlight); }
-.stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px; }
-.controls-bar { display: flex; align-items: center; gap: 16px; padding: 12px 0; margin-bottom: 20px; }
-.status-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.status-checkbox:hover { border-color: var(--accent); }
-.status-checkbox input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--highlight); cursor: pointer; }
-.status-checkbox strong { color: var(--highlight); }
-.btn {
-    padding: 12px 28px;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-color);
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.btn:hover { border-color: var(--accent); background: var(--bg-tertiary); }
-.btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
-.btn-primary:hover { background: var(--accent-light); }
-.btn-primary:disabled { background: #999; border-color: #999; cursor: not-allowed; opacity: 0.7; }
-.btn-icon { padding: 10px 16px; display: flex; align-items: center; gap: 6px; }
-.btn-icon svg { width: 16px; height: 16px; }
-.btn-sm { padding: 8px 16px; font-size: 0.8125rem; }
-.btn-connect { background: var(--accent); color: white; border-color: var(--accent); }
-.btn-connect:hover { background: var(--accent-light); }
-.btn-connect:disabled { opacity: 0.6; cursor: not-allowed; }
-.btn-delete { background: transparent; color: var(--highlight); border-color: var(--highlight); }
-.btn-delete:hover { background: var(--highlight-soft); }
-.spacer { flex: 1; }
-.summary-main { display: grid; grid-template-columns: 1fr 480px; gap: 24px; flex: 1; min-height: 0; }
-.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.section-title { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-secondary); }
-.section-edit-btn {
-    padding: 4px 12px;
-    background: transparent;
-    border: 1px solid var(--border-color);
-    font-size: 0.6875rem;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: all 0.2s;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-.section-edit-btn:hover { border-color: var(--accent); color: var(--text-primary); background: var(--bg-tertiary); }
-.section-header-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-.section-icon-btn {
-    padding: 4px 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-.section-icon-btn svg {
-    display: block;
-}
-.fullscreen-panel {
-    width: calc(100vw - 48px);
-    max-width: none;
-    height: calc(100vh - 48px);
-    max-height: none;
-}
-.fullscreen-body {
-    flex: 1;
-    padding: 0;
-    overflow: hidden;
-}
-#relation-chart-fullscreen {
-    width: 100%;
-    height: 100%;
-    touch-action: none;
-}
-.left-content { display: flex; flex-direction: column; gap: 24px; min-height: 0; }
-.keywords-section { background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 24px; }
-.keywords-cloud { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
-.keyword-tag {
-    padding: 8px 20px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-light);
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    transition: all 0.2s;
-    cursor: default;
-}
-.keyword-tag.primary { background: var(--accent); color: white; border-color: var(--accent); font-weight: 500; }
-.keyword-tag.secondary { background: var(--highlight-soft); border-color: rgba(255, 68, 68, 0.2); color: var(--highlight); }
-.keyword-tag:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-.timeline-section {
-    flex: 1;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    max-height: 500px;
-}
-.timeline-list { flex: 1; overflow-y: auto; padding-right: 8px; min-height: 0; }
-.timeline-list::-webkit-scrollbar { width: 4px; }
-.timeline-list::-webkit-scrollbar-thumb { background: var(--border-color); }
-.timeline-item {
-    position: relative;
-    padding-left: 32px;
-    padding-bottom: 32px;
-    border-left: 1px solid var(--border-color);
-    margin-left: 8px;
-}
-.timeline-item:last-child { border-left-color: transparent; padding-bottom: 0; }
-.timeline-dot {
-    position: absolute;
-    left: -5px;
-    top: 0;
-    width: 9px;
-    height: 9px;
-    background: var(--bg-secondary);
-    border: 2px solid var(--text-muted);
-    border-radius: 50%;
-    transition: all 0.2s;
-}
-.timeline-item:hover .timeline-dot { border-color: var(--highlight); background: var(--highlight); transform: scale(1.3); }
-.timeline-item.critical .timeline-dot { border-color: var(--highlight); background: var(--highlight); }
-.timeline-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-.timeline-title { font-size: 1rem; font-weight: 500; color: var(--text-primary); }
-.timeline-time { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.timeline-brief { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.7; margin-bottom: 12px; }
-.timeline-meta { display: flex; gap: 16px; font-size: 0.75rem; color: var(--text-muted); }
-.timeline-meta .importance { color: var(--highlight); font-weight: 500; }
-.right-panel { display: flex; flex-direction: column; gap: 24px; min-height: 0; }
-.relations-section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    padding: 24px;
-    flex: 1;
-    min-height: 320px;
-    max-height: 400px;
-    display: flex;
-    flex-direction: column;
-}
-#relation-chart { width: 100%; flex: 1; min-height: 200px; touch-action: none; }
-.arcs-section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    padding: 24px;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    max-height: 400px;
-}
-.arcs-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding-right: 8px; }
-.arcs-list::-webkit-scrollbar { width: 4px; }
-.arcs-list::-webkit-scrollbar-thumb { background: var(--border-color); }
-.arc-card {
-    padding: 16px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-light);
-    transition: all 0.3s ease;
-    cursor: pointer;
-}
-.arc-card:hover { border-color: var(--accent); box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
-.arc-card-active { border-color: var(--highlight); background: var(--highlight-soft); box-shadow: 0 4px 20px rgba(255, 68, 68, 0.15); }
-.arc-card-active .arc-name { color: var(--highlight); }
-.arc-card-active .arc-progress-inner { background: var(--highlight); }
-.arc-header { display: flex; justify-content: flex-start; align-items: center; gap: 12px; margin-bottom: 12px; }
-.arc-name { font-size: 0.9375rem; font-weight: 600; }
-.arc-phase { font-size: 0.75rem; color: var(--text-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.arc-progress { height: 3px; background: var(--border-color); margin-bottom: 12px; overflow: hidden; }
-.arc-progress-inner { height: 100%; background: var(--accent); transition: width 0.6s ease-out; }
-.arc-info { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px; }
-.arc-beats { font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6; }
-.arc-beat { position: relative; padding-left: 12px; margin-bottom: 4px; }
-.arc-beat::before { content: ''; position: absolute; left: 0; top: 8px; width: 4px; height: 4px; background: var(--border-color); border-radius: 50%; }
-.empty-state { text-align: center; padding: 40px; color: var(--text-muted); font-size: 0.875rem; }
-.modal-overlay { position: fixed; inset: 0; z-index: 10000; display: none; align-items: center; justify-content: center; }
-.modal-overlay.active { display: flex; }
-.modal-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
-.modal-panel {
-    position: relative;
-    width: 100%;
-    max-width: 720px;
-    max-height: 90vh;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-}
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--border-color); }
-.modal-header h2 { font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; }
-.modal-close {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: 1px solid var(--border-color);
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.modal-close:hover { background: var(--bg-tertiary); border-color: var(--accent); }
-.modal-close svg { width: 14px; height: 14px; }
-.modal-body { flex: 1; overflow-y: auto; padding: 24px; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 12px; padding: 16px 24px; border-top: 1px solid var(--border-color); }
-.editor-textarea {
-    width: 100%;
-    min-height: 300px;
-    padding: 16px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    font-family: 'SF Mono', Monaco, Consolas, monospace;
-    font-size: 0.8125rem;
-    line-height: 1.6;
-    color: var(--text-primary);
-    resize: vertical;
-    outline: none;
-}
-.editor-textarea:focus { border-color: var(--accent); }
-.editor-hint { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5; }
-.editor-error { padding: 12px; background: var(--highlight-soft); border: 1px solid rgba(255, 68, 68, 0.3); color: var(--highlight); font-size: 0.8125rem; margin-top: 12px; display: none; }
-.editor-error.visible { display: block; }
-.struct-item { border: 1px solid var(--border-color); background: var(--bg-tertiary); padding: 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
-.struct-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.struct-row input, .struct-row select, .struct-row textarea {
-    flex: 1;
-    min-width: 0;
-    padding: 8px 10px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    font-size: 0.8125rem;
-    color: var(--text-primary);
-    outline: none;
-    transition: border-color 0.2s;
-}
-.struct-row input:focus, .struct-row select:focus, .struct-row textarea:focus { border-color: var(--accent); }
-.struct-row textarea { resize: vertical; font-family: inherit; min-height: 60px; }
-.struct-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
-.struct-actions span { font-size: 0.75rem; color: var(--text-muted); }
-#editor-structured .btn-sm { padding: 4px 8px; font-size: 0.75rem; }
-.settings-section { margin-bottom: 32px; }
-.settings-section:last-child { margin-bottom: 0; }
-.settings-section-title { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-muted); margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border-light); }
-.settings-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-.settings-row:last-child { margin-bottom: 0; }
-.settings-field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
-.settings-field.full { flex: 100%; }
-.settings-field label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.settings-field input, .settings-field select { padding: 10px 14px; background: var(--bg-tertiary); border: 1px solid var(--border-color); font-size: 0.875rem; color: var(--text-primary); outline: none; transition: border-color 0.2s; }
-.settings-field input:focus, .settings-field select:focus { border-color: var(--accent); }
-.settings-field input[type="password"] { letter-spacing: 0.15em; }
-.settings-field-inline { display: flex; align-items: center; gap: 8px; }
-.settings-field-inline input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
-.settings-field-inline label { font-size: 0.8125rem; color: var(--text-secondary); text-transform: none; letter-spacing: 0; }
-.settings-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
-.settings-btn-row { display: flex; gap: 12px; margin-top: 8px; }
-.model-select-wrap { display: none; }
-.model-select-wrap.active { display: flex; flex-direction: column; gap: 6px; }
-.hidden { display: none !important; }
-@media (max-width: 1200px) {
-    .summary-container { padding: 16px 24px; }
-    .summary-main { grid-template-columns: 1fr; }
-    .right-panel { flex-direction: row; }
-    .relations-section, .arcs-section { flex: 1; min-height: 300px; }
-}
-@media (max-width: 768px) {
-    html, body { height: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-    .summary-container { height: auto; min-height: 100vh; overflow: visible; padding: 16px; }
-    .summary-header { flex-direction: column; gap: 16px; padding-bottom: 16px; margin-bottom: 16px; }
-    .header-left h1 { font-size: 1.5rem; }
-    .header-stats { width: 100%; justify-content: space-between; gap: 16px; text-align: center; }
-    .stat-value { font-size: 1.75rem; }
-    .stat-label { font-size: 0.625rem; }
-    .controls-bar { flex-wrap: wrap; gap: 10px; padding: 10px 0; margin-bottom: 16px; }
-    .spacer { display: none; }
-    .btn { padding: 10px 20px; font-size: 0.8125rem; }
-    .btn-icon { padding: 10px 14px; }
-    .summary-main, .left-content { gap: 16px; overflow: visible; }
-    .right-panel { flex-direction: column; gap: 16px; }
-    .timeline-section { padding: 16px; max-height: 400px; }
-    .relations-section, .arcs-section { min-height: 280px; max-height: 320px; padding: 16px; }
-    .section-header { margin-bottom: 12px; }
-    .keywords-section { padding: 16px; }
-    .keywords-cloud { gap: 8px; margin-top: 12px; }
-    .keyword-tag { padding: 6px 14px; font-size: 0.8125rem; }
-    .timeline-item { padding-left: 24px; padding-bottom: 24px; }
-    .timeline-title { font-size: 0.9375rem; }
-    .timeline-brief { font-size: 0.8125rem; line-height: 1.6; }
-    .modal-panel { max-width: 100%; max-height: 100%; height: 100%; border: none; }
-    .modal-header, .modal-body, .modal-footer { padding: 16px; }
-    .settings-row { flex-direction: column; gap: 12px; }
-    .settings-field { min-width: 100%; }
-    .settings-field input, .settings-field select { padding: 12px 14px; font-size: 1rem; }
-    .fullscreen-panel {
-        width: 100%;
-        height: 100%;
-        border-radius: 0;
-    }
-}
-@media (max-width: 480px) {
-    .summary-container { padding: 12px; }
-    .summary-header { padding-bottom: 12px; margin-bottom: 12px; }
-    .header-left h1 { font-size: 1.25rem; }
-    .header-subtitle { font-size: 0.6875rem; }
-    .header-stats { gap: 8px; }
-    .stat-item { flex: 1; }
-    .stat-value { font-size: 1.5rem; }
-    .controls-bar { gap: 8px; padding: 8px 0; margin-bottom: 12px; }
-    .btn { flex: 1; padding: 10px 12px; font-size: 0.75rem; text-align: center; justify-content: center; }
-    .btn-icon { padding: 10px 12px; }
-    .btn-icon svg { width: 14px; height: 14px; }
-    .summary-main, .left-content, .right-panel { gap: 12px; }
-    .keywords-section, .timeline-section, .relations-section, .arcs-section { padding: 12px; }
-    .section-title { font-size: 0.6875rem; }
-    .section-edit-btn { font-size: 0.625rem; padding: 3px 8px; }
-    .relations-section, .arcs-section { min-height: 240px; }
-    #relation-chart { min-height: 180px; }
-    .keywords-cloud { gap: 6px; margin-top: 10px; }
-    .keyword-tag { padding: 5px 10px; font-size: 0.75rem; }
-    .timeline-item { padding-left: 20px; padding-bottom: 20px; margin-left: 6px; }
-    .timeline-dot { width: 7px; height: 7px; left: -4px; }
-    .timeline-header { flex-direction: column; align-items: flex-start; gap: 2px; }
-    .timeline-title { font-size: 0.875rem; }
-    .timeline-time { font-size: 0.6875rem; }
-    .timeline-brief { font-size: 0.75rem; margin-bottom: 8px; }
-    .timeline-meta { flex-direction: column; gap: 4px; font-size: 0.6875rem; }
-    .arc-card { padding: 12px; }
-    .arc-name { font-size: 0.875rem; }
-    .arc-phase, .arc-info { font-size: 0.6875rem; }
-    .arc-beats { font-size: 0.75rem; }
-    .arc-beat { padding-left: 10px; }
-    .arc-beat::before { width: 3px; height: 3px; top: 7px; }
-    .modal-header h2 { font-size: 0.875rem; }
-    .settings-section-title { font-size: 0.625rem; }
-    .settings-field label { font-size: 0.6875rem; }
-    .settings-field-inline label { font-size: 0.75rem; }
-    .settings-hint { font-size: 0.6875rem; }
-    .btn-sm { padding: 10px 14px; font-size: 0.75rem; width: 100%; }
-    .editor-textarea { min-height: 200px; font-size: 0.75rem; }
-}
-@media (hover: none) and (pointer: coarse) {
-    .btn { min-height: 44px; }
-    .keyword-tag { min-height: 36px; display: flex; align-items: center; }
-    .keyword-tag:hover { transform: none; }
-    .timeline-item:hover .timeline-dot { transform: none; }
-    .arc-card:hover { box-shadow: none; }
-    .modal-close { width: 44px; height: 44px; }
-    .settings-field input, .settings-field select { min-height: 44px; }
-    .settings-field-inline input[type="checkbox"] { width: 22px; height: 22px; }
-    .section-edit-btn { min-height: 32px; padding: 6px 12px; }
-}
-.phase-toast {
-    position: fixed;
-    bottom: 80px;
-    left: 50%;
-    transform: translateX(-50%);
-    max-width: 85vw;
-    padding: 12px 20px;
-    background: rgba(0, 0, 0, 0.85);
-    color: #fff;
-    font-size: 0.875rem;
-    line-height: 1.5;
-    border-radius: 8px;
-    z-index: 10001;
-    animation: toastIn 0.2s ease;
-    word-break: break-word;
-}
-@keyframes toastIn {
-    from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-    to { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-.stat-warning {
-    font-size: 0.625rem;
-    color: #ff9800;
-    margin-top: 4px;
-}
-#keep-visible-count {
-    width: 32px;
-    padding: 2px 4px;
-    margin: 0 2px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    font-size: inherit;
-    font-weight: bold;
-    color: var(--highlight);
-    text-align: center;
-    border-radius: 3px;
-}
-#keep-visible-count:focus {
-    border-color: var(--accent);
-    outline: none;
-}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>剧情总结 · Story Summary</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        :root {
+            --bg: #fafafa;
+            --bg2: #fff;
+            --bg3: #f5f5f5;
+            --txt: #1a1a1a;
+            --txt2: #444;
+            --txt3: #666;
+            --bdr: #dcdcdc;
+            --bdr2: #e8e8e8;
+            --acc: #1a1a1a;
+            --hl: #d87a7a;
+            --hl-soft: rgba(184, 90, 90, .1)
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--txt);
+            line-height: 1.6;
+            min-height: 100vh;
+            -webkit-overflow-scrolling: touch
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            padding: 24px 40px;
+            max-width: 1800px;
+            margin: 0 auto
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--bdr);
+            margin-bottom: 24px
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 300;
+            letter-spacing: -.02em;
+            margin-bottom: 4px
+        }
+
+        h1 span {
+            font-weight: 600
+        }
+
+        .subtitle {
+            font-size: .875rem;
+            color: var(--txt3);
+            letter-spacing: .05em;
+            text-transform: uppercase
+        }
+
+        .stats {
+            display: flex;
+            gap: 48px;
+            text-align: right
+        }
+
+        .stat {
+            display: flex;
+            flex-direction: column
+        }
+
+        .stat-val {
+            font-size: 2.5rem;
+            font-weight: 200;
+            line-height: 1;
+            letter-spacing: -.03em
+        }
+
+        .stat-val .hl {
+            color: var(--hl)
+        }
+
+        .stat-lbl {
+            font-size: .75rem;
+            color: var(--txt3);
+            text-transform: uppercase;
+            letter-spacing: .1em;
+            margin-top: 4px
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 0;
+            margin-bottom: 20px
+        }
+
+        .chk-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg3);
+            border: 1px solid var(--bdr);
+            font-size: .8125rem;
+            color: var(--txt2);
+            cursor: pointer;
+            transition: all .2s
+        }
+
+        .chk-label:hover {
+            border-color: var(--acc)
+        }
+
+        .chk-label input {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--hl);
+            cursor: pointer
+        }
+
+        .chk-label strong {
+            color: var(--hl)
+        }
+
+        .btn {
+            padding: 12px 28px;
+            background: var(--bg2);
+            color: var(--txt);
+            border: 1px solid var(--bdr);
+            font-size: .875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all .2s
+        }
+
+        .btn:hover {
+            border-color: var(--acc);
+            background: var(--bg3)
+        }
+
+        .btn-p {
+            background: var(--acc);
+            color: #fff;
+            border-color: var(--acc)
+        }
+
+        .btn-p:hover {
+            background: #555
+        }
+
+        .btn-p:disabled {
+            background: #999;
+            border-color: #999;
+            cursor: not-allowed;
+            opacity: .7
+        }
+
+        .btn-icon {
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 6px
+        }
+
+        .btn-icon svg {
+            width: 16px;
+            height: 16px
+        }
+
+        .btn-sm {
+            padding: 8px 16px;
+            font-size: .8125rem
+        }
+
+        .btn-del {
+            background: transparent;
+            color: var(--hl);
+            border-color: var(--hl)
+        }
+
+        .btn-del:hover {
+            background: var(--hl-soft)
+        }
+
+        .spacer {
+            flex: 1
+        }
+
+        main {
+            display: grid;
+            grid-template-columns: 1fr 480px;
+            gap: 24px;
+            flex: 1;
+            min-height: 0
+        }
+
+        .sec-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px
+        }
+
+        .sec-title {
+            font-size: .75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .15em;
+            color: var(--txt2)
+        }
+
+        .sec-btn {
+            padding: 4px 12px;
+            background: transparent;
+            border: 1px solid var(--bdr);
+            font-size: .6875rem;
+            color: var(--txt3);
+            cursor: pointer;
+            transition: all .2s;
+            text-transform: uppercase;
+            letter-spacing: .05em
+        }
+
+        .sec-btn:hover {
+            border-color: var(--acc);
+            color: var(--txt);
+            background: var(--bg3)
+        }
+
+        .sec-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center
+        }
+
+        .sec-icon {
+            padding: 4px 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center
+        }
+
+        .left {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            min-height: 0
+        }
+
+        .card {
+            background: var(--bg2);
+            border: 1px solid var(--bdr);
+            padding: 24px
+        }
+
+        .keywords {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 16px
+        }
+
+        .tag {
+            padding: 8px 20px;
+            background: var(--bg3);
+            border: 1px solid var(--bdr2);
+            font-size: .875rem;
+            color: var(--txt2);
+            transition: all .2s;
+            cursor: default
+        }
+
+        .tag.p {
+            background: var(--acc);
+            color: #fff;
+            border-color: var(--acc);
+            font-weight: 500
+        }
+
+        .tag.s {
+            background: var(--hl-soft);
+            border-color: rgba(255, 68, 68, .2);
+            color: var(--hl)
+        }
+
+        .tag:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, .08)
+        }
+
+        .timeline {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            max-height: 750px
+        }
+
+        .tl-list {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 8px;
+            min-height: 0
+        }
+
+        .tl-list::-webkit-scrollbar,
+        .scroll::-webkit-scrollbar {
+            width: 4px
+        }
+
+        .tl-list::-webkit-scrollbar-thumb,
+        .scroll::-webkit-scrollbar-thumb {
+            background: var(--bdr)
+        }
+
+        .tl-item {
+            position: relative;
+            padding-left: 32px;
+            padding-bottom: 32px;
+            border-left: 1px solid var(--bdr);
+            margin-left: 8px
+        }
+
+        .tl-item:last-child {
+            border-left-color: transparent;
+            padding-bottom: 0
+        }
+
+        .tl-dot {
+            position: absolute;
+            left: -5px;
+            top: 0;
+            width: 9px;
+            height: 9px;
+            background: var(--bg2);
+            border: 2px solid var(--txt3);
+            border-radius: 50%;
+            transition: all .2s
+        }
+
+        .tl-item:hover .tl-dot {
+            border-color: var(--hl);
+            background: var(--hl);
+            transform: scale(1.3)
+        }
+
+        .tl-item.crit .tl-dot {
+            border-color: var(--hl);
+            background: var(--hl)
+        }
+
+        .tl-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 8px
+        }
+
+        .tl-title {
+            font-size: 1rem;
+            font-weight: 500
+        }
+
+        .tl-time {
+            font-size: .75rem;
+            color: var(--txt3);
+            font-variant-numeric: tabular-nums
+        }
+
+        .tl-brief {
+            font-size: .875rem;
+            color: var(--txt2);
+            line-height: 1.7;
+            margin-bottom: 12px
+        }
+
+        .tl-meta {
+            display: flex;
+            gap: 16px;
+            font-size: .75rem;
+            color: var(--txt3)
+        }
+
+        .tl-meta .imp {
+            color: var(--hl);
+            font-weight: 500
+        }
+
+        .right {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            min-height: 0
+        }
+
+        .relations {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 430px
+        }
+
+        #relation-chart,
+        #relation-chart-fullscreen {
+            width: 100%;
+            height: 100%;
+            flex: 1;
+            min-height: 200px;
+            touch-action: none
+        }
+
+        .profile {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            max-height: 480px
+        }
+
+        .profile-content {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 8px
+        }
+
+        .custom-select {
+            position: relative;
+            min-width: 140px;
+            font-size: .8125rem
+        }
+
+        .sel-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 12px;
+            background: var(--bg3);
+            border: 1px solid var(--bdr);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all .2s;
+            user-select: none
+        }
+
+        .sel-trigger:hover {
+            border-color: var(--acc);
+            background: var(--bg2)
+        }
+
+        .sel-trigger::after {
+            content: '';
+            width: 16px;
+            height: 16px;
+            background: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238d8d8d' stroke-width='2'%3e%3cpath d='M6 9l6 6 6-6'/%3e%3c/svg%3e") center/16px no-repeat;
+            transition: transform .2s
+        }
+
+        .custom-select.open .sel-trigger::after {
+            transform: rotate(180deg)
+        }
+
+        .sel-opts {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            right: 0;
+            background: var(--bg2);
+            border: 1px solid var(--bdr);
+            border-radius: 6px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, .15);
+            z-index: 100;
+            display: none;
+            max-height: 240px;
+            overflow-y: auto;
+            padding: 4px
+        }
+
+        .custom-select.open .sel-opts {
+            display: block;
+            animation: fadeIn .2s
+        }
+
+        .sel-opt {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background .1s
+        }
+
+        .sel-opt:hover {
+            background: var(--bg3)
+        }
+
+        .sel-opt.sel {
+            background: var(--hl-soft);
+            color: var(--hl);
+            font-weight: 600
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-4px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0)
+            }
+        }
+
+        .prof-arc {
+            padding: 16px;
+            margin-bottom: 24px
+        }
+
+        .prof-name {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 4px
+        }
+
+        .prof-traj {
+            font-size: .8125rem;
+            color: var(--txt3);
+            line-height: 1.5
+        }
+
+        .prof-prog-wrap {
+            margin-bottom: 16px
+        }
+
+        .prof-prog-lbl {
+            display: flex;
+            justify-content: space-between;
+            font-size: .75rem;
+            color: var(--txt3);
+            margin-bottom: 6px
+        }
+
+        .prof-prog {
+            height: 4px;
+            background: var(--bdr);
+            border-radius: 2px;
+            overflow: hidden
+        }
+
+        .prof-prog-inner {
+            height: 100%;
+            background: linear-gradient(90deg, var(--hl), #d85858);
+            border-radius: 2px;
+            transition: width .6s
+        }
+
+        .prof-moments {
+            background: var(--bg2);
+            border-left: 3px solid var(--hl);
+            padding: 12px 16px
+        }
+
+        .prof-moments-title {
+            font-size: .6875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .1em;
+            color: var(--txt3);
+            margin-bottom: 8px
+        }
+
+        .prof-moment {
+            position: relative;
+            padding-left: 16px;
+            margin-bottom: 6px;
+            font-size: .8125rem;
+            color: var(--txt2);
+            line-height: 1.5
+        }
+
+        .prof-moment::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 7px;
+            width: 6px;
+            height: 6px;
+            background: var(--hl);
+            border-radius: 50%
+        }
+
+        .prof-moment:last-child {
+            margin-bottom: 0
+        }
+
+        .prof-rels {
+            display: flex;
+            flex-direction: column
+        }
+
+        .rels-group {
+            border-bottom: 1px solid var(--bdr2);
+            padding: 16px 0
+        }
+
+        .rels-group:last-child {
+            border-bottom: none;
+            padding-bottom: 0
+        }
+
+        .rels-group:first-child {
+            padding-top: 0
+        }
+
+        .rels-group-title {
+            font-size: .75rem;
+            font-weight: 600;
+            color: var(--txt3);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px
+        }
+
+        .rel-item {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin-bottom: 2px;
+        }
+
+        .rel-item:hover {
+            background: var(--bg3)
+        }
+
+        .rel-target {
+            font-size: .9rem;
+            color: var(--txt2);
+            white-space: nowrap;
+            min-width: 60px
+        }
+
+        .rel-label {
+            font-size: .7rem;
+            line-height: 1.5;
+            flex: 1
+        }
+
+        .rel-trend {
+            font-size: .6875rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            white-space: nowrap
+        }
+
+        .trend-close {
+            background: rgba(235, 106, 106, .15);
+            color: var(--hl)
+        }
+
+        .trend-distant {
+            background: rgba(90, 138, 170, .15);
+            color: #f1c3c3
+        }
+
+        .trend-stable {
+            background: rgba(106, 154, 176, .15);
+            color: #779bac
+        }
+
+        .trend-new {
+            background: rgba(136, 136, 136, .15);
+            color: #888
+        }
+
+        .trend-broken {
+            background: rgba(68, 68, 68, .15);
+            color: #444
+        }
+
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: var(--txt3);
+            font-size: .875rem
+        }
+
+        .modal {
+            position: fixed;
+            inset: 0;
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center
+        }
+
+        .modal.active {
+            display: flex
+        }
+
+        .modal-bg {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, .5);
+            backdrop-filter: blur(4px)
+        }
+
+        .modal-box {
+            position: relative;
+            width: 100%;
+            max-width: 720px;
+            max-height: 90vh;
+            background: var(--bg2);
+            border: 1px solid var(--bdr);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column
+        }
+
+        .modal-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--bdr)
+        }
+
+        .modal-head h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .1em
+        }
+
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+            border: 1px solid var(--bdr);
+            cursor: pointer;
+            transition: all .2s
+        }
+
+        .modal-close:hover {
+            background: var(--bg3);
+            border-color: var(--acc)
+        }
+
+        .modal-close svg {
+            width: 14px;
+            height: 14px
+        }
+
+        .modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px
+        }
+
+        .modal-foot {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            padding: 16px 24px;
+            border-top: 1px solid var(--bdr)
+        }
+
+        .editor-ta {
+            width: 100%;
+            min-height: 300px;
+            padding: 16px;
+            background: var(--bg3);
+            border: 1px solid var(--bdr);
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: .8125rem;
+            line-height: 1.6;
+            color: var(--txt);
+            resize: vertical;
+            outline: none
+        }
+
+        .editor-ta:focus {
+            border-color: var(--acc)
+        }
+
+        .editor-hint {
+            font-size: .75rem;
+            color: var(--txt3);
+            margin-bottom: 12px;
+            line-height: 1.5
+        }
+
+        .editor-err {
+            padding: 12px;
+            background: var(--hl-soft);
+            border: 1px solid rgba(255, 68, 68, .3);
+            color: var(--hl);
+            font-size: .8125rem;
+            margin-top: 12px;
+            display: none
+        }
+
+        .editor-err.visible {
+            display: block
+        }
+
+        .struct-item {
+            border: 1px solid var(--bdr);
+            background: var(--bg3);
+            padding: 12px;
+            margin-bottom: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px
+        }
+
+        .struct-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap
+        }
+
+        .struct-row input,
+        .struct-row select,
+        .struct-row textarea {
+            flex: 1;
+            min-width: 0;
+            padding: 8px 10px;
+            background: var(--bg2);
+            border: 1px solid var(--bdr);
+            font-size: .8125rem;
+            color: var(--txt);
+            outline: none;
+            transition: border-color .2s
+        }
+
+        .struct-row input:focus,
+        .struct-row select:focus,
+        .struct-row textarea:focus {
+            border-color: var(--acc)
+        }
+
+        .struct-row textarea {
+            resize: vertical;
+            font-family: inherit;
+            min-height: 60px
+        }
+
+        .struct-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 4px
+        }
+
+        .struct-actions span {
+            font-size: .75rem;
+            color: var(--txt3)
+        }
+
+        .settings-section {
+            margin-bottom: 32px
+        }
+
+        .settings-section:last-child {
+            margin-bottom: 0
+        }
+
+        .settings-section-title {
+            font-size: .6875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .15em;
+            color: var(--txt3);
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--bdr2)
+        }
+
+        .settings-row {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 16px;
+            flex-wrap: wrap
+        }
+
+        .settings-row:last-child {
+            margin-bottom: 0
+        }
+
+        .settings-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1;
+            min-width: 200px
+        }
+
+        .settings-field.full {
+            flex: 100%
+        }
+
+        .settings-field label {
+            font-size: .75rem;
+            color: var(--txt3);
+            text-transform: uppercase;
+            letter-spacing: .05em
+        }
+
+        .settings-field input,
+        .settings-field select {
+            padding: 10px 14px;
+            background: var(--bg3);
+            border: 1px solid var(--bdr);
+            font-size: .875rem;
+            color: var(--txt);
+            outline: none;
+            transition: border-color .2s
+        }
+
+        .settings-field input:focus,
+        .settings-field select:focus {
+            border-color: var(--acc)
+        }
+
+        .settings-field input[type="password"] {
+            letter-spacing: .15em
+        }
+
+        .settings-field-inline {
+            display: flex;
+            align-items: center;
+            gap: 8px
+        }
+
+        .settings-field-inline input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--acc)
+        }
+
+        .settings-field-inline label {
+            font-size: .8125rem;
+            color: var(--txt2);
+            text-transform: none;
+            letter-spacing: 0
+        }
+
+        .settings-hint {
+            font-size: .75rem;
+            color: var(--txt3);
+            margin-top: 4px
+        }
+
+        .settings-btn-row {
+            display: flex;
+            gap: 12px;
+            margin-top: 8px
+        }
+
+        .hidden {
+            display: none !important
+        }
+
+        .fullscreen .modal-box {
+            width: calc(100vw - 48px);
+            max-width: none;
+            height: calc(100vh - 48px);
+            max-height: none
+        }
+
+        .fullscreen .modal-body {
+            flex: 1;
+            padding: 0;
+            overflow: hidden
+        }
+
+        #keep-visible-count {
+            width: 32px;
+            padding: 2px 4px;
+            margin: 0 2px;
+            background: var(--bg2);
+            border: 1px solid var(--bdr);
+            font-size: inherit;
+            font-weight: bold;
+            color: var(--hl);
+            text-align: center;
+            border-radius: 3px
+        }
+
+        #keep-visible-count:focus {
+            border-color: var(--acc);
+            outline: none
+        }
+
+        .stat-warning {
+            font-size: .625rem;
+            color: #ff9800;
+            margin-top: 4px
+        }
+
+        @media(max-width:1200px) {
+            .container {
+                padding: 16px 24px
+            }
+
+            main {
+                grid-template-columns: 1fr
+            }
+
+            .right {
+                flex-direction: row
+            }
+
+            .relations,
+            .profile {
+                flex: 1;
+                min-height: 300px
+            }
+        }
+
+        @media(max-width:768px) {
+            .container {
+                height: auto;
+                min-height: 100vh;
+                padding: 16px
+            }
+
+            header {
+                flex-direction: column;
+                gap: 16px;
+                padding-bottom: 16px;
+                margin-bottom: 16px
+            }
+
+            h1 {
+                font-size: 1.5rem
+            }
+
+            .stats {
+                width: 100%;
+                justify-content: space-between;
+                gap: 16px;
+                text-align: center
+            }
+
+            .stat-val {
+                font-size: 1.75rem
+            }
+
+            .stat-lbl {
+                font-size: .625rem
+            }
+
+            .controls {
+                flex-wrap: wrap;
+                gap: 10px;
+                padding: 10px 0;
+                margin-bottom: 16px
+            }
+
+            .spacer {
+                display: none
+            }
+
+            .btn {
+                padding: 10px 20px;
+                font-size: .8125rem
+            }
+
+            .btn-icon {
+                padding: 10px 14px
+            }
+
+            main,
+            .left,
+            .right {
+                gap: 16px
+            }
+
+            .right {
+                flex-direction: column
+            }
+
+            .timeline {
+                max-height: 400px
+            }
+
+            .relations,
+            .profile {
+                min-height: 280px;
+                max-height: 400px;
+                padding: 16px
+            }
+
+            .card {
+                padding: 16px
+            }
+
+            .keywords {
+                gap: 8px;
+                margin-top: 12px
+            }
+
+            .tag {
+                padding: 6px 14px;
+                font-size: .8125rem
+            }
+
+            .tl-item {
+                padding-left: 24px;
+                padding-bottom: 24px
+            }
+
+            .tl-title {
+                font-size: .9375rem
+            }
+
+            .tl-brief {
+                font-size: .8125rem;
+                line-height: 1.6
+            }
+
+            .modal-box {
+                max-width: 100%;
+                max-height: 100%;
+                height: 100%;
+                border: none
+            }
+
+            .modal-head,
+            .modal-body,
+            .modal-foot {
+                padding: 16px
+            }
+
+            .settings-row {
+                flex-direction: column;
+                gap: 12px
+            }
+
+            .settings-field {
+                min-width: 100%
+            }
+
+            .settings-field input,
+            .settings-field select {
+                padding: 12px 14px;
+                font-size: 1rem
+            }
+
+            .fullscreen .modal-box {
+                width: 100%;
+                height: 100%;
+                border-radius: 0
+            }
+        }
+
+        @media(max-width:480px) {
+            .container {
+                padding: 12px
+            }
+
+            header {
+                padding-bottom: 12px;
+                margin-bottom: 12px
+            }
+
+            h1 {
+                font-size: 1.25rem
+            }
+
+            .subtitle {
+                font-size: .6875rem
+            }
+
+            .stats {
+                gap: 8px
+            }
+
+            .stat {
+                flex: 1
+            }
+
+            .stat-val {
+                font-size: 1.5rem
+            }
+
+            .controls {
+                gap: 8px;
+                padding: 8px 0;
+                margin-bottom: 12px
+            }
+
+            .btn {
+                flex: 1;
+                padding: 10px 12px;
+                font-size: .75rem;
+                text-align: center;
+                justify-content: center
+            }
+
+            .btn-icon {
+                padding: 10px 12px
+            }
+
+            .btn-icon svg {
+                width: 14px;
+                height: 14px
+            }
+
+            main,
+            .left,
+            .right {
+                gap: 12px
+            }
+
+            .card {
+                padding: 12px
+            }
+
+            .sec-title {
+                font-size: .6875rem
+            }
+
+            .sec-btn {
+                font-size: .625rem;
+                padding: 3px 8px
+            }
+
+            .relations {
+                min-height: 240px
+            }
+
+            #relation-chart {
+                min-height: 180px
+            }
+
+            .keywords {
+                gap: 6px;
+                margin-top: 10px
+            }
+
+            .tag {
+                padding: 5px 10px;
+                font-size: .75rem
+            }
+
+            .tl-item {
+                padding-left: 20px;
+                padding-bottom: 20px;
+                margin-left: 6px
+            }
+
+            .tl-dot {
+                width: 7px;
+                height: 7px;
+                left: -4px
+            }
+
+            .tl-head {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 2px
+            }
+
+            .tl-title {
+                font-size: .875rem
+            }
+
+            .tl-time {
+                font-size: .6875rem
+            }
+
+            .tl-brief {
+                font-size: .8rem;
+                margin-bottom: 8px
+            }
+
+            .tl-meta {
+                flex-direction: column;
+                gap: 4px;
+                font-size: .6875rem
+            }
+
+            .modal-head h2 {
+                font-size: .875rem
+            }
+
+            .settings-section-title {
+                font-size: .625rem
+            }
+
+            .settings-field label {
+                font-size: .6875rem
+            }
+
+            .settings-field-inline label {
+                font-size: .75rem
+            }
+
+            .settings-hint {
+                font-size: .6875rem
+            }
+
+            .btn-sm {
+                padding: 10px 14px;
+                font-size: .75rem;
+                width: 100%
+            }
+
+            .editor-ta {
+                min-height: 200px;
+                font-size: .75rem
+            }
+        }
+
+        @media(hover:none)and (pointer:coarse) {
+            .btn {
+                min-height: 44px
+            }
+
+            .tag {
+                min-height: 36px;
+                display: flex;
+                align-items: center
+            }
+
+            .tag:hover {
+                transform: none
+            }
+
+            .tl-item:hover .tl-dot {
+                transform: none
+            }
+
+            .modal-close {
+                width: 44px;
+                height: 44px
+            }
+
+            .settings-field input,
+            .settings-field select {
+                min-height: 44px
+            }
+
+            .settings-field-inline input[type="checkbox"] {
+                width: 22px;
+                height: 22px
+            }
+
+            .sec-btn {
+                min-height: 32px;
+                padding: 6px 12px
+            }
+        }
+    </style>
 </head>
+
 <body>
-<div class="summary-container">
-    <header class="summary-header">
-        <div class="header-left">
-            <h1>剧情<span>总结</span></h1>
-            <div class="header-subtitle">Story Summary · Timeline · Character Arcs</div>
+    <div class="container">
+        <header>
+            <div>
+                <h1>剧情<span>总结</span></h1>
+                <div class="subtitle">Story Summary · Timeline · Character Arcs</div>
+            </div>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-val" id="stat-events">0</div>
+                    <div class="stat-lbl">已记录事件</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-val" id="stat-summarized">0</div>
+                    <div class="stat-lbl">已总结楼层</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-val"><span class="hl" id="stat-pending">0</span></div>
+                    <div class="stat-lbl">待总结</div>
+                    <div class="stat-warning hidden" id="pending-warning">再删1条将回滚</div>
+                </div>
+            </div>
+        </header>
+        <div class="controls">
+            <label class="chk-label">
+                <input type="checkbox" id="hide-summarized">
+                <span>聊天时隐藏已总结 · <strong id="summarized-count">0</strong> 楼（保留<input type="number"
+                        id="keep-visible-count" min="0" max="50" value="3">楼）</span>
+            </label>
+            <span class="spacer"></span>
+            <button class="btn btn-icon" id="btn-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2">
+                    <circle cx="12" cy="12" r="3" />
+                    <path
+                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>设置</button>
+            <button class="btn" id="btn-clear">清空</button>
+            <button class="btn btn-p" id="btn-generate">总结</button>
         </div>
-        <div class="header-stats">
-            <div class="stat-item">
-                <div class="stat-value" id="stat-events">0</div>
-                <div class="stat-label">已记录事件</div>
+        <main>
+            <div class="left">
+                <section class="card">
+                    <div class="sec-head">
+                        <div class="sec-title">核心关键词</div><button class="sec-btn" data-section="keywords">编辑</button>
+                    </div>
+                    <div class="keywords" id="keywords-cloud"></div>
+                </section>
+                <section class="card timeline">
+                    <div class="sec-head">
+                        <div class="sec-title">剧情时间线</div><button class="sec-btn" data-section="events">编辑</button>
+                    </div>
+                    <div class="tl-list scroll" id="timeline-list"></div>
+                </section>
             </div>
-            <div class="stat-item">
-                <div class="stat-value" id="stat-summarized">0</div>
-                <div class="stat-label">已总结楼层</div>
+            <div class="right">
+                <section class="card relations">
+                    <div class="sec-head">
+                        <div class="sec-title">人物关系</div>
+                        <div class="sec-actions">
+                            <button class="sec-btn sec-icon" id="btn-fullscreen-relations" title="全屏查看"><svg
+                                    viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path
+                                        d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                                </svg></button>
+                            <button class="sec-btn" data-section="characters">编辑</button>
+                        </div>
+                    </div>
+                    <div id="relation-chart"></div>
+                </section>
+                <section class="card profile">
+                    <div class="sec-head">
+                        <div class="sec-title">人物档案</div>
+                        <div class="sec-actions">
+                            <div class="custom-select" id="char-sel">
+                                <div class="sel-trigger" id="char-sel-trigger"><span id="sel-char-text">选择角色</span>
+                                </div>
+                                <div class="sel-opts" id="char-sel-opts">
+                                    <div class="sel-opt" data-value="">暂无角色</div>
+                                </div>
+                            </div>
+                            <button class="sec-btn" data-section="arcs">编辑</button>
+                        </div>
+                    </div>
+                    <div class="profile-content scroll" id="profile-content"></div>
+                </section>
             </div>
-            <div class="stat-item">
-                <div class="stat-value"><span class="highlight" id="stat-pending">0</span></div>
-                <div class="stat-label">待总结</div>
-                <div class="stat-warning hidden" id="pending-warning">再删1条将回滚</div>
-            </div>
-        </div>
-    </header>
-    <div class="controls-bar">
-        <label class="status-checkbox">
-            <input type="checkbox" id="hide-summarized">
-            <span>聊天时隐藏已总结 · <strong id="summarized-count">0</strong> 楼（保留
-                <input type="number" id="keep-visible-count" min="0" max="50" value="3">
-            楼）</span>
-        </label>    
-        <span class="spacer"></span>
-        <button class="btn btn-icon" id="btn-settings">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-            </svg>
-            设置
-        </button>
-        <button class="btn" id="btn-clear">清空</button>
-        <button class="btn btn-primary" id="btn-generate">总结</button>
+        </main>
     </div>
-    <main class="summary-main">
-        <div class="left-content">
-            <section class="keywords-section">
-                <div class="section-header">
-                    <div class="section-title">核心关键词</div>
-                    <button class="section-edit-btn" data-section="keywords">编辑</button>
-                </div>
-                <div class="keywords-cloud" id="keywords-cloud"></div>
-            </section>
-            <section class="timeline-section">
-                <div class="section-header">
-                    <div class="section-title">剧情时间线</div>
-                    <button class="section-edit-btn" data-section="events">编辑</button>
-                </div>
-                <div class="timeline-list" id="timeline-list"></div>
-            </section>
-        </div>
-        <div class="right-panel">
-            <section class="relations-section">
-                <div class="section-header">
-                    <div class="section-title">人物关系</div>
-                    <div class="section-header-actions">
-                        <button class="section-edit-btn section-icon-btn" id="btn-fullscreen-relations" title="全屏查看">
-                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
-                            </svg>
-                        </button>
-                        <button class="section-edit-btn" data-section="characters">编辑</button>
-                    </div>
-                </div>
-                <div id="relation-chart"></div>
-            </section>
-            <section class="arcs-section">
-                <div class="section-header">
-                    <div class="section-title">角色弧光</div>
-                    <button class="section-edit-btn" data-section="arcs">编辑</button>
-                </div>
-                <div class="arcs-list" id="arcs-list"></div>
-            </section>
-        </div>
-    </main>
-</div>
-<div class="modal-overlay" id="editor-modal">
-    <div class="modal-backdrop" id="editor-backdrop"></div>
-    <div class="modal-panel">
-        <div class="modal-header">
-            <h2 id="editor-title">编辑</h2>
-            <button class="modal-close" id="editor-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
-        </div>
-        <div class="modal-body">
-            <div class="editor-hint" id="editor-hint"></div>
-            <div id="editor-structured" class="hidden"></div>
-            <textarea class="editor-textarea" id="editor-textarea"></textarea>
-            <div class="editor-error" id="editor-error"></div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn" id="editor-cancel">取消</button>
-            <button class="btn btn-primary" id="editor-save">保存</button>
-        </div>
-    </div>
-</div>
-<div class="modal-overlay" id="settings-modal">
-    <div class="modal-backdrop" id="settings-backdrop"></div>
-    <div class="modal-panel">
-        <div class="modal-header">
-            <h2>设置</h2>
-            <button class="modal-close" id="settings-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
-        </div>
-        <div class="modal-body">
-            <div class="settings-section">
-                <div class="settings-section-title">API 配置</div>
-                <div class="settings-row">
-                    <div class="settings-field">
-                        <label>渠道</label>
-                        <select id="api-provider">
-                            <option value="st">酒馆主 API（沿用当前）</option>
-                            <option value="openai">OpenAI 兼容</option>
-                            <option value="google">Google (Gemini)</option>
-                            <option value="claude">Claude (Anthropic)</option>
-                            <option value="deepseek">DeepSeek</option>
-                            <option value="cohere">Cohere</option>
-                            <option value="custom">自定义</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="settings-row hidden" id="api-url-row">
-                    <div class="settings-field full">
-                        <label>API URL</label>
-                        <input type="text" id="api-url" placeholder="https://api.openai.com 或代理地址">
-                        <div class="settings-hint">不同渠道默认端点：OpenAI 用 /v1，Gemini 用 /v1beta，Claude 用 /v1</div>
-                    </div>
-                </div>
-                <div class="settings-row hidden" id="api-key-row">
-                    <div class="settings-field full">
-                        <label>API KEY</label>
-                        <input type="password" id="api-key" placeholder="仅保存在本地，不会上传">
-                    </div>
-                </div>
-                <div class="settings-row hidden" id="api-model-manual-row">
-                    <div class="settings-field full">
-                        <label>模型</label>
-                        <input type="text" id="api-model-text" placeholder="如 gemini-1.5-pro、claude-3-haiku">
-                    </div>
-                </div>
-                <div class="settings-row hidden" id="api-model-select-row">
-                    <div class="settings-field full">
-                        <label>可用模型</label>
-                        <select id="api-model-select">
-                            <option value="">请先拉取模型列表</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="settings-btn-row hidden" id="api-connect-row">
-                    <button class="btn btn-sm btn-connect" id="btn-connect">连接 / 拉取模型列表</button>
-                </div>
+
+    <div class="modal" id="editor-modal">
+        <div class="modal-bg" id="editor-backdrop"></div>
+        <div class="modal-box">
+            <div class="modal-head">
+                <h2 id="editor-title">编辑</h2><button class="modal-close" id="editor-close"><svg viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg></button>
             </div>
-            <div class="settings-section">
-                <div class="settings-section-title">生成参数</div>
-                <div class="settings-row">
-                    <div class="settings-field"><label>Temperature</label><input type="number" id="gen-temp" step="0.01" min="0" max="2" placeholder="未设置"></div>
-                    <div class="settings-field"><label>Top P</label><input type="number" id="gen-top-p" step="0.01" min="0" max="1" placeholder="未设置"></div>
-                    <div class="settings-field"><label>Top K</label><input type="number" id="gen-top-k" step="1" min="1" placeholder="未设置"></div>
-                </div>
-                <div class="settings-row">
-                    <div class="settings-field"><label>存在惩罚</label><input type="number" id="gen-presence" step="0.01" min="-2" max="2" placeholder="未设置"></div>
-                    <div class="settings-field"><label>频率惩罚</label><input type="number" id="gen-frequency" step="0.01" min="-2" max="2" placeholder="未设置"></div>
-                </div>
+            <div class="modal-body">
+                <div class="editor-hint" id="editor-hint"></div>
+                <div id="editor-struct" class="hidden"></div>
+                <textarea class="editor-ta" id="editor-ta"></textarea>
+                <div class="editor-err" id="editor-err"></div>
             </div>
-            <div class="settings-section">
-                <div class="settings-section-title">自动触发</div>
-                <div class="settings-row">
-                    <div class="settings-field"><label>总结间隔（楼）</label><input type="number" id="trigger-interval" min="5" step="5" value="20"></div>
-                    <div class="settings-field">
-                        <label>触发时机</label>
-                        <select id="trigger-timing">
-                            <option value="after_ai">AI 回复后</option>
-                            <option value="before_user">用户发送前</option>
-                            <option value="manual">仅手动</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="settings-row">
-                    <div class="settings-field-inline">
-                        <input type="checkbox" id="trigger-enabled">
-                        <label for="trigger-enabled">启用自动总结</label>
-                    </div>
-                    <div class="settings-field-inline">
-                        <input type="checkbox" id="trigger-stream" checked>
-                        <label for="trigger-stream">启用流式生成</label>
-                    </div>
-                </div>
-                <div class="settings-hint" style="margin-top: 8px; color: var(--text-muted);">
-                    若 API 不支持非流式请求，请勾选"启用流式生成"
-                </div>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn" id="settings-cancel">取消</button>
-            <button class="btn btn-primary" id="settings-save">保存</button>
+            <div class="modal-foot"><button class="btn" id="editor-cancel">取消</button><button class="btn btn-p"
+                    id="editor-save">保存</button></div>
         </div>
     </div>
-</div>
-<div class="modal-overlay" id="relations-fullscreen-modal">
-    <div class="modal-backdrop" id="relations-fullscreen-backdrop"></div>
-    <div class="modal-panel fullscreen-panel">
-        <div class="modal-header">
-            <h2>人物关系图</h2>
-            <button class="modal-close" id="relations-fullscreen-close">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-            </button>
-        </div>
-        <div class="modal-body fullscreen-body">
-            <div id="relation-chart-fullscreen"></div>
+
+    <div class="modal" id="settings-modal">
+        <div class="modal-bg" id="settings-backdrop"></div>
+        <div class="modal-box">
+            <div class="modal-head">
+                <h2>设置</h2><button class="modal-close" id="settings-close"><svg viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg></button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-section">
+                    <div class="settings-section-title">API 配置</div>
+                    <div class="settings-row">
+                        <div class="settings-field"><label>渠道</label><select id="api-provider">
+                                <option value="st">酒馆主 API（沿用当前）</option>
+                                <option value="openai">OpenAI 兼容</option>
+                                <option value="google">Google (Gemini)</option>
+                                <option value="claude">Claude (Anthropic)</option>
+                                <option value="deepseek">DeepSeek</option>
+                                <option value="cohere">Cohere</option>
+                                <option value="custom">自定义</option>
+                            </select></div>
+                    </div>
+                    <div class="settings-row hidden" id="api-url-row">
+                        <div class="settings-field full"><label>API URL</label><input type="text" id="api-url"
+                                placeholder="https://api.openai.com 或代理地址">
+                            <div class="settings-hint">不同渠道默认端点：OpenAI 用 /v1，Gemini 用 /v1beta，Claude 用 /v1</div>
+                        </div>
+                    </div>
+                    <div class="settings-row hidden" id="api-key-row">
+                        <div class="settings-field full"><label>API KEY</label><input type="password" id="api-key"
+                                placeholder="仅保存在本地，不会上传"></div>
+                    </div>
+                    <div class="settings-row hidden" id="api-model-manual-row">
+                        <div class="settings-field full"><label>模型</label><input type="text" id="api-model-text"
+                                placeholder="如 gemini-1.5-pro、claude-3-haiku"></div>
+                    </div>
+                    <div class="settings-row hidden" id="api-model-select-row">
+                        <div class="settings-field full"><label>可用模型</label><select id="api-model-select">
+                                <option value="">请先拉取模型列表</option>
+                            </select></div>
+                    </div>
+                    <div class="settings-btn-row hidden" id="api-connect-row"><button class="btn btn-sm btn-p"
+                            id="btn-connect">连接 / 拉取模型列表</button></div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-section-title">生成参数</div>
+                    <div class="settings-row">
+                        <div class="settings-field"><label>Temperature</label><input type="number" id="gen-temp"
+                                step="0.01" min="0" max="2" placeholder="未设置"></div>
+                        <div class="settings-field"><label>Top P</label><input type="number" id="gen-top-p" step="0.01"
+                                min="0" max="1" placeholder="未设置"></div>
+                        <div class="settings-field"><label>Top K</label><input type="number" id="gen-top-k" step="1"
+                                min="1" placeholder="未设置"></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-field"><label>存在惩罚</label><input type="number" id="gen-presence"
+                                step="0.01" min="-2" max="2" placeholder="未设置"></div>
+                        <div class="settings-field"><label>频率惩罚</label><input type="number" id="gen-frequency"
+                                step="0.01" min="-2" max="2" placeholder="未设置"></div>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-section-title">自动触发</div>
+                    <div class="settings-row">
+                        <div class="settings-field"><label>总结间隔（楼）</label><input type="number" id="trigger-interval"
+                                min="5" step="5" value="20"></div>
+                        <div class="settings-field"><label>触发时机</label><select id="trigger-timing">
+                                <option value="after_ai">AI 回复后</option>
+                                <option value="before_user">用户发送前</option>
+                                <option value="manual">仅手动</option>
+                            </select></div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-field-inline"><input type="checkbox" id="trigger-enabled"><label
+                                for="trigger-enabled">启用自动总结</label></div>
+                        <div class="settings-field-inline"><input type="checkbox" id="trigger-stream" checked><label
+                                for="trigger-stream">启用流式生成</label></div>
+                    </div>
+                    <div class="settings-hint" style="margin-top:8px">若 API 不支持非流式请求，请勾选"启用流式生成"</div>
+                </div>
+            </div>
+            <div class="modal-foot"><button class="btn" id="settings-cancel">取消</button><button class="btn btn-p"
+                    id="settings-save">保存</button></div>
         </div>
     </div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-<script>
-const config = {
-    api: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
-    gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
-    trigger: { enabled: false, interval: 20, timing: 'after_ai', useStream: true }
-};
-let summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] };
-let localGenerating = false;
-let relationChart = null;
-let relationChartFullscreen = null;
-let currentEditSection = null;
-const providerDefaults = {
-    st:       { url: '', needKey: false, canFetch: false, needManualModel: false },
-    openai:   { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
-    google:   { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false, needManualModel: true },
-    claude:   { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true },
-    deepseek: { url: 'https://api.deepseek.com', needKey: true, canFetch: true, needManualModel: false },
-    cohere:   { url: 'https://api.cohere.ai', needKey: true, canFetch: false, needManualModel: true },
-    custom:   { url: '', needKey: true, canFetch: true, needManualModel: false }
-};
-const sectionMeta = {
-    keywords: { title: '编辑关键词', hint: '每行一个关键词，格式：关键词|权重（核心/重要/一般）' },
-    events: { title: '编辑事件时间线', hint: '编辑时，每个事件要素都应完整' },
-    characters: { title: '编辑人物关系', hint: '编辑时，每个要素都应完整' },
-    arcs: { title: '编辑角色弧光', hint: '编辑时，每个要素都应完整' }
-};
-function getCharName(c) { return typeof c === 'string' ? c : c.name; }
-function preserveAddedAt(newItem, oldItem) { if (oldItem?._addedAt != null) newItem._addedAt = oldItem._addedAt; return newItem; }
-function loadConfig() {
-    try {
-        const saved = localStorage.getItem('summary_panel_config');
-        if (saved) { 
-            const p = JSON.parse(saved); 
-            Object.assign(config.api, p.api || {}); 
-            Object.assign(config.gen, p.gen || {}); 
-            Object.assign(config.trigger, p.trigger || {}); 
-            if (config.trigger.timing === 'manual' && config.trigger.enabled) {
-                config.trigger.enabled = false;
-                saveConfig();
-            }
+
+    <div class="modal fullscreen" id="rel-fs-modal">
+        <div class="modal-bg" id="rel-fs-backdrop"></div>
+        <div class="modal-box">
+            <div class="modal-head">
+                <h2>人物关系图</h2><button class="modal-close" id="rel-fs-close"><svg viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg></button>
+            </div>
+            <div class="modal-body">
+                <div id="relation-chart-fullscreen"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script>
+        const $ = id => document.getElementById(id), $$ = sel => document.querySelectorAll(sel);
+        const config = { api: { provider: 'st', url: '', key: '', model: '', modelCache: [] }, gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null }, trigger: { enabled: false, interval: 20, timing: 'after_ai', useStream: true } };
+        let summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] }, localGenerating = false, relationChart = null, relationChartFullscreen = null, currentEditSection = null, currentCharacterId = null, allNodes = [], allLinks = [], activeRelationTooltip = null;
+
+        const providerDefaults = { st: { url: '', needKey: false, canFetch: false, needManualModel: false }, openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false }, google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false, needManualModel: true }, claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true }, deepseek: { url: 'https://api.deepseek.com', needKey: true, canFetch: true, needManualModel: false }, cohere: { url: 'https://api.cohere.ai', needKey: true, canFetch: false, needManualModel: true }, custom: { url: '', needKey: true, canFetch: true, needManualModel: false } };
+        const sectionMeta = { keywords: { title: '编辑关键词', hint: '每行一个关键词，格式：关键词|权重（核心/重要/一般）' }, events: { title: '编辑事件时间线', hint: '编辑时，每个事件要素都应完整' }, characters: { title: '编辑人物关系', hint: '编辑时，每个要素都应完整' }, arcs: { title: '编辑角色弧光', hint: '编辑时，每个要素都应完整' } };
+        const trendColors = { '亲近': '#d87a7a', '疏远': '#f1c3c3', '不变': '#6a9ab0', '破裂': '#444444', '新建': '#888888' };
+        const trendClass = { '亲近': 'trend-close', '疏远': 'trend-distant', '不变': 'trend-stable', '新建': 'trend-new', '破裂': 'trend-broken' };
+
+        const getCharName = c => typeof c === 'string' ? c : c.name;
+        const preserveAddedAt = (n, o) => { if (o?._addedAt != null) n._addedAt = o._addedAt; return n };
+        const postMsg = (type, data = {}) => window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type, ...data }, '*');
+
+        function loadConfig() { try { const s = localStorage.getItem('summary_panel_config'); if (s) { const p = JSON.parse(s); Object.assign(config.api, p.api || {}); Object.assign(config.gen, p.gen || {}); Object.assign(config.trigger, p.trigger || {}); if (config.trigger.timing === 'manual' && config.trigger.enabled) { config.trigger.enabled = false; saveConfig() } } } catch { } }
+        function saveConfig() { try { localStorage.setItem('summary_panel_config', JSON.stringify(config)) } catch { } }
+
+        function renderKeywords(kw) { summaryData.keywords = kw || []; const wc = { '核心': 'p', '重要': 's', high: 'p', medium: 's' }; $('keywords-cloud').innerHTML = kw.length ? kw.map(k => `<span class="tag ${wc[k.weight] || wc[k.level] || ''}">${k.text}</span>`).join('') : '<div class="empty">暂无关键词</div>' }
+        function renderTimeline(ev) { summaryData.events = ev || []; const c = $('timeline-list'); if (!ev?.length) { c.innerHTML = '<div class="empty">暂无事件记录</div>'; return } c.innerHTML = ev.map(e => `<div class="tl-item${e.weight === '核心' || e.weight === '主线' ? ' crit' : ''}"><div class="tl-dot"></div><div class="tl-head"><div class="tl-title">${e.title || ''}</div><div class="tl-time">${e.timeLabel || ''}</div></div><div class="tl-brief">${e.summary || e.brief || ''}</div><div class="tl-meta"><span>人物：${(e.participants || e.characters || []).join('、') || '—'}</span><span class="imp">${e.type || ''}${e.type && e.weight ? ' · ' : ''}${e.weight || ''}</span></div></div>`).join('') }
+
+        function hideRelationTooltip() { if (activeRelationTooltip) { activeRelationTooltip.remove(); activeRelationTooltip = null } }
+        function showRelationTooltip(from, to, fromLabel, toLabel, fromTrend, toTrend, x, y, container) {
+            hideRelationTooltip(); const tip = document.createElement('div'); const mobile = innerWidth <= 768;
+            const fc = trendColors[fromTrend] || '#888', tc = trendColors[toTrend] || '#888';
+            tip.innerHTML = `<div style="line-height:1.8">${fromLabel ? `<div><small>${from}→${to}：</small> <span style="color:${fc}">${fromLabel}</span> <span style="font-size:10px;color:${fc}">[${fromTrend}]</span></div>` : ''}${toLabel ? `<div><small>${to}→${from}：</small> <span style="color:${tc}">${toLabel}</span> <span style="font-size:10px;color:${tc}">[${toTrend}]</span></div>` : ''}</div>`;
+            tip.style.cssText = mobile ? `position:absolute;left:8px;bottom:8px;background:#fff;color:#333;padding:10px 14px;border:1px solid #ddd;border-radius:6px;font-size:12px;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,.15);max-width:calc(100% - 16px)` : `position:absolute;left:${Math.max(80, Math.min(x, container.clientWidth - 80))}px;top:${Math.max(60, y)}px;transform:translate(-50%,-100%);background:#fff;color:#333;padding:10px 16px;border:1px solid #ddd;border-radius:6px;font-size:12px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,.15);max-width:280px`;
+            container.style.position = 'relative'; container.appendChild(tip); activeRelationTooltip = tip;
         }
-    } catch {}
-}
-function saveConfig() { try { localStorage.setItem('summary_panel_config', JSON.stringify(config)); } catch {} }
-function renderKeywords(keywords) {
-    summaryData.keywords = keywords || [];
-    const wc = { '核心': 'primary', '重要': 'secondary', high: 'primary', medium: 'secondary' };
-    document.getElementById('keywords-cloud').innerHTML = keywords.map(k => `<span class="keyword-tag ${wc[k.weight] || wc[k.level] || ''}">${k.text}</span>`).join('') || '<div class="empty-state">暂无关键词</div>';
-}
-function renderTimeline(events) {
-    summaryData.events = events || [];
-    const c = document.getElementById('timeline-list');
-    if (!events?.length) { c.innerHTML = '<div class="empty-state">暂无事件记录</div>'; return; }
-    c.innerHTML = events.map(ev => {
-        const tl = ev.timeLabel || '';
-        const p = ev.participants || ev.characters || [];
-        const isCritical = ev.weight === '核心' || ev.weight === '主线';
-        const typeLabel = ev.type || '';
-        const weightLabel = ev.weight || '';
-        return `<div class="timeline-item ${isCritical ? 'critical' : ''}"><div class="timeline-dot"></div><div class="timeline-header"><div class="timeline-title">${ev.title || ''}</div><div class="timeline-time">${tl}</div></div><div class="timeline-brief">${ev.summary || ev.brief || ''}</div><div class="timeline-meta"><span>人物：${p.join('、') || '—'}</span><span class="importance">${typeLabel}${typeLabel && weightLabel ? ' · ' : ''}${weightLabel}</span></div></div>`;
-    }).join('');
-}
 
-let allNodes = [];
-let allLinks = [];
-
-function openRelationsFullscreen() {
-    const modal = document.getElementById('relations-fullscreen-modal');
-    modal.classList.add('active');
-  
-    const dom = document.getElementById('relation-chart-fullscreen');
-    if (!relationChartFullscreen) {
-        relationChartFullscreen = echarts.init(dom);
-    }
-  
-    if (allNodes.length === 0) {
-        relationChartFullscreen.clear();
-        return;
-    }
-  
-    relationChartFullscreen.setOption({
-        tooltip: { show: false },
-        series: [{
-            type: 'graph',
-            layout: 'force',
-            roam: true,
-            draggable: true,
-            data: allNodes.map(n => ({
-                ...n,
-                symbolSize: n.symbolSize * 1.5,
-                label: { ...n.label, fontSize: 14 }
-            })),
-            links: allLinks.map(l => ({
-                ...l,
-                label: { ...l.label, fontSize: 12 }
-            })),
-            force: {
-                repulsion: 600,
-                edgeLength: [80, 200],
-                gravity: 0.08,
-                friction: 0.6
-            },
-            label: { show: true },
-            emphasis: { focus: 'adjacency' }
-        }]
-    });
-  
-    setTimeout(() => relationChartFullscreen.resize(), 100);
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'FULLSCREEN_OPENED' }, '*');
-}
-
-function closeRelationsFullscreen() {
-    document.getElementById('relations-fullscreen-modal').classList.remove('active');
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'FULLSCREEN_CLOSED' }, '*');
-}
-
-function renderRelations(data) {
-    summaryData.characters = data || { main: [], relationships: [] };
-    const dom = document.getElementById('relation-chart');
-    if (!relationChart) {
-        relationChart = echarts.init(dom);
-    }
-    const mainChars = (data?.main || []).map(getCharName);
-    const rels = data?.relationships || [];
-    const allNames = new Set(mainChars);
-    rels.forEach(r => { if (r.from) allNames.add(r.from); if (r.to) allNames.add(r.to); });
-    
-    const degrees = {};
-    rels.forEach(r => {
-        degrees[r.from] = (degrees[r.from] || 0) + 1;
-        degrees[r.to] = (degrees[r.to] || 0) + 1;
-    });
-    allNodes = Array.from(allNames).map(name => {
-        const degree = degrees[name] || 0;
-        const isMain = mainChars.includes(name);
-        return {
-            id: name,
-            name: name,
-            symbol: 'circle',
-            symbolSize: Math.min(45, Math.max(20, degree * 3 + 15)),
-            itemStyle: {
-                color: isMain ? '#ff4444' : (degree > 2 ? '#333' : '#999'),
-                borderColor: '#fff',
-                borderWidth: 1
-            },
-            label: {
-                show: true,
-                position: 'right',
-                color: '#333',
-                fontSize: 12,
-                fontWeight: isMain ? 'bold' : 'normal'
-            },
-            degree: degree
-        };
-    });
-    allLinks = rels.map(r => ({
-        source: r.from,
-        target: r.to,
-        value: r.label || r.type,
-        lineStyle: {
-            width: 1.5,
-            color: '#bbb',
-            curveness: 0.1
-        },
-        label: {
-            show: true,
-            formatter: r.label,
-            fontSize: 10,
-            color: '#000000',
-            opacity: 1,
-            fontFamily: 'sans-serif',
-            backgroundColor: '#ffffff',
-            padding: [2, 4],
-            borderRadius: 3,
-            borderColor: '#ccc',
-            borderWidth: 0.5
-        }
-    }));
-    if (!allNodes.length) { relationChart.clear(); return; }
-    const updateChart = (nodes, links) => {
-        relationChart.setOption({
-            tooltip: { show: false }, 
-            
-            series: [{
-                type: 'graph',
-                layout: 'force',
-                roam: true,
-                draggable: true,
-                data: nodes,
-                links: links,
-                force: {
-                    repulsion: 400,
-                    edgeLength: [60, 150],
-                    gravity: 0.1,
-                    friction: 0.6
-                },
-                label: { show: true },
-                emphasis: { focus: 'adjacency' }
-            }]
-        });
-    };
-    updateChart(allNodes, allLinks);
-    relationChart.off('click');
-    relationChart.on('click', params => {
-        if (params.dataType === 'node') {
-            const centerId = params.data.id;
-            highlightArc(centerId);
-
-            const relatedLinks = allLinks.filter(l => l.source === centerId || l.target === centerId);
-            const relatedNodeIds = new Set([centerId]);
-            relatedLinks.forEach(l => {
-                relatedNodeIds.add(l.source);
-                relatedNodeIds.add(l.target);
-            });
-            const relatedNodes = allNodes.filter(n => relatedNodeIds.has(n.id));
-
-            updateChart(relatedNodes, relatedLinks);
-        }
-    });
-
-    relationChart.getZr().on('click', params => {
-        if (!params.target) {
+        function renderRelations(data) {
+            summaryData.characters = data || { main: [], relationships: [] }; const dom = $('relation-chart'); if (!relationChart) relationChart = echarts.init(dom);
+            const rels = data?.relationships || [], allNames = new Set((data?.main || []).map(getCharName));
+            rels.forEach(r => { if (r.from) allNames.add(r.from); if (r.to) allNames.add(r.to) });
+            const degrees = {}; rels.forEach(r => { degrees[r.from] = (degrees[r.from] || 0) + 1; degrees[r.to] = (degrees[r.to] || 0) + 1 });
+            const nodeColors = { main: '#d87a7a', sec: '#f1c3c3', ter: '#888888', qua: '#b8b8b8' };
+            const sortedDegs = Object.values(degrees).sort((a, b) => b - a);
+            const getPercentile = deg => { if (!sortedDegs.length || deg === 0) return 100; const rank = sortedDegs.filter(d => d > deg).length; return (rank / sortedDegs.length) * 100 };
+            allNodes = Array.from(allNames).map(name => { const deg = degrees[name] || 0, pct = getPercentile(deg); let col, fontWeight; if (pct < 30) { col = nodeColors.main; fontWeight = '600' } else if (pct < 60) { col = nodeColors.sec; fontWeight = '500' } else if (pct < 90) { col = nodeColors.ter; fontWeight = '400' } else { col = nodeColors.qua; fontWeight = '400' } return { id: name, name, symbol: 'circle', symbolSize: Math.min(36, Math.max(16, deg * 3 + 12)), draggable: true, itemStyle: { color: col, borderColor: '#fff', borderWidth: 2, shadowColor: 'rgba(0,0,0,.1)', shadowBlur: 6, shadowOffsetY: 2 }, label: { show: true, position: 'right', distance: 5, color: '#333', fontSize: 11, fontWeight }, degree: deg } });
+            const relMap = new Map(); rels.forEach(r => { const k = [r.from, r.to].sort().join('|||'); if (!relMap.has(k)) relMap.set(k, { from: r.from, to: r.to, fromLabel: '', toLabel: '', fromTrend: '', toTrend: '' }); const e = relMap.get(k); if (r.from === e.from) { e.fromLabel = r.label || r.type || ''; e.fromTrend = r.trend || '' } else { e.toLabel = r.label || r.type || ''; e.toTrend = r.trend || '' } });
+            allLinks = Array.from(relMap.values()).map(r => { const fc = trendColors[r.fromTrend] || '#b8b8b8', tc = trendColors[r.toTrend] || '#b8b8b8'; return { source: r.from, target: r.to, fromName: r.from, toName: r.to, fromLabel: r.fromLabel, toLabel: r.toLabel, fromTrend: r.fromTrend, toTrend: r.toTrend, lineStyle: { width: 1, color: '#d8d8d8', curveness: 0, opacity: 1 }, label: { show: true, position: 'middle', distance: 0, formatter: '{a|◀}{b|▶}', rich: { a: { color: fc, fontSize: 10 }, b: { color: tc, fontSize: 10 } }, align: 'center', verticalAlign: 'middle', offset: [0, -0.1] }, emphasis: { lineStyle: { width: 1.5, color: '#aaa' }, label: { fontSize: 11 } } } });
+            if (!allNodes.length) { relationChart.clear(); return }
+            const updateChart = (nodes, links, focusId = null) => { const fadeOpacity = 0.2; const processedNodes = focusId ? nodes.map(n => { const rl = links.filter(l => l.source === focusId || l.target === focusId); const rn = new Set([focusId]); rl.forEach(l => { rn.add(l.source); rn.add(l.target) }); const isRelated = rn.has(n.id); return { ...n, itemStyle: { ...n.itemStyle, opacity: isRelated ? 1 : fadeOpacity }, label: { ...n.label, opacity: isRelated ? 1 : fadeOpacity } } }) : nodes; const processedLinks = focusId ? links.map(l => { const isRelated = l.source === focusId || l.target === focusId; return { ...l, lineStyle: { ...l.lineStyle, opacity: isRelated ? 1 : fadeOpacity }, label: { ...l.label, opacity: isRelated ? 1 : fadeOpacity } } }) : links; relationChart.setOption({ backgroundColor: 'transparent', tooltip: { show: false }, hoverLayerThreshold: Infinity, series: [{ type: 'graph', layout: 'force', roam: true, draggable: true, animation: true, animationDuration: 800, animationDurationUpdate: 300, animationEasingUpdate: 'cubicInOut', progressive: 0, hoverAnimation: false, data: processedNodes, links: processedLinks, force: { initLayout: 'circular', repulsion: 350, edgeLength: [80, 160], gravity: .12, friction: .6, layoutAnimation: true }, label: { show: true }, edgeLabel: { show: true, position: 'middle' }, emphasis: { disabled: true } }] }) };
             updateChart(allNodes, allLinks);
+            setTimeout(() => relationChart.resize(), 0);
+            relationChart.off('click'); relationChart.on('click', p => { if (p.dataType === 'node') { hideRelationTooltip(); const id = p.data.id; selectCharacter(id); updateChart(allNodes, allLinks, id) } else if (p.dataType === 'edge') { const d = p.data, e = p.event?.event; if (e) { const rect = dom.getBoundingClientRect(); showRelationTooltip(d.fromName, d.toName, d.fromLabel, d.toLabel, d.fromTrend, d.toTrend, e.offsetX || (e.clientX - rect.left), e.offsetY || (e.clientY - rect.top), dom) } } });
+            relationChart.getZr().on('click', p => { if (!p.target) { hideRelationTooltip(); updateChart(allNodes, allLinks) } });
         }
-    });
-}
 
-function highlightArc(charId) {
-    const c = document.getElementById('arcs-list');
-    c.querySelectorAll('.arc-card').forEach(card => {
-        card.classList.toggle('arc-card-active', card.dataset.characterId === charId);
-        if (card.dataset.characterId === charId) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    });
-}
-function renderArcs(arcs) {
-    summaryData.arcs = arcs || [];
-    const c = document.getElementById('arcs-list');
-    if (!arcs?.length) { c.innerHTML = '<div class="empty-state">暂无角色数据</div>'; return; }
-    const truncate = (str, len) => str && str.length > len ? str.slice(0, len) + '…' : (str || '');
-    c.innerHTML = arcs.map(arc => {
-        const beats = (arc.moments || arc.beats || []).map(m => typeof m === 'string' ? m : m.text);
-        const fullPhase = arc.trajectory || arc.phase || '';
-        return `<div class="arc-card" data-character-id="${arc.id || arc.name}">
-            <div class="arc-header">
-                <span class="arc-name">${arc.name || '角色'}</span>
-                <span class="arc-phase" data-full="${fullPhase.replace(/"/g, '&quot;')}">${truncate(fullPhase, 20)}</span>
-            </div>
-            <div class="arc-progress"><div class="arc-progress-inner" style="width:${(arc.progress || 0) * 100}%"></div></div>
-            <div class="arc-info"><span>弧光进度</span><span>${Math.round((arc.progress || 0) * 100)}%</span></div>
-            <div class="arc-beats">${beats.map(b => `<div class="arc-beat">${b}</div>`).join('')}</div>
-        </div>`;
-    }).join('');
-    c.querySelectorAll('.arc-phase').forEach(el => {
-        el.style.cursor = 'pointer';
-        el.addEventListener('click', e => {
-            e.stopPropagation();
-            const full = el.dataset.full;
-            if (full && full.length > 20) {
-                document.querySelectorAll('.phase-toast').forEach(t => t.remove());
-                const toast = document.createElement('div');
-                toast.className = 'phase-toast';
-                toast.textContent = full;
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 3000);
-                toast.addEventListener('click', () => toast.remove());
-            }
-        });
-    });
-    c.querySelectorAll('.arc-card').forEach(card => {
-        card.addEventListener('click', () => {
-            c.querySelectorAll('.arc-card').forEach(x => x.classList.remove('arc-card-active'));
-            card.classList.add('arc-card-active');
-            if (relationChart) {
-                const opt = relationChart.getOption();
-                const idx = opt?.series?.[0]?.data?.findIndex(n => n.id === card.dataset.characterId || n.name === card.dataset.characterId);
-                if (idx >= 0) relationChart.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex: idx });
-            }
-        });
-    });
-}
-function updateStats(s) {
-    if (!s) return;
-    document.getElementById('stat-summarized').textContent = s.summarizedUpTo ?? 0;
-    document.getElementById('stat-events').textContent = s.eventsCount ?? 0;
-
-    const pending = s.pendingFloors ?? 0;
-    document.getElementById('stat-pending').textContent = pending;
-    document.getElementById('pending-warning').classList.toggle('hidden', pending !== -1);
-}
-const editorModal = document.getElementById('editor-modal');
-const editorTextarea = document.getElementById('editor-textarea');
-const editorError = document.getElementById('editor-error');
-const editorStructured = document.getElementById('editor-structured');
-function createDeleteBtn() { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-sm btn-delete'; b.textContent = '删除'; return b; }
-function renderEventsEditor(events) {
-    const list = events?.length ? events : [{ id: 'evt-1', title: '', timeLabel: '', summary: '', participants: [], type: '日常', weight: '点睛' }];
-    const evtMap = new Map((summaryData.events || []).map(e => [e.id, e]));
-    let maxId = 0;
-    list.forEach(e => { const m = e.id?.match(/evt-(\d+)/); if (m) maxId = Math.max(maxId, parseInt(m[1])); });
-    editorStructured.innerHTML = list.map((ev, idx) => {
-        const id = ev.id || `evt-${maxId + idx + 1}`;
-        return `<div class="struct-item event-item" data-id="${id}"><div class="struct-row"><input type="text" class="event-title" placeholder="事件标题" value="${ev.title || ''}"><input type="text" class="event-time" placeholder="时间标签" value="${ev.timeLabel || ''}"></div><div class="struct-row"><textarea class="event-summary" rows="2" placeholder="一句话描述">${ev.summary || ''}</textarea></div><div class="struct-row"><input type="text" class="event-participants" placeholder="人物（顿号分隔）" value="${(ev.participants || []).join('、')}"></div><div class="struct-row"><select class="event-type">${['相遇','冲突','揭示','抉择','羁绊','转变','收束','日常'].map(t => `<option value="${t}" ${ev.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select><select class="event-weight">${['核心','主线','转折','点睛','氛围'].map(t => `<option value="${t}" ${ev.weight === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div><div class="struct-actions"><span>ID：${id}</span></div></div>`;
-    }).join('') + '<div style="margin-top:8px;"><button type="button" class="btn btn-sm" id="event-add">＋ 新增事件</button></div>';
-    editorStructured.querySelectorAll('.event-item').forEach(item => {
-        const del = createDeleteBtn();
-        item.querySelector('.struct-actions').appendChild(del);
-        del.addEventListener('click', () => item.remove());
-    });
-    document.getElementById('event-add')?.addEventListener('click', () => {
-        const items = editorStructured.querySelectorAll('.event-item');
-        let newMax = maxId;
-        items.forEach(it => { const m = it.dataset.id?.match(/evt-(\d+)/); if (m) newMax = Math.max(newMax, parseInt(m[1])); });
-        const newId = `evt-${newMax + 1}`;
-        const div = document.createElement('div');
-        div.className = 'struct-item event-item';
-        div.dataset.id = newId;
-        div.innerHTML = `<div class="struct-row"><input type="text" class="event-title" placeholder="事件标题"><input type="text" class="event-time" placeholder="时间标签"></div><div class="struct-row"><textarea class="event-summary" rows="2" placeholder="一句话描述"></textarea></div><div class="struct-row"><input type="text" class="event-participants" placeholder="人物（顿号分隔）"></div><div class="struct-row"><select class="event-type">${['相遇','冲突','揭示','抉择','羁绊','转变','收束','日常'].map(t => `<option value="${t}">${t}</option>`).join('')}</select><select class="event-weight">${['核心','主线','转折','点睛','氛围'].map(t => `<option value="${t}">${t}</option>`).join('')}</select></div><div class="struct-actions"><span>ID：${newId}</span></div>`;
-        const del = createDeleteBtn();
-        div.querySelector('.struct-actions').appendChild(del);
-        del.addEventListener('click', () => div.remove());
-        editorStructured.insertBefore(div, document.getElementById('event-add').parentElement);
-    });
-}
-function renderCharactersEditor(data) {
-    const d = data || { main: [], relationships: [] };
-    const main = (d.main || []).map(getCharName);
-    const rels = d.relationships || [];
-    editorStructured.innerHTML = `<div class="struct-item"><div class="struct-row"><strong>主要角色</strong></div><div id="char-main-list">${(main.length ? main : ['']).map(name => `<div class="struct-row char-main-item"><input type="text" class="char-main-name" placeholder="角色名" value="${name || ''}"></div>`).join('')}</div><div style="margin-top:8px;"><button type="button" class="btn btn-sm" id="char-main-add">＋ 新增主要角色</button></div></div><div class="struct-item"><div class="struct-row"><strong>人物关系</strong></div><div id="char-rel-list">${(rels.length ? rels : [{ from: '', to: '', label: '', trend: '不变' }]).map((r, i) => `<div class="struct-row char-rel-item" data-idx="${i}"><input type="text" class="char-rel-from" placeholder="角色 A" value="${r.from || ''}"><input type="text" class="char-rel-to" placeholder="角色 B" value="${r.to || ''}"><input type="text" class="char-rel-label" placeholder="关系" value="${r.label || ''}"><select class="char-rel-trend">${['亲近','疏远','不变','新建','破裂'].map(t => `<option value="${t}" ${r.trend === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`).join('')}</div><div style="margin-top:8px;"><button type="button" class="btn btn-sm" id="char-rel-add">＋ 新增关系</button></div></div>`;
-    editorStructured.querySelectorAll('.char-main-item').forEach(item => {
-        const del = createDeleteBtn();
-        item.appendChild(del);
-        del.addEventListener('click', () => item.remove());
-    });
-    document.getElementById('char-main-add')?.addEventListener('click', () => {
-        const list = document.getElementById('char-main-list');
-        const div = document.createElement('div');
-        div.className = 'struct-row char-main-item';
-        div.innerHTML = '<input type="text" class="char-main-name" placeholder="角色名">';
-        const del = createDeleteBtn();
-        div.appendChild(del);
-        del.addEventListener('click', () => div.remove());
-        list.appendChild(div);
-    });
-    editorStructured.querySelectorAll('.char-rel-item').forEach(item => {
-        const del = createDeleteBtn();
-        item.appendChild(del);
-        del.addEventListener('click', () => item.remove());
-    });
-    document.getElementById('char-rel-add')?.addEventListener('click', () => {
-        const list = document.getElementById('char-rel-list');
-        const div = document.createElement('div');
-        div.className = 'struct-row char-rel-item';
-        div.innerHTML = `<input type="text" class="char-rel-from" placeholder="角色 A"><input type="text" class="char-rel-to" placeholder="角色 B"><input type="text" class="char-rel-label" placeholder="关系"><select class="char-rel-trend">${['亲近','疏远','不变','新建','破裂'].map(t => `<option value="${t}">${t}</option>`).join('')}</select>`;
-        const del = createDeleteBtn();
-        div.appendChild(del);
-        del.addEventListener('click', () => div.remove());
-        list.appendChild(div);
-    });
-}
-function renderArcsEditor(arcs) {
-    const list = arcs?.length ? arcs : [{ name: '', trajectory: '', progress: 0, moments: [] }];
-    editorStructured.innerHTML = `<div id="arc-list">${list.map((arc, idx) => {
-        const momentsText = (arc.moments || []).map(m => typeof m === 'string' ? m : m.text).join('\n');
-        return `<div class="struct-item arc-item" data-index="${idx}"><div class="struct-row"><input type="text" class="arc-name" placeholder="角色名" value="${arc.name || ''}"></div><div class="struct-row"><textarea class="arc-trajectory" rows="2" placeholder="当前状态描述">${arc.trajectory || ''}</textarea></div><div class="struct-row"><label style="font-size:0.75rem;color:var(--text-muted);">进度：<input type="number" class="arc-progress" min="0" max="100" value="${Math.round((arc.progress || 0) * 100)}" style="width:64px;display:inline-block;"> %</label></div><div class="struct-row"><textarea class="arc-moments" rows="3" placeholder="关键时刻，一行一个">${momentsText}</textarea></div><div class="struct-actions"><span>角色弧光 ${idx + 1}</span></div></div>`;
-    }).join('')}</div><div style="margin-top:8px;"><button type="button" class="btn btn-sm" id="arc-add">＋ 新增角色弧光</button></div>`;
-    editorStructured.querySelectorAll('.arc-item').forEach(item => {
-        const del = createDeleteBtn();
-        item.querySelector('.struct-actions').appendChild(del);
-        del.addEventListener('click', () => item.remove());
-    });
-    document.getElementById('arc-add')?.addEventListener('click', () => {
-        const listEl = document.getElementById('arc-list');
-        const idx = listEl.querySelectorAll('.arc-item').length;
-        const div = document.createElement('div');
-        div.className = 'struct-item arc-item';
-        div.dataset.index = idx;
-        div.innerHTML = `<div class="struct-row"><input type="text" class="arc-name" placeholder="角色名"></div><div class="struct-row"><textarea class="arc-trajectory" rows="2" placeholder="当前状态描述"></textarea></div><div class="struct-row"><label style="font-size:0.75rem;color:var(--text-muted);">进度：<input type="number" class="arc-progress" min="0" max="100" value="0" style="width:64px;display:inline-block;"> %</label></div><div class="struct-row"><textarea class="arc-moments" rows="3" placeholder="关键时刻，一行一个"></textarea></div><div class="struct-actions"><span>角色弧光 ${idx + 1}</span></div>`;
-        const del = createDeleteBtn();
-        div.querySelector('.struct-actions').appendChild(del);
-        del.addEventListener('click', () => div.remove());
-        listEl.appendChild(div);
-    });
-}
-function openEditor(section) {
-    currentEditSection = section;
-    const meta = sectionMeta[section];
-    document.getElementById('editor-title').textContent = meta.title;
-    document.getElementById('editor-hint').textContent = meta.hint;
-    editorError.classList.remove('visible');
-    editorError.textContent = '';
-    editorStructured.classList.add('hidden');
-    editorTextarea.classList.remove('hidden');
-    if (section === 'keywords') {
-        editorTextarea.value = summaryData.keywords.map(k => `${k.text}|${k.weight || '一般'}`).join('\n');
-    } else if (section === 'events') {
-        editorTextarea.classList.add('hidden');
-        editorStructured.classList.remove('hidden');
-        renderEventsEditor(summaryData.events || []);
-    } else if (section === 'characters') {
-        editorTextarea.classList.add('hidden');
-        editorStructured.classList.remove('hidden');
-        renderCharactersEditor(summaryData.characters || { main: [], relationships: [] });
-    } else if (section === 'arcs') {
-        editorTextarea.classList.add('hidden');
-        editorStructured.classList.remove('hidden');
-        renderArcsEditor(summaryData.arcs || []);
-    }
-    editorModal.classList.add('active');
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'EDITOR_OPENED' }, '*');
-}
-function closeEditor() { editorModal.classList.remove('active'); currentEditSection = null; window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'EDITOR_CLOSED' }, '*'); }
-function saveEditor() {
-    const section = currentEditSection;
-    let parsed;
-    try {
-        if (section === 'keywords') {
-            const oldMap = new Map((summaryData.keywords || []).map(k => [k.text, k]));
-            parsed = editorTextarea.value.trim().split('\n').filter(l => l.trim()).map(line => {
-                const [text, weight] = line.split('|').map(s => s.trim());
-                return preserveAddedAt({ text: text || '', weight: weight || '一般' }, oldMap.get(text));
-            });
-        } else if (section === 'events') {
-            const oldMap = new Map((summaryData.events || []).map(e => [e.id, e]));
-            parsed = Array.from(editorStructured.querySelectorAll('.event-item')).map(item => {
-                const id = item.dataset.id;
-                const title = item.querySelector('.event-title').value.trim();
-                const timeLabel = item.querySelector('.event-time').value.trim();
-                const summary = item.querySelector('.event-summary').value.trim();
-                const participants = item.querySelector('.event-participants').value.trim().split(/[,、，]/).map(s => s.trim()).filter(Boolean);
-                const type = item.querySelector('.event-type').value;
-                const weight = item.querySelector('.event-weight').value;
-                return preserveAddedAt({ id, title, timeLabel, summary, participants, type, weight }, oldMap.get(id));
-            }).filter(ev => ev.title || ev.summary);
-        } else if (section === 'characters') {
-            const oldMainMap = new Map((summaryData.characters?.main || []).map(m => [getCharName(m), m]));
-            const mainNames = Array.from(editorStructured.querySelectorAll('.char-main-name')).map(i => i.value.trim()).filter(Boolean);
-            const main = mainNames.map(name => preserveAddedAt({ name }, oldMainMap.get(name)));
-            const oldRelMap = new Map((summaryData.characters?.relationships || []).map(r => [`${r.from}->${r.to}`, r]));
-            const rels = Array.from(editorStructured.querySelectorAll('.char-rel-item')).map(item => {
-                const from = item.querySelector('.char-rel-from').value.trim();
-                const to = item.querySelector('.char-rel-to').value.trim();
-                const label = item.querySelector('.char-rel-label').value.trim();
-                const trend = item.querySelector('.char-rel-trend').value;
-                return preserveAddedAt({ from, to, label, trend }, oldRelMap.get(`${from}->${to}`));
-            }).filter(r => r.from && r.to);
-            parsed = { main, relationships: rels };
-        } else if (section === 'arcs') {
-            const oldArcMap = new Map((summaryData.arcs || []).map(a => [a.name, a]));
-            parsed = Array.from(editorStructured.querySelectorAll('.arc-item')).map(item => {
-                const name = item.querySelector('.arc-name').value.trim();
-                const trajectory = item.querySelector('.arc-trajectory').value.trim();
-                let progress = parseFloat(item.querySelector('.arc-progress').value || '0') / 100;
-                progress = Math.max(0, Math.min(1, progress || 0));
-                const momentsRaw = item.querySelector('.arc-moments').value.trim();
-                const oldArc = oldArcMap.get(name);
-                const oldMomentMap = new Map((oldArc?.moments || []).map(m => [typeof m === 'string' ? m : m.text, m]));
-                const moments = momentsRaw ? momentsRaw.split('\n').map(s => s.trim()).filter(Boolean).map(text => preserveAddedAt({ text }, oldMomentMap.get(text))) : [];
-                return preserveAddedAt({ name, trajectory, progress, moments }, oldArc);
-            }).filter(a => a.name || a.trajectory || a.moments?.length);
+        function selectCharacter(id) { currentCharacterId = id; const txt = $('sel-char-text'), opts = $('char-sel-opts'); if (opts && id) { opts.querySelectorAll('.sel-opt').forEach(o => { if (o.dataset.value === id) { o.classList.add('sel'); if (txt) txt.textContent = o.textContent } else o.classList.remove('sel') }) } else if (!id && txt) txt.textContent = '选择角色'; renderCharacterProfile(); if (relationChart && id) { const opt = relationChart.getOption(), idx = opt?.series?.[0]?.data?.findIndex(n => n.id === id || n.name === id); if (idx >= 0) relationChart.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex: idx }) } }
+        function updateCharacterSelector(arcs) { const opts = $('char-sel-opts'), txt = $('sel-char-text'); if (!opts) return; if (!arcs?.length) { opts.innerHTML = '<div class="sel-opt" data-value="">暂无角色</div>'; if (txt) txt.textContent = '暂无角色'; currentCharacterId = null; return } opts.innerHTML = arcs.map(a => `<div class="sel-opt" data-value="${a.id || a.name}">${a.name || '角色'}</div>`).join(''); opts.querySelectorAll('.sel-opt').forEach(o => o.onclick = e => { e.stopPropagation(); if (o.dataset.value) { selectCharacter(o.dataset.value); $('char-sel').classList.remove('open') } }); if (currentCharacterId && arcs.some(a => (a.id || a.name) === currentCharacterId)) selectCharacter(currentCharacterId); else if (arcs.length) selectCharacter(arcs[0].id || arcs[0].name) }
+        function renderCharacterProfile() {
+            const c = $('profile-content'), arcs = summaryData.arcs || [], rels = summaryData.characters?.relationships || []; if (!currentCharacterId || !arcs.length) { c.innerHTML = '<div class="empty">暂无角色数据</div>'; return } const arc = arcs.find(a => (a.id || a.name) === currentCharacterId); if (!arc) { c.innerHTML = '<div class="empty">未找到角色数据</div>'; return } const name = arc.name || '角色', moments = (arc.moments || arc.beats || []).map(m => typeof m === 'string' ? m : m.text), outRels = rels.filter(r => r.from === name), inRels = rels.filter(r => r.to === name);
+            c.innerHTML = `<div class="prof-arc"><div><div class="prof-name">${name}</div><div class="prof-traj">${arc.trajectory || arc.phase || ''}</div></div><div class="prof-prog-wrap"><div class="prof-prog-lbl"><span>弧光进度</span><span>${Math.round((arc.progress || 0) * 100)}%</span></div><div class="prof-prog"><div class="prof-prog-inner" style="width:${(arc.progress || 0) * 100}%"></div></div></div>${moments.length ? `<div class="prof-moments"><div class="prof-moments-title">关键时刻</div>${moments.map(m => `<div class="prof-moment">${m}</div>`).join('')}</div>` : ''}</div><div class="prof-rels"><div class="rels-group"><div class="rels-group-title">${name}对别人的羁绊：</div>${outRels.length ? outRels.map(r => `<div class="rel-item"><span class="rel-target">对${r.to}：</span><span class="rel-label">${r.label || '—'}</span>${r.trend ? `<span class="rel-trend ${trendClass[r.trend] || ''}">${r.trend}</span>` : ''}</div>`).join('') : '<div class="empty" style="padding:16px">暂无关系记录</div>'}</div><div class="rels-group"><div class="rels-group-title">别人对${name}的羁绊：</div>${inRels.length ? inRels.map(r => `<div class="rel-item"><span class="rel-target">${r.from}：</span><span class="rel-label">${r.label || '—'}</span>${r.trend ? `<span class="rel-trend ${trendClass[r.trend] || ''}">${r.trend}</span>` : ''}</div>`).join('') : '<div class="empty" style="padding:16px">暂无关系记录</div>'}</div></div>`
         }
-    } catch (e) {
-        editorError.textContent = `格式错误: ${e.message}`;
-        editorError.classList.add('visible');
-        return;
-    }
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'UPDATE_SECTION', section, data: parsed }, '*');
-    if (section === 'keywords') renderKeywords(parsed);
-    else if (section === 'events') {
-        renderTimeline(parsed);
-        document.getElementById('stat-events').textContent = parsed.length;
-    }
-    else if (section === 'characters') renderRelations(parsed);
-    else if (section === 'arcs') renderArcs(parsed);
-    closeEditor();
-}
-document.querySelectorAll('.section-edit-btn[data-section]').forEach(btn => btn.addEventListener('click', () => openEditor(btn.dataset.section)));
-document.getElementById('editor-backdrop').addEventListener('click', closeEditor);
-document.getElementById('editor-close').addEventListener('click', closeEditor);
-document.getElementById('editor-cancel').addEventListener('click', closeEditor);
-document.getElementById('editor-save').addEventListener('click', saveEditor);
-const settingsModal = document.getElementById('settings-modal');
-let tempConfig = null;
-function updateProviderUI(provider) {
-    const pv = providerDefaults[provider] || providerDefaults.custom;
-    const isSt = provider === 'st';
-    document.getElementById('api-url-row').classList.toggle('hidden', isSt);
-    document.getElementById('api-key-row').classList.toggle('hidden', !pv.needKey);
-    document.getElementById('api-model-manual-row').classList.toggle('hidden', isSt || !pv.needManualModel);
-    const hasCache = config.api.modelCache.length > 0;
-    document.getElementById('api-model-select-row').classList.toggle('hidden', isSt || pv.needManualModel || !hasCache);
-    document.getElementById('api-connect-row').classList.toggle('hidden', isSt || !pv.canFetch);
-    const urlInput = document.getElementById('api-url');
-    if (!urlInput.value && pv.url) urlInput.value = pv.url;
-}
-function openSettings() {
-    tempConfig = JSON.parse(JSON.stringify(config));
-    document.getElementById('api-provider').value = config.api.provider;
-    document.getElementById('api-url').value = config.api.url;
-    document.getElementById('api-key').value = config.api.key;
-    document.getElementById('api-model-text').value = config.api.model;
-    document.getElementById('gen-temp').value = config.gen.temperature ?? '';
-    document.getElementById('gen-top-p').value = config.gen.top_p ?? '';
-    document.getElementById('gen-top-k').value = config.gen.top_k ?? '';
-    document.getElementById('gen-presence').value = config.gen.presence_penalty ?? '';
-    document.getElementById('gen-frequency').value = config.gen.frequency_penalty ?? '';
-    document.getElementById('trigger-enabled').checked = config.trigger.enabled;
-    document.getElementById('trigger-interval').value = config.trigger.interval;
-    document.getElementById('trigger-timing').value = config.trigger.timing;
-    document.getElementById('trigger-stream').checked = config.trigger.useStream !== false;
-    
-    const enabledCheckbox = document.getElementById('trigger-enabled');
-    if (config.trigger.timing === 'manual') {
-        enabledCheckbox.checked = false;
-        enabledCheckbox.disabled = true;
-        enabledCheckbox.parentElement.style.opacity = '0.5';
-    } else {
-        enabledCheckbox.disabled = false;
-        enabledCheckbox.parentElement.style.opacity = '1';
-    }
-    
-    if (config.api.modelCache.length > 0) {
-        const sel = document.getElementById('api-model-select');
-        sel.innerHTML = config.api.modelCache.map(m => `<option value="${m}" ${m === config.api.model ? 'selected' : ''}>${m}</option>`).join('');
-    }
-    updateProviderUI(config.api.provider);
-    settingsModal.classList.add('active');
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'SETTINGS_OPENED' }, '*');
-}
-function closeSettings(save) {
-    if (save) {
-        const pn = id => { const v = document.getElementById(id).value; return v === '' ? null : parseFloat(v); };
-        const provider = document.getElementById('api-provider').value;
-        const pv = providerDefaults[provider] || providerDefaults.custom;
-        config.api.provider = provider;
-        config.api.url = document.getElementById('api-url').value;
-        config.api.key = document.getElementById('api-key').value;
-        if (provider === 'st') {
-            config.api.model = '';
-        } else if (pv.needManualModel) {
-            config.api.model = document.getElementById('api-model-text').value;
-        } else {
-            config.api.model = document.getElementById('api-model-select').value;
-        }
-        config.gen.temperature = pn('gen-temp');
-        config.gen.top_p = pn('gen-top-p');
-        config.gen.top_k = pn('gen-top-k');
-        config.gen.presence_penalty = pn('gen-presence');
-        config.gen.frequency_penalty = pn('gen-frequency');
-        
-        const timing = document.getElementById('trigger-timing').value;
-        config.trigger.timing = timing;
-        config.trigger.enabled = (timing === 'manual') ? false : document.getElementById('trigger-enabled').checked;
-        config.trigger.interval = parseInt(document.getElementById('trigger-interval').value) || 20;
-        config.trigger.useStream = document.getElementById('trigger-stream').checked;
-        
-        saveConfig();
-    }
-    tempConfig = null;
-    settingsModal.classList.remove('active');
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'SETTINGS_CLOSED' }, '*');
-}
-async function fetchModels() {
-    const btn = document.getElementById('btn-connect');
-    const provider = document.getElementById('api-provider').value;
-    if (!providerDefaults[provider]?.canFetch) { alert('当前渠道不支持自动拉取模型'); return; }
-    let baseUrl = document.getElementById('api-url').value.trim().replace(/\/+$/, '');
-    const apiKey = document.getElementById('api-key').value.trim();
-    if (!apiKey) { alert('请先填写 API KEY'); return; }
-    btn.disabled = true;
-    btn.textContent = '连接中...';
-    try {
-        const tryFetch = async url => {
-            const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } });
-            return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null;
-        };
-        if (baseUrl.endsWith('/v1')) baseUrl = baseUrl.slice(0, -3);
-        let models = await tryFetch(`${baseUrl}/v1/models`);
-        if (!models) models = await tryFetch(`${baseUrl}/models`);
-        if (!models?.length) throw new Error('未获取到模型列表');
-        config.api.modelCache = [...new Set(models)];
-        const sel = document.getElementById('api-model-select');
-        sel.innerHTML = config.api.modelCache.map(m => `<option value="${m}">${m}</option>`).join('');
-        document.getElementById('api-model-select-row').classList.remove('hidden');
-        if (!config.api.model && models.length) {
-            config.api.model = models[0];
-            sel.value = models[0];
-        } else if (config.api.model) {
-            sel.value = config.api.model;
-        }
-        saveConfig();
-        alert(`成功获取 ${models.length} 个模型`);
-    } catch (e) { alert('连接失败：' + (e.message || '请检查 URL 和 KEY')); }
-    finally { btn.disabled = false; btn.textContent = '连接 / 拉取模型列表'; }
-}
-document.getElementById('btn-settings').addEventListener('click', openSettings);
-document.getElementById('settings-backdrop').addEventListener('click', () => closeSettings(false));
-document.getElementById('settings-close').addEventListener('click', () => closeSettings(false));
-document.getElementById('settings-cancel').addEventListener('click', () => closeSettings(false));
-document.getElementById('settings-save').addEventListener('click', () => closeSettings(true));
-document.getElementById('api-provider').addEventListener('change', e => {
-    const provider = e.target.value;
-    const pv = providerDefaults[provider];
-    document.getElementById('api-url').value = '';
-    if (!pv.canFetch) {
-        config.api.modelCache = [];
-    }
-    updateProviderUI(provider);
-});
-document.getElementById('btn-connect').addEventListener('click', fetchModels);
-document.getElementById('api-model-select').addEventListener('change', e => { config.api.model = e.target.value; });
-document.getElementById('btn-clear').addEventListener('click', () => { window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'REQUEST_CLEAR' }, '*'); });
-document.getElementById('btn-generate').addEventListener('click', () => {
-    const btn = document.getElementById('btn-generate');
-    if (!localGenerating) {
-        localGenerating = true;
-        btn.textContent = '停止';
-        window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'REQUEST_GENERATE', config: { api: config.api, gen: config.gen, trigger: config.trigger } }, '*');
-    } else {
-        localGenerating = false;
-        btn.textContent = '总结';
-        window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'REQUEST_CANCEL' }, '*');
-    }
-});
-window.addEventListener('message', event => {
-    const data = event.data;
-    if (!data || data.source !== 'LittleWhiteBox') return;
-    const btn = document.getElementById('btn-generate');
-    switch (data.type) {
-        case 'GENERATION_STATE':
-            localGenerating = !!data.isGenerating;
-            btn.textContent = localGenerating ? '停止' : '总结';
-            break;
-        case 'SUMMARY_BASE_DATA':
-            if (data.stats) { 
-                updateStats(data.stats); 
-                document.getElementById('summarized-count').textContent = data.stats.hiddenCount ?? 0;
-            }
-            if (data.hideSummarized !== undefined) {
-                document.getElementById('hide-summarized').checked = data.hideSummarized;
-            }
-            if (data.keepVisibleCount !== undefined) {
-                document.getElementById('keep-visible-count').value = data.keepVisibleCount;
-            }
-            break;            
-        case 'SUMMARY_FULL_DATA':
-            if (data.payload) {
-                const p = data.payload;
-                if (p.keywords) renderKeywords(p.keywords);
-                if (p.events) renderTimeline(p.events);
-                if (p.characters) renderRelations(p.characters);
-                if (p.arcs) renderArcs(p.arcs);
-                document.getElementById('stat-events').textContent = p.events?.length || 0;
-                if (p.lastSummarizedMesId != null) document.getElementById('stat-summarized').textContent = p.lastSummarizedMesId + 1;
-                if (p.stats) updateStats(p.stats);
-            }
-            break;
-        case 'SUMMARY_ERROR':
-            console.error('Summary error:', data.message);
-            break;
-        case 'SUMMARY_CLEARED':
-            const total = data.payload?.totalFloors || 0;
-            document.getElementById('stat-events').textContent = 0;
-            document.getElementById('stat-summarized').textContent = 0;
-            document.getElementById('stat-pending').textContent = total;
-            document.getElementById('summarized-count').textContent = 0;
-            summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] };
-            renderKeywords([]);
-            renderTimeline([]);
-            renderRelations(null);
-            renderArcs([]);
-            break;
-    }
-});
-document.addEventListener('DOMContentLoaded', () => {
-    loadConfig();
-    document.getElementById('stat-events').textContent = '—';
-    document.getElementById('stat-summarized').textContent = '—';
-    document.getElementById('stat-pending').textContent = '—';
-    document.getElementById('summarized-count').textContent = '0';
-    renderKeywords([]);
-    renderTimeline([]);
-    renderArcs([]);
+        function renderArcs(arcs) { summaryData.arcs = arcs || []; updateCharacterSelector(arcs || []); renderCharacterProfile() }
+        function updateStats(s) { if (!s) return; $('stat-summarized').textContent = s.summarizedUpTo ?? 0; $('stat-events').textContent = s.eventsCount ?? 0; const p = s.pendingFloors ?? 0; $('stat-pending').textContent = p; $('pending-warning').classList.toggle('hidden', p !== -1) }
 
-    document.getElementById('hide-summarized').addEventListener('change', e => {
-        window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'TOGGLE_HIDE_SUMMARIZED', enabled: e.target.checked }, '*');
-    });
+        function openRelationsFullscreen() { const m = $('rel-fs-modal'); m.classList.add('active'); const dom = $('relation-chart-fullscreen'); if (!relationChartFullscreen) relationChartFullscreen = echarts.init(dom); if (!allNodes.length) { relationChartFullscreen.clear(); return } relationChartFullscreen.setOption({ tooltip: { show: false }, hoverLayerThreshold: Infinity, series: [{ type: 'graph', layout: 'force', roam: true, draggable: true, animation: true, animationDuration: 800, animationDurationUpdate: 300, animationEasingUpdate: 'cubicInOut', progressive: 0, hoverAnimation: false, data: allNodes.map(n => ({ ...n, symbolSize: Array.isArray(n.symbolSize) ? [n.symbolSize[0] * 1.3, n.symbolSize[1] * 1.3] : n.symbolSize * 1.3, label: { ...n.label, fontSize: 14 } })), links: allLinks.map(l => ({ ...l, label: { ...l.label, fontSize: 18 } })), force: { repulsion: 700, edgeLength: [150, 280], gravity: .06, friction: .6, layoutAnimation: true }, label: { show: true }, edgeLabel: { show: true, position: 'middle' }, emphasis: { disabled: true } }] }); setTimeout(() => relationChartFullscreen.resize(), 100); postMsg('FULLSCREEN_OPENED') }
+        function closeRelationsFullscreen() { $('rel-fs-modal').classList.remove('active'); postMsg('FULLSCREEN_CLOSED') }
 
-    document.getElementById('keep-visible-count').addEventListener('change', e => {
-        const count = Math.max(0, Math.min(50, parseInt(e.target.value) || 3));
-        e.target.value = count;
-        window.parent.postMessage({
-            source: 'LittleWhiteBox-StoryFrame',
-            type: 'UPDATE_KEEP_VISIBLE',
-            count: count
-        }, '*');
-    });
+        const createDelBtn = () => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-sm btn-del'; b.textContent = '删除'; return b };
+        function addDeleteHandler(item) { const del = createDelBtn(); (item.querySelector('.struct-actions') || item).appendChild(del); del.onclick = () => item.remove() }
 
-    document.getElementById('btn-fullscreen-relations').addEventListener('click', openRelationsFullscreen);
-    document.getElementById('relations-fullscreen-backdrop').addEventListener('click', closeRelationsFullscreen);
-    document.getElementById('relations-fullscreen-close').addEventListener('click', closeRelationsFullscreen);
+        function renderEventsEditor(events) { const list = events?.length ? events : [{ id: 'evt-1', title: '', timeLabel: '', summary: '', participants: [], type: '日常', weight: '点睛' }]; let maxId = 0; list.forEach(e => { const m = e.id?.match(/evt-(\d+)/); if (m) maxId = Math.max(maxId, +m[1]) }); const es = $('editor-struct'); es.innerHTML = list.map(ev => { const id = ev.id || `evt-${++maxId}`; return `<div class="struct-item event-item" data-id="${id}"><div class="struct-row"><input type="text" class="event-title" placeholder="事件标题" value="${ev.title || ''}"><input type="text" class="event-time" placeholder="时间标签" value="${ev.timeLabel || ''}"></div><div class="struct-row"><textarea class="event-summary" rows="2" placeholder="一句话描述">${ev.summary || ''}</textarea></div><div class="struct-row"><input type="text" class="event-participants" placeholder="人物（顿号分隔）" value="${(ev.participants || []).join('、')}"></div><div class="struct-row"><select class="event-type">${['相遇', '冲突', '揭示', '抉择', '羁绊', '转变', '收束', '日常'].map(t => `<option ${ev.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select><select class="event-weight">${['核心', '主线', '转折', '点睛', '氛围'].map(t => `<option ${ev.weight === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div><div class="struct-actions"><span>ID：${id}</span></div></div>` }).join('') + '<div style="margin-top:8px"><button type="button" class="btn btn-sm" id="event-add">＋ 新增事件</button></div>'; es.querySelectorAll('.event-item').forEach(addDeleteHandler); $('event-add').onclick = () => { let nmax = maxId; es.querySelectorAll('.event-item').forEach(it => { const m = it.dataset.id?.match(/evt-(\d+)/); if (m) nmax = Math.max(nmax, +m[1]) }); const nid = `evt-${nmax + 1}`, div = document.createElement('div'); div.className = 'struct-item event-item'; div.dataset.id = nid; div.innerHTML = `<div class="struct-row"><input type="text" class="event-title" placeholder="事件标题"><input type="text" class="event-time" placeholder="时间标签"></div><div class="struct-row"><textarea class="event-summary" rows="2" placeholder="一句话描述"></textarea></div><div class="struct-row"><input type="text" class="event-participants" placeholder="人物（顿号分隔）"></div><div class="struct-row"><select class="event-type">${['相遇', '冲突', '揭示', '抉择', '羁绊', '转变', '收束', '日常'].map(t => `<option>${t}</option>`).join('')}</select><select class="event-weight">${['核心', '主线', '转折', '点睛', '氛围'].map(t => `<option>${t}</option>`).join('')}</select></div><div class="struct-actions"><span>ID：${nid}</span></div>`; addDeleteHandler(div); es.insertBefore(div, $('event-add').parentElement) } }
 
-    document.getElementById('trigger-timing').addEventListener('change', e => {
-        const timing = e.target.value;
-        const enabledCheckbox = document.getElementById('trigger-enabled');
-        if (timing === 'manual') {
-            enabledCheckbox.checked = false;
-            enabledCheckbox.disabled = true;
-            enabledCheckbox.parentElement.style.opacity = '0.5';
-        } else {
-            enabledCheckbox.disabled = false;
-            enabledCheckbox.parentElement.style.opacity = '1';
-        }
-    });
+        function renderCharactersEditor(data) { const d = data || { main: [], relationships: [] }, main = (d.main || []).map(getCharName), rels = d.relationships || []; const es = $('editor-struct'); es.innerHTML = `<div class="struct-item"><div class="struct-row"><strong>角色列表</strong></div><div id="char-main-list">${(main.length ? main : ['']).map(n => `<div class="struct-row char-main-item"><input type="text" class="char-main-name" placeholder="角色名" value="${n || ''}"></div>`).join('')}</div><div style="margin-top:8px"><button type="button" class="btn btn-sm" id="char-main-add">＋ 新增角色</button></div></div><div class="struct-item"><div class="struct-row"><strong>人物关系</strong></div><div id="char-rel-list">${(rels.length ? rels : [{ from: '', to: '', label: '', trend: '不变' }]).map(r => `<div class="struct-row char-rel-item"><input type="text" class="char-rel-from" placeholder="角色 A" value="${r.from || ''}"><input type="text" class="char-rel-to" placeholder="角色 B" value="${r.to || ''}"><input type="text" class="char-rel-label" placeholder="关系" value="${r.label || ''}"><select class="char-rel-trend">${['亲近', '疏远', '不变', '新建', '破裂'].map(t => `<option ${r.trend === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`).join('')}</div><div style="margin-top:8px"><button type="button" class="btn btn-sm" id="char-rel-add">＋ 新增关系</button></div></div>`; es.querySelectorAll('.char-main-item,.char-rel-item').forEach(addDeleteHandler); $('char-main-add').onclick = () => { const div = document.createElement('div'); div.className = 'struct-row char-main-item'; div.innerHTML = '<input type="text" class="char-main-name" placeholder="角色名">'; addDeleteHandler(div); $('char-main-list').appendChild(div) }; $('char-rel-add').onclick = () => { const div = document.createElement('div'); div.className = 'struct-row char-rel-item'; div.innerHTML = `<input type="text" class="char-rel-from" placeholder="角色 A"><input type="text" class="char-rel-to" placeholder="角色 B"><input type="text" class="char-rel-label" placeholder="关系"><select class="char-rel-trend">${['亲近', '疏远', '不变', '新建', '破裂'].map(t => `<option>${t}</option>`).join('')}</select>`; addDeleteHandler(div); $('char-rel-list').appendChild(div) } }
 
-    window.addEventListener('resize', () => {
-        relationChart?.resize();
-        relationChartFullscreen?.resize();
-    });
+        function renderArcsEditor(arcs) { const list = arcs?.length ? arcs : [{ name: '', trajectory: '', progress: 0, moments: [] }]; const es = $('editor-struct'); es.innerHTML = `<div id="arc-list">${list.map((a, i) => `<div class="struct-item arc-item" data-index="${i}"><div class="struct-row"><input type="text" class="arc-name" placeholder="角色名" value="${a.name || ''}"></div><div class="struct-row"><textarea class="arc-trajectory" rows="2" placeholder="当前状态描述">${a.trajectory || ''}</textarea></div><div class="struct-row"><label style="font-size:.75rem;color:var(--txt3)">进度：<input type="number" class="arc-progress" min="0" max="100" value="${Math.round((a.progress || 0) * 100)}" style="width:64px;display:inline-block"> %</label></div><div class="struct-row"><textarea class="arc-moments" rows="3" placeholder="关键时刻，一行一个">${(a.moments || []).map(m => typeof m === 'string' ? m : m.text).join('\n')}</textarea></div><div class="struct-actions"><span>角色弧光 ${i + 1}</span></div></div>`).join('')}</div><div style="margin-top:8px"><button type="button" class="btn btn-sm" id="arc-add">＋ 新增角色弧光</button></div>`; es.querySelectorAll('.arc-item').forEach(addDeleteHandler); $('arc-add').onclick = () => { const listEl = $('arc-list'), idx = listEl.querySelectorAll('.arc-item').length, div = document.createElement('div'); div.className = 'struct-item arc-item'; div.dataset.index = idx; div.innerHTML = `<div class="struct-row"><input type="text" class="arc-name" placeholder="角色名"></div><div class="struct-row"><textarea class="arc-trajectory" rows="2" placeholder="当前状态描述"></textarea></div><div class="struct-row"><label style="font-size:.75rem;color:var(--txt3)">进度：<input type="number" class="arc-progress" min="0" max="100" value="0" style="width:64px;display:inline-block"> %</label></div><div class="struct-row"><textarea class="arc-moments" rows="3" placeholder="关键时刻，一行一个"></textarea></div><div class="struct-actions"><span>角色弧光 ${idx + 1}</span></div>`; addDeleteHandler(div); listEl.appendChild(div) } }
 
-    window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type: 'FRAME_READY' }, '*');
-});
-</script>
+        function openEditor(section) { currentEditSection = section; const meta = sectionMeta[section], es = $('editor-struct'), ta = $('editor-ta'); $('editor-title').textContent = meta.title; $('editor-hint').textContent = meta.hint; $('editor-err').classList.remove('visible'); $('editor-err').textContent = ''; es.classList.add('hidden'); ta.classList.remove('hidden'); if (section === 'keywords') ta.value = summaryData.keywords.map(k => `${k.text}|${k.weight || '一般'}`).join('\n'); else { ta.classList.add('hidden'); es.classList.remove('hidden'); if (section === 'events') renderEventsEditor(summaryData.events || []); else if (section === 'characters') renderCharactersEditor(summaryData.characters || { main: [], relationships: [] }); else if (section === 'arcs') renderArcsEditor(summaryData.arcs || []) } $('editor-modal').classList.add('active'); postMsg('EDITOR_OPENED') }
+        function closeEditor() { $('editor-modal').classList.remove('active'); currentEditSection = null; postMsg('EDITOR_CLOSED') }
+        function saveEditor() { const section = currentEditSection, es = $('editor-struct'), ta = $('editor-ta'); let parsed; try { if (section === 'keywords') { const oldMap = new Map((summaryData.keywords || []).map(k => [k.text, k])); parsed = ta.value.trim().split('\n').filter(l => l.trim()).map(line => { const [text, weight] = line.split('|').map(s => s.trim()); return preserveAddedAt({ text: text || '', weight: weight || '一般' }, oldMap.get(text)) }) } else if (section === 'events') { const oldMap = new Map((summaryData.events || []).map(e => [e.id, e])); parsed = Array.from(es.querySelectorAll('.event-item')).map(it => { const id = it.dataset.id; return preserveAddedAt({ id, title: it.querySelector('.event-title').value.trim(), timeLabel: it.querySelector('.event-time').value.trim(), summary: it.querySelector('.event-summary').value.trim(), participants: it.querySelector('.event-participants').value.trim().split(/[,、，]/).map(s => s.trim()).filter(Boolean), type: it.querySelector('.event-type').value, weight: it.querySelector('.event-weight').value }, oldMap.get(id)) }).filter(e => e.title || e.summary) } else if (section === 'characters') { const oldMainMap = new Map((summaryData.characters?.main || []).map(m => [getCharName(m), m])), mainNames = Array.from(es.querySelectorAll('.char-main-name')).map(i => i.value.trim()).filter(Boolean), main = mainNames.map(n => preserveAddedAt({ name: n }, oldMainMap.get(n))); const oldRelMap = new Map((summaryData.characters?.relationships || []).map(r => [`${r.from}->${r.to}`, r])), rels = Array.from(es.querySelectorAll('.char-rel-item')).map(it => { const from = it.querySelector('.char-rel-from').value.trim(), to = it.querySelector('.char-rel-to').value.trim(); return preserveAddedAt({ from, to, label: it.querySelector('.char-rel-label').value.trim(), trend: it.querySelector('.char-rel-trend').value }, oldRelMap.get(`${from}->${to}`)) }).filter(r => r.from && r.to); parsed = { main, relationships: rels } } else if (section === 'arcs') { const oldArcMap = new Map((summaryData.arcs || []).map(a => [a.name, a])); parsed = Array.from(es.querySelectorAll('.arc-item')).map(it => { const name = it.querySelector('.arc-name').value.trim(), oldArc = oldArcMap.get(name), oldMomentMap = new Map((oldArc?.moments || []).map(m => [typeof m === 'string' ? m : m.text, m])), momentsRaw = it.querySelector('.arc-moments').value.trim(), moments = momentsRaw ? momentsRaw.split('\n').map(s => s.trim()).filter(Boolean).map(t => preserveAddedAt({ text: t }, oldMomentMap.get(t))) : []; return preserveAddedAt({ name, trajectory: it.querySelector('.arc-trajectory').value.trim(), progress: Math.max(0, Math.min(1, (parseFloat(it.querySelector('.arc-progress').value) || 0) / 100)), moments }, oldArc) }).filter(a => a.name || a.trajectory || a.moments?.length) } } catch (e) { $('editor-err').textContent = `格式错误: ${e.message}`; $('editor-err').classList.add('visible'); return } postMsg('UPDATE_SECTION', { section, data: parsed }); if (section === 'keywords') renderKeywords(parsed); else if (section === 'events') { renderTimeline(parsed); $('stat-events').textContent = parsed.length } else if (section === 'characters') renderRelations(parsed); else if (section === 'arcs') renderArcs(parsed); closeEditor() }
+
+        function updateProviderUI(provider) { const pv = providerDefaults[provider] || providerDefaults.custom, isSt = provider === 'st'; $('api-url-row').classList.toggle('hidden', isSt); $('api-key-row').classList.toggle('hidden', !pv.needKey); $('api-model-manual-row').classList.toggle('hidden', isSt || !pv.needManualModel); $('api-model-select-row').classList.toggle('hidden', isSt || pv.needManualModel || !config.api.modelCache.length); $('api-connect-row').classList.toggle('hidden', isSt || !pv.canFetch); const urlInput = $('api-url'); if (!urlInput.value && pv.url) urlInput.value = pv.url }
+        function openSettings() { const pn = id => { const v = $(id).value; return v === '' ? null : parseFloat(v) }; $('api-provider').value = config.api.provider; $('api-url').value = config.api.url; $('api-key').value = config.api.key; $('api-model-text').value = config.api.model; $('gen-temp').value = config.gen.temperature ?? ''; $('gen-top-p').value = config.gen.top_p ?? ''; $('gen-top-k').value = config.gen.top_k ?? ''; $('gen-presence').value = config.gen.presence_penalty ?? ''; $('gen-frequency').value = config.gen.frequency_penalty ?? ''; $('trigger-enabled').checked = config.trigger.enabled; $('trigger-interval').value = config.trigger.interval; $('trigger-timing').value = config.trigger.timing; $('trigger-stream').checked = config.trigger.useStream !== false; const en = $('trigger-enabled'); if (config.trigger.timing === 'manual') { en.checked = false; en.disabled = true; en.parentElement.style.opacity = '.5' } else { en.disabled = false; en.parentElement.style.opacity = '1' } if (config.api.modelCache.length) { $('api-model-select').innerHTML = config.api.modelCache.map(m => `<option value="${m}"${m === config.api.model ? ' selected' : ''}>${m}</option>`).join('') } updateProviderUI(config.api.provider); $('settings-modal').classList.add('active'); postMsg('SETTINGS_OPENED') }
+        function closeSettings(save) { if (save) { const pn = id => { const v = $(id).value; return v === '' ? null : parseFloat(v) }; const provider = $('api-provider').value, pv = providerDefaults[provider] || providerDefaults.custom; config.api.provider = provider; config.api.url = $('api-url').value; config.api.key = $('api-key').value; config.api.model = provider === 'st' ? '' : pv.needManualModel ? $('api-model-text').value : $('api-model-select').value; config.gen.temperature = pn('gen-temp'); config.gen.top_p = pn('gen-top-p'); config.gen.top_k = pn('gen-top-k'); config.gen.presence_penalty = pn('gen-presence'); config.gen.frequency_penalty = pn('gen-frequency'); const timing = $('trigger-timing').value; config.trigger.timing = timing; config.trigger.enabled = timing === 'manual' ? false : $('trigger-enabled').checked; config.trigger.interval = parseInt($('trigger-interval').value) || 20; config.trigger.useStream = $('trigger-stream').checked; saveConfig() } $('settings-modal').classList.remove('active'); postMsg('SETTINGS_CLOSED') }
+        async function fetchModels() { const btn = $('btn-connect'), provider = $('api-provider').value; if (!providerDefaults[provider]?.canFetch) { alert('当前渠道不支持自动拉取模型'); return } let baseUrl = $('api-url').value.trim().replace(/\/+$/, ''); const apiKey = $('api-key').value.trim(); if (!apiKey) { alert('请先填写 API KEY'); return } btn.disabled = true; btn.textContent = '连接中...'; try { const tryFetch = async url => { const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } }); return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null }; if (baseUrl.endsWith('/v1')) baseUrl = baseUrl.slice(0, -3); let models = await tryFetch(`${baseUrl}/v1/models`); if (!models) models = await tryFetch(`${baseUrl}/models`); if (!models?.length) throw new Error('未获取到模型列表'); config.api.modelCache = [...new Set(models)]; const sel = $('api-model-select'); sel.innerHTML = config.api.modelCache.map(m => `<option value="${m}">${m}</option>`).join(''); $('api-model-select-row').classList.remove('hidden'); if (!config.api.model && models.length) { config.api.model = models[0]; sel.value = models[0] } else if (config.api.model) sel.value = config.api.model; saveConfig(); alert(`成功获取 ${models.length} 个模型`) } catch (e) { alert('连接失败：' + (e.message || '请检查 URL 和 KEY')) } finally { btn.disabled = false; btn.textContent = '连接 / 拉取模型列表' } }
+
+        $$('.sec-btn[data-section]').forEach(b => b.onclick = () => openEditor(b.dataset.section));
+        $('editor-backdrop').onclick = $('editor-close').onclick = $('editor-cancel').onclick = closeEditor;
+        $('editor-save').onclick = saveEditor;
+        $('btn-settings').onclick = openSettings;
+        $('settings-backdrop').onclick = $('settings-close').onclick = $('settings-cancel').onclick = () => closeSettings(false);
+        $('settings-save').onclick = () => closeSettings(true);
+        $('api-provider').onchange = e => { const pv = providerDefaults[e.target.value]; $('api-url').value = ''; if (!pv.canFetch) config.api.modelCache = []; updateProviderUI(e.target.value) };
+        $('btn-connect').onclick = fetchModels;
+        $('api-model-select').onchange = e => { config.api.model = e.target.value };
+        $('btn-clear').onclick = () => postMsg('REQUEST_CLEAR');
+        $('btn-generate').onclick = () => { const btn = $('btn-generate'); if (!localGenerating) { localGenerating = true; btn.textContent = '停止'; postMsg('REQUEST_GENERATE', { config: { api: config.api, gen: config.gen, trigger: config.trigger } }) } else { localGenerating = false; btn.textContent = '总结'; postMsg('REQUEST_CANCEL') } };
+        $('hide-summarized').onchange = e => postMsg('TOGGLE_HIDE_SUMMARIZED', { enabled: e.target.checked });
+        $('keep-visible-count').onchange = e => { const c = Math.max(0, Math.min(50, parseInt(e.target.value) || 3)); e.target.value = c; postMsg('UPDATE_KEEP_VISIBLE', { count: c }) };
+        $('btn-fullscreen-relations').onclick = openRelationsFullscreen;
+        $('rel-fs-backdrop').onclick = $('rel-fs-close').onclick = closeRelationsFullscreen;
+        $('char-sel-trigger').onclick = e => { e.stopPropagation(); $('char-sel').classList.toggle('open') };
+        document.onclick = e => { const cs = $('char-sel'); if (cs && !cs.contains(e.target)) cs.classList.remove('open') };
+        $('trigger-timing').onchange = e => { const en = $('trigger-enabled'); if (e.target.value === 'manual') { en.checked = false; en.disabled = true; en.parentElement.style.opacity = '.5' } else { en.disabled = false; en.parentElement.style.opacity = '1' } };
+        window.onresize = () => { relationChart?.resize(); relationChartFullscreen?.resize() };
+
+        window.onmessage = e => { const d = e.data; if (!d || d.source !== 'LittleWhiteBox') return; const btn = $('btn-generate'); switch (d.type) { case 'GENERATION_STATE': localGenerating = !!d.isGenerating; btn.textContent = localGenerating ? '停止' : '总结'; break; case 'SUMMARY_BASE_DATA': if (d.stats) { updateStats(d.stats); $('summarized-count').textContent = d.stats.hiddenCount ?? 0 } if (d.hideSummarized !== undefined) $('hide-summarized').checked = d.hideSummarized; if (d.keepVisibleCount !== undefined) $('keep-visible-count').value = d.keepVisibleCount; break; case 'SUMMARY_FULL_DATA': if (d.payload) { const p = d.payload; if (p.keywords) renderKeywords(p.keywords); if (p.events) renderTimeline(p.events); if (p.characters) renderRelations(p.characters); if (p.arcs) renderArcs(p.arcs); $('stat-events').textContent = p.events?.length || 0; if (p.lastSummarizedMesId != null) $('stat-summarized').textContent = p.lastSummarizedMesId + 1; if (p.stats) updateStats(p.stats) } break; case 'SUMMARY_ERROR': console.error('Summary error:', d.message); break; case 'SUMMARY_CLEARED': const t = d.payload?.totalFloors || 0; $('stat-events').textContent = 0; $('stat-summarized').textContent = 0; $('stat-pending').textContent = t; $('summarized-count').textContent = 0; summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] }; renderKeywords([]); renderTimeline([]); renderRelations(null); renderArcs([]); break } };
+
+        document.addEventListener('DOMContentLoaded', () => { loadConfig(); $('stat-events').textContent = '—'; $('stat-summarized').textContent = '—'; $('stat-pending').textContent = '—'; $('summarized-count').textContent = '0'; renderKeywords([]); renderTimeline([]); renderArcs([]); postMsg('FRAME_READY') });
+    </script>
 </body>
-</html>	
-}
+
+</html>
