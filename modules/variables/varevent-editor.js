@@ -3,10 +3,9 @@
  * @description 条件规则编辑器与 varevent 运行时（常驻模块）
  */
 
-import { getContext, extension_settings } from "../../../../../extensions.js";
+import { getContext } from "../../../../../extensions.js";
 import { getLocalVariable } from "../../../../../variables.js";
-import { createModuleEvents, event_types } from "../../core/event-manager.js";
-import { normalizePath, lwbSplitPathWithBrackets } from "../../core/variable-path.js";
+import { createModuleEvents } from "../../core/event-manager.js";
 import { replaceXbGetVarInString } from "./var-commands.js";
 
 const MODULE_ID = 'vareventEditor';
@@ -46,13 +45,6 @@ function stripYamlInlineComment(s) {
         if (ch === '#') { const prev = i > 0 ? text[i - 1] : ''; if (i === 0 || /\s/.test(prev)) return text.slice(0, i); }
     }
     return text;
-}
-
-function getActiveCharacter() {
-    try {
-        const ctx = getContext(); const id = ctx?.characterId ?? ctx?.this_chid; if (id == null) return null;
-        return (ctx?.getCharacter?.(id) ?? (Array.isArray(ctx?.characters) ? ctx.characters[id] : null)) || null;
-    } catch { return null; }
 }
 
 function readCharExtBumpAliases() {
@@ -134,7 +126,7 @@ export function preprocessBumpAliases(innerText) {
             const num = matchAlias(key, rhs) ?? matchAlias(currentVarRoot, rhs) ?? matchAlias('', rhs);
             out.push(num !== null && Number.isFinite(num) ? raw.replace(/:\s*.*$/, `: ${num}`) : raw); continue;
         }
-        const mArr = t.match(/^\-\s*(.+)$/);
+        const mArr = t.match(/^-\s*(.+)$/);
         if (mArr) {
             let rhs = String(stripYamlInlineComment(mArr[1])).trim().replace(/^["']|["']$/g, '');
             const leafKey = stack.length ? stack[stack.length - 1].path.split('.').pop() : '';
@@ -174,6 +166,8 @@ export function parseVareventEvents(innerText) {
 
 export function evaluateCondition(expr) {
     const isNumericLike = (v) => v != null && /^-?\d+(?:\.\d+)?$/.test(String(v).trim());
+    // Used by eval() expression; keep in scope.
+    // eslint-disable-next-line no-unused-vars
     function VAR(path) {
         try {
             const p = String(path ?? '').replace(/\[(\d+)\]/g, '.$1'), seg = p.split('.').map(s => s.trim()).filter(Boolean);
@@ -184,7 +178,11 @@ export function evaluateCondition(expr) {
             return cur == null ? '' : typeof cur === 'object' ? JSON.stringify(cur) : String(cur);
         } catch { return undefined; }
     }
+    // Used by eval() expression; keep in scope.
+    // eslint-disable-next-line no-unused-vars
     const VAL = (t) => String(t ?? '');
+    // Used by eval() expression; keep in scope.
+    // eslint-disable-next-line no-unused-vars
     function REL(a, op, b) {
         if (isNumericLike(a) && isNumericLike(b)) { const A = Number(String(a).trim()), B = Number(String(b).trim()); if (op === '>') return A > B; if (op === '>=') return A >= B; if (op === '<') return A < B; if (op === '<=') return A <= B; }
         else { const A = String(a), B = String(b); if (op === '>') return A > B; if (op === '>=') return A >= B; if (op === '<') return A < B; if (op === '<=') return A <= B; }
@@ -193,6 +191,7 @@ export function evaluateCondition(expr) {
     try {
         let processed = expr.replace(/var\(`([^`]+)`\)/g, 'VAR("$1")').replace(/val\(`([^`]+)`\)/g, 'VAL("$1")');
         processed = processed.replace(/(VAR\(".*?"\)|VAL\(".*?"\))\s*(>=|<=|>|<)\s*(VAR\(".*?"\)|VAL\(".*?"\))/g, 'REL($1,"$2",$3)');
+        // eslint-disable-next-line no-eval -- intentional: user-defined expression evaluation
         return !!eval(processed);
     } catch { return false; }
 }
@@ -201,6 +200,7 @@ export async function runJS(code) {
     const ctx = getContext();
     try {
         const STscriptProxy = async (command) => { if (!command) return; if (command[0] !== '/') command = '/' + command; const { executeSlashCommands, substituteParams } = getContext(); return await executeSlashCommands?.(substituteParams ? substituteParams(command) : command, true); };
+        // eslint-disable-next-line no-new-func -- intentional: user-defined async script
         const fn = new Function('ctx', 'getVar', 'setVar', 'console', 'STscript', `return (async()=>{ ${code}\n })();`);
         const getVar = (k) => getLocalVariable(k);
         const setVar = (k, v) => { getContext()?.variables?.local?.set?.(k, v); };
@@ -410,6 +410,8 @@ function injectEditorStyles() {
 
 const U = {
     qa: (root, sel) => Array.from((root || document).querySelectorAll(sel)),
+    // Template-only UI markup.
+    // eslint-disable-next-line no-unsanitized/property
     el: (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; },
     setActive(listLike, idx) { (Array.isArray(listLike) ? listLike : U.qa(document, listLike)).forEach((el, i) => el.classList.toggle('active', i === idx)); },
     toast: { ok: (m) => window?.toastr?.success?.(m), warn: (m) => window?.toastr?.warning?.(m), err: (m) => window?.toastr?.error?.(m) },
@@ -497,7 +499,10 @@ const UI = {
     addConditionRow(container, params) { const row = UI.createConditionRow(params, () => UI.refreshLopDisplay(container)); container.appendChild(row); UI.refreshLopDisplay(container); return row; },
     parseConditionIntoUI(block, condStr) {
         try {
-            const groupWrap = block.querySelector('.lwb-ve-condgroups'); if (!groupWrap) return; groupWrap.innerHTML = '';
+            const groupWrap = block.querySelector('.lwb-ve-condgroups'); if (!groupWrap) return;
+            // Template-only UI markup.
+            // eslint-disable-next-line no-unsanitized/property
+            groupWrap.innerHTML = '';
             const top = P.splitTopWithOps(condStr);
             top.forEach((seg, idxSeg) => {
                 const { text } = P.stripOuterWithFlag(seg.expr), g = UI.makeConditionGroup(); groupWrap.appendChild(g);
@@ -587,6 +592,8 @@ export function openVarEditor(entryEl, uid) {
         U.qa(pagesWrap, '.lwb-ve-page').forEach(el => el.classList.remove('active')); page.classList.add('active');
         let eventsWrap = page.querySelector(':scope > div'); if (!eventsWrap) { eventsWrap = U.el('div'); page.appendChild(eventsWrap); }
         const init = () => {
+            // Template-only UI markup.
+            // eslint-disable-next-line no-unsanitized/property
             eventsWrap.innerHTML = '';
             if (!evts.length) eventsWrap.appendChild(UI.createEventBlock(1));
             else evts.forEach((_ev, i) => { const block = UI.createEventBlock(i + 1); try { const condStr = String(_ev.condition || '').trim(); if (condStr) UI.parseConditionIntoUI(block, condStr); const disp = String(_ev.display || ''), dispEl = block.querySelector('.lwb-ve-display'); if (dispEl) dispEl.value = disp.replace(/^\r?\n/, '').replace(/\r?\n$/, ''); const js = String(_ev.js || ''), jsEl = block.querySelector('.lwb-ve-js'); if (jsEl) jsEl.value = js; } catch {} eventsWrap.appendChild(block); });
@@ -628,7 +635,29 @@ export function openActionBuilder(block) {
     ];
     const ui = U.mini(`<div class="lwb-ve-section"><div class="lwb-ve-label">添加动作</div><div id="lwb-action-list"></div><button type="button" class="lwb-ve-btn" id="lwb-add-action">+动作</button></div>`, '常用st控制');
     const list = ui.body.querySelector('#lwb-action-list'), addBtn = ui.body.querySelector('#lwb-add-action');
-    const addRow = (presetType) => { const row = U.el('div', 'lwb-ve-row'); row.style.alignItems = 'flex-start'; row.innerHTML = `<select class="lwb-ve-input lwb-ve-mini lwb-act-type"></select><div class="lwb-ve-fields" style="flex:1; display:grid; grid-template-columns: 1fr 1fr; gap:6px;"></div><button type="button" class="lwb-ve-btn ghost lwb-ve-del">删除</button>`; const typeSel = row.querySelector('.lwb-act-type'), fields = row.querySelector('.lwb-ve-fields'); row.querySelector('.lwb-ve-del').addEventListener('click', () => row.remove()); typeSel.innerHTML = TYPES.map(a => `<option value="${a.value}">${a.label}</option>`).join(''); const renderFields = () => { const def = TYPES.find(a => a.value === typeSel.value); fields.innerHTML = def ? def.template : ''; }; typeSel.addEventListener('change', renderFields); if (presetType) typeSel.value = presetType; renderFields(); list.appendChild(row); };
+    const addRow = (presetType) => {
+        const row = U.el('div', 'lwb-ve-row');
+        row.style.alignItems = 'flex-start';
+        // Template-only UI markup.
+        // eslint-disable-next-line no-unsanitized/property
+        row.innerHTML = `<select class="lwb-ve-input lwb-ve-mini lwb-act-type"></select><div class="lwb-ve-fields" style="flex:1; display:grid; grid-template-columns: 1fr 1fr; gap:6px;"></div><button type="button" class="lwb-ve-btn ghost lwb-ve-del">??</button>`;
+        const typeSel = row.querySelector('.lwb-act-type');
+        const fields = row.querySelector('.lwb-ve-fields');
+        row.querySelector('.lwb-ve-del').addEventListener('click', () => row.remove());
+        // Template-only UI markup.
+        // eslint-disable-next-line no-unsanitized/property
+        typeSel.innerHTML = TYPES.map(a => `<option value="${a.value}">${a.label}</option>`).join('');
+        const renderFields = () => {
+            const def = TYPES.find(a => a.value === typeSel.value);
+            // Template-only UI markup.
+            // eslint-disable-next-line no-unsanitized/property
+            fields.innerHTML = def ? def.template : '';
+        };
+        typeSel.addEventListener('change', renderFields);
+        if (presetType) typeSel.value = presetType;
+        renderFields();
+        list.appendChild(row);
+    };
     addBtn.addEventListener('click', () => addRow()); addRow();
     ui.btnOk.addEventListener('click', () => {
         const rows = U.qa(list, '.lwb-ve-row'), actions = [];

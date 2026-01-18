@@ -14,6 +14,10 @@ const KNOWN_KEYS = Object.freeze(new Set([
     'dialogueExamples', 'authorsNote', 'vectorsMemory', 'vectorsDataBank',
     'smartContext', 'jailbreak', 'nsfw', 'summary', 'bias', 'impersonate', 'quietPrompt',
 ]));
+const resolveTargetOrigin = (origin) => {
+    if (typeof origin === 'string' && origin) return origin;
+    try { return window.location.origin; } catch { return '*'; }
+};
 
 // @ts-nocheck
 class CallGenerateService {
@@ -44,10 +48,10 @@ class CallGenerateService {
         }
     }
 
-    sendError(sourceWindow, requestId, streamingEnabled, err, fallbackCode = 'API_ERROR', details = null) {
+    sendError(sourceWindow, requestId, streamingEnabled, err, fallbackCode = 'API_ERROR', details = null, targetOrigin = null) {
         const e = this.normalizeError(err, fallbackCode, details);
         const type = streamingEnabled ? 'generateStreamError' : 'generateError';
-        try { sourceWindow?.postMessage({ source: SOURCE_TAG, type, id: requestId, error: e }, '*'); } catch {}
+        try { sourceWindow?.postMessage({ source: SOURCE_TAG, type, id: requestId, error: e }, resolveTargetOrigin(targetOrigin)); } catch {}
     }
 
     /**
@@ -253,9 +257,9 @@ class CallGenerateService {
      * @param {string} type
      * @param {object} body
      */
-    postToTarget(target, type, body) {
+    postToTarget(target, type, body, targetOrigin = null) {
         try {
-            target?.postMessage({ source: SOURCE_TAG, type, ...body }, '*');
+            target?.postMessage({ source: SOURCE_TAG, type, ...body }, resolveTargetOrigin(targetOrigin));
         } catch (e) {}
     }
 
@@ -759,7 +763,6 @@ class CallGenerateService {
     async _annotateIdentifiersIfMissing(messages, targetKeys) {
         const arr = Array.isArray(messages) ? messages.map(m => ({ ...m })) : [];
         if (!arr.length) return arr;
-        const hasIdentifier = arr.some(m => typeof m?.identifier === 'string' && m.identifier);
         // 标注 chatHistory：依据 role + 来源判断
         const isFromChat = this._createIsFromChat();
         for (const m of arr) {
@@ -1005,7 +1008,7 @@ class CallGenerateService {
 
     _applyContentFilter(list, filterCfg) {
         if (!filterCfg) return list;
-        const { contains, regex, fromUserNames, beforeTs, afterTs } = filterCfg;
+        const { contains, regex, fromUserNames } = filterCfg;
         let out = list.slice();
         if (contains) {
             const needles = Array.isArray(contains) ? contains : [contains];
@@ -1044,7 +1047,6 @@ class CallGenerateService {
     }
 
     _applyIndicesRange(list, selector) {
-        const idxBase = selector?.indexBase === 'all' ? 'all' : 'history';
         let result = list.slice();
         // indices 优先
         if (Array.isArray(selector?.indices?.values) && selector.indices.values.length) {
@@ -1130,7 +1132,7 @@ class CallGenerateService {
 
     // ===== 发送实现（构建后的统一发送） =====
 
-    async _sendMessages(messages, options, requestId, sourceWindow) {
+    async _sendMessages(messages, options, requestId, sourceWindow, targetOrigin = null) {
         const sessionId = this.normalizeSessionId(options?.session?.id || 'xb1');
         const session = this.ensureSession(sessionId);
         const streamingEnabled = options?.streaming?.enabled !== false; // 默认开
@@ -1141,11 +1143,11 @@ class CallGenerateService {
             const shouldExport = !!(options?.debug?.enabled || options?.debug?.exportPrompt);
             const already = options?.debug?._exported === true;
             if (shouldExport && !already) {
-                this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: (messages || []).map(m => ({ role: m.role, content: m.content })) });
+                this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: (messages || []).map(m => ({ role: m.role, content: m.content })) }, targetOrigin);
             }
 
             if (streamingEnabled) {
-                this.postToTarget(sourceWindow, 'generateStreamStart', { id: requestId, sessionId });
+                this.postToTarget(sourceWindow, 'generateStreamStart', { id: requestId, sessionId }, targetOrigin);
                 const streamFn = await ChatCompletionService.sendRequest(payload, false, session.abortController.signal);
                 let last = '';
                 const generator = typeof streamFn === 'function' ? streamFn() : null;
@@ -1153,7 +1155,7 @@ class CallGenerateService {
                     const chunk = text.slice(last.length);
                     last = text;
                     session.accumulated = text;
-                    this.postToTarget(sourceWindow, 'generateStreamChunk', { id: requestId, chunk, accumulated: text, metadata: {} });
+                    this.postToTarget(sourceWindow, 'generateStreamChunk', { id: requestId, chunk, accumulated: text, metadata: {} }, targetOrigin);
                 }
                 const result = {
                     success: true,
@@ -1161,7 +1163,7 @@ class CallGenerateService {
                     sessionId,
                     metadata: { duration: Date.now() - session.startedAt, model: apiCfg.model, finishReason: 'stop' },
                 };
-                this.postToTarget(sourceWindow, 'generateStreamComplete', { id: requestId, result });
+                this.postToTarget(sourceWindow, 'generateStreamComplete', { id: requestId, result }, targetOrigin);
                 return result;
             } else {
                 const extracted = await ChatCompletionService.sendRequest(payload, true, session.abortController.signal);
@@ -1171,17 +1173,17 @@ class CallGenerateService {
                     sessionId,
                     metadata: { duration: Date.now() - session.startedAt, model: apiCfg.model, finishReason: 'stop' },
                 };
-                this.postToTarget(sourceWindow, 'generateResult', { id: requestId, result });
+                this.postToTarget(sourceWindow, 'generateResult', { id: requestId, result }, targetOrigin);
                 return result;
             }
         } catch (err) {
-            this.sendError(sourceWindow, requestId, streamingEnabled, err);
+            this.sendError(sourceWindow, requestId, streamingEnabled, err, 'API_ERROR', null, targetOrigin);
             return null;
         }
     }
 
     // ===== 主流程 =====
-    async handleRequestInternal(options, requestId, sourceWindow) {
+    async handleRequestInternal(options, requestId, sourceWindow, targetOrigin = null) {
         // 1) 校验
         this.validateOptions(options);
 
@@ -1275,10 +1277,10 @@ class CallGenerateService {
         working = this._appendUserInput(working, options?.userInput);
 
         // 8) 调试导出
-        this._exportDebugData({ sourceWindow, requestId, working, baseStrategy, orderedRefs, inlineMapped, listLevelOverrides, debug: options?.debug });
+        this._exportDebugData({ sourceWindow, requestId, working, baseStrategy, orderedRefs, inlineMapped, listLevelOverrides, debug: options?.debug, targetOrigin });
 
         // 9) 发送
-        return await this._sendMessages(working, { ...options, debug: { ...(options?.debug || {}), _exported: true } }, requestId, sourceWindow);
+        return await this._sendMessages(working, { ...options, debug: { ...(options?.debug || {}), _exported: true } }, requestId, sourceWindow, targetOrigin);
     }
 
     _applyOrderingStrategy(messages, baseStrategy, orderedRefs, unorderedKeys) {
@@ -1338,9 +1340,9 @@ class CallGenerateService {
         return out;
     }
 
-    _exportDebugData({ sourceWindow, requestId, working, baseStrategy, orderedRefs, inlineMapped, listLevelOverrides, debug }) {
+    _exportDebugData({ sourceWindow, requestId, working, baseStrategy, orderedRefs, inlineMapped, listLevelOverrides, debug, targetOrigin }) {
         const exportPrompt = !!(debug?.enabled || debug?.exportPrompt);
-        if (exportPrompt) this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: working.map(m => ({ role: m.role, content: m.content })) });
+        if (exportPrompt) this.postToTarget(sourceWindow, 'generatePromptPreview', { id: requestId, messages: working.map(m => ({ role: m.role, content: m.content })) }, targetOrigin);
         if (debug?.exportBlueprint) {
             try {
                 const bp = {
@@ -1349,7 +1351,7 @@ class CallGenerateService {
                     injections: (debug?.injections || []).concat(inlineMapped || []),
                     overrides: listLevelOverrides || null,
                 };
-                this.postToTarget(sourceWindow, 'blueprint', bp);
+                this.postToTarget(sourceWindow, 'blueprint', bp, targetOrigin);
             } catch {}
         }
     }
@@ -1357,7 +1359,7 @@ class CallGenerateService {
     /**
      * 入口：处理 generateRequest（统一入口）
      */
-    async handleGenerateRequest(options, requestId, sourceWindow) {
+    async handleGenerateRequest(options, requestId, sourceWindow, targetOrigin = null) {
         let streamingEnabled = false;
         try {
             streamingEnabled = options?.streaming?.enabled !== false;
@@ -1369,10 +1371,10 @@ class CallGenerateService {
                     xbLog.info('callGenerateBridge', `generateRequest id=${requestId} stream=${!!streamingEnabled} comps=${compsCount} userInputLen=${userInputLen}`);
                 }
             } catch {}
-            return await this.handleRequestInternal(options, requestId, sourceWindow);
+            return await this.handleRequestInternal(options, requestId, sourceWindow, targetOrigin);
         } catch (err) {
             try { xbLog.error('callGenerateBridge', `generateRequest failed id=${requestId}`, err); } catch {}
-            this.sendError(sourceWindow, requestId, streamingEnabled, err, 'BAD_REQUEST');
+            this.sendError(sourceWindow, requestId, streamingEnabled, err, 'BAD_REQUEST', null, targetOrigin);
             return null;
         }
     }
@@ -1392,8 +1394,8 @@ class CallGenerateService {
 
 const callGenerateService = new CallGenerateService();
 
-export async function handleGenerateRequest(options, requestId, sourceWindow) {
-    return await callGenerateService.handleGenerateRequest(options, requestId, sourceWindow);
+export async function handleGenerateRequest(options, requestId, sourceWindow, targetOrigin = null) {
+    return await callGenerateService.handleGenerateRequest(options, requestId, sourceWindow, targetOrigin);
 }
 
 // Host bridge for handling iframe generateRequest → respond via postMessage
@@ -1410,11 +1412,12 @@ export function initCallGenerateHostBridge() {
             if (!data || data.type !== 'generateRequest') return;
             const id = data.id;
             const options = data.options || {};
-            await handleGenerateRequest(options, id, event.source || window);
+            await handleGenerateRequest(options, id, event.source || window, event.origin);
         } catch (e) {
             try { xbLog.error('callGenerateBridge', 'generateRequest listener error', e); } catch {}
         }
     };
+    // eslint-disable-next-line no-restricted-syntax -- bridge listener; origin can be null for sandboxed iframes.
     try { window.addEventListener('message', __xb_generate_listener); } catch (e) {}
     __xb_generate_listener_attached = true;
 }
@@ -1511,6 +1514,7 @@ if (typeof window !== 'undefined') {
                 }
             };
             
+            // eslint-disable-next-line no-restricted-syntax -- local listener for internal request flow.
             window.addEventListener('message', listener);
             
             // 发送请求

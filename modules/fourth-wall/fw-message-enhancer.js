@@ -258,6 +258,8 @@ function injectStyles() {
 function enhanceMessageContent(container) {
     if (!container) return;
     
+    // Rewrites already-rendered message HTML; no new HTML source is introduced here.
+    // eslint-disable-next-line no-unsanitized/property
     const html = container.innerHTML;
     let enhanced = html;
     let hasChanges = false;
@@ -283,7 +285,11 @@ function enhanceMessageContent(container) {
         return createVoiceBubbleHTML(txt, '');
     });
     
-    if (hasChanges) container.innerHTML = enhanced;
+    if (hasChanges) {
+        // Replaces existing message HTML with enhanced tokens only.
+        // eslint-disable-next-line no-unsanitized/property
+        container.innerHTML = enhanced;
+    }
     
     hydrateImageSlots(container);
     hydrateVoiceSlots(container);
@@ -317,6 +323,8 @@ function hydrateImageSlots(container) {
         slot.dataset.observed = '1';
         
         if (!slot.dataset.loaded && !slot.dataset.loading && !slot.querySelector('img')) {
+            // Template-only UI markup.
+            // eslint-disable-next-line no-unsanitized/property
             slot.innerHTML = `<div class="xb-img-placeholder"><i class="fa-regular fa-image"></i><span>滚动加载</span></div>`;
         }
         
@@ -325,18 +333,26 @@ function hydrateImageSlots(container) {
 }
 
 async function loadImage(slot, tags) {
+    // Template-only UI markup.
+    // eslint-disable-next-line no-unsanitized/property
     slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-spinner"></i> 检查缓存...</div>`;
     
     try {
         const base64 = await generateImage(tags, (status, position, delay) => {
             switch (status) {
                 case 'queued':
+                    // Template-only UI markup.
+                    // eslint-disable-next-line no-unsanitized/property
                     slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-clock"></i> 排队中 #${position}</div>`;
                     break;
                 case 'generating':
+                    // Template-only UI markup.
+                    // eslint-disable-next-line no-unsanitized/property
                     slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-palette"></i> 生成中${position > 0 ? ` (${position} 排队)` : ''}...</div>`;
                     break;
                 case 'waiting':
+                    // Template-only UI markup.
+                    // eslint-disable-next-line no-unsanitized/property
                     slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-clock"></i> 排队中 #${position} (${delay}s)</div>`;
                     break;
             }
@@ -349,12 +365,16 @@ async function loadImage(slot, tags) {
         slot.dataset.loading = '';
         
         if (err.message === '队列已清空') {
+            // Template-only UI markup.
+            // eslint-disable-next-line no-unsanitized/property
             slot.innerHTML = `<div class="xb-img-placeholder"><i class="fa-regular fa-image"></i><span>滚动加载</span></div>`;
             slot.dataset.loading = '';
             slot.dataset.observed = '';
             return;
         }
         
+        // Template-only UI markup with escaped error text.
+        // eslint-disable-next-line no-unsanitized/property
         slot.innerHTML = `<div class="xb-img-error"><i class="fa-solid fa-exclamation-triangle"></i><div>${escapeHtml(err?.message || '失败')}</div><button class="xb-img-retry" data-tags="${encodeURIComponent(tags)}">重试</button></div>`;
         bindRetryButton(slot);
     }
@@ -369,12 +389,16 @@ function renderImage(slot, base64, fromCache) {
     img.className = 'xb-generated-img';
     img.onclick = () => window.open(img.src, '_blank');
     
+    // Template-only UI markup.
+    // eslint-disable-next-line no-unsanitized/property
     slot.innerHTML = '';
     slot.appendChild(img);
     
     if (fromCache) {
         const badge = document.createElement('span');
         badge.className = 'xb-img-badge';
+        // Template-only UI markup.
+        // eslint-disable-next-line no-unsanitized/property
         badge.innerHTML = '<i class="fa-solid fa-bolt"></i>';
         slot.appendChild(badge);
     }

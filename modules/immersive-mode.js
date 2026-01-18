@@ -657,18 +657,6 @@ function cleanup() {
     };
 }
 
-function attachResizeObserverTo(el) {
-    if (!el) return;
-
-    if (!resizeObs) {
-        resizeObs = new ResizeObserver(() => { });
-    }
-
-    if (resizeObservedEl) detachResizeObserver();
-    resizeObservedEl = el;
-    resizeObs.observe(el);
-}
-
 function detachResizeObserver() {
     if (resizeObs && resizeObservedEl) {
         resizeObs.unobserve(resizeObservedEl);

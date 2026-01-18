@@ -1,5 +1,7 @@
 (function(){
   function defineCallGenerate(){
+    var parentOrigin;
+    try{parentOrigin=new URL(document.referrer).origin}catch(_){parentOrigin='*'}
     function sanitizeOptions(options){
       try{
         return JSON.parse(JSON.stringify(options,function(k,v){return(typeof v==='function')?undefined:v}))
@@ -29,10 +31,11 @@
     function CallGenerateImpl(options){
       return new Promise(function(resolve,reject){
         try{
-          function post(m){try{parent.postMessage(m,'*')}catch(e){}}
+          function post(m){try{parent.postMessage(m,parentOrigin)}catch(e){}}
           if(!options||typeof options!=='object'){reject(new Error('Invalid options'));return}
           var id=Date.now().toString(36)+Math.random().toString(36).slice(2);
           function onMessage(e){
+            if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
             var d=e&&e.data||{};
             if(d.source!=='xiaobaix-host'||d.id!==id)return;
             if(d.type==='generateStreamStart'&&options.streaming&&options.streaming.onStart){try{options.streaming.onStart(d.sessionId)}catch(_){}} 
@@ -46,10 +49,14 @@
             else if(d.type==='generateError'){try{window.removeEventListener('message',onMessage)}catch(_){}
               reject(new Error(d.error||'Generation failed'))}
           }
+          // eslint-disable-next-line no-restricted-syntax -- origin checked via parentOrigin.
           try{window.addEventListener('message',onMessage)}catch(_){}
           var sanitized=sanitizeOptions(options);
           post({type:'generateRequest',id:id,options:sanitized});
-          setTimeout(function(){try{window.removeEventListener('message',onMessage)}catch(e){};reject(new Error('Generation timeout'))},300000);
+          setTimeout(function(){
+            try{window.removeEventListener('message',onMessage)}catch(e){}
+            reject(new Error('Generation timeout'));
+          },300000);
         }catch(e){reject(e)}
       })
     }
@@ -61,6 +68,8 @@
 })();
 
 (function(){
+  var parentOrigin;
+  try{parentOrigin=new URL(document.referrer).origin}catch(_){parentOrigin='*'}
   function applyAvatarCss(urls){
     try{
       const root=document.documentElement;
@@ -84,9 +93,10 @@
     }catch(_){}
   }
   function requestAvatars(){
-    try{parent.postMessage({type:'getAvatars'},'*')}catch(_){}
+    try{parent.postMessage({type:'getAvatars'},parentOrigin)}catch(_){}
   }
   function onMessage(e){
+    if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
     const d=e&&e.data||{};
     if(d&&d.source==='xiaobaix-host'&&d.type==='avatars'){
       applyAvatarCss(d.urls);
@@ -94,6 +104,7 @@
     }
   }
   try{
+    // eslint-disable-next-line no-restricted-syntax -- origin checked via parentOrigin.
     window.addEventListener('message',onMessage);
     if(document.readyState==='loading'){
       document.addEventListener('DOMContentLoaded',requestAvatars,{once:true});

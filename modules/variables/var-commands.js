@@ -69,11 +69,6 @@ function extractPathFromArgs(namedArgs, unnamedArgs) {
     }
 }
 
-function hasTopLevelRuleKey(obj) {
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
-    return Object.keys(obj).some(k => String(k).trim().startsWith('$'));
-}
-
 function ensureAbsTargetPath(basePath, token) {
     const t = String(token || '').trim();
     if (!t) return String(basePath || '');

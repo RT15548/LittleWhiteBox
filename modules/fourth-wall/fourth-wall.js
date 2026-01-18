@@ -2,8 +2,7 @@
 // 次元壁模块 - 主控制器
 // ════════════════════════════════════════════════════════════════════════════
 import { extension_settings, getContext, saveMetadataDebounced } from "../../../../../extensions.js";
-import { saveSettingsDebounced, chat_metadata } from "../../../../../../script.js";
-import { executeSlashCommand } from "../../core/slash-command.js";
+import { saveSettingsDebounced, chat_metadata, default_user_avatar, default_avatar } from "../../../../../../script.js";
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog } from "../../core/debug-core.js";
@@ -19,6 +18,7 @@ import {
     DEFAULT_META_PROTOCOL 
 } from "./fw-prompt.js";
 import { initMessageEnhancer, cleanupMessageEnhancer } from "./fw-message-enhancer.js";
+import { postToIframe, isTrustedMessage, getTrustedOrigin } from "../../core/iframe-messaging.js";
 // ════════════════════════════════════════════════════════════════════════════
 // 常量
 // ════════════════════════════════════════════════════════════════════════════
@@ -41,7 +41,6 @@ let streamTimerId = null;
 let floatBtnResizeHandler = null;
 let suppressFloatBtnClickUntil = 0;
 let currentLoadedChatId = null;
-let isFullscreen = false;
 let lastCommentaryTime = 0;
 let commentaryBubbleEl = null;
 let commentaryBubbleTimer = null;
@@ -157,7 +156,7 @@ function getAvatarUrls() {
     const ch = Array.isArray(ctx.characters) ? ctx.characters[chId] : null;
     let char = ch?.avatar || (typeof default_avatar !== 'undefined' ? default_avatar : '');
     if (char && !/^(data:|blob:|https?:)/i.test(char)) {
-        char = /[\/]/.test(char) ? char.replace(/^\/+/, '') : `characters/${char}`;
+        char = String(char).includes('/') ? char.replace(/^\/+/, '') : `characters/${char}`;
     }
     return { user: toAbsUrl(user), char: toAbsUrl(char) };
 }
@@ -209,14 +208,14 @@ function postToFrame(payload) {
         pendingFrameMessages.push(payload);
         return;
     }
-    iframe.contentWindow.postMessage({ source: 'LittleWhiteBox', ...payload }, '*');
+    postToIframe(iframe, payload, 'LittleWhiteBox');
 }
 
 function flushPendingMessages() {
     if (!frameReady) return;
     const iframe = document.getElementById('xiaobaix-fourth-wall-iframe');
     if (!iframe?.contentWindow) return;
-    pendingFrameMessages.forEach(p => iframe.contentWindow.postMessage({ source: 'LittleWhiteBox', ...p }, '*'));
+    pendingFrameMessages.forEach(p => postToIframe(iframe, p, 'LittleWhiteBox'));
     pendingFrameMessages = [];
 }
 
@@ -268,7 +267,7 @@ function checkIframeHealth() {
             recoverIframe('contentWindow 不存在');
             return;
         }
-        win.postMessage({ source: 'LittleWhiteBox', type: 'PING', pingId }, '*');
+        win.postMessage({ source: 'LittleWhiteBox', type: 'PING', pingId }, getTrustedOrigin());
     } catch (e) {
         recoverIframe('无法访问 iframe: ' + e.message);
         return;
@@ -314,8 +313,9 @@ function recoverIframe(reason) {
 // ════════════════════════════════════════════════════════════════════════════
 
 function handleFrameMessage(event) {
+    const iframe = document.getElementById('xiaobaix-fourth-wall-iframe');
+    if (!isTrustedMessage(event, iframe, 'LittleWhiteBox-FourthWall')) return;
     const data = event.data;
-    if (!data || data.source !== 'LittleWhiteBox-FourthWall') return;
     
     const store = getFWStore();
     const settings = getSettings();
@@ -463,11 +463,22 @@ async function startGeneration(data) {
         promptTemplates: getSettings().fourthWallPromptTemplates
     });
     
-    const top64 = b64UrlEncode(`user={${msg1}};assistant={${msg2}};user={${msg3}};assistant={${msg4}}`);
-    const nonstreamArg = data.settings.stream ? '' : ' nonstream=true';
-    const cmd = `/xbgenraw id=${STREAM_SESSION_ID} top64="${top64}"${nonstreamArg} ""`;
-    
-    await executeSlashCommand(cmd);
+    const gen = window.xiaobaixStreamingGeneration;
+    if (!gen?.xbgenrawCommand) throw new Error('xbgenraw 模块不可用');
+
+    const topMessages = [
+        { role: 'user', content: msg1 },
+        { role: 'assistant', content: msg2 },
+        { role: 'user', content: msg3 },
+    ];
+
+    await gen.xbgenrawCommand({
+        id: STREAM_SESSION_ID,
+        top64: b64UrlEncode(JSON.stringify(topMessages)),
+        bottomassistant: msg4,
+        nonstream: data.settings.stream ? 'false' : 'true',
+        as: 'user',
+    }, '');
     
     if (data.settings.stream) {
         startStreamingPoll();
@@ -620,11 +631,24 @@ async function generateCommentary(targetText, type) {
 
     if (!built) return null;
     const { msg1, msg2, msg3, msg4 } = built;
-    const top64 = b64UrlEncode(`user={${msg1}};assistant={${msg2}};user={${msg3}};assistant={${msg4}}`);
+
+    const gen = window.xiaobaixStreamingGeneration;
+    if (!gen?.xbgenrawCommand) return null;
+
+    const topMessages = [
+        { role: 'user', content: msg1 },
+        { role: 'assistant', content: msg2 },
+        { role: 'user', content: msg3 },
+    ];
 
     try {
-        const cmd = `/xbgenraw id=xb8 nonstream=true top64="${top64}" ""`;
-        const result = await executeSlashCommand(cmd);
+        const result = await gen.xbgenrawCommand({
+            id: 'xb8',
+            top64: b64UrlEncode(JSON.stringify(topMessages)),
+            bottomassistant: msg4,
+            nonstream: 'true',
+            as: 'user',
+        }, '');
         return extractMsg(result) || null;
     } catch {
         return null;
@@ -771,14 +795,14 @@ function createOverlay() {
     
     $overlay.on('click', '.fw-backdrop', hideOverlay);
     document.body.appendChild($overlay[0]);
+    // Guarded by isTrustedMessage (origin + source).
+    // eslint-disable-next-line no-restricted-syntax
     window.addEventListener('message', handleFrameMessage);
     
     document.addEventListener('fullscreenchange', () => {
         if (!document.fullscreenElement) {
-            isFullscreen = false;
             postToFrame({ type: 'FULLSCREEN_STATE', isFullscreen: false });
         } else {
-            isFullscreen = true;
             postToFrame({ type: 'FULLSCREEN_STATE', isFullscreen: true });
         }
     });
@@ -809,7 +833,6 @@ function showOverlay() {
 function hideOverlay() {
     $('#xiaobaix-fourth-wall-overlay').hide();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    isFullscreen = false;
     
     // ═══════════════════════════ 新增：移除可见性监听 ═══════════════════════════
     if (visibilityHandler) {
@@ -826,12 +849,10 @@ function toggleFullscreen() {
 
     if (document.fullscreenElement) {
         document.exitFullscreen().then(() => {
-            isFullscreen = false;
             postToFrame({ type: 'FULLSCREEN_STATE', isFullscreen: false });
         }).catch(() => {});
     } else if (overlay.requestFullscreen) {
         overlay.requestFullscreen().then(() => {
-            isFullscreen = true;
             postToFrame({ type: 'FULLSCREEN_STATE', isFullscreen: true });
         }).catch(() => {});
     }

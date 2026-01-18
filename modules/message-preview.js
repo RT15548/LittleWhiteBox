@@ -120,12 +120,18 @@ function createMovableModal(title, content) {
   modal.className = 'mp-modal';
   const header = document.createElement('div');
   header.className = 'mp-header';
+  // Template-only UI markup (title is escaped by caller).
+  // eslint-disable-next-line no-unsanitized/property
   header.innerHTML = `<span>${title}</span><span class="mp-close">✕</span>`;
   const body = document.createElement('div');
   body.className = 'mp-body';
+  // Content is already escaped before building the preview.
+  // eslint-disable-next-line no-unsanitized/property
   body.innerHTML = content;
   const footer = document.createElement('div');
   footer.className = 'mp-footer';
+  // Template-only UI markup.
+  // eslint-disable-next-line no-unsanitized/property
   footer.innerHTML = `
     <input type="text" class="mp-search-input" placeholder="搜索..." />
     <button class="mp-btn mp-search-btn" id="mp-search-prev">↑</button>
@@ -148,7 +154,13 @@ function createMovableModal(title, content) {
   const prevBtn = footer.querySelector('#mp-search-prev');
   const nextBtn = footer.querySelector('#mp-search-next');
 
-  function clearHighlights() { body.querySelectorAll('.mp-highlight').forEach(el => { el.outerHTML = el.innerHTML; }); }
+  function clearHighlights() {
+    body.querySelectorAll('.mp-highlight').forEach(el => {
+      // Controlled markup generated locally.
+      // eslint-disable-next-line no-unsanitized/property
+      el.outerHTML = el.innerHTML;
+    });
+  }
   function performSearch(query) {
     clearHighlights();
     searchResults = [];
@@ -157,7 +169,7 @@ function createMovableModal(title, content) {
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
     const nodes = [];
     let node;
-    while (node = walker.nextNode()) { nodes.push(node); }
+    while ((node = walker.nextNode())) { nodes.push(node); }
     const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
     nodes.forEach(textNode => {
       const text = textNode.textContent;
@@ -178,6 +190,8 @@ function createMovableModal(title, content) {
         searchResults.push({});
       });
       const parent = textNode.parentElement;
+      // Controlled markup generated locally.
+      // eslint-disable-next-line no-unsanitized/property
       parent.innerHTML = parent.innerHTML.replace(text, html);
     });
     updateSearchInfo();
@@ -230,7 +244,11 @@ function createMovableModal(title, content) {
 
 const MIRROR = { MERGE: "merge", MERGE_TOOLS: "merge_tools", SEMI: "semi", SEMI_TOOLS: "semi_tools", STRICT: "strict", STRICT_TOOLS: "strict_tools", SINGLE: "single" };
 const roleMap = { system: { label: "SYSTEM:", color: "#F7E3DA" }, user: { label: "USER:", color: "#F0ADA7" }, assistant: { label: "ASSISTANT:", color: "#6BB2CC" } };
-const colorXml = (t) => (typeof t === "string" ? t.replace(/<([^>]+)>/g, '<span style="color:#999;font-weight:bold;">&lt;$1&gt;</span>') : t);
+const escapeHtml = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+const colorXml = (t) => {
+  const safe = escapeHtml(t);
+  return safe.replace(/&lt;([^&]+?)&gt;/g, '<span style="color:#999;font-weight:bold;">&lt;$1&gt;</span>');
+};
 const getNames = (req) => { const n = { charName: String(req?.char_name || ""), userName: String(req?.user_name || ""), groupNames: Array.isArray(req?.group_names) ? req.group_names.map(String) : [] }; n.startsWithGroupName = (m) => n.groupNames.some((g) => String(m || "").startsWith(`${g}: `)); return n; };
 const toText = (m) => { const c = m?.content; if (typeof c === "string") return c; if (Array.isArray(c)) return c.map((p) => p?.type === "text" ? String(p.text || "") : p?.type === "image_url" ? "[image]" : p?.type === "video_url" ? "[video]" : typeof p === "string" ? p : (typeof p?.content === "string" ? p.content : "")).filter(Boolean).join("\n\n"); return String(c || ""); };
 const applyName = (m, n) => { const { role, name } = m; let t = toText(m); if (role === "system" && name === "example_assistant") { if (n.charName && !t.startsWith(`${n.charName}: `) && !n.startsWithGroupName(t)) t = `${n.charName}: ${t}`; } else if (role === "system" && name === "example_user") { if (n.userName && !t.startsWith(`${n.userName}: `)) t = `${n.userName}: ${t}`; } else if (name && role !== "system" && !t.startsWith(`${name}: `)) t = `${name}: ${t}`; return { ...m, content: t, name: undefined }; };
@@ -267,10 +285,11 @@ const formatPreview = (d) => {
   const msgs = finalMsgs(d);
   let out = `↓酒馆日志↓(${msgs.length})\n${"-".repeat(30)}\n`;
   msgs.forEach((m, i) => {
-    const txt = m.content || "";
+    const txt = String(m.content || "");
+    const safeTxt = escapeHtml(txt);
     const rm = roleMap[m.role] || { label: `${String(m.role || "").toUpperCase()}:`, color: "#FFF" };
     out += `<div style="color:${rm.color};font-weight:bold;margin-top:${i ? "15px" : "0"};">${rm.label}</div>`;
-    out += /<[^>]+>/g.test(txt) ? `<pre style="white-space:pre-wrap;margin:5px 0;color:${rm.color};">${colorXml(txt)}</pre>` : `<div style="margin:5px 0;color:${rm.color};white-space:pre-wrap;">${txt}</div>`;
+    out += /<[^>]+>/g.test(txt) ? `<pre style="white-space:pre-wrap;margin:5px 0;color:${rm.color};">${colorXml(txt)}</pre>` : `<div style="margin:5px 0;color:${rm.color};white-space:pre-wrap;">${safeTxt}</div>`;
   });
   return out;
 };

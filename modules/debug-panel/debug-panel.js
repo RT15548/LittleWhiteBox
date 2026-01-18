@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { extensionFolderPath } from "../../core/constants.js";
+import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
 
 const STORAGE_EXPANDED_KEY = "xiaobaix_debug_panel_pos_v2";
 const STORAGE_MINI_KEY = "xiaobaix_debug_panel_minipos_v2";
@@ -455,7 +456,7 @@ async function getDebugSnapshot() {
 }
 
 function postToFrame(msg) {
-    try { iframeEl?.contentWindow?.postMessage({ source: "LittleWhiteBox-DebugHost", ...msg }, "*"); } catch {}
+    try { postToIframe(iframeEl, { ...msg }, "LittleWhiteBox-DebugHost"); } catch {}
 }
 
 async function sendSnapshotToFrame() {
@@ -488,9 +489,11 @@ async function handleAction(action) {
 function bindMessageListener() {
     if (messageListenerBound) return;
     messageListenerBound = true;
+    // eslint-disable-next-line no-restricted-syntax
     window.addEventListener("message", async (e) => {
+        // Guarded by isTrustedMessage (origin + source).
+        if (!isTrustedMessage(e, iframeEl, "LittleWhiteBox-DebugFrame")) return;
         const msg = e?.data;
-        if (!msg || msg.source !== "LittleWhiteBox-DebugFrame") return;
         if (msg.type === "FRAME_READY") { frameReady = true; await sendSnapshotToFrame(); }
         else if (msg.type === "XB_DEBUG_ACTION") await handleAction(msg);
         else if (msg.type === "CLOSE_PANEL") closeDebugPanel();
@@ -511,7 +514,9 @@ function updateMiniBadge(logs) {
     const newMax = maxLogId(logs);
     if (newMax > lastLogId && !isExpanded) {
         miniBtnEl.classList.remove("flash");
-        void miniBtnEl.offsetWidth;
+        // Force reflow to restart animation.
+        // eslint-disable-next-line no-unused-expressions
+        miniBtnEl.offsetWidth;
         miniBtnEl.classList.add("flash");
     }
     lastLogId = newMax;

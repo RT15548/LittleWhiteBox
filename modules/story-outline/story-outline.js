@@ -36,6 +36,7 @@ import {
     buildInviteMessages, buildLocalMapGenMessages, buildLocalMapRefreshMessages, buildLocalSceneGenMessages,
     buildOverlayHtml, MOBILE_LAYOUT_STYLE, DESKTOP_LAYOUT_STYLE, getPromptConfigPayload, setPromptConfig
 } from "./story-outline-prompt.js";
+import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
 
 const events = createModuleEvents('storyOutline');
 const IFRAME_PATH = `${extensionFolderPath}/modules/story-outline/story-outline.html`;
@@ -44,7 +45,7 @@ const STORY_OUTLINE_ID = 'lwb_story_outline';
 const CHAR_CARD_UID = '__CHARACTER_CARD__';
 const DEBUG_KEY = 'LittleWhiteBox_StoryOutline_Debug';
 
-let overlayCreated = false, frameReady = false, currentMesId = null, pendingMsgs = [], presetCleanup = null, step1Cache = null;
+let overlayCreated = false, frameReady = false, pendingMsgs = [], presetCleanup = null, step1Cache = null;
 
 // ==================== 2. 通用工具 ====================
 
@@ -604,10 +605,10 @@ const injectOutline = () => updatePromptContent();
 function postFrame(payload) {
     const iframe = document.getElementById("xiaobaix-story-outline-iframe");
     if (!iframe?.contentWindow || !frameReady) { pendingMsgs.push(payload); return; }
-    iframe.contentWindow.postMessage({ source: "LittleWhiteBox", ...payload }, "*");
+    postToIframe(iframe, payload, "LittleWhiteBox");
 }
 
-const flushPending = () => { if (!frameReady) return; const f = document.getElementById("xiaobaix-story-outline-iframe"); pendingMsgs.forEach(p => f?.contentWindow?.postMessage({ source: "LittleWhiteBox", ...p }, "*")); pendingMsgs = []; };
+const flushPending = () => { if (!frameReady) return; const f = document.getElementById("xiaobaix-story-outline-iframe"); pendingMsgs.forEach(p => { if (f) postToIframe(f, p, "LittleWhiteBox"); }); pendingMsgs = []; };
 
 /** 发送设置到iframe */
 function sendSettings() {
@@ -925,7 +926,6 @@ async function handleExecSlash({ command }) {
 
 async function handleSendInvite({ requestId, contactName, contactUid, targetLocation, smsHistory }) {
     try {
-        const comm = getCommSettings();
         let charC = '';
         if (contactUid) { const es = Object.values(world_info?.entries || world_info || {}); charC = es.find(e => e.uid?.toString() === contactUid.toString())?.content || ''; }
         const msgs = buildInviteMessages(getCommonPromptVars({ contactName, userName: name1 || '{{user}}', targetLocation, smsHistoryContent: buildSmsHistoryContent(smsHistory || ''), characterContent: charC }));
@@ -972,7 +972,7 @@ async function handleGenLocalScene({ requestId, locationName, locationInfo }) {
 
 async function handleGenWorld({ requestId, playerRequests }) {
     try {
-        const comm = getCommSettings(), mode = getGlobalSettings().mode || 'story', store = getOutlineStore();
+        const mode = getGlobalSettings().mode || 'story', store = getOutlineStore();
 
         // 递归查找函数 - 在任意层级找到目标键
         const deepFind = (obj, key) => {
@@ -1061,7 +1061,7 @@ async function handleGenWorld({ requestId, playerRequests }) {
 async function handleRetryStep2({ requestId }) {
     try {
         if (!step1Cache?.step1Data?.meta) return replyErr('GENERATE_WORLD_RESULT', requestId, 'Step 2 重试失败：缺少 Step 1 数据，请重新开始生成');
-        const comm = getCommSettings(), store = getOutlineStore(), s1d = step1Cache.step1Data, pr = step1Cache.playerRequests || '';
+        const store = getOutlineStore(), s1d = step1Cache.step1Data, pr = step1Cache.playerRequests || '';
 
         postFrame({ type: 'GENERATE_WORLD_STATUS', requestId, message: '1 秒后重试构建世界细节 (Step 2/2)...' });
         await new Promise(r => setTimeout(r, 1000));
@@ -1083,6 +1083,7 @@ async function handleRetryStep2({ requestId }) {
 async function handleSimWorld({ requestId, currentData, isAuto }) {
     try {
         const store = getOutlineStore();
+        const mode = getGlobalSettings().mode || 'story';
         const msgs = buildWorldSimMessages(getCommonPromptVars({ currentWorldData: currentData || '{}' }));
         const data = await callLLMJson({ messages: msgs, validate: V.w });
         if (!data || !V.w(data)) return replyErr('SIMULATE_WORLD_RESULT', requestId, mode === 'assist' ? '世界推演失败：无法解析 JSON 数据（需包含 world 或 maps 字段）' : '世界推演失败：无法解析 JSON 数据');
@@ -1211,7 +1212,12 @@ const handlers = {
     GENERATE_LOCAL_SCENE: handleGenLocalScene
 };
 
-const handleMsg = ({ data }) => { if (data?.source === "LittleWhiteBox-OutlineFrame") handlers[data.type]?.(data); };
+const handleMsg = (event) => {
+    const iframe = document.getElementById("xiaobaix-story-outline-iframe");
+    if (!isTrustedMessage(event, iframe, "LittleWhiteBox-OutlineFrame")) return;
+    const { data } = event;
+    handlers[data.type]?.(data);
+};
 
 // ==================== 10. UI管理 ====================
 
@@ -1257,6 +1263,8 @@ function createOverlay() {
         onEnd: () => setPtr('')
     });
 
+    // Guarded by isTrustedMessage (origin + source).
+    // eslint-disable-next-line no-restricted-syntax
     window.addEventListener("message", handleMsg);
 }
 
@@ -1287,7 +1295,7 @@ function addBtnToMsg(mesId) {
     btn.title = '小白板';
     btn.dataset.mesid = mesId;
     btn.innerHTML = '<i class="fa-regular fa-map"></i>';
-    btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); if (!getSettings().storyOutline?.enabled) return; currentMesId = Number(mesId); showOverlay(); loadAndSend(); });
+    btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); if (!getSettings().storyOutline?.enabled) return; showOverlay(); loadAndSend(); });
     if (window.registerButtonToSubContainer?.(mesId, btn)) return;
     msg.querySelector('.flex-container.flex1.alignitemscenter')?.appendChild(btn);
 }

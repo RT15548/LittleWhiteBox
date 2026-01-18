@@ -29,6 +29,7 @@ import {
     parsePresetData,
     destroyCloudPresets
 } from './cloud-presets.js';
+import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -42,7 +43,7 @@ const CONFIG_VERSION = 4;
 const MAX_SEED = 0xFFFFFFFF;
 const API_TEST_TIMEOUT = 15000;
 const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
-const INITIAL_RENDER_MESSAGE_LIMIT = 10;
+const INITIAL_RENDER_MESSAGE_LIMIT = 1;
 
 const events = createModuleEvents(MODULE_KEY);
 
@@ -86,6 +87,8 @@ const DEFAULT_SETTINGS = {
     useWorldInfo: false,    
     characterTags: [],
     overrideSize: 'default',
+    showFloorButton: true,
+    showFloatingButton: false,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -102,6 +105,7 @@ let settingsCache = null;
 let settingsLoaded = false;
 let generationAbortController = null;
 let messageObserver = null;
+let ensureNovelDrawPanelRef = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 样式
@@ -176,6 +180,13 @@ function ensureStyles() {
 .xb-nd-edit-input:focus{border-color:rgba(212,165,116,0.5);outline:none}
 .xb-nd-edit-input.scene{border-color:rgba(212,165,116,0.3)}
 .xb-nd-edit-input.char{border-color:rgba(147,197,253,0.3)}
+.xb-nd-live-btn{position:absolute;bottom:10px;right:10px;z-index:5;padding:4px 8px;background:rgba(0,0,0,0.75);border:none;border-radius:12px;color:rgba(255,255,255,0.7);font-size:10px;font-weight:700;letter-spacing:0.5px;cursor:pointer;opacity:0.7;transition:all 0.2s;user-select:none}
+.xb-nd-live-btn:hover{opacity:1;background:rgba(0,0,0,0.85)}
+.xb-nd-live-btn.active{background:rgba(62,207,142,0.9);color:#fff;opacity:1;box-shadow:0 0 10px rgba(62,207,142,0.5)}
+.xb-nd-live-btn.loading{pointer-events:none;opacity:0.5}
+.xb-nd-img.mode-live .xb-nd-img-wrap>img{opacity:0!important;pointer-events:none}
+.xb-nd-live-canvas{border-radius:10px;overflow:hidden}
+.xb-nd-live-canvas canvas{display:block;border-radius:10px}
 `;
     document.head.appendChild(style);
 }
@@ -263,7 +274,7 @@ function abortGeneration() {
 }
 
 function isGenerating() {
-    return generationAbortController !== null;
+    return autoBusy || generationAbortController !== null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -769,6 +780,7 @@ function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, state =
         <span class="xb-nd-nav-text">${displayVersion} / ${historyCount}</span>
         <button class="xb-nd-nav-arrow" data-action="nav-next" title="${currentIndex === 0 ? '重新生成' : '下一版本'}">›</button>
     </div>`;
+    const liveBtn = `<button class="xb-nd-live-btn" data-action="toggle-live" title="Live Photo">LIVE</button>`;
 
     const menuBusy = isBusy ? ' busy' : '';
     const menuHtml = `<div class="xb-nd-menu-wrap${menuBusy}">
@@ -786,6 +798,7 @@ ${indicator}
 <div class="xb-nd-img-wrap" data-total="${historyCount}">
     <img src="${url}" style="max-width:100%;width:auto;height:auto;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);${isBusy ? 'opacity:0.5;' : ''}" data-action="open-gallery" ${lazyAttr}>
     ${navPill}
+    ${liveBtn}
 </div>
 ${menuHtml}
 <div class="xb-nd-edit" style="display:none;position:absolute;bottom:8px;left:8px;right:8px;background:rgba(0,0,0,0.9);border-radius:10px;padding:10px;text-align:left;z-index:15;">
@@ -855,6 +868,12 @@ function setImageState(container, state) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function navigateToImage(container, targetIndex) {
+    try {
+        const { destroyLiveEffect } = await import('./image-live-effect.js');
+        destroyLiveEffect(container);
+        container.querySelector('.xb-nd-live-btn')?.classList.remove('active');
+    } catch {}
+
     const slotId = container.dataset.slotId;
     const historyCount = parseInt(container.dataset.historyCount) || 1;
     const currentIndex = parseInt(container.dataset.currentIndex) || 0;
@@ -965,6 +984,23 @@ function handleTouchEnd(e) {
 // 事件委托与图片操作
 // ═══════════════════════════════════════════════════════════════════════════
 
+async function handleLiveToggle(container) {
+    const btn = container.querySelector('.xb-nd-live-btn');
+    if (!btn || btn.classList.contains('loading')) return;
+
+    btn.classList.add('loading');
+
+    try {
+        const { toggleLiveEffect } = await import('./image-live-effect.js');
+        const isActive = await toggleLiveEffect(container);
+        btn.classList.remove('loading');
+        btn.classList.toggle('active', isActive);
+    } catch (e) {
+        console.error('[NovelDraw] Live effect failed:', e);
+        btn.classList.remove('loading');
+    }
+}
+
 function setupEventDelegation() {
     if (window._xbNovelEventsBound) return;
     window._xbNovelEventsBound = true;
@@ -1044,6 +1080,10 @@ function setupEventDelegation() {
                 else await refreshSingleImage(container);
                 break;
             }
+            case 'toggle-live': {
+                handleLiveToggle(container);
+                break;
+            }
         }
     }, { capture: true });
 
@@ -1100,6 +1140,8 @@ async function handleImageClick(container) {
                 errorType: '图片已删除',
                 errorMessage: '点击重试可重新生成'
             });
+            // Template-only UI markup built locally.
+            // eslint-disable-next-line no-unsanitized/property
             cont.outerHTML = failedHtml;
         },
     });
@@ -1154,6 +1196,8 @@ async function toggleEditPanel(container, show) {
             });
         }
 
+        // Escaped data used in template.
+        // eslint-disable-next-line no-unsanitized/property
         scrollWrap.innerHTML = html;
         editPanel.style.display = 'block';
 
@@ -1262,6 +1306,12 @@ async function refreshSingleImage(container) {
     const currentImgId = container.dataset.imgId;
 
     if (!tags || currentState === ImageState.SAVING || currentState === ImageState.REFRESHING || !slotId) return;
+
+    try {
+        const { destroyLiveEffect } = await import('./image-live-effect.js');
+        destroyLiveEffect(container);
+        container.querySelector('.xb-nd-live-btn')?.classList.remove('active');
+    } catch {}
 
     toggleEditPanel(container, false);
     setImageState(container, ImageState.REFRESHING);
@@ -1394,6 +1444,8 @@ async function deleteCurrentImage(container) {
                 errorType: '图片已删除',
                 errorMessage: '点击重试可重新生成'
             });
+            // Template-only UI markup built locally.
+            // eslint-disable-next-line no-unsanitized/property
             container.outerHTML = failedHtml;
             showToast('图片已删除，占位符已保留');
         }
@@ -1409,6 +1461,8 @@ async function retryFailedImage(container) {
     const tags = container.dataset.tags;
     if (!slotId) return;
 
+    // Template-only UI markup.
+    // eslint-disable-next-line no-unsanitized/property
     container.innerHTML = `<div style="padding:30px;text-align:center;color:rgba(255,255,255,0.6);"><div style="font-size:24px;margin-bottom:8px;">🎨</div><div>生成中...</div></div>`;
 
     try {
@@ -1467,6 +1521,8 @@ async function retryFailedImage(container) {
             historyCount: 1,
             currentIndex: 0
         });
+        // Template-only UI markup built locally.
+        // eslint-disable-next-line no-unsanitized/property
         container.outerHTML = imgHtml;
         showToast('图片生成成功！');
     } catch (e) {
@@ -1480,6 +1536,8 @@ async function retryFailedImage(container) {
             errorType: errorType.code,
             errorMessage: errorType.desc
         });
+        // Template-only UI markup built locally.
+        // eslint-disable-next-line no-unsanitized/property
         container.outerHTML = buildFailedPlaceholderHtml({
             slotId,
             messageId,
@@ -1665,11 +1723,15 @@ async function handleMessageModified(data) {
 // 多图生成
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function generateAndInsertImages({ messageId, onStateChange }) {
+async function generateAndInsertImages({ messageId, onStateChange, skipLock = false }) {
     await loadSettings();
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
     if (!message) throw new NovelDrawError('消息不存在', ErrorType.PARSE);
+
+    if (!skipLock && isGenerating()) {
+        throw new NovelDrawError('已有任务进行中', ErrorType.UNKNOWN);
+    }
 
     generationAbortController = new AbortController();
     const signal = generationAbortController.signal;
@@ -1878,37 +1940,93 @@ async function generateAndInsertImages({ messageId, onStateChange }) {
 
 async function autoGenerateForLastAI() {
     const s = getSettings();
-    if (!isModuleEnabled() || s.mode !== 'auto' || autoBusy) return;
+    if (!isModuleEnabled() || s.mode !== 'auto') return;
+
+    if (isGenerating()) {
+        console.log('[NovelDraw] 自动模式：已有任务进行中，跳过');
+        return;
+    }
+    
     const ctx = getContext();
     const chat = ctx.chat || [];
     const lastIdx = chat.length - 1;
     if (lastIdx < 0) return;
+    
     const lastMessage = chat[lastIdx];
     if (!lastMessage || lastMessage.is_user) return;
+    
     const content = String(lastMessage.mes || '').replace(PLACEHOLDER_REGEX, '').trim();
     if (content.length < 50) return;
+    
     lastMessage.extra ||= {};
     if (lastMessage.extra.xb_novel_auto_done) return;
+    
     autoBusy = true;
+    
     try {
-        const { setState, FloatState } = await import('./floating-panel.js');
+        const { setStateForMessage, setFloatingState, FloatState, ensureNovelDrawPanel } = await import('./floating-panel.js');
+        const floatingOn = s.showFloatingButton === true;
+        const floorOn = s.showFloorButton !== false;
+        const useFloatingOnly = floatingOn && floorOn;
+
+        const updateState = (state, data = {}) => {
+            if (useFloatingOnly || (floatingOn && !floorOn)) {
+                setFloatingState?.(state, data);
+            } else if (floorOn) {
+                setStateForMessage(lastIdx, state, data);
+            }
+        };
+        
+        if (floorOn && !useFloatingOnly) {
+            const messageEl = document.querySelector(`.mes[mesid="${lastIdx}"]`);
+            if (messageEl) {
+                ensureNovelDrawPanel(messageEl, lastIdx, { force: true });
+            }
+        }
+        
         await generateAndInsertImages({
             messageId: lastIdx,
+            skipLock: true,
             onStateChange: (state, data) => {
                 switch (state) {
-                    case 'llm': setState(FloatState.LLM); break;
-                    case 'gen': setState(FloatState.GEN, data); break;
-                    case 'progress': setState(FloatState.GEN, data); break;
-                    case 'cooldown': setState(FloatState.COOLDOWN, data); break;
-                    case 'success': setState(data.success === data.total ? FloatState.SUCCESS : FloatState.PARTIAL, data); break;
+                    case 'llm': 
+                        updateState(FloatState.LLM); 
+                        break;
+                    case 'gen': 
+                    case 'progress': 
+                        updateState(FloatState.GEN, data); 
+                        break;
+                    case 'cooldown': 
+                        updateState(FloatState.COOLDOWN, data); 
+                        break;
+                    case 'success': 
+                        updateState(
+                            (data.aborted && data.success === 0) ? FloatState.IDLE
+                                : (data.success < data.total) ? FloatState.PARTIAL
+                                    : FloatState.SUCCESS,
+                            data
+                        );
+                        break;
                 }
             }
         });
+        
         lastMessage.extra.xb_novel_auto_done = true;
+        
     } catch (e) {
         console.error('[NovelDraw] 自动配图失败:', e);
-        const { setState, FloatState } = await import('./floating-panel.js');
-        setState(FloatState.ERROR, { error: classifyError(e) });
+        try {
+            const { setStateForMessage, setFloatingState, FloatState } = await import('./floating-panel.js');
+            const floatingOn = s.showFloatingButton === true;
+            const floorOn = s.showFloorButton !== false;
+            const useFloatingOnly = floatingOn && floorOn;
+
+            if (useFloatingOnly || (floatingOn && !floorOn)) {
+                setFloatingState?.(FloatState.ERROR, { error: classifyError(e) });
+            } else if (floorOn) {
+                setStateForMessage(lastIdx, FloatState.ERROR, { error: classifyError(e) });
+            }
+        } catch {}
     } finally {
         autoBusy = false;
     }
@@ -1970,6 +2088,8 @@ function createOverlay() {
     overlay.appendChild(backdrop);
     overlay.appendChild(frameWrap);
     document.body.appendChild(overlay);
+    // Guarded by isTrustedMessage (origin + source).
+    // eslint-disable-next-line no-restricted-syntax
     window.addEventListener('message', handleFrameMessage);
 }
 
@@ -1994,8 +2114,7 @@ async function sendInitData() {
     const stats = await getCacheStats();
     const settings = getSettings();
     const gallerySummary = await getGallerySummary();
-    iframe.contentWindow.postMessage({
-        source: 'LittleWhiteBox-NovelDraw',
+    postToIframe(iframe, {
         type: 'INIT_DATA',
         settings: {
             enabled: moduleInitialized,
@@ -2011,19 +2130,23 @@ async function sendInitData() {
             useWorldInfo: settings.useWorldInfo,
             characterTags: settings.characterTags,
             overrideSize: settings.overrideSize,
+            showFloorButton: settings.showFloorButton !== false,
+            showFloatingButton: settings.showFloatingButton === true,
         },
         cacheStats: stats,
         gallerySummary,
-    }, '*');
+    }, 'LittleWhiteBox-NovelDraw');
 }
 
 function postStatus(state, text) {
-    document.getElementById('xiaobaix-novel-draw-iframe')?.contentWindow?.postMessage({ source: 'LittleWhiteBox-NovelDraw', type: 'STATUS', state, text }, '*');
+    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+    if (iframe) postToIframe(iframe, { type: 'STATUS', state, text }, 'LittleWhiteBox-NovelDraw');
 }
 
 async function handleFrameMessage(event) {
+    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+    if (!isTrustedMessage(event, iframe, 'NovelDraw-Frame')) return;
     const data = event.data;
-    if (!data || data.source !== 'NovelDraw-Frame') return;
 
     switch (data.type) {
         case 'FRAME_READY':
@@ -2040,6 +2163,31 @@ async function handleFrameMessage(event) {
             s.mode = data.mode || s.mode;
             await saveSettingsAndToast(s, '已保存');
             import('./floating-panel.js').then(m => m.updateAutoModeUI?.());
+            break;
+        }
+
+        case 'SAVE_BUTTON_MODE': {
+            const s = getSettings();
+            if (typeof data.showFloorButton === 'boolean') s.showFloorButton = data.showFloorButton;
+            if (typeof data.showFloatingButton === 'boolean') s.showFloatingButton = data.showFloatingButton;
+            const ok = await saveSettingsAndToast(s, '已保存');
+            if (ok) {
+                try {
+                    const fp = await import('./floating-panel.js');
+                    fp.updateButtonVisibility?.(s.showFloorButton !== false, s.showFloatingButton === true);
+                } catch {}
+                if (s.showFloorButton !== false && typeof ensureNovelDrawPanelRef === 'function') {
+                    const context = getContext();
+                    const chat = context.chat || [];
+                    chat.forEach((message, messageId) => {
+                        if (!message || message.is_user) return;
+                        const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+                        if (!messageEl) return;
+                        ensureNovelDrawPanelRef?.(messageEl, messageId);
+                    });
+                }
+                sendInitData();
+            }
             break;
         }
 
@@ -2253,12 +2401,10 @@ async function handleFrameMessage(event) {
                 const charName = preview.characterName || getChatCharacterName();
                 const url = await saveBase64AsFile(preview.base64, charName, `novel_${data.imgId}`, 'png');
                 await updatePreviewSavedUrl(data.imgId, url);
-                document.getElementById('xiaobaix-novel-draw-iframe')?.contentWindow?.postMessage({
-                    source: 'LittleWhiteBox-NovelDraw',
-                    type: 'GALLERY_IMAGE_SAVED',
-                    imgId: data.imgId,
-                    savedUrl: url
-                }, '*');
+                {
+                    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                    if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_SAVED', imgId: data.imgId, savedUrl: url }, 'LittleWhiteBox-NovelDraw');
+                }
                 sendInitData();
                 showToast(`已保存: ${url}`, 'success', 5000);
             } catch (e) {
@@ -2273,12 +2419,10 @@ async function handleFrameMessage(event) {
                 const charName = data.charName;
                 if (!charName) break;
                 const slots = await getCharacterPreviews(charName);
-                document.getElementById('xiaobaix-novel-draw-iframe')?.contentWindow?.postMessage({
-                    source: 'LittleWhiteBox-NovelDraw',
-                    type: 'CHARACTER_PREVIEWS_LOADED',
-                    charName,
-                    slots
-                }, '*');
+                {
+                    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                    if (iframe) postToIframe(iframe, { type: 'CHARACTER_PREVIEWS_LOADED', charName, slots }, 'LittleWhiteBox-NovelDraw');
+                }
             } catch (e) {
                 console.error('[NovelDraw] 加载预览失败:', e);
             }
@@ -2288,11 +2432,10 @@ async function handleFrameMessage(event) {
         case 'DELETE_GALLERY_IMAGE': {
             try {
                 await deletePreview(data.imgId);
-                document.getElementById('xiaobaix-novel-draw-iframe')?.contentWindow?.postMessage({
-                    source: 'LittleWhiteBox-NovelDraw',
-                    type: 'GALLERY_IMAGE_DELETED',
-                    imgId: data.imgId
-                }, '*');
+                {
+                    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                    if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_DELETED', imgId: data.imgId }, 'LittleWhiteBox-NovelDraw');
+                }
                 sendInitData();
                 showToast('已删除');
             } catch (e) {
@@ -2330,11 +2473,10 @@ async function handleFrameMessage(event) {
                 const tags = (typeof data.tags === 'string' && data.tags.trim()) ? data.tags.trim() : '1girl, smile';
                 const scene = joinTags(preset?.positivePrefix, tags);
                 const base64 = await generateNovelImage({ scene, characterPrompts: [], negativePrompt: preset?.negativePrefix || '', params: preset?.params || {} });
-                document.getElementById('xiaobaix-novel-draw-iframe')?.contentWindow?.postMessage({
-                    source: 'LittleWhiteBox-NovelDraw',
-                    type: 'TEST_RESULT',
-                    url: `data:image/png;base64,${base64}`
-                }, '*');
+                {
+                    const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                    if (iframe) postToIframe(iframe, { type: 'TEST_RESULT', url: `data:image/png;base64,${base64}` }, 'LittleWhiteBox-NovelDraw');
+                }
                 postStatus('success', `完成 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
             } catch (e) {
                 postStatus('error', e?.message);
@@ -2353,6 +2495,22 @@ export async function openNovelDrawSettings() {
     showOverlay();
 }
 
+// eslint-disable-next-line no-unused-vars
+function renderExistingPanels() {
+    if (typeof ensureNovelDrawPanelRef !== 'function') return;
+    const context = getContext();
+    const chat = context.chat || [];
+    
+    chat.forEach((message, messageId) => {
+        if (!message || message.is_user) return;  // 跳过用户消息
+        
+        const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+        if (!messageEl) return;
+        
+        ensureNovelDrawPanelRef(messageEl, messageId);
+    });
+}
+
 export async function initNovelDraw() {
     if (window?.isXiaobaixEnabled === false) return;
 
@@ -2364,10 +2522,52 @@ export async function initNovelDraw() {
 
     setupEventDelegation();
     setupGenerateInterceptor();
-    openDB().then(() => { const s = getSettings(); clearExpiredCache(s.cacheDays || 3); });
+    openDB().then(() => { 
+        const s = getSettings(); 
+        clearExpiredCache(s.cacheDays || 3); 
+    });
 
-    const { createFloatingPanel } = await import('./floating-panel.js');
-    createFloatingPanel();
+    // ════════════════════════════════════════════════════════════════════
+    // 动态导入 floating-panel（避免循环依赖）
+    // ════════════════════════════════════════════════════════════════════
+    
+    const { ensureNovelDrawPanel: ensureNovelDrawPanelFn, initFloatingPanel } = await import('./floating-panel.js');
+    ensureNovelDrawPanelRef = ensureNovelDrawPanelFn;
+    initFloatingPanel?.();
+
+    // 为现有消息创建画图面板
+    const renderExistingPanels = () => {
+        const context = getContext();
+        const chat = context.chat || [];
+        
+        chat.forEach((message, messageId) => {
+            if (!message || message.is_user) return;
+            
+            const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+            if (!messageEl) return;
+            
+            ensureNovelDrawPanelRef?.(messageEl, messageId);
+        });
+    };
+
+    // ════════════════════════════════════════════════════════════════════
+    // 事件监听
+    // ════════════════════════════════════════════════════════════════════
+
+    // AI 消息渲染时创建画图按钮
+    events.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => {
+        const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
+        if (messageId === undefined) return;
+        
+        const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+        if (!messageEl) return;
+        
+        const context = getContext();
+        const message = context.chat?.[messageId];
+        if (message?.is_user) return;
+        
+        ensureNovelDrawPanelRef?.(messageEl, messageId);
+    });
 
     events.on(event_types.CHARACTER_MESSAGE_RENDERED, handleMessageRendered);
     events.on(event_types.USER_MESSAGE_RENDERED, handleMessageRendered);
@@ -2375,7 +2575,28 @@ export async function initNovelDraw() {
     events.on(event_types.MESSAGE_EDITED, handleMessageModified);
     events.on(event_types.MESSAGE_UPDATED, handleMessageModified);
     events.on(event_types.MESSAGE_SWIPED, handleMessageModified);
-    events.on(event_types.GENERATION_ENDED, async () => { try { await autoGenerateForLastAI(); } catch (e) { console.error('[NovelDraw]', e); } });
+    events.on(event_types.GENERATION_ENDED, async () => { 
+        try { 
+            await autoGenerateForLastAI(); 
+        } catch (e) { 
+            console.error('[NovelDraw]', e); 
+        } 
+    });
+
+    // 聊天切换时重新创建面板
+    events.on(event_types.CHAT_CHANGED, () => {
+        setTimeout(renderExistingPanels, 200);
+    });
+
+    // ════════════════════════════════════════════════════════════════════
+    // 初始渲染
+    // ════════════════════════════════════════════════════════════════════
+
+    renderExistingPanels();
+
+    // ════════════════════════════════════════════════════════════════════
+    // 全局 API
+    // ════════════════════════════════════════════════════════════════════
 
     window.xiaobaixNovelDraw = {
         getSettings,
@@ -2427,8 +2648,16 @@ export async function cleanupNovelDraw() {
     window.removeEventListener('message', handleFrameMessage);
     document.getElementById('xiaobaix-novel-draw-overlay')?.remove();
 
-    const { destroyFloatingPanel } = await import('./floating-panel.js');
-    destroyFloatingPanel();
+    // 动态导入并清理
+    try {
+        const { destroyFloatingPanel } = await import('./floating-panel.js');
+        destroyFloatingPanel();
+    } catch {}
+
+    try {
+        const { destroyAllLiveEffects } = await import('./image-live-effect.js');
+        destroyAllLiveEffects();
+    } catch {}
 
     delete window.xiaobaixNovelDraw;
     delete window._xbNovelEventsBound;

@@ -1,15 +1,18 @@
-// floating-panel.js
+﻿// floating-panel.js
+/**
+ * NovelDraw 画图按钮面板 - 支持楼层按钮和悬浮按钮双模式
+ */
 
-import { 
+import {
     openNovelDrawSettings,
     generateAndInsertImages,
     getSettings,
     saveSettings,
-    isModuleEnabled,
     findLastAIMessageId,
     classifyError,
-    ErrorType,
+    isGenerating,
 } from './novel-draw.js';
+import { registerToToolbar, removeFromToolbar } from '../../widgets/message-toolbar.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -28,7 +31,6 @@ const FloatState = {
     ERROR: 'error',
 };
 
-// 尺寸预设
 const SIZE_OPTIONS = [
     { value: 'default', label: '跟随预设', width: null, height: null },
     { value: '832x1216', label: '832 × 1216  竖图', width: 832, height: 1216 },
@@ -42,159 +44,101 @@ const SIZE_OPTIONS = [
 // 状态
 // ═══════════════════════════════════════════════════════════════════════════
 
-let floatEl = null;
-let dragState = null;
-let currentState = FloatState.IDLE;
-let currentResult = { success: 0, total: 0, error: null, startTime: 0 };
-let autoResetTimer = null;
-let cooldownRafId = null;
-let cooldownEndTime = 0;
+// 楼层按钮状态
+const panelMap = new Map();
+const pendingCallbacks = new Map();
+let floorObserver = null;
 
-let $cache = {};
+// 悬浮按钮状态
+let floatingEl = null;
+let floatingDragState = null;
+let floatingState = FloatState.IDLE;
+let floatingResult = { success: 0, total: 0, error: null, startTime: 0 };
+let floatingAutoResetTimer = null;
+let floatingCooldownRafId = null;
+let floatingCooldownEndTime = 0;
+let $floatingCache = {};
 
-function cacheDOM() {
-    if (!floatEl) return;
-    $cache = {
-        capsule: floatEl.querySelector('.nd-capsule'),
-        statusIcon: floatEl.querySelector('#nd-status-icon'),
-        statusText: floatEl.querySelector('#nd-status-text'),
-        detailResult: floatEl.querySelector('#nd-detail-result'),
-        detailErrorRow: floatEl.querySelector('#nd-detail-error-row'),
-        detailError: floatEl.querySelector('#nd-detail-error'),
-        detailTime: floatEl.querySelector('#nd-detail-time'),
-        presetSelect: floatEl.querySelector('#nd-preset-select'),
-        sizeSelect: floatEl.querySelector('#nd-size-select'),
-        autoToggle: floatEl.querySelector('#nd-auto-toggle'),
-    };
-}
+// 通用状态
+let stylesInjected = false;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 样式 - 精致简约
+// 样式 - 统一样式（楼层+悬浮共用）
 // ═══════════════════════════════════════════════════════════════════════════
 
 const STYLES = `
-/* ═══════════════════════════════════════════════════════════════════════════
-   设计令牌 (Design Tokens)
-   ═══════════════════════════════════════════════════════════════════════════ */
 :root {
-    /* 胶囊尺寸 */
-    --nd-w: 74px;
     --nd-h: 34px;
-    
-    /* 颜色系统 */
+    --nd-bg: rgba(0, 0, 0, 0.55);
     --nd-bg-solid: rgba(24, 24, 28, 0.98);
-    --nd-bg-card: rgba(0, 0, 0, 0.35);
-    --nd-bg-hover: rgba(255, 255, 255, 0.06);
+    --nd-bg-hover: rgba(0, 0, 0, 0.7);
     --nd-bg-active: rgba(255, 255, 255, 0.1);
-    
-    --nd-border-subtle: rgba(255, 255, 255, 0.08);
-    --nd-border-default: rgba(255, 255, 255, 0.12);
+    --nd-border: rgba(255, 255, 255, 0.08);
     --nd-border-hover: rgba(255, 255, 255, 0.2);
-    
-    --nd-text-primary: rgba(255, 255, 255, 0.92);
+    --nd-border-subtle: rgba(255, 255, 255, 0.08);
+    --nd-text-primary: rgba(255, 255, 255, 0.85);
     --nd-text-secondary: rgba(255, 255, 255, 0.65);
-    --nd-text-muted: rgba(255, 255, 255, 0.5);
-    
-    /* 语义色 */
-    --nd-accent: #d4a574;
+    --nd-text-muted: rgba(255, 255, 255, 0.45);
+    --nd-text-dim: rgba(255, 255, 255, 0.25);
     --nd-success: #3ecf8e;
     --nd-warning: #f0b429;
     --nd-error: #f87171;
     --nd-info: #60a5fa;
-    
-    /* 阴影 */
-    --nd-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
-    --nd-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
-    --nd-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
-    
-    /* 圆角 */
+    --nd-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
     --nd-radius-sm: 6px;
     --nd-radius-md: 10px;
     --nd-radius-lg: 14px;
-    --nd-radius-full: 9999px;
-    
-    /* 过渡 */
-    --nd-transition-fast: 0.15s ease;
-    --nd-transition-normal: 0.25s ease;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   悬浮容器
+   楼层按钮样式
    ═══════════════════════════════════════════════════════════════════════════ */
-.nd-float { 
-    position: fixed; 
-    z-index: 10000; 
+.nd-float {
+    position: relative;
     user-select: none;
-    will-change: transform;
-    contain: layout style;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   胶囊主体
-   ═══════════════════════════════════════════════════════════════════════════ */
 .nd-capsule {
-    width: var(--nd-w);
+    width: 74px;
     height: var(--nd-h);
-    background: var(--nd-bg-solid);
-    border: 1px solid var(--nd-border-default);
+    background: var(--nd-bg);
+    border: 1px solid var(--nd-border);
     border-radius: 17px;
-    box-shadow: var(--nd-shadow-md);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     position: relative;
     overflow: hidden;
-    transition: border-color var(--nd-transition-normal), 
-                box-shadow var(--nd-transition-normal),
-                background var(--nd-transition-normal);
-    touch-action: none;
-    cursor: grab;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
-.nd-capsule:active { cursor: grabbing; }
 
 .nd-float:hover .nd-capsule {
+    background: var(--nd-bg-hover);
     border-color: var(--nd-border-hover);
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
 }
 
-/* 状态边框 */
-.nd-float.working .nd-capsule { 
-    border-color: rgba(240, 180, 41, 0.5); 
-}
-.nd-float.cooldown .nd-capsule { 
-    border-color: rgba(96, 165, 250, 0.6); 
-    background: rgba(96, 165, 250, 0.06); 
-}
-.nd-float.success .nd-capsule { 
-    border-color: rgba(62, 207, 142, 0.6); 
-    background: rgba(62, 207, 142, 0.06); 
-}
-.nd-float.partial .nd-capsule { 
-    border-color: rgba(240, 180, 41, 0.6); 
-    background: rgba(240, 180, 41, 0.06); 
-}
-.nd-float.error .nd-capsule { 
-    border-color: rgba(248, 113, 113, 0.6); 
-    background: rgba(248, 113, 113, 0.06); 
+.nd-float.working .nd-capsule { border-color: rgba(240, 180, 41, 0.5); }
+.nd-float.cooldown .nd-capsule { border-color: rgba(96, 165, 250, 0.6); background: rgba(96, 165, 250, 0.1); }
+.nd-float.success .nd-capsule { border-color: rgba(62, 207, 142, 0.6); background: rgba(62, 207, 142, 0.1); }
+.nd-float.partial .nd-capsule { border-color: rgba(240, 180, 41, 0.6); background: rgba(240, 180, 41, 0.1); }
+.nd-float.error .nd-capsule { border-color: rgba(248, 113, 113, 0.6); background: rgba(248, 113, 113, 0.1); }
+
+.nd-inner {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    grid-template-areas: "s";
+    pointer-events: none;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   胶囊内层
-   ═══════════════════════════════════════════════════════════════════════════ */
-.nd-inner { 
-    display: grid; 
-    width: 100%; 
-    height: 100%; 
-    grid-template-areas: "s"; 
-    pointer-events: none; 
-}
-
-.nd-layer { 
-    grid-area: s; 
-    display: flex; 
-    align-items: center; 
-    width: 100%; 
-    height: 100%; 
-    transition: opacity 0.2s, transform 0.2s; 
-    pointer-events: auto; 
+.nd-layer {
+    grid-area: s;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: auto;
 }
 
 .nd-layer-idle { opacity: 1; transform: translateY(0); }
@@ -204,12 +148,11 @@ const STYLES = `
 .nd-float.success .nd-layer-idle,
 .nd-float.partial .nd-layer-idle,
 .nd-float.error .nd-layer-idle {
-    opacity: 0; 
-    transform: translateY(-100%); 
+    opacity: 0;
+    transform: translateY(-100%);
     pointer-events: none;
 }
 
-/* 绘制按钮 */
 .nd-btn-draw {
     flex: 1;
     height: 100%;
@@ -221,13 +164,12 @@ const STYLES = `
     justify-content: center;
     position: relative;
     color: var(--nd-text-primary);
-    transition: background var(--nd-transition-fast);
+    transition: background 0.15s;
     font-size: 16px;
 }
-.nd-btn-draw:hover { background: var(--nd-bg-hover); }
-.nd-btn-draw:active { background: var(--nd-bg-active); }
+.nd-btn-draw:hover { background: rgba(255, 255, 255, 0.12); }
+.nd-btn-draw:active { transform: scale(0.92); }
 
-/* 自动模式指示点 */
 .nd-auto-dot {
     position: absolute;
     top: 7px;
@@ -241,21 +183,12 @@ const STYLES = `
     transform: scale(0);
     transition: all 0.2s;
 }
-.nd-float.auto-on .nd-auto-dot { 
-    opacity: 1; 
-    transform: scale(1); 
-}
+.nd-float.auto-on .nd-auto-dot { opacity: 1; transform: scale(1); }
 
-/* 分隔线 */
-.nd-sep { 
-    width: 1px; 
-    height: 14px; 
-    background: var(--nd-border-subtle); 
-}
+.nd-sep { width: 1px; height: 12px; background: var(--nd-border); }
 
-/* 菜单按钮 */
 .nd-btn-menu {
-    width: 28px;
+    width: 24px;
     height: 100%;
     border: none;
     background: transparent;
@@ -263,21 +196,17 @@ const STYLES = `
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--nd-text-muted);
+    color: var(--nd-text-dim);
     font-size: 8px;
-    transition: all var(--nd-transition-fast);
+    opacity: 0.6;
+    transition: opacity 0.25s, transform 0.25s;
 }
-.nd-btn-menu:hover { 
-    background: var(--nd-bg-hover); 
-    color: var(--nd-text-secondary); 
-}
+.nd-float:hover .nd-btn-menu { opacity: 1; }
+.nd-btn-menu:hover { background: rgba(255, 255, 255, 0.12); color: var(--nd-text-muted); }
 
 .nd-arrow { transition: transform 0.2s; }
 .nd-float.expanded .nd-arrow { transform: rotate(180deg); }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   工作状态层
-   ═══════════════════════════════════════════════════════════════════════════ */
 .nd-layer-active {
     opacity: 0;
     transform: translateY(100%);
@@ -305,69 +234,42 @@ const STYLES = `
 .nd-float.partial .nd-layer-active { color: var(--nd-warning); }
 .nd-float.error .nd-layer-active { color: var(--nd-error); }
 
-.nd-spin { 
-    display: inline-block;
-    animation: nd-spin 1.5s linear infinite;
-    will-change: transform;
-}
+.nd-spin { display: inline-block; animation: nd-spin 1.5s linear infinite; }
 @keyframes nd-spin { to { transform: rotate(360deg); } }
 
-.nd-countdown { 
-    font-variant-numeric: tabular-nums; 
-    min-width: 36px;
-    text-align: center;
-}
+.nd-countdown { font-variant-numeric: tabular-nums; min-width: 36px; text-align: center; }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   详情气泡
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* 详情弹窗 - 向下展开（楼层按钮用） */
 .nd-detail {
     position: absolute;
-    bottom: calc(100% + 10px);
-    left: 50%;
-    transform: translateX(-50%) translateY(4px);
-    background: var(--nd-bg-solid);
-    border: 1px solid var(--nd-border-default);
-    border-radius: var(--nd-radius-md);
+    top: calc(100% + 8px);
+    right: 0;
+    background: rgba(18, 18, 22, 0.98);
+    border: 1px solid var(--nd-border);
+    border-radius: 12px;
     padding: 12px 16px;
     font-size: 12px;
     color: var(--nd-text-secondary);
     white-space: nowrap;
     box-shadow: var(--nd-shadow-lg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     opacity: 0;
     visibility: hidden;
-    transition: opacity var(--nd-transition-fast), transform var(--nd-transition-fast);
-    z-index: 10;
-}
-
-.nd-detail::after {
-    content: '';
-    position: absolute;
-    bottom: -6px;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: var(--nd-bg-solid);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 100;
+    transform: translateY(-6px) scale(0.96);
+    transform-origin: top right;
 }
 
 .nd-float.show-detail .nd-detail {
     opacity: 1;
     visibility: visible;
-    transform: translateX(-50%) translateY(0);
+    transform: translateY(0) scale(1);
 }
 
-.nd-detail-row { 
-    display: flex; 
-    align-items: center; 
-    gap: 10px; 
-    padding: 3px 0; 
-}
-.nd-detail-row + .nd-detail-row {
-    margin-top: 6px;
-    padding-top: 8px;
-    border-top: 1px solid var(--nd-border-subtle);
-}
-
+.nd-detail-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+.nd-detail-row + .nd-detail-row { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--nd-border-subtle); }
 .nd-detail-icon { opacity: 0.6; font-size: 13px; }
 .nd-detail-label { color: var(--nd-text-muted); }
 .nd-detail-value { margin-left: auto; font-weight: 600; color: var(--nd-text-primary); }
@@ -375,27 +277,25 @@ const STYLES = `
 .nd-detail-value.warning { color: var(--nd-warning); }
 .nd-detail-value.error { color: var(--nd-error); }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   菜单面板 - 核心重构
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* 菜单 - 向下展开（楼层按钮用） */
 .nd-menu {
     position: absolute;
-    bottom: calc(100% + 10px);
+    top: calc(100% + 8px);
     right: 0;
     width: 190px;
-    background: var(--nd-bg-solid);
-    border: 1px solid var(--nd-border-default);
-    border-radius: var(--nd-radius-lg);
+    background: rgba(18, 18, 22, 0.96);
+    border: 1px solid var(--nd-border);
+    border-radius: 12px;
     padding: 10px;
     box-shadow: var(--nd-shadow-lg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     opacity: 0;
     visibility: hidden;
-    transform: translateY(6px) scale(0.98);
-    transform-origin: bottom right;
-    transition: opacity var(--nd-transition-fast), 
-                transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), 
-                visibility var(--nd-transition-fast);
-    z-index: 5;
+    transform: translateY(-6px) scale(0.96);
+    transform-origin: top right;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 100;
 }
 
 .nd-float.expanded .nd-menu {
@@ -404,92 +304,60 @@ const STYLES = `
     transform: translateY(0) scale(1);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   参数卡片
-   ═══════════════════════════════════════════════════════════════════════════ */
 .nd-card {
-    background: var(--nd-bg-card);
-    border: 1px solid var(--nd-border-subtle);
-    border-radius: var(--nd-radius-md);
-    overflow: hidden;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
 }
 
 .nd-row {
     display: flex;
     align-items: center;
-    padding: 2px 0;
+    gap: 10px;
+    padding: 6px 2px;
+    min-height: 36px;
 }
 
-/* 标签 - 提升可读性 */
 .nd-label {
-    width: 36px;
-    padding-left: 10px;
-    font-size: 10px;
-    font-weight: 500;
+    font-size: 11px;
     color: var(--nd-text-muted);
-    letter-spacing: 0.2px;
+    width: 32px;
     flex-shrink: 0;
+    padding: 0;
 }
 
-/* 选择框 - 统一风格 */
 .nd-select {
     flex: 1;
     min-width: 0;
-    border: none;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--nd-border-subtle);
     color: var(--nd-text-primary);
-    font-size: 12px;
-    padding: 10px 8px;
+    font-size: 11px;
+    min-height: 32px;
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin: 0;
+    box-sizing: border-box;
     outline: none;
     cursor: pointer;
-    transition: color var(--nd-transition-fast);
     text-align: center;
     text-align-last: center;
-    margin: 0;
-    line-height: 1.2;
+    transition: border-color 0.2s;
+    vertical-align: middle;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
 }
+.nd-select:hover { border-color: rgba(255, 255, 255, 0.2); }
+.nd-select:focus { border-color: rgba(255, 255, 255, 0.3); }
+.nd-select option { background: #1a1a1e; color: #eee; text-align: left; }
+.nd-select.size { font-family: "SF Mono", "Menlo", "Consolas", monospace; font-size: 11px; }
 
-.nd-select:hover { color: #fff; }
-.nd-select:focus { color: #fff; }
+.nd-inner-sep { display: none; }
 
-.nd-select option {
-    background: #1a1a1e;
-    color: #eee;
-    padding: 8px;
-    text-align: left;
-}
+.nd-controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 
-/* 尺寸选择框 - 等宽字体，白色文字 */
-.nd-select.size {
-    font-family: "SF Mono", "Menlo", "Consolas", "Liberation Mono", monospace;
-    font-size: 11px;
-    letter-spacing: -0.2px;
-}
-
-/* 内部分隔线 */
-.nd-inner-sep {
-    height: 1px;
-    background: linear-gradient(
-        90deg, 
-        transparent 8px, 
-        var(--nd-border-subtle) 8px, 
-        var(--nd-border-subtle) calc(100% - 8px), 
-        transparent calc(100% - 8px)
-    );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   控制栏
-   ═══════════════════════════════════════════════════════════════════════════ */
-.nd-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-}
-
-/* 自动开关 */
 .nd-auto {
     flex: 1;
     display: flex;
@@ -500,18 +368,10 @@ const STYLES = `
     border: 1px solid var(--nd-border-subtle);
     border-radius: var(--nd-radius-sm);
     cursor: pointer;
-    transition: all var(--nd-transition-fast);
+    transition: all 0.15s;
 }
-
-.nd-auto:hover {
-    background: var(--nd-bg-hover);
-    border-color: var(--nd-border-default);
-}
-
-.nd-auto.on {
-    background: rgba(62, 207, 142, 0.08);
-    border-color: rgba(62, 207, 142, 0.3);
-}
+.nd-auto:hover { background: rgba(255, 255, 255, 0.08); }
+.nd-auto.on { background: rgba(62, 207, 142, 0.08); border-color: rgba(62, 207, 142, 0.3); }
 
 .nd-dot {
     width: 7px;
@@ -519,29 +379,13 @@ const STYLES = `
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.2);
     transition: all 0.2s;
-    flex-shrink: 0;
 }
+.nd-auto.on .nd-dot { background: var(--nd-success); box-shadow: 0 0 8px rgba(62, 207, 142, 0.5); }
 
-.nd-auto.on .nd-dot {
-    background: var(--nd-success);
-    box-shadow: 0 0 8px rgba(62, 207, 142, 0.5);
-}
+.nd-auto-text { font-size: 12px; color: var(--nd-text-muted); }
+.nd-auto:hover .nd-auto-text { color: var(--nd-text-secondary); }
+.nd-auto.on .nd-auto-text { color: rgba(62, 207, 142, 0.95); }
 
-.nd-auto-text {
-    font-size: 12px;
-    color: var(--nd-text-muted);
-    transition: color var(--nd-transition-fast);
-}
-
-.nd-auto:hover .nd-auto-text {
-    color: var(--nd-text-secondary);
-}
-
-.nd-auto.on .nd-auto-text {
-    color: rgba(62, 207, 142, 0.95);
-}
-
-/* 设置按钮 */
 .nd-gear {
     width: 36px;
     height: 36px;
@@ -554,23 +398,73 @@ const STYLES = `
     align-items: center;
     justify-content: center;
     font-size: 14px;
-    transition: all var(--nd-transition-fast);
-    flex-shrink: 0;
+    transition: all 0.15s;
+}
+.nd-gear:hover { background: rgba(255, 255, 255, 0.08); color: var(--nd-text-secondary); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   悬浮按钮样式（固定定位，可拖拽）
+   ═══════════════════════════════════════════════════════════════════════════ */
+.nd-floating-global {
+    position: fixed;
+    z-index: 10000;
+    user-select: none;
+    will-change: transform;
 }
 
-.nd-gear:hover {
-    background: var(--nd-bg-hover);
-    border-color: var(--nd-border-default);
-    color: var(--nd-text-secondary);
+.nd-floating-global .nd-capsule {
+    background: var(--nd-bg-solid);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    touch-action: none;
+    cursor: grab;
 }
 
-.nd-gear:active {
-    background: var(--nd-bg-active);
+.nd-floating-global .nd-capsule:active { cursor: grabbing; }
+
+/* 悬浮按钮的详情和菜单向上展开 */
+.nd-floating-global .nd-detail {
+    top: auto;
+    bottom: calc(100% + 10px);
+    transform: translateY(4px) scale(0.96);
+    transform-origin: bottom right;
 }
+
+.nd-floating-global.show-detail .nd-detail {
+    transform: translateY(0) scale(1);
+}
+
+.nd-floating-global .nd-detail::after {
+    content: '';
+    position: absolute;
+    top: auto;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: rgba(18, 18, 22, 0.98);
+    border-bottom-color: transparent;
+}
+
+.nd-floating-global .nd-menu {
+    top: auto;
+    bottom: calc(100% + 10px);
+    transform: translateY(6px) scale(0.98);
+    transform-origin: bottom right;
+}
+
+.nd-floating-global.expanded .nd-menu {
+    transform: translateY(0) scale(1);
+}
+
+/* 悬浮按钮箭头向上 */
+.nd-floating-global .nd-arrow { transform: rotate(180deg); }
+.nd-floating-global.expanded .nd-arrow { transform: rotate(0deg); }
 `;
 
 function injectStyles() {
-    if (document.getElementById('nd-float-styles')) return;
+    if (stylesInjected) return;
+    stylesInjected = true;
+
     const el = document.createElement('style');
     el.id = 'nd-float-styles';
     el.textContent = STYLES;
@@ -578,15 +472,535 @@ function injectStyles() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 位置管理
+// 通用工具函数
 // ═══════════════════════════════════════════════════════════════════════════
 
-function getPosition() {
+function createEl(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = text;
+    return el;
+}
+
+function fillPresetSelect(selectEl) {
+    if (!selectEl) return;
+    const settings = getSettings();
+    const presets = settings.paramsPresets || [];
+    const currentId = settings.selectedParamsPresetId;
+    selectEl.replaceChildren();
+    presets.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name || '未命名';
+        if (p.id === currentId) opt.selected = true;
+        selectEl.appendChild(opt);
+    });
+}
+
+function fillSizeSelect(selectEl) {
+    if (!selectEl) return;
+    const settings = getSettings();
+    const current = settings.overrideSize || 'default';
+    selectEl.replaceChildren();
+    SIZE_OPTIONS.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        if (opt.value === current) option.selected = true;
+        selectEl.appendChild(option);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ▼▼▼ 楼层按钮逻辑 ▼▼▼
+// ═══════════════════════════════════════════════════════════════════════════
+
+function createFloorPanelData(messageId) {
+    return {
+        messageId,
+        root: null,
+        state: FloatState.IDLE,
+        result: { success: 0, total: 0, error: null, startTime: 0 },
+        autoResetTimer: null,
+        cooldownRafId: null,
+        cooldownEndTime: 0,
+        $cache: {},
+        _cleanup: null,
+    };
+}
+
+function createFloorPanelElement(messageId) {
+    const settings = getSettings();
+    const isAuto = settings.mode === 'auto';
+
+    const root = document.createElement('div');
+    root.className = `nd-float${isAuto ? ' auto-on' : ''}`;
+    root.dataset.messageId = messageId;
+
+    const capsule = createEl('div', 'nd-capsule');
+    const inner = createEl('div', 'nd-inner');
+    const layerIdle = createEl('div', 'nd-layer nd-layer-idle');
+    const drawBtn = createEl('button', 'nd-btn-draw');
+    drawBtn.title = '点击生成配图';
+    drawBtn.appendChild(createEl('span', '', '🎨'));
+    drawBtn.appendChild(createEl('span', 'nd-auto-dot'));
+    const sep = createEl('div', 'nd-sep');
+    const menuBtn = createEl('button', 'nd-btn-menu');
+    menuBtn.title = '展开菜单';
+    menuBtn.appendChild(createEl('span', 'nd-arrow', '▼'));
+    layerIdle.append(drawBtn, sep, menuBtn);
+
+    const layerActive = createEl('div', 'nd-layer nd-layer-active');
+    layerActive.append(
+        createEl('span', 'nd-status-icon', '⏳'),
+        createEl('span', 'nd-status-text', '分析')
+    );
+
+    inner.append(layerIdle, layerActive);
+    capsule.appendChild(inner);
+
+    const detail = createEl('div', 'nd-detail');
+    const detailRowResult = createEl('div', 'nd-detail-row');
+    detailRowResult.append(
+        createEl('span', 'nd-detail-icon', '📊'),
+        createEl('span', 'nd-detail-label', '结果'),
+        createEl('span', 'nd-detail-value nd-result', '-')
+    );
+    const detailRowError = createEl('div', 'nd-detail-row nd-error-row');
+    detailRowError.style.display = 'none';
+    detailRowError.append(
+        createEl('span', 'nd-detail-icon', '💡'),
+        createEl('span', 'nd-detail-label', '原因'),
+        createEl('span', 'nd-detail-value error nd-error', '-')
+    );
+    const detailRowTime = createEl('div', 'nd-detail-row');
+    detailRowTime.append(
+        createEl('span', 'nd-detail-icon', '⏱'),
+        createEl('span', 'nd-detail-label', '耗时'),
+        createEl('span', 'nd-detail-value nd-time', '-')
+    );
+    detail.append(detailRowResult, detailRowError, detailRowTime);
+
+    const menu = createEl('div', 'nd-menu');
+    const card = createEl('div', 'nd-card');
+    const rowPreset = createEl('div', 'nd-row');
+    rowPreset.appendChild(createEl('span', 'nd-label', '预设'));
+    const presetSelect = createEl('select', 'nd-select nd-preset-select');
+    fillPresetSelect(presetSelect);
+    rowPreset.appendChild(presetSelect);
+    const innerSep = createEl('div', 'nd-inner-sep');
+    const rowSize = createEl('div', 'nd-row');
+    rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
+    const sizeSelect = createEl('select', 'nd-select size nd-size-select');
+    fillSizeSelect(sizeSelect);
+    rowSize.appendChild(sizeSelect);
+    card.append(rowPreset, innerSep, rowSize);
+
+    const controls = createEl('div', 'nd-controls');
+    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
+    autoToggle.append(
+        createEl('span', 'nd-dot'),
+        createEl('span', 'nd-auto-text', '自动配图')
+    );
+    const settingsBtn = createEl('button', 'nd-gear nd-settings-btn', '⚙');
+    settingsBtn.title = '打开设置';
+    controls.append(autoToggle, settingsBtn);
+
+    menu.append(card, controls);
+
+    root.append(capsule, detail, menu);
+    return root;
+}
+
+function cacheFloorDOM(panelData) {
+    const el = panelData.root;
+    if (!el) return;
+
+    panelData.$cache = {
+        statusIcon: el.querySelector('.nd-status-icon'),
+        statusText: el.querySelector('.nd-status-text'),
+        result: el.querySelector('.nd-result'),
+        errorRow: el.querySelector('.nd-error-row'),
+        error: el.querySelector('.nd-error'),
+        time: el.querySelector('.nd-time'),
+        presetSelect: el.querySelector('.nd-preset-select'),
+        sizeSelect: el.querySelector('.nd-size-select'),
+        autoToggle: el.querySelector('.nd-auto-toggle'),
+    };
+}
+
+function setFloorState(messageId, state, data = {}) {
+    const panelData = panelMap.get(messageId);
+    if (!panelData?.root) return;
+
+    const el = panelData.root;
+    panelData.state = state;
+
+    if (panelData.autoResetTimer) {
+        clearTimeout(panelData.autoResetTimer);
+        panelData.autoResetTimer = null;
+    }
+    if (state !== FloatState.COOLDOWN && panelData.cooldownRafId) {
+        cancelAnimationFrame(panelData.cooldownRafId);
+        panelData.cooldownRafId = null;
+        panelData.cooldownEndTime = 0;
+    }
+
+    el.classList.remove('working', 'cooldown', 'success', 'partial', 'error', 'show-detail');
+
+    const { statusIcon, statusText } = panelData.$cache;
+
+    switch (state) {
+        case FloatState.IDLE:
+            panelData.result = { success: 0, total: 0, error: null, startTime: 0 };
+            break;
+        case FloatState.LLM:
+            el.classList.add('working');
+            panelData.result.startTime = Date.now();
+            if (statusIcon) { statusIcon.textContent = '⏳'; statusIcon.className = 'nd-status-icon nd-spin'; }
+            if (statusText) statusText.textContent = '分析';
+            break;
+        case FloatState.GEN:
+            el.classList.add('working');
+            if (statusIcon) { statusIcon.textContent = '🎨'; statusIcon.className = 'nd-status-icon nd-spin'; }
+            if (statusText) statusText.textContent = `${data.current || 0}/${data.total || 0}`;
+            panelData.result.total = data.total || 0;
+            break;
+        case FloatState.COOLDOWN:
+            el.classList.add('cooldown');
+            if (statusIcon) { statusIcon.textContent = '⏳'; statusIcon.className = 'nd-status-icon nd-spin'; }
+            startFloorCooldownTimer(panelData, data.duration);
+            break;
+        case FloatState.SUCCESS:
+            el.classList.add('success');
+            if (statusIcon) { statusIcon.textContent = '✓'; statusIcon.className = 'nd-status-icon'; }
+            if (statusText) statusText.textContent = `${data.success}/${data.total}`;
+            panelData.result.success = data.success;
+            panelData.result.total = data.total;
+            panelData.autoResetTimer = setTimeout(() => setFloorState(messageId, FloatState.IDLE), AUTO_RESET_DELAY);
+            break;
+        case FloatState.PARTIAL:
+            el.classList.add('partial');
+            if (statusIcon) { statusIcon.textContent = '⚠'; statusIcon.className = 'nd-status-icon'; }
+            if (statusText) statusText.textContent = `${data.success}/${data.total}`;
+            panelData.result.success = data.success;
+            panelData.result.total = data.total;
+            panelData.autoResetTimer = setTimeout(() => setFloorState(messageId, FloatState.IDLE), AUTO_RESET_DELAY);
+            break;
+        case FloatState.ERROR:
+            el.classList.add('error');
+            if (statusIcon) { statusIcon.textContent = '✗'; statusIcon.className = 'nd-status-icon'; }
+            if (statusText) statusText.textContent = data.error?.label || '错误';
+            panelData.result.error = data.error;
+            panelData.autoResetTimer = setTimeout(() => setFloorState(messageId, FloatState.IDLE), AUTO_RESET_DELAY);
+            break;
+    }
+}
+
+function startFloorCooldownTimer(panelData, duration) {
+    panelData.cooldownEndTime = Date.now() + duration;
+
+    function tick() {
+        if (!panelData.cooldownEndTime) return;
+        const remaining = Math.max(0, panelData.cooldownEndTime - Date.now());
+        const statusText = panelData.$cache?.statusText;
+        if (statusText) {
+            statusText.textContent = `${(remaining / 1000).toFixed(1)}s`;
+            statusText.className = 'nd-status-text nd-countdown';
+        }
+        if (remaining <= 0) {
+            panelData.cooldownRafId = null;
+            panelData.cooldownEndTime = 0;
+            return;
+        }
+        panelData.cooldownRafId = requestAnimationFrame(tick);
+    }
+
+    panelData.cooldownRafId = requestAnimationFrame(tick);
+}
+
+function updateFloorDetailPopup(messageId) {
+    const panelData = panelMap.get(messageId);
+    if (!panelData?.root) return;
+
+    const { result: resultEl, errorRow, error: errorEl, time: timeEl } = panelData.$cache;
+    const { result, state } = panelData;
+
+    const elapsed = result.startTime
+        ? ((Date.now() - result.startTime) / 1000).toFixed(1)
+        : '-';
+
+    if (state === FloatState.SUCCESS || state === FloatState.PARTIAL) {
+        if (resultEl) {
+            resultEl.textContent = `${result.success}/${result.total} 成功`;
+            resultEl.className = `nd-detail-value ${state === FloatState.SUCCESS ? 'success' : 'warning'}`;
+        }
+        if (errorRow) errorRow.style.display = state === FloatState.PARTIAL ? 'flex' : 'none';
+        if (errorEl && state === FloatState.PARTIAL) {
+            errorEl.textContent = `${result.total - result.success} 张失败`;
+        }
+    } else if (state === FloatState.ERROR) {
+        if (resultEl) {
+            resultEl.textContent = '生成失败';
+            resultEl.className = 'nd-detail-value error';
+        }
+        if (errorRow) errorRow.style.display = 'flex';
+        if (errorEl) errorEl.textContent = result.error?.desc || '未知错误';
+    }
+
+    if (timeEl) timeEl.textContent = `${elapsed}s`;
+}
+
+async function handleFloorDrawClick(messageId) {
+    const panelData = panelMap.get(messageId);
+    if (!panelData || panelData.state !== FloatState.IDLE) return;
+
+    if (isGenerating()) {
+        toastr?.info?.('已有任务进行中，请等待完成');
+        return;
+    }
+
+    try {
+        await generateAndInsertImages({
+            messageId,
+            onStateChange: (state, data) => {
+                switch (state) {
+                    case 'llm': setFloorState(messageId, FloatState.LLM); break;
+                    case 'gen': setFloorState(messageId, FloatState.GEN, data); break;
+                    case 'progress': setFloorState(messageId, FloatState.GEN, data); break;
+                    case 'cooldown': setFloorState(messageId, FloatState.COOLDOWN, data); break;
+                    case 'success':
+                        if (data.aborted && data.success === 0) {
+                            setFloorState(messageId, FloatState.IDLE);
+                        } else if (data.aborted || data.success < data.total) {
+                            setFloorState(messageId, FloatState.PARTIAL, data);
+                        } else {
+                            setFloorState(messageId, FloatState.SUCCESS, data);
+                        }
+                        break;
+                }
+            }
+        });
+    } catch (e) {
+        console.error('[NovelDraw]', e);
+        if (e.message === '已取消' || e.message?.includes('已有任务进行中')) {
+            setFloorState(messageId, FloatState.IDLE);
+            if (e.message?.includes('已有任务进行中')) toastr?.info?.(e.message);
+        } else {
+            setFloorState(messageId, FloatState.ERROR, { error: classifyError(e) });
+        }
+    }
+}
+
+async function handleFloorAbort(messageId) {
+    try {
+        const { abortGeneration } = await import('./novel-draw.js');
+        if (abortGeneration()) {
+            setFloorState(messageId, FloatState.IDLE);
+            toastr?.info?.('已中止');
+        }
+    } catch (e) {
+        console.error('[NovelDraw] 中止失败:', e);
+    }
+}
+
+function bindFloorPanelEvents(panelData) {
+    const { messageId, root: el } = panelData;
+
+    el.querySelector('.nd-btn-draw')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleFloorDrawClick(messageId);
+    });
+
+    el.querySelector('.nd-btn-menu')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        el.classList.remove('show-detail');
+        if (!el.classList.contains('expanded')) {
+            refreshFloorPresetSelect(messageId);
+            refreshFloorSizeSelect(messageId);
+        }
+        el.classList.toggle('expanded');
+    });
+
+    el.querySelector('.nd-layer-active')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const state = panelData.state;
+        if ([FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(state)) {
+            handleFloorAbort(messageId);
+        } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(state)) {
+            updateFloorDetailPopup(messageId);
+            el.classList.toggle('show-detail');
+        }
+    });
+
+    panelData.$cache.presetSelect?.addEventListener('change', (e) => {
+        const settings = getSettings();
+        settings.selectedParamsPresetId = e.target.value;
+        saveSettings(settings);
+        updateAllPresetSelects();
+    });
+
+    panelData.$cache.sizeSelect?.addEventListener('change', (e) => {
+        const settings = getSettings();
+        settings.overrideSize = e.target.value;
+        saveSettings(settings);
+        updateAllSizeSelects();
+    });
+
+    panelData.$cache.autoToggle?.addEventListener('click', () => {
+        const settings = getSettings();
+        settings.mode = settings.mode === 'auto' ? 'manual' : 'auto';
+        saveSettings(settings);
+        updateAutoModeUI();
+    });
+
+    el.querySelector('.nd-settings-btn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        el.classList.remove('expanded');
+        openNovelDrawSettings();
+    });
+
+    const closeMenu = (e) => {
+        if (!el.contains(e.target)) {
+            el.classList.remove('expanded', 'show-detail');
+        }
+    };
+    document.addEventListener('click', closeMenu, { passive: true });
+
+    panelData._cleanup = () => {
+        document.removeEventListener('click', closeMenu);
+    };
+}
+
+function refreshFloorPresetSelect(messageId) {
+    const data = panelMap.get(messageId);
+    const select = data?.$cache?.presetSelect;
+    fillPresetSelect(select);
+}
+
+function refreshFloorSizeSelect(messageId) {
+    const data = panelMap.get(messageId);
+    const select = data?.$cache?.sizeSelect;
+    fillSizeSelect(select);
+}
+
+function mountFloorPanel(messageEl, messageId) {
+    if (panelMap.has(messageId)) {
+        const existing = panelMap.get(messageId);
+        if (existing.root?.isConnected) return existing;
+        existing._cleanup?.();
+        panelMap.delete(messageId);
+    }
+
+    injectStyles();
+
+    const panelData = createFloorPanelData(messageId);
+    const panel = createFloorPanelElement(messageId);
+    panelData.root = panel;
+
+    const success = registerToToolbar(messageId, panel, {
+        position: 'right',
+        id: `novel-draw-${messageId}`
+    });
+
+    if (!success) return null;
+
+    cacheFloorDOM(panelData);
+    bindFloorPanelEvents(panelData);
+
+    panelMap.set(messageId, panelData);
+    return panelData;
+}
+
+function setupFloorObserver() {
+    if (floorObserver) return;
+
+    floorObserver = new IntersectionObserver((entries) => {
+        const toMount = [];
+
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+
+            const el = entry.target;
+            const mid = Number(el.getAttribute('mesid'));
+
+            if (pendingCallbacks.has(mid)) {
+                toMount.push({ el, mid });
+                pendingCallbacks.delete(mid);
+                floorObserver.unobserve(el);
+            }
+        }
+
+        if (toMount.length > 0) {
+            requestAnimationFrame(() => {
+                for (const { el, mid } of toMount) {
+                    mountFloorPanel(el, mid);
+                }
+            });
+        }
+    }, { rootMargin: '300px' });
+}
+
+export function ensureNovelDrawPanel(messageEl, messageId, options = {}) {
+    const settings = getSettings();
+    if (settings.showFloorButton === false) return null;
+
+    const { force = false } = options;
+
+    injectStyles();
+
+    if (panelMap.has(messageId)) {
+        const existing = panelMap.get(messageId);
+        if (existing.root?.isConnected) return existing;
+        existing._cleanup?.();
+        panelMap.delete(messageId);
+    }
+
+    if (force) {
+        return mountFloorPanel(messageEl, messageId);
+    }
+
+    const rect = messageEl.getBoundingClientRect();
+    if (rect.top < window.innerHeight + 500 && rect.bottom > -500) {
+        return mountFloorPanel(messageEl, messageId);
+    }
+
+    setupFloorObserver();
+    pendingCallbacks.set(messageId, true);
+    floorObserver.observe(messageEl);
+
+    return null;
+}
+
+export function setStateForMessage(messageId, state, data = {}) {
+    let panelData = panelMap.get(messageId);
+
+    if (!panelData?.root?.isConnected) {
+        const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+        if (messageEl) {
+            panelData = ensureNovelDrawPanel(messageEl, messageId, { force: true });
+        }
+    }
+
+    if (panelData) {
+        setFloorState(messageId, state, data);
+    }
+
+    if (floatingEl && messageId === findLastAIMessageId()) {
+        setFloatingState(state, data);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ▼▼▼ 悬浮按钮逻辑 ▼▼▼
+// ═══════════════════════════════════════════════════════════════════════════
+
+function getFloatingPosition() {
     try {
         const raw = localStorage.getItem(FLOAT_POS_KEY);
         if (raw) return JSON.parse(raw);
     } catch {}
-    
+
     const debug = document.getElementById('xiaobaix-debug-mini');
     if (debug) {
         const r = debug.getBoundingClientRect();
@@ -595,276 +1009,255 @@ function getPosition() {
     return { left: window.innerWidth - 110, top: window.innerHeight - 80 };
 }
 
-function savePosition() {
-    if (!floatEl) return;
-    const r = floatEl.getBoundingClientRect();
+function saveFloatingPosition() {
+    if (!floatingEl) return;
+    const r = floatingEl.getBoundingClientRect();
     try {
-        localStorage.setItem(FLOAT_POS_KEY, JSON.stringify({ 
-            left: Math.round(r.left), 
-            top: Math.round(r.top) 
+        localStorage.setItem(FLOAT_POS_KEY, JSON.stringify({
+            left: Math.round(r.left),
+            top: Math.round(r.top)
         }));
     } catch {}
 }
 
-function applyPosition() {
-    if (!floatEl) return;
-    const pos = getPosition();
-    const w = floatEl.offsetWidth || 77;
-    const h = floatEl.offsetHeight || 34;
-    floatEl.style.left = `${Math.max(0, Math.min(pos.left, window.innerWidth - w))}px`;
-    floatEl.style.top = `${Math.max(0, Math.min(pos.top, window.innerHeight - h))}px`;
+function applyFloatingPosition() {
+    if (!floatingEl) return;
+    const pos = getFloatingPosition();
+    const w = floatingEl.offsetWidth || 77;
+    const h = floatingEl.offsetHeight || 34;
+    floatingEl.style.left = `${Math.max(0, Math.min(pos.left, window.innerWidth - w))}px`;
+    floatingEl.style.top = `${Math.max(0, Math.min(pos.top, window.innerHeight - h))}px`;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 倒计时
-// ═══════════════════════════════════════════════════════════════════════════
-
-function clearCooldownTimer() {
-    if (cooldownRafId) {
-        cancelAnimationFrame(cooldownRafId);
-        cooldownRafId = null;
+function clearFloatingCooldownTimer() {
+    if (floatingCooldownRafId) {
+        cancelAnimationFrame(floatingCooldownRafId);
+        floatingCooldownRafId = null;
     }
-    cooldownEndTime = 0;
+    floatingCooldownEndTime = 0;
 }
 
-function startCooldownTimer(duration) {
-    clearCooldownTimer();
-    cooldownEndTime = Date.now() + duration;
-    
+function startFloatingCooldownTimer(duration) {
+    clearFloatingCooldownTimer();
+    floatingCooldownEndTime = Date.now() + duration;
+
     function tick() {
-        if (!cooldownEndTime) return;
-        updateCooldownDisplay();
-        const remaining = cooldownEndTime - Date.now();
-        if (remaining <= -100) {
-            clearCooldownTimer();
+        if (!floatingCooldownEndTime) return;
+        const remaining = Math.max(0, floatingCooldownEndTime - Date.now());
+        const statusText = $floatingCache.statusText;
+        if (statusText) {
+            statusText.textContent = `${(remaining / 1000).toFixed(1)}s`;
+            statusText.className = 'nd-status-text nd-countdown';
+        }
+        if (remaining <= 0) {
+            clearFloatingCooldownTimer();
             return;
         }
-        cooldownRafId = requestAnimationFrame(tick);
+        floatingCooldownRafId = requestAnimationFrame(tick);
     }
-    
-    cooldownRafId = requestAnimationFrame(tick);
+
+    floatingCooldownRafId = requestAnimationFrame(tick);
 }
 
-function updateCooldownDisplay() {
-    const { statusText } = $cache;
-    if (!statusText) return;
-    const remaining = Math.max(0, cooldownEndTime - Date.now());
-    const seconds = (remaining / 1000).toFixed(1);
-    statusText.textContent = `${seconds}s`;
-    statusText.className = 'nd-countdown';
-}
+function setFloatingState(state, data = {}) {
+    if (!floatingEl) return;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 状态管理
-// ═══════════════════════════════════════════════════════════════════════════
+    floatingState = state;
 
-const STATE_CONFIG = {
-    [FloatState.IDLE]: { cls: '', icon: '', text: '', spinning: false },
-    [FloatState.LLM]: { cls: 'working', icon: '⏳', text: '分析', spinning: true },
-    [FloatState.GEN]: { cls: 'working', icon: '🎨', text: '', spinning: true },
-    [FloatState.COOLDOWN]: { cls: 'cooldown', icon: '⏳', text: '', spinning: true },
-    [FloatState.SUCCESS]: { cls: 'success', icon: '✓', text: '', spinning: false },
-    [FloatState.PARTIAL]: { cls: 'partial', icon: '⚠', text: '', spinning: false },
-    [FloatState.ERROR]: { cls: 'error', icon: '✗', text: '', spinning: false },
-};
-
-function setState(state, data = {}) {
-    if (!floatEl) return;
-    
-    currentState = state;
-    
-    if (autoResetTimer) {
-        clearTimeout(autoResetTimer);
-        autoResetTimer = null;
+    if (floatingAutoResetTimer) {
+        clearTimeout(floatingAutoResetTimer);
+        floatingAutoResetTimer = null;
     }
-    
+
     if (state !== FloatState.COOLDOWN) {
-        clearCooldownTimer();
+        clearFloatingCooldownTimer();
     }
-    
-    floatEl.classList.remove('working', 'cooldown', 'success', 'partial', 'error', 'show-detail');
-    
-    const cfg = STATE_CONFIG[state];
-    if (cfg.cls) floatEl.classList.add(cfg.cls);
-    
-    const { statusIcon, statusText } = $cache;
+
+    floatingEl.classList.remove('working', 'cooldown', 'success', 'partial', 'error', 'show-detail');
+
+    const { statusIcon, statusText } = $floatingCache;
     if (!statusIcon || !statusText) return;
-    
-    statusIcon.textContent = cfg.icon;
-    statusIcon.className = cfg.spinning ? 'nd-spin' : '';
-    statusText.className = '';
-    
+
     switch (state) {
         case FloatState.IDLE:
-            currentResult = { success: 0, total: 0, error: null, startTime: 0 };
+            floatingResult = { success: 0, total: 0, error: null, startTime: 0 };
             break;
         case FloatState.LLM:
-            currentResult.startTime = Date.now();
-            statusText.textContent = cfg.text;
+            floatingEl.classList.add('working');
+            floatingResult.startTime = Date.now();
+            statusIcon.textContent = '⏳';
+            statusIcon.className = 'nd-status-icon nd-spin';
+            statusText.textContent = '分析';
             break;
         case FloatState.GEN:
+            floatingEl.classList.add('working');
+            statusIcon.textContent = '🎨';
+            statusIcon.className = 'nd-status-icon nd-spin';
             statusText.textContent = `${data.current || 0}/${data.total || 0}`;
-            currentResult.total = data.total || 0;
+            floatingResult.total = data.total || 0;
             break;
         case FloatState.COOLDOWN:
-            startCooldownTimer(data.duration);
+            floatingEl.classList.add('cooldown');
+            statusIcon.textContent = '⏳';
+            statusIcon.className = 'nd-status-icon nd-spin';
+            startFloatingCooldownTimer(data.duration);
             break;
         case FloatState.SUCCESS:
-        case FloatState.PARTIAL:
+            floatingEl.classList.add('success');
+            statusIcon.textContent = '✓';
+            statusIcon.className = 'nd-status-icon';
             statusText.textContent = `${data.success}/${data.total}`;
-            currentResult.success = data.success;
-            currentResult.total = data.total;
-            autoResetTimer = setTimeout(() => setState(FloatState.IDLE), AUTO_RESET_DELAY);
+            floatingResult.success = data.success;
+            floatingResult.total = data.total;
+            floatingAutoResetTimer = setTimeout(() => setFloatingState(FloatState.IDLE), AUTO_RESET_DELAY);
+            break;
+        case FloatState.PARTIAL:
+            floatingEl.classList.add('partial');
+            statusIcon.textContent = '⚠';
+            statusIcon.className = 'nd-status-icon';
+            statusText.textContent = `${data.success}/${data.total}`;
+            floatingResult.success = data.success;
+            floatingResult.total = data.total;
+            floatingAutoResetTimer = setTimeout(() => setFloatingState(FloatState.IDLE), AUTO_RESET_DELAY);
             break;
         case FloatState.ERROR:
+            floatingEl.classList.add('error');
+            statusIcon.textContent = '✗';
+            statusIcon.className = 'nd-status-icon';
             statusText.textContent = data.error?.label || '错误';
-            currentResult.error = data.error;
-            autoResetTimer = setTimeout(() => setState(FloatState.IDLE), AUTO_RESET_DELAY);
+            floatingResult.error = data.error;
+            floatingAutoResetTimer = setTimeout(() => setFloatingState(FloatState.IDLE), AUTO_RESET_DELAY);
             break;
     }
 }
 
-function updateProgress(current, total) {
-    if (currentState !== FloatState.GEN || !$cache.statusText) return;
-    $cache.statusText.textContent = `${current}/${total}`;
-}
-
-function updateDetailPopup() {
-    const { detailResult, detailErrorRow, detailError, detailTime } = $cache;
+function updateFloatingDetailPopup() {
+    const { detailResult, detailErrorRow, detailError, detailTime } = $floatingCache;
     if (!detailResult) return;
-    
-    const elapsed = currentResult.startTime 
-        ? ((Date.now() - currentResult.startTime) / 1000).toFixed(1) 
+
+    const elapsed = floatingResult.startTime
+        ? ((Date.now() - floatingResult.startTime) / 1000).toFixed(1)
         : '-';
-    
-    const isSuccess = currentState === FloatState.SUCCESS;
-    const isPartial = currentState === FloatState.PARTIAL;
-    const isError = currentState === FloatState.ERROR;
-    
-    if (isSuccess || isPartial) {
-        detailResult.textContent = `${currentResult.success}/${currentResult.total} 成功`;
-        detailResult.className = `nd-detail-value ${isSuccess ? 'success' : 'warning'}`;
-        detailErrorRow.style.display = isPartial ? 'flex' : 'none';
-        if (isPartial) detailError.textContent = `${currentResult.total - currentResult.success} 张失败`;
-    } else if (isError) {
+
+    if (floatingState === FloatState.SUCCESS || floatingState === FloatState.PARTIAL) {
+        detailResult.textContent = `${floatingResult.success}/${floatingResult.total} 成功`;
+        detailResult.className = `nd-detail-value ${floatingState === FloatState.SUCCESS ? 'success' : 'warning'}`;
+        detailErrorRow.style.display = floatingState === FloatState.PARTIAL ? 'flex' : 'none';
+        if (floatingState === FloatState.PARTIAL) {
+            detailError.textContent = `${floatingResult.total - floatingResult.success} 张失败`;
+        }
+    } else if (floatingState === FloatState.ERROR) {
         detailResult.textContent = '生成失败';
         detailResult.className = 'nd-detail-value error';
         detailErrorRow.style.display = 'flex';
-        detailError.textContent = currentResult.error?.desc || '未知错误';
+        detailError.textContent = floatingResult.error?.desc || '未知错误';
     }
-    
+
     detailTime.textContent = `${elapsed}s`;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 拖拽与点击
-// ═══════════════════════════════════════════════════════════════════════════
-
-function onPointerDown(e) {
+function onFloatingPointerDown(e) {
     if (e.button !== 0) return;
-    
-    dragState = {
+
+    floatingDragState = {
         startX: e.clientX,
         startY: e.clientY,
-        startLeft: floatEl.getBoundingClientRect().left,
-        startTop: floatEl.getBoundingClientRect().top,
+        startLeft: floatingEl.getBoundingClientRect().left,
+        startTop: floatingEl.getBoundingClientRect().top,
         pointerId: e.pointerId,
         moved: false,
         originalTarget: e.target
     };
-    
+
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
     e.preventDefault();
 }
 
-function onPointerMove(e) {
-    if (!dragState || dragState.pointerId !== e.pointerId) return;
-    
-    const dx = e.clientX - dragState.startX;
-    const dy = e.clientY - dragState.startY;
-    
-    if (!dragState.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
-        dragState.moved = true;
+function onFloatingPointerMove(e) {
+    if (!floatingDragState || floatingDragState.pointerId !== e.pointerId) return;
+
+    const dx = e.clientX - floatingDragState.startX;
+    const dy = e.clientY - floatingDragState.startY;
+
+    if (!floatingDragState.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        floatingDragState.moved = true;
     }
-    
-    if (dragState.moved) {
-        const w = floatEl.offsetWidth || 88;
-        const h = floatEl.offsetHeight || 36;
-        floatEl.style.left = `${Math.max(0, Math.min(dragState.startLeft + dx, window.innerWidth - w))}px`;
-        floatEl.style.top = `${Math.max(0, Math.min(dragState.startTop + dy, window.innerHeight - h))}px`;
+
+    if (floatingDragState.moved) {
+        const w = floatingEl.offsetWidth || 88;
+        const h = floatingEl.offsetHeight || 36;
+        floatingEl.style.left = `${Math.max(0, Math.min(floatingDragState.startLeft + dx, window.innerWidth - w))}px`;
+        floatingEl.style.top = `${Math.max(0, Math.min(floatingDragState.startTop + dy, window.innerHeight - h))}px`;
     }
-    
+
     e.preventDefault();
 }
 
-function onPointerUp(e) {
-    if (!dragState || dragState.pointerId !== e.pointerId) return;
-    
-    const { moved, originalTarget } = dragState;
-    
+function onFloatingPointerUp(e) {
+    if (!floatingDragState || floatingDragState.pointerId !== e.pointerId) return;
+
+    const { moved, originalTarget } = floatingDragState;
+
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
-    dragState = null;
-    
+    floatingDragState = null;
+
     if (moved) {
-        savePosition();
+        saveFloatingPosition();
     } else {
-        routeClick(originalTarget);
+        routeFloatingClick(originalTarget);
     }
 }
 
-function routeClick(target) {
-    if (target.closest('#nd-btn-draw')) {
-        handleDrawClick();
-    } else if (target.closest('#nd-btn-menu')) {
-        floatEl.classList.remove('show-detail');
-        if (!floatEl.classList.contains('expanded')) {
-            refreshPresetSelect();
-            refreshSizeSelect();
+function routeFloatingClick(target) {
+    if (target.closest('.nd-btn-draw')) {
+        handleFloatingDrawClick();
+    } else if (target.closest('.nd-btn-menu')) {
+        floatingEl.classList.remove('show-detail');
+        if (!floatingEl.classList.contains('expanded')) {
+            refreshFloatingPresetSelect();
+            refreshFloatingSizeSelect();
         }
-        floatEl.classList.toggle('expanded');
-    } else if (target.closest('#nd-layer-active')) {
-
-        if ([FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(currentState)) {
-
-            handleAbort();
-        } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(currentState)) {
-
-            updateDetailPopup();
-            floatEl.classList.toggle('show-detail');
+        floatingEl.classList.toggle('expanded');
+    } else if (target.closest('.nd-layer-active')) {
+        if ([FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(floatingState)) {
+            handleFloatingAbort();
+        } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(floatingState)) {
+            updateFloatingDetailPopup();
+            floatingEl.classList.toggle('show-detail');
         }
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 核心操作
-// ═══════════════════════════════════════════════════════════════════════════
+async function handleFloatingDrawClick() {
+    if (floatingState !== FloatState.IDLE) return;
 
-async function handleDrawClick() {
-    if (currentState !== FloatState.IDLE) return;  // 非空闲状态不处理
-    
     const messageId = findLastAIMessageId();
     if (messageId < 0) {
         toastr?.warning?.('没有可配图的AI消息');
         return;
     }
-    
+
+    if (isGenerating()) {
+        toastr?.info?.('已有任务进行中，请等待完成');
+        return;
+    }
+
     try {
         await generateAndInsertImages({
             messageId,
             onStateChange: (state, data) => {
                 switch (state) {
-                    case 'llm': setState(FloatState.LLM); break;
-                    case 'gen': setState(FloatState.GEN, data); break;
-                    case 'progress': setState(FloatState.GEN, data); break;
-                    case 'cooldown': setState(FloatState.COOLDOWN, data); break;
+                    case 'llm': setFloatingState(FloatState.LLM); break;
+                    case 'gen': setFloatingState(FloatState.GEN, data); break;
+                    case 'progress': setFloatingState(FloatState.GEN, data); break;
+                    case 'cooldown': setFloatingState(FloatState.COOLDOWN, data); break;
                     case 'success':
-                        // ▼ 修改：中止时也显示结果
                         if (data.aborted && data.success === 0) {
-                            setState(FloatState.IDLE);
+                            setFloatingState(FloatState.IDLE);
                         } else if (data.aborted || data.success < data.total) {
-                            setState(FloatState.PARTIAL, data);
+                            setFloatingState(FloatState.PARTIAL, data);
                         } else {
-                            setState(FloatState.SUCCESS, data);
+                            setFloatingState(FloatState.SUCCESS, data);
                         }
                         break;
                 }
@@ -872,20 +1265,20 @@ async function handleDrawClick() {
         });
     } catch (e) {
         console.error('[NovelDraw]', e);
-        // ▼ 修改：中止不显示错误
-        if (e.message === '已取消') {
-            setState(FloatState.IDLE);
+        if (e.message === '已取消' || e.message?.includes('已有任务进行中')) {
+            setFloatingState(FloatState.IDLE);
+            if (e.message?.includes('已有任务进行中')) toastr?.info?.(e.message);
         } else {
-            setState(FloatState.ERROR, { error: classifyError(e) });
+            setFloatingState(FloatState.ERROR, { error: classifyError(e) });
         }
     }
 }
 
-async function handleAbort() {
+async function handleFloatingAbort() {
     try {
         const { abortGeneration } = await import('./novel-draw.js');
         if (abortGeneration()) {
-            setState(FloatState.IDLE);
+            setFloatingState(FloatState.IDLE);
             toastr?.info?.('已中止');
         }
     } catch (e) {
@@ -893,207 +1286,279 @@ async function handleAbort() {
     }
 }
 
+function refreshFloatingPresetSelect() {
+    fillPresetSelect($floatingCache.presetSelect);
+}
+
+function refreshFloatingSizeSelect() {
+    fillSizeSelect($floatingCache.sizeSelect);
+}
+
+function cacheFloatingDOM() {
+    if (!floatingEl) return;
+    $floatingCache = {
+        capsule: floatingEl.querySelector('.nd-capsule'),
+        statusIcon: floatingEl.querySelector('.nd-status-icon'),
+        statusText: floatingEl.querySelector('.nd-status-text'),
+        detailResult: floatingEl.querySelector('.nd-result'),
+        detailErrorRow: floatingEl.querySelector('.nd-error-row'),
+        detailError: floatingEl.querySelector('.nd-error'),
+        detailTime: floatingEl.querySelector('.nd-time'),
+        presetSelect: floatingEl.querySelector('.nd-preset-select'),
+        sizeSelect: floatingEl.querySelector('.nd-size-select'),
+        autoToggle: floatingEl.querySelector('.nd-auto-toggle'),
+    };
+}
+
+function handleFloatingOutsideClick(e) {
+    if (floatingEl && !floatingEl.contains(e.target)) {
+        floatingEl.classList.remove('expanded', 'show-detail');
+    }
+}
+
+function createFloatingButton() {
+    if (floatingEl) return;
+
+    const settings = getSettings();
+    if (settings.showFloatingButton !== true) return;
+
+    injectStyles();
+
+    const isAuto = settings.mode === 'auto';
+
+    floatingEl = document.createElement('div');
+    floatingEl.className = `nd-float nd-floating-global${isAuto ? ' auto-on' : ''}`;
+    floatingEl.id = 'nd-floating-global';
+
+    const detail = createEl('div', 'nd-detail');
+    const detailRowResult = createEl('div', 'nd-detail-row');
+    detailRowResult.append(
+        createEl('span', 'nd-detail-icon', '📊'),
+        createEl('span', 'nd-detail-label', '结果'),
+        createEl('span', 'nd-detail-value nd-result', '-')
+    );
+    const detailRowError = createEl('div', 'nd-detail-row nd-error-row');
+    detailRowError.style.display = 'none';
+    detailRowError.append(
+        createEl('span', 'nd-detail-icon', '💡'),
+        createEl('span', 'nd-detail-label', '原因'),
+        createEl('span', 'nd-detail-value error nd-error', '-')
+    );
+    const detailRowTime = createEl('div', 'nd-detail-row');
+    detailRowTime.append(
+        createEl('span', 'nd-detail-icon', '⏱'),
+        createEl('span', 'nd-detail-label', '耗时'),
+        createEl('span', 'nd-detail-value nd-time', '-')
+    );
+    detail.append(detailRowResult, detailRowError, detailRowTime);
+
+    const menu = createEl('div', 'nd-menu');
+    const card = createEl('div', 'nd-card');
+    const rowPreset = createEl('div', 'nd-row');
+    rowPreset.appendChild(createEl('span', 'nd-label', '预设'));
+    const presetSelect = createEl('select', 'nd-select nd-preset-select');
+    fillPresetSelect(presetSelect);
+    rowPreset.appendChild(presetSelect);
+    const innerSep = createEl('div', 'nd-inner-sep');
+    const rowSize = createEl('div', 'nd-row');
+    rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
+    const sizeSelect = createEl('select', 'nd-select size nd-size-select');
+    fillSizeSelect(sizeSelect);
+    rowSize.appendChild(sizeSelect);
+    card.append(rowPreset, innerSep, rowSize);
+
+    const controls = createEl('div', 'nd-controls');
+    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
+    autoToggle.append(
+        createEl('span', 'nd-dot'),
+        createEl('span', 'nd-auto-text', '自动配图')
+    );
+    const settingsBtn = createEl('button', 'nd-gear nd-settings-btn', '⚙');
+    settingsBtn.title = '打开设置';
+    controls.append(autoToggle, settingsBtn);
+    menu.append(card, controls);
+
+    const capsule = createEl('div', 'nd-capsule');
+    const inner = createEl('div', 'nd-inner');
+    const layerIdle = createEl('div', 'nd-layer nd-layer-idle');
+    const drawBtn = createEl('button', 'nd-btn-draw');
+    drawBtn.title = '点击为最后一条AI消息生成配图';
+    drawBtn.appendChild(createEl('span', '', '🎨'));
+    drawBtn.appendChild(createEl('span', 'nd-auto-dot'));
+    const sep = createEl('div', 'nd-sep');
+    const menuBtn = createEl('button', 'nd-btn-menu');
+    menuBtn.title = '展开菜单';
+    menuBtn.appendChild(createEl('span', 'nd-arrow', '▲'));
+    layerIdle.append(drawBtn, sep, menuBtn);
+    const layerActive = createEl('div', 'nd-layer nd-layer-active');
+    layerActive.append(
+        createEl('span', 'nd-status-icon', '⏳'),
+        createEl('span', 'nd-status-text', '分析')
+    );
+    inner.append(layerIdle, layerActive);
+    capsule.appendChild(inner);
+
+    floatingEl.append(detail, menu, capsule);
+
+    document.body.appendChild(floatingEl);
+    cacheFloatingDOM();
+    applyFloatingPosition();
+
+    const capsuleEl = $floatingCache.capsule;
+    if (capsuleEl) {
+        capsuleEl.addEventListener('pointerdown', onFloatingPointerDown, { passive: false });
+        capsuleEl.addEventListener('pointermove', onFloatingPointerMove, { passive: false });
+        capsuleEl.addEventListener('pointerup', onFloatingPointerUp, { passive: false });
+        capsuleEl.addEventListener('pointercancel', onFloatingPointerUp, { passive: false });
+    }
+
+    $floatingCache.presetSelect?.addEventListener('change', (e) => {
+        const settings = getSettings();
+        settings.selectedParamsPresetId = e.target.value;
+        saveSettings(settings);
+        updateAllPresetSelects();
+    });
+
+    $floatingCache.sizeSelect?.addEventListener('change', (e) => {
+        const settings = getSettings();
+        settings.overrideSize = e.target.value;
+        saveSettings(settings);
+        updateAllSizeSelects();
+    });
+
+    $floatingCache.autoToggle?.addEventListener('click', () => {
+        const settings = getSettings();
+        settings.mode = settings.mode === 'auto' ? 'manual' : 'auto';
+        saveSettings(settings);
+        updateAutoModeUI();
+    });
+
+    floatingEl.querySelector('.nd-settings-btn')?.addEventListener('click', () => {
+        floatingEl.classList.remove('expanded');
+        openNovelDrawSettings();
+    });
+
+    document.addEventListener('click', handleFloatingOutsideClick, { passive: true });
+    window.addEventListener('resize', applyFloatingPosition);
+}
+
+function destroyFloatingButton() {
+    clearFloatingCooldownTimer();
+
+    if (floatingAutoResetTimer) {
+        clearTimeout(floatingAutoResetTimer);
+        floatingAutoResetTimer = null;
+    }
+
+    window.removeEventListener('resize', applyFloatingPosition);
+    document.removeEventListener('click', handleFloatingOutsideClick);
+
+    floatingEl?.remove();
+    floatingEl = null;
+    floatingDragState = null;
+    floatingState = FloatState.IDLE;
+    $floatingCache = {};
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-// 预设与尺寸管理
+// 全局更新函数
 // ═══════════════════════════════════════════════════════════════════════════
 
-function buildPresetOptions() {
-    const settings = getSettings();
-    const presets = settings.paramsPresets || [];
-    const currentId = settings.selectedParamsPresetId;
-    return presets.map(p => 
-        `<option value="${p.id}"${p.id === currentId ? ' selected' : ''}>${p.name || '未命名'}</option>`
-    ).join('');
+function updateAllPresetSelects() {
+    panelMap.forEach((data) => {
+        fillPresetSelect(data.$cache?.presetSelect);
+    });
+    fillPresetSelect($floatingCache.presetSelect);
 }
 
-function buildSizeOptions() {
-    const settings = getSettings();
-    const current = settings.overrideSize || 'default';
-    return SIZE_OPTIONS.map(opt => 
-        `<option value="${opt.value}"${opt.value === current ? ' selected' : ''}>${opt.label}</option>`
-    ).join('');
-}
-
-function refreshPresetSelect() {
-    if (!$cache.presetSelect) return;
-    $cache.presetSelect.innerHTML = buildPresetOptions();
-}
-
-function refreshSizeSelect() {
-    if (!$cache.sizeSelect) return;
-    $cache.sizeSelect.innerHTML = buildSizeOptions();
-}
-
-function handlePresetChange(e) {
-    const presetId = e.target.value;
-    if (!presetId) return;
-    const settings = getSettings();
-    settings.selectedParamsPresetId = presetId;
-    saveSettings(settings);
-}
-
-function handleSizeChange(e) {
-    const value = e.target.value;
-    const settings = getSettings();
-    settings.overrideSize = value;
-    saveSettings(settings);
+function updateAllSizeSelects() {
+    panelMap.forEach((data) => {
+        fillSizeSelect(data.$cache?.sizeSelect);
+    });
+    fillSizeSelect($floatingCache.sizeSelect);
 }
 
 export function updateAutoModeUI() {
-    if (!floatEl) return;
     const isAuto = getSettings().mode === 'auto';
-    floatEl.classList.toggle('auto-on', isAuto);
-    $cache.autoToggle?.classList.toggle('on', isAuto);
-}
 
-function handleAutoToggle() {
-    const settings = getSettings();
-    settings.mode = settings.mode === 'auto' ? 'manual' : 'auto';
-    saveSettings(settings);
-    updateAutoModeUI();
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 创建与销毁
-// ═══════════════════════════════════════════════════════════════════════════
-
-export function createFloatingPanel() {
-    if (floatEl) return;
-    
-    injectStyles();
-    
-    const settings = getSettings();
-    const isAuto = settings.mode === 'auto';
-    
-    floatEl = document.createElement('div');
-    floatEl.className = `nd-float${isAuto ? ' auto-on' : ''}`;
-    floatEl.id = 'nd-floating-panel';
-    
-    floatEl.innerHTML = `
-        <!-- 详情气泡 -->
-        <div class="nd-detail">
-            <div class="nd-detail-row">
-                <span class="nd-detail-icon">📊</span>
-                <span class="nd-detail-label">结果</span>
-                <span class="nd-detail-value" id="nd-detail-result">-</span>
-            </div>
-            <div class="nd-detail-row" id="nd-detail-error-row" style="display:none">
-                <span class="nd-detail-icon">💡</span>
-                <span class="nd-detail-label">原因</span>
-                <span class="nd-detail-value error" id="nd-detail-error">-</span>
-            </div>
-            <div class="nd-detail-row">
-                <span class="nd-detail-icon">⏱</span>
-                <span class="nd-detail-label">耗时</span>
-                <span class="nd-detail-value" id="nd-detail-time">-</span>
-            </div>
-        </div>
-        
-        <!-- 菜单面板 -->
-        <div class="nd-menu">
-            <!-- 参数卡片 -->
-            <div class="nd-card">
-                <div class="nd-row">
-                    <span class="nd-label">预设</span>
-                    <select class="nd-select" id="nd-preset-select">
-                        ${buildPresetOptions()}
-                    </select>
-                </div>
-                <div class="nd-inner-sep"></div>
-                <div class="nd-row">
-                    <span class="nd-label">尺寸</span>
-                    <select class="nd-select size" id="nd-size-select">
-                        ${buildSizeOptions()}
-                    </select>
-                </div>
-            </div>
-            
-            <!-- 控制栏 -->
-            <div class="nd-controls">
-                <div class="nd-auto${isAuto ? ' on' : ''}" id="nd-auto-toggle">
-                    <span class="nd-dot"></span>
-                    <span class="nd-auto-text">自动配图</span>
-                </div>
-                <button class="nd-gear" id="nd-settings-btn" title="打开设置">⚙</button>
-            </div>
-        </div>
-        
-        <!-- 胶囊主体 -->
-        <div class="nd-capsule">
-            <div class="nd-inner">
-                <div class="nd-layer nd-layer-idle">
-                    <button class="nd-btn-draw" id="nd-btn-draw" title="点击生成配图">
-                        <span>🎨</span>
-                        <span class="nd-auto-dot"></span>
-                    </button>
-                    <div class="nd-sep"></div>
-                    <button class="nd-btn-menu" id="nd-btn-menu" title="展开菜单">
-                        <span class="nd-arrow">▲</span>
-                    </button>
-                </div>
-                <div class="nd-layer nd-layer-active" id="nd-layer-active">
-                    <span id="nd-status-icon">⏳</span>
-                    <span id="nd-status-text">分析</span>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(floatEl);
-    cacheDOM();
-    applyPosition();
-    bindEvents();
-    
-    window.addEventListener('resize', applyPosition);
-}
-
-function bindEvents() {
-    const capsule = $cache.capsule;
-    if (!capsule) return;
-    
-    capsule.addEventListener('pointerdown', onPointerDown, { passive: false });
-    capsule.addEventListener('pointermove', onPointerMove, { passive: false });
-    capsule.addEventListener('pointerup', onPointerUp, { passive: false });
-    capsule.addEventListener('pointercancel', onPointerUp, { passive: false });
-    
-    $cache.presetSelect?.addEventListener('change', handlePresetChange);
-    $cache.sizeSelect?.addEventListener('change', handleSizeChange);
-    $cache.autoToggle?.addEventListener('click', handleAutoToggle);
-    
-    floatEl.querySelector('#nd-settings-btn')?.addEventListener('click', () => {
-        floatEl.classList.remove('expanded');
-        openNovelDrawSettings();
+    panelMap.forEach((data) => {
+        if (!data.root) return;
+        data.root.classList.toggle('auto-on', isAuto);
+        data.$cache.autoToggle?.classList.toggle('on', isAuto);
     });
-    
-    document.addEventListener('click', handleOutsideClick, { passive: true });
+
+    if (floatingEl) {
+        floatingEl.classList.toggle('auto-on', isAuto);
+        $floatingCache.autoToggle?.classList.toggle('on', isAuto);
+    }
 }
 
-function handleOutsideClick(e) {
-    if (floatEl && !floatEl.contains(e.target)) {
-        floatEl.classList.remove('expanded', 'show-detail');
+export function refreshPresetSelectAll() {
+    updateAllPresetSelects();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 按钮显示控制
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function updateButtonVisibility(showFloor, showFloating) {
+    if (showFloating && !floatingEl) {
+        createFloatingButton();
+    } else if (!showFloating && floatingEl) {
+        destroyFloatingButton();
+    }
+
+    if (!showFloor) {
+        panelMap.forEach((data, messageId) => {
+            if (data.autoResetTimer) clearTimeout(data.autoResetTimer);
+            if (data.cooldownRafId) cancelAnimationFrame(data.cooldownRafId);
+            data._cleanup?.();
+            if (data.root) removeFromToolbar(messageId, data.root);
+        });
+        panelMap.clear();
+        pendingCallbacks.clear();
+        floorObserver?.disconnect();
+        floorObserver = null;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 初始化与清理
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function initFloatingPanel() {
+    const settings = getSettings();
+
+    if (settings.showFloatingButton === true) {
+        createFloatingButton();
     }
 }
 
 export function destroyFloatingPanel() {
-    clearCooldownTimer();
-    
-    if (autoResetTimer) {
-        clearTimeout(autoResetTimer);
-        autoResetTimer = null;
-    }
-    
-    window.removeEventListener('resize', applyPosition);
-    document.removeEventListener('click', handleOutsideClick);
-    
-    floatEl?.remove();
-    floatEl = null;
-    dragState = null;
-    currentState = FloatState.IDLE;
-    $cache = {};
+    panelMap.forEach((data, messageId) => {
+        if (data.autoResetTimer) clearTimeout(data.autoResetTimer);
+        if (data.cooldownRafId) cancelAnimationFrame(data.cooldownRafId);
+        data._cleanup?.();
+        if (data.root) removeFromToolbar(messageId, data.root);
+    });
+    panelMap.clear();
+    pendingCallbacks.clear();
+
+    floorObserver?.disconnect();
+    floorObserver = null;
+
+    destroyFloatingButton();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 导出
 // ═══════════════════════════════════════════════════════════════════════════
 
-export { FloatState, setState, updateProgress, refreshPresetSelect, SIZE_OPTIONS };
+export {
+    FloatState,
+    refreshPresetSelectAll as refreshPresetSelect,
+    SIZE_OPTIONS,
+    createFloatingButton,
+    destroyFloatingButton,
+    setFloatingState,
+};

@@ -482,7 +482,8 @@ class VariablesPanel {
 
   showAddForm(t){
     this.hideInlineForm();
-    const f=$(`#${t}-vm-add-form`).addClass('active'), ta=$(`#${t}-vm-value`);
+    $(`#${t}-vm-add-form`).addClass('active');
+    const ta = $(`#${t}-vm-value`);
     $(`#${t}-vm-name`).val('').attr('placeholder','变量名称').focus();
     ta.val('').attr('placeholder','变量值 (支持JSON格式)');
     if(!ta.data('auto-resize-bound')){ ta.on('input',()=>this.autoResizeTextarea(ta)); ta.data('auto-resize-bound',true); }

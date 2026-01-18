@@ -81,7 +81,7 @@ class StorageFile {
         // 🔧 核心修复：非静默模式等待当前保存完成
         if (this._saving) {
             this._pendingSave = true;
-            
+
             if (!silent) {
                 await this._waitForSaveComplete();
                 if (this._dirtyVersion > this._savedVersion) {
@@ -89,7 +89,7 @@ class StorageFile {
                 }
                 return this._dirtyVersion === this._savedVersion;
             }
-            
+
             return true;
         }
 
@@ -181,3 +181,5 @@ class StorageFile {
 export const TasksStorage = new StorageFile('LittleWhiteBox_Tasks.json');
 export const StoryOutlineStorage = new StorageFile('LittleWhiteBox_StoryOutline.json');
 export const NovelDrawStorage = new StorageFile('LittleWhiteBox_NovelDraw.json', { debounceMs: 800 });
+export const TtsStorage = new StorageFile('LittleWhiteBox_TTS.json', { debounceMs: 800 });
+export const CommonSettingStorage = new StorageFile('LittleWhiteBox_CommonSettings.json', { debounceMs: 1000 });

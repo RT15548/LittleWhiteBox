@@ -23,6 +23,10 @@ import {
 import { getCharaFilename, findChar } from "../../../../utils.js";
 
 const SOURCE_TAG = "xiaobaix-host";
+const resolveTargetOrigin = (origin) => {
+    if (typeof origin === 'string' && origin) return origin;
+    try { return window.location.origin; } catch { return '*'; }
+};
 
 function isString(value) {
     return typeof value === 'string';
@@ -91,17 +95,17 @@ class WorldbookBridgeService {
         }
     }
 
-    sendResult(target, requestId, result) {
-        try { target?.postMessage({ source: SOURCE_TAG, type: 'worldbookResult', id: requestId, result }, '*'); } catch {}
+    sendResult(target, requestId, result, targetOrigin = null) {
+        try { target?.postMessage({ source: SOURCE_TAG, type: 'worldbookResult', id: requestId, result }, resolveTargetOrigin(targetOrigin)); } catch {}
     }
 
-    sendError(target, requestId, err, fallbackCode = 'API_ERROR', details = null) {
+    sendError(target, requestId, err, fallbackCode = 'API_ERROR', details = null, targetOrigin = null) {
         const e = this.normalizeError(err, fallbackCode, details);
-        try { target?.postMessage({ source: SOURCE_TAG, type: 'worldbookError', id: requestId, error: e }, '*'); } catch {}
+        try { target?.postMessage({ source: SOURCE_TAG, type: 'worldbookError', id: requestId, error: e }, resolveTargetOrigin(targetOrigin)); } catch {}
     }
 
     postEvent(event, payload) {
-        try { window?.postMessage({ source: SOURCE_TAG, type: 'worldbookEvent', event, payload }, '*'); } catch {}
+        try { window?.postMessage({ source: SOURCE_TAG, type: 'worldbookEvent', event, payload }, resolveTargetOrigin()); } catch {}
     }
 
     async ensureWorldExists(name, autoCreate) {
@@ -381,8 +385,6 @@ class WorldbookBridgeService {
         const entry = data.entries[uid];
         if (!entry) throw new Error('NOT_FOUND');
 
-        const ctx = getContext();
-        const tags = ctx.tags || [];
         const result = {};
 
         // Get all template fields
@@ -837,13 +839,14 @@ class WorldbookBridgeService {
                         }
                     } catch {}
                     const result = await self.handleRequest(action, params);
-                    self.sendResult(event.source || window, id, result);
+                    self.sendResult(event.source || window, id, result, event.origin);
                 } catch (err) {
                     try { xbLog.error('worldbookBridge', `worldbookRequest failed id=${id} action=${String(action || '')}`, err); } catch {}
-                    self.sendError(event.source || window, id, err);
+                    self.sendError(event.source || window, id, err, 'API_ERROR', null, event.origin);
                 }
             } catch {}
         };
+        // eslint-disable-next-line no-restricted-syntax -- validated by isOriginAllowed before handling.
         try { window.addEventListener('message', this._listener); } catch {}
         this._attached = true;
         if (forwardEvents) this.attachEventsForwarding();
