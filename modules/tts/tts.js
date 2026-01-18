@@ -14,9 +14,14 @@ import {
     removeAllTtsPanels, 
     initTtsPanelStyles, 
     setPanelConfigHandlers,
+    clearPanelConfigHandlers,
     updateAutoSpeakAll,
     updateSpeedAll,
-    updateVoiceAll
+    updateVoiceAll,
+    initFloatingPanel,
+    destroyFloatingPanel,
+    resetFloatingState,
+    updateButtonVisibility,
 } from "./tts-panel.js";
 import { getCacheEntry, setCacheEntry, getCacheStats, clearExpiredCache, clearAllCache, pruneCache } from './tts-cache.js';
 import { speakMessageFree, clearAllFreeQueues, clearFreeQueueForMessage } from './tts-free-provider.js';
@@ -890,6 +895,7 @@ function onChatChanged() {
     if (player) player.clear();
     messageStateMap.clear();
     removeAllTtsPanels();
+    resetFloatingState();
     
     setTimeout(() => {
         renderExistingMessageUIs();
@@ -929,6 +935,8 @@ async function loadConfig() {
     config.skipRanges = Array.isArray(config.skipRanges) ? config.skipRanges : [];
     config.readRanges = Array.isArray(config.readRanges) ? config.readRanges : [];
     config.readRangesEnabled = config.readRangesEnabled === true;
+    config.showFloorButton = config.showFloorButton !== false;
+    config.showFloatingButton = config.showFloatingButton === true;
 
     return config;
 }
@@ -942,6 +950,8 @@ async function saveConfig(updates) {
     await TtsStorage.set('readRangesEnabled', config.readRangesEnabled === true);
     await TtsStorage.set('skipTags', config.skipTags);
     await TtsStorage.set('skipCodeBlocks', config.skipCodeBlocks);
+    await TtsStorage.set('showFloorButton', config.showFloorButton);
+    await TtsStorage.set('showFloatingButton', config.showFloatingButton);
 
     try {
         return await TtsStorage.saveNow({ silent: false });
@@ -1048,6 +1058,20 @@ async function handleIframeMessage(ev) {
                 updateVoiceAll();
             } else {
                 postToIframe(iframe, { type: 'xb-tts:config-save-error', payload: { message: '保存失败' } });
+            }
+            break;
+        }
+        case 'xb-tts:save-button-mode': {
+            const { showFloorButton, showFloatingButton } = payload;
+            config.showFloorButton = showFloorButton;
+            config.showFloatingButton = showFloatingButton;
+            const ok = await saveConfig({ showFloorButton, showFloatingButton });
+            if (ok) {
+                updateButtonVisibility(showFloorButton, showFloatingButton);
+                if (showFloorButton) {
+                    renderExistingMessageUIs();
+                }
+                postToIframe(iframe, { type: 'xb-tts:button-mode-saved' });
             }
             break;
         }
@@ -1160,7 +1184,18 @@ export async function initTts() {
             state.error = '';
             updateTtsPanel(messageId, state);
         },
+        getLastAIMessageId: () => {
+            const context = getContext();
+            const chat = context.chat || [];
+            for (let i = chat.length - 1; i >= 0; i--) {
+                if (chat[i] && !chat[i].is_user) return i;
+            }
+            return -1;
+        },
+        speakMessage: (messageId) => handleMessagePlayClick(messageId),
     });
+
+    initFloatingPanel();
 
     player.onStateChange = (state, item, info) => {
         if (!isModuleEnabled()) return;
@@ -1322,10 +1357,9 @@ export function cleanupTts() {
 
     closeSettings();
     removeAllTtsPanels();
+    destroyFloatingPanel();
 
-    try {
-        import('./tts-panel.js').then(m => m.clearPanelConfigHandlers?.());
-    } catch {}
+    clearPanelConfigHandlers();
 
     messageStateMap.clear();
     cacheCounters.hits = 0;

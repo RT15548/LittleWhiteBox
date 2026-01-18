@@ -1,7 +1,6 @@
 // tts-panel.js
 /**
- * TTS 播放器面板 - 极简胶囊版 v4
- * 新增：自动朗读快捷开关，支持双向同步
+ * TTS 播放器面板 - 支持楼层按钮和悬浮按钮双模式
  */
 
 import { registerToToolbar, removeFromToolbar } from '../../widgets/message-toolbar.js';
@@ -10,28 +9,41 @@ import { registerToToolbar, removeFromToolbar } from '../../widgets/message-tool
 // 常量
 // ═══════════════════════════════════════════════════════════════════════════
 
+const FLOAT_POS_KEY = 'xb_tts_float_pos';
 const INITIAL_RENDER_LIMIT = 1;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
 // ═══════════════════════════════════════════════════════════════════════════
 
-let stylesInjected = false;
+// 楼层按钮
 const panelMap = new Map();
 const pendingCallbacks = new Map();
-let observer = null;
+let floorObserver = null;
+
+// 悬浮按钮
+let floatingEl = null;
+let floatingDragState = null;
+let $floatingCache = {};
+
+// 通用
+let stylesInjected = false;
 
 // 配置接口
 let getConfigFn = null;
 let saveConfigFn = null;
 let openSettingsFn = null;
 let clearQueueFn = null;
+let getLastAIMessageIdFn = null;
+let speakMessageFn = null;
 
-export function setPanelConfigHandlers({ getConfig, saveConfig, openSettings, clearQueue }) {
-    getConfigFn = getConfig;
-    saveConfigFn = saveConfig;
-    openSettingsFn = openSettings;
-    clearQueueFn = clearQueue;
+export function setPanelConfigHandlers(handlers) {
+    getConfigFn = handlers.getConfig;
+    saveConfigFn = handlers.saveConfig;
+    openSettingsFn = handlers.openSettings;
+    clearQueueFn = handlers.clearQueue;
+    getLastAIMessageIdFn = handlers.getLastAIMessageId;
+    speakMessageFn = handlers.speakMessage;
 }
 
 export function clearPanelConfigHandlers() {
@@ -39,32 +51,27 @@ export function clearPanelConfigHandlers() {
     saveConfigFn = null;
     openSettingsFn = null;
     clearQueueFn = null;
+    getLastAIMessageIdFn = null;
+    speakMessageFn = null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 样式
 // ═══════════════════════════════════════════════════════════════════════════
 
-function injectStyles() {
-    if (stylesInjected) return;
-    const css = `
-/* ═══════════════════════════════════════════════════════════════
-   TTS 播放器 - 极简胶囊
-   ═══════════════════════════════════════════════════════════════ */
-
+const STYLES = `
 .xb-tts-panel {
     --h: 34px;
     --bg: rgba(0, 0, 0, 0.55);
+    --bg-solid: rgba(24, 24, 28, 0.98);
     --bg-hover: rgba(0, 0, 0, 0.7);
     --border: rgba(255, 255, 255, 0.08);
-    --border-active: rgba(255, 255, 255, 0.2);
+    --border-hover: rgba(255, 255, 255, 0.2);
     --text: rgba(255, 255, 255, 0.85);
     --text-sub: rgba(255, 255, 255, 0.45);
     --text-dim: rgba(255, 255, 255, 0.25);
     --success: rgba(62, 207, 142, 0.9);
-    --success-soft: rgba(62, 207, 142, 0.12);
     --error: rgba(239, 68, 68, 0.8);
-    
     position: relative;
     display: inline-flex;
     flex-direction: column;
@@ -72,10 +79,6 @@ function injectStyles() {
     user-select: none;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   胶囊主体
-   ═══════════════════════════════════════════════════════════════ */
 
 .xb-tts-capsule {
     display: flex;
@@ -94,10 +97,9 @@ function injectStyles() {
 
 .xb-tts-panel:hover .xb-tts-capsule {
     background: var(--bg-hover);
-    border-color: var(--border-active);
+    border-color: var(--border-hover);
 }
 
-/* 自动朗读开启时的边框提示 */
 .xb-tts-panel[data-auto="true"] .xb-tts-capsule {
     border-color: rgba(62, 207, 142, 0.25);
 }
@@ -105,17 +107,12 @@ function injectStyles() {
     border-color: rgba(62, 207, 142, 0.4);
 }
 
-/* 状态边框 */
 .xb-tts-panel[data-status="playing"] .xb-tts-capsule {
     border-color: rgba(255, 255, 255, 0.25);
 }
 .xb-tts-panel[data-status="error"] .xb-tts-capsule {
     border-color: var(--error);
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   按钮
-   ═══════════════════════════════════════════════════════════════ */
 
 .xb-tts-btn {
     width: 28px;
@@ -142,7 +139,6 @@ function injectStyles() {
     transform: scale(0.92);
 }
 
-/* 播放按钮的自动朗读指示点 */
 .xb-tts-auto-dot {
     position: absolute;
     top: 4px;
@@ -161,7 +157,6 @@ function injectStyles() {
     transform: scale(1);
 }
 
-/* 停止按钮 */
 .xb-tts-btn.stop-btn {
     color: var(--text-sub);
     font-size: 8px;
@@ -171,7 +166,6 @@ function injectStyles() {
     background: rgba(239, 68, 68, 0.1);
 }
 
-/* 展开按钮 */
 .xb-tts-btn.expand-btn {
     width: 24px;
     height: 24px;
@@ -187,10 +181,6 @@ function injectStyles() {
     transform: rotate(180deg);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   分隔线
-   ═══════════════════════════════════════════════════════════════ */
-
 .xb-tts-sep {
     width: 1px;
     height: 12px;
@@ -198,10 +188,6 @@ function injectStyles() {
     margin: 0 2px;
     flex-shrink: 0;
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   信息区
-   ═══════════════════════════════════════════════════════════════ */
 
 .xb-tts-info {
     display: flex;
@@ -224,7 +210,6 @@ function injectStyles() {
     color: var(--error);
 }
 
-/* 队列徽标 */
 .xb-tts-badge {
     display: none;
     align-items: center;
@@ -240,10 +225,6 @@ function injectStyles() {
 .xb-tts-panel[data-has-queue="true"] .xb-tts-badge {
     display: flex;
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   波形动画
-   ═══════════════════════════════════════════════════════════════ */
 
 .xb-tts-wave {
     display: none;
@@ -273,19 +254,9 @@ function injectStyles() {
 .xb-tts-bar:nth-child(4) { height: 8px; animation-delay: 0.6s; }
 
 @keyframes xb-tts-wave {
-    0%, 100% {
-        transform: scaleY(0.4);
-        opacity: 0.4;
-    }
-    50% {
-        transform: scaleY(1);
-        opacity: 0.85;
-    }
+    0%, 100% { transform: scaleY(0.4); opacity: 0.4; }
+    50% { transform: scaleY(1); opacity: 0.85; }
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   加载动画
-   ═══════════════════════════════════════════════════════════════ */
 
 .xb-tts-loading {
     display: none;
@@ -310,10 +281,6 @@ function injectStyles() {
 @keyframes xb-tts-spin {
     to { transform: rotate(360deg); }
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   底部进度条
-   ═══════════════════════════════════════════════════════════════ */
 
 .xb-tts-progress {
     position: absolute;
@@ -340,10 +307,6 @@ function injectStyles() {
     transition: width 0.4s ease-out;
     border-radius: 1px;
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   展开菜单
-   ═══════════════════════════════════════════════════════════════ */
 
 .xb-tts-menu {
     position: absolute;
@@ -397,12 +360,8 @@ function injectStyles() {
     cursor: pointer;
     transition: border-color 0.2s;
 }
-.xb-tts-select:hover {
-    border-color: rgba(255, 255, 255, 0.2);
-}
-.xb-tts-select:focus {
-    border-color: rgba(255, 255, 255, 0.3);
-}
+.xb-tts-select:hover { border-color: rgba(255, 255, 255, 0.2); }
+.xb-tts-select:focus { border-color: rgba(255, 255, 255, 0.3); }
 
 .xb-tts-slider {
     flex: 1;
@@ -418,10 +377,6 @@ function injectStyles() {
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   工具栏（包含自动朗读开关）
-   ═══════════════════════════════════════════════════════════════ */
 
 .xb-tts-tools {
     margin-top: 8px;
@@ -439,7 +394,6 @@ function injectStyles() {
     min-width: 32px;
 }
 
-/* 自动朗读开关 - flex:1 填满剩余空间 */
 .xb-tts-auto-toggle {
     flex: 1;
     display: flex;
@@ -479,12 +433,8 @@ function injectStyles() {
     color: var(--text-sub);
     transition: color 0.2s;
 }
-.xb-tts-auto-toggle:hover .xb-tts-auto-text {
-    color: var(--text);
-}
-.xb-tts-auto-toggle.on .xb-tts-auto-text {
-    color: rgba(62, 207, 142, 0.9);
-}
+.xb-tts-auto-toggle:hover .xb-tts-auto-text { color: var(--text); }
+.xb-tts-auto-toggle.on .xb-tts-auto-text { color: rgba(62, 207, 142, 0.9); }
 
 .xb-tts-icon-btn {
     color: var(--text-sub);
@@ -500,9 +450,35 @@ function injectStyles() {
     background: rgba(255, 255, 255, 0.08);
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   TTS 指令块样式
-   ═══════════════════════════════════════════════════════════════ */
+.xb-tts-floating-global {
+    position: fixed;
+    z-index: 10000;
+    user-select: none;
+    will-change: transform;
+}
+
+.xb-tts-floating-global .xb-tts-capsule {
+    background: var(--bg-solid);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    touch-action: none;
+    cursor: grab;
+}
+
+.xb-tts-floating-global .xb-tts-capsule:active { cursor: grabbing; }
+
+.xb-tts-floating-global .xb-tts-menu {
+    top: auto;
+    bottom: calc(100% + 10px);
+    transform: translateY(6px) scale(0.98);
+    transform-origin: bottom left;
+}
+
+.xb-tts-floating-global.expanded .xb-tts-menu {
+    transform: translateY(0) scale(1);
+}
+
+.xb-tts-floating-global .xb-tts-btn.expand-btn { transform: rotate(180deg); }
+.xb-tts-floating-global.expanded .xb-tts-btn.expand-btn { transform: rotate(0deg); }
 
 .xb-tts-tag {
     display: inline-flex;
@@ -515,336 +491,689 @@ function injectStyles() {
     user-select: none;
     transition: color 0.3s ease;
 }
-.xb-tts-tag:hover {
-    color: rgba(255, 255, 255, 0.45);
-}
-.xb-tts-tag-icon {
-    font-style: normal;
-    font-size: 10px;
-    opacity: 0.7;
-}
-.xb-tts-tag-dot {
-    opacity: 0.4;
-}
-.xb-tts-tag[data-has-params="true"] {
-    color: rgba(255, 255, 255, 0.3);
-}
+.xb-tts-tag:hover { color: rgba(255, 255, 255, 0.45); }
+.xb-tts-tag-icon { font-style: normal; font-size: 10px; opacity: 0.7; }
+.xb-tts-tag-dot { opacity: 0.4; }
+.xb-tts-tag[data-has-params="true"] { color: rgba(255, 255, 255, 0.3); }
 `;
-    const style = document.createElement('style');
-    style.id = 'xb-tts-panel-styles';
-    style.textContent = css;
-    document.head.appendChild(style);
+
+function injectStyles() {
+    if (stylesInjected) return;
     stylesInjected = true;
+    const el = document.createElement('style');
+    el.id = 'xb-tts-panel-styles';
+    el.textContent = STYLES;
+    document.head.appendChild(el);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 面板创建
+// 通用工具
 // ═══════════════════════════════════════════════════════════════════════════
 
-function createPanel(messageId) {
-    const config = getConfigFn?.() || {};
-    const currentSpeed = config?.volc?.speechRate || 1.0;
-    const isAutoSpeak = config?.autoSpeak !== false;
-    
-    const div = document.createElement('div');
-    div.className = 'xb-tts-panel';
-    div.dataset.messageId = messageId;
-    div.dataset.status = 'idle';
-    div.dataset.hasQueue = 'false';
-    div.dataset.auto = isAutoSpeak ? 'true' : 'false';
-    
-    // Template-only UI markup built locally.
-    // eslint-disable-next-line no-unsanitized/property
-    div.innerHTML = `
-        <div class="xb-tts-capsule">
-            <div class="xb-tts-loading"></div>
-            <button class="xb-tts-btn play-btn" title="播放">
-                ▶
-                <span class="xb-tts-auto-dot"></span>
-            </button>
-            
-            <div class="xb-tts-info">
-                <div class="xb-tts-wave">
-                    <div class="xb-tts-bar"></div>
-                    <div class="xb-tts-bar"></div>
-                    <div class="xb-tts-bar"></div>
-                    <div class="xb-tts-bar"></div>
-                </div>
-                <span class="xb-tts-status">播放</span>
-                <span class="xb-tts-badge">0/0</span>
-            </div>
-            
-            <button class="xb-tts-btn stop-btn" title="停止">■</button>
-            
-            <div class="xb-tts-sep"></div>
-            
-            <button class="xb-tts-btn expand-btn" title="设置">▼</button>
-            
-            <div class="xb-tts-progress">
-                <div class="xb-tts-progress-inner"></div>
-            </div>
-        </div>
-        
-        <div class="xb-tts-menu">
-            <div class="xb-tts-row">
-                <span class="xb-tts-label">音色</span>
-                <select class="xb-tts-select voice-select"></select>
-            </div>
-            <div class="xb-tts-row">
-                <span class="xb-tts-label">语速</span>
-                <input type="range" class="xb-tts-slider speed-slider" min="0.5" max="2.0" step="0.1" value="${currentSpeed}">
-                <span class="xb-tts-val speed-val">${currentSpeed.toFixed(1)}x</span>
-            </div>
-            <div class="xb-tts-tools">
-                <span class="xb-tts-usage">-字</span>
-                <div class="xb-tts-auto-toggle${isAutoSpeak ? ' on' : ''}" title="AI回复后自动朗读">
-                    <span class="xb-tts-auto-indicator"></span>
-                    <span class="xb-tts-auto-text">自动朗读</span>
-                </div>
-                <span class="xb-tts-icon-btn settings-btn" title="TTS 设置">⚙</span>
-            </div>
-        </div>
-    `;
-    
-    return div;
-}
-
-function buildVoiceOptions(select, config) {
+function fillVoiceSelect(selectEl) {
+    if (!selectEl) return;
+    const config = getConfigFn?.();
     const mySpeakers = config?.volc?.mySpeakers || [];
-    const current = config?.volc?.defaultSpeaker || '';
-    
+    const currentSpeaker = config?.volc?.defaultSpeaker || '';
+
+    selectEl.replaceChildren();
+
     if (mySpeakers.length === 0) {
-        select.textContent = '';
         const opt = document.createElement('option');
         opt.value = '';
-        opt.disabled = true;
         opt.textContent = '暂无音色';
-        select.appendChild(opt);
-        select.selectedIndex = -1;
+        opt.disabled = true;
+        selectEl.appendChild(opt);
         return;
     }
-    
-    const isMyVoice = current && mySpeakers.some(s => s.value === current);
-    
-    select.textContent = '';
-    mySpeakers.forEach((s) => {
+
+    mySpeakers.forEach(s => {
         const opt = document.createElement('option');
         opt.value = s.value;
         opt.textContent = s.name || s.value;
-        if (isMyVoice && s.value === current) opt.selected = true;
-        select.appendChild(opt);
+        if (s.value === currentSpeaker) opt.selected = true;
+        selectEl.appendChild(opt);
     });
-    
-    if (!isMyVoice) {
-        select.selectedIndex = -1;
+}
+
+function safeGetLastAIMessageId() {
+    const id = getLastAIMessageIdFn?.();
+    return typeof id === 'number' && id >= 0 ? id : -1;
+}
+
+function syncSpeedUI($cache) {
+    const config = getConfigFn?.();
+    const currentSpeed = config?.volc?.speechRate || 1.0;
+    if ($cache.speedSlider) $cache.speedSlider.value = currentSpeed;
+    if ($cache.speedVal) $cache.speedVal.textContent = currentSpeed.toFixed(1) + 'x';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DOM 构建（符合 ESLint 规范，不使用 innerHTML）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function createWaveElement() {
+    const wave = document.createElement('div');
+    wave.className = 'xb-tts-wave';
+    for (let i = 0; i < 4; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'xb-tts-bar';
+        wave.appendChild(bar);
     }
+    return wave;
+}
+
+function createMenuElement(speed, isAuto) {
+    const menu = document.createElement('div');
+    menu.className = 'xb-tts-menu';
+
+    // 音色行
+    const voiceRow = document.createElement('div');
+    voiceRow.className = 'xb-tts-row';
+    const voiceLabel = document.createElement('span');
+    voiceLabel.className = 'xb-tts-label';
+    voiceLabel.textContent = '音色';
+    voiceRow.appendChild(voiceLabel);
+    const voiceSelect = document.createElement('select');
+    voiceSelect.className = 'xb-tts-select voice-select';
+    voiceRow.appendChild(voiceSelect);
+    menu.appendChild(voiceRow);
+
+    // 语速行
+    const speedRow = document.createElement('div');
+    speedRow.className = 'xb-tts-row';
+    const speedLabel = document.createElement('span');
+    speedLabel.className = 'xb-tts-label';
+    speedLabel.textContent = '语速';
+    speedRow.appendChild(speedLabel);
+    const speedSlider = document.createElement('input');
+    speedSlider.type = 'range';
+    speedSlider.className = 'xb-tts-slider speed-slider';
+    speedSlider.min = '0.5';
+    speedSlider.max = '2.0';
+    speedSlider.step = '0.1';
+    speedSlider.value = String(speed);
+    speedRow.appendChild(speedSlider);
+    const speedVal = document.createElement('span');
+    speedVal.className = 'xb-tts-val speed-val';
+    speedVal.textContent = speed.toFixed(1) + 'x';
+    speedRow.appendChild(speedVal);
+    menu.appendChild(speedRow);
+
+    // 工具栏
+    const tools = document.createElement('div');
+    tools.className = 'xb-tts-tools';
+
+    const usage = document.createElement('span');
+    usage.className = 'xb-tts-usage';
+    usage.textContent = '-字';
+    tools.appendChild(usage);
+
+    const autoToggle = document.createElement('div');
+    autoToggle.className = 'xb-tts-auto-toggle' + (isAuto ? ' on' : '');
+    autoToggle.title = 'AI回复后自动朗读';
+    const autoIndicator = document.createElement('span');
+    autoIndicator.className = 'xb-tts-auto-indicator';
+    autoToggle.appendChild(autoIndicator);
+    const autoText = document.createElement('span');
+    autoText.className = 'xb-tts-auto-text';
+    autoText.textContent = '自动朗读';
+    autoToggle.appendChild(autoText);
+    tools.appendChild(autoToggle);
+
+    const settingsBtn = document.createElement('span');
+    settingsBtn.className = 'xb-tts-icon-btn settings-btn';
+    settingsBtn.title = 'TTS 设置';
+    settingsBtn.textContent = '⚙';
+    tools.appendChild(settingsBtn);
+
+    menu.appendChild(tools);
+
+    return menu;
+}
+
+function createCapsuleElement(mode) {
+    const capsule = document.createElement('div');
+    capsule.className = 'xb-tts-capsule';
+
+    const loading = document.createElement('div');
+    loading.className = 'xb-tts-loading';
+    capsule.appendChild(loading);
+
+    const playBtn = document.createElement('button');
+    playBtn.className = 'xb-tts-btn play-btn';
+    playBtn.title = '播放';
+    playBtn.textContent = '▶';
+    const autoDot = document.createElement('span');
+    autoDot.className = 'xb-tts-auto-dot';
+    playBtn.appendChild(autoDot);
+    capsule.appendChild(playBtn);
+
+    const info = document.createElement('div');
+    info.className = 'xb-tts-info';
+    info.appendChild(createWaveElement());
+    const statusText = document.createElement('span');
+    statusText.className = 'xb-tts-status';
+    statusText.textContent = '播放';
+    info.appendChild(statusText);
+    const badge = document.createElement('span');
+    badge.className = 'xb-tts-badge';
+    badge.textContent = '0/0';
+    info.appendChild(badge);
+    capsule.appendChild(info);
+
+    const stopBtn = document.createElement('button');
+    stopBtn.className = 'xb-tts-btn stop-btn';
+    stopBtn.title = '停止';
+    stopBtn.textContent = '■';
+    stopBtn.style.display = 'none';
+    capsule.appendChild(stopBtn);
+
+    const sep = document.createElement('div');
+    sep.className = 'xb-tts-sep';
+    capsule.appendChild(sep);
+
+    const expandBtn = document.createElement('button');
+    expandBtn.className = 'xb-tts-btn expand-btn';
+    expandBtn.title = '设置';
+    expandBtn.textContent = mode === 'floating' ? '▲' : '▼';
+    capsule.appendChild(expandBtn);
+
+    const progress = document.createElement('div');
+    progress.className = 'xb-tts-progress';
+    const progressInner = document.createElement('div');
+    progressInner.className = 'xb-tts-progress-inner';
+    progress.appendChild(progressInner);
+    capsule.appendChild(progress);
+
+    return capsule;
+}
+
+function createPanelElement(speed, isAuto, mode = 'floor') {
+    const div = document.createElement('div');
+    div.className = 'xb-tts-panel';
+    div.dataset.status = 'idle';
+    div.dataset.hasQueue = 'false';
+    div.dataset.auto = isAuto ? 'true' : 'false';
+
+    const menu = createMenuElement(speed, isAuto);
+    const capsule = createCapsuleElement(mode);
+
+    if (mode === 'floating') {
+        div.appendChild(menu);
+        div.appendChild(capsule);
+    } else {
+        div.appendChild(capsule);
+        div.appendChild(menu);
+    }
+
+    return div;
+}
+
+function cachePanelDOM(el) {
+    return {
+        capsule: el.querySelector('.xb-tts-capsule'),
+        playBtn: el.querySelector('.play-btn'),
+        stopBtn: el.querySelector('.stop-btn'),
+        statusText: el.querySelector('.xb-tts-status'),
+        badge: el.querySelector('.xb-tts-badge'),
+        progressInner: el.querySelector('.xb-tts-progress-inner'),
+        voiceSelect: el.querySelector('.voice-select'),
+        speedSlider: el.querySelector('.speed-slider'),
+        speedVal: el.querySelector('.speed-val'),
+        usageText: el.querySelector('.xb-tts-usage'),
+        autoToggle: el.querySelector('.xb-tts-auto-toggle'),
+        expandBtn: el.querySelector('.expand-btn'),
+        settingsBtn: el.querySelector('.settings-btn'),
+    };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// IntersectionObserver 管理
+// 共用事件绑定
 // ═══════════════════════════════════════════════════════════════════════════
 
-function setupObserver() {
-    if (observer) return;
-    
-    observer = new IntersectionObserver((entries) => {
-        const toMount = [];
-        
-        for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
-            
-            const el = entry.target;
-            const mid = Number(el.getAttribute('mesid'));
-            const cb = pendingCallbacks.get(mid);
-            
-            if (cb) {
-                toMount.push({ el, mid, cb });
-                pendingCallbacks.delete(mid);
-                observer.unobserve(el);
-            }
+function bindCommonEvents($cache, parentEl = null) {
+    $cache.autoToggle?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const config = getConfigFn?.();
+        if (!config) return;
+        const newValue = config.autoSpeak === false;
+        config.autoSpeak = newValue;
+        await saveConfigFn?.({ autoSpeak: newValue });
+        updateAutoSpeakAll();
+    });
+    $cache.voiceSelect?.addEventListener('change', async (e) => {
+        const config = getConfigFn?.();
+        if (config?.volc) {
+            config.volc.defaultSpeaker = e.target.value;
+            await saveConfigFn?.({ volc: config.volc });
         }
-        
-        if (toMount.length > 0) {
-            requestAnimationFrame(() => {
-                for (const { el, mid, cb } of toMount) {
-                    mountPanel(el, mid, cb);
-                }
-            });
+    });
+    $cache.speedSlider?.addEventListener('input', (e) => {
+        if ($cache.speedVal) {
+            $cache.speedVal.textContent = Number(e.target.value).toFixed(1) + 'x';
         }
-    }, { 
-        rootMargin: '300px',
-        threshold: 0 
+    });
+    $cache.speedSlider?.addEventListener('change', async (e) => {
+        const config = getConfigFn?.();
+        if (config?.volc) {
+            config.volc.speechRate = Number(e.target.value);
+            await saveConfigFn?.({ volc: config.volc });
+            updateSpeedAll();
+        }
+    });
+    $cache.settingsBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // ★ 关闭所有菜单
+        panelMap.forEach(data => data.root?.classList.remove('expanded'));
+        floatingEl?.classList.remove('expanded');
+        openSettingsFn?.();
     });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 面板挂载
+// 楼层面板
 // ═══════════════════════════════════════════════════════════════════════════
 
-function mountPanel(messageEl, messageId, onPlay) {
-    // 已存在且有效
+function createFloorPanel(messageId) {
+    const config = getConfigFn?.() || {};
+    const currentSpeed = config?.volc?.speechRate || 1.0;
+    const isAutoSpeak = config?.autoSpeak !== false;
+
+    const div = createPanelElement(currentSpeed, isAutoSpeak, 'floor');
+    div.dataset.messageId = messageId;
+
+    return div;
+}
+
+function bindFloorPanelEvents(panelData, onPlay) {
+    const { messageId, root: el, $cache } = panelData;
+
+    $cache.playBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onPlay(messageId);
+    });
+
+    $cache.stopBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        clearQueueFn?.(messageId);
+    });
+
+    $cache.expandBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        el.classList.toggle('expanded');
+        if (el.classList.contains('expanded')) {
+            fillVoiceSelect($cache.voiceSelect);
+            syncSpeedUI($cache);
+        }
+    });
+
+    bindCommonEvents($cache);
+
+    const closeMenu = (e) => {
+        if (!el.contains(e.target)) {
+            el.classList.remove('expanded');
+        }
+    };
+    document.addEventListener('click', closeMenu, { passive: true });
+
+    panelData._cleanup = () => {
+        document.removeEventListener('click', closeMenu);
+        removeFromToolbar(messageId, el);
+    };
+}
+
+function mountFloorPanel(messageEl, messageId, onPlay) {
     if (panelMap.has(messageId)) {
         const existing = panelMap.get(messageId);
         if (existing.root?.isConnected) return existing;
         existing._cleanup?.();
         panelMap.delete(messageId);
     }
-    
-    const panel = createPanel(messageId);
-    
-    // 使用工具栏管理器注册
-    const success = registerToToolbar(messageId, panel, { 
+
+    injectStyles();
+
+    const panel = createFloorPanel(messageId);
+    const panelData = { messageId, root: panel, $cache: cachePanelDOM(panel) };
+
+    const success = registerToToolbar(messageId, panel, {
         position: 'left',
         id: `tts-${messageId}`
     });
-    
+
     if (!success) return null;
-    
-    const ui = {
-        root: panel,
-        playBtn: panel.querySelector('.play-btn'),
-        stopBtn: panel.querySelector('.stop-btn'),
-        statusText: panel.querySelector('.xb-tts-status'),
-        badge: panel.querySelector('.xb-tts-badge'),
-        progressInner: panel.querySelector('.xb-tts-progress-inner'),
-        voiceSelect: panel.querySelector('.voice-select'),
-        speedSlider: panel.querySelector('.speed-slider'),
-        speedVal: panel.querySelector('.speed-val'),
-        usageText: panel.querySelector('.xb-tts-usage'),
-        autoToggle: panel.querySelector('.xb-tts-auto-toggle'),
-    };
-    
-    // 事件绑定
-    ui.playBtn.onclick = (e) => {
-        e.stopPropagation();
-        onPlay(messageId);
-    };
-    
-    ui.stopBtn.onclick = (e) => {
-        e.stopPropagation();
-        clearQueueFn?.(messageId);
-    };
-    
-    panel.querySelector('.expand-btn').onclick = (e) => {
-        e.stopPropagation();
-        panel.classList.toggle('expanded');
-        if (panel.classList.contains('expanded')) {
-            buildVoiceOptions(ui.voiceSelect, getConfigFn?.());
-            // 同步当前语速
-            const config = getConfigFn?.();
-            const currentSpeed = config?.volc?.speechRate || 1.0;
-            ui.speedSlider.value = currentSpeed;
-            ui.speedVal.textContent = currentSpeed.toFixed(1) + 'x';
+
+    bindFloorPanelEvents(panelData, onPlay);
+    panelMap.set(messageId, panelData);
+
+    return panelData;
+}
+
+function setupFloorObserver() {
+    if (floorObserver) return;
+
+    floorObserver = new IntersectionObserver((entries) => {
+        const toMount = [];
+
+        for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+
+            const el = entry.target;
+            const mid = Number(el.getAttribute('mesid'));
+            const cb = pendingCallbacks.get(mid);
+
+            if (cb) {
+                toMount.push({ el, mid, cb });
+                pendingCallbacks.delete(mid);
+                floorObserver.unobserve(el);
+            }
         }
-    };
-    
-    panel.querySelector('.settings-btn').onclick = (e) => {
-        e.stopPropagation();
-        panel.classList.remove('expanded');
-        openSettingsFn?.();
-    };
-    
-    // 自动朗读开关
-    ui.autoToggle.onclick = async (e) => {
-        e.stopPropagation();
-        const config = getConfigFn?.();
-        if (!config) return;
-        
-        const newValue = config.autoSpeak === false ? true : false;
-        config.autoSpeak = newValue;
-        
-        // 保存配置
-        await saveConfigFn?.({ autoSpeak: newValue });
-        
-        // 更新所有面板的自动朗读状态
-        updateAutoSpeakAll();
-    };
-    
-    ui.voiceSelect.onchange = async (e) => {
-        const config = getConfigFn?.();
-        if (config?.volc) {
-            config.volc.defaultSpeaker = e.target.value;
-            await saveConfigFn?.({ volc: config.volc });
+
+        if (toMount.length > 0) {
+            requestAnimationFrame(() => {
+                for (const { el, mid, cb } of toMount) {
+                    mountFloorPanel(el, mid, cb);
+                }
+            });
         }
-    };
-    
-    ui.speedSlider.oninput = (e) => {
-        ui.speedVal.textContent = Number(e.target.value).toFixed(1) + 'x';
-    };
-    
-    ui.speedSlider.onchange = async (e) => {
-        const config = getConfigFn?.();
-        if (config?.volc) {
-            config.volc.speechRate = Number(e.target.value);
-            await saveConfigFn?.({ volc: config.volc });
-            // 同步所有面板的语速显示
-            updateSpeedAll();
-        }
-    };
-    
-    const closeMenu = (e) => {
-        if (!panel.contains(e.target)) {
-            panel.classList.remove('expanded');
-        }
-    };
-    document.addEventListener('click', closeMenu, { passive: true });
-    
-    ui._cleanup = () => {
-        document.removeEventListener('click', closeMenu);
-        removeFromToolbar(messageId, panel);
-    };
-    
-    panelMap.set(messageId, ui);
-    return ui;
+    }, { rootMargin: '300px', threshold: 0 });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 全局同步更新
+// 悬浮按钮
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * 更新所有面板的自动朗读状态
- */
+function getFloatingPosition() {
+    try {
+        const raw = localStorage.getItem(FLOAT_POS_KEY);
+        if (raw) return JSON.parse(raw);
+    } catch {}
+    return { left: window.innerWidth - 110, top: window.innerHeight - 80 };
+}
+
+function saveFloatingPosition() {
+    if (!floatingEl) return;
+    const r = floatingEl.getBoundingClientRect();
+    try {
+        localStorage.setItem(FLOAT_POS_KEY, JSON.stringify({
+            left: Math.round(r.left),
+            top: Math.round(r.top)
+        }));
+    } catch {}
+}
+
+function applyFloatingPosition() {
+    if (!floatingEl) return;
+    const pos = getFloatingPosition();
+    const w = floatingEl.offsetWidth || 88;
+    const h = floatingEl.offsetHeight || 36;
+    floatingEl.style.left = `${Math.max(0, Math.min(pos.left, window.innerWidth - w))}px`;
+    floatingEl.style.top = `${Math.max(0, Math.min(pos.top, window.innerHeight - h))}px`;
+}
+
+function onFloatingPointerDown(e) {
+    if (e.button !== 0) return;
+
+    floatingDragState = {
+        startX: e.clientX,
+        startY: e.clientY,
+        startLeft: floatingEl.getBoundingClientRect().left,
+        startTop: floatingEl.getBoundingClientRect().top,
+        pointerId: e.pointerId,
+        moved: false,
+        originalTarget: e.target
+    };
+
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+}
+
+function onFloatingPointerMove(e) {
+    if (!floatingDragState || floatingDragState.pointerId !== e.pointerId) return;
+
+    const dx = e.clientX - floatingDragState.startX;
+    const dy = e.clientY - floatingDragState.startY;
+
+    if (!floatingDragState.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        floatingDragState.moved = true;
+    }
+
+    if (floatingDragState.moved) {
+        const w = floatingEl.offsetWidth || 88;
+        const h = floatingEl.offsetHeight || 36;
+        floatingEl.style.left = `${Math.max(0, Math.min(floatingDragState.startLeft + dx, window.innerWidth - w))}px`;
+        floatingEl.style.top = `${Math.max(0, Math.min(floatingDragState.startTop + dy, window.innerHeight - h))}px`;
+    }
+
+    e.preventDefault();
+}
+
+function onFloatingPointerUp(e) {
+    if (!floatingDragState || floatingDragState.pointerId !== e.pointerId) return;
+
+    const { moved, originalTarget } = floatingDragState;
+
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    floatingDragState = null;
+
+    if (moved) {
+        saveFloatingPosition();
+    } else {
+        routeFloatingClick(originalTarget);
+    }
+}
+
+function routeFloatingClick(target) {
+    if (target.closest('.play-btn')) {
+        handleFloatingPlayClick();
+    } else if (target.closest('.stop-btn')) {
+        const messageId = safeGetLastAIMessageId();
+        if (messageId >= 0) clearQueueFn?.(messageId);
+    } else if (target.closest('.expand-btn')) {
+        floatingEl.classList.toggle('expanded');
+        if (floatingEl.classList.contains('expanded')) {
+            fillVoiceSelect($floatingCache.voiceSelect);
+            syncSpeedUI($floatingCache);
+        }
+    }
+}
+
+function handleFloatingPlayClick() {
+    const messageId = safeGetLastAIMessageId();
+    if (messageId < 0) {
+        if (typeof toastr !== 'undefined') {
+            toastr.warning('没有可朗读的AI消息');
+        }
+        return;
+    }
+    speakMessageFn?.(messageId);
+}
+
+function handleFloatingOutsideClick(e) {
+    if (floatingEl && !floatingEl.contains(e.target)) {
+        floatingEl.classList.remove('expanded');
+    }
+}
+
+function createFloatingButton() {
+    if (floatingEl) return;
+
+    const config = getConfigFn?.();
+    if (!config || config.showFloatingButton !== true) return;
+
+    injectStyles();
+
+    const isAutoSpeak = config.autoSpeak !== false;
+    const currentSpeed = config.volc?.speechRate || 1.0;
+
+    floatingEl = createPanelElement(currentSpeed, isAutoSpeak, 'floating');
+    floatingEl.classList.add('xb-tts-floating-global');
+    floatingEl.id = 'xb-tts-floating-global';
+
+    document.body.appendChild(floatingEl);
+
+    $floatingCache = cachePanelDOM(floatingEl);
+
+    applyFloatingPosition();
+
+    // 拖拽事件
+    const capsuleEl = $floatingCache.capsule;
+    if (capsuleEl) {
+        capsuleEl.addEventListener('pointerdown', onFloatingPointerDown, { passive: false });
+        capsuleEl.addEventListener('pointermove', onFloatingPointerMove, { passive: false });
+        capsuleEl.addEventListener('pointerup', onFloatingPointerUp, { passive: false });
+        capsuleEl.addEventListener('pointercancel', onFloatingPointerUp, { passive: false });
+    }
+
+    bindCommonEvents($floatingCache);
+
+    document.addEventListener('click', handleFloatingOutsideClick, { passive: true });
+    window.addEventListener('resize', applyFloatingPosition);
+}
+
+function destroyFloatingButton() {
+    if (!floatingEl) return;
+    window.removeEventListener('resize', applyFloatingPosition);
+    document.removeEventListener('click', handleFloatingOutsideClick);
+    // ★ 显式移除 pointer 事件
+    const capsuleEl = $floatingCache.capsule;
+    if (capsuleEl) {
+        capsuleEl.removeEventListener('pointerdown', onFloatingPointerDown);
+        capsuleEl.removeEventListener('pointermove', onFloatingPointerMove);
+        capsuleEl.removeEventListener('pointerup', onFloatingPointerUp);
+        capsuleEl.removeEventListener('pointercancel', onFloatingPointerUp);
+    }
+    floatingEl.remove();
+    floatingEl = null;
+    floatingDragState = null;
+    $floatingCache = {};
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 状态更新
+// ═══════════════════════════════════════════════════════════════════════════
+
+function updatePanelStateCore($cache, el, state) {
+    if (!el || !state) return;
+
+    const status = state.status || 'idle';
+    const current = state.currentSegment || 0;
+    const total = state.totalSegments || 0;
+    const hasQueue = total > 1;
+
+    el.dataset.status = status;
+    el.dataset.hasQueue = hasQueue ? 'true' : 'false';
+
+    let statusText = '';
+    let playIcon = '▶';
+    let showStop = false;
+
+    switch (status) {
+        case 'idle':
+            statusText = '播放';
+            break;
+        case 'sending':
+        case 'queued':
+            statusText = hasQueue ? `${current}/${total}` : '准备';
+            playIcon = '■';
+            showStop = true;
+            break;
+        case 'cached':
+            statusText = hasQueue ? `${current}/${total}` : '缓存';
+            break;
+        case 'playing':
+            statusText = hasQueue ? `${current}/${total}` : '';
+            playIcon = '⏸';
+            showStop = true;
+            break;
+        case 'paused':
+            statusText = hasQueue ? `${current}/${total}` : '暂停';
+            showStop = true;
+            break;
+        case 'ended':
+            statusText = '完成';
+            playIcon = '↻';
+            break;
+        case 'blocked':
+            statusText = '受阻';
+            break;
+        case 'error':
+            statusText = (state.error || '失败').slice(0, 8);
+            playIcon = '↻';
+            break;
+    }
+
+    if ($cache.playBtn) {
+        const existingDot = $cache.playBtn.querySelector('.xb-tts-auto-dot');
+        $cache.playBtn.textContent = playIcon;
+        if (existingDot) {
+            $cache.playBtn.appendChild(existingDot);
+        } else {
+            const newDot = document.createElement('span');
+            newDot.className = 'xb-tts-auto-dot';
+            $cache.playBtn.appendChild(newDot);
+        }
+    }
+
+    if ($cache.statusText) $cache.statusText.textContent = statusText;
+    if ($cache.badge && hasQueue && current > 0) $cache.badge.textContent = `${current}/${total}`;
+    if ($cache.stopBtn) $cache.stopBtn.style.display = showStop ? '' : 'none';
+
+    if ($cache.progressInner) {
+        if (hasQueue && total > 0) {
+            $cache.progressInner.style.width = `${Math.min(100, (current / total) * 100)}%`;
+        } else if (state.progress && state.duration) {
+            $cache.progressInner.style.width = `${Math.min(100, (state.progress / state.duration) * 100)}%`;
+        } else {
+            $cache.progressInner.style.width = '0%';
+        }
+    }
+
+    if (state.textLength && $cache.usageText) {
+        $cache.usageText.textContent = `${state.textLength} 字`;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 全局同步
+// ═══════════════════════════════════════════════════════════════════════════
+
 export function updateAutoSpeakAll() {
     const config = getConfigFn?.();
     const isAutoSpeak = config?.autoSpeak !== false;
-    
-    panelMap.forEach((ui) => {
-        if (!ui.root) return;
-        
-        // 更新 data-auto 属性（控制播放按钮上的绿点）
-        ui.root.dataset.auto = isAutoSpeak ? 'true' : 'false';
-        
-        // 更新菜单内的开关状态
-        if (ui.autoToggle) {
-            ui.autoToggle.classList.toggle('on', isAutoSpeak);
-        }
+
+    panelMap.forEach((data) => {
+        if (!data.root) return;
+        data.root.dataset.auto = isAutoSpeak ? 'true' : 'false';
+        data.$cache?.autoToggle?.classList.toggle('on', isAutoSpeak);
     });
+
+    if (floatingEl) {
+        floatingEl.dataset.auto = isAutoSpeak ? 'true' : 'false';
+        $floatingCache.autoToggle?.classList.toggle('on', isAutoSpeak);
+    }
 }
 
-/**
- * 更新所有面板的语速显示
- */
 export function updateSpeedAll() {
-    const config = getConfigFn?.();
-    const currentSpeed = config?.volc?.speechRate || 1.0;
-    
-    panelMap.forEach((ui) => {
-        if (!ui.root) return;
-        if (ui.speedSlider) ui.speedSlider.value = currentSpeed;
-        if (ui.speedVal) ui.speedVal.textContent = currentSpeed.toFixed(1) + 'x';
+    panelMap.forEach((data) => {
+        if (!data.root) return;
+        syncSpeedUI(data.$cache);
     });
+
+    if (floatingEl) {
+        syncSpeedUI($floatingCache);
+    }
 }
 
-/**
- * 更新所有面板的音色选择
- */
 export function updateVoiceAll() {
-    const config = getConfigFn?.();
-    panelMap.forEach((ui) => {
-        if (!ui.root || !ui.voiceSelect) return;
-        buildVoiceOptions(ui.voiceSelect, config);
+    panelMap.forEach((data) => {
+        if (!data.root || !data.$cache?.voiceSelect) return;
+        fillVoiceSelect(data.$cache.voiceSelect);
     });
+
+    if (floatingEl && $floatingCache.voiceSelect) {
+        fillVoiceSelect($floatingCache.voiceSelect);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -855,169 +1184,128 @@ export function initTtsPanelStyles() {
     injectStyles();
 }
 
-function observeForLazyMount(messageEl, messageId, onPlay) {
-    if (panelMap.has(messageId) && panelMap.get(messageId).root?.isConnected) {
-        return;
-    }
-    
-    if (pendingCallbacks.has(messageId)) {
-        return;
-    }
-    
-    setupObserver();
-    pendingCallbacks.set(messageId, onPlay);
-    observer.observe(messageEl);
-}
-
 export function ensureTtsPanel(messageEl, messageId, onPlay) {
+    const config = getConfigFn?.();
+    if (config?.showFloorButton === false) return null;
+
     injectStyles();
-    
+
     if (panelMap.has(messageId)) {
         const existing = panelMap.get(messageId);
         if (existing.root?.isConnected) return existing;
         existing._cleanup?.();
         panelMap.delete(messageId);
     }
-    
-    observeForLazyMount(messageEl, messageId, onPlay);
+
+    const rect = messageEl.getBoundingClientRect();
+    if (rect.top < window.innerHeight + 300 && rect.bottom > -300) {
+        return mountFloorPanel(messageEl, messageId, onPlay);
+    }
+
+    setupFloorObserver();
+    pendingCallbacks.set(messageId, onPlay);
+    floorObserver.observe(messageEl);
+
     return null;
 }
 
 export function renderPanelsForChat(chat, getMessageElement, onPlay) {
+    const config = getConfigFn?.();
+    if (config?.showFloorButton === false) return;
+
     injectStyles();
-    
+
     let immediateCount = 0;
-    
+
     for (let i = chat.length - 1; i >= 0; i--) {
         const message = chat[i];
         if (!message || message.is_user) continue;
-        
+
         const messageEl = getMessageElement(i);
         if (!messageEl) continue;
-        
+
         if (panelMap.has(i) && panelMap.get(i).root?.isConnected) {
             continue;
         }
-        
+
         if (immediateCount < INITIAL_RENDER_LIMIT) {
-            mountPanel(messageEl, i, onPlay);
+            mountFloorPanel(messageEl, i, onPlay);
             immediateCount++;
         } else {
-            observeForLazyMount(messageEl, i, onPlay);
+            setupFloorObserver();
+            pendingCallbacks.set(i, onPlay);
+            floorObserver.observe(messageEl);
         }
     }
 }
 
 export function updateTtsPanel(messageId, state) {
-    const ui = panelMap.get(messageId);
-    if (!ui || !state) return;
+    const panelData = panelMap.get(messageId);
+    if (panelData?.root && state) {
+        updatePanelStateCore(panelData.$cache, panelData.root, state);
+    }
 
-    const status = state.status || 'idle';
-    const current = state.currentSegment || 0;
-    const total = state.totalSegments || 0;
-    const hasQueue = total > 1;
-    
-    ui.root.dataset.status = status;
-    ui.root.dataset.hasQueue = hasQueue ? 'true' : 'false';
-    
-    let statusText = '';
-    let playIcon = '▶';
-    let showStop = false;
-    
-    switch (status) {
-        case 'idle':
-            statusText = '播放';
-            playIcon = '▶';
-            break;
-        case 'sending':
-        case 'queued':
-            statusText = hasQueue ? `${current}/${total}` : '准备';
-            playIcon = '■';
-            showStop = true;
-            break;
-        case 'cached':
-            statusText = hasQueue ? `${current}/${total}` : '缓存';
-            playIcon = '▶';
-            break;
-        case 'playing':
-            statusText = hasQueue ? `${current}/${total}` : '';
-            playIcon = '⏸';
-            showStop = true;
-            break;
-        case 'paused':
-            statusText = hasQueue ? `${current}/${total}` : '暂停';
-            playIcon = '▶';
-            showStop = true;
-            break;
-        case 'ended':
-            statusText = '完成';
-            playIcon = '↻';
-            break;
-        case 'blocked':
-            statusText = '受阻';
-            playIcon = '▶';
-            break;
-        case 'error':
-            statusText = (state.error || '失败').slice(0, 8);
-            playIcon = '↻';
-            break;
-        default:
-            statusText = '播放';
-            playIcon = '▶';
+    if (floatingEl && messageId === safeGetLastAIMessageId()) {
+        updatePanelStateCore($floatingCache, floatingEl, state);
     }
-    
-    // 更新播放按钮（保留自动朗读指示点）
-    const playBtnContent = ui.playBtn.querySelector('.xb-tts-auto-dot');
-    ui.playBtn.textContent = playIcon;
-    if (playBtnContent) {
-        ui.playBtn.appendChild(playBtnContent);
-    } else {
-        const dot = document.createElement('span');
-        dot.className = 'xb-tts-auto-dot';
-        ui.playBtn.appendChild(dot);
-    }
-    
-    ui.statusText.textContent = statusText;
-    
-    if (hasQueue && current > 0) {
-        ui.badge.textContent = `${current}/${total}`;
-    }
-    
-    ui.stopBtn.style.display = showStop ? '' : 'none';
-    
-    if (hasQueue && total > 0) {
-        const pct = Math.min(100, (current / total) * 100);
-        ui.progressInner.style.width = `${pct}%`;
-    } else if (state.progress && state.duration) {
-        const pct = Math.min(100, (state.progress / state.duration) * 100);
-        ui.progressInner.style.width = `${pct}%`;
-    } else {
-        ui.progressInner.style.width = '0%';
-    }
-    
-    if (state.textLength && ui.usageText) {
-        ui.usageText.textContent = `${state.textLength} 字`;
+}
+
+export function resetFloatingState() {
+    if (!floatingEl) return;
+
+    floatingEl.dataset.status = 'idle';
+    floatingEl.dataset.hasQueue = 'false';
+
+    if ($floatingCache.statusText) $floatingCache.statusText.textContent = '播放';
+    if ($floatingCache.badge) $floatingCache.badge.textContent = '0/0';
+    if ($floatingCache.progressInner) $floatingCache.progressInner.style.width = '0%';
+    if ($floatingCache.stopBtn) $floatingCache.stopBtn.style.display = 'none';
+    if ($floatingCache.usageText) $floatingCache.usageText.textContent = '-字';
+
+    if ($floatingCache.playBtn) {
+        const dot = $floatingCache.playBtn.querySelector('.xb-tts-auto-dot');
+        $floatingCache.playBtn.textContent = '▶';
+        if (dot) $floatingCache.playBtn.appendChild(dot);
     }
 }
 
 export function removeTtsPanel(messageId) {
-    const ui = panelMap.get(messageId);
-    if (ui) {
-        ui._cleanup?.();
+    const data = panelMap.get(messageId);
+    if (data) {
+        data._cleanup?.();
         panelMap.delete(messageId);
     }
     pendingCallbacks.delete(messageId);
 }
 
 export function removeAllTtsPanels() {
-    panelMap.forEach((ui) => {
-        ui._cleanup?.();
-    });
+    panelMap.forEach((data) => data._cleanup?.());
     panelMap.clear();
     pendingCallbacks.clear();
-    
-    observer?.disconnect();
-    observer = null;
+
+    floorObserver?.disconnect();
+    floorObserver = null;
+}
+
+export function initFloatingPanel() {
+    if (!getConfigFn) return;
+    createFloatingButton();
+}
+
+export function destroyFloatingPanel() {
+    destroyFloatingButton();
+}
+
+export function updateButtonVisibility(showFloor, showFloating) {
+    if (showFloating && !floatingEl) {
+        createFloatingButton();
+    } else if (!showFloating && floatingEl) {
+        destroyFloatingButton();
+    }
+
+    if (!showFloor) {
+        removeAllTtsPanels();
+    }
 }
 
 export function getPanelMap() {

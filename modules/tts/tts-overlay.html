@@ -121,6 +121,39 @@ body {
     gap: 8px; 
 }
 
+.header-toggles {
+    display: flex;
+    gap: 6px;
+}
+
+.header-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.header-toggle:hover {
+    border-color: var(--border-light);
+    color: var(--text-primary);
+}
+
+.header-toggle input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    margin: 0;
+}
+
 .header-badge {
     display: flex; 
     align-items: center; 
@@ -1206,6 +1239,16 @@ select.input { cursor: pointer; }
             <div id="badge_auth" class="header-badge"><i class="fa-solid fa-circle"></i><span>鉴权</span></div>
         </div>
         <div class="header-spacer"></div>
+        <div class="header-toggles">
+            <label class="header-toggle" title="消息楼层内显示播放器">
+                <input type="checkbox" id="showFloorButton" checked>
+                <span>楼层</span>
+            </label>
+            <label class="header-toggle" title="屏幕固定位置显示播放器">
+                <input type="checkbox" id="showFloatingButton">
+                <span>悬浮</span>
+            </label>
+        </div>
         <button id="tts_close" class="header-close">✕</button>
     </header>
 
@@ -2152,6 +2195,9 @@ function fillForm(cfg) {
     $('cacheMaxEntries').value = cfg.volc?.cacheMaxEntries ?? 200;
     $('cacheMaxMB').value = cfg.volc?.cacheMaxMB ?? 200;
     applyCacheStats(cfg.cacheStats || {});
+
+    $('showFloorButton').checked = cfg.showFloorButton !== false;
+    $('showFloatingButton').checked = cfg.showFloatingButton === true;
     
     updateApiStatus();
     renderMyVoiceList();
@@ -2249,6 +2295,8 @@ window.addEventListener('message', ev => {
             handleSaveResult(false);
             post('xb-tts:toast', { type: 'error', message: payload?.message || '保存失败' });
             break;
+        case 'xb-tts:button-mode-saved':
+            break;
         case 'xb-tts:test-done':
             ['testMyStatus', 'testTrialStatus', 'testAuthStatus'].forEach(id => setTestStatus(id, 'playing', '播放中...'));
             setTimeout(() => ['testMyStatus', 'testTrialStatus', 'testAuthStatus'].forEach(id => setTestStatus(id, '', '')), 3000);
@@ -2278,6 +2326,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     $$('.nav-item, .mobile-nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
     $('tts_close').addEventListener('click', () => post('xb-tts:close'));
+    $('showFloorButton').addEventListener('change', () => {
+        post('xb-tts:save-button-mode', {
+            showFloorButton: $('showFloorButton').checked,
+            showFloatingButton: $('showFloatingButton').checked
+        });
+    });
+    $('showFloatingButton').addEventListener('change', () => {
+        post('xb-tts:save-button-mode', {
+            showFloorButton: $('showFloorButton').checked,
+            showFloatingButton: $('showFloatingButton').checked
+        });
+    });
 
     $('toggleKey').addEventListener('click', () => {
         const input = $('accessKey');
