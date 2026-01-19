@@ -1,88 +1,119 @@
 # LittleWhiteBox
 
-SillyTavern 扩展插件 - 小白X
-
 ## 📁 目录结构
 
 ```
 LittleWhiteBox/
-├── index.js                          # 主入口，初始化所有模块，管理总开关
-├── manifest.json                     # 插件清单，版本、依赖声明
-├── settings.html                     # 主设置页面，所有模块开关UI
+├── index.js                          # 入口：初始化/注册所有模块
+├── manifest.json                     # 插件清单：版本/依赖/入口
+├── settings.html                     # 主设置页：模块开关/UI
 ├── style.css                         # 全局样式
 ├── README.md                         # 说明文档
+├── .eslintrc.cjs                     # ESLint 规则
+├── .eslintignore                     # ESLint 忽略
+├── .gitignore                        # Git 忽略
+├── package.json                      # 开发依赖/脚本
+├── package-lock.json                 # 依赖锁定
+├── jsconfig.json                     # 编辑器提示
 │
-├── core/                             # 核心公共模块
-│   ├── constants.js                  # 共享常量 EXT_ID, extensionFolderPath
-│   ├── event-manager.js              # 统一事件管理，createModuleEvents()
-│   ├── debug-core.js                 # 日志 xbLog + 缓存注册 CacheRegistry
-│   ├── slash-command.js              # 斜杠命令执行封装
-│   ├── variable-path.js              # 变量路径解析工具
-│   └── server-storage.js             # 服务器文件存储，防抖保存，自动重试
+├── core/                             # 核心基础设施（不直接做功能UI）
+│   ├── constants.js                  # 常量/路径
+│   ├── event-manager.js              # 统一事件管理
+│   ├── debug-core.js                 # 日志/缓存注册
+│   ├── slash-command.js              # 斜杠命令封装
+│   ├── variable-path.js              # 变量路径解析
+│   ├── server-storage.js             # 服务器存储（防抖/重试）
+│   ├── wrapper-inline.js             # iframe 内联脚本
+│   └── iframe-messaging.js           # postMessage 封装与 origin 校验
 │
-├── modules/                          # 功能模块
-│   ├── button-collapse.js            # 按钮折叠，消息区按钮收纳
-│   ├── control-audio.js              # 音频控制，iframe音频权限
-│   ├── iframe-renderer.js            # iframe渲染，代码块转交互界面
-│   ├── immersive-mode.js             # 沉浸模式，界面布局优化
-│   ├── message-preview.js            # 消息预览，Log记录/拦截
-│   ├── script-assistant.js           # 脚本助手，AI写卡知识注入
-│   ├── streaming-generation.js       # 流式生成，xbgenraw命令
+├── widgets/                          # 通用UI组件（跨功能复用）
+│   ├── message-toolbar.js            # 消息区工具条注册/管理
+│   └── button-collapse.js            # 消息区按钮收纳
+│
+├── modules/                          # 功能模块（每个功能自带UI）
+│   ├── control-audio.js              # 音频权限控制
+│   ├── iframe-renderer.js            # iframe 渲染
+│   ├── immersive-mode.js             # 沉浸模式
+│   ├── message-preview.js            # 消息预览/拦截
+│   ├── streaming-generation.js       # 生成相关功能（xbgenraw）
 │   │
-│   ├── debug-panel/                  # 调试面板模块
-│   │   ├── debug-panel.js            # 悬浮窗控制，父子通信，懒加载
-│   │   └── debug-panel.html          # 三Tab界面：日志/事件/缓存
+│   ├── debug-panel/                  # 调试面板
+│   │   ├── debug-panel.js            # 悬浮窗控制
+│   │   └── debug-panel.html          # UI
 │   │
-│   ├── fourth-wall/                  # 四次元壁模块（皮下交流）
-│   │   ├── fourth-wall.js            # 悬浮按钮，postMessage通讯
-│   │   └── fourth-wall.html          # iframe聊天界面，提示词编辑
+│   ├── fourth-wall/                  # 四次元壁
+│   │   ├── fourth-wall.js            # 逻辑
+│   │   ├── fourth-wall.html          # UI
+│   │   ├── fw-image.js               # 图像交互
+│   │   ├── fw-message-enhancer.js    # 消息增强
+│   │   ├── fw-prompt.js              # 提示词编辑
+│   │   └── fw-voice.js               # 语音展示
 │   │
-│   ├── novel-draw/                   # Novel画图模块
-│   │   ├── novel-draw.js             # NovelAI画图，预设管理，LLM场景分析
-│   │   ├── novel-draw.html           # 参数配置，图片管理（画廊+缓存）
-│   │   ├── floating-panel.js         # 悬浮面板，状态显示，快捷操作
-│   │   └── gallery-cache.js          # IndexedDB缓存，小画廊UI
+│   ├── novel-draw/                   # 画图
+│   │   ├── novel-draw.js             # 主逻辑
+│   │   ├── novel-draw.html           # UI
+│   │   ├── llm-service.js            # LLM 分析
+│   │   ├── floating-panel.js         # 悬浮面板
+│   │   ├── gallery-cache.js          # 缓存
+│   │   ├── image-live-effect.js      # Live 动效
+│   │   ├── cloud-presets.js          # 云预设
+│   │   └── TAG编写指南.md            # 文档
 │   │
-│   ├── scheduled-tasks/              # 定时任务模块
-│   │   ├── scheduled-tasks.js        # 全局/角色/预设任务调度
-│   │   ├── scheduled-tasks.html      # 任务设置面板
-│   │   └── embedded-tasks.html       # 嵌入式任务界面
+│   ├── tts/                          # TTS
+│   │   ├── tts.js                    # 主逻辑
+│   │   ├── tts-auth-provider.js      # 鉴权
+│   │   ├── tts-free-provider.js      # 试用
+│   │   ├── tts-api.js                # API
+│   │   ├── tts-text.js               # 文本处理
+│   │   ├── tts-player.js             # 播放器
+│   │   ├── tts-panel.js              # 气泡UI
+│   │   ├── tts-cache.js              # 缓存
+│   │   ├── tts-overlay.html          # 设置UI
+│   │   ├── tts-voices.js             # 音色数据
+│   │   ├── 开通管理.png              # 说明图
+│   │   ├── 获取ID和KEY.png           # 说明图
+│   │   └── 声音复刻.png              # 说明图
 │   │
-│   ├── template-editor/              # 模板编辑器模块
-│   │   ├── template-editor.js        # 沉浸式模板，流式多楼层渲染
-│   │   └── template-editor.html      # 模板编辑界面
+│   ├── scheduled-tasks/              # 定时任务
+│   │   ├── scheduled-tasks.js        # 调度
+│   │   ├── scheduled-tasks.html      # UI
+│   │   └── embedded-tasks.html       # 嵌入UI
 │   │
-│   ├── story-outline/                # 故事大纲模块
-│   │   ├── story-outline.js          # 可视化剧情地图
-│   │   ├── story-outline.html        # 大纲编辑界面
-│   │   └── story-outline-prompt.js   # 大纲生成提示词
+│   ├── template-editor/              # 模板编辑器
+│   │   ├── template-editor.js        # 逻辑
+│   │   └── template-editor.html      # UI
 │   │
-│   ├── story-summary/                # 剧情总结模块
-│   │   ├── story-summary.js          # 增量总结，时间线，关系图
-│   │   └── story-summary.html        # 总结面板界面
+│   ├── story-outline/                # 故事大纲
+│   │   ├── story-outline.js          # 逻辑
+│   │   ├── story-outline.html        # UI
+│   │   └── story-outline-prompt.js   # 提示词
 │   │
-│   └── variables/                    # 变量系统模块
-│       ├── var-commands.js           # /xbgetvar /xbsetvar 命令，宏替换
-│       ├── varevent-editor.js        # 条件规则编辑器，varevent运行时
-│       ├── variables-core.js         # plot-log解析，快照回滚，变量守护
-│       └── variables-panel.js        # 变量面板UI
+│   ├── story-summary/                # 剧情总结
+│   │   ├── story-summary.js          # 逻辑
+│   │   ├── story-summary.html        # UI
+│   │   └── llm-service.js            # LLM 服务
+│   │
+│   └── variables/                    # 变量系统
+│       ├── var-commands.js           # 命令
+│       ├── varevent-editor.js        # 编辑器
+│       ├── variables-core.js         # 核心
+│       └── variables-panel.js        # 面板
 │
 ├── bridges/                          # 外部服务桥接
-│   ├── call-generate-service.js      # 父窗口：调用ST生成服务
-│   ├── worldbook-bridge.js           # 父窗口：世界书读写桥接
-│   └── wrapper-iframe.js             # iframe内部：提供CallGenerate API
+│   ├── call-generate-service.js      # ST 生成服务
+│   ├── worldbook-bridge.js           # 世界书桥接
+│   └── wrapper-iframe.js             # iframe 客户端脚本
 │
-└── docs/                             # 文档与许可
-    ├── script-docs.md                # 脚本文档
-    ├── COPYRIGHT                     # 版权声明
-    ├── LICENSE.md                    # 许可证
-    └── NOTICE                        # 通知
+├── libs/                             # 第三方库
+│   └── pixi.min.js                   # PixiJS
+│
+└── docs/                             # 许可/声明
+    ├── COPYRIGHT
+    ├── LICENSE.md
+    └── NOTICE
 
+node_modules/                         # 本地依赖（不提交）
 ```
-
-## 🔄 版本历史
-
-- v2.2.2 - 目录结构重构（2025-12-08）
 
 ## 📄 许可证
 

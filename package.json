@@ -1,0 +1,15 @@
+{
+    "name": "littlewhitebox-plugin",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "lint": "eslint \"**/*.js\"",
+        "lint:fix": "eslint \"**/*.js\" --fix"
+    },
+  "devDependencies": {
+    "eslint": "^8.57.1",
+    "eslint-plugin-jsdoc": "^48.10.0",
+    "eslint-plugin-no-unsanitized": "^4.1.2",
+    "eslint-plugin-security": "^1.7.1"
+  }
+}

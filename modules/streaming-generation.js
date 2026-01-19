@@ -8,10 +8,10 @@ import { SlashCommandParser } from "../../../../slash-commands/SlashCommandParse
 import { SlashCommand } from "../../../../slash-commands/SlashCommand.js";
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from "../../../../slash-commands/SlashCommandArgument.js";
 import { SECRET_KEYS, writeSecret } from "../../../../secrets.js";
-import { evaluateMacros } from "../../../../macros.js";
-import { renderStoryString, power_user } from "../../../../power-user.js";
+import { power_user } from "../../../../power-user.js";
 import { world_info } from "../../../../world-info.js";
 import { xbLog, CacheRegistry } from "../core/debug-core.js";
+import { getTrustedOrigin } from "../core/iframe-messaging.js";
 
 const EVT_DONE = 'xiaobaix_streaming_completed';
 
@@ -91,9 +91,10 @@ class StreamingGeneration {
             const frames = window?.frames;
             if (frames?.length) {
                 const msg = { type: name, payload, from: 'xiaobaix' };
+                const targetOrigin = getTrustedOrigin();
                 let fail = 0;
                 for (let i = 0; i < frames.length; i++) {
-                    try { frames[i].postMessage(msg, '*'); } catch { fail++; }
+                    try { frames[i].postMessage(msg, targetOrigin); } catch { fail++; }
                 }
                 if (fail) {
                     try { xbLog.warn('streamingGeneration', `postToFrames fail=${fail} total=${frames.length} type=${name}`); } catch {}
@@ -275,7 +276,6 @@ class StreamingGeneration {
                 if (oai_settings?.custom_exclude_body) body.custom_exclude_body = oai_settings.custom_exclude_body;
             }
             
-            const bodyLog = { ...body, messages: `[${body.messages?.length || 0} messages]` };
             
             if (stream) {
                 const payload = ChatCompletionService.createRequestData(body);
@@ -286,17 +286,10 @@ class StreamingGeneration {
 
                 return (async function* () {
                     let last = '';
-                    let chunkCount = 0;
                     try {
                         for await (const item of (generator || [])) {
-                            chunkCount++;
                             if (abortSignal?.aborted) {
                                 return;
-                            }
-
-                            if (chunkCount <= 5 || chunkCount % 20 === 0) {
-                                if (typeof item === 'object') {
-                                }
                             }
 
                             let accumulated = '';
@@ -327,8 +320,6 @@ class StreamingGeneration {
                             }
                             
                             if (!accumulated) {
-                                if (chunkCount <= 5) {
-                                }
                                 continue;
                             }
 
@@ -410,7 +401,7 @@ class StreamingGeneration {
             const payload = { finalText: session.text, originalPrompt: prompt, sessionId: session.id };
             try { eventSource?.emit?.(EVT_DONE, payload); } catch { }
             this.postToFrames(EVT_DONE, payload);
-            try { window?.postMessage?.({ type: EVT_DONE, payload, from: 'xiaobaix' }, '*'); } catch { }
+            try { window?.postMessage?.({ type: EVT_DONE, payload, from: 'xiaobaix' }, getTrustedOrigin()); } catch { }
 
             try { xbLog.info('streamingGeneration', `processGeneration done sid=${session.id} outLen=${String(session.text || '').length}`); } catch {}
             return String(session.text || '');

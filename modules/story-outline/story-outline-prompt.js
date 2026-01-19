@@ -348,7 +348,6 @@ const DEFAULT_PROMPTS = {
     },
     sceneSwitch: {
         u1: v => {
-            const lLevel = v.targetLocationType === 'main' ? Math.min(5, v.stage + 2) : v.targetLocationType === 'sub' ? 2 : Math.min(5, v.stage + 1);
             return `你是TRPG场景切换助手。处理{{user}}移动请求，只做"结算 + 地图"，不生成剧情。
 
 处理逻辑：
@@ -360,7 +359,6 @@ const DEFAULT_PROMPTS = {
 - 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "`;
         },
         a1: v => {
-            const lLevel = v.targetLocationType === 'main' ? Math.min(5, v.stage + 2) : v.targetLocationType === 'sub' ? 2 : Math.min(5, v.stage + 1);
             return `明白。我将结算偏差值，并生成目标地点的 local_map（静态描写/布局），不生成 side_story/剧情。请发送上下文。`;
         },
         u2: v => `【上一地点】：\n${v.prevLocationName}: ${v.prevLocationInfo || '无详细信息'}\n\n【世界设定】：\n${worldInfo}\n\n【剧情大纲】：\n${wrap('story_outline', v.storyOutline) || '无大纲'}\n\n【当前时间段】：\nStage ${v.stage}\n\n【历史记录】：\n${history(v.historyCount)}\n\n【{{user}}行动意图】：\n${v.playerAction || '无特定意图'}\n\n【目标地点】：\n名称: ${v.targetLocationName}\n类型: ${v.targetLocationType}\n描述: ${v.targetLocationInfo || '无详细信息'}\n\n【JSON模板】：\n${JSON_TEMPLATES.sceneSwitch}`,
@@ -421,6 +419,7 @@ const evalExprCached = (() => {
     return (expr) => {
         const key = String(expr ?? '');
         if (cache.has(key)) return cache.get(key);
+        // eslint-disable-next-line no-new-func -- intentional: user-defined prompt expression
         const fn = new Function(
             'v', 'wrap', 'worldInfo', 'history', 'nameList', 'randomRange', 'safeJson', 'JSON_TEMPLATES',
             `"use strict"; return (${key});`

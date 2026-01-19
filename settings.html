@@ -120,6 +120,22 @@
               <small>画图设置</small>
             </button>
           </div>
+          <div class="section-divider">豆包 语音
+            <hr class="sysHR" />
+          </div>
+          <div class="flex-container">
+            <input type="checkbox" id="xiaobaix_tts_enabled" />
+            <label for="xiaobaix_tts_enabled" class="has-tooltip"
+                   data-tooltip="AI回复渲染后自动朗读。需要先在 config.yaml 开启 enableCorsProxy: true 并重启。所有请求通过 ST 内置代理，不经过第三方。">
+              启用 TTS 语音
+            </label>
+            <button id="xiaobaix_tts_open_settings" class="menu_button menu_button_icon"
+                    type="button" style="margin-left:auto;"
+                    title="打开 TTS 设置（音色/复刻/跳过规则）">
+              <i class="fa-solid fa-microphone-lines"></i>
+              <small>语音设置</small>
+            </button>
+          </div>
         </div>
         <div class="task settings-section" style="display:none;">
           <div class="section-divider">循环任务
@@ -500,6 +516,7 @@
 	      variablesCore: 'xiaobaix_variables_core_enabled',
 	      audio: 'xiaobaix_audio_enabled',
 	      storySummary: 'xiaobaix_story_summary_enabled',
+	      tts: 'xiaobaix_tts_enabled',
       storyOutline: 'xiaobaix_story_outline_enabled',
       sandboxMode: 'xiaobaix_sandbox',
       useBlob: 'xiaobaix_use_blob',
@@ -507,8 +524,8 @@
 	      renderEnabled: 'xiaobaix_render_enabled',
 	    };
 	    const DEFAULTS_ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary', 'recorded'];
-	    const DEFAULTS_OFF = ['preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw'];
-	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'audio', 'storySummary', 'storyOutline', 'novelDraw'];
+	    const DEFAULTS_OFF = ['preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw', 'tts'];
+	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'audio', 'storySummary', 'storyOutline', 'novelDraw', 'tts'];
 	    function setModuleEnabled(key, enabled) {
 	      try {
 	        if (!extension_settings[EXT_ID][key]) extension_settings[EXT_ID][key] = {};

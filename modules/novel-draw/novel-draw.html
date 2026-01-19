@@ -65,6 +65,13 @@ body {
     display: flex; background: var(--bg-input);
     border: 1px solid var(--border); border-radius: 16px; padding: 2px;
 }
+.header-toggles { display: flex; gap: 6px; margin-right: 8px; }
+.header-toggle {
+    display: flex; align-items: center; gap: 4px; padding: 4px 8px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px;
+    font-size: 11px; color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+}
+.header-toggle input { accent-color: var(--accent); }
 .header-mode button {
     padding: 6px 14px; border: none; border-radius: 14px;
     background: transparent; color: var(--text-secondary);
@@ -210,6 +217,7 @@ select.input { cursor: pointer; }
     border: 1px solid rgba(212, 165, 116, 0.2); border-radius: 8px;
     font-size: 12px; color: var(--text-secondary); line-height: 1.6;
 }
+.tip-text { display: flex; flex-direction: column; gap: 4px; }
 .tip-box i { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
 .gallery-char-section { margin-bottom: 16px; }
 .gallery-char-header {
@@ -363,6 +371,16 @@ select.input { cursor: pointer; }
         <div id="nd_badge" class="header-badge"><i class="fa-solid fa-circle"></i><span>未启用</span></div>
         <span class="header-credit" id="nd_credits"></span>
         <div class="header-spacer"></div>
+        <div class="header-toggles">
+            <label class="header-toggle">
+                <input type="checkbox" id="nd_show_floor">
+                <span>楼层</span>
+            </label>
+            <label class="header-toggle">
+                <input type="checkbox" id="nd_show_floating">
+                <span>悬浮</span>
+            </label>
+        </div>
         <div class="header-mode">
             <button data-mode="manual" class="active">手动</button>
             <button data-mode="auto">自动</button>
@@ -410,7 +428,11 @@ select.input { cursor: pointer; }
                 </div>
                 <div class="tip-box">
                     <i class="fa-solid fa-lightbulb"></i>
-                    <div>聊天界面点击悬浮球 🎨 即可为最后一条AI消息生成配图。开启自动模式后，AI回复时会自动配图。</div>
+                    <div class="tip-text">
+                        <div>消息楼层按钮的 🎨 为对应消息生成配图。</div>
+                        <div>悬浮按钮的 🎨 仅作用于最后一条AI消息。</div>
+                        <div>开启自动模式后，AI回复时会自动配图。</div>
+                    </div>
                 </div>
             </div>
 
@@ -662,7 +684,7 @@ select.input { cursor: pointer; }
 
 				<div class="form-group" style="margin-top:16px;">
 				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
-				        <input type="checkbox" id="nd_use_stream"> 启用流式生成(gemini不勾)
+				        <input type="checkbox" id="nd_use_stream"> 启用流式生成
 				    </label>
 				</div>
 				<div class="form-group" style="margin-top:8px;">
@@ -829,7 +851,9 @@ let state = {
     paramsPresets: [],
     llmApi: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
     useStream: true,
-    characterTags: []
+    characterTags: [],
+    showFloorButton: true,
+    showFloatingButton: false
 };
 
 let gallerySummary = {};
@@ -845,8 +869,11 @@ let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
 const $ = id => document.getElementById(id);
 const $$ = sel => document.querySelectorAll(sel);
 
+const PARENT_ORIGIN = (() => {
+    try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
+})();
 function postToParent(payload) {
-    window.parent.postMessage({ source: 'NovelDraw-Frame', ...payload }, '*');
+    window.parent.postMessage({ source: 'NovelDraw-Frame', ...payload }, PARENT_ORIGIN);
 }
 
 function escapeHtml(str) {
@@ -1256,6 +1283,8 @@ function getCurrentLlmModel() {
 function applyStateToUI() {
     updateBadge(state.enabled);
     updateModeButtons(state.mode);
+    $('nd_show_floor').checked = state.showFloorButton !== false;
+    $('nd_show_floating').checked = state.showFloatingButton === true;
     
     $('nd_api_key').value = state.apiKey || '';
     $('nd_timeout').value = Math.round((state.timeout > 0 ? state.timeout : DEFAULTS.timeout) / 1000);
@@ -1384,7 +1413,9 @@ function collectParamsPreset() {
 // 消息处理
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Guarded by origin/source check.
 window.addEventListener('message', event => {
+    if (event.origin !== PARENT_ORIGIN || event.source !== window.parent) return;
     const data = event.data;
     if (!data || data.source !== 'LittleWhiteBox-NovelDraw') return;
 
@@ -1483,6 +1514,22 @@ document.addEventListener('DOMContentLoaded', () => {
         updateModeButtons(state.mode);
         postToParent({ type: 'SAVE_MODE', mode: state.mode });
     }));
+
+    $('nd_show_floor').addEventListener('change', () => {
+        postToParent({
+            type: 'SAVE_BUTTON_MODE',
+            showFloorButton: $('nd_show_floor').checked,
+            showFloatingButton: $('nd_show_floating').checked
+        });
+    });
+
+    $('nd_show_floating').addEventListener('change', () => {
+        postToParent({
+            type: 'SAVE_BUTTON_MODE',
+            showFloorButton: $('nd_show_floor').checked,
+            showFloatingButton: $('nd_show_floating').checked
+        });
+    });
     
     // ═══════════════════════════════════════════════════════════════════════
     // 关闭按钮

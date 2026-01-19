@@ -8,6 +8,7 @@ import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { getIframeBaseScript, getWrapperScript, getTemplateExtrasScript } from "../../core/wrapper-inline.js";
+import { postToIframe, getIframeTargetOrigin } from "../../core/iframe-messaging.js";
 
 const TEMPLATE_MODULE_NAME = "xiaobaix-template";
 const events = createModuleEvents('templateEditor');
@@ -673,7 +674,10 @@ class IframeManager {
             const sbox = !!(extension_settings && extension_settings[EXT_ID] && extension_settings[EXT_ID].sandboxMode);
             if (sbox) iframe.setAttribute('sandbox', 'allow-scripts allow-modals');
             iframe.srcdoc = html;
-            const probe = () => { try { iframe.contentWindow?.postMessage({ type: 'probe' }, '*'); } catch {} };
+            const probe = () => {
+                const targetOrigin = getIframeTargetOrigin(iframe);
+                try { postToIframe(iframe, { type: 'probe' }, null, targetOrigin); } catch {}
+            };
             if (iframe.complete) setTimeout(probe, 0);
             else iframe.addEventListener('load', () => setTimeout(probe, 0), { once: true });
         } catch (err) {
@@ -685,13 +689,13 @@ class IframeManager {
         const iframe = await this.waitForIframe(messageId);
         if (!iframe?.contentWindow) return;
         try {
-            iframe.contentWindow.postMessage({
+            const targetOrigin = getIframeTargetOrigin(iframe);
+            postToIframe(iframe, {
                 type: 'VARIABLE_UPDATE',
                 messageId,
                 timestamp: Date.now(),
                 variables: vars,
-                source: 'xiaobaix-host',
-            }, '*');
+            }, 'xiaobaix-host', targetOrigin);
         } catch (error) {
             console.error('[LittleWhiteBox] Failed to send iframe message:', error);
         }

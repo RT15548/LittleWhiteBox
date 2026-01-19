@@ -2,7 +2,7 @@
 // 导入
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { extension_settings, getContext, writeExtensionField, renderExtensionTemplateAsync } from "../../../../../extensions.js";
+import { extension_settings, getContext, writeExtensionField } from "../../../../../extensions.js";
 import { saveSettingsDebounced, characters, this_chid, chat, callPopup } from "../../../../../../script.js";
 import { getPresetManager } from "../../../../../preset-manager.js";
 import { oai_settings } from "../../../../../openai.js";
@@ -144,14 +144,6 @@ async function allTasksFull() {
         ...getCharacterTasks().map(mapTiming),
         ...getPresetTasks().map(mapTiming)
     ];
-}
-
-async function getTaskWithCommands(task, scope) {
-    if (!task) return task;
-    if (scope === 'global' && task.id && task.commands === undefined) {
-        return { ...task, commands: await TasksStorage.get(task.id) };
-    }
-    return task;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -419,7 +411,8 @@ async function persistTaskListByScope(scope, tasks) {
             await TasksStorage.set(task.id, String(task.commands ?? ''));
         }
 
-        const { commands, ...meta } = task;
+        const meta = { ...task };
+        delete meta.commands;
         metaOnly.push(meta);
     }
 
@@ -630,7 +623,6 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
     const codeSig = __hashStringForKey(String(jsCode || ''));
     const stableKey = (String(taskName || '').trim()) || `js-${codeSig}`;
     const isLightTask = stableKey.startsWith('[x]');
-    const startedAt = nowMs();
 
     const taskContext = {
         taskName: String(taskName || 'AnonymousTask'),
@@ -783,6 +775,7 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
         };
 
         const runInScope = async (code) => {
+            // eslint-disable-next-line no-new-func -- intentional: user-defined task expression
             const fn = new Function(
                 'taskContext', 'ctx', 'STscript', 'addFloorListener',
                 'addListener', 'setTimeoutSafe', 'clearTimeoutSafe', 'setIntervalSafe', 'clearIntervalSafe', 'abortSignal',
@@ -1433,20 +1426,6 @@ async function saveTaskFromEditor(task, scope) {
     refreshUI();
 }
 
-function saveTask(task, index, scope) {
-    const list = getTaskListByScope(scope);
-    if (index >= 0 && index < list.length) list[index] = task;
-    persistTaskListByScope(scope, [...list]);
-    refreshUI();
-}
-
-async function testTask(index, scope) {
-    const list = getTaskListByScope(scope);
-    let task = list[index];
-    if (!task) return;
-    task = await getTaskWithCommands(task, scope);
-    await executeCommands(task.commands, task.name);
-}
 
 async function editTask(index, scope) {
     const list = getTaskListByScope(scope);
@@ -1568,7 +1547,7 @@ async function showCloudTasksModal() {
     const contentEl = modalTemplate.find('.cloud-tasks-content');
     const errorEl = modalTemplate.find('.cloud-tasks-error');
 
-    const popup = callGenericPopup(modalTemplate, POPUP_TYPE.TEXT, '', { okButton: '关闭' });
+    callGenericPopup(modalTemplate, POPUP_TYPE.TEXT, '', { okButton: '关闭' });
 
     try {
         const cloudTasks = await fetchCloudTasks();
@@ -1625,19 +1604,6 @@ function createCloudTaskItem(taskInfo) {
 // 导入导出
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function exportGlobalTasks() {
-    const metaList = getSettings().globalTasks;
-    if (metaList.length === 0) return;
-    
-    const tasks = await Promise.all(metaList.map(async (meta) => ({
-        ...meta,
-        commands: await TasksStorage.get(meta.id)
-    })));
-    
-    const fileName = `global_tasks_${new Date().toISOString().split('T')[0]}.json`;
-    const fileData = JSON.stringify({ type: 'global', exportDate: new Date().toISOString(), tasks }, null, 4);
-    download(fileData, fileName, 'application/json');
-}
 
 async function exportSingleTask(index, scope) {
     const list = getTaskListByScope(scope);
@@ -1796,7 +1762,7 @@ function cleanup() {
 
     try {
         if (state.dynamicCallbacks && state.dynamicCallbacks.size > 0) {
-            for (const [id, entry] of state.dynamicCallbacks.entries()) {
+            for (const entry of state.dynamicCallbacks.values()) {
                 try { entry?.abortController?.abort(); } catch {}
             }
             state.dynamicCallbacks.clear();
@@ -2105,6 +2071,7 @@ async function initTasks() {
         window.registerModuleCleanup('scheduledTasks', cleanup);
     }
 
+    // eslint-disable-next-line no-restricted-syntax -- legacy task bridge; keep behavior unchanged.
     window.addEventListener('message', handleTaskMessage);
 
     $('#scheduled_tasks_enabled').on('input', e => {

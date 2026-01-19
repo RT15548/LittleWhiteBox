@@ -358,8 +358,11 @@
   </div>
 
   <script type="module">
+    const PARENT_ORIGIN = (() => {
+      try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
+    })();
     const post = (payload) => {
-      try { parent.postMessage({ source: 'LittleWhiteBox-DebugFrame', ...payload }, '*'); } catch {}
+      try { parent.postMessage({ source: 'LittleWhiteBox-DebugFrame', ...payload }, PARENT_ORIGIN); } catch {}
     };
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -738,6 +741,7 @@
     // ═══════════════════════════════════════════════════════════════════════
 
     window.addEventListener('message', (event) => {
+      if (event.origin !== PARENT_ORIGIN || event.source !== parent) return;
       const msg = event?.data;
       if (!msg || msg.source !== 'LittleWhiteBox-DebugHost') return;
       

@@ -8,6 +8,31 @@
 export function getIframeBaseScript() {
     return `
 (function(){
+  // vh 修复：CSS注入（立即生效） + 延迟样式表遍历（不阻塞渲染）
+  (function(){
+    var s=document.createElement('style');
+    s.textContent='html,body{height:auto!important;min-height:0!important;max-height:none!important}';
+    (document.head||document.documentElement).appendChild(s);
+    // 延迟遍历样式表，不阻塞初次渲染
+    (window.requestIdleCallback||function(cb){setTimeout(cb,50)})(function(){
+      try{
+        for(var i=0,sheets=document.styleSheets;i<sheets.length;i++){
+          try{
+            var rules=sheets[i].cssRules;
+            if(!rules)continue;
+            for(var j=0;j<rules.length;j++){
+              var st=rules[j].style;
+              if(!st)continue;
+              if((st.height||'').indexOf('vh')>-1)st.height='auto';
+              if((st.minHeight||'').indexOf('vh')>-1)st.minHeight='0';
+              if((st.maxHeight||'').indexOf('vh')>-1)st.maxHeight='none';
+            }
+          }catch(e){}
+        }
+      }catch(e){}
+    });
+  })();
+
   function measureVisibleHeight(){
     try{
       var doc=document,target=doc.body;
@@ -40,7 +65,8 @@ export function getIframeBaseScript() {
     }
   }
 
-  function post(m){try{parent.postMessage(m,'*')}catch(e){}}
+  var parentOrigin;try{parentOrigin=new URL(document.referrer).origin}catch(_){parentOrigin='*'}
+  function post(m){try{parent.postMessage(m,parentOrigin)}catch(e){}}
   var rafPending=false,lastH=0,HYSTERESIS=2;
 
   function send(force){
@@ -88,6 +114,7 @@ export function getIframeBaseScript() {
   }
 
   window.addEventListener('message',function(e){
+    if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
     var d=e&&e.data||{};
     if(d&&d.type==='probe')setTimeout(function(){send(true)},10);
   });
@@ -99,6 +126,7 @@ export function getIframeBaseScript() {
         if(command[0]!=='/')command='/'+command;
         var id=Date.now().toString(36)+Math.random().toString(36).slice(2);
         function onMessage(e){
+          if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
           var d=e&&e.data||{};
           if(d.source!=='xiaobaix-host')return;
           if((d.type==='commandResult'||d.type==='commandError')&&d.id===id){
@@ -156,10 +184,12 @@ export function getWrapperScript() {
   function CallGenerateImpl(options){
     return new Promise(function(resolve,reject){
       try{
-        function post(m){try{parent.postMessage(m,'*')}catch(e){}}
+        var parentOrigin;try{parentOrigin=new URL(document.referrer).origin}catch(_){parentOrigin='*'}
+        function post(m){try{parent.postMessage(m,parentOrigin)}catch(e){}}
         if(!options||typeof options!=='object'){reject(new Error('Invalid options'));return}
         var id=Date.now().toString(36)+Math.random().toString(36).slice(2);
         function onMessage(e){
+          if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
           var d=e&&e.data||{};
           if(d.source!=='xiaobaix-host'||d.id!==id)return;
           if(d.type==='generateStreamStart'&&options.streaming&&options.streaming.onStart){try{options.streaming.onStart(d.sessionId)}catch(_){}}
@@ -196,8 +226,10 @@ export function getWrapperScript() {
       }
     }catch(_){}
   }
-  function requestAvatars(){try{parent.postMessage({type:'getAvatars'},'*')}catch(_){}}
+  var parentOrigin;try{parentOrigin=new URL(document.referrer).origin}catch(_){parentOrigin='*'}
+  function requestAvatars(){try{parent.postMessage({type:'getAvatars'},parentOrigin)}catch(_){}}
   function onMessage(e){
+    if(parentOrigin!=='*'&&e&&e.origin!==parentOrigin)return;
     var d=e&&e.data||{};
     if(d&&d.source==='xiaobaix-host'&&d.type==='avatars'){
       applyAvatarCss(d.urls);

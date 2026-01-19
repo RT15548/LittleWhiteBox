@@ -577,11 +577,15 @@ let defaultVoiceKey = 'female_1';
    ══════════════════════════════════════════════════════════════════════════════ */
 
 function escapeHtml(text) {
-    return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+    return escapeHtmlText(text).replace(/\n/g, '<br>');
+}
+
+function escapeHtmlText(text) {
+    return String(text || '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', '\'': '&#39;' }[c]));
 }
 
 function renderThinking(text) {
-    return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    return escapeHtmlText(text)
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/^[\\*\\-]\\s+/gm, '• ').replace(/\n/g, '<br>');
 }
 
@@ -606,8 +610,12 @@ function generateUUID() {
     });
 }
 
+const PARENT_ORIGIN = (() => {
+    try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
+})();
+
 function postToParent(payload) {
-    window.parent.postMessage({ source: 'LittleWhiteBox-FourthWall', ...payload }, '*');
+    window.parent.postMessage({ source: 'LittleWhiteBox-FourthWall', ...payload }, PARENT_ORIGIN);
 }
 
 function getEmotionIcon(emotion) {
@@ -856,7 +864,7 @@ function hydrateVoiceSlots(container) {
 
 function renderContent(text) {
     if (!text) return '';
-    let html = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let html = escapeHtmlText(text);
 
     html = html.replace(/\[(?:img|图片)\s*:\s*([^\]]+)\]/gi, (_, inner) => {
         const tags = parseImageToken(inner);
@@ -915,7 +923,7 @@ function renderMessages() {
         const isEditing = editingIndex === idx;
         const timeStr = formatTimeDisplay(msg.ts);
         const bubbleContent = isEditing
-            ? `<textarea class="fw-edit-area" data-index="${idx}">${msg.content || ''}</textarea>`
+            ? `<textarea class="fw-edit-area" data-index="${idx}">${escapeHtmlText(msg.content || '')}</textarea>`
             : renderContent(msg.content);
         const actions = isEditing
             ? `<div class="fw-bubble-actions" style="display:flex;"><button class="fw-bubble-btn fw-save-btn" data-index="${idx}" title="保存"><i class="fa-solid fa-check"></i></button><button class="fw-bubble-btn fw-cancel-btn" data-index="${idx}" title="取消"><i class="fa-solid fa-xmark"></i></button></div>`
@@ -1116,7 +1124,9 @@ function regenerate() {
    消息处理
    ══════════════════════════════════════════════════════════════════════════════ */
 
+// Guarded by origin/source check.
 window.addEventListener('message', event => {
+    if (event.origin !== PARENT_ORIGIN || event.source !== window.parent) return;
     const data = event.data;
     if (!data || data.source !== 'LittleWhiteBox') return;
 
@@ -1125,7 +1135,7 @@ window.addEventListener('message', event => {
             source: 'LittleWhiteBox-FourthWall',
             type: 'PONG',
             pingId: data.pingId
-        }, '*');
+        }, PARENT_ORIGIN);
         return;
     }
 

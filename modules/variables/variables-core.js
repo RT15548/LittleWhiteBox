@@ -4,7 +4,7 @@
  * @description 包含 plot-log 解析、快照回滚、变量守护
  */
 
-import { getContext, extension_settings } from "../../../../../extensions.js";
+import { getContext } from "../../../../../extensions.js";
 import { updateMessageBlock } from "../../../../../../script.js";
 import { getLocalVariable, setLocalVariable } from "../../../../../variables.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
@@ -31,7 +31,6 @@ import {
 import {
     preprocessBumpAliases,
     executeQueuedVareventJsAfterTurn,
-    drainPendingVareventBlocks,
     stripYamlInlineComment,
     OP_MAP,
     TOP_OP_RE,
@@ -40,7 +39,6 @@ import {
 /* ============= 模块常量 ============= */
 
 const MODULE_ID = 'variablesCore';
-const LWB_EXT_ID = 'LittleWhiteBox';
 const LWB_RULES_KEY = 'LWB_RULES';
 const LWB_SNAP_KEY = 'LWB_SNAP';
 const LWB_PLOT_APPLIED_KEY = 'LWB_PLOT_APPLIED_KEY';
@@ -60,6 +58,8 @@ const guardianState = {
 // 事件管理器
 let events = null;
 let initialized = false;
+let pendingSwipeApply = new Map();
+let suppressUpdatedOnce = new Set();
 
 CacheRegistry.register(MODULE_ID, {
     name: '变量系统缓存',
@@ -2146,9 +2146,9 @@ function getMsgIdStrict(payload) {
 }
 
 function bindEvents() {
-    const pendingSwipeApply = new Map();
+    pendingSwipeApply = new Map();
     let lastSwipedId;
-    const suppressUpdatedOnce = new Set();
+    suppressUpdatedOnce = new Set();
 
     // 消息发送
     events?.on(event_types.MESSAGE_SENT, async () => {

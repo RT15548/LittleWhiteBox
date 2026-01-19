@@ -785,9 +785,13 @@ const $ = id => document.getElementById(id);
 const $$ = s => document.querySelectorAll(s);
 const isMob = () => innerWidth <= 550;
 const escHtml = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const h = s => escHtml(String(s ?? ''));
 const stripXml = s => s ? s.replace(/<(\w+)[^>]*>[\s\S]*?<\/\1>/g, '').replace(/<[^>]+\/?>/g, '').trim() : '';
-const parseLinks = t => t.replace(/\*\*([^*]+)\*\*/g, '<span class="loc-lk" data-loc="$1">$1</span>');
-const post = (type, data = {}) => parent.postMessage({ source: 'LittleWhiteBox-OutlineFrame', type, ...data }, '*');
+const parseLinks = t => h(t).replace(/\*\*([^*]+)\*\*/g, '<span class="loc-lk" data-loc="$1">$1</span>');
+const PARENT_ORIGIN = (() => {
+    try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
+})();
+const post = (type, data = {}) => parent.postMessage({ source: 'LittleWhiteBox-OutlineFrame', type, ...data }, PARENT_ORIGIN);
 
 const syncSimDueUI = () => {
     const due = (Number(D.simulationTarget) || 0) <= 0;
@@ -979,7 +983,7 @@ chatIn.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) 
 const openInv = c => {
     invTgt = c; selLoc = null;
     $('inv-t').textContent = `邀请：${c.name}`;
-    $('loc-list').innerHTML = D.maps.outdoor.nodes.map(l => `<div class="loc-i" data-n="${l.name}"><div class="loc-i-nm">${l.name}</div><div class="loc-i-info">${l.info || ''}</div></div>`).join('');
+    $('loc-list').innerHTML = D.maps.outdoor.nodes.map(l => `<div class="loc-i" data-n="${h(l.name)}"><div class="loc-i-nm">${h(l.name)}</div><div class="loc-i-info">${h(l.info || '')}</div></div>`).join('');
     $$('#loc-list .loc-i').forEach(i => i.onclick = () => { $$('#loc-list .loc-i').forEach(x => x.classList.remove('sel')); i.classList.add('sel'); selLoc = i.dataset.n; });
     openM('m-invite');
 };
@@ -1409,7 +1413,9 @@ $('set-save').onclick = () => {
 $('btn-close').onclick = () => post('CLOSE_PANEL');
 
 // ================== 消息处理 ==================
+// Guarded by origin/source check.
 window.addEventListener('message', e => {
+    if (e.origin !== PARENT_ORIGIN || e.source !== parent) return;
     if (e.data?.source !== 'LittleWhiteBox') return;
     const d = e.data, t = d.type;
 
@@ -1697,7 +1703,7 @@ window.addEventListener('message', e => {
             selectedMapValue = 'current';
             saveAll();
             render();
-            if (lm.description) { $('side-desc').innerHTML = `<div class="local-map-title">📍 ${locName}</div>` + parseLinks(lm.description); bindLinks($('side-desc')); }
+            if (lm.description) { $('side-desc').innerHTML = `<div class="local-map-title">📍 ${h(locName)}</div>` + parseLinks(lm.description); bindLinks($('side-desc')); }
             showResultModal('刷新成功', `局部地图已刷新！当前位置: ${locName}`, false, d.localMapData);
         }
     } else if (t === 'GENERATE_LOCAL_SCENE_RESULT') {
@@ -1764,7 +1770,7 @@ window.addEventListener('message', e => {
             selectedMapValue = 'current';
             saveAll();
             render();
-            if (lm.description) { $('side-desc').innerHTML = `<div class="local-map-title">📍 ${locName}</div>` + parseLinks(lm.description); bindLinks($('side-desc')); }
+            if (lm.description) { $('side-desc').innerHTML = `<div class="local-map-title">📍 ${h(locName)}</div>` + parseLinks(lm.description); bindLinks($('side-desc')); }
             showResultModal('生成成功', `局部地图生成完成！当前位置: ${locName}`, false, lm);
         }
     }
@@ -1774,18 +1780,18 @@ window.addEventListener('message', e => {
 function render() {
     // 新闻
     const news = D.world?.news || [];
-    $('news-list').innerHTML = news.length ? news.map(n => `<div class="fold"><div class="fold-h"><div><div class="news-t">${n.title}</div><div class="news-time">${n.time || ''}</div></div><i class="fa-solid fa-chevron-down fold-a"></i></div><div class="fold-b news-b"><p>${n.content}</p></div></div>`).join('') : '<div class="empty">暂无新闻</div>';
+    $('news-list').innerHTML = news.length ? news.map(n => `<div class="fold"><div class="fold-h"><div><div class="news-t">${h(n.title)}</div><div class="news-time">${h(n.time || '')}</div></div><i class="fa-solid fa-chevron-down fold-a"></i></div><div class="fold-b news-b"><p>${h(n.content)}</p></div></div>`).join('') : '<div class="empty">暂无新闻</div>';
     $$('#news-list .fold').forEach(bindFold);
 
     // 用户指南
     const ug = D.meta?.user_guide;
     if (ug) {
         $('ug-state').textContent = ug.current_state || '未知状态';
-        $('ug-actions').innerHTML = (ug.guides || []).map((g, i) => `<div class="user-guide-action" data-idx="${i}">${i + 1}. ${g}</div>`).join('') || '<div class="user-guide-action">暂无行动指南</div>';
+        $('ug-actions').innerHTML = (ug.guides || []).map((g, i) => `<div class="user-guide-action" data-idx="${i}">${i + 1}. ${h(g)}</div>`).join('') || '<div class="user-guide-action">暂无行动指南</div>';
     }
 
     // 联系人
-    const renderCt = (list, isS) => (list || []).length ? list.map(p => `<div class="fold" data-name="${p.name || ''}" data-info="${(p.info || '').replace(/"/g, '&quot;')}" data-uid="${p.worldbookUid || ''}"><div class="fold-h ct-hd fc"><div class="ct-av" style="background:${p.color}">${p.avatar}</div><div class="ct-info"><div class="ct-name">${p.name}</div><div class="ct-st">${p.online ? '● 在线' : p.location}</div></div><i class="fa-solid fa-chevron-down fold-a"></i></div><div class="fold-b"><div class="ct-det">${p.info ? `<div class="ct-info-text">${p.info}</div>` : ''}<div class="ct-acts">${isS ? `<button class="btn btn-s btn-p fc add-btn" data-name="${p.name || ''}" data-info="${(p.info || '').replace(/"/g, '&quot;')}"><i class="fa-solid fa-user-plus"></i> 添加</button><button class="btn btn-s fc ignore-btn" data-name="${p.name || ''}"><i class="fa-solid fa-eye-slash"></i> 忽略</button>` : `<button class="btn btn-s fc msg-btn" data-uid="${p.worldbookUid || ''}"><i class="fa-solid fa-message"></i> 短信</button><button class="btn btn-s btn-p fc inv-btn" data-uid="${p.worldbookUid || ''}"><i class="fa-solid fa-paper-plane"></i> 邀请</button>`}</div></div></div></div>`).join('') : '<div class="empty">暂无</div>';
+    const renderCt = (list, isS) => (list || []).length ? list.map(p => `<div class="fold" data-name="${h(p.name || '')}" data-info="${h(p.info || '')}" data-uid="${h(p.worldbookUid || '')}"><div class="fold-h ct-hd fc"><div class="ct-av" style="background:${h(p.color || '')}">${h(p.avatar || '')}</div><div class="ct-info"><div class="ct-name">${h(p.name || '')}</div><div class="ct-st">${p.online ? '● 在线' : h(p.location)}</div></div><i class="fa-solid fa-chevron-down fold-a"></i></div><div class="fold-b"><div class="ct-det">${p.info ? `<div class="ct-info-text">${h(p.info)}</div>` : ''}<div class="ct-acts">${isS ? `<button class="btn btn-s btn-p fc add-btn" data-name="${h(p.name || '')}" data-info="${h(p.info || '')}"><i class="fa-solid fa-user-plus"></i> 添加</button><button class="btn btn-s fc ignore-btn" data-name="${h(p.name || '')}"><i class="fa-solid fa-eye-slash"></i> 忽略</button>` : `<button class="btn btn-s fc msg-btn" data-uid="${h(p.worldbookUid || '')}"><i class="fa-solid fa-message"></i> 短信</button><button class="btn btn-s btn-p fc inv-btn" data-uid="${h(p.worldbookUid || '')}"><i class="fa-solid fa-paper-plane"></i> 邀请</button>`}</div></div></div></div>`).join('') : '<div class="empty">暂无</div>';
     $('sec-stranger').innerHTML = renderCt(D.contacts.strangers, true);
     $('sec-contact').innerHTML = renderCt(D.contacts.contacts, false);
     $$('.comm-sec .fold').forEach(bindFold);
@@ -1797,7 +1803,7 @@ function render() {
     // 更新右侧描述面板
     if (selectedMapValue === 'current') {
         const inside = getCurInside();
-        if (inside?.description) $('side-desc').innerHTML = `<div class="local-map-title">📍 ${playerLocation}</div>` + parseLinks(inside.description);
+        if (inside?.description) $('side-desc').innerHTML = `<div class="local-map-title">📍 ${h(playerLocation)}</div>` + parseLinks(inside.description);
         else $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
     } else $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
     bindLinks($('side-desc'));
@@ -1911,7 +1917,7 @@ function showInfo(n) {
 
     const inside = D.maps?.indoor?.[n.name];
     if (isCurrentLoc && inside?.description) {
-        $('side-desc').innerHTML = `<div class="local-map-title">📍 ${n.name}</div>` + parseLinks(inside.description);
+        $('side-desc').innerHTML = `<div class="local-map-title">📍 ${h(n.name)}</div>` + parseLinks(inside.description);
         bindLinks($('side-desc'));
     } else {
         $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
@@ -1939,14 +1945,14 @@ function renderMapSelector() {
     sel.innerHTML = '<option value="overview">🗺️ 大地图</option>';
     const curIdx = D.maps?.outdoor?.nodes?.findIndex(n => n.name === playerLocation);
     const isInIndoorMap = D.maps?.indoor && D.maps.indoor[playerLocation];
-    if (curIdx >= 0 || isInIndoorMap) sel.innerHTML += `<option value="current">📍 ${playerLocation}（你）</option>`;
+    if (curIdx >= 0 || isInIndoorMap) sel.innerHTML += `<option value="current">📍 ${h(playerLocation)}（你）</option>`;
     sel.innerHTML += '<option disabled>──────────</option>';
-    if (D.maps?.outdoor?.nodes?.length) D.maps.outdoor.nodes.forEach((n, i) => { if (n.name !== playerLocation) sel.innerHTML += `<option value="node:${i}">${n.name}</option>`; });
+    if (D.maps?.outdoor?.nodes?.length) D.maps.outdoor.nodes.forEach((n, i) => { if (n.name !== playerLocation) sel.innerHTML += `<option value="node:${i}">${h(n.name)}</option>`; });
     if (D.maps?.indoor) {
         const indoorKeys = Object.keys(D.maps.indoor).filter(k => k !== playerLocation && !D.maps?.outdoor?.nodes?.some(n => n.name === k));
         if (indoorKeys.length) {
             sel.innerHTML += '<option disabled>── 隐藏地图 ──</option>';
-            indoorKeys.forEach(k => sel.innerHTML += `<option value="indoor:${k}">🏠 ${k}</option>`);
+            indoorKeys.forEach(k => sel.innerHTML += `<option value="indoor:${h(k)}">🏠 ${h(k)}</option>`);
         }
     }
     sel.value = selectedMapValue;
@@ -1973,7 +1979,7 @@ function switchMapView(value) {
         $('btn-goto').classList.remove('show');
         const inside = getCurInside();
         if (inside?.description) {
-            $('side-desc').innerHTML = `<div class="local-map-title">📍 ${playerLocation}</div>` + parseLinks(inside.description);
+            $('side-desc').innerHTML = `<div class="local-map-title">📍 ${h(playerLocation)}</div>` + parseLinks(inside.description);
             bindLinks($('side-desc'));
         } else {
             $('side-desc').innerHTML = parseLinks(D.maps?.outdoor?.description || '');
@@ -2000,7 +2006,7 @@ function switchMapView(value) {
         } else {
             $('btn-goto').classList.remove('show');
             if (indoorMap?.description) {
-                $('side-desc').innerHTML = `<div class="local-map-title">🏠 ${name}</div>` + parseLinks(indoorMap.description);
+                $('side-desc').innerHTML = `<div class="local-map-title">🏠 ${h(name)}</div>` + parseLinks(indoorMap.description);
                 bindLinks($('side-desc'));
             }
         }

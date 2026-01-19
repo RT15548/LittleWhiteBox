@@ -1,15 +1,15 @@
-import { extension_settings, getContext } from "../../../extensions.js";
+import { extension_settings } from "../../../extensions.js";
 import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } from "../../../../script.js";
-import { EXT_ID, EXT_NAME, extensionFolderPath } from "./core/constants.js";
+import { EXT_ID, extensionFolderPath } from "./core/constants.js";
 import { executeSlashCommand } from "./core/slash-command.js";
 import { EventCenter } from "./core/event-manager.js";
 import { initTasks } from "./modules/scheduled-tasks/scheduled-tasks.js";
 import { initMessagePreview, addHistoryButtonsDebounced } from "./modules/message-preview.js";
 import { initImmersiveMode } from "./modules/immersive-mode.js";
-import { initTemplateEditor, templateSettings } from "./modules/template-editor/template-editor.js";
+import { initTemplateEditor } from "./modules/template-editor/template-editor.js";
 import { initFourthWall, fourthWallCleanup } from "./modules/fourth-wall/fourth-wall.js";
-import { initButtonCollapse } from "./modules/button-collapse.js";
-import { initVariablesPanel, getVariablesPanelInstance, cleanupVariablesPanel } from "./modules/variables/variables-panel.js";
+import { initButtonCollapse } from "./widgets/button-collapse.js";
+import { initVariablesPanel, cleanupVariablesPanel } from "./modules/variables/variables-panel.js";
 import { initStreamingGeneration } from "./modules/streaming-generation.js";
 import { initVariablesCore, cleanupVariablesCore } from "./modules/variables/variables-core.js";
 import { initControlAudio } from "./modules/control-audio.js";
@@ -17,8 +17,6 @@ import {
     initRenderer,
     cleanupRenderer,
     processExistingMessages,
-    processMessageById,
-    invalidateAll,
     clearBlobCaches,
     renderHtmlInIframe,
     shrinkRenderedWindowFull
@@ -28,8 +26,7 @@ import { initVareventEditor, cleanupVareventEditor } from "./modules/variables/v
 import { initNovelDraw, cleanupNovelDraw } from "./modules/novel-draw/novel-draw.js";
 import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
-
-const MODULE_NAME = "xiaobaix-memory";
+import { initTts, cleanupTts } from "./modules/tts/tts.js";
 
 extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     enabled: true,
@@ -46,6 +43,7 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     storySummary: { enabled: true },
     storyOutline: { enabled: false },
     novelDraw: { enabled: false },
+    tts: { enabled: false },
     useBlob: false,
     wrapperIframe: true,
     renderEnabled: true,
@@ -277,7 +275,8 @@ function toggleSettingsControls(enabled) {
         'xiaobaix_audio_enabled', 'xiaobaix_variables_panel_enabled',
         'xiaobaix_use_blob', 'xiaobaix_variables_core_enabled', 'Wrapperiframe', 'xiaobaix_render_enabled',
         'xiaobaix_max_rendered', 'xiaobaix_story_outline_enabled', 'xiaobaix_story_summary_enabled',
-        'xiaobaix_novel_draw_enabled', 'xiaobaix_novel_draw_open_settings'
+        'xiaobaix_novel_draw_enabled', 'xiaobaix_novel_draw_open_settings',
+        'xiaobaix_tts_enabled', 'xiaobaix_tts_open_settings'
     ];
     controls.forEach(id => {
         $(`#${id}`).prop('disabled', !enabled).closest('.flex-container').toggleClass('disabled-control', !enabled);
@@ -311,6 +310,7 @@ async function toggleAllFeatures(enabled) {
             { condition: extension_settings[EXT_ID].variablesPanel?.enabled, init: initVariablesPanel },
             { condition: extension_settings[EXT_ID].variablesCore?.enabled, init: initVariablesCore },
             { condition: extension_settings[EXT_ID].novelDraw?.enabled, init: initNovelDraw },
+            { condition: extension_settings[EXT_ID].tts?.enabled, init: initTts },
             { condition: true, init: initStreamingGeneration },
             { condition: true, init: initButtonCollapse }
         ];
@@ -345,6 +345,7 @@ async function toggleAllFeatures(enabled) {
         try { cleanupVarCommands(); } catch (e) {}
         try { cleanupVareventEditor(); } catch (e) {}
         try { cleanupNovelDraw(); } catch (e) {}
+        try { cleanupTts(); } catch (e) {}
         try { clearBlobCaches(); } catch (e) {}
         toggleSettingsControls(false);
         try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById('xb-worldbook')?.remove(); } catch (e) {}
@@ -394,7 +395,8 @@ async function setupSettings() {
             { id: 'xiaobaix_variables_core_enabled', key: 'variablesCore', init: initVariablesCore },
             { id: 'xiaobaix_story_summary_enabled', key: 'storySummary' },
             { id: 'xiaobaix_story_outline_enabled', key: 'storyOutline' },
-            { id: 'xiaobaix_novel_draw_enabled', key: 'novelDraw', init: initNovelDraw }
+            { id: 'xiaobaix_novel_draw_enabled', key: 'novelDraw', init: initNovelDraw },
+            { id: 'xiaobaix_tts_enabled', key: 'tts', init: initTts }
         ];
 
         moduleConfigs.forEach(({ id, key, init }) => {
@@ -406,6 +408,9 @@ async function setupSettings() {
                 }
                 if (!enabled && key === 'novelDraw') {
                     try { cleanupNovelDraw(); } catch (e) {}
+                }
+                if (!enabled && key === 'tts') {
+                    try { cleanupTts(); } catch (e) {}
                 }
                 settings[key] = extension_settings[EXT_ID][key] || {};
                 settings[key].enabled = enabled;
@@ -429,6 +434,15 @@ async function setupSettings() {
             if (!isXiaobaixEnabled) return;
             if (settings.novelDraw?.enabled && window.xiaobaixNovelDraw?.openSettings) {
                 window.xiaobaixNovelDraw.openSettings();
+            }
+        });
+
+        $("#xiaobaix_tts_open_settings").on("click", function () {
+            if (!isXiaobaixEnabled) return;
+            if (settings.tts?.enabled && window.xiaobaixTts?.openSettings) {
+                window.xiaobaixTts.openSettings();
+            } else {
+                toastr.warning('请先启用 TTS 语音模块');
             }
         });
 
@@ -493,10 +507,11 @@ async function setupSettings() {
                 fourthWall: 'xiaobaix_fourth_wall_enabled',
                 variablesPanel: 'xiaobaix_variables_panel_enabled',
                 variablesCore: 'xiaobaix_variables_core_enabled',
-                novelDraw: 'xiaobaix_novel_draw_enabled'
+                novelDraw: 'xiaobaix_novel_draw_enabled',
+                tts: 'xiaobaix_tts_enabled'
             };
             const ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary', 'recorded'];
-            const OFF = ['preview', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw'];
+            const OFF = ['preview', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw', 'tts'];
             function setChecked(id, val) {
                 const el = document.getElementById(id);
                 if (el) {
@@ -626,6 +641,7 @@ jQuery(async () => {
                 { condition: settings.variablesPanel?.enabled, init: initVariablesPanel },
                 { condition: settings.variablesCore?.enabled, init: initVariablesCore },
                 { condition: settings.novelDraw?.enabled, init: initNovelDraw },
+                { condition: settings.tts?.enabled, init: initTts },
                 { condition: true, init: initStreamingGeneration },
                 { condition: true, init: initButtonCollapse }
             ];

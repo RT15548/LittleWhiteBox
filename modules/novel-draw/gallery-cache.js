@@ -53,10 +53,6 @@ function invalidateCache(slotId) {
 // 工具函数
 // ═══════════════════════════════════════════════════════════════════════════
 
-function escapeHtml(str) {
-    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 function getChatCharacterName() {
     const ctx = getContext();
     if (ctx.groupId) return String(ctx.groups?.[ctx.groupId]?.id ?? 'group');
@@ -558,6 +554,8 @@ function createGalleryOverlay() {
     
     const overlay = document.createElement('div');
     overlay.id = 'nd-gallery-overlay';
+    // Template-only UI markup.
+    // eslint-disable-next-line no-unsanitized/property
     overlay.innerHTML = `<button class="nd-gallery-close" id="nd-gallery-close">✕</button><div class="nd-gallery-main"><button class="nd-gallery-nav" id="nd-gallery-prev">‹</button><div class="nd-gallery-img-wrap"><img class="nd-gallery-img" id="nd-gallery-img" src="" alt=""><div class="nd-gallery-saved-badge" id="nd-gallery-saved-badge" style="display:none">已保存</div></div><button class="nd-gallery-nav" id="nd-gallery-next">›</button></div><div class="nd-gallery-thumbs" id="nd-gallery-thumbs"></div><div class="nd-gallery-actions" id="nd-gallery-actions"><button class="nd-gallery-btn primary" id="nd-gallery-use">使用此图</button><button class="nd-gallery-btn" id="nd-gallery-save">💾 保存到服务器</button><button class="nd-gallery-btn danger" id="nd-gallery-delete">🗑️ 删除</button></div><div class="nd-gallery-info" id="nd-gallery-info"></div>`;
     document.body.appendChild(overlay);
     
@@ -612,6 +610,8 @@ function renderGallery() {
     const reversedPreviews = previews.slice().reverse();
     const thumbsContainer = document.getElementById('nd-gallery-thumbs');
     
+    // Generated from local preview data only.
+    // eslint-disable-next-line no-unsanitized/property
     thumbsContainer.innerHTML = reversedPreviews.map((p, i) => {
         const src = p.savedUrl || `data:image/png;base64,${p.base64}`;
         const originalIndex = previews.length - 1 - i;

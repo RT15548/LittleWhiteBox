@@ -1,11 +1,12 @@
 import { extension_settings, getContext } from "../../../../extensions.js";
 import { createModuleEvents, event_types } from "../core/event-manager.js";
-import { EXT_ID, extensionFolderPath } from "../core/constants.js";
+import { EXT_ID } from "../core/constants.js";
 import { xbLog, CacheRegistry } from "../core/debug-core.js";
 import { replaceXbGetVarInString } from "./variables/var-commands.js";
 import { executeSlashCommand } from "../core/slash-command.js";
 import { default_user_avatar, default_avatar } from "../../../../../script.js";
 import { getIframeBaseScript, getWrapperScript } from "../core/wrapper-inline.js";
+import { postToIframe, getIframeTargetOrigin, getTrustedOrigin } from "../core/iframe-messaging.js";
 const MODULE_ID = 'iframeRenderer';
 const events = createModuleEvents(MODULE_ID);
 
@@ -20,7 +21,6 @@ const BLOB_CACHE_LIMIT = 32;
 let lastApplyTs = 0;
 let pendingHeight = null;
 let pendingRec = null;
-let hideStyleInjected = false;
 
 CacheRegistry.register(MODULE_ID, {
     name: 'Blob URL 缓存',
@@ -46,7 +46,6 @@ function ensureHideCodeStyle(enable) {
     const old = document.getElementById(id);
     if (!enable) {
         old?.remove();
-        hideStyleInjected = false;
         return;
     }
     if (old) return;
@@ -57,7 +56,6 @@ function ensureHideCodeStyle(enable) {
         .xiaobaix-active .mes_text pre.xb-show { display: block !important; }
     `;
     document.head.appendChild(hideCodeStyle);
-    hideStyleInjected = true;
 }
 
 function setActiveClass(enable) {
@@ -253,7 +251,7 @@ function resolveAvatarUrls() {
     const ch = Array.isArray(ctx.characters) ? ctx.characters[chId] : null;
     let char = ch?.avatar || default_avatar;
     if (char && !/^(data:|blob:|https?:)/i.test(char)) {
-        char = /[\/]/.test(char) ? char.replace(/^\/+/, '') : `characters/${char}`;
+        char = String(char).includes('/') ? char.replace(/^\/+/, '') : `characters/${char}`;
     }
     return { user: toAbsUrl(user), char: toAbsUrl(char) };
 }
@@ -310,28 +308,30 @@ function handleIframeMessage(event) {
     }
     
     if (data && data.type === 'runCommand') {
+        const replyOrigin = (typeof event.origin === 'string' && event.origin) ? event.origin : getTrustedOrigin();
         executeSlashCommand(data.command)
             .then(result => event.source.postMessage({
                 source: 'xiaobaix-host',
                 type: 'commandResult',
                 id: data.id,
                 result
-            }, '*'))
+            }, replyOrigin))
             .catch(err => event.source.postMessage({
                 source: 'xiaobaix-host',
                 type: 'commandError',
                 id: data.id,
                 error: err.message || String(err)
-            }, '*'));
+            }, replyOrigin));
         return;
     }
     
     if (data && data.type === 'getAvatars') {
+        const replyOrigin = (typeof event.origin === 'string' && event.origin) ? event.origin : getTrustedOrigin();
         try {
             const urls = resolveAvatarUrls();
-            event.source?.postMessage({ source: 'xiaobaix-host', type: 'avatars', urls }, '*');
+            event.source?.postMessage({ source: 'xiaobaix-host', type: 'avatars', urls }, replyOrigin);
         } catch (e) {
-            event.source?.postMessage({ source: 'xiaobaix-host', type: 'avatars', urls: { user: '', char: '' } }, '*');
+            event.source?.postMessage({ source: 'xiaobaix-host', type: 'avatars', urls: { user: '', char: '' } }, replyOrigin);
         }
         return;
     }
@@ -383,7 +383,10 @@ export function renderHtmlInIframe(htmlContent, container, preElement) {
         preElement.style.display = 'none';
         registerIframeMapping(iframe, wrapper);
         
-        try { iframe.contentWindow?.postMessage({ type: 'probe' }, '*'); } catch (e) {}
+        try {
+            const targetOrigin = getIframeTargetOrigin(iframe);
+            postToIframe(iframe, { type: 'probe' }, null, targetOrigin);
+        } catch (e) {}
         preElement.dataset.xbFinal = 'true';
         preElement.dataset.xbHash = originalHash;
         
@@ -667,6 +670,7 @@ export function initRenderer() {
     });
     
     if (!messageListenerBound) {
+        // eslint-disable-next-line no-restricted-syntax -- message bridge for iframe renderers.
         window.addEventListener('message', handleIframeMessage);
         messageListenerBound = true;
     }
