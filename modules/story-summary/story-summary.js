@@ -926,7 +926,15 @@ function updateSummaryExtensionPrompt() {
         return;
     }
 
-    const text = formatSummaryForPrompt(store);
+    const cfg = getSummaryPanelConfig();
+    let text = formatSummaryForPrompt(store);
+
+    if (cfg.trigger?.wrapperHead) {
+        text = cfg.trigger.wrapperHead + '\n' + text;
+    }
+    if (cfg.trigger?.wrapperTail) {
+        text = text + '\n' + cfg.trigger.wrapperTail;
+    }
     if (!text.trim()) {
         delete extension_prompts[SUMMARY_PROMPT_KEY];
         return;
@@ -941,7 +949,10 @@ function updateSummaryExtensionPrompt() {
 
     let depth = length - lastIdx - 1;
     if (depth < 0) depth = 0;
-    depth = 1000;
+
+    if (cfg.trigger?.forceInsertAtEnd) {
+        depth = 10000;
+    }
     extension_prompts[SUMMARY_PROMPT_KEY] = {
         value: text,
         position: extension_prompt_types.IN_CHAT,
@@ -1026,7 +1037,7 @@ function registerEvents() {
         name: '待发送消息队列',
         getSize: () => pendingFrameMessages.length,
         getBytes: () => {
-            try { return JSON.stringify(pendingFrameMessages || []).length * 2; } 
+            try { return JSON.stringify(pendingFrameMessages || []).length * 2; }
             catch { return 0; }
         },
         clear: () => {
