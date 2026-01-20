@@ -254,7 +254,8 @@ function resolveSpeakerWithSource(speakerName, mySpeakers, defaultSpeaker) {
         const defaultItem = list.find(s => s.value === defaultSpeaker);
         return {
             value: defaultSpeaker,
-            source: defaultItem?.source || getVoiceSource(defaultSpeaker)
+            source: defaultItem?.source || getVoiceSource(defaultSpeaker),
+            resourceId: defaultItem?.resourceId || null
         };
     }
     
@@ -264,7 +265,8 @@ function resolveSpeakerWithSource(speakerName, mySpeakers, defaultSpeaker) {
     if (byName?.value) {
         return {
             value: byName.value,
-            source: byName.source || getVoiceSource(byName.value)
+            source: byName.source || getVoiceSource(byName.value),
+            resourceId: byName.resourceId || null
         };
     }
     
@@ -274,12 +276,13 @@ function resolveSpeakerWithSource(speakerName, mySpeakers, defaultSpeaker) {
     if (byValue?.value) {
         return {
             value: byValue.value,
-            source: byValue.source || getVoiceSource(byValue.value)
+            source: byValue.source || getVoiceSource(byValue.value),
+            resourceId: byValue.resourceId || null
         };
     }
     
     if (FREE_VOICE_KEYS.has(speakerName)) {
-        return { value: speakerName, source: 'free' };
+        return { value: speakerName, source: 'free', resourceId: null };
     }
     
     // ★ 回退到默认，这是问题发生的地方
@@ -288,7 +291,8 @@ function resolveSpeakerWithSource(speakerName, mySpeakers, defaultSpeaker) {
     const defaultItem = list.find(s => s.value === defaultSpeaker);
     return {
         value: defaultSpeaker,
-        source: defaultItem?.source || getVoiceSource(defaultSpeaker)
+        source: defaultItem?.source || getVoiceSource(defaultSpeaker),
+        resourceId: defaultItem?.resourceId || null
     };
 }
 
@@ -623,7 +627,8 @@ async function speakMessage(messageId, { mode = 'manual' } = {}) {
         return { 
             ...seg, 
             resolvedSpeaker: resolved.value, 
-            resolvedSource: resolved.source 
+            resolvedSource: resolved.source,
+            resolvedResourceId: resolved.resourceId
         };
     });
 
@@ -1325,7 +1330,7 @@ export async function initTts() {
                     return;
                 }
                 
-                const resourceId = options.resourceId || inferResourceIdBySpeaker(resolved.value);
+                const resourceId = options.resourceId || resolved.resourceId || inferResourceIdBySpeaker(resolved.value);
                 const result = await synthesizeV3({
                     appId: config.volc.appId,
                     accessKey: config.volc.accessKey,

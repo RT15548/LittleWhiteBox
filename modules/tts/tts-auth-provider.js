@@ -40,7 +40,10 @@ export function speedToV3SpeechRate(speed) {
     return Math.round((normalizeSpeed(speed) - 1) * 100);
 }
 
-export function inferResourceIdBySpeaker(value) {
+export function inferResourceIdBySpeaker(value, explicitResourceId = null) {
+    if (explicitResourceId) {
+        return explicitResourceId;
+    }
     const v = (value || '').trim();
     const lower = v.toLowerCase();
     if (lower.startsWith('icl_') || lower.startsWith('s_')) {
@@ -110,7 +113,7 @@ export async function speakSegmentAuth(messageId, segment, segmentIndex, batchId
     } = ctx;
     
     const speaker = segment.resolvedSpeaker;
-    const resourceId = inferResourceIdBySpeaker(speaker);
+    const resourceId = segment.resolvedResourceId || inferResourceIdBySpeaker(speaker);
     const params = buildSynthesizeParams({ text: segment.text, speaker, resourceId }, config);
     const emotion = normalizeEmotion(segment.emotion);
     const contextTexts = resolveContextTexts(segment.context, resourceId);
@@ -171,7 +174,7 @@ export async function speakSegmentAuth(messageId, segment, segmentIndex, batchId
 async function playWithStreaming(messageId, segment, segmentIndex, batchId, params, headers, ctx) {
     const { player, storeLocalCache, buildCacheKey, updateState } = ctx;
     const speaker = segment.resolvedSpeaker;
-    const resourceId = inferResourceIdBySpeaker(speaker);
+    const resourceId = params.resourceId;
     
     const controller = new AbortController();
     const chunks = [];
@@ -250,7 +253,7 @@ async function playWithStreaming(messageId, segment, segmentIndex, batchId, para
 async function playWithoutStreaming(messageId, segment, segmentIndex, batchId, params, headers, ctx) {
     const { player, storeLocalCache, buildCacheKey, updateState } = ctx;
     const speaker = segment.resolvedSpeaker;
-    const resourceId = inferResourceIdBySpeaker(speaker);
+    const resourceId = params.resourceId;
     
     const result = await synthesizeV3(params, headers);
     updateState({ audioBlob: result.audioBlob, usage: result.usage, status: 'queued' });
