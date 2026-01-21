@@ -453,14 +453,17 @@ function handleFrameMessage(event) {
             const store = getSummaryStore();
             if (!store) break;
             const lastSummarized = store.lastSummarizedMesId ?? -1;
-            if (lastSummarized < 0) break;
+            // 无论是否有总结，都保存用户的偏好设置
             store.hideSummarizedHistory = !!data.enabled;
             saveSummaryStore();
-            if (data.enabled) {
-                const range = calcHideRange(lastSummarized);
-                if (range) executeSlashCommand(`/hide ${range.start}-${range.end}`);
-            } else {
-                executeSlashCommand(`/unhide 0-${lastSummarized}`);
+            // 只有有总结时才执行隐藏/显示命令
+            if (lastSummarized >= 0) {
+                if (data.enabled) {
+                    const range = calcHideRange(lastSummarized);
+                    if (range) executeSlashCommand(`/hide ${range.start}-${range.end}`);
+                } else {
+                    executeSlashCommand(`/unhide 0-${lastSummarized}`);
+                }
             }
             break;
         }
