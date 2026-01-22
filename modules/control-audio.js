@@ -193,7 +193,7 @@ function registerSlash() {
         }
         isRegistered = true;
     } catch (e) {
-        console.error("[LittleWhiteBox][audio] 注册斜杠命令失败", e);
+        console.error("[LittleWhiteBox-fork][audio] 注册斜杠命令失败", e);
     }
 }
 
@@ -226,7 +226,7 @@ function disableFeature() {
 export function initControlAudio() {
     try {
         try {
-            const enabled = !!(extension_settings?.LittleWhiteBox?.audio?.enabled ?? true);
+            const enabled = !!(extension_settings?.LittleWhiteBox-fork?.audio?.enabled ?? true);
             if (enabled) enableFeature(); else disableFeature();
         } catch { enableFeature(); }
 
@@ -254,7 +254,7 @@ export function initControlAudio() {
                             unregisterSlash();
                         } else {
                             // 重新根据子开关状态应用
-                            const audioEnabled = !!(extension_settings?.LittleWhiteBox?.audio?.enabled ?? true);
+                            const audioEnabled = !!(extension_settings?.LittleWhiteBox-fork?.audio?.enabled ?? true);
                             if (audioEnabled) enableFeature(); else disableFeature();
                         }
                     } catch { }
@@ -263,6 +263,6 @@ export function initControlAudio() {
             }
         } catch { }
     } catch (e) {
-        console.error("[LittleWhiteBox][audio] 初始化失败", e);
+        console.error("[LittleWhiteBox-fork][audio] 初始化失败", e);
     }
 }

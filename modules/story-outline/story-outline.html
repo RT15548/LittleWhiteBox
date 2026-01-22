@@ -791,7 +791,7 @@ const parseLinks = t => h(t).replace(/\*\*([^*]+)\*\*/g, '<span class="loc-lk" d
 const PARENT_ORIGIN = (() => {
     try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
 })();
-const post = (type, data = {}) => parent.postMessage({ source: 'LittleWhiteBox-OutlineFrame', type, ...data }, PARENT_ORIGIN);
+const post = (type, data = {}) => parent.postMessage({ source: 'LittleWhiteBox-fork-OutlineFrame', type, ...data }, PARENT_ORIGIN);
 
 const syncSimDueUI = () => {
     const due = (Number(D.simulationTarget) || 0) <= 0;
@@ -1416,7 +1416,7 @@ $('btn-close').onclick = () => post('CLOSE_PANEL');
 // Guarded by origin/source check.
 window.addEventListener('message', e => {
     if (e.origin !== PARENT_ORIGIN || e.source !== parent) return;
-    if (e.data?.source !== 'LittleWhiteBox') return;
+    if (e.data?.source !== 'LittleWhiteBox-fork') return;
     const d = e.data, t = d.type;
 
     if (t === 'LOAD_SETTINGS') {

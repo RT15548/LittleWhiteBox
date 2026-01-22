@@ -131,7 +131,7 @@ function initNovelDrawObserver() {
 
 function hasUnrenderedVoice(mesText) {
     if (!mesText) return false;
-    return /\[(?:voice|语音)\s*:[^\]]+\]/i.test(mesText.innerHTML);
+    return /\[(?:voice|语音)\s*:[^\]]+\]|\[[^\]]*\bvoice\s*=/i.test(mesText.innerHTML);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -271,6 +271,13 @@ function enhanceMessageContent(container) {
         return `<div class="xb-img-slot" data-tags="${encodeURIComponent(tags)}"></div>`;
     });
     
+    enhanced = enhanced.replace(/\[[^\]]*\bvoice\s*=[^\]]+\]/gi, (match) => {
+        const parsed = parseSpeakerVoiceToken(match);
+        if (!parsed || !parsed.text) return match;
+        hasChanges = true;
+        return createVoiceBubbleHTML(parsed.text, parsed.emotion, parsed.speaker, true);
+    });
+
     enhanced = enhanced.replace(/\[(?:voice|语音)\s*:([^:]*):([^\]]+)\]/gi, (match, emotionRaw, voiceText) => {
         const txt = voiceText.trim();
         if (!txt) return match;
@@ -301,9 +308,11 @@ function parseImageToken(rawCSV) {
     return txt.split(',').map(s => s.trim()).filter(Boolean).join(', ');
 }
 
-function createVoiceBubbleHTML(text, emotion) {
+function createVoiceBubbleHTML(text, emotion, speaker = '', useTts = false) {
     const duration = Math.max(2, Math.ceil(text.length / 4));
-    return `<div class="xb-voice-bubble" data-text="${encodeURIComponent(text)}" data-emotion="${emotion || ''}">
+    const speakerAttr = speaker ? ` data-speaker="${encodeURIComponent(speaker)}"` : '';
+    const ttsAttr = useTts ? ' data-tts="1"' : '';
+    return `<div class="xb-voice-bubble" data-text="${encodeURIComponent(text)}" data-emotion="${emotion || ''}"${speakerAttr}${ttsAttr}>
         <div class="xb-voice-waves"><div class="xb-voice-bar"></div><div class="xb-voice-bar"></div><div class="xb-voice-bar"></div></div>
         <span class="xb-voice-duration">${duration}"</span>
     </div>`;
@@ -428,6 +437,8 @@ function hydrateVoiceSlots(container) {
         
         const text = decodeURIComponent(bubble.dataset.text || '');
         const emotion = bubble.dataset.emotion || '';
+        const speaker = bubble.dataset.speaker ? decodeURIComponent(bubble.dataset.speaker) : '';
+        const useTts = bubble.dataset.tts === '1';
         if (!text) return;
         
         bubble.onclick = async (e) => {
@@ -446,10 +457,46 @@ function hydrateVoiceSlots(container) {
                 currentAudio = null;
             }
             document.querySelectorAll('.xb-voice-bubble.playing').forEach(el => el.classList.remove('playing'));
+
+            const ttsApi = (/** @type {Record<string, any>} */ (window))?.['xiaobaixTts'];
+            if (useTts && ttsApi?.speak) {
+                bubble.classList.add('loading');
+                bubble.classList.remove('error', 'playing');
+                try {
+                    await ttsApi.speak(text, {
+                        speaker: speaker || undefined,
+                        emotion: emotion || undefined,
+                    });
+                    bubble.classList.remove('loading');
+                } catch (err) {
+                    bubble.classList.remove('loading');
+                    bubble.classList.add('error');
+                    setTimeout(() => bubble.classList.remove('error'), 3000);
+                }
+                return;
+            }
             
             await playVoice(text, emotion, bubble);
         };
     });
+}
+
+function parseSpeakerVoiceToken(raw) {
+    if (!raw) return null;
+    const inner = String(raw).trim().replace(/^\[/, '').replace(/\]$/, '');
+    if (!/\bvoice\s*=/.test(inner)) return null;
+    const parts = inner.split(';').map(s => s.trim()).filter(Boolean);
+    const result = { text: '', speaker: '', emotion: '' };
+    for (const part of parts) {
+        const idx = part.indexOf('=');
+        if (idx === -1) continue;
+        const key = part.slice(0, idx).trim().toLowerCase();
+        const val = part.slice(idx + 1).trim();
+        if (key === 'voice') result.text = val;
+        if (key === 'speaker') result.speaker = val;
+        if (key === 'emotion') result.emotion = val.toLowerCase();
+    }
+    return result;
 }
 
 async function playVoice(text, emotion, bubbleEl) {

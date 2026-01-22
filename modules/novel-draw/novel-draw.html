@@ -1417,7 +1417,7 @@ function collectParamsPreset() {
 window.addEventListener('message', event => {
     if (event.origin !== PARENT_ORIGIN || event.source !== window.parent) return;
     const data = event.data;
-    if (!data || data.source !== 'LittleWhiteBox-NovelDraw') return;
+    if (!data || data.source !== 'LittleWhiteBox-fork-NovelDraw') return;
 
     switch (data.type) {
         case 'INIT_DATA':

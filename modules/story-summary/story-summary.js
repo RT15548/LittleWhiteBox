@@ -23,7 +23,7 @@ import { generateSummary, parseSummaryJson } from "./llm-service.js";
 const MODULE_ID = 'storySummary';
 const events = createModuleEvents(MODULE_ID);
 const SUMMARY_SESSION_ID = 'xb9';
-const SUMMARY_PROMPT_KEY = 'LittleWhiteBox_StorySummary';
+const SUMMARY_PROMPT_KEY = 'LittleWhiteBox-fork_StorySummary';
 const SUMMARY_CONFIG_KEY = 'storySummaryPanelConfig';
 const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.html`;
 const VALID_SECTIONS = ['keywords', 'events', 'characters', 'arcs'];
@@ -365,20 +365,20 @@ function postToFrame(payload) {
         pendingFrameMessages.push(payload);
         return;
     }
-    postToIframe(iframe, payload, "LittleWhiteBox");
+    postToIframe(iframe, payload, "LittleWhiteBox-fork");
 }
 
 function flushPendingFrameMessages() {
     if (!frameReady) return;
     const iframe = document.getElementById("xiaobaix-story-summary-iframe");
     if (!iframe?.contentWindow) return;
-    pendingFrameMessages.forEach(p => postToIframe(iframe, p, "LittleWhiteBox"));
+    pendingFrameMessages.forEach(p => postToIframe(iframe, p, "LittleWhiteBox-fork"));
     pendingFrameMessages = [];
 }
 
 function handleFrameMessage(event) {
     const iframe = document.getElementById("xiaobaix-story-summary-iframe");
-    if (!isTrustedMessage(event, iframe, "LittleWhiteBox-StoryFrame")) return;
+    if (!isTrustedMessage(event, iframe, "LittleWhiteBox-fork-StoryFrame")) return;
     const data = event.data;
 
     switch (data.type) {

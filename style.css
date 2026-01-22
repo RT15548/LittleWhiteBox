@@ -437,7 +437,7 @@ body.immersive-mode .flex-container.flex1.alignitemscenter {
 
 /* 显示"内容来自外部"的提示 */
 .1completion_prompt_manager_popup_entry_form:has([data-pm-prompt="lwb_story_outline"]) .completion_prompt_manager_popup_entry_form_control:has(#completion_prompt_manager_popup_entry_form_prompt)::after {
-    content: "此提示词的内容来自「LittleWhiteBox」，请在小白板中修改哦！";
+    content: "此提示词的内容来自「LittleWhiteBox-fork」，请在小白板中修改哦！";
     display: block;
     padding: 12px;
     margin-top: 8px;

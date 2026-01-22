@@ -208,14 +208,14 @@ function postToFrame(payload) {
         pendingFrameMessages.push(payload);
         return;
     }
-    postToIframe(iframe, payload, 'LittleWhiteBox');
+    postToIframe(iframe, payload, 'LittleWhiteBox-fork');
 }
 
 function flushPendingMessages() {
     if (!frameReady) return;
     const iframe = document.getElementById('xiaobaix-fourth-wall-iframe');
     if (!iframe?.contentWindow) return;
-    pendingFrameMessages.forEach(p => postToIframe(iframe, p, 'LittleWhiteBox'));
+    pendingFrameMessages.forEach(p => postToIframe(iframe, p, 'LittleWhiteBox-fork'));
     pendingFrameMessages = [];
 }
 
@@ -267,7 +267,7 @@ function checkIframeHealth() {
             recoverIframe('contentWindow 不存在');
             return;
         }
-        win.postMessage({ source: 'LittleWhiteBox', type: 'PING', pingId }, getTrustedOrigin());
+        win.postMessage({ source: 'LittleWhiteBox-fork', type: 'PING', pingId }, getTrustedOrigin());
     } catch (e) {
         recoverIframe('无法访问 iframe: ' + e.message);
         return;
@@ -314,7 +314,7 @@ function recoverIframe(reason) {
 
 function handleFrameMessage(event) {
     const iframe = document.getElementById('xiaobaix-fourth-wall-iframe');
-    if (!isTrustedMessage(event, iframe, 'LittleWhiteBox-FourthWall')) return;
+    if (!isTrustedMessage(event, iframe, 'LittleWhiteBox-fork-FourthWall')) return;
     const data = event.data;
     
     const store = getFWStore();

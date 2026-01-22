@@ -50,7 +50,7 @@ async function migrateToServerStorage() {
     if (count > 0) saveSettingsDebounced();
 
     await new Promise((resolve) => {
-        const req = indexedDB.open('LittleWhiteBox_TaskScripts');
+        const req = indexedDB.open('LittleWhiteBox-fork_TaskScripts');
         req.onerror = () => resolve();
         req.onsuccess = async (e) => {
             const db = e.target.result;
@@ -82,7 +82,7 @@ async function migrateToServerStorage() {
                 console.warn('[Tasks] IndexedDB 迁移出错:', err);
             }
             db.close();
-            indexedDB.deleteDatabase('LittleWhiteBox_TaskScripts');
+            indexedDB.deleteDatabase('LittleWhiteBox-fork_TaskScripts');
             resolve();
         };
     });
@@ -1479,7 +1479,7 @@ async function checkEmbeddedTasks() {
                 accountStorage.setItem(checkKey, 'true');
                 let result;
                 try {
-                    const templateFilePath = `scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/embedded-tasks.html`;
+                    const templateFilePath = `scripts/extensions/third-party/LittleWhiteBox-fork/modules/scheduled-tasks/embedded-tasks.html`;
                     const templateContent = await fetch(templateFilePath).then(r => r.text());
                     const templateElement = $(templateContent);
                     const taskListContainer = templateElement.find('#embedded-tasks-list');
@@ -2054,7 +2054,7 @@ function registerSlashCommands() {
 
 async function initTasks() {
     if (window.__XB_TASKS_INITIALIZED__) {
-        console.log('[小白X任务] 已经初始化，跳过重复注册');
+        console.log('[小白X改任务] 已经初始化，跳过重复注册');
         return;
     }
     window.__XB_TASKS_INITIALIZED__ = true;

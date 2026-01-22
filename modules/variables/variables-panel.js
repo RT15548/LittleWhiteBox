@@ -169,7 +169,7 @@ class VariablesPanel {
     }
   }
 
-  getSettings(){ extension_settings.LittleWhiteBox ??= {}; return extension_settings.LittleWhiteBox.variablesPanel ??= {...CONFIG.defaultSettings}; }
+  getSettings(){ extension_settings.LittleWhiteBox-fork ??= {}; return extension_settings.LittleWhiteBox-fork.variablesPanel ??= {...CONFIG.defaultSettings}; }
   vt(t){ return VT[t]; }
   store(t){ return this.vt(t).storage(); }
 

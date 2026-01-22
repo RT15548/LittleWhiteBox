@@ -1,5 +1,5 @@
 {
-    "name": "littlewhitebox-plugin",
+    "name": "LittleWhiteBox-fork-plugin",
     "private": true,
     "type": "module",
     "scripts": {

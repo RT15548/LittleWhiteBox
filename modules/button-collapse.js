@@ -12,7 +12,7 @@ const XPOS_KEY = 'xiaobaix_x_btn_position';
 const getXBtnPosition = () => {
   try {
     return (
-      window?.extension_settings?.LittleWhiteBox?.xBtnPosition ||
+      window?.extension_settings?.LittleWhiteBox-fork?.xBtnPosition ||
       localStorage.getItem(XPOS_KEY) ||
       'name-left'
     );

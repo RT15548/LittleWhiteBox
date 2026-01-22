@@ -1,9 +1,9 @@
-# LittleWhiteBox
+# LittleWhiteBox-fork
 
 ## 📁 目录结构
 
 ```
-LittleWhiteBox/
+LittleWhiteBox-fork/
 ├── index.js                          # 入口：初始化/注册所有模块
 ├── manifest.json                     # 插件清单：版本/依赖/入口
 ├── settings.html                     # 主设置页：模块开关/UI

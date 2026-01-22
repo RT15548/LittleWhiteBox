@@ -481,7 +481,7 @@ async function interceptPreview(url, options) {
 
   S.previewData = { url, method: options?.method || "POST", requestData: data, messages: data?.messages || [], model: data?.model || "Unknown", timestamp: now(), userInput, isPreview: true };
   if (S.isLong) { setTimeout(() => { displayPreview(S.previewData); }, 100); } else if (S.resolve) { S.resolve({ success: true, data: S.previewData }); S.resolve = S.reject = null; }
-  const payload = S.isLong ? { choices: [{ message: { content: "【小白X】已拦截消息" }, finish_reason: "stop" }], intercepted: true } : { choices: [{ message: { content: "" }, finish_reason: "stop" }] };
+  const payload = S.isLong ? { choices: [{ message: { content: "【小白X改】已拦截消息" }, finish_reason: "stop" }], intercepted: true } : { choices: [{ message: { content: "" }, finish_reason: "stop" }] };
   return new Response(JSON.stringify(payload), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 

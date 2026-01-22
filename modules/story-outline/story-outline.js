@@ -40,10 +40,10 @@ import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
 
 const events = createModuleEvents('storyOutline');
 const IFRAME_PATH = `${extensionFolderPath}/modules/story-outline/story-outline.html`;
-const STORAGE_KEYS = { global: 'LittleWhiteBox_StoryOutline_GlobalSettings', comm: 'LittleWhiteBox_StoryOutline_CommSettings' };
+const STORAGE_KEYS = { global: 'LittleWhiteBox-fork_StoryOutline_GlobalSettings', comm: 'LittleWhiteBox-fork_StoryOutline_CommSettings' };
 const STORY_OUTLINE_ID = 'lwb_story_outline';
 const CHAR_CARD_UID = '__CHARACTER_CARD__';
-const DEBUG_KEY = 'LittleWhiteBox_StoryOutline_Debug';
+const DEBUG_KEY = 'LittleWhiteBox-fork_StoryOutline_Debug';
 
 let overlayCreated = false, frameReady = false, pendingMsgs = [], presetCleanup = null, step1Cache = null;
 
@@ -246,7 +246,7 @@ function getCharInfo() {
 /** 获取角色卡短信历史 */
 function getCharSmsHistory() {
     if (!chat_metadata) return null;
-    const root = chat_metadata.LittleWhiteBox_StoryOutline ||= {};
+    const root = chat_metadata.LittleWhiteBox-fork_StoryOutline ||= {};
     const h = root.characterContactSmsHistory ||= { messages: [], summarizedCount: 0, summaries: {} };
     h.messages ||= []; h.summarizedCount ||= 0; h.summaries ||= {};
     return h;
@@ -605,10 +605,10 @@ const injectOutline = () => updatePromptContent();
 function postFrame(payload) {
     const iframe = document.getElementById("xiaobaix-story-outline-iframe");
     if (!iframe?.contentWindow || !frameReady) { pendingMsgs.push(payload); return; }
-    postToIframe(iframe, payload, "LittleWhiteBox");
+    postToIframe(iframe, payload, "LittleWhiteBox-fork");
 }
 
-const flushPending = () => { if (!frameReady) return; const f = document.getElementById("xiaobaix-story-outline-iframe"); pendingMsgs.forEach(p => { if (f) postToIframe(f, p, "LittleWhiteBox"); }); pendingMsgs = []; };
+const flushPending = () => { if (!frameReady) return; const f = document.getElementById("xiaobaix-story-outline-iframe"); pendingMsgs.forEach(p => { if (f) postToIframe(f, p, "LittleWhiteBox-fork"); }); pendingMsgs = []; };
 
 /** 发送设置到iframe */
 function sendSettings() {
@@ -1214,7 +1214,7 @@ const handlers = {
 
 const handleMsg = (event) => {
     const iframe = document.getElementById("xiaobaix-story-outline-iframe");
-    if (!isTrustedMessage(event, iframe, "LittleWhiteBox-OutlineFrame")) return;
+    if (!isTrustedMessage(event, iframe, "LittleWhiteBox-fork-OutlineFrame")) return;
     const { data } = event;
     handlers[data.type]?.(data);
 };
