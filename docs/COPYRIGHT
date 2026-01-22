@@ -1,4 +1,4 @@
-LittleWhiteBox (小白X改) - Copyright and Attribution Requirements
+LittleWhiteBox-fork (小白X改) - Copyright and Attribution Requirements
 ================================================================
 
 Copyright 2025 biex
@@ -19,9 +19,9 @@ MANDATORY ATTRIBUTION REQUIREMENTS
      * Any promotional or marketing materials
 
 2. PROJECT ATTRIBUTION
-   - The project name "LittleWhiteBox" and "小白X改" must be credited
-   - Required attribution format: "Based on LittleWhiteBox by biex"
-   - Project URL must be included: https://github.com/RT15548/LittleWhiteBox
+   - The project name "LittleWhiteBox-fork" and "小白X改" must be credited
+   - Required attribution format: "Based on LittleWhiteBox-fork by biex"
+   - Project URL must be included: https://github.com/RT15548/LittleWhiteBox-fork
 
 3. SOURCE CODE DISCLOSURE
    - Any modification, enhancement, or derivative work MUST be open source
@@ -34,7 +34,7 @@ MANDATORY ATTRIBUTION REQUIREMENTS
    - No additional permission required for commercial use
 
 5. TRADEMARK PROTECTION
-   - "LittleWhiteBox" and "小白X改" are trademarks of the original author
+   - "LittleWhiteBox-fork" and "小白X改" are trademarks of the original author
    - Derivative works may not use these names without explicit permission
    - Alternative naming must clearly indicate the derivative nature
 
@@ -50,14 +50,14 @@ COMPLIANCE EXAMPLES
 ==================
 
 ✅ CORRECT Attribution Examples:
-- "Powered by LittleWhiteBox by biex"
-- "Based on LittleWhiteBox (https://github.com/RT15548/LittleWhiteBox) by biex"
-- "Enhanced version of LittleWhiteBox by biex - Original: [repository URL]"
+- "Powered by LittleWhiteBox-fork by biex"
+- "Based on LittleWhiteBox-fork (https://github.com/RT15548/LittleWhiteBox-fork) by biex"
+- "Enhanced version of LittleWhiteBox-fork by biex - Original: [repository URL]"
 
 ❌ INCORRECT Examples:
 - Using the code without any attribution
 - Claiming original authorship
-- Using "LittleWhiteBox" name for derivative works
+- Using "LittleWhiteBox-fork" name for derivative works
 - Commercial use without permission
 - Closed-source modifications
 
@@ -65,7 +65,7 @@ CONTACT INFORMATION
 ==================
 
 For licensing inquiries or attribution questions:
-- Repository: https://github.com/RT15548/LittleWhiteBox
+- Repository: https://github.com/RT15548/LittleWhiteBox-fork
 - Author: biex
 - License: Apache-2.0 WITH Custom-Attribution-Requirements
 

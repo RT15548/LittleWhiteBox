@@ -7,7 +7,7 @@
     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
   </div>
   <div class="inline-drawer-content">
-    <div class="littlewhitebox settings-grid">
+    <div class="LittleWhiteBox-fork settings-grid">
       <div class="settings-menu-vertical">
         <div class="menu-tab active" data-target="js-memory" style="border-bottom:1px solid #303030;"><span class="vertical-text">渲染交互</span></div>
         <div class="menu-tab" data-target="task" style="border-bottom:1px solid #303030;"><span class="vertical-text">循环任务</span></div>
@@ -83,7 +83,7 @@
             <hr class="sysHR" />
           </div>
           <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
-            <div><a href="https://docs.littlewhitebox.qzz.io/" class="download-link" target="_blank">功能文档</a></div>
+            <div><a href="https://docs.LittleWhiteBox-fork.qzz.io/" class="download-link" target="_blank">功能文档</a></div>
             <button id="xiaobaix_reset_btn" class="menu_button menu_button_icon" type="button" title="把小白X改的功能按钮重置回默认功能设定">
               <small>默认开关</small>
             </button>
@@ -228,19 +228,19 @@
 </div>
 
 <style>
-  .littlewhitebox,
-  .littlewhitebox * {
+  .LittleWhiteBox-fork,
+  .LittleWhiteBox-fork * {
     font-family: 'ZCOOL KuaiLe', 'ZCOOL XiaoWei', sans-serif !important
   }
-  .littlewhitebox i,
-  .littlewhitebox .fa,
-  .littlewhitebox .fa-solid,
-  .littlewhitebox .fa-regular,
-  .littlewhitebox .fa-brands {
+  .LittleWhiteBox-fork i,
+  .LittleWhiteBox-fork .fa,
+  .LittleWhiteBox-fork .fa-solid,
+  .LittleWhiteBox-fork .fa-regular,
+  .LittleWhiteBox-fork .fa-brands {
     font-family: 'Font Awesome 6 Free', 'FontAwesome', 'Font Awesome 5 Free', 'Font Awesome 5 Brands', sans-serif !important;
     font-weight: 900 !important
   }
-  .littlewhitebox {
+  .LittleWhiteBox-fork {
     display: flex;
     gap: 1px
   }
@@ -308,14 +308,14 @@
     border-color: var(--SmartThemeBorderColor) !important;
     width: 8vw !important
   }
-  .littlewhitebox input[type="checkbox"] {
+  .LittleWhiteBox-fork input[type="checkbox"] {
     width: 1.2rem;
     height: 1.2rem;
     background: var(--black30a);
     border-radius: .25em;
     position: relative
   }
-  .littlewhitebox input[type="checkbox"]:checked::after {
+  .LittleWhiteBox-fork input[type="checkbox"]:checked::after {
     content: "";
     display: block;
     position: absolute;
@@ -326,11 +326,11 @@
     background: #999;
     border-radius: .13em
   }
-  .littlewhitebox input[type="checkbox"]+label {
+  .LittleWhiteBox-fork input[type="checkbox"]+label {
     color: #888;
     transition: color .2s
   }
-  .littlewhitebox input[type="checkbox"]:checked+label {
+  .LittleWhiteBox-fork input[type="checkbox"]:checked+label {
     color: #dbdbdb
   }
   .section-divider {
@@ -409,21 +409,21 @@
   label {
     margin-top: .3em
   }
-  .littlewhitebox-update-text {
+  .LittleWhiteBox-fork-update-text {
     color: green;
     margin-left: 5px
   }
-  #littlewhitebox-update-extension {
+  #LittleWhiteBox-fork-update-extension {
     color: #28a745;
     cursor: pointer;
     margin: 0 0 0 5px;
     transition: .2s
   }
-  #littlewhitebox-update-extension:hover {
+  #LittleWhiteBox-fork-update-extension:hover {
     background-color: rgba(40, 167, 69, .1);
     transform: scale(1.1)
   }
-  #littlewhitebox-update-extension.updating {
+  #LittleWhiteBox-fork-update-extension.updating {
     color: #007bff;
     background-color: transparent;
     transform: scale(1)
@@ -436,7 +436,7 @@
     const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s), $id = id => document.getElementById(id);
     const onReady = fn => { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn, { once: true }); else fn(); };
     function setupUpdateButtonHandlers() {
-      const btn = $id('littlewhitebox-update-extension'); if (!btn) return;
+      const btn = $id('LittleWhiteBox-fork-update-extension'); if (!btn) return;
       const b = btn.cloneNode(true); btn.parentNode.replaceChild(b, btn);
       b.addEventListener('mouseenter', function () { if (!this.classList.contains('updating')) { this.style.backgroundColor = 'rgba(40,167,69,.1)'; this.style.transform = 'scale(1.1)'; } });
       b.addEventListener('mouseleave', function () { if (!this.classList.contains('updating')) { this.style.backgroundColor = 'transparent'; this.style.transform = 'scale(1)'; } });
@@ -446,7 +446,7 @@
         this.style.color = '#007bff'; this.style.backgroundColor = 'transparent'; this.style.transform = 'scale(1)'; this.title = '正在更新...';
         try {
           let ok = false;
-          if (window.updateLittleWhiteBoxExtension) ok = await window.updateLittleWhiteBoxExtension();
+          if (window.updateLittleWhiteBox-forkExtension) ok = await window.updateLittleWhiteBox-forkExtension();
           else console.error('[小白X改] 更新函数不可用');
           if (ok) { if (window.removeAllUpdateNotices) window.removeAllUpdateNotices(); }
           else {
@@ -466,12 +466,12 @@
       const LABEL = { 'edit-right': 'X按钮:左', 'name-left': 'X按钮:右' };
       const readLS = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
       const writeLS = (v) => { try { localStorage.setItem(KEY, v); } catch { } };
-      let cur = window?.extension_settings?.LittleWhiteBox?.xBtnPosition || readLS() || 'name-left';
+      let cur = window?.extension_settings?.LittleWhiteBox-fork?.xBtnPosition || readLS() || 'name-left';
       const write = (v) => {
         cur = v;
         try {
           const es = (window.extension_settings ||= {});
-          const box = (es.LittleWhiteBox ||= {});
+          const box = (es.LittleWhiteBox-fork ||= {});
           box.xBtnPosition = v;
           window.saveSettingsDebounced?.();
         } catch { }
@@ -503,7 +503,7 @@
         document.removeEventListener('click', onClick);
       });
     }
-	    const EXT_ID = 'LittleWhiteBox';
+	    const EXT_ID = 'LittleWhiteBox-fork';
 	    const KEY_TO_CHECKBOX = {
 	      recorded: 'xiaobaix_recorded_enabled',
 	      immersive: 'xiaobaix_immersive_enabled',

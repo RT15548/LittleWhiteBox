@@ -9,7 +9,7 @@ import { createModuleEvents } from "../../core/event-manager.js";
 import { replaceXbGetVarInString } from "./var-commands.js";
 
 const MODULE_ID = 'vareventEditor';
-const LWB_EXT_ID = 'LittleWhiteBox';
+const LWB_EXT_ID = 'LittleWhiteBox-fork';
 const LWB_VAREVENT_PROMPT_KEY = 'LWB_varevent_display';
 const EDITOR_STYLES_ID = 'lwb-varevent-editor-styles';
 const TAG_RE_VAREVENT = /<\s*varevent[^>]*>([\s\S]*?)<\s*\/\s*varevent\s*>/gi;

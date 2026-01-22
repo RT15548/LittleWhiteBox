@@ -70,13 +70,13 @@ function cleanupDeprecatedData() {
         if (key in s) {
             delete s[key];
             cleaned = true;
-            console.log(`[LittleWhiteBox] Cleaned deprecated data: ${key}`);
+            console.log(`[LittleWhiteBox-fork] Cleaned deprecated data: ${key}`);
         }
     }
     
     if (cleaned) {
         saveSettingsDebounced();
-        console.log('[LittleWhiteBox] Deprecated data cleanup complete');
+        console.log('[LittleWhiteBox-fork] Deprecated data cleanup complete');
     }
 }
 
@@ -85,7 +85,7 @@ let moduleCleanupFunctions = new Map();
 let updateCheckPerformed = false;
 
 window.isXiaobaixEnabled = isXiaobaixEnabled;
-window.testLittleWhiteBoxUpdate = async () => {
+window.testLittleWhiteBox-forkUpdate = async () => {
     updateCheckPerformed = false;
     await performExtensionUpdateCheck();
 };
@@ -96,14 +96,14 @@ window.testRemoveUpdateUI = () => {
     removeAllUpdateNotices();
 };
 
-async function checkLittleWhiteBoxUpdate() {
+async function checkLittleWhiteBox-forkUpdate() {
     try {
         const timestamp = Date.now();
         const localRes = await fetch(`${extensionFolderPath}/manifest.json?t=${timestamp}`, { cache: 'no-cache' });
         if (!localRes.ok) return null;
         const localManifest = await localRes.json();
         const localVersion = localManifest.version;
-        const remoteRes = await fetch(`https://api.github.com/repos/RT15548/LittleWhiteBox/contents/manifest.json?t=${timestamp}`, { cache: 'no-cache' });
+        const remoteRes = await fetch(`https://api.github.com/repos/RT15548/LittleWhiteBox-fork/contents/manifest.json?t=${timestamp}`, { cache: 'no-cache' });
         if (!remoteRes.ok) return null;
         const remoteData = await remoteRes.json();
         const remoteManifest = JSON.parse(atob(remoteData.content));
@@ -114,25 +114,25 @@ async function checkLittleWhiteBoxUpdate() {
     }
 }
 
-async function updateLittleWhiteBoxExtension() {
+async function updateLittleWhiteBox-forkExtension() {
     try {
         const response = await fetch('/api/extensions/update', {
             method: 'POST',
             headers: getRequestHeaders(),
-            body: JSON.stringify({ extensionName: 'LittleWhiteBox', global: true }),
+            body: JSON.stringify({ extensionName: 'LittleWhiteBox-fork', global: true }),
         });
         if (!response.ok) {
             const text = await response.text();
-            toastr.error(text || response.statusText, 'LittleWhiteBox update failed', { timeOut: 5000 });
+            toastr.error(text || response.statusText, 'LittleWhiteBox-fork update failed', { timeOut: 5000 });
             return false;
         }
         const data = await response.json();
-        const message = data.isUpToDate ? 'LittleWhiteBox is up to date' : `LittleWhiteBox updated`;
+        const message = data.isUpToDate ? 'LittleWhiteBox-fork is up to date' : `LittleWhiteBox-fork updated`;
         const title = data.isUpToDate ? '' : '请刷新页面以应用更新';
         toastr.success(message, title);
         return true;
     } catch (error) {
-        toastr.error('Error during update', 'LittleWhiteBox update failed');
+        toastr.error('Error during update', 'LittleWhiteBox-fork update failed');
         return false;
     }
 }
@@ -146,7 +146,7 @@ function addUpdateTextNotice() {
     const selectors = [
         '.inline-drawer-toggle.inline-drawer-header b',
         '.inline-drawer-header b',
-        '.littlewhitebox .inline-drawer-header b',
+        '.LittleWhiteBox-fork .inline-drawer-header b',
         'div[class*="inline-drawer"] b'
     ];
     let headerElement = null;
@@ -164,9 +164,9 @@ function addUpdateTextNotice() {
         setTimeout(() => addUpdateTextNotice(), 1000);
         return;
     }
-    if (headerElement.querySelector('.littlewhitebox-update-text')) return;
+    if (headerElement.querySelector('.LittleWhiteBox-fork-update-text')) return;
     const updateTextSmall = document.createElement('small');
-    updateTextSmall.className = 'littlewhitebox-update-text';
+    updateTextSmall.className = 'LittleWhiteBox-fork-update-text';
     updateTextSmall.textContent = '(有可用更新)';
     headerElement.appendChild(updateTextSmall);
 }
@@ -184,9 +184,9 @@ function addUpdateDownloadButton() {
         setTimeout(() => addUpdateDownloadButton(), 1000);
         return;
     }
-    if (document.querySelector('#littlewhitebox-update-extension')) return;
+    if (document.querySelector('#LittleWhiteBox-fork-update-extension')) return;
     const updateButton = document.createElement('div');
-    updateButton.id = 'littlewhitebox-update-extension';
+    updateButton.id = 'LittleWhiteBox-fork-update-extension';
     updateButton.className = 'menu_button fa-solid fa-cloud-arrow-down interactable has-update';
     updateButton.title = '下载并安装小白X改的更新';
     updateButton.tabIndex = 0;
@@ -204,8 +204,8 @@ function addUpdateDownloadButton() {
 }
 
 function removeAllUpdateNotices() {
-    const textNotice = document.querySelector('.littlewhitebox-update-text');
-    const downloadButton = document.querySelector('#littlewhitebox-update-extension');
+    const textNotice = document.querySelector('.LittleWhiteBox-fork-update-text');
+    const downloadButton = document.querySelector('#LittleWhiteBox-fork-update-extension');
     if (textNotice) textNotice.remove();
     if (downloadButton) downloadButton.remove();
 }
@@ -214,7 +214,7 @@ async function performExtensionUpdateCheck() {
     if (updateCheckPerformed) return;
     updateCheckPerformed = true;
     try {
-        const versionData = await checkLittleWhiteBoxUpdate();
+        const versionData = await checkLittleWhiteBox-forkUpdate();
         if (versionData && versionData.isUpToDate === false) {
             updateExtensionHeaderWithUpdateNotice();
         }
@@ -583,7 +583,7 @@ function setupMenuTabs() {
 window.processExistingMessages = processExistingMessages;
 window.renderHtmlInIframe = renderHtmlInIframe;
 window.registerModuleCleanup = registerModuleCleanup;
-window.updateLittleWhiteBoxExtension = updateLittleWhiteBoxExtension;
+window.updateLittleWhiteBox-forkExtension = updateLittleWhiteBox-forkExtension;
 window.removeAllUpdateNotices = removeAllUpdateNotices;
 
 jQuery(async () => {

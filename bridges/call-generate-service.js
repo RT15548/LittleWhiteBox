@@ -1453,7 +1453,7 @@ if (typeof window !== 'undefined') {
 
     // ===== 全局 API 暴露：与 iframe 调用方式完全一致 =====
     // 创建命名空间
-    window.LittleWhiteBox = window.LittleWhiteBox || {};
+    window.LittleWhiteBox-fork = window.LittleWhiteBox-fork || {};
     
     /**
      * 全局 callGenerate 函数
@@ -1472,14 +1472,14 @@ if (typeof window !== 'undefined') {
      * });
      *
      * // 全局调用方式（完全一致）：
-     * const res = await window.LittleWhiteBox.callGenerate({
+     * const res = await window.LittleWhiteBox-fork.callGenerate({
      *     components: { list: ['ALL_PREON'] },
      *     userInput: '你好',
      *     streaming: { enabled: true },
      *     api: { inherit: true }
      * });
      */
-    window.LittleWhiteBox.callGenerate = async function(options) {
+    window.LittleWhiteBox-fork.callGenerate = async function(options) {
         return new Promise((resolve, reject) => {
             const requestId = `global-${Date.now()}-${Math.random().toString(36).slice(2)}`;
             const streamingEnabled = options?.streaming?.enabled !== false;
@@ -1529,19 +1529,19 @@ if (typeof window !== 'undefined') {
      * 取消指定会话
      * @param {string} sessionId - 会话 ID（如 'xb1', 'xb2' 等）
      */
-    window.LittleWhiteBox.callGenerate.cancel = function(sessionId) {
+    window.LittleWhiteBox-fork.callGenerate.cancel = function(sessionId) {
         callGenerateService.cancel(sessionId);
     };
     
     /**
      * 清理所有会话
      */
-    window.LittleWhiteBox.callGenerate.cleanup = function() {
+    window.LittleWhiteBox-fork.callGenerate.cleanup = function() {
         callGenerateService.cleanup();
     };
     
     // 保持向后兼容：保留原有的内部接口
-    window.LittleWhiteBox._internal = {
+    window.LittleWhiteBox-fork._internal = {
         service: callGenerateService,
         handleGenerateRequest,
         init: initCallGenerateHostBridge,

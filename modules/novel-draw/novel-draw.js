@@ -2135,12 +2135,12 @@ async function sendInitData() {
         },
         cacheStats: stats,
         gallerySummary,
-    }, 'LittleWhiteBox-NovelDraw');
+    }, 'LittleWhiteBox-fork-NovelDraw');
 }
 
 function postStatus(state, text) {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-    if (iframe) postToIframe(iframe, { type: 'STATUS', state, text }, 'LittleWhiteBox-NovelDraw');
+    if (iframe) postToIframe(iframe, { type: 'STATUS', state, text }, 'LittleWhiteBox-fork-NovelDraw');
 }
 
 async function handleFrameMessage(event) {
@@ -2403,7 +2403,7 @@ async function handleFrameMessage(event) {
                 await updatePreviewSavedUrl(data.imgId, url);
                 {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                    if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_SAVED', imgId: data.imgId, savedUrl: url }, 'LittleWhiteBox-NovelDraw');
+                    if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_SAVED', imgId: data.imgId, savedUrl: url }, 'LittleWhiteBox-fork-NovelDraw');
                 }
                 sendInitData();
                 showToast(`已保存: ${url}`, 'success', 5000);
@@ -2421,7 +2421,7 @@ async function handleFrameMessage(event) {
                 const slots = await getCharacterPreviews(charName);
                 {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                    if (iframe) postToIframe(iframe, { type: 'CHARACTER_PREVIEWS_LOADED', charName, slots }, 'LittleWhiteBox-NovelDraw');
+                    if (iframe) postToIframe(iframe, { type: 'CHARACTER_PREVIEWS_LOADED', charName, slots }, 'LittleWhiteBox-fork-NovelDraw');
                 }
             } catch (e) {
                 console.error('[NovelDraw] 加载预览失败:', e);
@@ -2434,7 +2434,7 @@ async function handleFrameMessage(event) {
                 await deletePreview(data.imgId);
                 {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                    if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_DELETED', imgId: data.imgId }, 'LittleWhiteBox-NovelDraw');
+                    if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_DELETED', imgId: data.imgId }, 'LittleWhiteBox-fork-NovelDraw');
                 }
                 sendInitData();
                 showToast('已删除');
@@ -2475,7 +2475,7 @@ async function handleFrameMessage(event) {
                 const base64 = await generateNovelImage({ scene, characterPrompts: [], negativePrompt: preset?.negativePrefix || '', params: preset?.params || {} });
                 {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                    if (iframe) postToIframe(iframe, { type: 'TEST_RESULT', url: `data:image/png;base64,${base64}` }, 'LittleWhiteBox-NovelDraw');
+                    if (iframe) postToIframe(iframe, { type: 'TEST_RESULT', url: `data:image/png;base64,${base64}` }, 'LittleWhiteBox-fork-NovelDraw');
                 }
                 postStatus('success', `完成 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
             } catch (e) {

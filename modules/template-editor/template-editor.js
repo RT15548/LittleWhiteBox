@@ -697,7 +697,7 @@ class IframeManager {
                 variables: vars,
             }, 'xiaobaix-host', targetOrigin);
         } catch (error) {
-            console.error('[LittleWhiteBox] Failed to send iframe message:', error);
+            console.error('[LittleWhiteBox-fork] Failed to send iframe message:', error);
         }
     }
 
@@ -732,7 +732,7 @@ class IframeManager {
         if (!iframe?.contentWindow) return;
         const update = () => {
             try { if (iframe.contentWindow.updateTemplateVariables) iframe.contentWindow.updateTemplateVariables(vars); }
-            catch (error) { console.error('[LittleWhiteBox] Failed to update iframe variables:', error); }
+            catch (error) { console.error('[LittleWhiteBox-fork] Failed to update iframe variables:', error); }
         };
         if (iframe.contentDocument?.readyState === 'complete') update();
         else iframe.addEventListener('load', update, { once: true });

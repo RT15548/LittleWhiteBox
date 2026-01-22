@@ -456,7 +456,7 @@ async function getDebugSnapshot() {
 }
 
 function postToFrame(msg) {
-    try { postToIframe(iframeEl, { ...msg }, "LittleWhiteBox-DebugHost"); } catch {}
+    try { postToIframe(iframeEl, { ...msg }, "LittleWhiteBox-fork-DebugHost"); } catch {}
 }
 
 async function sendSnapshotToFrame() {
@@ -492,7 +492,7 @@ function bindMessageListener() {
     // eslint-disable-next-line no-restricted-syntax
     window.addEventListener("message", async (e) => {
         // Guarded by isTrustedMessage (origin + source).
-        if (!isTrustedMessage(e, iframeEl, "LittleWhiteBox-DebugFrame")) return;
+        if (!isTrustedMessage(e, iframeEl, "LittleWhiteBox-fork-DebugFrame")) return;
         const msg = e?.data;
         if (msg.type === "FRAME_READY") { frameReady = true; await sendSnapshotToFrame(); }
         else if (msg.type === "XB_DEBUG_ACTION") await handleAction(msg);

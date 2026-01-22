@@ -1,5 +1,5 @@
 {
-    "display_name": "LittleWhiteBox",
+    "display_name": "LittleWhiteBox-fork",
     "loading_order": 10,
     "requires": [],
     "optional": [],
@@ -7,7 +7,7 @@
     "css": "style.css",
     "author": "biex",
     "version": "2.4.0",
-    "homePage": "https://github.com/RT15548/LittleWhiteBox",
+    "homePage": "https://github.com/RT15548/LittleWhiteBox-fork",
     "generate_interceptor": "xiaobaixGenerateInterceptor"
 
 }

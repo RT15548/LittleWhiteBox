@@ -615,7 +615,7 @@ const PARENT_ORIGIN = (() => {
 })();
 
 function postToParent(payload) {
-    window.parent.postMessage({ source: 'LittleWhiteBox-FourthWall', ...payload }, PARENT_ORIGIN);
+    window.parent.postMessage({ source: 'LittleWhiteBox-fork-FourthWall', ...payload }, PARENT_ORIGIN);
 }
 
 function getEmotionIcon(emotion) {
@@ -1128,11 +1128,11 @@ function regenerate() {
 window.addEventListener('message', event => {
     if (event.origin !== PARENT_ORIGIN || event.source !== window.parent) return;
     const data = event.data;
-    if (!data || data.source !== 'LittleWhiteBox') return;
+    if (!data || data.source !== 'LittleWhiteBox-fork') return;
 
     if (data.type === 'PING') {
         window.parent.postMessage({
-            source: 'LittleWhiteBox-FourthWall',
+            source: 'LittleWhiteBox-fork-FourthWall',
             type: 'PONG',
             pingId: data.pingId
         }, PARENT_ORIGIN);

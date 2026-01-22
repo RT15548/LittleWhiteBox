@@ -27,7 +27,7 @@ If you reference, modify, or distribute any file from this project,
 you must include attribution to the original author "biex" in your
 project documentation, README, or credits section.
 
-Simple attribution format: "Based on LittleWhiteBox by biex"
+Simple attribution format: "Based on LittleWhiteBox-fork by biex"
 
 For the complete Apache License 2.0 text, see:
 http://www.apache.org/licenses/LICENSE-2.0

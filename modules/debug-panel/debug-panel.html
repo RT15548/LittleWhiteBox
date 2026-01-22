@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LittleWhiteBox 监控台</title>
+  <title>LittleWhiteBox-fork 监控台</title>
   <style>
     :root {
       --border: rgba(255,255,255,0.10);
@@ -362,7 +362,7 @@
       try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
     })();
     const post = (payload) => {
-      try { parent.postMessage({ source: 'LittleWhiteBox-DebugFrame', ...payload }, PARENT_ORIGIN); } catch {}
+      try { parent.postMessage({ source: 'LittleWhiteBox-fork-DebugFrame', ...payload }, PARENT_ORIGIN); } catch {}
     };
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -743,7 +743,7 @@
     window.addEventListener('message', (event) => {
       if (event.origin !== PARENT_ORIGIN || event.source !== parent) return;
       const msg = event?.data;
-      if (!msg || msg.source !== 'LittleWhiteBox-DebugHost') return;
+      if (!msg || msg.source !== 'LittleWhiteBox-fork-DebugHost') return;
       
       if (msg.type === 'XB_DEBUG_DATA') {
         // 核心逻辑：用户交互时暂存数据，不刷新DOM
