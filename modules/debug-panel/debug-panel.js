@@ -647,7 +647,7 @@ function createPanel() {
     const titlebar = document.createElement("div");
     titlebar.id = "xiaobaix-debug-titlebar";
     titlebar.innerHTML = `
-        <div class="left"><span>小白X 监控台</span></div>
+        <div class="left"><span>小白X改 监控台</span></div>
         <div class="right">
             <button class="xbdbg-btn" id="xbdbg-min" title="最小化" type="button">—</button>
             <button class="xbdbg-btn" id="xbdbg-close" title="关闭" type="button">×</button>

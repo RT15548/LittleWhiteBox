@@ -2054,7 +2054,7 @@ function registerSlashCommands() {
 
 async function initTasks() {
     if (window.__XB_TASKS_INITIALIZED__) {
-        console.log('[小白X任务] 已经初始化，跳过重复注册');
+        console.log('[小白X改任务] 已经初始化，跳过重复注册');
         return;
     }
     window.__XB_TASKS_INITIALIZED__ = true;

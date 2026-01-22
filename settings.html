@@ -3,7 +3,7 @@
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
 <div class="inline-drawer">
   <div class="inline-drawer-toggle inline-drawer-header">
-    <b>小白X</b>
+    <b>小白X改</b>
     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
   </div>
   <div class="inline-drawer-content">
@@ -24,7 +24,7 @@
 
                         提供STscript(command)异步函数执行酒馆命令:
 
-                        await STscript('/echo 你好世界！')">启用小白X</label>
+                        await STscript('/echo 你好世界！')">启用小白X改</label>
 
           </div>
           <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
@@ -84,7 +84,7 @@
           </div>
           <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
             <div><a href="https://docs.littlewhitebox.qzz.io/" class="download-link" target="_blank">功能文档</a></div>
-            <button id="xiaobaix_reset_btn" class="menu_button menu_button_icon" type="button" title="把小白X的功能按钮重置回默认功能设定">
+            <button id="xiaobaix_reset_btn" class="menu_button menu_button_icon" type="button" title="把小白X改的功能按钮重置回默认功能设定">
               <small>默认开关</small>
             </button>
             <button id="xiaobaix_xposition_btn" class="menu_button menu_button_icon" type="button" title="切换X按钮的位置，仅两种">
@@ -447,15 +447,15 @@
         try {
           let ok = false;
           if (window.updateLittleWhiteBoxExtension) ok = await window.updateLittleWhiteBoxExtension();
-          else console.error('[小白X] 更新函数不可用');
+          else console.error('[小白X改] 更新函数不可用');
           if (ok) { if (window.removeAllUpdateNotices) window.removeAllUpdateNotices(); }
           else {
             this.className = 'menu_button fa-solid fa-cloud-arrow-down interactable has-update';
-            this.classList.remove('updating'); this.style.color = '#28a745'; this.title = '下載並安裝小白x的更新';
+            this.classList.remove('updating'); this.style.color = '#28a745'; this.title = '下載並安裝小白X改的更新';
           }
         } catch {
           this.className = 'menu_button fa-solid fa-cloud-arrow-down interactable has-update';
-          this.classList.remove('updating'); this.style.color = '#28a745'; this.title = '下載並安裝小白x的更新';
+          this.classList.remove('updating'); this.style.color = '#28a745'; this.title = '下載並安裝小白X改的更新';
         }
       });
     }

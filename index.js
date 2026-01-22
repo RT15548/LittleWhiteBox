@@ -153,7 +153,7 @@ function addUpdateTextNotice() {
     for (const selector of selectors) {
         const elements = document.querySelectorAll(selector);
         for (const element of elements) {
-            if (element.textContent && element.textContent.includes('小白X')) {
+            if (element.textContent && element.textContent.includes('小白X改')) {
                 headerElement = element;
                 break;
             }
@@ -188,7 +188,7 @@ function addUpdateDownloadButton() {
     const updateButton = document.createElement('div');
     updateButton.id = 'littlewhitebox-update-extension';
     updateButton.className = 'menu_button fa-solid fa-cloud-arrow-down interactable has-update';
-    updateButton.title = '下载并安装小白X的更新';
+    updateButton.title = '下载并安装小白X改的更新';
     updateButton.tabIndex = 0;
     try {
         totalSwitchDivider.style.display = 'flex';
