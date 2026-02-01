@@ -48,6 +48,103 @@ const DEBUG_KEY = 'LittleWhiteBox_StoryOutline_Debug';
 
 let overlayCreated = false, frameReady = false, pendingMsgs = [], presetCleanup = null, step1Cache = null;
 
+// ==================== PromptConfig (global + character) ====================
+
+const PROMPT_CONFIG_KEYS = {
+    legacy: 'promptConfig',
+    global: 'promptConfigGlobal',
+    charPrefix: 'promptConfigChar:',
+};
+
+let promptConfigGlobalCache = { jsonTemplates: {}, promptSources: {} };
+let promptConfigCharCache = { jsonTemplates: {}, promptSources: {} };
+let promptConfigCharIdCache = null;
+
+function clonePromptConfig(cfg) {
+    const src = (cfg && typeof cfg === 'object') ? cfg : {};
+    const out = {
+        jsonTemplates: { ...(src.jsonTemplates || {}) },
+        promptSources: {},
+    };
+    const ps = src.promptSources || {};
+    Object.entries(ps).forEach(([k, v]) => {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) return;
+        out.promptSources[k] = { ...v };
+    });
+    return out;
+}
+
+function mergePromptConfig(globalCfg, charCfg) {
+    const g = clonePromptConfig(globalCfg);
+    const c = clonePromptConfig(charCfg);
+
+    const merged = {
+        jsonTemplates: { ...(g.jsonTemplates || {}), ...(c.jsonTemplates || {}) },
+        promptSources: { ...(g.promptSources || {}) },
+    };
+
+    Object.entries(c.promptSources || {}).forEach(([key, parts]) => {
+        const base = merged.promptSources[key];
+        merged.promptSources[key] = (base && typeof base === 'object' && !Array.isArray(base))
+            ? { ...base, ...(parts || {}) }
+            : { ...(parts || {}) };
+    });
+
+    return merged;
+}
+
+function getCharPromptConfigStorageKey(charId) {
+    if (charId == null) return null;
+    return `${PROMPT_CONFIG_KEYS.charPrefix}${String(charId)}`;
+}
+
+async function loadPromptConfigFromStorage(key) {
+    let cfg = null;
+    try { cfg = await StoryOutlineStorage?.get?.(key, null); } catch { }
+    return clonePromptConfig(cfg);
+}
+
+async function savePromptConfigToStorage(key, cfg) {
+    const payload = clonePromptConfig(cfg);
+    try { await StoryOutlineStorage?.set?.(key, payload); } catch { }
+    return payload;
+}
+
+async function refreshPromptConfigCaches({ force = false } = {}) {
+    const ctx = getContext?.();
+    const charId = ctx?.characterId ?? null;
+
+    if (force) promptConfigGlobalCache = null;
+
+    if (!promptConfigGlobalCache) {
+        // Prefer new key, fall back to legacy.
+        let globalCfg = await loadPromptConfigFromStorage(PROMPT_CONFIG_KEYS.global);
+        const hasAny = Object.keys(globalCfg.jsonTemplates || {}).length || Object.keys(globalCfg.promptSources || {}).length;
+        if (!hasAny) globalCfg = await loadPromptConfigFromStorage(PROMPT_CONFIG_KEYS.legacy);
+        promptConfigGlobalCache = globalCfg;
+    }
+
+    if (force || promptConfigCharIdCache !== charId) {
+        promptConfigCharIdCache = charId;
+        const charKey = getCharPromptConfigStorageKey(charId);
+        promptConfigCharCache = charKey ? await loadPromptConfigFromStorage(charKey) : { jsonTemplates: {}, promptSources: {} };
+    }
+
+    const merged = mergePromptConfig(promptConfigGlobalCache, promptConfigCharCache);
+    setPromptConfig?.(merged, false);
+}
+
+function getPromptConfigPayloadWithStores() {
+    const base = getPromptConfigPayload?.() || {};
+    return {
+        ...base,
+        stores: {
+            global: clonePromptConfig(promptConfigGlobalCache),
+            character: clonePromptConfig(promptConfigCharCache),
+        },
+    };
+}
+
 // ==================== 2. 通用工具 ====================
 
 /** 移动端检测 */
@@ -618,10 +715,15 @@ function sendSettings() {
         type: "LOAD_SETTINGS", globalSettings: getGlobalSettings(), commSettings: getCommSettings(),
         stage: store?.stage ?? 0, deviationScore: store?.deviationScore ?? 0,
         simulationTarget: store?.simulationTarget ?? 5, playerLocation: store?.playerLocation ?? '家',
-        dataChecked: store?.dataChecked || {}, outlineData: store?.outlineData || {}, promptConfig: getPromptConfigPayload?.(),
+        dataChecked: store?.dataChecked || {}, outlineData: store?.outlineData || {}, promptConfig: getPromptConfigPayloadWithStores(),
         characterCardName: charName, characterCardDescription: charDesc,
         characterContactSmsHistory: getCharSmsHistory()
     });
+
+    // Ensure prompt stores match current character selection.
+    refreshPromptConfigCaches?.().then(() => {
+        postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayloadWithStores() });
+    }).catch(() => { });
 }
 
 const loadAndSend = () => { const s = getOutlineStore(); if (s?.mapData) postFrame({ type: "LOAD_MAP_DATA", mapData: s.mapData }); sendSettings(); };
@@ -1117,9 +1219,15 @@ function handleSaveSettings(d) {
 async function handleSavePrompts(d) {
     // Back-compat: full payload (old iframe)
     if (d?.promptConfig) {
-        const payload = setPromptConfig?.(d.promptConfig, false) || d.promptConfig;
-        try { await StoryOutlineStorage?.set?.('promptConfig', payload); } catch { }
-        postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
+        const payload = clonePromptConfig(d.promptConfig);
+        promptConfigGlobalCache = payload;
+        try { await StoryOutlineStorage?.set?.(PROMPT_CONFIG_KEYS.legacy, payload); } catch { }
+        await savePromptConfigToStorage(PROMPT_CONFIG_KEYS.global, payload);
+
+        // Keep current character overrides (if any) and re-apply merged.
+        const merged = mergePromptConfig(promptConfigGlobalCache, promptConfigCharCache);
+        setPromptConfig?.(merged, false);
+        postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayloadWithStores() });
         return;
     }
 
@@ -1127,12 +1235,19 @@ async function handleSavePrompts(d) {
     const key = d?.key;
     if (!key) return;
 
-    let current = null;
-    try { current = await StoryOutlineStorage?.get?.('promptConfig', null); } catch { }
-    const next = (current && typeof current === 'object') ? {
-        jsonTemplates: { ...(current.jsonTemplates || {}) },
-        promptSources: { ...(current.promptSources || {}) },
-    } : { jsonTemplates: {}, promptSources: {} };
+    const scope = d?.scope === 'character' ? 'character' : 'global';
+    const ctx = getContext?.();
+    const charId = ctx?.characterId ?? null;
+
+    const storageKey = (scope === 'character')
+        ? (getCharPromptConfigStorageKey(charId) || PROMPT_CONFIG_KEYS.global)
+        : PROMPT_CONFIG_KEYS.global;
+
+    const currentCfg = (storageKey === PROMPT_CONFIG_KEYS.global)
+        ? promptConfigGlobalCache
+        : (promptConfigCharIdCache === charId ? promptConfigCharCache : await loadPromptConfigFromStorage(storageKey));
+
+    const next = clonePromptConfig(currentCfg);
 
     if (d?.reset) {
         delete next.promptSources[key];
@@ -1145,9 +1260,20 @@ async function handleSavePrompts(d) {
         }
     }
 
-    const payload = setPromptConfig?.(next, false) || next;
-    try { await StoryOutlineStorage?.set?.('promptConfig', payload); } catch { }
-    postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
+    const saved = await savePromptConfigToStorage(storageKey, next);
+
+    if (storageKey === PROMPT_CONFIG_KEYS.global) {
+        promptConfigGlobalCache = saved;
+        // Also write legacy key for older builds / safety.
+        try { await StoryOutlineStorage?.set?.(PROMPT_CONFIG_KEYS.legacy, saved); } catch { }
+    } else {
+        promptConfigCharIdCache = charId;
+        promptConfigCharCache = saved;
+    }
+
+    const merged = mergePromptConfig(promptConfigGlobalCache, promptConfigCharCache);
+    setPromptConfig?.(merged, false);
+    postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayloadWithStores() });
 }
 
 function handleSaveContacts(d) {

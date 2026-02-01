@@ -55,7 +55,13 @@
             /* === 阴影 === */
             --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)
+            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+
+            /* === 滚动条 === */
+            --sb-size: 10px;
+            --sb-track: rgba(0, 0, 0, 0.06);
+            --sb-thumb: rgba(0, 0, 0, 0.22);
+            --sb-thumb-hover: rgba(0, 0, 0, 0.34)
         }
 
         /* === 暗黑主题 (Refined) === */
@@ -93,7 +99,37 @@
             /* 阴影：加深阴影以适应暗色背景 */
             --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.6);
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.6), 0 2px 4px -1px rgba(0, 0, 0, 0.4);
-            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.8), 0 10px 10px -5px rgba(0, 0, 0, 0.6)
+            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.8), 0 10px 10px -5px rgba(0, 0, 0, 0.6);
+
+            /* === 滚动条 === */
+            --sb-track: rgba(255, 255, 255, 0.08);
+            --sb-thumb: rgba(255, 255, 255, 0.22);
+            --sb-thumb-hover: rgba(255, 255, 255, 0.32)
+        }
+
+        /* === 通用滚动条（亮/暗主题） === */
+        html {
+            scrollbar-width: thin;
+            scrollbar-color: var(--sb-thumb) var(--sb-track)
+        }
+
+        *::-webkit-scrollbar {
+            width: var(--sb-size);
+            height: var(--sb-size)
+        }
+
+        *::-webkit-scrollbar-track {
+            background: var(--sb-track)
+        }
+
+        *::-webkit-scrollbar-thumb {
+            background-color: var(--sb-thumb);
+            border-radius: 999px;
+            border: 2px solid var(--sb-track)
+        }
+
+        *::-webkit-scrollbar-thumb:hover {
+            background-color: var(--sb-thumb-hover)
         }
 
         [data-theme="dark"] .side-glass {
