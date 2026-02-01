@@ -1,3 +1,4 @@
+/* eslint-disable no-new-func */
 // Story Outline 提示词模板配置
 // 统一 UAUA (User-Assistant-User-Assistant) 结构
 

@@ -4,7 +4,7 @@
  */
 
 const V3_URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional';
-const FREE_V1_URL = 'https://hstts.velure.top';
+const FREE_V1_URL = 'https://hstts.velure.codes';
 
 export const FREE_VOICES = [
     { key: 'female_1', name: '桃夭', tag: '甜蜜仙子', gender: 'female' },

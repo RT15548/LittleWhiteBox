@@ -213,10 +213,16 @@
           <br>
           <div class="section-divider">变量控制</div>
           <hr class="sysHR" />
-          <div class="flex-container">
+          <div class="flex-container" style="gap:8px;flex-wrap:wrap;align-items:center;">
             <input type="checkbox" id="xiaobaix_variables_core_enabled" />
             <label for="xiaobaix_variables_core_enabled">变量管理</label>
+
+            <select id="xiaobaix_variables_mode" class="text_pole" style="width:auto;margin-left:8px;padding:2px 6px;">
+              <option value="1.0">1.0 (plot-log)</option>
+              <option value="2.0">2.0 (state)</option>
+            </select>
           </div>
+
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_variables_panel_enabled" />
             <label for="xiaobaix_variables_panel_enabled">变量面板</label>

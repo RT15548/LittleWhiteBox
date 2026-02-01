@@ -117,38 +117,64 @@ const VT = {
   global:    { getter: getGlobalVariable, setter: setGlobalVariable, storage: ()=> extension_settings.variables?.global || ((extension_settings.variables = { global: {} }).global), save: saveSettingsDebounced },
 };
 
-const LWB_RULES_KEY='LWB_RULES';
-const getRulesTable = () => { try { return getContext()?.chatMetadata?.[LWB_RULES_KEY] || {}; } catch { return {}; } };
+const EXT_ID = 'LittleWhiteBox';
+const LWB_RULES_V1_KEY = 'LWB_RULES';
+const LWB_RULES_V2_KEY = 'LWB_RULES_V2';
+
+const getRulesTable = () => {
+  try {
+    const ctx = getContext();
+    const mode = extension_settings?.[EXT_ID]?.variablesMode || '1.0';
+    const meta = ctx?.chatMetadata || {};
+    return mode === '2.0'
+      ? (meta[LWB_RULES_V2_KEY] || {})
+      : (meta[LWB_RULES_V1_KEY] || {});
+  } catch {
+    return {};
+  }
+};
+
 const pathKey = (arr)=>{ try { return (arr||[]).map(String).join('.'); } catch { return ''; } };
 const getRuleNodeByPath = (arr)=> (pathKey(arr) ? (getRulesTable()||{})[pathKey(arr)] : undefined);
-const hasAnyRule = (n)=>{
-  if(!n) return false;
-  if(n.ro) return true;
-  if(n.objectPolicy && n.objectPolicy!=='none') return true;
-  if(n.arrayPolicy && n.arrayPolicy!=='lock') return true;
-  const c=n.constraints||{};
-  return ('min'in c)||('max'in c)||('step'in c)||(Array.isArray(c.enum)&&c.enum.length)||(c.regex&&c.regex.source);
+const hasAnyRule = (n) => {
+  if (!n) return false;
+  if (n.ro) return true;
+  if (n.lock) return true;
+  if (n.min !== undefined || n.max !== undefined) return true;
+  if (n.step !== undefined) return true;
+  if (Array.isArray(n.enum) && n.enum.length) return true;
+  return false;
 };
-const ruleTip = (n)=>{
-  if(!n) return '';
-  const lines=[], c=n.constraints||{};
-  if(n.ro) lines.push('只读：$ro');
-  if(n.objectPolicy){ const m={none:'(默认：不可增删键)',ext:'$ext（可增键）',prune:'$prune（可删键）',free:'$free（可增删键）'}; lines.push(`对象策略：${m[n.objectPolicy]||n.objectPolicy}`); }
-  if(n.arrayPolicy){ const m={lock:'(默认：不可增删项)',grow:'$grow（可增项）',shrink:'$shrink（可删项）',list:'$list（可增删项）'}; lines.push(`数组策略：${m[n.arrayPolicy]||n.arrayPolicy}`); }
-  if('min'in c||'max'in c){ if('min'in c&&'max'in c) lines.push(`范围：$range=[${c.min},${c.max}]`); else if('min'in c) lines.push(`下限：$min=${c.min}`); else lines.push(`上限：$max=${c.max}`); }
-  if('step'in c) lines.push(`步长：$step=${c.step}`);
-  if(Array.isArray(c.enum)&&c.enum.length) lines.push(`枚举：$enum={${c.enum.join(';')}}`);
-  if(c.regex&&c.regex.source) lines.push(`正则：$match=/${c.regex.source}/${c.regex.flags||''}`);
+
+const ruleTip = (n) => {
+  if (!n) return '';
+  const lines = [];
+  if (n.ro) lines.push('只读：$ro');
+  if (n.lock) lines.push('结构锁：$lock（禁止增删该层 key/项）');
+
+  if (n.min !== undefined || n.max !== undefined) {
+    const a = n.min !== undefined ? n.min : '-∞';
+    const b = n.max !== undefined ? n.max : '+∞';
+    lines.push(`范围：$range=[${a},${b}]`);
+  }
+  if (n.step !== undefined) lines.push(`步长：$step=${n.step}`);
+  if (Array.isArray(n.enum) && n.enum.length) lines.push(`枚举：$enum={${n.enum.join(';')}}`);
   return lines.join('\n');
 };
-const badgesHtml = (n)=>{
-  if(!hasAnyRule(n)) return '';
-  const tip=ruleTip(n).replace(/"/g,'&quot;'), out=[];
-  if(n.ro) out.push(`<span class="vm-badge" data-type="ro" title="${tip}"><i class="fa-solid fa-shield-halved"></i></span>`);
-  if((n.objectPolicy&&n.objectPolicy!=='none')||(n.arrayPolicy&&n.arrayPolicy!=='lock')) out.push(`<span class="vm-badge" data-type="struct" title="${tip}"><i class="fa-solid fa-diagram-project"></i></span>`);
-  const c=n.constraints||{}; if(('min'in c)||('max'in c)||('step'in c)||(Array.isArray(c.enum)&&c.enum.length)||(c.regex&&c.regex.source)) out.push(`<span class="vm-badge" data-type="cons" title="${tip}"><i class="fa-solid fa-ruler-vertical"></i></span>`);
-  return out.length?`<span class="vm-badges">${out.join('')}</span>`:'';
+
+const badgesHtml = (n) => {
+  if (!hasAnyRule(n)) return '';
+  const tip = ruleTip(n).replace(/"/g,'&quot;');
+
+  const out = [];
+  if (n.ro) out.push(`<span class="vm-badge" data-type="ro" title="${tip}"><i class="fa-solid fa-shield-halved"></i></span>`);
+  if (n.lock) out.push(`<span class="vm-badge" data-type="struct" title="${tip}"><i class="fa-solid fa-diagram-project"></i></span>`);
+  if ((n.min !== undefined || n.max !== undefined) || (n.step !== undefined) || (Array.isArray(n.enum) && n.enum.length)) {
+    out.push(`<span class="vm-badge" data-type="cons" title="${tip}"><i class="fa-solid fa-ruler-vertical"></i></span>`);
+  }
+  return out.length ? `<span class="vm-badges">${out.join('')}</span>` : '';
 };
+
 const debounce=(fn,ms=200)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);}};
 
 class VariablesPanel {
