@@ -21,7 +21,7 @@
  */
 
 // ==================== 1. 导入与常量 ====================
-import { extension_settings, saveMetadataDebounced } from "../../../../../extensions.js";
+import { extension_settings, saveMetadataDebounced, writeExtensionField } from "../../../../../extensions.js";
 import { chat_metadata, name1, processCommands, eventSource, event_types as st_event_types } from "../../../../../../script.js";
 import { loadWorldInfo, saveWorldInfo, world_names, world_info } from "../../../../../world-info.js";
 import { getContext } from "../../../../../st-context.js";
@@ -33,7 +33,7 @@ import { promptManager } from "../../../../../openai.js";
 import {
     buildSmsMessages, buildSummaryMessages, buildSmsHistoryContent, buildExistingSummaryContent,
     buildNpcGenerationMessages, formatNpcToWorldbookContent, buildExtractStrangersMessages,
-    buildWorldGenStep1Messages, buildWorldGenStep2Messages, buildWorldSimMessages, buildSceneSwitchMessages,
+    buildWorldGenStep1Messages, buildWorldGenStep2Messages, buildWorldSimMessages, buildWorldNewsRefreshMessages, buildSceneSwitchMessages,
     buildInviteMessages, buildLocalMapGenMessages, buildLocalMapRefreshMessages, buildLocalSceneGenMessages,
     buildOverlayHtml, MOBILE_LAYOUT_STYLE, DESKTOP_LAYOUT_STYLE, getPromptConfigPayload, setPromptConfig
 } from "./story-outline-prompt.js";
@@ -48,25 +48,23 @@ const DEBUG_KEY = 'LittleWhiteBox_StoryOutline_Debug';
 
 let overlayCreated = false, frameReady = false, pendingMsgs = [], presetCleanup = null, step1Cache = null;
 
-// ==================== PromptConfig (global + character) ====================
+// ==================== PromptConfig (global + character card) ====================
+// Global: server storage key `promptConfig` (old behavior)
+// Character: character-card extension field (see scheduled-tasks implementation)
 
-const PROMPT_CONFIG_KEYS = {
-    legacy: 'promptConfig',
-    global: 'promptConfigGlobal',
-    charPrefix: 'promptConfigChar:',
-};
+const PROMPTS_MODULE_NAME = 'xiaobaix-story-outline-prompts';
 
-let promptConfigGlobalCache = { jsonTemplates: {}, promptSources: {} };
-let promptConfigCharCache = { jsonTemplates: {}, promptSources: {} };
-let promptConfigCharIdCache = null;
+let promptConfigGlobal = { jsonTemplates: {}, promptSources: {} };
+let promptConfigCharacter = { jsonTemplates: {}, promptSources: {} };
+let promptConfigCharacterId = null;
 
-function clonePromptConfig(cfg) {
+function normalizePromptConfig(cfg) {
     const src = (cfg && typeof cfg === 'object') ? cfg : {};
     const out = {
         jsonTemplates: { ...(src.jsonTemplates || {}) },
         promptSources: {},
     };
-    const ps = src.promptSources || {};
+    const ps = src.promptSources || src.prompts || {};
     Object.entries(ps).forEach(([k, v]) => {
         if (!v || typeof v !== 'object' || Array.isArray(v)) return;
         out.promptSources[k] = { ...v };
@@ -75,63 +73,48 @@ function clonePromptConfig(cfg) {
 }
 
 function mergePromptConfig(globalCfg, charCfg) {
-    const g = clonePromptConfig(globalCfg);
-    const c = clonePromptConfig(charCfg);
+    const g = normalizePromptConfig(globalCfg);
+    const c = normalizePromptConfig(charCfg);
 
-    const merged = {
-        jsonTemplates: { ...(g.jsonTemplates || {}), ...(c.jsonTemplates || {}) },
-        promptSources: { ...(g.promptSources || {}) },
-    };
-
+    const mergedPromptSources = { ...(g.promptSources || {}) };
     Object.entries(c.promptSources || {}).forEach(([key, parts]) => {
-        const base = merged.promptSources[key];
-        merged.promptSources[key] = (base && typeof base === 'object' && !Array.isArray(base))
+        const base = mergedPromptSources[key];
+        mergedPromptSources[key] = (base && typeof base === 'object' && !Array.isArray(base))
             ? { ...base, ...(parts || {}) }
             : { ...(parts || {}) };
     });
 
-    return merged;
+    return {
+        jsonTemplates: { ...(g.jsonTemplates || {}), ...(c.jsonTemplates || {}) },
+        promptSources: mergedPromptSources,
+    };
 }
 
-function getCharPromptConfigStorageKey(charId) {
-    if (charId == null) return null;
-    return `${PROMPT_CONFIG_KEYS.charPrefix}${String(charId)}`;
-}
-
-async function loadPromptConfigFromStorage(key) {
-    let cfg = null;
-    try { cfg = await StoryOutlineStorage?.get?.(key, null); } catch { }
-    return clonePromptConfig(cfg);
-}
-
-async function savePromptConfigToStorage(key, cfg) {
-    const payload = clonePromptConfig(cfg);
-    try { await StoryOutlineStorage?.set?.(key, payload); } catch { }
-    return payload;
-}
-
-async function refreshPromptConfigCaches({ force = false } = {}) {
+function getCharacterPromptConfig() {
     const ctx = getContext?.();
     const charId = ctx?.characterId ?? null;
+    const char = (charId != null) ? ctx?.characters?.[charId] : null;
+    const cfg = char?.data?.extensions?.[PROMPTS_MODULE_NAME]?.promptConfig || null;
+    return normalizePromptConfig(cfg);
+}
 
-    if (force) promptConfigGlobalCache = null;
+async function saveCharacterPromptConfig(cfg) {
+    const ctx = getContext?.();
+    const charId = ctx?.characterId ?? null;
+    if (charId == null) return;
 
-    if (!promptConfigGlobalCache) {
-        // Prefer new key, fall back to legacy.
-        let globalCfg = await loadPromptConfigFromStorage(PROMPT_CONFIG_KEYS.global);
-        const hasAny = Object.keys(globalCfg.jsonTemplates || {}).length || Object.keys(globalCfg.promptSources || {}).length;
-        if (!hasAny) globalCfg = await loadPromptConfigFromStorage(PROMPT_CONFIG_KEYS.legacy);
-        promptConfigGlobalCache = globalCfg;
-    }
+    const payload = { promptConfig: normalizePromptConfig(cfg) };
+    await writeExtensionField(Number(charId), PROMPTS_MODULE_NAME, payload);
 
-    if (force || promptConfigCharIdCache !== charId) {
-        promptConfigCharIdCache = charId;
-        const charKey = getCharPromptConfigStorageKey(charId);
-        promptConfigCharCache = charKey ? await loadPromptConfigFromStorage(charKey) : { jsonTemplates: {}, promptSources: {} };
-    }
-
-    const merged = mergePromptConfig(promptConfigGlobalCache, promptConfigCharCache);
-    setPromptConfig?.(merged, false);
+    // Keep in-memory character extension in sync (same pattern as scheduled-tasks).
+    try {
+        const char = ctx?.characters?.[charId];
+        if (char) {
+            if (!char.data) char.data = {};
+            if (!char.data.extensions) char.data.extensions = {};
+            char.data.extensions[PROMPTS_MODULE_NAME] = payload;
+        }
+    } catch { }
 }
 
 function getPromptConfigPayloadWithStores() {
@@ -139,8 +122,8 @@ function getPromptConfigPayloadWithStores() {
     return {
         ...base,
         stores: {
-            global: clonePromptConfig(promptConfigGlobalCache),
-            character: clonePromptConfig(promptConfigCharCache),
+            global: normalizePromptConfig(promptConfigGlobal),
+            character: normalizePromptConfig(promptConfigCharacter),
         },
     };
 }
@@ -708,9 +691,31 @@ function postFrame(payload) {
 
 const flushPending = () => { if (!frameReady) return; const f = document.getElementById("xiaobaix-story-outline-iframe"); pendingMsgs.forEach(p => { if (f) postToIframe(f, p, "LittleWhiteBox"); }); pendingMsgs = []; };
 
+async function syncPromptConfigForCurrentCharacter() {
+    const ctx = getContext?.();
+    const charId = ctx?.characterId ?? null;
+
+    if (promptConfigCharacterId !== charId) {
+        promptConfigCharacterId = charId;
+        promptConfigCharacter = getCharacterPromptConfig();
+    }
+
+    try {
+        const cfg = await StoryOutlineStorage?.get?.('promptConfig', null);
+        promptConfigGlobal = normalizePromptConfig(cfg);
+    } catch {
+        promptConfigGlobal = { jsonTemplates: {}, promptSources: {} };
+    }
+
+    const merged = mergePromptConfig(promptConfigGlobal, promptConfigCharacter);
+    setPromptConfig?.(merged, false);
+    postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayloadWithStores() });
+}
+
 /** 发送设置到iframe */
 function sendSettings() {
     const store = getOutlineStore(), { name: charName, desc: charDesc } = getCharInfo();
+    syncPromptConfigForCurrentCharacter().catch(() => { });
     postFrame({
         type: "LOAD_SETTINGS", globalSettings: getGlobalSettings(), commSettings: getCommSettings(),
         stage: store?.stage ?? 0, deviationScore: store?.deviationScore ?? 0,
@@ -720,10 +725,6 @@ function sendSettings() {
         characterContactSmsHistory: getCharSmsHistory()
     });
 
-    // Ensure prompt stores match current character selection.
-    refreshPromptConfigCaches?.().then(() => {
-        postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayloadWithStores() });
-    }).catch(() => { });
 }
 
 const loadAndSend = () => { const s = getOutlineStore(); if (s?.mapData) postFrame({ type: "LOAD_MAP_DATA", mapData: s.mapData }); sendSettings(); };
@@ -813,6 +814,7 @@ const V = {
     wg1: d => !!d && typeof d === 'object',  // 只要是对象就行，后续会 normalize
     wg2: d => !!((d?.world && (d?.maps || d?.world?.maps)?.outdoor) || (d?.outdoor && d?.inside)),
     wga: d => !!((d?.world && d?.maps?.outdoor) || d?.outdoor), ws: d => !!d, w: o => !!o && typeof o === 'object',
+    wn: d => Array.isArray(d?.world?.news),
     lm: o => !!o?.inside?.name && !!o?.inside?.description
 };
 
@@ -1196,6 +1198,34 @@ async function handleSimWorld({ requestId, currentData, isAuto }) {
     } catch (e) { replyErr('SIMULATE_WORLD_RESULT', requestId, `推演失败: ${e.message}`); }
 }
 
+async function handleRefreshWorldNews({ requestId }) {
+    try {
+        const store = getOutlineStore();
+        const od = store?.outlineData;
+        if (!od) return replyErr('REFRESH_WORLD_NEWS_RESULT', requestId, '未找到世界数据，请先生成世界');
+
+        // Store may persist maps either under `maps` or as `outdoor/indoor` (iframe SAVE_ALL_DATA format).
+        const maps = od?.maps || { outdoor: od?.outdoor || null, indoor: od?.indoor || null };
+        const snapshot = {
+            meta: od?.meta || {},
+            world: od?.world || {},
+            maps,
+            ...(od?.timeline ? { timeline: od.timeline } : {}),
+        };
+
+        const msgs = buildWorldNewsRefreshMessages(getCommonPromptVars({
+            currentWorldData: JSON.stringify(snapshot, null, 2),
+        }));
+
+        const data = await callLLMJson({ messages: msgs, validate: V.wn });
+        if (!Array.isArray(data?.world?.news)) return replyErr('REFRESH_WORLD_NEWS_RESULT', requestId, '世界新闻刷新失败：无法解析 JSON 数据');
+
+        reply('REFRESH_WORLD_NEWS_RESULT', requestId, { success: true, news: data.world.news });
+    } catch (e) {
+        replyErr('REFRESH_WORLD_NEWS_RESULT', requestId, `世界新闻刷新失败: ${e.message}`);
+    }
+}
+
 function handleSaveSettings(d) {
     if (d.globalSettings) saveGlobalSettings(d.globalSettings);
     if (d.commSettings) saveCommSettings(d.commSettings);
@@ -1217,61 +1247,54 @@ function handleSaveSettings(d) {
 }
 
 async function handleSavePrompts(d) {
-    // Back-compat: full payload (old iframe)
-    if (d?.promptConfig) {
-        const payload = clonePromptConfig(d.promptConfig);
-        promptConfigGlobalCache = payload;
-        try { await StoryOutlineStorage?.set?.(PROMPT_CONFIG_KEYS.legacy, payload); } catch { }
-        await savePromptConfigToStorage(PROMPT_CONFIG_KEYS.global, payload);
+    const scope = d?.scope === 'character' ? 'character' : 'global';
 
-        // Keep current character overrides (if any) and re-apply merged.
-        const merged = mergePromptConfig(promptConfigGlobalCache, promptConfigCharCache);
+    // Back-compat: full payload (old iframe) -> treat as global save (old server storage behavior).
+    if (d?.promptConfig) {
+        promptConfigGlobal = normalizePromptConfig(d.promptConfig);
+        try { await StoryOutlineStorage?.set?.('promptConfig', promptConfigGlobal); } catch { }
+
+        // Re-read current character config (if any) and apply merged.
+        promptConfigCharacter = getCharacterPromptConfig();
+        const merged = mergePromptConfig(promptConfigGlobal, promptConfigCharacter);
         setPromptConfig?.(merged, false);
         postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayloadWithStores() });
         return;
     }
 
-    // New: incremental update by key
     const key = d?.key;
     if (!key) return;
 
-    const scope = d?.scope === 'character' ? 'character' : 'global';
-    const ctx = getContext?.();
-    const charId = ctx?.characterId ?? null;
+    // Always merge against the latest global config from server storage.
+    try { promptConfigGlobal = normalizePromptConfig(await StoryOutlineStorage?.get?.('promptConfig', null)); } catch { }
+    // Always merge against the current character-card config.
+    promptConfigCharacterId = getContext?.()?.characterId ?? null;
+    promptConfigCharacter = getCharacterPromptConfig();
 
-    const storageKey = (scope === 'character')
-        ? (getCharPromptConfigStorageKey(charId) || PROMPT_CONFIG_KEYS.global)
-        : PROMPT_CONFIG_KEYS.global;
-
-    const currentCfg = (storageKey === PROMPT_CONFIG_KEYS.global)
-        ? promptConfigGlobalCache
-        : (promptConfigCharIdCache === charId ? promptConfigCharCache : await loadPromptConfigFromStorage(storageKey));
-
-    const next = clonePromptConfig(currentCfg);
-
-    if (d?.reset) {
-        delete next.promptSources[key];
-        delete next.jsonTemplates[key];
-    } else {
+    const applyDelta = (cfg) => {
+        const next = normalizePromptConfig(cfg);
+        if (d?.reset) {
+            delete next.promptSources[key];
+            delete next.jsonTemplates[key];
+            return next;
+        }
         if (d?.prompt && typeof d.prompt === 'object') next.promptSources[key] = d.prompt;
         if ('jsonTemplate' in (d || {})) {
             if (d.jsonTemplate == null) delete next.jsonTemplates[key];
             else next.jsonTemplates[key] = String(d.jsonTemplate ?? '');
         }
-    }
+        return next;
+    };
 
-    const saved = await savePromptConfigToStorage(storageKey, next);
-
-    if (storageKey === PROMPT_CONFIG_KEYS.global) {
-        promptConfigGlobalCache = saved;
-        // Also write legacy key for older builds / safety.
-        try { await StoryOutlineStorage?.set?.(PROMPT_CONFIG_KEYS.legacy, saved); } catch { }
+    if (scope === 'character') {
+        promptConfigCharacter = applyDelta(promptConfigCharacter);
+        await saveCharacterPromptConfig(promptConfigCharacter);
     } else {
-        promptConfigCharIdCache = charId;
-        promptConfigCharCache = saved;
+        promptConfigGlobal = applyDelta(promptConfigGlobal);
+        try { await StoryOutlineStorage?.set?.('promptConfig', promptConfigGlobal); } catch { }
     }
 
-    const merged = mergePromptConfig(promptConfigGlobalCache, promptConfigCharCache);
+    const merged = mergePromptConfig(promptConfigGlobal, promptConfigCharacter);
     setPromptConfig?.(merged, false);
     postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayloadWithStores() });
 }
@@ -1334,6 +1357,7 @@ const handlers = {
     GENERATE_WORLD: handleGenWorld,
     RETRY_WORLD_GEN_STEP2: handleRetryStep2,
     SIMULATE_WORLD: handleSimWorld,
+    REFRESH_WORLD_NEWS: handleRefreshWorldNews,
     GENERATE_LOCAL_MAP: handleGenLocalMap,
     REFRESH_LOCAL_MAP: handleRefreshLocalMap,
     GENERATE_LOCAL_SCENE: handleGenLocalScene
@@ -1496,10 +1520,7 @@ document.addEventListener('xiaobaixEnabledChanged', e => {
 
 async function initPromptConfigFromServer() {
     try {
-        const cfg = await StoryOutlineStorage?.get?.('promptConfig', null);
-        if (!cfg) return;
-        setPromptConfig?.(cfg, false);
-        postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
+        await syncPromptConfigForCurrentCharacter();
     } catch { }
 }
 
