@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax */
 /**
  * ============================================================================
  * Story Outline 模块 - 小白板
@@ -20,7 +21,7 @@
  */
 
 // ==================== 1. 导入与常量 ====================
-import { extension_settings, saveMetadataDebounced } from "../../../../../extensions.js";
+import { extension_settings, saveMetadataDebounced, writeExtensionField } from "../../../../../extensions.js";
 import { chat_metadata, name1, processCommands, eventSource, event_types as st_event_types } from "../../../../../../script.js";
 import { loadWorldInfo, saveWorldInfo, world_names, world_info } from "../../../../../world-info.js";
 import { getContext } from "../../../../../st-context.js";
@@ -32,7 +33,7 @@ import { promptManager } from "../../../../../openai.js";
 import {
     buildSmsMessages, buildSummaryMessages, buildSmsHistoryContent, buildExistingSummaryContent,
     buildNpcGenerationMessages, formatNpcToWorldbookContent, buildExtractStrangersMessages,
-    buildWorldGenStep1Messages, buildWorldGenStep2Messages, buildWorldSimMessages, buildSceneSwitchMessages,
+    buildWorldGenStep1Messages, buildWorldGenStep2Messages, buildWorldSimMessages, buildWorldNewsRefreshMessages, buildSceneSwitchMessages,
     buildInviteMessages, buildLocalMapGenMessages, buildLocalMapRefreshMessages, buildLocalSceneGenMessages,
     buildOverlayHtml, MOBILE_LAYOUT_STYLE, DESKTOP_LAYOUT_STYLE, getPromptConfigPayload, setPromptConfig
 } from "./story-outline-prompt.js";
@@ -46,6 +47,86 @@ const CHAR_CARD_UID = '__CHARACTER_CARD__';
 const DEBUG_KEY = 'LittleWhiteBox_StoryOutline_Debug';
 
 let overlayCreated = false, frameReady = false, pendingMsgs = [], presetCleanup = null, step1Cache = null;
+
+// ==================== PromptConfig (global + character card) ====================
+// Global: server storage key `promptConfig` (old behavior)
+// Character: character-card extension field (see scheduled-tasks implementation)
+
+const PROMPTS_MODULE_NAME = 'xiaobaix-story-outline-prompts';
+
+let promptConfigGlobal = { jsonTemplates: {}, promptSources: {} };
+let promptConfigCharacter = { jsonTemplates: {}, promptSources: {} };
+let promptConfigCharacterId = null;
+
+function normalizePromptConfig(cfg) {
+    const src = (cfg && typeof cfg === 'object') ? cfg : {};
+    const out = {
+        jsonTemplates: { ...(src.jsonTemplates || {}) },
+        promptSources: {},
+    };
+    const ps = src.promptSources || src.prompts || {};
+    Object.entries(ps).forEach(([k, v]) => {
+        if (!v || typeof v !== 'object' || Array.isArray(v)) return;
+        out.promptSources[k] = { ...v };
+    });
+    return out;
+}
+
+function mergePromptConfig(globalCfg, charCfg) {
+    const g = normalizePromptConfig(globalCfg);
+    const c = normalizePromptConfig(charCfg);
+
+    const mergedPromptSources = { ...(g.promptSources || {}) };
+    Object.entries(c.promptSources || {}).forEach(([key, parts]) => {
+        const base = mergedPromptSources[key];
+        mergedPromptSources[key] = (base && typeof base === 'object' && !Array.isArray(base))
+            ? { ...base, ...(parts || {}) }
+            : { ...(parts || {}) };
+    });
+
+    return {
+        jsonTemplates: { ...(g.jsonTemplates || {}), ...(c.jsonTemplates || {}) },
+        promptSources: mergedPromptSources,
+    };
+}
+
+function getCharacterPromptConfig() {
+    const ctx = getContext?.();
+    const charId = ctx?.characterId ?? null;
+    const char = (charId != null) ? ctx?.characters?.[charId] : null;
+    const cfg = char?.data?.extensions?.[PROMPTS_MODULE_NAME]?.promptConfig || null;
+    return normalizePromptConfig(cfg);
+}
+
+async function saveCharacterPromptConfig(cfg) {
+    const ctx = getContext?.();
+    const charId = ctx?.characterId ?? null;
+    if (charId == null) return;
+
+    const payload = { promptConfig: normalizePromptConfig(cfg) };
+    await writeExtensionField(Number(charId), PROMPTS_MODULE_NAME, payload);
+
+    // Keep in-memory character extension in sync (same pattern as scheduled-tasks).
+    try {
+        const char = ctx?.characters?.[charId];
+        if (char) {
+            if (!char.data) char.data = {};
+            if (!char.data.extensions) char.data.extensions = {};
+            char.data.extensions[PROMPTS_MODULE_NAME] = payload;
+        }
+    } catch { }
+}
+
+function getPromptConfigPayloadWithStores() {
+    const base = getPromptConfigPayload?.() || {};
+    return {
+        ...base,
+        stores: {
+            global: normalizePromptConfig(promptConfigGlobal),
+            character: normalizePromptConfig(promptConfigCharacter),
+        },
+    };
+}
 
 // ==================== 2. 通用工具 ====================
 
@@ -610,17 +691,40 @@ function postFrame(payload) {
 
 const flushPending = () => { if (!frameReady) return; const f = document.getElementById("xiaobaix-story-outline-iframe"); pendingMsgs.forEach(p => { if (f) postToIframe(f, p, "LittleWhiteBox"); }); pendingMsgs = []; };
 
+async function syncPromptConfigForCurrentCharacter() {
+    const ctx = getContext?.();
+    const charId = ctx?.characterId ?? null;
+
+    if (promptConfigCharacterId !== charId) {
+        promptConfigCharacterId = charId;
+        promptConfigCharacter = getCharacterPromptConfig();
+    }
+
+    try {
+        const cfg = await StoryOutlineStorage?.get?.('promptConfig', null);
+        promptConfigGlobal = normalizePromptConfig(cfg);
+    } catch {
+        promptConfigGlobal = { jsonTemplates: {}, promptSources: {} };
+    }
+
+    const merged = mergePromptConfig(promptConfigGlobal, promptConfigCharacter);
+    setPromptConfig?.(merged, false);
+    postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayloadWithStores() });
+}
+
 /** 发送设置到iframe */
 function sendSettings() {
     const store = getOutlineStore(), { name: charName, desc: charDesc } = getCharInfo();
+    syncPromptConfigForCurrentCharacter().catch(() => { });
     postFrame({
         type: "LOAD_SETTINGS", globalSettings: getGlobalSettings(), commSettings: getCommSettings(),
         stage: store?.stage ?? 0, deviationScore: store?.deviationScore ?? 0,
         simulationTarget: store?.simulationTarget ?? 5, playerLocation: store?.playerLocation ?? '家',
-        dataChecked: store?.dataChecked || {}, outlineData: store?.outlineData || {}, promptConfig: getPromptConfigPayload?.(),
+        dataChecked: store?.dataChecked || {}, outlineData: store?.outlineData || {}, promptConfig: getPromptConfigPayloadWithStores(),
         characterCardName: charName, characterCardDescription: charDesc,
         characterContactSmsHistory: getCharSmsHistory()
     });
+
 }
 
 const loadAndSend = () => { const s = getOutlineStore(); if (s?.mapData) postFrame({ type: "LOAD_MAP_DATA", mapData: s.mapData }); sendSettings(); };
@@ -710,6 +814,7 @@ const V = {
     wg1: d => !!d && typeof d === 'object',  // 只要是对象就行，后续会 normalize
     wg2: d => !!((d?.world && (d?.maps || d?.world?.maps)?.outdoor) || (d?.outdoor && d?.inside)),
     wga: d => !!((d?.world && d?.maps?.outdoor) || d?.outdoor), ws: d => !!d, w: o => !!o && typeof o === 'object',
+    wn: d => Array.isArray(d?.world?.news),
     lm: o => !!o?.inside?.name && !!o?.inside?.description
 };
 
@@ -1093,6 +1198,34 @@ async function handleSimWorld({ requestId, currentData, isAuto }) {
     } catch (e) { replyErr('SIMULATE_WORLD_RESULT', requestId, `推演失败: ${e.message}`); }
 }
 
+async function handleRefreshWorldNews({ requestId }) {
+    try {
+        const store = getOutlineStore();
+        const od = store?.outlineData;
+        if (!od) return replyErr('REFRESH_WORLD_NEWS_RESULT', requestId, '未找到世界数据，请先生成世界');
+
+        // Store may persist maps either under `maps` or as `outdoor/indoor` (iframe SAVE_ALL_DATA format).
+        const maps = od?.maps || { outdoor: od?.outdoor || null, indoor: od?.indoor || null };
+        const snapshot = {
+            meta: od?.meta || {},
+            world: od?.world || {},
+            maps,
+            ...(od?.timeline ? { timeline: od.timeline } : {}),
+        };
+
+        const msgs = buildWorldNewsRefreshMessages(getCommonPromptVars({
+            currentWorldData: JSON.stringify(snapshot, null, 2),
+        }));
+
+        const data = await callLLMJson({ messages: msgs, validate: V.wn });
+        if (!Array.isArray(data?.world?.news)) return replyErr('REFRESH_WORLD_NEWS_RESULT', requestId, '世界新闻刷新失败：无法解析 JSON 数据');
+
+        reply('REFRESH_WORLD_NEWS_RESULT', requestId, { success: true, news: data.world.news });
+    } catch (e) {
+        replyErr('REFRESH_WORLD_NEWS_RESULT', requestId, `世界新闻刷新失败: ${e.message}`);
+    }
+}
+
 function handleSaveSettings(d) {
     if (d.globalSettings) saveGlobalSettings(d.globalSettings);
     if (d.commSettings) saveCommSettings(d.commSettings);
@@ -1114,39 +1247,56 @@ function handleSaveSettings(d) {
 }
 
 async function handleSavePrompts(d) {
-    // Back-compat: full payload (old iframe)
+    const scope = d?.scope === 'character' ? 'character' : 'global';
+
+    // Back-compat: full payload (old iframe) -> treat as global save (old server storage behavior).
     if (d?.promptConfig) {
-        const payload = setPromptConfig?.(d.promptConfig, false) || d.promptConfig;
-        try { await StoryOutlineStorage?.set?.('promptConfig', payload); } catch { }
-        postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
+        promptConfigGlobal = normalizePromptConfig(d.promptConfig);
+        try { await StoryOutlineStorage?.set?.('promptConfig', promptConfigGlobal); } catch { }
+
+        // Re-read current character config (if any) and apply merged.
+        promptConfigCharacter = getCharacterPromptConfig();
+        const merged = mergePromptConfig(promptConfigGlobal, promptConfigCharacter);
+        setPromptConfig?.(merged, false);
+        postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayloadWithStores() });
         return;
     }
 
-    // New: incremental update by key
     const key = d?.key;
     if (!key) return;
 
-    let current = null;
-    try { current = await StoryOutlineStorage?.get?.('promptConfig', null); } catch { }
-    const next = (current && typeof current === 'object') ? {
-        jsonTemplates: { ...(current.jsonTemplates || {}) },
-        promptSources: { ...(current.promptSources || {}) },
-    } : { jsonTemplates: {}, promptSources: {} };
+    // Always merge against the latest global config from server storage.
+    try { promptConfigGlobal = normalizePromptConfig(await StoryOutlineStorage?.get?.('promptConfig', null)); } catch { }
+    // Always merge against the current character-card config.
+    promptConfigCharacterId = getContext?.()?.characterId ?? null;
+    promptConfigCharacter = getCharacterPromptConfig();
 
-    if (d?.reset) {
-        delete next.promptSources[key];
-        delete next.jsonTemplates[key];
-    } else {
+    const applyDelta = (cfg) => {
+        const next = normalizePromptConfig(cfg);
+        if (d?.reset) {
+            delete next.promptSources[key];
+            delete next.jsonTemplates[key];
+            return next;
+        }
         if (d?.prompt && typeof d.prompt === 'object') next.promptSources[key] = d.prompt;
         if ('jsonTemplate' in (d || {})) {
             if (d.jsonTemplate == null) delete next.jsonTemplates[key];
             else next.jsonTemplates[key] = String(d.jsonTemplate ?? '');
         }
+        return next;
+    };
+
+    if (scope === 'character') {
+        promptConfigCharacter = applyDelta(promptConfigCharacter);
+        await saveCharacterPromptConfig(promptConfigCharacter);
+    } else {
+        promptConfigGlobal = applyDelta(promptConfigGlobal);
+        try { await StoryOutlineStorage?.set?.('promptConfig', promptConfigGlobal); } catch { }
     }
 
-    const payload = setPromptConfig?.(next, false) || next;
-    try { await StoryOutlineStorage?.set?.('promptConfig', payload); } catch { }
-    postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
+    const merged = mergePromptConfig(promptConfigGlobal, promptConfigCharacter);
+    setPromptConfig?.(merged, false);
+    postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayloadWithStores() });
 }
 
 function handleSaveContacts(d) {
@@ -1207,6 +1357,7 @@ const handlers = {
     GENERATE_WORLD: handleGenWorld,
     RETRY_WORLD_GEN_STEP2: handleRetryStep2,
     SIMULATE_WORLD: handleSimWorld,
+    REFRESH_WORLD_NEWS: handleRefreshWorldNews,
     GENERATE_LOCAL_MAP: handleGenLocalMap,
     REFRESH_LOCAL_MAP: handleRefreshLocalMap,
     GENERATE_LOCAL_SCENE: handleGenLocalScene
@@ -1369,10 +1520,7 @@ document.addEventListener('xiaobaixEnabledChanged', e => {
 
 async function initPromptConfigFromServer() {
     try {
-        const cfg = await StoryOutlineStorage?.get?.('promptConfig', null);
-        if (!cfg) return;
-        setPromptConfig?.(cfg, false);
-        postFrame({ type: "PROMPT_CONFIG_UPDATED", promptConfig: getPromptConfigPayload?.() });
+        await syncPromptConfigForCurrentCharacter();
     } catch { }
 }
 

@@ -1,3 +1,4 @@
+/* eslint-disable no-new-func */
 // Story Outline 提示词模板配置
 // 统一 UAUA (User-Assistant-User-Assistant) 结构
 
@@ -199,6 +200,13 @@ const DEFAULT_JSON_TEMPLATES = {
     }
   }
 }`,
+    worldNewsRefresh: `{
+  "world": {
+    "news": [
+      { "title": "新闻标题", "time": "时间（可选）", "content": "新闻内容" }
+    ]
+  }
+}`,
     localMapGen: `{
   "review": {
     "deviation": {
@@ -260,7 +268,7 @@ const DEFAULT_PROMPTS = {
     stranger: {
         u1: v => `你是TRPG数据整理助手。从剧情文本中提取{{user}}遇到的陌生人/NPC，整理为JSON数组。`,
         a1: () => `明白。请提供【世界观】和【剧情经历】，我将提取角色并以JSON数组输出。`,
-        u2: v => `### 上下文\n\n**1. 世界观：**\n${worldInfo}\n\n**2. {{user}}经历：**\n${history(v.historyCount)}${v.storyOutline ? `\n\n**剧情大纲：**\n${wrap('story_outline', v.storyOutline)}` : ''}${nameList(v.existingContacts, v.existingStrangers)}\n\n### 输出要求\n\n1. 返回一个合法 JSON 数组，使用标准 JSON 语法（键名和字符串都用半角双引号 "）\n2. 只提取有具体称呼的角色\n3. 每个角色只需 name / location / info 三个字段\n4. 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n5. 无新角色返回 []\n\n\n模板：${JSON_TEMPLATES.npc}`,
+        u2: v => `### 上下文\n\n**1. 世界观：**\n${worldInfo}\n\n**2. {{user}}经历：**\n${history(v.historyCount)}${v.storyOutline ? `\n\n**剧情大纲：**\n${wrap('story_outline', v.storyOutline)}` : ''}${nameList(v.existingContacts, v.existingStrangers)}\n\n### 输出要求\n\n1. 返回一个合法 JSON 数组，使用标准 JSON 语法（键名和字符串都用半角双引号 "）\n2. 只提取有具体称呼的角色\n3. 每个角色只需 name / location / info 三个字段\n4. 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n5. 无新角色返回 []\n\n\n模板：${JSON_TEMPLATES.stranger}`,
         a2: () => `了解，开始生成JSON:`
     },
     worldGenStep1: {
@@ -371,6 +379,12 @@ const DEFAULT_PROMPTS = {
         a1: () => `明白。我将只更新 world.news 和 maps.outdoor，不写大纲。请提供当前世界数据。`,
         u2: v => `【世界观设定】：\n${worldInfo}\n\n【{{user}}历史】：\n${history(v.historyCount)}\n\n【当前世界状态JSON】（可能包含 meta/world/maps 等字段）：\n${v.currentWorldData || '{}'}\n\n【JSON模板（辅助模式）】：\n${JSON_TEMPLATES.worldSimAssist}`,
         a2: () => `开始按 worldSimAssist 模板输出JSON:`
+    },
+    worldNewsRefresh: {
+        u1: v => `你是世界新闻编辑。基于世界观设定与{{user}}近期经历，为世界生成「最新资讯」。\n\n要求：\n1) 只输出 world.news（不要输出 maps/meta/其他字段）。\n2) news 至少 ${randomRange(2, 4)} 条；语气轻松、中性，夹带少量日常生活细节；可以包含与主剧情相关的跟进报道。\n3) 只输出符合模板的 JSON，禁止解释文字。\n\n- 使用标准 JSON 语法：所有键名与字符串都使用半角双引号\n- 文本内容如需使用引号，请使用单引号或中文引号「」/“”，不要使用半角双引号`,
+        a1: () => `明白。我将只更新 world.news，不改动世界其它字段。请提供当前世界数据。`,
+        u2: v => `【世界观设定】：\n${worldInfo}\n\n【{{user}}历史】：\n${history(v.historyCount)}\n\n【当前世界状态JSON】（可能包含 meta/world/maps 等字段）：\n${v.currentWorldData || '{}'}\n\n【JSON模板】：\n${JSON_TEMPLATES.worldNewsRefresh}`,
+        a2: () => `OK, worldNewsRefresh JSON generate start:`
     },
     localMapGen: {
         u1: v => `你是TRPG局部场景生成器。你的任务是根据聊天历史，推断{{user}}当前或将要前往的位置（视经历的最后一条消息而定），并为该位置生成详细的局部地图/室内场景。
@@ -588,6 +602,7 @@ export const buildExtractStrangersMessages = v => build('stranger', v);
 export const buildWorldGenStep1Messages = v => build('worldGenStep1', v);
 export const buildWorldGenStep2Messages = v => build('worldGenStep2', v);
 export const buildWorldSimMessages = v => build(v?.mode === 'assist' ? 'worldSimAssist' : 'worldSim', v);
+export const buildWorldNewsRefreshMessages = v => build('worldNewsRefresh', v);
 export const buildSceneSwitchMessages = v => build('sceneSwitch', v);
 export const buildLocalMapGenMessages = v => build('localMapGen', v);
 export const buildLocalMapRefreshMessages = v => build('localMapRefresh', v);
