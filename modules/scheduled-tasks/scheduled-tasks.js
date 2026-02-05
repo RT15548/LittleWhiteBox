@@ -541,9 +541,10 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
     };
     const clearIntervalSafe = (id) => { clearInterval(id); intervals.delete(id); };
 
+    let jsRunnerResult;
     entry.completion = (async () => {
         try {
-            await jsRunner({ addListener, setTimeoutSafe, clearTimeoutSafe, setIntervalSafe, clearIntervalSafe, abortSignal: abort.signal });
+            jsRunnerResult = await jsRunner({ addListener, setTimeoutSafe, clearTimeoutSafe, setIntervalSafe, clearIntervalSafe, abortSignal: abort.signal });
         } finally {
             try { abort.abort(); } catch {}
             try {
@@ -553,6 +554,7 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
             try { window?.dispatchEvent?.(new CustomEvent('xiaobaix-task-cleaned', { detail: { taskName, signature } })); } catch {}
             __taskRunMap.delete(taskName);
         }
+        return jsRunnerResult;
     })();
 
     return entry.completion;
@@ -585,7 +587,7 @@ async function processTaskCommands(commands, taskName) {
         if (beforeJs) result = await executeSlashCommand(beforeJs);
         const jsCode = match[1].trim();
         if (jsCode) {
-            try { await executeTaskJS(jsCode, taskName || 'AnonymousTask'); }
+            try { result = await executeTaskJS(jsCode, taskName || 'AnonymousTask'); }
             catch (error) {
                 console.error(`[任务JS执行错误] ${error.message}`);
                 try { xbLog.error('scheduledTasks', `taskjs error task=${String(taskName || 'AnonymousTask')}`, error); } catch {}
@@ -797,20 +799,21 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
             checkStatus();
         });
 
+        let result;
         try {
-            await runInScope(jsCode);
+            result = await runInScope(jsCode);
             await waitForAsyncSettled();
         } finally {
             try { hardCleanup(); } finally { restoreGlobals(); }
         }
+        return result;
     };
 
     if (isLightTask) {
-        __runTaskSingleInstance(stableKey, jsRunner, codeSig);
-        return;
+        return __runTaskSingleInstance(stableKey, jsRunner, codeSig);
     }
 
-    await __runTaskSingleInstance(stableKey, jsRunner, codeSig);
+    return await __runTaskSingleInstance(stableKey, jsRunner, codeSig);
 }
 
 function handleTaskMessage(event) {
