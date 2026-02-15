@@ -6,6 +6,7 @@
 import { getContext } from "../../../../../extensions.js";
 import { getLocalVariable, setLocalVariable } from "../../../../../variables.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
+import jsYaml from "../../libs/js-yaml.mjs";
 import {
     lwbSplitPathWithBrackets,
     lwbSplitPathAndValue,
@@ -19,6 +20,8 @@ import {
 
 const MODULE_ID = 'varCommands';
 const TAG_RE_XBGETVAR = /\{\{xbgetvar::([^}]+)\}\}/gi;
+const TAG_RE_XBGETVAR_YAML = /\{\{xbgetvar_yaml::([^}]+)\}\}/gi;
+const TAG_RE_XBGETVAR_YAML_IDX = /\{\{xbgetvar_yaml_idx::([^}]+)\}\}/gi;
 
 let events = null;
 let initialized = false;
@@ -94,12 +97,22 @@ function setDeepBySegments(target, segs, value) {
             cur[key] = value;
         } else {
             const nxt = cur[key];
-            if (typeof nxt === 'object' && nxt && !Array.isArray(nxt)) {
+            const nextSeg = segs[i + 1];
+            const wantArray = (typeof nextSeg === 'number');
+
+            // 已存在且类型正确：继续深入
+            if (wantArray && Array.isArray(nxt)) {
                 cur = nxt;
-            } else {
-                cur[key] = {};
-                cur = cur[key];
+                continue;
             }
+            if (!wantArray && (nxt && typeof nxt === 'object') && !Array.isArray(nxt)) {
+                cur = nxt;
+                continue;
+            }
+
+            // 不存在或类型不匹配：创建正确的容器
+            cur[key] = wantArray ? [] : {};
+            cur = cur[key];
         }
     }
 }
@@ -139,6 +152,153 @@ export function replaceXbGetVarInString(s) {
     return s.replace(TAG_RE_XBGETVAR, (_, p) => lwbResolveVarPath(p));
 }
 
+/**
+ * 将 {{xbgetvar_yaml::路径}} 替换为 YAML 格式的值
+ * @param {string} s
+ * @returns {string}
+ */
+export function replaceXbGetVarYamlInString(s) {
+    s = String(s ?? '');
+    if (!s || s.indexOf('{{xbgetvar_yaml::') === -1) return s;
+
+    TAG_RE_XBGETVAR_YAML.lastIndex = 0;
+    return s.replace(TAG_RE_XBGETVAR_YAML, (_, p) => {
+        const value = lwbResolveVarPath(p);
+        if (!value) return '';
+
+        // 尝试解析为对象/数组，然后转 YAML
+        try {
+            const parsed = JSON.parse(value);
+            if (typeof parsed === 'object' && parsed !== null) {
+                return jsYaml.dump(parsed, {
+                    indent: 2,
+                    lineWidth: -1,
+                    noRefs: true,
+                    quotingType: '"',
+                }).trim();
+            }
+            return value;
+        } catch {
+            return value;
+        }
+    });
+}
+
+/**
+ * 将 {{xbgetvar_yaml_idx::路径}} 替换为带索引注释的 YAML
+ */
+export function replaceXbGetVarYamlIdxInString(s) {
+    s = String(s ?? '');
+    if (!s || s.indexOf('{{xbgetvar_yaml_idx::') === -1) return s;
+
+    TAG_RE_XBGETVAR_YAML_IDX.lastIndex = 0;
+    return s.replace(TAG_RE_XBGETVAR_YAML_IDX, (_, p) => {
+        const value = lwbResolveVarPath(p);
+        if (!value) return '';
+
+        try {
+            const parsed = JSON.parse(value);
+            if (typeof parsed === 'object' && parsed !== null) {
+                return formatYamlWithIndex(parsed, 0).trim();
+            }
+            return value;
+        } catch {
+            return value;
+        }
+    });
+}
+
+function formatYamlWithIndex(obj, indent) {
+    const pad = '  '.repeat(indent);
+
+    if (Array.isArray(obj)) {
+        if (obj.length === 0) return `${pad}[]`;
+
+        const lines = [];
+        obj.forEach((item, idx) => {
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+                const keys = Object.keys(item);
+                if (keys.length === 0) {
+                    lines.push(`${pad}- {}  # [${idx}]`);
+                } else {
+                    const firstKey = keys[0];
+                    const firstVal = item[firstKey];
+                    const firstFormatted = formatValue(firstVal, indent + 2);
+
+                    if (typeof firstVal === 'object' && firstVal !== null) {
+                        lines.push(`${pad}- ${firstKey}:  # [${idx}]`);
+                        lines.push(firstFormatted);
+                    } else {
+                        lines.push(`${pad}- ${firstKey}: ${firstFormatted}  # [${idx}]`);
+                    }
+
+                    for (let i = 1; i < keys.length; i++) {
+                        const k = keys[i];
+                        const v = item[k];
+                        const vFormatted = formatValue(v, indent + 2);
+                        if (typeof v === 'object' && v !== null) {
+                            lines.push(`${pad}  ${k}:`);
+                            lines.push(vFormatted);
+                        } else {
+                            lines.push(`${pad}  ${k}: ${vFormatted}`);
+                        }
+                    }
+                }
+            } else if (Array.isArray(item)) {
+                lines.push(`${pad}-  # [${idx}]`);
+                lines.push(formatYamlWithIndex(item, indent + 1));
+            } else {
+                lines.push(`${pad}- ${formatScalar(item)}  # [${idx}]`);
+            }
+        });
+        return lines.join('\n');
+    }
+
+    if (obj && typeof obj === 'object') {
+        if (Object.keys(obj).length === 0) return `${pad}{}`;
+
+        const lines = [];
+        for (const [key, val] of Object.entries(obj)) {
+            const vFormatted = formatValue(val, indent + 1);
+            if (typeof val === 'object' && val !== null) {
+                lines.push(`${pad}${key}:`);
+                lines.push(vFormatted);
+            } else {
+                lines.push(`${pad}${key}: ${vFormatted}`);
+            }
+        }
+        return lines.join('\n');
+    }
+
+    return `${pad}${formatScalar(obj)}`;
+}
+
+function formatValue(val, indent) {
+    if (Array.isArray(val)) return formatYamlWithIndex(val, indent);
+    if (val && typeof val === 'object') return formatYamlWithIndex(val, indent);
+    return formatScalar(val);
+}
+
+function formatScalar(v) {
+    if (v === null) return 'null';
+    if (v === undefined) return '';
+    if (typeof v === 'boolean') return String(v);
+    if (typeof v === 'number') return String(v);
+    if (typeof v === 'string') {
+        const needsQuote =
+            v === '' ||
+            /^\s|\s$/.test(v) ||                       // 首尾空格
+            /[:[]\]{}&*!|>'"%@`#,]/.test(v) ||         // YAML 易歧义字符
+            /^(?:true|false|null)$/i.test(v) ||        // YAML 关键字
+            /^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(v);     // 纯数字字符串
+        if (needsQuote) {
+            return `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+        }
+        return v;
+    }
+    return String(v);
+}
+
 export function replaceXbGetVarInChat(chat) {
     if (!Array.isArray(chat)) return;
 
@@ -148,9 +308,15 @@ export function replaceXbGetVarInChat(chat) {
             if (!key) continue;
 
             const old = String(msg[key] ?? '');
-            if (old.indexOf('{{xbgetvar::') === -1) continue;
+            const hasJson = old.indexOf('{{xbgetvar::') !== -1;
+            const hasYaml = old.indexOf('{{xbgetvar_yaml::') !== -1;
+            const hasYamlIdx = old.indexOf('{{xbgetvar_yaml_idx::') !== -1;
+            if (!hasJson && !hasYaml && !hasYamlIdx) continue;
 
-            msg[key] = replaceXbGetVarInString(old);
+            let result = hasJson ? replaceXbGetVarInString(old) : old;
+            result = hasYaml ? replaceXbGetVarYamlInString(result) : result;
+            result = hasYamlIdx ? replaceXbGetVarYamlIdxInString(result) : result;
+            msg[key] = result;
         } catch {}
     }
 }
@@ -165,9 +331,14 @@ export function applyXbGetVarForMessage(messageId, writeback = true) {
         if (!key) return;
 
         const old = String(msg[key] ?? '');
-        if (old.indexOf('{{xbgetvar::') === -1) return;
+        const hasJson = old.indexOf('{{xbgetvar::') !== -1;
+        const hasYaml = old.indexOf('{{xbgetvar_yaml::') !== -1;
+        const hasYamlIdx = old.indexOf('{{xbgetvar_yaml_idx::') !== -1;
+        if (!hasJson && !hasYaml && !hasYamlIdx) return;
 
-        const out = replaceXbGetVarInString(old);
+        let out = hasJson ? replaceXbGetVarInString(old) : old;
+        out = hasYaml ? replaceXbGetVarYamlInString(out) : out;
+        out = hasYamlIdx ? replaceXbGetVarYamlIdxInString(out) : out;
         if (writeback && out !== old) {
             msg[key] = out;
         }
@@ -616,6 +787,62 @@ export function lwbPushVarPath(path, value) {
     }
 }
 
+export function lwbRemoveArrayItemByValue(path, valuesToRemove) {
+    try {
+        const segs = lwbSplitPathWithBrackets(path);
+        if (!segs.length) return '';
+
+        const rootName = String(segs[0]);
+        const rootRaw = getLocalVariable(rootName);
+        const rootObj = maybeParseObject(rootRaw);
+        if (!rootObj) return '';
+
+        // 定位到目标数组
+        let cur = rootObj;
+        for (let i = 1; i < segs.length; i++) {
+            cur = cur?.[segs[i]];
+            if (cur == null) return '';
+        }
+        if (!Array.isArray(cur)) return '';
+
+        const toRemove = Array.isArray(valuesToRemove) ? valuesToRemove : [valuesToRemove];
+        if (!toRemove.length) return '';
+
+        // 找到索引（每个值只删除一个匹配项）
+        const indices = [];
+        for (const v of toRemove) {
+            const vStr = safeJSONStringify(v);
+            if (!vStr) continue;
+            const idx = cur.findIndex(x => safeJSONStringify(x) === vStr);
+            if (idx !== -1) indices.push(idx);
+        }
+        if (!indices.length) return '';
+
+        // 倒序删除，且逐个走 guardian 的 delNode 校验（用 index path）
+        indices.sort((a, b) => b - a);
+
+        for (const idx of indices) {
+            const absIndexPath = normalizePath(`${path}[${idx}]`);
+
+            try {
+                if (globalThis.LWB_Guard?.validate) {
+                    const g = globalThis.LWB_Guard.validate('delNode', absIndexPath);
+                    if (!g?.allow) continue;
+                }
+            } catch {}
+
+            if (idx >= 0 && idx < cur.length) {
+                cur.splice(idx, 1);
+            }
+        }
+
+        setLocalVariable(rootName, safeJSONStringify(rootObj));
+        return '';
+    } catch {
+        return '';
+    }
+}
+
 function registerXbGetVarSlashCommand() {
     try {
         const ctx = getContext();
@@ -1004,7 +1231,9 @@ export function cleanupVarCommands() {
 
     initialized = false;
 }
-
+/**
+ * 按值从数组中删除元素（2.0 pop 操作）
+ */
 export {
     MODULE_ID,
 };

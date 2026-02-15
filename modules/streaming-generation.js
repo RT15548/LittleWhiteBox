@@ -1,6 +1,6 @@
 // 删掉：getRequestHeaders, extractMessageFromData, getStreamingReply, tryParseStreamingError, getEventSourceStream
 
-import { eventSource, event_types, chat, name1, activateSendButtons, deactivateSendButtons } from "../../../../../script.js";
+import { eventSource, event_types, chat, name1, activateSendButtons, deactivateSendButtons, substituteParams } from "../../../../../script.js";
 import { chat_completion_sources, oai_settings, promptManager, getChatCompletionModel } from "../../../../openai.js";
 import { ChatCompletionService } from "../../../../custom-request.js";
 import { getContext } from "../../../../st-context.js";
@@ -12,6 +12,7 @@ import { power_user } from "../../../../power-user.js";
 import { world_info } from "../../../../world-info.js";
 import { xbLog, CacheRegistry } from "../core/debug-core.js";
 import { getTrustedOrigin } from "../core/iframe-messaging.js";
+import { replaceXbGetVarInString, replaceXbGetVarYamlInString } from "./variables/var-commands.js";
 
 const EVT_DONE = 'xiaobaix_streaming_completed';
 
@@ -31,28 +32,35 @@ class StreamingGeneration {
         this.activeCount = 0;
         this._toggleBusy = false;
         this._toggleQueue = Promise.resolve();
+        this.MAX_SESSIONS = 100;
     }
 
     init() {
         if (this.isInitialized) return;
-        try { localStorage.removeItem('xbgen:lastToggleSnap'); } catch { }
+        try { localStorage.removeItem('xbgen:lastToggleSnap'); } catch {}
         this.registerCommands();
-        try { xbLog.info('streamingGeneration', 'init'); } catch { }
+        try { xbLog.info('streamingGeneration', 'init'); } catch {}
         this.isInitialized = true;
     }
 
     _getSlotId(id) {
         if (!id) return 1;
-        const m = String(id).match(/^xb(\d+)$/i);
-        if (m && +m[1] >= 1 && +m[1] <= 10) return `xb${m[1]}`;
-        const n = parseInt(id, 10);
-        return (!isNaN(n) && n >= 1 && n <= 10) ? n : 1;
+        const s = String(id).trim();
+        const m = s.match(/^xb(\d+)$/i);
+        if (m) {
+            const n = +m[1];
+            if (n >= 1 && n <= 100) return `xb${n}`;
+        }
+        const n = parseInt(s, 10);
+        if (!isNaN(n) && n >= 1 && n <= 100) return n;
+        if (s.length > 0 && s.length <= 50) return s;
+        return 1;
     }
 
     _ensureSession(id, prompt) {
         const slotId = this._getSlotId(id);
         if (!this.sessions.has(slotId)) {
-            if (this.sessions.size >= 10) this._cleanupOldestSessions();
+            if (this.sessions.size >= this.MAX_SESSIONS) this._cleanupOldestSessions();
             this.sessions.set(slotId, {
                 id: slotId, text: '', isStreaming: false, prompt: prompt || '',
                 updatedAt: Date.now(), abortController: null
@@ -63,9 +71,10 @@ class StreamingGeneration {
     }
 
     _cleanupOldestSessions() {
+        const keepCount = Math.max(10, this.MAX_SESSIONS - 10);
         const sorted = [...this.sessions.entries()].sort((a, b) => a[1].updatedAt - b[1].updatedAt);
-        sorted.slice(0, Math.max(0, sorted.length - 9)).forEach(([sid, s]) => {
-            try { s.abortController?.abort(); } catch { }
+        sorted.slice(0, Math.max(0, sorted.length - keepCount)).forEach(([sid, s]) => {
+            try { s.abortController?.abort(); } catch {}
             this.sessions.delete(sid);
         });
     }
@@ -97,10 +106,10 @@ class StreamingGeneration {
                     try { frames[i].postMessage(msg, targetOrigin); } catch { fail++; }
                 }
                 if (fail) {
-                    try { xbLog.warn('streamingGeneration', `postToFrames fail=${fail} total=${frames.length} type=${name}`); } catch { }
+                    try { xbLog.warn('streamingGeneration', `postToFrames fail=${fail} total=${frames.length} type=${name}`); } catch {}
                 }
             }
-        } catch { }
+        } catch {}
     }
 
     resolveCurrentApiAndModel(apiOptions = {}) {
@@ -120,242 +129,305 @@ class StreamingGeneration {
     }
 
 
-    async callAPI(generateData, abortSignal, stream = true) {
-        const messages = Array.isArray(generateData) ? generateData :
-            (generateData?.prompt || generateData?.messages || generateData);
-        const baseOptions = (!Array.isArray(generateData) && generateData?.apiOptions) ? generateData.apiOptions : {};
-        const opts = { ...baseOptions, ...this.resolveCurrentApiAndModel(baseOptions) };
+        async callAPI(generateData, abortSignal, stream = true) {
+            const messages = Array.isArray(generateData) ? generateData :
+                (generateData?.prompt || generateData?.messages || generateData);   
+            const baseOptions = (!Array.isArray(generateData) && generateData?.apiOptions) ? generateData.apiOptions : {};
+            const opts = { ...baseOptions, ...this.resolveCurrentApiAndModel(baseOptions) };
 
-        const modelLower = String(opts.model || '').toLowerCase();
-        const isClaudeThinkingModel =
-            modelLower.includes('claude') &&
-            modelLower.includes('thinking') &&
-            !modelLower.includes('nothinking');
+            const modelLower = String(opts.model || '').toLowerCase();
+            const isClaudeThinkingModel = 
+                modelLower.includes('claude') && 
+                modelLower.includes('thinking') && 
+                !modelLower.includes('nothinking');
 
-        if (isClaudeThinkingModel && Array.isArray(messages) && messages.length > 0) {
-            const lastMsg = messages[messages.length - 1];
-            if (lastMsg?.role === 'assistant') {
-                console.log('[xbgen] Claude Thinking 模型：移除 assistant prefill');
-                messages.pop();
+            if (isClaudeThinkingModel && Array.isArray(messages) && messages.length > 0) {
+                const lastMsg = messages[messages.length - 1];
+                if (lastMsg?.role === 'assistant') {
+                    console.log('[xbgen] Claude Thinking 模型：移除 assistant prefill');
+                    messages.pop();
+                }
+            } 
+
+            const source = {
+                openai: chat_completion_sources.OPENAI,
+                claude: chat_completion_sources.CLAUDE,
+                gemini: chat_completion_sources.MAKERSUITE,
+                google: chat_completion_sources.MAKERSUITE,
+                cohere: chat_completion_sources.COHERE,
+                deepseek: chat_completion_sources.DEEPSEEK,
+                custom: chat_completion_sources.CUSTOM,
+            }[String(opts.api || '').toLowerCase()];            
+            
+            if (!source) {
+                console.error('[xbgen:callAPI] 不支持的 api:', opts.api);
+                try { xbLog.error('streamingGeneration', `unsupported api: ${opts.api}`, null); } catch {}
             }
-        }
-
-        const source = {
-            openai: chat_completion_sources.OPENAI,
-            claude: chat_completion_sources.CLAUDE,
-            gemini: chat_completion_sources.MAKERSUITE,
-            google: chat_completion_sources.MAKERSUITE,
-            cohere: chat_completion_sources.COHERE,
-            deepseek: chat_completion_sources.DEEPSEEK,
-            custom: chat_completion_sources.CUSTOM,
-        }[String(opts.api || '').toLowerCase()];
-
-        if (!source) {
-            console.error('[xbgen:callAPI] 不支持的 api:', opts.api);
-            try { xbLog.error('streamingGeneration', `unsupported api: ${opts.api}`, null); } catch { }
-        }
-        if (!source) throw new Error(`不支持的 api: ${opts.api}`);
-
-        const model = String(opts.model || '').trim();
-
-        if (!model) {
-            try { xbLog.error('streamingGeneration', 'missing model', null); } catch { }
-        }
-        if (!model) throw new Error('未检测到当前模型，请在聊天面板选择模型或在插件设置中为分析显式指定模型。');
-
-        try {
+            if (!source) throw new Error(`不支持的 api: ${opts.api}`);
+            
+            const model = String(opts.model || '').trim();
+            const msgCount = Array.isArray(messages) ? messages.length : null;
+            
+            if (!model) {
+                try { xbLog.error('streamingGeneration', 'missing model', null); } catch {}
+            }
+            if (!model) throw new Error('未检测到当前模型，请在聊天面板选择模型或在插件设置中为分析显式指定模型。');
+            
             try {
-                if (xbLog.isEnabled?.()) {
-                    const msgCount = Array.isArray(messages) ? messages.length : null;
-                    xbLog.info('streamingGeneration', `callAPI stream=${!!stream} api=${String(opts.api || '')} model=${model} messages=${msgCount ?? '-'}`);
-                }
-            } catch { }
-            const provider = String(opts.api || '').toLowerCase();
-            const reverseProxyConfigured = String(opts.apiurl || '').trim().length > 0;
-            const pwd = String(opts.apipassword || '').trim();
-            if (!reverseProxyConfigured && pwd) {
-                const providerToSecretKey = {
-                    openai: SECRET_KEYS.OPENAI,
-                    gemini: SECRET_KEYS.MAKERSUITE,
-                    google: SECRET_KEYS.MAKERSUITE,
-                    cohere: SECRET_KEYS.COHERE,
-                    deepseek: SECRET_KEYS.DEEPSEEK,
-                    custom: SECRET_KEYS.CUSTOM,
-                };
-                const secretKey = providerToSecretKey[provider];
-                if (secretKey) {
-                    await writeSecret(secretKey, pwd, 'xbgen-inline');
-                }
-            }
-        } catch { }
-
-        const num = (v) => {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : undefined;
-        };
-        const isUnset = (k) => baseOptions?.[k] === '__unset__';
-        // 只使用命令参数，不从 UI 设置读取
-        const effectiveTemperature = isUnset('temperature') ? undefined : num(baseOptions?.temperature);
-        const effectivePresence = isUnset('presence_penalty') ? undefined : num(baseOptions?.presence_penalty);
-        const effectiveFrequency = isUnset('frequency_penalty') ? undefined : num(baseOptions?.frequency_penalty);
-        const effectiveTopP = isUnset('top_p') ? undefined : num(baseOptions?.top_p);
-        const effectiveTopK = isUnset('top_k') ? undefined : num(baseOptions?.top_k);
-        const effectiveMaxT = isUnset('max_tokens') ? undefined : num(baseOptions?.max_tokens);
-
-        const body = {
-            messages, model, stream,
-            chat_completion_source: source,
-            temperature: effectiveTemperature,
-            presence_penalty: effectivePresence,
-            frequency_penalty: effectiveFrequency,
-            top_p: effectiveTopP,
-            max_tokens: effectiveMaxT,
-            stop: Array.isArray(generateData?.stop) ? generateData.stop : undefined,
-            use_makersuite_sysprompt: false,
-            claude_use_sysprompt: oai_settings?.claude_use_sysprompt ?? false,
-            custom_prompt_post_processing: undefined,
-            // thinking 模型支持
-            include_reasoning: oai_settings?.show_thoughts ?? true,
-            reasoning_effort: oai_settings?.reasoning_effort || 'medium',
-        };
-
-        // Claude 专用：top_k
-        if (source === chat_completion_sources.CLAUDE) {
-            body.top_k = Number(oai_settings?.top_k_openai) || undefined;
-        }
-
-        if (source === chat_completion_sources.MAKERSUITE) {
-            if (effectiveTopK !== undefined) body.top_k = effectiveTopK;
-            body.max_output_tokens = effectiveMaxT;
-        }
-        const useNet = !!opts.enableNet;
-        if (source === chat_completion_sources.MAKERSUITE && useNet) {
-            body.tools = Array.isArray(body.tools) ? body.tools : [];
-            if (!body.tools.some(t => t && t.google_search_retrieval)) {
-                body.tools.push({ google_search_retrieval: {} });
-            }
-            body.enable_web_search = true;
-            body.makersuite_use_google_search = true;
-        }
-        let reverseProxy = String(opts.apiurl || oai_settings?.reverse_proxy || '').trim();
-        let proxyPassword = String(oai_settings?.proxy_password || '').trim();
-        const cmdApiUrl = String(opts.apiurl || '').trim();
-        const cmdApiPwd = String(opts.apipassword || '').trim();
-        if (cmdApiUrl) {
-            if (cmdApiPwd) proxyPassword = cmdApiPwd;
-        } else if (cmdApiPwd) {
-            reverseProxy = '';
-            proxyPassword = '';
-        }
-        if (PROXY_SUPPORTED.has(source) && reverseProxy) {
-            body.reverse_proxy = reverseProxy.replace(/\/?$/, '');
-            if (proxyPassword) body.proxy_password = proxyPassword;
-        }
-        if (source === chat_completion_sources.CUSTOM) {
-            const customUrl = String(cmdApiUrl || oai_settings?.custom_url || '').trim();
-            if (customUrl) {
-                body.custom_url = customUrl;
-            } else {
-                throw new Error('未配置自定义后端URL，请在命令中提供 apiurl 或在设置中填写 custom_url');
-            }
-            if (oai_settings?.custom_include_headers) body.custom_include_headers = oai_settings.custom_include_headers;
-            if (oai_settings?.custom_include_body) body.custom_include_body = oai_settings.custom_include_body;
-            if (oai_settings?.custom_exclude_body) body.custom_exclude_body = oai_settings.custom_exclude_body;
-        }
-
-
-        if (stream) {
-            const payload = ChatCompletionService.createRequestData(body);
-
-            const streamFactory = await ChatCompletionService.sendRequest(payload, false, abortSignal);
-
-            const generator = (typeof streamFactory === 'function') ? streamFactory() : streamFactory;
-
-            return (async function* () {
-                let last = '';
                 try {
-                    for await (const item of (generator || [])) {
-                        if (abortSignal?.aborted) {
-                            return;
-                        }
-
-                        let accumulated = '';
-                        if (typeof item === 'string') {
-                            accumulated = item;
-                        } else if (item && typeof item === 'object') {
-                            // 尝试多种字段
-                            accumulated = (typeof item.text === 'string' ? item.text : '') ||
-                                (typeof item.content === 'string' ? item.content : '') || '';
-
-                            // thinking 相关字段
-                            if (!accumulated) {
-                                const thinking = item?.delta?.thinking || item?.thinking;
-                                if (typeof thinking === 'string') {
-                                    accumulated = thinking;
-                                }
-                            }
-                            if (!accumulated) {
-                                const rc = item?.reasoning_content || item?.reasoning;
-                                if (typeof rc === 'string') {
-                                    accumulated = rc;
-                                }
-                            }
-                            if (!accumulated) {
-                                const rc = item?.choices?.[0]?.delta?.reasoning_content;
-                                if (typeof rc === 'string') accumulated = rc;
-                            }
-                        }
-
-                        if (!accumulated) {
-                            continue;
-                        }
-
-                        if (accumulated.startsWith(last)) {
-                            last = accumulated;
-                        } else {
-                            last += accumulated;
-                        }
-                        yield last;
+                    if (xbLog.isEnabled?.()) {
+                        xbLog.info('streamingGeneration', `callAPI stream=${!!stream} api=${String(opts.api || '')} model=${model} messages=${msgCount ?? '-'}`);
                     }
+                } catch {}
+                const provider = String(opts.api || '').toLowerCase();
+                const reverseProxyConfigured = String(opts.apiurl || '').trim().length > 0;
+                const pwd = String(opts.apipassword || '').trim();
+                if (!reverseProxyConfigured && pwd) {
+                    const providerToSecretKey = {
+                        openai: SECRET_KEYS.OPENAI,
+                        gemini: SECRET_KEYS.MAKERSUITE,
+                        google: SECRET_KEYS.MAKERSUITE,
+                        cohere: SECRET_KEYS.COHERE,
+                        deepseek: SECRET_KEYS.DEEPSEEK,
+                        custom: SECRET_KEYS.CUSTOM,
+                    };
+                    const secretKey = providerToSecretKey[provider];
+                    if (secretKey) {
+                        await writeSecret(secretKey, pwd, 'xbgen-inline');
+                    }
+                }
+            } catch {}
+            
+            const num = (v) => {
+                const n = Number(v);
+                return Number.isFinite(n) ? n : undefined;
+            };
+            const isUnset = (k) => baseOptions?.[k] === '__unset__';
+            const tUser = num(baseOptions?.temperature);
+            const ppUser = num(baseOptions?.presence_penalty);
+            const fpUser = num(baseOptions?.frequency_penalty);
+            const tpUser = num(baseOptions?.top_p);
+            const tkUser = num(baseOptions?.top_k);
+            const mtUser = num(baseOptions?.max_tokens);
+            const tUI = num(oai_settings?.temp_openai);
+            const ppUI = num(oai_settings?.pres_pen_openai);
+            const fpUI = num(oai_settings?.freq_pen_openai);
+            const tpUI_OpenAI = num(oai_settings?.top_p_openai ?? oai_settings?.top_p);
+            const mtUI_OpenAI = num(oai_settings?.openai_max_tokens ?? oai_settings?.max_tokens);
+            const tpUI_Gemini = num(oai_settings?.makersuite_top_p ?? oai_settings?.top_p);
+            const tkUI_Gemini = num(oai_settings?.makersuite_top_k ?? oai_settings?.top_k);
+            const mtUI_Gemini = num(oai_settings?.makersuite_max_tokens ?? oai_settings?.max_output_tokens ?? oai_settings?.openai_max_tokens ?? oai_settings?.max_tokens);
+            const effectiveTemperature = isUnset('temperature') ? undefined : (tUser ?? tUI);
+            const effectivePresence = isUnset('presence_penalty') ? undefined : (ppUser ?? ppUI);
+            const effectiveFrequency = isUnset('frequency_penalty') ? undefined : (fpUser ?? fpUI);
+            const effectiveTopP = isUnset('top_p') ? undefined : (tpUser ?? (source === chat_completion_sources.MAKERSUITE ? tpUI_Gemini : tpUI_OpenAI));
+            const effectiveTopK = isUnset('top_k') ? undefined : (tkUser ?? (source === chat_completion_sources.MAKERSUITE ? tkUI_Gemini : undefined));
+            const effectiveMaxT = isUnset('max_tokens') ? undefined : (mtUser ?? (source === chat_completion_sources.MAKERSUITE ? (mtUI_Gemini ?? mtUI_OpenAI) : mtUI_OpenAI) ?? 4000);            
+            
+            const body = {
+                messages, model, stream,
+                chat_completion_source: source,
+                temperature: effectiveTemperature,
+                presence_penalty: effectivePresence,
+                frequency_penalty: effectiveFrequency,
+                top_p: effectiveTopP,
+                max_tokens: effectiveMaxT,
+                stop: Array.isArray(generateData?.stop) ? generateData.stop : undefined,
+                use_makersuite_sysprompt: false,
+                claude_use_sysprompt: oai_settings?.claude_use_sysprompt ?? false,
+                custom_prompt_post_processing: undefined,
+                // thinking 模型支持
+                include_reasoning: oai_settings?.show_thoughts ?? true,
+                reasoning_effort: oai_settings?.reasoning_effort || 'medium',
+            };
+            if (baseOptions?.enable_thinking !== undefined) body.enable_thinking = baseOptions.enable_thinking;
+            if (baseOptions?.thinking_budget !== undefined) body.thinking_budget = baseOptions.thinking_budget;
+            if (baseOptions?.min_p !== undefined) body.min_p = baseOptions.min_p;
+
+            // Claude 专用：top_k
+            if (source === chat_completion_sources.CLAUDE) {
+                body.top_k = Number(oai_settings?.top_k_openai) || undefined;
+            }
+            
+            if (source === chat_completion_sources.MAKERSUITE) {
+                if (effectiveTopK !== undefined) body.top_k = effectiveTopK;
+                body.max_output_tokens = effectiveMaxT;
+            }
+            const useNet = !!opts.enableNet;
+            if (source === chat_completion_sources.MAKERSUITE && useNet) {
+                body.tools = Array.isArray(body.tools) ? body.tools : [];
+                if (!body.tools.some(t => t && t.google_search_retrieval)) {
+                    body.tools.push({ google_search_retrieval: {} });
+                }
+                body.enable_web_search = true;
+                body.makersuite_use_google_search = true;
+            }
+            let reverseProxy = String(opts.apiurl || oai_settings?.reverse_proxy || '').trim();
+            let proxyPassword = String(oai_settings?.proxy_password || '').trim();
+            const cmdApiUrl = String(opts.apiurl || '').trim();
+            const cmdApiPwd = String(opts.apipassword || '').trim();
+            if (cmdApiUrl) {
+                if (cmdApiPwd) proxyPassword = cmdApiPwd;
+            } else if (cmdApiPwd) {
+                reverseProxy = '';
+                proxyPassword = '';
+            }
+            if (PROXY_SUPPORTED.has(source) && reverseProxy) {
+                body.reverse_proxy = reverseProxy.replace(/\/?$/, '');
+                if (proxyPassword) body.proxy_password = proxyPassword;
+            }
+            if (source === chat_completion_sources.CUSTOM) {
+                const customUrl = String(cmdApiUrl || oai_settings?.custom_url || '').trim();
+                if (customUrl) {
+                    body.custom_url = customUrl;
+                } else {
+                    throw new Error('未配置自定义后端URL，请在命令中提供 apiurl 或在设置中填写 custom_url');
+                }
+                if (oai_settings?.custom_include_headers) body.custom_include_headers = oai_settings.custom_include_headers;
+                if (oai_settings?.custom_include_body) body.custom_include_body = oai_settings.custom_include_body;
+                if (oai_settings?.custom_exclude_body) body.custom_exclude_body = oai_settings.custom_exclude_body;
+            }
+            
+            
+            const logSendRequestError = (err, streamMode) => {
+                if (err?.name !== 'AbortError') {
+                    const safeApiUrl = String(cmdApiUrl || reverseProxy || oai_settings?.custom_url || '').trim();
+                    try {
+                        xbLog.error('streamingGeneration', 'sendRequest failed', {
+                            message: err?.message || String(err),
+                            name: err?.name,
+                            stream: !!streamMode,
+                            api: String(opts.api || ''),
+                            model,
+                            msgCount,
+                            apiurl: safeApiUrl,
+                        });
+                    } catch {}
+                    console.error('[xbgen:callAPI] sendRequest failed:', err);
+                }
+            };
+
+            if (stream) {
+                const payload = ChatCompletionService.createRequestData(body);
+                
+                let streamFactory;
+                try {
+                    streamFactory = await ChatCompletionService.sendRequest(payload, false, abortSignal);
                 } catch (err) {
-                    console.error('[xbgen:stream] 流式错误:', err);
-                    console.error('[xbgen:stream] err.name:', err?.name);
-                    console.error('[xbgen:stream] err.message:', err?.message);
-                    if (err?.name === 'AbortError') return;
-                    try { xbLog.error('streamingGeneration', 'Stream error', err); } catch { }
+                    logSendRequestError(err, true);
                     throw err;
                 }
-            })();
-        } else {
-            const payload = ChatCompletionService.createRequestData(body);
-            const extracted = await ChatCompletionService.sendRequest(payload, false, abortSignal);
+                
+                const generator = (typeof streamFactory === 'function') ? streamFactory() : streamFactory;
 
-            let result = '';
-            if (extracted && typeof extracted === 'object') {
-                const msg = extracted?.choices?.[0]?.message;
-                result = String(
-                    msg?.content ??
-                    msg?.reasoning_content ??
-                    extracted?.choices?.[0]?.text ??
-                    extracted?.content ??
-                    extracted?.reasoning_content ??
-                    ''
-                );
+                return (async function* () {
+                    let last = '';
+                    try {
+                        for await (const item of (generator || [])) {
+                            if (abortSignal?.aborted) {
+                                return;
+                            }
+
+                            let accumulated = '';
+                            if (typeof item === 'string') {
+                                accumulated = item;
+                            } else if (item && typeof item === 'object') {
+                                // 尝试多种字段
+                                accumulated = (typeof item.text === 'string' ? item.text : '') ||
+                                              (typeof item.content === 'string' ? item.content : '') || '';
+                                
+                                // thinking 相关字段
+                                if (!accumulated) {
+                                    const thinking = item?.delta?.thinking || item?.thinking;
+                                    if (typeof thinking === 'string') {
+                                        accumulated = thinking;
+                                    }
+                                }
+                                if (!accumulated) {
+                                    const rc = item?.reasoning_content || item?.reasoning;
+                                    if (typeof rc === 'string') {
+                                        accumulated = rc;
+                                    }
+                                }
+                                if (!accumulated) {
+                                    const rc = item?.choices?.[0]?.delta?.reasoning_content;
+                                    if (typeof rc === 'string') accumulated = rc;
+                                }
+                            }
+                            
+                            if (!accumulated) {
+                                continue;
+                            }
+
+                            if (accumulated.startsWith(last)) {
+                                last = accumulated;
+                            } else {
+                                last += accumulated;
+                            }
+                            yield last;
+                        }
+                    } catch (err) {
+                        console.error('[xbgen:stream] 流式错误:', err);
+                        console.error('[xbgen:stream] err.name:', err?.name);
+                        console.error('[xbgen:stream] err.message:', err?.message);
+                        if (err?.name === 'AbortError') return;
+                        try { xbLog.error('streamingGeneration', 'Stream error', err); } catch {}
+                        throw err;
+                    }
+                })();
             } else {
-                result = String(extracted ?? '');
-            }
+                const payload = ChatCompletionService.createRequestData(body);
+                let extracted;
+                try {
+                    extracted = await ChatCompletionService.sendRequest(payload, false, abortSignal);
+                } catch (err) {
+                    logSendRequestError(err, false);
+                    throw err;
+                }
 
-            return result;
+                let result = '';
+                if (extracted && typeof extracted === 'object') {
+                    const msg = extracted?.choices?.[0]?.message;
+                    result = String(
+                        msg?.content ??
+                        msg?.reasoning_content ??
+                        extracted?.choices?.[0]?.text ??
+                        extracted?.content ??
+                        extracted?.reasoning_content ??
+                        ''
+                    );
+                } else {
+                    result = String(extracted ?? '');
+                }
+
+                return result;
+            }
         }
-    }
 
 
     async _emitPromptReady(chatArray) {
         try {
             if (Array.isArray(chatArray)) {
-                await eventSource?.emit?.(event_types.CHAT_COMPLETION_PROMPT_READY, { chat: chatArray, dryRun: false });
+                const snapshot = this._cloneChat(chatArray);
+                await eventSource?.emit?.(event_types.CHAT_COMPLETION_PROMPT_READY, { chat: snapshot, dryRun: false });
             }
-        } catch { }
+        } catch {}
+    }
+
+    _cloneChat(chatArray) {
+        try {
+            if (typeof structuredClone === 'function') return structuredClone(chatArray);
+        } catch {}
+        try {
+            return JSON.parse(JSON.stringify(chatArray));
+        } catch {}
+        try {
+            return Array.isArray(chatArray)
+                ? chatArray.map(m => (m && typeof m === 'object' ? { ...m } : m))
+                : chatArray;
+        } catch {
+            return chatArray;
+        }
     }
 
     async processGeneration(generateData, prompt, sessionId, stream = true) {
@@ -364,7 +436,7 @@ class StreamingGeneration {
         session.abortController = abortController;
 
         try {
-            try { xbLog.info('streamingGeneration', `processGeneration start sid=${session.id} stream=${!!stream} promptLen=${String(prompt || '').length}`); } catch { }
+            try { xbLog.info('streamingGeneration', `processGeneration start sid=${session.id} stream=${!!stream} promptLen=${String(prompt || '').length}`); } catch {}
             this.isStreaming = true;
             this.activeCount++;
             session.isStreaming = true;
@@ -390,17 +462,17 @@ class StreamingGeneration {
             this.postToFrames(EVT_DONE, payload);
             try { window?.postMessage?.({ type: EVT_DONE, payload, from: 'xiaobaix' }, getTrustedOrigin()); } catch { }
 
-            try { xbLog.info('streamingGeneration', `processGeneration done sid=${session.id} outLen=${String(session.text || '').length}`); } catch { }
+            try { xbLog.info('streamingGeneration', `processGeneration done sid=${session.id} outLen=${String(session.text || '').length}`); } catch {}
             return String(session.text || '');
         } catch (err) {
             if (err?.name === 'AbortError') {
-                try { xbLog.warn('streamingGeneration', `processGeneration aborted sid=${session.id}`); } catch { }
+                try { xbLog.warn('streamingGeneration', `processGeneration aborted sid=${session.id}`); } catch {}
                 return String(session.text || '');
             }
 
             console.error('[StreamingGeneration] Generation error:', err);
             console.error('[StreamingGeneration] error.error =', err?.error);
-            try { xbLog.error('streamingGeneration', `processGeneration error sid=${session.id}`, err); } catch { }
+            try { xbLog.error('streamingGeneration', `processGeneration error sid=${session.id}`, err); } catch {}
 
             let errorMessage = '生成失败';
 
@@ -640,7 +712,7 @@ class StreamingGeneration {
                     const uid = it?.uid || it?.id || it?.entry?.uid || it?.entry?.id;
                     if (uid) activatedUids.add(uid);
                 }
-            } catch { }
+            } catch {}
         };
         eventSource.on(event_types.WORLD_INFO_ACTIVATED, wiListener);
         try {
@@ -670,7 +742,7 @@ class StreamingGeneration {
                 const text = pieces.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
                 if (text) return text;
             }
-        } catch { }
+        } catch {}
         let src = [];
         const cd = capturedData;
         if (Array.isArray(cd)) {
@@ -775,6 +847,10 @@ class StreamingGeneration {
             .replace(/<\s*user\s*>/gi, String(ctx?.name1 || 'User'))
             .replace(/<\s*(char|character)\s*>/gi, String(ctx?.name2 || 'Assistant'))
             .replace(/<\s*persona\s*>/gi, String(f.persona || ''));
+        try {
+            out = replaceXbGetVarInString(out);
+            out = replaceXbGetVarYamlInString(out);
+        } catch {}
         const snap = this._getLastMessagesSnapshot();
         const lastDict = {
             '{{lastmessage}}': snap.lastMessage,
@@ -824,7 +900,7 @@ class StreamingGeneration {
                         const cmd = getCmdForRoot(root);
                         const result = await window.STscript(cmd);
                         let parsed = result;
-                        try { parsed = JSON.parse(result); } catch { }
+                        try { parsed = JSON.parse(result); } catch {}
                         cache.set(root, parsed);
                     } catch {
                         cache.set(root, '');
@@ -842,13 +918,14 @@ class StreamingGeneration {
                 /\{\{getvar::([\s\S]*?)\}\}/gi,
                 (root) => `/getvar key=${escapeForCmd(root)}`
             );
-            await apply(
-                /\{\{getglobalvar::([\s\S]*?)\}\}/gi,
-                (root) => `/getglobalvar ${escapeForCmd(root)}`
-            );
-            return txt;
-        };
-        out = await expandVarMacros(out);
+              await apply(
+                  /\{\{getglobalvar::([\s\S]*?)\}\}/gi,
+                  (root) => `/getglobalvar ${escapeForCmd(root)}`
+              );
+              return txt;
+          };
+          out = await expandVarMacros(out);
+        try { out = substituteParams(out); } catch {}
         return out;
     }
 
@@ -868,13 +945,16 @@ class StreamingGeneration {
         const apiOptions = {
             api: args?.api, apiurl: args?.apiurl,
             apipassword: args?.apipassword, model: args?.model,
-            enableNet: ['on', 'true', '1', 'yes'].includes(String(args?.net ?? '').toLowerCase()),
+            enableNet: ['on','true','1','yes'].includes(String(args?.net ?? '').toLowerCase()),
             top_p: this.parseOpt(args, 'top_p'),
             top_k: this.parseOpt(args, 'top_k'),
             max_tokens: this.parseOpt(args, 'max_tokens'),
             temperature: this.parseOpt(args, 'temperature'),
             presence_penalty: this.parseOpt(args, 'presence_penalty'),
             frequency_penalty: this.parseOpt(args, 'frequency_penalty'),
+            enable_thinking: this.parseOpt(args, 'enable_thinking'),
+            thinking_budget: this.parseOpt(args, 'thinking_budget'),
+            min_p: this.parseOpt(args, 'min_p'),
         };
         let parsedStop;
         try {
@@ -885,7 +965,7 @@ class StreamingGeneration {
                     parsedStop = Array.isArray(j) ? j : (typeof j === 'string' ? [j] : undefined);
                 }
             }
-        } catch { }
+        } catch {}
         const nonstream = String(args?.nonstream || '').toLowerCase() === 'true';
         const b64dUtf8 = (s) => {
             try {
@@ -951,16 +1031,12 @@ class StreamingGeneration {
             }
             return out;
         };
-        let topMsgs = await mapHistoryPlaceholders(
-            []
-                .concat(topComposite ? this._parseCompositeParam(topComposite) : [])
-                .concat(createMsgs('top'))
-        );
-        let bottomMsgs = await mapHistoryPlaceholders(
-            []
-                .concat(bottomComposite ? this._parseCompositeParam(bottomComposite) : [])
-                .concat(createMsgs('bottom'))
-        );
+        let topMsgs = []
+            .concat(topComposite ? this._parseCompositeParam(topComposite) : [])
+            .concat(createMsgs('top'));
+        let bottomMsgs = []
+            .concat(bottomComposite ? this._parseCompositeParam(bottomComposite) : [])
+            .concat(createMsgs('bottom'));
         const expandSegmentInline = async (arr) => {
             for (const m of arr) {
                 if (m && typeof m.content === 'string') {
@@ -975,10 +1051,13 @@ class StreamingGeneration {
 
         await expandSegmentInline(bottomMsgs);
 
+        topMsgs = await mapHistoryPlaceholders(topMsgs);
+        bottomMsgs = await mapHistoryPlaceholders(bottomMsgs);
+
         if (typeof prompt === 'string' && prompt.trim()) {
-            const beforeP = await resolveHistoryPlaceholder(prompt);
-            const afterP = await this.expandInline(beforeP);
-            prompt = afterP && afterP.length ? afterP : beforeP;
+            const afterP = await this.expandInline(prompt);
+            const beforeP = await resolveHistoryPlaceholder(afterP);
+            prompt = beforeP && beforeP.length ? beforeP : afterP;
         }
         try {
             const needsWI = [...topMsgs, ...bottomMsgs].some(m => m && typeof m.content === 'string' && m.content.includes('{$worldInfo}')) || (typeof prompt === 'string' && prompt.includes('{$worldInfo}'));
@@ -999,7 +1078,7 @@ class StreamingGeneration {
                     if (typeof prompt === 'string') prompt = prompt.replace(wiRegex, wiTrim);
                 }
             }
-        } catch { }
+        } catch {}
         const addonSetStr = String(args?.addon || '').trim();
         const shouldUsePM = addonSetStr.length > 0;
         if (!shouldUsePM) {
@@ -1007,23 +1086,23 @@ class StreamingGeneration {
                 .concat(topMsgs.filter(m => typeof m?.content === 'string' && m.content.trim().length))
                 .concat(prompt && prompt.trim().length ? [{ role, content: prompt.trim() }] : [])
                 .concat(bottomMsgs.filter(m => typeof m?.content === 'string' && m.content.trim().length));
-
+            
             const common = { messages, apiOptions, stop: parsedStop };
             if (nonstream) {
-                try { if (lock) deactivateSendButtons(); } catch { }
+                try { if (lock) deactivateSendButtons(); } catch {}
                 try {
                     await this._emitPromptReady(messages);
                     const finalText = await this.processGeneration(common, prompt || '', sessionId, false);
                     return String(finalText ?? '');
                 } finally {
-                    try { if (lock) activateSendButtons(); } catch { }
+                    try { if (lock) activateSendButtons(); } catch {}
                 }
             } else {
-                try { if (lock) deactivateSendButtons(); } catch { }
+                try { if (lock) deactivateSendButtons(); } catch {}
                 await this._emitPromptReady(messages);
                 const p = this.processGeneration(common, prompt || '', sessionId, true);
-                p.finally(() => { try { if (lock) activateSendButtons(); } catch { } });
-                p.catch(() => { });
+                p.finally(() => { try { if (lock) activateSendButtons(); } catch {} });
+                p.catch(() => {});
                 return String(sessionId);
             }
         }
@@ -1046,7 +1125,7 @@ class StreamingGeneration {
                         chatBackup = chat.slice();
                         chat.length = 0;
                         chat.push({ name: name1 || 'User', is_user: true, is_system: false, mes: '[hist]', send_date: new Date().toISOString() });
-                    } catch { }
+                    } catch {}
                 }
                 try {
                     await context.generate('normal', {
@@ -1118,7 +1197,7 @@ class StreamingGeneration {
             return finalMessages;
         };
         if (nonstream) {
-            try { if (lock) deactivateSendButtons(); } catch { }
+            try { if (lock) deactivateSendButtons(); } catch {}
             try {
                 const finalMessages = await buildAddonFinalMessages();
                 const common = { messages: finalMessages, apiOptions, stop: parsedStop };
@@ -1126,18 +1205,18 @@ class StreamingGeneration {
                 const finalText = await this.processGeneration(common, prompt || '', sessionId, false);
                 return String(finalText ?? '');
             } finally {
-                try { if (lock) activateSendButtons(); } catch { }
+                try { if (lock) activateSendButtons(); } catch {}
             }
         } else {
             (async () => {
                 try {
-                    try { if (lock) deactivateSendButtons(); } catch { }
+                    try { if (lock) deactivateSendButtons(); } catch {}
                     const finalMessages = await buildAddonFinalMessages();
                     const common = { messages: finalMessages, apiOptions, stop: parsedStop };
                     await this._emitPromptReady(finalMessages);
                     await this.processGeneration(common, prompt || '', sessionId, true);
-                } catch { } finally {
-                    try { if (lock) activateSendButtons(); } catch { }
+                } catch {} finally {
+                    try { if (lock) activateSendButtons(); } catch {}
                 }
             })();
             return String(sessionId);
@@ -1171,7 +1250,7 @@ class StreamingGeneration {
                         const m = messages[i];
                         if (m.content === promptText &&
                             ((role !== 'system' && m.role === 'system') ||
-                                (role === 'system' && m.role === 'user'))) {
+                             (role === 'system' && m.role === 'user'))) {
                             messages.splice(i, 1);
                             break;
                         }
@@ -1194,7 +1273,7 @@ class StreamingGeneration {
             const apiOptions = {
                 api: args?.api, apiurl: args?.apiurl,
                 apipassword: args?.apipassword, model: args?.model,
-                enableNet: ['on', 'true', '1', 'yes'].includes(String(args?.net ?? '').toLowerCase()),
+                enableNet: ['on','true','1','yes'].includes(String(args?.net ?? '').toLowerCase()),
                 top_p: this.parseOpt(args, 'top_p'),
                 top_k: this.parseOpt(args, 'top_k'),
                 max_tokens: this.parseOpt(args, 'max_tokens'),
@@ -1246,7 +1325,7 @@ class StreamingGeneration {
             return dataWithOptions;
         };
         if (nonstream) {
-            try { if (lock) deactivateSendButtons(); } catch { }
+            try { if (lock) deactivateSendButtons(); } catch {}
             try {
                 const dataWithOptions = await buildGenDataWithOptions();
                 const chatMsgs = Array.isArray(dataWithOptions?.prompt) ? dataWithOptions.prompt
@@ -1255,21 +1334,21 @@ class StreamingGeneration {
                 const finalText = await this.processGeneration(dataWithOptions, prompt, sessionId, false);
                 return String(finalText ?? '');
             } finally {
-                try { if (lock) activateSendButtons(); } catch { }
+                try { if (lock) activateSendButtons(); } catch {}
             }
         }
         (async () => {
             try {
-                try { if (lock) deactivateSendButtons(); } catch { }
+                try { if (lock) deactivateSendButtons(); } catch {}
                 const dataWithOptions = await buildGenDataWithOptions();
                 const chatMsgs = Array.isArray(dataWithOptions?.prompt) ? dataWithOptions.prompt
                     : (Array.isArray(dataWithOptions?.messages) ? dataWithOptions.messages : []);
                 await this._emitPromptReady(chatMsgs);
                 const finalText = await this.processGeneration(dataWithOptions, prompt, sessionId, true);
-                try { if (args && args._scope) args._scope.pipe = String(finalText ?? ''); } catch { }
-            } catch { }
+                try { if (args && args._scope) args._scope.pipe = String(finalText ?? ''); } catch {}
+            } catch {}
             finally {
-                try { if (lock) activateSendButtons(); } catch { }
+                try { if (lock) activateSendButtons(); } catch {}
             }
         })();
         return String(sessionId);
@@ -1279,7 +1358,7 @@ class StreamingGeneration {
         const commonArgs = [
             { name: 'id', description: '会话ID', typeList: [ARGUMENT_TYPE.STRING] },
             { name: 'api', description: '后端: openai/claude/gemini/cohere/deepseek/custom', typeList: [ARGUMENT_TYPE.STRING] },
-            { name: 'net', description: '联网 on/off', typeList: [ARGUMENT_TYPE.STRING], enumList: ['on', 'off'] },
+            { name: 'net', description: '联网 on/off', typeList: [ARGUMENT_TYPE.STRING], enumList: ['on','off'] },
             { name: 'apiurl', description: '自定义后端URL', typeList: [ARGUMENT_TYPE.STRING] },
             { name: 'apipassword', description: '后端密码', typeList: [ARGUMENT_TYPE.STRING] },
             { name: 'model', description: '模型名', typeList: [ARGUMENT_TYPE.STRING] },
@@ -1342,7 +1421,7 @@ class StreamingGeneration {
             const sid = this._getSlotId(sessionId);
             const s = this.sessions.get(sid);
             return s ? { isStreaming: !!s.isStreaming, text: s.text, sessionId: sid }
-                : { isStreaming: false, text: '', sessionId: sid };
+                     : { isStreaming: false, text: '', sessionId: sid };
         }
         return { isStreaming: !!this.isStreaming, text: this.tempreply };
     };
@@ -1381,7 +1460,7 @@ CacheRegistry.register('streamingGeneration', {
         }
     },
     clear: () => {
-        try { streamingGeneration.cleanup(); } catch { }
+        try { streamingGeneration.cleanup(); } catch {}
     },
     getDetail: () => {
         try {
@@ -1402,7 +1481,7 @@ CacheRegistry.register('streamingGeneration', {
 export function initStreamingGeneration() {
     const w = window;
     if ((w)?.isXiaobaixEnabled === false) return;
-    try { xbLog.info('streamingGeneration', 'initStreamingGeneration'); } catch { }
+    try { xbLog.info('streamingGeneration', 'initStreamingGeneration'); } catch {}
     streamingGeneration.init();
     (w)?.registerModuleCleanup?.('streamingGeneration', () => streamingGeneration.cleanup());
 }

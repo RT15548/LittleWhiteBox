@@ -40,6 +40,7 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     audio: { enabled: true },
     variablesPanel: { enabled: false },
     variablesCore: { enabled: true },
+    variablesMode: '1.0',
     storySummary: { enabled: true },
     storyOutline: { enabled: false },
     novelDraw: { enabled: false },
@@ -273,7 +274,7 @@ function toggleSettingsControls(enabled) {
         'scheduled_tasks_enabled', 'xiaobaix_template_enabled',
         'xiaobaix_immersive_enabled', 'xiaobaix_fourth_wall_enabled',
         'xiaobaix_audio_enabled', 'xiaobaix_variables_panel_enabled',
-        'xiaobaix_use_blob', 'xiaobaix_variables_core_enabled', 'Wrapperiframe', 'xiaobaix_render_enabled',
+        'xiaobaix_use_blob', 'xiaobaix_variables_core_enabled', 'xiaobaix_variables_mode', 'Wrapperiframe', 'xiaobaix_render_enabled',
         'xiaobaix_max_rendered', 'xiaobaix_story_outline_enabled', 'xiaobaix_story_summary_enabled',
         'xiaobaix_novel_draw_enabled', 'xiaobaix_novel_draw_open_settings',
         'xiaobaix_tts_enabled', 'xiaobaix_tts_open_settings'
@@ -429,6 +430,15 @@ async function setupSettings() {
                 }
             });
         });
+
+        // variables mode selector
+        $("#xiaobaix_variables_mode")
+            .val(settings.variablesMode || "1.0")
+            .on("change", function () {
+                settings.variablesMode = String($(this).val() || "1.0");
+                saveSettingsDebounced();
+                toastr.info(`变量系统已切换为 ${settings.variablesMode}`);
+            });
 
         $("#xiaobaix_novel_draw_open_settings").on("click", function () {
             if (!isXiaobaixEnabled) return;

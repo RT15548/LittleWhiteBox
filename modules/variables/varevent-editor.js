@@ -6,7 +6,7 @@
 import { getContext } from "../../../../../extensions.js";
 import { getLocalVariable } from "../../../../../variables.js";
 import { createModuleEvents } from "../../core/event-manager.js";
-import { replaceXbGetVarInString } from "./var-commands.js";
+import { replaceXbGetVarInString, replaceXbGetVarYamlInString, replaceXbGetVarYamlIdxInString } from "./var-commands.js";
 
 const MODULE_ID = 'vareventEditor';
 const LWB_EXT_ID = 'LittleWhiteBox';
@@ -297,12 +297,18 @@ function installWIHiddenTagStripper() {
                             }
                             msg.content = await replaceVareventInString(msg.content, false, false);
                         }
-                        if (msg.content.indexOf('{{xbgetvar::') !== -1) {
-                            msg.content = replaceXbGetVarInString(msg.content);
-                        }
-                    }
-                    if (Array.isArray(msg?.content)) {
-                        for (const part of msg.content) {
+                                if (msg.content.indexOf('{{xbgetvar::') !== -1) {
+                                    msg.content = replaceXbGetVarInString(msg.content);
+                                }
+                                if (msg.content.indexOf('{{xbgetvar_yaml::') !== -1) {
+                                    msg.content = replaceXbGetVarYamlInString(msg.content);
+                                }
+                                if (msg.content.indexOf('{{xbgetvar_yaml_idx::') !== -1) {
+                                    msg.content = replaceXbGetVarYamlIdxInString(msg.content);
+                                }
+                            }
+                            if (Array.isArray(msg?.content)) {
+                                for (const part of msg.content) {
                             if (part?.type === 'text' && typeof part.text === 'string') {
                                 if (part.text.includes('<varevent')) {
                                     TAG_RE_VAREVENT.lastIndex = 0;
@@ -312,12 +318,18 @@ function installWIHiddenTagStripper() {
                                     }
                                     part.text = await replaceVareventInString(part.text, false, false);
                                 }
-                                if (part.text.indexOf('{{xbgetvar::') !== -1) {
-                                    part.text = replaceXbGetVarInString(part.text);
+                                        if (part.text.indexOf('{{xbgetvar::') !== -1) {
+                                            part.text = replaceXbGetVarInString(part.text);
+                                        }
+                                        if (part.text.indexOf('{{xbgetvar_yaml::') !== -1) {
+                                            part.text = replaceXbGetVarYamlInString(part.text);
+                                        }
+                                        if (part.text.indexOf('{{xbgetvar_yaml_idx::') !== -1) {
+                                            part.text = replaceXbGetVarYamlIdxInString(part.text);
+                                        }
+                                    }
                                 }
                             }
-                        }
-                    }
                     if (typeof msg?.mes === 'string') {
                         if (msg.mes.includes('<varevent')) {
                             TAG_RE_VAREVENT.lastIndex = 0;
@@ -327,12 +339,18 @@ function installWIHiddenTagStripper() {
                             }
                             msg.mes = await replaceVareventInString(msg.mes, false, false);
                         }
-                        if (msg.mes.indexOf('{{xbgetvar::') !== -1) {
-                            msg.mes = replaceXbGetVarInString(msg.mes);
+                                if (msg.mes.indexOf('{{xbgetvar::') !== -1) {
+                                    msg.mes = replaceXbGetVarInString(msg.mes);
+                                }
+                                if (msg.mes.indexOf('{{xbgetvar_yaml::') !== -1) {
+                                    msg.mes = replaceXbGetVarYamlInString(msg.mes);
+                                }
+                                if (msg.mes.indexOf('{{xbgetvar_yaml_idx::') !== -1) {
+                                    msg.mes = replaceXbGetVarYamlIdxInString(msg.mes);
+                                }
+                            }
                         }
-                    }
-                }
-              } catch {}
+                      } catch {}
           };
           try {
               if (eventSource && typeof eventSource.makeLast === 'function') {
@@ -360,6 +378,12 @@ function installWIHiddenTagStripper() {
                     }
                     if (data.prompt.indexOf('{{xbgetvar::') !== -1) {
                         data.prompt = replaceXbGetVarInString(data.prompt);
+                    }
+                    if (data.prompt.indexOf('{{xbgetvar_yaml::') !== -1) {
+                        data.prompt = replaceXbGetVarYamlInString(data.prompt);
+                    }
+                    if (data.prompt.indexOf('{{xbgetvar_yaml_idx::') !== -1) {
+                        data.prompt = replaceXbGetVarYamlIdxInString(data.prompt);
                     }
                 }
             } catch {}

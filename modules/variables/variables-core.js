@@ -1,10 +1,10 @@
 /**
  * @file modules/variables/variables-core.js
- * @description 变量管理核心（受开关控制）
- * @description 包含 plot-log 解析、快照回滚、变量守护
+ * @description Variables core (feature-flag controlled)
+ * @description Includes plot-log parsing, snapshot rollback, and variable guard
  */
 
-import { getContext } from "../../../../../extensions.js";
+import { extension_settings, getContext } from "../../../../../extensions.js";
 import { updateMessageBlock } from "../../../../../../script.js";
 import { getLocalVariable, setLocalVariable } from "../../../../../variables.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
@@ -28,6 +28,7 @@ import {
     applyXbGetVarForMessage,
     parseValueForSet,  
 } from "./var-commands.js";
+import { applyStateForMessage } from "./state2/index.js";
 import {
     preprocessBumpAliases,
     executeQueuedVareventJsAfterTurn,
@@ -36,17 +37,18 @@ import {
     TOP_OP_RE,
 } from "./varevent-editor.js";
 
-/* ============= 模块常量 ============= */
+/* ============ Module Constants ============= */
 
 const MODULE_ID = 'variablesCore';
+const EXT_ID = 'LittleWhiteBox';
 const LWB_RULES_KEY = 'LWB_RULES';
 const LWB_SNAP_KEY = 'LWB_SNAP';
 const LWB_PLOT_APPLIED_KEY = 'LWB_PLOT_APPLIED_KEY';
 
-// plot-log 标签正则
+// plot-log tag regex
 const TAG_RE_PLOTLOG = /<\s*plot-log[^>]*>([\s\S]*?)<\s*\/\s*plot-log\s*>/gi;
 
-// 守护状态
+// guardian state
 const guardianState = {
     table: {},
     regexCache: {},
@@ -55,7 +57,8 @@ const guardianState = {
     lastMetaSyncAt: 0
 };
 
-// 事件管理器
+// note
+
 let events = null;
 let initialized = false;
 let pendingSwipeApply = new Map();
@@ -76,7 +79,7 @@ CacheRegistry.register(MODULE_ID, {
             return 0;
         }
     },
-    // 新增：估算字节大小（用于 debug-panel 缓存统计）
+    // estimate bytes for debug panel
     getBytes: () => {
         try {
             let total = 0;
@@ -137,7 +140,7 @@ CacheRegistry.register(MODULE_ID, {
     },
 });
 
-/* ============= 内部辅助函数 ============= */
+/* ============ Internal Helpers ============= */
 
 function getMsgKey(msg) {
     return (typeof msg?.mes === 'string') ? 'mes'
@@ -160,7 +163,7 @@ function normalizeOpName(k) {
     return OP_MAP[String(k).toLowerCase().trim()] || null;
 }
 
-/* ============= 应用签名追踪 ============= */
+/* ============ Applied Signature Tracking ============= */
 
 function getAppliedMap() {
     const meta = getContext()?.chatMetadata || {};
@@ -206,10 +209,10 @@ function computePlotSignatureFromText(text) {
     return chunks.join('\n---\n');
 }
 
-/* ============= Plot-Log 解析 ============= */
+/* ============ Plot-Log Parsing ============= */
 
 /**
- * 提取 plot-log 块
+ * Extract plot-log blocks
  */
 function extractPlotLogBlocks(text) {
     if (!text || typeof text !== 'string') return [];
@@ -224,10 +227,10 @@ function extractPlotLogBlocks(text) {
 }
 
 /**
- * 解析 plot-log 块内容
+ * Parse plot-log block content
  */
 function parseBlock(innerText) {
-    // 预处理 bump 别名
+    // preprocess bump aliases
     innerText = preprocessBumpAliases(innerText);
     const textForJsonToml = stripLeadingHtmlComments(innerText);
 
@@ -243,7 +246,7 @@ function parseBlock(innerText) {
     };
     const norm = (p) => String(p || '').replace(/\[(\d+)\]/g, '.$1');
 
-    // 守护指令记录
+    // guard directive tracking
     const guardMap = new Map();
 
     const recordGuardDirective = (path, directives) => {
@@ -292,7 +295,7 @@ function parseBlock(innerText) {
         return { directives, curPathRaw, guardTargetRaw, segment: segTrim };
     };
 
-    // 操作记录函数
+    // operation record helpers
     const putSet = (top, path, value) => {
         ops.set[top] ||= {};
         ops.set[top][path] = value;
@@ -348,7 +351,7 @@ function parseBlock(innerText) {
         return results;
     };
 
-    // 解码键
+    // decode key
     const decodeKey = (rawKey) => {
         const { directives, remainder, original } = extractDirectiveInfo(rawKey);
         const path = (remainder || original || String(rawKey)).trim();
@@ -356,7 +359,7 @@ function parseBlock(innerText) {
         return path;
     };
 
-    // 遍历节点
+    // walk nodes
     const walkNode = (op, top, node, basePath = '') => {
         if (op === 'set') {
             if (node === null || node === undefined) return;
@@ -441,7 +444,7 @@ function parseBlock(innerText) {
         }
     };
 
-    // 处理结构化数据（JSON/TOML）
+    // process structured data (json/toml)
     const processStructuredData = (data) => {
         const process = (d) => {
             if (!d || typeof d !== 'object') return;
@@ -507,7 +510,7 @@ function parseBlock(innerText) {
         return true;
     };
 
-    // 尝试 JSON 解析
+    // try JSON parsing
     const tryParseJson = (text) => {
         const s = String(text || '').trim();
         if (!s || (s[0] !== '{' && s[0] !== '[')) return false;
@@ -563,7 +566,7 @@ function parseBlock(innerText) {
         return relaxed !== s && attempt(relaxed);
     };
 
-    // 尝试 TOML 解析
+    // try TOML parsing
     const tryParseToml = (text) => {
         const src = String(text || '').trim();
         if (!src || !src.includes('[') || !src.includes('=')) return false;
@@ -638,11 +641,11 @@ function parseBlock(innerText) {
         }
     };
 
-    // 尝试 JSON/TOML
+    // try JSON/TOML
     if (tryParseJson(textForJsonToml)) return finalizeResults();
     if (tryParseToml(textForJsonToml)) return finalizeResults();
 
-    // YAML 解析
+    // YAML parsing
     let curOp = '';
     const stack = [];
 
@@ -729,7 +732,8 @@ function parseBlock(innerText) {
             const curPath = norm(curPathRaw);
             if (!curPath) continue;
 
-            // 块标量
+            // note
+
             if (rhs && (rhs[0] === '|' || rhs[0] === '>')) {
                 const { text, next } = readBlockScalar(i + 1, ind, rhs[0]);
                 i = next;
@@ -741,7 +745,7 @@ function parseBlock(innerText) {
                 continue;
             }
 
-            // 空值（嵌套对象或列表）
+            // empty value (nested object or list)
             if (rhs === '') {
                 stack.push({
                     indent: ind,
@@ -791,7 +795,8 @@ function parseBlock(innerText) {
                 continue;
             }
 
-            // 普通值
+            // note
+
             const [top, ...rest] = curPath.split('.');
             const rel = rest.join('.');
             if (curOp === 'set') {
@@ -817,7 +822,8 @@ function parseBlock(innerText) {
             continue;
         }
 
-        // 顶层列表项（del 操作）
+        // note
+
         const mArr = t.match(/^-+\s*(.+)$/);
         if (mArr && stack.length === 0 && curOp === 'del') {
             const rawItem = stripQ(stripYamlInlineComment(mArr[1]));
@@ -830,7 +836,8 @@ function parseBlock(innerText) {
             continue;
         }
 
-        // 嵌套列表项
+        // note
+
         if (mArr && stack.length) {
             const curPath = stack[stack.length - 1].path;
             const [top, ...rest] = curPath.split('.');
@@ -856,7 +863,7 @@ function parseBlock(innerText) {
     return finalizeResults();
 }
 
-/* ============= 变量守护与规则集 ============= */
+/* ============ Variable Guard & Rules ============= */
 
 function rulesGetTable() {
     return guardianState.table || {};
@@ -877,7 +884,7 @@ function rulesLoadFromMeta() {
         const raw = meta[LWB_RULES_KEY];
         if (raw && typeof raw === 'object') {
             rulesSetTable(deepClone(raw));
-            // 重建正则缓存
+            // rebuild regex cache
             for (const [p, node] of Object.entries(guardianState.table)) {
                 if (node?.constraints?.regex?.source) {
                     const src = node.constraints.regex.source;
@@ -1043,7 +1050,7 @@ function getEffectiveParentNode(p) {
 }
 
 /**
- * 守护验证
+ * guard validation
  */
 export function guardValidate(op, absPath, payload) {
     if (guardianState.bypass) return { allow: true, value: payload };
@@ -1057,14 +1064,15 @@ export function guardValidate(op, absPath, payload) {
         constraints: {}
     };
 
-    // 只读检查
+    // note
+
     if (node.ro) return { allow: false, reason: 'ro' };
 
     const parentPath = getParentPath(p);
     const parentNode = parentPath ? (getEffectiveParentNode(p) || { objectPolicy: 'none', arrayPolicy: 'lock' }) : null;
     const currentValue = getValueAtPath(p);
 
-    // 删除操作
+    // delete op
     if (op === 'delNode') {
         if (!parentPath) return { allow: false, reason: 'no-parent' };
 
@@ -1087,7 +1095,7 @@ export function guardValidate(op, absPath, payload) {
         }
     }
 
-    // 推入操作
+    // push op
     if (op === 'push') {
         const arr = getValueAtPath(p);
         if (arr === undefined) {
@@ -1124,7 +1132,7 @@ export function guardValidate(op, absPath, payload) {
         return { allow: true, value: payload };
     }
 
-    // 增量操作
+    // bump op
     if (op === 'bump') {
         let d = Number(payload);
         if (!Number.isFinite(d)) return { allow: false, reason: 'delta-nan' };
@@ -1167,7 +1175,7 @@ export function guardValidate(op, absPath, payload) {
         return { allow: true, value: clamped.value };
     }
 
-    // 设置操作
+    // set op
     if (op === 'set') {
         const exists = currentValue !== undefined;
         if (!exists) {
@@ -1229,7 +1237,7 @@ export function guardValidate(op, absPath, payload) {
 }
 
 /**
- * 应用规则增量
+ * apply rules delta
  */
 export function applyRuleDelta(path, delta) {
     const p = normalizePath(path);
@@ -1284,7 +1292,7 @@ export function applyRuleDelta(path, delta) {
 }
 
 /**
- * 从树加载规则
+ * load rules from tree
  */
 export function rulesLoadFromTree(valueTree, basePath) {
     const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
@@ -1351,7 +1359,7 @@ export function rulesLoadFromTree(valueTree, basePath) {
 }
 
 /**
- * 应用规则增量表
+ * apply rules delta table
  */
 export function applyRulesDeltaToTable(delta) {
     if (!delta || typeof delta !== 'object') return;
@@ -1362,7 +1370,7 @@ export function applyRulesDeltaToTable(delta) {
 }
 
 /**
- * 安装变量 API 补丁
+ * install variable API patch
  */
 function installVariableApiPatch() {
     try {
@@ -1449,7 +1457,7 @@ function installVariableApiPatch() {
 }
 
 /**
- * 卸载变量 API 补丁
+ * uninstall variable API patch
  */
 function uninstallVariableApiPatch() {
     try {
@@ -1467,7 +1475,7 @@ function uninstallVariableApiPatch() {
     } catch {}
 }
 
-/* ============= 快照/回滚 ============= */
+/* ============ Snapshots / Rollback ============= */
 
 function getSnapMap() {
     const meta = getContext()?.chatMetadata || {};
@@ -1488,7 +1496,7 @@ function setVarDict(dict) {
         const current = meta.variables || {};
         const next = dict || {};
 
-        // 清除不存在的变量
+        // remove missing variables
         for (const k of Object.keys(current)) {
             if (!(k in next)) {
                 try { delete current[k]; } catch {}
@@ -1496,7 +1504,8 @@ function setVarDict(dict) {
             }
         }
 
-        // 设置新值
+        // note
+
         for (const [k, v] of Object.entries(next)) {
             let toStore = v;
             if (v && typeof v === 'object') {
@@ -1618,6 +1627,7 @@ function rollbackToPreviousOf(messageId) {
     const prevId = id - 1;
     if (prevId < 0) return;
 
+    // 1.0: restore from snapshot if available
     const snap = getSnapshot(prevId);
     if (snap) {
         const normalized = normalizeSnapshotRecord(snap);
@@ -1631,20 +1641,60 @@ function rollbackToPreviousOf(messageId) {
     }
 }
 
-function rebuildVariablesFromScratch() {
+async function rollbackToPreviousOfAsync(messageId) {
+    const id = Number(messageId);
+    if (Number.isNaN(id)) return;
+
+    // Notify L0 rollback hook for floor >= id
+    if (typeof globalThis.LWB_StateRollbackHook === 'function') {
+        try {
+            await globalThis.LWB_StateRollbackHook(id);
+        } catch (e) {
+            console.error('[variablesCore] LWB_StateRollbackHook failed:', e);
+        }
+    }
+
+    const prevId = id - 1;
+    const mode = getVariablesMode();
+
+    if (mode === '2.0') {
+        try {
+            const mod = await import('./state2/index.js');
+            await mod.restoreStateV2ToFloor(prevId); // prevId < 0 handled by implementation
+        } catch (e) {
+            console.error('[variablesCore][2.0] restoreStateV2ToFloor failed:', e);
+        }
+        return;
+    }
+
+    // mode === '1.0'
+    rollbackToPreviousOf(id);
+}
+
+
+async function rebuildVariablesFromScratch() {
     try {
+        const mode = getVariablesMode();
+        if (mode === '2.0') {
+            const mod = await import('./state2/index.js');
+            const chat = getContext()?.chat || [];
+            const lastId = chat.length ? chat.length - 1 : -1;
+            await mod.restoreStateV2ToFloor(lastId);
+            return;
+        }
+        // 1.0 legacy logic
         setVarDict({});
         const chat = getContext()?.chat || [];
         for (let i = 0; i < chat.length; i++) {
-            applyVariablesForMessage(i);
+            await applyVariablesForMessage(i);
         }
     } catch {}
 }
 
-/* ============= 应用变量到消息 ============= */
+/* ============ Apply Variables To Message ============= */
 
 /**
- * 将对象模式转换
+ * switch to object mode
  */
 function asObject(rec) {
     if (rec.mode !== 'object') {
@@ -1658,7 +1708,7 @@ function asObject(rec) {
 }
 
 /**
- * 增量操作辅助
+ * bump helper
  */
 function bumpAtPath(rec, path, delta) {
     const numDelta = Number(delta);
@@ -1715,7 +1765,7 @@ function bumpAtPath(rec, path, delta) {
 }
 
 /**
- * 解析标量数组
+ * parse scalar array
  */
 function parseScalarArrayMaybe(str) {
     try {
@@ -1727,8 +1777,55 @@ function parseScalarArrayMaybe(str) {
 }
 
 /**
- * 应用变量到消息
+ * apply variables for message
  */
+function readMessageText(msg) {
+    if (!msg) return '';
+    if (typeof msg.mes === 'string') return msg.mes;
+    if (typeof msg.content === 'string') return msg.content;
+    if (Array.isArray(msg.content)) {
+        return msg.content
+            .filter(p => p?.type === 'text' && typeof p.text === 'string')
+            .map(p => p.text)
+            .join('\n');
+    }
+    return '';
+}
+
+function getVariablesMode() {
+    try {
+        return extension_settings?.[EXT_ID]?.variablesMode || '1.0';
+    } catch {
+        return '1.0';
+    }
+}
+
+async function applyVarsForMessage(messageId) {
+    const ctx = getContext();
+    const msg = ctx?.chat?.[messageId];
+    if (!msg) return;
+
+    const text = readMessageText(msg);
+    const mode = getVariablesMode();
+
+    if (mode === '2.0') {
+        const result = applyStateForMessage(messageId, text);
+
+        if (result.errors?.length) {
+            console.warn('[variablesCore][2.0] warnings:', result.errors);
+        }
+
+        if (result.atoms?.length) {
+            $(document).trigger('xiaobaix:variables:stateAtomsGenerated', {
+                messageId,
+                atoms: result.atoms
+            });
+        }
+        return;
+    }
+
+    await applyVariablesForMessage(messageId);
+}
 async function applyVariablesForMessage(messageId) {
     try {
         const ctx = getContext();
@@ -1739,7 +1836,7 @@ async function applyVariablesForMessage(messageId) {
         const preview = (text, max = 220) => {
             try {
                 const s = String(text ?? '').replace(/\s+/g, ' ').trim();
-                return s.length > max ? s.slice(0, max) + '…' : s;
+                return s.length > max ? s.slice(0, max) + '...' : s;
             } catch {
                 return '';
             }
@@ -1779,7 +1876,7 @@ async function applyVariablesForMessage(messageId) {
             } catch (e) {
                 parseErrors++;
                 if (debugOn) {
-                    try { xbLog.error(MODULE_ID, `plot-log 解析失败：楼层=${messageId} 块#${idx + 1} 预览=${preview(b)}`, e); } catch {}
+                    try { xbLog.error(MODULE_ID, `plot-log 解析失败：楼层${messageId} 块${idx + 1} 预览=${preview(b)}`, e); } catch {}
                 }
                 return;
             }
@@ -1810,7 +1907,7 @@ async function applyVariablesForMessage(messageId) {
                 try {
                     xbLog.warn(
                         MODULE_ID,
-                        `plot-log 未产生可执行指令：楼层=${messageId} 块数=${blocks.length} 解析条目=${parsedPartsTotal} 解析失败=${parseErrors} 预览=${preview(blocks[0])}`
+                        `plot-log 未产生可执行指令：楼层${messageId} 块数=${blocks.length} 解析条目=${parsedPartsTotal} 解析失败=${parseErrors} 预览=${preview(blocks[0])}`
                     );
                 } catch {}
             }
@@ -1818,7 +1915,7 @@ async function applyVariablesForMessage(messageId) {
             return;
         }
 
-        // 构建变量记录
+        // build variable records
         const byName = new Map();
 
         for (const { name } of ops) {
@@ -1838,9 +1935,9 @@ async function applyVariablesForMessage(messageId) {
 
         const norm = (p) => String(p || '').replace(/\[(\d+)\]/g, '.$1');
 
-        // 执行操作
+        // execute operations
         for (const op of ops) {
-            // 守护指令
+            // guard directives
             if (op.operation === 'guard') {
                 for (const entry of op.data) {
                     const path = typeof entry?.path === 'string' ? entry.path.trim() : '';
@@ -1865,7 +1962,7 @@ async function applyVariablesForMessage(messageId) {
             const rec = byName.get(root);
             if (!rec) continue;
 
-            // SET 操作
+            // set op
             if (op.operation === 'setObject') {
                 for (const [k, v] of Object.entries(op.data)) {
                     const localPath = joinPath(subPath, k);
@@ -1903,7 +2000,7 @@ async function applyVariablesForMessage(messageId) {
                 }
             }
 
-            // DEL 操作
+            // delete op
             else if (op.operation === 'del') {
                 const obj = asObject(rec);
                 const pending = [];
@@ -1951,7 +2048,8 @@ async function applyVariablesForMessage(messageId) {
                     });
                 }
 
-                // 按索引分组（倒序删除）
+                // note
+
                 const arrGroups = new Map();
                 const objDeletes = [];
 
@@ -1977,7 +2075,7 @@ async function applyVariablesForMessage(messageId) {
                 }
             }
 
-            // PUSH 操作
+            // push op
             else if (op.operation === 'push') {
                 for (const [k, vals] of Object.entries(op.data)) {
                     const localPath = joinPath(subPath, k);
@@ -2033,7 +2131,7 @@ async function applyVariablesForMessage(messageId) {
                 }
             }
 
-            // BUMP 操作
+            // bump op
             else if (op.operation === 'bump') {
                 for (const [k, delta] of Object.entries(op.data)) {
                     const num = Number(delta);
@@ -2077,7 +2175,7 @@ async function applyVariablesForMessage(messageId) {
             }
         }
 
-        // 检查是否有变化
+        // check for changes
         const hasChanges = Array.from(byName.values()).some(rec => rec?.changed === true);
         if (!hasChanges && delVarNames.size === 0) {
             if (debugOn) {
@@ -2085,7 +2183,7 @@ async function applyVariablesForMessage(messageId) {
                     const denied = guardDenied ? `，被规则拦截=${guardDenied}` : '';
                     xbLog.warn(
                         MODULE_ID,
-                        `plot-log 指令执行后无变化：楼层=${messageId} 指令数=${ops.length}${denied} 示例=${preview(JSON.stringify(guardDeniedSamples))}`
+                        `plot-log 指令执行后无变化：楼层${messageId} 指令数${ops.length}${denied} 示例=${preview(JSON.stringify(guardDeniedSamples))}`
                     );
                 } catch {}
             }
@@ -2093,7 +2191,7 @@ async function applyVariablesForMessage(messageId) {
             return;
         }
 
-        // 保存变量
+        // save variables
         for (const [name, rec] of byName.entries()) {
             if (!rec.changed) continue;
             try {
@@ -2105,7 +2203,7 @@ async function applyVariablesForMessage(messageId) {
             } catch {}
         }
 
-        // 删除变量
+        // delete variables
         if (delVarNames.size > 0) {
             try {
                 for (const v of delVarNames) {
@@ -2124,7 +2222,7 @@ async function applyVariablesForMessage(messageId) {
     } catch {}
 }
 
-/* ============= 事件处理 ============= */
+/* ============ Event Handling ============= */
 
 function getMsgIdLoose(payload) {
     if (payload && typeof payload === 'object') {
@@ -2150,56 +2248,57 @@ function bindEvents() {
     let lastSwipedId;
     suppressUpdatedOnce = new Set();
 
-    // 消息发送
+    // note
+
     events?.on(event_types.MESSAGE_SENT, async () => {
         try {
-            snapshotCurrentLastFloor();
+            if (getVariablesMode() !== '2.0') snapshotCurrentLastFloor();
             const chat = getContext()?.chat || [];
             const id = chat.length ? chat.length - 1 : undefined;
             if (typeof id === 'number') {
-                await applyVariablesForMessage(id);
+                await applyVarsForMessage(id);
                 applyXbGetVarForMessage(id, true);
             }
         } catch {}
     });
 
-    // 消息接收
+    // message received
     events?.on(event_types.MESSAGE_RECEIVED, async (data) => {
         try {
             const id = getMsgIdLoose(data);
             if (typeof id === 'number') {
-                await applyVariablesForMessage(id);
+                await applyVarsForMessage(id);
                 applyXbGetVarForMessage(id, true);
                 await executeQueuedVareventJsAfterTurn();
             }
         } catch {}
     });
 
-    // 用户消息渲染
+    // user message rendered
     events?.on(event_types.USER_MESSAGE_RENDERED, async (data) => {
         try {
             const id = getMsgIdLoose(data);
             if (typeof id === 'number') {
-                await applyVariablesForMessage(id);
+                await applyVarsForMessage(id);
                 applyXbGetVarForMessage(id, true);
-                snapshotForMessageId(id);
+                if (getVariablesMode() !== '2.0') snapshotForMessageId(id);
             }
         } catch {}
     });
 
-    // 角色消息渲染
+    // character message rendered
     events?.on(event_types.CHARACTER_MESSAGE_RENDERED, async (data) => {
         try {
             const id = getMsgIdLoose(data);
             if (typeof id === 'number') {
-                await applyVariablesForMessage(id);
+                await applyVarsForMessage(id);
                 applyXbGetVarForMessage(id, true);
-                snapshotForMessageId(id);
+                if (getVariablesMode() !== '2.0') snapshotForMessageId(id);
             }
         } catch {}
     });
 
-    // 消息更新
+    // message updated
     events?.on(event_types.MESSAGE_UPDATED, async (data) => {
         try {
             const id = getMsgIdLoose(data);
@@ -2208,84 +2307,103 @@ function bindEvents() {
                     suppressUpdatedOnce.delete(id);
                     return;
                 }
-                await applyVariablesForMessage(id);
+                await applyVarsForMessage(id);
                 applyXbGetVarForMessage(id, true);
             }
         } catch {}
     });
 
-    // 消息编辑
+    // message edited
     events?.on(event_types.MESSAGE_EDITED, async (data) => {
         try {
             const id = getMsgIdLoose(data);
-            if (typeof id === 'number') {
-                clearAppliedFor(id);
-                rollbackToPreviousOf(id);
+            if (typeof id !== 'number') return;
 
-                setTimeout(async () => {
-                    await applyVariablesForMessage(id);
-                    applyXbGetVarForMessage(id, true);
+            if (getVariablesMode() !== '2.0') clearAppliedFor(id);
 
-                    try {
-                        const ctx = getContext();
-                        const msg = ctx?.chat?.[id];
-                        if (msg) updateMessageBlock(id, msg, { rerenderMessage: true });
-                    } catch {}
+            // Roll back first so re-apply uses the edited message
+            await rollbackToPreviousOfAsync(id);
 
-                    try {
-                        const ctx = getContext();
-                        const es = ctx?.eventSource;
-                        const et = ctx?.event_types;
-                        if (es?.emit && et?.MESSAGE_UPDATED) {
-                            suppressUpdatedOnce.add(id);
-                            await es.emit(et.MESSAGE_UPDATED, id);
-                        }
-                    } catch {}
+            setTimeout(async () => {
+                await applyVarsForMessage(id);
+                applyXbGetVarForMessage(id, true);
 
-                    await executeQueuedVareventJsAfterTurn();
-                }, 10);
-            }
+                try {
+                    const ctx = getContext();
+                    const msg = ctx?.chat?.[id];
+                    if (msg) updateMessageBlock(id, msg, { rerenderMessage: true });
+                } catch {}
+
+                try {
+                    const ctx = getContext();
+                    const es = ctx?.eventSource;
+                    const et = ctx?.event_types;
+                    if (es?.emit && et?.MESSAGE_UPDATED) {
+                        suppressUpdatedOnce.add(id);
+                        await es.emit(et.MESSAGE_UPDATED, id);
+                    }
+                } catch {}
+
+                await executeQueuedVareventJsAfterTurn();
+            }, 10);
         } catch {}
     });
 
-    // 消息滑动
+    // message swiped
     events?.on(event_types.MESSAGE_SWIPED, async (data) => {
         try {
             const id = getMsgIdLoose(data);
-            if (typeof id === 'number') {
-                lastSwipedId = id;
-                clearAppliedFor(id);
-                rollbackToPreviousOf(id);
+            if (typeof id !== 'number') return;
 
-                const tId = setTimeout(async () => {
-                    pendingSwipeApply.delete(id);
-                    await applyVariablesForMessage(id);
-                    await executeQueuedVareventJsAfterTurn();
-                }, 10);
+            lastSwipedId = id;
+            if (getVariablesMode() !== '2.0') clearAppliedFor(id);
 
-                pendingSwipeApply.set(id, tId);
-            }
+            // Roll back first so swipe applies cleanly
+            await rollbackToPreviousOfAsync(id);
+
+            const tId = setTimeout(async () => {
+                pendingSwipeApply.delete(id);
+                await applyVarsForMessage(id);
+                await executeQueuedVareventJsAfterTurn();
+            }, 10);
+
+            pendingSwipeApply.set(id, tId);
         } catch {}
     });
 
-    // 消息删除
-    events?.on(event_types.MESSAGE_DELETED, (data) => {
+    // message deleted
+    events?.on(event_types.MESSAGE_DELETED, async (data) => {
         try {
             const id = getMsgIdStrict(data);
-            if (typeof id === 'number') {
-                rollbackToPreviousOf(id);
+            if (typeof id !== 'number') return;
+
+            // Roll back first before delete handling
+            await rollbackToPreviousOfAsync(id);
+
+            // 2.0: physical delete -> trim WAL/ckpt to avoid bloat
+            if (getVariablesMode() === '2.0') {
+                try {
+                    const mod = await import('./state2/index.js');
+                    await mod.trimStateV2FromFloor(id);
+                } catch (e) {
+                    console.error('[variablesCore][2.0] trimStateV2FromFloor failed:', e);
+                }
+            }
+
+            if (getVariablesMode() !== '2.0') {
                 clearSnapshotsFrom(id);
                 clearAppliedFrom(id);
             }
         } catch {}
     });
 
-    // 生成开始
+    // note
+
     events?.on(event_types.GENERATION_STARTED, (data) => {
         try {
-            snapshotPreviousFloor();
+            if (getVariablesMode() !== '2.0') snapshotPreviousFloor();
 
-            // 取消滑动延迟
+            // cancel swipe delay
             const t = (typeof data === 'string' ? data : (data?.type || '')).toLowerCase();
             if (t === 'swipe' && lastSwipedId != null) {
                 const tId = pendingSwipeApply.get(lastSwipedId);
@@ -2297,8 +2415,8 @@ function bindEvents() {
         } catch {}
     });
 
-    // 聊天切换
-    events?.on(event_types.CHAT_CHANGED, () => {
+    // chat changed
+    events?.on(event_types.CHAT_CHANGED, async () => {
         try {
             rulesClearCache();
             rulesLoadFromMeta();
@@ -2306,33 +2424,42 @@ function bindEvents() {
             const meta = getContext()?.chatMetadata || {};
             meta[LWB_PLOT_APPLIED_KEY] = {};
             getContext()?.saveMetadataDebounced?.();
+
+            if (getVariablesMode() === '2.0') {
+                try {
+                    const mod = await import('./state2/index.js');
+                    mod.clearStateAppliedFrom(0);
+                } catch {}
+            }
         } catch {}
     });
 }
 
-/* ============= 初始化与清理 ============= */
+/* ============ Init & Cleanup ============= */
 
 /**
- * 初始化模块
+ * init module
  */
 export function initVariablesCore() {
     try { xbLog.info('variablesCore', '变量系统启动'); } catch {}
     if (initialized) return;
     initialized = true;
 
-    // 创建事件管理器
+    // init events
+
     events = createModuleEvents(MODULE_ID);
 
-    // 加载规则
+    // load rules
     rulesLoadFromMeta();
 
-    // 安装 API 补丁
+    // install API patch
     installVariableApiPatch();
 
-    // 绑定事件
+    // bind events
     bindEvents();
 
-    // 挂载全局函数（供 var-commands.js 使用）
+    // note
+
     globalThis.LWB_Guard = {
         validate: guardValidate,
         loadRules: rulesLoadFromTree,
@@ -2340,48 +2467,76 @@ export function initVariablesCore() {
         applyDeltaTable: applyRulesDeltaToTable,
         save: rulesSaveToMeta,
     };
+
+    globalThis.LWB_StateV2 = {
+        /**
+         * @param {string} text - 包含 <state>...</state> 的文本
+         * @param {{ floor?: number, silent?: boolean }} [options]
+         *  - floor: 指定写入/记录用楼层（默认：最后一楼）
+         *  - silent: true 时不触发 stateAtomsGenerated（初始化用）
+         */
+        applyText: async (text, options = {}) => {
+            const { applyStateForMessage } = await import('./state2/index.js');
+            const ctx = getContext();
+            const floor =
+                Number.isFinite(options.floor)
+                    ? Number(options.floor)
+                    : Math.max(0, (ctx?.chat?.length || 1) - 1);
+            const result = applyStateForMessage(floor, String(text || ''));
+            // ✅ 默认会触发（当作事件）
+            // ✅ 初始化时 silent=true，不触发（当作基线写入）
+            if (!options.silent && result?.atoms?.length) {
+                $(document).trigger('xiaobaix:variables:stateAtomsGenerated', {
+                    messageId: floor,
+                    atoms: result.atoms,
+                });
+            }
+            return result;
+        },
+    };
 }
 
 /**
- * 清理模块
+ * cleanup module
  */
 export function cleanupVariablesCore() {
     try { xbLog.info('variablesCore', '变量系统清理'); } catch {}
     if (!initialized) return;
 
-    // 清理事件
+    // cleanup events
     events?.cleanup();
     events = null;
 
-    // 卸载 API 补丁
+    // uninstall API patch
     uninstallVariableApiPatch();
 
-    // 清理规则
+    // clear rules
     rulesClearCache();
 
-    // 清理全局函数
+    // clear global hooks
     delete globalThis.LWB_Guard;
+    delete globalThis.LWB_StateV2;
 
-    // 清理守护状态
+    // clear guard state
     guardBypass(false);
 
     initialized = false;
 }
 
-/* ============= 导出 ============= */
+/* ============ Exports ============= */
 
 export {
     MODULE_ID,
-    // 解析
+    // parsing
     parseBlock,
     applyVariablesForMessage,
     extractPlotLogBlocks,
-    // 快照
+    // snapshots
     snapshotCurrentLastFloor,
     snapshotForMessageId,
     rollbackToPreviousOf,
     rebuildVariablesFromScratch,
-    // 规则
+    // rules
     rulesGetTable,
     rulesSetTable,
     rulesLoadFromMeta,

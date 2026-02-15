@@ -1,0 +1,129 @@
+{
+  "name": "jieba-wasm",
+  "version": "2.4.0",
+  "description": "WASM binding to jieba-rs",
+  "main": "./pkg/nodejs/jieba_rs_wasm.js",
+  "types": "./pkg/nodejs/jieba_rs_wasm.d.ts",
+  "exports": {
+    ".": {
+      "node": {
+        "types": "./pkg/nodejs/jieba_rs_wasm.d.ts",
+        "default": "./pkg/nodejs/jieba_rs_wasm.js"
+      },
+      "deno": {
+        "types": "./pkg/deno/jieba_rs_wasm.d.ts",
+        "default": "./pkg/deno/jieba_rs_wasm.js"
+      },
+      "browser": {
+        "types": "./pkg/web/jieba_rs_wasm.d.ts",
+        "default": "./pkg/web/jieba_rs_wasm.js"
+      },
+      "import": {
+        "types": "./pkg/web/jieba_rs_wasm.d.ts",
+        "default": "./pkg/web/jieba_rs_wasm.js"
+      },
+      "require": {
+        "types": "./pkg/nodejs/jieba_rs_wasm.d.ts",
+        "default": "./pkg/nodejs/jieba_rs_wasm.js"
+      }
+    },
+    "./web": {
+      "types": "./pkg/web/jieba_rs_wasm.d.ts",
+      "default": "./pkg/web/jieba_rs_wasm.js"
+    },
+    "./node": {
+      "types": "./pkg/nodejs/jieba_rs_wasm.d.ts",
+      "default": "./pkg/nodejs/jieba_rs_wasm.js"
+    },
+    "./deno": {
+      "types": "./pkg/deno/jieba_rs_wasm.d.ts",
+      "default": "./pkg/deno/jieba_rs_wasm.js"
+    }
+  },
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "build": "wireit",
+    "build:cargo": "wireit",
+    "build:bundler": "wireit",
+    "build:nodejs": "wireit",
+    "build:deno": "wireit",
+    "build:web": "wireit",
+    "build:opt": "wireit",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "wireit": {
+    "build:cargo": {
+      "command": "cargo build --release --target wasm32-unknown-unknown"
+    },
+    "build:bundler": {
+      "command": "wasm-bindgen target/wasm32-unknown-unknown/release/jieba_rs_wasm.wasm --out-dir ./pkg/bundler --target bundler",
+      "dependencies": [
+        "build:cargo"
+      ]
+    },
+    "build:nodejs": {
+      "command": "wasm-bindgen target/wasm32-unknown-unknown/release/jieba_rs_wasm.wasm --out-dir ./pkg/nodejs --target nodejs",
+      "dependencies": [
+        "build:cargo"
+      ]
+    },
+    "build:deno": {
+      "command": "wasm-bindgen target/wasm32-unknown-unknown/release/jieba_rs_wasm.wasm --out-dir ./pkg/deno --target deno",
+      "dependencies": [
+        "build:cargo"
+      ]
+    },
+    "build:web": {
+      "command": "wasm-bindgen target/wasm32-unknown-unknown/release/jieba_rs_wasm.wasm --out-dir ./pkg/web --target web",
+      "dependencies": [
+        "build:cargo"
+      ]
+    },
+    "build": {
+      "dependencies": [
+        "build:cargo",
+        "build:bundler",
+        "build:nodejs",
+        "build:deno",
+        "build:web",
+        "build:opt"
+      ]
+    },
+    "build:opt": {
+      "command": "node scripts/opt.js",
+      "dependencies": [
+        "build:cargo",
+        "build:bundler",
+        "build:nodejs",
+        "build:deno",
+        "build:web"
+      ]
+    }
+  },
+  "files": [
+    "pkg/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fengkx/jieba-wasm.git"
+  },
+  "keywords": [
+    "wasm",
+    "jieba",
+    "chinese",
+    "segment",
+    "中文分词"
+  ],
+  "author": "fengkx",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/fengkx/jieba-wasm/issues"
+  },
+  "homepage": "https://github.com/fengkx/jieba-wasm#readme",
+  "devDependencies": {
+    "@jsdevtools/ez-spawn": "^3.0.4",
+    "wireit": "^0.14.4"
+  }
+}

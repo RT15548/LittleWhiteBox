@@ -1,4 +1,4 @@
-import { EventCenter } from "./event-manager.js";
+﻿import { EventCenter } from "./event-manager.js";
 
 const DEFAULT_MAX_LOGS = 200;
 
@@ -110,14 +110,14 @@ class LoggerCore {
         });
     }
 
-    info(moduleId, message) {
-        this._log("info", moduleId, message, null);
+    info(moduleId, ...args) {
+        const msg = args.map(a => (typeof a === 'string' ? a : safeStringify(a))).join(' ');
+        this._log('info', moduleId, msg, null);
     }
-
-    warn(moduleId, message) {
-        this._log("warn", moduleId, message, null);
+    warn(moduleId, ...args) {
+        const msg = args.map(a => (typeof a === 'string' ? a : safeStringify(a))).join(' ');
+        this._log('warn', moduleId, msg, null);
     }
-
     error(moduleId, message, err) {
         this._log("error", moduleId, message, err || null);
     }

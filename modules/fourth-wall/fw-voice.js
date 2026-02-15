@@ -2,7 +2,7 @@
 // 语音模块 - TTS 合成服务
 // ════════════════════════════════════════════════════════════════════════════
 
-export const TTS_WORKER_URL = 'https://hstts.velure.top';
+export const TTS_WORKER_URL = 'https://hstts.velure.codes';
 export const DEFAULT_VOICE = 'female_1';
 export const DEFAULT_SPEED = 1.0;
 

@@ -1,3 +1,4 @@
+<!-- story-summary.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 
@@ -6,1391 +7,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <title>剧情总结 · Story Summary</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box
-        }
-
-        :root {
-            --bg: #fafafa;
-            --bg2: #fff;
-            --bg3: #f5f5f5;
-            --txt: #1a1a1a;
-            --txt2: #444;
-            --txt3: #666;
-            --bdr: #dcdcdc;
-            --bdr2: #e8e8e8;
-            --acc: #1a1a1a;
-            --hl: #d87a7a;
-            --hl-soft: rgba(184, 90, 90, .1)
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg);
-            color: var(--txt);
-            line-height: 1.6;
-            min-height: 100vh;
-            -webkit-overflow-scrolling: touch
-        }
-
-        .container {
-            display: flex;
-            flex-direction: column;
-            min-height: 100vh;
-            padding: 24px 40px;
-            max-width: 1800px;
-            margin: 0 auto
-        }
-
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            padding-bottom: 24px;
-            border-bottom: 1px solid var(--bdr);
-            margin-bottom: 24px
-        }
-
-        h1 {
-            font-size: 2rem;
-            font-weight: 300;
-            letter-spacing: -.02em;
-            margin-bottom: 4px
-        }
-
-        h1 span {
-            font-weight: 600
-        }
-
-        .subtitle {
-            font-size: .875rem;
-            color: var(--txt3);
-            letter-spacing: .05em;
-            text-transform: uppercase
-        }
-
-        .stats {
-            display: flex;
-            gap: 48px;
-            text-align: right
-        }
-
-        .stat {
-            display: flex;
-            flex-direction: column
-        }
-
-        .stat-val {
-            font-size: 2.5rem;
-            font-weight: 200;
-            line-height: 1;
-            letter-spacing: -.03em
-        }
-
-        .stat-val .hl {
-            color: var(--hl)
-        }
-
-        .stat-lbl {
-            font-size: .75rem;
-            color: var(--txt3);
-            text-transform: uppercase;
-            letter-spacing: .1em;
-            margin-top: 4px
-        }
-
-        .controls {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 12px 0;
-            margin-bottom: 20px
-        }
-
-        .chk-label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: var(--bg3);
-            border: 1px solid var(--bdr);
-            font-size: .8125rem;
-            color: var(--txt2);
-            cursor: pointer;
-            transition: all .2s
-        }
-
-        .chk-label:hover {
-            border-color: var(--acc)
-        }
-
-        .chk-label input {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--hl);
-            cursor: pointer
-        }
-
-        .chk-label strong {
-            color: var(--hl)
-        }
-
-        .btn {
-            padding: 12px 28px;
-            background: var(--bg2);
-            color: var(--txt);
-            border: 1px solid var(--bdr);
-            font-size: .875rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all .2s
-        }
-
-        .btn:hover {
-            border-color: var(--acc);
-            background: var(--bg3)
-        }
-
-        .btn-p {
-            background: var(--acc);
-            color: #fff;
-            border-color: var(--acc)
-        }
-
-        .btn-p:hover {
-            background: #555
-        }
-
-        .btn-p:disabled {
-            background: #999;
-            border-color: #999;
-            cursor: not-allowed;
-            opacity: .7
-        }
-
-        .btn-icon {
-            padding: 10px 16px;
-            display: flex;
-            align-items: center;
-            gap: 6px
-        }
-
-        .btn-icon svg {
-            width: 16px;
-            height: 16px
-        }
-
-        .btn-sm {
-            padding: 8px 16px;
-            font-size: .8125rem
-        }
-
-        .btn-del {
-            background: transparent;
-            color: var(--hl);
-            border-color: var(--hl)
-        }
-
-        .btn-del:hover {
-            background: var(--hl-soft)
-        }
-
-        .spacer {
-            flex: 1
-        }
-
-        main {
-            display: grid;
-            grid-template-columns: 1fr 480px;
-            gap: 24px;
-            flex: 1;
-            min-height: 0
-        }
-
-        .sec-head {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px
-        }
-
-        .sec-title {
-            font-size: .75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: .15em;
-            color: var(--txt2)
-        }
-
-        .sec-btn {
-            padding: 4px 12px;
-            background: transparent;
-            border: 1px solid var(--bdr);
-            font-size: .6875rem;
-            color: var(--txt3);
-            cursor: pointer;
-            transition: all .2s;
-            text-transform: uppercase;
-            letter-spacing: .05em
-        }
-
-        .sec-btn:hover {
-            border-color: var(--acc);
-            color: var(--txt);
-            background: var(--bg3)
-        }
-
-        .sec-actions {
-            display: flex;
-            gap: 8px;
-            align-items: center
-        }
-
-        .sec-icon {
-            padding: 4px 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center
-        }
-
-        .left {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-            min-height: 0
-        }
-
-        .card {
-            background: var(--bg2);
-            border: 1px solid var(--bdr);
-            padding: 24px
-        }
-
-        .keywords {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-top: 16px
-        }
-
-        .tag {
-            padding: 8px 20px;
-            background: var(--bg3);
-            border: 1px solid var(--bdr2);
-            font-size: .875rem;
-            color: var(--txt2);
-            transition: all .2s;
-            cursor: default
-        }
-
-        .tag.p {
-            background: var(--acc);
-            color: #fff;
-            border-color: var(--acc);
-            font-weight: 500
-        }
-
-        .tag.s {
-            background: var(--hl-soft);
-            border-color: rgba(255, 68, 68, .2);
-            color: var(--hl)
-        }
-
-        .tag:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, .08)
-        }
-
-        .timeline {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-height: 0;
-            max-height: 750px
-        }
-
-        .tl-list {
-            flex: 1;
-            overflow-y: auto;
-            padding-right: 8px;
-            min-height: 0
-        }
-
-        .tl-list::-webkit-scrollbar,
-        .scroll::-webkit-scrollbar {
-            width: 4px
-        }
-
-        .tl-list::-webkit-scrollbar-thumb,
-        .scroll::-webkit-scrollbar-thumb {
-            background: var(--bdr)
-        }
-
-        .tl-item {
-            position: relative;
-            padding-left: 32px;
-            padding-bottom: 32px;
-            border-left: 1px solid var(--bdr);
-            margin-left: 8px
-        }
-
-        .tl-item:last-child {
-            border-left-color: transparent;
-            padding-bottom: 0
-        }
-
-        .tl-dot {
-            position: absolute;
-            left: -5px;
-            top: 0;
-            width: 9px;
-            height: 9px;
-            background: var(--bg2);
-            border: 2px solid var(--txt3);
-            border-radius: 50%;
-            transition: all .2s
-        }
-
-        .tl-item:hover .tl-dot {
-            border-color: var(--hl);
-            background: var(--hl);
-            transform: scale(1.3)
-        }
-
-        .tl-item.crit .tl-dot {
-            border-color: var(--hl);
-            background: var(--hl)
-        }
-
-        .tl-head {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            margin-bottom: 8px
-        }
-
-        .tl-title {
-            font-size: 1rem;
-            font-weight: 500
-        }
-
-        .tl-time {
-            font-size: .75rem;
-            color: var(--txt3);
-            font-variant-numeric: tabular-nums
-        }
-
-        .tl-brief {
-            font-size: .875rem;
-            color: var(--txt2);
-            line-height: 1.7;
-            margin-bottom: 12px
-        }
-
-        .tl-meta {
-            display: flex;
-            gap: 16px;
-            font-size: .75rem;
-            color: var(--txt3)
-        }
-
-        .tl-meta .imp {
-            color: var(--hl);
-            font-weight: 500
-        }
-
-        .right {
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-            min-height: 0
-        }
-
-        .relations {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-height: 430px
-        }
-
-        #relation-chart,
-        #relation-chart-fullscreen {
-            width: 100%;
-            height: 100%;
-            flex: 1;
-            min-height: 200px;
-            touch-action: none
-        }
-
-        .profile {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-height: 0;
-            max-height: 480px
-        }
-
-        .profile-content {
-            flex: 1;
-            overflow-y: auto;
-            padding-right: 8px
-        }
-
-        .custom-select {
-            position: relative;
-            min-width: 140px;
-            font-size: .8125rem
-        }
-
-        .sel-trigger {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 6px 12px;
-            background: var(--bg3);
-            border: 1px solid var(--bdr);
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all .2s;
-            user-select: none
-        }
-
-        .sel-trigger:hover {
-            border-color: var(--acc);
-            background: var(--bg2)
-        }
-
-        .sel-trigger::after {
-            content: '';
-            width: 16px;
-            height: 16px;
-            background: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238d8d8d' stroke-width='2'%3e%3cpath d='M6 9l6 6 6-6'/%3e%3c/svg%3e") center/16px no-repeat;
-            transition: transform .2s
-        }
-
-        .custom-select.open .sel-trigger::after {
-            transform: rotate(180deg)
-        }
-
-        .sel-opts {
-            position: absolute;
-            top: calc(100% + 4px);
-            left: 0;
-            right: 0;
-            background: var(--bg2);
-            border: 1px solid var(--bdr);
-            border-radius: 6px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, .15);
-            z-index: 100;
-            display: none;
-            max-height: 240px;
-            overflow-y: auto;
-            padding: 4px
-        }
-
-        .custom-select.open .sel-opts {
-            display: block;
-            animation: fadeIn .2s
-        }
-
-        .sel-opt {
-            padding: 8px 12px;
-            cursor: pointer;
-            border-radius: 4px;
-            transition: background .1s
-        }
-
-        .sel-opt:hover {
-            background: var(--bg3)
-        }
-
-        .sel-opt.sel {
-            background: var(--hl-soft);
-            color: var(--hl);
-            font-weight: 600
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(-4px)
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0)
-            }
-        }
-
-        .prof-arc {
-            padding: 16px;
-            margin-bottom: 24px
-        }
-
-        .prof-name {
-            font-size: 1.125rem;
-            font-weight: 600;
-            margin-bottom: 4px
-        }
-
-        .prof-traj {
-            font-size: .8125rem;
-            color: var(--txt3);
-            line-height: 1.5
-        }
-
-        .prof-prog-wrap {
-            margin-bottom: 16px
-        }
-
-        .prof-prog-lbl {
-            display: flex;
-            justify-content: space-between;
-            font-size: .75rem;
-            color: var(--txt3);
-            margin-bottom: 6px
-        }
-
-        .prof-prog {
-            height: 4px;
-            background: var(--bdr);
-            border-radius: 2px;
-            overflow: hidden
-        }
-
-        .prof-prog-inner {
-            height: 100%;
-            background: linear-gradient(90deg, var(--hl), #d85858);
-            border-radius: 2px;
-            transition: width .6s
-        }
-
-        .prof-moments {
-            background: var(--bg2);
-            border-left: 3px solid var(--hl);
-            padding: 12px 16px
-        }
-
-        .prof-moments-title {
-            font-size: .6875rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: .1em;
-            color: var(--txt3);
-            margin-bottom: 8px
-        }
-
-        .prof-moment {
-            position: relative;
-            padding-left: 16px;
-            margin-bottom: 6px;
-            font-size: .8125rem;
-            color: var(--txt2);
-            line-height: 1.5
-        }
-
-        .prof-moment::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 7px;
-            width: 6px;
-            height: 6px;
-            background: var(--hl);
-            border-radius: 50%
-        }
-
-        .prof-moment:last-child {
-            margin-bottom: 0
-        }
-
-        .prof-rels {
-            display: flex;
-            flex-direction: column
-        }
-
-        .rels-group {
-            border-bottom: 1px solid var(--bdr2);
-            padding: 16px 0
-        }
-
-        .rels-group:last-child {
-            border-bottom: none;
-            padding-bottom: 0
-        }
-
-        .rels-group:first-child {
-            padding-top: 0
-        }
-
-        .rels-group-title {
-            font-size: .75rem;
-            font-weight: 600;
-            color: var(--txt3);
-            margin-bottom: 12px;
-            display: flex;
-            align-items: center;
-            gap: 8px
-        }
-
-        .rel-item {
-            display: flex;
-            align-items: baseline;
-            gap: 8px;
-            padding: 4px 8px;
-            border-radius: 4px;
-            margin-bottom: 2px;
-        }
-
-        .rel-item:hover {
-            background: var(--bg3)
-        }
-
-        .rel-target {
-            font-size: .9rem;
-            color: var(--txt2);
-            white-space: nowrap;
-            min-width: 60px
-        }
-
-        .rel-label {
-            font-size: .7rem;
-            line-height: 1.5;
-            flex: 1
-        }
-
-        .rel-trend {
-            font-size: .6875rem;
-            padding: 2px 8px;
-            border-radius: 10px;
-            white-space: nowrap
-        }
-
-        .trend-broken {
-            background: rgba(68, 68, 68, .15);
-            color: #444
-        }
-
-        .trend-hate {
-            background: rgba(139, 0, 0, .15);
-            color: #8b0000
-        }
-
-        .trend-dislike {
-            background: rgba(205, 92, 92, .15);
-            color: #cd5c5c
-        }
-
-        .trend-stranger {
-            background: rgba(136, 136, 136, .15);
-            color: #888
-        }
-
-        .trend-click {
-            background: rgba(102, 205, 170, .15);
-            color: #4a9a7e
-        }
-
-        .trend-close {
-            background: rgba(235, 106, 106, .15);
-            color: var(--hl)
-        }
-
-        .trend-merge {
-            background: rgba(199, 21, 133, .2);
-            color: #c71585
-        }
-
-        .empty {
-            text-align: center;
-            padding: 40px;
-            color: var(--txt3);
-            font-size: .875rem
-        }
-
-        .modal {
-            position: fixed;
-            inset: 0;
-            z-index: 10000;
-            display: none;
-            align-items: center;
-            justify-content: center
-        }
-
-        .modal.active {
-            display: flex
-        }
-
-        .modal-bg {
-            position: absolute;
-            inset: 0;
-            background: rgba(0, 0, 0, .5);
-            backdrop-filter: blur(4px)
-        }
-
-        .modal-box {
-            position: relative;
-            width: 100%;
-            max-width: 720px;
-            max-height: 90vh;
-            background: var(--bg2);
-            border: 1px solid var(--bdr);
-            overflow: hidden;
-            display: flex;
-            flex-direction: column
-        }
-
-        .modal-head {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 20px 24px;
-            border-bottom: 1px solid var(--bdr)
-        }
-
-        .modal-head h2 {
-            font-size: 1rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: .1em
-        }
-
-        .modal-close {
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: transparent;
-            border: 1px solid var(--bdr);
-            cursor: pointer;
-            transition: all .2s
-        }
-
-        .modal-close:hover {
-            background: var(--bg3);
-            border-color: var(--acc)
-        }
-
-        .modal-close svg {
-            width: 14px;
-            height: 14px
-        }
-
-        .modal-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 24px
-        }
-
-        .modal-foot {
-            display: flex;
-            justify-content: flex-end;
-            gap: 12px;
-            padding: 16px 24px;
-            border-top: 1px solid var(--bdr)
-        }
-
-        .editor-ta {
-            width: 100%;
-            min-height: 300px;
-            padding: 16px;
-            background: var(--bg3);
-            border: 1px solid var(--bdr);
-            font-family: 'SF Mono', Monaco, Consolas, monospace;
-            font-size: .8125rem;
-            line-height: 1.6;
-            color: var(--txt);
-            resize: vertical;
-            outline: none
-        }
-
-        .editor-ta:focus {
-            border-color: var(--acc)
-        }
-
-        .editor-hint {
-            font-size: .75rem;
-            color: var(--txt3);
-            margin-bottom: 12px;
-            line-height: 1.5
-        }
-
-        .editor-err {
-            padding: 12px;
-            background: var(--hl-soft);
-            border: 1px solid rgba(255, 68, 68, .3);
-            color: var(--hl);
-            font-size: .8125rem;
-            margin-top: 12px;
-            display: none
-        }
-
-        .editor-err.visible {
-            display: block
-        }
-
-        .struct-item {
-            border: 1px solid var(--bdr);
-            background: var(--bg3);
-            padding: 12px;
-            margin-bottom: 8px;
-            display: flex;
-            flex-direction: column;
-            gap: 6px
-        }
-
-        .struct-row {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap
-        }
-
-        .struct-row input,
-        .struct-row select,
-        .struct-row textarea {
-            flex: 1;
-            min-width: 0;
-            padding: 8px 10px;
-            background: var(--bg2);
-            border: 1px solid var(--bdr);
-            font-size: .8125rem;
-            color: var(--txt);
-            outline: none;
-            transition: border-color .2s
-        }
-
-        .struct-row input:focus,
-        .struct-row select:focus,
-        .struct-row textarea:focus {
-            border-color: var(--acc)
-        }
-
-        .struct-row textarea {
-            resize: vertical;
-            font-family: inherit;
-            min-height: 60px
-        }
-
-        .struct-actions {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 4px
-        }
-
-        .struct-actions span {
-            font-size: .75rem;
-            color: var(--txt3)
-        }
-
-        .settings-section {
-            margin-bottom: 32px
-        }
-
-        .settings-section:last-child {
-            margin-bottom: 0
-        }
-
-        .settings-section-title {
-            font-size: .6875rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: .15em;
-            color: var(--txt3);
-            margin-bottom: 16px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid var(--bdr2)
-        }
-
-        .settings-row {
-            display: flex;
-            gap: 16px;
-            margin-bottom: 16px;
-            flex-wrap: wrap
-        }
-
-        .settings-row:last-child {
-            margin-bottom: 0
-        }
-
-        .settings-field {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            flex: 1;
-            min-width: 200px
-        }
-
-        .settings-field.full {
-            flex: 100%
-        }
-
-        .settings-field label {
-            font-size: .75rem;
-            color: var(--txt3);
-            text-transform: uppercase;
-            letter-spacing: .05em
-        }
-
-        .settings-field input,
-        .settings-field select {
-            padding: 10px 14px;
-            background: var(--bg3);
-            border: 1px solid var(--bdr);
-            font-size: .875rem;
-            color: var(--txt);
-            outline: none;
-            transition: border-color .2s
-        }
-
-        .settings-field input:focus,
-        .settings-field select:focus {
-            border-color: var(--acc)
-        }
-
-        .settings-field input[type="password"] {
-            letter-spacing: .15em
-        }
-
-        .settings-field-inline {
-            display: flex;
-            align-items: center;
-            gap: 8px
-        }
-
-        .settings-field-inline input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            accent-color: var(--acc)
-        }
-
-        .settings-field-inline label {
-            font-size: .8125rem;
-            color: var(--txt2);
-            text-transform: none;
-            letter-spacing: 0
-        }
-
-        .settings-hint {
-            font-size: .75rem;
-            color: var(--txt3);
-            margin-top: 4px
-        }
-
-        .settings-btn-row {
-            display: flex;
-            gap: 12px;
-            margin-top: 8px
-        }
-
-        .hidden {
-            display: none !important
-        }
-
-        .fullscreen .modal-box {
-            width: calc(100vw - 48px);
-            max-width: none;
-            height: calc(100vh - 48px);
-            max-height: none
-        }
-
-        .fullscreen .modal-body {
-            flex: 1;
-            padding: 0;
-            overflow: hidden
-        }
-
-        #keep-visible-count {
-            width: 32px;
-            padding: 2px 4px;
-            margin: 0 2px;
-            background: var(--bg2);
-            border: 1px solid var(--bdr);
-            font-size: inherit;
-            font-weight: bold;
-            color: var(--hl);
-            text-align: center;
-            border-radius: 3px
-        }
-
-        #keep-visible-count:focus {
-            border-color: var(--acc);
-            outline: none
-        }
-
-        .stat-warning {
-            font-size: .625rem;
-            color: #ff9800;
-            margin-top: 4px
-        }
-
-        @media(max-width:1200px) {
-            .container {
-                padding: 16px 24px
-            }
-
-            main {
-                grid-template-columns: 1fr
-            }
-
-            .right {
-                flex-direction: row
-            }
-
-            .relations,
-            .profile {
-                flex: 1;
-                min-height: 300px
-            }
-        }
-
-        @media(max-width:768px) {
-            .container {
-                height: auto;
-                min-height: 100vh;
-                padding: 16px
-            }
-
-            header {
-                flex-direction: column;
-                gap: 16px;
-                padding-bottom: 16px;
-                margin-bottom: 16px
-            }
-
-            h1 {
-                font-size: 1.5rem
-            }
-
-            .stats {
-                width: 100%;
-                justify-content: space-between;
-                gap: 16px;
-                text-align: center
-            }
-
-            .stat-val {
-                font-size: 1.75rem
-            }
-
-            .stat-lbl {
-                font-size: .625rem
-            }
-
-            .controls {
-                flex-wrap: wrap;
-                gap: 10px;
-                padding: 10px 0;
-                margin-bottom: 16px
-            }
-
-            .spacer {
-                display: none
-            }
-
-            .btn {
-                padding: 10px 20px;
-                font-size: .8125rem
-            }
-
-            .btn-icon {
-                padding: 10px 14px
-            }
-
-            main,
-            .left,
-            .right {
-                gap: 16px
-            }
-
-            .right {
-                flex-direction: column
-            }
-
-            .timeline {
-                max-height: 400px
-            }
-
-            .relations,
-            .profile {
-                min-height: 280px;
-                max-height: 400px;
-                padding: 16px
-            }
-
-            .card {
-                padding: 16px
-            }
-
-            .keywords {
-                gap: 8px;
-                margin-top: 12px
-            }
-
-            .tag {
-                padding: 6px 14px;
-                font-size: .8125rem
-            }
-
-            .tl-item {
-                padding-left: 24px;
-                padding-bottom: 24px
-            }
-
-            .tl-title {
-                font-size: .9375rem
-            }
-
-            .tl-brief {
-                font-size: .8125rem;
-                line-height: 1.6
-            }
-
-            .modal-box {
-                max-width: 100%;
-                max-height: 100%;
-                height: 100%;
-                border: none
-            }
-
-            .modal-head,
-            .modal-body,
-            .modal-foot {
-                padding: 16px
-            }
-
-            .settings-row {
-                flex-direction: column;
-                gap: 12px
-            }
-
-            .settings-field {
-                min-width: 100%
-            }
-
-            .settings-field input,
-            .settings-field select {
-                padding: 12px 14px;
-                font-size: 1rem
-            }
-
-            .fullscreen .modal-box {
-                width: 100%;
-                height: 100%;
-                border-radius: 0
-            }
-        }
-
-        @media(max-width:480px) {
-            .container {
-                padding: 12px
-            }
-
-            header {
-                padding-bottom: 12px;
-                margin-bottom: 12px
-            }
-
-            h1 {
-                font-size: 1.25rem
-            }
-
-            .subtitle {
-                font-size: .6875rem
-            }
-
-            .stats {
-                gap: 8px
-            }
-
-            .stat {
-                flex: 1
-            }
-
-            .stat-val {
-                font-size: 1.5rem
-            }
-
-            .controls {
-                gap: 8px;
-                padding: 8px 0;
-                margin-bottom: 12px
-            }
-
-            .btn {
-                flex: 1;
-                padding: 10px 12px;
-                font-size: .75rem;
-                text-align: center;
-                justify-content: center
-            }
-
-            .btn-icon {
-                padding: 10px 12px
-            }
-
-            .btn-icon svg {
-                width: 14px;
-                height: 14px
-            }
-
-            main,
-            .left,
-            .right {
-                gap: 12px
-            }
-
-            .card {
-                padding: 12px
-            }
-
-            .sec-title {
-                font-size: .6875rem
-            }
-
-            .sec-btn {
-                font-size: .625rem;
-                padding: 3px 8px
-            }
-
-            .relations {
-                min-height: 240px
-            }
-
-            #relation-chart {
-                min-height: 180px
-            }
-
-            .keywords {
-                gap: 6px;
-                margin-top: 10px
-            }
-
-            .tag {
-                padding: 5px 10px;
-                font-size: .75rem
-            }
-
-            .tl-item {
-                padding-left: 20px;
-                padding-bottom: 20px;
-                margin-left: 6px
-            }
-
-            .tl-dot {
-                width: 7px;
-                height: 7px;
-                left: -4px
-            }
-
-            .tl-head {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 2px
-            }
-
-            .tl-title {
-                font-size: .875rem
-            }
-
-            .tl-time {
-                font-size: .6875rem
-            }
-
-            .tl-brief {
-                font-size: .8rem;
-                margin-bottom: 8px
-            }
-
-            .tl-meta {
-                flex-direction: column;
-                gap: 4px;
-                font-size: .6875rem
-            }
-
-            .modal-head h2 {
-                font-size: .875rem
-            }
-
-            .settings-section-title {
-                font-size: .625rem
-            }
-
-            .settings-field label {
-                font-size: .6875rem
-            }
-
-            .settings-field-inline label {
-                font-size: .75rem
-            }
-
-            .settings-hint {
-                font-size: .6875rem
-            }
-
-            .btn-sm {
-                padding: 10px 14px;
-                font-size: .75rem;
-                width: 100%
-            }
-
-            .editor-ta {
-                min-height: 200px;
-                font-size: .75rem
-            }
-        }
-
-        @media(hover:none)and (pointer:coarse) {
-            .btn {
-                min-height: 44px
-            }
-
-            .tag {
-                min-height: 36px;
-                display: flex;
-                align-items: center
-            }
-
-            .tag:hover {
-                transform: none
-            }
-
-            .tl-item:hover .tl-dot {
-                transform: none
-            }
-
-            .modal-close {
-                width: 44px;
-                height: 44px
-            }
-
-            .settings-field input,
-            .settings-field select {
-                min-height: 44px
-            }
-
-            .settings-field-inline input[type="checkbox"] {
-                width: 22px;
-                height: 22px
-            }
-
-            .sec-btn {
-                min-height: 32px;
-                padding: 6px 12px
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="story-summary.css">
 </head>
 
 <body>
     <div class="container">
+        <!-- Header -->
         <header>
             <div>
-                <h1>剧情<span>总结</span></h1>
+                <h1 style="user-select: none;">剧情<span>总结</span></h1>
                 <div class="subtitle">Story Summary · Timeline · Character Arcs</div>
             </div>
             <div class="stats">
@@ -1409,59 +34,87 @@
                 </div>
             </div>
         </header>
+
+        <!-- Controls -->
         <div class="controls">
             <label class="chk-label">
                 <input type="checkbox" id="hide-summarized">
-                <span>聊天时隐藏已总结 · <strong id="summarized-count">0</strong> 楼（保留<input type="number"
-                        id="keep-visible-count" min="0" max="50" value="3">楼）</span>
+                <span>隐藏已总结 · <strong id="summarized-count">0</strong> 楼（保留<input type="number" id="keep-visible-count"
+                        min="0" max="50" value="3">楼）</span>
             </label>
             <span class="spacer"></span>
-            <button class="btn btn-icon" id="btn-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2">
-                    <circle cx="12" cy="12" r="3" />
-                    <path
-                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>设置</button>
-            <button class="btn" id="btn-clear">清空</button>
-            <button class="btn btn-p" id="btn-generate">总结</button>
+            <div class="btn-group">
+                <button class="btn btn-icon" id="btn-settings">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                    <span>设置</span>
+                </button>
+                <button class="btn" id="btn-clear">清空</button>
+                <button class="btn btn-p" id="btn-generate">总结</button>
+            </div>
         </div>
+
+        <!-- Main Content -->
         <main>
             <div class="left">
+                <!-- Keywords -->
                 <section class="card">
                     <div class="sec-head">
-                        <div class="sec-title">核心关键词</div><button class="sec-btn" data-section="keywords">编辑</button>
+                        <div class="sec-title">核心关键词</div>
+                        <button class="sec-btn" data-section="keywords">编辑</button>
                     </div>
                     <div class="keywords" id="keywords-cloud"></div>
                 </section>
+
+                <!-- Timeline -->
                 <section class="card timeline">
                     <div class="sec-head">
-                        <div class="sec-title">剧情时间线</div><button class="sec-btn" data-section="events">编辑</button>
+                        <div class="sec-title">剧情时间线</div>
+                        <button class="sec-btn" data-section="events">编辑</button>
                     </div>
                     <div class="tl-list scroll" id="timeline-list"></div>
                 </section>
             </div>
+
             <div class="right">
+                <!-- Facts -->
+                <section class="card facts">
+                    <div class="sec-head">
+                        <div class="sec-title">世界状态</div>
+                        <button class="sec-btn" data-section="facts">编辑</button>
+                    </div>
+                    <div class="facts-list scroll" id="facts-list"></div>
+                </section>
+
+                <!-- Relations -->
                 <section class="card relations">
                     <div class="sec-head">
                         <div class="sec-title">人物关系</div>
                         <div class="sec-actions">
-                            <button class="sec-btn sec-icon" id="btn-fullscreen-relations" title="全屏查看"><svg
-                                    viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+                            <button class="sec-btn sec-icon" id="btn-fullscreen-relations" title="全屏查看">
+                                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
                                     stroke-width="2">
                                     <path
                                         d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-                                </svg></button>
+                                </svg>
+                            </button>
                             <button class="sec-btn" data-section="characters">编辑</button>
                         </div>
                     </div>
                     <div id="relation-chart"></div>
                 </section>
+
+                <!-- Profile -->
                 <section class="card profile">
                     <div class="sec-head">
                         <div class="sec-title">人物档案</div>
                         <div class="sec-actions">
                             <div class="custom-select" id="char-sel">
-                                <div class="sel-trigger" id="char-sel-trigger"><span id="sel-char-text">选择角色</span>
+                                <div class="sel-trigger" id="char-sel-trigger">
+                                    <span id="sel-char-text">选择角色</span>
                                 </div>
                                 <div class="sel-opts" id="char-sel-opts">
                                     <div class="sel-opt" data-value="">暂无角色</div>
@@ -1476,15 +129,18 @@
         </main>
     </div>
 
+    <!-- Editor Modal -->
     <div class="modal" id="editor-modal">
         <div class="modal-bg" id="editor-backdrop"></div>
         <div class="modal-box">
             <div class="modal-head">
-                <h2 id="editor-title">编辑</h2><button class="modal-close" id="editor-close"><svg viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2">
+                <h2 id="editor-title">编辑</h2>
+                <button class="modal-close" id="editor-close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18" />
                         <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg></button>
+                    </svg>
+                </button>
             </div>
             <div class="modal-body">
                 <div class="editor-hint" id="editor-hint"></div>
@@ -1492,128 +148,665 @@
                 <textarea class="editor-ta" id="editor-ta"></textarea>
                 <div class="editor-err" id="editor-err"></div>
             </div>
-            <div class="modal-foot"><button class="btn" id="editor-cancel">取消</button><button class="btn btn-p"
-                    id="editor-save">保存</button></div>
+            <div class="modal-foot">
+                <button class="btn" id="editor-cancel">取消</button>
+                <button class="btn btn-p" id="editor-save">保存</button>
+            </div>
         </div>
     </div>
 
+    <!-- Settings Modal -->
     <div class="modal" id="settings-modal">
         <div class="modal-bg" id="settings-backdrop"></div>
-        <div class="modal-box">
+        <div class="modal-box settings-modal-box">
             <div class="modal-head">
-                <h2>设置</h2><button class="modal-close" id="settings-close"><svg viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2">
+                <div class="settings-tabs">
+                    <div class="settings-tab active" data-tab="tab-summary">总结设置</div>
+                    <div class="settings-tab" data-tab="tab-vector">向量设置</div>
+                    <div class="settings-tab" data-tab="tab-debug">调试</div>
+                    <div class="settings-tab" data-tab="tab-guide">说明</div>
+                </div>
+                <button class="modal-close" id="settings-close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18" />
                         <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg></button>
+                    </svg>
+                </button>
             </div>
             <div class="modal-body">
-                <div class="settings-section">
-                    <div class="settings-section-title">API 配置</div>
-                    <div class="settings-row">
-                        <div class="settings-field"><label>渠道</label><select id="api-provider">
-                                <option value="st">酒馆主 API（沿用当前）</option>
-                                <option value="openai">OpenAI 兼容</option>
-                                <option value="google">Google (Gemini)</option>
-                                <option value="claude">Claude (Anthropic)</option>
-                                <option value="deepseek">DeepSeek</option>
-                                <option value="cohere">Cohere</option>
-                                <option value="custom">自定义</option>
-                            </select></div>
-                    </div>
-                    <div class="settings-row hidden" id="api-url-row">
-                        <div class="settings-field full"><label>API URL</label><input type="text" id="api-url"
-                                placeholder="https://api.openai.com 或代理地址">
-                            <div class="settings-hint">不同渠道默认端点：OpenAI 用 /v1，Gemini 用 /v1beta，Claude 用 /v1</div>
+                <!-- Tab 1: Summary Settings -->
+                <div class="tab-pane active" id="tab-summary">
+                    <!-- Theme Settings -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">主题设置</div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <label>界面主题</label>
+                                <select id="theme-select">
+                                    <option value="default">默认主题 · 亮色</option>
+                                    <option value="dark">默认主题 · 暗色</option>
+                                    <option value="neo">Neo主题 · 亮色</option>
+                                    <option value="neo-dark">Neo主题 · 暗色</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
-                    <div class="settings-row hidden" id="api-key-row">
-                        <div class="settings-field full"><label>API KEY</label><input type="password" id="api-key"
-                                placeholder="仅保存在本地，不会上传"></div>
+
+                    <!-- API Config & Gen Params Combined -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">API 配置</div>
+                        <div class="settings-row">
+                            <div class="settings-field">
+                                <label>渠道</label>
+                                <select id="api-provider">
+                                    <option value="st">酒馆主 API（沿用当前）</option>
+                                    <option value="openai">OpenAI 兼容</option>
+                                    <option value="google">Google (Gemini)</option>
+                                    <option value="claude">Claude (Anthropic)</option>
+                                    <option value="custom">自定义</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="settings-row hidden" id="api-url-row">
+                            <div class="settings-field full">
+                                <label>API URL</label>
+                                <input type="text" id="api-url" placeholder="https://api.openai.com 或代理地址">
+                                <div class="settings-hint">默认端点：OpenAI：/v1，Gemini：/v1beta，Claude：/v1</div>
+                            </div>
+                        </div>
+                        <div class="settings-row hidden" id="api-key-row">
+                            <div class="settings-field full">
+                                <label>API KEY</label>
+                                <input type="password" id="api-key" placeholder="仅保存在本地，不会上传">
+                            </div>
+                        </div>
+                        <div class="settings-row hidden" id="api-model-manual-row">
+                            <div class="settings-field full">
+                                <label>模型</label>
+                                <input type="text" id="api-model-text" placeholder="如 gemini-1.5-pro、claude-3-haiku">
+                            </div>
+                        </div>
+                        <div class="settings-row hidden" id="api-model-select-row">
+                            <div class="settings-field full">
+                                <label>可用模型</label>
+                                <select id="api-model-select">
+                                    <option value="">请先拉取模型列表</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="settings-btn-row hidden" id="api-connect-row"
+                            style="display: flex; gap: 12px; align-items: center; justify-content: space-between;">
+                            <button class="btn btn-sm btn-p" id="btn-connect" style="flex: 4;">连接 / 拉取模型列表</button>
+                            <label class="chk-label compact"
+                                style="margin: 0; flex: 1; display: flex; align-items: center; gap: 6px; white-space: nowrap; justify-content: center;">
+                                <input type="checkbox" id="trigger-stream" checked>
+                                <span>流式</span>
+                            </label>
+                        </div>
+
+                        <!-- Collapsible Gen Params -->
+                        <div class="settings-collapse">
+                            <div class="settings-collapse-header" id="gen-params-toggle">
+                                <span>生成参数</span>
+                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </div>
+                            <div class="settings-collapse-content hidden" id="gen-params-content">
+                                <div class="settings-row">
+                                    <div class="settings-field">
+                                        <label>Temperature</label>
+                                        <input type="number" id="gen-temp" step="0.01" min="0" max="2"
+                                            placeholder="未设置">
+                                    </div>
+                                    <div class="settings-field">
+                                        <label>Top P</label>
+                                        <input type="number" id="gen-top-p" step="0.01" min="0" max="1"
+                                            placeholder="未设置">
+                                    </div>
+                                    <div class="settings-field">
+                                        <label>Top K</label>
+                                        <input type="number" id="gen-top-k" step="1" min="1" placeholder="未设置">
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-field">
+                                        <label>存在惩罚</label>
+                                        <input type="number" id="gen-presence" step="0.01" min="-2" max="2"
+                                            placeholder="未设置">
+                                    </div>
+                                    <div class="settings-field">
+                                        <label>频率惩罚</label>
+                                        <input type="number" id="gen-frequency" step="0.01" min="-2" max="2"
+                                            placeholder="未设置">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="settings-row hidden" id="api-model-manual-row">
-                        <div class="settings-field full"><label>模型</label><input type="text" id="api-model-text"
-                                placeholder="如 gemini-1.5-pro、claude-3-haiku"></div>
+
+                    <!-- Trigger Settings -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">总结设置</div>
+                        <div class="settings-row">
+                            <div class="settings-field">
+                                <label>注入角色</label>
+                                <select id="trigger-role">
+                                    <option value="system">System</option>
+                                    <option value="user">User</option>
+                                    <option value="assistant">Assistant</option>
+                                </select>
+                            </div>
+                            <div class="settings-field">
+                                <label>单次最大总结（楼）</label>
+                                <select id="trigger-max-per-run">
+                                    <option value="50">50</option>
+                                    <option value="100" selected>100</option>
+                                    <option value="150">150</option>
+                                    <option value="200">200</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Auto Summary with sub-options -->
+                        <div class="settings-checkbox-group">
+                            <label class="settings-checkbox">
+                                <input type="checkbox" id="trigger-enabled">
+                                <span class="checkbox-mark"></span>
+                                <span class="checkbox-label">启用自动总结</span>
+                            </label>
+                            <div class="settings-sub-options hidden" id="auto-summary-options">
+                                <div class="settings-row">
+                                    <div class="settings-field">
+                                        <label>自动总结间隔（楼）</label>
+                                        <input type="number" id="trigger-interval" min="1" max="30" step="1" value="20">
+                                    </div>
+                                    <div class="settings-field">
+                                        <label>触发时机</label>
+                                        <select id="trigger-timing">
+                                            <option value="after_ai">AI 回复后</option>
+                                            <option value="before_user" selected>用户发送前</option>
+                                            <option value="manual">仅手动</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Force Insert with wrapper options -->
+                        <div class="settings-checkbox-group">
+                            <label class="settings-checkbox">
+                                <input type="checkbox" id="trigger-insert-at-end">
+                                <span class="checkbox-mark"></span>
+                                <span class="checkbox-label">强制插入到聊天最后（插件冲突用）</span>
+                            </label>
+                            <div class="settings-sub-options hidden" id="insert-wrapper-options">
+                                <div class="settings-row">
+                                    <div class="settings-field full">
+                                        <label>头部包裹词</label>
+                                        <input type="text" id="trigger-wrapper-head" placeholder="添加到开头（应对NoAss配置）">
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-field full">
+                                        <label>尾部包裹词</label>
+                                        <input type="text" id="trigger-wrapper-tail" placeholder="添加到结尾（应对NoAss配置）">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="settings-row hidden" id="api-model-select-row">
-                        <div class="settings-field full"><label>可用模型</label><select id="api-model-select">
-                                <option value="">请先拉取模型列表</option>
-                            </select></div>
+                </div>
+
+                <!-- Tab 2: Vector Settings -->
+                <div class="tab-pane" id="tab-vector">
+                    <div class="settings-section">
+                        <div class="settings-section-title">智能记忆（向量检索）</div>
+
+                        <!-- 启用开关 -->
+                        <div class="settings-checkbox-group">
+                            <label class="settings-checkbox">
+                                <input type="checkbox" id="vector-enabled">
+                                <span class="checkbox-mark"></span>
+                                <span class="checkbox-label">启用向量检索</span>
+                            </label>
+                        </div>
+
+                        <div id="vector-config-area" class="hidden">
+
+                            <!-- Step 0: API Key -->
+                            <div class="neo-card" style="margin-top: 24px;">
+                                <div class="neo-card-title">
+                                    <span class="neo-badge">Step.0</span>
+                                    <span>填写 API Key</span>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-field full">
+                                        <label>硅基流动 API Key</label>
+                                        <input type="password" id="vector-api-key" placeholder="sk-xxx">
+                                        <div class="settings-hint">
+                                            💡 <a href="https://siliconflow.cn" target="_blank">硅基流动</a>
+                                            内置使用的模型完全免费。建议实名认证以获得更高并发。
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-field full">
+                                        <div class="engine-status-row" style="margin-top: 0;">
+                                            <div class="engine-status" id="online-api-status">
+                                                <span class="status-dot"></span>
+                                                <span class="status-text">未测试</span>
+                                            </div>
+                                            <button class="btn btn-sm" id="btn-test-vector-api">测试连接</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Step 1: Memory Anchors -->
+                            <div class="neo-card">
+                                <div class="neo-card-title">
+                                    <span class="neo-badge">Step.1</span>
+                                    <span>生成记忆锚点</span>
+                                </div>
+                                <div class="settings-hint" style="margin-bottom: 12px; margin-top: -8px;">
+                                    从对话中提取叙事锚点（情绪、地点、动作、揭示等）。首次提取较慢（约每百楼 3 分钟）。
+                                </div>
+
+                                <!-- Stats -->
+                                <div class="settings-row">
+                                    <div class="settings-field full">
+                                        <div class="vector-stats" id="anchor-stats">
+                                            <div class="vector-stat-col">
+                                                <span class="vector-stat-label">已提取:</span>
+                                                <span class="vector-stat-value"><strong
+                                                        id="anchor-extracted">0</strong></span>
+                                            </div>
+                                            <span class="vector-stat-sep">/</span>
+                                            <div class="vector-stat-col">
+                                                <span class="vector-stat-label">总楼层:</span>
+                                                <span class="vector-stat-value"><strong
+                                                        id="anchor-total">0</strong></span>
+                                            </div>
+                                            <div class="vector-stat-col" id="anchor-pending-wrap"
+                                                style="color: #f59e0b;">
+                                                (待提取 <strong id="anchor-pending">0</strong>)
+                                            </div>
+                                            <span class="vector-stat-sep">·</span>
+                                            <div class="vector-stat-col">
+                                                <span class="vector-stat-label">L0 Atoms:</span>
+                                                <span class="vector-stat-value"><strong
+                                                        id="anchor-atoms-count">0</strong></span>
+                                            </div>
+                                            <span class="vector-stat-sep" id="anchor-extra-sep"
+                                                style="display:none">·</span>
+                                            <div class="vector-stat-col" id="anchor-extra-wrap" style="display:none">
+                                                <span id="anchor-extra"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Progress -->
+                                <div class="engine-progress hidden" id="anchor-progress">
+                                    <div class="progress-bar">
+                                        <div class="progress-inner"></div>
+                                    </div>
+                                    <span class="progress-text">0/0</span>
+                                </div>
+
+                                <!-- Buttons -->
+                                <div class="settings-btn-row" id="anchor-action-row">
+                                    <button class="btn btn-sm btn-p" id="btn-anchor-generate"
+                                        style="flex:1">生成锚点</button>
+                                    <button class="btn btn-sm btn-del" id="btn-anchor-clear" style="flex:1">清空</button>
+                                    <button class="btn btn-sm hidden" id="btn-anchor-cancel" style="flex:1">取消</button>
+                                </div>
+                            </div>
+
+                            <!-- Step 2: Generate Vectors -->
+                            <div class="neo-card">
+                                <div class="neo-card-title">
+                                    <span class="neo-badge">Step.2</span>
+                                    <span>生成向量</span>
+                                </div>
+
+                                <div class="settings-row">
+                                    <div class="settings-field full">
+                                        <div class="vector-stats" id="vector-stats">
+                                            <div class="vector-stat-col">
+                                                <span class="vector-stat-label">L0 Vectors:</span>
+                                                <span class="vector-stat-value"><strong
+                                                        id="vector-atom-count">0</strong></span>
+                                            </div>
+                                            <span class="vector-stat-sep">·</span>
+                                            <div class="vector-stat-col">
+                                                <span class="vector-stat-label">L1 Chunks:</span>
+                                                <span class="vector-stat-value"><strong
+                                                        id="vector-chunk-count">0</strong></span>
+                                            </div>
+                                            <span class="vector-stat-sep">·</span>
+                                            <div class="vector-stat-col">
+                                                <span class="vector-stat-label">L2 Events:</span>
+                                                <span class="vector-stat-value"><strong
+                                                        id="vector-event-count">0</strong></span>
+                                            </div>
+                                        </div>
+                                        <div class="vector-mismatch-warning hidden" id="vector-mismatch-warning">
+                                            ⚠ 需重新生成向量
+                                        </div>
+                                        <div class="vector-empty-warning hidden" id="vector-empty-l0-warning"
+                                            style="font-size: 0.75rem; color: #f59e0b; margin-top: 6px;">
+                                            ⚠ 记忆锚点为空，建议先生成
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Progress -->
+                                <div class="engine-progress hidden" id="vector-gen-progress">
+                                    <div class="progress-bar">
+                                        <div class="progress-inner"></div>
+                                    </div>
+                                    <span class="progress-text">0%</span>
+                                </div>
+
+                                <!-- Buttons -->
+                                <div class="settings-btn-row" id="vector-action-row">
+                                    <button class="btn btn-sm btn-p" id="btn-gen-vectors" style="flex:1">生成向量</button>
+                                    <button class="btn btn-sm btn-del" id="btn-clear-vectors" style="flex:1">清除</button>
+                                    <button class="btn btn-sm hidden" id="btn-cancel-vectors" style="flex:1">取消</button>
+                                </div>
+                            </div>
+
+                            <!-- Tools & Settings -->
+                            <div>
+                                <div class="neo-tools-header">
+                                    <span>设置与工具</span>
+                                    <span style="opacity:0.5">///</span>
+                                </div>
+
+                                <!-- Filter Rules -->
+                                <div class="settings-collapse" id="filter-rules-collapse"
+                                    style="margin-top:0; margin-bottom: 16px;">
+                                    <div class="settings-collapse-header" id="filter-rules-toggle">
+                                        <span>文本过滤规则 · <strong id="filter-rules-count">0</strong> 条</span>
+                                        <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                            stroke-width="2">
+                                            <polyline points="6 9 12 15 18 9"></polyline>
+                                        </svg>
+                                    </div>
+                                    <div class="settings-collapse-content hidden" id="filter-rules-content"
+                                        style="border-left: 1px solid var(--bdr); border-right: 1px solid var(--bdr); border-bottom: 1px solid var(--bdr); border-radius: 0 0 6px 6px; margin-top: -2px;">
+                                        <div class="filter-rules-header">
+                                            <p class="settings-hint" style="margin:0">过滤干扰内容（如思考标签）</p>
+                                            <button class="btn btn-sm btn-add" id="btn-add-filter-rule">
+                                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+                                                    stroke="currentColor" stroke-width="2">
+                                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                                </svg> 添加
+                                            </button>
+                                        </div>
+                                        <div id="filter-rules-list" class="filter-rules-list"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Import/Export -->
+                                <div class="settings-row">
+                                    <div class="settings-field full">
+                                        <div class="settings-btn-row" style="margin-top:8px">
+                                            <button class="btn btn-sm" id="btn-export-vectors"
+                                                style="flex:1">导出向量数据</button>
+                                            <button class="btn btn-sm" id="btn-import-vectors"
+                                                style="flex:1">导入向量数据</button>
+                                        </div>
+                                        <div class="settings-hint" id="vector-io-status"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
                     </div>
-                    <div class="settings-btn-row hidden" id="api-connect-row"><button class="btn btn-sm btn-p"
-                            id="btn-connect">连接 / 拉取模型列表</button></div>
                 </div>
-                <div class="settings-section">
-                    <div class="settings-section-title">生成参数</div>
-                    <div class="settings-row">
-                        <div class="settings-field"><label>Temperature</label><input type="number" id="gen-temp"
-                                step="0.01" min="0" max="2" placeholder="未设置"></div>
-                        <div class="settings-field"><label>Top P</label><input type="number" id="gen-top-p" step="0.01"
-                                min="0" max="1" placeholder="未设置"></div>
-                        <div class="settings-field"><label>Top K</label><input type="number" id="gen-top-k" step="1"
-                                min="1" placeholder="未设置"></div>
+
+                <!-- Tab 3: Debug -->
+                <div class="tab-pane" id="tab-debug">
+                    <div class="debug-log-header">
+                        <div class="debug-title">🔧 记忆召回日志</div>
+                        <div class="settings-hint">显示最近一次 AI 生成时的向量检索详情</div>
                     </div>
-                    <div class="settings-row">
-                        <div class="settings-field"><label>存在惩罚</label><input type="number" id="gen-presence"
-                                step="0.01" min="-2" max="2" placeholder="未设置"></div>
-                        <div class="settings-field"><label>频率惩罚</label><input type="number" id="gen-frequency"
-                                step="0.01" min="-2" max="2" placeholder="未设置"></div>
+                    <pre id="recall-log-content" class="debug-log-viewer"></pre>
+                </div>
+
+                <!-- Tab 4: Guide -->
+                <div class="tab-pane" id="tab-guide">
+                    <div class="guide-container">
+
+                        <!-- ❶ 这是什么 -->
+                        <div class="guide-section">
+                            <div class="guide-title">
+                                <span class="guide-num">1</span>
+                                <span>这是什么</span>
+                            </div>
+                            <div class="guide-text">
+                                AI 聊久了会忘记前面发生过的事，角色开始前后矛盾、丢失记忆。
+                            </div>
+                            <div class="guide-text">
+                                <strong>剧情总结</strong>帮 AI 记住你们的故事。开启后，AI 回复时能自然地引用之前的情节，记住角色关系，不再前后矛盾。
+                            </div>
+                        </div>
+
+                        <!-- ❷ 三步上手 -->
+                        <div class="guide-section">
+                            <div class="guide-title">
+                                <span class="guide-num">2</span>
+                                <span>三步上手</span>
+                            </div>
+                            <div class="guide-steps">
+                                <div class="guide-step">
+                                    <div class="guide-step-num">1</div>
+                                    <div class="guide-step-body">
+                                        <div class="guide-step-title">正常聊天</div>
+                                        <div class="guide-step-desc">先攒够 20 楼左右的对话内容。</div>
+                                    </div>
+                                </div>
+                                <div class="guide-step">
+                                    <div class="guide-step-num">2</div>
+                                    <div class="guide-step-body">
+                                        <div class="guide-step-title">点击「总结」</div>
+                                        <div class="guide-step-desc">
+                                            打开面板，点右上角的「总结」按钮。系统会自动提炼剧情要点。
+                                            之后可以在「总结设置」里开启自动总结，就不用每次手动了。
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="guide-step">
+                                    <div class="guide-step-num">3</div>
+                                    <div class="guide-step-body">
+                                        <div class="guide-step-title">开启智能记忆 <span class="guide-tag">推荐</span></div>
+                                        <div class="guide-step-desc">
+                                            在「向量设置」Tab 中勾选启用，填入
+                                            <a href="https://siliconflow.cn" target="_blank">硅基流动</a>
+                                            的 API Key，然后依次点击「生成锚点」→「生成向量」。之后全自动，每条新消息都会自动处理。
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ❸ 基础功能 -->
+                        <div class="guide-section">
+                            <div class="guide-title">
+                                <span class="guide-num">3</span>
+                                <span>基础功能：剧情总结</span>
+                            </div>
+                            <div class="guide-card-list">
+                                <div class="guide-card">
+                                    <div class="guide-card-title">📝 总结</div>
+                                    <div class="guide-card-desc">
+                                        点击按钮提炼已有对话的剧情要点。只处理新增的楼层，不会重复已有内容。
+                                    </div>
+                                </div>
+                                <div class="guide-card">
+                                    <div class="guide-card-title">⚡ 自动总结</div>
+                                    <div class="guide-card-desc">
+                                        在「总结设置」里开启后，每隔一定楼数自动提炼，不用手动操作。
+                                    </div>
+                                </div>
+                                <div class="guide-card">
+                                    <div class="guide-card-title">👁️ 隐藏已总结楼层</div>
+                                    <div class="guide-card-desc">
+                                        已经被总结过的旧楼层不再发送给 AI，节省 token 预算，让 AI 把注意力集中在新内容和记忆摘要上，回复质量更高。
+                                    </div>
+                                </div>
+                                <div class="guide-card">
+                                    <div class="guide-card-title">✏️ 手动编辑</div>
+                                    <div class="guide-card-desc">
+                                        面板里的关键词、事件时间线、人物关系、角色弧光、世界状态都可以点「编辑」直接修改，修改立即生效。
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ❹ 核心功能 -->
+                        <div class="guide-section">
+                            <div class="guide-title">
+                                <span class="guide-num">4</span>
+                                <span>核心功能：智能记忆</span>
+                            </div>
+                            <div class="guide-highlight">
+                                <div class="guide-highlight-title">为什么需要？</div>
+                                <div class="guide-text">
+                                    光靠总结摘要，AI 只能看到「发生过什么」，但丢失了原文里的细节、语气和场景氛围。智能记忆让 AI
+                                    能在回复前自动从所有历史对话中找到和当前话题最相关的记忆片段，连同原文细节一起回忆起来。
+                                </div>
+                            </div>
+
+                            <div class="guide-text" style="margin-top: 16px"><strong>开启后你会感受到：</strong></div>
+                            <ul class="guide-list">
+                                <li>角色在关键时刻引用了很久以前的约定</li>
+                                <li>提到某个地点时，AI 记得那里曾经发生过什么</li>
+                                <li>人物关系的微妙变化被一直记住</li>
+                                <li>伏笔在很久之后被自然地呼应</li>
+                                <li>不管故事写了多长，AI 都能精准回忆起相关的情节</li>
+                            </ul>
+
+                            <div class="guide-text" style="margin-top: 16px"><strong>需要什么：</strong></div>
+                            <ul class="guide-list">
+                                <li>
+                                    一个 <a href="https://siliconflow.cn" target="_blank">硅基流动</a> 的 API
+                                    Key。我们使用的三个模型全部<strong>完全免费</strong>，不限额度：
+                                    <ul class="guide-list-inner">
+                                        <li><code>bge-m3</code> — 记忆向量化</li>
+                                        <li><code>bge-reranker-v2-m3</code> — 记忆精排</li>
+                                        <li><code>Qwen3-8B</code> — 记忆锚点提取</li>
+                                    </ul>
+                                    建议完成实名认证以获得更高并发，记忆锚点提取速度会更快。
+                                </li>
+                                <li>
+                                    首次使用：点「生成锚点」→「生成向量」。锚点提取需要一些时间（约每百楼 3 分钟），向量生成很快。
+                                </li>
+                                <li>之后全自动，每条新消息都会自动处理。</li>
+                            </ul>
+
+                            <div class="guide-tip">
+                                <div class="guide-tip-icon">💡</div>
+                                <div class="guide-tip-text">
+                                    <strong>不开智能记忆也能用。</strong>总结功能照常工作，AI 能看到剧情摘要，但看不到原文细节。长篇故事强烈推荐开启，效果非常明显。
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ❺ 常见问题 -->
+                        <div class="guide-section">
+                            <div class="guide-title">
+                                <span class="guide-num">5</span>
+                                <span>常见问题</span>
+                            </div>
+                            <div class="guide-faq-list">
+                                <div class="guide-faq-item">
+                                    <div class="guide-faq-q">总结用的是哪个 API？</div>
+                                    <div class="guide-faq-a">默认用你酒馆当前连接的 API。也可以在「总结设置」里单独指定一个不同的 API 和模型。</div>
+                                </div>
+                                <div class="guide-faq-item">
+                                    <div class="guide-faq-q">删消息 / Swipe 会出问题吗？</div>
+                                    <div class="guide-faq-a">不会。系统会自动同步所有数据，不需要手动处理。</div>
+                                </div>
+                                <div class="guide-faq-item">
+                                    <div class="guide-faq-q">换了角色 / 聊天要重新操作吗？</div>
+                                    <div class="guide-faq-a">总结和向量都是按聊天独立保存的，切换聊天会自动加载对应的数据。</div>
+                                </div>
+                                <div class="guide-faq-item">
+                                    <div class="guide-faq-q">怎么知道 AI 有没有用上记忆？</div>
+                                    <div class="guide-faq-a">在「调试」Tab 可以看召回日志，会显示本次回忆了哪些内容。</div>
+                                </div>
+                                <div class="guide-faq-item">
+                                    <div class="guide-faq-q">总结结果不准确怎么办？</div>
+                                    <div class="guide-faq-a">面板里每个区块右上角都有「编辑」按钮，可以直接修改，修改立即生效。</div>
+                                </div>
+                                <div class="guide-faq-item">
+                                    <div class="guide-faq-q">会不会影响回复速度？</div>
+                                    <div class="guide-faq-a">每次回复前的记忆召回通常在 1-3 秒内完成。首次生成锚点时较慢（约每百楼 3
+                                        分钟），但只需做一次，之后新消息逐条自动处理，感知不到延迟。</div>
+                                </div>
+                                <div class="guide-faq-item">
+                                    <div class="guide-faq-q">硅基的 Key 要花钱吗？</div>
+                                    <div class="guide-faq-a">
+                                        不花钱。我们使用的三个模型（bge-m3、bge-reranker-v2-m3、Qwen3-8B）本身就是完全免费的模型，不存在额度限制，永久免费使用。
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ❻ 小贴士 -->
+                        <div class="guide-section guide-section-last">
+                            <div class="guide-title">
+                                <span class="guide-num">6</span>
+                                <span>小贴士</span>
+                            </div>
+                            <div class="guide-tips-list">
+                                <div class="guide-tip">
+                                    <div class="guide-tip-icon">🎯</div>
+                                    <div class="guide-tip-text">首次总结建议先手动点一次，看看效果再决定是否开启自动总结。</div>
+                                </div>
+                                <div class="guide-tip">
+                                    <div class="guide-tip-icon">📖</div>
+                                    <div class="guide-tip-text">长篇故事强烈推荐开启智能记忆，故事越长效果越明显。</div>
+                                </div>
+                                <div class="guide-tip">
+                                    <div class="guide-tip-icon">💾</div>
+                                    <div class="guide-tip-text">向量数据支持导出备份，换设备时可以导入恢复，不用重新生成。</div>
+                                </div>
+                                <div class="guide-tip">
+                                    <div class="guide-tip-icon">⚡</div>
+                                    <div class="guide-tip-text">锚点提取是最耗时的步骤。硅基完成实名认证后并发更高，批量处理速度会明显提升。</div>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
-                <div class="settings-section">
-                    <div class="settings-section-title">总结设置</div>
-                    <div class="settings-row">
-                        <div class="settings-field"><label>自动总结间隔（楼）</label><input type="number" id="trigger-interval"
-                                min="5" step="5" value="20"></div>
-                        <div class="settings-field"><label>触发时机</label><select id="trigger-timing">
-                                <option value="after_ai">AI 回复后</option>
-                                <option value="before_user">用户发送前</option>
-                                <option value="manual">仅手动</option>
-                            </select></div>
-                        <div class="settings-field"><label>单次最大总结（楼）</label><select id="trigger-max-per-run">
-                                <option value="50">50</option>
-                                <option value="100" selected>100</option>
-                                <option value="150">150</option>
-                                <option value="200">200</option>
-                            </select></div>
-                        </select>
-                    </div>
-                </div>
-                <div class="settings-row">
-                    <div class="settings-field full"><label>头部包裹词（应对NoAss配置）</label><input type="text"
-                            id="trigger-wrapper-head" placeholder="添加到开头"></div>
-                </div>
-                <div class="settings-row">
-                    <div class="settings-field full"><label>尾部包裹词（应对NoAss配置）</label><input type="text"
-                            id="trigger-wrapper-tail" placeholder="添加到结尾"></div>
-                </div>
-                <div class="settings-row">
-                    <div class="settings-field-inline"><input type="checkbox" id="trigger-enabled"><label
-                            for="trigger-enabled">启用自动总结</label></div>
-                    <div class="settings-field-inline"><input type="checkbox" id="trigger-stream" checked><label
-                            for="trigger-stream">启用流式生成</label></div>
-                    <div class="settings-field-inline"><input type="checkbox" id="trigger-insert-at-end"><label
-                            for="trigger-insert-at-end">强制插入到聊天最后</label></div>
-                </div>
-                <div class="settings-hint" style="margin-top:8px">若 API 不支持非流式请求，请勾选"启用流式生成"</div>
             </div>
             <div class="modal-foot">
-                <button class="btn" id="settings-cancel">取消</button><button class="btn btn-p"
-                    id="settings-save">保存</button>
+                <button class="btn" id="settings-cancel">取消</button>
+                <button class="btn btn-p" id="settings-save">保存</button>
             </div>
         </div>
     </div>
-    </div>
 
+    <!-- Fullscreen Relations Modal -->
     <div class="modal fullscreen" id="rel-fs-modal">
         <div class="modal-bg" id="rel-fs-backdrop"></div>
         <div class="modal-box">
             <div class="modal-head">
-                <h2>人物关系图</h2><button class="modal-close" id="rel-fs-close"><svg viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2">
+                <h2>人物关系图</h2>
+                <button class="modal-close" id="rel-fs-close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18" />
                         <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg></button>
+                    </svg>
+                </button>
             </div>
             <div class="modal-body">
                 <div id="relation-chart-fullscreen"></div>
@@ -1621,118 +814,25 @@
         </div>
     </div>
 
+    <!-- HF Guide Modal -->
+    <div class="modal" id="hf-guide-modal">
+        <div class="modal-bg" id="hf-guide-backdrop"></div>
+        <div class="modal-box" style="max-width:900px">
+            <div class="modal-head">
+                <h2>🤗 Hugging Face Space 部署指南</h2>
+                <button class="modal-close" id="hf-guide-close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body" id="hf-guide-body"></div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-    <script>
-        const $ = id => document.getElementById(id), $$ = sel => document.querySelectorAll(sel);
-        const escapeHtml = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c]);
-        const h = (v) => escapeHtml(v);
-        const config = { api: { provider: 'st', url: '', key: '', model: '', modelCache: [] }, gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null }, trigger: { enabled: false, interval: 20, timing: 'after_ai', useStream: true, maxPerRun: 100, wrapperHead: '', wrapperTail: '', forceInsertAtEnd: false } };
-        let summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] }, localGenerating = false, relationChart = null, relationChartFullscreen = null, currentEditSection = null, currentCharacterId = null, allNodes = [], allLinks = [], activeRelationTooltip = null;
-
-        const providerDefaults = { st: { url: '', needKey: false, canFetch: false, needManualModel: false }, openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false }, google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false, needManualModel: true }, claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true }, deepseek: { url: 'https://api.deepseek.com', needKey: true, canFetch: true, needManualModel: false }, cohere: { url: 'https://api.cohere.ai', needKey: true, canFetch: false, needManualModel: true }, custom: { url: '', needKey: true, canFetch: true, needManualModel: false } };
-        const sectionMeta = { keywords: { title: '编辑关键词', hint: '每行一个关键词，格式：关键词|权重（核心/重要/一般）' }, events: { title: '编辑事件时间线', hint: '编辑时，每个事件要素都应完整' }, characters: { title: '编辑人物关系', hint: '编辑时，每个要素都应完整' }, arcs: { title: '编辑角色弧光', hint: '编辑时，每个要素都应完整' } };
-        const trendColors = { '破裂': '#444444', '厌恶': '#8b0000', '反感': '#cd5c5c', '陌生': '#888888', '投缘': '#4a9a7e', '亲密': '#d87a7a', '交融': '#c71585' };
-        const trendClass = { '破裂': 'trend-broken', '厌恶': 'trend-hate', '反感': 'trend-dislike', '陌生': 'trend-stranger', '投缘': 'trend-click', '亲密': 'trend-close', '交融': 'trend-merge' };
-
-        const getCharName = c => typeof c === 'string' ? c : c.name;
-        const preserveAddedAt = (n, o) => { if (o?._addedAt != null) n._addedAt = o._addedAt; return n };
-        const PARENT_ORIGIN = (() => {
-            try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
-        })();
-        const postMsg = (type, data = {}) => window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type, ...data }, PARENT_ORIGIN);
-
-        function loadConfig() { try { const s = localStorage.getItem('summary_panel_config'); if (s) { const p = JSON.parse(s); Object.assign(config.api, p.api || {}); Object.assign(config.gen, p.gen || {}); Object.assign(config.trigger, p.trigger || {}); if (config.trigger.timing === 'manual' && config.trigger.enabled) { config.trigger.enabled = false; saveConfig() } } } catch { } }
-        function applyConfig(cfg) { if (!cfg) return; Object.assign(config.api, cfg.api || {}); Object.assign(config.gen, cfg.gen || {}); Object.assign(config.trigger, cfg.trigger || {}); if (config.trigger.timing === 'manual' && config.trigger.enabled) { config.trigger.enabled = false; } localStorage.setItem('summary_panel_config', JSON.stringify(config)); }
-        function saveConfig() { try { localStorage.setItem('summary_panel_config', JSON.stringify(config)); postMsg('SAVE_PANEL_CONFIG', { config }); } catch { } }
-
-        function renderKeywords(kw) { summaryData.keywords = kw || []; const wc = { '核心': 'p', '重要': 's', high: 'p', medium: 's' }; $('keywords-cloud').innerHTML = kw.length ? kw.map(k => `<span class="tag ${wc[k.weight] || wc[k.level] || ''}">${h(k.text)}</span>`).join('') : '<div class="empty">暂无关键词</div>' }
-        function renderTimeline(ev) { summaryData.events = ev || []; const c = $('timeline-list'); if (!ev?.length) { c.innerHTML = '<div class="empty">暂无事件记录</div>'; return } c.innerHTML = ev.map(e => { const participants = (e.participants || e.characters || []).map(h).join('、'); return `<div class="tl-item${e.weight === '核心' || e.weight === '主线' ? ' crit' : ''}"><div class="tl-dot"></div><div class="tl-head"><div class="tl-title">${h(e.title || '')}</div><div class="tl-time">${h(e.timeLabel || '')}</div></div><div class="tl-brief">${h(e.summary || e.brief || '')}</div><div class="tl-meta"><span>人物：${participants || '—'}</span><span class="imp">${h(e.type || '')}${e.type && e.weight ? ' · ' : ''}${h(e.weight || '')}</span></div></div>` }).join('') }
-
-        function hideRelationTooltip() { if (activeRelationTooltip) { activeRelationTooltip.remove(); activeRelationTooltip = null } }
-        function showRelationTooltip(from, to, fromLabel, toLabel, fromTrend, toTrend, x, y, container) {
-            hideRelationTooltip(); const tip = document.createElement('div'); const mobile = innerWidth <= 768;
-            const fc = trendColors[fromTrend] || '#888', tc = trendColors[toTrend] || '#888';
-            const sf = h(from), st = h(to), sfl = h(fromLabel), stl = h(toLabel), sft = h(fromTrend), stt = h(toTrend);
-            tip.innerHTML = `<div style="line-height:1.8">${fromLabel ? `<div><small>${sf}→${st}：</small> <span style="color:${fc}">${sfl}</span> <span style="font-size:10px;color:${fc}">[${sft}]</span></div>` : ''}${toLabel ? `<div><small>${st}→${sf}：</small> <span style="color:${tc}">${stl}</span> <span style="font-size:10px;color:${tc}">[${stt}]</span></div>` : ''}</div>`;
-            tip.style.cssText = mobile ? `position:absolute;left:8px;bottom:8px;background:#fff;color:#333;padding:10px 14px;border:1px solid #ddd;border-radius:6px;font-size:12px;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,.15);max-width:calc(100% - 16px)` : `position:absolute;left:${Math.max(80, Math.min(x, container.clientWidth - 80))}px;top:${Math.max(60, y)}px;transform:translate(-50%,-100%);background:#fff;color:#333;padding:10px 16px;border:1px solid #ddd;border-radius:6px;font-size:12px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,.15);max-width:280px`;
-            container.style.position = 'relative'; container.appendChild(tip); activeRelationTooltip = tip;
-        }
-
-        function renderRelations(data) {
-            summaryData.characters = data || { main: [], relationships: [] }; const dom = $('relation-chart'); if (!relationChart) relationChart = echarts.init(dom);
-            const rels = data?.relationships || [], allNames = new Set((data?.main || []).map(getCharName));
-            rels.forEach(r => { if (r.from) allNames.add(r.from); if (r.to) allNames.add(r.to) });
-            const degrees = {}; rels.forEach(r => { degrees[r.from] = (degrees[r.from] || 0) + 1; degrees[r.to] = (degrees[r.to] || 0) + 1 });
-            const nodeColors = { main: '#d87a7a', sec: '#f1c3c3', ter: '#888888', qua: '#b8b8b8' };
-            const sortedDegs = Object.values(degrees).sort((a, b) => b - a);
-            const getPercentile = deg => { if (!sortedDegs.length || deg === 0) return 100; const rank = sortedDegs.filter(d => d > deg).length; return (rank / sortedDegs.length) * 100 };
-            allNodes = Array.from(allNames).map(name => { const deg = degrees[name] || 0, pct = getPercentile(deg); let col, fontWeight; if (pct < 30) { col = nodeColors.main; fontWeight = '600' } else if (pct < 60) { col = nodeColors.sec; fontWeight = '500' } else if (pct < 90) { col = nodeColors.ter; fontWeight = '400' } else { col = nodeColors.qua; fontWeight = '400' } return { id: name, name, symbol: 'circle', symbolSize: Math.min(36, Math.max(16, deg * 3 + 12)), draggable: true, itemStyle: { color: col, borderColor: '#fff', borderWidth: 2, shadowColor: 'rgba(0,0,0,.1)', shadowBlur: 6, shadowOffsetY: 2 }, label: { show: true, position: 'right', distance: 5, color: '#333', fontSize: 11, fontWeight }, degree: deg } });
-            const relMap = new Map(); rels.forEach(r => { const k = [r.from, r.to].sort().join('|||'); if (!relMap.has(k)) relMap.set(k, { from: r.from, to: r.to, fromLabel: '', toLabel: '', fromTrend: '', toTrend: '' }); const e = relMap.get(k); if (r.from === e.from) { e.fromLabel = r.label || r.type || ''; e.fromTrend = r.trend || '' } else { e.toLabel = r.label || r.type || ''; e.toTrend = r.trend || '' } });
-            allLinks = Array.from(relMap.values()).map(r => { const fc = trendColors[r.fromTrend] || '#b8b8b8', tc = trendColors[r.toTrend] || '#b8b8b8'; return { source: r.from, target: r.to, fromName: r.from, toName: r.to, fromLabel: r.fromLabel, toLabel: r.toLabel, fromTrend: r.fromTrend, toTrend: r.toTrend, lineStyle: { width: 1, color: '#d8d8d8', curveness: 0, opacity: 1 }, label: { show: true, position: 'middle', distance: 0, formatter: '{a|◀}{b|▶}', rich: { a: { color: fc, fontSize: 10 }, b: { color: tc, fontSize: 10 } }, align: 'center', verticalAlign: 'middle', offset: [0, -0.1] }, emphasis: { lineStyle: { width: 1.5, color: '#aaa' }, label: { fontSize: 11 } } } });
-            if (!allNodes.length) { relationChart.clear(); return }
-            const updateChart = (nodes, links, focusId = null) => { const fadeOpacity = 0.2; const processedNodes = focusId ? nodes.map(n => { const rl = links.filter(l => l.source === focusId || l.target === focusId); const rn = new Set([focusId]); rl.forEach(l => { rn.add(l.source); rn.add(l.target) }); const isRelated = rn.has(n.id); return { ...n, itemStyle: { ...n.itemStyle, opacity: isRelated ? 1 : fadeOpacity }, label: { ...n.label, opacity: isRelated ? 1 : fadeOpacity } } }) : nodes; const processedLinks = focusId ? links.map(l => { const isRelated = l.source === focusId || l.target === focusId; return { ...l, lineStyle: { ...l.lineStyle, opacity: isRelated ? 1 : fadeOpacity }, label: { ...l.label, opacity: isRelated ? 1 : fadeOpacity } } }) : links; relationChart.setOption({ backgroundColor: 'transparent', tooltip: { show: false }, hoverLayerThreshold: Infinity, series: [{ type: 'graph', layout: 'force', roam: true, draggable: true, animation: true, animationDuration: 800, animationDurationUpdate: 300, animationEasingUpdate: 'cubicInOut', progressive: 0, hoverAnimation: false, data: processedNodes, links: processedLinks, force: { initLayout: 'circular', repulsion: 350, edgeLength: [80, 160], gravity: .12, friction: .6, layoutAnimation: true }, label: { show: true }, edgeLabel: { show: true, position: 'middle' }, emphasis: { disabled: true } }] }) };
-            updateChart(allNodes, allLinks);
-            setTimeout(() => relationChart.resize(), 0);
-            relationChart.off('click'); relationChart.on('click', p => { if (p.dataType === 'node') { hideRelationTooltip(); const id = p.data.id; selectCharacter(id); updateChart(allNodes, allLinks, id) } else if (p.dataType === 'edge') { const d = p.data, e = p.event?.event; if (e) { const rect = dom.getBoundingClientRect(); showRelationTooltip(d.fromName, d.toName, d.fromLabel, d.toLabel, d.fromTrend, d.toTrend, e.offsetX || (e.clientX - rect.left), e.offsetY || (e.clientY - rect.top), dom) } } });
-            relationChart.getZr().on('click', p => { if (!p.target) { hideRelationTooltip(); updateChart(allNodes, allLinks) } });
-        }
-
-        function selectCharacter(id) { currentCharacterId = id; const txt = $('sel-char-text'), opts = $('char-sel-opts'); if (opts && id) { opts.querySelectorAll('.sel-opt').forEach(o => { if (o.dataset.value === id) { o.classList.add('sel'); if (txt) txt.textContent = o.textContent } else o.classList.remove('sel') }) } else if (!id && txt) txt.textContent = '选择角色'; renderCharacterProfile(); if (relationChart && id) { const opt = relationChart.getOption(), idx = opt?.series?.[0]?.data?.findIndex(n => n.id === id || n.name === id); if (idx >= 0) relationChart.dispatchAction({ type: 'highlight', seriesIndex: 0, dataIndex: idx }) } }
-        function updateCharacterSelector(arcs) { const opts = $('char-sel-opts'), txt = $('sel-char-text'); if (!opts) return; if (!arcs?.length) { opts.innerHTML = '<div class="sel-opt" data-value="">暂无角色</div>'; if (txt) txt.textContent = '暂无角色'; currentCharacterId = null; return } opts.innerHTML = arcs.map(a => `<div class="sel-opt" data-value="${h(a.id || a.name)}">${h(a.name || '角色')}</div>`).join(''); opts.querySelectorAll('.sel-opt').forEach(o => o.onclick = e => { e.stopPropagation(); if (o.dataset.value) { selectCharacter(o.dataset.value); $('char-sel').classList.remove('open') } }); if (currentCharacterId && arcs.some(a => (a.id || a.name) === currentCharacterId)) selectCharacter(currentCharacterId); else if (arcs.length) selectCharacter(arcs[0].id || arcs[0].name) }
-        function renderCharacterProfile() {
-            const c = $('profile-content'), arcs = summaryData.arcs || [], rels = summaryData.characters?.relationships || []; if (!currentCharacterId || !arcs.length) { c.innerHTML = '<div class="empty">暂无角色数据</div>'; return } const arc = arcs.find(a => (a.id || a.name) === currentCharacterId); if (!arc) { c.innerHTML = '<div class="empty">未找到角色数据</div>'; return } const name = arc.name || '角色', moments = (arc.moments || arc.beats || []).map(m => typeof m === 'string' ? m : m.text), outRels = rels.filter(r => r.from === name), inRels = rels.filter(r => r.to === name);
-            const sName = h(name), sTraj = h(arc.trajectory || arc.phase || '');
-            c.innerHTML = `<div class="prof-arc"><div><div class="prof-name">${sName}</div><div class="prof-traj">${sTraj}</div></div><div class="prof-prog-wrap"><div class="prof-prog-lbl"><span>弧光进度</span><span>${Math.round((arc.progress || 0) * 100)}%</span></div><div class="prof-prog"><div class="prof-prog-inner" style="width:${(arc.progress || 0) * 100}%"></div></div></div>${moments.length ? `<div class="prof-moments"><div class="prof-moments-title">关键时刻</div>${moments.map(m => `<div class="prof-moment">${h(m)}</div>`).join('')}</div>` : ''}</div><div class="prof-rels"><div class="rels-group"><div class="rels-group-title">${sName}对别人的羁绊：</div>${outRels.length ? outRels.map(r => `<div class="rel-item"><span class="rel-target">对${h(r.to)}：</span><span class="rel-label">${h(r.label || '—')}</span>${r.trend ? `<span class="rel-trend ${trendClass[r.trend] || ''}">${h(r.trend)}</span>` : ''}</div>`).join('') : '<div class="empty" style="padding:16px">暂无关系记录</div>'}</div><div class="rels-group"><div class="rels-group-title">别人对${sName}的羁绊：</div>${inRels.length ? inRels.map(r => `<div class="rel-item"><span class="rel-target">${h(r.from)}：</span><span class="rel-label">${h(r.label || '—')}</span>${r.trend ? `<span class="rel-trend ${trendClass[r.trend] || ''}">${h(r.trend)}</span>` : ''}</div>`).join('') : '<div class="empty" style="padding:16px">暂无关系记录</div>'}</div></div>`
-        }
-        function renderArcs(arcs) { summaryData.arcs = arcs || []; updateCharacterSelector(arcs || []); renderCharacterProfile() }
-        function updateStats(s) { if (!s) return; $('stat-summarized').textContent = s.summarizedUpTo ?? 0; $('stat-events').textContent = s.eventsCount ?? 0; const p = s.pendingFloors ?? 0; $('stat-pending').textContent = p; $('pending-warning').classList.toggle('hidden', p !== -1) }
-
-        function openRelationsFullscreen() { const m = $('rel-fs-modal'); m.classList.add('active'); const dom = $('relation-chart-fullscreen'); if (!relationChartFullscreen) relationChartFullscreen = echarts.init(dom); if (!allNodes.length) { relationChartFullscreen.clear(); return } relationChartFullscreen.setOption({ tooltip: { show: false }, hoverLayerThreshold: Infinity, series: [{ type: 'graph', layout: 'force', roam: true, draggable: true, animation: true, animationDuration: 800, animationDurationUpdate: 300, animationEasingUpdate: 'cubicInOut', progressive: 0, hoverAnimation: false, data: allNodes.map(n => ({ ...n, symbolSize: Array.isArray(n.symbolSize) ? [n.symbolSize[0] * 1.3, n.symbolSize[1] * 1.3] : n.symbolSize * 1.3, label: { ...n.label, fontSize: 14 } })), links: allLinks.map(l => ({ ...l, label: { ...l.label, fontSize: 18 } })), force: { repulsion: 700, edgeLength: [150, 280], gravity: .06, friction: .6, layoutAnimation: true }, label: { show: true }, edgeLabel: { show: true, position: 'middle' }, emphasis: { disabled: true } }] }); setTimeout(() => relationChartFullscreen.resize(), 100); postMsg('FULLSCREEN_OPENED') }
-        function closeRelationsFullscreen() { $('rel-fs-modal').classList.remove('active'); postMsg('FULLSCREEN_CLOSED') }
-
-        const createDelBtn = () => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-sm btn-del'; b.textContent = '删除'; return b };
-        function addDeleteHandler(item) { const del = createDelBtn(); (item.querySelector('.struct-actions') || item).appendChild(del); del.onclick = () => item.remove() }
-
-        function renderEventsEditor(events) { const list = events?.length ? events : [{ id: 'evt-1', title: '', timeLabel: '', summary: '', participants: [], type: '日常', weight: '点睛' }]; let maxId = 0; list.forEach(e => { const m = e.id?.match(/evt-(\d+)/); if (m) maxId = Math.max(maxId, +m[1]) }); const es = $('editor-struct'); es.innerHTML = list.map(ev => { const id = ev.id || `evt-${++maxId}`; return `<div class="struct-item event-item" data-id="${h(id)}"><div class="struct-row"><input type="text" class="event-title" placeholder="事件标题" value="${h(ev.title || '')}"><input type="text" class="event-time" placeholder="时间标签" value="${h(ev.timeLabel || '')}"></div><div class="struct-row"><textarea class="event-summary" rows="2" placeholder="一句话描述">${h(ev.summary || '')}</textarea></div><div class="struct-row"><input type="text" class="event-participants" placeholder="人物（顿号分隔）" value="${h((ev.participants || []).join('、'))}"></div><div class="struct-row"><select class="event-type">${['相遇', '冲突', '揭示', '抉择', '羁绊', '转变', '收束', '日常'].map(t => `<option ${ev.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select><select class="event-weight">${['核心', '主线', '转折', '点睛', '氛围'].map(t => `<option ${ev.weight === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div><div class="struct-actions"><span>ID：${h(id)}</span></div></div>` }).join('') + '<div style="margin-top:8px"><button type="button" class="btn btn-sm" id="event-add">＋ 新增事件</button></div>'; es.querySelectorAll('.event-item').forEach(addDeleteHandler); $('event-add').onclick = () => { let nmax = maxId; es.querySelectorAll('.event-item').forEach(it => { const m = it.dataset.id?.match(/evt-(\d+)/); if (m) nmax = Math.max(nmax, +m[1]) }); const nid = `evt-${nmax + 1}`, div = document.createElement('div'); div.className = 'struct-item event-item'; div.dataset.id = nid; div.innerHTML = `<div class="struct-row"><input type="text" class="event-title" placeholder="事件标题"><input type="text" class="event-time" placeholder="时间标签"></div><div class="struct-row"><textarea class="event-summary" rows="2" placeholder="一句话描述"></textarea></div><div class="struct-row"><input type="text" class="event-participants" placeholder="人物（顿号分隔）"></div><div class="struct-row"><select class="event-type">${['相遇', '冲突', '揭示', '抉择', '羁绊', '转变', '收束', '日常'].map(t => `<option>${t}</option>`).join('')}</select><select class="event-weight">${['核心', '主线', '转折', '点睛', '氛围'].map(t => `<option>${t}</option>`).join('')}</select></div><div class="struct-actions"><span>ID：${h(nid)}</span></div>`; addDeleteHandler(div); es.insertBefore(div, $('event-add').parentElement) } }
-
-        function renderCharactersEditor(data) { const d = data || { main: [], relationships: [] }, main = (d.main || []).map(getCharName), rels = d.relationships || []; const es = $('editor-struct'); const trendOpts = ['破裂', '厌恶', '反感', '陌生', '投缘', '亲密', '交融']; es.innerHTML = `<div class="struct-item"><div class="struct-row"><strong>角色列表</strong></div><div id="char-main-list">${(main.length ? main : ['']).map(n => `<div class="struct-row char-main-item"><input type="text" class="char-main-name" placeholder="角色名" value="${h(n || '')}"></div>`).join('')}</div><div style="margin-top:8px"><button type="button" class="btn btn-sm" id="char-main-add">＋ 新增角色</button></div></div><div class="struct-item"><div class="struct-row"><strong>人物关系</strong></div><div id="char-rel-list">${(rels.length ? rels : [{ from: '', to: '', label: '', trend: '陌生' }]).map(r => `<div class="struct-row char-rel-item"><input type="text" class="char-rel-from" placeholder="角色 A" value="${h(r.from || '')}"><input type="text" class="char-rel-to" placeholder="角色 B" value="${h(r.to || '')}"><input type="text" class="char-rel-label" placeholder="关系" value="${h(r.label || '')}"><select class="char-rel-trend">${trendOpts.map(t => `<option ${r.trend === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`).join('')}</div><div style="margin-top:8px"><button type="button" class="btn btn-sm" id="char-rel-add">＋ 新增关系</button></div></div>`; es.querySelectorAll('.char-main-item,.char-rel-item').forEach(addDeleteHandler); $('char-main-add').onclick = () => { const div = document.createElement('div'); div.className = 'struct-row char-main-item'; div.innerHTML = '<input type="text" class="char-main-name" placeholder="角色名">'; addDeleteHandler(div); $('char-main-list').appendChild(div) }; $('char-rel-add').onclick = () => { const div = document.createElement('div'); div.className = 'struct-row char-rel-item'; div.innerHTML = `<input type="text" class="char-rel-from" placeholder="角色 A"><input type="text" class="char-rel-to" placeholder="角色 B"><input type="text" class="char-rel-label" placeholder="关系"><select class="char-rel-trend">${trendOpts.map(t => `<option>${t}</option>`).join('')}</select>`; addDeleteHandler(div); $('char-rel-list').appendChild(div) } }
-
-        function renderArcsEditor(arcs) { const list = arcs?.length ? arcs : [{ name: '', trajectory: '', progress: 0, moments: [] }]; const es = $('editor-struct'); es.innerHTML = `<div id="arc-list">${list.map((a, i) => `<div class="struct-item arc-item" data-index="${i}"><div class="struct-row"><input type="text" class="arc-name" placeholder="角色名" value="${h(a.name || '')}"></div><div class="struct-row"><textarea class="arc-trajectory" rows="2" placeholder="当前状态描述">${h(a.trajectory || '')}</textarea></div><div class="struct-row"><label style="font-size:.75rem;color:var(--txt3)">进度：<input type="number" class="arc-progress" min="0" max="100" value="${Math.round((a.progress || 0) * 100)}" style="width:64px;display:inline-block"> %</label></div><div class="struct-row"><textarea class="arc-moments" rows="3" placeholder="关键时刻，一行一个">${h((a.moments || []).map(m => typeof m === 'string' ? m : m.text).join('\n'))}</textarea></div><div class="struct-actions"><span>角色弧光 ${i + 1}</span></div></div>`).join('')}</div><div style="margin-top:8px"><button type="button" class="btn btn-sm" id="arc-add">＋ 新增角色弧光</button></div>`; es.querySelectorAll('.arc-item').forEach(addDeleteHandler); $('arc-add').onclick = () => { const listEl = $('arc-list'), idx = listEl.querySelectorAll('.arc-item').length, div = document.createElement('div'); div.className = 'struct-item arc-item'; div.dataset.index = idx; div.innerHTML = `<div class="struct-row"><input type="text" class="arc-name" placeholder="角色名"></div><div class="struct-row"><textarea class="arc-trajectory" rows="2" placeholder="当前状态描述"></textarea></div><div class="struct-row"><label style="font-size:.75rem;color:var(--txt3)">进度：<input type="number" class="arc-progress" min="0" max="100" value="0" style="width:64px;display:inline-block"> %</label></div><div class="struct-row"><textarea class="arc-moments" rows="3" placeholder="关键时刻，一行一个"></textarea></div><div class="struct-actions"><span>角色弧光 ${idx + 1}</span></div>`; addDeleteHandler(div); listEl.appendChild(div) } }
-
-        function openEditor(section) { currentEditSection = section; const meta = sectionMeta[section], es = $('editor-struct'), ta = $('editor-ta'); $('editor-title').textContent = meta.title; $('editor-hint').textContent = meta.hint; $('editor-err').classList.remove('visible'); $('editor-err').textContent = ''; es.classList.add('hidden'); ta.classList.remove('hidden'); if (section === 'keywords') ta.value = summaryData.keywords.map(k => `${k.text}|${k.weight || '一般'}`).join('\n'); else { ta.classList.add('hidden'); es.classList.remove('hidden'); if (section === 'events') renderEventsEditor(summaryData.events || []); else if (section === 'characters') renderCharactersEditor(summaryData.characters || { main: [], relationships: [] }); else if (section === 'arcs') renderArcsEditor(summaryData.arcs || []) } $('editor-modal').classList.add('active'); postMsg('EDITOR_OPENED') }
-        function closeEditor() { $('editor-modal').classList.remove('active'); currentEditSection = null; postMsg('EDITOR_CLOSED') }
-        function saveEditor() { const section = currentEditSection, es = $('editor-struct'), ta = $('editor-ta'); let parsed; try { if (section === 'keywords') { const oldMap = new Map((summaryData.keywords || []).map(k => [k.text, k])); parsed = ta.value.trim().split('\n').filter(l => l.trim()).map(line => { const [text, weight] = line.split('|').map(s => s.trim()); return preserveAddedAt({ text: text || '', weight: weight || '一般' }, oldMap.get(text)) }) } else if (section === 'events') { const oldMap = new Map((summaryData.events || []).map(e => [e.id, e])); parsed = Array.from(es.querySelectorAll('.event-item')).map(it => { const id = it.dataset.id; return preserveAddedAt({ id, title: it.querySelector('.event-title').value.trim(), timeLabel: it.querySelector('.event-time').value.trim(), summary: it.querySelector('.event-summary').value.trim(), participants: it.querySelector('.event-participants').value.trim().split(/[,、，]/).map(s => s.trim()).filter(Boolean), type: it.querySelector('.event-type').value, weight: it.querySelector('.event-weight').value }, oldMap.get(id)) }).filter(e => e.title || e.summary) } else if (section === 'characters') { const oldMainMap = new Map((summaryData.characters?.main || []).map(m => [getCharName(m), m])), mainNames = Array.from(es.querySelectorAll('.char-main-name')).map(i => i.value.trim()).filter(Boolean), main = mainNames.map(n => preserveAddedAt({ name: n }, oldMainMap.get(n))); const oldRelMap = new Map((summaryData.characters?.relationships || []).map(r => [`${r.from}->${r.to}`, r])), rels = Array.from(es.querySelectorAll('.char-rel-item')).map(it => { const from = it.querySelector('.char-rel-from').value.trim(), to = it.querySelector('.char-rel-to').value.trim(); return preserveAddedAt({ from, to, label: it.querySelector('.char-rel-label').value.trim(), trend: it.querySelector('.char-rel-trend').value }, oldRelMap.get(`${from}->${to}`)) }).filter(r => r.from && r.to); parsed = { main, relationships: rels } } else if (section === 'arcs') { const oldArcMap = new Map((summaryData.arcs || []).map(a => [a.name, a])); parsed = Array.from(es.querySelectorAll('.arc-item')).map(it => { const name = it.querySelector('.arc-name').value.trim(), oldArc = oldArcMap.get(name), oldMomentMap = new Map((oldArc?.moments || []).map(m => [typeof m === 'string' ? m : m.text, m])), momentsRaw = it.querySelector('.arc-moments').value.trim(), moments = momentsRaw ? momentsRaw.split('\n').map(s => s.trim()).filter(Boolean).map(t => preserveAddedAt({ text: t }, oldMomentMap.get(t))) : []; return preserveAddedAt({ name, trajectory: it.querySelector('.arc-trajectory').value.trim(), progress: Math.max(0, Math.min(1, (parseFloat(it.querySelector('.arc-progress').value) || 0) / 100)), moments }, oldArc) }).filter(a => a.name || a.trajectory || a.moments?.length) } } catch (e) { $('editor-err').textContent = `格式错误: ${e.message}`; $('editor-err').classList.add('visible'); return } postMsg('UPDATE_SECTION', { section, data: parsed }); if (section === 'keywords') renderKeywords(parsed); else if (section === 'events') { renderTimeline(parsed); $('stat-events').textContent = parsed.length } else if (section === 'characters') renderRelations(parsed); else if (section === 'arcs') renderArcs(parsed); closeEditor() }
-
-        function updateProviderUI(provider) { const pv = providerDefaults[provider] || providerDefaults.custom, isSt = provider === 'st'; $('api-url-row').classList.toggle('hidden', isSt); $('api-key-row').classList.toggle('hidden', !pv.needKey); $('api-model-manual-row').classList.toggle('hidden', isSt || !pv.needManualModel); $('api-model-select-row').classList.toggle('hidden', isSt || pv.needManualModel || !config.api.modelCache.length); $('api-connect-row').classList.toggle('hidden', isSt || !pv.canFetch); const urlInput = $('api-url'); if (!urlInput.value && pv.url) urlInput.value = pv.url }
-        function openSettings() { const pn = id => { const v = $(id).value; return v === '' ? null : parseFloat(v) }; $('api-provider').value = config.api.provider; $('api-url').value = config.api.url; $('api-key').value = config.api.key; $('api-model-text').value = config.api.model; $('gen-temp').value = config.gen.temperature ?? ''; $('gen-top-p').value = config.gen.top_p ?? ''; $('gen-top-k').value = config.gen.top_k ?? ''; $('gen-presence').value = config.gen.presence_penalty ?? ''; $('gen-frequency').value = config.gen.frequency_penalty ?? ''; $('trigger-enabled').checked = config.trigger.enabled; $('trigger-interval').value = config.trigger.interval; $('trigger-timing').value = config.trigger.timing; $('trigger-stream').checked = config.trigger.useStream !== false; $('trigger-max-per-run').value = config.trigger.maxPerRun || 100; $('trigger-wrapper-head').value = config.trigger.wrapperHead || ''; $('trigger-wrapper-tail').value = config.trigger.wrapperTail || ''; $('trigger-insert-at-end').checked = !!config.trigger.forceInsertAtEnd; const en = $('trigger-enabled'); if (config.trigger.timing === 'manual') { en.checked = false; en.disabled = true; en.parentElement.style.opacity = '.5' } else { en.disabled = false; en.parentElement.style.opacity = '1' } if (config.api.modelCache.length) { $('api-model-select').innerHTML = config.api.modelCache.map(m => `<option value="${m}"${m === config.api.model ? ' selected' : ''}>${m}</option>`).join('') } updateProviderUI(config.api.provider); $('settings-modal').classList.add('active'); postMsg('SETTINGS_OPENED') }
-        function closeSettings(save) { if (save) { const pn = id => { const v = $(id).value; return v === '' ? null : parseFloat(v) }; const provider = $('api-provider').value, pv = providerDefaults[provider] || providerDefaults.custom; config.api.provider = provider; config.api.url = $('api-url').value; config.api.key = $('api-key').value; config.api.model = provider === 'st' ? '' : pv.needManualModel ? $('api-model-text').value : $('api-model-select').value; config.gen.temperature = pn('gen-temp'); config.gen.top_p = pn('gen-top-p'); config.gen.top_k = pn('gen-top-k'); config.gen.presence_penalty = pn('gen-presence'); config.gen.frequency_penalty = pn('gen-frequency'); const timing = $('trigger-timing').value; config.trigger.timing = timing; config.trigger.enabled = timing === 'manual' ? false : $('trigger-enabled').checked; config.trigger.interval = parseInt($('trigger-interval').value) || 20; config.trigger.useStream = $('trigger-stream').checked; config.trigger.maxPerRun = parseInt($('trigger-max-per-run').value) || 100; config.trigger.wrapperHead = $('trigger-wrapper-head').value; config.trigger.wrapperTail = $('trigger-wrapper-tail').value; config.trigger.forceInsertAtEnd = $('trigger-insert-at-end').checked; saveConfig() } $('settings-modal').classList.remove('active'); postMsg('SETTINGS_CLOSED') }
-        async function fetchModels() { const btn = $('btn-connect'), provider = $('api-provider').value; if (!providerDefaults[provider]?.canFetch) { alert('当前渠道不支持自动拉取模型'); return } let baseUrl = $('api-url').value.trim().replace(/\/+$/, ''); const apiKey = $('api-key').value.trim(); if (!apiKey) { alert('请先填写 API KEY'); return } btn.disabled = true; btn.textContent = '连接中...'; try { const tryFetch = async url => { const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } }); return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null }; if (baseUrl.endsWith('/v1')) baseUrl = baseUrl.slice(0, -3); let models = await tryFetch(`${baseUrl}/v1/models`); if (!models) models = await tryFetch(`${baseUrl}/models`); if (!models?.length) throw new Error('未获取到模型列表'); config.api.modelCache = [...new Set(models)]; const sel = $('api-model-select'); sel.innerHTML = config.api.modelCache.map(m => `<option value="${m}">${m}</option>`).join(''); $('api-model-select-row').classList.remove('hidden'); if (!config.api.model && models.length) { config.api.model = models[0]; sel.value = models[0] } else if (config.api.model) sel.value = config.api.model; saveConfig(); alert(`成功获取 ${models.length} 个模型`) } catch (e) { alert('连接失败：' + (e.message || '请检查 URL 和 KEY')) } finally { btn.disabled = false; btn.textContent = '连接 / 拉取模型列表' } }
-
-        $$('.sec-btn[data-section]').forEach(b => b.onclick = () => openEditor(b.dataset.section));
-        $('editor-backdrop').onclick = $('editor-close').onclick = $('editor-cancel').onclick = closeEditor;
-        $('editor-save').onclick = saveEditor;
-        $('btn-settings').onclick = openSettings;
-        $('settings-backdrop').onclick = $('settings-close').onclick = $('settings-cancel').onclick = () => closeSettings(false);
-        $('settings-save').onclick = () => closeSettings(true);
-        $('api-provider').onchange = e => { const pv = providerDefaults[e.target.value]; $('api-url').value = ''; if (!pv.canFetch) config.api.modelCache = []; updateProviderUI(e.target.value) };
-        $('btn-connect').onclick = fetchModels;
-        $('api-model-select').onchange = e => { config.api.model = e.target.value };
-        $('btn-clear').onclick = () => postMsg('REQUEST_CLEAR');
-        $('btn-generate').onclick = () => { const btn = $('btn-generate'); if (!localGenerating) { localGenerating = true; btn.textContent = '停止'; postMsg('REQUEST_GENERATE', { config: { api: config.api, gen: config.gen, trigger: config.trigger } }) } else { localGenerating = false; btn.textContent = '总结'; postMsg('REQUEST_CANCEL') } };
-        $('hide-summarized').onchange = e => postMsg('TOGGLE_HIDE_SUMMARIZED', { enabled: e.target.checked });
-        $('keep-visible-count').onchange = e => { const c = Math.max(0, Math.min(50, parseInt(e.target.value) || 3)); e.target.value = c; postMsg('UPDATE_KEEP_VISIBLE', { count: c }) };
-        $('btn-fullscreen-relations').onclick = openRelationsFullscreen;
-        $('rel-fs-backdrop').onclick = $('rel-fs-close').onclick = closeRelationsFullscreen;
-        $('char-sel-trigger').onclick = e => { e.stopPropagation(); $('char-sel').classList.toggle('open') };
-        document.onclick = e => { const cs = $('char-sel'); if (cs && !cs.contains(e.target)) cs.classList.remove('open') };
-        $('trigger-timing').onchange = e => { const en = $('trigger-enabled'); if (e.target.value === 'manual') { en.checked = false; en.disabled = true; en.parentElement.style.opacity = '.5' } else { en.disabled = false; en.parentElement.style.opacity = '1' } };
-        window.onresize = () => { relationChart?.resize(); relationChartFullscreen?.resize() };
-
-        // Guarded by origin/source check.
-        window.onmessage = e => { if (e.origin !== PARENT_ORIGIN || e.source !== window.parent) return; const d = e.data; if (!d || d.source !== 'LittleWhiteBox') return; const btn = $('btn-generate'); switch (d.type) { case 'GENERATION_STATE': localGenerating = !!d.isGenerating; btn.textContent = localGenerating ? '停止' : '总结'; break; case 'SUMMARY_BASE_DATA': if (d.stats) { updateStats(d.stats); $('summarized-count').textContent = d.stats.hiddenCount ?? 0 } if (d.hideSummarized !== undefined) $('hide-summarized').checked = d.hideSummarized; if (d.keepVisibleCount !== undefined) $('keep-visible-count').value = d.keepVisibleCount; break; case 'SUMMARY_FULL_DATA': if (d.payload) { const p = d.payload; if (p.keywords) renderKeywords(p.keywords); if (p.events) renderTimeline(p.events); if (p.characters) renderRelations(p.characters); if (p.arcs) renderArcs(p.arcs); $('stat-events').textContent = p.events?.length || 0; if (p.lastSummarizedMesId != null) $('stat-summarized').textContent = p.lastSummarizedMesId + 1; if (p.stats) updateStats(p.stats) } break; case 'SUMMARY_ERROR': console.error('Summary error:', d.message); break; case 'SUMMARY_CLEARED': const t = d.payload?.totalFloors || 0; $('stat-events').textContent = 0; $('stat-summarized').textContent = 0; $('stat-pending').textContent = t; $('summarized-count').textContent = 0; summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] }; renderKeywords([]); renderTimeline([]); renderRelations(null); renderArcs([]); break; case 'LOAD_PANEL_CONFIG': if (d.config) { applyConfig(d.config); } break } };
-
-        document.addEventListener('DOMContentLoaded', () => { loadConfig(); $('stat-events').textContent = '—'; $('stat-summarized').textContent = '—'; $('stat-pending').textContent = '—'; $('summarized-count').textContent = '0'; renderKeywords([]); renderTimeline([]); renderArcs([]); postMsg('FRAME_READY') });
-    </script>
+    <script src="story-summary-ui.js"></script>
 </body>
 
 </html>

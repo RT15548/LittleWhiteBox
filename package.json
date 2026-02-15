@@ -3,7 +3,7 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "lint": "eslint \"**/*.js\"",
+        "lint": "node scripts/check-garbled.js && eslint \"**/*.js\"",
         "lint:fix": "eslint \"**/*.js\" --fix"
     },
   "devDependencies": {
