@@ -6,7 +6,7 @@
     "js": "index.js",
     "css": "style.css",
     "author": "biex",
-    "version": "2.4.0",
+    "version": "2.5.0",
     "homePage": "https://github.com/RT15548/LittleWhiteBox",
     "generate_interceptor": "xiaobaixGenerateInterceptor"
 }
