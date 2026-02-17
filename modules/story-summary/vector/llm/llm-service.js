@@ -2,7 +2,6 @@
 // vector/llm/llm-service.js - 修复 prefill 传递方式
 // ═══════════════════════════════════════════════════════════════════════════
 import { xbLog } from '../../../../core/debug-core.js';
-import { getVectorConfig } from '../../data/config.js';
 import { getApiKey } from './siliconflow.js';
 
 const MODULE_ID = 'vector-llm-service';

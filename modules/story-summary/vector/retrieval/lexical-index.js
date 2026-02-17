@@ -1,16 +1,3 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// lexical-index.js - MiniSearch 词法检索索引
-//
-// 职责：
-// 1. 对 L0 atoms + L1 chunks + L2 events 建立词法索引
-// 2. 提供词法检索接口（专名精确匹配兜底）
-// 3. 惰性构建 + 异步预热 + 缓存失效机制
-//
-// 索引存储：纯内存（不持久化）
-// 分词器：统一使用 tokenizer.js（结巴 + 实体保护 + 降级）
-// 重建时机：CHAT_CHANGED / L0提取完成 / L2总结完成
-// ═══════════════════════════════════════════════════════════════════════════
-
 import MiniSearch from '../../../../libs/minisearch.mjs';
 import { getContext } from '../../../../../../../extensions.js';
 import { getSummaryStore } from '../../data/store.js';
@@ -20,76 +7,166 @@ import { tokenizeForIndex } from '../utils/tokenizer.js';
 
 const MODULE_ID = 'lexical-index';
 
-// ─────────────────────────────────────────────────────────────────────────
-// 缓存
-// ─────────────────────────────────────────────────────────────────────────
-
-/** @type {MiniSearch|null} */
+// In-memory index cache
 let cachedIndex = null;
-
-/** @type {string|null} */
 let cachedChatId = null;
-
-/** @type {string|null} 数据指纹（atoms + chunks + events 数量） */
 let cachedFingerprint = null;
-
-/** @type {boolean} 是否正在构建 */
 let building = false;
-
-/** @type {Promise<MiniSearch|null>|null} 当前构建 Promise（防重入） */
 let buildPromise = null;
-/** @type {Map<number, string[]>} floor → 该楼层的 doc IDs（仅 L1 chunks） */
+
+// floor -> chunk doc ids (L1 only)
 let floorDocIds = new Map();
 
-// ─────────────────────────────────────────────────────────────────────────
-// 工具函数
-// ─────────────────────────────────────────────────────────────────────────
+// IDF stats over lexical docs (L1 chunks + L2 events)
+let termDfMap = new Map();
+let docTokenSets = new Map(); // docId -> Set<token>
+let lexicalDocCount = 0;
 
-/**
- * 清理事件摘要（移除楼层标记）
- * @param {string} summary
- * @returns {string}
- */
+const IDF_MIN = 1.0;
+const IDF_MAX = 4.0;
+const BUILD_BATCH_SIZE = 500;
+
 function cleanSummary(summary) {
     return String(summary || '')
         .replace(/\s*\(#\d+(?:-\d+)?\)\s*$/, '')
         .trim();
 }
 
-/**
- * 计算缓存指纹
- * @param {number} chunkCount
- * @param {number} eventCount
- * @returns {string}
- */
-function computeFingerprint(chunkCount, eventCount) {
-    return `${chunkCount}:${eventCount}`;
+function fnv1a32(input, seed = 0x811C9DC5) {
+    let hash = seed >>> 0;
+    const text = String(input || '');
+    for (let i = 0; i < text.length; i++) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash >>> 0;
 }
 
-/**
- * 让出主线程（避免长时间阻塞 UI）
- * @returns {Promise<void>}
- */
+function compareDocKeys(a, b) {
+    const ka = `${a?.type || ''}:${a?.id || ''}`;
+    const kb = `${b?.type || ''}:${b?.id || ''}`;
+    if (ka < kb) return -1;
+    if (ka > kb) return 1;
+    return 0;
+}
+
+function computeFingerprintFromDocs(docs) {
+    const normalizedDocs = Array.isArray(docs) ? [...docs].sort(compareDocKeys) : [];
+    let hash = 0x811C9DC5;
+
+    for (const doc of normalizedDocs) {
+        const payload = `${doc?.type || ''}\u001F${doc?.id || ''}\u001F${doc?.floor ?? ''}\u001F${doc?.text || ''}\u001E`;
+        hash = fnv1a32(payload, hash);
+    }
+
+    return `${normalizedDocs.length}:${(hash >>> 0).toString(16)}`;
+}
+
 function yieldToMain() {
     return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 文档收集
-// ─────────────────────────────────────────────────────────────────────────
+function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
+}
 
-/**
- * 收集所有待索引文档
- *
- * @param {object[]} chunks - getAllChunks(chatId) 返回值
- * @param {object[]} events - store.json.events
- * @returns {object[]} 文档数组
- */
+function normalizeTerm(term) {
+    return String(term || '').trim().toLowerCase();
+}
+
+function computeIdfFromDf(df, docCount) {
+    if (!docCount || docCount <= 0) return 1;
+    const raw = Math.log((docCount + 1) / ((df || 0) + 1)) + 1;
+    return clamp(raw, IDF_MIN, IDF_MAX);
+}
+
+function computeIdf(term) {
+    const t = normalizeTerm(term);
+    if (!t || lexicalDocCount <= 0) return 1;
+    return computeIdfFromDf(termDfMap.get(t) || 0, lexicalDocCount);
+}
+
+function extractUniqueTokens(text) {
+    return new Set(tokenizeForIndex(String(text || '')).map(normalizeTerm).filter(Boolean));
+}
+
+function clearIdfState() {
+    termDfMap = new Map();
+    docTokenSets = new Map();
+    lexicalDocCount = 0;
+}
+
+function removeDocumentIdf(docId) {
+    const id = String(docId || '');
+    if (!id) return;
+
+    const tokens = docTokenSets.get(id);
+    if (!tokens) return;
+
+    for (const token of tokens) {
+        const current = termDfMap.get(token) || 0;
+        if (current <= 1) {
+            termDfMap.delete(token);
+        } else {
+            termDfMap.set(token, current - 1);
+        }
+    }
+
+    docTokenSets.delete(id);
+    lexicalDocCount = Math.max(0, lexicalDocCount - 1);
+}
+
+function addDocumentIdf(docId, text) {
+    const id = String(docId || '');
+    if (!id) return;
+
+    // Replace semantics: remove old token set first if this id already exists.
+    removeDocumentIdf(id);
+
+    const tokens = extractUniqueTokens(text);
+    docTokenSets.set(id, tokens);
+    lexicalDocCount += 1;
+
+    for (const token of tokens) {
+        termDfMap.set(token, (termDfMap.get(token) || 0) + 1);
+    }
+}
+
+function rebuildIdfFromDocs(docs) {
+    clearIdfState();
+    for (const doc of docs || []) {
+        const id = String(doc?.id || '');
+        const text = String(doc?.text || '');
+        if (!id || !text.trim()) continue;
+        addDocumentIdf(id, text);
+    }
+}
+
+function buildEventDoc(ev) {
+    if (!ev?.id) return null;
+
+    const parts = [];
+    if (ev.title) parts.push(ev.title);
+    if (ev.participants?.length) parts.push(ev.participants.join(' '));
+
+    const summary = cleanSummary(ev.summary);
+    if (summary) parts.push(summary);
+
+    const text = parts.join(' ').trim();
+    if (!text) return null;
+
+    return {
+        id: ev.id,
+        type: 'event',
+        floor: null,
+        text,
+    };
+}
+
 function collectDocuments(chunks, events) {
     const docs = [];
 
-    // L1 chunks + 填充 floorDocIds
-    for (const chunk of (chunks || [])) {
+    for (const chunk of chunks || []) {
         if (!chunk?.chunkId || !chunk.text) continue;
 
         const floor = chunk.floor ?? -1;
@@ -101,48 +178,19 @@ function collectDocuments(chunks, events) {
         });
 
         if (floor >= 0) {
-            if (!floorDocIds.has(floor)) {
-                floorDocIds.set(floor, []);
-            }
+            if (!floorDocIds.has(floor)) floorDocIds.set(floor, []);
             floorDocIds.get(floor).push(chunk.chunkId);
         }
     }
 
-    // L2 events
-    for (const ev of (events || [])) {
-        if (!ev?.id) continue;
-        const parts = [];
-        if (ev.title) parts.push(ev.title);
-        if (ev.participants?.length) parts.push(ev.participants.join(' '));
-        const summary = cleanSummary(ev.summary);
-        if (summary) parts.push(summary);
-        const text = parts.join(' ').trim();
-        if (!text) continue;
-
-        docs.push({
-            id: ev.id,
-            type: 'event',
-            floor: null,
-            text,
-        });
+    for (const ev of events || []) {
+        const doc = buildEventDoc(ev);
+        if (doc) docs.push(doc);
     }
 
     return docs;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 索引构建（分片，不阻塞主线程）
-// ─────────────────────────────────────────────────────────────────────────
-
-/** 每批添加的文档数 */
-const BUILD_BATCH_SIZE = 500;
-
-/**
- * 构建 MiniSearch 索引（分片异步）
- *
- * @param {object[]} docs - 文档数组
- * @returns {Promise<MiniSearch>}
- */
 async function buildIndexAsync(docs) {
     const T0 = performance.now();
 
@@ -158,49 +206,46 @@ async function buildIndexAsync(docs) {
         tokenize: tokenizeForIndex,
     });
 
-    if (!docs.length) {
-        return index;
-    }
+    if (!docs.length) return index;
 
-    // 分片添加，每批 BUILD_BATCH_SIZE 条后让出主线程
     for (let i = 0; i < docs.length; i += BUILD_BATCH_SIZE) {
         const batch = docs.slice(i, i + BUILD_BATCH_SIZE);
         index.addAll(batch);
 
-        // 非最后一批时让出主线程
         if (i + BUILD_BATCH_SIZE < docs.length) {
             await yieldToMain();
         }
     }
 
     const elapsed = Math.round(performance.now() - T0);
-    xbLog.info(MODULE_ID,
-        `索引构建完成: ${docs.length} 文档 (${elapsed}ms)`
-    );
-
+    xbLog.info(MODULE_ID, `Index built: ${docs.length} docs (${elapsed}ms)`);
     return index;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 检索
-// ─────────────────────────────────────────────────────────────────────────
-
 /**
  * @typedef {object} LexicalSearchResult
- * @property {string[]} atomIds    - 命中的 L0 atom IDs
- * @property {Set<number>} atomFloors - 命中的 L0 楼层集合
- * @property {string[]} chunkIds   - 命中的 L1 chunk IDs
- * @property {Set<number>} chunkFloors - 命中的 L1 楼层集合
- * @property {string[]} eventIds   - 命中的 L2 event IDs
- * @property {object[]} chunkScores - chunk 命中详情 [{ chunkId, score }]
- * @property {number}   searchTime - 检索耗时 ms
+ * @property {string[]} atomIds - Reserved for backward compatibility (currently empty).
+ * @property {Set<number>} atomFloors - Reserved for backward compatibility (currently empty).
+ * @property {string[]} chunkIds - Matched L1 chunk ids sorted by weighted lexical score.
+ * @property {Set<number>} chunkFloors - Floor ids covered by matched chunks.
+ * @property {string[]} eventIds - Matched L2 event ids sorted by weighted lexical score.
+ * @property {object[]} chunkScores - Weighted lexical scores for matched chunks.
+ * @property {boolean} idfEnabled - Whether IDF stats are available for weighting.
+ * @property {number} idfDocCount - Number of lexical docs used to compute IDF.
+ * @property {Array<{term:string,idf:number}>} topIdfTerms - Top query terms by IDF.
+ * @property {string[]} queryTerms - Normalized query terms actually searched.
+ * @property {Record<string, Array<{floor:number, weightedScore:number, chunkId:string}>>} termFloorHits - Chunk-floor hits by term.
+ * @property {Array<{floor:number, score:number, hitTermsCount:number}>} floorLexScores - Aggregated lexical floor scores (debug).
+ * @property {number} termSearches - Number of per-term MiniSearch queries executed.
+ * @property {number} searchTime - Total lexical search time in milliseconds.
  */
 
 /**
- * 在词法索引中检索
+ * Search lexical index by terms, using per-term MiniSearch and IDF-weighted score aggregation.
+ * This keeps existing outputs compatible while adding observability fields.
  *
- * @param {MiniSearch} index - 索引实例
- * @param {string[]} terms - 查询词列表
+ * @param {MiniSearch} index
+ * @param {string[]} terms
  * @returns {LexicalSearchResult}
  */
 export function searchLexicalIndex(index, terms) {
@@ -213,6 +258,13 @@ export function searchLexicalIndex(index, terms) {
         chunkFloors: new Set(),
         eventIds: [],
         chunkScores: [],
+        idfEnabled: lexicalDocCount > 0,
+        idfDocCount: lexicalDocCount,
+        topIdfTerms: [],
+        queryTerms: [],
+        termFloorHits: {},
+        floorLexScores: [],
+        termSearches: 0,
         searchTime: 0,
     };
 
@@ -221,79 +273,111 @@ export function searchLexicalIndex(index, terms) {
         return result;
     }
 
-    // 用所有 terms 联合查询
-    const queryString = terms.join(' ');
+    const queryTerms = Array.from(new Set((terms || []).map(normalizeTerm).filter(Boolean)));
+    result.queryTerms = [...queryTerms];
+    const weightedScores = new Map(); // docId -> score
+    const hitMeta = new Map(); // docId -> { type, floor }
+    const idfPairs = [];
+    const termFloorHits = new Map(); // term -> [{ floor, weightedScore, chunkId }]
+    const floorLexAgg = new Map(); // floor -> { score, terms:Set<string> }
 
-    let hits;
-    try {
-        hits = index.search(queryString, {
-            boost: { text: 1 },
-            fuzzy: 0.2,
-            prefix: true,
-            combineWith: 'OR',
-            // 使用与索引相同的分词器
-            tokenize: tokenizeForIndex,
-        });
-    } catch (e) {
-        xbLog.warn(MODULE_ID, '检索失败', e);
-        result.searchTime = Math.round(performance.now() - T0);
-        return result;
+    for (const term of queryTerms) {
+        const idf = computeIdf(term);
+        idfPairs.push({ term, idf });
+
+        let hits = [];
+        try {
+            hits = index.search(term, {
+                boost: { text: 1 },
+                fuzzy: 0.2,
+                prefix: true,
+                combineWith: 'OR',
+                tokenize: tokenizeForIndex,
+            });
+        } catch (e) {
+            xbLog.warn(MODULE_ID, `Lexical term search failed: ${term}`, e);
+            continue;
+        }
+
+        result.termSearches += 1;
+
+        for (const hit of hits) {
+            const id = String(hit.id || '');
+            if (!id) continue;
+
+            const weighted = (hit.score || 0) * idf;
+            weightedScores.set(id, (weightedScores.get(id) || 0) + weighted);
+
+            if (!hitMeta.has(id)) {
+                hitMeta.set(id, {
+                    type: hit.type,
+                    floor: hit.floor,
+                });
+            }
+
+            if (hit.type === 'chunk' && typeof hit.floor === 'number' && hit.floor >= 0) {
+                if (!termFloorHits.has(term)) termFloorHits.set(term, []);
+                termFloorHits.get(term).push({
+                    floor: hit.floor,
+                    weightedScore: weighted,
+                    chunkId: id,
+                });
+
+                const floorAgg = floorLexAgg.get(hit.floor) || { score: 0, terms: new Set() };
+                floorAgg.score += weighted;
+                floorAgg.terms.add(term);
+                floorLexAgg.set(hit.floor, floorAgg);
+            }
+        }
     }
 
-    // 分类结果
-    const chunkIdSet = new Set();
-    const eventIdSet = new Set();
+    idfPairs.sort((a, b) => b.idf - a.idf);
+    result.topIdfTerms = idfPairs.slice(0, 5);
+    result.termFloorHits = Object.fromEntries(
+        [...termFloorHits.entries()].map(([term, hits]) => [term, hits]),
+    );
+    result.floorLexScores = [...floorLexAgg.entries()]
+        .map(([floor, info]) => ({
+            floor,
+            score: Number(info.score.toFixed(6)),
+            hitTermsCount: info.terms.size,
+        }))
+        .sort((a, b) => b.score - a.score);
 
-    for (const hit of hits) {
-        const type = hit.type;
-        const id = hit.id;
-        const floor = hit.floor;
+    const sortedHits = Array.from(weightedScores.entries())
+        .sort((a, b) => b[1] - a[1]);
 
-        switch (type) {
-            case 'chunk':
-                if (!chunkIdSet.has(id)) {
-                    chunkIdSet.add(id);
-                    result.chunkIds.push(id);
-                    result.chunkScores.push({ chunkId: id, score: hit.score });
-                    if (typeof floor === 'number' && floor >= 0) {
-                        result.chunkFloors.add(floor);
-                    }
-                }
-                break;
+    for (const [id, score] of sortedHits) {
+        const meta = hitMeta.get(id);
+        if (!meta) continue;
 
-            case 'event':
-                if (!eventIdSet.has(id)) {
-                    eventIdSet.add(id);
-                    result.eventIds.push(id);
-                }
-                break;
+        if (meta.type === 'chunk') {
+            result.chunkIds.push(id);
+            result.chunkScores.push({ chunkId: id, score });
+            if (typeof meta.floor === 'number' && meta.floor >= 0) {
+                result.chunkFloors.add(meta.floor);
+            }
+            continue;
+        }
+
+        if (meta.type === 'event') {
+            result.eventIds.push(id);
         }
     }
 
     result.searchTime = Math.round(performance.now() - T0);
 
-    xbLog.info(MODULE_ID,
-        `检索完成: terms=[${terms.slice(0, 5).join(',')}] → atoms=${result.atomIds.length} chunks=${result.chunkIds.length} events=${result.eventIds.length} (${result.searchTime}ms)`
+    xbLog.info(
+        MODULE_ID,
+        `Lexical search terms=[${queryTerms.slice(0, 5).join(',')}] chunks=${result.chunkIds.length} events=${result.eventIds.length} termSearches=${result.termSearches} (${result.searchTime}ms)`,
     );
 
     return result;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 内部构建流程（收集数据 + 构建索引）
-// ─────────────────────────────────────────────────────────────────────────
-
-/**
- * 收集数据并构建索引
- *
- * @param {string} chatId
- * @returns {Promise<{index: MiniSearch, fingerprint: string}>}
- */
 async function collectAndBuild(chatId) {
-    // 清空侧索引（全量重建）
     floorDocIds = new Map();
 
-    // 收集数据（不含 L0 atoms）
     const store = getSummaryStore();
     const events = store?.json?.events || [];
 
@@ -301,48 +385,44 @@ async function collectAndBuild(chatId) {
     try {
         chunks = await getAllChunks(chatId);
     } catch (e) {
-        xbLog.warn(MODULE_ID, '获取 chunks 失败', e);
+        xbLog.warn(MODULE_ID, 'Failed to load chunks', e);
     }
 
-    const fp = computeFingerprint(chunks.length, events.length);
+    const docs = collectDocuments(chunks, events);
+    const fp = computeFingerprintFromDocs(docs);
 
-    // 检查是否在收集过程中缓存已被其他调用更新
     if (cachedIndex && cachedChatId === chatId && cachedFingerprint === fp) {
         return { index: cachedIndex, fingerprint: fp };
     }
 
-    // 收集文档（同时填充 floorDocIds）
-    const docs = collectDocuments(chunks, events);
-
-    // 异步分片构建
+    rebuildIdfFromDocs(docs);
     const index = await buildIndexAsync(docs);
 
     return { index, fingerprint: fp };
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 公开接口：getLexicalIndex（惰性获取）
-// ─────────────────────────────────────────────────────────────────────────
-
 /**
- * 获取词法索引（惰性构建 + 缓存）
- *
- * 如果缓存有效则直接返回；否则自动构建。
- * 如果正在构建中，等待构建完成。
- *
- * @returns {Promise<MiniSearch|null>}
+ * Expose IDF accessor for query-term selection in query-builder.
+ * If index stats are not ready, this gracefully falls back to idf=1.
  */
+export function getLexicalIdfAccessor() {
+    return {
+        enabled: lexicalDocCount > 0,
+        docCount: lexicalDocCount,
+        getIdf(term) {
+            return computeIdf(term);
+        },
+    };
+}
+
 export async function getLexicalIndex() {
     const { chatId } = getContext();
     if (!chatId) return null;
 
-    // 快速路径：如果缓存存在且 chatId 未变，则直接命中
-    // 指纹校验放到构建流程中完成，避免为指纹而额外读一次 IndexedDB
     if (cachedIndex && cachedChatId === chatId && cachedFingerprint) {
         return cachedIndex;
     }
 
-    // 正在构建中，等待结果
     if (building && buildPromise) {
         try {
             await buildPromise;
@@ -350,27 +430,23 @@ export async function getLexicalIndex() {
                 return cachedIndex;
             }
         } catch {
-            // 构建失败，继续往下重建
+            // Continue to rebuild below.
         }
     }
 
-    // 需要重建（指纹将在 collectAndBuild 内部计算并写入缓存）
-    xbLog.info(MODULE_ID, `缓存失效，重建索引 (chatId=${chatId.slice(0, 8)})`);
+    xbLog.info(MODULE_ID, `Lexical cache miss; rebuilding (chatId=${chatId.slice(0, 8)})`);
 
     building = true;
     buildPromise = collectAndBuild(chatId);
 
     try {
         const { index, fingerprint } = await buildPromise;
-
-        // 原子替换缓存
         cachedIndex = index;
         cachedChatId = chatId;
         cachedFingerprint = fingerprint;
-
         return index;
     } catch (e) {
-        xbLog.error(MODULE_ID, '索引构建失败', e);
+        xbLog.error(MODULE_ID, 'Index build failed', e);
         return null;
     } finally {
         building = false;
@@ -378,74 +454,29 @@ export async function getLexicalIndex() {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 公开接口：warmupIndex（异步预建）
-// ─────────────────────────────────────────────────────────────────────────
-
-/**
- * 异步预建索引
- *
- * 在 CHAT_CHANGED 时调用，后台构建索引。
- * 不阻塞调用方，不返回结果。
- * 构建完成后缓存自动更新，后续 getLexicalIndex() 直接命中。
- *
- * 调用时机：
- * - handleChatChanged（实体注入后）
- * - L0 提取完成
- * - L2 总结完成
- */
 export function warmupIndex() {
     const { chatId } = getContext();
-    if (!chatId) return;
+    if (!chatId || building) return;
 
-    // 已在构建中，不重复触发
-    if (building) return;
-
-    // fire-and-forget
     getLexicalIndex().catch(e => {
-        xbLog.warn(MODULE_ID, '预热索引失败', e);
+        xbLog.warn(MODULE_ID, 'Warmup failed', e);
     });
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 公开接口：invalidateLexicalIndex（缓存失效）
-// ─────────────────────────────────────────────────────────────────────────
-
-/**
- * 使缓存失效（下次 getLexicalIndex / warmupIndex 时自动重建）
- *
- * 调用时机：
- * - CHAT_CHANGED
- * - L0 提取完成
- * - L2 总结完成
- */
 export function invalidateLexicalIndex() {
     if (cachedIndex) {
-        xbLog.info(MODULE_ID, '索引缓存已失效');
+        xbLog.info(MODULE_ID, 'Lexical index cache invalidated');
     }
     cachedIndex = null;
     cachedChatId = null;
     cachedFingerprint = null;
     floorDocIds = new Map();
+    clearIdfState();
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// 增量更新接口
-// ─────────────────────────────────────────────────────────────────────────
-
-/**
- * 为指定楼层添加 L1 chunks 到索引
- *
- * 先移除该楼层旧文档，再添加新文档。
- * 如果索引不存在（缓存失效），静默跳过（下次 getLexicalIndex 全量重建）。
- *
- * @param {number} floor - 楼层号
- * @param {object[]} chunks - chunk 对象列表（需有 chunkId、text、floor）
- */
 export function addDocumentsForFloor(floor, chunks) {
     if (!cachedIndex || !chunks?.length) return;
 
-    // 先移除旧文档
     removeDocumentsByFloor(floor);
 
     const docs = [];
@@ -453,30 +484,29 @@ export function addDocumentsForFloor(floor, chunks) {
 
     for (const chunk of chunks) {
         if (!chunk?.chunkId || !chunk.text) continue;
-        docs.push({
+
+        const doc = {
             id: chunk.chunkId,
             type: 'chunk',
             floor: chunk.floor ?? floor,
             text: chunk.text,
-        });
+        };
+        docs.push(doc);
         docIds.push(chunk.chunkId);
     }
 
-    if (docs.length > 0) {
-        cachedIndex.addAll(docs);
-        floorDocIds.set(floor, docIds);
-        xbLog.info(MODULE_ID, `增量添加: floor ${floor}, ${docs.length} 个 chunk`);
+    if (!docs.length) return;
+
+    cachedIndex.addAll(docs);
+    floorDocIds.set(floor, docIds);
+
+    for (const doc of docs) {
+        addDocumentIdf(doc.id, doc.text);
     }
+
+    xbLog.info(MODULE_ID, `Incremental add floor=${floor} chunks=${docs.length}`);
 }
 
-/**
- * 从索引中移除指定楼层的所有 L1 chunk 文档
- *
- * 使用 MiniSearch discard()（软删除）。
- * 如果索引不存在，静默跳过。
- *
- * @param {number} floor - 楼层号
- */
 export function removeDocumentsByFloor(floor) {
     if (!cachedIndex) return;
 
@@ -487,55 +517,39 @@ export function removeDocumentsByFloor(floor) {
         try {
             cachedIndex.discard(id);
         } catch {
-            // 文档可能不存在（已被全量重建替换）
+            // Ignore if the doc was already removed/rebuilt.
         }
+        removeDocumentIdf(id);
     }
 
     floorDocIds.delete(floor);
-    xbLog.info(MODULE_ID, `增量移除: floor ${floor}, ${docIds.length} 个文档`);
+    xbLog.info(MODULE_ID, `Incremental remove floor=${floor} chunks=${docIds.length}`);
 }
 
-/**
- * 将新 L2 事件添加到索引
- *
- * 如果事件 ID 已存在，先 discard 再 add（覆盖）。
- * 如果索引不存在，静默跳过。
- *
- * @param {object[]} events - 事件对象列表（需有 id、title、summary 等）
- */
 export function addEventDocuments(events) {
     if (!cachedIndex || !events?.length) return;
 
     const docs = [];
 
     for (const ev of events) {
-        if (!ev?.id) continue;
+        const doc = buildEventDoc(ev);
+        if (!doc) continue;
 
-        const parts = [];
-        if (ev.title) parts.push(ev.title);
-        if (ev.participants?.length) parts.push(ev.participants.join(' '));
-        const summary = cleanSummary(ev.summary);
-        if (summary) parts.push(summary);
-        const text = parts.join(' ').trim();
-        if (!text) continue;
-
-        // 覆盖：先尝试移除旧的
         try {
-            cachedIndex.discard(ev.id);
+            cachedIndex.discard(doc.id);
         } catch {
-            // 不存在则忽略
+            // Ignore if previous document does not exist.
         }
-
-        docs.push({
-            id: ev.id,
-            type: 'event',
-            floor: null,
-            text,
-        });
+        removeDocumentIdf(doc.id);
+        docs.push(doc);
     }
 
-    if (docs.length > 0) {
-        cachedIndex.addAll(docs);
-        xbLog.info(MODULE_ID, `增量添加: ${docs.length} 个事件`);
+    if (!docs.length) return;
+
+    cachedIndex.addAll(docs);
+    for (const doc of docs) {
+        addDocumentIdf(doc.id, doc.text);
     }
+
+    xbLog.info(MODULE_ID, `Incremental add events=${docs.length}`);
 }

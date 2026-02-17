@@ -52,6 +52,10 @@ export function createMetrics() {
             eventHits: 0,
             searchTime: 0,
             indexReadyTime: 0,
+            idfEnabled: false,
+            idfDocCount: 0,
+            topIdfTerms: [],
+            termSearches: 0,
             eventFilteredByDense: 0,
             floorFilteredByDense: 0,
         },
@@ -97,6 +101,11 @@ export function createMetrics() {
             floorCandidates: 0,
             floorsSelected: 0,
             l0Collected: 0,
+            mustKeepTermsCount: 0,
+            mustKeepFloorsCount: 0,
+            mustKeepFloors: [],
+            droppedByRerankCount: 0,
+            lexHitButNotSelected: 0,
             rerankApplied: false,
             rerankFailed: false,
             beforeRerank: 0,
@@ -274,6 +283,20 @@ export function formatMetricsLog(metrics) {
     if (m.lexical.indexReadyTime > 0) {
         lines.push(`├─ index_ready_time: ${m.lexical.indexReadyTime}ms`);
     }
+    lines.push(`├─ idf_enabled: ${!!m.lexical.idfEnabled}`);
+    if (m.lexical.idfDocCount > 0) {
+        lines.push(`├─ idf_doc_count: ${m.lexical.idfDocCount}`);
+    }
+    if ((m.lexical.topIdfTerms || []).length > 0) {
+        const topIdfText = m.lexical.topIdfTerms
+            .slice(0, 5)
+            .map(x => `${x.term}:${x.idf}`)
+            .join(', ');
+        lines.push(`├─ top_idf_terms: [${topIdfText}]`);
+    }
+    if (m.lexical.termSearches > 0) {
+        lines.push(`├─ term_searches: ${m.lexical.termSearches}`);
+    }
     if (m.lexical.eventFilteredByDense > 0) {
         lines.push(`├─ event_filtered_by_dense: ${m.lexical.eventFilteredByDense}`);
     }
@@ -293,6 +316,20 @@ export function formatMetricsLog(metrics) {
     lines.push(`├─ total_unique: ${m.fusion.totalUnique}`);
     lines.push(`├─ after_cap: ${m.fusion.afterCap}`);
     lines.push(`└─ time: ${m.fusion.time}ms`);
+    lines.push('');
+
+    // Fusion Guard (must-keep lexical floors)
+    lines.push('[Fusion Guard] Lexical Must-Keep');
+    lines.push(`├─ must_keep_terms: ${m.evidence.mustKeepTermsCount || 0}`);
+    lines.push(`├─ must_keep_floors: ${m.evidence.mustKeepFloorsCount || 0}`);
+    if ((m.evidence.mustKeepFloors || []).length > 0) {
+        lines.push(`│   └─ floors: [${m.evidence.mustKeepFloors.slice(0, 10).join(', ')}]`);
+    }
+    if ((m.evidence.lexHitButNotSelected || 0) > 0) {
+        lines.push(`└─ lex_hit_but_not_selected: ${m.evidence.lexHitButNotSelected}`);
+    } else {
+        lines.push(`└─ lex_hit_but_not_selected: 0`);
+    }
     lines.push('');
 
     // Constraint (L3 Facts)
@@ -358,6 +395,9 @@ export function formatMetricsLog(metrics) {
         lines.push(`│   │   ├─ before: ${m.evidence.beforeRerank} floors`);
         lines.push(`│   │   ├─ after: ${m.evidence.afterRerank} floors`);
         lines.push(`│   │   └─ time: ${m.evidence.rerankTime}ms`);
+        if ((m.evidence.droppedByRerankCount || 0) > 0) {
+            lines.push(`│   ├─ dropped_normal: ${m.evidence.droppedByRerankCount}`);
+        }
         if (m.evidence.rerankScores) {
             const rs = m.evidence.rerankScores;
             lines.push(`│   ├─ rerank_scores: min=${rs.min}, max=${rs.max}, mean=${rs.mean}`);

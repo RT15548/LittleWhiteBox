@@ -87,6 +87,7 @@
         api: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
         gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
         trigger: { enabled: false, interval: 20, timing: 'before_user', role: 'system', useStream: true, maxPerRun: 100, wrapperHead: '', wrapperTail: '', forceInsertAtEnd: false },
+        textFilterRules: [...DEFAULT_FILTER_RULES],
         vector: { enabled: false, engine: 'online', local: { modelId: 'bge-small-zh' }, online: { provider: 'siliconflow', url: '', key: '', model: '' } }
     };
 
@@ -123,6 +124,9 @@
                 Object.assign(config.api, p.api || {});
                 Object.assign(config.gen, p.gen || {});
                 Object.assign(config.trigger, p.trigger || {});
+                config.textFilterRules = Array.isArray(p.textFilterRules)
+                    ? p.textFilterRules
+                    : (Array.isArray(p.vector?.textFilterRules) ? p.vector.textFilterRules : [...DEFAULT_FILTER_RULES]);
                 if (p.vector) config.vector = p.vector;
                 if (config.trigger.timing === 'manual' && config.trigger.enabled) {
                     config.trigger.enabled = false;
@@ -137,6 +141,11 @@
         Object.assign(config.api, cfg.api || {});
         Object.assign(config.gen, cfg.gen || {});
         Object.assign(config.trigger, cfg.trigger || {});
+        config.textFilterRules = Array.isArray(cfg.textFilterRules)
+            ? cfg.textFilterRules
+            : (Array.isArray(cfg.vector?.textFilterRules)
+                ? cfg.vector.textFilterRules
+                : (Array.isArray(config.textFilterRules) ? config.textFilterRules : [...DEFAULT_FILTER_RULES]));
         if (cfg.vector) config.vector = cfg.vector;
         if (config.trigger.timing === 'manual') config.trigger.enabled = false;
         localStorage.setItem('summary_panel_config', JSON.stringify(config));
@@ -145,7 +154,10 @@
     function saveConfig() {
         try {
             const settingsOpen = $('settings-modal')?.classList.contains('active');
-            if (settingsOpen) config.vector = getVectorConfig();
+            if (settingsOpen) {
+                config.vector = getVectorConfig();
+                config.textFilterRules = collectFilterRules();
+            }
             if (!config.vector) {
                 config.vector = { enabled: false, engine: 'online', online: { provider: 'siliconflow', key: '', model: 'BAAI/bge-m3' } };
             }
@@ -169,7 +181,6 @@
                 key: $('vector-api-key')?.value?.trim() || '',
                 model: 'BAAI/bge-m3',
             },
-            textFilterRules: collectFilterRules(),
         };
     }
 
@@ -182,7 +193,6 @@
             $('vector-api-key').value = cfg.online.key;
         }
 
-        renderFilterRules(cfg?.textFilterRules || DEFAULT_FILTER_RULES);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -471,6 +481,7 @@
 
         updateProviderUI(config.api.provider);
         if (config.vector) loadVectorConfig(config.vector);
+        renderFilterRules(Array.isArray(config.textFilterRules) ? config.textFilterRules : DEFAULT_FILTER_RULES);
 
         // Initialize sub-options visibility
         const autoSummaryOptions = $('auto-summary-options');
@@ -520,6 +531,7 @@
             config.trigger.wrapperHead = $('trigger-wrapper-head').value;
             config.trigger.wrapperTail = $('trigger-wrapper-tail').value;
             config.trigger.forceInsertAtEnd = $('trigger-insert-at-end').checked;
+            config.textFilterRules = collectFilterRules();
 
             config.vector = getVectorConfig();
             saveConfig();

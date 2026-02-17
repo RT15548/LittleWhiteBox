@@ -18,6 +18,8 @@
 
 import { extensionFolderPath } from '../../../../core/constants.js';
 import { xbLog } from '../../../../core/debug-core.js';
+import { BASE_STOP_WORDS } from './stopwords-base.js';
+import { DOMAIN_STOP_WORDS, KEEP_WORDS } from './stopwords-patch.js';
 
 const MODULE_ID = 'tokenizer';
 
@@ -61,44 +63,30 @@ let entityList = [];
 
 /** @type {Set<string>} 已注入结巴的实体（避免重复 add_word） */
 let injectedEntities = new Set();
+let entityKeepSet = new Set();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 停用词
 // ═══════════════════════════════════════════════════════════════════════════
 
-const STOP_WORDS = new Set([
-    // 中文高频虚词
-    '的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
-    '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
-    '你', '会', '着', '没有', '看', '好', '自己', '这', '他', '她',
-    '它', '吗', '什么', '那', '里', '来', '吧', '呢', '啊', '哦',
-    '嗯', '呀', '哈', '嘿', '喂', '哎', '唉', '哇', '呃', '嘛',
-    '把', '被', '让', '给', '从', '向', '对', '跟', '比', '但',
-    '而', '或', '如果', '因为', '所以', '虽然', '但是', '然后',
-    '可以', '这样', '那样', '怎么', '为什么', '什么样', '哪里',
-    '时候', '现在', '已经', '还是', '只是', '可能', '应该', '知道',
-    '觉得', '开始', '一下', '一些', '这个', '那个', '他们', '我们',
-    '你们', '自己', '起来', '出来', '进去', '回来', '过来', '下去',
-    // 日语常见虚词（≥2字，匹配 TinySegmenter 产出粒度）
-    'です', 'ます', 'した', 'して', 'する', 'ない', 'いる', 'ある',
-    'なる', 'れる', 'られ', 'られる',
-    'この', 'その', 'あの', 'どの', 'ここ', 'そこ', 'あそこ',
-    'これ', 'それ', 'あれ', 'どれ',
-    'ても', 'から', 'まで', 'ので', 'のに', 'けど', 'だけ',
-    'もう', 'まだ', 'とても', 'ちょっと', 'やっぱり',
-    // 英文常见停用词
-    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-    'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
-    'would', 'could', 'should', 'may', 'might', 'can', 'shall',
-    'and', 'but', 'or', 'not', 'no', 'nor', 'so', 'yet',
-    'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from',
-    'it', 'its', 'he', 'she', 'his', 'her', 'they', 'them',
-    'this', 'that', 'these', 'those', 'i', 'me', 'my', 'you', 'your',
-    'we', 'our', 'if', 'then', 'than', 'when', 'what', 'which',
-    'who', 'how', 'where', 'there', 'here', 'all', 'each', 'every',
-    'both', 'few', 'more', 'most', 'other', 'some', 'such',
-    'only', 'own', 'same', 'just', 'very', 'also', 'about',
-]);
+const STATIC_KEEP_WORDS = new Set((KEEP_WORDS || [])
+    .map(w => String(w || '').trim().toLowerCase())
+    .filter(Boolean));
+
+// Standard source only: stopwords-iso snapshot + small domain patch.
+const EFFECTIVE_STOP_WORDS = new Set(
+    [...BASE_STOP_WORDS, ...DOMAIN_STOP_WORDS]
+        .map(w => String(w || '').trim().toLowerCase())
+        .filter(Boolean),
+);
+
+function shouldKeepTokenByWhitelist(token) {
+    const t = String(token || '').trim().toLowerCase();
+    if (!t) return false;
+    if (STATIC_KEEP_WORDS.has(t)) return true;
+    if (entityKeepSet.has(t)) return true;
+    return false;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Unicode 分类
@@ -571,6 +559,7 @@ export function getState() {
 export function injectEntities(lexicon, displayMap) {
     if (!lexicon?.size) {
         entityList = [];
+        entityKeepSet = new Set();
         return;
     }
 
@@ -586,6 +575,7 @@ export function injectEntities(lexicon, displayMap) {
     // 按长度降序（最长匹配优先）
     entities.sort((a, b) => b.length - a.length);
     entityList = entities;
+    entityKeepSet = new Set(entities.map(e => String(e || '').trim().toLowerCase()).filter(Boolean));
 
     // 如果结巴已就绪，注入自定义词
     if (wasmState === WasmState.READY && jiebaAddWord) {
@@ -656,7 +646,7 @@ export function tokenize(text) {
 
         if (!cleaned) continue;
         if (cleaned.length < 2) continue;
-        if (STOP_WORDS.has(cleaned)) continue;
+        if (EFFECTIVE_STOP_WORDS.has(cleaned) && !shouldKeepTokenByWhitelist(cleaned)) continue;
         if (seen.has(cleaned)) continue;
 
         // 过滤纯标点/特殊字符
@@ -728,7 +718,7 @@ export function tokenizeForIndex(text) {
         .map(t => t.trim().toLowerCase())
         .filter(t => {
             if (!t || t.length < 2) return false;
-            if (STOP_WORDS.has(t)) return false;
+            if (EFFECTIVE_STOP_WORDS.has(t) && !shouldKeepTokenByWhitelist(t)) return false;
             if (/^[\s\x00-\x1F\p{P}\p{S}]+$/u.test(t)) return false;
             return true;
         });
@@ -744,6 +734,7 @@ export function tokenizeForIndex(text) {
  */
 export function reset() {
     entityList = [];
+    entityKeepSet = new Set();
     injectedEntities.clear();
     // 不重置 WASM 状态（避免重复加载）
 }

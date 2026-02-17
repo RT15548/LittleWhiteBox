@@ -42,6 +42,7 @@ import { getLexicalIndex, searchLexicalIndex } from './lexical-index.js';
 import { rerankChunks } from '../llm/reranker.js';
 import { createMetrics, calcSimilarityStats } from './metrics.js';
 import { diffuseFromSeeds } from './diffusion.js';
+import { tokenizeForIndex } from '../utils/tokenizer.js';
 
 const MODULE_ID = 'recall';
 
@@ -80,6 +81,11 @@ const CONFIG = {
     // Rerank（floor-level）
     RERANK_TOP_N: 20,
     RERANK_MIN_SCORE: 0.10,
+
+    // Fusion guard: lexical must-keep floors
+    MUST_KEEP_MAX_FLOORS: 3,
+    MUST_KEEP_MIN_IDF: 2.2,
+    MUST_KEEP_CLUSTER_WINDOW: 2,
 
     // 因果链
     CAUSAL_CHAIN_MAX_DEPTH: 10,
@@ -517,13 +523,107 @@ function fuseByFloor(denseRank, lexRank, cap = CONFIG.FUSION_CAP) {
     return { top: scored.slice(0, cap), totalUnique };
 }
 
+function mapChunkFloorToAiFloor(floor, chat) {
+    let mapped = Number(floor);
+    if (!Number.isInteger(mapped) || mapped < 0) return null;
+
+    if (chat?.[mapped]?.is_user) {
+        const aiFloor = mapped + 1;
+        if (aiFloor < (chat?.length || 0) && !chat?.[aiFloor]?.is_user) {
+            mapped = aiFloor;
+        } else {
+            return null;
+        }
+    }
+    return mapped;
+}
+
+function isNonStopwordTerm(term) {
+    const norm = normalize(term);
+    if (!norm) return false;
+    const tokens = tokenizeForIndex(norm).map(normalize);
+    return tokens.includes(norm);
+}
+
+function buildMustKeepFloors(lexicalResult, lexicalTerms, atomFloorSet, chat) {
+    const out = {
+        terms: [],
+        floors: [],
+        floorSet: new Set(),
+        lexHitButNotSelected: 0,
+    };
+
+    if (!lexicalResult || !lexicalTerms?.length || !atomFloorSet?.size) return out;
+
+    const queryTermSet = new Set((lexicalTerms || []).map(normalize).filter(Boolean));
+    const topIdfTerms = (lexicalResult.topIdfTerms || [])
+        .filter(x => {
+            const term = normalize(x?.term);
+            if (!term) return false;
+            if (!queryTermSet.has(term)) return false;
+            if (term.length < 2) return false;
+            if (!isNonStopwordTerm(term)) return false;
+            if ((x?.idf || 0) < CONFIG.MUST_KEEP_MIN_IDF) return false;
+            const hits = lexicalResult.termFloorHits?.[term];
+            return Array.isArray(hits) && hits.length > 0;
+        })
+        .sort((a, b) => (b.idf || 0) - (a.idf || 0));
+
+    if (!topIdfTerms.length) return out;
+
+    out.terms = topIdfTerms.map(x => ({ term: normalize(x.term), idf: x.idf || 0 }));
+
+    const floorAgg = new Map(); // floor -> { lexHitScore, terms:Set<string> }
+    for (const { term } of out.terms) {
+        const hits = lexicalResult.termFloorHits?.[term] || [];
+        for (const hit of hits) {
+            const aiFloor = mapChunkFloorToAiFloor(hit.floor, chat);
+            if (aiFloor == null) continue;
+            if (!atomFloorSet.has(aiFloor)) continue;
+
+            const cur = floorAgg.get(aiFloor) || { lexHitScore: 0, terms: new Set() };
+            cur.lexHitScore += Number(hit?.weightedScore || 0);
+            cur.terms.add(term);
+            floorAgg.set(aiFloor, cur);
+        }
+    }
+
+    const candidates = [...floorAgg.entries()]
+        .map(([floor, info]) => {
+            const termCoverage = info.terms.size;
+            const finalFloorScore = info.lexHitScore * (1 + 0.2 * Math.max(0, termCoverage - 1));
+            return {
+                floor,
+                score: finalFloorScore,
+                termCoverage,
+                terms: [...info.terms],
+            };
+        })
+        .sort((a, b) => b.score - a.score);
+
+    out.lexHitButNotSelected = candidates.length;
+
+    // Cluster by floor distance and keep the highest score per cluster.
+    const selected = [];
+    for (const c of candidates) {
+        const conflict = selected.some(s => Math.abs(s.floor - c.floor) <= CONFIG.MUST_KEEP_CLUSTER_WINDOW);
+        if (conflict) continue;
+        selected.push(c);
+        if (selected.length >= CONFIG.MUST_KEEP_MAX_FLOORS) break;
+    }
+
+    out.floors = selected;
+    out.floorSet = new Set(selected.map(x => x.floor));
+    return out;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // [Stage 6] Floor 融合 + Rerank
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexicalResult, metrics) {
+async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexicalResult, lexicalTerms, metrics) {
     const { chatId, chat, name1, name2 } = getContext();
-    if (!chatId) return { l0Selected: [], l1ScoredByFloor: new Map() };
+    if (!chatId) return { l0Selected: [], l1ScoredByFloor: new Map(), mustKeepFloors: [] };
 
     const T_Start = performance.now();
 
@@ -558,17 +658,8 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     for (const { chunkId, score } of (lexicalResult?.chunkScores || [])) {
         const match = chunkId?.match(/^c-(\d+)-/);
         if (!match) continue;
-        let floor = parseInt(match[1], 10);
-
-        // USER floor → AI floor 映射
-        if (chat?.[floor]?.is_user) {
-            const aiFloor = floor + 1;
-            if (aiFloor < chat.length && !chat[aiFloor]?.is_user) {
-                floor = aiFloor;
-            } else {
-                continue;
-            }
-        }
+        const floor = mapChunkFloorToAiFloor(parseInt(match[1], 10), chat);
+        if (floor == null) continue;
 
         // 预过滤：必须有 L0 atoms
         if (!atomFloorSet.has(floor)) continue;
@@ -601,6 +692,12 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     }
 
     // ─────────────────────────────────────────────────────────────────
+    // 6b.5 Fusion Guard: lexical must-keep floors
+    // ─────────────────────────────────────────────────────────────────
+
+    const mustKeep = buildMustKeepFloors(lexicalResult, lexicalTerms, atomFloorSet, chat);
+
+    // ─────────────────────────────────────────────────────────────────
     // 6c. Floor W-RRF 融合
     // ─────────────────────────────────────────────────────────────────
 
@@ -617,6 +714,10 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
         metrics.fusion.denseAggMethod = 'maxSim';
         metrics.fusion.lexDensityBonus = CONFIG.LEX_DENSITY_BONUS;
         metrics.evidence.floorCandidates = fusedFloors.length;
+        metrics.evidence.mustKeepTermsCount = mustKeep.terms.length;
+        metrics.evidence.mustKeepFloorsCount = mustKeep.floors.length;
+        metrics.evidence.mustKeepFloors = mustKeep.floors.map(x => x.floor).slice(0, 10);
+        metrics.evidence.lexHitButNotSelected = Math.max(0, mustKeep.lexHitButNotSelected - mustKeep.floors.length);
     }
 
     if (fusedFloors.length === 0) {
@@ -628,7 +729,7 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
             metrics.evidence.l1CosineTime = 0;
             metrics.evidence.rerankApplied = false;
         }
-        return { l0Selected: [], l1ScoredByFloor: new Map() };
+        return { l0Selected: [], l1ScoredByFloor: new Map(), mustKeepFloors: [] };
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -650,8 +751,10 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     // 6e. 构建 rerank documents（每个 floor: USER chunks + AI chunks）
     // ─────────────────────────────────────────────────────────────────
 
+    const normalFloors = fusedFloors.filter(f => !mustKeep.floorSet.has(f.id));
+
     const rerankCandidates = [];
-    for (const f of fusedFloors) {
+    for (const f of normalFloors) {
         const aiFloor = f.id;
         const userFloor = aiFloor - 1;
 
@@ -698,6 +801,7 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
         metrics.evidence.rerankApplied = true;
         metrics.evidence.beforeRerank = rerankCandidates.length;
         metrics.evidence.afterRerank = reranked.length;
+        metrics.evidence.droppedByRerankCount = Math.max(0, rerankCandidates.length - reranked.length);
         metrics.evidence.rerankFailed = reranked.some(c => c._rerankFailed);
         metrics.evidence.rerankTime = rerankTime;
         metrics.timing.evidenceRerank = rerankTime;
@@ -722,9 +826,12 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     // 6g. 收集 L0 atoms
     // ─────────────────────────────────────────────────────────────────
 
-    // 仅保留“真实 dense 命中”的 L0 原子：
-    // 旧逻辑按 floor 全塞，容易把同层无关原子带进来。
-    const atomById = new Map(getStateAtoms().map(a => [a.atomId, a]));
+    // Floor-based L0 collection:
+    // once a floor is selected by fusion/rerank, L0 atoms come from that floor.
+    // Dense anchor hits are used as similarity signals (ranking), not hard admission.
+    const allAtoms = getStateAtoms();
+    const atomById = new Map(allAtoms.map(a => [a.atomId, a]));
+    const anchorSimilarityByAtomId = new Map((anchorHits || []).map(h => [h.atomId, h.similarity || 0]));
     const matchedAtomsByFloor = new Map();
     for (const hit of (anchorHits || [])) {
         const atom = hit.atom || atomById.get(hit.atomId);
@@ -739,15 +846,42 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
         arr.sort((a, b) => b.similarity - a.similarity);
     }
 
+    const mustKeepMissing = mustKeep.floors
+        .filter(mf => !reranked.some(r => r.floor === mf.floor))
+        .map(mf => ({
+            floor: mf.floor,
+            _rerankScore: 0.12 + Math.min(0.05, 0.01 * (mf.termCoverage || 1)),
+            _isMustKeep: true,
+        }));
+
+    const finalFloorItems = [
+        ...reranked.map(r => ({ ...r, _isMustKeep: false })),
+        ...mustKeepMissing,
+    ];
+
+    const allAtomsByFloor = new Map();
+    for (const atom of allAtoms) {
+        const f = Number(atom?.floor);
+        if (!Number.isInteger(f) || f < 0) continue;
+        if (!allAtomsByFloor.has(f)) allAtomsByFloor.set(f, []);
+        allAtomsByFloor.get(f).push(atom);
+    }
+
     const l0Selected = [];
 
-    for (const item of reranked) {
+    for (const item of finalFloorItems) {
         const floor = item.floor;
-        const rerankScore = item._rerankScore || 0;
+        const rerankScore = Number.isFinite(item?._rerankScore) ? item._rerankScore : 0;
 
-        // 仅收集该 floor 中真实命中的 L0 atoms
-        const floorMatchedAtoms = matchedAtomsByFloor.get(floor) || [];
-        for (const { atom, similarity } of floorMatchedAtoms) {
+        const floorAtoms = allAtomsByFloor.get(floor) || [];
+        floorAtoms.sort((a, b) => {
+            const sa = anchorSimilarityByAtomId.get(a.atomId) || 0;
+            const sb = anchorSimilarityByAtomId.get(b.atomId) || 0;
+            return sb - sa;
+        });
+
+        for (const atom of floorAtoms) {
+            const similarity = anchorSimilarityByAtomId.get(atom.atomId) || 0;
             l0Selected.push({
                 id: `anchor-${atom.atomId}`,
                 atomId: atom.atomId,
@@ -762,7 +896,7 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     }
 
     if (metrics) {
-        metrics.evidence.floorsSelected = reranked.length;
+        metrics.evidence.floorsSelected = finalFloorItems.length;
         metrics.evidence.l0Collected = l0Selected.length;
 
         metrics.evidence.l1Pulled = 0;
@@ -777,10 +911,14 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     }
 
     xbLog.info(MODULE_ID,
-        `Evidence: ${denseFloorRank.length} dense floors + ${lexFloorRank.length} lex floors (${lexFloorFilteredByDense} lex filtered by dense) → fusion=${fusedFloors.length} → rerank=${reranked.length} floors → L0=${l0Selected.length} (${totalTime}ms)`
+        `Evidence: ${denseFloorRank.length} dense floors + ${lexFloorRank.length} lex floors (${lexFloorFilteredByDense} lex filtered by dense) → fusion=${fusedFloors.length} → rerank(normal)=${reranked.length} + mustKeep=${mustKeepMissing.length} floors → L0=${l0Selected.length} (${totalTime}ms)`
     );
 
-    return { l0Selected, l1ScoredByFloor };
+    return {
+        l0Selected,
+        l1ScoredByFloor,
+        mustKeepFloors: mustKeep.floors.map(x => x.floor),
+    };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -965,6 +1103,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             focusEntities: [],
             focusTerms: [],
             focusCharacters: [],
+            mustKeepFloors: [],
             elapsed: metrics.timing.total,
             logText: 'No events.',
             metrics,
@@ -983,6 +1122,12 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         ? CONFIG.LAST_MESSAGES_K_WITH_PENDING
         : CONFIG.LAST_MESSAGES_K;
     const lastMessages = getLastMessages(chat, lastMessagesCount, excludeLastAi);
+
+    // Non-blocking preload: keep recall latency stable.
+    // If not ready yet, query-builder will gracefully fall back to TF terms.
+    getLexicalIndex().catch((e) => {
+        xbLog.warn(MODULE_ID, 'Preload lexical index failed; continue with TF fallback', e);
+    });
 
     const bundle = buildQueryBundle(lastMessages, pendingUserMessage);
     const focusTerms = bundle.focusTerms || bundle.focusEntities || [];
@@ -1015,6 +1160,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             focusEntities: focusTerms,
             focusTerms,
             focusCharacters,
+            mustKeepFloors: [],
             elapsed: metrics.timing.total,
             logText: 'No query segments.',
             metrics,
@@ -1037,6 +1183,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
                 focusEntities: focusTerms,
                 focusTerms,
                 focusCharacters,
+                mustKeepFloors: [],
                 elapsed: metrics.timing.total,
                 logText: 'Embedding failed (round 1, after retry).',
                 metrics,
@@ -1051,6 +1198,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             focusEntities: focusTerms,
             focusTerms,
             focusCharacters,
+            mustKeepFloors: [],
             elapsed: metrics.timing.total,
             logText: 'Empty query vectors (round 1).',
             metrics,
@@ -1071,6 +1219,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             focusEntities: focusTerms,
             focusTerms,
             focusCharacters,
+            mustKeepFloors: [],
             elapsed: metrics.timing.total,
             logText: 'Weighted average produced empty vector.',
             metrics,
@@ -1161,6 +1310,10 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         atomIds: [], atomFloors: new Set(),
         chunkIds: [], chunkFloors: new Set(),
         eventIds: [], chunkScores: [], searchTime: 0,
+        idfEnabled: false, idfDocCount: 0, topIdfTerms: [], termSearches: 0,
+        queryTerms: [],
+        termFloorHits: {},
+        floorLexScores: [],
     };
 
     let indexReadyTime = 0;
@@ -1184,6 +1337,10 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         metrics.lexical.searchTime = lexicalResult.searchTime || 0;
         metrics.lexical.indexReadyTime = indexReadyTime;
         metrics.lexical.terms = bundle.lexicalTerms.slice(0, 10);
+        metrics.lexical.idfEnabled = !!lexicalResult.idfEnabled;
+        metrics.lexical.idfDocCount = lexicalResult.idfDocCount || 0;
+        metrics.lexical.topIdfTerms = lexicalResult.topIdfTerms || [];
+        metrics.lexical.termSearches = lexicalResult.termSearches || 0;
     }
 
     // 合并 L2 events（lexical 命中但 dense 未命中的 events）
@@ -1238,18 +1395,19 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
 
     xbLog.info(MODULE_ID,
-        `Lexical: chunks=${lexicalResult.chunkIds.length} events=${lexicalResult.eventIds.length} mergedEvents=+${lexicalEventCount} filteredByDense=${lexicalEventFilteredByDense} floorFiltered=${metrics.lexical.floorFilteredByDense || 0} (indexReady=${indexReadyTime}ms search=${lexicalResult.searchTime || 0}ms total=${lexTime}ms)`
+        `Lexical: chunks=${lexicalResult.chunkIds.length} events=${lexicalResult.eventIds.length} mergedEvents=+${lexicalEventCount} filteredByDense=${lexicalEventFilteredByDense} floorFiltered=${metrics.lexical.floorFilteredByDense || 0} idfEnabled=${lexicalResult.idfEnabled ? 'yes' : 'no'} idfDocs=${lexicalResult.idfDocCount || 0} termSearches=${lexicalResult.termSearches || 0} (indexReady=${indexReadyTime}ms search=${lexicalResult.searchTime || 0}ms total=${lexTime}ms)`
     );
 
     // ═══════════════════════════════════════════════════════════════════
     // 阶段 6: Floor 粒度融合 + Rerank + L1 配对
     // ═══════════════════════════════════════════════════════════════════
 
-    const { l0Selected, l1ScoredByFloor } = await locateAndPullEvidence(
+    const { l0Selected, l1ScoredByFloor, mustKeepFloors } = await locateAndPullEvidence(
         anchorHits,
         queryVector_v1,
         bundle.rerankQuery,
         lexicalResult,
+        bundle.lexicalTerms,
         metrics
     );
 
@@ -1379,6 +1537,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     console.log(`Round 2 Anchors: ${anchorHits.length} hits → ${anchorFloors_dense.size} floors`);
     console.log(`Lexical: chunks=${lexicalResult.chunkIds.length} events=${lexicalResult.eventIds.length} evtMerged=+${lexicalEventCount} evtFiltered=${lexicalEventFilteredByDense} floorFiltered=${metrics.lexical.floorFilteredByDense || 0} (idx=${indexReadyTime}ms search=${lexicalResult.searchTime || 0}ms total=${lexTime}ms)`);
     console.log(`Fusion (floor, weighted): dense=${metrics.fusion.denseFloors} lex=${metrics.fusion.lexFloors} → cap=${metrics.fusion.afterCap} (${metrics.fusion.time}ms)`);
+    console.log(`Fusion Guard: mustKeepTerms=${metrics.evidence.mustKeepTermsCount || 0} mustKeepFloors=[${(metrics.evidence.mustKeepFloors || []).join(', ')}]`);
     console.log(`Floor Rerank: ${metrics.evidence.beforeRerank || 0} → ${metrics.evidence.floorsSelected || 0} floors → L0=${metrics.evidence.l0Collected || 0} (${metrics.evidence.rerankTime || 0}ms)`);
     console.log(`L1: ${metrics.evidence.l1Pulled || 0} pulled → ${metrics.evidence.l1Attached || 0} attached (${metrics.evidence.l1CosineTime || 0}ms)`);
     console.log(`Events: ${eventHits.length} hits (l0Linked=+${l0LinkedCount}), ${causalChain.length} causal`);
@@ -1393,6 +1552,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         focusEntities: focusTerms,
         focusTerms,
         focusCharacters,
+        mustKeepFloors: mustKeepFloors || [],
         elapsed: metrics.timing.total,
         metrics,
     };

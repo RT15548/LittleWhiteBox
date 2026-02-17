@@ -5,6 +5,7 @@ import { getContext } from "../../../../../../extensions.js";
 import { xbLog } from "../../../core/debug-core.js";
 import { getSummaryStore, saveSummaryStore, addSummarySnapshot, mergeNewData, getFacts } from "../data/store.js";
 import { generateSummary, parseSummaryJson } from "./llm.js";
+import { filterText } from "../vector/utils/text-filter.js";
 
 const MODULE_ID = 'summaryGenerator';
 const SUMMARY_SESSION_ID = 'xb9';
@@ -168,7 +169,8 @@ export function buildIncrementalSlice(targetMesId, lastSummarizedMesId, maxPerRu
 
     const text = slice.map((m, i) => {
         const speaker = m.name || (m.is_user ? userLabel : charLabel);
-        return `#${start + i + 1} 【${speaker}】\n${m.mes}`;
+        const filteredMessage = filterText(m.mes || "");
+        return `#${start + i + 1} 【${speaker}】\n${filteredMessage}`;
     }).join('\n\n');
 
     return { text, count: slice.length, range: `${start + 1}-${end + 1}楼`, endMesId: end };

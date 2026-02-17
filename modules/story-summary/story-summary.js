@@ -1551,6 +1551,7 @@ async function handleMessageReceived(scheduledChatId) {
 
     // Refresh entity lexicon after new message (new roles may appear)
     refreshEntityLexiconAndWarmup();
+    scheduleLexicalWarmup(100);
 
     // Auto backfill missing L0 (delay to avoid contention with current floor)
     setTimeout(() => maybeAutoExtractL0(), 2000);
@@ -1559,6 +1560,7 @@ async function handleMessageReceived(scheduledChatId) {
 function handleMessageSent(scheduledChatId) {
     if (isChatStale(scheduledChatId)) return;
     initButtonsForAll();
+    scheduleLexicalWarmup(0);
     setTimeout(() => maybeAutoRunSummary("before_user"), 1000);
 }
 

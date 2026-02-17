@@ -20,6 +20,7 @@
 
 import { getContext } from '../../../../../../../extensions.js';
 import { buildEntityLexicon, buildDisplayNameMap, extractEntitiesFromText, buildCharacterPools } from './entity-lexicon.js';
+import { getLexicalIdfAccessor } from './lexical-index.js';
 import { getSummaryStore } from '../../data/store.js';
 import { filterText } from '../utils/text-filter.js';
 import { tokenizeForIndex as tokenizerTokenizeForIndex } from '../utils/tokenizer.js';
@@ -106,6 +107,7 @@ export function computeLengthFactor(charCount) {
 function extractKeyTerms(text, maxTerms = LEXICAL_TERMS_MAX) {
     if (!text) return [];
 
+    const idfAccessor = getLexicalIdfAccessor();
     const tokens = tokenizerTokenizeForIndex(text);
     const freq = new Map();
     for (const token of tokens) {
@@ -115,9 +117,13 @@ function extractKeyTerms(text, maxTerms = LEXICAL_TERMS_MAX) {
     }
 
     return Array.from(freq.entries())
-        .sort((a, b) => b[1] - a[1])
+        .map(([term, tf]) => {
+            const idf = idfAccessor.enabled ? idfAccessor.getIdf(term) : 1;
+            return { term, tf, score: tf * idf };
+        })
+        .sort((a, b) => (b.score - a.score) || (b.tf - a.tf))
         .slice(0, maxTerms)
-        .map(([term]) => term);
+        .map(x => x.term);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
