@@ -49,7 +49,7 @@ const CONSTRAINT_MAX = 2000;
 const ARCS_MAX = 1500;
 const EVENT_BUDGET_MAX = 5000;
 const RELATED_EVENT_MAX = 500;
-const SUMMARIZED_EVIDENCE_MAX = 1500;
+const SUMMARIZED_EVIDENCE_MAX = 2000;
 const UNSUMMARIZED_EVIDENCE_MAX = 2000;
 const TOP_N_STAR = 5;
 
@@ -949,6 +949,8 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     const candidates = [...eventHits].sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
     const eventBudget = { used: 0, max: Math.min(EVENT_BUDGET_MAX, total.max - total.used) };
     const relatedBudget = { used: 0, max: RELATED_EVENT_MAX };
+    // Once budget becomes tight, keep high-score L2 summaries and stop attaching evidence.
+    let allowEventEvidence = true;
 
     const selectedDirect = [];
     const selectedRelated = [];
@@ -964,27 +966,39 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
 
         // 硬规则：RELATED 事件不挂证据（不挂 L0/L1，只保留事件摘要）
         // DIRECT 才允许收集事件内证据组。
-        const evidenceGroups = isDirect
+        const useEvidenceForThisEvent = isDirect && allowEventEvidence;
+        const evidenceGroups = useEvidenceForThisEvent
             ? collectEvidenceGroupsForEvent(e.event, l0Selected, l1ByFloor, usedL0Ids)
             : [];
 
         // 格式化事件（含证据）
         const text = formatEventWithEvidence(e, 0, evidenceGroups, causalById);
         const cost = estimateTokens(text);
+        const fitEventBudget = eventBudget.used + cost <= eventBudget.max;
+        const fitRelatedBudget = isDirect || (relatedBudget.used + cost <= relatedBudget.max);
 
         // 预算检查：整个事件（含证据）作为原子单元
-        if (total.used + cost > total.max) {
+        // 约束：总预算 + 事件预算 + related 子预算（若 applicable）
+        if (total.used + cost > total.max || !fitEventBudget || !fitRelatedBudget) {
             // 尝试不带证据的版本
             const textNoEvidence = formatEventWithEvidence(e, 0, [], causalById);
             const costNoEvidence = estimateTokens(textNoEvidence);
+            const fitEventBudgetNoEvidence = eventBudget.used + costNoEvidence <= eventBudget.max;
+            const fitRelatedBudgetNoEvidence = isDirect || (relatedBudget.used + costNoEvidence <= relatedBudget.max);
 
-            if (total.used + costNoEvidence > total.max) {
+            if (total.used + costNoEvidence > total.max || !fitEventBudgetNoEvidence || !fitRelatedBudgetNoEvidence) {
                 // 归还 usedL0Ids
                 for (const group of evidenceGroups) {
                     for (const l0 of group.l0Atoms) {
                         usedL0Ids.delete(l0.id);
                     }
                 }
+                // Hard cap reached: no-evidence version also cannot fit total/event budget.
+                // Keep ranking semantics (higher-score events first): stop here.
+                if (total.used + costNoEvidence > total.max || !fitEventBudgetNoEvidence) {
+                    break;
+                }
+                // Related sub-budget overflow: skip this related event and continue.
                 continue;
             }
 
@@ -993,6 +1007,10 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
                 for (const l0 of group.l0Atoms) {
                     usedL0Ids.delete(l0.id);
                 }
+            }
+            // Enter summary-only mode after first budget conflict on evidence.
+            if (useEvidenceForThisEvent && evidenceGroups.length > 0) {
+                allowEventEvidence = false;
             }
 
             if (isDirect) {
@@ -1112,26 +1130,32 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     if (distantL0.length && total.used < total.max) {
         const distantBudget = { used: 0, max: Math.min(SUMMARIZED_EVIDENCE_MAX, total.max - total.used) };
 
-        // 按楼层排序（时间顺序）后分组
-        distantL0.sort((a, b) => a.floor - b.floor);
+        // 先按分数挑组（高分优先），再按时间输出（楼层升序）
         const distantFloorMap = groupL0ByFloor(distantL0);
-
-        // 按楼层顺序遍历（Map 保持插入顺序，distantL0 已按 floor 排序）
+        const distantRanked = [];
         for (const [floor, l0s] of distantFloorMap) {
             const group = buildEvidenceGroup(floor, l0s, l1ByFloor);
+            const bestScore = Math.max(...l0s.map(l0 => (l0.rerankScore ?? l0.similarity ?? 0)));
+            distantRanked.push({ group, bestScore });
+        }
+        distantRanked.sort((a, b) => (b.bestScore - a.bestScore) || (a.group.floor - b.group.floor));
 
-            // 原子组预算检查
+        const acceptedDistantGroups = [];
+        for (const item of distantRanked) {
+            const group = item.group;
             if (distantBudget.used + group.totalTokens > distantBudget.max) continue;
+            distantBudget.used += group.totalTokens;
+            acceptedDistantGroups.push(group);
+            for (const l0 of group.l0Atoms) usedL0Ids.add(l0.id);
+            injectionStats.distantEvidence.units++;
+        }
 
+        acceptedDistantGroups.sort((a, b) => a.floor - b.floor);
+        for (const group of acceptedDistantGroups) {
             const groupLines = formatEvidenceGroup(group);
             for (const line of groupLines) {
                 assembled.distantEvidence.lines.push(line);
             }
-            distantBudget.used += group.totalTokens;
-            for (const l0 of l0s) {
-                usedL0Ids.add(l0.id);
-            }
-            injectionStats.distantEvidence.units++;
         }
 
         assembled.distantEvidence.tokens = distantBudget.used;
@@ -1154,24 +1178,32 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         if (recentL0.length) {
             const recentBudget = { used: 0, max: UNSUMMARIZED_EVIDENCE_MAX };
 
-            // 按楼层排序后分组
-            recentL0.sort((a, b) => a.floor - b.floor);
+            // 先按分数挑组（高分优先），再按时间输出（楼层升序）
             const recentFloorMap = groupL0ByFloor(recentL0);
-
+            const recentRanked = [];
             for (const [floor, l0s] of recentFloorMap) {
                 const group = buildEvidenceGroup(floor, l0s, l1ByFloor);
+                const bestScore = Math.max(...l0s.map(l0 => (l0.rerankScore ?? l0.similarity ?? 0)));
+                recentRanked.push({ group, bestScore });
+            }
+            recentRanked.sort((a, b) => (b.bestScore - a.bestScore) || (a.group.floor - b.group.floor));
 
+            const acceptedRecentGroups = [];
+            for (const item of recentRanked) {
+                const group = item.group;
                 if (recentBudget.used + group.totalTokens > recentBudget.max) continue;
+                recentBudget.used += group.totalTokens;
+                acceptedRecentGroups.push(group);
+                for (const l0 of group.l0Atoms) usedL0Ids.add(l0.id);
+                injectionStats.recentEvidence.units++;
+            }
 
+            acceptedRecentGroups.sort((a, b) => a.floor - b.floor);
+            for (const group of acceptedRecentGroups) {
                 const groupLines = formatEvidenceGroup(group);
                 for (const line of groupLines) {
                     assembled.recentEvidence.lines.push(line);
                 }
-                recentBudget.used += group.totalTokens;
-                for (const l0 of l0s) {
-                    usedL0Ids.add(l0.id);
-                }
-                injectionStats.recentEvidence.units++;
             }
 
             assembled.recentEvidence.tokens = recentBudget.used;

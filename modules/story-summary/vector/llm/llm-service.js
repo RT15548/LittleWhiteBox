@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import { xbLog } from '../../../../core/debug-core.js';
 import { getVectorConfig } from '../../data/config.js';
+import { getApiKey } from './siliconflow.js';
 
 const MODULE_ID = 'vector-llm-service';
 const SILICONFLOW_API_URL = 'https://api.siliconflow.cn/v1';
@@ -40,8 +41,7 @@ export async function callLLM(messages, options = {}) {
     const mod = getStreamingModule();
     if (!mod) throw new Error('Streaming module not ready');
 
-    const cfg = getVectorConfig();
-    const apiKey = cfg?.online?.key || '';
+    const apiKey = getApiKey() || '';
     if (!apiKey) {
         throw new Error('L0 requires siliconflow API key');
     }

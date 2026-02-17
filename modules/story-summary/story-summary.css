@@ -20,6 +20,10 @@
     padding-right: 4px;
 }
 
+.confirm-modal-box {
+    max-width: 440px;
+}
+
 .fact-group {
     margin-bottom: 12px;
 }

@@ -833,6 +833,28 @@
 
     <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
     <script src="story-summary-ui.js"></script>
+    <!-- Confirm Modal -->
+    <div class="modal" id="confirm-modal">
+        <div class="modal-bg" id="confirm-backdrop"></div>
+        <div class="modal-box confirm-modal-box">
+            <div class="modal-head">
+                <h2 id="confirm-title">确认操作</h2>
+                <button class="modal-close" id="confirm-close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="confirm-message" style="margin: 10px 0; line-height: 1.6; color: var(--fg);">内容</div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn" id="confirm-cancel">取消</button>
+                <button class="btn btn-del" id="confirm-ok">执行</button>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>

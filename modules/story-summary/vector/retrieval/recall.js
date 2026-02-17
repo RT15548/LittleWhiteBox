@@ -60,7 +60,7 @@ const CONFIG = {
     // Event (L2 Events)
     EVENT_CANDIDATE_MAX: 100,
     EVENT_SELECT_MAX: 50,
-    EVENT_MIN_SIMILARITY: 0.55,
+    EVENT_MIN_SIMILARITY: 0.60,
     EVENT_MMR_LAMBDA: 0.72,
     EVENT_ENTITY_BYPASS_SIM: 0.70,
 
@@ -79,7 +79,7 @@ const CONFIG = {
 
     // Rerank（floor-level）
     RERANK_TOP_N: 20,
-    RERANK_MIN_SCORE: 0.15,
+    RERANK_MIN_SCORE: 0.10,
 
     // 因果链
     CAUSAL_CHAIN_MAX_DEPTH: 10,

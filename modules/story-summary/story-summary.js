@@ -367,6 +367,18 @@ async function handleAnchorGenerate() {
             postToFrame({ type: "ANCHOR_GEN_PROGRESS", current, total, message });
         });
 
+        // Self-heal: if chunks are empty but boundary looks "already built",
+        // reset boundary so incremental L1 rebuild can start from floor 0.
+        const [meta, storageStats] = await Promise.all([
+            getMeta(chatId),
+            getStorageStats(chatId),
+        ]);
+        const lastFloor = (chat?.length || 0) - 1;
+        if (storageStats.chunks === 0 && lastFloor >= 0 && (meta.lastChunkFloor ?? -1) >= lastFloor) {
+            await updateMeta(chatId, { lastChunkFloor: -1 });
+            xbLog.warn(MODULE_ID, "Detected empty L1 chunks with full boundary, reset lastChunkFloor=-1");
+        }
+
         postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: 0, total: 1, message: "向量化 L1..." });
         const chunkResult = await buildIncrementalChunks({ vectorConfig: vectorCfg });
 
@@ -449,6 +461,34 @@ async function handleGenerateVectors(vectorCfg) {
         await clearStateVectors(chatId);
         await updateMeta(chatId, { lastChunkFloor: -1, fingerprint });
 
+        // Helper to embed with retry
+        const embedWithRetry = async (texts, phase, currentBatchIdx, totalItems) => {
+            while (true) {
+                if (vectorCancelled) return null;
+                try {
+                    return await embed(texts, vectorCfg, { signal: vectorAbortController.signal });
+                } catch (e) {
+                    if (e?.name === "AbortError" || vectorCancelled) return null;
+                    xbLog.error(MODULE_ID, `${phase} 向量化单次失败`, e);
+
+                    // 等待 60 秒重试
+                    const waitSec = 60;
+                    for (let s = waitSec; s > 0; s--) {
+                        if (vectorCancelled) return null;
+                        postToFrame({
+                            type: "VECTOR_GEN_PROGRESS",
+                            phase,
+                            current: currentBatchIdx,
+                            total: totalItems,
+                            message: `触发限流，${s}s 后重试...`
+                        });
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                    postToFrame({ type: "VECTOR_GEN_PROGRESS", phase, current: currentBatchIdx, total: totalItems, message: "正在重试..." });
+                }
+            }
+        };
+
         const atoms = getStateAtoms();
         if (!atoms.length) {
             postToFrame({ type: "VECTOR_GEN_PROGRESS", phase: "L0", current: 0, total: 0, message: "L0 为空，跳过" });
@@ -462,29 +502,26 @@ async function handleGenerateVectors(vectorCfg) {
                 const batch = atoms.slice(i, i + batchSize);
                 const semTexts = batch.map(a => a.semantic);
                 const rTexts = batch.map(a => buildRAggregateText(a));
-                try {
-                    const vectors = await embed(semTexts.concat(rTexts), vectorCfg, { signal: vectorAbortController.signal });
-                    const split = semTexts.length;
-                    if (!Array.isArray(vectors) || vectors.length < split * 2) {
-                        throw new Error(`embed length mismatch: expect>=${split * 2}, got=${vectors?.length || 0}`);
-                    }
-                    const semVectors = vectors.slice(0, split);
-                    const rVectors = vectors.slice(split, split + split);
-                    const items = batch.map((a, j) => ({
-                        atomId: a.atomId,
-                        floor: a.floor,
-                        vector: semVectors[j],
-                        rVector: rVectors[j] || semVectors[j],
-                    }));
-                    await saveStateVectors(chatId, items, fingerprint);
-                    l0Completed += batch.length;
-                    postToFrame({ type: "VECTOR_GEN_PROGRESS", phase: "L0", current: l0Completed, total: atoms.length });
-                } catch (e) {
-                    if (e?.name === "AbortError") break;
-                    xbLog.error(MODULE_ID, "L0 向量化失败", e);
-                    vectorCancelled = true;
-                    break;
+
+                const vectors = await embedWithRetry(semTexts.concat(rTexts), "L0", l0Completed, atoms.length);
+                if (!vectors) break; // cancelled
+
+                const split = semTexts.length;
+                if (!Array.isArray(vectors) || vectors.length < split * 2) {
+                    xbLog.error(MODULE_ID, `embed长度不匹配: expect>=${split * 2}, got=${vectors?.length || 0}`);
+                    continue;
                 }
+                const semVectors = vectors.slice(0, split);
+                const rVectors = vectors.slice(split, split + split);
+                const items = batch.map((a, j) => ({
+                    atomId: a.atomId,
+                    floor: a.floor,
+                    vector: semVectors[j],
+                    rVector: rVectors[j] || semVectors[j],
+                }));
+                await saveStateVectors(chatId, items, fingerprint);
+                l0Completed += batch.length;
+                postToFrame({ type: "VECTOR_GEN_PROGRESS", phase: "L0", current: l0Completed, total: atoms.length });
             }
         }
 
@@ -516,22 +553,18 @@ async function handleGenerateVectors(vectorCfg) {
 
                 const batch = allChunks.slice(i, i + batchSize);
                 const texts = batch.map(c => c.text);
-                try {
-                    const vectors = await embed(texts, vectorCfg, { signal: vectorAbortController.signal });
-                    const items = batch.map((c, j) => ({
-                        chunkId: c.chunkId,
-                        vector: vectors[j],
-                    }));
-                    await saveChunkVectors(chatId, items, fingerprint);
-                    l1Vectors = l1Vectors.concat(items);
-                    l1Completed += batch.length;
-                    postToFrame({ type: "VECTOR_GEN_PROGRESS", phase: "L1", current: l1Completed, total: allChunks.length });
-                } catch (e) {
-                    if (e?.name === "AbortError") break;
-                    xbLog.error(MODULE_ID, "L1 向量化失败", e);
-                    vectorCancelled = true;
-                    break;
-                }
+
+                const vectors = await embedWithRetry(texts, "L1", l1Completed, allChunks.length);
+                if (!vectors) break; // cancelled
+
+                const items = batch.map((c, j) => ({
+                    chunkId: c.chunkId,
+                    vector: vectors[j],
+                }));
+                await saveChunkVectors(chatId, items, fingerprint);
+                l1Vectors = l1Vectors.concat(items);
+                l1Completed += batch.length;
+                postToFrame({ type: "VECTOR_GEN_PROGRESS", phase: "L1", current: l1Completed, total: allChunks.length });
             }
         }
 
@@ -555,21 +588,17 @@ async function handleGenerateVectors(vectorCfg) {
 
                 const batch = l2Pairs.slice(i, i + batchSize);
                 const texts = batch.map(p => p.text);
-                try {
-                    const vectors = await embed(texts, vectorCfg, { signal: vectorAbortController.signal });
-                    const items = batch.map((p, idx) => ({
-                        eventId: p.id,
-                        vector: vectors[idx],
-                    }));
-                    await saveEventVectorsToDb(chatId, items, fingerprint);
-                    l2Completed += batch.length;
-                    postToFrame({ type: "VECTOR_GEN_PROGRESS", phase: "L2", current: l2Completed, total: l2Pairs.length });
-                } catch (e) {
-                    if (e?.name === "AbortError") break;
-                    xbLog.error(MODULE_ID, "L2 向量化失败", e);
-                    vectorCancelled = true;
-                    break;
-                }
+
+                const vectors = await embedWithRetry(texts, "L2", l2Completed, l2Pairs.length);
+                if (!vectors) break; // cancelled
+
+                const items = batch.map((p, idx) => ({
+                    eventId: p.id,
+                    vector: vectors[idx],
+                }));
+                await saveEventVectorsToDb(chatId, items, fingerprint);
+                l2Completed += batch.length;
+                postToFrame({ type: "VECTOR_GEN_PROGRESS", phase: "L2", current: l2Completed, total: l2Pairs.length });
             }
         }
 
@@ -598,7 +627,9 @@ async function handleClearVectors() {
     await clearEventVectors(chatId);
     await clearAllChunks(chatId);
     await clearStateVectors(chatId);
-    await updateMeta(chatId, { lastChunkFloor: -1 });
+    // Reset both boundary and fingerprint so next incremental build starts from floor 0
+    // without being blocked by stale engine fingerprint mismatch.
+    await updateMeta(chatId, { lastChunkFloor: -1, fingerprint: null });
     await sendVectorStatsToFrame();
     await executeSlashCommand('/echo severity=info 向量数据已清除。如需恢复召回功能，请重新点击"生成向量"。');
     xbLog.info(MODULE_ID, "向量数据已清除");
@@ -1138,7 +1169,7 @@ function updateFrameStatsAfterSummary(endMesId, merged) {
 // iframe 消息处理
 // ═══════════════════════════════════════════════════════════════════════════
 
-function handleFrameMessage(event) {
+async function handleFrameMessage(event) {
     const iframe = document.getElementById("xiaobaix-story-summary-iframe");
     if (!isTrustedMessage(event, iframe, "LittleWhiteBox-StoryFrame")) return;
 
@@ -1193,7 +1224,7 @@ function handleFrameMessage(event) {
             break;
 
         case "VECTOR_CLEAR":
-            handleClearVectors();
+            await handleClearVectors();
             break;
 
         case "VECTOR_CANCEL_GENERATE":
@@ -1204,11 +1235,11 @@ function handleFrameMessage(event) {
             break;
 
         case "ANCHOR_GENERATE":
-            handleAnchorGenerate();
+            await handleAnchorGenerate();
             break;
 
         case "ANCHOR_CLEAR":
-            handleAnchorClear();
+            await handleAnchorClear();
             break;
 
         case "ANCHOR_CANCEL":

@@ -358,8 +358,8 @@
             postMsg('ANCHOR_GENERATE');
         };
 
-        $('btn-anchor-clear').onclick = () => {
-            if (confirm('清空所有记忆锚点？（L0 向量也会一并清除）')) {
+        $('btn-anchor-clear').onclick = async () => {
+            if (await showConfirm('清空锚点', '清空所有记忆锚点？（L0 向量也会一并清除）')) {
                 postMsg('ANCHOR_CLEAR');
             }
         };
@@ -375,6 +375,7 @@
         };
 
         $('btn-test-vector-api').onclick = () => {
+            saveConfig(); // 先保存新 Key 到 localStorage
             postMsg('VECTOR_TEST_ONLINE', {
                 provider: 'siliconflow',
                 config: {
@@ -391,8 +392,10 @@
             postMsg('VECTOR_GENERATE', { config: getVectorConfig() });
         };
 
-        $('btn-clear-vectors').onclick = () => {
-            if (confirm('确定清空所有向量数据？')) postMsg('VECTOR_CLEAR');
+        $('btn-clear-vectors').onclick = async () => {
+            if (await showConfirm('清空向量', '确定清空所有向量数据？')) {
+                postMsg('VECTOR_CLEAR');
+            }
         };
 
         $('btn-cancel-vectors').onclick = () => postMsg('VECTOR_CANCEL_GENERATE');
@@ -953,6 +956,43 @@
     function closeRelationsFullscreen() {
         $('rel-fs-modal').classList.remove('active');
         postMsg('FULLSCREEN_CLOSED');
+    }
+
+    /**
+     * 显示通用确认弹窗
+     * @returns {Promise<boolean>}
+     */
+    function showConfirm(title, message, okText = '执行', cancelText = '取消') {
+        return new Promise(resolve => {
+            const modal = $('confirm-modal');
+            const titleEl = $('confirm-title');
+            const msgEl = $('confirm-message');
+            const okBtn = $('confirm-ok');
+            const cancelBtn = $('confirm-cancel');
+            const closeBtn = $('confirm-close');
+            const backdrop = $('confirm-backdrop');
+
+            titleEl.textContent = title;
+            msgEl.textContent = message;
+            okBtn.textContent = okText;
+            cancelBtn.textContent = cancelText;
+
+            const close = (result) => {
+                modal.classList.remove('active');
+                okBtn.onclick = null;
+                cancelBtn.onclick = null;
+                closeBtn.onclick = null;
+                backdrop.onclick = null;
+                resolve(result);
+            };
+
+            okBtn.onclick = () => close(true);
+            cancelBtn.onclick = () => close(false);
+            closeBtn.onclick = () => close(false);
+            backdrop.onclick = () => close(false);
+
+            modal.classList.add('active');
+        });
     }
 
     function renderArcsEditor(arcs) {
@@ -1526,7 +1566,11 @@
         };
 
         // Main actions
-        $('btn-clear').onclick = () => postMsg('REQUEST_CLEAR');
+        $('btn-clear').onclick = async () => {
+            if (await showConfirm('清空数据', '确定要清空本聊天的所有总结、关键词及人物关系数据吗？此操作不可撤销。')) {
+                postMsg('REQUEST_CLEAR');
+            }
+        };
         $('btn-generate').onclick = () => {
             const btn = $('btn-generate');
             if (!localGenerating) {
