@@ -30,7 +30,6 @@ import { initTts, cleanupTts } from "./modules/tts/tts.js";
 
 extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     enabled: true,
-    sandboxMode: false,
     recorded: { enabled: true },
     templateEditor: { enabled: true, characterBindings: {} },
     tasks: { enabled: true, globalTasks: [], processedMessages: [], character_allowed_tasks: [] },
@@ -270,7 +269,7 @@ async function waitForElement(selector, root = document, timeout = 10000) {
 
 function toggleSettingsControls(enabled) {
     const controls = [
-        'xiaobaix_sandbox', 'xiaobaix_recorded_enabled', 'xiaobaix_preview_enabled',
+        'xiaobaix_recorded_enabled', 'xiaobaix_preview_enabled',
         'scheduled_tasks_enabled', 'xiaobaix_template_enabled',
         'xiaobaix_immersive_enabled', 'xiaobaix_fourth_wall_enabled',
         'xiaobaix_audio_enabled', 'xiaobaix_variables_panel_enabled',
@@ -378,12 +377,6 @@ async function setupSettings() {
         });
 
         if (!settings.enabled) toggleSettingsControls(false);
-
-        $("#xiaobaix_sandbox").prop("checked", settings.sandboxMode).on("change", async function () {
-            if (!isXiaobaixEnabled) return;
-            settings.sandboxMode = $(this).prop("checked");
-            saveSettingsDebounced();
-        });
 
         const moduleConfigs = [
             { id: 'xiaobaix_recorded_enabled', key: 'recorded' },
@@ -531,7 +524,6 @@ async function setupSettings() {
             }
             ON.forEach(k => setChecked(MAP[k], true));
             OFF.forEach(k => setChecked(MAP[k], false));
-            setChecked('xiaobaix_sandbox', false);
             setChecked('xiaobaix_use_blob', false);
             setChecked('Wrapperiframe', true);
             try { saveSettingsDebounced(); } catch (e) {}

@@ -2,9 +2,7 @@ export function getTrustedOrigin() {
     return window.location.origin;
 }
 
-export function getIframeTargetOrigin(iframe) {
-    const sandbox = iframe?.getAttribute?.('sandbox') || '';
-    if (sandbox && !sandbox.includes('allow-same-origin')) return 'null';
+export function getIframeTargetOrigin() {
     return getTrustedOrigin();
 }
 

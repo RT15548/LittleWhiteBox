@@ -42,10 +42,6 @@
             <hr class="sysHR" />
           </div>
           <div class="flex-container">
-            <input type="checkbox" id="xiaobaix_sandbox" />
-            <label for="xiaobaix_sandbox">沙盒模式</label>
-          </div>
-          <div class="flex-container">
             <input type="checkbox" id="xiaobaix_use_blob" />
             <label for="xiaobaix_use_blob" class="has-tooltip" data-tooltip="大型html适用">启用Blob渲染</label>
           </div>
@@ -524,7 +520,6 @@
 	      storySummary: 'xiaobaix_story_summary_enabled',
 	      tts: 'xiaobaix_tts_enabled',
       storyOutline: 'xiaobaix_story_outline_enabled',
-      sandboxMode: 'xiaobaix_sandbox',
       useBlob: 'xiaobaix_use_blob',
 	      wrapperIframe: 'Wrapperiframe',
 	      renderEnabled: 'xiaobaix_render_enabled',
@@ -541,9 +536,8 @@
       if (el) { el.checked = !!enabled; try { $(el).trigger('change'); } catch (e) { } }
     }
     function captureStates() {
-      const out = { modules: {}, sandboxMode: false, useBlob: false, wrapperIframe: false, renderEnabled: true };
+      const out = { modules: {}, useBlob: false, wrapperIframe: false, renderEnabled: true };
       try { MODULE_KEYS.forEach(k => { out.modules[k] = !!(extension_settings[EXT_ID][k] && extension_settings[EXT_ID][k].enabled); }); } catch (e) { }
-      try { out.sandboxMode = !!extension_settings[EXT_ID].sandboxMode; } catch (e) { }
       try { out.useBlob = !!extension_settings[EXT_ID].useBlob; } catch (e) { }
       try { out.wrapperIframe = !!extension_settings[EXT_ID].wrapperIframe; } catch (e) { }
       try { out.renderEnabled = extension_settings[EXT_ID].renderEnabled !== false; } catch (e) { }
@@ -552,10 +546,6 @@
     function applyStates(st) {
       if (!st) return;
       try { Object.keys(st.modules || {}).forEach(k => setModuleEnabled(k, !!st.modules[k])); } catch (e) { }
-      try {
-        extension_settings[EXT_ID].sandboxMode = !!st.sandboxMode;
-        const el = $id('xiaobaix_sandbox'); if (el) { el.checked = !!st.sandboxMode; if (window.isXiaobaixEnabled) try { $(el).trigger('change'); } catch (e) { } }
-      } catch (e) { }
       try {
         extension_settings[EXT_ID].useBlob = !!st.useBlob;
         const el = $id('xiaobaix_use_blob'); if (el) { el.checked = !!st.useBlob; if (window.isXiaobaixEnabled) try { $(el).trigger('change'); } catch (e) { } }
@@ -573,10 +563,6 @@
     function applyResetDefaults() {
       DEFAULTS_ON.forEach(k => setModuleEnabled(k, true));
       DEFAULTS_OFF.forEach(k => setModuleEnabled(k, false));
-      try {
-        extension_settings[EXT_ID].sandboxMode = false; const sb = $id(KEY_TO_CHECKBOX.sandboxMode);
-        if (sb) { sb.checked = false; try { $(sb).trigger('change'); } catch (e) { } }
-      } catch (e) { }
       try {
         extension_settings[EXT_ID].useBlob = false; const bl = $id(KEY_TO_CHECKBOX.useBlob);
         if (bl) { bl.checked = false; try { $(bl).trigger('change'); } catch (e) { } }

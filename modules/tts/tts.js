@@ -1301,6 +1301,7 @@ export async function initTts() {
         openSettings,
         closeSettings,
         player,
+        synthesize: synthesizeForExternal,
         speak: async (text, options = {}) => {
             if (!isModuleEnabled()) return;
             
@@ -1345,6 +1346,106 @@ export async function initTts() {
             }
         },
     };
+}
+
+// ============ External synthesis API (no enqueue) ============
+
+async function synthesizeForExternal(text, options = {}) {
+    if (!isModuleEnabled()) {
+        throw new Error('TTS 模块未启用');
+    }
+
+    const trimmed = String(text || '').trim();
+    if (!trimmed) {
+        throw new Error('合成文本为空');
+    }
+
+    const { emotion, speaker, signal } = options;
+
+    const mySpeakers = config.volc?.mySpeakers || [];
+    const defaultSpeaker = config.volc?.defaultSpeaker || FREE_DEFAULT_VOICE;
+    const resolved = speaker
+        ? resolveSpeakerWithSource(speaker, mySpeakers, defaultSpeaker)
+        : resolveSpeakerWithSource('', mySpeakers, defaultSpeaker);
+
+    const normalizedEmotion = emotion ? normalizeEmotion(emotion) : '';
+
+    if (resolved.source === 'free') {
+        return await synthesizeFreeBlob(trimmed, resolved.value, normalizedEmotion, signal);
+    }
+
+    if (!isAuthConfigured()) {
+        throw new Error('鉴权音色需要配置 API');
+    }
+
+    return await synthesizeAuthBlob(trimmed, resolved, normalizedEmotion, signal);
+}
+
+async function synthesizeFreeBlob(text, voiceKey, emotion, signal) {
+    const freeSpeed = normalizeSpeed(config?.volc?.speechRate);
+
+    const cacheParams = {
+        providerMode: 'free',
+        text,
+        speaker: voiceKey,
+        freeSpeed,
+        emotion: emotion || '',
+    };
+
+    const cacheHit = await tryLoadLocalCache(cacheParams);
+    if (cacheHit?.entry?.blob) return cacheHit.entry.blob;
+
+    const { synthesizeFreeV1 } = await import('./tts-api.js');
+    const { audioBase64 } = await synthesizeFreeV1({ text, voiceKey, speed: freeSpeed, emotion: emotion || null }, { signal });
+
+    const byteString = atob(audioBase64);
+    const bytes = new Uint8Array(byteString.length);
+    for (let j = 0; j < byteString.length; j++) bytes[j] = byteString.charCodeAt(j);
+    const blob = new Blob([bytes], { type: 'audio/mpeg' });
+
+    const cacheKey = buildCacheKey(cacheParams);
+    storeLocalCache(cacheKey, blob, { text: text.slice(0, 200), textLength: text.length, speaker: voiceKey, resourceId: 'free' }).catch(() => {});
+
+    return blob;
+}
+
+async function synthesizeAuthBlob(text, resolved, emotion, signal) {
+    const resourceId = resolved.resourceId || inferResourceIdBySpeaker(resolved.value);
+    const params = {
+        providerMode: 'auth',
+        appId: config.volc.appId,
+        accessKey: config.volc.accessKey,
+        resourceId,
+        speaker: resolved.value,
+        text,
+        format: 'mp3',
+        sampleRate: 24000,
+        speechRate: speedToV3SpeechRate(config.volc.speechRate),
+        loudnessRate: 0,
+        emotionScale: config.volc.emotionScale,
+        explicitLanguage: config.volc.explicitLanguage,
+        disableMarkdownFilter: config.volc.disableMarkdownFilter,
+        disableEmojiFilter: config.volc.disableEmojiFilter,
+        enableLanguageDetector: config.volc.enableLanguageDetector,
+        maxLengthToFilterParenthesis: config.volc.maxLengthToFilterParenthesis,
+        postProcessPitch: config.volc.postProcessPitch,
+        signal,
+    };
+
+    if (emotion) { params.emotion = emotion; }
+    if (resourceId === 'seed-tts-1.0' && config.volc.useTts11 !== false) { params.model = 'seed-tts-1.1'; }
+    if (config.volc.serverCacheEnabled) { params.cacheConfig = { text_type: 1, use_cache: true }; }
+
+    const cacheHit = await tryLoadLocalCache(params);
+    if (cacheHit?.entry?.blob) return cacheHit.entry.blob;
+
+    const headers = buildV3Headers(resourceId, config);
+    const result = await synthesizeV3(params, headers);
+
+    const cacheKey = buildCacheKey(params);
+    storeLocalCache(cacheKey, result.audioBlob, { text: text.slice(0, 200), textLength: text.length, speaker: resolved.value, resourceId, usage: result.usage || null }).catch(() => {});
+
+    return result.audioBlob;
 }
 
 export function cleanupTts() {

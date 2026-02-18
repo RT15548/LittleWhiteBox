@@ -480,16 +480,7 @@ html, body {
             <div class="fw-settings-row">
                 <div class="fw-field">
                     <input type="checkbox" id="voice-enabled">
-                    <label for="voice-enabled">允许语音</label>
-                </div>
-                <div class="fw-field fw-voice-select-wrap" style="display: none;">
-                    <label>声音</label>
-                    <select id="voice-select"></select>
-                </div>
-                <div class="fw-field fw-voice-speed-wrap" style="display: none;">
-                    <label>语速</label>
-                    <input type="range" id="voice-speed" min="0.5" max="2.0" step="0.1" value="1.0" style="width:70px;">
-                    <span class="speed-val" id="voice-speed-val">1.0x</span>
+                    <label for="voice-enabled">允许语音（使用 TTS 模块音色）</label>
                 </div>
             </div>
 
@@ -561,17 +552,6 @@ html, body {
    配置
    ══════════════════════════════════════════════════════════════════════════════ */
 
-const TTS_WORKER_URL = 'https://hstts.velure.codes';
-
-const VALID_EMOTIONS = ['happy', 'sad', 'angry', 'surprise', 'scare', 'hate'];
-const EMOTION_ICONS = {
-    happy: '😄', sad: '😢', angry: '😠', surprise: '😮', scare: '😨', hate: '🤢'
-};
-
-// 动态加载的声音列表
-let voiceList = [];
-let defaultVoiceKey = 'female_1';
-
 /* ══════════════════════════════════════════════════════════════════════════════
    工具函数
    ══════════════════════════════════════════════════════════════════════════════ */
@@ -618,8 +598,8 @@ function postToParent(payload) {
     window.parent.postMessage({ source: 'LittleWhiteBox-FourthWall', ...payload }, PARENT_ORIGIN);
 }
 
-function getEmotionIcon(emotion) {
-    return EMOTION_ICONS[emotion] || '';
+function getEmotionIcon() {
+    return '';
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -636,30 +616,19 @@ let state = {
     sessions: [],
     activeSessionId: null,
     imgSettings: { enablePrompt: false },
-    voiceSettings: { enabled: false, voice: 'female_1', speed: 1.0 },
+    voiceSettings: { enabled: false },
     commentarySettings: { enabled: false, probability: 30 },
     promptTemplates: {}
 };
 
-let currentAudio = null;
+let activeVoiceRequestId = null;
 
 /* ══════════════════════════════════════════════════════════════════════════════
    加载声音列表
    ══════════════════════════════════════════════════════════════════════════════ */
 
-async function loadVoices() {
-    try {
-        const res = await fetch(`${TTS_WORKER_URL}/voices`);
-        if (!res.ok) throw new Error('Failed to load voices');
-        const data = await res.json();
-        voiceList = data.voices || [];
-        defaultVoiceKey = data.defaultVoice || 'female_1';
-        renderVoiceSelect();
-    } catch (err) {
-        console.error('[FW Voice] 加载声音列表失败:', err);
-        // 降级：使用空列表
-        voiceList = [];
-    }
+function generateVoiceRequestId() {
+    return 'fwv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -786,54 +755,48 @@ function bindRetryButton(slot) {
    语音处理
    ══════════════════════════════════════════════════════════════════════════════ */
 
-async function playVoice(text, emotion, bubbleEl) {
-    if (currentAudio) {
-        currentAudio.pause();
-        currentAudio = null;
-        document.querySelectorAll('.fw-voice-bubble.playing').forEach(el => el.classList.remove('playing'));
-    }
+function requestPlayVoice(text, emotion, bubbleEl) {
+    // Clear previous bubble state before issuing a new request.
+    document.querySelectorAll('.fw-voice-bubble.playing, .fw-voice-bubble.loading').forEach(el => {
+        el.classList.remove('playing', 'loading');
+    });
 
+    const voiceRequestId = generateVoiceRequestId();
+    activeVoiceRequestId = voiceRequestId;
+    bubbleEl.dataset.voiceRequestId = voiceRequestId;
     bubbleEl.classList.add('loading');
     bubbleEl.classList.remove('error');
 
-    try {
+    postToParent({ type: 'PLAY_VOICE', text, emotion, voiceRequestId });
+}
 
-        const requestBody = {
-            voiceKey: state.voiceSettings.voice || defaultVoiceKey,
-            text: text,
-            speed: state.voiceSettings.speed || 1.0,
-            uid: 'fw_' + Date.now(),
-            reqid: generateUUID()
-        };
+function handleVoiceState(data) {
+    const { voiceRequestId, state: voiceState, duration } = data;
+    const bubble = document.querySelector(`.fw-voice-bubble[data-voice-request-id="${voiceRequestId}"]`);
+    if (!bubble) return;
 
-        if (emotion && VALID_EMOTIONS.includes(emotion)) {
-            requestBody.emotion = emotion;
-            requestBody.emotionScale = 5;
-        }
-
-        const res = await fetch(TTS_WORKER_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-        });
-
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        const data = await res.json();
-        if (data.code !== 3000) throw new Error(data.message || 'TTS失败');
-
-        bubbleEl.classList.remove('loading');
-        bubbleEl.classList.add('playing');
-
-        currentAudio = new Audio(`data:audio/mp3;base64,${data.data}`);
-        currentAudio.onended = () => { bubbleEl.classList.remove('playing'); currentAudio = null; };
-        currentAudio.onerror = () => { bubbleEl.classList.remove('playing'); bubbleEl.classList.add('error'); currentAudio = null; };
-        await currentAudio.play();
-    } catch (err) {
-        console.error('[FW Voice] TTS错误:', err);
-        bubbleEl.classList.remove('loading', 'playing');
-        bubbleEl.classList.add('error');
-        setTimeout(() => bubbleEl.classList.remove('error'), 3000);
+    switch (voiceState) {
+        case 'loading':
+            bubble.classList.add('loading');
+            bubble.classList.remove('playing', 'error');
+            break;
+        case 'playing':
+            bubble.classList.remove('loading', 'error');
+            bubble.classList.add('playing');
+            if (duration != null) {
+                const durationEl = bubble.querySelector('.fw-voice-duration');
+                if (durationEl) durationEl.textContent = Math.ceil(duration) + '"';
+            }
+            break;
+        case 'ended':
+        case 'stopped':
+            bubble.classList.remove('loading', 'playing');
+            break;
+        case 'error':
+            bubble.classList.remove('loading', 'playing');
+            bubble.classList.add('error');
+            setTimeout(() => bubble.classList.remove('error'), 3000);
+            break;
     }
 }
 
@@ -846,12 +809,10 @@ function hydrateVoiceSlots(container) {
             bubble.onclick = e => {
                 e.stopPropagation();
                 if (bubble.classList.contains('loading')) return;
-                if (bubble.classList.contains('playing') && currentAudio) {
-                    currentAudio.pause();
-                    currentAudio = null;
-                    bubble.classList.remove('playing');
+                if (bubble.classList.contains('playing')) {
+                    postToParent({ type: 'STOP_VOICE', voiceRequestId: bubble.dataset.voiceRequestId });
                 } else {
-                    playVoice(text, emotion, bubble);
+                    requestPlayVoice(text, emotion, bubble);
                 }
             };
         }
@@ -1022,24 +983,6 @@ function renderSessionSelect() {
     ).join('');
 }
 
-// 使用动态加载的声音列表渲染下拉框
-function renderVoiceSelect() {
-    const select = document.getElementById('voice-select');
-    if (!select || !voiceList.length) return;
-
-    const females = voiceList.filter(v => v.gender === 'female');
-    const males = voiceList.filter(v => v.gender === 'male');
-
-    select.innerHTML = `
-        <optgroup label="👩 女声">
-            ${females.map(v => `<option value="${v.key}">${v.name} · ${v.tag}</option>`).join('')}
-        </optgroup>
-        <optgroup label="👨 男声">
-            ${males.map(v => `<option value="${v.key}">${v.name} · ${v.tag}</option>`).join('')}
-        </optgroup>
-    `;
-    select.value = state.voiceSettings.voice || defaultVoiceKey;
-}
 
 function updateMenuUI() {
     const actions = document.getElementById('header-actions');
@@ -1055,11 +998,6 @@ function updateMenuUI() {
         title.classList.remove('hidden');
         document.getElementById('settings-panel').classList.remove('open');
     }
-}
-
-function updateVoiceUI(enabled) {
-    document.querySelector('.fw-voice-select-wrap').style.display = enabled ? '' : 'none';
-    document.querySelector('.fw-voice-speed-wrap').style.display = enabled ? '' : 'none';
 }
 
 function updateCommentaryUI(enabled) {
@@ -1161,14 +1099,6 @@ window.addEventListener('message', event => {
             document.getElementById('img-prompt-enabled').checked = state.imgSettings.enablePrompt;
             document.getElementById('voice-enabled').checked = state.voiceSettings.enabled;
 
-            // 等声音列表加载完再设置值
-            if (voiceList.length) {
-                document.getElementById('voice-select').value = state.voiceSettings.voice || defaultVoiceKey;
-            }
-            document.getElementById('voice-speed').value = state.voiceSettings.speed || 1.0;
-            document.getElementById('voice-speed-val').textContent = (state.voiceSettings.speed || 1.0).toFixed(1) + 'x';
-            updateVoiceUI(state.voiceSettings.enabled);
-
             document.getElementById('commentary-enabled').checked = state.commentarySettings.enabled;
             document.getElementById('commentary-prob').value = state.commentarySettings.probability;
             document.getElementById('commentary-prob-val').textContent = state.commentarySettings.probability + '%';
@@ -1211,6 +1141,10 @@ window.addEventListener('message', event => {
             updateFullscreenButton(data.isFullscreen);
             break;
 
+        case 'VOICE_STATE':
+            handleVoiceState(data);
+            break;
+
         case 'IMAGE_RESULT':
             handleImageResult(data);
             break;
@@ -1229,9 +1163,6 @@ window.addEventListener('message', event => {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 先加载声音列表
-    await loadVoices();
-
     document.getElementById('btn-menu-toggle').onclick = () => { state.menuExpanded = !state.menuExpanded; updateMenuUI(); };
     document.getElementById('btn-settings').onclick = () => { state.settingsOpen = !state.settingsOpen; document.getElementById('settings-panel').classList.toggle('open', state.settingsOpen); };
     document.getElementById('btn-settings-close').onclick = () => { state.settingsOpen = false; document.getElementById('settings-panel').classList.remove('open'); };
@@ -1258,19 +1189,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('voice-enabled').onchange = function() {
         state.voiceSettings.enabled = this.checked;
-        updateVoiceUI(this.checked);
-        postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings });
-    };
-
-    document.getElementById('voice-select').onchange = function() {
-        state.voiceSettings.voice = this.value;
-        postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings });
-    };
-
-    document.getElementById('voice-speed').oninput = function() {
-        const val = parseFloat(this.value);
-        document.getElementById('voice-speed-val').textContent = val.toFixed(1) + 'x';
-        state.voiceSettings.speed = val;
         postToParent({ type: 'SAVE_VOICE_SETTINGS', voiceSettings: state.voiceSettings });
     };
 

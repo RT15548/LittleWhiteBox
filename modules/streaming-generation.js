@@ -136,18 +136,13 @@ class StreamingGeneration {
             const opts = { ...baseOptions, ...this.resolveCurrentApiAndModel(baseOptions) };
 
             const modelLower = String(opts.model || '').toLowerCase();
-            const isClaudeThinkingModel = 
-                modelLower.includes('claude') && 
-                modelLower.includes('thinking') && 
-                !modelLower.includes('nothinking');
+            const isClaudeModel = modelLower.includes('claude');
 
-            if (isClaudeThinkingModel && Array.isArray(messages) && messages.length > 0) {
-                const lastMsg = messages[messages.length - 1];
-                if (lastMsg?.role === 'assistant') {
-                    console.log('[xbgen] Claude Thinking 模型：移除 assistant prefill');
-                    messages.pop();
+            if (isClaudeModel && Array.isArray(messages) && messages.length > 0) {
+                if (this._convertTrailingAssistantToSystem(messages)) {
+                    console.log('[xbgen] Claude model: converted trailing assistant prefill to system message');
                 }
-            } 
+            }
 
             const source = {
                 openai: chat_completion_sources.OPENAI,
@@ -292,10 +287,14 @@ class StreamingGeneration {
             const logSendRequestError = (err, streamMode) => {
                 if (err?.name !== 'AbortError') {
                     const safeApiUrl = String(cmdApiUrl || reverseProxy || oai_settings?.custom_url || '').trim();
+                    const status = this._extractHttpStatus(err);
+                    const isRateLimit = status === 429;
                     try {
                         xbLog.error('streamingGeneration', 'sendRequest failed', {
                             message: err?.message || String(err),
                             name: err?.name,
+                            status,
+                            isRateLimit,
                             stream: !!streamMode,
                             api: String(opts.api || ''),
                             model,
@@ -304,6 +303,12 @@ class StreamingGeneration {
                         });
                     } catch {}
                     console.error('[xbgen:callAPI] sendRequest failed:', err);
+                    if (status) {
+                        console.error(`[xbgen:callAPI] HTTP status=${status} stream=${!!streamMode} api=${String(opts.api || '')} model=${model}`);
+                    }
+                    if (isRateLimit) {
+                        console.error('[xbgen:callAPI] Rate limited (429). Check provider RPM/TPM and concurrent requests.');
+                    }
                 }
             };
 
@@ -468,6 +473,14 @@ class StreamingGeneration {
             if (err?.name === 'AbortError') {
                 try { xbLog.warn('streamingGeneration', `processGeneration aborted sid=${session.id}`); } catch {}
                 return String(session.text || '');
+            }
+
+            const httpStatus = this._extractHttpStatus(err);
+            if (!err?.error && httpStatus) {
+                err.error = {
+                    code: String(httpStatus),
+                    message: String(err?.message || `HTTP ${httpStatus}`),
+                };
             }
 
             console.error('[StreamingGeneration] Generation error:', err);
@@ -803,6 +816,30 @@ class StreamingGeneration {
                 .map(p => p.text.replace(/\r\n/g, '\n')).join('\n');
         }
         return '';
+    }
+
+    _convertTrailingAssistantToSystem(messages) {
+        if (!Array.isArray(messages) || messages.length < 1) return false;
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg?.role !== 'assistant') return false;
+
+        const assistantText = this._extractTextFromMessage(lastMsg).trim();
+        const systemText = assistantText ? `Assistant:\n${assistantText}` : 'Assistant:';
+        lastMsg.role = 'system';
+        lastMsg.content = systemText;
+        return true;
+    }
+
+    _extractHttpStatus(err) {
+        const direct = Number(err?.status || err?.statusCode || err?.response?.status);
+        if (Number.isFinite(direct) && direct >= 100 && direct <= 599) return direct;
+        const msg = String(err?.message || '');
+        const m = msg.match(/\bstatus\s+(\d{3})\b/i);
+        if (m) {
+            const s = Number(m[1]);
+            if (Number.isFinite(s)) return s;
+        }
+        return null;
     }
 
     _getLastMessagesSnapshot() {

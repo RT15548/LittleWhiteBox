@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════════
-// 消息楼层增强器
+// Message Floor Enhancer
 // ════════════════════════════════════════════════════════════════════════════
 
 import { extension_settings } from "../../../../../extensions.js";
@@ -8,113 +8,102 @@ import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog } from "../../core/debug-core.js";
 
 import { generateImage, clearQueue } from "./fw-image.js";
-import { 
-    synthesizeSpeech, 
-    loadVoices,
-    VALID_EMOTIONS, 
-    DEFAULT_VOICE, 
-    DEFAULT_SPEED 
-} from "./fw-voice.js";
+import { synthesizeAndPlay, stopCurrent as stopCurrentVoice } from "./fw-voice-runtime.js";
 
-// ════════════════════════════════════════════════════════════════════════════
-// 状态
+// ════════════════════════════════════════════
+// State
 // ════════════════════════════════════════════════════════════════════════════
 
 const events = createModuleEvents('messageEnhancer');
 const CSS_INJECTED_KEY = 'xb-me-css-injected';
 
-let currentAudio = null;
 let imageObserver = null;
 let novelDrawObserver = null;
 
-// ════════════════════════════════════════════════════════════════════════════
-// 初始化与清理
-// ════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════
+// Init & Cleanup
+// ════════════════════════════════════════════
 
 export async function initMessageEnhancer() {
     const settings = extension_settings[EXT_ID];
     if (!settings?.fourthWall?.enabled) return;
-    
-    xbLog.info('messageEnhancer', '初始化消息增强器');
-    
+
+    xbLog.info('messageEnhancer', 'init message enhancer');
+
     injectStyles();
-    await loadVoices();
     initImageObserver();
     initNovelDrawObserver();
-    
+
     events.on(event_types.CHAT_CHANGED, () => {
         clearQueue();
         setTimeout(processAllMessages, 150);
     });
-    
+
     events.on(event_types.MESSAGE_RECEIVED, handleMessageChange);
     events.on(event_types.USER_MESSAGE_RENDERED, handleMessageChange);
     events.on(event_types.MESSAGE_EDITED, handleMessageChange);
     events.on(event_types.MESSAGE_UPDATED, handleMessageChange);
     events.on(event_types.MESSAGE_SWIPED, handleMessageChange);
-    
+
     events.on(event_types.GENERATION_STOPPED, () => setTimeout(processAllMessages, 150));
     events.on(event_types.GENERATION_ENDED, () => setTimeout(processAllMessages, 150));
-    
+
     processAllMessages();
 }
 
 export function cleanupMessageEnhancer() {
-    xbLog.info('messageEnhancer', '清理消息增强器');
-    
+    xbLog.info('messageEnhancer', 'cleanup message enhancer');
+
     events.cleanup();
     clearQueue();
-    
+
+    stopCurrentVoice();
+
     if (imageObserver) {
         imageObserver.disconnect();
         imageObserver = null;
     }
-    
+
     if (novelDrawObserver) {
         novelDrawObserver.disconnect();
         novelDrawObserver = null;
     }
-    
-    if (currentAudio) {
-        currentAudio.pause();
-        currentAudio = null;
-    }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// NovelDraw 兼容
+// ════════════════════════════════════════════
+// NovelDraw Compat
 // ════════════════════════════════════════════════════════════════════════════
 
 function initNovelDrawObserver() {
     if (novelDrawObserver) return;
-    
+
     const chat = document.getElementById('chat');
     if (!chat) {
         setTimeout(initNovelDrawObserver, 500);
         return;
     }
-    
+
     let debounceTimer = null;
     const pendingTexts = new Set();
-    
+
     novelDrawObserver = new MutationObserver((mutations) => {
         const settings = extension_settings[EXT_ID];
         if (!settings?.fourthWall?.enabled) return;
-        
+
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
                 if (node.nodeType !== Node.ELEMENT_NODE) continue;
-                
+
                 const hasNdImg = node.classList?.contains('xb-nd-img') || node.querySelector?.('.xb-nd-img');
                 if (!hasNdImg) continue;
-                
+
                 const mesText = node.closest('.mes_text');
                 if (mesText && hasUnrenderedVoice(mesText)) {
                     pendingTexts.add(mesText);
                 }
             }
         }
-        
+
         if (pendingTexts.size > 0 && !debounceTimer) {
             debounceTimer = setTimeout(() => {
                 pendingTexts.forEach(mesText => {
@@ -125,7 +114,7 @@ function initNovelDrawObserver() {
             }, 50);
         }
     });
-    
+
     novelDrawObserver.observe(chat, { childList: true, subtree: true });
 }
 
@@ -135,15 +124,15 @@ function hasUnrenderedVoice(mesText) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 事件处理
-// ════════════════════════════════════════════════════════════════════════════
+// Event Handlers
+// ════════════════════════════════════════════
 
 function handleMessageChange(data) {
     setTimeout(() => {
-        const messageId = typeof data === 'object' 
-            ? (data.messageId ?? data.id ?? data.index ?? data.mesId) 
+        const messageId = typeof data === 'object'
+            ? (data.messageId ?? data.id ?? data.index ?? data.mesId)
             : data;
-        
+
         if (Number.isFinite(messageId)) {
             const mesText = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
             if (mesText) enhanceMessageContent(mesText);
@@ -160,12 +149,12 @@ function processAllMessages() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 图片观察器
+// Image Observer
 // ════════════════════════════════════════════════════════════════════════════
 
 function initImageObserver() {
     if (imageObserver) return;
-    
+
     imageObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (!entry.isIntersecting) return;
@@ -180,12 +169,12 @@ function initImageObserver() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 样式注入
-// ════════════════════════════════════════════════════════════════════════════
+// Style Injection
+// ════════════════════════════════════════════
 
 function injectStyles() {
     if (document.getElementById(CSS_INJECTED_KEY)) return;
-    
+
     const style = document.createElement('style');
     style.id = CSS_INJECTED_KEY;
     style.textContent = `
@@ -251,46 +240,46 @@ function injectStyles() {
     document.head.appendChild(style);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// 内容增强
+// ════════════════════════════════════════════
+// Content Enhancement
 // ════════════════════════════════════════════════════════════════════════════
 
 function enhanceMessageContent(container) {
     if (!container) return;
-    
+
     // Rewrites already-rendered message HTML; no new HTML source is introduced here.
     // eslint-disable-next-line no-unsanitized/property
     const html = container.innerHTML;
     let enhanced = html;
     let hasChanges = false;
-    
+
     enhanced = enhanced.replace(/\[(?:img|图片)\s*:\s*([^\]]+)\]/gi, (match, inner) => {
         const tags = parseImageToken(inner);
         if (!tags) return match;
         hasChanges = true;
         return `<div class="xb-img-slot" data-tags="${encodeURIComponent(tags)}"></div>`;
     });
-    
+
     enhanced = enhanced.replace(/\[(?:voice|语音)\s*:([^:]*):([^\]]+)\]/gi, (match, emotionRaw, voiceText) => {
         const txt = voiceText.trim();
         if (!txt) return match;
         hasChanges = true;
         return createVoiceBubbleHTML(txt, (emotionRaw || '').trim().toLowerCase());
     });
-    
+
     enhanced = enhanced.replace(/\[(?:voice|语音)\s*:\s*([^\]:]+)\]/gi, (match, voiceText) => {
         const txt = voiceText.trim();
         if (!txt) return match;
         hasChanges = true;
         return createVoiceBubbleHTML(txt, '');
     });
-    
+
     if (hasChanges) {
         // Replaces existing message HTML with enhanced tokens only.
         // eslint-disable-next-line no-unsanitized/property
         container.innerHTML = enhanced;
     }
-    
+
     hydrateImageSlots(container);
     hydrateVoiceSlots(container);
 }
@@ -313,67 +302,60 @@ function escapeHtml(text) {
     return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// 图片处理
+// ════════════════════════════════════════════
+// Image Handling
 // ════════════════════════════════════════════════════════════════════════════
 
 function hydrateImageSlots(container) {
     container.querySelectorAll('.xb-img-slot').forEach(slot => {
         if (slot.dataset.observed === '1') return;
         slot.dataset.observed = '1';
-        
+
         if (!slot.dataset.loaded && !slot.dataset.loading && !slot.querySelector('img')) {
-            // Template-only UI markup.
             // eslint-disable-next-line no-unsanitized/property
             slot.innerHTML = `<div class="xb-img-placeholder"><i class="fa-regular fa-image"></i><span>滚动加载</span></div>`;
         }
-        
+
         imageObserver?.observe(slot);
     });
 }
 
 async function loadImage(slot, tags) {
-    // Template-only UI markup.
     // eslint-disable-next-line no-unsanitized/property
     slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-spinner"></i> 检查缓存...</div>`;
-    
+
     try {
         const base64 = await generateImage(tags, (status, position, delay) => {
             switch (status) {
                 case 'queued':
-                    // Template-only UI markup.
                     // eslint-disable-next-line no-unsanitized/property
                     slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-clock"></i> 排队中 #${position}</div>`;
                     break;
                 case 'generating':
-                    // Template-only UI markup.
                     // eslint-disable-next-line no-unsanitized/property
                     slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-palette"></i> 生成中${position > 0 ? ` (${position} 排队)` : ''}...</div>`;
                     break;
                 case 'waiting':
-                    // Template-only UI markup.
                     // eslint-disable-next-line no-unsanitized/property
                     slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-clock"></i> 排队中 #${position} (${delay}s)</div>`;
                     break;
             }
         });
-        
+
         if (base64) renderImage(slot, base64, false);
-        
+
     } catch (err) {
         slot.dataset.loaded = '1';
         slot.dataset.loading = '';
-        
+
         if (err.message === '队列已清空') {
-            // Template-only UI markup.
             // eslint-disable-next-line no-unsanitized/property
             slot.innerHTML = `<div class="xb-img-placeholder"><i class="fa-regular fa-image"></i><span>滚动加载</span></div>`;
             slot.dataset.loading = '';
             slot.dataset.observed = '';
             return;
         }
-        
-        // Template-only UI markup with escaped error text.
+
         // eslint-disable-next-line no-unsanitized/property
         slot.innerHTML = `<div class="xb-img-error"><i class="fa-solid fa-exclamation-triangle"></i><div>${escapeHtml(err?.message || '失败')}</div><button class="xb-img-retry" data-tags="${encodeURIComponent(tags)}">重试</button></div>`;
         bindRetryButton(slot);
@@ -383,21 +365,19 @@ async function loadImage(slot, tags) {
 function renderImage(slot, base64, fromCache) {
     slot.dataset.loaded = '1';
     slot.dataset.loading = '';
-    
+
     const img = document.createElement('img');
     img.src = `data:image/png;base64,${base64}`;
     img.className = 'xb-generated-img';
     img.onclick = () => window.open(img.src, '_blank');
-    
-    // Template-only UI markup.
+
     // eslint-disable-next-line no-unsanitized/property
     slot.innerHTML = '';
     slot.appendChild(img);
-    
+
     if (fromCache) {
         const badge = document.createElement('span');
         badge.className = 'xb-img-badge';
-        // Template-only UI markup.
         // eslint-disable-next-line no-unsanitized/property
         badge.innerHTML = '<i class="fa-solid fa-bolt"></i>';
         slot.appendChild(badge);
@@ -417,65 +397,60 @@ function bindRetryButton(slot) {
     };
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// 语音处理
+// ════════════════════════════════════════════
+// Voice Handling
 // ════════════════════════════════════════════════════════════════════════════
 
 function hydrateVoiceSlots(container) {
     container.querySelectorAll('.xb-voice-bubble').forEach(bubble => {
         if (bubble.dataset.bound === '1') return;
         bubble.dataset.bound = '1';
-        
+
         const text = decodeURIComponent(bubble.dataset.text || '');
         const emotion = bubble.dataset.emotion || '';
         if (!text) return;
-        
+
         bubble.onclick = async (e) => {
             e.stopPropagation();
             if (bubble.classList.contains('loading')) return;
-            
-            if (bubble.classList.contains('playing') && currentAudio) {
-                currentAudio.pause();
-                currentAudio = null;
+
+            if (bubble.classList.contains('playing')) {
+                stopCurrentVoice();
                 bubble.classList.remove('playing');
                 return;
             }
-            
-            if (currentAudio) {
-                currentAudio.pause();
-                currentAudio = null;
-            }
-            document.querySelectorAll('.xb-voice-bubble.playing').forEach(el => el.classList.remove('playing'));
-            
-            await playVoice(text, emotion, bubble);
+
+            // Clear other bubble states
+            document.querySelectorAll('.xb-voice-bubble.playing, .xb-voice-bubble.loading').forEach(el => {
+                el.classList.remove('playing', 'loading');
+            });
+
+            bubble.classList.add('loading');
+            bubble.classList.remove('error');
+
+            synthesizeAndPlay(text, emotion, {
+                onState(state, info) {
+                    switch (state) {
+                        case 'loading':
+                            bubble.classList.add('loading');
+                            bubble.classList.remove('playing', 'error');
+                            break;
+                        case 'playing':
+                            bubble.classList.remove('loading', 'error');
+                            bubble.classList.add('playing');
+                            break;
+                        case 'ended':
+                        case 'stopped':
+                            bubble.classList.remove('loading', 'playing');
+                            break;
+                        case 'error':
+                            bubble.classList.remove('loading', 'playing');
+                            bubble.classList.add('error');
+                            setTimeout(() => bubble.classList.remove('error'), 3000);
+                            break;
+                    }
+                },
+            });
         };
     });
-}
-
-async function playVoice(text, emotion, bubbleEl) {
-    bubbleEl.classList.add('loading');
-    bubbleEl.classList.remove('error');
-    
-    try {
-        const settings = extension_settings[EXT_ID]?.fourthWallVoice || {};
-        const audioBase64 = await synthesizeSpeech(text, {
-            voiceKey: settings.voice || DEFAULT_VOICE,
-            speed: settings.speed || DEFAULT_SPEED,
-            emotion: VALID_EMOTIONS.includes(emotion) ? emotion : null
-        });
-        
-        bubbleEl.classList.remove('loading');
-        bubbleEl.classList.add('playing');
-        
-        currentAudio = new Audio(`data:audio/mp3;base64,${audioBase64}`);
-        currentAudio.onended = () => { bubbleEl.classList.remove('playing'); currentAudio = null; };
-        currentAudio.onerror = () => { bubbleEl.classList.remove('playing'); bubbleEl.classList.add('error'); currentAudio = null; };
-        await currentAudio.play();
-        
-    } catch (err) {
-        console.error('[MessageEnhancer] TTS 错误:', err);
-        bubbleEl.classList.remove('loading', 'playing');
-        bubbleEl.classList.add('error');
-        setTimeout(() => bubbleEl.classList.remove('error'), 3000);
-    }
 }

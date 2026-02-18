@@ -236,7 +236,7 @@ All checks passed. Beginning incremental extraction...
 {
   "mindful_prelude":`,
 
-    userConfirm: `怎么截断了！重新完整生成，只输出JSON，不要任何其他内容
+    userConfirm: `怎么截断了！重新完整生成，只输出JSON，不要任何其他内容，3000字以内
 </Chat_History>`,
 
     assistantPrefill: JSON_PREFILL

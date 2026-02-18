@@ -1,8 +1,7 @@
-// ════════════════════════════════════════════════════════════════════════════
-// 语音模块 - TTS 合成服务
+﻿// ════════════════════════════════════════════════════════════════════════════
+// 语音模块 - 常量与提示词指南
 // ════════════════════════════════════════════════════════════════════════════
 
-export const TTS_WORKER_URL = 'https://hstts.velure.codes';
 export const DEFAULT_VOICE = 'female_1';
 export const DEFAULT_SPEED = 1.0;
 
@@ -11,96 +10,9 @@ export const EMOTION_ICONS = {
     happy: '😄', sad: '😢', angry: '😠', surprise: '😮', scare: '😨', hate: '🤢'
 };
 
-let voiceListCache = null;
-let defaultVoiceKey = DEFAULT_VOICE;
-
-// ════════════════════════════════════════════════════════════════════════════
-// 声音列表管理
-// ════════════════════════════════════════════════════════════════════════════
-
-/**
- * 加载可用声音列表
- */
-export async function loadVoices() {
-    if (voiceListCache) return { voices: voiceListCache, defaultVoice: defaultVoiceKey };
-    
-    try {
-        const res = await fetch(`${TTS_WORKER_URL}/voices`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        voiceListCache = data.voices || [];
-        defaultVoiceKey = data.defaultVoice || DEFAULT_VOICE;
-        return { voices: voiceListCache, defaultVoice: defaultVoiceKey };
-    } catch (err) {
-        console.error('[FW Voice] 加载声音列表失败:', err);
-        return { voices: [], defaultVoice: DEFAULT_VOICE };
-    }
-}
-
-/**
- * 获取已缓存的声音列表
- */
-export function getVoiceList() {
-    return voiceListCache || [];
-}
-
-/**
- * 获取默认声音
- */
-export function getDefaultVoice() {
-    return defaultVoiceKey;
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// TTS 合成
-// ════════════════════════════════════════════════════════════════════════════
-
-/**
- * 合成语音
- * @param {string} text - 要合成的文本
- * @param {Object} options - 选项
- * @param {string} [options.voiceKey] - 声音标识
- * @param {number} [options.speed] - 语速 0.5-2.0
- * @param {string} [options.emotion] - 情绪
- * @returns {Promise<string>} base64 编码的音频数据
- */
-export async function synthesizeSpeech(text, options = {}) {
-    const {
-        voiceKey = defaultVoiceKey,
-        speed = DEFAULT_SPEED,
-        emotion = null
-    } = options;
-
-    const requestBody = {
-        voiceKey,
-        text: String(text || ''),
-        speed: Number(speed) || DEFAULT_SPEED,
-        uid: 'xb_' + Date.now(),
-        reqid: crypto.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
-    };
-
-    if (emotion && VALID_EMOTIONS.includes(emotion)) {
-        requestBody.emotion = emotion;
-        requestBody.emotionScale = 5;
-    }
-
-    const res = await fetch(TTS_WORKER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-    });
-
-    if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
-
-    const data = await res.json();
-    if (data.code !== 3000) throw new Error(data.message || 'TTS 合成失败');
-
-    return data.data; // base64 音频
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // 提示词指南
-// ════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════
 
 export const VOICE_GUIDELINE = `## 模拟语音
 如需发送语音消息，使用以下格式：
