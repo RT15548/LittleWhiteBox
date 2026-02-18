@@ -1,5 +1,5 @@
-import { extension_settings } from '../../../../extensions.js';
-import { getRequestHeaders, saveSettingsDebounced, substituteParamsExtended } from '../../../../../script.js';
+import { extension_settings } from '../../../../../extensions.js';
+import { getRequestHeaders, saveSettingsDebounced, substituteParamsExtended } from '../../../../../../script.js';
 import { getStorySummaryForEna } from '../story-summary/story-summary.js';
 
 const EXT_NAME = 'ena-planner';
