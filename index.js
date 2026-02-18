@@ -27,6 +27,7 @@ import { initNovelDraw, cleanupNovelDraw } from "./modules/novel-draw/novel-draw
 import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
 import { initTts, cleanupTts } from "./modules/tts/tts.js";
+import { initEnaPlanner } from "./modules/ena-planner/ena-planner.js";
 
 extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     enabled: true,
@@ -656,6 +657,7 @@ jQuery(async () => {
                 { condition: true, init: initButtonCollapse }
             ];
             moduleInits.forEach(({ condition, init }) => { if (condition) init(); });
+            try { initEnaPlanner(); } catch (e) { console.error('[EnaPlanner] Init failed:', e); }
 
             if (settings.preview?.enabled || settings.recorded?.enabled) {
                 setTimeout(initMessagePreview, 1500);
