@@ -1293,7 +1293,7 @@ function createSettingsHTML() {
   #ena_planner_panel input[type="password"],
   #ena_planner_panel input[type="number"] {
     width:100%; padding:6px 8px; border-radius:4px; border:1px solid var(--SmartThemeBorderColor,#444);
-    background:var(--SmartThemeBotMesBlurTintColor,#1a1a2e); color:var(--SmartThemeBodyColor,#ccc); font-size:13px;
+    background:#1a1a2e; color:#e0e0e0; font-size:13px;
   }
   #ena_planner_panel .menu_button { display:inline-block; white-space:nowrap; }
   .ep-prompt-block { border:1px solid var(--SmartThemeBorderColor,#444); border-radius:6px; padding:8px; margin-bottom:8px; }
@@ -1865,6 +1865,7 @@ function injectUI() {
     const panel = document.createElement('div');
     panel.id = 'ena_planner_panel';
     panel.className = 'ena-planner settings-section';
+    panel.style.display = 'none';
     contentArea.appendChild(panel);
   }
 
