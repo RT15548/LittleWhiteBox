@@ -718,16 +718,21 @@ function buildEjsContext() {
   // getvar: read a chat variable (supports dot-path for nested objects)
   function getvar(name) {
     if (!name) return '';
-    // Direct lookup first
-    if (vars[name] !== undefined) return vars[name];
-    // Try dot-path traversal
-    const parts = String(name).split('.');
-    let cur = vars;
-    for (const p of parts) {
-      if (cur == null || typeof cur !== 'object') return '';
-      cur = cur[p];
+    let val;
+    if (vars[name] !== undefined) {
+      val = vars[name];
+    } else {
+      const parts = String(name).split('.');
+      let cur = vars;
+      for (const p of parts) {
+        if (cur == null || typeof cur !== 'object') return '';
+        cur = cur[p];
+      }
+      val = cur ?? '';
     }
-    return cur ?? '';
+    // 处理字符串布尔值
+    if (val === 'false' || val === 'False' || val === '0') return '';
+    return val;
   }
 
   // setvar: write a chat variable (no-op for our purposes, just to avoid errors)
@@ -1299,6 +1304,15 @@ function createSettingsHTML() {
   .ep-prompt-block { border:1px solid var(--SmartThemeBorderColor,#444); border-radius:6px; padding:8px; margin-bottom:8px; }
   .ep-prompt-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px; }
   .ep-prompt-block textarea { width:100%; background:var(--SmartThemeBotMesBlurTintColor,#1a1a2e); color:var(--SmartThemeBodyColor,#ccc); border:1px solid var(--SmartThemeBorderColor,#444); border-radius:4px; padding:6px; font-size:12px; }
+  #ena_planner_panel .ep-prompt-block textarea {
+    background:#1a1a2e; color:#e0e0e0; border:1px solid var(--SmartThemeBorderColor,#444);
+  }
+  .ep-log-pre {
+    background:rgba(20,20,30,0.95) !important; color:#e0e0e0 !important;
+  }
+  .ep-log-modal .ep-log-card {
+    background:rgba(20,20,30,0.97); color:#e0e0e0;
+  }
 </style>
 <div style="padding:4px 0;">
   <div style="display:flex;align-items:center;margin-bottom:8px;">
