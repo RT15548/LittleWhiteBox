@@ -730,8 +730,9 @@ function buildEjsContext() {
       }
       val = cur ?? '';
     }
-    // 处理字符串布尔值
-    if (val === 'false' || val === 'False' || val === '0') return '';
+    // 字符串布尔值转为真正的布尔值
+    if (val === 'false' || val === 'False' || val === 'FALSE') return false;
+    if (val === 'true' || val === 'True' || val === 'TRUE') return true;
     return val;
   }
 
