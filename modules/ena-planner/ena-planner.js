@@ -1560,7 +1560,7 @@ function renderPromptDesigner() {
 }
 
 function bindSettingsUI() {
-  const settingsEl = document.getElementById('ena_planner_settings');
+  const settingsEl = document.getElementById('ena_planner_panel');
   if (!settingsEl) return;
 
   // Tabs
