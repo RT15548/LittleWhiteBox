@@ -1,52 +1,52 @@
 /* Ena Planner v0.5 — collapsible, clean */
 
 /* ===== Settings panel inside inline-drawer ===== */
-#ena_planner_settings {
+#ena_planner_panel {
   padding: 8px 0;
 }
 
-#ena_planner_settings .ep-row {
+#ena_planner_panel .ep-row {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   margin: 8px 0;
 }
 
-#ena_planner_settings label {
+#ena_planner_panel label {
   font-size: 12px;
   opacity: .9;
   display: block;
   margin-bottom: 4px;
 }
 
-#ena_planner_settings input[type="text"],
-#ena_planner_settings input[type="password"],
-#ena_planner_settings input[type="number"],
-#ena_planner_settings select,
-#ena_planner_settings textarea {
+#ena_planner_panel input[type="text"],
+#ena_planner_panel input[type="password"],
+#ena_planner_panel input[type="number"],
+#ena_planner_panel select,
+#ena_planner_panel textarea {
   width: 100%;
   box-sizing: border-box;
 }
 
-#ena_planner_settings .ep-col {
+#ena_planner_panel .ep-col {
   flex: 1 1 220px;
   min-width: 220px;
 }
 
-#ena_planner_settings .ep-col.wide {
+#ena_planner_panel .ep-col.wide {
   flex: 1 1 100%;
   min-width: 260px;
 }
 
 /* Tabs */
-#ena_planner_settings .ep-tabs {
+#ena_planner_panel .ep-tabs {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 10px;
 }
 
-#ena_planner_settings .ep-tab {
+#ena_planner_panel .ep-tab {
   padding: 6px 10px;
   border-radius: 999px;
   cursor: pointer;
@@ -56,33 +56,33 @@
   font-size: 13px;
 }
 
-#ena_planner_settings .ep-tab.active {
+#ena_planner_panel .ep-tab.active {
   opacity: 1;
   background: rgba(255,255,255,.06);
 }
 
-#ena_planner_settings .ep-panel {
+#ena_planner_panel .ep-panel {
   display: none;
 }
 
-#ena_planner_settings .ep-panel.active {
+#ena_planner_panel .ep-panel.active {
   display: block;
 }
 
-#ena_planner_settings .ep-actions {
+#ena_planner_panel .ep-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 10px;
 }
 
-#ena_planner_settings .ep-hint {
+#ena_planner_panel .ep-hint {
   font-size: 11px;
   opacity: .7;
   margin-top: 4px;
 }
 
-#ena_planner_settings .ep-hint-box {
+#ena_planner_panel .ep-hint-box {
   font-size: 12px;
   opacity: .85;
   margin: 10px 0;
@@ -93,7 +93,7 @@
   line-height: 1.6;
 }
 
-#ena_planner_settings .ep-divider {
+#ena_planner_panel .ep-divider {
   margin: 10px 0;
   border-top: 1px dashed rgba(255,255,255,.15);
 }
