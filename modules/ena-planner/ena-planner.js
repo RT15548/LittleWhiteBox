@@ -1270,238 +1270,259 @@ function createSettingsHTML() {
   const channel = s.api.channel;
 
   return `
-<div id="idle_watcher_style_wrapper">
-  <div class="inline-drawer">
-    <div class="inline-drawer-toggle inline-drawer-header">
-      <b>Ena Planner</b>
-      <span class="ep-badge-inline ${s.enabled ? 'ok' : 'warn'}">
-        <span class="dot"></span>
-        <span>${s.enabled ? 'Enabled' : 'Disabled'}</span>
-      </span>
-      <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+<style>
+  .ep-tabs { display:flex; gap:4px; margin-bottom:10px; flex-wrap:wrap; }
+  .ep-tab { padding:6px 14px; cursor:pointer; border:1px solid var(--SmartThemeBorderColor,#444); border-radius:6px; font-size:13px; opacity:0.7; }
+  .ep-tab.active { opacity:1; background:var(--SmartThemeBorderColor,#444); }
+  .ep-panel { display:none; }
+  .ep-panel.active { display:block; }
+  .ep-row { display:flex; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+  .ep-col { flex:1; min-width:140px; }
+  .ep-col.wide { flex:2; min-width:200px; }
+  .ep-hint { font-size:11px; opacity:0.6; margin-top:2px; }
+  .ep-hint-box { font-size:12px; opacity:0.75; background:rgba(255,255,255,0.05); padding:8px; border-radius:6px; margin:8px 0; }
+  .ep-divider { border-top:1px solid var(--SmartThemeBorderColor,#444); margin:10px 0; }
+  .ep-actions { display:flex; gap:8px; margin:10px 0; flex-wrap:wrap; }
+  .ep-badge-inline { display:inline-flex; align-items:center; gap:4px; font-size:12px; margin-left:8px; }
+  .ep-badge-inline .dot { width:8px; height:8px; border-radius:50%; }
+  .ep-badge-inline.ok .dot { background:#4caf50; }
+  .ep-badge-inline.warn .dot { background:#ff9800; }
+  #ena_planner_panel label { display:block; font-size:13px; margin-bottom:3px; }
+  #ena_planner_panel select,
+  #ena_planner_panel input[type="text"],
+  #ena_planner_panel input[type="password"],
+  #ena_planner_panel input[type="number"] {
+    width:100%; padding:6px 8px; border-radius:4px; border:1px solid var(--SmartThemeBorderColor,#444);
+    background:var(--SmartThemeBotMesBlurTintColor,#1a1a2e); color:var(--SmartThemeBodyColor,#ccc); font-size:13px;
+  }
+  #ena_planner_panel .menu_button { display:inline-block; white-space:nowrap; }
+  .ep-prompt-block { border:1px solid var(--SmartThemeBorderColor,#444); border-radius:6px; padding:8px; margin-bottom:8px; }
+  .ep-prompt-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px; }
+  .ep-prompt-block textarea { width:100%; background:var(--SmartThemeBotMesBlurTintColor,#1a1a2e); color:var(--SmartThemeBodyColor,#ccc); border:1px solid var(--SmartThemeBorderColor,#444); border-radius:4px; padding:6px; font-size:12px; }
+</style>
+<div style="padding:4px 0;">
+  <div style="display:flex;align-items:center;margin-bottom:8px;">
+    <b style="font-size:15px;">Ena Planner</b>
+    <span class="ep-badge-inline ${s.enabled ? 'ok' : 'warn'}">
+      <span class="dot"></span>
+      <span>${s.enabled ? 'Enabled' : 'Disabled'}</span>
+    </span>
+  </div>
+
+  <div class="ep-tabs">
+    <div class="ep-tab active" data-ep-tab="general">总览</div>
+    <div class="ep-tab" data-ep-tab="api">API</div>
+    <div class="ep-tab" data-ep-tab="prompt">提示词</div>
+    <div class="ep-tab" data-ep-tab="debug">调试</div>
+  </div>
+
+  <!-- GENERAL TAB -->
+  <div class="ep-panel active" data-ep-panel="general">
+    <div class="ep-row">
+      <div class="ep-col">
+        <label>启用</label>
+        <select id="ep_enabled">
+          <option value="true" ${s.enabled ? 'selected' : ''}>启用</option>
+          <option value="false" ${!s.enabled ? 'selected' : ''}>关闭</option>
+        </select>
+        <div class="ep-hint">开启后：你点发送/回车，会先走"规划模型"，把规划结果写回输入框再发送。</div>
+      </div>
+      <div class="ep-col">
+        <label>避免重复规划（推荐开启）</label>
+        <select id="ep_skip_plot">
+          <option value="true" ${s.skipIfPlotPresent ? 'selected' : ''}>输入含 &lt;plot&gt; 就跳过规划</option>
+          <option value="false" ${!s.skipIfPlotPresent ? 'selected' : ''}>不跳过（不建议）</option>
+        </select>
+        <div class="ep-hint">防止"原始+规划文本"再次被拦截规划。</div>
+      </div>
     </div>
-    <div class="inline-drawer-content" id="ena_planner_settings">
 
-      <div class="ep-tabs">
-        <div class="ep-tab active" data-ep-tab="general">总览</div>
-        <div class="ep-tab" data-ep-tab="api">API</div>
-        <div class="ep-tab" data-ep-tab="prompt">提示词</div>
-        <div class="ep-tab" data-ep-tab="debug">调试</div>
+    <div class="ep-divider"></div>
+
+    <div class="ep-row">
+      <div class="ep-col">
+        <label>全局世界书</label>
+        <select id="ep_include_global_wb">
+          <option value="false" ${!s.includeGlobalWorldbooks ? 'selected' : ''}>仅角色绑定世界书</option>
+          <option value="true" ${s.includeGlobalWorldbooks ? 'selected' : ''}>额外包含全局世界书</option>
+        </select>
+        <div class="ep-hint">角色绑定的世界书总是会读取。这里选择是否额外包含全局世界书。</div>
       </div>
-
-      <!-- GENERAL TAB -->
-      <div class="ep-panel active" data-ep-panel="general">
-        <div class="ep-row">
-          <div class="ep-col">
-            <label>启用</label>
-            <select id="ep_enabled">
-              <option value="true" ${s.enabled ? 'selected' : ''}>启用</option>
-              <option value="false" ${!s.enabled ? 'selected' : ''}>关闭</option>
-            </select>
-            <div class="ep-hint">开启后：你点发送/回车，会先走"规划模型"，把规划结果写回输入框再发送。</div>
-          </div>
-
-          <div class="ep-col">
-            <label>避免重复规划（推荐开启）</label>
-            <select id="ep_skip_plot">
-              <option value="true" ${s.skipIfPlotPresent ? 'selected' : ''}>输入含 &lt;plot&gt; 就跳过规划</option>
-              <option value="false" ${!s.skipIfPlotPresent ? 'selected' : ''}>不跳过（不建议）</option>
-            </select>
-            <div class="ep-hint">防止"原始+规划文本"再次被拦截规划。</div>
-          </div>
-        </div>
-
-        <div class="ep-divider"></div>
-
-        <div class="ep-row">
-          <div class="ep-col">
-            <label>全局世界书</label>
-            <select id="ep_include_global_wb">
-              <option value="false" ${!s.includeGlobalWorldbooks ? 'selected' : ''}>仅角色绑定世界书</option>
-              <option value="true" ${s.includeGlobalWorldbooks ? 'selected' : ''}>额外包含全局世界书</option>
-            </select>
-            <div class="ep-hint">角色绑定的世界书总是会读取。这里选择是否额外包含全局世界书。</div>
-          </div>
-
-          <div class="ep-col">
-            <label>排除 position=4 (深度注入)</label>
-            <select id="ep_wb_pos4">
-              <option value="true" ${s.excludeWorldbookPosition4 ? 'selected' : ''}>排除</option>
-              <option value="false" ${!s.excludeWorldbookPosition4 ? 'selected' : ''}>不排除</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="ep-row">
-          <div class="ep-col wide">
-            <label>排除条目名称（逗号分隔）</label>
-            <input type="text" id="ep_wb_exclude_names" placeholder="mvu_update" value="${escapeHtml((s.worldbookExcludeNames ?? []).join(', '))}" />
-            <div class="ep-hint">条目名称/备注包含这些字符串的条目会被排除。</div>
-          </div>
-        </div>
-
-        <div class="ep-row">
-          <div class="ep-col">
-            <label>抓取最近 plot 数量（倒序抓）</label>
-            <input type="number" id="ep_plot_n" min="0" step="1" value="${Number(s.plotCount) || 0}" />
-          </div>
-        </div>
-
-        <div class="ep-hint-box">
-          <b>自动行为说明：</b><br/>
-          · 聊天片段：自动读取所有未隐藏的 AI 回复（不含用户输入）<br/>
-          · 自动剔除 &lt;think&gt; 以前的内容（含未包裹的思考段落）<br/>
-          · 角色卡字段（desc/personality/scenario）：有就全部加入<br/>
-          · 向量召回（extensionPrompts）：有就自动加入<br/>
-          · 世界书激活：常驻（蓝灯）+ 关键词触发（绿灯）
-        </div>
-
-        <div class="ep-divider"></div>
-
-        <div class="ep-row">
-          <div class="ep-col wide">
-            <label>前文排除标签（逗号分隔）</label>
-            <input type="text" id="ep_exclude_tags" placeholder="行动选项, UpdateVariable, StatusPlaceHolderImpl" value="${escapeHtml((s.chatExcludeTags ?? []).join(', '))}" />
-            <div class="ep-hint">这些 XML 标签及其内容会从聊天历史中剔除。自闭合标签（如 &lt;Tag/&gt;）也会被移除。</div>
-          </div>
-        </div>
-
-        <div class="ep-actions">
-          <button class="menu_button ep-touch-btn" id="ep_open_logs">查看 Logs</button>
-          <button class="menu_button ep-touch-btn" id="ep_test_planner">测试规划请求</button>
-        </div>
+      <div class="ep-col">
+        <label>排除 position=4 (深度注入)</label>
+        <select id="ep_wb_pos4">
+          <option value="true" ${s.excludeWorldbookPosition4 ? 'selected' : ''}>排除</option>
+          <option value="false" ${!s.excludeWorldbookPosition4 ? 'selected' : ''}>不排除</option>
+        </select>
       </div>
-
-      <!-- API TAB -->
-      <div class="ep-panel" data-ep-panel="api">
-        <div class="ep-row">
-          <div class="ep-col">
-            <label>渠道</label>
-            <select id="ep_api_channel">
-              <option value="openai" ${channel === 'openai' ? 'selected' : ''}>OpenAI 兼容</option>
-              <option value="gemini" ${channel === 'gemini' ? 'selected' : ''}>Gemini 兼容</option>
-              <option value="claude" ${channel === 'claude' ? 'selected' : ''}>Claude 兼容</option>
-            </select>
-            <div class="ep-hint">影响默认前缀：OpenAI/Claude → /v1，Gemini → /v1beta</div>
-          </div>
-
-          <div class="ep-col wide">
-            <label>API URL（base）</label>
-            <input type="text" id="ep_api_base" placeholder="https://your-api.example.com" value="${escapeHtml(s.api.baseUrl)}" />
-          </div>
-        </div>
-
-        <div class="ep-row">
-          <div class="ep-col">
-            <label>端点前缀</label>
-            <select id="ep_prefix_mode">
-              <option value="auto" ${s.api.prefixMode === 'auto' ? 'selected' : ''}>自动（按渠道）</option>
-              <option value="custom" ${s.api.prefixMode === 'custom' ? 'selected' : ''}>自定义</option>
-            </select>
-          </div>
-          <div class="ep-col">
-            <label>自定义前缀</label>
-            <input type="text" id="ep_prefix_custom" placeholder="/v1" value="${escapeHtml(s.api.customPrefix)}" />
-          </div>
-        </div>
-
-        <div class="ep-row">
-          <div class="ep-col wide">
-            <label>API KEY</label>
-            <input type="password" id="ep_api_key" placeholder="sk-..." value="${escapeHtml(s.api.apiKey)}" />
-          </div>
-        </div>
-
-        <div class="ep-row">
-          <div class="ep-col">
-            <label>模型</label>
-            <input type="text" id="ep_model" placeholder="gpt-4.1-mini / gemini-3-flash ..." value="${escapeHtml(s.api.model)}" />
-          </div>
-          <div class="ep-col">
-            <label>流式</label>
-            <select id="ep_stream">
-              <option value="true" ${s.api.stream ? 'selected' : ''}>开启</option>
-              <option value="false" ${!s.api.stream ? 'selected' : ''}>关闭</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="ep-actions">
-          <button class="menu_button" id="ep_fetch_models">拉取模型列表</button>
-          <button class="menu_button" id="ep_test_conn">测试连接</button>
-        </div>
-
-        <div class="ep-divider"></div>
-
-        <div class="ep-row">
-          <div class="ep-col">
-            <label>temperature</label>
-            <input type="number" id="ep_temp" step="0.1" value="${Number(s.api.temperature)}" />
-          </div>
-          <div class="ep-col">
-            <label>top_p</label>
-            <input type="number" id="ep_top_p" step="0.05" value="${Number(s.api.top_p)}" />
-          </div>
-          <div class="ep-col">
-            <label>top_k</label>
-            <input type="number" id="ep_top_k" step="1" value="${Number(s.api.top_k) || 0}" />
-          </div>
-        </div>
-
-        <div class="ep-row">
-          <div class="ep-col">
-            <label>presence_penalty</label>
-            <input type="text" id="ep_pp" value="${escapeHtml(s.api.presence_penalty)}" />
-          </div>
-          <div class="ep-col">
-            <label>frequency_penalty</label>
-            <input type="text" id="ep_fp" value="${escapeHtml(s.api.frequency_penalty)}" />
-          </div>
-          <div class="ep-col">
-            <label>max_tokens</label>
-            <input type="text" id="ep_mt" value="${escapeHtml(s.api.max_tokens)}" />
-          </div>
-        </div>
-      </div>
-
-      <!-- PROMPT TAB -->
-      <div class="ep-panel" data-ep-panel="prompt">
-        <div class="ep-hint">新增多条提示词块，选择 role（system/user/assistant）。系统块放最前面；assistant 块放最后。</div>
-
-        <div class="ep-row" style="gap:4px;flex-wrap:wrap;margin-bottom:6px;">
-          <select id="ep_tpl_select" style="flex:1;min-width:120px;">
-            <option value="">-- 选择模板 --</option>
-            ${Object.keys(s.promptTemplates || {}).map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
-          </select>
-          <button class="menu_button" id="ep_tpl_save" title="覆盖现在模板">储存</button>
-          <button class="menu_button" id="ep_tpl_saveas" title="另存模板">另存</button>
-          <button class="menu_button" id="ep_tpl_delete" title="删除现在模板">删除</button>
-        </div>
-
-        <div id="ep_prompt_list"></div>
-        <div class="ep-actions">
-          <button class="menu_button" id="ep_add_prompt">新增提示词块</button>
-          <button class="menu_button" id="ep_reset_prompt">重置为默认</button>
-        </div>
-      </div>
-
-      <!-- DEBUG TAB -->
-      <div class="ep-panel" data-ep-panel="debug">
-        <div class="ep-hint-box">
-          <b>工作原理：</b><br/>
-          · 规划时会锁定发送按钮<br/>
-          · Log 静默记录，只有出错才弹提示<br/>
-          · 写回版本：剔除 &lt;think&gt;，只保留 &lt;plot&gt;+&lt;note&gt;<br/>
-          · 前文自动剔除 &lt;think&gt; 以前内容和排除标签内容
-        </div>
-        <div class="ep-actions">
-          <button class="menu_button" id="ep_debug_worldbook">诊断世界书读取</button>
-          <button class="menu_button" id="ep_debug_char">诊断角色卡读取</button>
-        </div>
-        <pre class="ep-log-pre" id="ep_debug_output" style="max-height:300px;overflow:auto;font-size:12px;display:none;"></pre>
-      </div>
-
     </div>
+
+    <div class="ep-row">
+      <div class="ep-col wide">
+        <label>排除条目名称（逗号分隔）</label>
+        <input type="text" id="ep_wb_exclude_names" placeholder="mvu_update" value="${escapeHtml((s.worldbookExcludeNames ?? []).join(', '))}" />
+        <div class="ep-hint">条目名称/备注包含这些字符串的条目会被排除。</div>
+      </div>
+    </div>
+
+    <div class="ep-row">
+      <div class="ep-col">
+        <label>抓取最近 plot 数量（倒序抓）</label>
+        <input type="number" id="ep_plot_n" min="0" step="1" value="${Number(s.plotCount) || 0}" />
+      </div>
+    </div>
+
+    <div class="ep-hint-box">
+      <b>自动行为说明：</b><br/>
+      · 聊天片段：自动读取所有未隐藏的 AI 回复（不含用户输入）<br/>
+      · 自动剔除 &lt;think&gt; 以前的内容（含未包裹的思考段落）<br/>
+      · 角色卡字段（desc/personality/scenario）：有就全部加入<br/>
+      · 向量召回（extensionPrompts）：有就自动加入<br/>
+      · 世界书激活：常驻（蓝灯）+ 关键词触发（绿灯）
+    </div>
+
+    <div class="ep-divider"></div>
+
+    <div class="ep-row">
+      <div class="ep-col wide">
+        <label>前文排除标签（逗号分隔）</label>
+        <input type="text" id="ep_exclude_tags" placeholder="行动选项, UpdateVariable, StatusPlaceHolderImpl" value="${escapeHtml((s.chatExcludeTags ?? []).join(', '))}" />
+        <div class="ep-hint">这些 XML 标签及其内容会从聊天历史中剔除。自闭合标签（如 &lt;Tag/&gt;）也会被移除。</div>
+      </div>
+    </div>
+
+    <div class="ep-actions">
+      <button class="menu_button ep-touch-btn" id="ep_open_logs">查看 Logs</button>
+      <button class="menu_button ep-touch-btn" id="ep_test_planner">测试规划请求</button>
+    </div>
+  </div>
+
+  <!-- API TAB -->
+  <div class="ep-panel" data-ep-panel="api">
+    <div class="ep-row">
+      <div class="ep-col">
+        <label>渠道</label>
+        <select id="ep_api_channel">
+          <option value="openai" ${channel === 'openai' ? 'selected' : ''}>OpenAI 兼容</option>
+          <option value="gemini" ${channel === 'gemini' ? 'selected' : ''}>Gemini 兼容</option>
+          <option value="claude" ${channel === 'claude' ? 'selected' : ''}>Claude 兼容</option>
+        </select>
+        <div class="ep-hint">影响默认前缀：OpenAI/Claude → /v1，Gemini → /v1beta</div>
+      </div>
+      <div class="ep-col wide">
+        <label>API URL（base）</label>
+        <input type="text" id="ep_api_base" placeholder="https://your-api.example.com" value="${escapeHtml(s.api.baseUrl)}" />
+      </div>
+    </div>
+
+    <div class="ep-row">
+      <div class="ep-col">
+        <label>端点前缀</label>
+        <select id="ep_prefix_mode">
+          <option value="auto" ${s.api.prefixMode === 'auto' ? 'selected' : ''}>自动（按渠道）</option>
+          <option value="custom" ${s.api.prefixMode === 'custom' ? 'selected' : ''}>自定义</option>
+        </select>
+      </div>
+      <div class="ep-col">
+        <label>自定义前缀</label>
+        <input type="text" id="ep_prefix_custom" placeholder="/v1" value="${escapeHtml(s.api.customPrefix)}" />
+      </div>
+    </div>
+
+    <div class="ep-row">
+      <div class="ep-col wide">
+        <label>API KEY</label>
+        <input type="password" id="ep_api_key" placeholder="sk-..." value="${escapeHtml(s.api.apiKey)}" />
+      </div>
+    </div>
+
+    <div class="ep-row">
+      <div class="ep-col">
+        <label>模型</label>
+        <input type="text" id="ep_model" placeholder="gpt-4.1-mini / gemini-3-flash ..." value="${escapeHtml(s.api.model)}" />
+      </div>
+      <div class="ep-col">
+        <label>流式</label>
+        <select id="ep_stream">
+          <option value="true" ${s.api.stream ? 'selected' : ''}>开启</option>
+          <option value="false" ${!s.api.stream ? 'selected' : ''}>关闭</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="ep-actions">
+      <button class="menu_button" id="ep_fetch_models">拉取模型列表</button>
+      <button class="menu_button" id="ep_test_conn">测试连接</button>
+    </div>
+
+    <div class="ep-divider"></div>
+
+    <div class="ep-row">
+      <div class="ep-col">
+        <label>temperature</label>
+        <input type="number" id="ep_temp" step="0.1" value="${Number(s.api.temperature)}" />
+      </div>
+      <div class="ep-col">
+        <label>top_p</label>
+        <input type="number" id="ep_top_p" step="0.05" value="${Number(s.api.top_p)}" />
+      </div>
+      <div class="ep-col">
+        <label>top_k</label>
+        <input type="number" id="ep_top_k" step="1" value="${Number(s.api.top_k) || 0}" />
+      </div>
+    </div>
+
+    <div class="ep-row">
+      <div class="ep-col">
+        <label>presence_penalty</label>
+        <input type="text" id="ep_pp" value="${escapeHtml(s.api.presence_penalty)}" />
+      </div>
+      <div class="ep-col">
+        <label>frequency_penalty</label>
+        <input type="text" id="ep_fp" value="${escapeHtml(s.api.frequency_penalty)}" />
+      </div>
+      <div class="ep-col">
+        <label>max_tokens</label>
+        <input type="text" id="ep_mt" value="${escapeHtml(s.api.max_tokens)}" />
+      </div>
+    </div>
+  </div>
+
+  <!-- PROMPT TAB -->
+  <div class="ep-panel" data-ep-panel="prompt">
+    <div class="ep-hint">新增多条提示词块，选择 role（system/user/assistant）。系统块放最前面；assistant 块放最后。</div>
+
+    <div class="ep-row" style="gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+      <select id="ep_tpl_select" style="flex:1;min-width:120px;">
+        <option value="">-- 选择模板 --</option>
+        ${Object.keys(s.promptTemplates || {}).map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')}
+      </select>
+      <button class="menu_button" id="ep_tpl_save" title="覆盖现在模板">储存</button>
+      <button class="menu_button" id="ep_tpl_saveas" title="另存模板">另存</button>
+      <button class="menu_button" id="ep_tpl_delete" title="删除现在模板">删除</button>
+    </div>
+
+    <div id="ep_prompt_list"></div>
+    <div class="ep-actions">
+      <button class="menu_button" id="ep_add_prompt">新增提示词块</button>
+      <button class="menu_button" id="ep_reset_prompt">重置为默认</button>
+    </div>
+  </div>
+
+  <!-- DEBUG TAB -->
+  <div class="ep-panel" data-ep-panel="debug">
+    <div class="ep-hint-box">
+      <b>工作原理：</b><br/>
+      · 规划时会锁定发送按钮<br/>
+      · Log 静默记录，只有出错才弹提示<br/>
+      · 写回版本：剔除 &lt;think&gt;，只保留 &lt;plot&gt;+&lt;note&gt;<br/>
+      · 前文自动剔除 &lt;think&gt; 以前内容和排除标签内容
+    </div>
+    <div class="ep-actions">
+      <button class="menu_button" id="ep_debug_worldbook">诊断世界书读取</button>
+      <button class="menu_button" id="ep_debug_char">诊断角色卡读取</button>
+    </div>
+    <pre class="ep-log-pre" id="ep_debug_output" style="max-height:300px;overflow:auto;font-size:12px;display:none;"></pre>
   </div>
 </div>`;
 }
