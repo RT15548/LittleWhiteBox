@@ -334,7 +334,26 @@ function collectRecentChatSnippet(chat, maxMessages) {
 }
 
 function getCachedStorySummary() {
-    return getStorySummaryForEna();
+    const live = getStorySummaryForEna();
+    const ctx = getContextSafe();
+    const meta = ctx?.chatMetadata ?? window.chat_metadata;
+
+    if (live && live.trim().length > 30) {
+        // 拿到了新的，存起来
+        if (meta) {
+            meta.ena_cached_story_summary = live;
+            saveSettingsDebounced();
+        }
+        return live;
+    }
+
+    // 没拿到（首轮/重启），从 chat_metadata 读上次的
+    if (meta?.ena_cached_story_summary) {
+        console.log('[EnaPlanner] Using persisted story summary from chat_metadata');
+        return meta.ena_cached_story_summary;
+    }
+
+    return '';
 }
 
 /** -------------------------
