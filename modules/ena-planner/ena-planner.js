@@ -1825,6 +1825,28 @@ function injectUI() {
 
   if (document.getElementById('ena_planner_settings')) return;
 
+  // 动态注入 tab 按钮
+  const menuBar = document.querySelector('.settings-menu-vertical');
+  if (!menuBar) return;
+  if (!menuBar.querySelector('[data-target="ena-planner"]')) {
+    const tabDiv = document.createElement('div');
+    tabDiv.className = 'menu-tab';
+    tabDiv.setAttribute('data-target', 'ena-planner');
+    tabDiv.setAttribute('style', 'border-bottom:1px solid #303030;');
+    tabDiv.innerHTML = '<span class="vertical-text">剧情规划</span>';
+    menuBar.appendChild(tabDiv);
+  }
+
+  // 动态注入面板容器
+  const contentArea = document.querySelector('.settings-content');
+  if (!contentArea) return;
+  if (!document.getElementById('ena_planner_panel')) {
+    const panel = document.createElement('div');
+    panel.id = 'ena_planner_panel';
+    panel.className = 'ena-planner settings-section';
+    contentArea.appendChild(panel);
+  }
+
   const container = document.getElementById('ena_planner_panel');
   if (!container) return;
 
@@ -1836,11 +1858,9 @@ function injectUI() {
   if (!document.getElementById('ep_log_modal')) {
     const modalWrap = document.createElement('div');
     modalWrap.innerHTML = createLogModalHTML();
-    // Append all children (style + modal div)
     while (modalWrap.firstChild) document.body.appendChild(modalWrap.firstChild);
 
     _addUniversalTap(document.getElementById('ep_log_close'), () => closeLogModal());
-    // Backdrop tap to close
     const logModal = document.getElementById('ep_log_modal');
     if (logModal) {
       _addUniversalTap(logModal, (e) => { if (e.target === logModal) closeLogModal(); });
@@ -1966,9 +1986,8 @@ export function initEnaPlanner() {
     ensureSettings();
     loadPersistedLogsMaybe();
 
-    // Wait for DOM to be ready with the panel
     const tryInject = () => {
-        if (document.getElementById('ena_planner_panel')) {
+        if (document.querySelector('.settings-menu-vertical')) {
             injectUI();
             installSendInterceptors();
         } else {
