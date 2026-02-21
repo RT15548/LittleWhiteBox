@@ -671,8 +671,6 @@ class IframeManager {
     static writeContentToIframe(iframe, content) {
         try {
             const html = buildWrappedHtml(content);
-            const sbox = !!(extension_settings && extension_settings[EXT_ID] && extension_settings[EXT_ID].sandboxMode);
-            if (sbox) iframe.setAttribute('sandbox', 'allow-scripts allow-modals');
             iframe.srcdoc = html;
             const probe = () => {
                 const targetOrigin = getIframeTargetOrigin(iframe);

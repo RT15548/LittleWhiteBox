@@ -358,10 +358,6 @@ export function renderHtmlInIframe(htmlContent, container, preElement) {
         iframe.setAttribute('scrolling', 'no');
         iframe.loading = 'eager';
         
-        if (settings.sandboxMode) {
-            iframe.setAttribute('sandbox', 'allow-scripts');
-        }
-        
         const wrapper = getOrCreateWrapper(preElement);
         wrapper.querySelectorAll('.xiaobaix-iframe').forEach(old => {
             try { old.src = 'about:blank'; } catch (e) {}

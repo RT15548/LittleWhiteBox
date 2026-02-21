@@ -289,6 +289,33 @@
                     <!-- Trigger Settings -->
                     <div class="settings-section">
                         <div class="settings-section-title">总结设置</div>
+
+                        <!-- Filter Rules -->
+                        <div class="settings-collapse" id="filter-rules-collapse"
+                            style="margin-top:0; margin-bottom: 16px;">
+                            <div class="settings-collapse-header" id="filter-rules-toggle">
+                                <span>文本过滤规则 · <strong id="filter-rules-count">0</strong> 条</span>
+                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </div>
+                            <div class="settings-collapse-content hidden" id="filter-rules-content"
+                                style="border-left: 1px solid var(--bdr); border-right: 1px solid var(--bdr); border-bottom: 1px solid var(--bdr); border-radius: 0 0 6px 6px; margin-top: -2px;">
+                                <div class="filter-rules-header">
+                                    <p class="settings-hint" style="margin:0">过滤干扰内容（如思考标签）</p>
+                                    <button class="btn btn-sm btn-add" id="btn-add-filter-rule">
+                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                                        </svg> 添加
+                                    </button>
+                                </div>
+                                <div id="filter-rules-list" class="filter-rules-list"></div>
+                            </div>
+                        </div>
+
                         <div class="settings-row">
                             <div class="settings-field">
                                 <label>注入角色</label>
@@ -331,32 +358,6 @@
                                         </select>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-
-                        <!-- Filter Rules -->
-                        <div class="settings-collapse" id="filter-rules-collapse"
-                            style="margin-top:0; margin-bottom: 16px;">
-                            <div class="settings-collapse-header" id="filter-rules-toggle">
-                                <span>文本过滤规则 · <strong id="filter-rules-count">0</strong> 条</span>
-                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                    stroke-width="2">
-                                    <polyline points="6 9 12 15 18 9"></polyline>
-                                </svg>
-                            </div>
-                            <div class="settings-collapse-content hidden" id="filter-rules-content"
-                                style="border-left: 1px solid var(--bdr); border-right: 1px solid var(--bdr); border-bottom: 1px solid var(--bdr); border-radius: 0 0 6px 6px; margin-top: -2px;">
-                                <div class="filter-rules-header">
-                                    <p class="settings-hint" style="margin:0">过滤干扰内容（如思考标签）</p>
-                                    <button class="btn btn-sm btn-add" id="btn-add-filter-rule">
-                                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                                        </svg> 添加
-                                    </button>
-                                </div>
-                                <div id="filter-rules-list" class="filter-rules-list"></div>
                             </div>
                         </div>
 
