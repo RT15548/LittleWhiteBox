@@ -1873,7 +1873,7 @@ function injectUI() {
 
   const wrap = document.createElement('div');
   wrap.innerHTML = createSettingsHTML();
-  container.appendChild(wrap.firstElementChild);
+  while (wrap.firstChild) container.appendChild(wrap.firstChild);
 
   // Log modal
   if (!document.getElementById('ep_log_modal')) {
