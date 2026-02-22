@@ -1,7 +1,7 @@
 // @ts-nocheck
-import { event_types, user_avatar, getCurrentChatId } from "../../../../script.js";
-import { getContext } from "../../../st-context.js";
-import { power_user } from "../../../power-user.js";
+import { event_types, user_avatar, getCurrentChatId } from "../../../../../script.js";
+import { getContext } from "../../../../st-context.js";
+import { power_user } from "../../../../power-user.js";
 import { createModuleEvents } from "../core/event-manager.js";
 import { xbLog } from "../core/debug-core.js";
 
