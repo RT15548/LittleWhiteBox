@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { oai_settings, chat_completion_sources, getChatCompletionModel, promptManager } from "../../../../openai.js";
+import { oai_settings, chat_completion_sources, getChatCompletionModel, promptManager, openai_setting_names, openai_settings } from "../../../../openai.js";
 import { ChatCompletionService } from "../../../../custom-request.js";
 import { eventSource, event_types } from "../../../../../script.js";
 import { getContext } from "../../../../st-context.js";
@@ -384,6 +384,43 @@ class CallGenerateService {
         if (capturedData && typeof capturedData === 'object' && Array.isArray(capturedData.prompt)) return capturedData.prompt.slice();
         if (Array.isArray(capturedData)) return capturedData.slice();
         return [];
+    }
+
+    /**
+     * 临时切换到指定 preset 执行 fn，执行完毕后恢复 oai_settings。
+     * 模式与 _withPromptToggle 一致：snapshot → 覆写 → fn() → finally 恢复。
+     * @param {string} presetName - preset 名称
+     * @param {Function} fn - 要在 preset 上下文中执行的异步函数
+     */
+    async _withTemporaryPreset(presetName, fn) {
+        if (!presetName) return await fn();
+        const idx = openai_setting_names?.[presetName];
+        if (idx === undefined || idx === null) {
+            throw new Error(`Preset "${presetName}" not found`);
+        }
+        const preset = openai_settings?.[idx];
+        if (!preset || typeof preset !== 'object') {
+            throw new Error(`Preset "${presetName}" data is invalid`);
+        }
+        let snapshot;
+        try { snapshot = structuredClone(oai_settings); }
+        catch { snapshot = JSON.parse(JSON.stringify(oai_settings)); }
+        try {
+            let presetClone;
+            try { presetClone = structuredClone(preset); }
+            catch { presetClone = JSON.parse(JSON.stringify(preset)); }
+            for (const key of Object.keys(presetClone)) {
+                oai_settings[key] = presetClone[key];
+            }
+            return await fn();
+        } finally {
+            for (const key of Object.keys(oai_settings)) {
+                if (!Object.prototype.hasOwnProperty.call(snapshot, key)) {
+                    try { delete oai_settings[key]; } catch {}
+                }
+            }
+            Object.assign(oai_settings, snapshot);
+        }
     }
 
     // ===== 工具函数：组件与消息辅助 =====
@@ -1187,6 +1224,11 @@ class CallGenerateService {
         // 1) 校验
         this.validateOptions(options);
 
+        const presetName = options?.preset || null;
+
+        // 步骤 2~9 的核心逻辑，可能包裹在 _withTemporaryPreset 中执行
+        const executeCore = async () => {
+
         // 2) 解析组件列表与内联注入
         const list = Array.isArray(options?.components?.list) ? options.components.list.slice() : undefined;
         let baseStrategy = 'EMPTY'; // EMPTY | ALL | ALL_PREON | SUBSET
@@ -1313,6 +1355,13 @@ class CallGenerateService {
 
         // 9) 发送
         return await this._sendMessages(working, { ...options, debug: { ...(options?.debug || {}), _exported: true } }, requestId, sourceWindow, targetOrigin);
+
+        }; // end executeCore
+
+        if (presetName) {
+            return await this._withTemporaryPreset(presetName, executeCore);
+        }
+        return await executeCore();
     }
 
     _applyOrderingStrategy(messages, baseStrategy, orderedRefs, unorderedKeys) {
@@ -1447,6 +1496,19 @@ export function initCallGenerateHostBridge() {
                 const id = data.id;
                 const options = data.options || {};
                 await handleGenerateRequest(options, id, event.source || window, event.origin);
+                return;
+            }
+
+            if (data.type === 'listPresetsRequest') {
+                const id = data.id;
+                const names = Object.keys(openai_setting_names || {});
+                const selected = oai_settings?.preset_settings_openai || '';
+                callGenerateService.postToTarget(
+                    event.source || window,
+                    'listPresetsResult',
+                    { id, presets: names, selected },
+                    event.origin
+                );
                 return;
             }
 
@@ -1635,6 +1697,14 @@ if (typeof window !== 'undefined') {
         callGenerateService.cleanup();
     };
     
+    window.LittleWhiteBox.listChatCompletionPresets = function() {
+        return Object.keys(openai_setting_names || {});
+    };
+
+    window.LittleWhiteBox.getSelectedPresetName = function() {
+        return oai_settings?.preset_settings_openai || '';
+    };
+
     // 保持向后兼容：保留原有的内部接口
     window.LittleWhiteBox._internal = {
         service: callGenerateService,
