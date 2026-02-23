@@ -1183,7 +1183,7 @@ class CallGenerateService {
     }
 
     // ===== 主流程 =====
-    async handleRequestInternal(options, requestId, sourceWindow, targetOrigin = null) {
+    async handleRequestInternal(options, requestId, sourceWindow, targetOrigin = null, { assembleOnly = false } = {}) {
         // 1) 校验
         this.validateOptions(options);
 
@@ -1226,6 +1226,7 @@ class CallGenerateService {
 
         // 3) 干跑捕获（基座）
         let captured = [];
+        let enabledIds = []; // assembleOnly 时用于 identifier 标注
         if (baseStrategy === 'EMPTY') {
             captured = [];
         } else {
@@ -1242,6 +1243,7 @@ class CallGenerateService {
                         allow = new Set(order.map(e => e.identifier));
                     }
                 } catch {}
+                enabledIds = Array.from(allow);
                 const run = async () => await this._capturePromptMessages({ includeConfig: null, quietText: '', skipWIAN: false });
                 captured = await this._withPromptEnabledSet(allow, run);
             } else if (baseStrategy === 'ALL_PREON') {
@@ -1255,6 +1257,7 @@ class CallGenerateService {
                         allow = new Set(order.filter(e => !!e?.enabled).map(e => e.identifier));
                     }
                 } catch {}
+                enabledIds = Array.from(allow);
                 const run = async () => await this._capturePromptMessages({ includeConfig: null, quietText: '', skipWIAN: false });
                 captured = await this._withPromptEnabledSet(allow, run);
             } else {
@@ -1263,7 +1266,11 @@ class CallGenerateService {
         }
 
         // 4) 依据策略计算启用集合与顺序
-        const annotateKeys = baseStrategy === 'SUBSET' ? orderedRefs : ((baseStrategy === 'ALL' || baseStrategy === 'ALL_PREON') ? orderedRefs : []);
+        let annotateKeys = baseStrategy === 'SUBSET' ? orderedRefs : ((baseStrategy === 'ALL' || baseStrategy === 'ALL_PREON') ? orderedRefs : []);
+        // assembleOnly 模式下，若无显式排序引用，则用全部启用组件做 identifier 标注
+        if (assembleOnly && annotateKeys.length === 0 && enabledIds.length > 0) {
+            annotateKeys = enabledIds;
+        }
         let working = await this._annotateIdentifiersIfMissing(captured.slice(), annotateKeys);
         working = this._applyOrderingStrategy(working, baseStrategy, orderedRefs, unorderedKeys);
 
@@ -1278,6 +1285,31 @@ class CallGenerateService {
 
         // 8) 调试导出
         this._exportDebugData({ sourceWindow, requestId, working, baseStrategy, orderedRefs, inlineMapped, listLevelOverrides, debug: options?.debug, targetOrigin });
+
+        // assembleOnly 模式：只返回组装好的 messages，不调 LLM
+        if (assembleOnly) {
+            // 构建 identifier → name 映射（从 promptCollection 取，order 里没有 name）
+            const idToName = new Map();
+            try {
+                if (promptManager && typeof promptManager.getPromptCollection === 'function') {
+                    const pc = promptManager.getPromptCollection();
+                    const coll = pc?.collection || [];
+                    for (const p of coll) {
+                        if (p?.identifier) idToName.set(p.identifier, p.name || p.label || p.title || '');
+                    }
+                }
+            } catch {}
+            const messages = working.map(m => {
+                const id = m.identifier || undefined;
+                const componentName = id ? (idToName.get(id) || undefined) : undefined;
+                return { role: m.role, content: m.content, identifier: id, name: componentName };
+            });
+            this.postToTarget(sourceWindow, 'assemblePromptResult', {
+                id: requestId,
+                messages: messages
+            }, targetOrigin);
+            return { messages };
+        }
 
         // 9) 发送
         return await this._sendMessages(working, { ...options, debug: { ...(options?.debug || {}), _exported: true } }, requestId, sourceWindow, targetOrigin);
@@ -1409,12 +1441,32 @@ export function initCallGenerateHostBridge() {
     __xb_generate_listener = async function (event) {
         try {
             const data = event && event.data || {};
-            if (!data || data.type !== 'generateRequest') return;
-            const id = data.id;
-            const options = data.options || {};
-            await handleGenerateRequest(options, id, event.source || window, event.origin);
+            if (!data) return;
+
+            if (data.type === 'generateRequest') {
+                const id = data.id;
+                const options = data.options || {};
+                await handleGenerateRequest(options, id, event.source || window, event.origin);
+                return;
+            }
+
+            if (data.type === 'assemblePromptRequest') {
+                const id = data.id;
+                const options = data.options || {};
+                try {
+                    await callGenerateService.handleRequestInternal(
+                        options, id, event.source || window, event.origin,
+                        { assembleOnly: true }
+                    );
+                } catch (err) {
+                    callGenerateService.sendError(
+                        event.source || window, id, false, err, 'ASSEMBLE_ERROR', null, event.origin
+                    );
+                }
+                return;
+            }
         } catch (e) {
-            try { xbLog.error('callGenerateBridge', 'generateRequest listener error', e); } catch {}
+            try { xbLog.error('callGenerateBridge', 'listener error', e); } catch {}
         }
     };
     // eslint-disable-next-line no-restricted-syntax -- bridge listener; origin can be null for sandboxed iframes.
@@ -1525,6 +1577,49 @@ if (typeof window !== 'undefined') {
         });
     };
     
+    /**
+     * 全局 assemblePrompt 函数
+     * 只组装提示词，不调用 LLM，返回组装好的 messages 数组
+     *
+     * @param {Object} options - 与 callGenerate 相同的选项格式（api/streaming 字段会被忽略）
+     * @returns {Promise<Array<{role: string, content: string}>>} 组装后的 messages 数组
+     *
+     * @example
+     * const messages = await window.LittleWhiteBox.assemblePrompt({
+     *     components: { list: ['ALL_PREON'] },
+     *     userInput: '可选的用户输入'
+     * });
+     * // messages = [{ role: 'system', content: '...' }, ...]
+     */
+    window.LittleWhiteBox.assemblePrompt = async function(options) {
+        return new Promise((resolve, reject) => {
+            const requestId = `assemble-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+            const listener = (event) => {
+                const data = event.data;
+                if (!data || data.source !== SOURCE_TAG || data.id !== requestId) return;
+
+                if (data.type === 'assemblePromptResult') {
+                    window.removeEventListener('message', listener);
+                    resolve(data.messages);
+                } else if (data.type === 'generateError' || data.type === 'generateStreamError') {
+                    window.removeEventListener('message', listener);
+                    reject(data.error);
+                }
+            };
+
+            // eslint-disable-next-line no-restricted-syntax -- local listener for internal request flow.
+            window.addEventListener('message', listener);
+
+            callGenerateService.handleRequestInternal(
+                options, requestId, window, null, { assembleOnly: true }
+            ).catch(err => {
+                window.removeEventListener('message', listener);
+                reject(err);
+            });
+        });
+    };
+
     /**
      * 取消指定会话
      * @param {string} sessionId - 会话 ID（如 'xb1', 'xb2' 等）
