@@ -48,13 +48,15 @@ export function saveSummaryStore() {
 
 export function getKeepVisibleCount() {
     const store = getSummaryStore();
-    return store?.keepVisibleCount ?? 3;
+    return store?.keepVisibleCount ?? 6;
 }
 
-export function calcHideRange(boundary) {
+export function calcHideRange(boundary, keepCountOverride = null) {
     if (boundary == null || boundary < 0) return null;
 
-    const keepCount = getKeepVisibleCount();
+    const keepCount = Number.isFinite(keepCountOverride)
+        ? Math.max(0, Math.min(50, Number(keepCountOverride)))
+        : getKeepVisibleCount();
     const hideEnd = boundary - keepCount;
     if (hideEnd < 0) return null;
     return { start: 0, end: hideEnd };

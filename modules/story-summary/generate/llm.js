@@ -210,11 +210,13 @@ Before generating, observe the USER and analyze carefully:
 ## CRITICAL NOTES
 - events.id 从 evt-{nextEventId} 开始编号
 - 仅输出【增量】内容，已有事件绝不重复
+- /地点、通过什么方式、对谁、做了什么事、结果如何。如果原文有具体道具（如一把枪、一封信），必须在总结中提及。
 - keywords 是全局关键词，综合已有+新增
 - causedBy 仅在因果明确时填写，允许为[]，0-2个
 - factUpdates 可为空数组
 - 合法JSON，字符串值内部避免英文双引号
-- 用朴实、白描、有烟火气的笔触记录，避免比喻和意象
+- 用朴实、白描、有烟火气的笔触记录事实，避免比喻和意象
+- 严谨、注重细节，避免使用模糊的概括性语言，应用具体的动词描述动作，例:谁,在什么时间/地点,通过什么方式,对谁,做了什么事,出现了什么道具,结果如何。
 </meta_protocol>`,
 
     assistantCheck: `Content review initiated...

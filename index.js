@@ -625,6 +625,11 @@ jQuery(async () => {
                 document.head.appendChild(Object.assign(document.createElement('script'), { id: 'xb-worldbook', type: 'module', src: `${extensionFolderPath}/bridges/worldbook-bridge.js` }));
         } catch (e) {}
 
+        try {
+            if (isXiaobaixEnabled && !document.getElementById('xb-contextbridge'))
+                document.head.appendChild(Object.assign(document.createElement('script'), { id: 'xb-contextbridge', type: 'module', src: `${extensionFolderPath}/bridges/context-bridge.js` }));
+        } catch (e) {}
+
         eventSource.on(event_types.APP_READY, () => {
             setTimeout(performExtensionUpdateCheck, 2000);
         });

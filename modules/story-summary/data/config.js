@@ -19,6 +19,12 @@ export function getSettings() {
 }
 
 export function getSummaryPanelConfig() {
+    const clampKeepVisibleCount = (value) => {
+        const n = Number.parseInt(value, 10);
+        if (!Number.isFinite(n)) return 6;
+        return Math.max(0, Math.min(50, n));
+    };
+
     const defaults = {
         api: { provider: "st", url: "", key: "", model: "", modelCache: [] },
         gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
@@ -32,6 +38,10 @@ export function getSummaryPanelConfig() {
             wrapperHead: "",
             wrapperTail: "",
             forceInsertAtEnd: false,
+        },
+        ui: {
+            hideSummarized: true,
+            keepVisibleCount: 6,
         },
         textFilterRules: [...DEFAULT_FILTER_RULES],
         vector: null,
@@ -52,12 +62,15 @@ export function getSummaryPanelConfig() {
             api: { ...defaults.api, ...(parsed.api || {}) },
             gen: { ...defaults.gen, ...(parsed.gen || {}) },
             trigger: { ...defaults.trigger, ...(parsed.trigger || {}) },
+            ui: { ...defaults.ui, ...(parsed.ui || {}) },
             textFilterRules,
             vector: parsed.vector || null,
         };
 
         if (result.trigger.timing === "manual") result.trigger.enabled = false;
         if (result.trigger.useStream === undefined) result.trigger.useStream = true;
+        result.ui.hideSummarized = !!result.ui.hideSummarized;
+        result.ui.keepVisibleCount = clampKeepVisibleCount(result.ui.keepVisibleCount);
 
         return result;
     } catch {
