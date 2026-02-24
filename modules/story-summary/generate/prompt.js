@@ -18,6 +18,7 @@ import { getSummaryStore, getFacts, isRelationFact } from "../data/store.js";
 import { getVectorConfig, getSummaryPanelConfig, getSettings } from "../data/config.js";
 import { recallMemory } from "../vector/retrieval/recall.js";
 import { getMeta } from "../vector/storage/chunk-store.js";
+import { getStateAtoms } from "../vector/storage/state-store.js";
 import { getEngineFingerprint } from "../vector/utils/embedder.js";
 import { buildTrustedCharacters } from "../vector/retrieval/entity-lexicon.js";
 
@@ -540,6 +541,34 @@ function groupL0ByFloor(l0List) {
     return map;
 }
 
+/**
+ * Get all available L0 atoms in recent window and normalize to evidence shape.
+ * @param {number} recentStart
+ * @param {number} recentEnd
+ * @returns {object[]}
+ */
+function getRecentWindowL0Atoms(recentStart, recentEnd) {
+    if (!Number.isFinite(recentStart) || !Number.isFinite(recentEnd) || recentEnd < recentStart) return [];
+    const atoms = getStateAtoms() || [];
+    const out = [];
+    for (const atom of atoms) {
+        const floor = atom?.floor;
+        const atomId = atom?.atomId;
+        const semantic = String(atom?.semantic || '').trim();
+        if (!Number.isFinite(floor)) continue;
+        if (floor < recentStart || floor > recentEnd) continue;
+        if (!atomId || !semantic) continue;
+        out.push({
+            id: atomId,
+            floor,
+            atom,
+            similarity: 0,
+            rerankScore: 0,
+        });
+    }
+    return out;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // EvidenceGroup（per-floor：N个L0 + 共享一对L1）
 // ─────────────────────────────────────────────────────────────────────────────
@@ -583,6 +612,21 @@ function buildEvidenceGroup(floor, l0AtomsForFloor, l1ByFloor) {
     if (aiL1) totalTokens += estimateTokens(formatL1Line(aiL1, false));
 
     return { floor, l0Atoms: l0AtomsForFloor, userL1, aiL1, totalTokens };
+}
+
+/**
+ * Build recent-evidence group (L0 only, no L1 attachment).
+ * @param {number} floor
+ * @param {object[]} l0AtomsForFloor
+ * @returns {object}
+ */
+function buildRecentEvidenceGroup(floor, l0AtomsForFloor) {
+    let totalTokens = 0;
+    for (const l0 of l0AtomsForFloor) {
+        totalTokens += estimateTokens(buildL0DisplayText(l0));
+    }
+    totalTokens += 10;
+    return { floor, l0Atoms: l0AtomsForFloor, userL1: null, aiL1: null, totalTokens };
 }
 
 /**
@@ -1114,7 +1158,11 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
 
     const lastSummarized = store.lastSummarizedMesId ?? -1;
     const lastChunkFloor = meta?.lastChunkFloor ?? -1;
-    const keepVisible = store.keepVisibleCount ?? 3;
+    const uiCfg = getSummaryPanelConfig()?.ui || {};
+    const parsedKeepVisible = Number.parseInt(uiCfg.keepVisibleCount, 10);
+    const keepVisible = Number.isFinite(parsedKeepVisible)
+        ? Math.max(0, Math.min(50, parsedKeepVisible))
+        : 6;
 
     // 收集未被事件消费的 L0，按 rerankScore 降序
     const focusSetForEvidence = new Set((focusCharacters || []).map(normalize).filter(Boolean));
@@ -1171,22 +1219,22 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     const recentEnd = lastChunkFloor - keepVisible;
 
     if (recentEnd >= recentStart) {
-        const recentL0 = remainingL0
+        const recentAllL0 = getRecentWindowL0Atoms(recentStart, recentEnd);
+        const recentL0 = recentAllL0
             .filter(l0 => !usedL0Ids.has(l0.id))
             .filter(l0 => l0.floor >= recentStart && l0.floor <= recentEnd);
 
         if (recentL0.length) {
             const recentBudget = { used: 0, max: UNSUMMARIZED_EVIDENCE_MAX };
 
-            // 先按分数挑组（高分优先），再按时间输出（楼层升序）
+            // Pick newest floors first, then output in chronological order.
             const recentFloorMap = groupL0ByFloor(recentL0);
             const recentRanked = [];
             for (const [floor, l0s] of recentFloorMap) {
-                const group = buildEvidenceGroup(floor, l0s, l1ByFloor);
-                const bestScore = Math.max(...l0s.map(l0 => (l0.rerankScore ?? l0.similarity ?? 0)));
-                recentRanked.push({ group, bestScore });
+                const group = buildRecentEvidenceGroup(floor, l0s);
+                recentRanked.push({ group });
             }
-            recentRanked.sort((a, b) => (b.bestScore - a.bestScore) || (a.group.floor - b.group.floor));
+            recentRanked.sort((a, b) => b.group.floor - a.group.floor);
 
             const acceptedRecentGroups = [];
             for (const item of recentRanked) {
@@ -1277,6 +1325,8 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         };
 
         metrics.evidence.tokens = injectionStats.distantEvidence.tokens + injectionStats.recentEvidence.tokens;
+        metrics.evidence.recentSource = 'all_l0_window';
+        metrics.evidence.recentL1Attached = 0;
         metrics.evidence.assemblyTime = Math.round(
             performance.now() - T_Start - (metrics.timing.constraintFilter || 0) - metrics.formatting.time
         );

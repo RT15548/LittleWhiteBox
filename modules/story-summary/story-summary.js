@@ -22,7 +22,7 @@ import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
 import { CommonSettingStorage } from "../../core/server-storage.js";
 
 // config/store
-import { getSettings, getSummaryPanelConfig, getVectorConfig, saveVectorConfig } from "./data/config.js";
+import { getSettings, getSummaryPanelConfig, getVectorConfig, saveVectorConfig, saveSummaryPanelConfig } from "./data/config.js";
 import {
     getSummaryStore,
     saveSummaryStore,
@@ -950,10 +950,41 @@ async function sendSavedConfigToFrame() {
     }
 }
 
+function getHideUiSettings() {
+    const cfg = getSummaryPanelConfig() || {};
+    const ui = cfg.ui || {};
+    const parsedKeep = Number.parseInt(ui.keepVisibleCount, 10);
+    const keepVisibleCount = Number.isFinite(parsedKeep) ? Math.max(0, Math.min(50, parsedKeep)) : 6;
+    return {
+        hideSummarized: !!ui.hideSummarized,
+        keepVisibleCount,
+    };
+}
+
+function setHideUiSettings(patch = {}) {
+    const cfg = getSummaryPanelConfig() || {};
+    const current = getHideUiSettings();
+    const next = {
+        ...cfg,
+        ui: {
+            hideSummarized: patch.hideSummarized !== undefined ? !!patch.hideSummarized : current.hideSummarized,
+            keepVisibleCount: patch.keepVisibleCount !== undefined
+                ? (() => {
+                    const parsedKeep = Number.parseInt(patch.keepVisibleCount, 10);
+                    return Number.isFinite(parsedKeep) ? Math.max(0, Math.min(50, parsedKeep)) : 6;
+                })()
+                : current.keepVisibleCount,
+        },
+    };
+    saveSummaryPanelConfig(next);
+    return next.ui;
+}
+
 async function sendFrameBaseData(store, totalFloors) {
+    const ui = getHideUiSettings();
     const boundary = await getHideBoundaryFloor(store);
-    const range = calcHideRange(boundary);
-    const hiddenCount = (store?.hideSummarizedHistory && range) ? (range.end + 1) : 0;
+    const range = calcHideRange(boundary, ui.keepVisibleCount);
+    const hiddenCount = (ui.hideSummarized && range) ? (range.end + 1) : 0;
 
     const lastSummarized = store?.lastSummarizedMesId ?? -1;
     postToFrame({
@@ -965,8 +996,8 @@ async function sendFrameBaseData(store, totalFloors) {
             pendingFloors: totalFloors - lastSummarized - 1,
             hiddenCount,
         },
-        hideSummarized: store?.hideSummarizedHistory || false,
-        keepVisibleCount: store?.keepVisibleCount ?? 3,
+        hideSummarized: ui.hideSummarized,
+        keepVisibleCount: ui.keepVisibleCount,
     });
 }
 
@@ -1041,7 +1072,8 @@ async function getHideBoundaryFloor(store) {
 
 async function applyHideState() {
     const store = getSummaryStore();
-    if (!store?.hideSummarizedHistory) return;
+    const ui = getHideUiSettings();
+    if (!ui.hideSummarized) return;
 
     // 先全量 unhide，杜绝历史残留
     await unhideAllMessages();
@@ -1049,7 +1081,7 @@ async function applyHideState() {
     const boundary = await getHideBoundaryFloor(store);
     if (boundary < 0) return;
 
-    const range = calcHideRange(boundary);
+    const range = calcHideRange(boundary, ui.keepVisibleCount);
     if (!range) return;
 
     await executeSlashCommand(`/hide ${range.start}-${range.end}`);
@@ -1149,9 +1181,9 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
 function updateFrameStatsAfterSummary(endMesId, merged) {
     const { chat } = getContext();
     const totalFloors = Array.isArray(chat) ? chat.length : 0;
-    const store = getSummaryStore();
-    const range = calcHideRange(endMesId);
-    const hiddenCount = store?.hideSummarizedHistory && range ? range.end + 1 : 0;
+    const ui = getHideUiSettings();
+    const range = calcHideRange(endMesId, ui.keepVisibleCount);
+    const hiddenCount = ui.hideSummarized && range ? range.end + 1 : 0;
 
     postToFrame({
         type: "SUMMARY_BASE_DATA",
@@ -1347,11 +1379,7 @@ async function handleFrameMessage(event) {
         }
 
         case "TOGGLE_HIDE_SUMMARIZED": {
-            const store = getSummaryStore();
-            if (!store) break;
-
-            store.hideSummarizedHistory = !!data.enabled;
-            saveSummaryStore();
+            setHideUiSettings({ hideSummarized: !!data.enabled });
 
             (async () => {
                 if (data.enabled) {
@@ -1364,21 +1392,19 @@ async function handleFrameMessage(event) {
         }
 
         case "UPDATE_KEEP_VISIBLE": {
-            const store = getSummaryStore();
-            if (!store) break;
-
-            const oldCount = store.keepVisibleCount ?? 3;
-            const newCount = Math.max(0, Math.min(50, parseInt(data.count) || 3));
+            const oldCount = getHideUiSettings().keepVisibleCount;
+            const parsedCount = Number.parseInt(data.count, 10);
+            const newCount = Number.isFinite(parsedCount) ? Math.max(0, Math.min(50, parsedCount)) : 6;
             if (newCount === oldCount) break;
 
-            store.keepVisibleCount = newCount;
-            saveSummaryStore();
+            setHideUiSettings({ keepVisibleCount: newCount });
 
             (async () => {
-                if (store.hideSummarizedHistory) {
+                if (getHideUiSettings().hideSummarized) {
                     await applyHideState();
                 }
                 const { chat } = getContext();
+                const store = getSummaryStore();
                 await sendFrameBaseData(store, Array.isArray(chat) ? chat.length : 0);
             })();
             break;
@@ -1452,7 +1478,7 @@ async function handleChatChanged() {
 
     const store = getSummaryStore();
 
-    if (store?.hideSummarizedHistory) {
+    if (getHideUiSettings().hideSummarized) {
         await applyHideState();
     }
 

@@ -87,6 +87,7 @@
         api: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
         gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
         trigger: { enabled: false, interval: 20, timing: 'before_user', role: 'system', useStream: true, maxPerRun: 100, wrapperHead: '', wrapperTail: '', forceInsertAtEnd: false },
+        ui: { hideSummarized: true, keepVisibleCount: 6 },
         textFilterRules: [...DEFAULT_FILTER_RULES],
         vector: { enabled: false, engine: 'online', local: { modelId: 'bge-small-zh' }, online: { provider: 'siliconflow', url: '', key: '', model: '' } }
     };
@@ -124,6 +125,7 @@
                 Object.assign(config.api, p.api || {});
                 Object.assign(config.gen, p.gen || {});
                 Object.assign(config.trigger, p.trigger || {});
+                Object.assign(config.ui, p.ui || {});
                 config.textFilterRules = Array.isArray(p.textFilterRules)
                     ? p.textFilterRules
                     : (Array.isArray(p.vector?.textFilterRules) ? p.vector.textFilterRules : [...DEFAULT_FILTER_RULES]);
@@ -141,6 +143,7 @@
         Object.assign(config.api, cfg.api || {});
         Object.assign(config.gen, cfg.gen || {});
         Object.assign(config.trigger, cfg.trigger || {});
+        Object.assign(config.ui, cfg.ui || {});
         config.textFilterRules = Array.isArray(cfg.textFilterRules)
             ? cfg.textFilterRules
             : (Array.isArray(cfg.vector?.textFilterRules)
@@ -1599,7 +1602,8 @@
         // Hide summarized
         $('hide-summarized').onchange = e => postMsg('TOGGLE_HIDE_SUMMARIZED', { enabled: e.target.checked });
         $('keep-visible-count').onchange = e => {
-            const c = Math.max(0, Math.min(50, parseInt(e.target.value) || 3));
+            const parsedCount = Number.parseInt(e.target.value, 10);
+            const c = Number.isFinite(parsedCount) ? Math.max(0, Math.min(50, parsedCount)) : 6;
             e.target.value = c;
             postMsg('UPDATE_KEEP_VISIBLE', { count: c });
         };
