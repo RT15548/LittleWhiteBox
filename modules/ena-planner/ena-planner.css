@@ -1,0 +1,233 @@
+/* Ena Planner v0.5 — collapsible, clean */
+
+/* ===== Settings panel inside inline-drawer ===== */
+#ena_planner_panel {
+  padding: 8px 0;
+}
+
+#ena_planner_panel .ep-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+#ena_planner_panel label {
+  font-size: 12px;
+  opacity: .9;
+  display: block;
+  margin-bottom: 4px;
+}
+
+#ena_planner_panel input[type="text"],
+#ena_planner_panel input[type="password"],
+#ena_planner_panel input[type="number"],
+#ena_planner_panel select,
+#ena_planner_panel textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#ena_planner_panel .ep-col {
+  flex: 1 1 220px;
+  min-width: 220px;
+}
+
+#ena_planner_panel .ep-col.wide {
+  flex: 1 1 100%;
+  min-width: 260px;
+}
+
+/* Tabs */
+#ena_planner_panel .ep-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+#ena_planner_panel .ep-tab {
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid var(--SmartThemeBorderColor, #333);
+  opacity: .85;
+  user-select: none;
+  font-size: 13px;
+}
+
+#ena_planner_panel .ep-tab.active {
+  opacity: 1;
+  background: rgba(255,255,255,.06);
+}
+
+#ena_planner_panel .ep-panel {
+  display: none;
+}
+
+#ena_planner_panel .ep-panel.active {
+  display: block;
+}
+
+#ena_planner_panel .ep-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+#ena_planner_panel .ep-hint {
+  font-size: 11px;
+  opacity: .7;
+  margin-top: 4px;
+}
+
+#ena_planner_panel .ep-hint-box {
+  font-size: 12px;
+  opacity: .85;
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  line-height: 1.6;
+}
+
+#ena_planner_panel .ep-divider {
+  margin: 10px 0;
+  border-top: 1px dashed rgba(255,255,255,.15);
+}
+
+/* Inline badge (in drawer header) */
+.ep-badge-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  opacity: .9;
+  margin-left: 8px;
+}
+
+.ep-badge-inline .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #888;
+  display: inline-block;
+}
+
+.ep-badge-inline.ok .dot { background: #2ecc71; }
+.ep-badge-inline.warn .dot { background: #f39c12; }
+
+/* Prompt block */
+.ep-prompt-block {
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px;
+  padding: 10px;
+  margin: 10px 0;
+}
+
+.ep-prompt-head {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+/* ===== Log modal ===== */
+.ep-log-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.65);
+  z-index: 99999;
+  display: none;
+}
+
+.ep-log-modal.open { display: block; }
+
+.ep-log-modal .ep-log-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%,-50%);
+  width: min(980px, 96vw);
+  height: min(82vh, 900px);
+  background: rgba(20,20,20,.95);
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.ep-log-modal .ep-log-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ep-log-modal .ep-log-head .title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.ep-log-modal .ep-log-body {
+  overflow: auto;
+  flex: 1 1 auto;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.ep-log-item {
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  padding: 12px 0;
+}
+
+.ep-log-item:last-child { border-bottom: none; }
+
+.ep-log-item .meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  opacity: .85;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.ep-log-item .ep-log-error {
+  color: #ffb3b3;
+  font-size: 12px;
+  white-space: pre-wrap;
+  margin-bottom: 6px;
+}
+
+.ep-log-item details {
+  margin: 6px 0;
+}
+
+.ep-log-item details summary {
+  cursor: pointer;
+  font-size: 12px;
+  opacity: .85;
+  padding: 4px 0;
+}
+
+/* Issue #3: proper log formatting with line breaks */
+.ep-log-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.06);
+  max-height: 400px;
+  overflow: auto;
+}

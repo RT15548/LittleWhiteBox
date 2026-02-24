@@ -116,6 +116,7 @@ let events = null;
 let activeChatId = null;
 let vectorCancelled = false;
 let vectorAbortController = null;
+let _lastBuiltPromptText = "";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TaskGuard — 互斥任务管理（summary / vector / anchor）
@@ -1762,7 +1763,7 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     const cfg = getSummaryPanelConfig();
     const roleKey = cfg.trigger?.role || 'system';
     const role = ROLE_MAP[roleKey] || extension_prompt_roles.SYSTEM;
-
+    _lastBuiltPromptText = text;
     // 写入 extension_prompts
     extension_prompts[EXT_PROMPT_KEY] = {
         value: text,
@@ -1876,3 +1877,6 @@ jQuery(() => {
 
     maybePreloadTokenizer();
 });
+export function getStorySummaryForEna() {
+    return _lastBuiltPromptText;
+}
