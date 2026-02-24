@@ -1029,6 +1029,70 @@ function buildFramePayload(store) {
     };
 }
 
+function parseRelationTargetFromPredicate(predicate) {
+    const text = String(predicate || "").trim();
+    if (!text.startsWith("对")) return null;
+    const idx = text.indexOf("的", 1);
+    if (idx <= 1) return null;
+    return text.slice(1, idx).trim() || null;
+}
+
+function isRelationFactLike(fact) {
+    if (!fact || fact.retracted) return false;
+    return !!parseRelationTargetFromPredicate(fact.p);
+}
+
+function getNextFactIdValue(facts) {
+    let max = 0;
+    for (const fact of facts || []) {
+        const match = String(fact?.id || "").match(/^f-(\d+)$/);
+        if (match) max = Math.max(max, Number.parseInt(match[1], 10) || 0);
+    }
+    return max + 1;
+}
+
+function mergeCharacterRelationshipsIntoFacts(existingFacts, relationships, floorHint = 0) {
+    const safeFacts = Array.isArray(existingFacts) ? existingFacts : [];
+    const safeRels = Array.isArray(relationships) ? relationships : [];
+
+    const nonRelationFacts = safeFacts.filter((f) => !isRelationFactLike(f));
+    const oldRelationByKey = new Map();
+
+    for (const fact of safeFacts) {
+        const to = parseRelationTargetFromPredicate(fact?.p);
+        const from = String(fact?.s || "").trim();
+        if (!from || !to) continue;
+        oldRelationByKey.set(`${from}->${to}`, fact);
+    }
+
+    let nextFactId = getNextFactIdValue(safeFacts);
+    const newRelationFacts = [];
+
+    for (const rel of safeRels) {
+        const from = String(rel?.from || "").trim();
+        const to = String(rel?.to || "").trim();
+        if (!from || !to) continue;
+
+        const key = `${from}->${to}`;
+        const oldFact = oldRelationByKey.get(key);
+        const label = String(rel?.label || "").trim() || "未知";
+        const trend = String(rel?.trend || "").trim() || "陌生";
+        const id = oldFact?.id || `f-${nextFactId++}`;
+
+        newRelationFacts.push({
+            id,
+            s: from,
+            p: oldFact?.p || `对${to}的关系`,
+            o: label,
+            trend,
+            since: oldFact?.since ?? floorHint,
+            _addedAt: oldFact?._addedAt ?? floorHint,
+        });
+    }
+
+    return [...nonRelationFacts, ...newRelationFacts];
+}
+
 function openPanelForMessage(mesId) {
     createOverlay();
     showOverlay();
@@ -1368,6 +1432,11 @@ async function handleFrameMessage(event) {
 
             if (VALID_SECTIONS.includes(data.section)) {
                 store.json[data.section] = data.data;
+            }
+            if (data.section === "characters") {
+                const rels = data?.data?.relationships || [];
+                const floorHint = Math.max(0, Number(store.lastSummarizedMesId) || 0);
+                store.json.facts = mergeCharacterRelationshipsIntoFacts(store.json.facts, rels, floorHint);
             }
             store.updatedAt = Date.now();
             saveSummaryStore();
