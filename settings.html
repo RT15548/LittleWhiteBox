@@ -206,6 +206,14 @@
             <input type="checkbox" id="xiaobaix_story_outline_enabled" />
             <label for="xiaobaix_story_outline_enabled" class="has-tooltip" data-tooltip="在X按钮区域添加地图图标，点击可打开可视化剧情地图编辑器">小白板</label>
           </div>
+          <div class="flex-container">
+            <input type="checkbox" id="xiaobaix_ena_planner_enabled" />
+            <label for="xiaobaix_ena_planner_enabled" class="has-tooltip" data-tooltip="发送前剧情规划，自动注入 plot/note">剧情规划</label>
+            <button id="xiaobaix_ena_planner_open_settings" class="menu_button menu_button_icon" type="button" style="margin-left:auto;" title="打开剧情规划设置">
+              <i class="fa-solid fa-compass-drafting"></i>
+              <small>规划设置</small>
+            </button>
+          </div>
           <br>
           <div class="section-divider">变量控制</div>
           <hr class="sysHR" />
@@ -519,14 +527,15 @@
 	      audio: 'xiaobaix_audio_enabled',
 	      storySummary: 'xiaobaix_story_summary_enabled',
 	      tts: 'xiaobaix_tts_enabled',
+      enaPlanner: 'xiaobaix_ena_planner_enabled',
       storyOutline: 'xiaobaix_story_outline_enabled',
       useBlob: 'xiaobaix_use_blob',
 	      wrapperIframe: 'Wrapperiframe',
 	      renderEnabled: 'xiaobaix_render_enabled',
 	    };
 	    const DEFAULTS_ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary', 'recorded'];
-	    const DEFAULTS_OFF = ['preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw', 'tts'];
-	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'audio', 'storySummary', 'storyOutline', 'novelDraw', 'tts'];
+	    const DEFAULTS_OFF = ['preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw', 'tts', 'enaPlanner'];
+	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'audio', 'storySummary', 'storyOutline', 'novelDraw', 'tts', 'enaPlanner'];
 	    function setModuleEnabled(key, enabled) {
 	      try {
 	        if (!extension_settings[EXT_ID][key]) extension_settings[EXT_ID][key] = {};

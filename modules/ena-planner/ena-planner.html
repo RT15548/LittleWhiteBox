@@ -1,0 +1,948 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Ena Planner</title>
+  <link rel="stylesheet" href="./ena-planner.css">
+</head>
+
+<body>
+  <div class="container">
+
+    <header>
+      <div class="header-left">
+        <h1>Ena<span>Planner</span></h1>
+        <div class="subtitle">Story Planning · LLM Integration</div>
+      </div>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-val" id="ep_badge"><span class="hl">未启用</span></div>
+          <div class="stat-lbl">状态</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val" id="ep_save_status">就绪</div>
+          <div class="stat-lbl">保存</div>
+        </div>
+        <button class="modal-close" id="ep_close" title="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Desktop tabs -->
+    <div class="nav-tabs">
+      <div class="nav-item active" data-view="quickstart">快速开始</div>
+      <div class="nav-item" data-view="api">API 配置</div>
+      <div class="nav-item" data-view="prompt">提示词</div>
+      <div class="nav-item" data-view="context">上下文</div>
+      <div class="nav-item" data-view="debug">调试</div>
+    </div>
+
+    <main class="app-main">
+
+      <!-- ── 快速开始 ── -->
+      <div id="view-quickstart" class="view active">
+        <div class="tip-box">
+          <div class="tip-icon">ℹ</div>
+          <div class="tip-text">
+            <strong>工作流程：</strong>点击发送 → 拦截 → 收集上下文（角色卡、世界书、摘要、历史 plot、最近 AI 回复）→ 发给规划 LLM → 提取 &lt;plot&gt; 和
+            &lt;note&gt; → 追加到你的输入 → 放行发送
+          </div>
+        </div>
+
+        <section class="card">
+          <div class="card-title">基本设置</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">启用规划器</label>
+              <select id="ep_enabled" class="input">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">跳过已有规划的输入</label>
+              <select id="ep_skip_plot" class="input">
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </div>
+          </div>
+          <p class="form-hint">输入中已有 &lt;plot&gt; 标签时跳过自动规划。</p>
+        </section>
+
+        <section class="card">
+          <div class="card-title">快速测试</div>
+          <div class="form-group">
+            <label class="form-label">测试输入（留空使用默认）</label>
+            <textarea id="ep_test_input" class="input" rows="3" placeholder="输入一段剧情描述，测试规划器输出..."></textarea>
+          </div>
+          <div class="btn-group">
+            <button id="ep_run_test" class="btn btn-p">运行规划测试</button>
+          </div>
+          <div id="ep_test_status" class="status-text"></div>
+        </section>
+      </div>
+
+      <!-- ── API 配置 ── -->
+      <div id="view-api" class="view">
+        <section class="card">
+          <div class="card-title">连接设置</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">渠道类型</label>
+              <select id="ep_api_channel" class="input">
+                <option value="openai">OpenAI 兼容</option>
+                <option value="gemini">Gemini 兼容</option>
+                <option value="claude">Claude 兼容</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">路径前缀</label>
+              <select id="ep_prefix_mode" class="input">
+                <option value="auto">自动 (如 /v1)</option>
+                <option value="custom">自定义</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">API 地址</label>
+            <input id="ep_api_base" type="text" class="input" placeholder="https://api.openai.com">
+          </div>
+          <div class="form-group hidden" id="ep_custom_prefix_group">
+            <label class="form-label">自定义前缀</label>
+            <input id="ep_prefix_custom" type="text" class="input" placeholder="/v1">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">API Key</label>
+              <div class="input-row">
+                <input id="ep_api_key" type="password" class="input" placeholder="sk-...">
+                <button id="ep_toggle_key" class="btn">显示</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">模型</label>
+              <input id="ep_model" type="text" class="input" placeholder="gpt-4o, claude-3-5-sonnet...">
+            </div>
+          </div>
+          <div id="ep_model_selector" class="hidden" style="margin-top:12px;">
+            <label class="form-label">选择模型</label>
+            <select id="ep_model_select" class="input">
+              <option value="">-- 从列表选择 --</option>
+            </select>
+          </div>
+          <div class="btn-group" style="margin-top:16px;">
+            <button id="ep_fetch_models" class="btn">拉取模型列表</button>
+            <button id="ep_test_conn" class="btn">测试连接</button>
+          </div>
+          <div id="ep_api_status" class="status-text"></div>
+        </section>
+
+        <section class="card">
+          <div class="card-title">生成参数</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">流式输出</label>
+              <select id="ep_stream" class="input">
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Temperature</label>
+              <input id="ep_temp" type="number" class="input" step="0.1" min="0" max="2">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Top P</label>
+              <input id="ep_top_p" type="number" class="input" step="0.05" min="0" max="1">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Top K</label>
+              <input id="ep_top_k" type="number" class="input" step="1" min="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Presence penalty</label>
+              <input id="ep_pp" type="text" class="input" placeholder="-2 ~ 2">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Frequency penalty</label>
+              <input id="ep_fp" type="text" class="input" placeholder="-2 ~ 2">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">最大 Token 数</label>
+            <input id="ep_mt" type="text" class="input" placeholder="留空则不限制">
+          </div>
+        </section>
+      </div>
+
+      <!-- ── 提示词 ── -->
+      <div id="view-prompt" class="view">
+        <div class="tip-box">
+          <div class="tip-icon">💡</div>
+          <div class="tip-text">
+            系统会自动在提示词之后注入：角色卡、世界书、剧情摘要、聊天历史、向量召回等上下文。你只需专注编写"规划指令"。
+          </div>
+        </div>
+
+        <section class="card">
+          <div class="card-title">模板管理</div>
+          <div class="form-row">
+            <div class="form-group" style="flex:2;">
+              <select id="ep_tpl_select" class="input">
+                <option value="">-- 选择模板 --</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:3;">
+              <div class="btn-group">
+                <button id="ep_tpl_save" class="btn btn-p">保存</button>
+                <button id="ep_tpl_saveas" class="btn">另存为</button>
+                <button id="ep_tpl_delete" class="btn btn-del">删除</button>
+              </div>
+            </div>
+          </div>
+          <div id="ep_tpl_undo" class="undo-bar hidden">
+            <span>模板 <strong id="ep_tpl_undo_name"></strong> 已删除</span>
+            <button id="ep_tpl_undo_btn" class="btn btn-p btn-sm">撤销</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-title">提示词块</div>
+          <div id="ep_prompt_list"></div>
+          <div class="prompt-empty" id="ep_prompt_empty" style="display:none;">暂无提示词块</div>
+          <div class="btn-group" style="margin-top:16px;">
+            <button id="ep_add_prompt" class="btn">添加区块</button>
+            <button id="ep_reset_prompt" class="btn btn-del">恢复默认</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- ── 上下文 ── -->
+      <div id="view-context" class="view">
+        <section class="card">
+          <div class="card-title">世界书</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">读取全局世界书</label>
+              <select id="ep_include_global_wb" class="input">
+                <option value="false">否</option>
+                <option value="true">是</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">排除 position=4 的条目</label>
+              <select id="ep_wb_pos4" class="input">
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">排除的条目名称关键词（逗号分隔）</label>
+            <input id="ep_wb_exclude_names" type="text" class="input" placeholder="mvu_update, system, ...">
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-title">聊天与历史</div>
+          <div class="form-group">
+            <label class="form-label">保留的规划输出标签（逗号分隔）</label>
+            <input id="ep_keep_tags" type="text" class="input" placeholder="plot, note, plot-log, state">
+            <p class="form-hint">仅支持英文标签（如 plot, note, memory）。留空表示不按标签过滤（仅去除 think）。无效标签会自动忽略。</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">清理 AI 回复中的干扰标签（逗号分隔）</label>
+            <input id="ep_exclude_tags" type="text" class="input"
+              placeholder="行动选项, UpdateVariable, StatusPlaceHolderImpl">
+          </div>
+          <div class="form-group">
+            <label class="form-label">携带最近 N 条历史 plot</label>
+            <input id="ep_plot_n" type="number" class="input" min="0" max="10" step="1">
+          </div>
+        </section>
+      </div>
+
+      <!-- ── 调试 ── -->
+      <div id="view-debug" class="view">
+        <section class="card">
+          <div class="card-title">诊断工具</div>
+          <div class="btn-group">
+            <button id="ep_debug_worldbook" class="btn">诊断世界书</button>
+            <button id="ep_debug_char" class="btn">诊断角色卡</button>
+            <button id="ep_test_planner" class="btn btn-p">运行规划测试</button>
+          </div>
+          <pre id="ep_debug_output" class="debug-output"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-title">日志</div>
+          <div class="form-row" style="margin-bottom:16px;">
+            <div class="form-group">
+              <label class="form-label">持久化日志</label>
+              <select id="ep_logs_persist" class="input">
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">最大日志条数</label>
+              <input id="ep_logs_max" type="number" class="input" min="1" max="200" step="1">
+            </div>
+          </div>
+          <div class="btn-group" style="margin-bottom:16px;">
+            <button id="ep_open_logs" class="btn">刷新</button>
+            <button id="ep_log_export" class="btn">导出 JSON</button>
+            <button id="ep_log_clear" class="btn btn-del">清空日志</button>
+          </div>
+          <div id="ep_log_body" class="log-list">
+            <div class="log-empty">暂无日志</div>
+          </div>
+        </section>
+      </div>
+
+    </main>
+
+    <!-- Mobile bottom nav -->
+    <nav class="mobile-nav">
+      <div class="mobile-nav-inner">
+        <div class="mobile-nav-item active" data-view="quickstart">
+          <div class="nav-dot"></div><span>开始</span>
+        </div>
+        <div class="mobile-nav-item" data-view="api">
+          <div class="nav-dot"></div><span>API</span>
+        </div>
+        <div class="mobile-nav-item" data-view="prompt">
+          <div class="nav-dot"></div><span>提示词</span>
+        </div>
+        <div class="mobile-nav-item" data-view="context">
+          <div class="nav-dot"></div><span>上下文</span>
+        </div>
+        <div class="mobile-nav-item" data-view="debug">
+          <div class="nav-dot"></div><span>调试</span>
+        </div>
+      </div>
+    </nav>
+
+  </div>
+
+  <script>
+    const PARENT_ORIGIN = (() => {
+      try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
+    })();
+
+    const post = (type, payload) => parent.postMessage({ type, payload }, PARENT_ORIGIN);
+    const $ = id => document.getElementById(id);
+    const $$ = sel => document.querySelectorAll(sel);
+
+    function genId() {
+      try { return crypto.randomUUID(); } catch { return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`; }
+    }
+
+    let cfg = null;
+    let logs = [];
+    let pendingSave = null;
+    let undoState = null;
+    let undoPending = false;
+    let fetchedModels = [];
+
+    /* ── Save indicator ── */
+
+    function setSaveIndicator(state, text) {
+      const el = $('ep_save_status');
+      if (!el) return;
+      if (state === 'saving') {
+        el.innerHTML = `<span style="color:var(--warn)">${text || '保存中…'}</span>`;
+      } else if (state === 'saved') {
+        el.innerHTML = `<span style="color:var(--success)">${text || '已保存'}</span>`;
+      } else if (state === 'error') {
+        el.innerHTML = `<span style="color:var(--error)">${text || '保存失败'}</span>`;
+      } else {
+        el.textContent = '就绪';
+      }
+    }
+
+    function startPendingSave(requestId) {
+      pendingSave = {
+        requestId,
+        timer: setTimeout(() => {
+          if (!pendingSave || pendingSave.requestId !== requestId) return;
+          pendingSave = null;
+          setSaveIndicator('error', '保存超时');
+        }, 5000)
+      };
+      setSaveIndicator('saving');
+    }
+
+    function resolvePendingSave(requestId) {
+      if (!pendingSave || pendingSave.requestId !== requestId) return;
+      clearTimeout(pendingSave.timer);
+      pendingSave = null;
+      setSaveIndicator('saved');
+      setTimeout(() => setSaveIndicator(''), 2000);
+    }
+
+    function rejectPendingSave(requestId, msg) {
+      if (!pendingSave || pendingSave.requestId !== requestId) return;
+      clearTimeout(pendingSave.timer);
+      pendingSave = null;
+      setSaveIndicator('error', msg || '保存失败');
+    }
+
+    /* ── Auto-save ── */
+
+    let autoSaveTimer = null;
+
+    function scheduleSave() {
+      if (undoPending) return;
+      if (autoSaveTimer) clearTimeout(autoSaveTimer);
+      autoSaveTimer = setTimeout(doSave, 600);
+    }
+
+    function doSave() {
+      if (pendingSave) return;
+      const requestId = `ena_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const patch = collectPatch();
+      startPendingSave(requestId);
+      post('xb-ena:save-config', { requestId, patch });
+    }
+
+    /* ── UI helpers ── */
+
+    function setLocalStatus(elId, text, type) {
+      const el = $(elId);
+      if (!el) return;
+      el.textContent = text || '';
+      el.className = 'status-text' + (type ? ' ' + type : '');
+    }
+
+    function setBadge(enabled) {
+      const badge = $('ep_badge');
+      badge.innerHTML = enabled
+        ? '<span class="hl">已启用</span>'
+        : '<span style="color:var(--txt3)">未启用</span>';
+    }
+
+    function activateTab(viewId) {
+      $$('.nav-item, .mobile-nav-item').forEach(n => {
+        n.classList.toggle('active', n.dataset.view === viewId);
+      });
+      $$('.view').forEach(v => {
+        v.classList.toggle('active', v.id === `view-${viewId}`);
+      });
+      if (viewId === 'debug') post('xb-ena:logs-request');
+    }
+
+    function updatePrefixModeUI() {
+      $('ep_custom_prefix_group').classList.toggle('hidden', $('ep_prefix_mode').value !== 'custom');
+    }
+
+    /* ── Type conversion ── */
+
+    function toBool(v, fallback = false) {
+      if (v === true || v === false) return v;
+      if (v === 'true') return true;
+      if (v === 'false') return false;
+      return fallback;
+    }
+
+    function toNum(v, fallback = 0) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    function arrToCsv(arr) { return Array.isArray(arr) ? arr.join(', ') : ''; }
+
+    function csvToArr(text) {
+      return String(text || '').split(/[,，]/).map(x => x.trim()).filter(Boolean);
+    }
+    function normalizeKeepTagsInput(text) {
+      const src = csvToArr(text);
+      const out = [];
+      src.forEach(item => {
+        const tag = String(item || '').replace(/^<+|>+$/g, '').toLowerCase();
+        if (!/^[a-z][a-z0-9_-]*$/.test(tag)) return;
+        if (!out.includes(tag)) out.push(tag);
+      });
+      return out;
+    }
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /* ── Prompt blocks ── */
+
+    function createPromptBlockElement(block, idx, total) {
+      const wrap = document.createElement('div');
+      wrap.className = 'prompt-block';
+
+      const head = document.createElement('div');
+      head.className = 'prompt-head';
+
+      const left = document.createElement('div');
+      left.className = 'prompt-head-left';
+
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.className = 'input';
+      nameInput.placeholder = '块名称';
+      nameInput.value = block.name || '';
+      nameInput.addEventListener('change', () => { block.name = nameInput.value; scheduleSave(); });
+
+      const roleSelect = document.createElement('select');
+      roleSelect.className = 'input';
+      ['system', 'user', 'assistant'].forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r;
+        opt.textContent = r;
+        opt.selected = (block.role || 'system') === r;
+        roleSelect.appendChild(opt);
+      });
+      roleSelect.addEventListener('change', () => { block.role = roleSelect.value; scheduleSave(); });
+
+      left.append(nameInput, roleSelect);
+
+      const right = document.createElement('div');
+      right.className = 'prompt-head-right';
+
+      const upBtn = document.createElement('button');
+      upBtn.className = 'btn btn-sm';
+      upBtn.textContent = '↑';
+      upBtn.disabled = idx === 0;
+      upBtn.addEventListener('click', () => {
+        if (idx === 0) return;
+        [cfg.promptBlocks[idx - 1], cfg.promptBlocks[idx]] = [cfg.promptBlocks[idx], cfg.promptBlocks[idx - 1]];
+        renderPromptList(); scheduleSave();
+      });
+
+      const downBtn = document.createElement('button');
+      downBtn.className = 'btn btn-sm';
+      downBtn.textContent = '↓';
+      downBtn.disabled = idx === total - 1;
+      downBtn.addEventListener('click', () => {
+        if (idx >= total - 1) return;
+        [cfg.promptBlocks[idx], cfg.promptBlocks[idx + 1]] = [cfg.promptBlocks[idx + 1], cfg.promptBlocks[idx]];
+        renderPromptList(); scheduleSave();
+      });
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-sm btn-del';
+      delBtn.textContent = '删除';
+      delBtn.addEventListener('click', () => {
+        cfg.promptBlocks.splice(idx, 1);
+        renderPromptList(); scheduleSave();
+      });
+
+      right.append(upBtn, downBtn, delBtn);
+
+      const content = document.createElement('textarea');
+      content.className = 'input';
+      content.placeholder = '提示词内容...';
+      content.value = block.content || '';
+      content.addEventListener('change', () => { block.content = content.value; scheduleSave(); });
+
+      head.append(left, right);
+      wrap.append(head, content);
+      return wrap;
+    }
+
+    function renderPromptList() {
+      const list = $('ep_prompt_list');
+      const empty = $('ep_prompt_empty');
+      const blocks = cfg?.promptBlocks || [];
+      list.innerHTML = '';
+      if (!blocks.length) { empty.style.display = ''; return; }
+      empty.style.display = 'none';
+      blocks.forEach((block, idx) => {
+        list.appendChild(createPromptBlockElement(block, idx, blocks.length));
+      });
+    }
+
+    function renderTemplateSelect(selected = '') {
+      const sel = $('ep_tpl_select');
+      sel.innerHTML = '<option value="">-- 选择模板 --</option>';
+      const names = Object.keys(cfg?.promptTemplates || {});
+      const selectedName = names.includes(selected) ? selected : '';
+      names.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        opt.selected = name === selectedName;
+        sel.appendChild(opt);
+      });
+    }
+
+    /* ── Undo ── */
+
+    function showUndoBar(name, blocks) {
+      clearUndo();
+      undoPending = true;
+      undoState = {
+        name, blocks,
+        timer: setTimeout(() => {
+          hideUndoBar(); undoPending = false; scheduleSave();
+        }, 5000)
+      };
+      $('ep_tpl_undo_name').textContent = name;
+      $('ep_tpl_undo').classList.remove('hidden');
+    }
+
+    function hideUndoBar() {
+      $('ep_tpl_undo').classList.add('hidden');
+      undoState = null;
+    }
+
+    function clearUndo() {
+      if (undoState?.timer) clearTimeout(undoState.timer);
+      hideUndoBar();
+      undoPending = false;
+    }
+
+    /* ── Model selector ── */
+
+    function showModelSelector(models) {
+      fetchedModels = models;
+      const sel = $('ep_model_select');
+      const cur = $('ep_model').value.trim();
+      sel.innerHTML = '<option value="">-- 从列表选择 --</option>';
+      models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m; opt.selected = m === cur;
+        sel.appendChild(opt);
+      });
+      $('ep_model_selector').classList.remove('hidden');
+    }
+
+    /* ── Logs ── */
+
+    function renderLogs() {
+      const body = $('ep_log_body');
+      if (!Array.isArray(logs) || !logs.length) {
+        body.innerHTML = '<div class="log-empty">暂无日志</div>';
+        return;
+      }
+      body.innerHTML = logs.map(item => {
+        const time = item.time ? new Date(item.time).toLocaleString() : '-';
+        const cls = item.ok ? 'success' : 'error';
+        const label = item.ok ? '成功' : '失败';
+        return `
+        <div class="log-item">
+          <div class="log-meta">
+            <span>${escapeHtml(time)} · <span class="${cls}">${label}</span></span>
+            <span>${escapeHtml(item.model || '-')}</span>
+          </div>
+          ${item.error ? `<div class="log-error">${escapeHtml(item.error)}</div>` : ''}
+          <details><summary>请求消息</summary>
+            <pre class="log-pre">${escapeHtml(JSON.stringify(item.requestMessages || [], null, 2))}</pre>
+          </details>
+          <details><summary>原始回复</summary>
+            <pre class="log-pre">${escapeHtml(item.rawReply || '')}</pre>
+          </details>
+          <details open><summary>过滤后回复</summary>
+            <pre class="log-pre">${escapeHtml(item.filteredReply || '')}</pre>
+          </details>
+        </div>`;
+      }).join('');
+    }
+
+    /* ── Apply / Collect ── */
+
+    function applyConfig(nextCfg) {
+      cfg = nextCfg || {};
+      logs = Array.isArray(cfg.logs) ? cfg.logs : [];
+
+      $('ep_enabled').value = String(toBool(cfg.enabled, true));
+      $('ep_skip_plot').value = String(toBool(cfg.skipIfPlotPresent, true));
+
+      const api = cfg.api || {};
+      $('ep_api_channel').value = api.channel || 'openai';
+      $('ep_prefix_mode').value = api.prefixMode || 'auto';
+      $('ep_api_base').value = api.baseUrl || '';
+      $('ep_prefix_custom').value = api.customPrefix || '';
+      $('ep_api_key').value = api.apiKey || '';
+      $('ep_model').value = api.model || '';
+      $('ep_stream').value = String(toBool(api.stream, false));
+      $('ep_temp').value = String(toNum(api.temperature, 1));
+      $('ep_top_p').value = String(toNum(api.top_p, 1));
+      $('ep_top_k').value = String(toNum(api.top_k, 0));
+      $('ep_pp').value = api.presence_penalty ?? '';
+      $('ep_fp').value = api.frequency_penalty ?? '';
+      $('ep_mt').value = api.max_tokens ?? '';
+
+      $('ep_include_global_wb').value = String(toBool(cfg.includeGlobalWorldbooks, false));
+      $('ep_wb_pos4').value = String(toBool(cfg.excludeWorldbookPosition4, true));
+      $('ep_wb_exclude_names').value = arrToCsv(cfg.worldbookExcludeNames);
+      $('ep_plot_n').value = String(toNum(cfg.plotCount, 2));
+      $('ep_keep_tags').value = arrToCsv(cfg.responseKeepTags || ['plot', 'note', 'plot-log', 'state']);
+      $('ep_exclude_tags').value = arrToCsv(cfg.chatExcludeTags);
+
+      $('ep_logs_persist').value = String(toBool(cfg.logsPersist, true));
+      $('ep_logs_max').value = String(toNum(cfg.logsMax, 20));
+
+      setBadge(toBool(cfg.enabled, true));
+      updatePrefixModeUI();
+      const keepSelectedTemplate = cfg?.activePromptTemplate || $('ep_tpl_select')?.value || '';
+      renderTemplateSelect(keepSelectedTemplate);
+      renderPromptList();
+      renderLogs();
+    }
+
+    function collectPatch() {
+      const p = {};
+
+      p.enabled = toBool($('ep_enabled').value, true);
+      p.skipIfPlotPresent = toBool($('ep_skip_plot').value, true);
+
+      p.api = {
+        channel: $('ep_api_channel').value,
+        prefixMode: $('ep_prefix_mode').value,
+        baseUrl: $('ep_api_base').value.trim(),
+        customPrefix: $('ep_prefix_custom').value.trim(),
+        apiKey: $('ep_api_key').value,
+        model: $('ep_model').value.trim(),
+        stream: toBool($('ep_stream').value, false),
+        temperature: toNum($('ep_temp').value, 1),
+        top_p: toNum($('ep_top_p').value, 1),
+        top_k: Math.floor(toNum($('ep_top_k').value, 0)),
+        presence_penalty: $('ep_pp').value.trim(),
+        frequency_penalty: $('ep_fp').value.trim(),
+        max_tokens: $('ep_mt').value.trim()
+      };
+
+      p.includeGlobalWorldbooks = toBool($('ep_include_global_wb').value, false);
+      p.excludeWorldbookPosition4 = toBool($('ep_wb_pos4').value, true);
+      p.worldbookExcludeNames = csvToArr($('ep_wb_exclude_names').value);
+      p.plotCount = Math.max(0, Math.floor(toNum($('ep_plot_n').value, 2)));
+      p.responseKeepTags = normalizeKeepTagsInput($('ep_keep_tags').value);
+      p.chatExcludeTags = csvToArr($('ep_exclude_tags').value);
+
+      p.logsPersist = toBool($('ep_logs_persist').value, true);
+      p.logsMax = Math.max(1, Math.min(200, Math.floor(toNum($('ep_logs_max').value, 20))));
+
+      p.promptBlocks = cfg?.promptBlocks || [];
+      p.promptTemplates = cfg?.promptTemplates || {};
+      p.activePromptTemplate = $('ep_tpl_select')?.value || '';
+
+      return p;
+    }
+
+    /* ── Event bindings ── */
+
+    function bindEvents() {
+      $$('.nav-item, .mobile-nav-item').forEach(item => {
+        item.addEventListener('click', () => activateTab(item.dataset.view));
+      });
+
+      $('ep_close').addEventListener('click', () => post('xb-ena:close'));
+
+      $('ep_enabled').addEventListener('change', () => setBadge(toBool($('ep_enabled').value, true)));
+
+      $('ep_run_test').addEventListener('click', () => {
+        const text = $('ep_test_input').value.trim() || '（测试输入）我想让你帮我规划下一步剧情。';
+        post('xb-ena:run-test', { text });
+        setLocalStatus('ep_test_status', '测试中…', 'loading');
+      });
+
+      $('ep_toggle_key').addEventListener('click', () => {
+        const input = $('ep_api_key');
+        const btn = $('ep_toggle_key');
+        if (input.type === 'password') {
+          input.type = 'text'; btn.textContent = '隐藏';
+        } else {
+          input.type = 'password'; btn.textContent = '显示';
+        }
+      });
+
+      $('ep_prefix_mode').addEventListener('change', updatePrefixModeUI);
+
+      $('ep_fetch_models').addEventListener('click', () => {
+        post('xb-ena:fetch-models');
+        setLocalStatus('ep_api_status', '拉取中…', 'loading');
+      });
+      $('ep_test_conn').addEventListener('click', () => {
+        post('xb-ena:fetch-models');
+        setLocalStatus('ep_api_status', '测试中…', 'loading');
+      });
+
+      $('ep_model_select').addEventListener('change', () => {
+        const val = $('ep_model_select').value;
+        if (val) { $('ep_model').value = val; scheduleSave(); }
+      });
+      $('ep_keep_tags').addEventListener('change', () => {
+        const normalized = normalizeKeepTagsInput($('ep_keep_tags').value);
+        $('ep_keep_tags').value = normalized.join(', ');
+      });
+
+      $('ep_add_prompt').addEventListener('click', () => {
+        cfg.promptBlocks = cfg.promptBlocks || [];
+        cfg.promptBlocks.push({ id: genId(), role: 'system', name: '新块', content: '' });
+        renderPromptList(); scheduleSave();
+      });
+
+      $('ep_reset_prompt').addEventListener('click', () => {
+        if (!confirm('确定恢复默认提示词块？当前提示词块将被覆盖。')) return;
+        if (pendingSave) return;
+        const requestId = `ena_reset_${Date.now()}`;
+        startPendingSave(requestId);
+        post('xb-ena:reset-prompt-default', { requestId });
+      });
+
+      $('ep_tpl_select').addEventListener('change', () => {
+        const name = $('ep_tpl_select').value;
+        cfg.activePromptTemplate = name;
+        if (!name) return;
+        const blocks = cfg?.promptTemplates?.[name];
+        if (!Array.isArray(blocks)) return;
+        cfg.promptBlocks = structuredClone(blocks);
+        renderPromptList(); scheduleSave();
+      });
+
+      $('ep_tpl_save').addEventListener('click', () => {
+        const name = $('ep_tpl_select').value;
+        if (!name) { setSaveIndicator('error', '请先选择或创建模板'); return; }
+        cfg.promptTemplates = cfg.promptTemplates || {};
+        cfg.promptTemplates[name] = structuredClone(cfg.promptBlocks || []);
+        cfg.activePromptTemplate = name;
+        renderTemplateSelect(name); scheduleSave();
+      });
+
+      $('ep_tpl_saveas').addEventListener('click', () => {
+        const name = prompt('新模板名称');
+        if (!name) return;
+        cfg.promptTemplates = cfg.promptTemplates || {};
+        cfg.promptTemplates[name] = structuredClone(cfg.promptBlocks || []);
+        cfg.activePromptTemplate = name;
+        renderTemplateSelect(name); scheduleSave();
+      });
+
+      $('ep_tpl_delete').addEventListener('click', () => {
+        const name = $('ep_tpl_select').value;
+        if (!name) return;
+        const backup = structuredClone(cfg.promptTemplates[name]);
+        delete cfg.promptTemplates[name];
+        cfg.activePromptTemplate = '';
+        renderTemplateSelect('');
+        showUndoBar(name, backup);
+      });
+
+      $('ep_tpl_undo_btn').addEventListener('click', () => {
+        if (!undoState) return;
+        cfg.promptTemplates = cfg.promptTemplates || {};
+        cfg.promptTemplates[undoState.name] = undoState.blocks;
+        cfg.activePromptTemplate = undoState.name;
+        renderTemplateSelect(undoState.name);
+        clearUndo(); scheduleSave();
+      });
+
+      $('ep_debug_worldbook').addEventListener('click', () => {
+        $('ep_debug_output').classList.add('visible');
+        $('ep_debug_output').textContent = '诊断中…';
+        post('xb-ena:debug-worldbook');
+      });
+      $('ep_debug_char').addEventListener('click', () => {
+        $('ep_debug_output').classList.add('visible');
+        $('ep_debug_output').textContent = '诊断中…';
+        post('xb-ena:debug-char');
+      });
+      $('ep_test_planner').addEventListener('click', () => {
+        post('xb-ena:run-test', { text: '（测试输入）请规划下一步剧情走向。' });
+        $('ep_debug_output').classList.add('visible');
+        $('ep_debug_output').textContent = '规划测试中…';
+      });
+
+      $('ep_open_logs').addEventListener('click', () => post('xb-ena:logs-request'));
+      $('ep_log_clear').addEventListener('click', () => {
+        if (!confirm('确定清空所有日志？')) return;
+        post('xb-ena:logs-clear');
+      });
+      $('ep_log_export').addEventListener('click', () => {
+        const blob = new Blob([JSON.stringify(logs || [], null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `ena-planner-logs-${Date.now()}.json`;
+        a.click(); URL.revokeObjectURL(url);
+      });
+
+      document.querySelectorAll('.card .input').forEach(el => {
+        if (el.closest('.prompt-block')) return;
+        if (el.id === 'ep_test_input') return;
+        el.addEventListener('change', scheduleSave);
+      });
+    }
+
+    /* ── Message handler ── */
+
+    window.addEventListener('message', ev => {
+      if (ev.origin !== PARENT_ORIGIN) return;
+      const { type, payload } = ev.data || {};
+
+      switch (type) {
+        case 'xb-ena:config':
+          applyConfig(payload || {});
+          break;
+        case 'xb-ena:config-saved':
+          applyConfig(payload || {});
+          resolvePendingSave(payload?.requestId || '');
+          break;
+        case 'xb-ena:config-save-error':
+          rejectPendingSave(payload?.requestId || '', payload?.message);
+          break;
+        case 'xb-ena:test-done': {
+          setLocalStatus('ep_test_status', '规划测试完成', 'success');
+          const d = $('ep_debug_output');
+          if (d.classList.contains('visible') && d.textContent.includes('测试中'))
+            d.textContent = '测试完成，请查看下方日志';
+          break;
+        }
+        case 'xb-ena:test-error': {
+          const msg = payload?.message || '规划测试失败';
+          setLocalStatus('ep_test_status', msg, 'error');
+          const d = $('ep_debug_output');
+          if (d.classList.contains('visible')) d.textContent = '测试失败: ' + msg;
+          break;
+        }
+        case 'xb-ena:logs':
+          logs = Array.isArray(payload?.logs) ? payload.logs : [];
+          renderLogs();
+          break;
+        case 'xb-ena:models': {
+          const models = Array.isArray(payload?.models) ? payload.models : [];
+          if (models.length) {
+            showModelSelector(models);
+            setLocalStatus('ep_api_status', `获取到 ${models.length} 个模型`, 'success');
+          } else {
+            setLocalStatus('ep_api_status', '未获取到模型', 'error');
+          }
+          break;
+        }
+        case 'xb-ena:models-error':
+          setLocalStatus('ep_api_status', payload?.message || '拉取模型失败', 'error');
+          break;
+        case 'xb-ena:debug-output': {
+          const out = $('ep_debug_output');
+          out.classList.add('visible');
+          out.textContent = String(payload?.output || '');
+          break;
+        }
+      }
+    });
+
+    /* ── Init ── */
+
+    bindEvents();
+    post('xb-ena:ready');
+  </script>
+</body>
+
+</html>

@@ -1,4 +1,4 @@
-// ============ 导入 ============
+﻿// ============ 导入 ============
 
 import { event_types } from "../../../../../../script.js";
 import { extension_settings, getContext } from "../../../../../extensions.js";
@@ -42,8 +42,12 @@ const HTML_PATH = `${extensionFolderPath}/modules/tts/tts-overlay.html`;
 const TTS_DIRECTIVE_REGEX = /\[tts:([^\]]*)\]/gi;
 
 const FREE_VOICE_KEYS = new Set([
-    'female_1', 'female_2', 'female_3', 'female_4', 'female_5', 'female_6', 'female_7',
-    'male_1', 'male_2', 'male_3', 'male_4'
+    'female_1', 'female_2', 'female_3', 'female_4',
+    'hk_female_1', 'hk_female_2', 'hk_male_1',
+    'tw_female_1', 'tw_female_2', 'tw_male_1',
+    'male_1', 'male_2', 'male_3', 'male_4',
+    'en_female_1', 'en_female_2', 'en_female_3', 'en_male_1', 'en_male_2',
+    'ja_female_1', 'ja_male_1',
 ]);
 
 // ============ NovelDraw 兼容 ============
@@ -913,11 +917,26 @@ async function loadConfig() {
     config = await TtsStorage.load();
     config.volc = config.volc || {};
     
+    let legacyPurged = false;
     if (Array.isArray(config.volc.mySpeakers)) {
-        config.volc.mySpeakers = config.volc.mySpeakers.map(s => ({
+        const normalized = config.volc.mySpeakers.map(s => ({
             ...s,
             source: s.source || getVoiceSource(s.value)
         }));
+        const filtered = normalized.filter(s => {
+            // Purge legacy free voices that are no longer supported by the current free voice map.
+            if (s.source === 'free' && !FREE_VOICE_KEYS.has(s.value)) {
+                legacyPurged = true;
+                return false;
+            }
+            return true;
+        });
+        config.volc.mySpeakers = filtered;
+    }
+
+    if (config.volc.defaultSpeaker && getVoiceSource(config.volc.defaultSpeaker) === 'free' && !FREE_VOICE_KEYS.has(config.volc.defaultSpeaker)) {
+        config.volc.defaultSpeaker = FREE_DEFAULT_VOICE;
+        legacyPurged = true;
     }
     
     config.volc.disableMarkdownFilter = config.volc.disableMarkdownFilter !== false;
@@ -942,6 +961,12 @@ async function loadConfig() {
     config.readRangesEnabled = config.readRangesEnabled === true;
     config.showFloorButton = config.showFloorButton !== false;
     config.showFloatingButton = config.showFloatingButton === true;
+
+    if (legacyPurged) {
+        await TtsStorage.set('volc', config.volc);
+        await TtsStorage.saveNow({ silent: true });
+        console.info('[TTS] Purged legacy free voices from mySpeakers.');
+    }
 
     return config;
 }
@@ -1054,15 +1079,17 @@ async function handleIframeMessage(ev) {
             closeSettings();
             break;
         case 'xb-tts:save-config': {
-            const ok = await saveConfig(payload);
+            const requestId = payload?.requestId || '';
+            const patch = (payload && typeof payload.patch === 'object') ? payload.patch : payload;
+            const ok = await saveConfig(patch);
             if (ok) {
                 const cacheStats = await getCacheStatsSafe();
-                postToIframe(iframe, { type: 'xb-tts:config-saved', payload: { ...config, cacheStats } });
+                postToIframe(iframe, { type: 'xb-tts:config-saved', payload: { ...config, cacheStats, requestId } });
                 updateAutoSpeakAll();
                 updateSpeedAll();
                 updateVoiceAll();
             } else {
-                postToIframe(iframe, { type: 'xb-tts:config-save-error', payload: { message: '保存失败' } });
+                postToIframe(iframe, { type: 'xb-tts:config-save-error', payload: { message: '保存失败', requestId } });
             }
             break;
         }
@@ -1472,3 +1499,4 @@ export function cleanupTts() {
     cacheCounters.misses = 0;
     delete window.xiaobaixTts;
 }
+

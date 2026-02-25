@@ -679,6 +679,9 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
         const listeners = new Set();
         const createdNodes = new Set();
         const waiters = new Set();
+        let suppressTimerTracking = false;
+        const originalToastrFns = {};
+        const toastrMethods = ['info', 'success', 'warning', 'error'];
 
         const notifyActivityChange = () => {
             if (waiters.size === 0) return;
@@ -689,15 +692,35 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
 
         window.setTimeout = function(fn, t, ...args) {
             const id = originals.setTimeout(function(...inner) {
-                try { fn?.(...inner); } finally { timeouts.delete(id); notifyActivityChange(); }
+                try { fn?.(...inner); }
+                finally {
+                    if (timeouts.delete(id)) notifyActivityChange();
+                }
             }, t, ...args);
-            timeouts.add(id);
-            notifyActivityChange();
+            if (!suppressTimerTracking) {
+                timeouts.add(id);
+                notifyActivityChange();
+            }
             return id;
         };
-        window.clearTimeout = function(id) { originals.clearTimeout(id); timeouts.delete(id); notifyActivityChange(); };
+        window.clearTimeout = function(id) {
+            originals.clearTimeout(id);
+            if (timeouts.delete(id)) notifyActivityChange();
+        };
         window.setInterval = function(fn, t, ...args) { const id = originals.setInterval(fn, t, ...args); intervals.add(id); notifyActivityChange(); return id; };
         window.clearInterval = function(id) { originals.clearInterval(id); intervals.delete(id); notifyActivityChange(); };
+
+        if (window.toastr) {
+            for (const method of toastrMethods) {
+                if (typeof window.toastr[method] !== 'function') continue;
+                originalToastrFns[method] = window.toastr[method];
+                window.toastr[method] = function(...fnArgs) {
+                    suppressTimerTracking = true;
+                    try { return originalToastrFns[method].apply(window.toastr, fnArgs); }
+                    finally { suppressTimerTracking = false; }
+                };
+            }
+        }
 
         const addListenerEntry = (entry) => { listeners.add(entry); notifyActivityChange(); };
         const removeListenerEntry = (target, type, listener, options) => {
@@ -736,6 +759,13 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
             Node.prototype.appendChild = originals.appendChild;
             Node.prototype.insertBefore = originals.insertBefore;
             Node.prototype.replaceChild = originals.replaceChild;
+            if (window.toastr) {
+                for (const method of toastrMethods) {
+                    if (typeof originalToastrFns[method] === 'function') {
+                        window.toastr[method] = originalToastrFns[method];
+                    }
+                }
+            }
         };
 
         const hardCleanup = () => {

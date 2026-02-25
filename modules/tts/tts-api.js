@@ -1,23 +1,33 @@
-/**
+﻿/**
  * 火山引擎 TTS API 封装
  * V3 单向流式 + V1试用
  */
 
 const V3_URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional';
-const FREE_V1_URL = 'https://hstts.velure.codes';
+const FREE_V1_URL = 'https://edgetts.velure.codes';
 
 export const FREE_VOICES = [
-    { key: 'female_1', name: '桃夭', tag: '甜蜜仙子', gender: 'female' },
-    { key: 'female_2', name: '霜华', tag: '清冷仙子', gender: 'female' },
-    { key: 'female_3', name: '顾姐', tag: '御姐烟嗓', gender: 'female' },
-    { key: 'female_4', name: '苏菲', tag: '优雅知性', gender: 'female' },
-    { key: 'female_5', name: '嘉欣', tag: '港风甜心', gender: 'female' },
-    { key: 'female_6', name: '青梅', tag: '清秀少年音', gender: 'female' },
-    { key: 'female_7', name: '可莉', tag: '奶音萝莉', gender: 'female' },
-    { key: 'male_1', name: '夜枭', tag: '磁性低音', gender: 'male' },
-    { key: 'male_2', name: '君泽', tag: '温润公子', gender: 'male' },
-    { key: 'male_3', name: '沐阳', tag: '沉稳暖男', gender: 'male' },
-    { key: 'male_4', name: '梓辛', tag: '青春少年', gender: 'male' },
+    { key: 'female_1',    name: '晓晓',   tag: '温暖百变', gender: 'female' },
+    { key: 'female_2',    name: '晓伊',   tag: '清冷知性', gender: 'female' },
+    { key: 'female_3',    name: '小北',   tag: '东北甜妹', gender: 'female' },
+    { key: 'female_4',    name: '小妮',   tag: '陕西姑娘', gender: 'female' },
+    { key: 'hk_female_1', name: '曉佳',   tag: '粤语女声', gender: 'female' },
+    { key: 'hk_female_2', name: '曉曼',   tag: '粤语温柔', gender: 'female' },
+    { key: 'hk_male_1',   name: '雲龍',   tag: '粤语男声', gender: 'male' },
+    { key: 'tw_female_1', name: '曉臻',   tag: '台灣女聲', gender: 'female' },
+    { key: 'tw_female_2', name: '曉雨',   tag: '台灣温柔', gender: 'female' },
+    { key: 'tw_male_1',   name: '雲哲',   tag: '台灣男聲', gender: 'male' },
+    { key: 'male_1',      name: '云希',   tag: '少年温暖', gender: 'male' },
+    { key: 'male_2',      name: '云健',   tag: '阳刚有力', gender: 'male' },
+    { key: 'male_3',      name: '云扬',   tag: '专业播报', gender: 'male' },
+    { key: 'male_4',      name: '云夏',   tag: '少年活力', gender: 'male' },
+    { key: 'en_female_1', name: 'Jenny',  tag: '美式甜美', gender: 'female' },
+    { key: 'en_female_2', name: 'Aria',   tag: '美式知性', gender: 'female' },
+    { key: 'en_female_3', name: 'Sonia',  tag: '英式优雅', gender: 'female' },
+    { key: 'en_male_1',   name: 'Guy',    tag: '美式磁性', gender: 'male' },
+    { key: 'en_male_2',   name: 'Ryan',   tag: '英式绅士', gender: 'male' },
+    { key: 'ja_female_1', name: '七海',   tag: '日式温柔', gender: 'female' },
+    { key: 'ja_male_1',   name: '圭太',   tag: '日式少年', gender: 'male' },
 ];
 
 export const FREE_DEFAULT_VOICE = 'female_1';
@@ -333,3 +343,4 @@ export async function synthesizeFreeV1(params, options = {}) {
 
     return { audioBase64: data.data };
 }
+
