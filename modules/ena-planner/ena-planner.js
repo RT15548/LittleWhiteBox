@@ -1,6 +1,8 @@
 import { extension_settings } from '../../../../../extensions.js';
 import { getRequestHeaders, saveSettingsDebounced, substituteParamsExtended } from '../../../../../../script.js';
 import { getStorySummaryForEna } from '../story-summary/story-summary.js';
+import { buildVectorPromptText } from '../story-summary/generate/prompt.js';
+import { getVectorConfig } from '../story-summary/data/config.js';
 
 const EXT_NAME = 'ena-planner';
 
@@ -1082,8 +1084,23 @@ async function buildPlannerMessages(rawUserInput) {
 
   const charBlockRaw = formatCharCardBlock(charObj);
 
-  // --- Story summary (cached from previous generation via interceptor) ---
-  const cachedSummary = getCachedStorySummary();
+  // --- Story memory: try fresh recall with current user input ---
+  let cachedSummary = '';
+  try {
+      const vectorCfg = getVectorConfig();
+      if (vectorCfg?.enabled) {
+          const r = await buildVectorPromptText(false, {
+              pendingUserMessage: rawUserInput,
+          });
+          cachedSummary = r?.text?.trim() || '';
+      }
+  } catch (e) {
+      console.warn('[Ena] Fresh vector recall failed, falling back to cached data:', e);
+  }
+  // Fallback: use stale cache from previous generation
+  if (!cachedSummary) {
+      cachedSummary = getCachedStorySummary();
+  }
 
   // --- Chat history: last 2 AI messages (floors N-1 & N-3) ---
   // Two messages instead of one to avoid cross-device cache miss:
@@ -1093,7 +1110,7 @@ async function buildPlannerMessages(rawUserInput) {
   const recentChatRaw = collectRecentChatSnippet(chat, 2);
 
   const plotsRaw = formatPlotsBlock(extractLastNPlots(chat, s.plotCount));
-  const vectorRaw = formatVectorRecallBlock(extPrompts);
+  const vectorRaw = ''; // Now included in fresh cachedSummary above
 
   // Build scanText for worldbook keyword activation
   const scanText = [charBlockRaw, cachedSummary, recentChatRaw, vectorRaw, plotsRaw, rawUserInput].join('\n\n');
@@ -1123,7 +1140,7 @@ async function buildPlannerMessages(rawUserInput) {
   // 3) Worldbook
   if (String(worldbook).trim()) messages.push({ role: 'system', content: worldbook });
 
-  // 3.5) Cached story summary (小白X 剧情记忆 from previous turn)
+  // 3.5) Story memory (小白X <剧情记忆> — fresh recall when available, stale cache as fallback)
   if (storySummary.trim()) {
     messages.push({ role: 'system', content: `<story_summary>\n${storySummary}\n</story_summary>` });
   }
@@ -1131,7 +1148,8 @@ async function buildPlannerMessages(rawUserInput) {
   // 4) Chat history (last 2 AI responses — floors N-1 & N-3)
   if (String(recentChat).trim()) messages.push({ role: 'system', content: recentChat });
 
-  // 5) Vector recall
+  // 5) Vector recall — now merged into story_summary above, kept for compatibility
+  // (vectorRaw is empty; this block intentionally does nothing)
   if (String(vector).trim()) messages.push({ role: 'system', content: vector });
 
   // 6) Previous plots
