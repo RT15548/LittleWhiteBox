@@ -758,25 +758,6 @@ function buildEjsContext() {
         if (val === 'true' || val === 'True' || val === 'TRUE') return true;
         return val;
     }
-    // 字符串布尔值转为真正的布尔值
-    if (val === 'false' || val === 'False' || val === 'FALSE') return false;
-    if (val === 'true' || val === 'True' || val === 'TRUE') return true;
-    return val;
-  }
-
-  // setvar: write a chat variable (no-op for our purposes, just to avoid errors)
-  function setvar(name, value) {
-    if (name) vars[name] = value;
-    return value;
-  }
-
-  return {
-    getvar, setvar,
-    vars,
-    Number, Math, JSON, String, Array, Object, parseInt, parseFloat,
-    console: { log: () => {}, warn: () => {}, error: () => {} },
-  };
-}
 
     // setvar: write a chat variable (no-op for our purposes, just to avoid errors)
     function setvar(name, value) {
@@ -786,6 +767,7 @@ function buildEjsContext() {
 
     return {
         getvar, setvar,
+        vars,
         Number, Math, JSON, String, Array, Object, parseInt, parseFloat,
         console: { log: () => { }, warn: () => { }, error: () => { } },
     };
