@@ -688,19 +688,51 @@ async function buildWorldbookBlock(scanText) {
  * --------------------------
  */
 function getChatVariables() {
-    // Try multiple paths to get ST chat variables
+  let vars = {};
+
+  // 1) Chat-level variables
+  try {
+    const ctx = getContextSafe();
+    if (ctx?.chatMetadata?.variables) vars = { ...ctx.chatMetadata.variables };
+  } catch {}
+  if (!Object.keys(vars).length) {
     try {
-        const ctx = getContextSafe();
-        if (ctx?.chatMetadata?.variables) return ctx.chatMetadata.variables;
-    } catch { }
+      if (window.chat_metadata?.variables) vars = { ...window.chat_metadata.variables };
+    } catch {}
+  }
+  if (!Object.keys(vars).length) {
     try {
-        if (window.chat_metadata?.variables) return window.chat_metadata.variables;
-    } catch { }
-    try {
-        const ctx = getContextSafe();
-        if (ctx?.chat_metadata?.variables) return ctx.chat_metadata.variables;
-    } catch { }
-    return {};
+      const ctx = getContextSafe();
+      if (ctx?.chat_metadata?.variables) vars = { ...ctx.chat_metadata.variables };
+    } catch {}
+  }
+
+  // 2) Always merge message-level variables (some presets store vars here instead of chat-level)
+  try {
+    const msgVars = getLatestMessageVarTable();
+    if (msgVars && typeof msgVars === 'object') {
+      for (const key of Object.keys(msgVars)) {
+        // Skip MVU internal metadata keys
+        if (key === 'schema' || key === 'display_data' || key === 'delta_data') continue;
+        if (vars[key] === undefined) {
+          // Chat-level doesn't have this key at all — take from message-level
+          vars[key] = msgVars[key];
+        } else if (
+          vars[key] && typeof vars[key] === 'object' && !Array.isArray(vars[key]) &&
+          msgVars[key] && typeof msgVars[key] === 'object' && !Array.isArray(msgVars[key])
+        ) {
+          // Both have this key as objects — shallow merge (message-level fills gaps)
+          for (const subKey of Object.keys(msgVars[key])) {
+            if (vars[key][subKey] === undefined) {
+              vars[key][subKey] = msgVars[key][subKey];
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return vars;
 }
 
 function buildEjsContext() {
@@ -726,6 +758,25 @@ function buildEjsContext() {
         if (val === 'true' || val === 'True' || val === 'TRUE') return true;
         return val;
     }
+    // 字符串布尔值转为真正的布尔值
+    if (val === 'false' || val === 'False' || val === 'FALSE') return false;
+    if (val === 'true' || val === 'True' || val === 'TRUE') return true;
+    return val;
+  }
+
+  // setvar: write a chat variable (no-op for our purposes, just to avoid errors)
+  function setvar(name, value) {
+    if (name) vars[name] = value;
+    return value;
+  }
+
+  return {
+    getvar, setvar,
+    vars,
+    Number, Math, JSON, String, Array, Object, parseInt, parseFloat,
+    console: { log: () => {}, warn: () => {}, error: () => {} },
+  };
+}
 
     // setvar: write a chat variable (no-op for our purposes, just to avoid errors)
     function setvar(name, value) {
