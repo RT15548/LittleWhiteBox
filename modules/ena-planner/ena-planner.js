@@ -716,18 +716,34 @@ async function buildWorldbookBlock(scanText) {
  * EJS rendering for worldbook entries
  * --------------------------*/
 function getChatVariables() {
-  // Try multiple paths to get ST chat variables
+  // 1) Try chat-level variables (multiple paths)
   try {
     const ctx = getContextSafe();
-    if (ctx?.chatMetadata?.variables) return ctx.chatMetadata.variables;
+    if (ctx?.chatMetadata?.variables && Object.keys(ctx.chatMetadata.variables).length) {
+      return ctx.chatMetadata.variables;
+    }
   } catch {}
   try {
-    if (window.chat_metadata?.variables) return window.chat_metadata.variables;
+    if (window.chat_metadata?.variables && Object.keys(window.chat_metadata.variables).length) {
+      return window.chat_metadata.variables;
+    }
   } catch {}
   try {
     const ctx = getContextSafe();
-    if (ctx?.chat_metadata?.variables) return ctx.chat_metadata.variables;
+    if (ctx?.chat_metadata?.variables && Object.keys(ctx.chat_metadata.variables).length) {
+      return ctx.chat_metadata.variables;
+    }
   } catch {}
+
+  // 2) Fallback: message-level variables (some presets store vars here instead)
+  try {
+    const msgVars = getLatestMessageVarTable();
+    if (msgVars && typeof msgVars === 'object' && Object.keys(msgVars).length) {
+      console.log('[EnaPlanner] Chat-level vars empty, using message-level vars as fallback');
+      return msgVars;
+    }
+  } catch {}
+
   return {};
 }
 
@@ -761,17 +777,9 @@ function buildEjsContext() {
     return value;
   }
 
-  // Compute common derived values that entries might reference
-  const fire = Number(getvar('stat_data.蒂娜.火')) || 0;
-  const ice = Number(getvar('stat_data.蒂娜.冰')) || 0;
-  const dark = Number(getvar('stat_data.蒂娜.暗')) || 0;
-  const light = Number(getvar('stat_data.蒂娜.光')) || 0;
-  const maxAttrValue = Math.max(fire, ice, dark, light);
-
   return {
     getvar, setvar,
-    fire, ice, dark, light,
-    maxAttrValue,
+    vars,
     Number, Math, JSON, String, Array, Object, parseInt, parseFloat,
     console: { log: () => {}, warn: () => {}, error: () => {} },
   };
