@@ -1029,6 +1029,12 @@ function buildFramePayload(store) {
     };
 }
 
+// Compatibility export for ena-planner.
+// Returns a compact plain-text snapshot of story-summary memory.
+export function getStorySummaryForEna() {
+    return _lastBuiltPromptText;
+}
+
 function parseRelationTargetFromPredicate(predicate) {
     const text = String(predicate || "").trim();
     if (!text.startsWith("对")) return null;
@@ -1091,6 +1097,57 @@ function mergeCharacterRelationshipsIntoFacts(existingFacts, relationships, floo
     }
 
     return [...nonRelationFacts, ...newRelationFacts];
+}
+
+function getCurrentFloorHint() {
+    const { chat } = getContext();
+    const lastFloor = (Array.isArray(chat) ? chat.length : 0) - 1;
+    return Math.max(0, lastFloor);
+}
+
+function factKeyBySubjectPredicate(fact) {
+    const s = String(fact?.s || "").trim();
+    const p = String(fact?.p || "").trim();
+    return `${s}::${p}`;
+}
+
+function mergeEditedFactsWithTimestamps(existingFacts, editedFacts, floorHint = 0) {
+    const currentFacts = Array.isArray(existingFacts) ? existingFacts : [];
+    const incomingFacts = Array.isArray(editedFacts) ? editedFacts : [];
+    const oldMap = new Map(currentFacts.map((f) => [factKeyBySubjectPredicate(f), f]));
+
+    let nextFactId = getNextFactIdValue(currentFacts);
+    const merged = [];
+
+    for (const fact of incomingFacts) {
+        const s = String(fact?.s || "").trim();
+        const p = String(fact?.p || "").trim();
+        const o = String(fact?.o || "").trim();
+        if (!s || !p || !o) continue;
+
+        const key = `${s}::${p}`;
+        const oldFact = oldMap.get(key);
+        const since = oldFact?.since ?? fact?.since ?? floorHint;
+        const addedAt = oldFact?._addedAt ?? fact?._addedAt ?? floorHint;
+
+        const out = {
+            id: oldFact?.id || fact?.id || `f-${nextFactId++}`,
+            s,
+            p,
+            o,
+            since,
+            _addedAt: addedAt,
+        };
+        if (oldFact?._isState != null) out._isState = oldFact._isState;
+
+        const mergedTrend = fact?.trend ?? oldFact?.trend;
+        if (mergedTrend != null && String(mergedTrend).trim()) {
+            out.trend = String(mergedTrend).trim();
+        }
+        merged.push(out);
+    }
+
+    return merged;
 }
 
 function openPanelForMessage(mesId) {
@@ -1429,13 +1486,17 @@ async function handleFrameMessage(event) {
 
             // 如果是 events，先记录旧数据用于同步向量
             const oldEvents = data.section === "events" ? [...(store.json.events || [])] : null;
+            const oldFacts = data.section === "facts" ? [...(store.json.facts || [])] : null;
 
             if (VALID_SECTIONS.includes(data.section)) {
                 store.json[data.section] = data.data;
             }
+            if (data.section === "facts") {
+                store.json.facts = mergeEditedFactsWithTimestamps(oldFacts, data.data, getCurrentFloorHint());
+            }
             if (data.section === "characters") {
                 const rels = data?.data?.relationships || [];
-                const floorHint = Math.max(0, Number(store.lastSummarizedMesId) || 0);
+                const floorHint = getCurrentFloorHint();
                 store.json.facts = mergeCharacterRelationshipsIntoFacts(store.json.facts, rels, floorHint);
             }
             store.updatedAt = Date.now();
@@ -1757,13 +1818,14 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     } else {
         text = buildNonVectorPromptText() || "";
     }
+    _lastBuiltPromptText = text;
     if (!text.trim()) return;
 
     // 获取用户配置的 role
     const cfg = getSummaryPanelConfig();
     const roleKey = cfg.trigger?.role || 'system';
     const role = ROLE_MAP[roleKey] || extension_prompt_roles.SYSTEM;
-    _lastBuiltPromptText = text;
+
     // 写入 extension_prompts
     extension_prompts[EXT_PROMPT_KEY] = {
         value: text,
@@ -1877,6 +1939,3 @@ jQuery(() => {
 
     maybePreloadTokenizer();
 });
-export function getStorySummaryForEna() {
-    return _lastBuiltPromptText;
-}

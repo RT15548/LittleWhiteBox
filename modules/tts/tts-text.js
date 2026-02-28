@@ -169,7 +169,7 @@ export function parseTtsSegments(text) {
 
 // ============ 非鉴权分段切割 ============
 
-const FREE_MAX_TEXT = 200;
+const FREE_MAX_TEXT = 1000;
 const FREE_MIN_TEXT = 50;
 const FREE_SENTENCE_DELIMS = new Set(['。', '！', '？', '!', '?', ';', '；', '…', '.', '，', ',', '、', ':', '：']);
 
@@ -218,20 +218,98 @@ function splitTextForFree(text, maxLength = FREE_MAX_TEXT) {
     const chunks = [];
     const paragraphs = String(text || '').split(/\n\s*\n/).map(s => s.replace(/\n+/g, '\n').trim()).filter(Boolean);
 
+    let current = '';
+    const pushCurrent = () => {
+        if (!current) return;
+        chunks.push(current);
+        current = '';
+    };
+
     for (const para of paragraphs) {
-        if (para.length <= maxLength) {
-            chunks.push(para);
+        if (!para) continue;
+
+        if (para.length > maxLength) {
+            // Flush buffered short paragraphs before handling a long paragraph.
+            pushCurrent();
+            const longParts = splitLongTextBySentence(para, maxLength);
+            for (const part of longParts) {
+                const t = String(part || '').trim();
+                if (!t) continue;
+                if (!current) {
+                    current = t;
+                    continue;
+                }
+                if (current.length + t.length + 2 <= maxLength) {
+                    current += `\n\n${t}`;
+                    continue;
+                }
+                pushCurrent();
+                current = t;
+            }
             continue;
         }
-        chunks.push(...splitLongTextBySentence(para, maxLength));
+
+        if (!current) {
+            current = para;
+            continue;
+        }
+
+        // Cross-paragraph merge: keep fewer requests while preserving paragraph boundary.
+        if (current.length + para.length + 2 <= maxLength) {
+            current += `\n\n${para}`;
+            continue;
+        }
+
+        pushCurrent();
+        current = para;
     }
+
+    pushCurrent();
     return chunks;
 }
 
 export function splitTtsSegmentsForFree(segments, maxLength = FREE_MAX_TEXT) {
     if (!Array.isArray(segments) || !segments.length) return [];
-    const out = [];
+    const normalizedSegments = [];
+
+    // In free mode, only explicit speaker directives are semantic split points.
+    // Adjacent segments without speaker= are merged to reduce request count.
+    let mergeBuffer = null;
+    const flushMergeBuffer = () => {
+        if (!mergeBuffer) return;
+        normalizedSegments.push(mergeBuffer);
+        mergeBuffer = null;
+    };
+
     for (const seg of segments) {
+        const hasExplicitSpeaker = !!String(seg?.speaker || '').trim();
+        const text = String(seg?.text || '').trim();
+        if (!text) continue;
+
+        if (hasExplicitSpeaker) {
+            flushMergeBuffer();
+            normalizedSegments.push({
+                ...seg,
+                text,
+            });
+            continue;
+        }
+
+        if (!mergeBuffer) {
+            mergeBuffer = {
+                ...seg,
+                text,
+                speaker: '',
+            };
+            continue;
+        }
+
+        mergeBuffer.text += `\n${text}`;
+    }
+    flushMergeBuffer();
+
+    const out = [];
+    for (const seg of normalizedSegments) {
         const parts = splitTextForFree(seg.text, maxLength);
         if (!parts.length) continue;
         let buffer = '';
