@@ -51,7 +51,7 @@ class CallGenerateService {
     sendError(sourceWindow, requestId, streamingEnabled, err, fallbackCode = 'API_ERROR', details = null, targetOrigin = null) {
         const e = this.normalizeError(err, fallbackCode, details);
         const type = streamingEnabled ? 'generateStreamError' : 'generateError';
-        try { sourceWindow?.postMessage({ source: SOURCE_TAG, type, id: requestId, error: e }, resolveTargetOrigin(targetOrigin)); } catch {}
+        try { sourceWindow?.postMessage({ source: SOURCE_TAG, type, id: requestId, error: e }, resolveTargetOrigin(targetOrigin)); } catch { }
     }
 
     /**
@@ -260,7 +260,7 @@ class CallGenerateService {
     postToTarget(target, type, body, targetOrigin = null) {
         try {
             target?.postMessage({ source: SOURCE_TAG, type, ...body }, resolveTargetOrigin(targetOrigin));
-        } catch (e) {}
+        } catch (e) { }
     }
 
     // ===== ST Prompt 干跑捕获与组件切换 =====
@@ -352,7 +352,7 @@ class CallGenerateService {
                     const order = pm?.getPromptOrderForCharacter(activeChar) ?? [];
                     const mapSnap = new Map((this._lastToggleSnapshot || snapshot).map(s => [s.identifier, s.enabled]));
                     order.forEach(e => { if (mapSnap.has(e.identifier)) e.enabled = mapSnap.get(e.identifier); });
-                } catch {}
+                } catch { }
                 this._toggleBusy = false;
                 this._lastToggleSnapshot = null;
             }
@@ -416,7 +416,7 @@ class CallGenerateService {
         } finally {
             for (const key of Object.keys(oai_settings)) {
                 if (!Object.prototype.hasOwnProperty.call(snapshot, key)) {
-                    try { delete oai_settings[key]; } catch {}
+                    try { delete oai_settings[key]; } catch { }
                 }
             }
             Object.assign(oai_settings, snapshot);
@@ -503,7 +503,7 @@ class CallGenerateService {
             try {
                 const nameCache = this._getNameCache();
                 if (nameCache.has(nm)) return nameCache.get(nm);
-            } catch {}
+            } catch { }
 
             // 2) 扫描 PromptManager 的订单（显示用）
             try {
@@ -521,7 +521,7 @@ class CallGenerateService {
                         }
                     }
                 }
-            } catch {}
+            } catch { }
 
             // 3) 扫描 Prompt 集合（运行期合并后的集合）
             try {
@@ -538,7 +538,7 @@ class CallGenerateService {
                         }
                     }
                 }
-            } catch {}
+            } catch { }
 
             // 4) 失败时尝试 sanitize 名称与 identifier 的弱匹配
             if (matches.size === 0) {
@@ -555,12 +555,12 @@ class CallGenerateService {
                             }
                         }
                     }
-                } catch {}
+                } catch { }
             }
 
             if (matches.size === 1) {
                 const id = Array.from(matches)[0];
-                try { this._getNameCache().set(nm, id); } catch {}
+                try { this._getNameCache().set(nm, id); } catch { }
                 return id;
             }
             if (matches.size > 1) {
@@ -823,9 +823,9 @@ class CallGenerateService {
                     const capture = await this._captureWithEnabledSet(new Set([key]), '', false);
                     const normSet = new Set(capture.map(x => `[${x.role}] ${this._normStrip(x.content)}`));
                     footprint.set(key, normSet);
-                    try { fpCache.set(key, normSet); } catch {}
+                    try { fpCache.set(key, normSet); } catch { }
                 }
-            } catch {}
+            } catch { }
         }
         for (const m of arr) {
             if (m?.identifier) continue;
@@ -1055,7 +1055,7 @@ class CallGenerateService {
             try {
                 const re = new RegExp(regex);
                 out = out.filter(m => re.test(String(m.content)));
-            } catch {}
+            } catch { }
         }
         if (fromUserNames && fromUserNames.length) {
             // 仅当 messages 中附带 name 时生效；否则忽略
@@ -1229,132 +1229,132 @@ class CallGenerateService {
         // 步骤 2~9 的核心逻辑，可能包裹在 _withTemporaryPreset 中执行
         const executeCore = async () => {
 
-        // 2) 解析组件列表与内联注入
-        const list = Array.isArray(options?.components?.list) ? options.components.list.slice() : undefined;
-        let baseStrategy = 'EMPTY'; // EMPTY | ALL | ALL_PREON | SUBSET
-        let orderedRefs = [];
-        let inlineMapped = [];
-        let listLevelOverrides = {};
-        const unorderedKeys = new Set();
-        if (list && list.length) {
-            const { references, inlineInjections, listOverrides } = this._parseUnifiedList(list);
-            listLevelOverrides = listOverrides || {};
-            const parsedRefs = references.map(t => this._parseComponentRefToken(t));
-            const containsAll = parsedRefs.includes('ALL');
-            const containsAllPreOn = parsedRefs.includes('ALL_PREON');
-            if (containsAll) {
-                baseStrategy = 'ALL';
-                // ALL 仅作为开关标识，子集重排目标为去除 ALL 后的引用列表
-                orderedRefs = parsedRefs.filter(x => x && x !== 'ALL' && x !== 'ALL_PREON');
-            } else if (containsAllPreOn) {
-                baseStrategy = 'ALL_PREON';
-                // ALL_PREON：仅启用“预设里已开启”的组件，子集重排目标为去除该标记后的引用列表
-                orderedRefs = parsedRefs.filter(x => x && x !== 'ALL' && x !== 'ALL_PREON');
-            } else {
-                baseStrategy = 'SUBSET';
-                orderedRefs = parsedRefs.filter(Boolean);
-            }
-            inlineMapped = this._mapInlineInjectionsUnified(list, inlineInjections);
-            // 放宽：ALL 可出现在任意位置，作为“启用全部”的标志
-
-            // 解析 order=false：不参与重排
-            for (const rawKey in listLevelOverrides) {
-                if (!Object.prototype.hasOwnProperty.call(listLevelOverrides, rawKey)) continue;
-                const k = this._parseComponentRefToken(rawKey);
-                if (!k) continue;
-                if (listLevelOverrides[rawKey] && listLevelOverrides[rawKey].order === false) unorderedKeys.add(k);
-            }
-        }
-
-        // 3) 干跑捕获（基座）
-        let captured = [];
-        let enabledIds = []; // assembleOnly 时用于 identifier 标注
-        if (baseStrategy === 'EMPTY') {
-            captured = [];
-        } else {
-            // 不将 userInput 作为 quietText 干跑，以免把其注入到历史里
-            if (baseStrategy === 'ALL') {
-                // 路径B：ALL 时先全开启用集合再干跑，保证真实组件尽量出现
-                // 读取 promptManager 订单并构造 allow 集合
-                let allow = new Set();
-                try {
-                    if (promptManager && typeof promptManager.getPromptOrderForCharacter === 'function') {
-                        const pm = promptManager;
-                        const activeChar = pm?.activeCharacter ?? null;
-                        const order = pm?.getPromptOrderForCharacter(activeChar) ?? [];
-                        allow = new Set(order.map(e => e.identifier));
-                    }
-                } catch {}
-                enabledIds = Array.from(allow);
-                const run = async () => await this._capturePromptMessages({ includeConfig: null, quietText: '', skipWIAN: false });
-                captured = await this._withPromptEnabledSet(allow, run);
-            } else if (baseStrategy === 'ALL_PREON') {
-                // 仅启用预设里已开启的组件
-                let allow = new Set();
-                try {
-                    if (promptManager && typeof promptManager.getPromptOrderForCharacter === 'function') {
-                        const pm = promptManager;
-                        const activeChar = pm?.activeCharacter ?? null;
-                        const order = pm?.getPromptOrderForCharacter(activeChar) ?? [];
-                        allow = new Set(order.filter(e => !!e?.enabled).map(e => e.identifier));
-                    }
-                } catch {}
-                enabledIds = Array.from(allow);
-                const run = async () => await this._capturePromptMessages({ includeConfig: null, quietText: '', skipWIAN: false });
-                captured = await this._withPromptEnabledSet(allow, run);
-            } else {
-                captured = await this._capturePromptMessages({ includeConfig: null, quietText: '', skipWIAN: false });
-            }
-        }
-
-        // 4) 依据策略计算启用集合与顺序
-        let annotateKeys = baseStrategy === 'SUBSET' ? orderedRefs : ((baseStrategy === 'ALL' || baseStrategy === 'ALL_PREON') ? orderedRefs : []);
-        // assembleOnly 模式下，若无显式排序引用，则用全部启用组件做 identifier 标注
-        if (assembleOnly && annotateKeys.length === 0 && enabledIds.length > 0) {
-            annotateKeys = enabledIds;
-        }
-        let working = await this._annotateIdentifiersIfMissing(captured.slice(), annotateKeys);
-        working = this._applyOrderingStrategy(working, baseStrategy, orderedRefs, unorderedKeys);
-
-        // 5) 覆写与创建
-        working = this._applyInlineOverrides(working, listLevelOverrides);
-
-        // 6) 注入（内联 + 高级）
-        working = this._applyAllInjections(working, inlineMapped, options?.injections);
-
-        // 7) 用户输入追加
-        working = this._appendUserInput(working, options?.userInput);
-
-        // 8) 调试导出
-        this._exportDebugData({ sourceWindow, requestId, working, baseStrategy, orderedRefs, inlineMapped, listLevelOverrides, debug: options?.debug, targetOrigin });
-
-        // assembleOnly 模式：只返回组装好的 messages，不调 LLM
-        if (assembleOnly) {
-            // 构建 identifier → name 映射（从 promptCollection 取，order 里没有 name）
-            const idToName = new Map();
-            try {
-                if (promptManager && typeof promptManager.getPromptCollection === 'function') {
-                    const pc = promptManager.getPromptCollection();
-                    const coll = pc?.collection || [];
-                    for (const p of coll) {
-                        if (p?.identifier) idToName.set(p.identifier, p.name || p.label || p.title || '');
-                    }
+            // 2) 解析组件列表与内联注入
+            const list = Array.isArray(options?.components?.list) ? options.components.list.slice() : undefined;
+            let baseStrategy = 'EMPTY'; // EMPTY | ALL | ALL_PREON | SUBSET
+            let orderedRefs = [];
+            let inlineMapped = [];
+            let listLevelOverrides = {};
+            const unorderedKeys = new Set();
+            if (list && list.length) {
+                const { references, inlineInjections, listOverrides } = this._parseUnifiedList(list);
+                listLevelOverrides = listOverrides || {};
+                const parsedRefs = references.map(t => this._parseComponentRefToken(t));
+                const containsAll = parsedRefs.includes('ALL');
+                const containsAllPreOn = parsedRefs.includes('ALL_PREON');
+                if (containsAll) {
+                    baseStrategy = 'ALL';
+                    // ALL 仅作为开关标识，子集重排目标为去除 ALL 后的引用列表
+                    orderedRefs = parsedRefs.filter(x => x && x !== 'ALL' && x !== 'ALL_PREON');
+                } else if (containsAllPreOn) {
+                    baseStrategy = 'ALL_PREON';
+                    // ALL_PREON：仅启用“预设里已开启”的组件，子集重排目标为去除该标记后的引用列表
+                    orderedRefs = parsedRefs.filter(x => x && x !== 'ALL' && x !== 'ALL_PREON');
+                } else {
+                    baseStrategy = 'SUBSET';
+                    orderedRefs = parsedRefs.filter(Boolean);
                 }
-            } catch {}
-            const messages = working.map(m => {
-                const id = m.identifier || undefined;
-                const componentName = id ? (idToName.get(id) || undefined) : undefined;
-                return { role: m.role, content: m.content, identifier: id, name: componentName };
-            });
-            this.postToTarget(sourceWindow, 'assemblePromptResult', {
-                id: requestId,
-                messages: messages
-            }, targetOrigin);
-            return { messages };
-        }
+                inlineMapped = this._mapInlineInjectionsUnified(list, inlineInjections);
+                // 放宽：ALL 可出现在任意位置，作为“启用全部”的标志
 
-        // 9) 发送
-        return await this._sendMessages(working, { ...options, debug: { ...(options?.debug || {}), _exported: true } }, requestId, sourceWindow, targetOrigin);
+                // 解析 order=false：不参与重排
+                for (const rawKey in listLevelOverrides) {
+                    if (!Object.prototype.hasOwnProperty.call(listLevelOverrides, rawKey)) continue;
+                    const k = this._parseComponentRefToken(rawKey);
+                    if (!k) continue;
+                    if (listLevelOverrides[rawKey] && listLevelOverrides[rawKey].order === false) unorderedKeys.add(k);
+                }
+            }
+
+            // 3) 干跑捕获（基座）
+            let captured = [];
+            let enabledIds = []; // assembleOnly 时用于 identifier 标注
+            if (baseStrategy === 'EMPTY') {
+                captured = [];
+            } else {
+                // 不将 userInput 作为 quietText 干跑，以免把其注入到历史里
+                if (baseStrategy === 'ALL') {
+                    // 路径B：ALL 时先全开启用集合再干跑，保证真实组件尽量出现
+                    // 读取 promptManager 订单并构造 allow 集合
+                    let allow = new Set();
+                    try {
+                        if (promptManager && typeof promptManager.getPromptOrderForCharacter === 'function') {
+                            const pm = promptManager;
+                            const activeChar = pm?.activeCharacter ?? null;
+                            const order = pm?.getPromptOrderForCharacter(activeChar) ?? [];
+                            allow = new Set(order.map(e => e.identifier));
+                        }
+                    } catch { }
+                    enabledIds = Array.from(allow);
+                    const run = async () => await this._capturePromptMessages({ includeConfig: null, quietText: '', skipWIAN: false });
+                    captured = await this._withPromptEnabledSet(allow, run);
+                } else if (baseStrategy === 'ALL_PREON') {
+                    // 仅启用预设里已开启的组件
+                    let allow = new Set();
+                    try {
+                        if (promptManager && typeof promptManager.getPromptOrderForCharacter === 'function') {
+                            const pm = promptManager;
+                            const activeChar = pm?.activeCharacter ?? null;
+                            const order = pm?.getPromptOrderForCharacter(activeChar) ?? [];
+                            allow = new Set(order.filter(e => !!e?.enabled).map(e => e.identifier));
+                        }
+                    } catch { }
+                    enabledIds = Array.from(allow);
+                    const run = async () => await this._capturePromptMessages({ includeConfig: null, quietText: '', skipWIAN: false });
+                    captured = await this._withPromptEnabledSet(allow, run);
+                } else {
+                    captured = await this._capturePromptMessages({ includeConfig: null, quietText: '', skipWIAN: false });
+                }
+            }
+
+            // 4) 依据策略计算启用集合与顺序
+            let annotateKeys = baseStrategy === 'SUBSET' ? orderedRefs : ((baseStrategy === 'ALL' || baseStrategy === 'ALL_PREON') ? orderedRefs : []);
+            // assembleOnly 模式下，若无显式排序引用，则用全部启用组件做 identifier 标注
+            if (assembleOnly && annotateKeys.length === 0 && enabledIds.length > 0) {
+                annotateKeys = enabledIds;
+            }
+            let working = await this._annotateIdentifiersIfMissing(captured.slice(), annotateKeys);
+            working = this._applyOrderingStrategy(working, baseStrategy, orderedRefs, unorderedKeys);
+
+            // 5) 覆写与创建
+            working = this._applyInlineOverrides(working, listLevelOverrides);
+
+            // 6) 注入（内联 + 高级）
+            working = this._applyAllInjections(working, inlineMapped, options?.injections);
+
+            // 7) 用户输入追加
+            working = this._appendUserInput(working, options?.userInput);
+
+            // 8) 调试导出
+            this._exportDebugData({ sourceWindow, requestId, working, baseStrategy, orderedRefs, inlineMapped, listLevelOverrides, debug: options?.debug, targetOrigin });
+
+            // assembleOnly 模式：只返回组装好的 messages，不调 LLM
+            if (assembleOnly) {
+                // 构建 identifier → name 映射（从 promptCollection 取，order 里没有 name）
+                const idToName = new Map();
+                try {
+                    if (promptManager && typeof promptManager.getPromptCollection === 'function') {
+                        const pc = promptManager.getPromptCollection();
+                        const coll = pc?.collection || [];
+                        for (const p of coll) {
+                            if (p?.identifier) idToName.set(p.identifier, p.name || p.label || p.title || '');
+                        }
+                    }
+                } catch { }
+                const messages = working.map(m => {
+                    const id = m.identifier || undefined;
+                    const componentName = id ? (idToName.get(id) || undefined) : undefined;
+                    return { role: m.role, content: m.content, identifier: id, name: componentName };
+                });
+                this.postToTarget(sourceWindow, 'assemblePromptResult', {
+                    id: requestId,
+                    messages: messages
+                }, targetOrigin);
+                return { messages };
+            }
+
+            // 9) 发送
+            return await this._sendMessages(working, { ...options, debug: { ...(options?.debug || {}), _exported: true } }, requestId, sourceWindow, targetOrigin);
 
         }; // end executeCore
 
@@ -1433,7 +1433,7 @@ class CallGenerateService {
                     overrides: listLevelOverrides || null,
                 };
                 this.postToTarget(sourceWindow, 'blueprint', bp, targetOrigin);
-            } catch {}
+            } catch { }
         }
     }
 
@@ -1451,10 +1451,10 @@ class CallGenerateService {
                     const userInputLen = String(options?.userInput || '').length;
                     xbLog.info('callGenerateBridge', `generateRequest id=${requestId} stream=${!!streamingEnabled} comps=${compsCount} userInputLen=${userInputLen}`);
                 }
-            } catch {}
+            } catch { }
             return await this.handleRequestInternal(options, requestId, sourceWindow, targetOrigin);
         } catch (err) {
-            try { xbLog.error('callGenerateBridge', `generateRequest failed id=${requestId}`, err); } catch {}
+            try { xbLog.error('callGenerateBridge', `generateRequest failed id=${requestId}`, err); } catch { }
             this.sendError(sourceWindow, requestId, streamingEnabled, err, 'BAD_REQUEST', null, targetOrigin);
             return null;
         }
@@ -1463,12 +1463,12 @@ class CallGenerateService {
     /** 取消会话 */
     cancel(sessionId) {
         const s = this.sessions.get(this.normalizeSessionId(sessionId));
-        try { s?.abortController?.abort(); } catch {}
+        try { s?.abortController?.abort(); } catch { }
     }
 
     /** 清理所有会话 */
     cleanup() {
-        this.sessions.forEach(s => { try { s.abortController?.abort(); } catch {} });
+        this.sessions.forEach(s => { try { s.abortController?.abort(); } catch { } });
         this.sessions.clear();
     }
 }
@@ -1486,7 +1486,7 @@ let __xb_generate_listener = null;
 export function initCallGenerateHostBridge() {
     if (typeof window === 'undefined') return;
     if (__xb_generate_listener_attached) return;
-    try { xbLog.info('callGenerateBridge', 'initCallGenerateHostBridge'); } catch {}
+    try { xbLog.info('callGenerateBridge', 'initCallGenerateHostBridge'); } catch { }
     __xb_generate_listener = async function (event) {
         try {
             const data = event && event.data || {};
@@ -1528,47 +1528,47 @@ export function initCallGenerateHostBridge() {
                 return;
             }
         } catch (e) {
-            try { xbLog.error('callGenerateBridge', 'listener error', e); } catch {}
+            try { xbLog.error('callGenerateBridge', 'listener error', e); } catch { }
         }
     };
     // eslint-disable-next-line no-restricted-syntax -- bridge listener; origin can be null for sandboxed iframes.
-    try { window.addEventListener('message', __xb_generate_listener); } catch (e) {}
+    try { window.addEventListener('message', __xb_generate_listener); } catch (e) { }
     __xb_generate_listener_attached = true;
 }
 
 export function cleanupCallGenerateHostBridge() {
     if (typeof window === 'undefined') return;
     if (!__xb_generate_listener_attached) return;
-    try { xbLog.info('callGenerateBridge', 'cleanupCallGenerateHostBridge'); } catch {}
-    try { window.removeEventListener('message', __xb_generate_listener); } catch (e) {}
+    try { xbLog.info('callGenerateBridge', 'cleanupCallGenerateHostBridge'); } catch { }
+    try { window.removeEventListener('message', __xb_generate_listener); } catch (e) { }
     __xb_generate_listener_attached = false;
     __xb_generate_listener = null;
-    try { callGenerateService.cleanup(); } catch (e) {}
+    try { callGenerateService.cleanup(); } catch (e) { }
 }
 
 if (typeof window !== 'undefined') {
     Object.assign(window, { xiaobaixCallGenerateService: callGenerateService, initCallGenerateHostBridge, cleanupCallGenerateHostBridge });
-    try { initCallGenerateHostBridge(); } catch (e) {}
+    try { initCallGenerateHostBridge(); } catch (e) { }
     try {
         window.addEventListener('xiaobaixEnabledChanged', (e) => {
             try {
                 const enabled = e && e.detail && e.detail.enabled === true;
                 if (enabled) initCallGenerateHostBridge(); else cleanupCallGenerateHostBridge();
-            } catch (_) {}
+            } catch (_) { }
         });
         document.addEventListener('xiaobaixEnabledChanged', (e) => {
             try {
                 const enabled = e && e.detail && e.detail.enabled === true;
                 if (enabled) initCallGenerateHostBridge(); else cleanupCallGenerateHostBridge();
-            } catch (_) {}
+            } catch (_) { }
         });
-        window.addEventListener('beforeunload', () => { try { cleanupCallGenerateHostBridge(); } catch (_) {} });
-    } catch (_) {}
+        window.addEventListener('beforeunload', () => { try { cleanupCallGenerateHostBridge(); } catch (_) { } });
+    } catch (_) { }
 
     // ===== 全局 API 暴露：与 iframe 调用方式完全一致 =====
     // 创建命名空间
     window.LittleWhiteBox = window.LittleWhiteBox || {};
-    
+
     /**
      * 全局 callGenerate 函数
      * 使用方式与 iframe 中完全一致：await window.callGenerate(options)
@@ -1593,22 +1593,22 @@ if (typeof window !== 'undefined') {
      *     api: { inherit: true }
      * });
      */
-    window.LittleWhiteBox.callGenerate = async function(options) {
+    window.LittleWhiteBox.callGenerate = async function (options) {
         return new Promise((resolve, reject) => {
             const requestId = `global-${Date.now()}-${Math.random().toString(36).slice(2)}`;
             const streamingEnabled = options?.streaming?.enabled !== false;
-            
+
             // 处理流式回调
             let onChunkCallback = null;
             if (streamingEnabled && typeof options?.streaming?.onChunk === 'function') {
                 onChunkCallback = options.streaming.onChunk;
             }
-            
+
             // 监听响应
             const listener = (event) => {
                 const data = event.data;
                 if (!data || data.source !== SOURCE_TAG || data.id !== requestId) return;
-                
+
                 if (data.type === 'generateStreamChunk' && onChunkCallback) {
                     // 流式文本块回调
                     try {
@@ -1627,10 +1627,10 @@ if (typeof window !== 'undefined') {
                     reject(data.error);
                 }
             };
-            
+
             // eslint-disable-next-line no-restricted-syntax -- local listener for internal request flow.
             window.addEventListener('message', listener);
-            
+
             // 发送请求
             handleGenerateRequest(options, requestId, window).catch(err => {
                 window.removeEventListener('message', listener);
@@ -1638,7 +1638,7 @@ if (typeof window !== 'undefined') {
             });
         });
     };
-    
+
     /**
      * 全局 assemblePrompt 函数
      * 只组装提示词，不调用 LLM，返回组装好的 messages 数组
@@ -1653,7 +1653,7 @@ if (typeof window !== 'undefined') {
      * });
      * // messages = [{ role: 'system', content: '...' }, ...]
      */
-    window.LittleWhiteBox.assemblePrompt = async function(options) {
+    window.LittleWhiteBox.assemblePrompt = async function (options) {
         return new Promise((resolve, reject) => {
             const requestId = `assemble-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -1686,22 +1686,22 @@ if (typeof window !== 'undefined') {
      * 取消指定会话
      * @param {string} sessionId - 会话 ID（如 'xb1', 'xb2' 等）
      */
-    window.LittleWhiteBox.callGenerate.cancel = function(sessionId) {
+    window.LittleWhiteBox.callGenerate.cancel = function (sessionId) {
         callGenerateService.cancel(sessionId);
     };
-    
+
     /**
      * 清理所有会话
      */
-    window.LittleWhiteBox.callGenerate.cleanup = function() {
+    window.LittleWhiteBox.callGenerate.cleanup = function () {
         callGenerateService.cleanup();
     };
-    
-    window.LittleWhiteBox.listChatCompletionPresets = function() {
+
+    window.LittleWhiteBox.listChatCompletionPresets = function () {
         return Object.keys(openai_setting_names || {});
     };
 
-    window.LittleWhiteBox.getSelectedPresetName = function() {
+    window.LittleWhiteBox.getSelectedPresetName = function () {
         return oai_settings?.preset_settings_openai || '';
     };
 

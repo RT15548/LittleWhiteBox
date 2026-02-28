@@ -182,5 +182,6 @@ export const TasksStorage = new StorageFile('LittleWhiteBox_Tasks.json');
 export const StoryOutlineStorage = new StorageFile('LittleWhiteBox_StoryOutline.json');
 export const NovelDrawStorage = new StorageFile('LittleWhiteBox_NovelDraw.json', { debounceMs: 800 });
 export const TtsStorage = new StorageFile('LittleWhiteBox_TTS.json', { debounceMs: 800 });
+export const EnaPlannerStorage = new StorageFile('LittleWhiteBox_EnaPlanner.json', { debounceMs: 800 });
 export const CommonSettingStorage = new StorageFile('LittleWhiteBox_CommonSettings.json', { debounceMs: 1000 });
 export const VectorStorage = new StorageFile('LittleWhiteBox_Vectors.json', { debounceMs: 3000 });

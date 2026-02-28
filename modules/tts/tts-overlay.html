@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -1275,7 +1275,7 @@ select.input { cursor: pointer; }
                 <div class="tip-box" style="margin-bottom: 16px;">
                     <i class="fa-solid fa-info-circle"></i>
                     <div>
-                        <strong>试用音色</strong> — 无需配置，使用插件服务器（11个音色）<br>
+                        <strong>试用音色</strong> — 无需配置，使用插件服务器（21个音色）<br>
                         <strong>鉴权音色</strong> — 需配置火山引擎 API（200+ 音色 + 复刻）
                     </div>
                 </div>
@@ -1719,19 +1719,30 @@ let selectedTrialVoiceValue = '';
 let selectedAuthVoiceValue = '';
 let editingVoiceValue = null;
 let activeSaveBtn = null;
+let pendingSaveRequest = null;
 
 const TRIAL_VOICES = [
-    { key: 'female_1', name: '桃夭', tag: '甜蜜仙子', gender: 'female' },
-    { key: 'female_2', name: '霜华', tag: '清冷仙子', gender: 'female' },
-    { key: 'female_3', name: '顾姐', tag: '御姐烟嗓', gender: 'female' },
-    { key: 'female_4', name: '苏菲', tag: '优雅知性', gender: 'female' },
-    { key: 'female_5', name: '嘉欣', tag: '港风甜心', gender: 'female' },
-    { key: 'female_6', name: '青梅', tag: '清秀少年音', gender: 'female' },
-    { key: 'female_7', name: '可莉', tag: '奶音萝莉', gender: 'female' },
-    { key: 'male_1', name: '夜枭', tag: '磁性低音', gender: 'male' },
-    { key: 'male_2', name: '君泽', tag: '温润公子', gender: 'male' },
-    { key: 'male_3', name: '沐阳', tag: '沉稳暖男', gender: 'male' },
-    { key: 'male_4', name: '梓辛', tag: '青春少年', gender: 'male' },
+    { key: 'female_1',    name: '晓晓',   tag: '温暖百变', gender: 'female' },
+    { key: 'female_2',    name: '晓伊',   tag: '清冷知性', gender: 'female' },
+    { key: 'female_3',    name: '小北',   tag: '东北甜妹', gender: 'female' },
+    { key: 'female_4',    name: '小妮',   tag: '陕西姑娘', gender: 'female' },
+    { key: 'hk_female_1', name: '曉佳',   tag: '粤语女声', gender: 'female' },
+    { key: 'hk_female_2', name: '曉曼',   tag: '粤语温柔', gender: 'female' },
+    { key: 'hk_male_1',   name: '雲龍',   tag: '粤语男声', gender: 'male' },
+    { key: 'tw_female_1', name: '曉臻',   tag: '台灣女聲', gender: 'female' },
+    { key: 'tw_female_2', name: '曉雨',   tag: '台灣温柔', gender: 'female' },
+    { key: 'tw_male_1',   name: '雲哲',   tag: '台灣男聲', gender: 'male' },
+    { key: 'male_1',      name: '云希',   tag: '少年温暖', gender: 'male' },
+    { key: 'male_2',      name: '云健',   tag: '阳刚有力', gender: 'male' },
+    { key: 'male_3',      name: '云扬',   tag: '专业播报', gender: 'male' },
+    { key: 'male_4',      name: '云夏',   tag: '少年活力', gender: 'male' },
+    { key: 'en_female_1', name: 'Jenny',  tag: '美式甜美', gender: 'female' },
+    { key: 'en_female_2', name: 'Aria',   tag: '美式知性', gender: 'female' },
+    { key: 'en_female_3', name: 'Sonia',  tag: '英式优雅', gender: 'female' },
+    { key: 'en_male_1',   name: 'Guy',    tag: '美式磁性', gender: 'male' },
+    { key: 'en_male_2',   name: 'Ryan',   tag: '英式绅士', gender: 'male' },
+    { key: 'ja_female_1', name: '七海',   tag: '日式温柔', gender: 'female' },
+    { key: 'ja_male_1',   name: '圭太',   tag: '日式少年', gender: 'male' },
 ];
 const TRIAL_VOICE_KEYS = new Set(TRIAL_VOICES.map(v => v.key));
 
@@ -1779,6 +1790,25 @@ function handleSaveResult(success) {
     } else if (i) {
         i.className = btn._origIcon || 'fa-solid fa-floppy-disk';
     }
+}
+
+function requestSaveConfig(form, btn = null) {
+    const requestId = `tts_save_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    if (pendingSaveRequest?.timer) clearTimeout(pendingSaveRequest.timer);
+    if (btn) setSavingState(btn);
+
+    pendingSaveRequest = {
+        requestId,
+        timer: setTimeout(() => {
+            if (!pendingSaveRequest || pendingSaveRequest.requestId !== requestId) return;
+            pendingSaveRequest = null;
+            handleSaveResult(false);
+            post('xb-tts:toast', { type: 'error', message: '保存超时（3秒）' });
+        }, 3000),
+    };
+
+    post('xb-tts:save-config', { requestId, patch: form });
 }
 
 function setTestStatus(elId, status, text) {
@@ -2050,7 +2080,7 @@ function bindMyVoiceEvents(listEl) {
             const input = btn.closest('.voice-item').querySelector('.voice-edit-input');
             if (item && input?.value?.trim()) {
                 item.name = input.value.trim();
-                post('xb-tts:save-config', collectForm());
+                requestSaveConfig(collectForm());
             }
             editingVoiceValue = null;
             renderMyVoiceList();
@@ -2080,7 +2110,7 @@ function bindMyVoiceEvents(listEl) {
                 renderTrialVoiceList();
                 renderAuthVoiceList();
                 updateCurrentVoiceDisplay();
-                post('xb-tts:save-config', collectForm());
+                requestSaveConfig(collectForm());
             }
         });
     });
@@ -2163,7 +2193,12 @@ function normalizeMySpeakers(list) {
         value: String(item?.value || '').trim(),
         source: item?.source || getVoiceSource(item?.value || ''),
         resourceId: item?.resourceId || null,
-    })).filter(item => item.value);
+    })).filter(item => {
+        if (!item.value) return false;
+        // Keep UI behavior aligned with runtime: remove unsupported legacy free voices.
+        if (item.source === 'free' && !TRIAL_VOICE_KEYS.has(item.value)) return false;
+        return true;
+    });
 }
 
 function applyCacheStats(stats = {}) {
@@ -2298,11 +2333,17 @@ window.addEventListener('message', ev => {
             fillForm(payload);
             break;
         case 'xb-tts:config-saved':
+            if (pendingSaveRequest?.requestId && payload?.requestId && pendingSaveRequest.requestId !== payload.requestId) break;
+            if (pendingSaveRequest?.timer) clearTimeout(pendingSaveRequest.timer);
+            pendingSaveRequest = null;
             fillForm(payload);
             handleSaveResult(true);
             post('xb-tts:toast', { type: 'success', message: '配置已保存' });
             break;
         case 'xb-tts:config-save-error':
+            if (pendingSaveRequest?.requestId && payload?.requestId && pendingSaveRequest.requestId !== payload.requestId) break;
+            if (pendingSaveRequest?.timer) clearTimeout(pendingSaveRequest.timer);
+            pendingSaveRequest = null;
             handleSaveResult(false);
             post('xb-tts:toast', { type: 'error', message: payload?.message || '保存失败' });
             break;
@@ -2417,7 +2458,7 @@ document.addEventListener('DOMContentLoaded', () => {
         $$('.voice-tab')[0].classList.add('active');
         $('panel-myVoice').classList.add('active');
         
-        post('xb-tts:save-config', collectForm());
+        requestSaveConfig(collectForm());
         post('xb-tts:toast', { type: 'success', message: `已添加：${name}` });
     });
 
@@ -2441,7 +2482,7 @@ document.addEventListener('DOMContentLoaded', () => {
         $$('.voice-tab')[0].classList.add('active');
         $('panel-myVoice').classList.add('active');
         
-        post('xb-tts:save-config', collectForm());
+        requestSaveConfig(collectForm());
         post('xb-tts:toast', { type: 'success', message: `已添加：${name}` });
     });
 
@@ -2460,12 +2501,12 @@ document.addEventListener('DOMContentLoaded', () => {
         
         renderMyVoiceList();
         updateCurrentVoiceDisplay();
-        post('xb-tts:save-config', collectForm());
+        requestSaveConfig(collectForm());
         post('xb-tts:toast', { type: 'success', message: `已添加：${name || id}` });
     });
 
     ['saveConfigBtn', 'saveVoiceBtn', 'saveAdvancedBtn', 'saveCacheBtn'].forEach(id => {
-        $(id)?.addEventListener('click', () => { setSavingState($(id)); post('xb-tts:save-config', collectForm()); });
+        $(id)?.addEventListener('click', () => { requestSaveConfig(collectForm(), $(id)); });
     });
 
     $('cacheRefreshBtn').addEventListener('click', () => post('xb-tts:cache-refresh'));
@@ -2477,3 +2518,4 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
+

@@ -29,18 +29,18 @@ class ContextBridgeService {
 
     init() {
         if (this._attached) return;
-        try { xbLog.info('contextBridge', 'init'); } catch {}
+        try { xbLog.info('contextBridge', 'init'); } catch { }
 
         try {
             this._previousChatId = getCurrentChatId();
-        } catch {}
+        } catch { }
 
         const self = this;
         this._listener = function (event) {
             try {
                 self._handleMessage(event);
             } catch (e) {
-                try { xbLog.error('contextBridge', 'message handler error', e); } catch {}
+                try { xbLog.error('contextBridge', 'message handler error', e); } catch { }
             }
         };
 
@@ -52,8 +52,8 @@ class ContextBridgeService {
 
     cleanup() {
         if (!this._attached) return;
-        try { xbLog.info('contextBridge', 'cleanup'); } catch {}
-        try { window.removeEventListener('message', this._listener); } catch {}
+        try { xbLog.info('contextBridge', 'cleanup'); } catch { }
+        try { window.removeEventListener('message', this._listener); } catch { }
         this._listener = null;
         this._events.cleanup();
         this._pendingEvents.length = 0;
@@ -81,14 +81,14 @@ class ContextBridgeService {
             while (this._pendingEvents.length > 0) {
                 const pending = this._pendingEvents.shift();
                 // eslint-disable-next-line no-restricted-syntax -- delivering queued events to newly ready iframe
-                try { event.source?.postMessage(pending, '*'); } catch {}
+                try { event.source?.postMessage(pending, '*'); } catch { }
             }
         }
 
         // 推送上下文快照
         const snapshot = this._buildContextSnapshot(msgIndex);
         // eslint-disable-next-line no-restricted-syntax -- sending context snapshot to requesting iframe
-        try { event.source?.postMessage(snapshot, '*'); } catch {}
+        try { event.source?.postMessage(snapshot, '*'); } catch { }
     }
 
     /**
@@ -102,7 +102,7 @@ class ContextBridgeService {
         for (const iframe of iframes) {
             try {
                 if (iframe.contentWindow === source) return iframe;
-            } catch {}
+            } catch { }
         }
         return null;
     }
@@ -160,7 +160,7 @@ class ContextBridgeService {
         const message = { type: 'st-event', source: SOURCE_TAG, event: eventName, payload };
         for (const iframe of iframes) {
             // eslint-disable-next-line no-restricted-syntax -- broadcasting event to template iframes
-            try { iframe.contentWindow?.postMessage(message, '*'); } catch {}
+            try { iframe.contentWindow?.postMessage(message, '*'); } catch { }
         }
     }
 
@@ -271,23 +271,23 @@ if (typeof window !== 'undefined') {
     window.LittleWhiteBox = window.LittleWhiteBox || {};
     window.LittleWhiteBox.contextBridge = contextBridgeService;
 
-    try { initContextBridge(); } catch (e) {}
+    try { initContextBridge(); } catch (e) { }
 
     try {
         window.addEventListener('xiaobaixEnabledChanged', (e) => {
             try {
                 const enabled = e && e.detail && e.detail.enabled === true;
                 if (enabled) initContextBridge(); else cleanupContextBridge();
-            } catch {}
+            } catch { }
         });
         document.addEventListener('xiaobaixEnabledChanged', (e) => {
             try {
                 const enabled = e && e.detail && e.detail.enabled === true;
                 if (enabled) initContextBridge(); else cleanupContextBridge();
-            } catch {}
+            } catch { }
         });
         window.addEventListener('beforeunload', () => {
-            try { cleanupContextBridge(); } catch {}
+            try { cleanupContextBridge(); } catch { }
         });
-    } catch {}
+    } catch { }
 }
