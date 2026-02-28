@@ -716,35 +716,51 @@ async function buildWorldbookBlock(scanText) {
  * EJS rendering for worldbook entries
  * --------------------------*/
 function getChatVariables() {
-  // 1) Try chat-level variables (multiple paths)
-  try {
-    const ctx = getContextSafe();
-    if (ctx?.chatMetadata?.variables && Object.keys(ctx.chatMetadata.variables).length) {
-      return ctx.chatMetadata.variables;
-    }
-  } catch {}
-  try {
-    if (window.chat_metadata?.variables && Object.keys(window.chat_metadata.variables).length) {
-      return window.chat_metadata.variables;
-    }
-  } catch {}
-  try {
-    const ctx = getContextSafe();
-    if (ctx?.chat_metadata?.variables && Object.keys(ctx.chat_metadata.variables).length) {
-      return ctx.chat_metadata.variables;
-    }
-  } catch {}
+  let vars = {};
 
-  // 2) Fallback: message-level variables (some presets store vars here instead)
+  // 1) Chat-level variables
+  try {
+    const ctx = getContextSafe();
+    if (ctx?.chatMetadata?.variables) vars = { ...ctx.chatMetadata.variables };
+  } catch {}
+  if (!Object.keys(vars).length) {
+    try {
+      if (window.chat_metadata?.variables) vars = { ...window.chat_metadata.variables };
+    } catch {}
+  }
+  if (!Object.keys(vars).length) {
+    try {
+      const ctx = getContextSafe();
+      if (ctx?.chat_metadata?.variables) vars = { ...ctx.chat_metadata.variables };
+    } catch {}
+  }
+
+  // 2) Always merge message-level variables (some presets store vars here instead of chat-level)
   try {
     const msgVars = getLatestMessageVarTable();
-    if (msgVars && typeof msgVars === 'object' && Object.keys(msgVars).length) {
-      console.log('[EnaPlanner] Chat-level vars empty, using message-level vars as fallback');
-      return msgVars;
+    if (msgVars && typeof msgVars === 'object') {
+      for (const key of Object.keys(msgVars)) {
+        // Skip MVU internal metadata keys
+        if (key === 'schema' || key === 'display_data' || key === 'delta_data') continue;
+        if (vars[key] === undefined) {
+          // Chat-level doesn't have this key at all — take from message-level
+          vars[key] = msgVars[key];
+        } else if (
+          vars[key] && typeof vars[key] === 'object' && !Array.isArray(vars[key]) &&
+          msgVars[key] && typeof msgVars[key] === 'object' && !Array.isArray(msgVars[key])
+        ) {
+          // Both have this key as objects — shallow merge (message-level fills gaps)
+          for (const subKey of Object.keys(msgVars[key])) {
+            if (vars[key][subKey] === undefined) {
+              vars[key][subKey] = msgVars[key][subKey];
+            }
+          }
+        }
+      }
     }
   } catch {}
 
-  return {};
+  return vars;
 }
 
 function buildEjsContext() {
