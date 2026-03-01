@@ -618,6 +618,50 @@ textarea.input {
   font-size: .8125rem;
 }
 
+/* Message cards inside log */
+.msg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.msg-card {
+  border-radius: var(--radius);
+  border-left: 3px solid var(--bdr);
+  background: var(--code-bg);
+  padding: 8px 12px;
+}
+
+.msg-card.msg-system { border-left-color: #6b8afd; }
+.msg-card.msg-user   { border-left-color: #4ecdc4; }
+.msg-card.msg-assistant { border-left-color: #f7a046; }
+
+.msg-role {
+  font-size: .6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: 4px;
+  color: var(--txt3);
+}
+
+.msg-system .msg-role { color: #6b8afd; }
+.msg-user .msg-role   { color: #4ecdc4; }
+.msg-assistant .msg-role { color: #f7a046; }
+
+.msg-content {
+  font-family: 'SF Mono', Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: .6875rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--code-txt);
+  margin: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
 details {
   margin-bottom: 6px;
 }
