@@ -636,6 +636,23 @@
         const time = item.time ? new Date(item.time).toLocaleString() : '-';
         const cls = item.ok ? 'success' : 'error';
         const label = item.ok ? '成功' : '失败';
+
+        // Format request messages: one card per message with role label
+        let msgHtml = '';
+        if (Array.isArray(item.requestMessages) && item.requestMessages.length) {
+          msgHtml = item.requestMessages.map((m, i) => {
+            const role = escapeHtml(m.role || 'unknown');
+            const roleClass = role === 'system' ? 'msg-system' : role === 'user' ? 'msg-user' : 'msg-assistant';
+            const content = escapeHtml(m.content || '');
+            return `<div class="msg-card ${roleClass}">
+              <div class="msg-role">[${i + 1}] ${role}</div>
+              <pre class="msg-content">${content}</pre>
+            </div>`;
+          }).join('');
+        } else {
+          msgHtml = '<div class="log-empty">无消息</div>';
+        }
+
         return `
         <div class="log-item">
           <div class="log-meta">
@@ -643,8 +660,8 @@
             <span>${escapeHtml(item.model || '-')}</span>
           </div>
           ${item.error ? `<div class="log-error">${escapeHtml(item.error)}</div>` : ''}
-          <details><summary>请求消息</summary>
-            <pre class="log-pre">${escapeHtml(JSON.stringify(item.requestMessages || [], null, 2))}</pre>
+          <details><summary>请求消息 (${(item.requestMessages || []).length} 条)</summary>
+            <div class="msg-list">${msgHtml}</div>
           </details>
           <details><summary>原始回复</summary>
             <pre class="log-pre">${escapeHtml(item.rawReply || '')}</pre>
