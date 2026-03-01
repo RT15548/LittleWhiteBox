@@ -307,7 +307,8 @@ function formatCharCardBlock(charObj) {
 function cleanAiMessageText(text) {
     let out = String(text ?? '');
 
-    // 1) Strip properly wrapped <think>/<thinking> blocks only.
+    // 1) Strip everything before and including </think> (handles unclosed think blocks)
+    out = out.replace(/^[\s\S]*?<\/think>/i, '');
     out = out.replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, '');
     out = out.replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, '');
 
