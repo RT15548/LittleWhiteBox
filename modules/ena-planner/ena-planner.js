@@ -7,6 +7,7 @@ import { extensionFolderPath } from '../../core/constants.js';
 import { EnaPlannerStorage } from '../../core/server-storage.js';
 import { postToIframe, isTrustedIframeEvent } from '../../core/iframe-messaging.js';
 import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.js';
+import { formatOutlinePrompt } from '../story-outline/story-outline.js';
 
 const EXT_NAME = 'ena-planner';
 const OVERLAY_ID = 'xiaobaix-ena-planner-overlay';
@@ -307,7 +308,8 @@ function formatCharCardBlock(charObj) {
 function cleanAiMessageText(text) {
     let out = String(text ?? '');
 
-    // 1) Strip properly wrapped <think>/<thinking> blocks only.
+    // 1) Strip everything before and including </think> (handles unclosed think blocks)
+    out = out.replace(/^[\s\S]*?<\/think>/i, '');
     out = out.replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, '');
     out = out.replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, '');
 
@@ -1134,6 +1136,7 @@ async function buildPlannerMessages(rawUserInput) {
     const scanText = [charBlockRaw, cachedSummary, recentChatRaw, vectorRaw, plotsRaw, rawUserInput].join('\n\n');
 
     const worldbookRaw = await buildWorldbookBlock(scanText);
+    const outlineRaw = typeof formatOutlinePrompt === 'function' ? (formatOutlinePrompt() || '') : '';
 
     // Render templates/macros
     const charBlock = await renderTemplateAll(charBlockRaw, env, messageVars);
@@ -1143,6 +1146,7 @@ async function buildPlannerMessages(rawUserInput) {
     const storySummary = cachedSummary.trim().length > 30 ? await renderTemplateAll(cachedSummary, env, messageVars) : '';
     const worldbook = await renderTemplateAll(worldbookRaw, env, messageVars);
     const userInput = await renderTemplateAll(rawUserInput, env, messageVars);
+    const storyOutline = outlineRaw.trim().length > 10 ? await renderTemplateAll(outlineRaw, env, messageVars) : '';
 
     const messages = [];
 
@@ -1157,6 +1161,11 @@ async function buildPlannerMessages(rawUserInput) {
 
     // 3) Worldbook
     if (String(worldbook).trim()) messages.push({ role: 'system', content: worldbook });
+
+    // 3.5) Story Outline / 剧情地图（小白板世界架构）
+    if (storyOutline.trim()) {
+        messages.push({ role: 'system', content: `<plot_map>\n${storyOutline}\n</plot_map>` });
+    }
 
     // 4) Chat history (last 2 AI responses — floors N-1 & N-3)
     if (String(recentChat).trim()) messages.push({ role: 'system', content: recentChat });

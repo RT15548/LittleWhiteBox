@@ -1395,4 +1395,4 @@ jQuery(() => {
     window.registerModuleCleanup?.('storyOutline', cleanup);
 });
 
-export { cleanup };
+export { cleanup, formatOutlinePrompt };
