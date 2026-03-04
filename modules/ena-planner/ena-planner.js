@@ -8,6 +8,7 @@ import { EnaPlannerStorage } from '../../core/server-storage.js';
 import { postToIframe, isTrustedIframeEvent } from '../../core/iframe-messaging.js';
 import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.js';
 import { formatOutlinePrompt } from '../story-outline/story-outline.js';
+import jsyaml from '../../libs/js-yaml.mjs';
 
 const EXT_NAME = 'ena-planner';
 const OVERLAY_ID = 'xiaobaix-ena-planner-overlay';
@@ -551,6 +552,7 @@ function matchSelective(entry, scanText) {
     const keys2 = Array.isArray(entry?.keysecondary) ? entry.keysecondary.filter(Boolean) : [];
 
     const total = keys.length;
+    if (total === 0) return false;
     const hit = keys.reduce((acc, kw) => acc + (keywordPresent(scanText, kw) ? 1 : 0), 0);
 
     let ok = false;
@@ -838,6 +840,17 @@ function resolveGetMessageVariableMacros(text, messageVars) {
     });
 }
 
+function resolveFormatMessageVariableMacros(text, messageVars) {
+    return text.replace(/{{\s*format_message_variable::([^}]+)\s*}}/g, (_, rawPath) => {
+        const path = String(rawPath || '').trim();
+        if (!path) return '';
+        const val = deepGet(messageVars, path);
+        if (val == null) return '';
+        if (typeof val === 'string') return val;
+        try { return jsyaml.dump(val, { lineWidth: -1, noRefs: true }); } catch { return safeStringify(val); }
+    });
+}
+
 function getLatestMessageVarTable() {
     try {
         if (window.Mvu?.getMvuData) {
@@ -858,6 +871,7 @@ async function renderTemplateAll(text, env, messageVars) {
     out = await evalEjsIfPossible(out, env);
     out = substituteMacrosViaST(out);
     out = resolveGetMessageVariableMacros(out, messageVars);
+    out = resolveFormatMessageVariableMacros(out, messageVars);
     return out;
 }
 
