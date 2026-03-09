@@ -568,14 +568,14 @@ export async function restoreFromServer(onProgress) {
         throw new Error(`服务器返回 ${res.status}`);
     }
 
-    const text = await res.text();
-    if (!text) {
+    const arrayBuffer = await res.arrayBuffer();
+    if (!arrayBuffer || arrayBuffer.byteLength === 0) {
         throw new Error('服务器上没有找到此聊天的备份');
     }
 
     onProgress?.('解压文件...');
 
-    const zipData = base64ToUint8(text);
+    const zipData = new Uint8Array(arrayBuffer);
 
     let unzipped;
     try {
