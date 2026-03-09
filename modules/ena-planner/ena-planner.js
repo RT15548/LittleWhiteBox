@@ -1147,7 +1147,7 @@ async function buildPlannerMessages(rawUserInput) {
     const vectorRaw = '';
 
     // Build scanText for worldbook keyword activation
-    const scanText = [charBlockRaw, cachedSummary, recentChatRaw, vectorRaw, plotsRaw, rawUserInput].join('\n\n');
+    const scanText = [charBlockRaw, recentChatRaw, vectorRaw, plotsRaw, rawUserInput].join('\n\n');
 
     const worldbookRaw = await buildWorldbookBlock(scanText);
     const outlineRaw = typeof formatOutlinePrompt === 'function' ? (formatOutlinePrompt() || '') : '';
