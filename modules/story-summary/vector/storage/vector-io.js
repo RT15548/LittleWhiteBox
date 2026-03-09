@@ -95,7 +95,14 @@ function base64ToUint8(base64) {
 
 // 服务器备份文件名
 function getBackupFilename(chatId) {
-    return `LWB_VectorBackup_${chatId}.zip`;
+    // chatId 可能含中文/特殊字符，ST 只接受 [a-zA-Z0-9_-]
+    // 用简单 hash 生成安全文件名
+    let hash = 0;
+    for (let i = 0; i < chatId.length; i++) {
+        hash = ((hash << 5) - hash + chatId.charCodeAt(i)) | 0;
+    }
+    const safe = (hash >>> 0).toString(36);
+    return `LWB_VectorBackup_${safe}.zip`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
