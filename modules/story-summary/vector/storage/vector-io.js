@@ -5,6 +5,7 @@
 
 import { zipSync, unzipSync, strToU8, strFromU8 } from '../../../../libs/fflate.mjs';
 import { getContext } from '../../../../../../../extensions.js';
+import { getRequestHeaders } from '../../../../../../../../script.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import {
     getMeta,
@@ -71,6 +72,30 @@ function downloadBlob(blob, filename) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+// 二进制 Uint8Array → base64（分块处理，避免 btoa 栈溢出）
+function uint8ToBase64(uint8) {
+    const CHUNK = 0x8000;
+    let result = '';
+    for (let i = 0; i < uint8.length; i += CHUNK) {
+        result += String.fromCharCode.apply(null, uint8.subarray(i, i + CHUNK));
+    }
+    return btoa(result);
+}
+
+// base64 → Uint8Array
+function base64ToUint8(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+}
+
+// 服务器备份文件名
+function getBackupFilename(chatId) {
+    return `LWB_VectorBackup_${chatId}.zip`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -375,6 +400,308 @@ export async function importVectors(file, onProgress) {
     });
 
     xbLog.info(MODULE_ID, `导入完成: ${chunkMetas.length} chunks, ${eventMetas.length} events, ${stateAtoms.length} state atoms`);
+
+    return {
+        chunkCount: chunkMetas.length,
+        eventCount: eventMetas.length,
+        warnings,
+        fingerprintMismatch,
+    };
+}
+// ═══════════════════════════════════════════════════════════════════════════
+// 备份到服务器
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function backupToServer(onProgress) {
+    const { chatId } = getContext();
+    if (!chatId) {
+        throw new Error('未打开聊天');
+    }
+
+    onProgress?.('读取数据...');
+
+    const meta = await getMeta(chatId);
+    const chunks = await getAllChunks(chatId);
+    const chunkVectors = await getAllChunkVectors(chatId);
+    const eventVectors = await getAllEventVectors(chatId);
+    const stateAtoms = getStateAtoms();
+    const stateVectors = await getAllStateVectors(chatId);
+
+    if (chunkVectors.length === 0 && eventVectors.length === 0 && stateVectors.length === 0) {
+        throw new Error('没有可备份的向量数据');
+    }
+
+    const dims = chunkVectors[0]?.vector?.length
+        || eventVectors[0]?.vector?.length
+        || stateVectors[0]?.vector?.length
+        || 0;
+    if (dims === 0) {
+        throw new Error('无法确定向量维度');
+    }
+
+    onProgress?.('构建索引...');
+
+    const sortedChunks = [...chunks].sort((a, b) => a.chunkId.localeCompare(b.chunkId));
+    const chunkVectorMap = new Map(chunkVectors.map(cv => [cv.chunkId, cv.vector]));
+
+    const chunksJsonl = sortedChunks.map(c => JSON.stringify({
+        chunkId: c.chunkId,
+        floor: c.floor,
+        chunkIdx: c.chunkIdx,
+        speaker: c.speaker,
+        isUser: c.isUser,
+        text: c.text,
+        textHash: c.textHash,
+    })).join('\n');
+
+    const chunkVectorsOrdered = sortedChunks.map(c => chunkVectorMap.get(c.chunkId) || new Array(dims).fill(0));
+
+    onProgress?.('压缩向量...');
+
+    const sortedEventVectors = [...eventVectors].sort((a, b) => a.eventId.localeCompare(b.eventId));
+    const eventsJsonl = sortedEventVectors.map(ev => JSON.stringify({
+        eventId: ev.eventId,
+    })).join('\n');
+    const eventVectorsOrdered = sortedEventVectors.map(ev => ev.vector);
+
+    const sortedStateVectors = [...stateVectors].sort((a, b) => String(a.atomId).localeCompare(String(b.atomId)));
+    const stateVectorsOrdered = sortedStateVectors.map(v => v.vector);
+    const rDims = sortedStateVectors.find(v => v.rVector?.length)?.rVector?.length || dims;
+    const stateRVectorsOrdered = sortedStateVectors.map(v =>
+        v.rVector?.length ? v.rVector : new Array(rDims).fill(0)
+    );
+    const stateVectorsJsonl = sortedStateVectors.map(v => JSON.stringify({
+        atomId: v.atomId,
+        floor: v.floor,
+        hasRVector: !!(v.rVector?.length),
+        rDims: v.rVector?.length || 0,
+    })).join('\n');
+
+    const manifest = {
+        version: EXPORT_VERSION,
+        exportedAt: Date.now(),
+        chatId,
+        fingerprint: meta.fingerprint || '',
+        dims,
+        chunkCount: sortedChunks.length,
+        chunkVectorCount: chunkVectors.length,
+        eventCount: sortedEventVectors.length,
+        stateAtomCount: stateAtoms.length,
+        stateVectorCount: stateVectors.length,
+        stateRVectorCount: sortedStateVectors.filter(v => v.rVector?.length).length,
+        rDims,
+        lastChunkFloor: meta.lastChunkFloor ?? -1,
+    };
+
+    onProgress?.('打包文件...');
+
+    const zipData = zipSync({
+        'manifest.json': strToU8(JSON.stringify(manifest, null, 2)),
+        'chunks.jsonl': strToU8(chunksJsonl),
+        'chunk_vectors.bin': float32ToBytes(chunkVectorsOrdered, dims),
+        'events.jsonl': strToU8(eventsJsonl),
+        'event_vectors.bin': float32ToBytes(eventVectorsOrdered, dims),
+        'state_atoms.json': strToU8(JSON.stringify(stateAtoms)),
+        'state_vectors.jsonl': strToU8(stateVectorsJsonl),
+        'state_vectors.bin': stateVectorsOrdered.length
+            ? float32ToBytes(stateVectorsOrdered, dims)
+            : new Uint8Array(0),
+        'state_r_vectors.bin': stateRVectorsOrdered.length
+            ? float32ToBytes(stateRVectorsOrdered, rDims)
+            : new Uint8Array(0),
+    }, { level: 1 });
+
+    onProgress?.('上传到服务器...');
+
+    const base64 = uint8ToBase64(zipData);
+    const filename = getBackupFilename(chatId);
+
+    const res = await fetch('/api/files/upload', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ name: filename, data: base64 }),
+    });
+    if (!res.ok) {
+        throw new Error(`服务器返回 ${res.status}`);
+    }
+
+    const sizeMB = (zipData.byteLength / 1024 / 1024).toFixed(2);
+    xbLog.info(MODULE_ID, `备份完成: ${filename} (${sizeMB}MB)`);
+
+    return {
+        filename,
+        size: zipData.byteLength,
+        chunkCount: sortedChunks.length,
+        eventCount: sortedEventVectors.length,
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 从服务器恢复
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function restoreFromServer(onProgress) {
+    const { chatId } = getContext();
+    if (!chatId) {
+        throw new Error('未打开聊天');
+    }
+
+    onProgress?.('从服务器下载...');
+
+    const filename = getBackupFilename(chatId);
+    const res = await fetch(`/user/files/${filename}`, {
+        headers: getRequestHeaders(),
+        cache: 'no-cache',
+    });
+
+    if (!res.ok) {
+        if (res.status === 404) {
+            throw new Error('服务器上没有找到此聊天的备份');
+        }
+        throw new Error(`服务器返回 ${res.status}`);
+    }
+
+    const text = await res.text();
+    if (!text) {
+        throw new Error('服务器上没有找到此聊天的备份');
+    }
+
+    onProgress?.('解压文件...');
+
+    const zipData = base64ToUint8(text);
+
+    let unzipped;
+    try {
+        unzipped = unzipSync(zipData);
+    } catch (e) {
+        throw new Error('备份文件格式错误，无法解压');
+    }
+
+    if (!unzipped['manifest.json']) {
+        throw new Error('缺少 manifest.json');
+    }
+
+    const manifest = JSON.parse(strFromU8(unzipped['manifest.json']));
+
+    if (![1, 2].includes(manifest.version)) {
+        throw new Error(`不支持的版本: ${manifest.version}`);
+    }
+
+    onProgress?.('校验数据...');
+
+    const vectorCfg = getVectorConfig();
+    const currentFingerprint = vectorCfg ? getEngineFingerprint(vectorCfg) : '';
+    const fingerprintMismatch = manifest.fingerprint && currentFingerprint && manifest.fingerprint !== currentFingerprint;
+    const chatIdMismatch = manifest.chatId !== chatId;
+
+    const warnings = [];
+    if (fingerprintMismatch) {
+        warnings.push(`向量引擎不匹配（文件: ${manifest.fingerprint}, 当前: ${currentFingerprint}），导入后需重新生成`);
+    }
+    if (chatIdMismatch) {
+        warnings.push(`聊天ID不匹配（文件: ${manifest.chatId}, 当前: ${chatId}）`);
+    }
+
+    onProgress?.('解析数据...');
+
+    const chunksJsonl = unzipped['chunks.jsonl'] ? strFromU8(unzipped['chunks.jsonl']) : '';
+    const chunkMetas = chunksJsonl.split('\n').filter(Boolean).map(line => JSON.parse(line));
+
+    const chunkVectorsBytes = unzipped['chunk_vectors.bin'];
+    const chunkVectors = chunkVectorsBytes ? bytesToFloat32(chunkVectorsBytes, manifest.dims) : [];
+
+    const eventsJsonl = unzipped['events.jsonl'] ? strFromU8(unzipped['events.jsonl']) : '';
+    const eventMetas = eventsJsonl.split('\n').filter(Boolean).map(line => JSON.parse(line));
+
+    const eventVectorsBytes = unzipped['event_vectors.bin'];
+    const eventVectors = eventVectorsBytes ? bytesToFloat32(eventVectorsBytes, manifest.dims) : [];
+
+    const stateAtoms = unzipped['state_atoms.json']
+        ? JSON.parse(strFromU8(unzipped['state_atoms.json']))
+        : [];
+
+    const stateVectorsJsonl = unzipped['state_vectors.jsonl'] ? strFromU8(unzipped['state_vectors.jsonl']) : '';
+    const stateVectorMetas = stateVectorsJsonl.split('\n').filter(Boolean).map(line => JSON.parse(line));
+
+    const stateVectorsBytes = unzipped['state_vectors.bin'];
+    const stateVectors = (stateVectorsBytes && stateVectorMetas.length)
+        ? bytesToFloat32(stateVectorsBytes, manifest.dims)
+        : [];
+    const stateRVectorsBytes = unzipped['state_r_vectors.bin'];
+    const stateRVectors = (stateRVectorsBytes && stateVectorMetas.length)
+        ? bytesToFloat32(stateRVectorsBytes, manifest.rDims || manifest.dims)
+        : [];
+    const hasRVectorMeta = stateVectorMetas.some(m => typeof m.hasRVector === 'boolean');
+
+    if (chunkMetas.length !== chunkVectors.length) {
+        throw new Error(`chunk 数量不匹配: 元数据 ${chunkMetas.length}, 向量 ${chunkVectors.length}`);
+    }
+    if (eventMetas.length !== eventVectors.length) {
+        throw new Error(`event 数量不匹配: 元数据 ${eventMetas.length}, 向量 ${eventVectors.length}`);
+    }
+    if (stateVectorMetas.length !== stateVectors.length) {
+        throw new Error(`state 向量数量不匹配: 元数据 ${stateVectorMetas.length}, 向量 ${stateVectors.length}`);
+    }
+    if (stateRVectors.length > 0 && stateVectorMetas.length !== stateRVectors.length) {
+        throw new Error(`state r-vector count mismatch: meta=${stateVectorMetas.length}, vectors=${stateRVectors.length}`);
+    }
+
+    onProgress?.('清空旧数据...');
+
+    await clearAllChunks(chatId);
+    await clearEventVectors(chatId);
+    await clearStateVectors(chatId);
+    clearStateAtoms();
+
+    onProgress?.('写入数据...');
+
+    if (chunkMetas.length > 0) {
+        const chunksToSave = chunkMetas.map(meta => ({
+            chunkId: meta.chunkId,
+            floor: meta.floor,
+            chunkIdx: meta.chunkIdx,
+            speaker: meta.speaker,
+            isUser: meta.isUser,
+            text: meta.text,
+            textHash: meta.textHash,
+        }));
+        await saveChunks(chatId, chunksToSave);
+
+        const chunkVectorItems = chunkMetas.map((meta, idx) => ({
+            chunkId: meta.chunkId,
+            vector: chunkVectors[idx],
+        }));
+        await saveChunkVectors(chatId, chunkVectorItems, manifest.fingerprint);
+    }
+
+    if (eventMetas.length > 0) {
+        const eventVectorItems = eventMetas.map((meta, idx) => ({
+            eventId: meta.eventId,
+            vector: eventVectors[idx],
+        }));
+        await saveEventVectors(chatId, eventVectorItems, manifest.fingerprint);
+    }
+
+    if (stateAtoms.length > 0) {
+        saveStateAtoms(stateAtoms);
+    }
+
+    if (stateVectorMetas.length > 0) {
+        const stateVectorItems = stateVectorMetas.map((meta, idx) => ({
+            atomId: meta.atomId,
+            floor: meta.floor,
+            vector: stateVectors[idx],
+            rVector: (stateRVectors[idx] && (!hasRVectorMeta || meta.hasRVector)) ? stateRVectors[idx] : null,
+        }));
+        await saveStateVectors(chatId, stateVectorItems, manifest.fingerprint);
+    }
+
+    await updateMeta(chatId, {
+        fingerprint: manifest.fingerprint,
+        lastChunkFloor: manifest.lastChunkFloor,
+    });
+
+    xbLog.info(MODULE_ID, `从服务器恢复完成: ${chunkMetas.length} chunks, ${eventMetas.length} events, ${stateAtoms.length} state atoms`);
 
     return {
         chunkCount: chunkMetas.length,
