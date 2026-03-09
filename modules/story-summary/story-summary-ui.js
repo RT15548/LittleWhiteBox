@@ -424,6 +424,17 @@
             $('vector-io-status').textContent = '导入中...';
             postMsg('VECTOR_IMPORT_PICK');
         };
+        $('btn-backup-server').onclick = () => {
+            $('btn-backup-server').disabled = true;
+            $('server-io-status').textContent = '备份中...';
+            postMsg('VECTOR_BACKUP_SERVER');
+        };
+
+        $('btn-restore-server').onclick = () => {
+            $('btn-restore-server').disabled = true;
+            $('server-io-status').textContent = '恢复中...';
+            postMsg('VECTOR_RESTORE_SERVER');
+        };
 
         initAnchorUI();
         postMsg('REQUEST_ANCHOR_STATS');
@@ -1498,6 +1509,28 @@
                     postMsg('REQUEST_VECTOR_STATS');
                 } else {
                     $('vector-io-status').textContent = '导入失败: ' + (d.error || '未知错误');
+                }
+                break;
+            case 'VECTOR_BACKUP_RESULT':
+                $('btn-backup-server').disabled = false;
+                if (d.success) {
+                    $('server-io-status').textContent = `☁️ 备份成功: ${(d.size / 1024 / 1024).toFixed(2)}MB (${d.chunkCount} 片段, ${d.eventCount} 事件)`;
+                } else {
+                    $('server-io-status').textContent = '备份失败: ' + (d.error || '未知错误');
+                }
+                break;
+
+            case 'VECTOR_RESTORE_RESULT':
+                $('btn-restore-server').disabled = false;
+                if (d.success) {
+                    let msg = `☁️ 恢复成功: ${d.chunkCount} 片段, ${d.eventCount} 事件`;
+                    if (d.warnings?.length) {
+                        msg += '\n⚠️ ' + d.warnings.join('\n⚠️ ');
+                    }
+                    $('server-io-status').textContent = msg;
+                    postMsg('REQUEST_VECTOR_STATS');
+                } else {
+                    $('server-io-status').textContent = '恢复失败: ' + (d.error || '未知错误');
                 }
                 break;
 
