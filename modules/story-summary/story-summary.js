@@ -89,7 +89,7 @@ import {
 } from "./vector/storage/state-store.js";
 
 // vector io
-import { exportVectors, importVectors } from "./vector/storage/vector-io.js";
+import { exportVectors, importVectors, backupToServer, restoreFromServer } from "./vector/storage/vector-io.js";
 
 import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocumentsByFloor, addEventDocuments } from "./vector/retrieval/lexical-index.js";
 
@@ -1457,6 +1457,45 @@ async function handleFrameMessage(event) {
                 };
 
                 input.click();
+            })();
+            break;
+        case "VECTOR_BACKUP_SERVER":
+            (async () => {
+                try {
+                    const result = await backupToServer((status) => {
+                        postToFrame({ type: "VECTOR_IO_STATUS", status });
+                    });
+                    postToFrame({
+                        type: "VECTOR_BACKUP_RESULT",
+                        success: true,
+                        size: result.size,
+                        chunkCount: result.chunkCount,
+                        eventCount: result.eventCount,
+                    });
+                } catch (e) {
+                    postToFrame({ type: "VECTOR_BACKUP_RESULT", success: false, error: e.message });
+                }
+            })();
+            break;
+
+        case "VECTOR_RESTORE_SERVER":
+            (async () => {
+                try {
+                    const result = await restoreFromServer((status) => {
+                        postToFrame({ type: "VECTOR_IO_STATUS", status });
+                    });
+                    postToFrame({
+                        type: "VECTOR_RESTORE_RESULT",
+                        success: true,
+                        chunkCount: result.chunkCount,
+                        eventCount: result.eventCount,
+                        warnings: result.warnings,
+                        fingerprintMismatch: result.fingerprintMismatch,
+                    });
+                    await sendVectorStatsToFrame();
+                } catch (e) {
+                    postToFrame({ type: "VECTOR_RESTORE_RESULT", success: false, error: e.message });
+                }
             })();
             break;
 
