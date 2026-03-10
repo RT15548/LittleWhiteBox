@@ -1639,6 +1639,7 @@ async function handleManualGenerate(mesId, config) {
 
 async function handleChatChanged() {
     if (!events) return;
+    _lastBuiltPromptText = "";  // ← 加这一行，切聊天时清掉旧 summary
     const { chat } = getContext();
     activeChatId = getContext().chatId || null;
     const newLength = Array.isArray(chat) ? chat.length : 0;
