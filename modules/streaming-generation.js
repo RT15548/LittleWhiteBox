@@ -411,12 +411,28 @@ class StreamingGeneration {
 
 
     async _emitPromptReady(chatArray) {
+        if (!Array.isArray(chatArray)) return chatArray;
+        const snapshot = this._cloneChat(chatArray);
+        const shouldAdoptMutations = this._needsPromptPostProcess(chatArray);
         try {
-            if (Array.isArray(chatArray)) {
-                const snapshot = this._cloneChat(chatArray);
-                await eventSource?.emit?.(event_types.CHAT_COMPLETION_PROMPT_READY, { chat: snapshot, dryRun: false });
-            }
+            await eventSource?.emit?.(event_types.CHAT_COMPLETION_PROMPT_READY, { chat: snapshot, dryRun: false });
         } catch {}
+        return shouldAdoptMutations && Array.isArray(snapshot) ? snapshot : chatArray;
+    }
+
+    _needsPromptPostProcess(chatArray) {
+        const markers = ['<varevent', '{{xbgetvar::', '{{xbgetvar_yaml::', '{{xbgetvar_yaml_idx::'];
+        const hasMarker = (text) => typeof text === 'string' && markers.some(marker => text.includes(marker));
+        for (const msg of Array.isArray(chatArray) ? chatArray : []) {
+            if (!msg) continue;
+            if (hasMarker(msg.content) || hasMarker(msg.mes)) return true;
+            if (Array.isArray(msg.content)) {
+                for (const part of msg.content) {
+                    if (hasMarker(part?.text)) return true;
+                }
+            }
+        }
+        return false;
     }
 
     _cloneChat(chatArray) {
@@ -1124,11 +1140,11 @@ class StreamingGeneration {
                 .concat(prompt && prompt.trim().length ? [{ role, content: prompt.trim() }] : [])
                 .concat(bottomMsgs.filter(m => typeof m?.content === 'string' && m.content.trim().length));
             
-            const common = { messages, apiOptions, stop: parsedStop };
             if (nonstream) {
                 try { if (lock) deactivateSendButtons(); } catch {}
                 try {
-                    await this._emitPromptReady(messages);
+                    const preparedMessages = await this._emitPromptReady(messages);
+                    const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
                     const finalText = await this.processGeneration(common, prompt || '', sessionId, false);
                     return String(finalText ?? '');
                 } finally {
@@ -1136,7 +1152,8 @@ class StreamingGeneration {
                 }
             } else {
                 try { if (lock) deactivateSendButtons(); } catch {}
-                await this._emitPromptReady(messages);
+                const preparedMessages = await this._emitPromptReady(messages);
+                const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
                 const p = this.processGeneration(common, prompt || '', sessionId, true);
                 p.finally(() => { try { if (lock) activateSendButtons(); } catch {} });
                 p.catch(() => {});
@@ -1237,8 +1254,8 @@ class StreamingGeneration {
             try { if (lock) deactivateSendButtons(); } catch {}
             try {
                 const finalMessages = await buildAddonFinalMessages();
-                const common = { messages: finalMessages, apiOptions, stop: parsedStop };
-                await this._emitPromptReady(finalMessages);
+                const preparedMessages = await this._emitPromptReady(finalMessages);
+                const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
                 const finalText = await this.processGeneration(common, prompt || '', sessionId, false);
                 return String(finalText ?? '');
             } finally {
@@ -1249,8 +1266,8 @@ class StreamingGeneration {
                 try {
                     try { if (lock) deactivateSendButtons(); } catch {}
                     const finalMessages = await buildAddonFinalMessages();
-                    const common = { messages: finalMessages, apiOptions, stop: parsedStop };
-                    await this._emitPromptReady(finalMessages);
+                    const preparedMessages = await this._emitPromptReady(finalMessages);
+                    const common = { messages: preparedMessages, apiOptions, stop: parsedStop };
                     await this.processGeneration(common, prompt || '', sessionId, true);
                 } catch {} finally {
                     try { if (lock) activateSendButtons(); } catch {}
@@ -1367,8 +1384,11 @@ class StreamingGeneration {
                 const dataWithOptions = await buildGenDataWithOptions();
                 const chatMsgs = Array.isArray(dataWithOptions?.prompt) ? dataWithOptions.prompt
                     : (Array.isArray(dataWithOptions?.messages) ? dataWithOptions.messages : []);
-                await this._emitPromptReady(chatMsgs);
-                const finalText = await this.processGeneration(dataWithOptions, prompt, sessionId, false);
+                const preparedChatMsgs = await this._emitPromptReady(chatMsgs);
+                const preparedData = Array.isArray(dataWithOptions?.prompt)
+                    ? { ...dataWithOptions, prompt: preparedChatMsgs }
+                    : { ...dataWithOptions, messages: preparedChatMsgs };
+                const finalText = await this.processGeneration(preparedData, prompt, sessionId, false);
                 return String(finalText ?? '');
             } finally {
                 try { if (lock) activateSendButtons(); } catch {}
@@ -1380,8 +1400,11 @@ class StreamingGeneration {
                 const dataWithOptions = await buildGenDataWithOptions();
                 const chatMsgs = Array.isArray(dataWithOptions?.prompt) ? dataWithOptions.prompt
                     : (Array.isArray(dataWithOptions?.messages) ? dataWithOptions.messages : []);
-                await this._emitPromptReady(chatMsgs);
-                const finalText = await this.processGeneration(dataWithOptions, prompt, sessionId, true);
+                const preparedChatMsgs = await this._emitPromptReady(chatMsgs);
+                const preparedData = Array.isArray(dataWithOptions?.prompt)
+                    ? { ...dataWithOptions, prompt: preparedChatMsgs }
+                    : { ...dataWithOptions, messages: preparedChatMsgs };
+                const finalText = await this.processGeneration(preparedData, prompt, sessionId, true);
                 try { if (args && args._scope) args._scope.pipe = String(finalText ?? ''); } catch {}
             } catch {}
             finally {
