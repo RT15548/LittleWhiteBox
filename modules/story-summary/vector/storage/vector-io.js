@@ -765,9 +765,10 @@ function normalizeManifestEntry(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const filename = typeof raw.filename === 'string' ? raw.filename : null;
     if (!filename || !/^LWB_VectorBackup_[a-z0-9]+\.zip$/.test(filename)) return null;
+    const rawPath = typeof raw.serverPath === 'string' ? raw.serverPath.replace(/^\/+/, '') : null;
     return {
         filename,
-        serverPath: typeof raw.serverPath === 'string' ? raw.serverPath : null,
+        serverPath: rawPath,
         size: typeof raw.size === 'number' ? raw.size : null,
         chatId: typeof raw.chatId === 'string' ? raw.chatId : null,
         backupTime: typeof raw.backupTime === 'string' ? raw.backupTime : null,
