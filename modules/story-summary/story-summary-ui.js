@@ -104,9 +104,6 @@
     let allLinks = [];
     let activeRelationTooltip = null;
     let lastRecallLogText = '';
-    let backupDeleteSupported = true;
-    let backupDeleteUnsupportedReason = '';
-    let lastLoadedBackupFiles = [];
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Messaging
@@ -439,18 +436,7 @@
             postMsg('VECTOR_RESTORE_SERVER');
         };
 
-        $('btn-manage-backups').onclick = () => {
-            $('backup-manager-modal').style.display = 'flex';
-            $('backup-manager-status').textContent = '加载中...';
-            postMsg('VECTOR_LIST_BACKUPS');
-        };
-        $('btn-close-backup-modal').onclick = () => {
-            $('backup-manager-modal').style.display = 'none';
-        };
-        $('btn-refresh-backups').onclick = () => {
-            $('backup-manager-status').textContent = '加载中...';
-            postMsg('VECTOR_LIST_BACKUPS');
-        };
+        $('btn-manage-backups').onclick = () => postMsg('VECTOR_LIST_BACKUPS');
 
         initAnchorUI();
         postMsg('REQUEST_ANCHOR_STATS');
@@ -1550,27 +1536,6 @@
                 }
                 break;
 
-            case 'VECTOR_LIST_RESULT':
-                backupDeleteSupported = d.deleteSupported !== false;
-                backupDeleteUnsupportedReason = d.deleteUnsupportedReason || '';
-                renderBackupList(d.files);
-                $('backup-manager-status').textContent = '';
-                break;
-
-            case 'VECTOR_DELETE_BACKUP_RESULT':
-                if (!d.success) {
-                    $('backup-manager-status').textContent = '删除失败: ' + (d.error || '未知');
-                    if (d.deleteSupported === false) {
-                        backupDeleteSupported = false;
-                        backupDeleteUnsupportedReason = d.deleteUnsupportedReason || '宿主不支持删除';
-                        renderBackupList(lastLoadedBackupFiles);
-                    }
-                } else {
-                    $('backup-manager-status').textContent = '已删除';
-                    postMsg('VECTOR_LIST_BACKUPS');
-                }
-                break;
-
             case 'RECALL_LOG':
                 setRecallLog(d.text || '');
                 break;
@@ -1848,57 +1813,4 @@
         setHtml(container, html);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // 备份管理弹窗
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    function renderBackupList(files) {
-        lastLoadedBackupFiles = files || [];
-        const el = $('backup-list-content');
-        $('backup-count-badge').textContent = `(${lastLoadedBackupFiles.length})`;
-        if (!lastLoadedBackupFiles.length) {
-            el.innerHTML = '<div style="opacity:0.5;padding:8px">暂无备份记录</div>';
-            return;
-        }
-        const sorted = [...lastLoadedBackupFiles].sort(
-            (a, b) => new Date(b.backupTime) - new Date(a.backupTime)
-        );
-        const rows = sorted.map(f => {
-            const label = h(f.chatId || f.filename);
-            const title = h(f.chatId || f.filename);
-            const size = f.size ? (f.size / 1024 / 1024).toFixed(2) + 'MB' : '?';
-            const time = f.backupTime ? new Date(f.backupTime).toLocaleString() : '?';
-            const disabled = backupDeleteSupported ? '' : 'disabled';
-            const btnTitle = backupDeleteSupported ? '' : h(backupDeleteUnsupportedReason);
-            const dataFile = h(f.filename);
-            const dataPath = h(f.serverPath || '');
-            return `<div style="display:flex; gap:6px; align-items:center; padding:4px 0;
-                        border-bottom:1px solid rgba(255,255,255,.07); font-size:0.82em">
-                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"
-                      title="${title}">${label}</span>
-                <span style="white-space:nowrap">${size}</span>
-                <span style="white-space:nowrap; opacity:0.6">${time}</span>
-                <button class="btn btn-sm btn-del"
-                        data-file="${dataFile}" data-path="${dataPath}"
-                        ${disabled} title="${btnTitle}"
-                        style="padding:1px 8px; flex-shrink:0">删</button>
-            </div>`;
-        }).join('');
-        el.innerHTML = rows;
-        if (!backupDeleteSupported) {
-            $('backup-manager-status').textContent = '⚠️ 只读模式：' + backupDeleteUnsupportedReason;
-        }
-        el.querySelectorAll('[data-file]').forEach(btn => {
-            if (btn.disabled) return;
-            btn.onclick = () => {
-                if (!confirm(`确认删除此备份？\n${btn.dataset.file}`)) return;
-                $('backup-manager-status').textContent = '删除中...';
-                btn.disabled = true;
-                postMsg('VECTOR_DELETE_BACKUP', {
-                    filename: btn.dataset.file,
-                    serverPath: btn.dataset.path,
-                });
-            };
-        });
-    }
 })();
