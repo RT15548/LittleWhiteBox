@@ -778,14 +778,16 @@ function normalizeManifestEntry(raw) {
 function buildSafeServerPath(filename, serverPath) {
     const expected = `user/files/${filename}`;
     if (!serverPath) return expected;
-    if (serverPath !== expected) {
+    const normalized = serverPath.replace(/^\/+/, '');
+    if (normalized !== expected) {
         throw new Error(`serverPath 不安全: ${serverPath}`);
     }
-    return serverPath;
+    return normalized;
 }
 
 // 读-改(upsert by filename)-写回-验证，失败最多重试 2 次
 async function upsertManifestEntry({ filename, serverPath, size, chatId, backupTime }) {
+    if (typeof serverPath === 'string') serverPath = serverPath.replace(/^\/+/, '');
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         // 读取现有清单
