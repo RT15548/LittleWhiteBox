@@ -89,7 +89,7 @@ import {
 } from "./vector/storage/state-store.js";
 
 // vector io
-import { exportVectors, importVectors, backupToServer, restoreFromServer } from "./vector/storage/vector-io.js";
+import { exportVectors, importVectors, backupToServer, restoreFromServer, fetchManifest, deleteServerBackup, isDeleteUnsupportedError } from "./vector/storage/vector-io.js";
 
 import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocumentsByFloor, addEventDocuments } from "./vector/retrieval/lexical-index.js";
 
@@ -182,6 +182,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 向量提醒节流
 let lastVectorWarningAt = 0;
 const VECTOR_WARNING_COOLDOWN_MS = 120000; // 2分钟内不重复提醒
+let backupDeleteSupported = true;
+let backupDeleteUnsupportedReason = '';
 
 const EXT_PROMPT_KEY = "LittleWhiteBox_StorySummary";
 const MIN_INJECTION_DEPTH = 2;
@@ -1495,6 +1497,58 @@ async function handleFrameMessage(event) {
                     await sendVectorStatsToFrame();
                 } catch (e) {
                     postToFrame({ type: "VECTOR_RESTORE_RESULT", success: false, error: e.message });
+                }
+            })();
+            break;
+
+        case "VECTOR_LIST_BACKUPS":
+            (async () => {
+                try {
+                    const files = await fetchManifest();
+                    postToFrame({
+                        type: "VECTOR_LIST_RESULT",
+                        files,
+                        deleteSupported: backupDeleteSupported,
+                        deleteUnsupportedReason: backupDeleteUnsupportedReason,
+                    });
+                } catch (e) {
+                    postToFrame({
+                        type: "VECTOR_LIST_RESULT",
+                        files: [],
+                        deleteSupported: backupDeleteSupported,
+                        deleteUnsupportedReason: backupDeleteUnsupportedReason,
+                    });
+                }
+            })();
+            break;
+
+        case "VECTOR_DELETE_BACKUP":
+            (async () => {
+                if (!backupDeleteSupported) {
+                    postToFrame({
+                        type: "VECTOR_DELETE_BACKUP_RESULT",
+                        success: false,
+                        error: backupDeleteUnsupportedReason,
+                        deleteSupported: false,
+                        deleteUnsupportedReason: backupDeleteUnsupportedReason,
+                    });
+                    return;
+                }
+                try {
+                    await deleteServerBackup(data.filename, data.serverPath);
+                    postToFrame({ type: "VECTOR_DELETE_BACKUP_RESULT", success: true });
+                } catch (e) {
+                    if (isDeleteUnsupportedError(e)) {
+                        backupDeleteSupported = false;
+                        backupDeleteUnsupportedReason = e.message || '宿主不支持删除接口';
+                    }
+                    postToFrame({
+                        type: "VECTOR_DELETE_BACKUP_RESULT",
+                        success: false,
+                        error: e.message,
+                        deleteSupported: backupDeleteSupported,
+                        deleteUnsupportedReason: backupDeleteUnsupportedReason,
+                    });
                 }
             })();
             break;

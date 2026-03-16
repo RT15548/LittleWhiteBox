@@ -568,6 +568,11 @@
                                                 style="flex:1">☁️ 从服务器恢复向量</button>
                                         </div>
                                         <div class="settings-hint" id="server-io-status"></div>
+                                        <div style="margin-top:6px">
+                                            <button class="btn btn-sm" id="btn-manage-backups" style="width:100%">
+                                                ☁️ 管理服务器向量备份
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -859,6 +864,28 @@
                 <button class="btn" id="confirm-cancel">取消</button>
                 <button class="btn btn-del" id="confirm-ok">执行</button>
             </div>
+        </div>
+    </div>
+
+    <!-- 备份管理 Modal -->
+    <div id="backup-manager-modal" style="display:none; position:fixed; inset:0;
+         background:rgba(0,0,0,.5); z-index:9999; align-items:center; justify-content:center">
+        <div class="backup-manager-box" style="
+             background:var(--SmartThemeBlurTintColor, #1e1e2e);
+             border-radius:8px; width:min(480px,90vw); padding:16px;
+             max-height:80vh; display:flex; flex-direction:column">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+                <span style="font-weight:600">
+                    服务器向量备份
+                    <span id="backup-count-badge" style="opacity:0.6; font-size:0.85em"></span>
+                </span>
+                <div style="display:flex; gap:6px">
+                    <button class="btn btn-sm" id="btn-refresh-backups">刷新</button>
+                    <button class="btn btn-sm" id="btn-close-backup-modal">✕</button>
+                </div>
+            </div>
+            <div id="backup-list-content" style="overflow-y:auto; flex:1; min-height:60px"></div>
+            <div class="settings-hint" id="backup-manager-status" style="margin-top:6px"></div>
         </div>
     </div>
 </body>

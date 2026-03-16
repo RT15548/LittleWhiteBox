@@ -532,6 +532,26 @@ export async function backupToServer(onProgress) {
         throw new Error(`服务器返回 ${res.status}`);
     }
 
+    // 新增：安全读取 path 字段
+    let uploadedPath = null;
+    try {
+        const resJson = await res.json();
+        if (typeof resJson?.path === 'string') uploadedPath = resJson.path;
+    } catch (_) { /* JSON 解析失败时 uploadedPath 保持 null */ }
+
+    // 新增：写清单（独立 try/catch，失败不影响原有备份返回）
+    try {
+        await upsertManifestEntry({
+            filename,
+            serverPath: uploadedPath,
+            size: zipData.byteLength,
+            chatId,
+            backupTime: new Date().toISOString(),
+        });
+    } catch (e) {
+        xbLog.warn(MODULE_ID, `清单写入失败（不影响备份结果）: ${e.message}`);
+    }
+
     const sizeMB = (zipData.byteLength / 1024 / 1024).toFixed(2);
     xbLog.info(MODULE_ID, `备份完成: ${filename} (${sizeMB}MB)`);
 
@@ -717,3 +737,140 @@ export async function restoreFromServer(onProgress) {
         fingerprintMismatch,
     };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 备份清单管理
+// ═══════════════════════════════════════════════════════════════════════════
+
+const BACKUP_MANIFEST = 'LWB_BackupManifest.json';
+
+// 宽容解析：非数组/JSON 失败/字段异常时清洗，不抛错
+async function fetchManifest() {
+    try {
+        const res = await fetch(`/user/files/${BACKUP_MANIFEST}`, {
+            headers: getRequestHeaders(),
+            cache: 'no-cache',
+        });
+        if (!res.ok) return [];
+        const raw = await res.json();
+        if (!Array.isArray(raw)) return [];
+        return raw.map(normalizeManifestEntry).filter(Boolean);
+    } catch (_) {
+        return [];
+    }
+}
+
+// 标准化单条条目字段，非法 filename 直接丢弃，其余字段降级
+function normalizeManifestEntry(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const filename = typeof raw.filename === 'string' ? raw.filename : null;
+    if (!filename || !/^LWB_VectorBackup_[a-z0-9]+\.zip$/.test(filename)) return null;
+    return {
+        filename,
+        serverPath: typeof raw.serverPath === 'string' ? raw.serverPath : null,
+        size: typeof raw.size === 'number' ? raw.size : null,
+        chatId: typeof raw.chatId === 'string' ? raw.chatId : null,
+        backupTime: typeof raw.backupTime === 'string' ? raw.backupTime : null,
+    };
+}
+
+// 安全推导/校验 serverPath：缺失时推导，与 filename 不一致时拒绝
+function buildSafeServerPath(filename, serverPath) {
+    const expected = `user/files/${filename}`;
+    if (!serverPath) return expected;
+    if (serverPath !== expected) {
+        throw new Error(`serverPath 不安全: ${serverPath}`);
+    }
+    return serverPath;
+}
+
+// 读-改(upsert by filename)-写回-验证，失败最多重试 2 次
+async function upsertManifestEntry({ filename, serverPath, size, chatId, backupTime }) {
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        // 读取现有清单
+        const existing = await fetchManifest();
+
+        // upsert by filename
+        const idx = existing.findIndex(e => e.filename === filename);
+        const entry = { filename, serverPath, size, chatId, backupTime };
+        if (idx >= 0) {
+            existing[idx] = entry;
+        } else {
+            existing.push(entry);
+        }
+
+        // 上传清单
+        const json = JSON.stringify(existing, null, 2);
+        const base64 = uint8ToBase64(new TextEncoder().encode(json));
+        const res = await fetch('/api/files/upload', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ name: BACKUP_MANIFEST, data: base64 }),
+        });
+        if (!res.ok) throw new Error(`清单上传失败: ${res.status}`);
+
+        // 写后立即重读验证
+        const verified = await fetchManifest();
+        if (verified.some(e => e.filename === filename)) return;
+
+        // 最后一次仍失败才抛出
+        if (attempt === MAX_RETRIES - 1) {
+            throw new Error('清单写入后验证失败，重试已耗尽');
+        }
+    }
+}
+
+// 删除前校验 + POST /api/files/delete + 更新清单
+async function deleteServerBackup(filename, serverPath) {
+    // 安全校验
+    if (!/^LWB_VectorBackup_[a-z0-9]+\.zip$/.test(filename)) {
+        throw new Error(`非法文件名: ${filename}`);
+    }
+    const safePath = buildSafeServerPath(filename, serverPath || null);
+
+    // 物理删除
+    const res = await fetch('/api/files/delete', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ path: safePath }),
+    });
+    if (!res.ok) {
+        const err = new Error(`删除失败: ${res.status}`);
+        err.status = res.status;
+        err.method = 'DELETE';
+        throw err;
+    }
+
+    // 更新清单（删除条目）
+    try {
+        const existing = await fetchManifest();
+        const filtered = existing.filter(e => e.filename !== filename);
+        const json = JSON.stringify(filtered, null, 2);
+        const base64 = uint8ToBase64(new TextEncoder().encode(json));
+        const upRes = await fetch('/api/files/upload', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ name: BACKUP_MANIFEST, data: base64 }),
+        });
+        if (!upRes.ok) {
+            throw new Error('zip 已删除，但清单更新失败，请手动刷新');
+        }
+    } catch (e) {
+        // zip 删成功但清单更新失败 → 抛"部分成功"错误
+        const partialErr = new Error(e.message || 'zip 已删除，清单同步失败');
+        partialErr.partial = true;
+        throw partialErr;
+    }
+}
+
+// 集中判断 404/405/method not allowed/unsupported
+function isDeleteUnsupportedError(err) {
+    if (!err) return false;
+    const status = err.status;
+    if (status === 404 || status === 405) return true;
+    const msg = String(err.message || '').toLowerCase();
+    return msg.includes('method not allowed') || msg.includes('unsupported') || msg.includes('not found');
+}
+
+export { fetchManifest, deleteServerBackup, isDeleteUnsupportedError };
