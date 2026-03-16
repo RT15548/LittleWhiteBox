@@ -89,7 +89,7 @@ import {
 } from "./vector/storage/state-store.js";
 
 // vector io
-import { exportVectors, importVectors, backupToServer, restoreFromServer, fetchManifest, deleteServerBackup, isDeleteUnsupportedError } from "./vector/storage/vector-io.js";
+import { exportVectors, importVectors, backupToServer, restoreFromServer, fetchManifest, deleteServerBackup, isDeleteUnsupportedError, getBackupFilename } from "./vector/storage/vector-io.js";
 
 import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocumentsByFloor, addEventDocuments } from "./vector/retrieval/lexical-index.js";
 
@@ -1948,6 +1948,10 @@ function registerEvents() {
     events.on(event_types.GENERATION_STARTED, handleGenerationStarted);
     events.on(event_types.GENERATION_STOPPED, clearExtensionPrompt);
     events.on(event_types.GENERATION_ENDED, clearExtensionPrompt);
+
+    // 聊天删除时清理对应的服务器向量备份
+    events.on(event_types.CHAT_DELETED, handleChatDeleted);
+    events.on(event_types.GROUP_CHAT_DELETED, handleChatDeleted);
 }
 
 function unregisterEvents() {
@@ -1966,6 +1970,20 @@ function unregisterEvents() {
 
     document.removeEventListener("pointerdown", onSendPointerdown, true);
     document.removeEventListener("keydown", onSendKeydown, true);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 聊天删除时自动清理服务器向量备份
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function handleChatDeleted(chatId) {
+    try {
+        const filename = getBackupFilename(chatId);
+        await deleteServerBackup(filename, null);
+        xbLog.info(MODULE_ID, `聊天删除，已清理服务器备份: ${filename}`);
+    } catch (_) {
+        // 文件不存在或宿主不支持删除，静默处理
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -873,4 +873,4 @@ function isDeleteUnsupportedError(err) {
     return msg.includes('method not allowed') || msg.includes('unsupported') || msg.includes('not found');
 }
 
-export { fetchManifest, deleteServerBackup, isDeleteUnsupportedError };
+export { fetchManifest, deleteServerBackup, isDeleteUnsupportedError, getBackupFilename };
