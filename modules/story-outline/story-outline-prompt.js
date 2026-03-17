@@ -55,6 +55,52 @@ const DEFAULT_JSON_TEMPLATES = {
     "secret": "该角色掌握的一个关键信息、道具或秘密。必须结合'剧情大纲'生成，作为一个潜在的剧情钩子。"
   }
 }`,
+    importantNpc: `{
+  "name": "角色全名",
+  "aliases": ["别名1", "别名2", "英文名/拼音"],
+  "intro": "白描一句话：外貌+身份。仅用名词和动词，禁止形容词和比喻。例：'黑色长直发过腰，左眼下泪痣，着灰色风衣的赏金猎人。'",
+  "appearance": {
+    "build": "体型白描（如：比{{user}}高一个头。宽肩，窄腰。）",
+    "face": "面部白描（如：颧骨高，下颌线锐利。左眉尾有一道旧疤。）",
+    "hair_and_eyes": "发型发色、瞳色",
+    "marks": "显著标记——疤痕、痣、纹身等，无则写'无'",
+    "attire": "当前穿着"
+  },
+  "background": "角色来历与当前处境。必须交代因果链：什么过去→塑造了什么性格→为什么出现在当前场景。200字左右。",
+  "world_adaptation": {},
+  "personality_palette": {
+    "base_color": "底色——驱动一切行为的最底层核心性格（如：恐惧、控制欲、孤独）",
+    "main_colors": ["主色调1", "主色调2——日常最常表现出的性格"],
+    "accents": ["点缀——不常见但在特定情境下浮现的性格"],
+    "derivatives": [
+      "[主色调1]衍生一：（写具体场景+具体行为，不是定义。错误：'她很温柔'；正确：'会在{{user}}加班时默默端一杯温水放在桌上，不说话，放下就走'）",
+      "[主色调1]衍生二：（另一个场景的表现，衍生之间可以互相矛盾——这才是真实的人）",
+      "[主色调2]衍生一：...",
+      "[底色]衍生一：（底色通常不轻易暴露，写什么条件下会泄漏出来）",
+      "[点缀]衍生一：..."
+    ]
+  },
+  "speaking": {
+    "style": "语气、语速、口癖、惯用词",
+    "samples": ["台词示例1——展现主色调", "台词示例2——展现底色泄漏", "台词示例3——展现对{{user}}的态度"],
+    "attitude_to_user": "对{{user}}的态度及其原因"
+  },
+  "understanding": [
+    {
+      "about": "某个性格特质或行为模式",
+      "clarification": "这个特质的真正含义是……不是……在什么情况下会……常见误读是……正确理解是……"
+    },
+    {
+      "about": "另一个容易被AI误读的特质",
+      "clarification": "解释动机而非重复描述。预判AI可能的补全方向并提前纠正。"
+    }
+  ],
+  "game_data": {
+    "stance": "核心态度·具体表现（如：'中立·唯利是图'、'友善·盲目崇拜'、'敌对·疯狂'）",
+    "secret": "角色掌握的一个关键秘密/信息/道具。必须结合剧情大纲生成，作为剧情钩子。",
+    "motivation": "核心驱动力与行动优先级准则"
+  }
+}`,
     stranger: `[{ "name": "角色名", "location": "当前地点", "info": "一句话简介" }]`,
     worldGenStep1: `{
   "meta": {
@@ -257,6 +303,31 @@ const DEFAULT_PROMPTS = {
         a1: () => `明白。请提供上下文，我将严格按JSON输出，不含多余文本。`,
         u2: v => `${worldInfo}\n\n${history(v.historyCount)}\n\n剧情秘密大纲（*从这里提取线索赋予角色秘密*）：\n${wrap('story_outline', v.storyOutline) || '<story_outline>\n(无)\n</story_outline>'}\n\n需要生成：【${v.strangerName} - ${v.strangerInfo}】\n\n输出要求：\n1. 必须是合法 JSON\n2. 使用标准 JSON 语法：所有键名和字符串都使用半角双引号 "\n3. 文本字段（intro/background/persona/game_data 等）中，如需表示引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n4. aliases须含简称或绰号\n\n模板：${JSON_TEMPLATES.npc}`,
         a2: () => `了解，开始生成JSON:`
+    },
+    importantNpc: {
+        u1: v => `你是TRPG重要角色档案生成器。将陌生人【${v.strangerName} - ${v.strangerInfo}】扩充为剧情核心角色的完整档案。
+
+核心写作原则：
+1. **基础信息用绝对零度白描**：只写客观事实，不用形容词/比喻/模糊词（似乎、仿佛、宛如）。用名词和动词直接呈现。
+   × "她有一头好看柔顺的黑色长发" → √ "黑色长直发，过腰。瞳色黑。"
+   × "他身材魁梧，给人压迫感" → √ "身高比{{user}}高一个头。宽肩，厚背。"
+
+2. **性格用调色盘+衍生展开**：人的性格像调色盘，底色是最深层驱动力，主色调是日常表现，点缀是偶尔闪现的侧面。每种性格必须通过"衍生"展开为具体场景行为——不是贴标签，是写"在什么情况下会做什么"。衍生之间可以互相矛盾，这才是真实的人。
+   × "温柔衍生：她很温柔，对人很好。"（标签重复）
+   √ "温柔衍生：生气时——真正生气基本都和{{user}}有关。当有人欺负{{user}}，她会一把拉住{{user}}让其靠自己，然后用冰冷目光看对方。"
+
+3. **台词示例**：3句具体台词，分别展现主色调、底色泄漏、对{{user}}的态度。
+
+4. **二次解释（understanding数组）**：逐条针对角色最容易被误读的性格特质，写结构化纠偏。每条包含about（哪个特质）和clarification（真正含义、不是什么、在什么情况下怎样）。至少2条。这不是重复调色盘，是解释动机和预判误读。
+   × "关于温柔：她很温柔，对人好。"（重复调色盘）
+   √ "关于乐观的双重性：和{{user}}在一起时是真实的，和其他人相处时是维持人设的假象。脆弱时只会在{{user}}面前表现。"
+
+5. **世界观适配（world_adaptation对象）**：根据故事世界观动态生成键值对。修仙世界→灵根、境界、功法等字段；赛博世界→义体部位、型号、副作用等字段；现代世界→可留空对象。不预设固定字段，由你根据世界观判断需要什么。
+
+基于世界观、剧情大纲和现有角色关系，输出严格JSON。`,
+        a1: () => `明白。我将严格遵循白描原则和调色盘衍生写法，按JSON模板输出完整角色档案，不含多余文本。`,
+        u2: v => `${worldInfo}\n\n${history(v.historyCount)}\n\n剧情秘密大纲（*从这里提取线索赋予角色秘密和动机*）：\n${wrap('story_outline', v.storyOutline) || '<story_outline>\n(无)\n</story_outline>'}\n\n需要生成：【${v.strangerName} - ${v.strangerInfo}】\n\n输出要求：\n1. 必须是合法 JSON\n2. 使用标准 JSON 语法：所有键名和字符串都使用半角双引号 "\n3. 文本字段中如需表示引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n4. aliases须含简称或绰号\n5. personality_palette.derivatives 至少5条，每条都是具体场景+具体行为\n6. speaking.samples 须3句具体台词\n7. understanding数组至少2条，每条须含about和clarification\n8. world_adaptation根据世界观动态生成键值对，无特殊体系则输出空对象{}\n9. 总输出约800-1500字\n\n模板：${JSON_TEMPLATES.importantNpc}`,
+        a2: () => `了解，开始以白描+调色盘衍生法生成重要角色档案JSON:`
     },
     stranger: {
         u1: v => `你是TRPG数据整理助手。从剧情文本中提取{{user}}遇到的陌生人/NPC，整理为JSON数组。`,
@@ -585,6 +656,7 @@ export const buildSmsMessages = v => build('sms', v);
 export const buildSummaryMessages = v => build('summary', v);
 export const buildInviteMessages = v => build('invite', v);
 export const buildNpcGenerationMessages = v => build('npc', v);
+export const buildImportantNpcGenerationMessages = v => build('importantNpc', v);
 export const buildExtractStrangersMessages = v => build('stranger', v);
 export const buildWorldGenStep1Messages = v => build('worldGenStep1', v);
 export const buildWorldGenStep2Messages = v => build('worldGenStep2', v);
