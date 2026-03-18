@@ -32,7 +32,7 @@ import { StoryOutlineStorage } from "../../core/server-storage.js";
 import { promptManager } from "../../../../../openai.js";
 import {
     buildSmsMessages, buildSummaryMessages, buildSmsHistoryContent, buildExistingSummaryContent,
-    buildNpcGenerationMessages, formatNpcToWorldbookContent, buildExtractStrangersMessages,
+    buildNpcGenerationMessages, buildImportantNpcGenerationMessages, formatNpcToWorldbookContent, buildExtractStrangersMessages,
     buildWorldGenStep1Messages, buildWorldGenStep2Messages, buildWorldSimMessages, buildSceneSwitchMessages,
     buildInviteMessages, buildLocalMapGenMessages, buildLocalMapRefreshMessages, buildLocalSceneGenMessages,
     buildOverlayHtml, MOBILE_LAYOUT_STYLE, DESKTOP_LAYOUT_STYLE, getPromptConfigPayload, setPromptConfig
@@ -874,14 +874,17 @@ async function handleCheckStrangerWb({ requestId, strangerName }) {
     postFrame({ type: 'CHECK_STRANGER_WORLDBOOK_RESULT', requestId, found: !!r, ...(r && { worldbookUid: r.uid, worldbook: r.bookName, entryName: r.entry.comment || r.entry.key?.[0] || strangerName }) });
 }
 
-async function handleGenNpc({ requestId, strangerName, strangerInfo }) {
+async function handleGenNpc({ requestId, strangerName, strangerInfo, npcType = 'npc' }) {
     try {
         const comm = getCommSettings();
         const ctx = getContext(), char = ctx.characters?.[ctx.characterId];
         if (!char) return replyErr('GENERATE_NPC_RESULT', requestId, '未找到当前角色卡');
         const primary = char.data?.extensions?.world;
         if (!primary || !world_names?.includes(primary)) return replyErr('GENERATE_NPC_RESULT', requestId, '角色卡未绑定世界书，请先绑定世界书');
-        const msgs = buildNpcGenerationMessages(getCommonPromptVars({ strangerName, strangerInfo: strangerInfo || '(无描述)' }));
+        const vars = getCommonPromptVars({ strangerName, strangerInfo: strangerInfo || '(无描述)' });
+        const msgs = npcType === 'importantNpc'
+            ? buildImportantNpcGenerationMessages(vars)
+            : buildNpcGenerationMessages(vars);
         const npc = await callLLMJson({ messages: msgs, validate: V.npc });
         if (!npc?.name) return replyErr('GENERATE_NPC_RESULT', requestId, 'NPC 生成失败：无法解析 JSON 数据');
         const wd = await loadWorldInfo(primary); if (!wd) return replyErr('GENERATE_NPC_RESULT', requestId, `无法加载世界书: ${primary}`);
