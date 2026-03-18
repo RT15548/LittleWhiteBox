@@ -89,7 +89,7 @@ import {
 } from "./vector/storage/state-store.js";
 
 // vector io
-import { exportVectors, importVectors } from "./vector/storage/vector-io.js";
+import { exportVectors, importVectors, backupToServer, restoreFromServer, fetchManifest, deleteServerBackup, isDeleteUnsupportedError, getBackupFilename } from "./vector/storage/vector-io.js";
 
 import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocumentsByFloor, addEventDocuments } from "./vector/retrieval/lexical-index.js";
 
@@ -182,6 +182,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 向量提醒节流
 let lastVectorWarningAt = 0;
 const VECTOR_WARNING_COOLDOWN_MS = 120000; // 2分钟内不重复提醒
+let backupDeleteSupported = true;
+let backupDeleteUnsupportedReason = '';
 
 const EXT_PROMPT_KEY = "LittleWhiteBox_StorySummary";
 const MIN_INJECTION_DEPTH = 2;
@@ -1459,6 +1461,56 @@ async function handleFrameMessage(event) {
                 input.click();
             })();
             break;
+        case "VECTOR_BACKUP_SERVER":
+            (async () => {
+                try {
+                    const result = await backupToServer((status) => {
+                        postToFrame({ type: "VECTOR_IO_STATUS", status });
+                    });
+                    postToFrame({
+                        type: "VECTOR_BACKUP_RESULT",
+                        success: true,
+                        size: result.size,
+                        chunkCount: result.chunkCount,
+                        eventCount: result.eventCount,
+                    });
+                } catch (e) {
+                    postToFrame({ type: "VECTOR_BACKUP_RESULT", success: false, error: e.message });
+                }
+            })();
+            break;
+
+        case "VECTOR_RESTORE_SERVER":
+            (async () => {
+                try {
+                    const result = await restoreFromServer((status) => {
+                        postToFrame({ type: "VECTOR_IO_STATUS", status });
+                    });
+                    postToFrame({
+                        type: "VECTOR_RESTORE_RESULT",
+                        success: true,
+                        chunkCount: result.chunkCount,
+                        eventCount: result.eventCount,
+                        warnings: result.warnings,
+                        fingerprintMismatch: result.fingerprintMismatch,
+                    });
+                    await sendVectorStatsToFrame();
+                } catch (e) {
+                    postToFrame({ type: "VECTOR_RESTORE_RESULT", success: false, error: e.message });
+                }
+            })();
+            break;
+
+        case "VECTOR_LIST_BACKUPS":
+            (async () => {
+                try {
+                    const files = await fetchManifest();
+                    showBackupManagerModal(files);
+                } catch (e) {
+                    showBackupManagerModal([]);
+                }
+            })();
+            break;
 
         case "REQUEST_VECTOR_STATS":
             sendVectorStatsToFrame();
@@ -1600,6 +1652,7 @@ async function handleManualGenerate(mesId, config) {
 
 async function handleChatChanged() {
     if (!events) return;
+    _lastBuiltPromptText = "";  // ← 加这一行，切聊天时清掉旧 summary
     const { chat } = getContext();
     activeChatId = getContext().chatId || null;
     const newLength = Array.isArray(chat) ? chat.length : 0;
@@ -1895,6 +1948,10 @@ function registerEvents() {
     events.on(event_types.GENERATION_STARTED, handleGenerationStarted);
     events.on(event_types.GENERATION_STOPPED, clearExtensionPrompt);
     events.on(event_types.GENERATION_ENDED, clearExtensionPrompt);
+
+    // 聊天删除时清理对应的服务器向量备份
+    events.on(event_types.CHAT_DELETED, handleChatDeleted);
+    events.on(event_types.GROUP_CHAT_DELETED, handleChatDeleted);
 }
 
 function unregisterEvents() {
@@ -1913,6 +1970,169 @@ function unregisterEvents() {
 
     document.removeEventListener("pointerdown", onSendPointerdown, true);
     document.removeEventListener("keydown", onSendKeydown, true);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 聊天删除时自动清理服务器向量备份
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function handleChatDeleted(chatId) {
+    try {
+        const filename = getBackupFilename(chatId);
+        await deleteServerBackup(filename, null);
+        xbLog.info(MODULE_ID, `聊天删除，已清理服务器备份: ${filename}`);
+    } catch (_) {
+        // 文件不存在或宿主不支持删除，静默处理
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 备份管理 Modal（渲染在父窗口，确保层级在 settings modal 之上）
+// ═══════════════════════════════════════════════════════════════════════════
+
+function showBackupManagerModal(initialFiles) {
+    document.getElementById('lwb-backup-manager-modal')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'lwb-backup-manager-modal';
+    overlay.style.cssText = [
+        'position:fixed', 'inset:0', 'background:rgba(0,0,0,.55)',
+        'z-index:100000', 'display:flex', 'align-items:center', 'justify-content:center',
+    ].join(';');
+
+    const box = document.createElement('div');
+    box.style.cssText = [
+        'background:#fff', 'color:#222', 'border-radius:8px',
+        'width:min(520px,92vw)', 'padding:18px',
+        'max-height:80vh', 'display:flex', 'flex-direction:column',
+        'box-shadow:0 8px 32px rgba(0,0,0,.35)', 'font-size:14px',
+    ].join(';');
+
+    // Header
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px';
+    const title = document.createElement('span');
+    title.style.cssText = 'font-weight:700;font-size:15px';
+    title.textContent = '服务器向量备份';
+    const badge = document.createElement('span');
+    badge.id = 'lwb-backup-badge';
+    badge.style.cssText = 'opacity:0.5;font-size:0.85em;margin-left:4px';
+    title.appendChild(badge);
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:6px';
+
+    const btnRefresh = document.createElement('button');
+    btnRefresh.className = 'btn btn-sm';
+    btnRefresh.textContent = '刷新';
+
+    const btnClose = document.createElement('button');
+    btnClose.className = 'btn btn-sm';
+    btnClose.textContent = '✕';
+    btnClose.onclick = () => overlay.remove();
+
+    btnRow.append(btnRefresh, btnClose);
+    header.append(title, btnRow);
+
+    // List area
+    const listEl = document.createElement('div');
+    listEl.id = 'lwb-backup-list';
+    listEl.style.cssText = 'overflow-y:auto;flex:1;min-height:60px';
+
+    // Status bar
+    const statusEl = document.createElement('div');
+    statusEl.id = 'lwb-backup-status';
+    statusEl.style.cssText = 'margin-top:8px;font-size:0.82em;color:#666;min-height:1em';
+
+    box.append(header, listEl, statusEl);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    // Close on backdrop click
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    function setStatus(text, isError) {
+        statusEl.textContent = text;
+        statusEl.style.color = isError ? '#c00' : '#666';
+    }
+
+    function renderList(files) {
+        badge.textContent = `(${files.length})`;
+        if (!files.length) {
+            listEl.innerHTML = '<div style="padding:12px;opacity:0.5;text-align:center">暂无备份记录</div>';
+            return;
+        }
+        const sorted = [...files].sort((a, b) => new Date(b.backupTime) - new Date(a.backupTime));
+        listEl.replaceChildren();
+        sorted.forEach(f => {
+            const row = document.createElement('div');
+            row.style.cssText = [
+                'display:flex', 'gap:8px', 'align-items:center', 'padding:6px 2px',
+                'border-bottom:1px solid #e8e8e8', 'font-size:0.82em',
+            ].join(';');
+
+            const label = document.createElement('span');
+            label.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333';
+            label.title = f.chatId || f.filename;
+            label.textContent = f.chatId || f.filename;
+
+            const size = document.createElement('span');
+            size.style.cssText = 'white-space:nowrap;color:#555';
+            size.textContent = f.size ? (f.size / 1024 / 1024).toFixed(2) + 'MB' : '?';
+
+            const time = document.createElement('span');
+            time.style.cssText = 'white-space:nowrap;color:#888';
+            time.textContent = f.backupTime ? new Date(f.backupTime).toLocaleString() : '?';
+
+            const btnDel = document.createElement('button');
+            btnDel.className = 'btn btn-sm';
+            btnDel.style.cssText = 'padding:1px 10px;flex-shrink:0;color:#c00;border-color:#c00';
+            btnDel.textContent = '删';
+            btnDel.onclick = async () => {
+                if (!confirm(`确认删除此备份？\n${f.filename}`)) return;
+                setStatus('删除中...');
+                btnDel.disabled = true;
+                try {
+                    await deleteServerBackup(f.filename, f.serverPath);
+                    setStatus('已删除');
+                    const updated = await fetchManifest();
+                    renderList(updated);
+                } catch (e) {
+                    if (isDeleteUnsupportedError(e)) {
+                        backupDeleteSupported = false;
+                        backupDeleteUnsupportedReason = e.message || '宿主不支持删除接口';
+                        setStatus('⚠️ 只读模式：' + backupDeleteUnsupportedReason, true);
+                        // 禁用所有删除按钮
+                        listEl.querySelectorAll('button').forEach(b => { b.disabled = true; });
+                    } else {
+                        setStatus('删除失败: ' + (e.message || '未知'), true);
+                        btnDel.disabled = false;
+                    }
+                }
+            };
+
+            row.append(label, size, time, btnDel);
+            listEl.appendChild(row);
+        });
+
+        if (!backupDeleteSupported) {
+            setStatus('⚠️ 只读模式：' + backupDeleteUnsupportedReason, true);
+            listEl.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        }
+    }
+
+    btnRefresh.onclick = async () => {
+        setStatus('加载中...');
+        try {
+            const files = await fetchManifest();
+            renderList(files);
+            setStatus('');
+        } catch (e) {
+            setStatus('加载失败: ' + e.message, true);
+        }
+    };
+
+    renderList(initialFiles);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
