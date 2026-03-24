@@ -332,7 +332,7 @@ const DEFAULT_PROMPTS = {
     stranger: {
         u1: v => `你是TRPG数据整理助手。从剧情文本中提取{{user}}遇到的陌生人/NPC，整理为JSON数组。`,
         a1: () => `明白。请提供【世界观】和【剧情经历】，我将提取角色并以JSON数组输出。`,
-        u2: v => `### 上下文\n\n**1. 世界观：**\n${worldInfo}\n\n**2. {{user}}经历：**\n${history(v.historyCount)}${v.storyOutline ? `\n\n**剧情大纲：**\n${wrap('story_outline', v.storyOutline)}` : ''}${nameList(v.existingContacts, v.existingStrangers)}\n\n### 输出要求\n\n1. 返回一个合法 JSON 数组，使用标准 JSON 语法（键名和字符串都用半角双引号 "）\n2. 只提取有具体称呼的角色\n3. 每个角色只需 name / location / info 三个字段\n4. 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n5. 无新角色返回 []\n\n\n模板：${JSON_TEMPLATES.npc}`,
+        u2: v => `### 上下文\n\n**1. 世界观：**\n${worldInfo}\n\n**2. {{user}}经历：**\n${history(v.historyCount)}${v.storyOutline ? `\n\n**剧情大纲：**\n${wrap('story_outline', v.storyOutline)}` : ''}${nameList(v.existingContacts, v.existingStrangers)}\n\n### 输出要求\n\n1. 返回一个合法 JSON 数组，使用标准 JSON 语法（键名和字符串都用半角双引号 "）\n2. 只提取有具体称呼的角色\n3. 每个角色只需 name / location / info 三个字段\n4. 文本内容中如需使用引号，请使用单引号或中文引号「」或""，不要使用半角双引号 "\n5. 无新角色返回 []\n\n\n模板：${JSON_TEMPLATES.stranger}`,
         a2: () => `了解，开始生成JSON:`
     },
     worldGenStep1: {

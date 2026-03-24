@@ -103,6 +103,7 @@ let state = {
     currentEditingTask: null, currentEditingIndex: -1, currentEditingId: null, currentEditingScope: 'global',
     lastChatId: null, chatJustChanged: false,
     isNewChat: false, lastTurnCount: 0, executingCount: 0, isCommandGenerated: false,
+    executingRecords: new Map(),
     taskLastExecutionTime: new Map(), cleanupTimer: null, lastTasksHash: '', taskBarVisible: true,
     processedMessagesSet: new Set(),
     taskBarSignature: '',
@@ -117,7 +118,49 @@ let state = {
 // 工具函数
 // ═══════════════════════════════════════════════════════════════════════════
 
-const isAnyTaskExecuting = () => (state.executingCount || 0) > 0;
+const normalizeTaskKey = (name) => String(name || '').trim();
+const refreshExecutionState = () => {
+    const records = state.executingRecords instanceof Map ? state.executingRecords : new Map();
+    state.executingRecords = records;
+    state.executingCount = records.size;
+    state.isCommandGenerated = Array.from(records.values()).some(entry => entry?.source === 'command');
+};
+const startExecutionRecord = (taskName, source = 'command') => {
+    const token = uuidv4();
+    state.executingRecords.set(token, { taskName: normalizeTaskKey(taskName), source });
+    refreshExecutionState();
+    return token;
+};
+const finishExecutionRecord = (token) => {
+    if (!token) return;
+    if (state.executingRecords.delete(token)) refreshExecutionState();
+};
+const clearExecutionRecordsByTask = (taskName) => {
+    const key = normalizeTaskKey(taskName);
+    if (!key) return 0;
+    let removed = 0;
+    for (const [token, entry] of state.executingRecords.entries()) {
+        if (entry?.taskName === key) {
+            state.executingRecords.delete(token);
+            removed++;
+        }
+    }
+    if (removed > 0) refreshExecutionState();
+    return removed;
+};
+const clearAllExecutionRecords = () => {
+    if (state.executingRecords.size > 0) state.executingRecords.clear();
+    refreshExecutionState();
+};
+const isTaskExecutionActive = (taskName) => {
+    const key = normalizeTaskKey(taskName);
+    if (!key) return false;
+    for (const entry of state.executingRecords.values()) {
+        if (entry?.taskName === key) return true;
+    }
+    return false;
+};
+const isAnyTaskExecuting = () => state.executingRecords.size > 0;
 const isGloballyEnabled = () => (window.isXiaobaixEnabled !== undefined ? window.isXiaobaixEnabled : true) && getSettings().enabled;
 const clampInt = (v, min, max, d = 0) => (Number.isFinite(+v) ? Math.max(min, Math.min(max, +v)) : d);
 const nowMs = () => Date.now();
@@ -439,6 +482,54 @@ async function removeTaskByScope(scope, taskId, fallbackIndex = -1) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const __taskRunMap = new Map();
+const __taskDynamicCallbackPrefix = (taskName) => `${normalizeTaskKey(taskName)}_fl_`;
+
+function abortTaskRunEntry(entry) {
+    if (!entry) return;
+    try { entry.abort?.abort?.(); } catch {}
+    try { entry.timers?.forEach?.((id) => clearTimeout(id)); } catch {}
+    try { entry.intervals?.forEach?.((id) => clearInterval(id)); } catch {}
+}
+
+function resetTaskRun(taskName) {
+    const taskKey = normalizeTaskKey(taskName);
+    if (!taskKey) return { taskKey, clearedRuns: 0, clearedCallbacks: 0, clearedExecutions: 0 };
+
+    let clearedRuns = 0;
+    const runEntry = __taskRunMap.get(taskKey);
+    if (runEntry) {
+        abortTaskRunEntry(runEntry);
+        __taskRunMap.delete(taskKey);
+        clearedRuns = 1;
+    }
+
+    let clearedCallbacks = 0;
+    const callbackPrefix = __taskDynamicCallbackPrefix(taskKey);
+    for (const [id, entry] of state.dynamicCallbacks.entries()) {
+        if (!id.startsWith(callbackPrefix)) continue;
+        try { entry?.abortController?.abort?.(); } catch {}
+        state.dynamicCallbacks.delete(id);
+        clearedCallbacks++;
+    }
+
+    clearTaskCooldown(taskKey);
+    const clearedExecutions = clearExecutionRecordsByTask(taskKey);
+    return { taskKey, clearedRuns, clearedCallbacks, clearedExecutions };
+}
+
+function resetAllTaskRuns() {
+    for (const entry of __taskRunMap.values()) abortTaskRunEntry(entry);
+    __taskRunMap.clear();
+
+    for (const [id, entry] of state.dynamicCallbacks.entries()) {
+        try { entry?.abortController?.abort?.(); } catch {}
+        state.dynamicCallbacks.delete(id);
+    }
+
+    clearTaskCooldown();
+    clearAllExecutionRecords();
+    return { ok: true };
+}
 
 CacheRegistry.register('scheduledTasks', {
     name: '循环任务状态',
@@ -448,8 +539,9 @@ CacheRegistry.register('scheduledTasks', {
             const b = state.taskLastExecutionTime?.size || 0;
             const c = state.dynamicCallbacks?.size || 0;
             const d = __taskRunMap.size || 0;
-            const e = TasksStorage.getCacheSize() || 0;
-            return a + b + c + d + e;
+            const e = state.executingRecords?.size || 0;
+            const f = TasksStorage.getCacheSize() || 0;
+            return a + b + c + d + e + f;
         } catch { return 0; }
     },
     getBytes: () => {
@@ -474,6 +566,10 @@ CacheRegistry.register('scheduledTasks', {
                 total += (entry?.timers?.size || 0) * 8;
                 total += (entry?.intervals?.size || 0) * 8;
             });
+            addMap(state.executingRecords, (entry) => {
+                addStr(entry?.taskName);
+                addStr(entry?.source);
+            });
             total += TasksStorage.getCacheBytes();
             return total;
         } catch { return 0; }
@@ -487,12 +583,7 @@ CacheRegistry.register('scheduledTasks', {
             if (s?.processedMessages) s.processedMessages = [];
             saveSettingsDebounced();
         } catch {}
-        try {
-            for (const [id, entry] of state.dynamicCallbacks.entries()) {
-                try { entry?.abortController?.abort?.(); } catch {}
-                state.dynamicCallbacks.delete(id);
-            }
-        } catch {}
+        try { resetAllTaskRuns(); } catch {}
     },
     getDetail: () => {
         try {
@@ -501,6 +592,7 @@ CacheRegistry.register('scheduledTasks', {
                 cooldown: state.taskLastExecutionTime?.size || 0,
                 dynamicCallbacks: state.dynamicCallbacks?.size || 0,
                 runningSingleInstances: __taskRunMap.size || 0,
+                executingTasks: state.executingRecords?.size || 0,
                 scriptCache: TasksStorage.getCacheSize() || 0,
             };
         } catch { return {}; }
@@ -523,7 +615,8 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
 
     const addListener = (target, type, handler, opts = {}) => {
         if (!target?.addEventListener) return;
-        target.addEventListener(type, handler, { ...opts, signal: abort.signal });
+        const normalized = typeof opts === 'boolean' ? { capture: opts } : { ...(opts || {}) };
+        target.addEventListener(type, handler, { ...normalized, signal: abort.signal });
     };
     const setTimeoutSafe = (fn, t, ...a) => {
         const id = setTimeout(() => {
@@ -566,15 +659,11 @@ async function __runTaskSingleInstance(taskName, jsRunner, signature = null) {
 
 async function executeCommands(commands, taskName) {
     if (!String(commands || '').trim()) return null;
-    state.isCommandGenerated = true;
-    state.executingCount = Math.max(0, (state.executingCount || 0) + 1);
+    const execToken = startExecutionRecord(taskName || 'AnonymousTask', 'command');
     try {
         return await processTaskCommands(commands, taskName);
     } finally {
-        setTimeout(() => {
-            state.executingCount = Math.max(0, (state.executingCount || 0) - 1);
-            if (!isAnyTaskExecuting()) state.isCommandGenerated = false;
-        }, 500);
+        setTimeout(() => finishExecutionRecord(execToken), 500);
     }
 }
 
@@ -653,138 +742,94 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
     }
 
     const jsRunner = async (utils) => {
-        const { addListener, setTimeoutSafe, clearTimeoutSafe, setIntervalSafe, clearIntervalSafe, abortSignal } = utils;
-
-        const originalWindowFns = {
-            setTimeout: window.setTimeout,
-            clearTimeout: window.clearTimeout,
-            setInterval: window.setInterval,
-            clearInterval: window.clearInterval,
-        };
-
-        const originals = {
-            setTimeout: originalWindowFns.setTimeout.bind(window),
-            clearTimeout: originalWindowFns.clearTimeout.bind(window),
-            setInterval: originalWindowFns.setInterval.bind(window),
-            clearInterval: originalWindowFns.clearInterval.bind(window),
-            addEventListener: EventTarget.prototype.addEventListener,
-            removeEventListener: EventTarget.prototype.removeEventListener,
-            appendChild: Node.prototype.appendChild,
-            insertBefore: Node.prototype.insertBefore,
-            replaceChild: Node.prototype.replaceChild,
-        };
+        const {
+            addListener: _addListener,
+            setTimeoutSafe: _setTimeoutSafe,
+            clearTimeoutSafe: _clearTimeoutSafe,
+            setIntervalSafe: _setIntervalSafe,
+            clearIntervalSafe: _clearIntervalSafe,
+            abortSignal
+        } = utils;
 
         const timeouts = new Set();
         const intervals = new Set();
         const listeners = new Set();
-        const createdNodes = new Set();
         const waiters = new Set();
-        let suppressTimerTracking = false;
-        const originalToastrFns = {};
-        const toastrMethods = ['info', 'success', 'warning', 'error'];
 
         const notifyActivityChange = () => {
-            if (waiters.size === 0) return;
             for (const cb of Array.from(waiters)) { try { cb(); } catch {} }
         };
 
-        const normalizeListenerOptions = (options) => (typeof options === 'boolean' ? options : !!options?.capture);
-
-        window.setTimeout = function(fn, t, ...args) {
-            const id = originals.setTimeout(function(...inner) {
+        const setTimeoutSafe = (fn, t, ...args) => {
+            const id = _setTimeoutSafe((...inner) => {
                 try { fn?.(...inner); }
                 finally {
                     if (timeouts.delete(id)) notifyActivityChange();
                 }
             }, t, ...args);
-            if (!suppressTimerTracking) {
-                timeouts.add(id);
-                notifyActivityChange();
-            }
+            timeouts.add(id);
+            notifyActivityChange();
             return id;
         };
-        window.clearTimeout = function(id) {
-            originals.clearTimeout(id);
+
+        const clearTimeoutSafe = (id) => {
+            _clearTimeoutSafe(id);
             if (timeouts.delete(id)) notifyActivityChange();
         };
-        window.setInterval = function(fn, t, ...args) { const id = originals.setInterval(fn, t, ...args); intervals.add(id); notifyActivityChange(); return id; };
-        window.clearInterval = function(id) { originals.clearInterval(id); intervals.delete(id); notifyActivityChange(); };
 
-        if (window.toastr) {
-            for (const method of toastrMethods) {
-                if (typeof window.toastr[method] !== 'function') continue;
-                originalToastrFns[method] = window.toastr[method];
-                window.toastr[method] = function(...fnArgs) {
-                    suppressTimerTracking = true;
-                    try { return originalToastrFns[method].apply(window.toastr, fnArgs); }
-                    finally { suppressTimerTracking = false; }
+        const setIntervalSafe = (fn, t, ...args) => {
+            const id = _setIntervalSafe(fn, t, ...args);
+            intervals.add(id);
+            notifyActivityChange();
+            return id;
+        };
+
+        const clearIntervalSafe = (id) => {
+            _clearIntervalSafe(id);
+            if (intervals.delete(id)) notifyActivityChange();
+        };
+
+        const addListener = (target, type, handler, opts = {}) => {
+            if (!target?.addEventListener || typeof handler !== 'function') return () => {};
+            const capture = !!(opts === true || opts?.capture);
+            let wrapped = handler;
+            let entry = null;
+
+            const isOnce = opts && typeof opts === 'object' && 'once' in opts && opts.once;
+            if (isOnce) {
+                wrapped = function (...args) {
+                    try { return handler.apply(this, args); }
+                    finally { if (entry) listeners.delete(entry); notifyActivityChange(); }
                 };
             }
-        }
 
-        const addListenerEntry = (entry) => { listeners.add(entry); notifyActivityChange(); };
-        const removeListenerEntry = (target, type, listener, options) => {
-            let removed = false;
+            entry = { target, type, listener: wrapped, originalListener: handler, capture };
+            listeners.add(entry);
+            notifyActivityChange();
+
+            const normalized = typeof opts === 'boolean' ? { capture: opts } : { ...(opts || {}) };
+            _addListener(target, type, wrapped, { ...normalized, signal: abortSignal });
+
+            return () => removeListener(target, type, handler, opts);
+        };
+
+        const removeListener = (target, type, handler, opts = {}) => {
+            const capture = !!(opts === true || opts?.capture);
             for (const entry of listeners) {
-                if (entry.target === target && entry.type === type && entry.listener === listener && entry.capture === normalizeListenerOptions(options)) {
+                if (entry.target === target && entry.type === type && entry.capture === capture &&
+                    (entry.listener === handler || entry.originalListener === handler)) {
                     listeners.delete(entry);
-                    removed = true;
-                    break;
+                    try { target?.removeEventListener?.(type, entry.listener, opts); } catch {}
+                    notifyActivityChange();
+                    return;
                 }
             }
-            if (removed) notifyActivityChange();
-        };
-
-        EventTarget.prototype.addEventListener = function(type, listener, options) {
-            addListenerEntry({ target: this, type, listener, capture: normalizeListenerOptions(options) });
-            return originals.addEventListener.call(this, type, listener, options);
-        };
-        EventTarget.prototype.removeEventListener = function(type, listener, options) {
-            removeListenerEntry(this, type, listener, options);
-            return originals.removeEventListener.call(this, type, listener, options);
-        };
-
-        const trackNode = (node) => { try { if (node && node.nodeType === 1) createdNodes.add(node); } catch {} };
-        Node.prototype.appendChild = function(child) { trackNode(child); return originals.appendChild.call(this, child); };
-        Node.prototype.insertBefore = function(newNode, refNode) { trackNode(newNode); return originals.insertBefore.call(this, newNode, refNode); };
-        Node.prototype.replaceChild = function(newNode, oldNode) { trackNode(newNode); return originals.replaceChild.call(this, newNode, oldNode); };
-
-        const restoreGlobals = () => {
-            window.setTimeout = originalWindowFns.setTimeout;
-            window.clearTimeout = originalWindowFns.clearTimeout;
-            window.setInterval = originalWindowFns.setInterval;
-            window.clearInterval = originalWindowFns.clearInterval;
-            EventTarget.prototype.addEventListener = originals.addEventListener;
-            EventTarget.prototype.removeEventListener = originals.removeEventListener;
-            Node.prototype.appendChild = originals.appendChild;
-            Node.prototype.insertBefore = originals.insertBefore;
-            Node.prototype.replaceChild = originals.replaceChild;
-            if (window.toastr) {
-                for (const method of toastrMethods) {
-                    if (typeof originalToastrFns[method] === 'function') {
-                        window.toastr[method] = originalToastrFns[method];
-                    }
-                }
-            }
+            try { target?.removeEventListener?.(type, handler, opts); } catch {}
         };
 
         const hardCleanup = () => {
-            try { timeouts.forEach(id => originals.clearTimeout(id)); } catch {}
-            try { intervals.forEach(id => originals.clearInterval(id)); } catch {}
-            try {
-                for (const entry of listeners) {
-                    const { target, type, listener, capture } = entry;
-                    originals.removeEventListener.call(target, type, listener, capture);
-                }
-            } catch {}
-            try {
-                createdNodes.forEach(node => {
-                    if (!node?.parentNode) return;
-                    if (node.id?.startsWith('xiaobaix_') || node.tagName === 'SCRIPT' || node.tagName === 'STYLE') {
-                        try { node.parentNode.removeChild(node); } catch {}
-                    }
-                });
-            } catch {}
+            try { timeouts.forEach(id => _clearTimeoutSafe(id)); } catch {}
+            try { intervals.forEach(id => _clearIntervalSafe(id)); } catch {}
             listeners.clear();
             waiters.clear();
         };
@@ -810,10 +855,10 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
             // eslint-disable-next-line no-new-func -- intentional: user-defined task expression
             const fn = new Function(
                 'taskContext', 'ctx', 'STscript', 'addFloorListener',
-                'addListener', 'setTimeoutSafe', 'clearTimeoutSafe', 'setIntervalSafe', 'clearIntervalSafe', 'abortSignal',
+                'addListener', 'removeListener', 'setTimeoutSafe', 'clearTimeoutSafe', 'setIntervalSafe', 'clearIntervalSafe', 'abortSignal',
                 `return (async () => { ${code} })();`
             );
-            return await fn(taskContext, taskContext, STscript, addFloorListener, addListener, setTimeoutSafe, clearTimeoutSafe, setIntervalSafe, clearIntervalSafe, abortSignal);
+            return await fn(taskContext, taskContext, STscript, addFloorListener, addListener, removeListener, setTimeoutSafe, clearTimeoutSafe, setIntervalSafe, clearIntervalSafe, abortSignal);
         };
 
         const hasActiveResources = () => (timeouts.size > 0 || intervals.size > 0 || listeners.size > 0);
@@ -834,7 +879,7 @@ async function executeTaskJS(jsCode, taskName = 'AnonymousTask') {
             result = await runInScope(jsCode);
             await waitForAsyncSettled();
         } finally {
-            try { hardCleanup(); } finally { restoreGlobals(); }
+            hardCleanup();
         }
         return result;
     };
@@ -960,7 +1005,7 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
 
     if (tasksToExecute.length === 0) return;
 
-    state.executingCount = Math.max(0, (state.executingCount || 0) + 1);
+    const execToken = startExecutionRecord(`__trigger__${triggerContext}`, 'system');
     try {
         for (const task of tasksToExecute) {
             state.taskLastExecutionTime.set(task.name, n);
@@ -980,7 +1025,7 @@ async function checkAndExecuteTasks(triggerContext = 'after_ai', overrideChatCha
             }
         }
     } finally {
-        state.executingCount = Math.max(0, (state.executingCount || 0) - 1);
+        finishExecutionRecord(execToken);
     }
 
     if (triggerContext === 'after_ai') state.lastTurnCount = calculateTurnCount();
@@ -1026,8 +1071,7 @@ function onMessageDeleted() {
     const chatId = getContext().chatId;
     settings.processedMessages = settings.processedMessages.filter(key => !key.startsWith(`${chatId}_`));
     state.processedMessagesSet = new Set(settings.processedMessages);
-    state.executingCount = 0;
-    state.isCommandGenerated = false;
+    clearAllExecutionRecords();
     recountFloors();
     saveSettingsDebounced();
 }
@@ -1038,9 +1082,8 @@ async function onChatChanged(chatId) {
         isNewChat: state.lastChatId !== chatId && chat.length <= 1,
         lastChatId: chatId,
         lastTurnCount: 0,
-        executingCount: 0,
-        isCommandGenerated: false
     });
+    clearAllExecutionRecords();
     state.taskLastExecutionTime.clear();
     TasksStorage.clearCache();
 
@@ -1091,7 +1134,7 @@ function getTasksHash() {
     return `${presetName || ''}|${all.map(t => `${t.id}_${t.disabled}_${t.name}_${t.interval}_${t.floorType}_${t.triggerTiming || 'after_ai'}`).join('|')}`;
 }
 
-function createTaskItemSimple(task, index, scope = 'global') {
+function createTaskItemSimple(task, scope = 'global') {
     if (!task.id) task.id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const taskType = scope || 'global';
     const floorTypeText = { user: '用户楼层', llm: 'LLM楼层' }[task.floorType] || '全部楼层';
@@ -1121,7 +1164,7 @@ function createTaskItemSimple(task, index, scope = 'global') {
     }
 
     const taskElement = $('#task_item_template').children().first().clone();
-    taskElement.attr({ id: task.id, 'data-index': index, 'data-type': taskType });
+    taskElement.attr({ id: task.id, 'data-task-id': task.id, 'data-type': taskType });
     taskElement.find('.task_name').attr('title', task.name).text(displayName);
     taskElement.find('.disable_task').attr('id', `task_disable_${task.id}`).prop('checked', task.disabled);
     taskElement.find('label.checkbox').attr('for', `task_disable_${task.id}`);
@@ -1168,16 +1211,16 @@ function refreshTaskLists() {
     updateTaskCounts(globalTasks.length, characterTasks.length, presetTasks.length);
 
     const globalFragment = document.createDocumentFragment();
-    globalTasks.forEach((task, i) => { globalFragment.appendChild(createTaskItemSimple(task, i, 'global')[0]); });
+    globalTasks.forEach((task) => { globalFragment.appendChild(createTaskItemSimple(task, 'global')[0]); });
     $globalList.empty().append(globalFragment);
 
     const charFragment = document.createDocumentFragment();
-    characterTasks.forEach((task, i) => { charFragment.appendChild(createTaskItemSimple(task, i, 'character')[0]); });
+    characterTasks.forEach((task) => { charFragment.appendChild(createTaskItemSimple(task, 'character')[0]); });
     $charList.empty().append(charFragment);
 
     if ($presetList.length) {
         const presetFragment = document.createDocumentFragment();
-        presetTasks.forEach((task, i) => { presetFragment.appendChild(createTaskItemSimple(task, i, 'preset')[0]); });
+        presetTasks.forEach((task) => { presetFragment.appendChild(createTaskItemSimple(task, 'preset')[0]); });
         $presetList.empty().append(presetFragment);
     }
 
@@ -1422,6 +1465,13 @@ async function showTaskEditor(task = null, isEdit = false, scope = 'global') {
     });
 }
 
+function resetTaskEditorState() {
+    state.currentEditingTask = null;
+    state.currentEditingIndex = -1;
+    state.currentEditingId = null;
+    state.currentEditingScope = 'global';
+}
+
 async function saveTaskFromEditor(task, scope) {
     const targetScope = scope === 'character' || scope === 'preset' ? scope : 'global';
     const isManual = (task?.interval === 0);
@@ -1451,10 +1501,10 @@ async function saveTaskFromEditor(task, scope) {
     } else {
         list.push(task);
     }
-    
+
     await persistTaskListByScope(targetScope, [...list]);
 
-    state.currentEditingScope = targetScope;
+    resetTaskEditorState();
     state.lastTasksHash = '';
     refreshUI();
 }
@@ -1483,6 +1533,9 @@ async function deleteTask(index, scope) {
         document.getElementById(styleId)?.remove();
         if (result) {
             await removeTaskByScope(scope, task.id, index);
+            if (state.currentEditingId === task.id || (state.currentEditingScope === scope && state.currentEditingIndex === index)) {
+                resetTaskEditorState();
+            }
             refreshUI();
         }
     } catch (error) {
@@ -1769,8 +1822,7 @@ function refreshUI() {
 }
 
 function onMessageSwiped() {
-    state.executingCount = 0;
-    state.isCommandGenerated = false;
+    clearAllExecutionRecords();
 }
 
 function onCharacterDeleted({ character }) {
@@ -1790,17 +1842,8 @@ function cleanup() {
         clearInterval(state.cleanupTimer);
         state.cleanupTimer = null;
     }
-    state.taskLastExecutionTime.clear();
+    resetAllTaskRuns();
     TasksStorage.clearCache();
-
-    try {
-        if (state.dynamicCallbacks && state.dynamicCallbacks.size > 0) {
-            for (const entry of state.dynamicCallbacks.values()) {
-                try { entry?.abortController?.abort(); } catch {}
-            }
-            state.dynamicCallbacks.clear();
-        }
-    } catch {}
 
     events.cleanup();
     window.removeEventListener('message', handleTaskMessage);
@@ -1938,6 +1981,9 @@ window.xbqte = async (name) => {
         const task = tasks.find(t => t.name.toLowerCase() === name.toLowerCase());
         if (!task) throw new Error(`找不到名为 "${name}" 的任务`);
         if (task.disabled) throw new Error(`任务 "${name}" 已被禁用`);
+        if (isTaskExecutionActive(task.name) || __taskRunMap.has(normalizeTaskKey(task.name))) {
+            resetTaskRun(task.name);
+        }
         if (isTaskInCooldown(task.name)) {
             const cd = getTaskCooldownStatus()[task.name];
             throw new Error(`任务 "${name}" 仍在冷却中，剩余 ${cd.remainingCooldown}ms`);
@@ -1949,6 +1995,11 @@ window.xbqte = async (name) => {
         console.error(`执行任务失败: ${error.message}`);
         throw error;
     }
+};
+
+window.xbtaskreset = async () => {
+    resetAllTaskRuns();
+    return '已清理所有运行中任务、动态回调、冷却和执行状态';
 };
 
 window.setScheduledTaskInterval = async (name, interval) => {
@@ -2004,6 +2055,14 @@ function registerSlashCommands() {
                 enumProvider: getAllTaskNames
             })],
             helpString: '执行指定名称的定时任务。例如: /xbqte 我的任务名称'
+        }));
+
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'xbtaskreset',
+            callback: async () => {
+                try { return await window.xbtaskreset(); } catch (error) { return `错误: ${error.message}`; }
+            },
+            helpString: '清理所有运行中任务、动态回调、冷却和执行状态'
         }));
 
         SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -2127,51 +2186,96 @@ async function initTasks() {
 
     $('#global_tasks_list')
         .on('input', '.disable_task', function () {
-            const $item = $(this).closest('.task-item');
-            const idx = parseInt($item.attr('data-index'), 10);
+            const id = $(this).closest('.task-item').attr('data-task-id');
             const list = getSettings().globalTasks;
-            if (list[idx]) {
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) {
                 list[idx].disabled = $(this).prop('checked');
                 saveSettingsDebounced();
                 state.lastTasksHash = '';
                 refreshTaskLists();
             }
         })
-        .on('click', '.edit_task', function () { editTask(parseInt($(this).closest('.task-item').attr('data-index')), 'global'); })
-        .on('click', '.export_task', function () { exportSingleTask(parseInt($(this).closest('.task-item').attr('data-index')), 'global'); })
-        .on('click', '.delete_task', function () { deleteTask(parseInt($(this).closest('.task-item').attr('data-index')), 'global'); });
+        .on('click', '.edit_task', function () {
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getSettings().globalTasks;
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) editTask(idx, 'global');
+        })
+        .on('click', '.export_task', function () {
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getSettings().globalTasks;
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) exportSingleTask(idx, 'global');
+        })
+        .on('click', '.delete_task', function () {
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getSettings().globalTasks;
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) deleteTask(idx, 'global');
+        });
 
     $('#character_tasks_list')
         .on('input', '.disable_task', function () {
-            const $item = $(this).closest('.task-item');
-            const idx = parseInt($item.attr('data-index'), 10);
-            const tasks = getCharacterTasks();
-            if (tasks[idx]) {
-                tasks[idx].disabled = $(this).prop('checked');
-                saveCharacterTasks(tasks);
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getCharacterTasks();
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) {
+                list[idx].disabled = $(this).prop('checked');
+                saveCharacterTasks(list);
                 state.lastTasksHash = '';
                 refreshTaskLists();
             }
         })
-        .on('click', '.edit_task', function () { editTask(parseInt($(this).closest('.task-item').attr('data-index')), 'character'); })
-        .on('click', '.export_task', function () { exportSingleTask(parseInt($(this).closest('.task-item').attr('data-index')), 'character'); })
-        .on('click', '.delete_task', function () { deleteTask(parseInt($(this).closest('.task-item').attr('data-index')), 'character'); });
+        .on('click', '.edit_task', function () {
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getCharacterTasks();
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) editTask(idx, 'character');
+        })
+        .on('click', '.export_task', function () {
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getCharacterTasks();
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) exportSingleTask(idx, 'character');
+        })
+        .on('click', '.delete_task', function () {
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getCharacterTasks();
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) deleteTask(idx, 'character');
+        });
 
     $('#preset_tasks_list')
         .on('input', '.disable_task', async function () {
-            const $item = $(this).closest('.task-item');
-            const idx = parseInt($item.attr('data-index'), 10);
-            const tasks = getPresetTasks();
-            if (tasks[idx]) {
-                tasks[idx].disabled = $(this).prop('checked');
-                await savePresetTasks([...tasks]);
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getPresetTasks();
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) {
+                list[idx].disabled = $(this).prop('checked');
+                await savePresetTasks([...list]);
                 state.lastTasksHash = '';
                 refreshTaskLists();
             }
         })
-        .on('click', '.edit_task', function () { editTask(parseInt($(this).closest('.task-item').attr('data-index')), 'preset'); })
-        .on('click', '.export_task', function () { exportSingleTask(parseInt($(this).closest('.task-item').attr('data-index')), 'preset'); })
-        .on('click', '.delete_task', function () { deleteTask(parseInt($(this).closest('.task-item').attr('data-index')), 'preset'); });
+        .on('click', '.edit_task', function () {
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getPresetTasks();
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) editTask(idx, 'preset');
+        })
+        .on('click', '.export_task', function () {
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getPresetTasks();
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) exportSingleTask(idx, 'preset');
+        })
+        .on('click', '.delete_task', function () {
+            const id = $(this).closest('.task-item').attr('data-task-id');
+            const list = getPresetTasks();
+            const idx = list.findIndex(t => t?.id === id);
+            if (idx !== -1) deleteTask(idx, 'preset');
+        });
 
     $('#scheduled_tasks_enabled').prop('checked', getSettings().enabled);
     refreshTaskLists();
