@@ -421,14 +421,14 @@ function handleAnchorCancel() {
     postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: -1, total: 0 });
 }
 
-async function handleTestOnlineService(provider, config) {
+async function handleTestOnlineService(config) {
     try {
         postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "downloading", message: "连接中..." });
-        const result = await testOnlineService(provider, config);
+        const result = await testOnlineService(config);
         postToFrame({
             type: "VECTOR_ONLINE_STATUS",
             status: "success",
-            message: `连接成功 (${result.dims}维)`,
+            message: `连接成功 (${result.model}, ${result.dims}维)`,
         });
     } catch (e) {
         postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: e.message });
@@ -1369,7 +1369,7 @@ async function handleFrameMessage(event) {
             break;
 
         case "VECTOR_TEST_ONLINE":
-            handleTestOnlineService(data.provider, data.config);
+            handleTestOnlineService(data.config);
             break;
 
         case "VECTOR_GENERATE":

@@ -11,6 +11,15 @@ const DEFAULT_FILTER_RULES = [
     { start: "<thinking>", end: "</thinking>" },
     { start: "```", end: "```" },
 ];
+const DEFAULT_VECTOR_MODEL = "BAAI/bge-m3";
+const VECTOR_MODEL_WHITELIST = new Set([
+    DEFAULT_VECTOR_MODEL,
+    "Qwen/Qwen3-Embedding-8B",
+]);
+
+function normalizeVectorModel(model) {
+    return VECTOR_MODEL_WHITELIST.has(model) ? model : DEFAULT_VECTOR_MODEL;
+}
 
 export function getSettings() {
     const ext = (extension_settings[EXT_ID] ||= {});
@@ -100,7 +109,7 @@ export function getVectorConfig() {
         cfg.engine = "online";
         cfg.online = cfg.online || {};
         cfg.online.provider = "siliconflow";
-        cfg.online.model = "BAAI/bge-m3";
+        cfg.online.model = normalizeVectorModel(cfg.online.model);
 
         return cfg;
     } catch {
@@ -126,7 +135,7 @@ export function saveVectorConfig(vectorCfg) {
             online: {
                 provider: "siliconflow",
                 key: vectorCfg?.online?.key || "",
-                model: "BAAI/bge-m3",
+                model: normalizeVectorModel(vectorCfg?.online?.model),
             },
         };
 

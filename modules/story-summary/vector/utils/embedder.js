@@ -1,33 +1,56 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// Story Summary - Embedder (v2 - 统一硅基)
-// 所有 embedding 请求转发到 siliconflow.js
-// ═══════════════════════════════════════════════════════════════════════════
+// Story Summary - Embedder
+// All embedding requests go through siliconflow.js.
 
 import { embed as sfEmbed, getApiKey } from '../llm/siliconflow.js';
-// ═══════════════════════════════════════════════════════════════════════════
-// 统一 embed 接口
-// ═══════════════════════════════════════════════════════════════════════════
+
+export const DEFAULT_VECTOR_MODEL = 'BAAI/bge-m3';
+export const QWEN_VECTOR_MODEL = 'Qwen/Qwen3-Embedding-8B';
+export const QWEN_VECTOR_DIMENSIONS = 4096;
+
+const MODEL_METADATA = {
+    [DEFAULT_VECTOR_MODEL]: {
+        fingerprint: 'siliconflow:bge-m3:1024',
+        dimensions: null,
+    },
+    [QWEN_VECTOR_MODEL]: {
+        fingerprint: 'siliconflow:qwen3-embedding-8b:4096',
+        dimensions: QWEN_VECTOR_DIMENSIONS,
+    },
+};
+
+function normalizeModel(model) {
+    return MODEL_METADATA[model] ? model : DEFAULT_VECTOR_MODEL;
+}
+
+function normalizeConfig(config) {
+    const vectorCfg = config?.online ? config : { online: config || {} };
+    const model = normalizeModel(vectorCfg?.online?.model);
+    return {
+        model,
+        dimensions: MODEL_METADATA[model]?.dimensions ?? null,
+    };
+}
 
 export async function embed(texts, config, options = {}) {
-    // 忽略旧的 config 参数，统一走硅基
-    return await sfEmbed(texts, options);
+    const { model, dimensions } = normalizeConfig(config);
+    return await sfEmbed(texts, { ...options, model, dimensions });
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 指纹（简化版）
-// ═══════════════════════════════════════════════════════════════════════════
 
 export function getEngineFingerprint(config) {
-    // 统一使用硅基 bge-m3
-    return 'siliconflow:bge-m3:1024';
+    const { model } = normalizeConfig(config);
+    return MODEL_METADATA[model].fingerprint;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 状态检查（简化版）
-// ═══════════════════════════════════════════════════════════════════════════
+export function getModelLabel(config) {
+    return normalizeConfig(config).model;
+}
+
+export function getModelDimensions(config) {
+    const { model } = normalizeConfig(config);
+    return MODEL_METADATA[model]?.dimensions || 1024;
+}
 
 export async function checkLocalModelStatus() {
-    // 不再支持本地模型
     return { status: 'not_supported', message: '请使用在线服务' };
 }
 
@@ -43,32 +66,29 @@ export function cancelDownload() { }
 
 export async function deleteLocalModelCache() { }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 在线服务测试
-// ═══════════════════════════════════════════════════════════════════════════
-
-export async function testOnlineService() {
+export async function testOnlineService(config) {
     const key = getApiKey();
     if (!key) {
         throw new Error('请配置硅基 API Key');
     }
 
+    const { model, dimensions } = normalizeConfig(config);
+
     try {
-        const [vec] = await sfEmbed(['测试连接']);
-        return { success: true, dims: vec?.length || 0 };
+        const [vec] = await sfEmbed(['测试连接'], { model, dimensions });
+        return {
+            success: true,
+            model,
+            dims: vec?.length || getModelDimensions(config),
+        };
     } catch (e) {
         throw new Error(`连接失败: ${e.message}`);
     }
 }
 
 export async function fetchOnlineModels() {
-    // 硅基模型固定
-    return ['BAAI/bge-m3'];
+    return [DEFAULT_VECTOR_MODEL, QWEN_VECTOR_MODEL];
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 兼容旧接口
-// ═══════════════════════════════════════════════════════════════════════════
 
 export const DEFAULT_LOCAL_MODEL = 'bge-m3';
 

@@ -410,6 +410,16 @@
                                 </div>
                                 <div class="settings-row">
                                     <div class="settings-field full">
+                                        <label>Embedding 模型</label>
+                                        <select id="vector-model">
+                                            <option value="BAAI/bge-m3">BAAI/bge-m3</option>
+                                            <option value="Qwen/Qwen3-Embedding-8B">Qwen/Qwen3-Embedding-8B</option>
+                                        </select>
+                                        <div class="settings-hint">切换 embedding 模型后，需要重新生成向量。</div>
+                                    </div>
+                                </div>
+                                <div class="settings-row">
+                                    <div class="settings-field full">
                                         <label>硅基流动 API Key</label>
                                         <input type="password" id="vector-api-key" placeholder="sk-xxx">
                                         <div class="settings-hint">
@@ -709,7 +719,7 @@
                                     一个 <a href="https://siliconflow.cn" target="_blank">硅基流动</a> 的 API
                                     Key。我们使用的三个模型全部<strong>完全免费</strong>，不限额度：
                                     <ul class="guide-list-inner">
-                                        <li><code>bge-m3</code> — 记忆向量化</li>
+                                        <li><code>bge-m3</code> / <code>Qwen3-Embedding-8B</code> — 记忆向量化</li>
                                         <li><code>bge-reranker-v2-m3</code> — 记忆精排</li>
                                         <li><code>Qwen3-8B</code> — 记忆锚点提取</li>
                                     </ul>
@@ -764,7 +774,7 @@
                                 <div class="guide-faq-item">
                                     <div class="guide-faq-q">硅基的 Key 要花钱吗？</div>
                                     <div class="guide-faq-a">
-                                        不花钱。我们使用的三个模型（bge-m3、bge-reranker-v2-m3、Qwen3-8B）本身就是完全免费的模型，不存在额度限制，永久免费使用。
+                                        不花钱。记忆锚点提取、reranker 和 embedding 是不同用途的模型。当前 embedding 支持 <code>bge-m3</code> 和 <code>Qwen3-Embedding-8B</code>，具体可用情况以硅基平台为准。
                                     </div>
                                 </div>
                             </div>

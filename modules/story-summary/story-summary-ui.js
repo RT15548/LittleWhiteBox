@@ -78,6 +78,9 @@
         { start: '<thinking>', end: '</thinking>' },
         { start: '```', end: '```' },
     ];
+    const DEFAULT_VECTOR_MODEL = 'BAAI/bge-m3';
+    const VECTOR_MODEL_OPTIONS = [DEFAULT_VECTOR_MODEL, 'Qwen/Qwen3-Embedding-8B'];
+    const normalizeVectorModel = model => VECTOR_MODEL_OPTIONS.includes(model) ? model : DEFAULT_VECTOR_MODEL;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // State
@@ -89,7 +92,7 @@
         trigger: { enabled: false, interval: 20, timing: 'before_user', role: 'system', useStream: true, maxPerRun: 100, wrapperHead: '', wrapperTail: '', forceInsertAtEnd: false },
         ui: { hideSummarized: true, keepVisibleCount: 6 },
         textFilterRules: [...DEFAULT_FILTER_RULES],
-        vector: { enabled: false, engine: 'online', local: { modelId: 'bge-small-zh' }, online: { provider: 'siliconflow', url: '', key: '', model: '' } }
+        vector: { enabled: false, engine: 'online', local: { modelId: 'bge-small-zh' }, online: { provider: 'siliconflow', url: '', key: '', model: DEFAULT_VECTOR_MODEL } }
     };
 
     let summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [] };
@@ -162,7 +165,7 @@
                 config.textFilterRules = collectFilterRules();
             }
             if (!config.vector) {
-                config.vector = { enabled: false, engine: 'online', online: { provider: 'siliconflow', key: '', model: 'BAAI/bge-m3' } };
+                config.vector = { enabled: false, engine: 'online', online: { provider: 'siliconflow', key: '', model: DEFAULT_VECTOR_MODEL } };
             }
             localStorage.setItem('summary_panel_config', JSON.stringify(config));
             postMsg('SAVE_PANEL_CONFIG', { config });
@@ -182,7 +185,7 @@
             online: {
                 provider: 'siliconflow',
                 key: $('vector-api-key')?.value?.trim() || '',
-                model: 'BAAI/bge-m3',
+                model: normalizeVectorModel($('vector-model')?.value),
             },
         };
     }
@@ -194,6 +197,9 @@
 
         if (cfg.online?.key) {
             $('vector-api-key').value = cfg.online.key;
+        }
+        if ($('vector-model')) {
+            $('vector-model').value = normalizeVectorModel(cfg.online?.model);
         }
 
     }
@@ -390,11 +396,7 @@
         $('btn-test-vector-api').onclick = () => {
             saveConfig(); // 先保存新 Key 到 localStorage
             postMsg('VECTOR_TEST_ONLINE', {
-                provider: 'siliconflow',
-                config: {
-                    key: $('vector-api-key').value.trim(),
-                    model: 'BAAI/bge-m3',
-                }
+                config: getVectorConfig(),
             });
         };
 

@@ -374,7 +374,7 @@ async function vectorizeAtoms(chatId, atoms, onProgress) {
             const semBatch = semanticTexts.slice(i, i + batchSize);
             const rBatch = rTexts.slice(i, i + batchSize);
             const payload = semBatch.concat(rBatch);
-            const vectors = await embed(payload, { timeout: 30000 });
+            const vectors = await embed(payload, vectorCfg, { timeout: 30000 });
             const split = semBatch.length;
             if (!Array.isArray(vectors) || vectors.length < split * 2) {
                 throw new Error(`embed length mismatch: expect>=${split * 2}, got=${vectors?.length || 0}`);
@@ -490,7 +490,7 @@ async function vectorizeAtomsSimple(chatId, atoms) {
     const fingerprint = getEngineFingerprint(vectorCfg);
 
     try {
-        const vectors = await embed(semanticTexts.concat(rTexts), { timeout: 30000 });
+        const vectors = await embed(semanticTexts.concat(rTexts), vectorCfg, { timeout: 30000 });
         const split = semanticTexts.length;
         if (!Array.isArray(vectors) || vectors.length < split * 2) {
             throw new Error(`embed length mismatch: expect>=${split * 2}, got=${vectors?.length || 0}`);

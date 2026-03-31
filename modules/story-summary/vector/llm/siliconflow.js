@@ -1,20 +1,10 @@
-// ═══════════════════════════════════════════════════════════════════════════
-// siliconflow.js - Embedding + 多 Key 轮询
-//
-// 在 API Key 输入框中用逗号、分号、竖线或换行分隔多个 Key，例如：
-//   sk-aaa,sk-bbb,sk-ccc
-// 每次调用自动轮询到下一个 Key，并发请求会均匀分布到所有 Key 上。
-// ═══════════════════════════════════════════════════════════════════════════
+// siliconflow.js - Embedding + API key rotation
 
 const BASE_URL = 'https://api.siliconflow.cn';
-const EMBEDDING_MODEL = 'BAAI/bge-m3';
+const DEFAULT_MODEL = 'BAAI/bge-m3';
 
-// ★ 多 Key 轮询状态
 let _keyIndex = 0;
 
-/**
- * 从 localStorage 解析所有 Key（支持逗号、分号、竖线、换行分隔）
- */
 function parseKeys() {
     try {
         const raw = localStorage.getItem('summary_panel_config');
@@ -30,10 +20,6 @@ function parseKeys() {
     return [];
 }
 
-/**
- * 获取下一个可用的 API Key（轮询）
- * 每次调用返回不同的 Key，自动循环
- */
 export function getApiKey() {
     const keys = parseKeys();
     if (!keys.length) return null;
@@ -47,16 +33,9 @@ export function getApiKey() {
     return key;
 }
 
-/**
- * 获取当前配置的 Key 数量（供外部模块动态调整并发用）
- */
 export function getKeyCount() {
     return Math.max(1, parseKeys().length);
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Embedding
-// ═══════════════════════════════════════════════════════════════════════════
 
 export async function embed(texts, options = {}) {
     if (!texts?.length) return [];
@@ -64,21 +43,31 @@ export async function embed(texts, options = {}) {
     const key = getApiKey();
     if (!key) throw new Error('未配置硅基 API Key');
 
-    const { timeout = 30000, signal } = options;
+    const {
+        model = DEFAULT_MODEL,
+        dimensions,
+        timeout = 30000,
+        signal,
+    } = options;
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const body = {
+        model,
+        input: texts,
+    };
+    if (Number.isFinite(dimensions) && dimensions > 0) {
+        body.dimensions = dimensions;
+    }
 
     try {
         const response = await fetch(`${BASE_URL}/v1/embeddings`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${key}`,
+                Authorization: `Bearer ${key}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                model: EMBEDDING_MODEL,
-                input: texts,
-            }),
+            body: JSON.stringify(body),
             signal: signal || controller.signal,
         });
 
@@ -98,4 +87,4 @@ export async function embed(texts, options = {}) {
     }
 }
 
-export { EMBEDDING_MODEL as MODELS };
+export { DEFAULT_MODEL as MODELS };
