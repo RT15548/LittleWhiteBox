@@ -161,8 +161,9 @@
         <div class="modal-box settings-modal-box">
             <div class="modal-head">
                 <div class="settings-tabs">
-                    <div class="settings-tab active" data-tab="tab-summary">总结设置</div>
-                    <div class="settings-tab" data-tab="tab-vector">向量设置</div>
+                    <div class="settings-tab active" data-tab="tab-summary">总结</div>
+                    <div class="settings-tab" data-tab="tab-vector">向量</div>
+                    <div class="settings-tab" data-tab="tab-prompts">提示词</div>
                     <div class="settings-tab" data-tab="tab-debug">调试</div>
                     <div class="settings-tab" data-tab="tab-guide">说明</div>
                 </div>
@@ -222,16 +223,17 @@
                         </div>
                         <div class="settings-row hidden" id="api-model-manual-row">
                             <div class="settings-field full">
-                                <label>模型</label>
-                                <input type="text" id="api-model-text" placeholder="如 gemini-1.5-pro、claude-3-haiku">
+                                <label>模型名</label>
+                                <input type="text" id="api-model-text" placeholder="可手动填写，如 cursor/google/gemini-3-flash">
                             </div>
                         </div>
                         <div class="settings-row hidden" id="api-model-select-row">
                             <div class="settings-field full">
-                                <label>可用模型</label>
+                                <label>已拉取模型</label>
                                 <select id="api-model-select">
-                                    <option value="">请先拉取模型列表</option>
+                                    <option value="">请选择</option>
                                 </select>
+                                <div class="settings-hint">选择后会回填到上面的模型名输入框。原生下拉更稳，不依赖额外样式。</div>
                             </div>
                         </div>
                         <div class="settings-btn-row hidden" id="api-connect-row"
@@ -243,6 +245,7 @@
                                 <span>流式</span>
                             </label>
                         </div>
+                        <div class="settings-hint hidden" id="api-connect-status"></div>
 
                         <!-- Collapsible Gen Params -->
                         <div class="settings-collapse">
@@ -382,6 +385,15 @@
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="settings-section" style="padding: 0; margin-top: 16px;">
+                            <div class="settings-section-title">导出与导入</div>
+                            <div class="settings-btn-row" style="margin-top: 8px;">
+                                <button class="btn btn-sm" id="btn-copy-summary" style="flex:1">复制记忆包</button>
+                                <button class="btn btn-sm" id="btn-import-summary" style="flex:1">粘贴导入记忆包</button>
+                            </div>
+                            <div class="settings-hint" id="summary-io-status">复制会把记忆包放进剪贴板；导入会覆盖当前聊天的总结资料，并自动清空向量与总结边界。</div>
                         </div>
                     </div>
                 </div>
@@ -577,6 +589,75 @@
                                 </div>
                             </div>
 
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane" id="tab-prompts">
+                    <div class="settings-section">
+                        <div class="settings-btn-row" style="margin: 0 0 12px 0; align-items: center;">
+                            <div class="settings-section-title" style="margin: 0;">增量总结提示词</div>
+                            <button class="btn btn-sm" id="btn-reset-summary-prompts" style="margin-left:auto;">恢复默认</button>
+                        </div>
+                        <div class="settings-hint" style="margin-bottom: 12px;">这里展示的是一次完整增量总结的各段提示词。像 <code>{$nextEventId}</code>、<code>{$existingEventCount}</code> 这样的占位符会在运行时自动替换，不要删除。</div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-system-prompt" style="min-height: 300px;" placeholder="assistant"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-assistant-doc-prompt" style="min-height: 220px;" placeholder="assistant"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-assistant-ask-summary-prompt" style="min-height: 120px;" placeholder="user"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-assistant-ask-content-prompt" style="min-height: 160px;" placeholder="assistant"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <label>{插入聊天历史记录}</label>
+                                <textarea class="editor-ta" id="summary-meta-protocol-start-prompt" style="min-height: 120px;" placeholder="user"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-user-json-format-prompt" style="min-height: 320px;" placeholder="user"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-assistant-check-prompt" style="min-height: 180px;" placeholder="assistant"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-user-confirm-prompt" style="min-height: 100px;" placeholder="user"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-assistant-prefill-prompt" style="min-height: 80px;" placeholder="assistant"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <div class="settings-btn-row" style="margin: 0 0 12px 0; align-items: center;">
+                            <div class="settings-section-title" style="margin: 0;">记忆注入提示词</div>
+                            <button class="btn btn-sm" id="btn-reset-memory-prompt-template" style="margin-left:auto;">恢复默认</button>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="memory-prompt-template" style="min-height: 220px;" placeholder="聊天注入模板"></textarea>
+                                <div class="settings-hint">必须保留 <code>{$剧情记忆}</code> 这个占位符，运行时会替换成实际记忆内容。</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -859,6 +940,9 @@
             </div>
             <div class="modal-body">
                 <div id="confirm-message" style="margin: 10px 0; line-height: 1.6; color: var(--fg);">内容</div>
+                <div id="confirm-input-wrap" class="hidden" style="margin-top: 12px;">
+                    <textarea class="editor-ta" id="confirm-input" style="min-height: 220px;" placeholder="在这里粘贴记忆包"></textarea>
+                </div>
             </div>
             <div class="modal-foot">
                 <button class="btn" id="confirm-cancel">取消</button>

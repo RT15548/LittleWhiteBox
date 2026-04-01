@@ -15,7 +15,7 @@
 import { getContext } from "../../../../../../extensions.js";
 import { xbLog } from "../../../core/debug-core.js";
 import { getSummaryStore, getFacts, isRelationFact } from "../data/store.js";
-import { getVectorConfig, getSummaryPanelConfig, getSettings } from "../data/config.js";
+import { getVectorConfig, getSummaryPanelConfig, getSettings, DEFAULT_MEMORY_PROMPT_TEMPLATE } from "../data/config.js";
 import { recallMemory } from "../vector/retrieval/recall.js";
 import { getMeta } from "../vector/storage/chunk-store.js";
 import { getStateAtoms } from "../vector/storage/state-store.js";
@@ -208,27 +208,15 @@ function renumberEventText(text, newIndex) {
  * 构建系统前导文本
  * @returns {string} 前导文本
  */
-function buildSystemPreamble() {
-    return [
-        "以上是还留在眼前的对话",
-        "以下是脑海里的记忆：",
-        "• [定了的事] 这些是不会变的",
-        "• [其他人的事] 别人的经历，当前角色可能不知晓",
-        "• 其余部分是过往经历的回忆碎片",
-        "",
-        "请内化这些记忆：",
-    ].join("\n");
-}
-
-/**
- * 构建后缀文本
- * @returns {string} 后缀文本
- */
-function buildPostscript() {
-    return [
-        "",
-        "这些记忆是真实的，请自然地记住它们。",
-    ].join("\n");
+function buildMemoryPromptText(memoryBody) {
+    const templateRaw = String(
+        getSummaryPanelConfig()?.prompts?.memoryTemplate || DEFAULT_MEMORY_PROMPT_TEMPLATE
+    );
+    const template = templateRaw.trim() || DEFAULT_MEMORY_PROMPT_TEMPLATE;
+    if (template.includes("{$剧情记忆}")) {
+        return template.replaceAll("{$剧情记忆}", memoryBody);
+    }
+    return `${template}\n${memoryBody}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1294,10 +1282,8 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         return { promptText: "", injectionStats, metrics };
     }
 
-    const promptText =
-        `${buildSystemPreamble()}\n` +
-        `<剧情记忆>\n\n${sections.join("\n\n")}\n\n</剧情记忆>\n` +
-        `${buildPostscript()}`;
+    const memoryBody = `<剧情记忆>\n\n${sections.join("\n\n")}\n\n</剧情记忆>`;
+    const promptText = buildMemoryPromptText(memoryBody);
 
     if (metrics) {
         metrics.formatting.sectionsIncluded = [];

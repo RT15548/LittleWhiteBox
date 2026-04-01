@@ -944,10 +944,8 @@ function initButtonsForAll() {
 
 async function sendSavedConfigToFrame() {
     try {
-        const savedConfig = await CommonSettingStorage.get(SUMMARY_CONFIG_KEY, null);
-        if (savedConfig) {
-            postToFrame({ type: "LOAD_PANEL_CONFIG", config: savedConfig });
-        }
+        const savedConfig = getSummaryPanelConfig();
+        postToFrame({ type: "LOAD_PANEL_CONFIG", config: savedConfig });
     } catch (e) {
         xbLog.warn(MODULE_ID, "加载面板配置失败", e);
     }
@@ -1028,6 +1026,270 @@ function buildFramePayload(store) {
         arcs: json.arcs || [],
         facts,
         lastSummarizedMesId: store?.lastSummarizedMesId ?? -1,
+    };
+}
+
+async function copyTextToClipboard(text) {
+    const value = String(text ?? "");
+    if (!value) {
+        throw new Error("没有可复制的内容");
+    }
+
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return;
+    }
+
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand?.("copy");
+    ta.remove();
+    if (!ok) {
+        throw new Error("浏览器不支持自动复制");
+    }
+}
+
+function stripFloorMarker(summary) {
+    return String(summary || "")
+        .replace(/\s*\(#\d+(?:-\d+)?\)\s*$/, "")
+        .trim();
+}
+
+function normalizeInternalFact(item) {
+    const fact = item && typeof item === "object" ? item : {};
+    const base = {
+        id: String(fact?.id || "").trim(),
+        s: String(fact?.s ?? "").trim(),
+        p: String(fact?.p ?? "").trim(),
+        o: String(fact?.o ?? "").trim(),
+    };
+
+    const stateValue = fact?._isState ?? fact?.isState;
+    if (stateValue != null) {
+        base._isState = !!stateValue;
+    }
+
+    const trendValue = String(fact?.trend ?? "").trim();
+    if (trendValue) {
+        base.trend = trendValue;
+    }
+
+    return base;
+}
+
+function normalizePortableFact(item) {
+    const fact = item && typeof item === "object" ? item : {};
+    const base = {
+        id: String(fact?.id || "").trim(),
+        s: String(fact?.人物名字 ?? "").trim(),
+        p: String(fact?.种类 ?? "").trim(),
+        o: String(fact?.描述 ?? "").trim(),
+    };
+
+    const stateValue = fact?._isState ?? fact?.isState ?? fact?.核心事实;
+    if (stateValue != null) {
+        base._isState = !!stateValue;
+    }
+
+    const trendValue = String(fact?.trend ?? fact?.趋势 ?? "").trim();
+    if (trendValue) {
+        base.trend = trendValue;
+    }
+
+    return base;
+}
+
+function serializePortableFact(fact) {
+    const out = {
+        人物名字: String(fact?.s || "").trim(),
+        种类: String(fact?.p || "").trim(),
+        描述: String(fact?.o || "").trim(),
+    };
+
+    if (fact?._isState != null) {
+        out.核心事实 = !!fact._isState;
+    }
+
+    if (fact?.trend) {
+        out.趋势 = String(fact.trend).trim();
+    }
+
+    return out;
+}
+
+function cloneSummaryJsonForPortability(json) {
+    const src = json && typeof json === "object" ? json : {};
+    const characters = src.characters && typeof src.characters === "object" ? src.characters : {};
+    return {
+        keywords: Array.isArray(src.keywords)
+            ? src.keywords.map((item) => ({
+                text: String(item?.text || "").trim(),
+                weight: String(item?.weight || "").trim(),
+            })).filter((item) => item.text)
+            : [],
+        events: Array.isArray(src.events)
+            ? src.events.map((item) => ({
+                id: String(item?.id || "").trim(),
+                title: String(item?.title || "").trim(),
+                timeLabel: String(item?.timeLabel || "").trim(),
+                summary: stripFloorMarker(item?.summary),
+                participants: Array.isArray(item?.participants)
+                    ? item.participants.map((name) => String(name || "").trim()).filter(Boolean)
+                    : [],
+                type: String(item?.type || "").trim(),
+                weight: String(item?.weight || "").trim(),
+                causedBy: Array.isArray(item?.causedBy)
+                    ? item.causedBy.map((id) => String(id || "").trim()).filter(Boolean)
+                    : [],
+            })).filter((item) => item.id || item.title || item.summary)
+            : [],
+        characters: {
+            main: Array.isArray(characters.main)
+                ? characters.main
+                    .map((item) => typeof item === "string"
+                        ? { name: String(item).trim() }
+                        : { name: String(item?.name || "").trim() })
+                    .filter((item) => item.name)
+                : (Array.isArray(characters)
+                    ? characters
+                        .map((item) => typeof item === "string"
+                            ? { name: String(item).trim() }
+                            : { name: String(item?.name || "").trim() })
+                        .filter((item) => item.name)
+                    : []),
+        },
+        arcs: Array.isArray(src.arcs)
+            ? src.arcs.map((item) => ({
+                name: String(item?.name || "").trim(),
+                trajectory: String(item?.trajectory || "").trim(),
+                progress: Number.isFinite(Number(item?.progress)) ? Number(item.progress) : 0,
+                moments: Array.isArray(item?.moments)
+                    ? item.moments
+                        .map((moment) => typeof moment === "string"
+                            ? { text: String(moment).trim() }
+                            : { text: String(moment?.text || "").trim() })
+                        .filter((moment) => moment.text)
+                    : [],
+            })).filter((item) => item.name)
+            : [],
+        facts: Array.isArray(src.facts)
+            ? src.facts.map(normalizeInternalFact).filter((item) => item.s && item.p && item.o)
+            : [],
+    };
+}
+
+function extractSummaryImportJson(raw) {
+    if (!raw || typeof raw !== "object") {
+        throw new Error("文件内容不是有效 JSON 对象");
+    }
+
+    const candidate =
+        (raw.type === "LittleWhiteBoxStorySummaryMemory" && raw.data && typeof raw.data === "object" ? raw.data : null) ||
+        (raw.storySummary?.json && typeof raw.storySummary.json === "object" ? raw.storySummary.json : null) ||
+        (raw.json && typeof raw.json === "object" ? raw.json : null) ||
+        raw;
+
+    const hasSummaryShape =
+        Array.isArray(candidate.keywords) ||
+        Array.isArray(candidate.events) ||
+        Array.isArray(candidate.arcs) ||
+        Array.isArray(candidate.facts) ||
+        (candidate.characters && typeof candidate.characters === "object");
+
+    if (!hasSummaryShape) {
+        throw new Error("未识别到可导入的总结数据");
+    }
+
+    const json = cloneSummaryJsonForPortability(candidate);
+    json.facts = Array.isArray(candidate.facts)
+        ? candidate.facts.map(normalizePortableFact).filter((item) => item.s && item.p && item.o)
+        : [];
+    return json;
+}
+
+function buildSummaryExportPackage(store) {
+    const json = cloneSummaryJsonForPortability(store?.json || {});
+    const data = {
+        ...json,
+        facts: json.facts.map(serializePortableFact),
+    };
+    return {
+        type: "LittleWhiteBoxStorySummaryMemory",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        data,
+        counts: {
+            keywords: json.keywords.length,
+            events: json.events.length,
+            characters: json.characters.main.length,
+            arcs: json.arcs.length,
+            facts: json.facts.length,
+        },
+    };
+}
+
+async function importSummaryMemoryPackage(rawText) {
+    if (!String(rawText || "").trim()) {
+        throw new Error("记忆包内容为空");
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(String(rawText));
+    } catch {
+        throw new Error("JSON 解析失败");
+    }
+
+    const importedJson = extractSummaryImportJson(parsed);
+    const { chatId, chat } = getContext();
+    if (!chatId) {
+        throw new Error("当前没有打开聊天");
+    }
+
+    await clearAllAtomsAndVectors(chatId);
+    await clearAllChunks(chatId);
+    await clearEventVectors(chatId);
+    await clearStateVectors(chatId);
+    await updateMeta(chatId, { lastChunkFloor: -1, fingerprint: null });
+
+    invalidateLexicalIndex();
+
+    const store = getSummaryStore();
+    if (!store) {
+        throw new Error("无法读取当前聊天的总结存储");
+    }
+
+    store.json = importedJson;
+    store.lastSummarizedMesId = -1;
+    store.summaryHistory = [];
+    store.updatedAt = Date.now();
+    saveSummaryStore();
+
+    _lastBuiltPromptText = "";
+
+    refreshEntityLexiconAndWarmup();
+    scheduleLexicalWarmup();
+
+    await clearHideState();
+    const totalFloors = Array.isArray(chat) ? chat.length : 0;
+    await sendFrameBaseData(store, totalFloors);
+    sendFrameFullData(store, totalFloors);
+    await sendAnchorStatsToFrame();
+    await sendVectorStatsToFrame();
+
+    return {
+        counts: {
+            keywords: importedJson.keywords.length,
+            events: importedJson.events.length,
+            characters: importedJson.characters.main.length,
+            arcs: importedJson.arcs.length,
+            facts: importedJson.facts.length,
+        },
     };
 }
 
@@ -1422,6 +1684,43 @@ async function handleFrameMessage(event) {
                     });
                 } catch (e) {
                     postToFrame({ type: "VECTOR_EXPORT_RESULT", success: false, error: e.message });
+                }
+            })();
+            break;
+
+        case "SUMMARY_COPY":
+            (async () => {
+                try {
+                    const store = getSummaryStore();
+                    const payload = buildSummaryExportPackage(store);
+                    await copyTextToClipboard(JSON.stringify(payload, null, 2));
+                    postToFrame({
+                        type: "SUMMARY_COPY_RESULT",
+                        success: true,
+                        events: payload.counts.events,
+                        facts: payload.counts.facts,
+                    });
+                } catch (e) {
+                    postToFrame({ type: "SUMMARY_COPY_RESULT", success: false, error: e.message });
+                }
+            })();
+            break;
+
+        case "SUMMARY_IMPORT_TEXT":
+            if (guard.isAnyRunning('summary', 'vector', 'anchor')) {
+                postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: "请等待当前总结/向量任务结束" });
+                break;
+            }
+            (async () => {
+                try {
+                    const result = await importSummaryMemoryPackage(data.text || "");
+                    postToFrame({
+                        type: "SUMMARY_IMPORT_RESULT",
+                        success: true,
+                        counts: result.counts,
+                    });
+                } catch (e) {
+                    postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: e.message });
                 }
             })();
             break;

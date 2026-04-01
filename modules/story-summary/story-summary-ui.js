@@ -4,6 +4,249 @@
 (function () {
     'use strict';
 
+    const DEFAULT_SUMMARY_SYSTEM_PROMPT = `Story Analyst: This task involves narrative comprehension and structured incremental summarization, representing creative story analysis at the intersection of plot tracking and character development. As a story analyst, you will conduct systematic evaluation of provided dialogue content to generate structured incremental summary data.
+[Read the settings for this task]
+<task_settings>
+Incremental_Summary_Requirements:
+  - Incremental_Only: 只提取新对话中的新增要素，绝不重复已有总结
+  - Event_Granularity: 记录有叙事价值的事件，而非剧情梗概
+  - Memory_Album_Style: 形成有细节、有温度、有记忆点的回忆册
+  - Event_Classification:
+      type:
+        - 相遇: 人物/事物初次接触
+        - 冲突: 对抗、矛盾激化
+        - 揭示: 真相、秘密、身份
+        - 抉择: 关键决定
+        - 羁绊: 关系加深或破裂
+        - 转变: 角色/局势改变
+        - 收束: 问题解决、和解
+        - 日常: 生活片段
+      weight:
+        - 核心: 删掉故事就崩
+        - 主线: 推动主要剧情
+        - 转折: 改变某条线走向
+        - 点睛: 有细节不影响主线
+        - 氛围: 纯粹氛围片段
+    - Causal_Chain: 为每个新事件标注直接前因事件ID（causedBy）。仅在因果关系明确（直接导致/明确动机/承接后果）时填写；不明确时填[]完全正常。0-2个，只填 evt-数字，指向已存在或本次新输出事件。
+  - Character_Dynamics: 识别新角色，追踪关系趋势（破裂/厌恶/反感/陌生/投缘/亲密/交融）
+  - Arc_Tracking: 更新角色弧光轨迹与成长进度(0.0-1.0)
+  - Fact_Tracking: 维护 SPO 三元组知识图谱。追踪生死、物品归属、位置、关系等硬性事实。采用 KV 覆盖模型（s+p 为键）。
+</task_settings>
+---
+Story Analyst:
+[Responsibility Definition]
+\`\`\`yaml
+analysis_task:
+  title: Incremental Story Summarization with Knowledge Graph
+  Story Analyst:
+    role: Antigravity
+    task: >-
+      To analyze provided dialogue content against existing summary state,
+      extract only NEW plot elements, character developments, relationship
+      changes, arc progressions, AND fact updates, outputting
+      structured JSON for incremental summary database updates.
+  assistant:
+    role: Summary Specialist
+    description: Incremental Story Summary & Knowledge Graph Analyst
+    behavior: >-
+      To compare new dialogue against existing summary, identify genuinely
+      new events and character interactions, classify events by narrative
+      type and weight, track character arc progression with percentage,
+      maintain facts as SPO triples with clear semantics,
+      and output structured JSON containing only incremental updates.
+      Must strictly avoid repeating any existing summary content.
+  user:
+    role: Content Provider
+    description: Supplies existing summary state and new dialogue
+    behavior: >-
+      To provide existing summary state (events, characters, arcs, facts)
+      and new dialogue content for incremental analysis.
+interaction_mode:
+  type: incremental_analysis
+  output_format: structured_json
+  deduplication: strict_enforcement
+execution_context:
+  summary_active: true
+  incremental_only: true
+  memory_album_style: true
+  fact_tracking: true
+\`\`\`
+---
+Summary Specialist:
+<Chat_History>`;
+
+    const DEFAULT_MEMORY_PROMPT_TEMPLATE = `以上是还留在眼前的对话
+以下是脑海里的记忆：
+• [定了的事] 这些是不会变的
+• [其他人的事] 别人的经历，当前角色可能不知晓
+• 其余部分是过往经历的回忆碎片
+
+请内化这些记忆：
+{$剧情记忆}
+这些记忆是真实的，请自然地记住它们。`;
+
+    const DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT = `
+Summary Specialist:
+Acknowledged. Now reviewing the incremental summarization specifications:
+
+[Event Classification System]
+├─ Types: 相遇|冲突|揭示|抉择|羁绊|转变|收束|日常
+├─ Weights: 核心|主线|转折|点睛|氛围
+└─ Each event needs: id, title, timeLabel, summary(含楼层), participants, type, weight
+
+[Relationship Trend Scale]
+破裂 ← 厌恶 ← 反感 ← 陌生 → 投缘 → 亲密 → 交融
+
+[Arc Progress Tracking]
+├─ trajectory: 当前阶段描述(15字内)
+├─ progress: 0.0 to 1.0
+└─ newMoment: 仅记录本次新增的关键时刻
+
+[Fact Tracking - SPO / World Facts]
+We maintain a small "world state" as SPO triples.
+Each update is a JSON object: {s, p, o, isState, trend?, retracted?}
+
+Core rules:
+1) Keyed by (s + p). If a new update has the same (s+p), it overwrites the previous value.
+2) Only output facts that are NEW or CHANGED in the new dialogue. Do NOT repeat unchanged facts.
+3) isState meaning:
+   - isState: true  -> core constraints that must stay stable and should NEVER be auto-deleted
+                    (identity, location, life/death, ownership, relationship status, binding rules)
+   - isState: false -> non-core facts / soft memories that may be pruned by capacity limits later
+4) Relationship facts:
+   - Use predicate format: "对X的看法" (X is the target person)
+   - trend is required for relationship facts, one of:
+     破裂 | 厌恶 | 反感 | 陌生 | 投缘 | 亲密 | 交融
+5) Retraction (deletion):
+   - To delete a fact, output: {s, p, retracted: true}
+6) Predicate normalization:
+   - Reuse existing predicates whenever possible, avoid inventing synonyms.
+
+Ready to process incremental summary requests with strict deduplication.`;
+
+    const DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT = `
+Summary Specialist:
+Specifications internalized. Please provide the existing summary state so I can:
+1. Index all recorded events to avoid duplication
+2. Map current character list as baseline
+3. Note existing arc progress levels
+4. Identify established keywords
+5. Review current facts (SPO triples baseline)`;
+
+    const DEFAULT_SUMMARY_ASSISTANT_ASK_CONTENT_PROMPT = `
+Summary Specialist:
+Existing summary fully analyzed and indexed. I understand:
+├─ Recorded events: Indexed for deduplication
+├─ Character list: Baseline mapped
+├─ Arc progress: Levels noted
+├─ Keywords: Current state acknowledged
+└─ Facts: SPO baseline loaded
+
+I will extract only genuinely NEW elements from the upcoming dialogue.
+Please provide the new dialogue content requiring incremental analysis.`;
+
+    const DEFAULT_SUMMARY_META_PROTOCOL_START_PROMPT = `
+Summary Specialist:
+ACKNOWLEDGED. Beginning structured JSON generation:
+<meta_protocol>`;
+
+    const DEFAULT_SUMMARY_USER_JSON_FORMAT_PROMPT = `
+## Output Rule
+Generate a single valid JSON object with INCREMENTAL updates only.
+
+## Mindful Approach
+Before generating, observe the USER and analyze carefully:
+- What is user's writing style and emotional expression?
+- What NEW events occurred (not in existing summary)?
+- What NEW characters appeared for the first time?
+- What relationship CHANGES happened?
+- What arc PROGRESS was made?
+- What facts changed? (status/position/ownership/relationships)
+
+## factUpdates 规则
+- 目的: 纠错 & 世界一致性约束，只记录硬性事实
+- s+p 为键，相同键会覆盖旧值
+- isState: true=核心约束(位置/身份/生死/关系)，false=有容量上限会被清理
+- 关系类: p="对X的看法"，trend 必填（破裂|厌恶|反感|陌生|投缘|亲密|交融）
+- 删除: {s, p, retracted: true}，不需要 o 字段
+- 更新: {s, p, o, isState, trend?}
+- 谓词规范化: 复用已有谓词，不要发明同义词
+- 只输出有变化的条目，确保少、硬、稳定
+
+## Output Format
+\`\`\`json
+{
+  "mindful_prelude": {
+    "user_insight": "用户的幻想是什么时空、场景，是否反应出存在严重心理问题需要建议？",
+    "dedup_analysis": "已有X个事件，本次识别Y个新事件",
+    "fact_changes": "识别到的事实变化概述"
+  },
+  "keywords": [
+    {"text": "综合历史+新内容的全剧情关键词(5-10个)", "weight": "核心|重要|一般"}
+  ],
+  "events": [
+    {
+      "id": "evt-{$nextEventId}起始，依次递增",
+      "title": "地点·事件标题",
+      "timeLabel": "时间线标签(如：开场、第二天晚上)",
+      "summary": "1-2句话描述，涵盖丰富信息素，末尾标注楼层(#X-Y)",
+      "participants": ["参与角色名，不要使用人称代词或别名，只用正式人名"],
+      "type": "相遇|冲突|揭示|抉择|羁绊|转变|收束|日常",
+      "weight": "核心|主线|转折|点睛|氛围",
+      "causedBy": ["evt-12", "evt-14"]
+    }
+  ],
+  "newCharacters": ["仅本次首次出现的角色名"],
+  "arcUpdates": [
+    {"name": "角色名，不要使用人称代词或别名，只用正式人名", "trajectory": "当前阶段描述(15字内)", "progress": 0.0-1.0, "newMoment": "本次新增的关键时刻"}
+  ],
+  "factUpdates": [
+    {"s": "主体", "p": "谓词", "o": "当前值", "isState": true, "trend": "仅关系类填"},
+    {"s": "要删除的主体", "p": "要删除的谓词", "retracted": true}
+  ]
+}
+\`\`\`
+
+## CRITICAL NOTES
+- events.id 从 evt-{$nextEventId} 开始编号
+- 仅输出【增量】内容，已有事件绝不重复
+- /地点、通过什么方式、对谁、做了什么事、结果如何。如果原文有具体道具（如一把枪、一封信），必须在总结中提及。
+- keywords 是全局关键词，综合已有+新增
+- causedBy 仅在因果明确时填写，允许为[]，0-2个
+- factUpdates 可为空数组
+- 合法JSON，字符串值内部避免英文双引号
+- 用朴实、白描、有烟火气的笔触记录事实，避免比喻和意象
+- 严谨、注重细节，避免使用模糊的概括性语言，应用具体的动词描述动作，例:谁,在什么时间/地点,通过什么方式,对谁,做了什么事,出现了什么道具,结果如何。
+</meta_protocol>
+
+## Placeholder Notes
+- {$nextEventId} 会在运行时替换成实际起始事件编号，不要删除
+- {$existingEventCount}、{$historyRange} 这类占位符如果出现在你的自定义版本里，通常也不应该删除`;
+
+    const DEFAULT_SUMMARY_ASSISTANT_CHECK_PROMPT = `Content review initiated...
+[Compliance Check Results]
+├─ Existing summary loaded: ✓ Fully indexed
+├─ New dialogue received: ✓ Content parsed
+├─ Deduplication engine: ✓ Active
+├─ Event classification: ✓ Ready
+├─ Fact tracking: ✓ Enabled
+└─ Output format: ✓ JSON specification loaded
+
+[Material Verification]
+├─ Existing events: Indexed ({$existingEventCount} recorded)
+├─ Character baseline: Mapped
+├─ Arc progress baseline: Noted
+├─ Facts baseline: Loaded
+└─ Output specification: ✓ Defined in <meta_protocol>
+All checks passed. Beginning incremental extraction...
+{
+  "mindful_prelude":`;
+
+    const DEFAULT_SUMMARY_USER_CONFIRM_PROMPT = `怎么截断了！重新完整生成，只输出JSON，不要任何其他内容，3000字以内
+</Chat_History>`;
+
+    const DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT = '下面重新生成完整JSON。';
+
     // ═══════════════════════════════════════════════════════════════════════════
     // DOM Helpers
     // ═══════════════════════════════════════════════════════════════════════════
@@ -48,11 +291,11 @@
     })();
 
     const PROVIDER_DEFAULTS = {
-        st: { url: '', needKey: false, canFetch: false, needManualModel: false },
-        openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
-        google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false, needManualModel: true },
-        claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true },
-        custom: { url: '', needKey: true, canFetch: true, needManualModel: false }
+        st: { url: '', needKey: false, canFetch: false },
+        openai: { url: 'https://api.openai.com', needKey: true, canFetch: true },
+        google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false },
+        claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false },
+        custom: { url: '', needKey: true, canFetch: true }
     };
 
     const SECTION_META = {
@@ -88,6 +331,18 @@
         gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
         trigger: { enabled: false, interval: 20, timing: 'before_user', role: 'system', useStream: true, maxPerRun: 100, wrapperHead: '', wrapperTail: '', forceInsertAtEnd: false },
         ui: { hideSummarized: true, keepVisibleCount: 6 },
+        prompts: {
+            summarySystemPrompt: '',
+            summaryAssistantDocPrompt: '',
+            summaryAssistantAskSummaryPrompt: '',
+            summaryAssistantAskContentPrompt: '',
+            summaryMetaProtocolStartPrompt: '',
+            summaryUserJsonFormatPrompt: '',
+            summaryAssistantCheckPrompt: '',
+            summaryUserConfirmPrompt: '',
+            summaryAssistantPrefillPrompt: '',
+            memoryTemplate: '',
+        },
         textFilterRules: [...DEFAULT_FILTER_RULES],
         vector: { enabled: false, engine: 'online', local: { modelId: 'bge-small-zh' }, online: { provider: 'siliconflow', url: '', key: '', model: '' } }
     };
@@ -104,6 +359,7 @@
     let allLinks = [];
     let activeRelationTooltip = null;
     let lastRecallLogText = '';
+    let modelListFetchedThisIframe = false;
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Messaging
@@ -123,9 +379,11 @@
             if (s) {
                 const p = JSON.parse(s);
                 Object.assign(config.api, p.api || {});
+                config.api.modelCache = [];
                 Object.assign(config.gen, p.gen || {});
                 Object.assign(config.trigger, p.trigger || {});
                 Object.assign(config.ui, p.ui || {});
+                Object.assign(config.prompts, p.prompts || {});
                 config.textFilterRules = Array.isArray(p.textFilterRules)
                     ? p.textFilterRules
                     : (Array.isArray(p.vector?.textFilterRules) ? p.vector.textFilterRules : [...DEFAULT_FILTER_RULES]);
@@ -141,9 +399,11 @@
     function applyConfig(cfg) {
         if (!cfg) return;
         Object.assign(config.api, cfg.api || {});
+        config.api.modelCache = [];
         Object.assign(config.gen, cfg.gen || {});
         Object.assign(config.trigger, cfg.trigger || {});
         Object.assign(config.ui, cfg.ui || {});
+        Object.assign(config.prompts, cfg.prompts || {});
         config.textFilterRules = Array.isArray(cfg.textFilterRules)
             ? cfg.textFilterRules
             : (Array.isArray(cfg.vector?.textFilterRules)
@@ -275,7 +535,6 @@
         const count = $('filter-rules-list')?.querySelectorAll('.filter-rule-item')?.length || 0;
         el.textContent = count;
     }
-
 
     function updateOnlineStatus(status, message) {
         const dot = $('online-api-status').querySelector('.status-dot');
@@ -441,6 +700,32 @@
         initAnchorUI();
         postMsg('REQUEST_ANCHOR_STATS');
     }
+
+    function initSummaryIOUI() {
+        $('btn-copy-summary').onclick = () => {
+            $('btn-copy-summary').disabled = true;
+            $('summary-io-status').textContent = '复制中...';
+            postMsg('SUMMARY_COPY');
+        };
+
+        $('btn-import-summary').onclick = async () => {
+            const text = await showConfirmInput(
+                '覆盖导入记忆包',
+                '导入会覆盖当前聊天已有的总结资料，并立即清空向量、锚点、总结边界。请把记忆包粘贴到下面。',
+                '继续导入',
+                '取消',
+                '在这里粘贴记忆包 JSON'
+            );
+            if (text == null) return;
+            if (!String(text).trim()) {
+                $('summary-io-status').textContent = '导入失败: 记忆包内容为空';
+                return;
+            }
+            $('btn-import-summary').disabled = true;
+            $('summary-io-status').textContent = '导入中...';
+            postMsg('SUMMARY_IMPORT_TEXT', { text });
+        };
+    }
     // ═══════════════════════════════════════════════════════════════════════════
     // Settings Modal
     // ═══════════════════════════════════════════════════════════════════════════
@@ -448,12 +733,14 @@
     function updateProviderUI(provider) {
         const pv = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.custom;
         const isSt = provider === 'st';
+        const hasModelCache = modelListFetchedThisIframe && Array.isArray(config.api.modelCache) && config.api.modelCache.length > 0;
 
         $('api-url-row').classList.toggle('hidden', isSt);
         $('api-key-row').classList.toggle('hidden', !pv.needKey);
-        $('api-model-manual-row').classList.toggle('hidden', isSt || !pv.needManualModel);
-        $('api-model-select-row').classList.toggle('hidden', isSt || pv.needManualModel || !config.api.modelCache.length);
+        $('api-model-manual-row').classList.toggle('hidden', isSt);
+        $('api-model-select-row').classList.toggle('hidden', isSt || !hasModelCache);
         $('api-connect-row').classList.toggle('hidden', isSt || !pv.canFetch);
+        $('api-connect-status').classList.toggle('hidden', isSt || !pv.canFetch);
 
         const urlInput = $('api-url');
         if (!urlInput.value && pv.url) urlInput.value = pv.url;
@@ -478,6 +765,17 @@
         $('trigger-wrapper-head').value = config.trigger.wrapperHead || '';
         $('trigger-wrapper-tail').value = config.trigger.wrapperTail || '';
         $('trigger-insert-at-end').checked = !!config.trigger.forceInsertAtEnd;
+        $('summary-system-prompt').value = config.prompts.summarySystemPrompt || '';
+        $('summary-assistant-doc-prompt').value = config.prompts.summaryAssistantDocPrompt || '';
+        $('summary-assistant-ask-summary-prompt').value = config.prompts.summaryAssistantAskSummaryPrompt || '';
+        $('summary-assistant-ask-content-prompt').value = config.prompts.summaryAssistantAskContentPrompt || '';
+        $('summary-meta-protocol-start-prompt').value = config.prompts.summaryMetaProtocolStartPrompt || '';
+        $('summary-user-json-format-prompt').value = config.prompts.summaryUserJsonFormatPrompt || '';
+        $('summary-assistant-check-prompt').value = config.prompts.summaryAssistantCheckPrompt || '';
+        $('summary-user-confirm-prompt').value = config.prompts.summaryUserConfirmPrompt || '';
+        $('summary-assistant-prefill-prompt').value = config.prompts.summaryAssistantPrefillPrompt || '';
+        $('memory-prompt-template').value = config.prompts.memoryTemplate || '';
+        $('api-connect-status').textContent = '';
 
         const en = $('trigger-enabled');
         if (config.trigger.timing === 'manual') {
@@ -490,9 +788,10 @@
         }
 
         if (config.api.modelCache.length) {
-            setHtml($('api-model-select'), config.api.modelCache.map(m =>
-                `<option value="${m}"${m === config.api.model ? ' selected' : ''}>${m}</option>`
-            ).join(''));
+            setSelectOptions($('api-model-select'), config.api.modelCache, '请选择');
+            $('api-model-select').value = config.api.modelCache.includes(config.api.model) ? config.api.model : '';
+        } else {
+            setSelectOptions($('api-model-select'), [], '请选择');
         }
 
         updateProviderUI(config.api.provider);
@@ -524,12 +823,12 @@
         if (save) {
             const pn = id => { const v = $(id).value; return v === '' ? null : parseFloat(v); };
             const provider = $('api-provider').value;
-            const pv = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.custom;
 
             config.api.provider = provider;
             config.api.url = $('api-url').value;
             config.api.key = $('api-key').value;
-            config.api.model = provider === 'st' ? '' : pv.needManualModel ? $('api-model-text').value : $('api-model-select').value;
+            config.api.model = provider === 'st' ? '' : $('api-model-text').value.trim();
+            config.api.modelCache = [];
 
             config.gen.temperature = pn('gen-temp');
             config.gen.top_p = pn('gen-top-p');
@@ -547,6 +846,16 @@
             config.trigger.wrapperHead = $('trigger-wrapper-head').value;
             config.trigger.wrapperTail = $('trigger-wrapper-tail').value;
             config.trigger.forceInsertAtEnd = $('trigger-insert-at-end').checked;
+            config.prompts.summarySystemPrompt = $('summary-system-prompt').value;
+            config.prompts.summaryAssistantDocPrompt = $('summary-assistant-doc-prompt').value;
+            config.prompts.summaryAssistantAskSummaryPrompt = $('summary-assistant-ask-summary-prompt').value;
+            config.prompts.summaryAssistantAskContentPrompt = $('summary-assistant-ask-content-prompt').value;
+            config.prompts.summaryMetaProtocolStartPrompt = $('summary-meta-protocol-start-prompt').value;
+            config.prompts.summaryUserJsonFormatPrompt = $('summary-user-json-format-prompt').value;
+            config.prompts.summaryAssistantCheckPrompt = $('summary-assistant-check-prompt').value;
+            config.prompts.summaryUserConfirmPrompt = $('summary-user-confirm-prompt').value;
+            config.prompts.summaryAssistantPrefillPrompt = $('summary-assistant-prefill-prompt').value;
+            config.prompts.memoryTemplate = $('memory-prompt-template').value;
             config.textFilterRules = collectFilterRules();
 
             config.vector = getVectorConfig();
@@ -559,10 +868,11 @@
 
     async function fetchModels() {
         const btn = $('btn-connect');
+        const statusEl = $('api-connect-status');
         const provider = $('api-provider').value;
 
         if (!PROVIDER_DEFAULTS[provider]?.canFetch) {
-            alert('当前渠道不支持自动拉取模型');
+            statusEl.textContent = '当前渠道不支持自动拉取模型';
             return;
         }
 
@@ -570,12 +880,13 @@
         const apiKey = $('api-key').value.trim();
 
         if (!apiKey) {
-            alert('请先填写 API KEY');
+            statusEl.textContent = '请先填写 API KEY';
             return;
         }
 
         btn.disabled = true;
         btn.textContent = '连接中...';
+        statusEl.textContent = '连接中...';
 
         try {
             const tryFetch = async url => {
@@ -592,21 +903,21 @@
             if (!models?.length) throw new Error('未获取到模型列表');
 
             config.api.modelCache = [...new Set(models)];
-            const sel = $('api-model-select');
-            setSelectOptions(sel, config.api.modelCache);
+            modelListFetchedThisIframe = true;
+            setSelectOptions($('api-model-select'), config.api.modelCache, '请选择');
             $('api-model-select-row').classList.remove('hidden');
 
             if (!config.api.model && models.length) {
                 config.api.model = models[0];
-                sel.value = models[0];
+                $('api-model-text').value = models[0];
+                $('api-model-select').value = models[0];
             } else if (config.api.model) {
-                sel.value = config.api.model;
+                $('api-model-select').value = config.api.model;
             }
 
-            saveConfig();
-            alert(`成功获取 ${models.length} 个模型`);
+            statusEl.textContent = `拉取成功：${models.length} 个模型`;
         } catch (e) {
-            alert('连接失败：' + (e.message || '请检查 URL 和 KEY'));
+            statusEl.textContent = '拉取失败：' + (e.message || '请检查 URL 和 KEY');
         } finally {
             btn.disabled = false;
             btn.textContent = '连接 / 拉取模型列表';
@@ -995,6 +1306,8 @@
             const modal = $('confirm-modal');
             const titleEl = $('confirm-title');
             const msgEl = $('confirm-message');
+            const inputWrap = $('confirm-input-wrap');
+            const inputEl = $('confirm-input');
             const okBtn = $('confirm-ok');
             const cancelBtn = $('confirm-cancel');
             const closeBtn = $('confirm-close');
@@ -1002,6 +1315,8 @@
 
             titleEl.textContent = title;
             msgEl.textContent = message;
+            inputWrap.classList.add('hidden');
+            inputEl.value = '';
             okBtn.textContent = okText;
             cancelBtn.textContent = cancelText;
 
@@ -1020,6 +1335,47 @@
             backdrop.onclick = () => close(false);
 
             modal.classList.add('active');
+        });
+    }
+
+    function showConfirmInput(title, message, okText = '执行', cancelText = '取消', placeholder = '') {
+        return new Promise(resolve => {
+            const modal = $('confirm-modal');
+            const titleEl = $('confirm-title');
+            const msgEl = $('confirm-message');
+            const inputWrap = $('confirm-input-wrap');
+            const inputEl = $('confirm-input');
+            const okBtn = $('confirm-ok');
+            const cancelBtn = $('confirm-cancel');
+            const closeBtn = $('confirm-close');
+            const backdrop = $('confirm-backdrop');
+
+            titleEl.textContent = title;
+            msgEl.textContent = message;
+            inputWrap.classList.remove('hidden');
+            inputEl.placeholder = placeholder || '';
+            inputEl.value = '';
+            okBtn.textContent = okText;
+            cancelBtn.textContent = cancelText;
+
+            const close = (result) => {
+                modal.classList.remove('active');
+                inputWrap.classList.add('hidden');
+                inputEl.value = '';
+                okBtn.onclick = null;
+                cancelBtn.onclick = null;
+                closeBtn.onclick = null;
+                backdrop.onclick = null;
+                resolve(result);
+            };
+
+            okBtn.onclick = () => close(inputEl.value);
+            cancelBtn.onclick = () => close(null);
+            closeBtn.onclick = () => close(null);
+            backdrop.onclick = () => close(null);
+
+            modal.classList.add('active');
+            setTimeout(() => inputEl.focus(), 0);
         });
     }
 
@@ -1499,6 +1855,27 @@
                 }
                 break;
 
+            case 'SUMMARY_COPY_RESULT':
+                $('btn-copy-summary').disabled = false;
+                if (d.success) {
+                    $('summary-io-status').textContent = `复制成功: ${d.events || 0} 条事件, ${d.facts || 0} 条世界状态`;
+                } else {
+                    $('summary-io-status').textContent = '复制失败: ' + (d.error || '未知错误');
+                }
+                break;
+
+            case 'SUMMARY_IMPORT_RESULT':
+                $('btn-import-summary').disabled = false;
+                if (d.success) {
+                    const c = d.counts || {};
+                    $('summary-io-status').textContent = `导入成功: ${c.events || 0} 条事件, ${c.facts || 0} 条世界状态，已覆盖当前总结资料并清空向量/锚点，请重新生成向量。`;
+                    postMsg('REQUEST_VECTOR_STATS');
+                    postMsg('REQUEST_ANCHOR_STATS');
+                } else {
+                    $('summary-io-status').textContent = '导入失败: ' + (d.error || '未知错误');
+                }
+                break;
+
             case 'VECTOR_IMPORT_RESULT':
                 $('btn-import-vectors').disabled = false;
                 if (d.success) {
@@ -1588,12 +1965,34 @@
         $('api-provider').onchange = e => {
             const pv = PROVIDER_DEFAULTS[e.target.value];
             $('api-url').value = '';
+            modelListFetchedThisIframe = false;
             if (!pv.canFetch) config.api.modelCache = [];
             updateProviderUI(e.target.value);
         };
 
         $('btn-connect').onclick = fetchModels;
-        $('api-model-select').onchange = e => { config.api.model = e.target.value; };
+        $('api-model-text').oninput = e => { config.api.model = e.target.value.trim(); };
+        $('api-model-select').onchange = e => {
+            const value = e.target.value || '';
+            if (value) {
+                $('api-model-text').value = value;
+                config.api.model = value;
+            }
+        };
+        $('btn-reset-summary-prompts').onclick = () => {
+            $('summary-system-prompt').value = DEFAULT_SUMMARY_SYSTEM_PROMPT;
+            $('summary-assistant-doc-prompt').value = DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT;
+            $('summary-assistant-ask-summary-prompt').value = DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT;
+            $('summary-assistant-ask-content-prompt').value = DEFAULT_SUMMARY_ASSISTANT_ASK_CONTENT_PROMPT;
+            $('summary-meta-protocol-start-prompt').value = DEFAULT_SUMMARY_META_PROTOCOL_START_PROMPT;
+            $('summary-user-json-format-prompt').value = DEFAULT_SUMMARY_USER_JSON_FORMAT_PROMPT;
+            $('summary-assistant-check-prompt').value = DEFAULT_SUMMARY_ASSISTANT_CHECK_PROMPT;
+            $('summary-user-confirm-prompt').value = DEFAULT_SUMMARY_USER_CONFIRM_PROMPT;
+            $('summary-assistant-prefill-prompt').value = DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT;
+        };
+        $('btn-reset-memory-prompt-template').onclick = () => {
+            $('memory-prompt-template').value = DEFAULT_MEMORY_PROMPT_TEMPLATE;
+        };
 
         // Trigger timing
         $('trigger-timing').onchange = e => {
@@ -1662,6 +2061,7 @@
         };
 
         // Vector UI
+        initSummaryIOUI();
         initVectorUI();
 
         // Gen params collapsible

@@ -72,9 +72,11 @@ function djb2(str) {
 
 function shouldRenderContentByBlock(codeBlock) {
     if (!codeBlock) return false;
-    const content = (codeBlock.textContent || '').trim().toLowerCase();
+    const content = (codeBlock.textContent || '').trim();
     if (!content) return false;
-    return content.includes('<!doctype') || content.includes('<html') || content.includes('<script');
+    if (extractExternalUrl(content)) return true;
+    const lower = content.toLowerCase();
+    return lower.includes('<!doctype') || lower.includes('<html') || lower.includes('<script');
 }
 
 function generateUniqueId() {
@@ -146,6 +148,66 @@ function buildResourceHints(html) {
         preload += `<link rel="preload" as="image" href="${img}" crossorigin fetchpriority="high">`;
     }
     return hints + preload;
+}
+
+function extractExternalUrl(content) {
+    const trimmed = (content || '').trim();
+    if (!trimmed) return null;
+    if (/^https?:\/\/[^\s]+$/i.test(trimmed)) return trimmed;
+    const match = trimmed.match(/<!--\s*xb-src:\s*(https?:\/\/[^\s>]+)\s*-->/i);
+    if (match) return match[1];
+    return null;
+}
+
+async function fetchExternalHtml(url) {
+    try {
+        const r = await fetch(url, { mode: 'cors' });
+        if (r.ok) return await r.text();
+    } catch (_) {}
+    return null;
+}
+
+async function loadExternalUrl(iframe, url, settings) {
+    try {
+        iframe.srcdoc = '<!DOCTYPE html><html><body style="display:flex;justify-content:center;align-items:center;height:100px;color:#888;font-family:sans-serif;background:transparent">加载中...</body></html>';
+
+        let html = await fetchExternalHtml(url);
+
+        if (html && settings.variablesCore?.enabled && typeof replaceXbGetVarInString === 'function') {
+            try {
+                html = replaceXbGetVarInString(html);
+            } catch (e) {
+                console.warn('xbgetvar 宏替换失败:', e);
+            }
+        }
+
+        if (html) {
+            const full = buildWrappedHtml(html);
+            if (settings.useBlob) {
+                const codeHash = djb2(html);
+                setIframeBlobHTML(iframe, full, codeHash);
+            } else {
+                iframe.srcdoc = full;
+            }
+            setTimeout(() => {
+                try {
+                    const targetOrigin = getIframeTargetOrigin(iframe);
+                    postToIframe(iframe, { type: 'probe' }, null, targetOrigin);
+                } catch (e) {}
+            }, 100);
+        } else {
+            iframe.removeAttribute('srcdoc');
+            iframe.src = url;
+            iframe.style.minHeight = '800px';
+            iframe.setAttribute('scrolling', 'auto');
+        }
+    } catch (err) {
+        console.error('[iframeRenderer] 外部URL加载失败:', err);
+        iframe.removeAttribute('srcdoc');
+        iframe.src = url;
+        iframe.style.minHeight = '800px';
+        iframe.setAttribute('scrolling', 'auto');
+    }
 }
 
 function buildWrappedHtml(html) {
@@ -341,15 +403,7 @@ export function renderHtmlInIframe(htmlContent, container, preElement) {
     const settings = getSettings();
     try {
         const originalHash = djb2(htmlContent);
-        
-        if (settings.variablesCore?.enabled && typeof replaceXbGetVarInString === 'function') {
-            try {
-                htmlContent = replaceXbGetVarInString(htmlContent);
-            } catch (e) {
-                console.warn('xbgetvar 宏替换失败:', e);
-            }
-        }
-        
+        const externalUrl = extractExternalUrl(htmlContent);
         const iframe = document.createElement('iframe');
         iframe.id = generateUniqueId();
         iframe.className = 'xiaobaix-iframe';
@@ -364,28 +418,41 @@ export function renderHtmlInIframe(htmlContent, container, preElement) {
             releaseIframeBlob(old);
             old.remove();
         });
-        
-        const codeHash = djb2(htmlContent);
-        const full = buildWrappedHtml(htmlContent);
-        
-        if (settings.useBlob) {
-            setIframeBlobHTML(iframe, full, codeHash);
-        } else {
-            iframe.srcdoc = full;
-        }
-        
+
         wrapper.appendChild(iframe);
         preElement.classList.remove('xb-show');
         preElement.style.display = 'none';
         registerIframeMapping(iframe, wrapper);
-        
-        try {
-            const targetOrigin = getIframeTargetOrigin(iframe);
-            postToIframe(iframe, { type: 'probe' }, null, targetOrigin);
-        } catch (e) {}
+
+        if (externalUrl) {
+            loadExternalUrl(iframe, externalUrl, settings);
+        } else {
+            if (settings.variablesCore?.enabled && typeof replaceXbGetVarInString === 'function') {
+                try {
+                    htmlContent = replaceXbGetVarInString(htmlContent);
+                } catch (e) {
+                    console.warn('xbgetvar 宏替换失败:', e);
+                }
+            }
+
+            const codeHash = djb2(htmlContent);
+            const full = buildWrappedHtml(htmlContent);
+
+            if (settings.useBlob) {
+                setIframeBlobHTML(iframe, full, codeHash);
+            } else {
+                iframe.srcdoc = full;
+            }
+
+            try {
+                const targetOrigin = getIframeTargetOrigin(iframe);
+                postToIframe(iframe, { type: 'probe' }, null, targetOrigin);
+            } catch (e) {}
+        }
+
         preElement.dataset.xbFinal = 'true';
         preElement.dataset.xbHash = originalHash;
-        
+
         return iframe;
     } catch (err) {
         console.error('[iframeRenderer] 渲染失败:', err);
@@ -412,10 +479,11 @@ export function processCodeBlocks(messageElement, forceFinal = true) {
             const should = shouldRenderContentByBlock(codeBlock);
             const html = codeBlock.textContent || '';
             const hash = djb2(html);
+            const externalUrl = extractExternalUrl(html);
             const isFinal = preElement.dataset.xbFinal === 'true';
             const same = preElement.dataset.xbHash === hash;
-            
-            if (isFinal && same) return;
+
+            if (!externalUrl && isFinal && same) return;
             
             if (should) {
                 renderHtmlInIframe(html, preElement.parentNode, preElement);
