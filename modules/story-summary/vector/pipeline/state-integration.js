@@ -184,7 +184,7 @@ export async function incrementalExtractAtoms(chatId, chat, onProgress, options 
     // ★ 限流检测：连续失败 N 次后暂停并降速
     let consecutiveFailures = 0;
     let rateLimited = false;
-    const RATE_LIMIT_THRESHOLD = 3;       // 连续失败多少次触发限流保护
+    const RATE_LIMIT_THRESHOLD = 6;       // 连续失败多少次触发限流保护
     const RATE_LIMIT_WAIT_MS = 60000;      // 限流后等待时间（60 秒）
     const RETRY_INTERVAL_MS = 1000;        // 降速模式下每次请求间隔（1 秒）
     const RETRY_CONCURRENCY = 1;           // ★ 降速模式下的并发数（默认1，建议不要超过5）
@@ -201,7 +201,7 @@ export async function incrementalExtractAtoms(chatId, chat, onProgress, options 
         }
 
         try {
-            const atoms = await extractAtomsForRound(pair.userMsg, pair.aiMsg, floor, { timeout: 20000 });
+            const atoms = await extractAtomsForRound(pair.userMsg, pair.aiMsg, floor, { timeout: 40000 });
 
             if (extractionCancelled) return;
 

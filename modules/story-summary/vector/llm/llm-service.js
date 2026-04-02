@@ -29,12 +29,13 @@ function b64UrlEncode(str) {
 
 /**
  * 统一LLM调用 - 走酒馆后端（非流式）
- * assistant prefill 用 bottomassistant 参数传递
+ * 临时改为标准 messages 调用，避免 bottomassistant prefill 兼容性问题。
  */
 export async function callLLM(messages, options = {}) {
     const {
         temperature = 0.2,
         max_tokens = 500,
+        timeout = 40000,
     } = options;
 
     const mod = getStreamingModule();
@@ -45,14 +46,7 @@ export async function callLLM(messages, options = {}) {
         throw new Error('L0 requires siliconflow API key');
     }
 
-    // 分离 assistant prefill
-    let topMessages = [...messages];
-    let assistantPrefill = '';
-
-    if (topMessages.length > 0 && topMessages[topMessages.length - 1]?.role === 'assistant') {
-        const lastMsg = topMessages.pop();
-        assistantPrefill = lastMsg.content || '';
-    }
+    const topMessages = [...messages].filter(msg => msg?.role !== 'assistant');
 
     const top64 = b64UrlEncode(JSON.stringify(topMessages));
     const uniqueId = generateUniqueId('l0');
@@ -74,13 +68,14 @@ export async function callLLM(messages, options = {}) {
         args.enable_thinking = 'false';
     }
 
-    // ★ 用 bottomassistant 参数传递 prefill
-    if (assistantPrefill) {
-        args.bottomassistant = assistantPrefill;
-    }
-
     try {
-        const result = await mod.xbgenrawCommand(args, '');
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(`L0 request timeout after ${timeout}ms`)), timeout);
+        });
+        const result = await Promise.race([
+            mod.xbgenrawCommand(args, ''),
+            timeoutPromise,
+        ]);
         return String(result ?? '');
     } catch (e) {
         xbLog.error(MODULE_ID, 'LLM调用失败', e);
