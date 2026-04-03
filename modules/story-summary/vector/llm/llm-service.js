@@ -9,6 +9,7 @@ const SILICONFLOW_API_URL = 'https://api.siliconflow.cn/v1';
 const DEFAULT_L0_MODEL = 'Qwen/Qwen3-8B';
 
 let callCounter = 0;
+const activeL0SessionIds = new Set();
 
 function getStreamingModule() {
     const mod = window.xiaobaixStreamingGeneration;
@@ -69,6 +70,7 @@ export async function callLLM(messages, options = {}) {
     }
 
     try {
+        activeL0SessionIds.add(uniqueId);
         const timeoutPromise = new Promise((_, reject) => {
             setTimeout(() => reject(new Error(`L0 request timeout after ${timeout}ms`)), timeout);
         });
@@ -80,7 +82,18 @@ export async function callLLM(messages, options = {}) {
     } catch (e) {
         xbLog.error(MODULE_ID, 'LLM调用失败', e);
         throw e;
+    } finally {
+        activeL0SessionIds.delete(uniqueId);
     }
+}
+
+export function cancelAllL0Requests() {
+    const mod = getStreamingModule();
+    if (!mod?.cancel) return;
+    for (const sessionId of activeL0SessionIds) {
+        try { mod.cancel(sessionId); } catch {}
+    }
+    activeL0SessionIds.clear();
 }
 
 export function parseJson(text) {

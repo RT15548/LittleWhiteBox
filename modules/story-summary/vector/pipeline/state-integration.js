@@ -29,7 +29,7 @@ import { filterText } from '../utils/text-filter.js';
 const MODULE_ID = 'state-integration';
 
 // ★ 并发配置
-const CONCURRENCY = 50;
+const CONCURRENCY = 10;
 const STAGGER_DELAY = 15;
 const DEBUG_CONCURRENCY = true;
 const R_AGG_MAX_CHARS = 256;

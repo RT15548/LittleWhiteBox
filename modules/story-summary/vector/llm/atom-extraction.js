@@ -8,14 +8,14 @@
 // 每楼层 1-2 个场景锚点（非碎片原子），60-100 字场景摘要
 // ============================================================================
 
-import { callLLM, parseJson } from './llm-service.js';
+import { callLLM, cancelAllL0Requests, parseJson } from './llm-service.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { filterText } from '../utils/text-filter.js';
 
 const MODULE_ID = 'atom-extraction';
 
 const CONCURRENCY = 10;
-const RETRY_COUNT = 2;
+const RETRY_COUNT = 1;
 const RETRY_DELAY = 500;
 const DEFAULT_TIMEOUT = 40000;
 const STAGGER_DELAY = 80;
@@ -25,6 +25,7 @@ let batchCancelled = false;
 
 export function cancelBatchExtraction() {
     batchCancelled = true;
+    cancelAllL0Requests();
 }
 
 export function isBatchCancelled() {
