@@ -303,6 +303,18 @@ All checks passed. Beginning incremental extraction...
         custom: { url: '', needKey: true, canFetch: true }
     };
 
+    function setStatusText(el, message, kind = '') {
+        if (!el) return;
+        el.textContent = message || '';
+        el.style.color = kind === 'error'
+            ? '#ef4444'
+            : kind === 'success'
+                ? '#22c55e'
+                : kind === 'loading'
+                    ? '#f59e0b'
+                    : '';
+    }
+
     const SECTION_META = {
         keywords: { title: '编辑关键词', hint: '每行一个关键词，格式：关键词|权重（核心/重要/一般）' },
         events: { title: '编辑事件时间线', hint: '编辑时，每个事件要素都应完整' },
@@ -530,7 +542,19 @@ All checks passed. Beginning incremental extraction...
         $(`${prefix}-api-connect-status`).classList.toggle('hidden', !pv.canFetch);
 
         const urlInput = $(`${prefix}-api-url`);
-        if (urlInput && !urlInput.value && pv.url) urlInput.value = pv.url;
+        if (urlInput) {
+            if (provider === 'custom') {
+                urlInput.readOnly = false;
+                urlInput.placeholder = 'https://your-openai-compatible-api/v1';
+            } else {
+                urlInput.value = pv.url || '';
+                urlInput.readOnly = true;
+                urlInput.placeholder = pv.url || '';
+                if (config.vector?.[`${prefix}Api`]) {
+                    config.vector[`${prefix}Api`].url = pv.url || '';
+                }
+            }
+        }
     }
 
     async function fetchVectorModels(prefix) {
@@ -786,6 +810,8 @@ All checks passed. Beginning incremental extraction...
         };
 
         $('btn-test-vector-api').onclick = () => {
+            $('btn-test-vector-api').disabled = true;
+            setStatusText($('embedding-api-connect-status'), '测试中...', 'loading');
             saveConfig(); // 先保存新 Key 到 localStorage
             postMsg('VECTOR_TEST_ONLINE', {
                 provider: getVectorConfig().embeddingApi.provider,
@@ -795,10 +821,17 @@ All checks passed. Beginning incremental extraction...
 
         ['l0', 'embedding', 'rerank'].forEach(prefix => {
             $(`${prefix}-api-provider`).onchange = e => {
+                const oldProvider = config.vector[`${prefix}Api`]?.provider || 'siliconflow';
                 const pv = VECTOR_PROVIDER_DEFAULTS[e.target.value] || VECTOR_PROVIDER_DEFAULTS.custom;
                 const target = config.vector[`${prefix}Api`] ||= { modelCache: [] };
+                if (e.target.value === 'custom') {
+                    if (target.url === (VECTOR_PROVIDER_DEFAULTS[oldProvider]?.url || '')) {
+                        target.url = '';
+                    }
+                } else {
+                    target.url = pv.url || '';
+                }
                 target.provider = e.target.value;
-                if (!target.url && pv.url) target.url = pv.url;
                 if (!pv.canFetch) target.modelCache = [];
                 updateVectorProviderUI(prefix, e.target.value);
             };
@@ -852,6 +885,16 @@ All checks passed. Beginning incremental extraction...
 
         initAnchorUI();
         postMsg('REQUEST_ANCHOR_STATS');
+    }
+
+    function updateVectorOnlineStatus(status, message) {
+        const btn = $('btn-test-vector-api');
+        if (btn) btn.disabled = false;
+        setStatusText(
+            $('embedding-api-connect-status'),
+            message || '',
+            status === 'error' ? 'error' : status === 'success' ? 'success' : 'loading'
+        );
     }
 
     function initSummaryIOUI() {
@@ -1956,7 +1999,7 @@ All checks passed. Beginning incremental extraction...
                 break;
 
             case 'VECTOR_ONLINE_STATUS':
-                updateOnlineStatus(d.status, d.message);
+                updateVectorOnlineStatus(d.status, d.message);
                 break;
 
             case 'VECTOR_STATS':
