@@ -916,16 +916,6 @@ All checks passed. Beginning incremental extraction...
             $('vector-config-area').classList.toggle('hidden', !e.target.checked);
         };
 
-        $('btn-test-vector-api').onclick = () => {
-            $('btn-test-vector-api').disabled = true;
-            setStatusText($('embedding-api-connect-status'), '测试中...', 'loading');
-            saveConfig(); // 先保存新 Key 到 localStorage
-            postMsg('VECTOR_TEST_ONLINE', {
-                provider: getVectorConfig().embeddingApi.provider,
-                config: getVectorConfig().embeddingApi
-            });
-        };
-
         ['l0', 'embedding', 'rerank'].forEach(prefix => {
             $(`${prefix}-api-provider`).onchange = e => {
                 saveCurrentVectorApiProfile(prefix);
@@ -941,6 +931,18 @@ All checks passed. Beginning incremental extraction...
             };
 
             $(`${prefix}-btn-connect`).onclick = () => fetchVectorModels(prefix);
+            $(`${prefix}-btn-test`).onclick = () => {
+                const btn = $(`${prefix}-btn-test`);
+                if (btn) btn.disabled = true;
+                setStatusText($(`${prefix}-api-connect-status`), '测试中...', 'loading');
+                saveConfig();
+                const cfg = getVectorConfig();
+                postMsg('VECTOR_TEST_ONLINE', {
+                    target: prefix,
+                    provider: cfg[`${prefix}Api`].provider,
+                    config: cfg[`${prefix}Api`],
+                });
+            };
         });
 
         $('btn-add-filter-rule').onclick = addFilterRule;
@@ -987,11 +989,12 @@ All checks passed. Beginning incremental extraction...
         postMsg('REQUEST_ANCHOR_STATS');
     }
 
-    function updateVectorOnlineStatus(status, message) {
-        const btn = $('btn-test-vector-api');
+    function updateVectorOnlineStatus(target, status, message) {
+        const prefix = target || 'embedding';
+        const btn = $(`${prefix}-btn-test`);
         if (btn) btn.disabled = false;
         setStatusText(
-            $('embedding-api-connect-status'),
+            $(`${prefix}-api-connect-status`),
             message || '',
             status === 'error' ? 'error' : status === 'success' ? 'success' : 'loading'
         );
@@ -2099,7 +2102,7 @@ All checks passed. Beginning incremental extraction...
                 break;
 
             case 'VECTOR_ONLINE_STATUS':
-                updateVectorOnlineStatus(d.status, d.message);
+                updateVectorOnlineStatus(d.target, d.status, d.message);
                 break;
 
             case 'VECTOR_STATS':

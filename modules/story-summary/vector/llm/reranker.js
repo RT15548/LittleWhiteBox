@@ -273,19 +273,51 @@ export async function rerankChunks(query, chunks, options = {}) {
 /**
  * 测试 Rerank 服务连接
  */
-export async function testRerankService() {
-    const key = getApiKey();
-    if (!key) {
-        throw new Error('请配置硅基 API Key');
+export async function testRerankService(apiConfig = {}) {
+    const next = {
+        provider: String(apiConfig.provider || 'siliconflow').trim(),
+        url: String(apiConfig.url || DEFAULT_RERANK_URL).trim(),
+        key: String(apiConfig.key || '').trim(),
+        model: String(apiConfig.model || RERANK_MODEL).trim(),
+    };
+    if (!next.key) {
+        throw new Error('请配置 Rerank API Key');
     }
 
+    const key = getNextRerankKey(next.key);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     try {
-        const { results } = await rerank('测试查询', ['测试文档1', '测试文档2'], { topN: 2 });
-        return { 
-            success: true, 
-            message: `连接成功，返回 ${results.length} 个结果`,
+        const baseUrl = String(next.url || DEFAULT_RERANK_URL).replace(/\/+$/, '');
+        const response = await fetch(`${baseUrl}/rerank`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${key}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: next.model,
+                query: '测试查询',
+                documents: ['测试文档1', '测试文档2'],
+                top_n: 2,
+                return_documents: false,
+            }),
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '');
+            throw new Error(`Rerank API ${response.status}: ${errorText.slice(0, 200)}`);
+        }
+        const data = await response.json();
+        const results = Array.isArray(data.results) ? data.results : [];
+        return {
+            success: true,
+            message: `连接成功：返回 ${results.length} 个结果`,
         };
     } catch (e) {
         throw new Error(`连接失败: ${e.message}`);
+    } finally {
+        clearTimeout(timeoutId);
     }
 }

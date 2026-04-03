@@ -39,6 +39,17 @@ function getL0ApiConfig() {
     };
 }
 
+function normalizeL0ApiConfig(apiConfig = null) {
+    const fallback = getL0ApiConfig();
+    const next = apiConfig || {};
+    return {
+        provider: String(next.provider || fallback.provider || 'siliconflow').trim(),
+        url: String(next.url || fallback.url || DEFAULT_L0_API_URL).trim(),
+        key: String(next.key || fallback.key || '').trim(),
+        model: String(next.model || fallback.model || DEFAULT_L0_MODEL).trim(),
+    };
+}
+
 function getNextKey(rawKey) {
     const keys = String(rawKey || '')
         .split(/[,;|\n]+/)
@@ -60,12 +71,13 @@ export async function callLLM(messages, options = {}) {
         temperature = 0.2,
         max_tokens = 500,
         timeout = 40000,
+        apiConfig = null,
     } = options;
 
     const mod = getStreamingModule();
     if (!mod) throw new Error('Streaming module not ready');
 
-    const apiCfg = getL0ApiConfig();
+    const apiCfg = normalizeL0ApiConfig(apiConfig);
     const apiKey = getNextKey(apiCfg.key);
     if (!apiKey) {
         throw new Error('L0 requires siliconflow API key');
@@ -109,6 +121,24 @@ export async function callLLM(messages, options = {}) {
     } finally {
         activeL0SessionIds.delete(uniqueId);
     }
+}
+
+export async function testL0Service(apiConfig = {}) {
+    if (!apiConfig?.key) {
+        throw new Error('请配置 L0 API Key');
+    }
+    const result = await callLLM([
+        { role: 'system', content: '你是一个测试助手。请只输出 OK。' },
+        { role: 'user', content: '只输出 OK' },
+    ], {
+        apiConfig,
+        temperature: 0,
+        max_tokens: 16,
+        timeout: 15000,
+    });
+    const text = String(result || '').trim();
+    if (!text) throw new Error('返回为空');
+    return { success: true, message: `连接成功：${text.slice(0, 60)}` };
 }
 
 export function cancelAllL0Requests() {
