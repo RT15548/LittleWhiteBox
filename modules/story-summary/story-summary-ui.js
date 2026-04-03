@@ -297,6 +297,11 @@ All checks passed. Beginning incremental extraction...
         claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false },
         custom: { url: '', needKey: true, canFetch: true }
     };
+    const VECTOR_PROVIDER_DEFAULTS = {
+        siliconflow: { url: 'https://api.siliconflow.cn/v1', needKey: true, canFetch: true },
+        openrouter: { url: 'https://openrouter.ai/api/v1', needKey: true, canFetch: true },
+        custom: { url: '', needKey: true, canFetch: true }
+    };
 
     const SECTION_META = {
         keywords: { title: '编辑关键词', hint: '每行一个关键词，格式：关键词|权重（核心/重要/一般）' },
@@ -344,7 +349,14 @@ All checks passed. Beginning incremental extraction...
             memoryTemplate: '',
         },
         textFilterRules: [...DEFAULT_FILTER_RULES],
-        vector: { enabled: false, engine: 'online', local: { modelId: 'bge-small-zh' }, online: { provider: 'siliconflow', url: '', key: '', model: '' } }
+        vector: {
+            enabled: false,
+            engine: 'online',
+            l0Concurrency: 10,
+            l0Api: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [] },
+            embeddingApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-m3', modelCache: [] },
+            rerankApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-reranker-v2-m3', modelCache: [] }
+        }
     };
 
     let summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [] };
@@ -369,6 +381,42 @@ All checks passed. Beginning incremental extraction...
         window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type, ...data }, PARENT_ORIGIN);
     }
 
+    function normalizeVectorConfigUI(raw = null) {
+        const base = JSON.parse(JSON.stringify(config.vector));
+        const legacyOnline = raw?.online || {};
+        const sharedKey = String(legacyOnline.key || '').trim();
+        const sharedUrl = String(legacyOnline.url || '').trim();
+
+        if (raw) {
+            base.enabled = !!raw.enabled;
+            base.engine = 'online';
+            base.l0Concurrency = Math.max(1, Math.min(50, Number(raw.l0Concurrency) || 10));
+            Object.assign(base.l0Api, {
+                provider: raw.l0Api?.provider || legacyOnline.provider || base.l0Api.provider,
+                url: raw.l0Api?.url || sharedUrl || base.l0Api.url,
+                key: raw.l0Api?.key || sharedKey || base.l0Api.key,
+                model: raw.l0Api?.model || base.l0Api.model,
+                modelCache: Array.isArray(raw.l0Api?.modelCache) ? raw.l0Api.modelCache : [],
+            });
+            Object.assign(base.embeddingApi, {
+                provider: raw.embeddingApi?.provider || base.embeddingApi.provider,
+                url: raw.embeddingApi?.url || sharedUrl || base.embeddingApi.url,
+                key: raw.embeddingApi?.key || sharedKey || base.embeddingApi.key,
+                model: raw.embeddingApi?.model || legacyOnline.model || base.embeddingApi.model,
+                modelCache: Array.isArray(raw.embeddingApi?.modelCache) ? raw.embeddingApi.modelCache : [],
+            });
+            Object.assign(base.rerankApi, {
+                provider: raw.rerankApi?.provider || base.rerankApi.provider,
+                url: raw.rerankApi?.url || sharedUrl || base.rerankApi.url,
+                key: raw.rerankApi?.key || sharedKey || base.rerankApi.key,
+                model: raw.rerankApi?.model || base.rerankApi.model,
+                modelCache: Array.isArray(raw.rerankApi?.modelCache) ? raw.rerankApi.modelCache : [],
+            });
+        }
+
+        return base;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Config Management
     // ═══════════════════════════════════════════════════════════════════════════
@@ -387,7 +435,7 @@ All checks passed. Beginning incremental extraction...
                 config.textFilterRules = Array.isArray(p.textFilterRules)
                     ? p.textFilterRules
                     : (Array.isArray(p.vector?.textFilterRules) ? p.vector.textFilterRules : [...DEFAULT_FILTER_RULES]);
-                if (p.vector) config.vector = p.vector;
+                if (p.vector) config.vector = normalizeVectorConfigUI(p.vector);
                 if (config.trigger.timing === 'manual' && config.trigger.enabled) {
                     config.trigger.enabled = false;
                     saveConfig();
@@ -409,7 +457,7 @@ All checks passed. Beginning incremental extraction...
             : (Array.isArray(cfg.vector?.textFilterRules)
                 ? cfg.vector.textFilterRules
                 : (Array.isArray(config.textFilterRules) ? config.textFilterRules : [...DEFAULT_FILTER_RULES]));
-        if (cfg.vector) config.vector = cfg.vector;
+        if (cfg.vector) config.vector = normalizeVectorConfigUI(cfg.vector);
         if (config.trigger.timing === 'manual') config.trigger.enabled = false;
         localStorage.setItem('summary_panel_config', JSON.stringify(config));
     }
@@ -422,7 +470,14 @@ All checks passed. Beginning incremental extraction...
                 config.textFilterRules = collectFilterRules();
             }
             if (!config.vector) {
-                config.vector = { enabled: false, engine: 'online', online: { provider: 'siliconflow', key: '', model: 'BAAI/bge-m3' } };
+                config.vector = {
+                    enabled: false,
+                    engine: 'online',
+                    l0Concurrency: 10,
+                    l0Api: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [] },
+                    embeddingApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-m3', modelCache: [] },
+                    rerankApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-reranker-v2-m3', modelCache: [] }
+                };
             }
             localStorage.setItem('summary_panel_config', JSON.stringify(config));
             postMsg('SAVE_PANEL_CONFIG', { config });
@@ -435,15 +490,107 @@ All checks passed. Beginning incremental extraction...
     // Vector Config UI
     // ═══════════════════════════════════════════════════════════════════════════
 
+    function getVectorApiConfig(prefix) {
+        return {
+            provider: $(`${prefix}-api-provider`)?.value || 'siliconflow',
+            url: $(`${prefix}-api-url`)?.value?.trim() || '',
+            key: $(`${prefix}-api-key`)?.value?.trim() || '',
+            model: $(`${prefix}-api-model-text`)?.value?.trim() || '',
+            modelCache: Array.isArray(config.vector?.[`${prefix}Api`]?.modelCache)
+                ? [...config.vector[`${prefix}Api`].modelCache]
+                : [],
+        };
+    }
+
+    function loadVectorApiConfig(prefix, cfg) {
+        const next = cfg || {};
+        $(`${prefix}-api-provider`).value = next.provider || 'siliconflow';
+        $(`${prefix}-api-url`).value = next.url || '';
+        $(`${prefix}-api-key`).value = next.key || '';
+        $(`${prefix}-api-model-text`).value = next.model || '';
+
+        const cache = Array.isArray(next.modelCache) ? next.modelCache : [];
+        setSelectOptions($(`${prefix}-api-model-select`), cache, '请选择');
+        $(`${prefix}-api-model-select`).value = cache.includes(next.model) ? next.model : '';
+        updateVectorProviderUI(prefix, next.provider || 'siliconflow');
+    }
+
+    function updateVectorProviderUI(prefix, provider) {
+        const pv = VECTOR_PROVIDER_DEFAULTS[provider] || VECTOR_PROVIDER_DEFAULTS.custom;
+        const cache = Array.isArray(config.vector?.[`${prefix}Api`]?.modelCache)
+            ? config.vector[`${prefix}Api`].modelCache
+            : [];
+        const hasModelCache = cache.length > 0;
+
+        $(`${prefix}-api-url-row`).classList.toggle('hidden', false);
+        $(`${prefix}-api-key-row`).classList.toggle('hidden', !pv.needKey);
+        $(`${prefix}-api-model-manual-row`).classList.toggle('hidden', false);
+        $(`${prefix}-api-model-select-row`).classList.toggle('hidden', !hasModelCache);
+        $(`${prefix}-api-connect-row`).classList.toggle('hidden', !pv.canFetch);
+        $(`${prefix}-api-connect-status`).classList.toggle('hidden', !pv.canFetch);
+
+        const urlInput = $(`${prefix}-api-url`);
+        if (urlInput && !urlInput.value && pv.url) urlInput.value = pv.url;
+    }
+
+    async function fetchVectorModels(prefix) {
+        const provider = $(`${prefix}-api-provider`).value;
+        const pv = VECTOR_PROVIDER_DEFAULTS[provider] || VECTOR_PROVIDER_DEFAULTS.custom;
+        const statusEl = $(`${prefix}-api-connect-status`);
+        const btn = $(`${prefix}-btn-connect`);
+        if (!pv.canFetch) {
+            statusEl.textContent = '当前渠道不支持自动拉取模型';
+            return;
+        }
+
+        let baseUrl = $(`${prefix}-api-url`).value.trim().replace(/\/+$/, '');
+        const apiKey = $(`${prefix}-api-key`).value.trim();
+        if (!apiKey) {
+            statusEl.textContent = '请先填写 API KEY';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = '连接中...';
+        statusEl.textContent = '连接中...';
+
+        try {
+            const tryFetch = async url => {
+                const res = await fetch(url, {
+                    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }
+                });
+                return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null;
+            };
+
+            if (baseUrl.endsWith('/v1')) baseUrl = baseUrl.slice(0, -3);
+            let models = await tryFetch(`${baseUrl}/v1/models`);
+            if (!models) models = await tryFetch(`${baseUrl}/models`);
+            if (!models?.length) throw new Error('未获取到模型列表');
+
+            config.vector[`${prefix}Api`].modelCache = [...new Set(models)];
+            setSelectOptions($(`${prefix}-api-model-select`), config.vector[`${prefix}Api`].modelCache, '请选择');
+            $(`${prefix}-api-model-select-row`).classList.remove('hidden');
+            if (!$(`${prefix}-api-model-text`).value.trim()) {
+                $(`${prefix}-api-model-text`).value = models[0];
+                $(`${prefix}-api-model-select`).value = models[0];
+            }
+            statusEl.textContent = `拉取成功：${models.length} 个模型`;
+        } catch (e) {
+            statusEl.textContent = '拉取失败：' + (e.message || '请检查 URL 和 KEY');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '连接 / 拉取模型列表';
+        }
+    }
+
     function getVectorConfig() {
         return {
             enabled: $('vector-enabled')?.checked || false,
             engine: 'online',
-            online: {
-                provider: 'siliconflow',
-                key: $('vector-api-key')?.value?.trim() || '',
-                model: 'BAAI/bge-m3',
-            },
+            l0Concurrency: Math.max(1, Math.min(50, Number($('vector-l0-concurrency')?.value) || 10)),
+            l0Api: getVectorApiConfig('l0'),
+            embeddingApi: getVectorApiConfig('embedding'),
+            rerankApi: getVectorApiConfig('rerank'),
         };
     }
 
@@ -451,11 +598,10 @@ All checks passed. Beginning incremental extraction...
         if (!cfg) return;
         $('vector-enabled').checked = !!cfg.enabled;
         $('vector-config-area').classList.toggle('hidden', !cfg.enabled);
-
-        if (cfg.online?.key) {
-            $('vector-api-key').value = cfg.online.key;
-        }
-
+        $('vector-l0-concurrency').value = String(Math.max(1, Math.min(50, Number(cfg.l0Concurrency) || 10)));
+        loadVectorApiConfig('l0', cfg.l0Api || {});
+        loadVectorApiConfig('embedding', cfg.embeddingApi || {});
+        loadVectorApiConfig('rerank', cfg.rerankApi || {});
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -534,13 +680,6 @@ All checks passed. Beginning incremental extraction...
         if (!el) return;
         const count = $('filter-rules-list')?.querySelectorAll('.filter-rule-item')?.length || 0;
         el.textContent = count;
-    }
-
-    function updateOnlineStatus(status, message) {
-        const dot = $('online-api-status').querySelector('.status-dot');
-        const text = $('online-api-status').querySelector('.status-text');
-        dot.className = 'status-dot ' + status;
-        text.textContent = message;
     }
 
     function updateVectorStats(stats) {
@@ -649,13 +788,27 @@ All checks passed. Beginning incremental extraction...
         $('btn-test-vector-api').onclick = () => {
             saveConfig(); // 先保存新 Key 到 localStorage
             postMsg('VECTOR_TEST_ONLINE', {
-                provider: 'siliconflow',
-                config: {
-                    key: $('vector-api-key').value.trim(),
-                    model: 'BAAI/bge-m3',
-                }
+                provider: getVectorConfig().embeddingApi.provider,
+                config: getVectorConfig().embeddingApi
             });
         };
+
+        ['l0', 'embedding', 'rerank'].forEach(prefix => {
+            $(`${prefix}-api-provider`).onchange = e => {
+                const pv = VECTOR_PROVIDER_DEFAULTS[e.target.value] || VECTOR_PROVIDER_DEFAULTS.custom;
+                const target = config.vector[`${prefix}Api`] ||= { modelCache: [] };
+                target.provider = e.target.value;
+                if (!target.url && pv.url) target.url = pv.url;
+                if (!pv.canFetch) target.modelCache = [];
+                updateVectorProviderUI(prefix, e.target.value);
+            };
+
+            $(`${prefix}-api-model-select`).onchange = e => {
+                if (e.target.value) $(`${prefix}-api-model-text`).value = e.target.value;
+            };
+
+            $(`${prefix}-btn-connect`).onclick = () => fetchVectorModels(prefix);
+        });
 
         $('btn-add-filter-rule').onclick = addFilterRule;
 

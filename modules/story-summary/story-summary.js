@@ -356,8 +356,8 @@ async function handleAnchorGenerate() {
             return;
         }
 
-        if (!vectorCfg.online?.key) {
-            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 API Key" });
+        if (!vectorCfg.l0Api?.key) {
+            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 L0 API Key" });
             return;
         }
 
@@ -448,8 +448,8 @@ async function handleGenerateVectors(vectorCfg) {
         const { chatId, chat } = getContext();
         if (!chatId || !chat?.length) return;
 
-        if (!vectorCfg.online?.key) {
-            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 API Key" });
+        if (!vectorCfg.embeddingApi?.key) {
+            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 Embedding API Key" });
             return;
         }
 

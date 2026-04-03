@@ -2,14 +2,15 @@
 // vector/llm/llm-service.js - 修复 prefill 传递方式
 // ═══════════════════════════════════════════════════════════════════════════
 import { xbLog } from '../../../../core/debug-core.js';
-import { getApiKey } from './siliconflow.js';
+import { getVectorConfig } from '../../data/config.js';
 
 const MODULE_ID = 'vector-llm-service';
-const SILICONFLOW_API_URL = 'https://api.siliconflow.cn/v1';
 const DEFAULT_L0_MODEL = 'Qwen/Qwen3-8B';
+const DEFAULT_L0_API_URL = 'https://api.siliconflow.cn/v1';
 
 let callCounter = 0;
 const activeL0SessionIds = new Set();
+let l0KeyIndex = 0;
 
 function getStreamingModule() {
     const mod = window.xiaobaixStreamingGeneration;
@@ -28,6 +29,28 @@ function b64UrlEncode(str) {
     return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+function getL0ApiConfig() {
+    const cfg = getVectorConfig() || {};
+    return cfg.l0Api || {
+        provider: 'siliconflow',
+        url: DEFAULT_L0_API_URL,
+        key: '',
+        model: DEFAULT_L0_MODEL,
+    };
+}
+
+function getNextKey(rawKey) {
+    const keys = String(rawKey || '')
+        .split(/[,;|\n]+/)
+        .map(k => k.trim())
+        .filter(Boolean);
+    if (!keys.length) return '';
+    if (keys.length === 1) return keys[0];
+    const idx = l0KeyIndex % keys.length;
+    l0KeyIndex = (l0KeyIndex + 1) % keys.length;
+    return keys[idx];
+}
+
 /**
  * 统一LLM调用 - 走酒馆后端（非流式）
  * 临时改为标准 messages 调用，避免 bottomassistant prefill 兼容性问题。
@@ -42,7 +65,8 @@ export async function callLLM(messages, options = {}) {
     const mod = getStreamingModule();
     if (!mod) throw new Error('Streaming module not ready');
 
-    const apiKey = getApiKey() || '';
+    const apiCfg = getL0ApiConfig();
+    const apiKey = getNextKey(apiCfg.key);
     if (!apiKey) {
         throw new Error('L0 requires siliconflow API key');
     }
@@ -60,11 +84,11 @@ export async function callLLM(messages, options = {}) {
         temperature: String(temperature),
         max_tokens: String(max_tokens),
         api: 'openai',
-        apiurl: SILICONFLOW_API_URL,
+        apiurl: String(apiCfg.url || DEFAULT_L0_API_URL).trim(),
         apipassword: apiKey,
-        model: DEFAULT_L0_MODEL,
+        model: String(apiCfg.model || DEFAULT_L0_MODEL).trim(),
     };
-    const isQwen3 = String(DEFAULT_L0_MODEL || '').includes('Qwen3');
+    const isQwen3 = String(args.model || '').includes('Qwen3');
     if (isQwen3) {
         args.enable_thinking = 'false';
     }

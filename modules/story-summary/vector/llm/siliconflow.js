@@ -1,10 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// siliconflow.js - Embedding + 多 Key 轮询
+// siliconflow.js - OpenAI-compatible Embedding + 多 Key 轮询
 //
 // 在 API Key 输入框中用逗号、分号、竖线或换行分隔多个 Key，例如：
 //   sk-aaa,sk-bbb,sk-ccc
 // 每次调用自动轮询到下一个 Key，并发请求会均匀分布到所有 Key 上。
 // ═══════════════════════════════════════════════════════════════════════════
+
+import { getVectorConfig } from '../../data/config.js';
 
 const BASE_URL = 'https://api.siliconflow.cn';
 const EMBEDDING_MODEL = 'BAAI/bge-m3';
@@ -12,20 +14,26 @@ const EMBEDDING_MODEL = 'BAAI/bge-m3';
 // ★ 多 Key 轮询状态
 let _keyIndex = 0;
 
+function getEmbeddingApiConfig() {
+    const cfg = getVectorConfig() || {};
+    return cfg.embeddingApi || {
+        provider: 'siliconflow',
+        url: `${BASE_URL}/v1`,
+        key: '',
+        model: EMBEDDING_MODEL,
+    };
+}
+
 /**
  * 从 localStorage 解析所有 Key（支持逗号、分号、竖线、换行分隔）
  */
-function parseKeys() {
+function parseKeys(rawKey) {
     try {
-        const raw = localStorage.getItem('summary_panel_config');
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            const keyStr = parsed.vector?.online?.key || '';
-            return keyStr
-                .split(/[,;|\n]+/)
-                .map(k => k.trim())
-                .filter(k => k.length > 0);
-        }
+        const keyStr = String(rawKey || '');
+        return keyStr
+            .split(/[,;|\n]+/)
+            .map(k => k.trim())
+            .filter(k => k.length > 0);
     } catch { }
     return [];
 }
@@ -34,8 +42,8 @@ function parseKeys() {
  * 获取下一个可用的 API Key（轮询）
  * 每次调用返回不同的 Key，自动循环
  */
-export function getApiKey() {
-    const keys = parseKeys();
+export function getApiKey(rawKey = null) {
+    const keys = parseKeys(rawKey ?? getEmbeddingApiConfig().key);
     if (!keys.length) return null;
     if (keys.length === 1) return keys[0];
 
@@ -51,7 +59,7 @@ export function getApiKey() {
  * 获取当前配置的 Key 数量（供外部模块动态调整并发用）
  */
 export function getKeyCount() {
-    return Math.max(1, parseKeys().length);
+    return Math.max(1, parseKeys(getEmbeddingApiConfig().key).length);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -61,22 +69,24 @@ export function getKeyCount() {
 export async function embed(texts, options = {}) {
     if (!texts?.length) return [];
 
-    const key = getApiKey();
-    if (!key) throw new Error('未配置硅基 API Key');
+    const apiCfg = options.apiConfig || getEmbeddingApiConfig();
+    const key = getApiKey(apiCfg.key);
+    if (!key) throw new Error('未配置 Embedding API Key');
 
     const { timeout = 30000, signal } = options;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
-        const response = await fetch(`${BASE_URL}/v1/embeddings`, {
+        const baseUrl = String(apiCfg.url || `${BASE_URL}/v1`).replace(/\/+$/, '');
+        const response = await fetch(`${baseUrl}/embeddings`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${key}`,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: EMBEDDING_MODEL,
+                model: String(apiCfg.model || EMBEDDING_MODEL),
                 input: texts,
             }),
             signal: signal || controller.signal,

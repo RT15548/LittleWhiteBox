@@ -4,15 +4,38 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { xbLog } from '../../../../core/debug-core.js';
-import { getApiKey } from './siliconflow.js';
+import { getVectorConfig } from '../../data/config.js';
 
 const MODULE_ID = 'reranker';
-const RERANK_URL = 'https://api.siliconflow.cn/v1/rerank';
+const DEFAULT_RERANK_URL = 'https://api.siliconflow.cn/v1';
 const RERANK_MODEL = 'BAAI/bge-reranker-v2-m3';
 const DEFAULT_TIMEOUT = 15000;
 const MAX_DOCUMENTS = 100;  // API 限制
 const RERANK_BATCH_SIZE = 20;
 const RERANK_MAX_CONCURRENCY = 5;
+let rerankKeyIndex = 0;
+
+function getRerankApiConfig() {
+    const cfg = getVectorConfig() || {};
+    return cfg.rerankApi || {
+        provider: 'siliconflow',
+        url: DEFAULT_RERANK_URL,
+        key: '',
+        model: RERANK_MODEL,
+    };
+}
+
+function getNextRerankKey(rawKey) {
+    const keys = String(rawKey || '')
+        .split(/[,;|\n]+/)
+        .map(k => k.trim())
+        .filter(Boolean);
+    if (!keys.length) return '';
+    if (keys.length === 1) return keys[0];
+    const idx = rerankKeyIndex % keys.length;
+    rerankKeyIndex = (rerankKeyIndex + 1) % keys.length;
+    return keys[idx];
+}
 
 /**
  * 对文档列表进行 Rerank 精排
@@ -37,7 +60,8 @@ export async function rerank(query, documents, options = {}) {
         return { results: [], failed: false };
     }
 
-    const key = getApiKey();
+    const apiCfg = getRerankApiConfig();
+    const key = getNextRerankKey(apiCfg.key);
     if (!key) {
         xbLog.warn(MODULE_ID, '未配置 API Key，跳过 rerank');
         return { results: documents.map((_, i) => ({ index: i, relevance_score: 0 })), failed: true };
@@ -72,14 +96,15 @@ export async function rerank(query, documents, options = {}) {
     try {
         const T0 = performance.now();
 
-        const response = await fetch(RERANK_URL, {
+        const baseUrl = String(apiCfg.url || DEFAULT_RERANK_URL).replace(/\/+$/, '');
+        const response = await fetch(`${baseUrl}/rerank`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${key}`,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: RERANK_MODEL,
+                model: String(apiCfg.model || RERANK_MODEL),
                 // Zero-darkbox: do not silently truncate query.
                 query,
                 documents: validDocs,
