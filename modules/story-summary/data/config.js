@@ -261,6 +261,44 @@ const DEFAULT_L0_MODEL = "Qwen/Qwen3-8B";
 const DEFAULT_EMBEDDING_MODEL = "BAAI/bge-m3";
 const DEFAULT_RERANK_MODEL = "BAAI/bge-reranker-v2-m3";
 
+function getVectorProviderDefaultUrl(provider) {
+    return provider === "openrouter" ? DEFAULT_OPENROUTER_URL : DEFAULT_L0_URL;
+}
+
+function createDefaultProviderProfile(provider, model = "") {
+    return {
+        url: provider === "custom" ? "" : getVectorProviderDefaultUrl(provider),
+        key: "",
+        model: model || "",
+        modelCache: [],
+    };
+}
+
+function normalizeProviderProfiles(supportedProviders, srcProfiles, currentProvider, currentValues, defaultModel) {
+    const out = {};
+    supportedProviders.forEach((provider) => {
+        const raw = srcProfiles?.[provider] || {};
+        const defaults = createDefaultProviderProfile(provider, defaultModel);
+        out[provider] = {
+            url: String(raw.url || defaults.url || "").trim(),
+            key: String(raw.key || "").trim(),
+            model: String(raw.model || defaults.model || "").trim(),
+            modelCache: Array.isArray(raw.modelCache) ? raw.modelCache.filter(Boolean) : [],
+        };
+    });
+
+    if (currentProvider && out[currentProvider]) {
+        if (currentValues?.url && !out[currentProvider].url) out[currentProvider].url = String(currentValues.url).trim();
+        if (currentValues?.key && !out[currentProvider].key) out[currentProvider].key = String(currentValues.key).trim();
+        if (currentValues?.model && !out[currentProvider].model) out[currentProvider].model = String(currentValues.model).trim();
+        if (Array.isArray(currentValues?.modelCache) && !out[currentProvider].modelCache.length) {
+            out[currentProvider].modelCache = currentValues.modelCache.filter(Boolean);
+        }
+    }
+
+    return out;
+}
+
 export function getSettings() {
     const ext = (extension_settings[EXT_ID] ||= {});
     ext.storySummary ||= { enabled: true };
@@ -269,15 +307,24 @@ export function getSettings() {
 
 function normalizeOpenAiCompatApiConfig(src, defaults = {}) {
     const provider = String(src?.provider || defaults.provider || DEFAULT_VECTOR_PROVIDER).toLowerCase();
-    const defaultUrl = provider === "openrouter"
-        ? DEFAULT_OPENROUTER_URL
-        : String(defaults.url || DEFAULT_L0_URL);
+    const supportedProviders = Array.isArray(defaults.supportedProviders) && defaults.supportedProviders.length
+        ? defaults.supportedProviders
+        : [provider, "custom"];
+    const providers = normalizeProviderProfiles(
+        supportedProviders,
+        src?.providers,
+        provider,
+        src,
+        defaults.model || ""
+    );
+    const current = providers[provider] || createDefaultProviderProfile(provider, defaults.model || "");
     return {
         provider,
-        url: String(src?.url || defaultUrl || "").trim(),
-        key: String(src?.key || defaults.key || "").trim(),
-        model: String(src?.model || defaults.model || "").trim(),
-        modelCache: Array.isArray(src?.modelCache) ? src.modelCache.filter(Boolean) : [],
+        url: String(current.url || "").trim(),
+        key: String(current.key || defaults.key || "").trim(),
+        model: String(current.model || defaults.model || "").trim(),
+        modelCache: Array.isArray(current.modelCache) ? current.modelCache.filter(Boolean) : [],
+        providers,
     };
 }
 
@@ -296,18 +343,21 @@ function normalizeVectorConfig(rawVector = null) {
             url: sharedUrl,
             key: sharedKey,
             model: DEFAULT_L0_MODEL,
+            supportedProviders: ["siliconflow", "openrouter", "custom"],
         }),
         embeddingApi: normalizeOpenAiCompatApiConfig(rawVector?.embeddingApi, {
             provider: DEFAULT_VECTOR_PROVIDER,
             url: DEFAULT_L0_URL,
             key: sharedKey,
             model: DEFAULT_EMBEDDING_MODEL,
+            supportedProviders: ["siliconflow", "custom"],
         }),
         rerankApi: normalizeOpenAiCompatApiConfig(rawVector?.rerankApi, {
             provider: DEFAULT_VECTOR_PROVIDER,
             url: DEFAULT_L0_URL,
             key: sharedKey,
             model: DEFAULT_RERANK_MODEL,
+            supportedProviders: ["siliconflow", "custom"],
         }),
     };
 }

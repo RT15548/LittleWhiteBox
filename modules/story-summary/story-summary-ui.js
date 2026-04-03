@@ -303,6 +303,18 @@ All checks passed. Beginning incremental extraction...
         custom: { url: '', needKey: true, canFetch: true }
     };
 
+    const VECTOR_API_SUPPORTED_PROVIDERS = {
+        l0: ['siliconflow', 'openrouter', 'custom'],
+        embedding: ['siliconflow', 'custom'],
+        rerank: ['siliconflow', 'custom'],
+    };
+
+    const VECTOR_API_DEFAULT_MODELS = {
+        l0: 'Qwen/Qwen3-8B',
+        embedding: 'BAAI/bge-m3',
+        rerank: 'BAAI/bge-reranker-v2-m3',
+    };
+
     function setStatusText(el, message, kind = '') {
         if (!el) return;
         el.textContent = message || '';
@@ -313,6 +325,44 @@ All checks passed. Beginning incremental extraction...
                 : kind === 'loading'
                     ? '#f59e0b'
                     : '';
+    }
+
+    function createDefaultProviderProfile(provider, model = '') {
+        const pv = VECTOR_PROVIDER_DEFAULTS[provider] || VECTOR_PROVIDER_DEFAULTS.custom;
+        return {
+            url: pv.url || '',
+            key: '',
+            model: model || '',
+            modelCache: [],
+        };
+    }
+
+    function normalizeProviderProfiles(prefix, apiCfg = {}) {
+        const supported = VECTOR_API_SUPPORTED_PROVIDERS[prefix] || ['custom'];
+        const model = apiCfg.model || VECTOR_API_DEFAULT_MODELS[prefix] || '';
+        const out = {};
+        supported.forEach(provider => {
+            const raw = apiCfg.providers?.[provider] || {};
+            const defaults = createDefaultProviderProfile(provider, model);
+            out[provider] = {
+                url: String(raw.url || defaults.url || '').trim(),
+                key: String(raw.key || '').trim(),
+                model: String(raw.model || defaults.model || '').trim(),
+                modelCache: Array.isArray(raw.modelCache) ? raw.modelCache.filter(Boolean) : [],
+            };
+        });
+
+        const currentProvider = String(apiCfg.provider || supported[0] || 'custom').toLowerCase();
+        if (out[currentProvider]) {
+            if (apiCfg.url && !out[currentProvider].url) out[currentProvider].url = String(apiCfg.url).trim();
+            if (apiCfg.key && !out[currentProvider].key) out[currentProvider].key = String(apiCfg.key).trim();
+            if (apiCfg.model && !out[currentProvider].model) out[currentProvider].model = String(apiCfg.model).trim();
+            if (Array.isArray(apiCfg.modelCache) && !out[currentProvider].modelCache.length) {
+                out[currentProvider].modelCache = apiCfg.modelCache.filter(Boolean);
+            }
+        }
+
+        return out;
     }
 
     const SECTION_META = {
@@ -365,9 +415,28 @@ All checks passed. Beginning incremental extraction...
             enabled: false,
             engine: 'online',
             l0Concurrency: 10,
-            l0Api: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [] },
-            embeddingApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-m3', modelCache: [] },
-            rerankApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-reranker-v2-m3', modelCache: [] }
+            l0Api: {
+                provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'Qwen/Qwen3-8B', modelCache: [],
+                providers: {
+                    siliconflow: createDefaultProviderProfile('siliconflow', 'Qwen/Qwen3-8B'),
+                    openrouter: createDefaultProviderProfile('openrouter', 'Qwen/Qwen3-8B'),
+                    custom: createDefaultProviderProfile('custom', 'Qwen/Qwen3-8B'),
+                }
+            },
+            embeddingApi: {
+                provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-m3', modelCache: [],
+                providers: {
+                    siliconflow: createDefaultProviderProfile('siliconflow', 'BAAI/bge-m3'),
+                    custom: createDefaultProviderProfile('custom', 'BAAI/bge-m3'),
+                }
+            },
+            rerankApi: {
+                provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-reranker-v2-m3', modelCache: [],
+                providers: {
+                    siliconflow: createDefaultProviderProfile('siliconflow', 'BAAI/bge-reranker-v2-m3'),
+                    custom: createDefaultProviderProfile('custom', 'BAAI/bge-reranker-v2-m3'),
+                }
+            }
         }
     };
 
@@ -409,6 +478,7 @@ All checks passed. Beginning incremental extraction...
                 key: raw.l0Api?.key || sharedKey || base.l0Api.key,
                 model: raw.l0Api?.model || base.l0Api.model,
                 modelCache: Array.isArray(raw.l0Api?.modelCache) ? raw.l0Api.modelCache : [],
+                providers: normalizeProviderProfiles('l0', raw.l0Api || {}),
             });
             Object.assign(base.embeddingApi, {
                 provider: raw.embeddingApi?.provider || base.embeddingApi.provider,
@@ -416,6 +486,7 @@ All checks passed. Beginning incremental extraction...
                 key: raw.embeddingApi?.key || sharedKey || base.embeddingApi.key,
                 model: raw.embeddingApi?.model || legacyOnline.model || base.embeddingApi.model,
                 modelCache: Array.isArray(raw.embeddingApi?.modelCache) ? raw.embeddingApi.modelCache : [],
+                providers: normalizeProviderProfiles('embedding', raw.embeddingApi || {}),
             });
             Object.assign(base.rerankApi, {
                 provider: raw.rerankApi?.provider || base.rerankApi.provider,
@@ -423,6 +494,7 @@ All checks passed. Beginning incremental extraction...
                 key: raw.rerankApi?.key || sharedKey || base.rerankApi.key,
                 model: raw.rerankApi?.model || base.rerankApi.model,
                 modelCache: Array.isArray(raw.rerankApi?.modelCache) ? raw.rerankApi.modelCache : [],
+                providers: normalizeProviderProfiles('rerank', raw.rerankApi || {}),
             });
         }
 
@@ -503,35 +575,65 @@ All checks passed. Beginning incremental extraction...
     // ═══════════════════════════════════════════════════════════════════════════
 
     function getVectorApiConfig(prefix) {
-        return {
-            provider: $(`${prefix}-api-provider`)?.value || 'siliconflow',
+        const provider = $(`${prefix}-api-provider`)?.value || 'siliconflow';
+        const providers = normalizeProviderProfiles(prefix, config.vector?.[`${prefix}Api`] || {});
+        providers[provider] = {
             url: $(`${prefix}-api-url`)?.value?.trim() || '',
             key: $(`${prefix}-api-key`)?.value?.trim() || '',
             model: $(`${prefix}-api-model-text`)?.value?.trim() || '',
-            modelCache: Array.isArray(config.vector?.[`${prefix}Api`]?.modelCache)
-                ? [...config.vector[`${prefix}Api`].modelCache]
+            modelCache: Array.isArray(config.vector?.[`${prefix}Api`]?.providers?.[provider]?.modelCache)
+                ? [...config.vector[`${prefix}Api`].providers[provider].modelCache]
                 : [],
+        };
+        return {
+            provider,
+            url: providers[provider]?.url || '',
+            key: providers[provider]?.key || '',
+            model: providers[provider]?.model || '',
+            modelCache: Array.isArray(providers[provider]?.modelCache) ? [...providers[provider].modelCache] : [],
+            providers,
         };
     }
 
     function loadVectorApiConfig(prefix, cfg) {
         const next = cfg || {};
-        $(`${prefix}-api-provider`).value = next.provider || 'siliconflow';
-        $(`${prefix}-api-url`).value = next.url || '';
-        $(`${prefix}-api-key`).value = next.key || '';
-        $(`${prefix}-api-model-text`).value = next.model || '';
+        const provider = next.provider || 'siliconflow';
+        const profiles = normalizeProviderProfiles(prefix, next);
+        const profile = profiles[provider] || createDefaultProviderProfile(provider, VECTOR_API_DEFAULT_MODELS[prefix]);
+        $(`${prefix}-api-provider`).value = provider;
+        $(`${prefix}-api-url`).value = profile.url || '';
+        $(`${prefix}-api-key`).value = profile.key || '';
+        $(`${prefix}-api-model-text`).value = profile.model || '';
 
-        const cache = Array.isArray(next.modelCache) ? next.modelCache : [];
+        const cache = Array.isArray(profile.modelCache) ? profile.modelCache : [];
         setSelectOptions($(`${prefix}-api-model-select`), cache, '请选择');
-        $(`${prefix}-api-model-select`).value = cache.includes(next.model) ? next.model : '';
-        updateVectorProviderUI(prefix, next.provider || 'siliconflow');
+        $(`${prefix}-api-model-select`).value = cache.includes(profile.model) ? profile.model : '';
+        updateVectorProviderUI(prefix, provider);
+    }
+
+    function saveCurrentVectorApiProfile(prefix) {
+        const apiCfg = config.vector[`${prefix}Api`] ||= {};
+        const provider = $(`${prefix}-api-provider`)?.value || apiCfg.provider || 'siliconflow';
+        apiCfg.providers = normalizeProviderProfiles(prefix, apiCfg);
+        apiCfg.providers[provider] = {
+            url: $(`${prefix}-api-url`)?.value?.trim() || '',
+            key: $(`${prefix}-api-key`)?.value?.trim() || '',
+            model: $(`${prefix}-api-model-text`)?.value?.trim() || '',
+            modelCache: Array.isArray(apiCfg.providers?.[provider]?.modelCache) ? [...apiCfg.providers[provider].modelCache] : [],
+        };
+        apiCfg.provider = provider;
+        apiCfg.url = apiCfg.providers[provider].url;
+        apiCfg.key = apiCfg.providers[provider].key;
+        apiCfg.model = apiCfg.providers[provider].model;
+        apiCfg.modelCache = [...apiCfg.providers[provider].modelCache];
     }
 
     function updateVectorProviderUI(prefix, provider) {
         const pv = VECTOR_PROVIDER_DEFAULTS[provider] || VECTOR_PROVIDER_DEFAULTS.custom;
-        const cache = Array.isArray(config.vector?.[`${prefix}Api`]?.modelCache)
-            ? config.vector[`${prefix}Api`].modelCache
-            : [];
+        const apiCfg = config.vector?.[`${prefix}Api`] || {};
+        apiCfg.providers = normalizeProviderProfiles(prefix, apiCfg);
+        const profile = apiCfg.providers[provider] || createDefaultProviderProfile(provider, VECTOR_API_DEFAULT_MODELS[prefix]);
+        const cache = Array.isArray(profile.modelCache) ? profile.modelCache : [];
         const hasModelCache = cache.length > 0;
 
         $(`${prefix}-api-url-row`).classList.toggle('hidden', false);
@@ -546,15 +648,17 @@ All checks passed. Beginning incremental extraction...
             if (provider === 'custom') {
                 urlInput.readOnly = false;
                 urlInput.placeholder = 'https://your-openai-compatible-api/v1';
+                urlInput.value = profile.url || '';
             } else {
                 urlInput.value = pv.url || '';
                 urlInput.readOnly = true;
                 urlInput.placeholder = pv.url || '';
-                if (config.vector?.[`${prefix}Api`]) {
-                    config.vector[`${prefix}Api`].url = pv.url || '';
-                }
             }
         }
+        $(`${prefix}-api-key`).value = profile.key || '';
+        $(`${prefix}-api-model-text`).value = profile.model || '';
+        setSelectOptions($(`${prefix}-api-model-select`), cache, '请选择');
+        $(`${prefix}-api-model-select`).value = cache.includes(profile.model) ? profile.model : '';
     }
 
     async function fetchVectorModels(prefix) {
@@ -591,8 +695,11 @@ All checks passed. Beginning incremental extraction...
             if (!models) models = await tryFetch(`${baseUrl}/models`);
             if (!models?.length) throw new Error('未获取到模型列表');
 
-            config.vector[`${prefix}Api`].modelCache = [...new Set(models)];
-            setSelectOptions($(`${prefix}-api-model-select`), config.vector[`${prefix}Api`].modelCache, '请选择');
+            const apiCfg = config.vector[`${prefix}Api`] ||= {};
+            apiCfg.providers = normalizeProviderProfiles(prefix, apiCfg);
+            apiCfg.providers[provider] ||= createDefaultProviderProfile(provider, VECTOR_API_DEFAULT_MODELS[prefix]);
+            apiCfg.providers[provider].modelCache = [...new Set(models)];
+            setSelectOptions($(`${prefix}-api-model-select`), apiCfg.providers[provider].modelCache, '请选择');
             $(`${prefix}-api-model-select-row`).classList.remove('hidden');
             if (!$(`${prefix}-api-model-text`).value.trim()) {
                 $(`${prefix}-api-model-text`).value = models[0];
@@ -821,18 +928,11 @@ All checks passed. Beginning incremental extraction...
 
         ['l0', 'embedding', 'rerank'].forEach(prefix => {
             $(`${prefix}-api-provider`).onchange = e => {
-                const oldProvider = config.vector[`${prefix}Api`]?.provider || 'siliconflow';
-                const pv = VECTOR_PROVIDER_DEFAULTS[e.target.value] || VECTOR_PROVIDER_DEFAULTS.custom;
-                const target = config.vector[`${prefix}Api`] ||= { modelCache: [] };
-                if (e.target.value === 'custom') {
-                    if (target.url === (VECTOR_PROVIDER_DEFAULTS[oldProvider]?.url || '')) {
-                        target.url = '';
-                    }
-                } else {
-                    target.url = pv.url || '';
-                }
+                saveCurrentVectorApiProfile(prefix);
+                const target = config.vector[`${prefix}Api`] ||= {};
+                target.providers = normalizeProviderProfiles(prefix, target);
                 target.provider = e.target.value;
-                if (!pv.canFetch) target.modelCache = [];
+                target.providers[e.target.value] ||= createDefaultProviderProfile(e.target.value, VECTOR_API_DEFAULT_MODELS[prefix]);
                 updateVectorProviderUI(prefix, e.target.value);
             };
 
