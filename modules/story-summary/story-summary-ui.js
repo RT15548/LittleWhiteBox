@@ -917,6 +917,15 @@ All checks passed. Beginning incremental extraction...
         };
 
         ['l0', 'embedding', 'rerank'].forEach(prefix => {
+            $(`${prefix}-api-key-toggle`).onclick = () => {
+                const input = $(`${prefix}-api-key`);
+                const btn = $(`${prefix}-api-key-toggle`);
+                if (!input || !btn) return;
+                const show = input.type === 'password';
+                input.type = show ? 'text' : 'password';
+                btn.textContent = show ? '隐藏' : '显示';
+            };
+
             $(`${prefix}-api-provider`).onchange = e => {
                 saveCurrentVectorApiProfile(prefix);
                 const target = config.vector[`${prefix}Api`] ||= {};

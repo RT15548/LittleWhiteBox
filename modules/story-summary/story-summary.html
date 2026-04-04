@@ -423,7 +423,8 @@
                                 <div class="settings-row">
                                     <div class="settings-field full">
                                         <div class="settings-hint" style="margin-bottom:12px;">
-                                            推荐给 L0 使用便宜或免费的大批量模型，不建议直接消耗酒馆主 API。推荐：硅基流动 / OpenRouter / 自定义 OpenAI 兼容接口。
+                                            推荐给 L0 使用便宜或免费的高并发渠道。<br>
+                                            自定义渠道请填写 OpenAI 兼容基础地址（通常为 /v1）。Embedding 会自动补 <code>/embeddings</code>，Rerank 会自动补 <code>/rerank</code>。
                                         </div>
                                         <details class="settings-collapse" id="l0-api-collapse" style="margin-bottom:12px;">
                                             <summary class="settings-collapse-header">
@@ -435,7 +436,7 @@
                                             <div class="settings-collapse-content">
                                                 <label>L0 并发数</label>
                                                 <input type="number" id="vector-l0-concurrency" min="1" max="50" step="1" value="10">
-                                                <div class="settings-hint" style="margin-bottom:16px;">默认 10。免费账号可调低到 1-3，线路稳定时可自行调高。</div>
+                                                <div class="settings-hint" style="margin-bottom:16px;">请视 API 情况自行调整。</div>
                                                 <div class="settings-row">
                                                     <div class="settings-field">
                                                         <label>渠道</label>
@@ -455,7 +456,10 @@
                                                 <div class="settings-row" id="l0-api-key-row">
                                                     <div class="settings-field full">
                                                         <label>API KEY</label>
-                                                        <input type="password" id="l0-api-key" placeholder="sk-xxx">
+                                                        <div style="display:flex; gap:8px; align-items:center;">
+                                                            <input type="password" id="l0-api-key" placeholder="sk-xxx" style="flex:1;">
+                                                            <button type="button" class="btn btn-sm" id="l0-api-key-toggle" style="flex:0 0 auto; min-width:64px;">显示</button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                                 <div class="settings-row" id="l0-api-model-manual-row">
@@ -504,7 +508,10 @@
                                                 <div class="settings-row" id="embedding-api-key-row">
                                                     <div class="settings-field full">
                                                         <label>API KEY</label>
-                                                        <input type="password" id="embedding-api-key" placeholder="sk-xxx">
+                                                        <div style="display:flex; gap:8px; align-items:center;">
+                                                            <input type="password" id="embedding-api-key" placeholder="sk-xxx" style="flex:1;">
+                                                            <button type="button" class="btn btn-sm" id="embedding-api-key-toggle" style="flex:0 0 auto; min-width:64px;">显示</button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                                 <div class="settings-row" id="embedding-api-model-manual-row">
@@ -553,7 +560,10 @@
                                                 <div class="settings-row" id="rerank-api-key-row">
                                                     <div class="settings-field full">
                                                         <label>API KEY</label>
-                                                        <input type="password" id="rerank-api-key" placeholder="sk-xxx">
+                                                        <div style="display:flex; gap:8px; align-items:center;">
+                                                            <input type="password" id="rerank-api-key" placeholder="sk-xxx" style="flex:1;">
+                                                            <button type="button" class="btn btn-sm" id="rerank-api-key-toggle" style="flex:0 0 auto; min-width:64px;">显示</button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                                 <div class="settings-row" id="rerank-api-model-manual-row">
