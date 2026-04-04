@@ -6,15 +6,7 @@
  */
 
 export class WorldbookProcessor {
-    constructor() {
-        this._estimateTokens = (text) => {
-            let count = 0;
-            for (const ch of text) {
-                count += ch.charCodeAt(0) > 0x7F ? 1.5 : 0.25;
-            }
-            return Math.ceil(count);
-        };
-    }
+    constructor() {}
 
     // ── bridge 访问 ──────────────────────────────────────────────
 
@@ -105,41 +97,25 @@ export class WorldbookProcessor {
     // ── 组装 ──────────────────────────────────────────────────
 
     /**
-     * 将过滤后的条目组装为带 token 预算控制的文本
+     * 将过滤后的条目按酒馆原生顺序组装为结构化文本
      * @param {Array} filteredEntries
-     * @param {number} tokenBudget
      */
-    assembleContent(filteredEntries, tokenBudget = 2000) {
-        // 绿灯优先，再按 order 升序
-        const sorted = [...filteredEntries].sort((a, b) => {
-            if (a.constant !== b.constant) return a.constant ? -1 : 1;
-            return (a.order ?? 100) - (b.order ?? 100);
-        });
+    assembleContent(filteredEntries) {
+        // 按 order 升序排列（与酒馆世界书注入顺序一致）
+        const sorted = [...filteredEntries].sort((a, b) =>
+            (a.order ?? 100) - (b.order ?? 100)
+        );
 
-        const parts = [];
-        let usedTokens = 0;
-
-        for (const entry of sorted) {
-            const text = entry.content?.trim();
-            if (!text) continue;
-
-            const tokens = this._estimateTokens(text);
-            if (usedTokens + tokens > tokenBudget) {
-                // 绿灯条目允许轻微超预算（90% 阈值），但不超过 1.5x 硬上限
-                if (entry.constant && usedTokens < tokenBudget * 0.9 && usedTokens + tokens < tokenBudget * 1.5) {
-                    // 继续
-                } else {
-                    continue;
-                }
-            }
-
-            const label = entry.comment || entry.key?.[0] || `entry-${entry.uid}`;
-            parts.push(`[${label}]\n${text}`);
-            usedTokens += tokens;
-        }
+        const parts = sorted
+            .filter(e => e.content?.trim())
+            .map(e => {
+                const label = e.comment || e.key?.[0] || `entry-${e.uid}`;
+                const state = e.constant ? 'constant' : 'active';
+                return `<entry name="${label}" state="${state}">\n${e.content.trim()}\n</entry>`;
+            });
 
         if (!parts.length) return '';
-        return parts.join('\n---\n');
+        return `<novel_draw_worldbook>\n${parts.join('\n')}\n</novel_draw_worldbook>`;
     }
 
     // ── 完整管线 ──────────────────────────────────────────────
@@ -177,6 +153,6 @@ export class WorldbookProcessor {
         if (!allEntries.length) return '';
 
         const filtered = this.filterEntries(allEntries, contextText, keywordFilterMode);
-        return this.assembleContent(filtered, tokenBudget);
+        return this.assembleContent(filtered);
     }
 }
