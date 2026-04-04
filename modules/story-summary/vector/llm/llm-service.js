@@ -2,13 +2,15 @@
 // vector/llm/llm-service.js - 修复 prefill 传递方式
 // ═══════════════════════════════════════════════════════════════════════════
 import { xbLog } from '../../../../core/debug-core.js';
-import { getApiKey } from './siliconflow.js';
+import { getVectorConfig } from '../../data/config.js';
 
 const MODULE_ID = 'vector-llm-service';
-const SILICONFLOW_API_URL = 'https://api.siliconflow.cn/v1';
 const DEFAULT_L0_MODEL = 'Qwen/Qwen3-8B';
+const DEFAULT_L0_API_URL = 'https://api.siliconflow.cn/v1';
 
 let callCounter = 0;
+const activeL0SessionIds = new Set();
+let l0KeyIndex = 0;
 
 function getStreamingModule() {
     const mod = window.xiaobaixStreamingGeneration;
@@ -27,32 +29,61 @@ function b64UrlEncode(str) {
     return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+function getL0ApiConfig() {
+    const cfg = getVectorConfig() || {};
+    return cfg.l0Api || {
+        provider: 'siliconflow',
+        url: DEFAULT_L0_API_URL,
+        key: '',
+        model: DEFAULT_L0_MODEL,
+    };
+}
+
+function normalizeL0ApiConfig(apiConfig = null) {
+    const fallback = getL0ApiConfig();
+    const next = apiConfig || {};
+    return {
+        provider: String(next.provider || fallback.provider || 'siliconflow').trim(),
+        url: String(next.url || fallback.url || DEFAULT_L0_API_URL).trim(),
+        key: String(next.key || fallback.key || '').trim(),
+        model: String(next.model || fallback.model || DEFAULT_L0_MODEL).trim(),
+    };
+}
+
+function getNextKey(rawKey) {
+    const keys = String(rawKey || '')
+        .split(/[,;|\n]+/)
+        .map(k => k.trim())
+        .filter(Boolean);
+    if (!keys.length) return '';
+    if (keys.length === 1) return keys[0];
+    const idx = l0KeyIndex % keys.length;
+    l0KeyIndex = (l0KeyIndex + 1) % keys.length;
+    return keys[idx];
+}
+
 /**
  * 统一LLM调用 - 走酒馆后端（非流式）
- * assistant prefill 用 bottomassistant 参数传递
+ * 临时改为标准 messages 调用，避免 bottomassistant prefill 兼容性问题。
  */
 export async function callLLM(messages, options = {}) {
     const {
         temperature = 0.2,
         max_tokens = 500,
+        timeout = 40000,
+        apiConfig = null,
     } = options;
 
     const mod = getStreamingModule();
     if (!mod) throw new Error('Streaming module not ready');
 
-    const apiKey = getApiKey() || '';
+    const apiCfg = normalizeL0ApiConfig(apiConfig);
+    const apiKey = getNextKey(apiCfg.key);
     if (!apiKey) {
         throw new Error('L0 requires siliconflow API key');
     }
 
-    // 分离 assistant prefill
-    let topMessages = [...messages];
-    let assistantPrefill = '';
-
-    if (topMessages.length > 0 && topMessages[topMessages.length - 1]?.role === 'assistant') {
-        const lastMsg = topMessages.pop();
-        assistantPrefill = lastMsg.content || '';
-    }
+    const topMessages = [...messages].filter(msg => msg?.role !== 'assistant');
 
     const top64 = b64UrlEncode(JSON.stringify(topMessages));
     const uniqueId = generateUniqueId('l0');
@@ -65,27 +96,58 @@ export async function callLLM(messages, options = {}) {
         temperature: String(temperature),
         max_tokens: String(max_tokens),
         api: 'openai',
-        apiurl: SILICONFLOW_API_URL,
+        apiurl: String(apiCfg.url || DEFAULT_L0_API_URL).trim(),
         apipassword: apiKey,
-        model: DEFAULT_L0_MODEL,
+        model: String(apiCfg.model || DEFAULT_L0_MODEL).trim(),
     };
-    const isQwen3 = String(DEFAULT_L0_MODEL || '').includes('Qwen3');
+    const isQwen3 = String(args.model || '').includes('Qwen3');
     if (isQwen3) {
         args.enable_thinking = 'false';
     }
 
-    // ★ 用 bottomassistant 参数传递 prefill
-    if (assistantPrefill) {
-        args.bottomassistant = assistantPrefill;
-    }
-
     try {
-        const result = await mod.xbgenrawCommand(args, '');
+        activeL0SessionIds.add(uniqueId);
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(`L0 request timeout after ${timeout}ms`)), timeout);
+        });
+        const result = await Promise.race([
+            mod.xbgenrawCommand(args, ''),
+            timeoutPromise,
+        ]);
         return String(result ?? '');
     } catch (e) {
         xbLog.error(MODULE_ID, 'LLM调用失败', e);
         throw e;
+    } finally {
+        activeL0SessionIds.delete(uniqueId);
     }
+}
+
+export async function testL0Service(apiConfig = {}) {
+    if (!apiConfig?.key) {
+        throw new Error('请配置 L0 API Key');
+    }
+    const result = await callLLM([
+        { role: 'system', content: '你是一个测试助手。请只输出 OK。' },
+        { role: 'user', content: '只输出 OK' },
+    ], {
+        apiConfig,
+        temperature: 0,
+        max_tokens: 16,
+        timeout: 15000,
+    });
+    const text = String(result || '').trim();
+    if (!text) throw new Error('返回为空');
+    return { success: true, message: `连接成功：${text.slice(0, 60)}` };
+}
+
+export function cancelAllL0Requests() {
+    const mod = getStreamingModule();
+    if (!mod?.cancel) return;
+    for (const sessionId of activeL0SessionIds) {
+        try { mod.cancel(sessionId); } catch {}
+    }
+    activeL0SessionIds.clear();
 }
 
 export function parseJson(text) {

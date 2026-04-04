@@ -806,11 +806,7 @@ function buildNonVectorPrompt(store) {
 
     if (!sections.length) return "";
 
-    return (
-        `${buildSystemPreamble()}\n` +
-        `<剧情记忆>\n\n${sections.join("\n\n")}\n\n</剧情记忆>\n` +
-        `${buildPostscript()}`
-    );
+    return buildMemoryPromptText(sections.join("\n\n"));
 }
 
 /**

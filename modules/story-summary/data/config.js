@@ -254,11 +254,112 @@ export const DEFAULT_SUMMARY_USER_CONFIRM_PROMPT = `怎么截断了！重新完�
 </Chat_History>`;
 
 export const DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT = '下面重新生成完整JSON。';
+const DEFAULT_VECTOR_PROVIDER = "siliconflow";
+const DEFAULT_L0_URL = "https://api.siliconflow.cn/v1";
+const DEFAULT_OPENROUTER_URL = "https://openrouter.ai/api/v1";
+const DEFAULT_L0_MODEL = "Qwen/Qwen3-8B";
+const DEFAULT_EMBEDDING_MODEL = "BAAI/bge-m3";
+const DEFAULT_RERANK_MODEL = "BAAI/bge-reranker-v2-m3";
+
+function getVectorProviderDefaultUrl(provider) {
+    return provider === "openrouter" ? DEFAULT_OPENROUTER_URL : DEFAULT_L0_URL;
+}
+
+function createDefaultProviderProfile(provider, model = "") {
+    return {
+        url: provider === "custom" ? "" : getVectorProviderDefaultUrl(provider),
+        key: "",
+        model: model || "",
+        modelCache: [],
+    };
+}
+
+function normalizeProviderProfiles(supportedProviders, srcProfiles, currentProvider, currentValues, defaultModel) {
+    const out = {};
+    supportedProviders.forEach((provider) => {
+        const raw = srcProfiles?.[provider] || {};
+        const defaults = createDefaultProviderProfile(provider, defaultModel);
+        out[provider] = {
+            url: String(raw.url || defaults.url || "").trim(),
+            key: String(raw.key || "").trim(),
+            model: String(raw.model || defaults.model || "").trim(),
+            modelCache: Array.isArray(raw.modelCache) ? raw.modelCache.filter(Boolean) : [],
+        };
+    });
+
+    if (currentProvider && out[currentProvider]) {
+        if (currentValues?.url && !out[currentProvider].url) out[currentProvider].url = String(currentValues.url).trim();
+        if (currentValues?.key && !out[currentProvider].key) out[currentProvider].key = String(currentValues.key).trim();
+        if (currentValues?.model && !out[currentProvider].model) out[currentProvider].model = String(currentValues.model).trim();
+        if (Array.isArray(currentValues?.modelCache) && !out[currentProvider].modelCache.length) {
+            out[currentProvider].modelCache = currentValues.modelCache.filter(Boolean);
+        }
+    }
+
+    return out;
+}
 
 export function getSettings() {
     const ext = (extension_settings[EXT_ID] ||= {});
     ext.storySummary ||= { enabled: true };
     return ext;
+}
+
+function normalizeOpenAiCompatApiConfig(src, defaults = {}) {
+    const provider = String(src?.provider || defaults.provider || DEFAULT_VECTOR_PROVIDER).toLowerCase();
+    const supportedProviders = Array.isArray(defaults.supportedProviders) && defaults.supportedProviders.length
+        ? defaults.supportedProviders
+        : [provider, "custom"];
+    const providers = normalizeProviderProfiles(
+        supportedProviders,
+        src?.providers,
+        provider,
+        src,
+        defaults.model || ""
+    );
+    const current = providers[provider] || createDefaultProviderProfile(provider, defaults.model || "");
+    return {
+        provider,
+        url: String(current.url || "").trim(),
+        key: String(current.key || defaults.key || "").trim(),
+        model: String(current.model || defaults.model || "").trim(),
+        modelCache: Array.isArray(current.modelCache) ? current.modelCache.filter(Boolean) : [],
+        providers,
+    };
+}
+
+function normalizeVectorConfig(rawVector = null) {
+    const legacyOnline = rawVector?.online || {};
+    const sharedProvider = String(legacyOnline.provider || DEFAULT_VECTOR_PROVIDER).toLowerCase();
+    const sharedUrl = String(legacyOnline.url || (sharedProvider === "openrouter" ? DEFAULT_OPENROUTER_URL : DEFAULT_L0_URL)).trim();
+    const sharedKey = String(legacyOnline.key || "").trim();
+
+    return {
+        enabled: !!rawVector?.enabled,
+        engine: "online",
+        l0Concurrency: Math.max(1, Math.min(50, Number(rawVector?.l0Concurrency) || 10)),
+        l0Api: normalizeOpenAiCompatApiConfig(rawVector?.l0Api, {
+            provider: sharedProvider,
+            url: sharedUrl,
+            key: sharedKey,
+            model: DEFAULT_L0_MODEL,
+            supportedProviders: ["siliconflow", "openrouter", "custom"],
+        }),
+        embeddingApi: normalizeOpenAiCompatApiConfig(rawVector?.embeddingApi, {
+            provider: DEFAULT_VECTOR_PROVIDER,
+            url: DEFAULT_L0_URL,
+            key: sharedKey,
+            model: DEFAULT_EMBEDDING_MODEL,
+            supportedProviders: ["siliconflow", "custom"],
+        }),
+        rerankApi: normalizeOpenAiCompatApiConfig(rawVector?.rerankApi, {
+            provider: DEFAULT_VECTOR_PROVIDER,
+            url: DEFAULT_L0_URL,
+            key: sharedKey,
+            model: DEFAULT_RERANK_MODEL,
+            supportedProviders: ["siliconflow", "custom"],
+        }),
+    };
 }
 
 export function getSummaryPanelConfig() {
@@ -299,7 +400,7 @@ export function getSummaryPanelConfig() {
             summaryAssistantPrefillPrompt: DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT,
             memoryTemplate: DEFAULT_MEMORY_PROMPT_TEMPLATE,
         },
-        vector: null,
+        vector: normalizeVectorConfig(),
     };
 
     try {
@@ -320,7 +421,7 @@ export function getSummaryPanelConfig() {
             ui: { ...defaults.ui, ...(parsed.ui || {}) },
             textFilterRules,
             prompts: { ...defaults.prompts, ...(parsed.prompts || {}) },
-            vector: parsed.vector || null,
+            vector: normalizeVectorConfig(parsed.vector || null),
         };
 
         if (result.trigger.timing === "manual") result.trigger.enabled = false;
@@ -349,16 +450,7 @@ export function getVectorConfig() {
         if (!raw) return null;
 
         const parsed = JSON.parse(raw);
-        const cfg = parsed.vector || null;
-        if (!cfg) return null;
-
-        // Keep vector side normalized to online + siliconflow.
-        cfg.engine = "online";
-        cfg.online = cfg.online || {};
-        cfg.online.provider = "siliconflow";
-        cfg.online.model = "BAAI/bge-m3";
-
-        return cfg;
+        return parsed.vector ? normalizeVectorConfig(parsed.vector) : normalizeVectorConfig();
     } catch {
         return null;
     }
@@ -376,15 +468,7 @@ export function saveVectorConfig(vectorCfg) {
         const raw = localStorage.getItem("summary_panel_config") || "{}";
         const parsed = JSON.parse(raw);
 
-        parsed.vector = {
-            enabled: !!vectorCfg?.enabled,
-            engine: "online",
-            online: {
-                provider: "siliconflow",
-                key: vectorCfg?.online?.key || "",
-                model: "BAAI/bge-m3",
-            },
-        };
+        parsed.vector = normalizeVectorConfig(vectorCfg || null);
 
         localStorage.setItem("summary_panel_config", JSON.stringify(parsed));
         CommonSettingStorage.set(SUMMARY_CONFIG_KEY, parsed);

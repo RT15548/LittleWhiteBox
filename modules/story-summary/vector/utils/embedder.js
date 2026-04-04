@@ -1,15 +1,13 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Story Summary - Embedder (v2 - 统一硅基)
-// 所有 embedding 请求转发到 siliconflow.js
+// Story Summary - Embedder
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { embed as sfEmbed, getApiKey } from '../llm/siliconflow.js';
+import { embed as sfEmbed } from '../llm/siliconflow.js';
 // ═══════════════════════════════════════════════════════════════════════════
 // 统一 embed 接口
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function embed(texts, config, options = {}) {
-    // 忽略旧的 config 参数，统一走硅基
     return await sfEmbed(texts, options);
 }
 
@@ -18,8 +16,10 @@ export async function embed(texts, config, options = {}) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function getEngineFingerprint(config) {
-    // 统一使用硅基 bge-m3
-    return 'siliconflow:bge-m3:1024';
+    const api = config?.embeddingApi || {};
+    const provider = String(api.provider || 'siliconflow').toLowerCase();
+    const model = String(api.model || 'BAAI/bge-m3').trim() || 'BAAI/bge-m3';
+    return `${provider}:${model}:1024`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -47,14 +47,13 @@ export async function deleteLocalModelCache() { }
 // 在线服务测试
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function testOnlineService() {
-    const key = getApiKey();
-    if (!key) {
-        throw new Error('请配置硅基 API Key');
+export async function testOnlineService(_provider, config = {}) {
+    if (!config?.key) {
+        throw new Error('请配置 Embedding API Key');
     }
 
     try {
-        const [vec] = await sfEmbed(['测试连接']);
+        const [vec] = await sfEmbed(['测试连接'], { apiConfig: config });
         return { success: true, dims: vec?.length || 0 };
     } catch (e) {
         throw new Error(`连接失败: ${e.message}`);
@@ -62,7 +61,6 @@ export async function testOnlineService() {
 }
 
 export async function fetchOnlineModels() {
-    // 硅基模型固定
     return ['BAAI/bge-m3'];
 }
 
@@ -78,6 +76,6 @@ export const ONLINE_PROVIDERS = {
     siliconflow: {
         id: 'siliconflow',
         name: '硅基流动',
-        baseUrl: 'https://api.siliconflow.cn',
+        baseUrl: 'https://api.siliconflow.cn/v1',
     },
 };

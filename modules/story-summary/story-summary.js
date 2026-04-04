@@ -43,6 +43,8 @@ import { runSummaryGeneration } from "./generate/generator.js";
 
 // vector service
 import { embed, getEngineFingerprint, testOnlineService } from "./vector/utils/embedder.js";
+import { testL0Service } from "./vector/llm/llm-service.js";
+import { testRerankService } from "./vector/llm/reranker.js";
 
 // tokenizer
 import { preload as preloadTokenizer, injectEntities, isReady as isTokenizerReady } from "./vector/utils/tokenizer.js";
@@ -356,8 +358,8 @@ async function handleAnchorGenerate() {
             return;
         }
 
-        if (!vectorCfg.online?.key) {
-            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 API Key" });
+        if (!vectorCfg.l0Api?.key) {
+            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 L0 API Key" });
             return;
         }
 
@@ -421,17 +423,23 @@ function handleAnchorCancel() {
     postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: -1, total: 0 });
 }
 
-async function handleTestOnlineService(provider, config) {
+async function handleTestOnlineService(provider, config, target = "embedding") {
     try {
-        postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "downloading", message: "连接中..." });
-        const result = await testOnlineService(provider, config);
+        postToFrame({ type: "VECTOR_ONLINE_STATUS", target, status: "downloading", message: "连接中..." });
+        let result;
+        if (target === "l0") result = await testL0Service(config);
+        else if (target === "rerank") result = await testRerankService(config);
+        else result = await testOnlineService(provider, config);
         postToFrame({
             type: "VECTOR_ONLINE_STATUS",
+            target,
             status: "success",
-            message: `连接成功 (${result.dims}维)`,
+            message: target === "embedding"
+                ? `连接成功 (${result.dims}维)`
+                : (result.message || "连接成功"),
         });
     } catch (e) {
-        postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: e.message });
+        postToFrame({ type: "VECTOR_ONLINE_STATUS", target, status: "error", message: e.message });
     }
 }
 
@@ -448,8 +456,8 @@ async function handleGenerateVectors(vectorCfg) {
         const { chatId, chat } = getContext();
         if (!chatId || !chat?.length) return;
 
-        if (!vectorCfg.online?.key) {
-            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 API Key" });
+        if (!vectorCfg.embeddingApi?.key) {
+            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 Embedding API Key" });
             return;
         }
 
@@ -1631,7 +1639,7 @@ async function handleFrameMessage(event) {
             break;
 
         case "VECTOR_TEST_ONLINE":
-            handleTestOnlineService(data.provider, data.config);
+            handleTestOnlineService(data.provider, data.config, data.target || "embedding");
             break;
 
         case "VECTOR_GENERATE":

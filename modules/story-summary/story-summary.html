@@ -414,31 +414,180 @@
 
                         <div id="vector-config-area" class="hidden">
 
-                            <!-- Step 0: API Key -->
+                            <!-- Step 0: API Config -->
                             <div class="neo-card" style="margin-top: 24px;">
                                 <div class="neo-card-title">
                                     <span class="neo-badge">Step.0</span>
-                                    <span>填写 API Key</span>
+                                    <span>配置模型 API</span>
                                 </div>
                                 <div class="settings-row">
                                     <div class="settings-field full">
-                                        <label>硅基流动 API Key</label>
-                                        <input type="password" id="vector-api-key" placeholder="sk-xxx">
-                                        <div class="settings-hint">
-                                            💡 <a href="https://siliconflow.cn" target="_blank">硅基流动</a>
-                                            内置使用的模型完全免费。建议实名认证以获得更高并发。
+                                        <div class="settings-hint" style="margin-bottom:12px;">
+                                            推荐给 L0 使用便宜或免费的高并发渠道。<br>
+                                            自定义渠道请填写 OpenAI 兼容基础地址（通常为 /v1）。Embedding 会自动补 <code>/embeddings</code>，Rerank 会自动补 <code>/rerank</code>。
                                         </div>
-                                    </div>
-                                </div>
-                                <div class="settings-row">
-                                    <div class="settings-field full">
-                                        <div class="engine-status-row" style="margin-top: 0;">
-                                            <div class="engine-status" id="online-api-status">
-                                                <span class="status-dot"></span>
-                                                <span class="status-text">未测试</span>
+                                        <details class="settings-collapse" id="l0-api-collapse" style="margin-bottom:12px;">
+                                            <summary class="settings-collapse-header">
+                                                <span>L0 锚点提取模型</span>
+                                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                                </svg>
+                                            </summary>
+                                            <div class="settings-collapse-content">
+                                                <label>L0 并发数</label>
+                                                <input type="number" id="vector-l0-concurrency" min="1" max="50" step="1" value="10">
+                                                <div class="settings-hint" style="margin-bottom:16px;">请视 API 情况自行调整。</div>
+                                                <div class="settings-row">
+                                                    <div class="settings-field">
+                                                        <label>渠道</label>
+                                                        <select id="l0-api-provider">
+                                                            <option value="siliconflow">硅基流动</option>
+                                                            <option value="openrouter">OpenRouter</option>
+                                                            <option value="custom">自定义</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="l0-api-url-row">
+                                                    <div class="settings-field full">
+                                                        <label>API URL</label>
+                                                        <input type="text" id="l0-api-url" placeholder="https://api.siliconflow.cn/v1">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="l0-api-key-row">
+                                                    <div class="settings-field full">
+                                                        <label>API KEY</label>
+                                                        <div style="display:flex; gap:8px; align-items:center;">
+                                                            <input type="password" id="l0-api-key" placeholder="sk-xxx" style="flex:1;">
+                                                            <button type="button" class="btn btn-sm" id="l0-api-key-toggle" style="flex:0 0 auto; min-width:64px;">显示</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="l0-api-model-manual-row">
+                                                    <div class="settings-field full">
+                                                        <label>模型名</label>
+                                                        <input type="text" id="l0-api-model-text" placeholder="可手动填写，如 Qwen/Qwen3-8B">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row hidden" id="l0-api-model-select-row">
+                                                    <div class="settings-field full">
+                                                        <label>已拉取模型</label>
+                                                        <select id="l0-api-model-select"><option value="">请选择</option></select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-btn-row" id="l0-api-connect-row" style="margin-bottom:8px;">
+                                                    <button class="btn btn-sm" id="l0-btn-connect" style="flex:1">拉取</button>
+                                                    <button class="btn btn-sm" id="l0-btn-test" style="flex:1">测试</button>
+                                                    <button class="btn btn-sm btn-p" id="l0-btn-save" style="flex:1">保存</button>
+                                                </div>
+                                                <div class="settings-hint" id="l0-api-connect-status" style="margin-bottom:16px;"></div>
                                             </div>
-                                            <button class="btn btn-sm" id="btn-test-vector-api">测试连接</button>
-                                        </div>
+                                        </details>
+
+                                        <details class="settings-collapse" id="embedding-api-collapse" style="margin-bottom:12px;">
+                                            <summary class="settings-collapse-header">
+                                                <span>Embedding 模型</span>
+                                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                                </svg>
+                                            </summary>
+                                            <div class="settings-collapse-content">
+                                                <div class="settings-row">
+                                                    <div class="settings-field">
+                                                        <label>渠道</label>
+                                                        <select id="embedding-api-provider">
+                                                            <option value="siliconflow">硅基流动</option>
+                                                            <option value="custom">自定义</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="embedding-api-url-row">
+                                                    <div class="settings-field full">
+                                                        <label>API URL</label>
+                                                        <input type="text" id="embedding-api-url" placeholder="https://api.siliconflow.cn/v1">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="embedding-api-key-row">
+                                                    <div class="settings-field full">
+                                                        <label>API KEY</label>
+                                                        <div style="display:flex; gap:8px; align-items:center;">
+                                                            <input type="password" id="embedding-api-key" placeholder="sk-xxx" style="flex:1;">
+                                                            <button type="button" class="btn btn-sm" id="embedding-api-key-toggle" style="flex:0 0 auto; min-width:64px;">显示</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="embedding-api-model-manual-row">
+                                                    <div class="settings-field full">
+                                                        <label>模型名</label>
+                                                        <input type="text" id="embedding-api-model-text" placeholder="如 BAAI/bge-m3">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row hidden" id="embedding-api-model-select-row">
+                                                    <div class="settings-field full">
+                                                        <label>已拉取模型</label>
+                                                        <select id="embedding-api-model-select"><option value="">请选择</option></select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-btn-row" id="embedding-api-connect-row" style="margin-bottom:8px;">
+                                                    <button class="btn btn-sm" id="embedding-btn-connect" style="flex:1">拉取</button>
+                                                    <button class="btn btn-sm" id="embedding-btn-test" style="flex:1">测试</button>
+                                                    <button class="btn btn-sm btn-p" id="embedding-btn-save" style="flex:1">保存</button>
+                                                </div>
+                                                <div class="settings-hint" id="embedding-api-connect-status" style="margin-bottom:16px;"></div>
+                                            </div>
+                                        </details>
+
+                                        <details class="settings-collapse" id="rerank-api-collapse">
+                                            <summary class="settings-collapse-header">
+                                                <span>Rerank 模型</span>
+                                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                                </svg>
+                                            </summary>
+                                            <div class="settings-collapse-content">
+                                                <div class="settings-row">
+                                                    <div class="settings-field">
+                                                        <label>渠道</label>
+                                                        <select id="rerank-api-provider">
+                                                            <option value="siliconflow">硅基流动</option>
+                                                            <option value="custom">自定义</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="rerank-api-url-row">
+                                                    <div class="settings-field full">
+                                                        <label>API URL</label>
+                                                        <input type="text" id="rerank-api-url" placeholder="https://api.siliconflow.cn/v1">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="rerank-api-key-row">
+                                                    <div class="settings-field full">
+                                                        <label>API KEY</label>
+                                                        <div style="display:flex; gap:8px; align-items:center;">
+                                                            <input type="password" id="rerank-api-key" placeholder="sk-xxx" style="flex:1;">
+                                                            <button type="button" class="btn btn-sm" id="rerank-api-key-toggle" style="flex:0 0 auto; min-width:64px;">显示</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="rerank-api-model-manual-row">
+                                                    <div class="settings-field full">
+                                                        <label>模型名</label>
+                                                        <input type="text" id="rerank-api-model-text" placeholder="如 BAAI/bge-reranker-v2-m3">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row hidden" id="rerank-api-model-select-row">
+                                                    <div class="settings-field full">
+                                                        <label>已拉取模型</label>
+                                                        <select id="rerank-api-model-select"><option value="">请选择</option></select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-btn-row" id="rerank-api-connect-row" style="margin-bottom:8px;">
+                                                    <button class="btn btn-sm" id="rerank-btn-connect" style="flex:1">拉取</button>
+                                                    <button class="btn btn-sm" id="rerank-btn-test" style="flex:1">测试</button>
+                                                    <button class="btn btn-sm btn-p" id="rerank-btn-save" style="flex:1">保存</button>
+                                                </div>
+                                                <div class="settings-hint" id="rerank-api-connect-status"></div>
+                                            </div>
+                                        </details>
                                     </div>
                                 </div>
                             </div>

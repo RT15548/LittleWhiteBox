@@ -83,16 +83,6 @@ function uint8ToBase64(uint8) {
     return btoa(result);
 }
 
-// base64 → Uint8Array
-function base64ToUint8(base64) {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
-}
-
 // 服务器备份文件名
 function getBackupFilename(chatId) {
     // chatId 可能含中文/特殊字符，ST 只接受 [a-zA-Z0-9_-]

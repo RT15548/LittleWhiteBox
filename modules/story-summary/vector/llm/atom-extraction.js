@@ -8,22 +8,24 @@
 // 每楼层 1-2 个场景锚点（非碎片原子），60-100 字场景摘要
 // ============================================================================
 
-import { callLLM, parseJson } from './llm-service.js';
+import { callLLM, cancelAllL0Requests, parseJson } from './llm-service.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { filterText } from '../utils/text-filter.js';
 
 const MODULE_ID = 'atom-extraction';
 
 const CONCURRENCY = 10;
-const RETRY_COUNT = 2;
+const RETRY_COUNT = 1;
 const RETRY_DELAY = 500;
-const DEFAULT_TIMEOUT = 20000;
+const DEFAULT_TIMEOUT = 40000;
 const STAGGER_DELAY = 80;
+const DEBUG_RAW_PREVIEW_LEN = 800;
 
 let batchCancelled = false;
 
 export function cancelBatchExtraction() {
     batchCancelled = true;
+    cancelAllL0Requests();
 }
 
 export function isBatchCancelled() {
@@ -81,13 +83,17 @@ const SYSTEM_PROMPT = `你是场景摘要器。从一轮对话中提取1-2个场
 输出：
 {"anchors":[{"scene":"火山口上艾拉举起圣剑刺穿古龙的心脏，龙血溅满铠甲，古龙轰然倒地，艾拉跪倒在滚烫的岩石上痛哭，完成了她不得不做的弑杀","edges":[{"s":"艾拉","t":"古龙","r":"以圣剑刺穿心脏"}],"where":"火山口"}]}`;
 
-const JSON_PREFILL = '{"anchors":[';
-
 // ============================================================================
 // 睡眠工具
 // ============================================================================
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function previewText(text, maxLen = DEBUG_RAW_PREVIEW_LEN) {
+    const raw = String(text ?? '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '(empty)';
+    return raw.length > maxLen ? `${raw.slice(0, maxLen)} ...(truncated)` : raw;
+}
 
 const ACTION_STRIP_WORDS = [
     '突然', '非常', '有些', '有点', '轻轻', '悄悄', '缓缓', '立刻',
@@ -206,7 +212,7 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
     const aiText = filterText(aiMessage.mes);
     parts.push(`<assistant>\n${aiText}\n</assistant>`);
 
-    const input = `<round>\n${parts.join('\n')}\n</round>`;
+    const input = `<round>\n${parts.join('\n')}\n</round>\n请读取上述 <round> 内容，提取 1-2 个场景锚点，并严格按 JSON 输出。\n不要解释，不要续写，不要角色扮演，不要输出 JSON 以外的任何内容。`;
 
     for (let attempt = 0; attempt <= RETRY_COUNT; attempt++) {
         if (batchCancelled) return [];
@@ -215,7 +221,6 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
             const response = await callLLM([
                 { role: 'system', content: SYSTEM_PROMPT },
                 { role: 'user', content: input },
-                { role: 'assistant', content: JSON_PREFILL },
             ], {
                 temperature: 0.3,
                 max_tokens: 600,
@@ -223,6 +228,7 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
             });
 
             const rawText = String(response || '');
+            xbLog.info(MODULE_ID, `floor ${aiFloor} attempt ${attempt} rawText(len=${rawText.length}): ${previewText(rawText)}`);
             if (!rawText.trim()) {
                 if (attempt < RETRY_COUNT) {
                     await sleep(RETRY_DELAY);
@@ -231,11 +237,11 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
                 return null;
             }
 
-            const fullJson = JSON_PREFILL + rawText;
+            xbLog.info(MODULE_ID, `floor ${aiFloor} attempt ${attempt} parseSource(len=${rawText.length}): ${previewText(rawText)}`);
 
             let parsed;
             try {
-                parsed = parseJson(fullJson);
+                parsed = parseJson(rawText);
             } catch (e) {
                 xbLog.warn(MODULE_ID, `floor ${aiFloor} JSON解析失败 (attempt ${attempt})`);
                 if (attempt < RETRY_COUNT) {
@@ -248,6 +254,7 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
             // 兼容：优先 anchors，回退 atoms
             const rawAnchors = parsed?.anchors;
             if (!rawAnchors || !Array.isArray(rawAnchors)) {
+                xbLog.warn(MODULE_ID, `floor ${aiFloor} attempt ${attempt} 缺少有效 anchors，parsed=${previewText(JSON.stringify(parsed))}`);
                 if (attempt < RETRY_COUNT) {
                     await sleep(RETRY_DELAY);
                     continue;
@@ -260,6 +267,12 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
                 .slice(0, 2)
                 .map((a, idx) => anchorToAtom(a, aiFloor, idx))
                 .filter(Boolean);
+
+            xbLog.info(MODULE_ID, `floor ${aiFloor} attempt ${attempt} anchors=${rawAnchors.length} atoms=${atoms.length}`);
+
+            if (rawAnchors.length === 0) {
+                return [];
+            }
 
             return atoms;
 
@@ -373,4 +386,3 @@ export async function batchExtractAtoms(chat, onProgress) {
 
     return allAtoms;
 }
-
