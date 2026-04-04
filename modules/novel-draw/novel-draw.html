@@ -354,6 +354,57 @@ select.input { cursor: pointer; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 .hidden { display: none !important; }
+
+/* ── 高级模式 ── */
+.nd-advanced-only { display: none !important; }
+body.advanced-mode .nd-advanced-only { display: flex !important; }
+body.advanced-mode .nd-simple-only { display: none !important; }
+
+.prompt-textarea {
+    width: 100%; min-height: 180px; max-height: 400px;
+    padding: 12px; font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 12px; line-height: 1.6; resize: vertical;
+    background: var(--bg-input); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 8px;
+    transition: border-color 0.2s;
+}
+.prompt-textarea:focus { border-color: var(--border-focus); outline: none; }
+
+.prompt-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+}
+.prompt-card-header .card-title { margin: 0; }
+
+.wb-book-list { display: flex; flex-direction: column; gap: 6px; }
+.wb-book-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+}
+.wb-book-item:hover { border-color: var(--border-focus); }
+.wb-book-item input[type="checkbox"] { flex-shrink: 0; }
+.wb-book-name { flex: 1; font-weight: 500; }
+.wb-book-count { font-size: 12px; color: var(--text-secondary); }
+
+.wb-entry-list { margin-top: 8px; }
+.wb-entry-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.wb-lamp { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
+.wb-lamp.constant { background: var(--success); }
+.wb-lamp.normal { background: #58a6ff; }
+.wb-lamp.disabled { background: var(--text-muted); }
+.wb-entry-info { flex: 1; min-width: 0; }
+.wb-entry-title { font-weight: 500; }
+.wb-entry-keys { color: var(--text-secondary); font-size: 11px; }
+.wb-entry-preview { color: var(--text-muted); font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.advanced-toggle-box {
+    padding: 12px 16px; margin-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+}
 </style>
 </head>
 
@@ -400,6 +451,9 @@ select.input { cursor: pointer; }
             <div class="nav-item" data-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</div>
             <div class="nav-divider"></div>
             <div class="nav-item" data-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
+            <div class="nav-divider nd-advanced-only"></div>
+            <div class="nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i>提示词模板</div>
+            <div class="nav-item nd-advanced-only" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i>世界书</div>
         </nav>
 
         <!-- ═══════════════════════════════════════════════════════════════════
@@ -700,9 +754,15 @@ select.input { cursor: pointer; }
                     </div>
                 </div>
                 
-                <div class="tip-box">
+                <div class="tip-box nd-simple-only">
                     <i class="fa-solid fa-info-circle"></i>
                     <div>场景分析提示词由插件内置，无需配置。勾选「使用世界书」后，会注入世界书作为背景知识。</div>
+                </div>
+                <div class="card advanced-toggle-box">
+                    <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;font-weight:600;">
+                        <input type="checkbox" id="nd_advanced_mode"> 高级模式
+                    </label>
+                    <p class="form-hint" style="margin-left:24px;margin-top:4px;">开启后可自定义提示词模板并精细配置世界书注入</p>
                 </div>
             </div>
 
@@ -749,6 +809,98 @@ select.input { cursor: pointer; }
                 </div>
             </div>
 
+            <!-- ═══════════════════════════════════════════════════════════════
+                 提示词模板 (高级模式)
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div id="view-prompts" class="view">
+                <div class="view-header">
+                    <h2 class="view-title">提示词模板</h2>
+                    <p class="view-desc">自定义场景分析的 LLM 提示词模板</p>
+                </div>
+
+                <div class="card">
+                    <div class="prompt-card-header">
+                        <div class="card-title">系统提示词 (System Prompt)</div>
+                        <button class="btn btn-sm" id="nd_prompt_reset_system"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
+                    </div>
+                    <p class="form-hint">定义 LLM 的角色定位和 VSPF 框架</p>
+                    <textarea id="nd_prompt_system" class="prompt-textarea" rows="8"></textarea>
+                </div>
+
+                <div class="card">
+                    <div class="prompt-card-header">
+                        <div class="card-title">TAG 编写指南</div>
+                        <button class="btn btn-sm" id="nd_prompt_reset_guide"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
+                    </div>
+                    <p class="form-hint">注入给 LLM 的 TAG 编写规范参考</p>
+                    <textarea id="nd_prompt_guide" class="prompt-textarea" rows="8"></textarea>
+                </div>
+
+                <div class="card">
+                    <div class="prompt-card-header">
+                        <div class="card-title">输出格式规范</div>
+                        <button class="btn btn-sm" id="nd_prompt_reset_format"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
+                    </div>
+                    <p class="form-hint">定义 LLM 输出 YAML 的格式要求</p>
+                    <textarea id="nd_prompt_format" class="prompt-textarea" rows="8"></textarea>
+                </div>
+
+                <div class="btn-group" style="margin-top:16px;display:flex;gap:12px;">
+                    <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                    <button id="nd_prompts_reset_all" class="btn btn-danger"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 世界书管理 (高级模式)
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div id="view-worldbook" class="view">
+                <div class="view-header">
+                    <h2 class="view-title">世界书</h2>
+                    <p class="view-desc">为图片生成选择和管理世界书条目</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">世界书选择</div>
+                    <p class="form-hint">从酒馆已有世界书中选择用于生图上下文的世界书</p>
+                    <div class="btn-group" style="margin-bottom:12px;">
+                        <button id="nd_wb_refresh" class="btn"><i class="fa-solid fa-arrows-rotate"></i> 刷新列表</button>
+                    </div>
+                    <div id="nd_wb_list" class="wb-book-list">
+                        <p class="form-hint">点击「刷新列表」加载可用世界书</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">过滤设置</div>
+                    <div class="form-group">
+                        <label class="form-label">Token 预算</label>
+                        <input id="nd_wb_budget" type="number" class="input" value="2000" min="200" max="10000" step="100">
+                        <p class="form-hint">世界书条目注入的最大 token 预算</p>
+                    </div>
+                    <div class="form-group" style="margin-top:12px;">
+                        <label class="form-label">过滤模式</label>
+                        <select id="nd_wb_filter_mode" class="input">
+                            <option value="auto">自动 (遵循灯状态)</option>
+                            <option value="all_active">全部激活条目</option>
+                        </select>
+                        <p class="form-hint">「自动」模式下：绿灯条目始终包含、蓝灯条目按关键词匹配、禁用条目排除</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">条目预览</div>
+                    <p class="form-hint">选中世界书后点击可预览其条目</p>
+                    <div id="nd_wb_entries" class="wb-entry-list">
+                        <p class="form-hint">请先选择一个世界书</p>
+                    </div>
+                </div>
+
+                <div class="btn-group" style="margin-top:16px;">
+                    <button id="nd_wb_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                </div>
+            </div>
+
         </main>
     </div>
 
@@ -762,6 +914,8 @@ select.input { cursor: pointer; }
             <div class="mobile-nav-item" data-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
             <div class="mobile-nav-item" data-view="llm"><i class="fa-solid fa-robot"></i><span>LLM</span></div>
             <div class="mobile-nav-item" data-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
+            <div class="mobile-nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i><span>提示词</span></div>
+            <div class="mobile-nav-item nd-advanced-only" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i><span>世界书</span></div>
         </div>
     </nav>
 
@@ -1268,6 +1422,90 @@ function updateLlmProviderUI() {
     $('nd_llm_connect_row').classList.toggle('hidden', isSt || !pv.canFetch);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 高级模式
+// ═══════════════════════════════════════════════════════════════════════════
+
+function applyAdvancedMode() {
+    const adv = !!state.advancedMode;
+    $('nd_advanced_mode').checked = adv;
+    document.body.classList.toggle('advanced-mode', adv);
+
+    // 提示词模板
+    const defaults = state._defaultPrompts || {};
+    const custom = state.customPrompts || {};
+    $('nd_prompt_system').value = custom.topSystem ?? defaults.topSystem ?? '';
+    $('nd_prompt_guide').value = custom.tagGuideContent ?? defaults.tagGuideContent ?? '';
+    $('nd_prompt_format').value = custom.userJsonFormat ?? defaults.userJsonFormat ?? '';
+
+    // 世界书
+    const wb = state.worldbooks || {};
+    $('nd_wb_budget').value = wb.tokenBudget ?? 2000;
+    $('nd_wb_filter_mode').value = wb.keywordFilterMode || 'auto';
+}
+
+function renderWorldbookList(books) {
+    const container = $('nd_wb_list');
+    const selected = state.worldbooks?.selectedBooks || [];
+    if (!books.length) {
+        container.innerHTML = '<p class="form-hint">未找到可用世界书</p>';
+        return;
+    }
+    container.innerHTML = books.map(b => {
+        const checked = selected.includes(b.name) ? 'checked' : '';
+        return `<div class="wb-book-item" data-book="${escapeHtml(b.name)}">
+            <input type="checkbox" ${checked}>
+            <span class="wb-book-name">${escapeHtml(b.name)}</span>
+            <span class="wb-book-count">${b.entryCount} 条目</span>
+        </div>`;
+    }).join('');
+
+    container.querySelectorAll('.wb-book-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            if (e.target.tagName !== 'INPUT') {
+                const cb = item.querySelector('input[type="checkbox"]');
+                cb.checked = !cb.checked;
+            }
+            const bookName = item.dataset.book;
+            postToParent({ type: 'PREVIEW_WORLDBOOK_ENTRIES', bookName });
+        });
+    });
+}
+
+function renderWorldbookEntries(bookName, entries) {
+    const container = $('nd_wb_entries');
+    if (!entries.length) {
+        container.innerHTML = `<p class="form-hint">${escapeHtml(bookName)}: 无条目</p>`;
+        return;
+    }
+    const lampIcon = { constant: 'constant', normal: 'normal', disabled: 'disabled' };
+    const lampLabel = { constant: '常驻', normal: '关键词触发', disabled: '已禁用' };
+    container.innerHTML = `<p class="form-hint" style="margin-bottom:8px;">${escapeHtml(bookName)} (${entries.length} 条)</p>` +
+        entries.map(e => {
+            const ls = e.lampState || 'normal';
+            const keys = (e.key || []).filter(Boolean).join(', ');
+            return `<div class="wb-entry-item">
+                <div class="wb-lamp ${lampIcon[ls]}" title="${lampLabel[ls]}"></div>
+                <div class="wb-entry-info">
+                    <div class="wb-entry-title">${escapeHtml(e.comment || '(未命名)')}</div>
+                    ${keys ? `<div class="wb-entry-keys">关键词: ${escapeHtml(keys)}</div>` : ''}
+                    <div class="wb-entry-preview">${escapeHtml(e.contentPreview || '')}</div>
+                </div>
+            </div>`;
+        }).join('');
+}
+
+function getSelectedWorldbooks() {
+    const items = $('nd_wb_list').querySelectorAll('.wb-book-item');
+    const selected = [];
+    items.forEach(item => {
+        if (item.querySelector('input[type="checkbox"]').checked) {
+            selected.push(item.dataset.book);
+        }
+    });
+    return selected;
+}
+
 function getCurrentLlmModel() {
     const provider = $('nd_llm_provider').value;
     const pv = providerDefaults[provider] || providerDefaults.custom;
@@ -1303,6 +1541,7 @@ function applyStateToUI() {
     applyLlmApi();
     renderCharList();
     renderGalleryView();
+    applyAdvancedMode();
 }
 
 function applyParamsPreset() {
@@ -1422,6 +1661,7 @@ window.addEventListener('message', event => {
     switch (data.type) {
         case 'INIT_DATA':
             state = { ...state, ...data.settings, cacheStats: data.cacheStats || state.cacheStats };
+            if (data.defaultPrompts) state._defaultPrompts = data.defaultPrompts;
             gallerySummary = data.gallerySummary || {};
             loadedCharPreviews = {};
             applyStateToUI();
@@ -1491,6 +1731,14 @@ window.addEventListener('message', event => {
                 const img = modalData.images.find(i => i.imgId === data.imgId);
                 if (img) { img.savedUrl = data.savedUrl; renderModalContent(); }
             }
+            break;
+
+        case 'WORLDBOOK_LIST':
+            renderWorldbookList(data.books || []);
+            break;
+
+        case 'WORLDBOOK_ENTRIES':
+            renderWorldbookEntries(data.bookName, data.entries || []);
             break;
     }
 });
@@ -1757,6 +2005,65 @@ document.addEventListener('DOMContentLoaded', () => {
         if (confirm(msg)) postToParent({ type: 'DELETE_GALLERY_IMAGE', imgId: c.imgId });
     });
     
+    // ═══════════════════════════════════════════════════════════════════════
+    // 高级模式事件
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_advanced_mode').addEventListener('change', () => {
+        const adv = $('nd_advanced_mode').checked;
+        document.body.classList.toggle('advanced-mode', adv);
+        postToParent({ type: 'SAVE_ADVANCED_MODE', advancedMode: adv });
+    });
+
+    // 提示词模板
+    $('nd_prompts_save').addEventListener('click', () => {
+        const defaults = state._defaultPrompts || {};
+        const sys = $('nd_prompt_system').value;
+        const guide = $('nd_prompt_guide').value;
+        const fmt = $('nd_prompt_format').value;
+        postToParent({ type: 'SAVE_CUSTOM_PROMPTS', customPrompts: {
+            topSystem: sys === defaults.topSystem ? null : sys,
+            tagGuideContent: guide === defaults.tagGuideContent ? null : guide,
+            userJsonFormat: fmt === defaults.userJsonFormat ? null : fmt,
+        }});
+    });
+
+    $('nd_prompt_reset_system').addEventListener('click', () => {
+        $('nd_prompt_system').value = state._defaultPrompts?.topSystem || '';
+        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'topSystem' });
+    });
+    $('nd_prompt_reset_guide').addEventListener('click', () => {
+        $('nd_prompt_guide').value = state._defaultPrompts?.tagGuideContent || '';
+        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'tagGuideContent' });
+    });
+    $('nd_prompt_reset_format').addEventListener('click', () => {
+        $('nd_prompt_format').value = state._defaultPrompts?.userJsonFormat || '';
+        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'userJsonFormat' });
+    });
+    $('nd_prompts_reset_all').addEventListener('click', () => {
+        if (!confirm('确认恢复全部提示词为默认值？')) return;
+        const defaults = state._defaultPrompts || {};
+        $('nd_prompt_system').value = defaults.topSystem || '';
+        $('nd_prompt_guide').value = defaults.tagGuideContent || '';
+        $('nd_prompt_format').value = defaults.userJsonFormat || '';
+        postToParent({ type: 'SAVE_CUSTOM_PROMPTS', customPrompts: {
+            topSystem: null, tagGuideContent: null, userJsonFormat: null,
+        }});
+    });
+
+    // 世界书
+    $('nd_wb_refresh').addEventListener('click', () => {
+        postToParent({ type: 'LIST_WORLDBOOKS' });
+    });
+
+    $('nd_wb_save').addEventListener('click', () => {
+        postToParent({ type: 'SAVE_WORLDBOOK_CONFIG', worldbooks: {
+            enabled: getSelectedWorldbooks().length > 0,
+            selectedBooks: getSelectedWorldbooks(),
+            tokenBudget: Number($('nd_wb_budget').value) || 2000,
+            keywordFilterMode: $('nd_wb_filter_mode').value || 'auto',
+        }});
+    });
+
     // ═══════════════════════════════════════════════════════════════════════
     // 通知父窗口准备就绪
     // ═══════════════════════════════════════════════════════════════════════

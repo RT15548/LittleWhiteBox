@@ -22,7 +22,10 @@ import {
     loadTagGuide,
     generateScenePlan,
     parseImagePlan,
+    DEFAULT_PROMPT_CONFIG,
+    getLoadedTagGuide,
 } from './llm-service.js';
+import { WorldbookProcessor } from './worldbook-processor.js';
 import {
     openCloudPresetsModal,
     downloadPresetAsFile,
@@ -39,7 +42,7 @@ const MODULE_KEY = 'novelDraw';
 const SERVER_FILE_KEY = 'settings';
 const HTML_PATH = `${extensionFolderPath}/modules/novel-draw/novel-draw.html`;
 const NOVELAI_IMAGE_API = 'https://image.novelai.net/ai/generate-image';
-const CONFIG_VERSION = 4;
+const CONFIG_VERSION = 5;
 const MAX_SEED = 0xFFFFFFFF;
 const API_TEST_TIMEOUT = 15000;
 const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
@@ -89,6 +92,9 @@ const DEFAULT_SETTINGS = {
     overrideSize: 'default',
     showFloorButton: true,
     showFloatingButton: false,
+    advancedMode: false,
+    customPrompts: { topSystem: null, tagGuideContent: null, userJsonFormat: null },
+    worldbooks: { enabled: false, selectedBooks: [], tokenBudget: 2000, keywordFilterMode: 'auto' },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -328,6 +334,9 @@ function handleFetchError(e) {
 function normalizeSettings(saved) {
     const merged = { ...DEFAULT_SETTINGS, ...(saved || {}) };
     merged.llmApi = { ...DEFAULT_SETTINGS.llmApi, ...(saved?.llmApi || {}) };
+    merged.customPrompts = { ...DEFAULT_SETTINGS.customPrompts, ...(saved?.customPrompts || {}) };
+    merged.worldbooks = { ...DEFAULT_SETTINGS.worldbooks, ...(saved?.worldbooks || {}) };
+    if (!Array.isArray(merged.worldbooks.selectedBooks)) merged.worldbooks.selectedBooks = [];
 
     if (!merged.paramsPresets?.length) {
         const id = generateSlotId();
@@ -1751,12 +1760,31 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         let planRaw;
         try {
+            // 高级模式：世界书处理 + 自定义提示词
+            let worldbookEntries = null;
+            let customPrompts = null;
+            if (settings.advancedMode) {
+                customPrompts = settings.customPrompts || null;
+                if (settings.worldbooks?.enabled && settings.worldbooks.selectedBooks?.length) {
+                    const processor = new WorldbookProcessor();
+                    const charNames = presentCharacters.map(c => c.name).join(' ');
+                    worldbookEntries = await processor.processForScene({
+                        selectedBooks: settings.worldbooks.selectedBooks,
+                        contextText: messageText + ' ' + charNames,
+                        tokenBudget: settings.worldbooks.tokenBudget || 2000,
+                        keywordFilterMode: settings.worldbooks.keywordFilterMode || 'auto',
+                    });
+                }
+            }
+
             planRaw = await generateScenePlan({
                 messageText,
                 presentCharacters,
                 llmApi: settings.llmApi,
                 useStream: settings.useStream,
-                useWorldInfo: settings.useWorldInfo,
+                useWorldInfo: (settings.advancedMode && settings.worldbooks?.enabled) ? false : settings.useWorldInfo,
+                customPrompts,
+                worldbookEntries,
                 timeout: settings.timeout || 120000
             });
         } catch (e) {
@@ -2132,6 +2160,14 @@ async function sendInitData() {
             overrideSize: settings.overrideSize,
             showFloorButton: settings.showFloorButton !== false,
             showFloatingButton: settings.showFloatingButton === true,
+            advancedMode: !!settings.advancedMode,
+            customPrompts: settings.customPrompts || DEFAULT_SETTINGS.customPrompts,
+            worldbooks: settings.worldbooks || DEFAULT_SETTINGS.worldbooks,
+        },
+        defaultPrompts: {
+            topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+            tagGuideContent: getLoadedTagGuide(),
+            userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
         },
         cacheStats: stats,
         gallerySummary,
@@ -2322,6 +2358,94 @@ async function handleFrameMessage(event) {
             if (typeof data.useWorldInfo === 'boolean') s.useWorldInfo = data.useWorldInfo;
             const ok = await saveSettingsAndToast(s, '已保存');
             if (ok) sendInitData();
+            break;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 高级模式
+        // ═══════════════════════════════════════════════════════════════
+
+        case 'SAVE_ADVANCED_MODE': {
+            const s = getSettings();
+            s.advancedMode = !!data.advancedMode;
+            await saveSettingsAndToast(s, s.advancedMode ? '高级模式已开启' : '高级模式已关闭');
+            sendInitData();
+            break;
+        }
+
+        case 'SAVE_CUSTOM_PROMPTS': {
+            const s = getSettings();
+            if (data.customPrompts && typeof data.customPrompts === 'object') {
+                s.customPrompts = { ...s.customPrompts, ...data.customPrompts };
+            }
+            await saveSettingsAndToast(s, '提示词模板已保存');
+            sendInitData();
+            break;
+        }
+
+        case 'RESET_CUSTOM_PROMPT': {
+            const s = getSettings();
+            const key = data.key;
+            const ALLOWED_PROMPT_KEYS = ['topSystem', 'tagGuideContent', 'userJsonFormat'];
+            if (key && ALLOWED_PROMPT_KEYS.includes(key) && s.customPrompts) {
+                s.customPrompts[key] = null;
+            }
+            await saveSettingsAndToast(s, '已恢复默认');
+            sendInitData();
+            break;
+        }
+
+        case 'SAVE_WORLDBOOK_CONFIG': {
+            const s = getSettings();
+            if (data.worldbooks && typeof data.worldbooks === 'object') {
+                s.worldbooks = { ...s.worldbooks, ...data.worldbooks };
+                if (!Array.isArray(s.worldbooks.selectedBooks)) s.worldbooks.selectedBooks = [];
+            }
+            await saveSettingsAndToast(s, '世界书配置已保存');
+            sendInitData();
+            break;
+        }
+
+        case 'LIST_WORLDBOOKS': {
+            try {
+                const processor = new WorldbookProcessor();
+                const books = await processor.listAvailableWorldbooks();
+                const bookDetails = [];
+                for (const name of books) {
+                    try {
+                        const entries = await processor.getEntriesWithState(name);
+                        bookDetails.push({ name, entryCount: entries.length });
+                    } catch {
+                        bookDetails.push({ name, entryCount: 0 });
+                    }
+                }
+                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                if (iframe) postToIframe(iframe, { type: 'WORLDBOOK_LIST', books: bookDetails }, 'LittleWhiteBox-NovelDraw');
+            } catch (e) {
+                postStatus('error', '获取世界书失败: ' + e.message);
+            }
+            break;
+        }
+
+        case 'PREVIEW_WORLDBOOK_ENTRIES': {
+            try {
+                const processor = new WorldbookProcessor();
+                const entries = await processor.getEntriesWithState(data.bookName);
+                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                if (iframe) postToIframe(iframe, {
+                    type: 'WORLDBOOK_ENTRIES',
+                    bookName: data.bookName,
+                    entries: entries.map(e => ({
+                        uid: e.uid,
+                        comment: e.comment,
+                        key: e.key,
+                        lampState: e.lampState,
+                        contentPreview: (e.content || '').slice(0, 200),
+                    })),
+                }, 'LittleWhiteBox-NovelDraw');
+            } catch (e) {
+                postStatus('error', '获取条目失败: ' + e.message);
+            }
             break;
         }
 

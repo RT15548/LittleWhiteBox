@@ -1,0 +1,182 @@
+/**
+ * WorldbookProcessor — novel-draw 高级模式世界书处理器
+ *
+ * 通过 LittleWhiteBox 的 WorldbookBridgeService 读取酒馆世界书条目，
+ * 按灯状态（绿灯/蓝灯/禁用）过滤，在 token 预算内组装为 LLM 上下文。
+ */
+
+export class WorldbookProcessor {
+    constructor() {
+        this._estimateTokens = (text) => {
+            let count = 0;
+            for (const ch of text) {
+                count += ch.charCodeAt(0) > 0x7F ? 1.5 : 0.25;
+            }
+            return Math.ceil(count);
+        };
+    }
+
+    // ── bridge 访问 ──────────────────────────────────────────────
+
+    _getBridge() {
+        return window.xiaobaixWorldbookService ?? null;
+    }
+
+    /** 列出所有可用世界书名称 */
+    async listAvailableWorldbooks() {
+        const bridge = this._getBridge();
+        if (!bridge) return [];
+        try {
+            return await bridge.listWorldbooks();
+        } catch {
+            return [];
+        }
+    }
+
+    /**
+     * 读取世界书条目并附加灯状态
+     * @param {string} bookName
+     * @returns {Promise<Array<{uid, comment, key, keysecondary, constant, disable, content, order, lampState}>>}
+     */
+    async getEntriesWithState(bookName) {
+        const bridge = this._getBridge();
+        if (!bridge) return [];
+
+        const entries = await bridge.listEntries({ file: bookName });
+        if (!entries?.length) return [];
+
+        const enriched = await Promise.all(entries.map(async (e) => {
+            let content = '';
+            try {
+                content = await bridge.getEntryField({
+                    file: bookName, uid: String(e.uid), field: 'content',
+                });
+            } catch { /* entry may have been deleted */ }
+
+            const isConstant = !!e.constant;
+            const isDisabled = !!e.disable;
+            let lampState = 'normal';
+            if (isDisabled) lampState = 'disabled';
+            else if (isConstant) lampState = 'constant';
+
+            return {
+                uid: e.uid,
+                comment: e.comment || '',
+                key: e.key || [],
+                keysecondary: e.keysecondary || [],
+                constant: isConstant,
+                disable: isDisabled,
+                content: content || '',
+                order: e.order ?? 100,
+                lampState,
+            };
+        }));
+
+        return enriched;
+    }
+
+    // ── 过滤 ──────────────────────────────────────────────────
+
+    /**
+     * 按灯状态和关键词过滤条目
+     * @param {Array} entries  getEntriesWithState 返回值
+     * @param {string} contextText  当前场景文本 + 角色名
+     * @param {'auto'|'all_active'} mode
+     */
+    filterEntries(entries, contextText, mode = 'auto') {
+        const lowerCtx = contextText.toLowerCase();
+
+        return entries.filter((entry) => {
+            if (entry.disable) return false;
+            if (entry.constant) return true;
+            if (mode === 'all_active') return true;
+
+            // auto 模式：蓝灯条目需关键词匹配
+            const keys = [...(entry.key || []), ...(entry.keysecondary || [])];
+            if (!keys.length) return false;
+
+            return keys.some((kw) => {
+                const k = kw.toLowerCase().trim();
+                return k && lowerCtx.includes(k);
+            });
+        });
+    }
+
+    // ── 组装 ──────────────────────────────────────────────────
+
+    /**
+     * 将过滤后的条目组装为带 token 预算控制的文本
+     * @param {Array} filteredEntries
+     * @param {number} tokenBudget
+     */
+    assembleContent(filteredEntries, tokenBudget = 2000) {
+        // 绿灯优先，再按 order 升序
+        const sorted = [...filteredEntries].sort((a, b) => {
+            if (a.constant !== b.constant) return a.constant ? -1 : 1;
+            return (a.order ?? 100) - (b.order ?? 100);
+        });
+
+        const parts = [];
+        let usedTokens = 0;
+
+        for (const entry of sorted) {
+            const text = entry.content?.trim();
+            if (!text) continue;
+
+            const tokens = this._estimateTokens(text);
+            if (usedTokens + tokens > tokenBudget) {
+                // 绿灯条目允许轻微超预算（90% 阈值），但不超过 1.5x 硬上限
+                if (entry.constant && usedTokens < tokenBudget * 0.9 && usedTokens + tokens < tokenBudget * 1.5) {
+                    // 继续
+                } else {
+                    continue;
+                }
+            }
+
+            const label = entry.comment || entry.key?.[0] || `entry-${entry.uid}`;
+            parts.push(`[${label}]\n${text}`);
+            usedTokens += tokens;
+        }
+
+        if (!parts.length) return '';
+        return parts.join('\n---\n');
+    }
+
+    // ── 完整管线 ──────────────────────────────────────────────
+
+    /**
+     * 一站式处理：读取 → 过滤 → 组装
+     * @param {Object} options
+     * @param {string[]} options.selectedBooks
+     * @param {string}   options.contextText   当前消息文本 + 角色名
+     * @param {number}   options.tokenBudget
+     * @param {'auto'|'all_active'} options.keywordFilterMode
+     */
+    async processForScene(options) {
+        const {
+            selectedBooks = [],
+            contextText = '',
+            tokenBudget = 2000,
+            keywordFilterMode = 'auto',
+        } = options;
+
+        if (!selectedBooks.length) return '';
+
+        const results = await Promise.allSettled(
+            selectedBooks.map(name => this.getEntriesWithState(name))
+        );
+        const allEntries = [];
+        for (let i = 0; i < results.length; i++) {
+            if (results[i].status === 'fulfilled') {
+                allEntries.push(...results[i].value);
+            } else {
+                console.warn(`[novel-draw/WorldbookProcessor] Failed to read "${selectedBooks[i]}":`, results[i].reason);
+            }
+        }
+
+        if (!allEntries.length) return '';
+
+        const filtered = this.filterEntries(allEntries, contextText, keywordFilterMode);
+        return this.assembleContent(filtered, tokenBudget);
+    }
+}

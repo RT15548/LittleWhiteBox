@@ -191,6 +191,38 @@ export const PROVIDER_MAP = {
 
 let tagGuideContent = '';
 
+// ── 高级模式：提示词配置外部化 ──────────────────────────────────
+
+/** 导出默认提示词配置（供 UI 显示默认值 / 重置） */
+export { LLM_PROMPT_CONFIG as DEFAULT_PROMPT_CONFIG };
+
+/**
+ * 获取当前生效的提示词配置（合并自定义覆盖）
+ * @param {Object|null} custom  customPrompts 对象，null 字段表示使用默认
+ */
+export function getEffectivePromptConfig(custom) {
+    if (!custom) return LLM_PROMPT_CONFIG;
+    return {
+        ...LLM_PROMPT_CONFIG,
+        topSystem: custom.topSystem ?? LLM_PROMPT_CONFIG.topSystem,
+        userJsonFormat: custom.userJsonFormat ?? LLM_PROMPT_CONFIG.userJsonFormat,
+    };
+}
+
+/**
+ * 获取当前生效的 TAG 编写指南内容
+ * @param {string|null} customGuide  自定义指南内容，null 表示使用文件加载的默认值
+ */
+export function getEffectiveTagGuide(customGuide) {
+    if (typeof customGuide === 'string' && customGuide.trim()) return customGuide;
+    return tagGuideContent;
+}
+
+/** 获取当前加载的默认 TAG 指南文本（供 UI 展示） */
+export function getLoadedTagGuide() {
+    return tagGuideContent;
+}
+
 export class LLMServiceError extends Error {
     constructor(message, code = 'LLM_ERROR', details = null) {
         super(message);
@@ -266,23 +298,27 @@ export async function generateScenePlan(options) {
         llmApi = {},
         useStream = false,
         useWorldInfo = false,
+        customPrompts = null,
+        worldbookEntries = null,
         timeout = 120000
     } = options;
     if (!messageText?.trim()) {
         throw new LLMServiceError('消息内容为空', 'EMPTY_MESSAGE');
     }
+    const promptConfig = getEffectivePromptConfig(customPrompts);
+    const effectiveTagGuide = getEffectiveTagGuide(customPrompts?.tagGuideContent);
     const charInfo = buildCharacterInfoForLLM(presentCharacters);
 
     const topMessages = [];
 
     topMessages.push({
         role: 'system',
-        content: LLM_PROMPT_CONFIG.topSystem
+        content: promptConfig.topSystem
     });
 
-    let docContent = LLM_PROMPT_CONFIG.assistantDoc;
-    if (tagGuideContent) {
-        docContent = docContent.replace('{$tagGuide}', tagGuideContent);
+    let docContent = promptConfig.assistantDoc;
+    if (effectiveTagGuide) {
+        docContent = docContent.replace('{$tagGuide}', effectiveTagGuide);
     } else {
         docContent = '好的，我将按照 NovelAI V4.5 TAG 规范生成图像描述。';
     }
@@ -293,11 +329,13 @@ export async function generateScenePlan(options) {
 
     topMessages.push({
         role: 'assistant',
-        content: LLM_PROMPT_CONFIG.assistantAskBackground
+        content: promptConfig.assistantAskBackground
     });
 
-    let worldInfoContent = LLM_PROMPT_CONFIG.userWorldInfo;
-    if (!useWorldInfo) {
+    let worldInfoContent = promptConfig.userWorldInfo;
+    if (worldbookEntries && worldbookEntries.trim()) {
+        worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, () => worldbookEntries);
+    } else if (!useWorldInfo) {
         worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
     }
     topMessages.push({
@@ -307,10 +345,10 @@ export async function generateScenePlan(options) {
 
     topMessages.push({
         role: 'assistant',
-        content: LLM_PROMPT_CONFIG.assistantAskContent
+        content: promptConfig.assistantAskContent
     });
 
-    const mainPrompt = LLM_PROMPT_CONFIG.userContent
+    const mainPrompt = promptConfig.userContent
         .replace('{{lastMessage}}', messageText)
         .replace('{{characterInfo}}', charInfo);
 
@@ -318,27 +356,27 @@ export async function generateScenePlan(options) {
 
     bottomMessages.push({
         role: 'user',
-        content: LLM_PROMPT_CONFIG.metaProtocolStart
+        content: promptConfig.metaProtocolStart
     });
 
     bottomMessages.push({
         role: 'user',
-        content: LLM_PROMPT_CONFIG.userJsonFormat
+        content: promptConfig.userJsonFormat
     });
 
     bottomMessages.push({
         role: 'user',
-        content: LLM_PROMPT_CONFIG.metaProtocolEnd
+        content: promptConfig.metaProtocolEnd
     });
 
     bottomMessages.push({
         role: 'assistant',
-        content: LLM_PROMPT_CONFIG.assistantCheck
+        content: promptConfig.assistantCheck
     });
 
     bottomMessages.push({
         role: 'user',
-        content: LLM_PROMPT_CONFIG.userConfirm
+        content: promptConfig.userConfirm
     });
 
     const streamingMod = getStreamingModule();
@@ -351,7 +389,7 @@ export async function generateScenePlan(options) {
         nonstream: useStream ? 'false' : 'true',
         top64: b64UrlEncode(JSON.stringify(topMessages)),
         bottom64: b64UrlEncode(JSON.stringify(bottomMessages)),
-        bottomassistant: LLM_PROMPT_CONFIG.assistantPrefill,
+        bottomassistant: promptConfig.assistantPrefill,
         id: 'xb_nd_scene_plan',
         ...(isSt ? {} : {
             api: llmApi.provider,
