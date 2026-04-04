@@ -26,18 +26,6 @@ const PROVIDER_MAP = {
 
 const JSON_PREFILL = DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT;
 
-const LLM_PROMPT_CONFIG = {
-    topSystem: DEFAULT_SUMMARY_SYSTEM_PROMPT,
-    assistantDoc: DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT,
-    assistantAskSummary: DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT,
-    assistantAskContent: DEFAULT_SUMMARY_ASSISTANT_ASK_CONTENT_PROMPT,
-    metaProtocolStart: DEFAULT_SUMMARY_META_PROTOCOL_START_PROMPT,
-    userJsonFormat: DEFAULT_SUMMARY_USER_JSON_FORMAT_PROMPT,
-    assistantCheck: DEFAULT_SUMMARY_ASSISTANT_CHECK_PROMPT,
-    userConfirm: DEFAULT_SUMMARY_USER_CONFIRM_PROMPT,
-    assistantPrefill: DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT,
-};
-
 // ═══════════════════════════════════════════════════════════════════════════
 // 工具函数
 // ═══════════════════════════════════════════════════════════════════════════

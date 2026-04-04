@@ -611,9 +611,9 @@ All checks passed. Beginning incremental extraction...
         updateVectorProviderUI(prefix, provider);
     }
 
-    function saveCurrentVectorApiProfile(prefix) {
+    function saveCurrentVectorApiProfile(prefix, providerOverride = null) {
         const apiCfg = config.vector[`${prefix}Api`] ||= {};
-        const provider = $(`${prefix}-api-provider`)?.value || apiCfg.provider || 'siliconflow';
+        const provider = providerOverride || $(`${prefix}-api-provider`)?.value || apiCfg.provider || 'siliconflow';
         apiCfg.providers = normalizeProviderProfiles(prefix, apiCfg);
         apiCfg.providers[provider] = {
             url: $(`${prefix}-api-url`)?.value?.trim() || '',
@@ -659,6 +659,12 @@ All checks passed. Beginning incremental extraction...
         $(`${prefix}-api-model-text`).value = profile.model || '';
         setSelectOptions($(`${prefix}-api-model-select`), cache, '请选择');
         $(`${prefix}-api-model-select`).value = cache.includes(profile.model) ? profile.model : '';
+    }
+
+    function saveVectorApiSection(prefix) {
+        saveCurrentVectorApiProfile(prefix);
+        saveConfig();
+        setStatusText($(`${prefix}-api-connect-status`), '此组配置已保存', 'success');
     }
 
     async function fetchVectorModels(prefix) {
@@ -927,8 +933,9 @@ All checks passed. Beginning incremental extraction...
             };
 
             $(`${prefix}-api-provider`).onchange = e => {
-                saveCurrentVectorApiProfile(prefix);
                 const target = config.vector[`${prefix}Api`] ||= {};
+                const previousProvider = target.provider || 'siliconflow';
+                saveCurrentVectorApiProfile(prefix, previousProvider);
                 target.providers = normalizeProviderProfiles(prefix, target);
                 target.provider = e.target.value;
                 target.providers[e.target.value] ||= createDefaultProviderProfile(e.target.value, VECTOR_API_DEFAULT_MODELS[prefix]);
@@ -940,6 +947,7 @@ All checks passed. Beginning incremental extraction...
             };
 
             $(`${prefix}-btn-connect`).onclick = () => fetchVectorModels(prefix);
+            $(`${prefix}-btn-save`).onclick = () => saveVectorApiSection(prefix);
             $(`${prefix}-btn-test`).onclick = () => {
                 const btn = $(`${prefix}-btn-test`);
                 if (btn) btn.disabled = true;
