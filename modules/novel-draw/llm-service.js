@@ -223,6 +223,42 @@ export function getLoadedTagGuide() {
     return tagGuideContent;
 }
 
+/**
+ * 获取完整消息链的结构预览（只读，不替换变量）
+ * 供 UI 展示 LLM 收到的消息链结构
+ */
+export function getPromptChainPreview(customPrompts) {
+    const hasTagGuide = !!getEffectiveTagGuide(customPrompts?.tagGuideContent);
+    return [
+        { role: 'system', key: 'topSystem', editable: true,
+          summary: 'VSPF 框架 + Creative Director 角色定义' },
+        { role: 'assistant', key: 'assistantDoc',
+          summary: 'TAG 编写指南确认' + (hasTagGuide ? ' (已注入)' : ' (未加载)') },
+        { role: 'assistant', key: 'assistantAskBackground',
+          summary: '询问背景知识设定' },
+        { role: 'user', key: 'userWorldInfo',
+          summary: '世界信息注入',
+          variables: ['{{persona}} — 用户角色设定', '{{description}} — 世界/场景', '{$worldInfo} — 世界书条目'] },
+        { role: 'assistant', key: 'assistantAskContent',
+          summary: '询问叙事文本' },
+        { role: 'user', key: 'userContent', label: 'mainPrompt',
+          summary: '小说文本 (mainPrompt)',
+          variables: ['{{characterInfo}} — 已知角色列表', '{{lastMessage}} — 小说原文'] },
+        { role: 'user', key: 'metaProtocolStart',
+          summary: '<meta_protocol>' },
+        { role: 'user', key: 'userJsonFormat', editable: true,
+          summary: 'YAML 输出格式规范' },
+        { role: 'user', key: 'metaProtocolEnd',
+          summary: '</meta_protocol>' },
+        { role: 'assistant', key: 'assistantCheck',
+          summary: '合规检查 → 开始输出 YAML' },
+        { role: 'user', key: 'userConfirm',
+          summary: '要求完整重新生成 YAML' },
+        { role: 'assistant', key: 'assistantPrefill',
+          summary: 'Prefill: 继续生成' },
+    ];
+}
+
 export class LLMServiceError extends Error {
     constructor(message, code = 'LLM_ERROR', details = null) {
         super(message);

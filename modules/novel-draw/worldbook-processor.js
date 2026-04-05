@@ -107,15 +107,11 @@ export class WorldbookProcessor {
         );
 
         const parts = sorted
-            .filter(e => e.content?.trim())
-            .map(e => {
-                const label = e.comment || e.key?.[0] || `entry-${e.uid}`;
-                const state = e.constant ? 'constant' : 'active';
-                return `<entry name="${label}" state="${state}">\n${e.content.trim()}\n</entry>`;
-            });
+            .map(e => e.content?.trim())
+            .filter(Boolean);
 
         if (!parts.length) return '';
-        return `<novel_draw_worldbook>\n${parts.join('\n')}\n</novel_draw_worldbook>`;
+        return parts.join('\n');
     }
 
     // ── 完整管线 ──────────────────────────────────────────────

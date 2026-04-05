@@ -405,6 +405,82 @@ body.advanced-mode .nd-simple-only { display: none !important; }
     padding: 12px 16px; margin-bottom: 16px;
     border-bottom: 1px solid var(--border);
 }
+
+/* Danbooru 搜索面板 */
+.danbooru-panel {
+    margin-top: 8px; padding: 12px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 8px;
+}
+.danbooru-panel.hidden { display: none; }
+.danbooru-search-row {
+    display: flex; gap: 8px; margin-bottom: 8px;
+}
+.danbooru-search-row input { flex: 1; padding: 6px 10px; font-size: 12px; }
+.danbooru-search-row .btn { padding: 6px 12px; font-size: 12px; white-space: nowrap; }
+.danbooru-char-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.danbooru-char-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 10px; background: var(--bg-tertiary); border-radius: 6px;
+    cursor: pointer; font-size: 12px; transition: background 0.15s;
+}
+.danbooru-char-item:hover { background: var(--accent-soft); }
+.danbooru-char-item .char-count { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+.danbooru-char-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.danbooru-char-name { font-weight: 500; }
+.danbooru-char-series { font-size: 10px; color: var(--text-muted); font-style: italic; }
+.danbooru-tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.danbooru-tag-item {
+    display: flex; align-items: center; gap: 4px; padding: 4px 8px;
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 6px; font-size: 11px; cursor: pointer; transition: all 0.15s;
+}
+.danbooru-tag-item:hover { border-color: var(--accent); }
+.danbooru-tag-item.checked { background: var(--accent-soft); border-color: var(--accent); }
+.danbooru-tag-item input[type="checkbox"] { margin: 0; width: 14px; height: 14px; }
+.danbooru-tag-freq { color: var(--text-muted); font-size: 10px; }
+.danbooru-actions { display: flex; gap: 8px; margin-top: 8px; }
+.danbooru-status { font-size: 11px; color: var(--text-muted); padding: 8px 0; }
+
+/* Auto-learn 区域 */
+.auto-learn-section {
+    margin-bottom: 16px; padding: 12px 16px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 8px;
+}
+.auto-learn-section label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.auto-learn-mode-row { margin-top: 8px; margin-left: 24px; }
+.auto-learn-mode-row.hidden { display: none; }
+.auto-learn-mode-row select { max-width: 200px; }
+
+/* 消息链可视化 */
+.prompt-chain-card { margin-top: 16px; }
+.prompt-chain-toggle { cursor: pointer; }
+.chain-toggle-icon { font-size: 12px; color: var(--text-muted); }
+.prompt-chain-container { display: none; margin-top: 8px; }
+.prompt-chain-container.open { display: block; }
+.chain-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 10px; border-radius: 6px; font-size: 12px;
+    cursor: pointer; transition: background 0.15s; margin-bottom: 4px;
+}
+.chain-item:hover { background: var(--bg-tertiary); }
+.chain-role {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; white-space: nowrap; min-width: 60px; text-align: center;
+}
+.chain-role.system { background: #7c3aed22; color: #a78bfa; }
+.chain-role.assistant { background: #3b82f622; color: #60a5fa; }
+.chain-role.user { background: #10b98122; color: #34d399; }
+.chain-summary { flex: 1; min-width: 0; }
+.chain-summary-text { display: flex; align-items: center; gap: 6px; }
+.chain-editable { font-size: 10px; opacity: 0.7; }
+.chain-variables { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.chain-content-preview {
+    display: none; margin-top: 6px; padding: 8px;
+    background: var(--bg-input); border-radius: 6px;
+    font-family: monospace; font-size: 10px; white-space: pre-wrap;
+    max-height: 200px; overflow-y: auto; color: var(--text-muted);
+}
+.chain-item.expanded .chain-content-preview { display: block; }
 </style>
 </head>
 
@@ -684,6 +760,19 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                             <button id="nd_char_export" class="btn"><i class="fa-solid fa-download"></i> 导出</button>
                             <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="nd_char_import" accept=".json" style="display:none;"></label>
                         </div>
+                        <div class="auto-learn-section">
+                            <label>
+                                <input type="checkbox" id="nd_auto_learn">
+                                自动学习角色
+                            </label>
+                            <p class="form-hint" style="margin-left:24px;margin-top:4px;">生成图片时自动记住 LLM 识别的新角色外貌</p>
+                            <div id="nd_auto_learn_mode_row" class="auto-learn-mode-row hidden">
+                                <select id="nd_auto_learn_mode" class="input">
+                                    <option value="new_only">仅学习新角色</option>
+                                    <option value="auto_update">同时更新已有角色（仅填充空白外貌）</option>
+                                </select>
+                            </div>
+                        </div>
                         <div id="nd_char_list" class="char-grid"></div>
                         <div id="nd_char_empty" class="char-empty">
                             <i class="fa-solid fa-user-plus"></i>
@@ -849,6 +938,16 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                     <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                     <button id="nd_prompts_reset_all" class="btn btn-danger"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
                 </div>
+
+                <!-- 消息链结构预览 -->
+                <div class="card prompt-chain-card">
+                    <div class="prompt-card-header prompt-chain-toggle" id="nd_chain_toggle">
+                        <div class="card-title"><i class="fa-solid fa-link"></i> 消息链结构</div>
+                        <span class="chain-toggle-icon">▶ 展开</span>
+                    </div>
+                    <p class="form-hint">LLM 实际收到的消息链顺序（点击查看模板内容）</p>
+                    <div id="nd_prompt_chain" class="prompt-chain-container"></div>
+                </div>
             </div>
 
             <!-- ═══════════════════════════════════════════════════════════════
@@ -1006,6 +1105,8 @@ let state = {
     llmApi: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
     useStream: true,
     characterTags: [],
+    autoLearnCharacters: false,
+    autoLearnMode: 'new_only',
     showFloorButton: true,
     showFloatingButton: false
 };
@@ -1170,8 +1271,15 @@ function renderCharList() {
                             <input type="text" class="input char-edit-aliases" value="${escapeHtml((c.aliases || []).join(', '))}" placeholder="小名, 昵称, ...">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">外貌标签 (appearance)</label>
+                            <label class="form-label" style="display:flex;align-items:center;gap:8px;">
+                                外貌标签 (appearance)
+                                <button class="btn" data-action="search-danbooru" data-id="${c.id}" style="padding:2px 8px;font-size:10px;">
+                                    <i class="fa-solid fa-magnifying-glass"></i> Danbooru
+                                </button>
+                            </label>
                             <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(appearance)}</textarea>
+                            ${c.danbooruTag ? `<div class="form-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;">Danbooru: ${escapeHtml(c.danbooruTag.replace(/_/g, ' '))}</div>` : ''}
+                            <div class="danbooru-panel hidden" data-char-id="${c.id}"></div>
                             <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>
                         </div>
                         <div class="form-group">
@@ -1207,6 +1315,7 @@ function renderCharList() {
                 ${c.negativeTags ? `<div class="char-tags" style="color:var(--text-muted);font-size:11px;">❌ ${escapeHtml(c.negativeTags.slice(0, 50))}...</div>` : ''}
             </div>
             <div class="char-actions">
+                <button class="btn" data-action="search" data-id="${c.id}" title="Danbooru 标签搜索"><i class="fa-solid fa-magnifying-glass"></i></button>
                 <button class="btn" data-action="edit" data-id="${c.id}"><i class="fa-solid fa-pen"></i></button>
                 <button class="btn btn-danger" data-action="delete" data-id="${c.id}"><i class="fa-solid fa-trash"></i></button>
             </div>
@@ -1222,7 +1331,14 @@ function renderCharList() {
 }
 
 function handleCharAction(action, id, card) {
-    if (action === 'edit') {
+    if (action === 'search') {
+        editingCharId = id;
+        renderCharList();
+        // Wait for DOM to settle after re-render
+        requestAnimationFrame(() => requestAnimationFrame(() => showDanbooruSearch(id)));
+    } else if (action === 'search-danbooru') {
+        showDanbooruSearch(id);
+    } else if (action === 'edit') {
         editingCharId = id;
         renderCharList();
     } else if (action === 'cancel') {
@@ -1258,6 +1374,231 @@ function handleCharAction(action, id, card) {
             renderCharList();
         }
     }
+}
+
+// ── Danbooru 搜索 ─────────────────────────────────────────
+
+let activeDanbooruCharId = null;
+
+function showDanbooruSearch(charId) {
+    activeDanbooruCharId = charId;
+    const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
+    if (!panel) return;
+
+    const char = state.characterTags.find(c => c.id === charId);
+    const defaultQuery = char?.danbooruTag || char?.name || '';
+
+    panel.classList.remove('hidden');
+    panel.innerHTML = `
+        <div class="danbooru-search-row">
+            <input type="text" class="input danbooru-query" value="${escapeHtml(defaultQuery)}" placeholder="英文名搜索 (如 hatsune_miku)">
+            <button class="btn btn-primary danbooru-search-btn"><i class="fa-solid fa-magnifying-glass"></i> 搜索</button>
+            <button class="btn danbooru-close-btn"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="danbooru-results"></div>
+    `;
+
+    const input = panel.querySelector('.danbooru-query');
+    const searchBtn = panel.querySelector('.danbooru-search-btn');
+    const closeBtn = panel.querySelector('.danbooru-close-btn');
+
+    const doSearch = () => {
+        const q = input.value.trim();
+        if (!q) return;
+        panel.querySelector('.danbooru-results').innerHTML = '<div class="danbooru-status"><i class="fa-solid fa-spinner fa-spin"></i> 搜索中...</div>';
+        postToParent({ type: 'DANBOORU_SEARCH_CHARACTER', query: q });
+    };
+
+    searchBtn.addEventListener('click', doSearch);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    closeBtn.addEventListener('click', () => {
+        panel.classList.add('hidden');
+        panel.innerHTML = '';
+        activeDanbooruCharId = null;
+    });
+
+    if (defaultQuery) doSearch();
+}
+
+function parseDanbooruCharName(tagName) {
+    const match = tagName.match(/^(.+?)_\((.+)\)$/);
+    if (match) return { charName: match[1].replace(/_/g, ' '), series: match[2].replace(/_/g, ' ') };
+    return { charName: tagName.replace(/_/g, ' '), series: '' };
+}
+
+function formatPostCount(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+}
+
+function renderDanbooruCharacterResults(query, results) {
+    const panel = document.querySelector(`.danbooru-panel[data-char-id="${activeDanbooruCharId}"]`);
+    if (!panel) return;
+    const container = panel.querySelector('.danbooru-results');
+    if (!container) return;
+
+    if (!results?.length) {
+        container.innerHTML = '<div class="danbooru-status">未找到匹配角色，请尝试英文名</div>';
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="danbooru-char-list">
+            ${results.map(r => {
+                const parsed = parseDanbooruCharName(r.name);
+                return `
+                <div class="danbooru-char-item" data-tag="${escapeHtml(r.name)}">
+                    <div class="danbooru-char-info">
+                        <span class="danbooru-char-name">${escapeHtml(parsed.charName)}</span>
+                        ${parsed.series ? `<span class="danbooru-char-series">${escapeHtml(parsed.series)}</span>` : ''}
+                    </div>
+                    <span class="char-count">${formatPostCount(r.postCount)} 图</span>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+
+    container.querySelectorAll('.danbooru-char-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const tagName = item.dataset.tag;
+            // 暂存选中的 Danbooru tag，apply 时才写入角色数据
+            panel.dataset.pendingDanbooruTag = tagName;
+            container.innerHTML = '<div class="danbooru-status"><i class="fa-solid fa-spinner fa-spin"></i> 加载标签...</div>';
+            postToParent({ type: 'DANBOORU_FETCH_TAGS', tagName, charId: activeDanbooruCharId });
+        });
+    });
+}
+
+function renderDanbooruTagResults(tagName, tags, charId) {
+    const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
+    if (!panel) return;
+    const container = panel.querySelector('.danbooru-results');
+    if (!container) return;
+
+    if (!tags?.length) {
+        container.innerHTML = '<div class="danbooru-status">未找到外貌标签</div>';
+        return;
+    }
+
+    container.innerHTML = `
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">
+            ${escapeHtml(tagName.replace(/_/g, ' '))} 的外貌标签（点击勾选/取消）
+        </div>
+        <div class="danbooru-tag-list">
+            ${tags.map((t, i) => `
+                <div class="danbooru-tag-item${t.frequency >= 30 ? ' checked' : ''}" data-idx="${i}">
+                    <input type="checkbox" ${t.frequency >= 30 ? 'checked' : ''}>
+                    <span class="danbooru-tag-name">${escapeHtml(t.displayName)}</span>
+                    <span class="danbooru-tag-freq">${t.frequency}%</span>
+                </div>
+            `).join('')}
+        </div>
+        <div class="danbooru-actions">
+            <button class="btn btn-primary danbooru-apply-btn"><i class="fa-solid fa-check"></i> 填入所选标签</button>
+            <button class="btn danbooru-select-all-btn">全选 ≥50%</button>
+        </div>
+    `;
+
+    container.querySelectorAll('.danbooru-tag-item').forEach(item => {
+        item.addEventListener('click', e => {
+            if (e.target.tagName === 'INPUT') {
+                item.classList.toggle('checked', e.target.checked);
+            } else {
+                const cb = item.querySelector('input');
+                cb.checked = !cb.checked;
+                item.classList.toggle('checked', cb.checked);
+            }
+        });
+    });
+
+    container.querySelector('.danbooru-select-all-btn')?.addEventListener('click', () => {
+        container.querySelectorAll('.danbooru-tag-item').forEach(item => {
+            const freq = parseFloat(item.querySelector('.danbooru-tag-freq')?.textContent) || 0;
+            const cb = item.querySelector('input');
+            cb.checked = freq >= 50;
+            item.classList.toggle('checked', cb.checked);
+        });
+    });
+
+    container.querySelector('.danbooru-apply-btn')?.addEventListener('click', () => {
+        const selected = [];
+        container.querySelectorAll('.danbooru-tag-item input:checked').forEach(cb => {
+            const item = cb.closest('.danbooru-tag-item');
+            const name = item?.querySelector('.danbooru-tag-name')?.textContent?.trim();
+            if (name) selected.push(name);
+        });
+        if (!selected.length) { alert('请至少选择一个标签'); return; }
+
+        const textarea = panel.closest('.char-edit-form')?.querySelector('.char-edit-appearance');
+        if (textarea) {
+            const existing = textarea.value.trim();
+            textarea.value = existing ? existing + ', ' + selected.join(', ') : selected.join(', ');
+        }
+
+        // apply 时才将 danbooruTag 写入角色数据
+        const pendingTag = panel.dataset.pendingDanbooruTag;
+        if (pendingTag && charId) {
+            const char = state.characterTags.find(c => c.id === charId);
+            if (char) char.danbooruTag = pendingTag;
+        }
+
+        panel.classList.add('hidden');
+        panel.innerHTML = '';
+        activeDanbooruCharId = null;
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 消息链可视化
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderPromptChain(chain) {
+    const container = $('nd_prompt_chain');
+    if (!container) return;
+
+    const editableMap = { topSystem: 'nd_prompt_system', userJsonFormat: 'nd_prompt_format' };
+
+    container.innerHTML = chain.map((item, i) => {
+        const varsHtml = (item.variables || []).map(v => `<span>📎 ${escapeHtml(v)}</span>`).join(' ');
+        const editIcon = item.editable ? ' <span class="chain-editable" title="可在上方编辑">✏️</span>' : '';
+        const labelSuffix = item.label ? ` <span class="chain-editable">[${escapeHtml(item.label)}]</span>` : '';
+
+        return `
+        <div class="chain-item" data-key="${escapeHtml(item.key)}" data-editable-id="${editableMap[item.key] || ''}">
+            <span class="chain-role ${item.role}">${item.role}</span>
+            <div class="chain-summary">
+                <div class="chain-summary-text">
+                    <span>${i + 1}. ${escapeHtml(item.summary)}${labelSuffix}${editIcon}</span>
+                </div>
+                ${varsHtml ? `<div class="chain-variables">${varsHtml}</div>` : ''}
+                <div class="chain-content-preview"></div>
+            </div>
+        </div>`;
+    }).join('');
+
+    container.querySelectorAll('.chain-item').forEach(el => {
+        el.addEventListener('click', () => {
+            const editableId = el.dataset.editableId;
+            if (editableId) {
+                const target = $(editableId);
+                if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.focus(); return; }
+            }
+            const preview = el.querySelector('.chain-content-preview');
+            const isExpanded = el.classList.toggle('expanded');
+            if (isExpanded && !preview.dataset.loaded) {
+                preview.dataset.loaded = '1';
+                const key = el.dataset.key;
+                const defaults = state._defaultPrompts || {};
+                const configMap = {
+                    topSystem: defaults.topSystem,
+                    userJsonFormat: defaults.userJsonFormat,
+                };
+                const content = configMap[key] || '(内置模板，不可编辑)';
+                preview.textContent = content.length > 800 ? content.slice(0, 800) + '\n...(已截断)' : content;
+            }
+        });
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1541,6 +1882,10 @@ function applyStateToUI() {
     applyLlmApi();
     renderCharList();
     renderGalleryView();
+    // auto-learn
+    $('nd_auto_learn').checked = !!state.autoLearnCharacters;
+    $('nd_auto_learn_mode').value = state.autoLearnMode || 'new_only';
+    $('nd_auto_learn_mode_row').classList.toggle('hidden', !state.autoLearnCharacters);
     applyAdvancedMode();
 }
 
@@ -1740,6 +2085,18 @@ window.addEventListener('message', event => {
         case 'WORLDBOOK_ENTRIES':
             renderWorldbookEntries(data.bookName, data.entries || []);
             break;
+
+        case 'DANBOORU_CHARACTER_RESULTS':
+            renderDanbooruCharacterResults(data.query, data.results || []);
+            break;
+
+        case 'DANBOORU_TAG_RESULTS':
+            renderDanbooruTagResults(data.tagName, data.tags || [], data.charId);
+            break;
+
+        case 'PROMPT_CHAIN_DATA':
+            renderPromptChain(data.chain || []);
+            break;
     }
 });
 
@@ -1888,6 +2245,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const card = btn.closest('.char-card');
         const id = btn.dataset.id || card?.dataset.id;
         if (id) handleCharAction(btn.dataset.action, id, card);
+    });
+
+    // auto-learn
+    $('nd_auto_learn').addEventListener('change', () => {
+        const enabled = $('nd_auto_learn').checked;
+        $('nd_auto_learn_mode_row').classList.toggle('hidden', !enabled);
+        postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: enabled, autoLearnMode: $('nd_auto_learn_mode').value });
+    });
+    $('nd_auto_learn_mode').addEventListener('change', () => {
+        postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: $('nd_auto_learn').checked, autoLearnMode: $('nd_auto_learn_mode').value });
     });
     
     $('nd_char_export').addEventListener('click', () => {
@@ -2048,6 +2415,18 @@ document.addEventListener('DOMContentLoaded', () => {
         postToParent({ type: 'SAVE_CUSTOM_PROMPTS', customPrompts: {
             topSystem: null, tagGuideContent: null, userJsonFormat: null,
         }});
+    });
+
+    // 消息链可视化
+    $('nd_chain_toggle').addEventListener('click', () => {
+        const container = $('nd_prompt_chain');
+        const icon = $('nd_chain_toggle').querySelector('.chain-toggle-icon');
+        const isOpen = container.classList.toggle('open');
+        icon.textContent = isOpen ? '▼ 收起' : '▶ 展开';
+        if (isOpen && !container.dataset.loaded) {
+            container.dataset.loaded = '1';
+            postToParent({ type: 'GET_PROMPT_CHAIN' });
+        }
     });
 
     // 世界书
