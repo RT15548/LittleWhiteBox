@@ -17,7 +17,7 @@ const MODULE_ID = 'atom-extraction';
 const CONCURRENCY = 10;
 const RETRY_COUNT = 1;
 const RETRY_DELAY = 500;
-const DEFAULT_TIMEOUT = 40000;
+const DEFAULT_TIMEOUT = 60000;
 const STAGGER_DELAY = 80;
 const DEBUG_RAW_PREVIEW_LEN = 800;
 

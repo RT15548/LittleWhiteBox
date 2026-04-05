@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// vector/llm/llm-service.js - 修复 prefill 传递方式
+// vector/llm/llm-service.js - L0 前端直连 Chat Completions
 // ═══════════════════════════════════════════════════════════════════════════
 import { xbLog } from '../../../../core/debug-core.js';
 import { getVectorConfig } from '../../data/config.js';
@@ -8,26 +8,8 @@ const MODULE_ID = 'vector-llm-service';
 const DEFAULT_L0_MODEL = 'Qwen/Qwen3-8B';
 const DEFAULT_L0_API_URL = 'https://api.siliconflow.cn/v1';
 
-let callCounter = 0;
-const activeL0SessionIds = new Set();
+const activeL0Controllers = new Set();
 let l0KeyIndex = 0;
-
-function getStreamingModule() {
-    const mod = window.xiaobaixStreamingGeneration;
-    return mod?.xbgenrawCommand ? mod : null;
-}
-
-function generateUniqueId(prefix = 'llm') {
-    callCounter = (callCounter + 1) % 100000;
-    return `${prefix}-${callCounter}-${Date.now().toString(36)}`;
-}
-
-function b64UrlEncode(str) {
-    const utf8 = new TextEncoder().encode(String(str));
-    let bin = '';
-    utf8.forEach(b => bin += String.fromCharCode(b));
-    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
 
 function getL0ApiConfig() {
     const cfg = getVectorConfig() || {};
@@ -62,9 +44,57 @@ function getNextKey(rawKey) {
     return keys[idx];
 }
 
+function normalizeMessages(messages) {
+    if (!Array.isArray(messages)) return [];
+    return messages
+        .filter(msg => {
+            if (!msg || typeof msg !== 'object') return false;
+            const role = String(msg.role || '').trim();
+            const content = msg.content;
+            if (!role) return false;
+            if (typeof content === 'string') return content.trim().length > 0;
+            return content != null;
+        })
+        .map(msg => ({
+            role: String(msg.role).trim(),
+            content: msg.content,
+        }));
+}
+
+function mergeSignals(primary, secondary) {
+    if (!primary) return secondary;
+    if (!secondary) return primary;
+
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+
+    if (primary.aborted || secondary.aborted) {
+        abort();
+        return controller.signal;
+    }
+
+    primary.addEventListener('abort', abort, { once: true });
+    secondary.addEventListener('abort', abort, { once: true });
+    return controller.signal;
+}
+
+function extractMessageText(data) {
+    const content = data?.choices?.[0]?.message?.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content
+            .map(part => {
+                if (typeof part === 'string') return part;
+                if (part?.type === 'text' && typeof part.text === 'string') return part.text;
+                return '';
+            })
+            .join('');
+    }
+    return '';
+}
+
 /**
- * 统一LLM调用 - 走酒馆后端（非流式）
- * 临时改为标准 messages 调用，避免 bottomassistant prefill 兼容性问题。
+ * 统一 L0 调用 - 浏览器直连 OpenAI-compatible Chat Completions（非流式）
  */
 export async function callLLM(messages, options = {}) {
     const {
@@ -72,10 +102,8 @@ export async function callLLM(messages, options = {}) {
         max_tokens = 500,
         timeout = 40000,
         apiConfig = null,
+        signal = null,
     } = options;
-
-    const mod = getStreamingModule();
-    if (!mod) throw new Error('Streaming module not ready');
 
     const apiCfg = normalizeL0ApiConfig(apiConfig);
     const apiKey = getNextKey(apiCfg.key);
@@ -83,43 +111,63 @@ export async function callLLM(messages, options = {}) {
         throw new Error('L0 requires siliconflow API key');
     }
 
-    const topMessages = [...messages].filter(msg => msg?.role !== 'assistant');
-
-    const top64 = b64UrlEncode(JSON.stringify(topMessages));
-    const uniqueId = generateUniqueId('l0');
-
-    const args = {
-        as: 'user',
-        nonstream: 'true',
-        top64,
-        id: uniqueId,
-        temperature: String(temperature),
-        max_tokens: String(max_tokens),
-        api: 'openai',
-        apiurl: String(apiCfg.url || DEFAULT_L0_API_URL).trim(),
-        apipassword: apiKey,
-        model: String(apiCfg.model || DEFAULT_L0_MODEL).trim(),
-    };
-    const isQwen3 = String(args.model || '').includes('Qwen3');
-    if (isQwen3) {
-        args.enable_thinking = 'false';
+    const normalizedMessages = normalizeMessages(messages);
+    if (!normalizedMessages.length) {
+        throw new Error('L0 requires at least one valid message');
     }
 
+    const model = String(apiCfg.model || DEFAULT_L0_MODEL).trim();
+    const baseUrl = String(apiCfg.url || DEFAULT_L0_API_URL).trim().replace(/\/+$/, '');
+    const body = {
+        model,
+        messages: normalizedMessages,
+        temperature,
+        max_tokens,
+        stream: false,
+    };
+    if (model.includes('Qwen3')) {
+        body.enable_thinking = false;
+    }
+
+    const timeoutController = new AbortController();
+    const requestSignal = mergeSignals(signal, timeoutController.signal);
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+        timedOut = true;
+        timeoutController.abort();
+    }, timeout);
+
     try {
-        activeL0SessionIds.add(uniqueId);
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error(`L0 request timeout after ${timeout}ms`)), timeout);
+        activeL0Controllers.add(timeoutController);
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+            signal: requestSignal,
         });
-        const result = await Promise.race([
-            mod.xbgenrawCommand(args, ''),
-            timeoutPromise,
-        ]);
-        return String(result ?? '');
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '');
+            throw new Error(`L0 API ${response.status}: ${errorText.slice(0, 200)}`);
+        }
+
+        const data = await response.json();
+        return String(extractMessageText(data) ?? '');
     } catch (e) {
+        clearTimeout(timeoutId);
+        if (e?.name === 'AbortError' && timedOut) {
+            throw new Error(`L0 request timeout after ${timeout}ms`);
+        }
         xbLog.error(MODULE_ID, 'LLM调用失败', e);
         throw e;
     } finally {
-        activeL0SessionIds.delete(uniqueId);
+        clearTimeout(timeoutId);
+        activeL0Controllers.delete(timeoutController);
     }
 }
 
@@ -142,12 +190,10 @@ export async function testL0Service(apiConfig = {}) {
 }
 
 export function cancelAllL0Requests() {
-    const mod = getStreamingModule();
-    if (!mod?.cancel) return;
-    for (const sessionId of activeL0SessionIds) {
-        try { mod.cancel(sessionId); } catch {}
+    for (const controller of activeL0Controllers) {
+        try { controller.abort(); } catch {}
     }
-    activeL0SessionIds.clear();
+    activeL0Controllers.clear();
 }
 
 export function parseJson(text) {
