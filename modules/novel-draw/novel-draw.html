@@ -383,9 +383,24 @@ body.advanced-mode .nd-simple-only { display: none !important; }
     border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
 }
 .wb-book-item:hover { border-color: var(--border-focus); }
-.wb-book-item input[type="checkbox"] { flex-shrink: 0; }
 .wb-book-name { flex: 1; font-weight: 500; }
 .wb-book-count { font-size: 12px; color: var(--text-secondary); }
+.wb-book-delete {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 2px 6px; font-size: 14px; line-height: 1; border-radius: 4px;
+}
+.wb-book-delete:hover { color: var(--danger); background: rgba(255,0,0,0.1); }
+
+.wb-dropzone {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; padding: 24px; border: 2px dashed var(--border);
+    border-radius: 8px; cursor: pointer; text-align: center;
+    color: var(--text-secondary); transition: border-color 0.2s, background 0.2s;
+}
+.wb-dropzone:hover, .wb-dropzone.dragover {
+    border-color: var(--border-focus); background: rgba(255,255,255,0.03);
+}
+.wb-dropzone p { margin: 0; font-size: 13px; }
 
 .wb-entry-list { margin-top: 8px; }
 .wb-entry-item {
@@ -956,28 +971,23 @@ body.advanced-mode .nd-simple-only { display: none !important; }
             <div id="view-worldbook" class="view">
                 <div class="view-header">
                     <h2 class="view-title">世界书</h2>
-                    <p class="view-desc">为图片生成选择和管理世界书条目</p>
+                    <p class="view-desc">上传世界书 JSON 文件用于生图上下文</p>
                 </div>
 
                 <div class="card">
-                    <div class="card-title">世界书选择</div>
-                    <p class="form-hint">从酒馆已有世界书中选择用于生图上下文的世界书</p>
-                    <div class="btn-group" style="margin-bottom:12px;">
-                        <button id="nd_wb_refresh" class="btn"><i class="fa-solid fa-arrows-rotate"></i> 刷新列表</button>
+                    <div class="card-title">上传世界书</div>
+                    <p class="form-hint">支持酒馆导出的 .json 世界书文件，可多选</p>
+                    <input type="file" id="nd_wb_file_input" multiple accept=".json" style="display:none;">
+                    <div id="nd_wb_dropzone" class="wb-dropzone">
+                        <i class="fa-solid fa-cloud-arrow-up" style="font-size:24px;opacity:0.5;"></i>
+                        <p>点击或拖拽 .json 文件到此处</p>
                     </div>
-                    <div id="nd_wb_list" class="wb-book-list">
-                        <p class="form-hint">点击「刷新列表」加载可用世界书</p>
-                    </div>
+                    <div id="nd_wb_uploaded_list" class="wb-book-list" style="margin-top:12px;"></div>
                 </div>
 
                 <div class="card">
                     <div class="card-title">过滤设置</div>
                     <div class="form-group">
-                        <label class="form-label">Token 预算</label>
-                        <input id="nd_wb_budget" type="number" class="input" value="2000" min="200" max="10000" step="100">
-                        <p class="form-hint">世界书条目注入的最大 token 预算</p>
-                    </div>
-                    <div class="form-group" style="margin-top:12px;">
                         <label class="form-label">过滤模式</label>
                         <select id="nd_wb_filter_mode" class="input">
                             <option value="auto">自动 (遵循灯状态)</option>
@@ -989,9 +999,9 @@ body.advanced-mode .nd-simple-only { display: none !important; }
 
                 <div class="card">
                     <div class="card-title">条目预览</div>
-                    <p class="form-hint">选中世界书后点击可预览其条目</p>
+                    <p class="form-hint">点击已上传的世界书可预览其条目</p>
                     <div id="nd_wb_entries" class="wb-entry-list">
-                        <p class="form-hint">请先选择一个世界书</p>
+                        <p class="form-hint">请先上传世界书</p>
                     </div>
                 </div>
 
@@ -1781,70 +1791,140 @@ function applyAdvancedMode() {
 
     // 世界书
     const wb = state.worldbooks || {};
-    $('nd_wb_budget').value = wb.tokenBudget ?? 2000;
     $('nd_wb_filter_mode').value = wb.keywordFilterMode || 'auto';
+    renderUploadedBooks(wb.uploadedBooks || []);
 }
 
-function renderWorldbookList(books) {
-    const container = $('nd_wb_list');
-    const selected = state.worldbooks?.selectedBooks || [];
+/** 解析上传的世界书 JSON 文件 */
+function parseWorldbookJson(jsonText, fileName) {
+    const data = JSON.parse(jsonText);
+    if (!data.entries || typeof data.entries !== 'object') {
+        throw new Error('不是有效的世界书文件（缺少 entries 字段）');
+    }
+    const rawEntries = data.entries;
+    const entries = [];
+    for (const [uid, e] of Object.entries(rawEntries)) {
+        if (!e || typeof e !== 'object') continue;
+        const content = (e.content || '').trim();
+        if (!content) continue;
+        entries.push({
+            uid: Number(uid),
+            comment: e.comment || '',
+            key: Array.isArray(e.key) ? e.key : (e.key ? [e.key] : []),
+            keysecondary: Array.isArray(e.keysecondary) ? e.keysecondary : [],
+            constant: !!e.constant,
+            disable: !!e.disable,
+            content,
+            order: e.order ?? 100,
+        });
+    }
+    if (!entries.length) throw new Error('世界书中无有效条目（所有条目缺少 content）');
+    return { name: fileName, uploadedAt: Date.now(), entries };
+}
+
+/** 处理文件上传（支持多选） */
+async function handleWorldbookFiles(files) {
+    const uploaded = state.worldbooks?.uploadedBooks || [];
+    let added = 0;
+    const errors = [];
+
+    for (const file of files) {
+        if (!file.name.endsWith('.json')) {
+            errors.push(`${file.name}: 不是 .json 文件`);
+            continue;
+        }
+        try {
+            const text = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error);
+                reader.readAsText(file);
+            });
+            const book = parseWorldbookJson(text, file.name);
+            // 同名替换
+            const idx = uploaded.findIndex(b => b.name === book.name);
+            if (idx >= 0) uploaded[idx] = book;
+            else uploaded.push(book);
+            added++;
+        } catch (e) {
+            errors.push(`${file.name}: ${e.message}`);
+        }
+    }
+
+    if (added > 0) {
+        state.worldbooks = { ...state.worldbooks, uploadedBooks: uploaded };
+        renderUploadedBooks(uploaded);
+    }
+
+    if (errors.length) {
+        const container = $('nd_wb_entries');
+        container.innerHTML = `<p class="form-hint" style="color:var(--danger);">${errors.map(escapeHtml).join('<br>')}</p>`;
+    }
+}
+
+function renderUploadedBooks(books) {
+    const container = $('nd_wb_uploaded_list');
     if (!books.length) {
-        container.innerHTML = '<p class="form-hint">未找到可用世界书</p>';
+        container.innerHTML = '<p class="form-hint">尚未上传世界书</p>';
         return;
     }
-    container.innerHTML = books.map(b => {
-        const checked = selected.includes(b.name) ? 'checked' : '';
-        return `<div class="wb-book-item" data-book="${escapeHtml(b.name)}">
-            <input type="checkbox" ${checked}>
+    container.innerHTML = books.map((b, i) => {
+        const activeCount = b.entries.filter(e => !e.disable).length;
+        return `<div class="wb-book-item" data-index="${i}">
             <span class="wb-book-name">${escapeHtml(b.name)}</span>
-            <span class="wb-book-count">${b.entryCount} 条目</span>
+            <span class="wb-book-count">${activeCount}/${b.entries.length} 条目</span>
+            <button class="wb-book-delete" data-index="${i}" title="移除"><i class="fa-solid fa-xmark"></i></button>
         </div>`;
     }).join('');
 
+    // 点击预览条目
     container.querySelectorAll('.wb-book-item').forEach(item => {
         item.addEventListener('click', (e) => {
-            if (e.target.tagName !== 'INPUT') {
-                const cb = item.querySelector('input[type="checkbox"]');
-                cb.checked = !cb.checked;
-            }
-            const bookName = item.dataset.book;
-            postToParent({ type: 'PREVIEW_WORLDBOOK_ENTRIES', bookName });
+            if (e.target.closest('.wb-book-delete')) return;
+            const idx = Number(item.dataset.index);
+            const book = books[idx];
+            if (book) renderWorldbookEntriesLocal(book);
+        });
+    });
+
+    // 删除按钮
+    container.querySelectorAll('.wb-book-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = Number(btn.dataset.index);
+            const uploaded = state.worldbooks?.uploadedBooks || [];
+            uploaded.splice(idx, 1);
+            state.worldbooks = { ...state.worldbooks, uploadedBooks: uploaded };
+            renderUploadedBooks(uploaded);
+            $('nd_wb_entries').innerHTML = '<p class="form-hint">请先上传世界书</p>';
         });
     });
 }
 
-function renderWorldbookEntries(bookName, entries) {
+function renderWorldbookEntriesLocal(book) {
     const container = $('nd_wb_entries');
+    const entries = book.entries || [];
     if (!entries.length) {
-        container.innerHTML = `<p class="form-hint">${escapeHtml(bookName)}: 无条目</p>`;
+        container.innerHTML = `<p class="form-hint">${escapeHtml(book.name)}: 无条目</p>`;
         return;
     }
     const lampIcon = { constant: 'constant', normal: 'normal', disabled: 'disabled' };
     const lampLabel = { constant: '常驻', normal: '关键词触发', disabled: '已禁用' };
-    container.innerHTML = `<p class="form-hint" style="margin-bottom:8px;">${escapeHtml(bookName)} (${entries.length} 条)</p>` +
+    container.innerHTML = `<p class="form-hint" style="margin-bottom:8px;">${escapeHtml(book.name)} (${entries.length} 条)</p>` +
         entries.map(e => {
-            const ls = e.lampState || 'normal';
+            let ls = 'normal';
+            if (e.disable) ls = 'disabled';
+            else if (e.constant) ls = 'constant';
             const keys = (e.key || []).filter(Boolean).join(', ');
             return `<div class="wb-entry-item">
                 <div class="wb-lamp ${lampIcon[ls]}" title="${lampLabel[ls]}"></div>
                 <div class="wb-entry-info">
                     <div class="wb-entry-title">${escapeHtml(e.comment || '(未命名)')}</div>
                     ${keys ? `<div class="wb-entry-keys">关键词: ${escapeHtml(keys)}</div>` : ''}
-                    <div class="wb-entry-preview">${escapeHtml(e.contentPreview || '')}</div>
+                    <div class="wb-entry-preview">${escapeHtml((e.content || '').slice(0, 200))}</div>
                 </div>
             </div>`;
         }).join('');
-}
-
-function getSelectedWorldbooks() {
-    const items = $('nd_wb_list').querySelectorAll('.wb-book-item');
-    const selected = [];
-    items.forEach(item => {
-        if (item.querySelector('input[type="checkbox"]').checked) {
-            selected.push(item.dataset.book);
-        }
-    });
-    return selected;
 }
 
 function getCurrentLlmModel() {
@@ -2076,14 +2156,6 @@ window.addEventListener('message', event => {
                 const img = modalData.images.find(i => i.imgId === data.imgId);
                 if (img) { img.savedUrl = data.savedUrl; renderModalContent(); }
             }
-            break;
-
-        case 'WORLDBOOK_LIST':
-            renderWorldbookList(data.books || []);
-            break;
-
-        case 'WORLDBOOK_ENTRIES':
-            renderWorldbookEntries(data.bookName, data.entries || []);
             break;
 
         case 'DANBOORU_CHARACTER_RESULTS':
@@ -2429,16 +2501,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 世界书
-    $('nd_wb_refresh').addEventListener('click', () => {
-        postToParent({ type: 'LIST_WORLDBOOKS' });
+    // 世界书上传
+    const dropzone = $('nd_wb_dropzone');
+    const fileInput = $('nd_wb_file_input');
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) handleWorldbookFiles(e.dataTransfer.files);
+    });
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) handleWorldbookFiles(fileInput.files);
+        fileInput.value = '';
     });
 
     $('nd_wb_save').addEventListener('click', () => {
+        const uploaded = state.worldbooks?.uploadedBooks || [];
         postToParent({ type: 'SAVE_WORLDBOOK_CONFIG', worldbooks: {
-            enabled: getSelectedWorldbooks().length > 0,
-            selectedBooks: getSelectedWorldbooks(),
-            tokenBudget: Number($('nd_wb_budget').value) || 2000,
+            enabled: uploaded.length > 0,
+            uploadedBooks: uploaded,
             keywordFilterMode: $('nd_wb_filter_mode').value || 'auto',
         }});
     });

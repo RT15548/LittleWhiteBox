@@ -96,7 +96,7 @@ const DEFAULT_SETTINGS = {
     showFloatingButton: false,
     advancedMode: false,
     customPrompts: { topSystem: null, tagGuideContent: null, userJsonFormat: null },
-    worldbooks: { enabled: false, selectedBooks: [], tokenBudget: 2000, keywordFilterMode: 'auto' },
+    worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -338,7 +338,8 @@ function normalizeSettings(saved) {
     merged.llmApi = { ...DEFAULT_SETTINGS.llmApi, ...(saved?.llmApi || {}) };
     merged.customPrompts = { ...DEFAULT_SETTINGS.customPrompts, ...(saved?.customPrompts || {}) };
     merged.worldbooks = { ...DEFAULT_SETTINGS.worldbooks, ...(saved?.worldbooks || {}) };
-    if (!Array.isArray(merged.worldbooks.selectedBooks)) merged.worldbooks.selectedBooks = [];
+    if (!Array.isArray(merged.worldbooks.uploadedBooks)) merged.worldbooks.uploadedBooks = [];
+    delete merged.worldbooks.selectedBooks; // 迁移：旧格式不兼容，清除
 
     if (!merged.paramsPresets?.length) {
         const id = generateSlotId();
@@ -627,32 +628,20 @@ function danbooruToNai(tag) {
 }
 
 const DANBOORU_TIMEOUT = 15000;
-const DANBOORU_PLUGIN_API = '/api/plugins/danbooru-proxy';
 
 /**
- * Danbooru fetch 策略：
- * 1. 优先走 SillyTavern server plugin（Node.js 内置 fetch，不被 Cloudflare 拦截）
- * 2. 若 plugin 不可用（404）则走 /proxy/ CORS 代理
- * 3. 都不行则报错提示用户
+ * 通过酒馆 CORS 代理访问 Danbooru API（需 config.yaml 中 enableCorsProxy: true）
  */
-async function danbooruFetch(pluginPath, directUrl) {
+async function danbooruFetch(directUrl) {
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), DANBOORU_TIMEOUT);
     try {
-        // 策略 1: server plugin
-        const pluginRes = await fetch(`${DANBOORU_PLUGIN_API}${pluginPath}`, { signal: ctrl.signal });
-        if (pluginRes.ok) return pluginRes;
-        if (pluginRes.status !== 404) {
-            const err = await pluginRes.json().catch(() => ({}));
-            throw new Error(err.error || `Plugin proxy 失败: ${pluginRes.status}`);
+        const res = await fetch(`/proxy/${directUrl}`, { signal: ctrl.signal });
+        if (res.ok) return res;
+        if (res.status === 404) {
+            throw new Error('CORS 代理不可用。请在 config.yaml 中设置 enableCorsProxy: true');
         }
-        // 404 = plugin 未安装，尝试 CORS proxy
-        const proxyRes = await fetch(`/proxy/${directUrl}`, { signal: ctrl.signal });
-        if (proxyRes.ok) return proxyRes;
-        if (proxyRes.status === 404) {
-            throw new Error('Danbooru 代理不可用。请安装 danbooru-proxy 插件或在 config.yaml 中开启 enableCorsProxy');
-        }
-        throw new Error(`Danbooru 请求失败: ${proxyRes.status}`);
+        throw new Error(`Danbooru 请求失败: ${res.status}`);
     } finally {
         clearTimeout(tid);
     }
@@ -661,9 +650,8 @@ async function danbooruFetch(pluginPath, directUrl) {
 async function searchDanbooruCharacter(query) {
     if (!query?.trim()) return [];
     const q = query.replace(/\s+/g, '_').toLowerCase();
-    const pluginPath = `/tags?name_matches=*${encodeURIComponent(q)}*&category=4&limit=10`;
-    const directUrl = `https://danbooru.donmai.us/tags.json?search[name_matches]=*${encodeURIComponent(q)}*&search[category]=4&limit=10&search[order]=count`;
-    const res = await danbooruFetch(pluginPath, directUrl);
+    const url = `https://danbooru.donmai.us/tags.json?search[name_matches]=*${encodeURIComponent(q)}*&search[category]=4&limit=10&search[order]=count`;
+    const res = await danbooruFetch(url);
     const tags = await res.json();
     return tags
         .filter(t => t.post_count > 0)
@@ -674,9 +662,8 @@ async function searchDanbooruCharacter(query) {
 async function fetchDanbooruRelatedTags(tagName) {
     if (danbooruTagCache.has(tagName)) return danbooruTagCache.get(tagName);
 
-    const pluginPath = `/related?query=${encodeURIComponent(tagName)}&category=0`;
-    const directUrl = `https://danbooru.donmai.us/related_tag.json?query=${encodeURIComponent(tagName)}&category=0`;
-    const res = await danbooruFetch(pluginPath, directUrl);
+    const url = `https://danbooru.donmai.us/related_tag.json?query=${encodeURIComponent(tagName)}&category=0`;
+    const res = await danbooruFetch(url);
     const data = await res.json();
 
     const relatedTags = (data.related_tags || [])
@@ -1947,13 +1934,13 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             let customPrompts = null;
             if (settings.advancedMode) {
                 customPrompts = settings.customPrompts || null;
-                if (settings.worldbooks?.enabled && settings.worldbooks.selectedBooks?.length) {
+                if (settings.worldbooks?.enabled && settings.worldbooks.uploadedBooks?.length) {
                     const processor = new WorldbookProcessor();
                     const charNames = presentCharacters.map(c => c.name).join(' ');
-                    worldbookEntries = await processor.processForScene({
-                        selectedBooks: settings.worldbooks.selectedBooks,
+                    const allEntries = settings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
+                    worldbookEntries = processor.processFromEntries({
+                        entries: allEntries,
                         contextText: messageText + ' ' + charNames,
-                        tokenBudget: settings.worldbooks.tokenBudget || 2000,
                         keywordFilterMode: settings.worldbooks.keywordFilterMode || 'auto',
                     });
                 }
@@ -2612,53 +2599,10 @@ async function handleFrameMessage(event) {
             const s = getSettings();
             if (data.worldbooks && typeof data.worldbooks === 'object') {
                 s.worldbooks = { ...s.worldbooks, ...data.worldbooks };
-                if (!Array.isArray(s.worldbooks.selectedBooks)) s.worldbooks.selectedBooks = [];
+                if (!Array.isArray(s.worldbooks.uploadedBooks)) s.worldbooks.uploadedBooks = [];
             }
             await saveSettingsAndToast(s, '世界书配置已保存');
             sendInitData();
-            break;
-        }
-
-        case 'LIST_WORLDBOOKS': {
-            try {
-                const processor = new WorldbookProcessor();
-                const books = await processor.listAvailableWorldbooks();
-                const bookDetails = [];
-                for (const name of books) {
-                    try {
-                        const entries = await processor.getEntriesWithState(name);
-                        bookDetails.push({ name, entryCount: entries.length });
-                    } catch {
-                        bookDetails.push({ name, entryCount: 0 });
-                    }
-                }
-                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                if (iframe) postToIframe(iframe, { type: 'WORLDBOOK_LIST', books: bookDetails }, 'LittleWhiteBox-NovelDraw');
-            } catch (e) {
-                postStatus('error', '获取世界书失败: ' + e.message);
-            }
-            break;
-        }
-
-        case 'PREVIEW_WORLDBOOK_ENTRIES': {
-            try {
-                const processor = new WorldbookProcessor();
-                const entries = await processor.getEntriesWithState(data.bookName);
-                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                if (iframe) postToIframe(iframe, {
-                    type: 'WORLDBOOK_ENTRIES',
-                    bookName: data.bookName,
-                    entries: entries.map(e => ({
-                        uid: e.uid,
-                        comment: e.comment,
-                        key: e.key,
-                        lampState: e.lampState,
-                        contentPreview: (e.content || '').slice(0, 200),
-                    })),
-                }, 'LittleWhiteBox-NovelDraw');
-            } catch (e) {
-                postStatus('error', '获取条目失败: ' + e.message);
-            }
             break;
         }
 
