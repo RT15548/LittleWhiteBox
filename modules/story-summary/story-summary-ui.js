@@ -315,6 +315,36 @@ All checks passed. Beginning incremental extraction...
         rerank: 'BAAI/bge-reranker-v2-m3',
     };
 
+    const VECTOR_MODEL_FILTERS = {
+        embedding: {
+            include: [
+                'embedding', 'embed', 'bge-m3', 'bge-large', 'bge-base', 'e5-', 'multilingual-e5',
+                'jina-embeddings', 'text-embedding', 'voyage', 'gte-', 'gte_', 'gte.'
+            ],
+            exclude: [
+                'rerank', 'reranker', 'chat', 'instruct', 'reasoner', 'vl', 'vision',
+                'tts', 'speech', 'audio', 'whisper', 'transcription', 'image', 'sdxl', 'moderation'
+            ],
+        },
+        rerank: {
+            include: [
+                'rerank', 'reranker', 'bge-reranker', 'jina-reranker', 'cohere-rerank'
+            ],
+            exclude: [
+                'embedding', 'embed', 'chat', 'instruct', 'reasoner', 'vl', 'vision',
+                'tts', 'speech', 'audio', 'whisper', 'transcription', 'image', 'sdxl', 'moderation'
+            ],
+        },
+        l0: {
+            include: [],
+            exclude: [
+                'embedding', 'embed', 'rerank', 'reranker', 'tts', 'speech', 'audio',
+                'whisper', 'transcription', 'stt', 'image', 'sdxl', 'flux', 'wanx',
+                'midjourney', 'moderation'
+            ],
+        },
+    };
+
     function setStatusText(el, message, kind = '') {
         if (!el) return;
         el.textContent = message || '';
@@ -325,6 +355,21 @@ All checks passed. Beginning incremental extraction...
                 : kind === 'loading'
                     ? '#f59e0b'
                     : '';
+    }
+
+    function filterVectorModelsByPurpose(prefix, models) {
+        const rule = VECTOR_MODEL_FILTERS[prefix];
+        if (!rule || !Array.isArray(models)) return [];
+
+        const normalized = [...new Set(models.filter(Boolean).map(m => String(m).trim()).filter(Boolean))];
+        const matched = normalized.filter(modelId => {
+            const lower = modelId.toLowerCase();
+            if (rule.exclude.some(keyword => lower.includes(keyword))) return false;
+            if (!rule.include.length) return true;
+            return rule.include.some(keyword => lower.includes(keyword));
+        });
+
+        return matched.length ? matched : normalized;
     }
 
     function createDefaultProviderProfile(provider, model = '') {
@@ -701,17 +746,22 @@ All checks passed. Beginning incremental extraction...
             if (!models) models = await tryFetch(`${baseUrl}/models`);
             if (!models?.length) throw new Error('未获取到模型列表');
 
+            const allModels = [...new Set(models)];
+            const filteredModels = filterVectorModelsByPurpose(prefix, allModels);
+
             const apiCfg = config.vector[`${prefix}Api`] ||= {};
             apiCfg.providers = normalizeProviderProfiles(prefix, apiCfg);
             apiCfg.providers[provider] ||= createDefaultProviderProfile(provider, VECTOR_API_DEFAULT_MODELS[prefix]);
-            apiCfg.providers[provider].modelCache = [...new Set(models)];
+            apiCfg.providers[provider].modelCache = filteredModels;
             setSelectOptions($(`${prefix}-api-model-select`), apiCfg.providers[provider].modelCache, '请选择');
             $(`${prefix}-api-model-select-row`).classList.remove('hidden');
             if (!$(`${prefix}-api-model-text`).value.trim()) {
-                $(`${prefix}-api-model-text`).value = models[0];
-                $(`${prefix}-api-model-select`).value = models[0];
+                $(`${prefix}-api-model-text`).value = filteredModels[0];
+                $(`${prefix}-api-model-select`).value = filteredModels[0];
             }
-            statusEl.textContent = `拉取成功：${models.length} 个模型`;
+            statusEl.textContent = filteredModels.length === allModels.length
+                ? `拉取成功：${filteredModels.length} 个模型`
+                : `拉取成功：共 ${allModels.length} 个，已筛出 ${filteredModels.length} 个适合当前用途的模型`;
         } catch (e) {
             statusEl.textContent = '拉取失败：' + (e.message || '请检查 URL 和 KEY');
         } finally {
