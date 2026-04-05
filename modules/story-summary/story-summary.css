@@ -2732,6 +2732,24 @@ h1 span {
         max-width: 100%;
     }
 
+    .settings-tabs {
+        width: calc(100% - 44px);
+        gap: 10px;
+        align-self: stretch;
+        overflow-x: auto;
+        overflow-y: hidden;
+        margin-bottom: -16px;
+        padding-bottom: 2px;
+        scrollbar-width: thin;
+    }
+
+    .settings-tab {
+        flex: 0 0 auto;
+        padding-bottom: 16px;
+        font-size: .75rem;
+        white-space: nowrap;
+    }
+
     .settings-collapse-header {
         padding: 14px 16px;
     }
@@ -2758,7 +2776,51 @@ h1 span {
     }
 
     .settings-field {
-        min-width: 100px;
+        min-width: 0;
+        width: 100%;
+    }
+
+    .settings-field.full {
+        width: 100%;
+    }
+
+    .settings-field label,
+    .settings-hint {
+        overflow-wrap: anywhere;
+    }
+
+    .settings-btn-row {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+
+    .settings-btn-row > * {
+        width: 100%;
+        min-width: 0;
+    }
+
+    #api-connect-row {
+        justify-content: flex-start !important;
+    }
+
+    #api-connect-row .chk-label.compact {
+        justify-content: flex-start !important;
+        white-space: normal !important;
+        flex-wrap: wrap;
+    }
+
+    #l0-api-key-row .settings-field > div,
+    #embedding-api-key-row .settings-field > div,
+    #rerank-api-key-row .settings-field > div {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+
+    #l0-api-key-row button,
+    #embedding-api-key-row button,
+    #rerank-api-key-row button {
+        width: 100%;
+        min-width: 0 !important;
     }
 }
 
