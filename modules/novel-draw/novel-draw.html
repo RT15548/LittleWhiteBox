@@ -949,9 +949,11 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                     <textarea id="nd_prompt_format" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
-                <div class="btn-group" style="margin-top:16px;display:flex;gap:12px;">
+                <div class="btn-group" style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">
                     <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                     <button id="nd_prompts_reset_all" class="btn btn-danger"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
+                    <button id="nd_prompts_export" class="btn"><i class="fa-solid fa-download"></i> 导出模板</button>
+                    <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入模板<input type="file" id="nd_prompts_import" accept=".json" style="display:none;"></label>
                 </div>
 
                 <!-- 消息链结构预览 -->
@@ -2455,6 +2457,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 提示词模板
     $('nd_prompts_save').addEventListener('click', () => {
+        setSavingState($('nd_prompts_save'));
         const defaults = state._defaultPrompts || {};
         const sys = $('nd_prompt_system').value;
         const guide = $('nd_prompt_guide').value;
@@ -2489,6 +2492,41 @@ document.addEventListener('DOMContentLoaded', () => {
         }});
     });
 
+    $('nd_prompts_export').addEventListener('click', () => {
+        const data = {
+            _type: 'novel-draw-prompt-template',
+            _version: 1,
+            topSystem: $('nd_prompt_system').value,
+            tagGuideContent: $('nd_prompt_guide').value,
+            userJsonFormat: $('nd_prompt_format').value,
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'novel-draw-prompts.json';
+        a.click();
+        URL.revokeObjectURL(a.href);
+    });
+
+    $('nd_prompts_import').addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            if (data._type !== 'novel-draw-prompt-template') {
+                throw new Error('不是有效的提示词模板文件');
+            }
+            if (typeof data.topSystem === 'string') $('nd_prompt_system').value = data.topSystem;
+            if (typeof data.tagGuideContent === 'string') $('nd_prompt_guide').value = data.tagGuideContent;
+            if (typeof data.userJsonFormat === 'string') $('nd_prompt_format').value = data.userJsonFormat;
+            alert('导入成功，请点击「保存」以生效');
+        } catch (err) {
+            alert('导入失败: ' + err.message);
+        }
+        e.target.value = '';
+    });
+
     // 消息链可视化
     $('nd_chain_toggle').addEventListener('click', () => {
         const container = $('nd_prompt_chain');
@@ -2519,6 +2557,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     $('nd_wb_save').addEventListener('click', () => {
+        setSavingState($('nd_wb_save'));
         const uploaded = state.worldbooks?.uploadedBooks || [];
         postToParent({ type: 'SAVE_WORLDBOOK_CONFIG', worldbooks: {
             enabled: uploaded.length > 0,
