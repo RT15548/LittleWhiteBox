@@ -195,7 +195,7 @@ export async function incrementalExtractAtoms(chatId, chat, onProgress, options 
         }
 
         try {
-            const atoms = await extractAtomsForRound(pair.userMsg, pair.aiMsg, floor, { timeout: 40000 });
+            const atoms = await extractAtomsForRound(pair.userMsg, pair.aiMsg, floor, { timeout: 60000 });
 
             if (extractionCancelled) return;
 
@@ -382,7 +382,7 @@ async function processQueue() {
         const { aiFloor, aiMessage, userMessage, chatId, onComplete } = extractionQueue.shift();
 
         try {
-            const atoms = await extractAtomsForRound(userMessage, aiMessage, aiFloor, { timeout: 12000 });
+            const atoms = await extractAtomsForRound(userMessage, aiMessage, aiFloor, { timeout: 60000 });
 
             if (!atoms?.length) {
                 xbLog.info(MODULE_ID, `floor ${aiFloor}: 无有效 atoms`);
