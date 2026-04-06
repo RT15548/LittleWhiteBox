@@ -2496,6 +2496,12 @@ document.addEventListener('DOMContentLoaded', () => {
     $('nd_prompt_preset').addEventListener('change', () => {
         state.selectedPromptPresetId = $('nd_prompt_preset').value;
         postToParent({ type: 'SELECT_PROMPT_PRESET', id: state.selectedPromptPresetId });
+        // 从新选中的预设加载文本框内容
+        const defaults = state._defaultPrompts || {};
+        const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId) || {};
+        $('nd_prompt_system').value = activePreset.topSystem ?? defaults.topSystem ?? '';
+        $('nd_prompt_guide').value = activePreset.tagGuideContent ?? defaults.tagGuideContent ?? '';
+        $('nd_prompt_format').value = activePreset.userJsonFormat ?? defaults.userJsonFormat ?? '';
     });
 
     $('nd_prompt_preset_save').addEventListener('click', () => {

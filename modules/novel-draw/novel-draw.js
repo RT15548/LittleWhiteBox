@@ -23,6 +23,7 @@ import {
     generateScenePlan,
     parseImagePlan,
     DEFAULT_PROMPT_CONFIG,
+    LEGACY_USER_JSON_FORMAT,
     getLoadedTagGuide,
 } from './llm-service.js';
 import { WorldbookProcessor } from './worldbook-processor.js';
@@ -380,17 +381,19 @@ function normalizeSettings(saved) {
     // ── 提示词预设迁移 ──
     if (!Array.isArray(merged.promptPresets)) merged.promptPresets = [];
     if (!merged.promptPresets.length) {
-        // 从旧 customPrompts 迁移或创建默认
+        const id1 = generateSlotId();
+        const id2 = generateSlotId();
         const cp = merged.customPrompts || {};
-        const id = generateSlotId();
-        merged.promptPresets = [{
-            id,
-            name: '默认1',
-            topSystem: cp.topSystem || null,
-            tagGuideContent: cp.tagGuideContent || null,
-            userJsonFormat: cp.userJsonFormat || null,
-        }];
-        merged.selectedPromptPresetId = id;
+        merged.promptPresets = [
+            // 默认1：世界书迁移版（null → 使用 LLM_PROMPT_CONFIG 新默认）
+            { id: id1, name: '默认1', topSystem: null, tagGuideContent: null, userJsonFormat: null },
+            // 默认2：旧版提示词（保留原始内容，不受新默认影响）
+            { id: id2, name: '默认2',
+              topSystem: cp.topSystem || null,
+              tagGuideContent: cp.tagGuideContent || null,
+              userJsonFormat: cp.userJsonFormat || LEGACY_USER_JSON_FORMAT },
+        ];
+        merged.selectedPromptPresetId = id1;
     }
     if (!merged.selectedPromptPresetId) merged.selectedPromptPresetId = merged.promptPresets[0]?.id;
 
@@ -547,17 +550,18 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
 
         if (known) {
             const naiTag = known.danbooruTag ? danbooruToNai(known.danbooruTag) : '';
+            const defaultCenter = { x: known.posX ?? 0.5, y: known.posY ?? 0.5 };
             return {
                 prompt: joinTags(naiTag, known.type, known.appearance, char.costume, char.action, char.interact),
-                uc: known.negativeTags || '',
-                center: { x: known.posX ?? 0.5, y: known.posY ?? 0.5 }
+                uc: joinTags(known.negativeTags, char.uc),
+                center: gridToCoord(char.center) || defaultCenter
             };
         } else {
             const naiTag = char.danbooru ? danbooruToNai(char.danbooru) : '';
             return {
                 prompt: joinTags(naiTag, char.type, char.appear, char.costume, char.action, char.interact),
-                uc: '',
-                center: { x: 0.5, y: 0.5 }
+                uc: char.uc || '',
+                center: gridToCoord(char.center) || { x: 0.5, y: 0.5 }
             };
         }
     });
@@ -627,6 +631,17 @@ function autoLearnFromTasks(tasks, settings) {
 
     settings.characterTags = knownTags;
     return result;
+}
+
+// ── 5x5 网格坐标 → NAI 浮点映射 ──────────────────────────────────
+const GRID_COL = { A: 0.1, B: 0.3, C: 0.5, D: 0.7, E: 0.9 };
+const GRID_ROW = { 1: 0.1, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.9 };
+
+function gridToCoord(grid) {
+    if (!grid || typeof grid !== 'string') return null;
+    const m = grid.trim().toUpperCase().match(/^([A-E])([1-5])$/);
+    if (!m) return null;
+    return { x: GRID_COL[m[1]], y: GRID_ROW[m[2]] };
 }
 
 function countFields(char) {
@@ -823,7 +838,7 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
             legacy: false,
             add_original_image: true,
             legacy_v3_extend: false,
-            use_coords: false,
+            use_coords: characterPrompts.some(cp => cp.center && (cp.center.x !== 0.5 || cp.center.y !== 0.5)),
             legacy_uc: false,
             normalize_reference_strength_multiple: true,
             inpaintImg2ImgStrength: 1,
@@ -842,7 +857,7 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
                     base_caption: String(scene || ''),
                     char_captions: charCaptions
                 },
-                use_coords: false,
+                use_coords: characterPrompts.some(cp => cp.center && (cp.center.x !== 0.5 || cp.center.y !== 0.5)),
                 use_order: true
             },
             v4_negative_prompt: {
