@@ -279,8 +279,8 @@ function isMessageBeingEdited(messageId) {
 function abortGeneration() {
     if (generationAbortController) {
         generationAbortController.abort();
-        generationAbortController = null;
-        autoBusy = false;
+        // controller 由 generateAndInsertImages 的 finally 块清除
+        // autoBusy 由 autoGenerateForLastAI 的 finally 块清除
         return true;
     }
     return false;
@@ -2059,6 +2059,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         }
 
         const initialChatId = ctx.chatId;
+        const originalMes = message.mes; // 修改前备份，abort 时可回滚
         message.mes = message.mes.replace(PLACEHOLDER_REGEX, '');
 
         onStateChange?.('gen', { current: 0, total: tasks.length });
@@ -2187,6 +2188,26 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         }
 
         if (signal.aborted) {
+            // ── abort 清理：恢复内容 / 同步 DOM / 保存 ──
+            const abortCtx = getContext();
+            const abortMsgValid = abortCtx.chatId === initialChatId && abortCtx.chat?.[messageId] === message;
+
+            if (successCount === 0) {
+                // 没有任何成功的图 → 完全回滚到原始内容
+                message.mes = originalMes;
+            }
+
+            if (abortMsgValid && !isMessageBeingEdited(messageId)) {
+                try {
+                    const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
+                    $(`[mesid="${messageId}"] .mes_text`).html(formatted);
+                    await renderPreviewsForMessage(messageId);
+                } catch (e) {
+                    console.warn('[NovelDraw] abort DOM 同步失败:', e);
+                }
+                abortCtx.saveChat?.().catch(() => {});
+            }
+
             onStateChange?.('success', { success: successCount, total: tasks.length, aborted: true });
             return { success: successCount, total: tasks.length, results, aborted: true };
         }
@@ -3076,12 +3097,20 @@ export async function initNovelDraw() {
     events.on(event_types.MESSAGE_EDITED, handleMessageModified);
     events.on(event_types.MESSAGE_UPDATED, handleMessageModified);
     events.on(event_types.MESSAGE_SWIPED, handleMessageModified);
-    events.on(event_types.GENERATION_ENDED, async () => { 
-        try { 
-            await autoGenerateForLastAI(); 
-        } catch (e) { 
-            console.error('[NovelDraw]', e); 
-        } 
+    events.on(event_types.GENERATION_ENDED, async () => {
+        try {
+            await autoGenerateForLastAI();
+        } catch (e) {
+            console.error('[NovelDraw]', e);
+        }
+    });
+
+    // ST 停止键 / Escape → 同时中止 novel-draw 生成
+    events.on(event_types.GENERATION_STOPPED, () => {
+        if (isGenerating()) {
+            console.log('[NovelDraw] ST 停止信号，中止图片生成');
+            abortGeneration();
+        }
     });
 
     // 聊天切换时重新创建面板
