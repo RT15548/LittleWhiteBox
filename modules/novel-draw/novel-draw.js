@@ -515,16 +515,16 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
         );
 
         if (known) {
-
+            const naiTag = known.danbooruTag ? danbooruToNai(known.danbooruTag) : '';
             return {
-                prompt: joinTags(known.type, known.appearance, char.costume, char.action, char.interact),
+                prompt: joinTags(naiTag, known.type, known.appearance, char.costume, char.action, char.interact),
                 uc: known.negativeTags || '',
                 center: { x: known.posX ?? 0.5, y: known.posY ?? 0.5 }
             };
         } else {
-
+            const naiTag = char.danbooru ? danbooruToNai(char.danbooru) : '';
             return {
-                prompt: joinTags(char.type, char.appear, char.costume, char.action, char.interact),
+                prompt: joinTags(naiTag, char.type, char.appear, char.costume, char.action, char.interact),
                 uc: '',
                 center: { x: 0.5, y: 0.5 }
             };
@@ -570,7 +570,7 @@ function autoLearnFromTasks(tasks, settings) {
                 type: char.type || 'girl',
                 appearance: char.appear || '',
                 negativeTags: '',
-                danbooruTag: '',
+                danbooruTag: char.danbooru || '',
                 posX: 0.5,
                 posY: 0.5,
             });
@@ -586,6 +586,10 @@ function autoLearnFromTasks(tasks, settings) {
                 found.type = char.type;
                 updated = true;
             }
+            if (!found.danbooruTag && char.danbooru) {
+                found.danbooruTag = char.danbooru;
+                updated = true;
+            }
             if (updated) result.updatedChars.push(found.name);
         }
     }
@@ -595,7 +599,7 @@ function autoLearnFromTasks(tasks, settings) {
 }
 
 function countFields(char) {
-    return ['type', 'appear', 'costume', 'action', 'interact']
+    return ['type', 'appear', 'costume', 'action', 'interact', 'danbooru']
         .filter(f => char[f]).length;
 }
 
@@ -624,7 +628,7 @@ const DANBOORU_TAG_BLOCKLIST = new Set([
 const danbooruTagCache = new Map();
 
 function danbooruToNai(tag) {
-    return tag.replace(/_\(.*?\)$/, '').replace(/_/g, ' ');
+    return tag.replace(/_/g, ' ');
 }
 
 const DANBOORU_TIMEOUT = 15000;
@@ -2006,8 +2010,9 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 console.warn('[NovelDraw] 聊天已切换，中止生成');
                 break;
             }
-            if (!currentCtx.chat?.[messageId]) {
-                console.warn('[NovelDraw] 消息已删除，中止生成');
+            const currentMsg = currentCtx.chat?.[messageId];
+            if (!currentMsg || currentMsg !== message) {
+                console.warn('[NovelDraw] 消息已删除或被替换，中止生成');
                 break;
             }
 
@@ -2067,8 +2072,8 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             if (signal.aborted) break;
 
             const msgCheck = getContext().chat?.[messageId];
-            if (!msgCheck) {
-                console.warn('[NovelDraw] 消息已删除，跳过占位符插入');
+            if (!msgCheck || msgCheck !== message) {
+                console.warn('[NovelDraw] 消息已删除或被替换（swipe/重新生成），停止生图');
                 break;
             }
 
@@ -2092,7 +2097,8 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             // ── 增量渲染：每张图完成后立即显示 ──
             try {
                 const incCtx = getContext();
-                if (incCtx.chatId === initialChatId && incCtx.chat?.[messageId] && !isMessageBeingEdited(messageId)) {
+                const incMsg = incCtx.chat?.[messageId];
+                if (incCtx.chatId === initialChatId && incMsg === message && !isMessageBeingEdited(messageId)) {
                     const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
                     $(`[mesid="${messageId}"] .mes_text`).html(formatted);
                     await renderPreviewsForMessage(messageId);
@@ -2119,7 +2125,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         const finalCtx = getContext();
         const shouldUpdateDom = finalCtx.chatId === initialChatId &&
-            finalCtx.chat?.[messageId] &&
+            finalCtx.chat?.[messageId] === message &&
             !isMessageBeingEdited(messageId);
 
         if (shouldUpdateDom) {

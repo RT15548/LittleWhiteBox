@@ -138,6 +138,7 @@ images:  //根据visual_plan
     scene: Xgirls, Yboys, background(时空、主题等), Detailed Environmental Elements, atmosphere
     characters: //如纯场景图则为[]
       - name: 角色名
+        danbooru: danbooru_character_tag_(series) (如果是已知二次元/游戏角色，填写其 Danbooru character tag；原创角色留空字符串 "")
         type: girl|boy|woman|man|other (仅未知角色需要)
         appear: hair, eyes, body (仅未知角色，使用Tags)
         costume: 服装描述 (每张图完整输出当前穿着、颜色，注意剧情变化)
@@ -146,8 +147,9 @@ images:  //根据visual_plan
 \`\`\`
 ## NOTED：
 - anchor must be exact substring from source text
-- Known characters: output name + costume + action + interact only
-- Unknown characters: include type + appear
+- Known characters: output name + danbooru + costume + action + interact only
+- Unknown characters: always include type + appear + costume + action + interact. Additionally, fill in danbooru if the character is recognizable as an existing anime/game character
+- danbooru field: Use Danbooru character tag format with underscores, e.g. hatsune_miku, kafka_(honkai:_star_rail), rem_(re:zero). Leave "" for original characters. Always output this field for recognizable anime/game characters regardless of whether they are known or unknown
 - Interactions must be paired (source# ↔ target#)
 - Output single valid YAML
 `,
@@ -313,7 +315,7 @@ export function buildCharacterInfoForLLM(presentCharacters) {
     const lines = presentCharacters.map(c => {
         const aliases = c.aliases?.length ? ` (别名: ${c.aliases.join(', ')})` : '';
         const type = c.type || 'girl';
-        return `- ${c.name}${aliases} [${type}]: 外貌已预设，只需输出 action + interact`;
+        return `- ${c.name}${aliases} [${type}]: 外貌已预设，只需输出 danbooru + costume + action + interact`;
     });
 
     return `【已录入角色】(不要输出这些角色的 appear):
@@ -545,7 +547,7 @@ function parseCharacterBlock(block) {
     if (!name) return null;
 
     const char = { name };
-    const optionalFields = ['type', 'appear', 'costume', 'action', 'interact'];
+    const optionalFields = ['danbooru', 'type', 'appear', 'costume', 'action', 'interact'];
     for (const field of optionalFields) {
         const value = extractStrField(block, field);
         if (value) char[field] = value;
@@ -631,6 +633,7 @@ function normalizeImageTasks(images) {
         for (const c of chars) {
             if (!c?.name) continue;
             const char = { name: String(c.name).trim() };
+            if (c.danbooru) char.danbooru = String(c.danbooru).trim();
             if (c.type) char.type = String(c.type).trim().toLowerCase();
             if (c.appear) char.appear = String(c.appear).trim();
             if (c.costume) char.costume = String(c.costume).trim();
