@@ -426,6 +426,17 @@ function getSettings() {
         console.warn('[NovelDraw] 设置未加载，使用默认值');
         settingsCache = normalizeSettings({});
     }
+    // 防御性检查：确保提示词预设始终存在
+    if (!settingsCache.promptPresets?.length) {
+        console.warn('[NovelDraw] promptPresets 为空，重新创建');
+        const id1 = generateSlotId();
+        const id2 = generateSlotId();
+        settingsCache.promptPresets = [
+            { id: id1, name: '默认1', topSystem: null, tagGuideContent: null, userJsonFormat: null },
+            { id: id2, name: '默认2', topSystem: null, tagGuideContent: null, userJsonFormat: LEGACY_USER_JSON_FORMAT },
+        ];
+        settingsCache.selectedPromptPresetId = id1;
+    }
     return settingsCache;
 }
 
@@ -569,6 +580,30 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
 
 // ── 角色自动学习 ─────────────────────────────────────────────
 
+/** 通用/匿名角色名过滤：这些名字不应被学习为固定角色 */
+const GENERIC_NAME_PATTERNS = [
+    // 中文通用/匿名
+    /^未知/, /^路人/, /^路边/, /^陌生/, /^无名/, /^某[个位]/,
+    /^女[人性孩][A-Za-z0-9]?$/,  // 女人A, 女性, 女孩B
+    /^男[人性孩][A-Za-z0-9]?$/,  // 男人, 男性1, 男孩
+    /^少[女男年][A-Za-z0-9]?$/,  // 少女A, 少年
+    /^大[叔妈姐哥][A-Za-z0-9]?$/, // 大叔, 大姐B
+    /^老[人头大妇][A-Za-z0-9]?$/,
+    /^[女男人]$/,                 // 单字
+    /^角色[0-9A-Za-z]*$/, /^人物[0-9A-Za-z]*$/,
+    /^配角/, /^NPC/i, /^mob/i,
+    /^[男女][0-9]+$/,             // 男1, 女2
+    // 英文通用
+    /^faceless/i, /^unnamed/i, /^unknown/i, /^random/i,
+    /^stranger/i, /^passerby/i, /^bystander/i,
+    /^(?:girl|boy|woman|man|person|male|female)\s*[A-Za-z0-9]?$/i,
+];
+
+function isGenericCharName(name) {
+    if (!name || name.trim().length <= 1) return true;
+    return GENERIC_NAME_PATTERNS.some(p => p.test(name.trim()));
+}
+
 function autoLearnFromTasks(tasks, settings) {
     const result = { newChars: [], updatedChars: [] };
     if (!tasks?.length) return result;
@@ -578,6 +613,7 @@ function autoLearnFromTasks(tasks, settings) {
     for (const task of tasks) {
         for (const char of (task.chars || [])) {
             if (!char.name || (!char.type && !char.appear)) continue;
+            if (isGenericCharName(char.name)) continue; // 跳过通用/匿名名字
             const key = char.name.toLowerCase();
             const existing = charMap.get(key);
             if (!existing || countFields(char) > countFields(existing)) {
