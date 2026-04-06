@@ -119,6 +119,7 @@ let settingsLoaded = false;
 let generationAbortController = null;
 let messageObserver = null;
 let ensureNovelDrawPanelRef = null;
+let overlayResizeHandler = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 样式
@@ -494,9 +495,13 @@ async function notifySettingsUpdated() {
 async function ensureJSZip() {
     if (window.JSZip) return window.JSZip;
     if (jsZipLoaded) {
-        await new Promise(r => {
+        // 另一个调用者已发起加载 — 等待完成，但加超时防止无限挂起
+        await new Promise((resolve, reject) => {
+            let waited = 0;
             const c = setInterval(() => {
-                if (window.JSZip) { clearInterval(c); r(); }
+                if (window.JSZip) { clearInterval(c); resolve(); return; }
+                waited += 50;
+                if (waited > 15000) { clearInterval(c); reject(new NovelDrawError('JSZip 加载超时', ErrorType.NETWORK)); }
             }, 50);
         });
         return window.JSZip;
@@ -506,7 +511,7 @@ async function ensureJSZip() {
         const s = document.createElement('script');
         s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
         s.onload = () => resolve(window.JSZip);
-        s.onerror = () => reject(new NovelDrawError('JSZip 加载失败', ErrorType.NETWORK));
+        s.onerror = () => { jsZipLoaded = false; reject(new NovelDrawError('JSZip 加载失败', ErrorType.NETWORK)); };
         document.head.appendChild(s);
     });
 }
@@ -1265,92 +1270,93 @@ async function handleLiveToggle(container) {
     }
 }
 
+async function handleDelegatedClick(e) {
+    const container = e.target.closest('.xb-nd-img');
+    if (!container) {
+        if (document.querySelector('.xb-nd-menu-wrap.open')) {
+            const clickedMenuWrap = e.target.closest('.xb-nd-menu-wrap');
+            if (!clickedMenuWrap) {
+                document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => w.classList.remove('open'));
+            }
+        }
+        return;
+    }
+
+    const actionEl = e.target.closest('[data-action]');
+    const action = actionEl?.dataset?.action;
+    if (!action) return;
+
+    e.preventDefault();
+    e.stopImmediatePropagation();
+
+    switch (action) {
+        case 'toggle-menu': {
+            const wrap = container.querySelector('.xb-nd-menu-wrap');
+            if (!wrap) break;
+            document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => {
+                if (w !== wrap) w.classList.remove('open');
+            });
+            wrap.classList.toggle('open');
+            break;
+        }
+        case 'open-gallery':
+            await handleImageClick(container);
+            break;
+        case 'refresh-image':
+            container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
+            await refreshSingleImage(container);
+            break;
+        case 'save-image':
+            container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
+            await saveSingleImage(container);
+            break;
+        case 'edit-tags':
+            container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
+            toggleEditPanel(container, true);
+            break;
+        case 'save-tags':
+            await saveEditedTags(container);
+            break;
+        case 'cancel-edit':
+            toggleEditPanel(container, false);
+            break;
+        case 'retry-image':
+            await retryFailedImage(container);
+            break;
+        case 'save-tags-retry':
+            await saveTagsAndRetry(container);
+            break;
+        case 'remove-placeholder':
+            await removePlaceholder(container);
+            break;
+        case 'delete-image':
+            container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
+            await deleteCurrentImage(container);
+            break;
+        case 'nav-prev': {
+            const i = parseInt(container.dataset.currentIndex) || 0;
+            const t = parseInt(container.dataset.historyCount) || 1;
+            if (i < t - 1) await navigateToImage(container, i + 1);
+            break;
+        }
+        case 'nav-next': {
+            const i = parseInt(container.dataset.currentIndex) || 0;
+            if (i > 0) await navigateToImage(container, i - 1);
+            else await refreshSingleImage(container);
+            break;
+        }
+        case 'toggle-live': {
+            handleLiveToggle(container);
+            break;
+        }
+    }
+}
+
 function setupEventDelegation() {
     if (window._xbNovelEventsBound) return;
     window._xbNovelEventsBound = true;
 
-    document.addEventListener('click', async (e) => {
-        const container = e.target.closest('.xb-nd-img');
-        if (!container) {
-            if (document.querySelector('.xb-nd-menu-wrap.open')) {
-                const clickedMenuWrap = e.target.closest('.xb-nd-menu-wrap');
-                if (!clickedMenuWrap) {
-                    document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => w.classList.remove('open'));
-                }
-            }
-            return;
-        }
-
-        const actionEl = e.target.closest('[data-action]');
-        const action = actionEl?.dataset?.action;
-        if (!action) return;
-
-        e.preventDefault();
-        e.stopImmediatePropagation();
-
-        switch (action) {
-            case 'toggle-menu': {
-                const wrap = container.querySelector('.xb-nd-menu-wrap');
-                if (!wrap) break;
-                document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => {
-                    if (w !== wrap) w.classList.remove('open');
-                });
-                wrap.classList.toggle('open');
-                break;
-            }
-            case 'open-gallery':
-                await handleImageClick(container);
-                break;
-            case 'refresh-image':
-                container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
-                await refreshSingleImage(container);
-                break;
-            case 'save-image':
-                container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
-                await saveSingleImage(container);
-                break;
-            case 'edit-tags':
-                container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
-                toggleEditPanel(container, true);
-                break;
-            case 'save-tags':
-                await saveEditedTags(container);
-                break;
-            case 'cancel-edit':
-                toggleEditPanel(container, false);
-                break;
-            case 'retry-image':
-                await retryFailedImage(container);
-                break;
-            case 'save-tags-retry':
-                await saveTagsAndRetry(container);
-                break;
-            case 'remove-placeholder':
-                await removePlaceholder(container);
-                break;
-            case 'delete-image':
-                container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
-                await deleteCurrentImage(container);
-                break;
-            case 'nav-prev': {
-                const i = parseInt(container.dataset.currentIndex) || 0;
-                const t = parseInt(container.dataset.historyCount) || 1;
-                if (i < t - 1) await navigateToImage(container, i + 1);
-                break;
-            }
-            case 'nav-next': {
-                const i = parseInt(container.dataset.currentIndex) || 0;
-                if (i > 0) await navigateToImage(container, i - 1);
-                else await refreshSingleImage(container);
-                break;
-            }
-            case 'toggle-live': {
-                handleLiveToggle(container);
-                break;
-            }
-        }
-    }, { capture: true });
-
+    document.addEventListener('click', handleDelegatedClick, { capture: true });
     document.addEventListener('touchstart', handleTouchStart, { passive: true });
     document.addEventListener('touchmove', handleTouchMove, { passive: false });
     document.addEventListener('touchend', handleTouchEnd, { passive: true });
@@ -2425,6 +2431,7 @@ function createOverlay() {
             overlay.style.height = `${window.innerHeight}px`;
         }
     };
+    overlayResizeHandler = updateHeight;
     window.addEventListener('resize', updateHeight);
     if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', updateHeight);
@@ -2468,10 +2475,13 @@ function hideOverlay() {
 async function sendInitData() {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (!iframe?.contentWindow) return;
-    const stats = await getCacheStats();
+    // getCacheStats / getGallerySummary 依赖 IndexedDB，可能静默失败
+    // 即使失败也必须发送 INIT_DATA，否则 iframe 永远停留在空白状态
+    let stats = { count: 0, sizeMB: 0 };
+    let gallerySummary = {};
+    try { stats = await getCacheStats(); } catch (e) { console.warn('[NovelDraw] getCacheStats failed:', e); }
+    try { gallerySummary = await getGallerySummary(); } catch (e) { console.warn('[NovelDraw] getGallerySummary failed:', e); }
     const settings = getSettings();
-    console.log('[NovelDraw] sendInitData — promptPresets:', settings.promptPresets?.length, settings.promptPresets?.map(p => p.name));
-    const gallerySummary = await getGallerySummary();
     postToIframe(iframe, {
         type: 'INIT_DATA',
         settings: {
@@ -2702,25 +2712,8 @@ async function handleFrameMessage(event) {
         case 'SAVE_ADVANCED_MODE': {
             const s = getSettings();
             s.advancedMode = !!data.advancedMode;
+            // 仅持久化，不回传 INIT_DATA — iframe 已在本地完成 UI 切换
             await saveSettingsAndToast(s, s.advancedMode ? '高级模式已开启' : '高级模式已关闭');
-            sendInitData();
-            break;
-        }
-
-        case 'SAVE_CUSTOM_PROMPTS': {
-            const s = getSettings();
-            // 兼容：同时写入 customPrompts 和当前激活的 promptPreset
-            if (data.customPrompts && typeof data.customPrompts === 'object') {
-                s.customPrompts = { ...s.customPrompts, ...data.customPrompts };
-                const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
-                if (active) {
-                    if (data.customPrompts.topSystem !== undefined) active.topSystem = data.customPrompts.topSystem;
-                    if (data.customPrompts.tagGuideContent !== undefined) active.tagGuideContent = data.customPrompts.tagGuideContent;
-                    if (data.customPrompts.userJsonFormat !== undefined) active.userJsonFormat = data.customPrompts.userJsonFormat;
-                }
-            }
-            await saveSettingsAndToast(s, '提示词模板已保存');
-            sendInitData();
             break;
         }
 
@@ -2755,8 +2748,9 @@ async function handleFrameMessage(event) {
                         userJsonFormat: active.userJsonFormat,
                     };
                 }
+                // 仅持久化，不回传 INIT_DATA — iframe 已在 change handler 中完成 UI 更新
+                // 避免 sendInitData 的异步延迟导致下拉框 innerHTML 全量重建引起状态闪烁
                 await saveSettingsAndToast(s, '已切换预设');
-                sendInitData();
             }
             break;
         }
@@ -2811,6 +2805,10 @@ async function handleFrameMessage(event) {
 
         case 'SAVE_PROMPT_PRESET': {
             const s = getSettings();
+            // 同步 iframe 传来的选中 ID（确保保存到正确的预设）
+            if (data.selectedPromptPresetId && s.promptPresets.some(p => p.id === data.selectedPromptPresetId)) {
+                s.selectedPromptPresetId = data.selectedPromptPresetId;
+            }
             const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
             if (active && data.customPrompts && typeof data.customPrompts === 'object') {
                 const cp = data.customPrompts;
@@ -3054,22 +3052,6 @@ export async function openNovelDrawSettings() {
     showOverlay();
 }
 
-// eslint-disable-next-line no-unused-vars
-function renderExistingPanels() {
-    if (typeof ensureNovelDrawPanelRef !== 'function') return;
-    const context = getContext();
-    const chat = context.chat || [];
-    
-    chat.forEach((message, messageId) => {
-        if (!message || message.is_user) return;  // 跳过用户消息
-        
-        const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
-        if (!messageEl) return;
-        
-        ensureNovelDrawPanelRef(messageEl, messageId);
-    });
-}
-
 export async function initNovelDraw() {
     if (window?.isXiaobaixEnabled === false) return;
 
@@ -3213,6 +3195,17 @@ export async function cleanupNovelDraw() {
     }
 
     window.removeEventListener('message', handleFrameMessage);
+    // 移除事件委托监听器（防止累积泄漏）
+    document.removeEventListener('click', handleDelegatedClick, { capture: true });
+    document.removeEventListener('touchstart', handleTouchStart, { passive: true });
+    document.removeEventListener('touchmove', handleTouchMove, { passive: false });
+    document.removeEventListener('touchend', handleTouchEnd, { passive: true });
+    // 移除 overlay resize 监听器
+    if (overlayResizeHandler) {
+        window.removeEventListener('resize', overlayResizeHandler);
+        window.visualViewport?.removeEventListener('resize', overlayResizeHandler);
+        overlayResizeHandler = null;
+    }
     document.getElementById('xiaobaix-novel-draw-overlay')?.remove();
 
     // 动态导入并清理

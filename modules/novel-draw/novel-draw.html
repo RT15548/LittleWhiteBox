@@ -1811,21 +1811,6 @@ function applyAdvancedMode() {
     $('nd_advanced_mode').checked = adv;
     document.body.classList.toggle('advanced-mode', adv);
 
-    // 提示词预设下拉列表
-    const presets = state.promptPresets || [];
-    console.log('[ND-UI] applyAdvancedMode — promptPresets:', presets.length, JSON.stringify(presets.map(p => ({ id: p.id?.slice(0,8), name: p.name }))));
-    const ppSel = $('nd_prompt_preset');
-    ppSel.innerHTML = presets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
-    ppSel.value = state.selectedPromptPresetId || '';
-
-    // 提示词模板 — 从当前激活的预设加载
-    const defaults = state._defaultPrompts || {};
-    const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId) || (state.promptPresets || [])[0];
-    const custom = activePreset || state.customPrompts || {};
-    $('nd_prompt_system').value = custom.topSystem ?? defaults.topSystem ?? '';
-    $('nd_prompt_guide').value = custom.tagGuideContent ?? defaults.tagGuideContent ?? '';
-    $('nd_prompt_format').value = custom.userJsonFormat ?? defaults.userJsonFormat ?? '';
-
     // 世界书
     const wb = state.worldbooks || {};
     $('nd_wb_filter_mode').value = wb.keywordFilterMode || 'auto';
@@ -1997,6 +1982,14 @@ function applyStateToUI() {
         pSel.value = state.selectedParamsPresetId || '';
 
         applyParamsPreset();
+
+        // 提示词预设下拉框 — 与参数预设完全一致的填充模式
+        const ppSel = $('nd_prompt_preset');
+        const presets = state.promptPresets || [];
+        ppSel.innerHTML = presets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
+        ppSel.value = state.selectedPromptPresetId || '';
+        applyPromptPreset();
+
         applyLlmApi();
         renderCharList();
         renderGalleryView();
@@ -2048,6 +2041,16 @@ function applyParamsPreset() {
     $('nd_decrisper').checked = pm.decrisper ?? dp.decrisper;
     
     updateModelOptions();
+}
+
+/** 纯本地：从当前选中的提示词预设加载 textarea 内容（对标 applyParamsPreset） */
+function applyPromptPreset() {
+    const defaults = state._defaultPrompts || {};
+    const presets = state.promptPresets || [];
+    const active = presets.find(p => p.id === state.selectedPromptPresetId) || presets[0] || {};
+    $('nd_prompt_system').value = active.topSystem ?? defaults.topSystem ?? '';
+    $('nd_prompt_guide').value = active.tagGuideContent ?? defaults.tagGuideContent ?? '';
+    $('nd_prompt_format').value = active.userJsonFormat ?? defaults.userJsonFormat ?? '';
 }
 
 function applyLlmApi() {
@@ -2500,20 +2503,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // ═══════════════════════════════════════════════════════════════════════
     $('nd_advanced_mode').addEventListener('change', () => {
         const adv = $('nd_advanced_mode').checked;
+        state.advancedMode = adv;
         document.body.classList.toggle('advanced-mode', adv);
         postToParent({ type: 'SAVE_ADVANCED_MODE', advancedMode: adv });
     });
 
-    // 提示词预设管理
+    // 提示词预设管理 — 纯本地切换，与参数预设一致
     $('nd_prompt_preset').addEventListener('change', () => {
         state.selectedPromptPresetId = $('nd_prompt_preset').value;
-        postToParent({ type: 'SELECT_PROMPT_PRESET', id: state.selectedPromptPresetId });
-        // 从新选中的预设加载文本框内容
-        const defaults = state._defaultPrompts || {};
-        const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId) || {};
-        $('nd_prompt_system').value = activePreset.topSystem ?? defaults.topSystem ?? '';
-        $('nd_prompt_guide').value = activePreset.tagGuideContent ?? defaults.tagGuideContent ?? '';
-        $('nd_prompt_format').value = activePreset.userJsonFormat ?? defaults.userJsonFormat ?? '';
+        applyPromptPreset();
     });
 
     $('nd_prompt_preset_save').addEventListener('click', () => {
@@ -2522,7 +2520,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const sys = $('nd_prompt_system').value;
         const guide = $('nd_prompt_guide').value;
         const fmt = $('nd_prompt_format').value;
-        postToParent({ type: 'SAVE_PROMPT_PRESET', customPrompts: {
+        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
             topSystem: sys === defaults.topSystem ? null : sys,
             tagGuideContent: guide === defaults.tagGuideContent ? null : guide,
             userJsonFormat: fmt === defaults.userJsonFormat ? null : fmt,
@@ -2551,7 +2549,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const sys = $('nd_prompt_system').value;
         const guide = $('nd_prompt_guide').value;
         const fmt = $('nd_prompt_format').value;
-        postToParent({ type: 'SAVE_PROMPT_PRESET', customPrompts: {
+        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
             topSystem: sys === defaults.topSystem ? null : sys,
             tagGuideContent: guide === defaults.tagGuideContent ? null : guide,
             userJsonFormat: fmt === defaults.userJsonFormat ? null : fmt,
