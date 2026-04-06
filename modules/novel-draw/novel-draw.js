@@ -717,7 +717,10 @@ const GRID_ROW = { 1: 0.1, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.9 };
 function gridToCoord(grid) {
     if (!grid || typeof grid !== 'string') return null;
     const m = grid.trim().toUpperCase().match(/^([A-E])([1-5])$/);
-    if (!m) return null;
+    if (!m) {
+        console.warn(`[NovelDraw] 无效坐标 "${grid}"，使用默认中心位置`);
+        return null;
+    }
     return { x: GRID_COL[m[1]], y: GRID_ROW[m[2]] };
 }
 

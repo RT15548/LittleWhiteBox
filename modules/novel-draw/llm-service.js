@@ -137,9 +137,9 @@ images:
   - index: 1
     anchor: 精准复制原文5-15字，句末标点（。！？…】]』””）
     scene: (分级), (角色关系+位置), (视角构图), (背景+光影)
-    characters:  //如纯场景图则为[]
+    characters:  # 如纯场景图则为[]
       - name: 角色名
-        danbooru: danbooru_tag_(series) 或 name_(original) 或 “”
+        danbooru: character_name_(series) 或 name_(original) 或 “”
         type: girl|boy|woman|man|other （仅未知角色）
         appear: 发长, 发色, 瞳色, 身体特征Tags （仅未知角色）
         costume: 完整服装/配饰Tags
@@ -187,16 +187,13 @@ images:
 - 主角详述，配角简化
 - 女角色同框仅限百合/协同，否则1女单独
 - 无角色时，物品/服装/建筑等作为主体详述，独立使用1个 Character 槽
+- 默认无名配角: type=boy, appear=faceless male
 
 ### 身份 (name + danbooru + type)
 - name: 角色名（中文原名）
-  - 有名字的角色：使用原文中的名字
-  - 无名但有辨识度的角色：用外貌/身份简述（如 银发女仆、眼镜教师）
-  - 纯路人/无特征配角：直接用「男性」「女性」即可，不要编造名字
-  - 禁止使用泛称编号：× 未知少女、女人A、路边大叔、角色1
-- danbooru: Danbooru character tag 格式（下划线连接）
-  - 同人角色: fujiwara_chika_(kaguya-sama_wa_kokurasetai)
-  - 原创角色: 中文名翻译英文_(original)，如 qiuqiu_(original)
+- danbooru: 下划线格式
+  - 同人角色: character_name_(series)
+  - 原创角色: 中文名_(original)
   - 无名配角: “”
 - type（仅未知角色）: girl / boy / woman / man / other
 - 种族判定: 人形度≥60%→girl/boy（含精灵/兽耳/天使/魅魔）；人形<50%→no humans
@@ -208,7 +205,6 @@ images:
 ### 服装/配饰 (costume) — 每张图完整输出
 - 主要: 款式 + 颜色 + 细节（材质/形状/图案/装饰/开口）+ 穿着状态
 - 次要: 款式 + 颜色
-- 穿着状态梯度: 掀起/半脱 → 无上装/拉上衣 → 无下装/仅丝袜 → 全裸 → 湿透/see-through
 - 剧情变化须反映: 换装/脱衣/撕裂/湿透
 
 ### 动作 & 表情 (action)
@@ -216,7 +212,7 @@ images:
 - 行为: running, fellatio, hug, casting spell
 - 无对象: 部位+动作（如: one hand, arm up, peace hand）
 - 有对象（肢体）: 部位+动作+位置（如: hands, covering chest by hand, hands on own chest）
-- 有对象（物品）: 部位+动作+物品描述（如: a hand, holding a staff, magic staff, glowing gem）
+- 有对象（服装/物品）: 部位+动作+位置+物品描述（如: hands, dress lift, lifted by self, hands on dress；a hand, holding a staff, magic staff, glowing gem；hands, holding a book, open book, hands on book）
 - 视线: looking at viewer, looking at another, looking away
 - 面向: facing viewer, facing down, facing another
 - 情绪: happy, shy, aroused, ahegao
@@ -228,12 +224,6 @@ images:
 多角色关键互动须添加前缀明确施动者/受动者：
 - source#动作（发起方）→ target#动作（接受方）
 - mutual#动作（互相）
-例: 角色A interact: source#kissing → 角色B interact: target#kissing
-
-### 配角处理
-- 默认无名配角: type=boy, appear=faceless male
-- 配角≤2: 各自独立 Character 条目
-- 配角＞2: 相邻位置分组合并，共用一个 Character 条目
 
 ---
 
@@ -259,6 +249,8 @@ uc 字段 = 只对该角色生效的负面 Tag：
 - 坐标可重叠（如拥抱/亲吻）
 - 坐标应反映角色在画面中的实际位置
 - 仅在角色位置偏离中心时填写非 C3 坐标
+- 配角≤2: 各自独立 Character 条目，分别配置坐标
+- 配角＞2: 相邻位置分组合并，共用一个 Character 条目和坐标
 
 ---
 
@@ -347,6 +339,7 @@ uc 字段 = 只对该角色生效的负面 Tag：
 - 其他: 开口/超短/肩带滑落/走光/曲线
 - 少女: 雪纺/薄纱/蕾丝/过膝袜/泡泡袜/褶裥
 - 熟女: 深V/开衩/镂空/紧身/乳胶
+- 穿着状态: 掀起/半脱；无上装/拉上衣；无下装/仅丝袜；全裸；湿透→see-through clothes, visible through clothes
 
 ---
 
@@ -362,12 +355,7 @@ uc 字段 = 只对该角色生效的负面 Tag：
 - anchor must be exact substring from source text
 - Known characters (已录入角色): output name + danbooru + costume + action + interact + uc + center only (禁止输出 type/appear，系统自动注入)
 - Unknown characters: always include ALL fields: type + appear + costume + action + interact + uc + center
-- danbooru: 下划线格式 (e.g. hatsune_miku, kafka_(honkai:_star_rail))；原创角色用 name_(original)；无名配角留 “”
 - Tags use spaces not underscores in output (pink hair, not pink_hair)
-- Weight syntax: n::Tag:: (e.g. 1.2::masturbation::, 0.6::trash can::)
-- Interactions must be paired (source# ↔ target#)
-- 每张图 costume 须完整描述当前穿着状态，不可省略或缩写
-- 不可见部位的 Tag 须移除或移至 uc，节省配额重分配给可见区域
 - Output single valid YAML
 
 ---
@@ -636,7 +624,7 @@ export function buildCharacterInfoForLLM(presentCharacters) {
     const lines = presentCharacters.map(c => {
         const aliases = c.aliases?.length ? ` (别名: ${c.aliases.join(', ')})` : '';
         const type = c.type || 'girl';
-        return `- ${c.name}${aliases} [${type}]: 外貌已预设，只需输出 danbooru + costume + action + interact + uc + center`;
+        return `- ${c.name}${aliases} [${type}]: 外貌已预设，只需输出 name + danbooru + costume + action + interact + uc + center`;
     });
 
     return `【已录入角色】(不要输出这些角色的 appear):
@@ -720,7 +708,7 @@ export async function generateScenePlan(options) {
         content: promptConfig.metaProtocolStart
     });
 
-    // 变量替换
+    // 变量替换（供自定义 prompt 使用；默认 prompt 通过下方 LIMITS 注入，此处为 no-op）
     let userJsonFormatContent = promptConfig.userJsonFormat;
     if (maxImages > 0) userJsonFormatContent = userJsonFormatContent.replace(/\{\{maxImages\}\}/g, String(maxImages));
     if (maxCharactersPerImage > 0) userJsonFormatContent = userJsonFormatContent.replace(/\{\{maxCharactersPerImage\}\}/g, String(maxCharactersPerImage));
