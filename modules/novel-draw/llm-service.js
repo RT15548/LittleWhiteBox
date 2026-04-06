@@ -190,6 +190,10 @@ images:
 
 ### 身份 (name + danbooru + type)
 - name: 角色名（中文原名）
+  - 有名字的角色：使用原文中的名字
+  - 无名但有辨识度的角色：用外貌/身份简述（如 银发女仆、眼镜教师）
+  - 纯路人/无特征配角：直接用「男性」「女性」即可，不要编造名字
+  - 禁止使用泛称编号：× 未知少女、女人A、路边大叔、角色1
 - danbooru: Danbooru character tag 格式（下划线连接）
   - 同人角色: fujiwara_chika_(kaguya-sama_wa_kokurasetai)
   - 原创角色: 中文名翻译英文_(original)，如 qiuqiu_(original)
