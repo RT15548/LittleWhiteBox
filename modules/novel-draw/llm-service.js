@@ -525,8 +525,10 @@ export function getEffectivePromptConfig(custom) {
     if (!custom) return LLM_PROMPT_CONFIG;
     return {
         ...LLM_PROMPT_CONFIG,
-        topSystem: custom.topSystem ?? LLM_PROMPT_CONFIG.topSystem,
-        userJsonFormat: custom.userJsonFormat ?? LLM_PROMPT_CONFIG.userJsonFormat,
+        topSystem: (typeof custom.topSystem === 'string' && custom.topSystem.trim())
+            ? custom.topSystem : LLM_PROMPT_CONFIG.topSystem,
+        userJsonFormat: (typeof custom.userJsonFormat === 'string' && custom.userJsonFormat.trim())
+            ? custom.userJsonFormat : LLM_PROMPT_CONFIG.userJsonFormat,
     };
 }
 

@@ -380,25 +380,50 @@ function normalizeSettings(saved) {
     delete merged.selectedLlmPresetId;
 
     // ── 提示词预设迁移 ──
+    // 与参数预设一致：存储实际值，不使用 null-means-default
     if (!Array.isArray(merged.promptPresets)) merged.promptPresets = [];
     if (!merged.promptPresets.length) {
         const id1 = generateSlotId();
         const id2 = generateSlotId();
         const cp = merged.customPrompts || {};
         merged.promptPresets = [
-            // 默认1：世界书迁移版（null → 使用 LLM_PROMPT_CONFIG 新默认）
-            { id: id1, name: '默认1', topSystem: null, tagGuideContent: null, userJsonFormat: null },
-            // 默认2：旧版提示词（保留原始内容，不受新默认影响）
+            { id: id1, name: '默认1',
+              topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+              tagGuideContent: null,   // 文件加载后在 initNovelDraw 中迁移
+              userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
             { id: id2, name: '默认2',
-              topSystem: cp.topSystem || null,
+              topSystem: cp.topSystem || DEFAULT_PROMPT_CONFIG.topSystem,
               tagGuideContent: cp.tagGuideContent || null,
               userJsonFormat: cp.userJsonFormat || LEGACY_USER_JSON_FORMAT },
         ];
         merged.selectedPromptPresetId = id1;
     }
+    // 迁移：将旧版 null 字段替换为具体默认值（tagGuideContent 需文件加载后处理）
+    for (const p of merged.promptPresets) {
+        if (p.topSystem == null) p.topSystem = DEFAULT_PROMPT_CONFIG.topSystem;
+        if (p.userJsonFormat == null) p.userJsonFormat = DEFAULT_PROMPT_CONFIG.userJsonFormat;
+    }
     if (!merged.selectedPromptPresetId) merged.selectedPromptPresetId = merged.promptPresets[0]?.id;
 
     return merged;
+}
+
+/** tagGuideContent 依赖文件异步加载，normalizeSettings 时不可用；在 loadTagGuide 后调一次 */
+function migrateNullTagGuide() {
+    const guide = getLoadedTagGuide();
+    if (!guide) return;
+    const s = getSettings();
+    let migrated = false;
+    for (const p of s.promptPresets) {
+        if (p.tagGuideContent == null) {
+            p.tagGuideContent = guide;
+            migrated = true;
+        }
+    }
+    if (migrated) {
+        console.log('[NovelDraw] migrated null tagGuideContent → concrete default');
+        saveSettings(s);
+    }
 }
 
 async function loadSettings() {
@@ -406,6 +431,8 @@ async function loadSettings() {
 
     try {
         const saved = await NovelDrawStorage.get(SERVER_FILE_KEY, null);
+        console.log('[NovelDraw] loadSettings from server: autoLearn=%s, advMode=%s',
+            saved?.autoLearnCharacters, saved?.advancedMode);
         settingsCache = normalizeSettings(saved || {});
 
         if (!saved || saved.configVersion !== CONFIG_VERSION) {
@@ -433,8 +460,14 @@ function getSettings() {
         const id1 = generateSlotId();
         const id2 = generateSlotId();
         settingsCache.promptPresets = [
-            { id: id1, name: '默认1', topSystem: null, tagGuideContent: null, userJsonFormat: null },
-            { id: id2, name: '默认2', topSystem: null, tagGuideContent: null, userJsonFormat: LEGACY_USER_JSON_FORMAT },
+            { id: id1, name: '默认1',
+              topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+              tagGuideContent: getLoadedTagGuide() || '',
+              userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
+            { id: id2, name: '默认2',
+              topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+              tagGuideContent: getLoadedTagGuide() || '',
+              userJsonFormat: LEGACY_USER_JSON_FORMAT },
         ];
         settingsCache.selectedPromptPresetId = id1;
     }
@@ -450,6 +483,7 @@ function saveSettings(s) {
 }
 
 async function saveSettingsAndToast(s, okText = '已保存') {
+    console.log('[NovelDraw] saveSettingsAndToast:', okText, 'autoLearn=%s advMode=%s', s.autoLearnCharacters, s.advancedMode);
     const next = saveSettings(s);
 
     try {
@@ -458,9 +492,11 @@ async function saveSettingsAndToast(s, okText = '已保存') {
         NovelDrawStorage._dirtyVersion = (NovelDrawStorage._dirtyVersion || 0) + 1;
 
         await NovelDrawStorage.saveNow({ silent: false });
+        console.log('[NovelDraw] saveSettingsAndToast: SUCCESS');
         postStatus('success', okText);
         return true;
     } catch (e) {
+        console.error('[NovelDraw] saveSettingsAndToast: FAILED', e);
         postStatus('error', `保存失败：${e?.message || '网络异常'}`);
         return false;
     }
@@ -2464,6 +2500,7 @@ function showOverlay() {
         overlay.style.height = `${window.innerHeight}px`;
         overlay.style.display = 'block';
     }
+    console.log('[NovelDraw] showOverlay: frameReady=%s', frameReady);
     if (frameReady) sendInitData();
 }
 
@@ -2473,8 +2510,9 @@ function hideOverlay() {
 }
 
 async function sendInitData() {
+    console.log('[NovelDraw] sendInitData called');
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-    if (!iframe?.contentWindow) return;
+    if (!iframe?.contentWindow) { console.warn('[NovelDraw] sendInitData: no iframe'); return; }
     // getCacheStats / getGallerySummary 依赖 IndexedDB，可能静默失败
     // 即使失败也必须发送 INIT_DATA，否则 iframe 永远停留在空白状态
     let stats = { count: 0, sizeMB: 0 };
@@ -2482,6 +2520,8 @@ async function sendInitData() {
     try { stats = await getCacheStats(); } catch (e) { console.warn('[NovelDraw] getCacheStats failed:', e); }
     try { gallerySummary = await getGallerySummary(); } catch (e) { console.warn('[NovelDraw] getGallerySummary failed:', e); }
     const settings = getSettings();
+    console.log('[NovelDraw] sendInitData: autoLearn=%s, advancedMode=%s, promptPresets=%d',
+        settings.autoLearnCharacters, settings.advancedMode, settings.promptPresets?.length);
     postToIframe(iframe, {
         type: 'INIT_DATA',
         settings: {
@@ -2504,7 +2544,10 @@ async function sendInitData() {
             showFloatingButton: settings.showFloatingButton === true,
             advancedMode: !!settings.advancedMode,
             customPrompts: settings.customPrompts || DEFAULT_SETTINGS.customPrompts,
-            promptPresets: settings.promptPresets || [],
+            // 安全网：确保 tagGuideContent 在发送时已解析为具体值
+            promptPresets: (settings.promptPresets || []).map(p =>
+                p.tagGuideContent != null ? p : { ...p, tagGuideContent: getLoadedTagGuide() || '' }
+            ),
             selectedPromptPresetId: settings.selectedPromptPresetId || null,
             worldbooks: settings.worldbooks || DEFAULT_SETTINGS.worldbooks,
         },
@@ -2527,6 +2570,7 @@ async function handleFrameMessage(event) {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (!isTrustedMessage(event, iframe, 'NovelDraw-Frame')) return;
     const data = event.data;
+    console.log('[NovelDraw] handleFrameMessage:', data.type);
 
     switch (data.type) {
         case 'FRAME_READY':
@@ -2722,9 +2766,17 @@ async function handleFrameMessage(event) {
             const key = data.key;
             const ALLOWED_PROMPT_KEYS = ['topSystem', 'tagGuideContent', 'userJsonFormat'];
             if (key && ALLOWED_PROMPT_KEYS.includes(key)) {
-                if (s.customPrompts) s.customPrompts[key] = null;
-                const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
-                if (active) active[key] = null;
+                const resetDefaults = {
+                    topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+                    tagGuideContent: getLoadedTagGuide() || '',
+                    userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
+                };
+                const defaultVal = resetDefaults[key];
+                if (s.customPrompts) s.customPrompts[key] = defaultVal;
+                // 使用 iframe 传来的当前选中 ID，避免本地切换后未保存导致定位错误
+                const presetId = data.selectedPromptPresetId || s.selectedPromptPresetId;
+                const active = s.promptPresets.find(p => p.id === presetId);
+                if (active) active[key] = defaultVal;
             }
             await saveSettingsAndToast(s, '已恢复默认');
             sendInitData();
@@ -2762,9 +2814,9 @@ async function handleFrameMessage(event) {
             const newPreset = {
                 id,
                 name: (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `提示词-${s.promptPresets.length + 1}`,
-                topSystem: current?.topSystem || null,
-                tagGuideContent: current?.tagGuideContent || null,
-                userJsonFormat: current?.userJsonFormat || null,
+                topSystem:       current?.topSystem       ?? DEFAULT_PROMPT_CONFIG.topSystem,
+                tagGuideContent: current?.tagGuideContent  ?? getLoadedTagGuide() ?? '',
+                userJsonFormat:  current?.userJsonFormat   ?? DEFAULT_PROMPT_CONFIG.userJsonFormat,
             };
             s.promptPresets.push(newPreset);
             s.selectedPromptPresetId = id;
@@ -2877,6 +2929,7 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_AUTO_LEARN': {
+            console.log('[NovelDraw] SAVE_AUTO_LEARN received:', data.autoLearnCharacters, data.autoLearnMode);
             const s = getSettings();
             s.autoLearnCharacters = !!data.autoLearnCharacters;
             s.autoLearnMode = ['new_only', 'auto_update'].includes(data.autoLearnMode)
@@ -3060,6 +3113,9 @@ export async function initNovelDraw() {
     ensureStyles();
 
     await loadTagGuide();
+
+    // tagGuideContent 依赖文件加载，在此处完成 null → 具体值的迁移
+    migrateNullTagGuide();
 
     setupEventDelegation();
     setupGenerateInterceptor();
