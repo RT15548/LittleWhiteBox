@@ -1812,8 +1812,10 @@ function applyAdvancedMode() {
     document.body.classList.toggle('advanced-mode', adv);
 
     // 提示词预设下拉列表
+    const presets = state.promptPresets || [];
+    console.log('[ND-UI] applyAdvancedMode — promptPresets:', presets.length, JSON.stringify(presets.map(p => ({ id: p.id?.slice(0,8), name: p.name }))));
     const ppSel = $('nd_prompt_preset');
-    ppSel.innerHTML = (state.promptPresets || []).map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
+    ppSel.innerHTML = presets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
     ppSel.value = state.selectedPromptPresetId || '';
 
     // 提示词模板 — 从当前激活的预设加载
@@ -1975,33 +1977,42 @@ function getCurrentLlmModel() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function applyStateToUI() {
-    updateBadge(state.enabled);
-    updateModeButtons(state.mode);
-    $('nd_show_floor').checked = state.showFloorButton !== false;
-    $('nd_show_floating').checked = state.showFloatingButton === true;
-    
-    $('nd_api_key').value = state.apiKey || '';
-    $('nd_timeout').value = Math.round((state.timeout > 0 ? state.timeout : DEFAULTS.timeout) / 1000);
-    const dMin = state.requestDelay?.min > 0 ? state.requestDelay.min : DEFAULTS.requestDelay.min;
-    const dMax = state.requestDelay?.max > 0 ? state.requestDelay.max : DEFAULTS.requestDelay.max;
-    $('nd_delay').value = `${dMin}-${dMax}`;
-    $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
-    $('nd_cache_count').textContent = state.cacheStats?.count || 0;
-    $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
-    
-    const pSel = $('nd_params_preset');
-    pSel.innerHTML = state.paramsPresets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
-    pSel.value = state.selectedParamsPresetId || '';
-    
-    applyParamsPreset();
-    applyLlmApi();
-    renderCharList();
-    renderGalleryView();
-    // auto-learn
-    $('nd_auto_learn').checked = !!state.autoLearnCharacters;
-    $('nd_auto_learn_mode').value = state.autoLearnMode || 'new_only';
-    $('nd_auto_learn_mode_row').classList.toggle('hidden', !state.autoLearnCharacters);
-    applyAdvancedMode();
+    try {
+        updateBadge(state.enabled);
+        updateModeButtons(state.mode);
+        $('nd_show_floor').checked = state.showFloorButton !== false;
+        $('nd_show_floating').checked = state.showFloatingButton === true;
+
+        $('nd_api_key').value = state.apiKey || '';
+        $('nd_timeout').value = Math.round((state.timeout > 0 ? state.timeout : DEFAULTS.timeout) / 1000);
+        const dMin = state.requestDelay?.min > 0 ? state.requestDelay.min : DEFAULTS.requestDelay.min;
+        const dMax = state.requestDelay?.max > 0 ? state.requestDelay.max : DEFAULTS.requestDelay.max;
+        $('nd_delay').value = `${dMin}-${dMax}`;
+        $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
+        $('nd_cache_count').textContent = state.cacheStats?.count || 0;
+        $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
+
+        const pSel = $('nd_params_preset');
+        pSel.innerHTML = (state.paramsPresets || []).map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
+        pSel.value = state.selectedParamsPresetId || '';
+
+        applyParamsPreset();
+        applyLlmApi();
+        renderCharList();
+        renderGalleryView();
+        // auto-learn
+        $('nd_auto_learn').checked = !!state.autoLearnCharacters;
+        $('nd_auto_learn_mode').value = state.autoLearnMode || 'new_only';
+        $('nd_auto_learn_mode_row').classList.toggle('hidden', !state.autoLearnCharacters);
+    } catch (e) {
+        console.error('[ND-UI] applyStateToUI 部分失败:', e);
+    }
+    // applyAdvancedMode 必须执行，不受上面异常影响
+    try {
+        applyAdvancedMode();
+    } catch (e) {
+        console.error('[ND-UI] applyAdvancedMode 失败:', e);
+    }
 }
 
 function applyParamsPreset() {
@@ -2124,6 +2135,7 @@ window.addEventListener('message', event => {
 
     switch (data.type) {
         case 'INIT_DATA':
+            console.log('[ND-UI] INIT_DATA received — promptPresets:', JSON.stringify((data.settings?.promptPresets || []).map(p => p.name)));
             state = { ...state, ...data.settings, cacheStats: data.cacheStats || state.cacheStats };
             if (data.defaultPrompts) state._defaultPrompts = data.defaultPrompts;
             gallerySummary = data.gallerySummary || {};

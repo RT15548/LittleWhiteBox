@@ -2470,6 +2470,7 @@ async function sendInitData() {
     if (!iframe?.contentWindow) return;
     const stats = await getCacheStats();
     const settings = getSettings();
+    console.log('[NovelDraw] sendInitData — promptPresets:', settings.promptPresets?.length, settings.promptPresets?.map(p => p.name));
     const gallerySummary = await getGallerySummary();
     postToIframe(iframe, {
         type: 'INIT_DATA',
