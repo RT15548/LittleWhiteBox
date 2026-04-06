@@ -67,6 +67,8 @@ const DEFAULT_PARAMS_PRESET = {
     id: '', name: '默认 (V4.5 Full)',
     positivePrefix: 'best quality, amazing quality, very aesthetic, absurdres,',
     negativePrefix: 'lowres, bad anatomy, bad hands, missing fingers, extra digits, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
+    maxImages: 0,
+    maxCharactersPerImage: 0,
     params: {
         model: 'nai-diffusion-4-5-full', sampler: 'k_euler_ancestral', scheduler: 'karras',
         steps: 28, scale: 6, width: 1216, height: 832, seed: -1,
@@ -96,6 +98,8 @@ const DEFAULT_SETTINGS = {
     showFloatingButton: false,
     advancedMode: false,
     customPrompts: { topSystem: null, tagGuideContent: null, userJsonFormat: null },
+    promptPresets: [],
+    selectedPromptPresetId: null,
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
 };
 
@@ -346,6 +350,11 @@ function normalizeSettings(saved) {
         merged.paramsPresets = [{ ...JSON.parse(JSON.stringify(DEFAULT_PARAMS_PRESET)), id }];
         merged.selectedParamsPresetId = id;
     }
+    // 确保每个 paramsPreset 都有 maxImages / maxCharactersPerImage
+    for (const p of merged.paramsPresets) {
+        if (typeof p.maxImages !== 'number') p.maxImages = 0;
+        if (typeof p.maxCharactersPerImage !== 'number') p.maxCharactersPerImage = 0;
+    }
     if (!merged.selectedParamsPresetId) merged.selectedParamsPresetId = merged.paramsPresets[0]?.id;
     if (!Number.isFinite(Number(merged.updatedAt))) merged.updatedAt = 0;
 
@@ -367,6 +376,23 @@ function normalizeSettings(saved) {
 
     delete merged.llmPresets;
     delete merged.selectedLlmPresetId;
+
+    // ── 提示词预设迁移 ──
+    if (!Array.isArray(merged.promptPresets)) merged.promptPresets = [];
+    if (!merged.promptPresets.length) {
+        // 从旧 customPrompts 迁移或创建默认
+        const cp = merged.customPrompts || {};
+        const id = generateSlotId();
+        merged.promptPresets = [{
+            id,
+            name: '默认1',
+            topSystem: cp.topSystem || null,
+            tagGuideContent: cp.tagGuideContent || null,
+            userJsonFormat: cp.userJsonFormat || null,
+        }];
+        merged.selectedPromptPresetId = id;
+    }
+    if (!merged.selectedPromptPresetId) merged.selectedPromptPresetId = merged.promptPresets[0]?.id;
 
     return merged;
 }
@@ -428,6 +454,11 @@ async function saveSettingsAndToast(s, okText = '已保存') {
 function getActiveParamsPreset() {
     const s = getSettings();
     return s.paramsPresets.find(p => p.id === s.selectedParamsPresetId) || s.paramsPresets[0];
+}
+
+function getActivePromptPreset() {
+    const s = getSettings();
+    return s.promptPresets.find(p => p.id === s.selectedPromptPresetId) || s.promptPresets[0] || null;
 }
 
 async function notifySettingsUpdated() {
@@ -1937,7 +1968,12 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             let worldbookEntries = null;
             let customPrompts = null;
             if (settings.advancedMode) {
-                customPrompts = settings.customPrompts || null;
+                const activePromptPreset = getActivePromptPreset();
+                customPrompts = activePromptPreset ? {
+                    topSystem: activePromptPreset.topSystem,
+                    tagGuideContent: activePromptPreset.tagGuideContent,
+                    userJsonFormat: activePromptPreset.userJsonFormat,
+                } : null;
                 if (settings.worldbooks?.enabled && settings.worldbooks.uploadedBooks?.length) {
                     const processor = new WorldbookProcessor();
                     const charNames = presentCharacters.map(c => c.name).join(' ');
@@ -1958,7 +1994,9 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 useWorldInfo: (settings.advancedMode && settings.worldbooks?.enabled) ? false : settings.useWorldInfo,
                 customPrompts,
                 worldbookEntries,
-                timeout: settings.timeout || 120000
+                timeout: settings.timeout || 120000,
+                maxImages: preset.maxImages || 0,
+                maxCharactersPerImage: preset.maxCharactersPerImage || 0,
             });
         } catch (e) {
             if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
@@ -1970,8 +2008,23 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
 
-        const tasks = parseImagePlan(planRaw);
+        let tasks = parseImagePlan(planRaw);
         if (!tasks.length) throw new NovelDrawError('未解析到图片任务', ErrorType.PARSE);
+
+        // 硬上限：截断图片数量和每张图角色数量
+        const maxImg = preset.maxImages || 0;
+        const maxChar = preset.maxCharactersPerImage || 0;
+        if (maxImg > 0 && tasks.length > maxImg) {
+            console.log(`[NovelDraw] 硬上限截断: ${tasks.length} → ${maxImg} 张图`);
+            tasks = tasks.slice(0, maxImg);
+        }
+        if (maxChar > 0) {
+            for (const task of tasks) {
+                if (task.chars && task.chars.length > maxChar) {
+                    task.chars = task.chars.slice(0, maxChar);
+                }
+            }
+        }
 
         // 自动学习未知角色
         if (settings.autoLearnCharacters) {
@@ -2368,6 +2421,8 @@ async function sendInitData() {
             showFloatingButton: settings.showFloatingButton === true,
             advancedMode: !!settings.advancedMode,
             customPrompts: settings.customPrompts || DEFAULT_SETTINGS.customPrompts,
+            promptPresets: settings.promptPresets || [],
+            selectedPromptPresetId: settings.selectedPromptPresetId || null,
             worldbooks: settings.worldbooks || DEFAULT_SETTINGS.worldbooks,
         },
         defaultPrompts: {
@@ -2581,8 +2636,15 @@ async function handleFrameMessage(event) {
 
         case 'SAVE_CUSTOM_PROMPTS': {
             const s = getSettings();
+            // 兼容：同时写入 customPrompts 和当前激活的 promptPreset
             if (data.customPrompts && typeof data.customPrompts === 'object') {
                 s.customPrompts = { ...s.customPrompts, ...data.customPrompts };
+                const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
+                if (active) {
+                    if (data.customPrompts.topSystem !== undefined) active.topSystem = data.customPrompts.topSystem;
+                    if (data.customPrompts.tagGuideContent !== undefined) active.tagGuideContent = data.customPrompts.tagGuideContent;
+                    if (data.customPrompts.userJsonFormat !== undefined) active.userJsonFormat = data.customPrompts.userJsonFormat;
+                }
             }
             await saveSettingsAndToast(s, '提示词模板已保存');
             sendInitData();
@@ -2593,10 +2655,98 @@ async function handleFrameMessage(event) {
             const s = getSettings();
             const key = data.key;
             const ALLOWED_PROMPT_KEYS = ['topSystem', 'tagGuideContent', 'userJsonFormat'];
-            if (key && ALLOWED_PROMPT_KEYS.includes(key) && s.customPrompts) {
-                s.customPrompts[key] = null;
+            if (key && ALLOWED_PROMPT_KEYS.includes(key)) {
+                if (s.customPrompts) s.customPrompts[key] = null;
+                const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
+                if (active) active[key] = null;
             }
             await saveSettingsAndToast(s, '已恢复默认');
+            sendInitData();
+            break;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 提示词预设管理
+        // ═══════════════════════════════════════════════════════════════
+
+        case 'SELECT_PROMPT_PRESET': {
+            const s = getSettings();
+            if (data.id && s.promptPresets.some(p => p.id === data.id)) {
+                s.selectedPromptPresetId = data.id;
+                // 同步 customPrompts 以保持兼容
+                const active = s.promptPresets.find(p => p.id === data.id);
+                if (active) {
+                    s.customPrompts = {
+                        topSystem: active.topSystem,
+                        tagGuideContent: active.tagGuideContent,
+                        userJsonFormat: active.userJsonFormat,
+                    };
+                }
+                await saveSettingsAndToast(s, '已切换预设');
+                sendInitData();
+            }
+            break;
+        }
+
+        case 'ADD_PROMPT_PRESET': {
+            const s = getSettings();
+            const id = generateSlotId();
+            const current = getActivePromptPreset();
+            const newPreset = {
+                id,
+                name: (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `提示词-${s.promptPresets.length + 1}`,
+                topSystem: current?.topSystem || null,
+                tagGuideContent: current?.tagGuideContent || null,
+                userJsonFormat: current?.userJsonFormat || null,
+            };
+            s.promptPresets.push(newPreset);
+            s.selectedPromptPresetId = id;
+            s.customPrompts = { topSystem: newPreset.topSystem, tagGuideContent: newPreset.tagGuideContent, userJsonFormat: newPreset.userJsonFormat };
+            const ok = await saveSettingsAndToast(s, '已创建');
+            if (ok) sendInitData();
+            break;
+        }
+
+        case 'DEL_PROMPT_PRESET': {
+            const s = getSettings();
+            if (s.promptPresets.length <= 1) {
+                postStatus('error', '至少保留一个预设');
+                break;
+            }
+            const idx = s.promptPresets.findIndex(p => p.id === s.selectedPromptPresetId);
+            if (idx >= 0) s.promptPresets.splice(idx, 1);
+            s.selectedPromptPresetId = s.promptPresets[0]?.id || null;
+            const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
+            if (active) {
+                s.customPrompts = { topSystem: active.topSystem, tagGuideContent: active.tagGuideContent, userJsonFormat: active.userJsonFormat };
+            }
+            const ok = await saveSettingsAndToast(s, '已删除');
+            if (ok) sendInitData();
+            break;
+        }
+
+        case 'RENAME_PROMPT_PRESET': {
+            const s = getSettings();
+            const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
+            if (active && typeof data.name === 'string' && data.name.trim()) {
+                active.name = data.name.trim();
+                await saveSettingsAndToast(s, '已重命名');
+                sendInitData();
+            }
+            break;
+        }
+
+        case 'SAVE_PROMPT_PRESET': {
+            const s = getSettings();
+            const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
+            if (active && data.customPrompts && typeof data.customPrompts === 'object') {
+                const cp = data.customPrompts;
+                if ('topSystem' in cp) active.topSystem = cp.topSystem;
+                if ('tagGuideContent' in cp) active.tagGuideContent = cp.tagGuideContent;
+                if ('userJsonFormat' in cp) active.userJsonFormat = cp.userJsonFormat;
+                s.customPrompts = { topSystem: active.topSystem, tagGuideContent: active.tagGuideContent, userJsonFormat: active.userJsonFormat };
+            }
+            await saveSettingsAndToast(s, '提示词预设已保存');
             sendInitData();
             break;
         }

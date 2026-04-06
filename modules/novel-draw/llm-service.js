@@ -338,7 +338,9 @@ export async function generateScenePlan(options) {
         useWorldInfo = false,
         customPrompts = null,
         worldbookEntries = null,
-        timeout = 120000
+        timeout = 120000,
+        maxImages = 0,
+        maxCharactersPerImage = 0,
     } = options;
     if (!messageText?.trim()) {
         throw new LLMServiceError('消息内容为空', 'EMPTY_MESSAGE');
@@ -401,6 +403,17 @@ export async function generateScenePlan(options) {
         role: 'user',
         content: promptConfig.userJsonFormat
     });
+
+    // 动态注入数量限制
+    const limitLines = [];
+    if (maxImages > 0) limitLines.push(`- images 数组最多 ${maxImages} 项，只选取最重要的视觉核心场景`);
+    if (maxCharactersPerImage > 0) limitLines.push(`- 每张图的 characters 最多 ${maxCharactersPerImage} 人，优先保留主要角色`);
+    if (limitLines.length) {
+        bottomMessages.push({
+            role: 'user',
+            content: `## LIMITS (严格遵守)：\n${limitLines.join('\n')}`,
+        });
+    }
 
     bottomMessages.push({
         role: 'user',

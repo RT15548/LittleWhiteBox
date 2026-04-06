@@ -719,6 +719,21 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                 </div>
                 
                 <div class="card">
+                    <div class="card-title">数量限制</div>
+                    <p class="form-hint">限制 LLM 规划的图片数量和每张图角色数 (0 = 不限制)</p>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">最大图片数</label>
+                            <input id="nd_max_images" type="number" class="input" min="0" max="20" value="0" title="0=不限制">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">每张图最大角色数</label>
+                            <input id="nd_max_chars" type="number" class="input" min="0" max="10" value="0" title="0=不限制">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
                     <div class="card-title">增强选项</div>
                     <div class="form-row">
                         <div class="form-group">
@@ -922,6 +937,16 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                     <p class="view-desc">自定义场景分析的 LLM 提示词模板</p>
                 </div>
 
+                <div class="preset-bar">
+                    <select id="nd_prompt_preset" class="input"></select>
+                    <div class="btn-group">
+                        <button id="nd_prompt_add" class="btn btn-icon" title="新建"><i class="fa-solid fa-plus"></i></button>
+                        <button id="nd_prompt_rename" class="btn btn-icon" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                        <button id="nd_prompt_preset_save" class="btn btn-primary" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
+                        <button id="nd_prompt_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
+
                 <div class="card">
                     <div class="prompt-card-header">
                         <div class="card-title">系统提示词 (System Prompt)</div>
@@ -950,7 +975,7 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                 </div>
 
                 <div class="btn-group" style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">
-                    <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                    <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存到当前预设</button>
                     <button id="nd_prompts_reset_all" class="btn btn-danger"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
                     <button id="nd_prompts_export" class="btn"><i class="fa-solid fa-download"></i> 导出模板</button>
                     <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入模板<input type="file" id="nd_prompts_import" accept=".json" style="display:none;"></label>
@@ -1120,7 +1145,9 @@ let state = {
     autoLearnCharacters: false,
     autoLearnMode: 'new_only',
     showFloorButton: true,
-    showFloatingButton: false
+    showFloatingButton: false,
+    promptPresets: [],
+    selectedPromptPresetId: null,
 };
 
 let gallerySummary = {};
@@ -1784,9 +1811,15 @@ function applyAdvancedMode() {
     $('nd_advanced_mode').checked = adv;
     document.body.classList.toggle('advanced-mode', adv);
 
-    // 提示词模板
+    // 提示词预设下拉列表
+    const ppSel = $('nd_prompt_preset');
+    ppSel.innerHTML = (state.promptPresets || []).map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
+    ppSel.value = state.selectedPromptPresetId || '';
+
+    // 提示词模板 — 从当前激活的预设加载
     const defaults = state._defaultPrompts || {};
-    const custom = state.customPrompts || {};
+    const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId) || (state.promptPresets || [])[0];
+    const custom = activePreset || state.customPrompts || {};
     $('nd_prompt_system').value = custom.topSystem ?? defaults.topSystem ?? '';
     $('nd_prompt_guide').value = custom.tagGuideContent ?? defaults.tagGuideContent ?? '';
     $('nd_prompt_format').value = custom.userJsonFormat ?? defaults.userJsonFormat ?? '';
@@ -1974,9 +2007,11 @@ function applyStateToUI() {
 function applyParamsPreset() {
     const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId) || state.paramsPresets[0];
     if (!p) return;
-    
+
     $('nd_positive').value = p.positivePrefix || '';
     $('nd_negative').value = p.negativePrefix || '';
+    $('nd_max_images').value = p.maxImages || 0;
+    $('nd_max_chars').value = p.maxCharactersPerImage || 0;
     
     const pm = p.params || {};
     const dp = DEFAULTS.params;
@@ -2053,9 +2088,11 @@ function updateModelOptions() {
 function collectParamsPreset() {
     const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId);
     if (!p) return;
-    
+
     p.positivePrefix = $('nd_positive').value;
     p.negativePrefix = $('nd_negative').value;
+    p.maxImages = Math.max(0, Number($('nd_max_images').value) || 0);
+    p.maxCharactersPerImage = Math.max(0, Number($('nd_max_chars').value) || 0);
     p.params = p.params || {};
     p.params.model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
     p.params.sampler = $('nd_sampler_sel').value === 'custom' ? $('nd_sampler').value : $('nd_sampler_sel').value;
@@ -2455,14 +2492,48 @@ document.addEventListener('DOMContentLoaded', () => {
         postToParent({ type: 'SAVE_ADVANCED_MODE', advancedMode: adv });
     });
 
-    // 提示词模板
+    // 提示词预设管理
+    $('nd_prompt_preset').addEventListener('change', () => {
+        state.selectedPromptPresetId = $('nd_prompt_preset').value;
+        postToParent({ type: 'SELECT_PROMPT_PRESET', id: state.selectedPromptPresetId });
+    });
+
+    $('nd_prompt_preset_save').addEventListener('click', () => {
+        setSavingState($('nd_prompt_preset_save'));
+        const defaults = state._defaultPrompts || {};
+        const sys = $('nd_prompt_system').value;
+        const guide = $('nd_prompt_guide').value;
+        const fmt = $('nd_prompt_format').value;
+        postToParent({ type: 'SAVE_PROMPT_PRESET', customPrompts: {
+            topSystem: sys === defaults.topSystem ? null : sys,
+            tagGuideContent: guide === defaults.tagGuideContent ? null : guide,
+            userJsonFormat: fmt === defaults.userJsonFormat ? null : fmt,
+        }});
+    });
+
+    $('nd_prompt_add').addEventListener('click', () => postToParent({ type: 'ADD_PROMPT_PRESET' }));
+
+    $('nd_prompt_del').addEventListener('click', () => {
+        if (confirm('确定删除当前提示词预设？')) postToParent({ type: 'DEL_PROMPT_PRESET' });
+    });
+
+    $('nd_prompt_rename').addEventListener('click', () => {
+        const p = (state.promptPresets || []).find(x => x.id === state.selectedPromptPresetId);
+        if (!p) return;
+        const name = prompt('输入新名称：', p.name || '');
+        if (name && name.trim()) {
+            postToParent({ type: 'RENAME_PROMPT_PRESET', name: name.trim() });
+        }
+    });
+
+    // 提示词模板保存（底部按钮，等同于预设栏保存）
     $('nd_prompts_save').addEventListener('click', () => {
         setSavingState($('nd_prompts_save'));
         const defaults = state._defaultPrompts || {};
         const sys = $('nd_prompt_system').value;
         const guide = $('nd_prompt_guide').value;
         const fmt = $('nd_prompt_format').value;
-        postToParent({ type: 'SAVE_CUSTOM_PROMPTS', customPrompts: {
+        postToParent({ type: 'SAVE_PROMPT_PRESET', customPrompts: {
             topSystem: sys === defaults.topSystem ? null : sys,
             tagGuideContent: guide === defaults.tagGuideContent ? null : guide,
             userJsonFormat: fmt === defaults.userJsonFormat ? null : fmt,
@@ -2487,7 +2558,7 @@ document.addEventListener('DOMContentLoaded', () => {
         $('nd_prompt_system').value = defaults.topSystem || '';
         $('nd_prompt_guide').value = defaults.tagGuideContent || '';
         $('nd_prompt_format').value = defaults.userJsonFormat || '';
-        postToParent({ type: 'SAVE_CUSTOM_PROMPTS', customPrompts: {
+        postToParent({ type: 'SAVE_PROMPT_PRESET', customPrompts: {
             topSystem: null, tagGuideContent: null, userJsonFormat: null,
         }});
     });
