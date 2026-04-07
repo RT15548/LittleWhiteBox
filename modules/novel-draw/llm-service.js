@@ -633,10 +633,12 @@ export function buildCharacterInfoForLLM(presentCharacters) {
     const lines = presentCharacters.map(c => {
         const aliases = c.aliases?.length ? ` (别名: ${c.aliases.join(', ')})` : '';
         const type = c.type || 'girl';
-        return `- ${c.name}${aliases} [${type}]: 外貌已预设，只需输出 name + danbooru + costume + action + interact + uc + center`;
+        const danbooru = c.danbooruTag ? ` | danbooru: ${c.danbooruTag}` : '';
+        const appear = c.appearance ? `\n  外貌参考: ${c.appearance}` : '';
+        return `- ${c.name}${aliases} [${type}]${danbooru}: 外貌已预设，只需输出 name + danbooru + costume + action + interact + uc + center${appear}`;
     });
 
-    return `【已录入角色】(不要输出这些角色的 appear):
+    return `【已录入角色】(不要输出这些角色的 type/appear，但 costume 必须完整输出):
 ${lines.join('\n')}`;
 }
 

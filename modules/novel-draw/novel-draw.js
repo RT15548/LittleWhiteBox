@@ -626,6 +626,7 @@ function detectPresentCharacters(messageText, characterTags) {
                 aliases: char.aliases || [],
                 type: char.type || 'girl',
                 appearance: char.appearance || '',
+                danbooruTag: char.danbooruTag || '',
                 negativeTags: char.negativeTags || '',
             });
         }
