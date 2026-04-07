@@ -1362,7 +1362,7 @@ function renderCharList() {
                     <div class="form-group">
                         <label class="form-label" style="display:flex;align-items:center;gap:8px;">
                             外貌标签 (appearance)
-                            <button class="btn" data-action="search-danbooru" data-id="${c.id}" style="padding:2px 8px;font-size:10px;">
+                            <button class="btn" data-action="search-danbooru" data-id="${c.id}" style="padding:2px 8px;font-size:10px;"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>
                                 <i class="fa-solid fa-magnifying-glass"></i> Danbooru
                             </button>
                         </label>
@@ -1397,7 +1397,7 @@ function renderCharList() {
             <span class="char-status">${statusParts.join(' ')}</span>
             <div class="char-actions">
                 <button data-action="fix-danbooru" data-id="${c.id}" title="Danbooru 修正"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>🔧</button>
-                <button data-action="search" data-id="${c.id}" title="Danbooru 标签搜索">🔍</button>
+                <button data-action="search" data-id="${c.id}" title="Danbooru 标签搜索"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>🔍</button>
                 <button data-action="edit" data-id="${c.id}" title="编辑">✏️</button>
                 <button class="btn-danger" data-action="delete" data-id="${c.id}" title="删除">🗑️</button>
             </div>
@@ -1413,23 +1413,14 @@ function renderCharList() {
 }
 
 function handleCharAction(action, id, card) {
-    if (action === 'fix-danbooru') {
+    if (action === 'fix-danbooru' || action === 'search') {
         if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
         editingCharId = id;
         renderCharList();
         requestAnimationFrame(() => requestAnimationFrame(() => showLocalDanbooruFix(id)));
-    } else if (action === 'search') {
-        editingCharId = id;
-        renderCharList();
-        // 本地 DB 已加载时优先用本地搜索，否则走在线 CORS 代理
-        if (state.danbooruLocalDB) {
-            requestAnimationFrame(() => requestAnimationFrame(() => showLocalDanbooruFix(id)));
-        } else {
-            requestAnimationFrame(() => requestAnimationFrame(() => showDanbooruSearch(id)));
-        }
     } else if (action === 'search-danbooru') {
-        if (state.danbooruLocalDB) showLocalDanbooruFix(id);
-        else showDanbooruSearch(id);
+        if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
+        showLocalDanbooruFix(id);
     } else if (action === 'edit') {
         editingCharId = id;
         renderCharList();
@@ -1464,51 +1455,7 @@ function handleCharAction(action, id, card) {
     }
 }
 
-// ── Danbooru 搜索 ─────────────────────────────────────────
-
-let activeDanbooruCharId = null;
-
-function showDanbooruSearch(charId) {
-    activeDanbooruCharId = charId;
-    const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
-    if (!panel) return;
-
-    const char = state.characterTags.find(c => c.id === charId);
-    const defaultQuery = char?.danbooruTag || char?.name || '';
-
-    panel.classList.remove('hidden');
-    panel.innerHTML = `
-        <div class="danbooru-search-row">
-            <input type="text" class="input danbooru-query" value="${escapeHtml(defaultQuery)}" placeholder="英文名搜索 (如 hatsune_miku)">
-            <button class="btn btn-primary danbooru-search-btn"><i class="fa-solid fa-magnifying-glass"></i> 搜索</button>
-            <button class="btn danbooru-close-btn"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div class="danbooru-results"></div>
-    `;
-
-    const input = panel.querySelector('.danbooru-query');
-    const searchBtn = panel.querySelector('.danbooru-search-btn');
-    const closeBtn = panel.querySelector('.danbooru-close-btn');
-
-    const doSearch = () => {
-        const q = input.value.trim();
-        if (!q) return;
-        panel.querySelector('.danbooru-results').innerHTML = '<div class="danbooru-status"><i class="fa-solid fa-spinner fa-spin"></i> 搜索中...</div>';
-        postToParent({ type: 'DANBOORU_SEARCH_CHARACTER', query: q, charId });
-    };
-
-    searchBtn.addEventListener('click', doSearch);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
-    closeBtn.addEventListener('click', () => {
-        panel.classList.add('hidden');
-        panel.innerHTML = '';
-        activeDanbooruCharId = null;
-    });
-
-    if (defaultQuery) doSearch();
-}
-
-// ── Danbooru 本地修正 ─────────────────────────────────────────
+// ── Danbooru 搜索（本地 DB）─────────────────────────────────
 
 function showLocalDanbooruFix(charId) {
     const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
@@ -1605,141 +1552,6 @@ function parseDanbooruCharName(tagName) {
     const match = tagName.match(/^(.+?)_\((.+)\)$/);
     if (match) return { charName: match[1].replace(/_/g, ' '), series: match[2].replace(/_/g, ' ') };
     return { charName: tagName.replace(/_/g, ' '), series: '' };
-}
-
-function formatPostCount(n) {
-    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-    return String(n);
-}
-
-function renderDanbooruCharacterResults(query, results, charId, error, proxyUnavailable) {
-    // 使用传入的 charId 定位面板，回退到 activeDanbooruCharId 兼容旧调用
-    const targetCharId = charId || activeDanbooruCharId;
-    const panel = document.querySelector(`.danbooru-panel[data-char-id="${targetCharId}"]`);
-    if (!panel) return;
-    const container = panel.querySelector('.danbooru-results');
-    if (!container) return;
-
-    if (error) {
-        container.innerHTML = `<div class="danbooru-status" style="color:var(--color-danger)">搜索失败: ${escapeHtml(error)}</div>`;
-        return;
-    }
-
-    if (proxyUnavailable) {
-        container.innerHTML = '<div class="danbooru-status" style="color:var(--color-warning)">Danbooru 代理不可用。需在 SillyTavern 的 config.yaml 中设置 enableCorsProxy: true 并重启，或手动输入 Danbooru tag。</div>';
-        return;
-    }
-
-    if (!results?.length) {
-        container.innerHTML = '<div class="danbooru-status">未找到匹配角色，请尝试英文名</div>';
-        return;
-    }
-
-    container.innerHTML = `
-        <div class="danbooru-char-list">
-            ${results.map(r => {
-                const parsed = parseDanbooruCharName(r.name);
-                return `
-                <div class="danbooru-char-item" data-tag="${escapeHtml(r.name)}">
-                    <div class="danbooru-char-info">
-                        <span class="danbooru-char-name">${escapeHtml(parsed.charName)}</span>
-                        ${parsed.series ? `<span class="danbooru-char-series">${escapeHtml(parsed.series)}</span>` : ''}
-                    </div>
-                    <span class="char-count">${formatPostCount(r.postCount)} 图</span>
-                </div>`;
-            }).join('')}
-        </div>
-    `;
-
-    container.querySelectorAll('.danbooru-char-item').forEach(item => {
-        item.addEventListener('click', () => {
-            const tagName = item.dataset.tag;
-            // 暂存选中的 Danbooru tag，apply 时才写入角色数据
-            panel.dataset.pendingDanbooruTag = tagName;
-            container.innerHTML = '<div class="danbooru-status"><i class="fa-solid fa-spinner fa-spin"></i> 加载标签...</div>';
-            postToParent({ type: 'DANBOORU_FETCH_TAGS', tagName, charId: targetCharId });
-        });
-    });
-}
-
-function renderDanbooruTagResults(tagName, tags, charId) {
-    const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
-    if (!panel) return;
-    const container = panel.querySelector('.danbooru-results');
-    if (!container) return;
-
-    if (!tags?.length) {
-        container.innerHTML = '<div class="danbooru-status">未找到外貌标签</div>';
-        return;
-    }
-
-    container.innerHTML = `
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">
-            ${escapeHtml(tagName.replace(/_/g, ' '))} 的外貌标签（点击勾选/取消）
-        </div>
-        <div class="danbooru-tag-list">
-            ${tags.map((t, i) => `
-                <div class="danbooru-tag-item${t.frequency >= 30 ? ' checked' : ''}" data-idx="${i}">
-                    <input type="checkbox" ${t.frequency >= 30 ? 'checked' : ''}>
-                    <span class="danbooru-tag-name">${escapeHtml(t.displayName)}</span>
-                    <span class="danbooru-tag-freq">${t.frequency}%</span>
-                </div>
-            `).join('')}
-        </div>
-        <div class="danbooru-actions">
-            <button class="btn btn-primary danbooru-apply-btn"><i class="fa-solid fa-check"></i> 填入所选标签</button>
-            <button class="btn danbooru-select-all-btn">全选 ≥50%</button>
-        </div>
-    `;
-
-    container.querySelectorAll('.danbooru-tag-item').forEach(item => {
-        item.addEventListener('click', e => {
-            if (e.target.tagName === 'INPUT') {
-                item.classList.toggle('checked', e.target.checked);
-            } else {
-                const cb = item.querySelector('input');
-                cb.checked = !cb.checked;
-                item.classList.toggle('checked', cb.checked);
-            }
-        });
-    });
-
-    container.querySelector('.danbooru-select-all-btn')?.addEventListener('click', () => {
-        container.querySelectorAll('.danbooru-tag-item').forEach(item => {
-            const freq = parseFloat(item.querySelector('.danbooru-tag-freq')?.textContent) || 0;
-            const cb = item.querySelector('input');
-            cb.checked = freq >= 50;
-            item.classList.toggle('checked', cb.checked);
-        });
-    });
-
-    container.querySelector('.danbooru-apply-btn')?.addEventListener('click', () => {
-        const selected = [];
-        container.querySelectorAll('.danbooru-tag-item input:checked').forEach(cb => {
-            const item = cb.closest('.danbooru-tag-item');
-            const name = item?.querySelector('.danbooru-tag-name')?.textContent?.trim();
-            if (name) selected.push(name);
-        });
-        if (!selected.length) { alert('请至少选择一个标签'); return; }
-
-        const textarea = panel.closest('.char-edit-form')?.querySelector('.char-edit-appearance');
-        if (textarea) {
-            const existing = textarea.value.trim();
-            textarea.value = existing ? existing + ', ' + selected.join(', ') : selected.join(', ');
-        }
-
-        // apply 时才将 danbooruTag 写入角色数据
-        const pendingTag = panel.dataset.pendingDanbooruTag;
-        if (pendingTag && charId) {
-            const char = state.characterTags.find(c => c.id === charId);
-            if (char) char.danbooruTag = pendingTag;
-        }
-
-        panel.classList.add('hidden');
-        panel.innerHTML = '';
-        activeDanbooruCharId = null;
-    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2373,16 +2185,8 @@ window.addEventListener('message', event => {
             }
             break;
 
-        case 'DANBOORU_CHARACTER_RESULTS':
-            renderDanbooruCharacterResults(data.query, data.results || [], data.charId, data.error, data.proxyUnavailable);
-            break;
-
         case 'DANBOORU_LOCAL_SEARCH_RESULTS':
             renderLocalDanbooruResults(data.query, data.results || [], data.charId);
-            break;
-
-        case 'DANBOORU_TAG_RESULTS':
-            renderDanbooruTagResults(data.tagName, data.tags || [], data.charId);
             break;
 
         case 'PROMPT_CHAIN_DATA':

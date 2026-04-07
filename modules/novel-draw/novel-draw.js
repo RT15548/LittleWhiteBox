@@ -745,99 +745,11 @@ function countFields(char) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Danbooru 标签搜索
+// Danbooru 工具函数
 // ═══════════════════════════════════════════════════════════════════════════
-
-const DANBOORU_TAG_BLOCKLIST = new Set([
-    '1girl', '1boy', 'solo', '2girls', 'multiple_girls', '2boys', 'multiple_boys',
-    '1other', '3girls', '4girls', '5girls', '6+girls', '3boys', '4boys',
-    'smile', 'blush', 'open_mouth', 'closed_eyes', 'closed_mouth', ':d', ';d',
-    'looking_at_viewer', 'looking_away', 'looking_back', 'looking_down', 'looking_up',
-    'from_behind', 'from_above', 'from_below', 'from_side',
-    'standing', 'sitting', 'lying', 'walking', 'running', 'holding',
-    'upper_body', 'full_body', 'cowboy_shot', 'portrait', 'close-up',
-    'simple_background', 'white_background', 'outdoors', 'indoors',
-    'highres', 'absurdres', 'commentary', 'commentary_request', 'tagme',
-    'bad_id', 'bad_pixiv_id', 'translation_request', 'translated', 'annotated',
-    'artist_name', 'character_name', 'copyright_name', 'watermark', 'signature',
-    'arms_up', 'arms_behind_back', 'hand_up', 'v', 'peace_sign',
-    'breasts', 'large_breasts', 'medium_breasts', 'small_breasts', 'huge_breasts',
-    'ass', 'thighs', 'navel', 'collarbone', 'armpits', 'cleavage',
-    'sweat', 'tears', 'saliva', 'blood',
-]);
-
-const danbooruTagCache = new Map();
 
 function danbooruToNai(tag) {
     return tag.replace(/_/g, ' ');
-}
-
-const DANBOORU_TIMEOUT = 15000;
-
-/**
- * 通过酒馆 CORS 代理访问 Danbooru API（需 config.yaml 中 enableCorsProxy: true）
- * 代理不可用时返回 null（优雅降级），而非抛出错误
- */
-async function danbooruFetch(directUrl) {
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), DANBOORU_TIMEOUT);
-    try {
-        const res = await fetch(`/proxy/${directUrl}`, { signal: ctrl.signal });
-        if (res.ok) return res;
-        if (res.status === 404) {
-            console.warn('[NovelDraw] CORS 代理未启用，Danbooru 功能不可用。需在 config.yaml 中设置 enableCorsProxy: true 或使用 --corsProxy 启动参数');
-            return null;
-        }
-        throw new Error(`Danbooru 请求失败: ${res.status}`);
-    } finally {
-        clearTimeout(tid);
-    }
-}
-
-async function searchDanbooruCharacter(query) {
-    if (!query?.trim()) return [];
-    const q = query.replace(/\s+/g, '_').toLowerCase();
-    const url = `https://danbooru.donmai.us/tags.json?search[name_matches]=*${encodeURIComponent(q)}*&search[category]=4&limit=10&search[order]=count`;
-    const res = await danbooruFetch(url);
-    if (!res) return []; // CORS 代理不可用，静默降级
-    const tags = await res.json();
-    return tags
-        .filter(t => t.post_count > 0)
-        .map(t => ({ name: t.name, postCount: t.post_count }))
-        .sort((a, b) => b.postCount - a.postCount);
-}
-
-async function fetchDanbooruRelatedTags(tagName) {
-    if (danbooruTagCache.has(tagName)) return danbooruTagCache.get(tagName);
-
-    const url = `https://danbooru.donmai.us/related_tag.json?query=${encodeURIComponent(tagName)}&category=0`;
-    const res = await danbooruFetch(url);
-    if (!res) return []; // CORS 代理不可用，静默降级
-    const data = await res.json();
-
-    const relatedTags = (data.related_tags || [])
-        .filter(rt => {
-            const tag = rt.tag || rt;
-            const name = tag.name || '';
-            return !DANBOORU_TAG_BLOCKLIST.has(name) && (rt.frequency ?? 0) >= 0.15;
-        })
-        .map(rt => {
-            const tag = rt.tag || rt;
-            return {
-                name: tag.name,
-                displayName: danbooruToNai(tag.name),
-                frequency: Math.round((rt.frequency ?? 0) * 1000) / 10,
-                postCount: tag.post_count || 0,
-            };
-        })
-        .sort((a, b) => b.frequency - a.frequency);
-
-    if (danbooruTagCache.size >= 100) {
-        const firstKey = danbooruTagCache.keys().next().value;
-        danbooruTagCache.delete(firstKey);
-    }
-    danbooruTagCache.set(tagName, relatedTags);
-    return relatedTags;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3020,46 +2932,10 @@ async function handleFrameMessage(event) {
             break;
         }
 
-        case 'DANBOORU_SEARCH_CHARACTER': {
-            try {
-                const results = await searchDanbooruCharacter(data.query || '');
-                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                if (iframe) postToIframe(iframe, {
-                    type: 'DANBOORU_CHARACTER_RESULTS',
-                    query: data.query,
-                    charId: data.charId,
-                    results,
-                    proxyUnavailable: results.length === 0 && !danbooruTagCache.size,
-                }, 'LittleWhiteBox-NovelDraw');
-            } catch (e) {
-                console.warn('[NovelDraw] Danbooru 搜索失败:', e.message);
-                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                if (iframe) postToIframe(iframe, {
-                    type: 'DANBOORU_CHARACTER_RESULTS',
-                    query: data.query,
-                    charId: data.charId,
-                    results: [],
-                    error: e.message,
-                }, 'LittleWhiteBox-NovelDraw');
-            }
+        case 'DANBOORU_SEARCH_CHARACTER':
+        case 'DANBOORU_FETCH_TAGS':
+            // 在线 CORS 代理搜索已移除，角色搜索统一使用本地 DB (DANBOORU_LOCAL_SEARCH)
             break;
-        }
-
-        case 'DANBOORU_FETCH_TAGS': {
-            try {
-                const tags = await fetchDanbooruRelatedTags(data.tagName || '');
-                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-                if (iframe) postToIframe(iframe, {
-                    type: 'DANBOORU_TAG_RESULTS',
-                    tagName: data.tagName,
-                    tags,
-                    charId: data.charId,
-                }, 'LittleWhiteBox-NovelDraw');
-            } catch (e) {
-                postStatus('error', 'Danbooru 标签获取失败: ' + e.message);
-            }
-            break;
-        }
 
         case 'CLEAR_EXPIRED_CACHE': {
             const s = getSettings();
