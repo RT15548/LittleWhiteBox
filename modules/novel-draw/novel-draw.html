@@ -1421,10 +1421,15 @@ function handleCharAction(action, id, card) {
     } else if (action === 'search') {
         editingCharId = id;
         renderCharList();
-        // Wait for DOM to settle after re-render
-        requestAnimationFrame(() => requestAnimationFrame(() => showDanbooruSearch(id)));
+        // 本地 DB 已加载时优先用本地搜索，否则走在线 CORS 代理
+        if (state.danbooruLocalDB) {
+            requestAnimationFrame(() => requestAnimationFrame(() => showLocalDanbooruFix(id)));
+        } else {
+            requestAnimationFrame(() => requestAnimationFrame(() => showDanbooruSearch(id)));
+        }
     } else if (action === 'search-danbooru') {
-        showDanbooruSearch(id);
+        if (state.danbooruLocalDB) showLocalDanbooruFix(id);
+        else showDanbooruSearch(id);
     } else if (action === 'edit') {
         editingCharId = id;
         renderCharList();
@@ -1453,11 +1458,9 @@ function handleCharAction(action, id, card) {
         postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
         renderCharList();
     } else if (action === 'delete') {
-        if (confirm('确定删除此角色？')) {
-            state.characterTags = state.characterTags.filter(c => c.id !== id);
-            postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
-            renderCharList();
-        }
+        state.characterTags = state.characterTags.filter(c => c.id !== id);
+        postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
+        renderCharList();
     }
 }
 

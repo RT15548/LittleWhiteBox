@@ -391,11 +391,11 @@ function normalizeSettings(saved) {
         const id2 = generateSlotId();
         const cp = merged.customPrompts || {};
         merged.promptPresets = [
-            { id: id1, name: '默认1',
+            { id: id1, name: '默认-模型要求高',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
               tagGuideContent: null,   // 文件加载后在 initNovelDraw 中迁移
               userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
-            { id: id2, name: '默认2',
+            { id: id2, name: '默认-模型要求低',
               topSystem: cp.topSystem || DEFAULT_PROMPT_CONFIG.topSystem,
               tagGuideContent: cp.tagGuideContent || null,
               userJsonFormat: cp.userJsonFormat || LEGACY_USER_JSON_FORMAT },
@@ -464,11 +464,11 @@ function getSettings() {
         const id1 = generateSlotId();
         const id2 = generateSlotId();
         settingsCache.promptPresets = [
-            { id: id1, name: '默认1',
+            { id: id1, name: '默认-模型要求高',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
               tagGuideContent: getLoadedTagGuide() || '',
               userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
-            { id: id2, name: '默认2',
+            { id: id2, name: '默认-模型要求低',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
               tagGuideContent: getLoadedTagGuide() || '',
               userJsonFormat: LEGACY_USER_JSON_FORMAT },
