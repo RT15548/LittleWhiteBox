@@ -83,6 +83,20 @@ const DEFAULT_PARAMS_PRESET = {
     },
 };
 
+const DEFAULT_PARAMS_PRESET_2 = {
+    id: '', name: '3D 风格 (V4.5 Full)',
+    positivePrefix: '3::3D::artist :ningen_mame,:meion, artist:nixeu, year 2025, artist:cc_lin, artist:kuroida, artist:mame_(hyeon5117), artist:nihnfinite8, artist:laevan, 4k, 10::best quality, absurdres, very aesthetic, detailed, masterpiece::,',
+    negativePrefix: 'easynegative, bad, bad anatomy, bad composition, bad feet, bad hands, blurry, cropped, deformed, digit, error, extra digit, extra limb, extra missing fingers, fewer digits, imperfect eyes, inaccurate eyes, inaccurate limb, jpeg artifacts, low quality, lowres, negative_hand, missing limbs, normal quality, painting by bad-artist, signature, skewed eyes, text, ugly, ugly body, unnatural body, unnatural face, username, watermark, worst quality, missing fingers',
+    maxImages: 0,
+    maxCharactersPerImage: 0,
+    params: {
+        model: 'nai-diffusion-4-5-full', sampler: 'k_euler_ancestral', scheduler: 'karras',
+        steps: 28, scale: 6, width: 1216, height: 832, seed: -1,
+        qualityToggle: true, autoSmea: false, ucPreset: 0, cfg_rescale: 0,
+        variety_boost: false, sm: false, sm_dyn: false, decrisper: false,
+    },
+};
+
 const DEFAULT_SETTINGS = {
     configVersion: CONFIG_VERSION,
     updatedAt: 0,
@@ -355,9 +369,13 @@ function normalizeSettings(saved) {
     delete merged.worldbooks.selectedBooks; // 迁移：旧格式不兼容，清除
 
     if (!merged.paramsPresets?.length) {
-        const id = generateSlotId();
-        merged.paramsPresets = [{ ...JSON.parse(JSON.stringify(DEFAULT_PARAMS_PRESET)), id }];
-        merged.selectedParamsPresetId = id;
+        const id1 = generateSlotId();
+        const id2 = generateSlotId();
+        merged.paramsPresets = [
+            { ...JSON.parse(JSON.stringify(DEFAULT_PARAMS_PRESET)), id: id1 },
+            { ...JSON.parse(JSON.stringify(DEFAULT_PARAMS_PRESET_2)), id: id2 },
+        ];
+        merged.selectedParamsPresetId = id1;
     }
     // 确保每个 paramsPreset 都有 maxImages / maxCharactersPerImage
     for (const p of merged.paramsPresets) {
