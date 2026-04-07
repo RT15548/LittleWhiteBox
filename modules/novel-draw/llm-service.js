@@ -566,8 +566,8 @@ export function getPromptChainPreview(customPrompts) {
           summary: '合规检查 → 开始输出 YAML' },
         { role: 'user', key: 'userConfirm',
           summary: '要求完整重新生成 YAML' },
-        { role: 'assistant', key: 'assistantPrefill',
-          summary: 'Prefill: 继续生成' },
+        { role: 'assistant', key: 'assistantPrefill', optional: true,
+          summary: 'Prefill: 继续生成（可通过"禁用尾部预填充"关闭）' },
     ];
 }
 
@@ -651,6 +651,7 @@ export async function generateScenePlan(options) {
         timeout = 120000,
         maxImages = 0,
         maxCharactersPerImage = 0,
+        disablePrefill = false,
     } = options;
     if (!messageText?.trim()) {
         throw new LLMServiceError('消息内容为空', 'EMPTY_MESSAGE');
@@ -684,8 +685,13 @@ export async function generateScenePlan(options) {
 
     let worldInfoContent = promptConfig.userWorldInfo;
     if (worldbookEntries && worldbookEntries.trim()) {
+        // 高级模式：使用自定义世界书条目替换占位符
         worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, () => worldbookEntries);
     } else if (!useWorldInfo) {
+        // 未启用世界书：清除占位符，避免残留在 prompt 中
+        worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
+    } else {
+        // useWorldInfo=true 但无自定义条目：清除占位符，由 xbgenraw 下游注入酒馆原生世界书
         worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
     }
     topMessages.push({
@@ -735,6 +741,7 @@ export async function generateScenePlan(options) {
         content: promptConfig.metaProtocolEnd
     });
 
+    // #10 合规检查 + #11 截断重生：始终保留（prompt engineering 核心技巧）
     bottomMessages.push({
         role: 'assistant',
         content: promptConfig.assistantCheck
@@ -755,7 +762,7 @@ export async function generateScenePlan(options) {
         nonstream: useStream ? 'false' : 'true',
         top64: b64UrlEncode(JSON.stringify(topMessages)),
         bottom64: b64UrlEncode(JSON.stringify(bottomMessages)),
-        bottomassistant: promptConfig.assistantPrefill,
+        bottomassistant: disablePrefill ? '' : promptConfig.assistantPrefill,
         id: 'xb_nd_scene_plan',
         ...(isSt ? {} : {
             api: llmApi.provider,

@@ -34,6 +34,10 @@ import {
     destroyCloudPresets
 } from './cloud-presets.js';
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
+import {
+    loadLocalDanbooruDB, unloadLocalDanbooruDB,
+    searchLocalDanbooru, isDanbooruDBLoaded,
+} from './danbooru-local-db.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -102,6 +106,7 @@ const DEFAULT_SETTINGS = {
     promptPresets: [],
     selectedPromptPresetId: null,
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
+    danbooruLocalDB: false,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -371,6 +376,7 @@ function normalizeSettings(saved) {
     }));
 
     merged.autoLearnCharacters = !!merged.autoLearnCharacters;
+    merged.danbooruLocalDB = !!merged.danbooruLocalDB;
     merged.autoLearnMode = ['new_only', 'auto_update'].includes(merged.autoLearnMode)
         ? merged.autoLearnMode : 'new_only';
 
@@ -617,38 +623,32 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
 
 // ── 角色自动学习 ─────────────────────────────────────────────
 
-/** 通用/匿名角色名过滤：这些名字不应被学习为固定角色 */
-const GENERIC_NAME_PATTERNS = [
+/** 通用/匿名角色名过滤：预编译为单一正则，避免每次调用迭代 30+ 个 pattern */
+const GENERIC_NAME_REGEX = new RegExp([
     // 中文通用/匿名
-    /^未知/, /^路人/, /^路边/, /^陌生/, /^无名/, /^某[个位]/,
-    /^女[人性孩][A-Za-z0-9]?$/,  // 女人A, 女性, 女孩B
-    /^男[人性孩][A-Za-z0-9]?$/,  // 男人, 男性1, 男孩
-    /^少[女男年][A-Za-z0-9]?$/,  // 少女A, 少年
-    /^大[叔妈姐哥][A-Za-z0-9]?$/, // 大叔, 大姐B
-    /^老[人头大妇][A-Za-z0-9]?$/,
-    /^[女男人]$/,                 // 单字
-    /^角色[0-9A-Za-z]*$/, /^人物[0-9A-Za-z]*$/,
-    /^配角/, /^NPC/i, /^mob/i,
-    /^[男女][0-9]+$/,             // 男1, 女2
-    // 中文关系/职业称呼（RP 常见但不应作为固定角色）
-    /^[哥姐弟妹]$/,              // 单字称呼
-    /^哥哥$/, /^姐姐$/, /^弟弟$/, /^妹妹$/,
-    /^老师$/, /^学长$/, /^学姐$/, /^前辈$/,
-    /^老板$/, /^店员$/, /^医生$/, /^护士$/,
-    /^主人$/, /^奴隶$/, /^仆人$/,
+    '(?:^未知)', '(?:^路人)', '(?:^路边)', '(?:^陌生)', '(?:^无名)', '(?:^某[个位])',
+    '(?:^女[人性孩][A-Za-z0-9]?$)', '(?:^男[人性孩][A-Za-z0-9]?$)',
+    '(?:^少[女男年][A-Za-z0-9]?$)', '(?:^大[叔妈姐哥][A-Za-z0-9]?$)',
+    '(?:^老[人头大妇][A-Za-z0-9]?$)',
+    '(?:^[女男人]$)',
+    '(?:^角色[0-9A-Za-z]*$)', '(?:^人物[0-9A-Za-z]*$)',
+    '(?:^配角)', '(?:^(?:NPC|mob))',
+    '(?:^[男女][0-9]+$)',
+    // 中文关系/职业称呼
+    '(?:^[哥姐弟妹]$)',
+    '(?:^(?:哥哥|姐姐|弟弟|妹妹|老师|学长|学姐|前辈|老板|店员|医生|护士|主人|奴隶|仆人)$)',
     // 日语称呼
-    /^(お[兄姉]ちゃん|先輩|先生|マスター|お嬢様|ご主人様)$/,
+    '(?:^(?:お[兄姉]ちゃん|先輩|先生|マスター|お嬢様|ご主人様)$)',
     // 英文通用
-    /^faceless/i, /^unnamed/i, /^unknown/i, /^random/i,
-    /^stranger/i, /^passerby/i, /^bystander/i,
-    /^(?:girl|boy|woman|man|person|male|female)\s*[A-Za-z0-9]?$/i,
+    '(?:^(?:faceless|unnamed|unknown|random|stranger|passerby|bystander))',
+    '(?:^(?:girl|boy|woman|man|person|male|female)\\s*[A-Za-z0-9]?$)',
     // 英文关系/职业称呼
-    /^(?:teacher|master|boss|doctor|nurse|brother|sister|senpai|sensei)$/i,
-];
+    '(?:^(?:teacher|master|boss|doctor|nurse|brother|sister|senpai|sensei)$)',
+].join('|'), 'i');
 
 function isGenericCharName(name) {
     if (!name || name.trim().length <= 1) return true;
-    return GENERIC_NAME_PATTERNS.some(p => p.test(name.trim()));
+    return GENERIC_NAME_REGEX.test(name.trim());
 }
 
 function autoLearnFromTasks(tasks, settings) {
@@ -681,7 +681,7 @@ function autoLearnFromTasks(tasks, settings) {
         );
 
         if (!found) {
-            knownTags.push({
+            const newChar = {
                 id: generateSlotId(),
                 name: char.name,
                 aliases: [],
@@ -689,7 +689,13 @@ function autoLearnFromTasks(tasks, settings) {
                 appearance: char.appear || '',
                 negativeTags: '',
                 danbooruTag: char.danbooru || '',
-            });
+            };
+            // 本地 DB 自动匹配 danbooruTag
+            if (isDanbooruDBLoaded() && !newChar.danbooruTag) {
+                const matches = searchLocalDanbooru(char.name, 1);
+                if (matches.length) newChar.danbooruTag = matches[0].name;
+            }
+            knownTags.push(newChar);
             result.newChars.push(char.name);
         } else if (mode === 'auto_update') {
             let updated = false;
@@ -705,6 +711,11 @@ function autoLearnFromTasks(tasks, settings) {
             if (!found.danbooruTag && char.danbooru) {
                 found.danbooruTag = char.danbooru;
                 updated = true;
+            }
+            // 本地 DB 自动匹配 danbooruTag（auto_update 模式）
+            if (!found.danbooruTag && isDanbooruDBLoaded()) {
+                const matches = searchLocalDanbooru(found.name, 1);
+                if (matches.length) { found.danbooruTag = matches[0].name; updated = true; }
             }
             if (updated) result.updatedChars.push(found.name);
         }
@@ -765,6 +776,7 @@ const DANBOORU_TIMEOUT = 15000;
 
 /**
  * 通过酒馆 CORS 代理访问 Danbooru API（需 config.yaml 中 enableCorsProxy: true）
+ * 代理不可用时返回 null（优雅降级），而非抛出错误
  */
 async function danbooruFetch(directUrl) {
     const ctrl = new AbortController();
@@ -773,7 +785,8 @@ async function danbooruFetch(directUrl) {
         const res = await fetch(`/proxy/${directUrl}`, { signal: ctrl.signal });
         if (res.ok) return res;
         if (res.status === 404) {
-            throw new Error('CORS 代理不可用。请在 config.yaml 中设置 enableCorsProxy: true');
+            console.warn('[NovelDraw] CORS 代理未启用，Danbooru 功能不可用。需在 config.yaml 中设置 enableCorsProxy: true 或使用 --corsProxy 启动参数');
+            return null;
         }
         throw new Error(`Danbooru 请求失败: ${res.status}`);
     } finally {
@@ -786,6 +799,7 @@ async function searchDanbooruCharacter(query) {
     const q = query.replace(/\s+/g, '_').toLowerCase();
     const url = `https://danbooru.donmai.us/tags.json?search[name_matches]=*${encodeURIComponent(q)}*&search[category]=4&limit=10&search[order]=count`;
     const res = await danbooruFetch(url);
+    if (!res) return []; // CORS 代理不可用，静默降级
     const tags = await res.json();
     return tags
         .filter(t => t.post_count > 0)
@@ -798,6 +812,7 @@ async function fetchDanbooruRelatedTags(tagName) {
 
     const url = `https://danbooru.donmai.us/related_tag.json?query=${encodeURIComponent(tagName)}&category=0`;
     const res = await danbooruFetch(url);
+    if (!res) return []; // CORS 代理不可用，静默降级
     const data = await res.json();
 
     const relatedTags = (data.related_tags || [])
@@ -2097,6 +2112,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 timeout: settings.timeout || 120000,
                 maxImages: preset.maxImages || 0,
                 maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+                disablePrefill: !!settings.disablePrefill,
             });
         } catch (e) {
             if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
@@ -2129,14 +2145,24 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         // 自动学习未知角色
         if (settings.autoLearnCharacters) {
             try {
-                const learnResult = autoLearnFromTasks(tasks, settings);
+                // 先在副本上操作，保存成功后才写回内存状态
+                const tagsCopy = JSON.parse(JSON.stringify(settings.characterTags || []));
+                const settingsCopy = { ...settings, characterTags: tagsCopy };
+                const learnResult = autoLearnFromTasks(tasks, settingsCopy);
                 if (learnResult.newChars.length || learnResult.updatedChars.length) {
                     const parts = [];
                     if (learnResult.newChars.length) parts.push(`新角色: ${learnResult.newChars.join(', ')}`);
                     if (learnResult.updatedChars.length) parts.push(`更新: ${learnResult.updatedChars.join(', ')}`);
                     const msg = `已学习 ${parts.join(' | ')}`;
+                    // 保存副本，成功后才同步到内存
+                    settings.characterTags = settingsCopy.characterTags;
                     saveSettingsAndToast(settings, msg)
-                        .then(() => { if (overlayCreated && frameReady) sendInitData(); });
+                        .then(() => { if (overlayCreated && frameReady) sendInitData(); })
+                        .catch(e => {
+                            // 保存失败：回滚内存状态
+                            settings.characterTags = tagsCopy.slice(0, tagsCopy.length - learnResult.newChars.length);
+                            console.warn('[NovelDraw] 自动学习保存失败，已回滚:', e);
+                        });
                 }
             } catch (e) {
                 console.warn('[NovelDraw] 自动学习角色失败:', e);
@@ -2543,9 +2569,11 @@ async function sendInitData() {
             llmApi: settings.llmApi,
             useStream: settings.useStream,
             useWorldInfo: settings.useWorldInfo,
+            disablePrefill: !!settings.disablePrefill,
             characterTags: settings.characterTags,
             autoLearnCharacters: !!settings.autoLearnCharacters,
             autoLearnMode: settings.autoLearnMode || 'new_only',
+            danbooruLocalDB: !!settings.danbooruLocalDB,
             overrideSize: settings.overrideSize,
             showFloorButton: settings.showFloorButton !== false,
             showFloatingButton: settings.showFloatingButton === true,
@@ -2583,6 +2611,16 @@ async function handleFrameMessage(event) {
         case 'FRAME_READY':
             frameReady = true;
             sendInitData();
+            // 若本地 Danbooru DB 已启用，预加载
+            if (getSettings().danbooruLocalDB) {
+                const datUrl = `${extensionFolderPath}/modules/novel-draw/data/danbooru-chars.dat`;
+                loadLocalDanbooruDB(datUrl).catch(e => {
+                    console.warn('[NovelDraw] Eager load of local Danbooru DB failed:', e);
+                    const s = getSettings();
+                    s.danbooruLocalDB = false;
+                    saveSettingsAndToast(s, 'Danbooru 本地库预加载失败，已自动关闭').then(() => sendInitData());
+                });
+            }
             break;
 
         case 'CLOSE':
@@ -2751,6 +2789,7 @@ async function handleFrameMessage(event) {
             }
             if (typeof data.useStream === 'boolean') s.useStream = data.useStream;
             if (typeof data.useWorldInfo === 'boolean') s.useWorldInfo = data.useWorldInfo;
+            if (typeof data.disablePrefill === 'boolean') s.disablePrefill = data.disablePrefill;
             const ok = await saveSettingsAndToast(s, '已保存');
             if (ok) sendInitData();
             break;
@@ -2946,6 +2985,41 @@ async function handleFrameMessage(event) {
             break;
         }
 
+        case 'SAVE_DANBOORU_LOCAL_DB': {
+            const s = getSettings();
+            s.danbooruLocalDB = !!data.enabled;
+            if (s.danbooruLocalDB) {
+                try {
+                    const datUrl = `${extensionFolderPath}/modules/novel-draw/data/danbooru-chars.dat`;
+                    const db = await loadLocalDanbooruDB(datUrl);
+                    if (!db) break; // 被并发 OFF toggle 取消
+                    await saveSettingsAndToast(s, `Danbooru 本地库已加载 (${db.length} 条)`);
+                } catch (e) {
+                    unloadLocalDanbooruDB();
+                    s.danbooruLocalDB = false;
+                    await saveSettingsAndToast(s, 'Danbooru 本地库加载失败');
+                    console.warn('[NovelDraw] Failed to load local Danbooru DB:', e);
+                }
+            } else {
+                unloadLocalDanbooruDB();
+                await saveSettingsAndToast(s, 'Danbooru 本地库已关闭');
+            }
+            sendInitData();
+            break;
+        }
+
+        case 'DANBOORU_LOCAL_SEARCH': {
+            const results = searchLocalDanbooru(data.query || '', 10);
+            const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+            if (iframe) postToIframe(iframe, {
+                type: 'DANBOORU_LOCAL_SEARCH_RESULTS',
+                query: data.query,
+                charId: data.charId,
+                results,
+            }, 'LittleWhiteBox-NovelDraw');
+            break;
+        }
+
         case 'DANBOORU_SEARCH_CHARACTER': {
             try {
                 const results = await searchDanbooruCharacter(data.query || '');
@@ -2953,10 +3027,20 @@ async function handleFrameMessage(event) {
                 if (iframe) postToIframe(iframe, {
                     type: 'DANBOORU_CHARACTER_RESULTS',
                     query: data.query,
+                    charId: data.charId,
                     results,
+                    proxyUnavailable: results.length === 0 && !danbooruTagCache.size,
                 }, 'LittleWhiteBox-NovelDraw');
             } catch (e) {
-                postStatus('error', 'Danbooru 搜索失败: ' + e.message);
+                console.warn('[NovelDraw] Danbooru 搜索失败:', e.message);
+                const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+                if (iframe) postToIframe(iframe, {
+                    type: 'DANBOORU_CHARACTER_RESULTS',
+                    query: data.query,
+                    charId: data.charId,
+                    results: [],
+                    error: e.message,
+                }, 'LittleWhiteBox-NovelDraw');
             }
             break;
         }
