@@ -35,9 +35,18 @@ async function _doLoad(datUrl) {
     const compressed = new Uint8Array(await res.arrayBuffer());
     if (gen !== _loadDBGeneration) return null;
 
-    const decompressed = decompressSync(compressed);
-    const json = strFromU8(decompressed);
-    const db = JSON.parse(json);
+    let db;
+    try {
+        const decompressed = decompressSync(compressed);
+        const json = strFromU8(decompressed);
+        db = JSON.parse(json);
+    } catch (e) {
+        throw new Error(`Failed to parse Danbooru DB: ${e.message}`);
+    }
+
+    if (!Array.isArray(db) || !db.length || !Array.isArray(db[0])) {
+        throw new Error('Danbooru DB format invalid: expected array of [name, tags[]] tuples');
+    }
 
     // 构建倒排索引: token → Set<arrayIndex>
     const index = new Map();
@@ -99,15 +108,20 @@ export function searchLocalDanbooru(query, limit = 10) {
         }
     }
 
-    // 子串无结果时，尝试 token 交叉匹配
+    // 子串无结果时，尝试 token 交叉匹配（跳过过短查询避免全索引遍历）
     if (scored.size === 0) {
         const tokens = qUnder.split('_').filter(t => t.length >= 2);
+        if (tokens.length === 0) return [];
         for (const token of tokens) {
             const exact = localDanbooruIndex.get(token);
             if (exact) for (const idx of exact) scored.set(idx, (scored.get(idx) || 0) + 1000);
+            // 短 token（<3字符）跳过子串扫描，避免 O(n*m) 遍历
+            if (token.length < 3) continue;
+            let partialCount = 0;
             for (const [key, indices] of localDanbooruIndex) {
                 if (key !== token && key.includes(token)) {
                     for (const idx of indices) scored.set(idx, (scored.get(idx) || 0) + 100);
+                    if (++partialCount >= 50) break; // 限制子串匹配数量
                 }
             }
         }

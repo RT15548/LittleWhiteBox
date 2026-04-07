@@ -239,7 +239,7 @@ function joinTags(...parts) {
         .join(', ');
 }
 
-function escapeHtml(str) { return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function escapeHtml(str) { return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
 function escapeRegexChars(str) { return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -273,6 +273,7 @@ function showToast(message, type = 'success', duration = 2500) {
 }
 
 function isMessageBeingEdited(messageId) {
+    if (!Number.isFinite(messageId)) return false;
     const mesElement = document.querySelector(`.mes[mesid="${messageId}"]`);
     if (!mesElement) return false;
     return mesElement.querySelector('textarea.edit_textarea') !== null || mesElement.classList.contains('editing');
@@ -1035,7 +1036,7 @@ function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, state =
     return `<div class="xb-nd-img ${isBusy ? 'busy' : ''}" data-slot-id="${slotId}" data-img-id="${imgId}" data-tags="${escapedTags}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="${state}" data-current-index="${currentIndex}" data-history-count="${historyCount}" style="margin:0.8em auto;position:relative;display:block;width:fit-content;max-width:100%;${border}border-radius:14px;padding:4px;">
 ${indicator}
 <div class="xb-nd-img-wrap" data-total="${historyCount}">
-    <img src="${url}" style="max-width:100%;width:auto;height:auto;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);${isBusy ? 'opacity:0.5;' : ''}" data-action="open-gallery" ${lazyAttr}>
+    <img src="${escapeHtml(url)}" style="max-width:100%;width:auto;height:auto;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);${isBusy ? 'opacity:0.5;' : ''}" data-action="open-gallery" ${lazyAttr}>
     ${navPill}
     ${liveBtn}
 </div>
@@ -2059,6 +2060,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             try {
                 // 先在副本上操作，保存成功后才写回内存状态
                 const tagsCopy = JSON.parse(JSON.stringify(settings.characterTags || []));
+                const originalBackup = JSON.parse(JSON.stringify(tagsCopy));
                 const settingsCopy = { ...settings, characterTags: tagsCopy };
                 const learnResult = autoLearnFromTasks(tasks, settingsCopy);
                 if (learnResult.newChars.length || learnResult.updatedChars.length) {
@@ -2071,8 +2073,8 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     saveSettingsAndToast(settings, msg)
                         .then(() => { if (overlayCreated && frameReady) sendInitData(); })
                         .catch(e => {
-                            // 保存失败：回滚内存状态
-                            settings.characterTags = tagsCopy.slice(0, tagsCopy.length - learnResult.newChars.length);
+                            // 保存失败：回滚内存状态（直接恢复完整副本）
+                            settings.characterTags = originalBackup;
                             console.warn('[NovelDraw] 自动学习保存失败，已回滚:', e);
                         });
                 }
@@ -2697,7 +2699,9 @@ async function handleFrameMessage(event) {
         case 'SAVE_LLM_API': {
             const s = getSettings();
             if (data.llmApi && typeof data.llmApi === 'object') {
-                s.llmApi = { ...s.llmApi, ...data.llmApi };
+                const allowed = ['provider', 'url', 'key', 'model', 'modelCache'];
+                const clean = Object.fromEntries(allowed.filter(k => k in data.llmApi).map(k => [k, data.llmApi[k]]));
+                s.llmApi = { ...s.llmApi, ...clean };
             }
             if (typeof data.useStream === 'boolean') s.useStream = data.useStream;
             if (typeof data.useWorldInfo === 'boolean') s.useWorldInfo = data.useWorldInfo;
@@ -2835,7 +2839,9 @@ async function handleFrameMessage(event) {
         case 'SAVE_WORLDBOOK_CONFIG': {
             const s = getSettings();
             if (data.worldbooks && typeof data.worldbooks === 'object') {
-                s.worldbooks = { ...s.worldbooks, ...data.worldbooks };
+                const allowed = ['enabled', 'uploadedBooks', 'keywordFilterMode'];
+                const clean = Object.fromEntries(allowed.filter(k => k in data.worldbooks).map(k => [k, data.worldbooks[k]]));
+                s.worldbooks = { ...s.worldbooks, ...clean };
                 if (!Array.isArray(s.worldbooks.uploadedBooks)) s.worldbooks.uploadedBooks = [];
             }
             await saveSettingsAndToast(s, '世界书配置已保存');

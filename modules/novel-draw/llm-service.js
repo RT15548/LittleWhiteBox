@@ -601,16 +601,21 @@ function getStreamingModule() {
     return mod?.xbgenrawCommand ? mod : null;
 }
 
-function waitForStreamingComplete(sessionId, streamingMod, timeout = 120000) {
+function waitForStreamingComplete(sessionId, streamingMod, timeout = 120000, signal) {
     return new Promise((resolve, reject) => {
         const start = Date.now();
+        let timer;
+        const onAbort = () => { clearTimeout(timer); reject(new LLMServiceError('已中止', 'ABORTED')); };
+        if (signal?.aborted) { onAbort(); return; }
+        signal?.addEventListener('abort', onAbort, { once: true });
         const poll = () => {
             const { isStreaming, text } = streamingMod.getStatus(sessionId);
-            if (!isStreaming) return resolve(text || '');
+            if (!isStreaming) { signal?.removeEventListener('abort', onAbort); return resolve(text || ''); }
             if (Date.now() - start > timeout) {
+                signal?.removeEventListener('abort', onAbort);
                 return reject(new LLMServiceError('生成超时', 'TIMEOUT'));
             }
-            setTimeout(poll, 300);
+            timer = setTimeout(poll, 300);
         };
         poll();
     });

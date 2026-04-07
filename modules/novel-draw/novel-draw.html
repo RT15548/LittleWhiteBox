@@ -1105,8 +1105,8 @@ body.advanced-mode .nd-simple-only { display: none !important; }
     <!-- ═══════════════════════════════════════════════════════════════════════
          画廊弹窗
          ═══════════════════════════════════════════════════════════════════════ -->
-    <div id="nd_gallery_modal" class="gallery-modal">
-        <button class="gallery-modal-close" id="nd_modal_close">✕</button>
+    <div id="nd_gallery_modal" class="gallery-modal" role="dialog" aria-modal="true" aria-label="画廊">
+        <button class="gallery-modal-close" id="nd_modal_close" aria-label="关闭">✕</button>
         <div class="gallery-modal-content">
             <img class="gallery-modal-img" id="nd_modal_img" src="" alt="">
             <div class="gallery-modal-thumbs" id="nd_modal_thumbs"></div>
@@ -1201,7 +1201,7 @@ let state = {
 let gallerySummary = {};
 let loadedCharPreviews = {};
 let editingCharId = null;
-let activeSaveBtn = null;
+const saveBtnStates = new WeakMap();
 let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1219,7 +1219,7 @@ function postToParent(payload) {
 }
 
 function escapeHtml(str) {
-    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function getCharEmoji(name) {
@@ -1277,19 +1277,19 @@ function updateStatus(el, st, text) {
 
 function setSavingState(btn) {
     if (!btn) return;
-    activeSaveBtn = btn;
+    saveBtnStates.set(btn, true);
     const i = btn.querySelector('i');
     if (i) { btn._origIcon = i.className; i.className = 'fa-solid fa-spinner fa-spin'; }
     btn.classList.add('saving');
 }
 
-function handleSaveResult(success) {
-    if (!activeSaveBtn) return;
-    const btn = activeSaveBtn;
-    activeSaveBtn = null;
+function handleSaveResult(success, targetBtn) {
+    const btn = targetBtn || Array.from(document.querySelectorAll('.saving')).find(b => saveBtnStates.has(b));
+    if (!btn) return;
+    saveBtnStates.delete(btn);
     btn.classList.remove('saving');
     const i = btn.querySelector('i');
-    
+
     if (success && i) {
         i.className = 'fa-solid fa-check';
         btn.classList.add('save-success');
@@ -1678,10 +1678,10 @@ function renderCharacterSlots(charName, slots) {
         const latest = images[0];
         const hasSaved = images.some(img => img.savedUrl);
         const imgSrc = latest.savedUrl || `data:image/png;base64,${latest.base64}`;
-        
+
         return `
         <div class="gallery-slot" data-slot="${slotId}" data-char="${escapeHtml(charName)}">
-            <img class="gallery-slot-img" src="${imgSrc}" loading="lazy" decoding="async">
+            <img class="gallery-slot-img" src="${escapeHtml(imgSrc)}" loading="lazy" decoding="async">
             <div class="gallery-slot-overlay">
                 <div class="gallery-slot-actions">
                     <button class="btn btn-sm" data-action="view" data-slot="${slotId}" data-char="${escapeHtml(charName)}">
@@ -1726,13 +1726,13 @@ function renderModalContent() {
     const current = images[currentIndex];
     const imgSrc = current.savedUrl || `data:image/png;base64,${current.base64}`;
     $('nd_modal_img').src = imgSrc;
-    
+
     $('nd_modal_thumbs').innerHTML = images.map((img, i) => {
         const src = img.savedUrl || `data:image/png;base64,${img.base64}`;
         const cls = ['gallery-modal-thumb'];
         if (i === currentIndex) cls.push('active');
         if (img.savedUrl) cls.push('saved');
-        return `<img class="${cls.join(' ')}" src="${src}" data-index="${i}">`;
+        return `<img class="${cls.join(' ')}" src="${escapeHtml(src)}" data-index="${i}">`;
     }).join('');
     
     $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
@@ -2462,9 +2462,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // 画廊弹窗
     // ═══════════════════════════════════════════════════════════════════════
     $('nd_modal_close').addEventListener('click', closeGalleryModal);
-    
-    $('nd_gallery_modal').addEventListener('click', e => { 
-        if (e.target.id === 'nd_gallery_modal') closeGalleryModal(); 
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && $('nd_gallery_modal').classList.contains('visible')) closeGalleryModal();
+    });
+
+    $('nd_gallery_modal').addEventListener('click', e => {
+        if (e.target.id === 'nd_gallery_modal') closeGalleryModal();
     });
     
     $('nd_modal_use').addEventListener('click', () => {
