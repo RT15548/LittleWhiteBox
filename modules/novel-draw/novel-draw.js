@@ -403,6 +403,11 @@ function normalizeSettings(saved) {
         ];
         merged.selectedPromptPresetId = id1;
     }
+    // 迁移旧版预设名称
+    const presetNameMigration = { '默认1': '默认-模型要求高', '默认2': '默认-模型要求低' };
+    for (const p of merged.promptPresets) {
+        if (presetNameMigration[p.name]) p.name = presetNameMigration[p.name];
+    }
     // 迁移：将旧版 null 字段替换为具体默认值（tagGuideContent 需文件加载后处理）
     for (const p of merged.promptPresets) {
         if (p.topSystem == null) p.topSystem = DEFAULT_PROMPT_CONFIG.topSystem;

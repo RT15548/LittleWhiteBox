@@ -1534,8 +1534,8 @@ function renderLocalDanbooruResults(query, results, charId) {
             if (!char) return;
 
             char.danbooruTag = tagName;
-            // 若角色外貌为空且本地库有关联 tag，自动填入
-            if (!char.appearance && appearanceTags.length) {
+            // 用本地库的 tag 替换角色外貌
+            if (appearanceTags.length) {
                 char.appearance = appearanceTags.map(t => t.replace(/_/g, ' ')).join(', ');
             }
 
