@@ -187,7 +187,7 @@ images:
 - 主角详述，配角简化
 - 女角色同框仅限百合/协同，否则1女单独
 - 无角色时，物品/服装/建筑等作为主体详述，独立使用1个 Character 槽
-- 默认无名配角: type=boy, appear=faceless male
+- 默认无名配角: type=boy
 
 ### 身份 (name + danbooru + type)
 - name: 角色名（中文原名）
@@ -397,7 +397,7 @@ images:
       - name: 男性
         danbooru: “”
         type: boy
-        appear: faceless male
+        appear: ""
         costume: “”
         action: erection, big penis, ejaculation, standing, pov hand, grabbing another's hair, hand on another's head
         interact: target#fellatio

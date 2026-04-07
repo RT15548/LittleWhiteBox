@@ -662,6 +662,8 @@ function autoLearnFromTasks(tasks, settings) {
         for (const char of (task.chars || [])) {
             if (!char.name || (!char.type && !char.appear)) continue;
             if (isGenericCharName(char.name)) continue; // 跳过通用/匿名名字
+            // 自动剔除 faceless 相关 tag，保留其余外貌（用户可手动添加 faceless）
+            if (char.appear) char.appear = char.appear.replace(/\b\S*faceless\S*\b/gi, '').replace(/,\s*,/g, ',').replace(/^\s*,|,\s*$/g, '').trim();
             const key = char.name.toLowerCase();
             const existing = charMap.get(key);
             if (!existing || countFields(char) > countFields(existing)) {
