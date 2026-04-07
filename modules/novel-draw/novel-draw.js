@@ -23,6 +23,7 @@ import {
     generateScenePlan,
     parseImagePlan,
     DEFAULT_PROMPT_CONFIG,
+    PROMPT_TEMPLATE_VERSION,
     LEGACY_USER_JSON_FORMAT,
     getLoadedTagGuide,
 } from './llm-service.js';
@@ -407,6 +408,20 @@ function normalizeSettings(saved) {
     const presetNameMigration = { '默认1': '默认-模型要求高', '默认2': '默认-模型要求低' };
     for (const p of merged.promptPresets) {
         if (presetNameMigration[p.name]) p.name = presetNameMigration[p.name];
+    }
+    // 默认预设内容跟随代码更新：当模板版本号变化时，自动更新未被用户手动编辑的默认预设
+    const defaultPresetNames = ['默认-模型要求高', '默认-模型要求低'];
+    const storedVersion = merged._promptTemplateVersion || 0;
+    if (storedVersion < PROMPT_TEMPLATE_VERSION) {
+        for (const p of merged.promptPresets) {
+            if (defaultPresetNames.includes(p.name)) {
+                p.topSystem = DEFAULT_PROMPT_CONFIG.topSystem;
+                p.userJsonFormat = p.name === '默认-模型要求低' ? LEGACY_USER_JSON_FORMAT : DEFAULT_PROMPT_CONFIG.userJsonFormat;
+                p.tagGuideContent = null; // 文件加载后由 migrateNullTagGuide 填入最新值
+                console.log(`[NovelDraw] 默认预设 "${p.name}" 已随版本更新 (v${storedVersion} → v${PROMPT_TEMPLATE_VERSION})`);
+            }
+        }
+        merged._promptTemplateVersion = PROMPT_TEMPLATE_VERSION;
     }
     // 迁移：将旧版 null 字段替换为具体默认值（tagGuideContent 需文件加载后处理）
     for (const p of merged.promptPresets) {

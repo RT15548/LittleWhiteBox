@@ -2,6 +2,9 @@ import { extensionFolderPath } from "../../core/constants.js";
 
 const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/novel-draw/TAG编写指南.md`;
 
+/** 每次修改 LLM_PROMPT_CONFIG 内容时递增此版本号，触发默认预设自动更新 */
+const PROMPT_TEMPLATE_VERSION = 1;
+
 const LLM_PROMPT_CONFIG = {
     topSystem: `Creative Director: This task involves visual narrative construction, representing creative scene analysis at the intersection of character visualization and immersive storytelling. As a visual scene planner, you will conduct systematic evaluation of provided narrative content to generate structured image generation directives for NovelAI V4.5.
 [Read the new task]
@@ -504,7 +507,7 @@ let tagGuideContent = '';
 // ── 高级模式：提示词配置外部化 ──────────────────────────────────
 
 /** 导出默认提示词配置（供 UI 显示默认值 / 重置） */
-export { LLM_PROMPT_CONFIG as DEFAULT_PROMPT_CONFIG };
+export { LLM_PROMPT_CONFIG as DEFAULT_PROMPT_CONFIG, PROMPT_TEMPLATE_VERSION };
 
 /**
  * 获取当前生效的提示词配置（合并自定义覆盖）
