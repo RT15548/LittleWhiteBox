@@ -368,8 +368,6 @@ function normalizeSettings(saved) {
         appearance: char.appearance || char.tags || '',
         negativeTags: char.negativeTags || '',
         danbooruTag: char.danbooruTag || '',
-        posX: char.posX ?? 0.5,
-        posY: char.posY ?? 0.5,
     }));
 
     merged.autoLearnCharacters = !!merged.autoLearnCharacters;
@@ -584,8 +582,6 @@ function detectPresentCharacters(messageText, characterTags) {
                 type: char.type || 'girl',
                 appearance: char.appearance || '',
                 negativeTags: char.negativeTags || '',
-                posX: char.posX ?? 0.5,
-                posY: char.posY ?? 0.5,
             });
         }
     }
@@ -602,7 +598,7 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
 
         if (known) {
             const naiTag = known.danbooruTag ? danbooruToNai(known.danbooruTag) : '';
-            const defaultCenter = { x: known.posX ?? 0.5, y: known.posY ?? 0.5 };
+            const defaultCenter = { x: 0.5, y: 0.5 };
             return {
                 prompt: joinTags(naiTag, known.type, known.appearance, char.costume, char.action, char.interact),
                 uc: joinTags(known.negativeTags, char.uc),
@@ -634,10 +630,20 @@ const GENERIC_NAME_PATTERNS = [
     /^角色[0-9A-Za-z]*$/, /^人物[0-9A-Za-z]*$/,
     /^配角/, /^NPC/i, /^mob/i,
     /^[男女][0-9]+$/,             // 男1, 女2
+    // 中文关系/职业称呼（RP 常见但不应作为固定角色）
+    /^[哥姐弟妹]$/,              // 单字称呼
+    /^哥哥$/, /^姐姐$/, /^弟弟$/, /^妹妹$/,
+    /^老师$/, /^学长$/, /^学姐$/, /^前辈$/,
+    /^老板$/, /^店员$/, /^医生$/, /^护士$/,
+    /^主人$/, /^奴隶$/, /^仆人$/,
+    // 日语称呼
+    /^(お[兄姉]ちゃん|先輩|先生|マスター|お嬢様|ご主人様)$/,
     // 英文通用
     /^faceless/i, /^unnamed/i, /^unknown/i, /^random/i,
     /^stranger/i, /^passerby/i, /^bystander/i,
     /^(?:girl|boy|woman|man|person|male|female)\s*[A-Za-z0-9]?$/i,
+    // 英文关系/职业称呼
+    /^(?:teacher|master|boss|doctor|nurse|brother|sister|senpai|sensei)$/i,
 ];
 
 function isGenericCharName(name) {
@@ -683,8 +689,6 @@ function autoLearnFromTasks(tasks, settings) {
                 appearance: char.appear || '',
                 negativeTags: '',
                 danbooruTag: char.danbooru || '',
-                posX: 0.5,
-                posY: 0.5,
             });
             result.newChars.push(char.name);
         } else if (mode === 'auto_update') {
@@ -1649,7 +1653,7 @@ async function refreshSingleImage(container) {
             characterPrompts = presentCharacters.map(c => ({
                 prompt: joinTags(c.type, c.appearance),
                 uc: c.negativeTags || '',
-                center: { x: c.posX ?? 0.5, y: c.posY ?? 0.5 }
+                center: { x: 0.5, y: 0.5 }
             }));
         }
 
@@ -1794,7 +1798,7 @@ async function retryFailedImage(container) {
             characterPrompts = presentCharacters.map(c => ({
                 prompt: joinTags(c.type, c.appearance),
                 uc: c.negativeTags || '',
-                center: { x: c.posX ?? 0.5, y: c.posY ?? 0.5 }
+                center: { x: 0.5, y: 0.5 }
             }));
         }
 

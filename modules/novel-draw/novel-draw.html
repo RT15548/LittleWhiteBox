@@ -168,31 +168,56 @@ select.input { cursor: pointer; }
     border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
 }
 .preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
-.char-grid { display: flex; flex-direction: column; gap: 12px; }
+.char-grid { display: flex; flex-direction: column; gap: 0; }
 .char-card {
-    background: var(--bg-tertiary); border: 1px solid var(--border);
-    border-radius: 10px; padding: 16px; display: flex; gap: 12px; transition: border-color 0.2s;
+    display: flex; align-items: center; padding: 6px 10px; gap: 8px;
+    border-bottom: 1px solid rgba(255,255,255,.06); min-height: 34px; transition: background 0.15s;
 }
-.char-card:hover { border-color: var(--accent); }
-.char-card.editing { border-color: var(--accent); background: var(--accent-soft); }
-.char-avatar {
-    width: 44px; height: 44px; border-radius: 50%; background: var(--accent-soft);
-    display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;
+.char-card:hover { background: rgba(255,255,255,.04); }
+.char-emoji { font-size: 14px; flex-shrink: 0; }
+.char-name { font-weight: 600; font-size: 13px; white-space: nowrap; }
+.char-type-badge {
+    font-size: 10px; padding: 1px 5px; border-radius: 3px;
+    background: rgba(255,255,255,.08); color: var(--text-secondary); white-space: nowrap;
 }
-.char-info { flex: 1; min-width: 0; }
-.char-name { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
-.char-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
-.char-tags { font-size: 12px; color: var(--text-secondary); line-height: 1.5; word-break: break-word; }
-.char-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
-.char-actions .btn { padding: 6px 10px; min-height: 32px; font-size: 12px; }
+.char-status { flex: 1; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.char-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.char-actions button {
+    padding: 3px 5px; font-size: 12px; background: none; border: none;
+    cursor: pointer; opacity: 0; transition: opacity .15s; color: var(--text-secondary); border-radius: 4px;
+}
+.char-actions button:hover { background: rgba(255,255,255,.08); color: var(--text-primary); }
+.char-card:hover .char-actions button { opacity: 1; }
+.char-actions button.btn-danger { color: var(--danger); }
 .char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
 .char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
-.char-edit-form { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* ── Inline edit mode ── */
+.char-card.editing {
+    flex-direction: column; align-items: stretch; padding: 12px;
+    background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px;
+}
+.char-edit-form { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .char-edit-form .form-group { margin-bottom: 10px; }
 .char-edit-form .form-label { font-size: 11px; margin-bottom: 4px; }
 .char-edit-form .input { padding: 8px 10px; font-size: 12px; }
 .char-edit-form textarea.input { min-height: 60px; }
-.char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* ── Toggle switch ── */
+.toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+    position: absolute; inset: 0; background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 10px; cursor: pointer; transition: all 0.2s;
+}
+.toggle-slider::before {
+    content: ''; position: absolute; width: 14px; height: 14px; left: 2px; bottom: 2px;
+    background: var(--text-secondary); border-radius: 50%; transition: all 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--accent); border-color: var(--accent); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); background: #000; }
+.auto-learn-toggle-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.auto-learn-sub { margin-left: 44px; margin-top: 6px; font-size: 12px; color: var(--text-secondary); }
+.auto-learn-sub label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .char-section-header {
     display: flex; align-items: center; justify-content: space-between;
     cursor: pointer; user-select: none;
@@ -784,24 +809,27 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                         <i class="fa-solid fa-chevron-down char-section-toggle"></i>
                     </div>
                     <div class="char-section-content">
-                        <p class="form-hint" style="margin-bottom:16px;">预设角色外貌，LLM 只需补充动作和互动标签</p>
-                        <div class="btn-group" style="margin-bottom:16px;">
-                            <button id="nd_char_add" class="btn btn-primary"><i class="fa-solid fa-plus"></i> 添加角色</button>
-                            <button id="nd_char_export" class="btn"><i class="fa-solid fa-download"></i> 导出</button>
-                            <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="nd_char_import" accept=".json" style="display:none;"></label>
+                        <p class="form-hint" style="margin-bottom:12px;">预设角色外貌，LLM 只需补充动作和互动标签</p>
+                        <div class="btn-group" style="margin-bottom:12px;">
+                            <button id="nd_char_add" class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i> 添加角色</button>
+                            <button id="nd_char_clear" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i> 清除全部</button>
+                            <button id="nd_char_export" class="btn btn-sm"><i class="fa-solid fa-download"></i> 导出</button>
+                            <label class="btn btn-sm" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="nd_char_import" accept=".json" style="display:none;"></label>
                         </div>
-                        <div class="auto-learn-section">
-                            <label>
-                                <input type="checkbox" id="nd_auto_learn">
-                                自动学习角色
-                            </label>
-                            <p class="form-hint" style="margin-left:24px;margin-top:4px;">生成图片时自动记住 LLM 识别的新角色外貌</p>
-                            <div id="nd_auto_learn_mode_row" class="auto-learn-mode-row hidden">
-                                <select id="nd_auto_learn_mode" class="input">
-                                    <option value="new_only">仅学习新角色</option>
-                                    <option value="auto_update">同时更新已有角色（仅填充空白外貌）</option>
-                                </select>
+                        <div class="auto-learn-section" style="margin-bottom:12px;">
+                            <div class="auto-learn-toggle-row">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="nd_auto_learn">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span>自动学习角色</span>
                             </div>
+                            <div id="nd_auto_learn_sub" class="auto-learn-sub hidden">
+                                <label>
+                                    <input type="checkbox" id="nd_auto_learn_update"> 同时补全已有角色空白外貌
+                                </label>
+                            </div>
+                            <p class="form-hint" style="margin-left:44px;margin-top:4px;">生成图片时自动记住 LLM 识别的新角色</p>
                         </div>
                         <div id="nd_char_list" class="char-grid"></div>
                         <div id="nd_char_empty" class="char-empty">
@@ -1280,83 +1308,76 @@ function renderCharList() {
     
     list.innerHTML = chars.map(c => {
         const isEditing = editingCharId === c.id;
-        const aliasText = (c.aliases || []).length > 0 ? `别名: ${c.aliases.join(', ')}` : '';
         const typeLabel = CHARACTER_TYPES.find(t => t.value === c.type)?.label || c.type || 'girl';
+        const typeShort = typeLabel.split(' ')[0];
         const appearance = c.appearance || '';
-        
+
         if (isEditing) {
-            const typeOptions = CHARACTER_TYPES.map(t => 
+            const typeOptions = CHARACTER_TYPES.map(t =>
                 `<option value="${t.value}"${t.value === (c.type || 'girl') ? ' selected' : ''}>${t.label}</option>`
             ).join('');
-            
+
             return `
             <div class="char-card editing" data-id="${c.id}">
-                <div class="char-avatar">${getCharEmoji(c.name)}</div>
-                <div class="char-info">
-                    <div class="char-edit-form">
-                        <div class="char-edit-row">
-                            <div class="form-group">
-                                <label class="form-label">角色名称</label>
-                                <input type="text" class="input char-edit-name" value="${escapeHtml(c.name)}" placeholder="角色名称">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">类型</label>
-                                <select class="input char-edit-type">${typeOptions}</select>
-                                <input type="text" class="input char-edit-type-custom hidden" placeholder="如: mature female" style="margin-top:4px;">
-                            </div>
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                    <span class="char-emoji">${getCharEmoji(c.name)}</span>
+                    <span class="char-name">${escapeHtml(c.name || '新角色')}</span>
+                </div>
+                <div class="char-edit-form">
+                    <div class="char-edit-row">
+                        <div class="form-group">
+                            <label class="form-label">角色名称</label>
+                            <input type="text" class="input char-edit-name" value="${escapeHtml(c.name)}" placeholder="角色名称">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">别名（逗号分隔）</label>
-                            <input type="text" class="input char-edit-aliases" value="${escapeHtml((c.aliases || []).join(', '))}" placeholder="小名, 昵称, ...">
+                            <label class="form-label">类型</label>
+                            <select class="input char-edit-type">${typeOptions}</select>
+                            <input type="text" class="input char-edit-type-custom hidden" placeholder="如: mature female" style="margin-top:4px;">
                         </div>
-                        <div class="form-group">
-                            <label class="form-label" style="display:flex;align-items:center;gap:8px;">
-                                外貌标签 (appearance)
-                                <button class="btn" data-action="search-danbooru" data-id="${c.id}" style="padding:2px 8px;font-size:10px;">
-                                    <i class="fa-solid fa-magnifying-glass"></i> Danbooru
-                                </button>
-                            </label>
-                            <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(appearance)}</textarea>
-                            ${c.danbooruTag ? `<div class="form-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;">Danbooru: ${escapeHtml(c.danbooruTag.replace(/_/g, ' '))}</div>` : ''}
-                            <div class="danbooru-panel hidden" data-char-id="${c.id}"></div>
-                            <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">负向标签（可选）</label>
-                            <textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(c.negativeTags || '')}</textarea>
-                        </div>
-                        <div class="char-edit-row">
-                            <div class="form-group">
-                                <label class="form-label">位置 X (0-1)</label>
-                                <input type="number" class="input char-edit-posx" value="${c.posX ?? 0.5}" min="0" max="1" step="0.1">
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label">位置 Y (0-1)</label>
-                                <input type="number" class="input char-edit-posy" value="${c.posY ?? 0.5}" min="0" max="1" step="0.1">
-                            </div>
-                        </div>
-                        <div class="btn-group" style="margin-top:12px;">
-                            <button class="btn btn-primary" data-action="save" data-id="${c.id}"><i class="fa-solid fa-check"></i> 保存</button>
-                            <button class="btn" data-action="cancel" data-id="${c.id}">取消</button>
-                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">别名（逗号分隔）</label>
+                        <input type="text" class="input char-edit-aliases" value="${escapeHtml((c.aliases || []).join(', '))}" placeholder="小名, 昵称, ...">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" style="display:flex;align-items:center;gap:8px;">
+                            外貌标签 (appearance)
+                            <button class="btn" data-action="search-danbooru" data-id="${c.id}" style="padding:2px 8px;font-size:10px;">
+                                <i class="fa-solid fa-magnifying-glass"></i> Danbooru
+                            </button>
+                        </label>
+                        <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(appearance)}</textarea>
+                        ${c.danbooruTag ? `<div class="form-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;">Danbooru: ${escapeHtml(c.danbooruTag.replace(/_/g, ' '))}</div>` : ''}
+                        <div class="danbooru-panel hidden" data-char-id="${c.id}"></div>
+                        <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">负向标签（可选）</label>
+                        <textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(c.negativeTags || '')}</textarea>
+                    </div>
+                    <div class="btn-group" style="margin-top:12px;">
+                        <button class="btn btn-primary" data-action="save" data-id="${c.id}"><i class="fa-solid fa-check"></i> 保存</button>
+                        <button class="btn" data-action="cancel" data-id="${c.id}">取消</button>
                     </div>
                 </div>
             </div>`;
         }
-        
+
+        const statusParts = [];
+        if (appearance) statusParts.push('✅外貌');
+        else statusParts.push('⚠️未设置');
+        if (c.negativeTags) statusParts.push('❌neg');
+
         return `
         <div class="char-card" data-id="${c.id}">
-            <div class="char-avatar">${getCharEmoji(c.name)}</div>
-            <div class="char-info">
-                <div class="char-name">${escapeHtml(c.name)}</div>
-                <div class="char-meta">[${escapeHtml(typeLabel.split(' ')[0])}] ${escapeHtml(aliasText)}</div>
-                <div class="char-tags">✅ ${escapeHtml(appearance || '未设置外貌')}</div>
-                ${c.negativeTags ? `<div class="char-tags" style="color:var(--text-muted);font-size:11px;">❌ ${escapeHtml(c.negativeTags.slice(0, 50))}...</div>` : ''}
-            </div>
+            <span class="char-emoji">${getCharEmoji(c.name)}</span>
+            <span class="char-name">${escapeHtml(c.name)}</span>
+            <span class="char-type-badge">${escapeHtml(typeShort)}</span>
+            <span class="char-status">${statusParts.join(' ')}</span>
             <div class="char-actions">
-                <button class="btn" data-action="search" data-id="${c.id}" title="Danbooru 标签搜索"><i class="fa-solid fa-magnifying-glass"></i></button>
-                <button class="btn" data-action="edit" data-id="${c.id}"><i class="fa-solid fa-pen"></i></button>
-                <button class="btn btn-danger" data-action="delete" data-id="${c.id}"><i class="fa-solid fa-trash"></i></button>
+                <button data-action="search" data-id="${c.id}" title="Danbooru 标签搜索">🔍</button>
+                <button data-action="edit" data-id="${c.id}" title="编辑">✏️</button>
+                <button class="btn-danger" data-action="delete" data-id="${c.id}" title="删除">🗑️</button>
             </div>
         </div>`;
     }).join('');
@@ -1400,9 +1421,7 @@ function handleCharAction(action, id, card) {
         char.aliases = (card.querySelector('.char-edit-aliases')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
         char.appearance = card.querySelector('.char-edit-appearance')?.value?.trim() || '';
         char.negativeTags = card.querySelector('.char-edit-neg')?.value?.trim() || '';
-        char.posX = Math.max(0, Math.min(1, parseFloat(card.querySelector('.char-edit-posx')?.value) || 0.5));
-        char.posY = Math.max(0, Math.min(1, parseFloat(card.querySelector('.char-edit-posy')?.value) || 0.5));
-        
+
         editingCharId = null;
         postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
         renderCharList();
@@ -1997,8 +2016,8 @@ function applyStateToUI() {
         renderGalleryView();
         // auto-learn
         $('nd_auto_learn').checked = !!state.autoLearnCharacters;
-        $('nd_auto_learn_mode').value = state.autoLearnMode || 'new_only';
-        $('nd_auto_learn_mode_row').classList.toggle('hidden', !state.autoLearnCharacters);
+        $('nd_auto_learn_update').checked = (state.autoLearnMode || 'new_only') === 'auto_update';
+        $('nd_auto_learn_sub').classList.toggle('hidden', !state.autoLearnCharacters);
     } catch (e) {
         console.error('[ND-UI] applyStateToUI 部分失败:', e);
     }
@@ -2361,7 +2380,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('nd_char_header').addEventListener('click', () => { $('nd_char_card').classList.toggle('collapsed'); });
     
     $('nd_char_add').addEventListener('click', () => {
-        const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', posX: 0.5, posY: 0.5 };
+        const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '' };
         state.characterTags.push(nc);
         editingCharId = nc.id;
         renderCharList();
@@ -2376,15 +2395,25 @@ document.addEventListener('DOMContentLoaded', () => {
         if (id) handleCharAction(btn.dataset.action, id, card);
     });
 
-    // auto-learn
+    // auto-learn (toggle + subordinate checkbox)
     $('nd_auto_learn').addEventListener('change', () => {
         const enabled = $('nd_auto_learn').checked;
-        console.log('[ND-UI] auto-learn changed:', enabled);
-        $('nd_auto_learn_mode_row').classList.toggle('hidden', !enabled);
-        postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: enabled, autoLearnMode: $('nd_auto_learn_mode').value });
+        $('nd_auto_learn_sub').classList.toggle('hidden', !enabled);
+        const mode = enabled && $('nd_auto_learn_update').checked ? 'auto_update' : 'new_only';
+        postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: enabled, autoLearnMode: mode });
     });
-    $('nd_auto_learn_mode').addEventListener('change', () => {
-        postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: $('nd_auto_learn').checked, autoLearnMode: $('nd_auto_learn_mode').value });
+    $('nd_auto_learn_update').addEventListener('change', () => {
+        const mode = $('nd_auto_learn_update').checked ? 'auto_update' : 'new_only';
+        postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: $('nd_auto_learn').checked, autoLearnMode: mode });
+    });
+
+    // clear all characters
+    $('nd_char_clear').addEventListener('click', () => {
+        if (!state.characterTags?.length) { alert('没有角色可清除'); return; }
+        if (!confirm(`确定清除全部 ${state.characterTags.length} 个角色？此操作不可撤销。`)) return;
+        state.characterTags = [];
+        postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
+        renderCharList();
     });
     
     $('nd_char_export').addEventListener('click', () => {

@@ -319,8 +319,8 @@ uc 字段 = 只对该角色生效的负面 Tag：
 - 持物绑定: 持有物须同步描述位置
 
 ### 物理反馈
-- 乳房形变: sagging breasts, heavy breasts; breasts spread out, flattened breasts
-- 撞击形变: deep skin indentation, flesh deformation, stomach bulge
+- 乳房形变: sagging breasts, heavy breasts; breasts spread out, flattened breasts; teardrop shape
+- 撞击形变: deep skin indentation, flesh deformation, stomach bulge, squeezing
 - 重力: feet planted, heavy stances
 
 ---
@@ -340,6 +340,7 @@ uc 字段 = 只对该角色生效的负面 Tag：
 - 少女: 雪纺/薄纱/蕾丝/过膝袜/泡泡袜/褶裥
 - 熟女: 深V/开衩/镂空/紧身/乳胶
 - 穿着状态: 掀起/半脱；无上装/拉上衣；无下装/仅丝袜；全裸；湿透→see-through clothes, visible through clothes
+- 避孕套: condom, condom on penis, condom wrapper, used condom, condom belt, condom in mouth
 
 ---
 
