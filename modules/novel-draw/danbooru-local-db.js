@@ -28,7 +28,7 @@ async function _doLoad(datUrl) {
     const { decompressSync, strFromU8 } = await import('../../libs/fflate.mjs');
     if (gen !== _loadDBGeneration) return null;
 
-    const res = await fetch(datUrl);
+    const res = await fetch(datUrl, { cache: 'no-cache' });
     if (!res.ok) throw new Error(`Failed to load danbooru DB: ${res.status}`);
     if (gen !== _loadDBGeneration) return null;
 
