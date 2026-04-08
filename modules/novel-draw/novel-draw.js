@@ -20,6 +20,7 @@ import {
     PROVIDER_MAP,
     LLMServiceError,
     loadTagGuide,
+    loadPromptTemplates,
     generateScenePlan,
     parseImagePlan,
     DEFAULT_PROMPT_CONFIG,
@@ -3122,6 +3123,7 @@ export async function openNovelDrawSettings() {
 export async function initNovelDraw() {
     if (window?.isXiaobaixEnabled === false) return;
 
+    await loadPromptTemplates();
     await loadSettings();
     moduleInitialized = true;
     ensureStyles();
