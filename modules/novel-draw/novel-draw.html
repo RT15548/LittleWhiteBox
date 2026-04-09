@@ -2345,6 +2345,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // auto-learn (toggle + subordinate checkbox)
     $('nd_auto_learn').addEventListener('change', () => {
         const enabled = $('nd_auto_learn').checked;
+        state.autoLearnCharacters = enabled; // 乐观更新，与 danbooruLocalDB 一致
         $('nd_auto_learn_sub').classList.toggle('hidden', !enabled);
         const mode = enabled && $('nd_auto_learn_update').checked ? 'auto_update' : 'new_only';
         postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: enabled, autoLearnMode: mode });

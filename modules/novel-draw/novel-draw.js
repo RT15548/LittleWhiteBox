@@ -2502,13 +2502,12 @@ async function sendInitData() {
     console.log('[NovelDraw] sendInitData called');
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
     if (!iframe?.contentWindow) { console.warn('[NovelDraw] sendInitData: no iframe'); return; }
-    // getCacheStats / getGallerySummary 依赖 IndexedDB，可能静默失败
-    // 即使失败也必须发送 INIT_DATA，否则 iframe 永远停留在空白状态
+    // 先读 settings，再做 IndexedDB 异步操作，避免 await 期间 settings 被其他 handler 修改导致发送旧值
+    const settings = getSettings();
     let stats = { count: 0, sizeMB: 0 };
     let gallerySummary = {};
     try { stats = await getCacheStats(); } catch (e) { console.warn('[NovelDraw] getCacheStats failed:', e); }
     try { gallerySummary = await getGallerySummary(); } catch (e) { console.warn('[NovelDraw] getGallerySummary failed:', e); }
-    const settings = getSettings();
     console.log('[NovelDraw] sendInitData: autoLearn=%s, advancedMode=%s, promptPresets=%d',
         settings.autoLearnCharacters, settings.advancedMode, settings.promptPresets?.length);
     postToIframe(iframe, {
@@ -2567,14 +2566,11 @@ async function handleFrameMessage(event) {
         case 'FRAME_READY':
             frameReady = true;
             sendInitData();
-            // 若本地 Danbooru DB 已启用，预加载
+            // 若本地 Danbooru DB 已启用，预加载（失败只警告，不修改用户设置）
             if (getSettings().danbooruLocalDB) {
                 const datUrl = `${extensionFolderPath}/modules/novel-draw/data/danbooru-chars.dat`;
                 loadLocalDanbooruDB(datUrl).catch(e => {
                     console.warn('[NovelDraw] Eager load of local Danbooru DB failed:', e);
-                    const s = getSettings();
-                    s.danbooruLocalDB = false;
-                    saveSettingsAndToast(s, 'Danbooru 本地库预加载失败，已自动关闭').then(() => sendInitData());
                 });
             }
             break;
