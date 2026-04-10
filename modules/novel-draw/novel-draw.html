@@ -169,6 +169,12 @@ select.input { cursor: pointer; }
 }
 .preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
 .char-grid { display: flex; flex-direction: column; gap: 0; }
+.filter-rule-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.filter-rule-row input { flex: 1; font-size: 13px; padding: 4px 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); }
+.filter-rule-row .rule-arrow { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
+.filter-rule-row .btn-del-rule { flex-shrink: 0; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 3px; }
+.filter-rule-row .btn-del-rule:hover { color: var(--danger); background: rgba(255,0,0,.1); }
+.filter-rule-row input:focus { outline: none; border-color: var(--border-focus); }
 .char-card {
     display: flex; align-items: center; padding: 6px 10px; gap: 8px;
     border-bottom: 1px solid rgba(255,255,255,.06); min-height: 34px; transition: background 0.15s;
@@ -919,7 +925,21 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                         <button id="nd_llm_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
                     </div>
                 </div>
-                
+
+                <div class="card">
+                    <div class="card-title">消息过滤规则</div>
+                    <p class="form-hint" style="margin-bottom:8px;">过滤 RP 消息中的干扰内容（如思考标签），避免影响场景分析。<br>起始和结束之间的内容会被移除。起始留空 = 从消息开头到结束标记；结束留空 = 从起始标记到消息末尾。</p>
+                    <div id="nd_filter_rules_list"></div>
+                    <div class="btn-group" style="margin-top:8px; gap:8px; flex-wrap:wrap;">
+                        <button id="nd_filter_add" class="btn btn-sm">+ 添加规则</button>
+                        <button id="nd_filter_sync" class="btn btn-sm">同步总结的过滤规则</button>
+                        <button id="nd_filter_reset" class="btn btn-sm">恢复默认</button>
+                    </div>
+                    <div class="btn-group" style="margin-top:12px;">
+                        <button id="nd_filter_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存规则</button>
+                    </div>
+                </div>
+
                 <div class="tip-box nd-simple-only">
                     <i class="fa-solid fa-info-circle"></i>
                     <div>场景分析提示词由插件内置，无需配置。勾选「使用世界书」后，会注入世界书作为背景知识。</div>
@@ -1196,6 +1216,7 @@ let state = {
     showFloatingButton: false,
     promptPresets: [],
     selectedPromptPresetId: null,
+    messageFilterRules: [],
 };
 
 let gallerySummary = {};
@@ -1308,8 +1329,52 @@ function handleSaveResult(success, targetBtn) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 消息过滤规则
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ND_DEFAULT_FILTER_RULES = [
+    { start: '<think>',    end: '</think>' },
+    { start: '<thinking>', end: '</thinking>' },
+    { start: '<system>',   end: '</system>' },
+    { start: '<meta>',     end: '</meta>' },
+    { start: '<—',         end: '—>' },
+    { start: '',           end: '</think>' },
+];
+
+function renderFilterRuleRow(rule, container) {
+    const row = document.createElement('div');
+    row.className = 'filter-rule-row';
+    row.innerHTML = `<input type="text" class="fr-start" placeholder="起始（可空）" value="${escapeHtml(rule.start || '')}">` +
+        `<span class="rule-arrow">→</span>` +
+        `<input type="text" class="fr-end" placeholder="结束（可空）" value="${escapeHtml(rule.end || '')}">` +
+        `<button class="btn-del-rule" title="删除">✕</button>`;
+    row.querySelector('.btn-del-rule').onclick = () => row.remove();
+    container.appendChild(row);
+}
+
+function renderFilterRules(rules) {
+    const list = $('nd_filter_rules_list');
+    if (!list) return;
+    list.innerHTML = '';
+    const arr = Array.isArray(rules) ? rules : ND_DEFAULT_FILTER_RULES;
+    arr.forEach(r => renderFilterRuleRow(r, list));
+}
+
+function collectFilterRules() {
+    const rows = $$('#nd_filter_rules_list .filter-rule-row');
+    const rules = [];
+    rows.forEach(row => {
+        const start = row.querySelector('.fr-start')?.value || '';
+        const end = row.querySelector('.fr-end')?.value || '';
+        if (start || end) rules.push({ start, end });
+    });
+    return rules;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 角色列表
 // ═══════════════════════════════════════════════════════════════════════════
+
 
 function renderCharList() {
     const list = $('nd_char_list');
@@ -1968,6 +2033,7 @@ function applyStateToUI() {
         $('nd_danbooru_local').checked = !!state.danbooruLocalDB;
         $('nd_danbooru_local_sub').classList.toggle('hidden', !state.danbooruLocalDB);
         $('nd_danbooru_local_status').textContent = state.danbooruLocalDB ? '已加载' : '未加载';
+        renderFilterRules(state.messageFilterRules);
     } catch (e) {
         console.error('[ND-UI] applyStateToUI 部分失败:', e);
     }
@@ -2192,6 +2258,25 @@ window.addEventListener('message', event => {
         case 'PROMPT_CHAIN_DATA':
             renderPromptChain(data.chain || []);
             break;
+
+        case 'SYNC_SUMMARY_FILTER_RESULT': {
+            const incoming = Array.isArray(data.rules) ? data.rules : [];
+            if (!incoming.length) { alert('总结模块没有找到过滤规则'); break; }
+            const current = collectFilterRules();
+            const exists = new Set(current.map(r => `${r.start}\x00${r.end}`));
+            let added = 0;
+            const list = $('nd_filter_rules_list');
+            for (const r of incoming) {
+                const key = `${r.start || ''}\x00${r.end || ''}`;
+                if (!exists.has(key)) {
+                    renderFilterRuleRow({ start: r.start || '', end: r.end || '' }, list);
+                    exists.add(key);
+                    added++;
+                }
+            }
+            alert(added ? `已同步 ${added} 条新规则（需点保存生效）` : '没有新规则需要同步');
+            break;
+        }
     }
 });
 
@@ -2442,7 +2527,27 @@ document.addEventListener('DOMContentLoaded', () => {
             disablePrefill: $('nd_disable_prefill').checked
         });
     });
-    
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 消息过滤规则
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_filter_add').addEventListener('click', () => {
+        renderFilterRuleRow({ start: '', end: '' }, $('nd_filter_rules_list'));
+    });
+    $('nd_filter_save').addEventListener('click', () => {
+        setSavingState($('nd_filter_save'));
+        const rules = collectFilterRules();
+        state.messageFilterRules = rules;
+        postToParent({ type: 'SAVE_MESSAGE_FILTER_RULES', rules });
+    });
+    $('nd_filter_sync').addEventListener('click', () => {
+        postToParent({ type: 'SYNC_SUMMARY_FILTER_RULES' });
+    });
+    $('nd_filter_reset').addEventListener('click', () => {
+        if (!confirm('确定恢复为默认过滤规则？当前未保存的修改将丢失。')) return;
+        renderFilterRules(ND_DEFAULT_FILTER_RULES);
+    });
+
     // ═══════════════════════════════════════════════════════════════════════
     // 图片管理
     // ═══════════════════════════════════════════════════════════════════════

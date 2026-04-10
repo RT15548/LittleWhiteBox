@@ -55,6 +55,36 @@ const API_TEST_TIMEOUT = 15000;
 const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
 const INITIAL_RENDER_MESSAGE_LIMIT = 1;
 
+// ── 消息文本过滤 ──────────────────────────────────────────────────
+const DEFAULT_MESSAGE_FILTER_RULES = [
+    { start: '<think>',    end: '</think>' },
+    { start: '<thinking>', end: '</thinking>' },
+    { start: '<system>',   end: '</system>' },
+    { start: '<meta>',     end: '</meta>' },
+    { start: '<—',         end: '—>' },
+    { start: '',           end: '</think>' },   // 孤立闭合标签：从开头到 </think>
+];
+
+function applyMessageFilterRules(text, rules) {
+    if (!Array.isArray(rules) || !rules.length) return text;
+    const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let result = String(text);
+    for (const { start, end } of rules) {
+        const s = (start || '').trim(), e = (end || '').trim();
+        if (!s && !e) continue;
+        if (s && e) {
+            result = result.replace(new RegExp(esc(s) + '[\\s\\S]*?' + esc(e), 'gi'), '');
+        } else if (s) {
+            const idx = result.toLowerCase().indexOf(s.toLowerCase());
+            if (idx >= 0) result = result.slice(0, idx);
+        } else {
+            const idx = result.toLowerCase().indexOf(e.toLowerCase());
+            if (idx >= 0) result = result.slice(idx + e.length);
+        }
+    }
+    return result.trim();
+}
+
 const events = createModuleEvents(MODULE_KEY);
 
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
@@ -123,6 +153,7 @@ const DEFAULT_SETTINGS = {
     selectedPromptPresetId: null,
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
     danbooruLocalDB: false,
+    messageFilterRules: [],
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -448,6 +479,12 @@ function normalizeSettings(saved) {
         if (p.userJsonFormat == null) p.userJsonFormat = DEFAULT_PROMPT_CONFIG.userJsonFormat;
     }
     if (!merged.selectedPromptPresetId) merged.selectedPromptPresetId = merged.promptPresets[0]?.id;
+
+    // ── 消息过滤规则规范化 ──
+    if (!Array.isArray(merged.messageFilterRules)) merged.messageFilterRules = [];
+    merged.messageFilterRules = merged.messageFilterRules
+        .filter(r => r && typeof r === 'object')
+        .map(r => ({ start: String(r.start || ''), end: String(r.end || '') }));
 
     return merged;
 }
@@ -2023,8 +2060,12 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         const settings = getSettings();
         const preset = getActiveParamsPreset();
 
-        const messageText = String(message.mes || '').replace(PLACEHOLDER_REGEX, '').trim();
-        if (!messageText) throw new NovelDrawError('消息内容为空', ErrorType.PARSE);
+        const rawText = String(message.mes || '').replace(PLACEHOLDER_REGEX, '').trim();
+        const filterRules = settings.messageFilterRules?.length
+            ? settings.messageFilterRules
+            : DEFAULT_MESSAGE_FILTER_RULES;
+        const messageText = applyMessageFilterRules(rawText, filterRules);
+        if (!messageText) throw new NovelDrawError('消息内容为空（可能被过滤规则清空）', ErrorType.PARSE);
 
         const presentCharacters = detectPresentCharacters(messageText, settings.characterTags || []);
 
@@ -2540,6 +2581,7 @@ async function sendInitData() {
             ),
             selectedPromptPresetId: settings.selectedPromptPresetId || null,
             worldbooks: settings.worldbooks || DEFAULT_SETTINGS.worldbooks,
+            messageFilterRules: settings.messageFilterRules || [],
         },
         defaultPrompts: {
             topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
@@ -2980,6 +3022,31 @@ async function handleFrameMessage(event) {
         case 'DANBOORU_FETCH_TAGS':
             // 在线 CORS 代理搜索已移除，角色搜索统一使用本地 DB (DANBOORU_LOCAL_SEARCH)
             break;
+
+        case 'SAVE_MESSAGE_FILTER_RULES': {
+            const s = getSettings();
+            s.messageFilterRules = Array.isArray(data.rules) ? data.rules : [];
+            await saveSettingsAndToast(s, '过滤规则已保存');
+            break;
+        }
+
+        case 'SYNC_SUMMARY_FILTER_RULES': {
+            const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
+            if (!iframe) break;
+            let summaryRules = [];
+            try {
+                const raw = localStorage.getItem('summary_panel_config');
+                if (raw) {
+                    const cfg = JSON.parse(raw);
+                    summaryRules = cfg?.textFilterRules || cfg?.vector?.textFilterRules || [];
+                }
+            } catch { /* ignore */ }
+            postToIframe(iframe, {
+                type: 'SYNC_SUMMARY_FILTER_RESULT',
+                rules: Array.isArray(summaryRules) ? summaryRules : [],
+            }, 'LittleWhiteBox-NovelDraw');
+            break;
+        }
 
         case 'CLEAR_EXPIRED_CACHE': {
             const s = getSettings();
