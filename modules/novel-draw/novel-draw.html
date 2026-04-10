@@ -1360,7 +1360,7 @@ function renderFilterRules(rules) {
     const list = $('nd_filter_rules_list');
     if (!list) return;
     list.innerHTML = '';
-    const arr = Array.isArray(rules) ? rules : ND_DEFAULT_FILTER_RULES;
+    const arr = (Array.isArray(rules) && rules.length) ? rules : ND_DEFAULT_FILTER_RULES;
     arr.forEach(r => renderFilterRuleRow(r, list));
 }
 
