@@ -61,6 +61,10 @@ const DEFAULT_MESSAGE_FILTER_RULES = [
     { start: '<thinking>', end: '</thinking>' },
     { start: '<system>',   end: '</system>' },
     { start: '<meta>',     end: '</meta>' },
+    { start: '<options>',  end: '</options>' },
+    { start: '<WorldState>', end: '</WorldState>' },
+    { start: '<state>',    end: '</state>' },
+    { start: '<UpdateVariable>', end: '</UpdateVariable>' },
     { start: '<—',         end: '—>' },
     { start: '',           end: '</think>' },   // 孤立闭合标签：从开头到 </think>
 ];
