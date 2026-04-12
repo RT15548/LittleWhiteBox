@@ -2653,7 +2653,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     $('nd_prompt_reset_system').addEventListener('click', () => {
-        $('nd_prompt_system').value = state._defaultPrompts?.topSystem || '';
+        const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId);
+        const isPov = activePreset?.name === '默认-第一人称视角';
+        const defaultTopSystem = isPov ? (state._defaultPrompts?.topSystemPov || '') : (state._defaultPrompts?.topSystem || '');
+        $('nd_prompt_system').value = defaultTopSystem;
         postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'topSystem', selectedPromptPresetId: state.selectedPromptPresetId });
     });
     $('nd_prompt_reset_guide').addEventListener('click', () => {
@@ -2667,11 +2670,14 @@ document.addEventListener('DOMContentLoaded', () => {
     $('nd_prompts_reset_all').addEventListener('click', () => {
         if (!confirm('确认恢复全部提示词为默认值？')) return;
         const defaults = state._defaultPrompts || {};
-        $('nd_prompt_system').value = defaults.topSystem || '';
+        const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId);
+        const isPov = activePreset?.name === '默认-第一人称视角';
+        const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
+        $('nd_prompt_system').value = topSystemVal;
         $('nd_prompt_guide').value = defaults.tagGuideContent || '';
         $('nd_prompt_format').value = defaults.userJsonFormat || '';
         postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
-            topSystem: defaults.topSystem || '',
+            topSystem: topSystemVal,
             tagGuideContent: defaults.tagGuideContent || '',
             userJsonFormat: defaults.userJsonFormat || '',
         }});

@@ -445,13 +445,18 @@ function normalizeSettings(saved) {
     if (!merged.promptPresets.length) {
         const id1 = generateSlotId();
         const id2 = generateSlotId();
+        const id3 = generateSlotId();
         const cp = merged.customPrompts || {};
         merged.promptPresets = [
             { id: id1, name: '默认-模型要求高',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
-              tagGuideContent: null,   // 文件加载后在 initNovelDraw 中迁移
+              tagGuideContent: null,
               userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
-            { id: id2, name: '默认-模型要求低',
+            { id: id2, name: '默认-第一人称视角',
+              topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov,
+              tagGuideContent: null,
+              userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
+            { id: id3, name: '默认-模型要求低',
               topSystem: cp.topSystem || DEFAULT_PROMPT_CONFIG.topSystem,
               tagGuideContent: cp.tagGuideContent || null,
               userJsonFormat: cp.userJsonFormat || LEGACY_USER_JSON_FORMAT },
@@ -464,14 +469,31 @@ function normalizeSettings(saved) {
         if (presetNameMigration[p.name]) p.name = presetNameMigration[p.name];
     }
     // 默认预设内容跟随代码更新：当模板版本号变化时，自动更新未被用户手动编辑的默认预设
-    const defaultPresetNames = ['默认-模型要求高', '默认-模型要求低'];
+    const defaultPresetNames = ['默认-模型要求高', '默认-第一人称视角', '默认-模型要求低'];
     const storedVersion = merged._promptTemplateVersion || 0;
     if (storedVersion < PROMPT_TEMPLATE_VERSION) {
+        // v3: 注入新的第一人称视角预设（如果不存在）
+        if (!merged.promptPresets.some(p => p.name === '默认-第一人称视角')) {
+            const insertIdx = merged.promptPresets.findIndex(p => p.name === '默认-模型要求低');
+            const povPreset = {
+                id: generateSlotId(), name: '默认-第一人称视角',
+                topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov,
+                tagGuideContent: null,
+                userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
+            };
+            if (insertIdx >= 0) merged.promptPresets.splice(insertIdx, 0, povPreset);
+            else merged.promptPresets.push(povPreset);
+            console.log('[NovelDraw] 已注入新预设 "默认-第一人称视角"');
+        }
         for (const p of merged.promptPresets) {
             if (defaultPresetNames.includes(p.name)) {
-                p.topSystem = DEFAULT_PROMPT_CONFIG.topSystem;
+                if (p.name === '默认-第一人称视角') {
+                    p.topSystem = DEFAULT_PROMPT_CONFIG.topSystemPov;
+                } else {
+                    p.topSystem = DEFAULT_PROMPT_CONFIG.topSystem;
+                }
                 p.userJsonFormat = p.name === '默认-模型要求低' ? LEGACY_USER_JSON_FORMAT : DEFAULT_PROMPT_CONFIG.userJsonFormat;
-                p.tagGuideContent = null; // 文件加载后由 migrateNullTagGuide 填入最新值
+                p.tagGuideContent = null;
                 console.log(`[NovelDraw] 默认预设 "${p.name}" 已随版本更新 (v${storedVersion} → v${PROMPT_TEMPLATE_VERSION})`);
             }
         }
@@ -544,12 +566,17 @@ function getSettings() {
         console.warn('[NovelDraw] promptPresets 为空，重新创建');
         const id1 = generateSlotId();
         const id2 = generateSlotId();
+        const id3 = generateSlotId();
         settingsCache.promptPresets = [
             { id: id1, name: '默认-模型要求高',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
               tagGuideContent: getLoadedTagGuide() || '',
               userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
-            { id: id2, name: '默认-模型要求低',
+            { id: id2, name: '默认-第一人称视角',
+              topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov,
+              tagGuideContent: getLoadedTagGuide() || '',
+              userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat },
+            { id: id3, name: '默认-模型要求低',
               topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
               tagGuideContent: getLoadedTagGuide() || '',
               userJsonFormat: LEGACY_USER_JSON_FORMAT },
@@ -2589,6 +2616,7 @@ async function sendInitData() {
         },
         defaultPrompts: {
             topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+            topSystemPov: DEFAULT_PROMPT_CONFIG.topSystemPov,
             tagGuideContent: getLoadedTagGuide(),
             userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
         },
@@ -2812,16 +2840,18 @@ async function handleFrameMessage(event) {
             const key = data.key;
             const ALLOWED_PROMPT_KEYS = ['topSystem', 'tagGuideContent', 'userJsonFormat'];
             if (key && ALLOWED_PROMPT_KEYS.includes(key)) {
+                // 使用 iframe 传来的当前选中 ID，避免本地切换后未保存导致定位错误
+                const presetId = data.selectedPromptPresetId || s.selectedPromptPresetId;
+                const active = s.promptPresets.find(p => p.id === presetId);
+                // 第一人称视角预设的 topSystem 默认值不同
+                const isPov = active?.name === '默认-第一人称视角';
                 const resetDefaults = {
-                    topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+                    topSystem: isPov ? DEFAULT_PROMPT_CONFIG.topSystemPov : DEFAULT_PROMPT_CONFIG.topSystem,
                     tagGuideContent: getLoadedTagGuide() || '',
                     userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
                 };
                 const defaultVal = resetDefaults[key];
                 if (s.customPrompts) s.customPrompts[key] = defaultVal;
-                // 使用 iframe 传来的当前选中 ID，避免本地切换后未保存导致定位错误
-                const presetId = data.selectedPromptPresetId || s.selectedPromptPresetId;
-                const active = s.promptPresets.find(p => p.id === presetId);
                 if (active) active[key] = defaultVal;
             }
             await saveSettingsAndToast(s, '已恢复默认');
