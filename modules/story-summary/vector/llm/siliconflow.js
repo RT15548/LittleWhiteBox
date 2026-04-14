@@ -7,6 +7,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getVectorConfig } from '../../data/config.js';
+import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../openai-url-utils.js';
 
 const BASE_URL = 'https://api.siliconflow.cn';
 const EMBEDDING_MODEL = 'BAAI/bge-m3';
@@ -78,7 +79,10 @@ export async function embed(texts, options = {}) {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
-        const baseUrl = String(apiCfg.url || `${BASE_URL}/v1`).replace(/\/+$/, '');
+        const baseUrl = resolveApiBaseUrl(
+            String(apiCfg.url || `${BASE_URL}/v1`),
+            getDefaultApiPrefix(apiCfg.provider || 'siliconflow')
+        );
         const response = await fetch(`${baseUrl}/embeddings`, {
             method: 'POST',
             headers: {

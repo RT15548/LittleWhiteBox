@@ -107,7 +107,7 @@
             <div class="form-group">
               <label class="form-label">路径前缀</label>
               <select id="ep_prefix_mode" class="input">
-                <option value="auto">自动 (如 /v1)</option>
+                <option value="auto">自动（仅裸地址时补默认前缀）</option>
                 <option value="custom">自定义</option>
               </select>
             </div>
@@ -115,6 +115,7 @@
           <div class="form-group">
             <label class="form-label">API 地址</label>
             <input id="ep_api_base" type="text" class="input" placeholder="https://api.openai.com">
+            <div style="margin-top:6px;font-size:12px;color:var(--muted, #9aa4b2);line-height:1.5;">可直接填写完整前缀，如 <code>/v1</code>、<code>/v3</code>、<code>/v1beta</code>；若只填裸地址，自动模式会按渠道补默认前缀。</div>
           </div>
           <div class="form-group hidden" id="ep_custom_prefix_group">
             <label class="form-label">自定义前缀</label>

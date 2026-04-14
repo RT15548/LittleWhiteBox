@@ -36,6 +36,7 @@ import {
     destroyCloudPresets
 } from './cloud-presets.js';
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
+import { getDefaultApiPrefix, getModelListCandidateUrls } from "../openai-url-utils.js";
 import {
     loadLocalDanbooruDB, unloadLocalDanbooruDB,
     searchLocalDanbooru, isDanbooruDBLoaded,
@@ -2967,7 +2968,6 @@ async function handleFrameMessage(event) {
             try {
                 postStatus('loading', '连接中...');
                 const apiCfg = data.llmApi || {};
-                let baseUrl = String(apiCfg.url || '').trim().replace(/\/+$/, '');
                 const apiKey = String(apiCfg.key || '').trim();
                 if (!apiKey) {
                     postStatus('error', '请先填写 API KEY');
@@ -2979,9 +2979,11 @@ async function handleFrameMessage(event) {
                     return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null;
                 };
 
-                if (baseUrl.endsWith('/v1')) baseUrl = baseUrl.slice(0, -3);
-                let models = await tryFetch(`${baseUrl}/v1/models`);
-                if (!models) models = await tryFetch(`${baseUrl}/models`);
+                let models = null;
+                for (const url of getModelListCandidateUrls(apiCfg.url, getDefaultApiPrefix(apiCfg.provider))) {
+                    models = await tryFetch(url);
+                    if (models?.length) break;
+                }
                 if (!models?.length) throw new Error('未获取到模型列表');
 
                 const s = getSettings();

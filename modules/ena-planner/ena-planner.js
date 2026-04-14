@@ -7,6 +7,7 @@ import { extensionFolderPath } from '../../core/constants.js';
 import { EnaPlannerStorage } from '../../core/server-storage.js';
 import { postToIframe, isTrustedIframeEvent } from '../../core/iframe-messaging.js';
 import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.js';
+import { getDefaultApiPrefix, joinApiUrl, resolveApiBaseUrl } from '../openai-url-utils.js';
 import { formatOutlinePrompt } from '../story-outline/story-outline.js';
 import jsyaml from '../../libs/js-yaml.mjs';
 
@@ -211,8 +212,7 @@ function normalizeUrlBase(u) {
 }
 
 function getDefaultPrefixByChannel(channel) {
-    if (channel === 'gemini') return '/v1beta';
-    return '/v1';
+    return getDefaultApiPrefix(channel);
 }
 
 function buildApiPrefix() {
@@ -224,14 +224,8 @@ function buildApiPrefix() {
 function buildUrl(path) {
     const s = ensureSettings();
     const base = normalizeUrlBase(s.api.baseUrl);
-    const prefix = buildApiPrefix();
-    const p = prefix.startsWith('/') ? prefix : `/${prefix}`;
-    const finalPrefix = p.replace(/\/+$/g, '');
-    const finalPath = path.startsWith('/') ? path : `/${path}`;
-    const escapedPrefix = finalPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const hasSameSuffix = !!finalPrefix && new RegExp(`${escapedPrefix}$`, 'i').test(base);
-    const normalizedBase = hasSameSuffix ? base.slice(0, -finalPrefix.length) : base;
-    return `${normalizedBase}${finalPrefix}${finalPath}`;
+    const resolvedBase = resolveApiBaseUrl(base, buildApiPrefix());
+    return joinApiUrl(resolvedBase, path);
 }
 
 function setSendUIBusy(busy) {
