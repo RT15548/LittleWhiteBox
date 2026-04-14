@@ -744,13 +744,17 @@ async function handleFetchModels({ apiUrl, apiKey }) {
             const h = { 'Content-Type': 'application/json', ...(apiKey && { Authorization: `Bearer ${apiKey}` }) };
             let lastStatus = '';
             for (const url of getModelListCandidateUrls(apiUrl, getDefaultApiPrefix('openai'))) {
-                const r = await fetch(url, { headers: h });
-                if (!r.ok) {
-                    lastStatus = `HTTP ${r.status}`;
+                try {
+                    const r = await fetch(url, { headers: h });
+                    if (!r.ok) {
+                        lastStatus = `HTTP ${r.status}`;
+                        continue;
+                    }
+                    const j = await r.json();
+                    models = (j.data || j || []).map(m => m.id || m.name || m).filter(m => typeof m === 'string');
+                } catch {
                     continue;
                 }
-                const j = await r.json();
-                models = (j.data || j || []).map(m => m.id || m.name || m).filter(m => typeof m === 'string');
                 if (models.length) break;
             }
             if (!models.length) throw new Error(lastStatus || '未获取到模型列表');
@@ -765,9 +769,14 @@ async function handleTestConn({ apiUrl, apiKey, model }) {
         const h = { 'Content-Type': 'application/json', ...(apiKey && { Authorization: `Bearer ${apiKey}` }) };
         let connected = false;
         for (const url of getModelListCandidateUrls(apiUrl, getDefaultApiPrefix('openai'))) {
-            if ((await fetch(url, { headers: h })).ok) {
+            try {
+                const r = await fetch(url, { headers: h });
+                if (!r.ok) continue;
+                await r.json();
                 connected = true;
                 break;
+            } catch {
+                continue;
             }
         }
         if (!connected) throw new Error('连接失败');
