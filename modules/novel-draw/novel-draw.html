@@ -168,62 +168,31 @@ select.input { cursor: pointer; }
     border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
 }
 .preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
-.char-grid { display: flex; flex-direction: column; gap: 0; }
-.filter-rule-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.filter-rule-row input { flex: 1; font-size: 13px; padding: 4px 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; color: var(--text-primary); }
-.filter-rule-row .rule-arrow { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
-.filter-rule-row .btn-del-rule { flex-shrink: 0; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 3px; }
-.filter-rule-row .btn-del-rule:hover { color: var(--danger); background: rgba(255,0,0,.1); }
-.filter-rule-row input:focus { outline: none; border-color: var(--border-focus); }
+.char-grid { display: flex; flex-direction: column; gap: 12px; }
 .char-card {
-    display: flex; align-items: center; padding: 6px 10px; gap: 8px;
-    border-bottom: 1px solid rgba(255,255,255,.06); min-height: 34px; transition: background 0.15s;
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; display: flex; gap: 12px; transition: border-color 0.2s;
 }
-.char-card:hover { background: rgba(255,255,255,.04); }
-.char-emoji { font-size: 14px; flex-shrink: 0; }
-.char-name { font-weight: 600; font-size: 13px; white-space: nowrap; }
-.char-type-badge {
-    font-size: 10px; padding: 1px 5px; border-radius: 3px;
-    background: rgba(255,255,255,.08); color: var(--text-secondary); white-space: nowrap;
+.char-card:hover { border-color: var(--accent); }
+.char-card.editing { border-color: var(--accent); background: var(--accent-soft); }
+.char-avatar {
+    width: 44px; height: 44px; border-radius: 50%; background: var(--accent-soft);
+    display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;
 }
-.char-status { flex: 1; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.char-actions { display: flex; gap: 2px; flex-shrink: 0; }
-.char-actions button {
-    padding: 3px 5px; font-size: 12px; background: none; border: none;
-    cursor: pointer; opacity: 0; transition: opacity .15s; color: var(--text-secondary); border-radius: 4px;
-}
-.char-actions button:hover { background: rgba(255,255,255,.08); color: var(--text-primary); }
-.char-card:hover .char-actions button { opacity: 1; }
-.char-actions button.btn-danger { color: var(--danger); }
+.char-info { flex: 1; min-width: 0; }
+.char-name { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.char-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.char-tags { font-size: 12px; color: var(--text-secondary); line-height: 1.5; word-break: break-word; }
+.char-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.char-actions .btn { padding: 6px 10px; min-height: 32px; font-size: 12px; }
 .char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
 .char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
-.char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-/* ── Inline edit mode ── */
-.char-card.editing {
-    flex-direction: column; align-items: stretch; padding: 12px;
-    background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px;
-}
-.char-edit-form { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.char-edit-form { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .char-edit-form .form-group { margin-bottom: 10px; }
 .char-edit-form .form-label { font-size: 11px; margin-bottom: 4px; }
 .char-edit-form .input { padding: 8px 10px; font-size: 12px; }
 .char-edit-form textarea.input { min-height: 60px; }
-/* ── Toggle switch ── */
-.toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
-.toggle-switch input { opacity: 0; width: 0; height: 0; }
-.toggle-slider {
-    position: absolute; inset: 0; background: var(--bg-tertiary); border: 1px solid var(--border);
-    border-radius: 10px; cursor: pointer; transition: all 0.2s;
-}
-.toggle-slider::before {
-    content: ''; position: absolute; width: 14px; height: 14px; left: 2px; bottom: 2px;
-    background: var(--text-secondary); border-radius: 50%; transition: all 0.2s;
-}
-.toggle-switch input:checked + .toggle-slider { background: var(--accent); border-color: var(--accent); }
-.toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); background: #000; }
-.auto-learn-toggle-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.auto-learn-sub { margin-left: 44px; margin-top: 6px; font-size: 12px; color: var(--text-secondary); }
-.auto-learn-sub label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .char-section-header {
     display: flex; align-items: center; justify-content: space-between;
     cursor: pointer; user-select: none;
@@ -385,148 +354,6 @@ select.input { cursor: pointer; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 .hidden { display: none !important; }
-
-/* ── 高级模式 ── */
-.nd-advanced-only { display: none !important; }
-body.advanced-mode .nd-advanced-only { display: flex !important; }
-body.advanced-mode .nd-simple-only { display: none !important; }
-
-.prompt-textarea {
-    width: 100%; min-height: 180px; max-height: 400px;
-    padding: 12px; font-family: 'Cascadia Code', 'Fira Code', monospace;
-    font-size: 12px; line-height: 1.6; resize: vertical;
-    background: var(--bg-input); color: var(--text-primary);
-    border: 1px solid var(--border); border-radius: 8px;
-    transition: border-color 0.2s;
-}
-.prompt-textarea:focus { border-color: var(--border-focus); outline: none; }
-
-.prompt-card-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 8px;
-}
-.prompt-card-header .card-title { margin: 0; }
-
-.wb-book-list { display: flex; flex-direction: column; gap: 6px; }
-.wb-book-item {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 12px; background: var(--bg-input);
-    border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
-}
-.wb-book-item:hover { border-color: var(--border-focus); }
-.wb-book-name { flex: 1; font-weight: 500; }
-.wb-book-count { font-size: 12px; color: var(--text-secondary); }
-.wb-book-delete {
-    background: none; border: none; color: var(--text-muted); cursor: pointer;
-    padding: 2px 6px; font-size: 14px; line-height: 1; border-radius: 4px;
-}
-.wb-book-delete:hover { color: var(--danger); background: rgba(255,0,0,0.1); }
-
-.wb-dropzone {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 8px; padding: 24px; border: 2px dashed var(--border);
-    border-radius: 8px; cursor: pointer; text-align: center;
-    color: var(--text-secondary); transition: border-color 0.2s, background 0.2s;
-}
-.wb-dropzone:hover, .wb-dropzone.dragover {
-    border-color: var(--border-focus); background: rgba(255,255,255,0.03);
-}
-.wb-dropzone p { margin: 0; font-size: 13px; }
-
-.wb-entry-list { margin-top: 8px; }
-.wb-entry-item {
-    display: flex; align-items: flex-start; gap: 8px;
-    padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px;
-}
-.wb-lamp { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
-.wb-lamp.constant { background: var(--success); }
-.wb-lamp.normal { background: #58a6ff; }
-.wb-lamp.disabled { background: var(--text-muted); }
-.wb-entry-info { flex: 1; min-width: 0; }
-.wb-entry-title { font-weight: 500; }
-.wb-entry-keys { color: var(--text-secondary); font-size: 11px; }
-.wb-entry-preview { color: var(--text-muted); font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.advanced-toggle-box {
-    padding: 12px 16px; margin-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-}
-
-/* Danbooru 搜索面板 */
-.danbooru-panel {
-    margin-top: 8px; padding: 12px; background: var(--bg-input);
-    border: 1px solid var(--border); border-radius: 8px;
-}
-.danbooru-panel.hidden { display: none; }
-.danbooru-search-row {
-    display: flex; gap: 8px; margin-bottom: 8px;
-}
-.danbooru-search-row input { flex: 1; padding: 6px 10px; font-size: 12px; }
-.danbooru-search-row .btn { padding: 6px 12px; font-size: 12px; white-space: nowrap; }
-.danbooru-char-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
-.danbooru-char-item {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 10px; background: var(--bg-tertiary); border-radius: 6px;
-    cursor: pointer; font-size: 12px; transition: background 0.15s;
-}
-.danbooru-char-item:hover { background: var(--accent-soft); }
-.danbooru-char-item .char-count { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
-.danbooru-char-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.danbooru-char-name { font-weight: 500; }
-.danbooru-char-series { font-size: 10px; color: var(--text-muted); font-style: italic; }
-.danbooru-tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.danbooru-tag-item {
-    display: flex; align-items: center; gap: 4px; padding: 4px 8px;
-    background: var(--bg-tertiary); border: 1px solid var(--border);
-    border-radius: 6px; font-size: 11px; cursor: pointer; transition: all 0.15s;
-}
-.danbooru-tag-item:hover { border-color: var(--accent); }
-.danbooru-tag-item.checked { background: var(--accent-soft); border-color: var(--accent); }
-.danbooru-tag-item input[type="checkbox"] { margin: 0; width: 14px; height: 14px; }
-.danbooru-tag-freq { color: var(--text-muted); font-size: 10px; }
-.danbooru-actions { display: flex; gap: 8px; margin-top: 8px; }
-.danbooru-status { font-size: 11px; color: var(--text-muted); padding: 8px 0; }
-
-/* Auto-learn 区域 */
-.auto-learn-section {
-    margin-bottom: 16px; padding: 12px 16px; background: var(--bg-input);
-    border: 1px solid var(--border); border-radius: 8px;
-}
-.auto-learn-section label { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
-.auto-learn-mode-row { margin-top: 8px; margin-left: 24px; }
-.auto-learn-mode-row.hidden { display: none; }
-.auto-learn-mode-row select { max-width: 200px; }
-
-/* 消息链可视化 */
-.prompt-chain-card { margin-top: 16px; }
-.prompt-chain-toggle { cursor: pointer; }
-.chain-toggle-icon { font-size: 12px; color: var(--text-muted); }
-.prompt-chain-container { display: none; margin-top: 8px; }
-.prompt-chain-container.open { display: block; }
-.chain-item {
-    display: flex; align-items: flex-start; gap: 8px;
-    padding: 6px 10px; border-radius: 6px; font-size: 12px;
-    cursor: pointer; transition: background 0.15s; margin-bottom: 4px;
-}
-.chain-item:hover { background: var(--bg-tertiary); }
-.chain-role {
-    display: inline-block; padding: 1px 6px; border-radius: 4px;
-    font-size: 10px; font-weight: 600; white-space: nowrap; min-width: 60px; text-align: center;
-}
-.chain-role.system { background: #7c3aed22; color: #a78bfa; }
-.chain-role.assistant { background: #3b82f622; color: #60a5fa; }
-.chain-role.user { background: #10b98122; color: #34d399; }
-.chain-summary { flex: 1; min-width: 0; }
-.chain-summary-text { display: flex; align-items: center; gap: 6px; }
-.chain-editable { font-size: 10px; opacity: 0.7; }
-.chain-variables { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
-.chain-content-preview {
-    display: none; margin-top: 6px; padding: 8px;
-    background: var(--bg-input); border-radius: 6px;
-    font-family: monospace; font-size: 10px; white-space: pre-wrap;
-    max-height: 200px; overflow-y: auto; color: var(--text-muted);
-}
-.chain-item.expanded .chain-content-preview { display: block; }
 </style>
 </head>
 
@@ -573,9 +400,6 @@ body.advanced-mode .nd-simple-only { display: none !important; }
             <div class="nav-item" data-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</div>
             <div class="nav-divider"></div>
             <div class="nav-item" data-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
-            <div class="nav-divider nd-advanced-only"></div>
-            <div class="nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i>提示词模板</div>
-            <div class="nav-item nd-advanced-only" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i>世界书</div>
         </nav>
 
         <!-- ═══════════════════════════════════════════════════════════════════
@@ -750,21 +574,6 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                 </div>
                 
                 <div class="card">
-                    <div class="card-title">数量限制</div>
-                    <p class="form-hint">限制 LLM 规划的图片数量和每张图角色数 (0 = 不限制)</p>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">最大图片数</label>
-                            <input id="nd_max_images" type="number" class="input" min="0" max="20" value="0" title="0=不限制">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">每张图最大角色数</label>
-                            <input id="nd_max_chars" type="number" class="input" min="0" max="10" value="0" title="0=不限制">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
                     <div class="card-title">增强选项</div>
                     <div class="form-row">
                         <div class="form-group">
@@ -815,40 +624,11 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                         <i class="fa-solid fa-chevron-down char-section-toggle"></i>
                     </div>
                     <div class="char-section-content">
-                        <p class="form-hint" style="margin-bottom:12px;">预设角色外貌，LLM 只需补充动作和互动标签</p>
-                        <div class="btn-group" style="margin-bottom:12px;">
-                            <button id="nd_char_add" class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i> 添加角色</button>
-                            <button id="nd_char_clear" class="btn btn-danger btn-sm"><i class="fa-solid fa-trash-can"></i> 清除全部</button>
-                            <button id="nd_char_export" class="btn btn-sm"><i class="fa-solid fa-download"></i> 导出</button>
-                            <label class="btn btn-sm" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="nd_char_import" accept=".json" style="display:none;"></label>
-                        </div>
-                        <div class="auto-learn-section" style="margin-bottom:12px;">
-                            <div class="auto-learn-toggle-row">
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="nd_auto_learn">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                                <span>自动学习角色</span>
-                            </div>
-                            <div id="nd_auto_learn_sub" class="auto-learn-sub hidden">
-                                <label>
-                                    <input type="checkbox" id="nd_auto_learn_update"> 同时补全已有角色空白外貌
-                                </label>
-                            </div>
-                            <p class="form-hint" style="margin-left:44px;margin-top:4px;">生成图片时自动记住 LLM 识别的新角色</p>
-                        </div>
-                        <div class="auto-learn-section" style="margin-bottom:12px;">
-                            <div class="auto-learn-toggle-row">
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="nd_danbooru_local">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                                <span>（测试）Danbooru 角色资源库</span>
-                            </div>
-                            <div id="nd_danbooru_local_sub" class="auto-learn-sub hidden">
-                                <span id="nd_danbooru_local_status" style="font-size:11px;color:var(--text-muted);">未加载</span>
-                            </div>
-                            <p class="form-hint" style="margin-left:44px;margin-top:4px;">启用后加载本地 Danbooru top 7000 角色库，支持离线搜索和自动修正 danbooruTag</p>
+                        <p class="form-hint" style="margin-bottom:16px;">预设角色外貌，LLM 只需补充动作和互动标签</p>
+                        <div class="btn-group" style="margin-bottom:16px;">
+                            <button id="nd_char_add" class="btn btn-primary"><i class="fa-solid fa-plus"></i> 添加角色</button>
+                            <button id="nd_char_export" class="btn"><i class="fa-solid fa-download"></i> 导出</button>
+                            <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="nd_char_import" accept=".json" style="display:none;"></label>
                         </div>
                         <div id="nd_char_list" class="char-grid"></div>
                         <div id="nd_char_empty" class="char-empty">
@@ -913,42 +693,16 @@ body.advanced-mode .nd-simple-only { display: none !important; }
 				    </label>
 				    <p class="form-hint" style="margin-left:24px;">勾选后，注入世界书作为背景知识</p>
 				</div>
-				<div class="form-group" style="margin-top:8px;">
-				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
-				        <input type="checkbox" id="nd_disable_prefill"> 禁用尾部预填充
-				    </label>
-				    <p class="form-hint" style="margin-left:24px;">关闭 assistant prefill 注入（某些模型/API 不支持预填充时启用，合规检查和截断重生保留）</p>
-				</div>
                     
                     <div id="nd_llm_status" class="status-text"></div>
                     <div class="btn-group" style="margin-top:16px;">
                         <button id="nd_llm_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
                     </div>
                 </div>
-
-                <div class="card">
-                    <div class="card-title">消息过滤规则</div>
-                    <p class="form-hint" style="margin-bottom:8px;">过滤 RP 消息中的干扰内容（如思考标签），避免影响场景分析。<br>起始和结束之间的内容会被移除。起始留空 = 从消息开头到结束标记；结束留空 = 从起始标记到消息末尾。</p>
-                    <div id="nd_filter_rules_list"></div>
-                    <div class="btn-group" style="margin-top:8px; gap:8px; flex-wrap:wrap;">
-                        <button id="nd_filter_add" class="btn btn-sm">+ 添加规则</button>
-                        <button id="nd_filter_sync" class="btn btn-sm">同步总结的过滤规则</button>
-                        <button id="nd_filter_reset" class="btn btn-sm">恢复默认</button>
-                    </div>
-                    <div class="btn-group" style="margin-top:12px;">
-                        <button id="nd_filter_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存规则</button>
-                    </div>
-                </div>
-
-                <div class="tip-box nd-simple-only">
+                
+                <div class="tip-box">
                     <i class="fa-solid fa-info-circle"></i>
                     <div>场景分析提示词由插件内置，无需配置。勾选「使用世界书」后，会注入世界书作为背景知识。</div>
-                </div>
-                <div class="card advanced-toggle-box">
-                    <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;font-weight:600;">
-                        <input type="checkbox" id="nd_advanced_mode"> 高级模式
-                    </label>
-                    <p class="form-hint" style="margin-left:24px;margin-top:4px;">开启后可自定义提示词模板并精细配置世界书注入</p>
                 </div>
             </div>
 
@@ -995,115 +749,6 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                 </div>
             </div>
 
-            <!-- ═══════════════════════════════════════════════════════════════
-                 提示词模板 (高级模式)
-                 ═══════════════════════════════════════════════════════════════ -->
-            <div id="view-prompts" class="view">
-                <div class="view-header">
-                    <h2 class="view-title">提示词模板</h2>
-                    <p class="view-desc">自定义场景分析的 LLM 提示词模板</p>
-                </div>
-
-                <div class="preset-bar">
-                    <select id="nd_prompt_preset" class="input"></select>
-                    <div class="btn-group">
-                        <button id="nd_prompt_add" class="btn btn-icon" title="新建"><i class="fa-solid fa-plus"></i></button>
-                        <button id="nd_prompt_rename" class="btn btn-icon" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                        <button id="nd_prompt_preset_save" class="btn btn-primary" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
-                        <button id="nd_prompt_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="prompt-card-header">
-                        <div class="card-title">系统提示词 (System Prompt)</div>
-                        <button class="btn btn-sm" id="nd_prompt_reset_system"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
-                    </div>
-                    <p class="form-hint">定义 LLM 的角色定位和 VSPF 框架</p>
-                    <textarea id="nd_prompt_system" class="prompt-textarea" rows="8"></textarea>
-                </div>
-
-                <div class="card">
-                    <div class="prompt-card-header">
-                        <div class="card-title">TAG 编写指南</div>
-                        <button class="btn btn-sm" id="nd_prompt_reset_guide"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
-                    </div>
-                    <p class="form-hint">注入给 LLM 的 TAG 编写规范参考</p>
-                    <textarea id="nd_prompt_guide" class="prompt-textarea" rows="8"></textarea>
-                </div>
-
-                <div class="card">
-                    <div class="prompt-card-header">
-                        <div class="card-title">输出格式规范</div>
-                        <button class="btn btn-sm" id="nd_prompt_reset_format"><i class="fa-solid fa-rotate-left"></i> 恢复默认</button>
-                    </div>
-                    <p class="form-hint">定义 LLM 输出 YAML 的格式要求</p>
-                    <textarea id="nd_prompt_format" class="prompt-textarea" rows="8"></textarea>
-                </div>
-
-                <div class="btn-group" style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">
-                    <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存到当前预设</button>
-                    <button id="nd_prompts_reset_all" class="btn btn-danger"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
-                    <button id="nd_prompts_export" class="btn"><i class="fa-solid fa-download"></i> 导出模板</button>
-                    <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入模板<input type="file" id="nd_prompts_import" accept=".json" style="display:none;"></label>
-                </div>
-
-                <!-- 消息链结构预览 -->
-                <div class="card prompt-chain-card">
-                    <div class="prompt-card-header prompt-chain-toggle" id="nd_chain_toggle">
-                        <div class="card-title"><i class="fa-solid fa-link"></i> 消息链结构</div>
-                        <span class="chain-toggle-icon">▶ 展开</span>
-                    </div>
-                    <p class="form-hint">LLM 实际收到的消息链顺序（点击查看模板内容）</p>
-                    <div id="nd_prompt_chain" class="prompt-chain-container"></div>
-                </div>
-            </div>
-
-            <!-- ═══════════════════════════════════════════════════════════════
-                 世界书管理 (高级模式)
-                 ═══════════════════════════════════════════════════════════════ -->
-            <div id="view-worldbook" class="view">
-                <div class="view-header">
-                    <h2 class="view-title">世界书</h2>
-                    <p class="view-desc">上传世界书 JSON 文件用于生图上下文</p>
-                </div>
-
-                <div class="card">
-                    <div class="card-title">上传世界书</div>
-                    <p class="form-hint">支持酒馆导出的 .json 世界书文件，可多选</p>
-                    <input type="file" id="nd_wb_file_input" multiple accept=".json" style="display:none;">
-                    <div id="nd_wb_dropzone" class="wb-dropzone">
-                        <i class="fa-solid fa-cloud-arrow-up" style="font-size:24px;opacity:0.5;"></i>
-                        <p>点击或拖拽 .json 文件到此处</p>
-                    </div>
-                    <div id="nd_wb_uploaded_list" class="wb-book-list" style="margin-top:12px;"></div>
-                </div>
-
-                <div class="card">
-                    <div class="card-title">过滤设置</div>
-                    <div class="form-group">
-                        <label class="form-label">过滤模式</label>
-                        <select id="nd_wb_filter_mode" class="input">
-                            <option value="auto">自动 (遵循灯状态)</option>
-                            <option value="all_active">全部激活条目</option>
-                        </select>
-                        <p class="form-hint">「自动」模式下：绿灯条目始终包含、蓝灯条目按关键词匹配、禁用条目排除</p>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-title">条目预览</div>
-                    <p class="form-hint">点击已上传的世界书可预览其条目</p>
-                    <div id="nd_wb_entries" class="wb-entry-list">
-                        <p class="form-hint">请先上传世界书</p>
-                    </div>
-                </div>
-
-                <div class="btn-group" style="margin-top:16px;">
-                    <button id="nd_wb_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
-                </div>
-            </div>
-
         </main>
     </div>
 
@@ -1117,16 +762,14 @@ body.advanced-mode .nd-simple-only { display: none !important; }
             <div class="mobile-nav-item" data-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
             <div class="mobile-nav-item" data-view="llm"><i class="fa-solid fa-robot"></i><span>LLM</span></div>
             <div class="mobile-nav-item" data-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
-            <div class="mobile-nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i><span>提示词</span></div>
-            <div class="mobile-nav-item nd-advanced-only" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i><span>世界书</span></div>
         </div>
     </nav>
 
     <!-- ═══════════════════════════════════════════════════════════════════════
          画廊弹窗
          ═══════════════════════════════════════════════════════════════════════ -->
-    <div id="nd_gallery_modal" class="gallery-modal" role="dialog" aria-modal="true" aria-label="画廊">
-        <button class="gallery-modal-close" id="nd_modal_close" aria-label="关闭">✕</button>
+    <div id="nd_gallery_modal" class="gallery-modal">
+        <button class="gallery-modal-close" id="nd_modal_close">✕</button>
         <div class="gallery-modal-content">
             <img class="gallery-modal-img" id="nd_modal_img" src="" alt="">
             <div class="gallery-modal-thumbs" id="nd_modal_thumbs"></div>
@@ -1209,20 +852,14 @@ let state = {
     llmApi: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
     useStream: true,
     characterTags: [],
-    autoLearnCharacters: false,
-    autoLearnMode: 'new_only',
-    danbooruLocalDB: false,
     showFloorButton: true,
-    showFloatingButton: false,
-    promptPresets: [],
-    selectedPromptPresetId: null,
-    messageFilterRules: [],
+    showFloatingButton: false
 };
 
 let gallerySummary = {};
 let loadedCharPreviews = {};
 let editingCharId = null;
-const saveBtnStates = new WeakMap();
+let activeSaveBtn = null;
 let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1240,7 +877,7 @@ function postToParent(payload) {
 }
 
 function escapeHtml(str) {
-    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function getCharEmoji(name) {
@@ -1298,19 +935,19 @@ function updateStatus(el, st, text) {
 
 function setSavingState(btn) {
     if (!btn) return;
-    saveBtnStates.set(btn, true);
+    activeSaveBtn = btn;
     const i = btn.querySelector('i');
     if (i) { btn._origIcon = i.className; i.className = 'fa-solid fa-spinner fa-spin'; }
     btn.classList.add('saving');
 }
 
-function handleSaveResult(success, targetBtn) {
-    const btn = targetBtn || Array.from(document.querySelectorAll('.saving')).find(b => saveBtnStates.has(b));
-    if (!btn) return;
-    saveBtnStates.delete(btn);
+function handleSaveResult(success) {
+    if (!activeSaveBtn) return;
+    const btn = activeSaveBtn;
+    activeSaveBtn = null;
     btn.classList.remove('saving');
     const i = btn.querySelector('i');
-
+    
     if (success && i) {
         i.className = 'fa-solid fa-check';
         btn.classList.add('save-success');
@@ -1329,56 +966,8 @@ function handleSaveResult(success, targetBtn) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 消息过滤规则
-// ═══════════════════════════════════════════════════════════════════════════
-
-const ND_DEFAULT_FILTER_RULES = [
-    { start: '<think>',    end: '</think>' },
-    { start: '<thinking>', end: '</thinking>' },
-    { start: '<system>',   end: '</system>' },
-    { start: '<meta>',     end: '</meta>' },
-    { start: '<options>',  end: '</options>' },
-    { start: '<WorldState>', end: '</WorldState>' },
-    { start: '<state>',    end: '</state>' },
-    { start: '<UpdateVariable>', end: '</UpdateVariable>' },
-    { start: '<—',         end: '—>' },
-    { start: '',           end: '</think>' },
-];
-
-function renderFilterRuleRow(rule, container) {
-    const row = document.createElement('div');
-    row.className = 'filter-rule-row';
-    row.innerHTML = `<input type="text" class="fr-start" placeholder="起始（可空）" value="${escapeHtml(rule.start || '')}">` +
-        `<span class="rule-arrow">→</span>` +
-        `<input type="text" class="fr-end" placeholder="结束（可空）" value="${escapeHtml(rule.end || '')}">` +
-        `<button class="btn-del-rule" title="删除">✕</button>`;
-    row.querySelector('.btn-del-rule').onclick = () => row.remove();
-    container.appendChild(row);
-}
-
-function renderFilterRules(rules) {
-    const list = $('nd_filter_rules_list');
-    if (!list) return;
-    list.innerHTML = '';
-    const arr = (Array.isArray(rules) && rules.length) ? rules : ND_DEFAULT_FILTER_RULES;
-    arr.forEach(r => renderFilterRuleRow(r, list));
-}
-
-function collectFilterRules() {
-    const rows = $$('#nd_filter_rules_list .filter-rule-row');
-    const rules = [];
-    rows.forEach(row => {
-        const start = row.querySelector('.fr-start')?.value || '';
-        const end = row.querySelector('.fr-end')?.value || '';
-        if (start || end) rules.push({ start, end });
-    });
-    return rules;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // 角色列表
 // ═══════════════════════════════════════════════════════════════════════════
-
 
 function renderCharList() {
     const list = $('nd_char_list');
@@ -1397,78 +986,75 @@ function renderCharList() {
     
     list.innerHTML = chars.map(c => {
         const isEditing = editingCharId === c.id;
+        const aliasText = (c.aliases || []).length > 0 ? `别名: ${c.aliases.join(', ')}` : '';
         const typeLabel = CHARACTER_TYPES.find(t => t.value === c.type)?.label || c.type || 'girl';
-        const typeShort = typeLabel.split(' ')[0];
         const appearance = c.appearance || '';
-
+        
         if (isEditing) {
-            const typeOptions = CHARACTER_TYPES.map(t =>
+            const typeOptions = CHARACTER_TYPES.map(t => 
                 `<option value="${t.value}"${t.value === (c.type || 'girl') ? ' selected' : ''}>${t.label}</option>`
             ).join('');
-
+            
             return `
             <div class="char-card editing" data-id="${c.id}">
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-                    <span class="char-emoji">${getCharEmoji(c.name)}</span>
-                    <span class="char-name">${escapeHtml(c.name || '新角色')}</span>
-                </div>
-                <div class="char-edit-form">
-                    <div class="char-edit-row">
-                        <div class="form-group">
-                            <label class="form-label">角色名称</label>
-                            <input type="text" class="input char-edit-name" value="${escapeHtml(c.name)}" placeholder="角色名称">
+                <div class="char-avatar">${getCharEmoji(c.name)}</div>
+                <div class="char-info">
+                    <div class="char-edit-form">
+                        <div class="char-edit-row">
+                            <div class="form-group">
+                                <label class="form-label">角色名称</label>
+                                <input type="text" class="input char-edit-name" value="${escapeHtml(c.name)}" placeholder="角色名称">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">类型</label>
+                                <select class="input char-edit-type">${typeOptions}</select>
+                                <input type="text" class="input char-edit-type-custom hidden" placeholder="如: mature female" style="margin-top:4px;">
+                            </div>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">类型</label>
-                            <select class="input char-edit-type">${typeOptions}</select>
-                            <input type="text" class="input char-edit-type-custom hidden" placeholder="如: mature female" style="margin-top:4px;">
+                            <label class="form-label">别名（逗号分隔）</label>
+                            <input type="text" class="input char-edit-aliases" value="${escapeHtml((c.aliases || []).join(', '))}" placeholder="小名, 昵称, ...">
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">别名（逗号分隔）</label>
-                        <input type="text" class="input char-edit-aliases" value="${escapeHtml((c.aliases || []).join(', '))}" placeholder="小名, 昵称, ...">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" style="display:flex;align-items:center;gap:8px;">
-                            外貌标签 (appearance)
-                            <button class="btn" data-action="search-danbooru" data-id="${c.id}" style="padding:2px 8px;font-size:10px;"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>
-                                <i class="fa-solid fa-magnifying-glass"></i> Danbooru
-                            </button>
-                        </label>
-                        <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(appearance)}</textarea>
-                        ${c.danbooruTag ? `<div class="form-hint" style="font-size:10px;color:var(--text-muted);margin:2px 0;">Danbooru: ${escapeHtml(c.danbooruTag.replace(/_/g, ' '))}</div>` : ''}
-                        <div class="danbooru-panel hidden" data-char-id="${c.id}"></div>
-                        <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">负向标签（可选）</label>
-                        <textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(c.negativeTags || '')}</textarea>
-                    </div>
-                    <div class="btn-group" style="margin-top:12px;">
-                        <button class="btn btn-primary" data-action="save" data-id="${c.id}"><i class="fa-solid fa-check"></i> 保存</button>
-                        <button class="btn" data-action="cancel" data-id="${c.id}">取消</button>
+                        <div class="form-group">
+                            <label class="form-label">外貌标签 (appearance)</label>
+                            <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(appearance)}</textarea>
+                            <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">负向标签（可选）</label>
+                            <textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(c.negativeTags || '')}</textarea>
+                        </div>
+                        <div class="char-edit-row">
+                            <div class="form-group">
+                                <label class="form-label">位置 X (0-1)</label>
+                                <input type="number" class="input char-edit-posx" value="${c.posX ?? 0.5}" min="0" max="1" step="0.1">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">位置 Y (0-1)</label>
+                                <input type="number" class="input char-edit-posy" value="${c.posY ?? 0.5}" min="0" max="1" step="0.1">
+                            </div>
+                        </div>
+                        <div class="btn-group" style="margin-top:12px;">
+                            <button class="btn btn-primary" data-action="save" data-id="${c.id}"><i class="fa-solid fa-check"></i> 保存</button>
+                            <button class="btn" data-action="cancel" data-id="${c.id}">取消</button>
+                        </div>
                     </div>
                 </div>
             </div>`;
         }
-
-        const statusParts = [];
-        if (appearance) statusParts.push('✅外貌');
-        else statusParts.push('⚠️未设置');
-        if (c.negativeTags) statusParts.push('❌neg');
-        if (c.danbooruTag) statusParts.push('🏷️db');
-
+        
         return `
         <div class="char-card" data-id="${c.id}">
-            <span class="char-emoji">${getCharEmoji(c.name)}</span>
-            <span class="char-name">${escapeHtml(c.name)}</span>
-            <span class="char-type-badge">${escapeHtml(typeShort)}</span>
-            <span class="char-status">${statusParts.join(' ')}</span>
+            <div class="char-avatar">${getCharEmoji(c.name)}</div>
+            <div class="char-info">
+                <div class="char-name">${escapeHtml(c.name)}</div>
+                <div class="char-meta">[${escapeHtml(typeLabel.split(' ')[0])}] ${escapeHtml(aliasText)}</div>
+                <div class="char-tags">✅ ${escapeHtml(appearance || '未设置外貌')}</div>
+                ${c.negativeTags ? `<div class="char-tags" style="color:var(--text-muted);font-size:11px;">❌ ${escapeHtml(c.negativeTags.slice(0, 50))}...</div>` : ''}
+            </div>
             <div class="char-actions">
-                <button data-action="fix-danbooru" data-id="${c.id}" title="Danbooru 修正"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>🔧</button>
-                <button data-action="search" data-id="${c.id}" title="Danbooru 标签搜索"${!state.danbooruLocalDB ? ' disabled style="opacity:0.3"' : ''}>🔍</button>
-                <button data-action="edit" data-id="${c.id}" title="编辑">✏️</button>
-                <button class="btn-danger" data-action="delete" data-id="${c.id}" title="删除">🗑️</button>
+                <button class="btn" data-action="edit" data-id="${c.id}"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn btn-danger" data-action="delete" data-id="${c.id}"><i class="fa-solid fa-trash"></i></button>
             </div>
         </div>`;
     }).join('');
@@ -1482,15 +1068,7 @@ function renderCharList() {
 }
 
 function handleCharAction(action, id, card) {
-    if (action === 'fix-danbooru' || action === 'search') {
-        if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
-        editingCharId = id;
-        renderCharList();
-        requestAnimationFrame(() => requestAnimationFrame(() => showLocalDanbooruFix(id)));
-    } else if (action === 'search-danbooru') {
-        if (!state.danbooruLocalDB) { alert('请先启用 Danbooru 本地资源库'); return; }
-        showLocalDanbooruFix(id);
-    } else if (action === 'edit') {
+    if (action === 'edit') {
         editingCharId = id;
         renderCharList();
     } else if (action === 'cancel') {
@@ -1513,166 +1091,19 @@ function handleCharAction(action, id, card) {
         char.aliases = (card.querySelector('.char-edit-aliases')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
         char.appearance = card.querySelector('.char-edit-appearance')?.value?.trim() || '';
         char.negativeTags = card.querySelector('.char-edit-neg')?.value?.trim() || '';
-
+        char.posX = Math.max(0, Math.min(1, parseFloat(card.querySelector('.char-edit-posx')?.value) || 0.5));
+        char.posY = Math.max(0, Math.min(1, parseFloat(card.querySelector('.char-edit-posy')?.value) || 0.5));
+        
         editingCharId = null;
         postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
         renderCharList();
     } else if (action === 'delete') {
-        state.characterTags = state.characterTags.filter(c => c.id !== id);
-        postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
-        renderCharList();
-    }
-}
-
-// ── Danbooru 搜索（本地 DB）─────────────────────────────────
-
-function showLocalDanbooruFix(charId) {
-    const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
-    if (!panel) return;
-
-    const char = state.characterTags.find(c => c.id === charId);
-    const defaultQuery = char?.danbooruTag || char?.name || '';
-
-    panel.classList.remove('hidden');
-    panel.innerHTML = `
-        <div class="danbooru-search-row">
-            <input type="text" class="input danbooru-query" value="${escapeHtml(defaultQuery)}" placeholder="角色名搜索（本地库）">
-            <button class="btn btn-primary danbooru-search-btn"><i class="fa-solid fa-magnifying-glass"></i> 本地搜索</button>
-            <button class="btn danbooru-close-btn"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div class="danbooru-results"></div>
-    `;
-
-    const input = panel.querySelector('.danbooru-query');
-    const searchBtn = panel.querySelector('.danbooru-search-btn');
-    const closeBtn = panel.querySelector('.danbooru-close-btn');
-
-    const doSearch = () => {
-        const q = input.value.trim();
-        if (!q) return;
-        panel.querySelector('.danbooru-results').innerHTML =
-            '<div class="danbooru-status"><i class="fa-solid fa-spinner fa-spin"></i> 本地搜索中...</div>';
-        postToParent({ type: 'DANBOORU_LOCAL_SEARCH', query: q, charId });
-    };
-
-    searchBtn.addEventListener('click', doSearch);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
-    closeBtn.addEventListener('click', () => {
-        panel.classList.add('hidden');
-        panel.innerHTML = '';
-    });
-
-    if (defaultQuery) doSearch();
-}
-
-function renderLocalDanbooruResults(query, results, charId) {
-    const panel = document.querySelector(`.danbooru-panel[data-char-id="${charId}"]`);
-    if (!panel) return;
-    const container = panel.querySelector('.danbooru-results');
-    if (!container) return;
-
-    if (!results?.length) {
-        container.innerHTML = '<div class="danbooru-status">本地库未找到匹配角色</div>';
-        return;
-    }
-
-    container.innerHTML = `
-        <div class="danbooru-char-list">
-            ${results.map(r => {
-                const parsed = parseDanbooruCharName(r.name);
-                const tagPreview = (r.tags || []).slice(0, 6).map(t => t.replace(/_/g, ' ')).join(', ');
-                return `
-                <div class="danbooru-char-item local-fix" data-tag="${escapeHtml(r.name)}" data-tags="${escapeHtml(JSON.stringify(r.tags || []))}">
-                    <div class="danbooru-char-info">
-                        <span class="danbooru-char-name">${escapeHtml(parsed.charName)}</span>
-                        ${parsed.series ? `<span class="danbooru-char-series">${escapeHtml(parsed.series)}</span>` : ''}
-                    </div>
-                    ${tagPreview ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(tagPreview)}</div>` : ''}
-                </div>`;
-            }).join('')}
-        </div>
-    `;
-
-    container.querySelectorAll('.danbooru-char-item.local-fix').forEach(item => {
-        item.addEventListener('click', () => {
-            const tagName = item.dataset.tag;
-            let appearanceTags = [];
-            try { appearanceTags = JSON.parse(item.dataset.tags); } catch {}
-
-            const char = state.characterTags.find(c => c.id === charId);
-            if (!char) return;
-
-            char.danbooruTag = tagName;
-            // 用本地库的 tag 替换角色外貌
-            if (appearanceTags.length) {
-                char.appearance = appearanceTags.map(t => t.replace(/_/g, ' ')).join(', ');
-            }
-
+        if (confirm('确定删除此角色？')) {
+            state.characterTags = state.characterTags.filter(c => c.id !== id);
             postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
-            panel.classList.add('hidden');
-            panel.innerHTML = '';
-            editingCharId = null;
             renderCharList();
-        });
-    });
-}
-
-function parseDanbooruCharName(tagName) {
-    const match = tagName.match(/^(.+?)_\((.+)\)$/);
-    if (match) return { charName: match[1].replace(/_/g, ' '), series: match[2].replace(/_/g, ' ') };
-    return { charName: tagName.replace(/_/g, ' '), series: '' };
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 消息链可视化
-// ═══════════════════════════════════════════════════════════════════════════
-
-function renderPromptChain(chain) {
-    const container = $('nd_prompt_chain');
-    if (!container) return;
-
-    const editableMap = { topSystem: 'nd_prompt_system', userJsonFormat: 'nd_prompt_format' };
-
-    container.innerHTML = chain.map((item, i) => {
-        const varsHtml = (item.variables || []).map(v => `<span>📎 ${escapeHtml(v)}</span>`).join(' ');
-        const editIcon = item.editable ? ' <span class="chain-editable" title="可在上方编辑">✏️</span>' : '';
-        const labelSuffix = item.label ? ` <span class="chain-editable">[${escapeHtml(item.label)}]</span>` : '';
-
-        return `
-        <div class="chain-item" data-key="${escapeHtml(item.key)}" data-editable-id="${editableMap[item.key] || ''}">
-            <span class="chain-role ${item.role}">${item.role}</span>
-            <div class="chain-summary">
-                <div class="chain-summary-text">
-                    <span>${i + 1}. ${escapeHtml(item.summary)}${labelSuffix}${editIcon}</span>
-                </div>
-                ${varsHtml ? `<div class="chain-variables">${varsHtml}</div>` : ''}
-                <div class="chain-content-preview"></div>
-            </div>
-        </div>`;
-    }).join('');
-
-    container.querySelectorAll('.chain-item').forEach(el => {
-        el.addEventListener('click', () => {
-            const editableId = el.dataset.editableId;
-            if (editableId) {
-                const target = $(editableId);
-                if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); target.focus(); return; }
-            }
-            const preview = el.querySelector('.chain-content-preview');
-            const isExpanded = el.classList.toggle('expanded');
-            if (isExpanded && !preview.dataset.loaded) {
-                preview.dataset.loaded = '1';
-                const key = el.dataset.key;
-                const defaults = state._defaultPrompts || {};
-                const configMap = {
-                    topSystem: defaults.topSystem,
-                    userJsonFormat: defaults.userJsonFormat,
-                };
-                const content = configMap[key] || '(内置模板，不可编辑)';
-                preview.textContent = content.length > 800 ? content.slice(0, 800) + '\n...(已截断)' : content;
-            }
-        });
-    });
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1747,10 +1178,10 @@ function renderCharacterSlots(charName, slots) {
         const latest = images[0];
         const hasSaved = images.some(img => img.savedUrl);
         const imgSrc = latest.savedUrl || `data:image/png;base64,${latest.base64}`;
-
+        
         return `
         <div class="gallery-slot" data-slot="${slotId}" data-char="${escapeHtml(charName)}">
-            <img class="gallery-slot-img" src="${escapeHtml(imgSrc)}" loading="lazy" decoding="async">
+            <img class="gallery-slot-img" src="${imgSrc}" loading="lazy" decoding="async">
             <div class="gallery-slot-overlay">
                 <div class="gallery-slot-actions">
                     <button class="btn btn-sm" data-action="view" data-slot="${slotId}" data-char="${escapeHtml(charName)}">
@@ -1795,13 +1226,13 @@ function renderModalContent() {
     const current = images[currentIndex];
     const imgSrc = current.savedUrl || `data:image/png;base64,${current.base64}`;
     $('nd_modal_img').src = imgSrc;
-
+    
     $('nd_modal_thumbs').innerHTML = images.map((img, i) => {
         const src = img.savedUrl || `data:image/png;base64,${img.base64}`;
         const cls = ['gallery-modal-thumb'];
         if (i === currentIndex) cls.push('active');
         if (img.savedUrl) cls.push('saved');
-        return `<img class="${cls.join(' ')}" src="${escapeHtml(src)}" data-index="${i}">`;
+        return `<img class="${cls.join(' ')}" src="${src}" data-index="${i}">`;
     }).join('');
     
     $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
@@ -1837,153 +1268,6 @@ function updateLlmProviderUI() {
     $('nd_llm_connect_row').classList.toggle('hidden', isSt || !pv.canFetch);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 高级模式
-// ═══════════════════════════════════════════════════════════════════════════
-
-function applyAdvancedMode() {
-    const adv = !!state.advancedMode;
-    $('nd_advanced_mode').checked = adv;
-    document.body.classList.toggle('advanced-mode', adv);
-
-    // 世界书
-    const wb = state.worldbooks || {};
-    $('nd_wb_filter_mode').value = wb.keywordFilterMode || 'auto';
-    renderUploadedBooks(wb.uploadedBooks || []);
-}
-
-/** 解析上传的世界书 JSON 文件 */
-function parseWorldbookJson(jsonText, fileName) {
-    const data = JSON.parse(jsonText);
-    if (!data.entries || typeof data.entries !== 'object') {
-        throw new Error('不是有效的世界书文件（缺少 entries 字段）');
-    }
-    const rawEntries = data.entries;
-    const entries = [];
-    for (const [uid, e] of Object.entries(rawEntries)) {
-        if (!e || typeof e !== 'object') continue;
-        const content = (e.content || '').trim();
-        if (!content) continue;
-        entries.push({
-            uid: Number(uid),
-            comment: e.comment || '',
-            key: Array.isArray(e.key) ? e.key : (e.key ? [e.key] : []),
-            keysecondary: Array.isArray(e.keysecondary) ? e.keysecondary : [],
-            constant: !!e.constant,
-            disable: !!e.disable,
-            content,
-            order: e.order ?? 100,
-        });
-    }
-    if (!entries.length) throw new Error('世界书中无有效条目（所有条目缺少 content）');
-    return { name: fileName, uploadedAt: Date.now(), entries };
-}
-
-/** 处理文件上传（支持多选） */
-async function handleWorldbookFiles(files) {
-    const uploaded = state.worldbooks?.uploadedBooks || [];
-    let added = 0;
-    const errors = [];
-
-    for (const file of files) {
-        if (!file.name.endsWith('.json')) {
-            errors.push(`${file.name}: 不是 .json 文件`);
-            continue;
-        }
-        try {
-            const text = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = () => reject(reader.error);
-                reader.readAsText(file);
-            });
-            const book = parseWorldbookJson(text, file.name);
-            // 同名替换
-            const idx = uploaded.findIndex(b => b.name === book.name);
-            if (idx >= 0) uploaded[idx] = book;
-            else uploaded.push(book);
-            added++;
-        } catch (e) {
-            errors.push(`${file.name}: ${e.message}`);
-        }
-    }
-
-    if (added > 0) {
-        state.worldbooks = { ...state.worldbooks, uploadedBooks: uploaded };
-        renderUploadedBooks(uploaded);
-    }
-
-    if (errors.length) {
-        const container = $('nd_wb_entries');
-        container.innerHTML = `<p class="form-hint" style="color:var(--danger);">${errors.map(escapeHtml).join('<br>')}</p>`;
-    }
-}
-
-function renderUploadedBooks(books) {
-    const container = $('nd_wb_uploaded_list');
-    if (!books.length) {
-        container.innerHTML = '<p class="form-hint">尚未上传世界书</p>';
-        return;
-    }
-    container.innerHTML = books.map((b, i) => {
-        const activeCount = b.entries.filter(e => !e.disable).length;
-        return `<div class="wb-book-item" data-index="${i}">
-            <span class="wb-book-name">${escapeHtml(b.name)}</span>
-            <span class="wb-book-count">${activeCount}/${b.entries.length} 条目</span>
-            <button class="wb-book-delete" data-index="${i}" title="移除"><i class="fa-solid fa-xmark"></i></button>
-        </div>`;
-    }).join('');
-
-    // 点击预览条目
-    container.querySelectorAll('.wb-book-item').forEach(item => {
-        item.addEventListener('click', (e) => {
-            if (e.target.closest('.wb-book-delete')) return;
-            const idx = Number(item.dataset.index);
-            const book = books[idx];
-            if (book) renderWorldbookEntriesLocal(book);
-        });
-    });
-
-    // 删除按钮
-    container.querySelectorAll('.wb-book-delete').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const idx = Number(btn.dataset.index);
-            const uploaded = state.worldbooks?.uploadedBooks || [];
-            uploaded.splice(idx, 1);
-            state.worldbooks = { ...state.worldbooks, uploadedBooks: uploaded };
-            renderUploadedBooks(uploaded);
-            $('nd_wb_entries').innerHTML = '<p class="form-hint">请先上传世界书</p>';
-        });
-    });
-}
-
-function renderWorldbookEntriesLocal(book) {
-    const container = $('nd_wb_entries');
-    const entries = book.entries || [];
-    if (!entries.length) {
-        container.innerHTML = `<p class="form-hint">${escapeHtml(book.name)}: 无条目</p>`;
-        return;
-    }
-    const lampIcon = { constant: 'constant', normal: 'normal', disabled: 'disabled' };
-    const lampLabel = { constant: '常驻', normal: '关键词触发', disabled: '已禁用' };
-    container.innerHTML = `<p class="form-hint" style="margin-bottom:8px;">${escapeHtml(book.name)} (${entries.length} 条)</p>` +
-        entries.map(e => {
-            let ls = 'normal';
-            if (e.disable) ls = 'disabled';
-            else if (e.constant) ls = 'constant';
-            const keys = (e.key || []).filter(Boolean).join(', ');
-            return `<div class="wb-entry-item">
-                <div class="wb-lamp ${lampIcon[ls]}" title="${lampLabel[ls]}"></div>
-                <div class="wb-entry-info">
-                    <div class="wb-entry-title">${escapeHtml(e.comment || '(未命名)')}</div>
-                    ${keys ? `<div class="wb-entry-keys">关键词: ${escapeHtml(keys)}</div>` : ''}
-                    <div class="wb-entry-preview">${escapeHtml((e.content || '').slice(0, 200))}</div>
-                </div>
-            </div>`;
-        }).join('');
-}
-
 function getCurrentLlmModel() {
     const provider = $('nd_llm_provider').value;
     const pv = providerDefaults[provider] || providerDefaults.custom;
@@ -1997,66 +1281,36 @@ function getCurrentLlmModel() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function applyStateToUI() {
-    console.log('[ND-UI] applyStateToUI: autoLearn=%s, advMode=%s, presets=%d',
-        state.autoLearnCharacters, state.advancedMode, state.promptPresets?.length);
-    try {
-        updateBadge(state.enabled);
-        updateModeButtons(state.mode);
-        $('nd_show_floor').checked = state.showFloorButton !== false;
-        $('nd_show_floating').checked = state.showFloatingButton === true;
-
-        $('nd_api_key').value = state.apiKey || '';
-        $('nd_timeout').value = Math.round((state.timeout > 0 ? state.timeout : DEFAULTS.timeout) / 1000);
-        const dMin = state.requestDelay?.min > 0 ? state.requestDelay.min : DEFAULTS.requestDelay.min;
-        const dMax = state.requestDelay?.max > 0 ? state.requestDelay.max : DEFAULTS.requestDelay.max;
-        $('nd_delay').value = `${dMin}-${dMax}`;
-        $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
-        $('nd_cache_count').textContent = state.cacheStats?.count || 0;
-        $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
-
-        const pSel = $('nd_params_preset');
-        pSel.innerHTML = (state.paramsPresets || []).map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
-        pSel.value = state.selectedParamsPresetId || '';
-
-        applyParamsPreset();
-
-        // 提示词预设下拉框 — 与参数预设完全一致的填充模式
-        const ppSel = $('nd_prompt_preset');
-        const presets = state.promptPresets || [];
-        ppSel.innerHTML = presets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
-        ppSel.value = state.selectedPromptPresetId || '';
-        applyPromptPreset();
-
-        applyLlmApi();
-        renderCharList();
-        renderGalleryView();
-        // auto-learn
-        $('nd_auto_learn').checked = !!state.autoLearnCharacters;
-        $('nd_auto_learn_update').checked = (state.autoLearnMode || 'new_only') === 'auto_update';
-        $('nd_auto_learn_sub').classList.toggle('hidden', !state.autoLearnCharacters);
-        $('nd_danbooru_local').checked = !!state.danbooruLocalDB;
-        $('nd_danbooru_local_sub').classList.toggle('hidden', !state.danbooruLocalDB);
-        $('nd_danbooru_local_status').textContent = state.danbooruLocalDB ? '已加载' : '未加载';
-        renderFilterRules(state.messageFilterRules);
-    } catch (e) {
-        console.error('[ND-UI] applyStateToUI 部分失败:', e);
-    }
-    // applyAdvancedMode 必须执行，不受上面异常影响
-    try {
-        applyAdvancedMode();
-    } catch (e) {
-        console.error('[ND-UI] applyAdvancedMode 失败:', e);
-    }
+    updateBadge(state.enabled);
+    updateModeButtons(state.mode);
+    $('nd_show_floor').checked = state.showFloorButton !== false;
+    $('nd_show_floating').checked = state.showFloatingButton === true;
+    
+    $('nd_api_key').value = state.apiKey || '';
+    $('nd_timeout').value = Math.round((state.timeout > 0 ? state.timeout : DEFAULTS.timeout) / 1000);
+    const dMin = state.requestDelay?.min > 0 ? state.requestDelay.min : DEFAULTS.requestDelay.min;
+    const dMax = state.requestDelay?.max > 0 ? state.requestDelay.max : DEFAULTS.requestDelay.max;
+    $('nd_delay').value = `${dMin}-${dMax}`;
+    $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
+    $('nd_cache_count').textContent = state.cacheStats?.count || 0;
+    $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
+    
+    const pSel = $('nd_params_preset');
+    pSel.innerHTML = state.paramsPresets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
+    pSel.value = state.selectedParamsPresetId || '';
+    
+    applyParamsPreset();
+    applyLlmApi();
+    renderCharList();
+    renderGalleryView();
 }
 
 function applyParamsPreset() {
     const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId) || state.paramsPresets[0];
     if (!p) return;
-
+    
     $('nd_positive').value = p.positivePrefix || '';
     $('nd_negative').value = p.negativePrefix || '';
-    $('nd_max_images').value = p.maxImages || 0;
-    $('nd_max_chars').value = p.maxCharactersPerImage || 0;
     
     const pm = p.params || {};
     const dp = DEFAULTS.params;
@@ -2084,15 +1338,6 @@ function applyParamsPreset() {
     updateModelOptions();
 }
 
-/** 纯本地：从当前选中的提示词预设加载 textarea 内容（对标 applyParamsPreset） */
-function applyPromptPreset() {
-    const presets = state.promptPresets || [];
-    const active = presets.find(p => p.id === state.selectedPromptPresetId) || presets[0] || {};
-    $('nd_prompt_system').value = active.topSystem ?? '';
-    $('nd_prompt_guide').value = active.tagGuideContent ?? '';
-    $('nd_prompt_format').value = active.userJsonFormat ?? '';
-}
-
 function applyLlmApi() {
     const api = state.llmApi || {};
     const provider = api.provider || 'st';
@@ -2102,8 +1347,7 @@ function applyLlmApi() {
     $('nd_llm_url').value = api.url || pv.url || '';
     $('nd_llm_key').value = api.key || '';
     $('nd_use_stream').checked = state.useStream !== false;
-    $('nd_use_worldinfo').checked = state.useWorldInfo === true;
-    $('nd_disable_prefill').checked = state.disablePrefill === true;
+    $('nd_use_worldinfo').checked = state.useWorldInfo === true;    
     if (pv.needManualModel) $('nd_llm_model_manual').value = api.model || '';
     
     const mc = api.modelCache || [];
@@ -2143,11 +1387,9 @@ function updateModelOptions() {
 function collectParamsPreset() {
     const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId);
     if (!p) return;
-
+    
     p.positivePrefix = $('nd_positive').value;
     p.negativePrefix = $('nd_negative').value;
-    p.maxImages = Math.max(0, Number($('nd_max_images').value) || 0);
-    p.maxCharactersPerImage = Math.max(0, Number($('nd_max_chars').value) || 0);
     p.params = p.params || {};
     p.params.model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
     p.params.sampler = $('nd_sampler_sel').value === 'custom' ? $('nd_sampler').value : $('nd_sampler_sel').value;
@@ -2179,11 +1421,7 @@ window.addEventListener('message', event => {
 
     switch (data.type) {
         case 'INIT_DATA':
-            console.log('[ND-UI] INIT_DATA received — autoLearn=%s, advMode=%s, promptPresets:',
-                data.settings?.autoLearnCharacters, data.settings?.advancedMode,
-                JSON.stringify((data.settings?.promptPresets || []).map(p => p.name)));
             state = { ...state, ...data.settings, cacheStats: data.cacheStats || state.cacheStats };
-            if (data.defaultPrompts) state._defaultPrompts = data.defaultPrompts;
             gallerySummary = data.gallerySummary || {};
             loadedCharPreviews = {};
             applyStateToUI();
@@ -2254,33 +1492,6 @@ window.addEventListener('message', event => {
                 if (img) { img.savedUrl = data.savedUrl; renderModalContent(); }
             }
             break;
-
-        case 'DANBOORU_LOCAL_SEARCH_RESULTS':
-            renderLocalDanbooruResults(data.query, data.results || [], data.charId);
-            break;
-
-        case 'PROMPT_CHAIN_DATA':
-            renderPromptChain(data.chain || []);
-            break;
-
-        case 'SYNC_SUMMARY_FILTER_RESULT': {
-            const incoming = Array.isArray(data.rules) ? data.rules : [];
-            if (!incoming.length) { alert('总结模块没有找到过滤规则'); break; }
-            const current = collectFilterRules();
-            const exists = new Set(current.map(r => `${r.start}\x00${r.end}`));
-            let added = 0;
-            const list = $('nd_filter_rules_list');
-            for (const r of incoming) {
-                const key = `${r.start || ''}\x00${r.end || ''}`;
-                if (!exists.has(key)) {
-                    renderFilterRuleRow({ start: r.start || '', end: r.end || '' }, list);
-                    exists.add(key);
-                    added++;
-                }
-            }
-            alert(added ? `已同步 ${added} 条新规则（需点保存生效）` : '没有新规则需要同步');
-            break;
-        }
     }
 });
 
@@ -2416,7 +1627,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('nd_char_header').addEventListener('click', () => { $('nd_char_card').classList.toggle('collapsed'); });
     
     $('nd_char_add').addEventListener('click', () => {
-        const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '' };
+        const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', posX: 0.5, posY: 0.5 };
         state.characterTags.push(nc);
         editingCharId = nc.id;
         renderCharList();
@@ -2429,37 +1640,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const card = btn.closest('.char-card');
         const id = btn.dataset.id || card?.dataset.id;
         if (id) handleCharAction(btn.dataset.action, id, card);
-    });
-
-    // auto-learn (toggle + subordinate checkbox)
-    $('nd_auto_learn').addEventListener('change', () => {
-        const enabled = $('nd_auto_learn').checked;
-        state.autoLearnCharacters = enabled; // 乐观更新，与 danbooruLocalDB 一致
-        $('nd_auto_learn_sub').classList.toggle('hidden', !enabled);
-        const mode = enabled && $('nd_auto_learn_update').checked ? 'auto_update' : 'new_only';
-        postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: enabled, autoLearnMode: mode });
-    });
-    $('nd_auto_learn_update').addEventListener('change', () => {
-        const mode = $('nd_auto_learn_update').checked ? 'auto_update' : 'new_only';
-        postToParent({ type: 'SAVE_AUTO_LEARN', autoLearnCharacters: $('nd_auto_learn').checked, autoLearnMode: mode });
-    });
-
-    $('nd_danbooru_local').addEventListener('change', () => {
-        const enabled = $('nd_danbooru_local').checked;
-        state.danbooruLocalDB = enabled; // 乐观更新，避免 toggle → 点击修正 之间的窗口期
-        $('nd_danbooru_local_sub').classList.toggle('hidden', !enabled);
-        if (enabled) $('nd_danbooru_local_status').textContent = '加载中...';
-        renderCharList(); // 立即刷新修正按钮状态
-        postToParent({ type: 'SAVE_DANBOORU_LOCAL_DB', enabled });
-    });
-
-    // clear all characters
-    $('nd_char_clear').addEventListener('click', () => {
-        if (!state.characterTags?.length) { alert('没有角色可清除'); return; }
-        if (!confirm(`确定清除全部 ${state.characterTags.length} 个角色？此操作不可撤销。`)) return;
-        state.characterTags = [];
-        postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
-        renderCharList();
     });
     
     $('nd_char_export').addEventListener('click', () => {
@@ -2527,31 +1707,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 modelCache: state.llmApi?.modelCache || []
             },
             useStream: $('nd_use_stream').checked,
-            useWorldInfo: $('nd_use_worldinfo').checked,
-            disablePrefill: $('nd_disable_prefill').checked
+            useWorldInfo: $('nd_use_worldinfo').checked
         });
     });
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // 消息过滤规则
-    // ═══════════════════════════════════════════════════════════════════════
-    $('nd_filter_add').addEventListener('click', () => {
-        renderFilterRuleRow({ start: '', end: '' }, $('nd_filter_rules_list'));
-    });
-    $('nd_filter_save').addEventListener('click', () => {
-        setSavingState($('nd_filter_save'));
-        const rules = collectFilterRules();
-        state.messageFilterRules = rules;
-        postToParent({ type: 'SAVE_MESSAGE_FILTER_RULES', rules });
-    });
-    $('nd_filter_sync').addEventListener('click', () => {
-        postToParent({ type: 'SYNC_SUMMARY_FILTER_RULES' });
-    });
-    $('nd_filter_reset').addEventListener('click', () => {
-        if (!confirm('确定恢复为默认过滤规则？当前未保存的修改将丢失。')) return;
-        renderFilterRules(ND_DEFAULT_FILTER_RULES);
-    });
-
+    
     // ═══════════════════════════════════════════════════════════════════════
     // 图片管理
     // ═══════════════════════════════════════════════════════════════════════
@@ -2572,13 +1731,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // 画廊弹窗
     // ═══════════════════════════════════════════════════════════════════════
     $('nd_modal_close').addEventListener('click', closeGalleryModal);
-
-    document.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && $('nd_gallery_modal').classList.contains('visible')) closeGalleryModal();
-    });
-
-    $('nd_gallery_modal').addEventListener('click', e => {
-        if (e.target.id === 'nd_gallery_modal') closeGalleryModal();
+    
+    $('nd_gallery_modal').addEventListener('click', e => { 
+        if (e.target.id === 'nd_gallery_modal') closeGalleryModal(); 
     });
     
     $('nd_modal_use').addEventListener('click', () => {
@@ -2602,161 +1757,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (confirm(msg)) postToParent({ type: 'DELETE_GALLERY_IMAGE', imgId: c.imgId });
     });
     
-    // ═══════════════════════════════════════════════════════════════════════
-    // 高级模式事件
-    // ═══════════════════════════════════════════════════════════════════════
-    $('nd_advanced_mode').addEventListener('change', () => {
-        const adv = $('nd_advanced_mode').checked;
-        state.advancedMode = adv;
-        document.body.classList.toggle('advanced-mode', adv);
-        postToParent({ type: 'SAVE_ADVANCED_MODE', advancedMode: adv });
-    });
-
-    // 提示词预设管理 — 纯本地切换，与参数预设一致
-    $('nd_prompt_preset').addEventListener('change', () => {
-        state.selectedPromptPresetId = $('nd_prompt_preset').value;
-        applyPromptPreset();
-    });
-
-    $('nd_prompt_preset_save').addEventListener('click', () => {
-        setSavingState($('nd_prompt_preset_save'));
-        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
-            topSystem: $('nd_prompt_system').value,
-            tagGuideContent: $('nd_prompt_guide').value,
-            userJsonFormat: $('nd_prompt_format').value,
-        }});
-    });
-
-    $('nd_prompt_add').addEventListener('click', () => postToParent({ type: 'ADD_PROMPT_PRESET' }));
-
-    $('nd_prompt_del').addEventListener('click', () => {
-        if (confirm('确定删除当前提示词预设？')) postToParent({ type: 'DEL_PROMPT_PRESET' });
-    });
-
-    $('nd_prompt_rename').addEventListener('click', () => {
-        const p = (state.promptPresets || []).find(x => x.id === state.selectedPromptPresetId);
-        if (!p) return;
-        const name = prompt('输入新名称：', p.name || '');
-        if (name && name.trim()) {
-            postToParent({ type: 'RENAME_PROMPT_PRESET', name: name.trim() });
-        }
-    });
-
-    // 提示词模板保存（底部按钮，等同于预设栏保存）
-    $('nd_prompts_save').addEventListener('click', () => {
-        setSavingState($('nd_prompts_save'));
-        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
-            topSystem: $('nd_prompt_system').value,
-            tagGuideContent: $('nd_prompt_guide').value,
-            userJsonFormat: $('nd_prompt_format').value,
-        }});
-    });
-
-    $('nd_prompt_reset_system').addEventListener('click', () => {
-        const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId);
-        const isPov = activePreset?.name === '默认-第一人称视角';
-        const defaultTopSystem = isPov ? (state._defaultPrompts?.topSystemPov || '') : (state._defaultPrompts?.topSystem || '');
-        $('nd_prompt_system').value = defaultTopSystem;
-        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'topSystem', selectedPromptPresetId: state.selectedPromptPresetId });
-    });
-    $('nd_prompt_reset_guide').addEventListener('click', () => {
-        $('nd_prompt_guide').value = state._defaultPrompts?.tagGuideContent || '';
-        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'tagGuideContent', selectedPromptPresetId: state.selectedPromptPresetId });
-    });
-    $('nd_prompt_reset_format').addEventListener('click', () => {
-        $('nd_prompt_format').value = state._defaultPrompts?.userJsonFormat || '';
-        postToParent({ type: 'RESET_CUSTOM_PROMPT', key: 'userJsonFormat', selectedPromptPresetId: state.selectedPromptPresetId });
-    });
-    $('nd_prompts_reset_all').addEventListener('click', () => {
-        if (!confirm('确认恢复全部提示词为默认值？')) return;
-        const defaults = state._defaultPrompts || {};
-        const activePreset = (state.promptPresets || []).find(p => p.id === state.selectedPromptPresetId);
-        const isPov = activePreset?.name === '默认-第一人称视角';
-        const topSystemVal = isPov ? (defaults.topSystemPov || '') : (defaults.topSystem || '');
-        $('nd_prompt_system').value = topSystemVal;
-        $('nd_prompt_guide').value = defaults.tagGuideContent || '';
-        $('nd_prompt_format').value = defaults.userJsonFormat || '';
-        postToParent({ type: 'SAVE_PROMPT_PRESET', selectedPromptPresetId: state.selectedPromptPresetId, customPrompts: {
-            topSystem: topSystemVal,
-            tagGuideContent: defaults.tagGuideContent || '',
-            userJsonFormat: defaults.userJsonFormat || '',
-        }});
-    });
-
-    $('nd_prompts_export').addEventListener('click', () => {
-        const data = {
-            _type: 'novel-draw-prompt-template',
-            _version: 1,
-            topSystem: $('nd_prompt_system').value,
-            tagGuideContent: $('nd_prompt_guide').value,
-            userJsonFormat: $('nd_prompt_format').value,
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'novel-draw-prompts.json';
-        a.click();
-        URL.revokeObjectURL(a.href);
-    });
-
-    $('nd_prompts_import').addEventListener('change', async (e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        try {
-            const text = await file.text();
-            const data = JSON.parse(text);
-            if (data._type !== 'novel-draw-prompt-template') {
-                throw new Error('不是有效的提示词模板文件');
-            }
-            if (typeof data.topSystem === 'string') $('nd_prompt_system').value = data.topSystem;
-            if (typeof data.tagGuideContent === 'string') $('nd_prompt_guide').value = data.tagGuideContent;
-            if (typeof data.userJsonFormat === 'string') $('nd_prompt_format').value = data.userJsonFormat;
-            alert('导入成功，请点击「保存」以生效');
-        } catch (err) {
-            alert('导入失败: ' + err.message);
-        }
-        e.target.value = '';
-    });
-
-    // 消息链可视化
-    $('nd_chain_toggle').addEventListener('click', () => {
-        const container = $('nd_prompt_chain');
-        const icon = $('nd_chain_toggle').querySelector('.chain-toggle-icon');
-        const isOpen = container.classList.toggle('open');
-        icon.textContent = isOpen ? '▼ 收起' : '▶ 展开';
-        if (isOpen && !container.dataset.loaded) {
-            container.dataset.loaded = '1';
-            postToParent({ type: 'GET_PROMPT_CHAIN' });
-        }
-    });
-
-    // 世界书上传
-    const dropzone = $('nd_wb_dropzone');
-    const fileInput = $('nd_wb_file_input');
-
-    dropzone.addEventListener('click', () => fileInput.click());
-    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
-    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
-    dropzone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropzone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) handleWorldbookFiles(e.dataTransfer.files);
-    });
-    fileInput.addEventListener('change', () => {
-        if (fileInput.files.length) handleWorldbookFiles(fileInput.files);
-        fileInput.value = '';
-    });
-
-    $('nd_wb_save').addEventListener('click', () => {
-        setSavingState($('nd_wb_save'));
-        const uploaded = state.worldbooks?.uploadedBooks || [];
-        postToParent({ type: 'SAVE_WORLDBOOK_CONFIG', worldbooks: {
-            enabled: uploaded.length > 0,
-            uploadedBooks: uploaded,
-            keywordFilterMode: $('nd_wb_filter_mode').value || 'auto',
-        }});
-    });
-
     // ═══════════════════════════════════════════════════════════════════════
     // 通知父窗口准备就绪
     // ═══════════════════════════════════════════════════════════════════════

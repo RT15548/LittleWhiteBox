@@ -357,7 +357,6 @@ class WorldbookBridgeService {
             probability: e.probability,
             useProbability: !!e.useProbability,
             disable: !!e.disable,
-            constant: !!e.constant,
         }));
     }
 

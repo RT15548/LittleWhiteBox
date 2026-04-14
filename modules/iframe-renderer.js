@@ -108,6 +108,8 @@ function setIframeBlobHTML(iframe, fullHTML, codeHash) {
 
 function releaseIframeBlob(iframe) {
     try {
+        const url = blobUrls.get(iframe);
+        if (url) URL.revokeObjectURL(url);
         blobUrls.delete(iframe);
     } catch (e) {}
 }
