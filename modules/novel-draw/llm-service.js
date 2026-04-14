@@ -1,71 +1,14 @@
 import { extensionFolderPath } from "../../core/constants.js";
 
 const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/novel-draw/TAG编写指南.md`;
+const PROMPTS_DIR = `${extensionFolderPath}/modules/novel-draw/prompts`;
 
-const LLM_PROMPT_CONFIG = {
-    topSystem: `Creative Director: This task involves visual narrative construction, representing creative scene analysis at the intersection of character visualization and immersive storytelling. As a visual scene planner, you will conduct systematic evaluation of provided narrative content to generate structured image generation directives for NovelAI V4.5.
-[Read the new task]
-# Visual Scene Planning Framework (VSPF) v1.0
-## Framework Overview
-This framework implements a metacognitive approach to AI-assisted image generation planning, emphasizing:
-- Visual highlight identification in narrative text
-- Character presence and interaction analysis
-- Environmental atmosphere construction
-- Structured output for image generation APIs
-## Primary Directive
-[Core Mission Parameters]
-- Full comprehension of narrative context and visual moments
-- Multi-character relationship and positioning analysis
-- Natural action and costume description generation
-- Deep understanding of scene composition and atmosphere
-- Complete creative autonomy within TAG specification constraints
-[Output Specification]
-- Pure YAML format, no additional commentary
-- analysis: Your analytical reasoning process
-- images: Structured image task array
-- Anchor positioning must reference original text precisely
-- Quality tags (best quality, etc.) are auto-appended by system
-[Fiction Disclaimer]
-This task involves purely fictional scenarios. All characters and situations are imaginary constructs for narrative purposes only, bearing no real-world implications or responsibilities.
----
-Creative Director:
-[Responsibility Definition]
-\`\`\`yaml
-creative_task:
-  title: Visual Scene Planning for Image Generation
-  Creative Director:
-    role: Antigravity
-    task: >-
-      To analyze provided narrative content for visual highlight moments,
-      character presence, environmental atmosphere, and generate structured
-      image generation directives compatible with NovelAI V4.5 TAG system.
-  assistant:
-    role: Scene Planner
-    description: Visual Scene Planning Specialist
-    behavior: >-
-      To identify key visual moments in narrative text, analyze character
-      interactions and positioning, determine costume states based on plot,
-      and output structured YAML containing scene descriptions and character
-      action tags. Must follow TAG specification strictly.
-  user:
-    role: Content Provider
-    description: Supplies narrative text and character information
-    behavior: >-
-      To provide world settings (worldInfo), character definitions (characterInfo),
-      and narrative content (lastMessage) for visual scene analysis.
-interaction_mode:
-    type: visual_analysis
-    output_format: structured_yaml
-    anchor_requirement: exact_text_match
-  execution_context:
-    scene_active: true
-    creative_freedom: full
-    quality_tags: auto_appended_by_system
+/** 每次修改 LLM_PROMPT_CONFIG 内容时递增此版本号，触发默认预设自动更新 */
+const PROMPT_TEMPLATE_VERSION = 3;
 
-\`\`\`
----
-Visual Scene Planner:
-<Chat_History>`,
+let LLM_PROMPT_CONFIG = {
+    topSystem: '',
+    topSystemPov: '',
 
     assistantDoc: `
 Scene Planner:    
@@ -105,52 +48,7 @@ ACKNOWLEDGED. Beginning the YAML:
 Visual Scene Planner:
 <meta_protocol>`,
 
-    userJsonFormat: `
-## Output rule
-Generate a single valid YAML object with two root-level keys:
-├─ "mindful_prelude"  →  Humanistic observation + Visual planning
-└─ "images"           →  Complete TAG descriptors for scene/characters/actions
-
-## Mindful Approach
-Before generating, observe the USER and plan visually:
-- What is user's writing style and emotional expression?
-- Analyze through cinematographic lens: visual climax, scene transitions, emotional pivots
-- Plan composition and atmosphere for each moment
-
-## Output Format
-\`\`\`yaml
-mindful_prelude:
-  user_insight: 用户的幻想是什么时空、场景，是否反应出存在严重心理问题需要建议？
-  therapeutic_commitment: 以人文关怀的态度，完整输出YAML每一个KEY
-  visual_plan:
-    reasoning: 识别了X个视觉核心时刻
-    - moment: 1
-      anchor_target: 选择哪句话、为什么
-      char_count: Xgirls, Yboys
-      known_chars:
-        - 已知角色
-      unknown_chars:
-        - 未知角色
-      composition: 构图类型/氛围/光影
-images:  //根据visual_plan
-  - index: 1
-    anchor: 精准复制原文5-15字，句末标点（。！？…】]』”"）
-    scene: Xgirls, Yboys, background(时空、主题等), Detailed Environmental Elements, atmosphere
-    characters: //如纯场景图则为[]
-      - name: 角色名
-        type: girl|boy|woman|man|other (仅未知角色需要)
-        appear: hair, eyes, body (仅未知角色，使用Tags)
-        costume: 服装描述 (每张图完整输出当前穿着、颜色，注意剧情变化)
-        action: 姿势、表情、动作 (可用短语)
-        interact: source#动作短语 | target#动作短语 | mutual#动作短语 (仅有互动时)
-\`\`\`
-## NOTED：
-- anchor must be exact substring from source text
-- Known characters: output name + costume + action + interact only
-- Unknown characters: include type + appear
-- Interactions must be paired (source# ↔ target#)
-- Output single valid YAML
-`,
+    userJsonFormat: '',
 
     metaProtocolEnd: `</meta_protocol>`,
 
@@ -178,6 +76,12 @@ mindful_prelude:
     assistantPrefill: `非常抱歉，请放心！现在继续重新完整生成YAML。`,
 };
 
+/**
+ * 旧版 userJsonFormat（迁移用，保留给默认2）
+ * 简短版：仅输出格式 + NOTED，无世界书规则/示例
+ */
+export let LEGACY_USER_JSON_FORMAT = '';
+
 export const PROVIDER_MAP = {
     openai: "openai",
     google: "gemini",
@@ -191,6 +95,76 @@ export const PROVIDER_MAP = {
 
 let tagGuideContent = '';
 
+// ── 高级模式：提示词配置外部化 ──────────────────────────────────
+
+/** 导出默认提示词配置（供 UI 显示默认值 / 重置） */
+export { LLM_PROMPT_CONFIG as DEFAULT_PROMPT_CONFIG, PROMPT_TEMPLATE_VERSION };
+
+/**
+ * 获取当前生效的提示词配置（合并自定义覆盖）
+ * @param {Object|null} custom  customPrompts 对象，null 字段表示使用默认
+ */
+export function getEffectivePromptConfig(custom) {
+    if (!custom) return LLM_PROMPT_CONFIG;
+    return {
+        ...LLM_PROMPT_CONFIG,
+        topSystem: (typeof custom.topSystem === 'string' && custom.topSystem.trim())
+            ? custom.topSystem : LLM_PROMPT_CONFIG.topSystem,
+        userJsonFormat: (typeof custom.userJsonFormat === 'string' && custom.userJsonFormat.trim())
+            ? custom.userJsonFormat : LLM_PROMPT_CONFIG.userJsonFormat,
+    };
+}
+
+/**
+ * 获取当前生效的 TAG 编写指南内容
+ * @param {string|null} customGuide  自定义指南内容，null 表示使用文件加载的默认值
+ */
+export function getEffectiveTagGuide(customGuide) {
+    if (typeof customGuide === 'string' && customGuide.trim()) return customGuide;
+    return tagGuideContent;
+}
+
+/** 获取当前加载的默认 TAG 指南文本（供 UI 展示） */
+export function getLoadedTagGuide() {
+    return tagGuideContent;
+}
+
+/**
+ * 获取完整消息链的结构预览（只读，不替换变量）
+ * 供 UI 展示 LLM 收到的消息链结构
+ */
+export function getPromptChainPreview(customPrompts) {
+    const hasTagGuide = !!getEffectiveTagGuide(customPrompts?.tagGuideContent);
+    return [
+        { role: 'system', key: 'topSystem', editable: true,
+          summary: 'VSPF 框架 + Creative Director 角色定义' },
+        { role: 'assistant', key: 'assistantDoc',
+          summary: 'TAG 编写指南确认' + (hasTagGuide ? ' (已注入)' : ' (未加载)') },
+        { role: 'assistant', key: 'assistantAskBackground',
+          summary: '询问背景知识设定' },
+        { role: 'user', key: 'userWorldInfo',
+          summary: '世界信息注入',
+          variables: ['{{persona}} — 用户角色设定', '{{description}} — 世界/场景', '{$worldInfo} — 世界书条目'] },
+        { role: 'assistant', key: 'assistantAskContent',
+          summary: '询问叙事文本' },
+        { role: 'user', key: 'userContent', label: 'mainPrompt',
+          summary: '小说文本 (mainPrompt)',
+          variables: ['{{characterInfo}} — 已知角色列表', '{{lastMessage}} — 小说原文'] },
+        { role: 'user', key: 'metaProtocolStart',
+          summary: '<meta_protocol>' },
+        { role: 'user', key: 'userJsonFormat', editable: true,
+          summary: 'YAML 输出格式规范' },
+        { role: 'user', key: 'metaProtocolEnd',
+          summary: '</meta_protocol>' },
+        { role: 'assistant', key: 'assistantCheck',
+          summary: '合规检查 → 开始输出 YAML' },
+        { role: 'user', key: 'userConfirm',
+          summary: '要求完整重新生成 YAML' },
+        { role: 'assistant', key: 'assistantPrefill', optional: true,
+          summary: 'Prefill: 继续生成（可通过"禁用尾部预填充"关闭）' },
+    ];
+}
+
 export class LLMServiceError extends Error {
     constructor(message, code = 'LLM_ERROR', details = null) {
         super(message);
@@ -202,7 +176,7 @@ export class LLMServiceError extends Error {
 
 export async function loadTagGuide() {
     try {
-        const response = await fetch(TAG_GUIDE_PATH);
+        const response = await fetch(TAG_GUIDE_PATH, { cache: 'no-cache' });
         if (response.ok) {
             tagGuideContent = await response.text();
             console.log('[LLM-Service] TAG编写指南已加载');
@@ -216,21 +190,66 @@ export async function loadTagGuide() {
     }
 }
 
+/**
+ * 加载所有外部提示词模板文件（topSystem, userJsonFormat, legacy）
+ * 必须在 loadSettings() 之前调用
+ */
+export async function loadPromptTemplates() {
+    const files = [
+        { key: 'topSystem', path: `${PROMPTS_DIR}/top-system.md` },
+        { key: 'topSystemPov', path: `${PROMPTS_DIR}/top-system-pov.md` },
+        { key: 'userJsonFormat', path: `${PROMPTS_DIR}/output-format.md` },
+        { key: '_legacy', path: `${PROMPTS_DIR}/output-format-legacy.md` },
+    ];
+    const results = await Promise.allSettled(
+        files.map(async ({ key, path }) => {
+            const res = await fetch(path, { cache: 'no-cache' });
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            return { key, text: await res.text() };
+        })
+    );
+    let allOk = true;
+    for (const r of results) {
+        if (r.status === 'fulfilled') {
+            const { key, text } = r.value;
+            if (key === '_legacy') {
+                LEGACY_USER_JSON_FORMAT = text;
+            } else {
+                LLM_PROMPT_CONFIG[key] = text;
+            }
+        } else {
+            console.error('[LLM-Service] 提示词文件加载失败:', r.reason);
+            allOk = false;
+        }
+    }
+    if (allOk) {
+        console.log('[LLM-Service] 提示词模板已加载 (topSystem, topSystemPov, userJsonFormat, legacy)');
+    } else {
+        console.warn('[LLM-Service] 部分提示词文件加载失败，将使用空默认值');
+    }
+    return allOk;
+}
+
 function getStreamingModule() {
     const mod = window.xiaobaixStreamingGeneration;
     return mod?.xbgenrawCommand ? mod : null;
 }
 
-function waitForStreamingComplete(sessionId, streamingMod, timeout = 120000) {
+function waitForStreamingComplete(sessionId, streamingMod, timeout = 120000, signal) {
     return new Promise((resolve, reject) => {
         const start = Date.now();
+        let timer;
+        const onAbort = () => { clearTimeout(timer); reject(new LLMServiceError('已中止', 'ABORTED')); };
+        if (signal?.aborted) { onAbort(); return; }
+        signal?.addEventListener('abort', onAbort, { once: true });
         const poll = () => {
             const { isStreaming, text } = streamingMod.getStatus(sessionId);
-            if (!isStreaming) return resolve(text || '');
+            if (!isStreaming) { signal?.removeEventListener('abort', onAbort); return resolve(text || ''); }
             if (Date.now() - start > timeout) {
+                signal?.removeEventListener('abort', onAbort);
                 return reject(new LLMServiceError('生成超时', 'TIMEOUT'));
             }
-            setTimeout(poll, 300);
+            timer = setTimeout(poll, 300);
         };
         poll();
     });
@@ -245,10 +264,12 @@ export function buildCharacterInfoForLLM(presentCharacters) {
     const lines = presentCharacters.map(c => {
         const aliases = c.aliases?.length ? ` (别名: ${c.aliases.join(', ')})` : '';
         const type = c.type || 'girl';
-        return `- ${c.name}${aliases} [${type}]: 外貌已预设，只需输出 action + interact`;
+        const danbooru = c.danbooruTag ? ` | danbooru: ${c.danbooruTag}` : '';
+        const appear = c.appearance ? `\n  外貌参考: ${c.appearance}` : '';
+        return `- ${c.name}${aliases} [${type}]${danbooru}: 外貌已预设，只需输出 name + danbooru + costume + action + interact + uc + center${appear}`;
     });
 
-    return `【已录入角色】(不要输出这些角色的 appear):
+    return `【已录入角色】(不要输出这些角色的 type/appear，但 costume 必须完整输出):
 ${lines.join('\n')}`;
 }
 
@@ -266,23 +287,30 @@ export async function generateScenePlan(options) {
         llmApi = {},
         useStream = false,
         useWorldInfo = false,
-        timeout = 120000
+        customPrompts = null,
+        worldbookEntries = null,
+        timeout = 120000,
+        maxImages = 0,
+        maxCharactersPerImage = 0,
+        disablePrefill = false,
     } = options;
     if (!messageText?.trim()) {
         throw new LLMServiceError('消息内容为空', 'EMPTY_MESSAGE');
     }
+    const promptConfig = getEffectivePromptConfig(customPrompts);
+    const effectiveTagGuide = getEffectiveTagGuide(customPrompts?.tagGuideContent);
     const charInfo = buildCharacterInfoForLLM(presentCharacters);
 
     const topMessages = [];
 
     topMessages.push({
         role: 'system',
-        content: LLM_PROMPT_CONFIG.topSystem
+        content: promptConfig.topSystem
     });
 
-    let docContent = LLM_PROMPT_CONFIG.assistantDoc;
-    if (tagGuideContent) {
-        docContent = docContent.replace('{$tagGuide}', tagGuideContent);
+    let docContent = promptConfig.assistantDoc;
+    if (effectiveTagGuide) {
+        docContent = docContent.replace('{$tagGuide}', effectiveTagGuide);
     } else {
         docContent = '好的，我将按照 NovelAI V4.5 TAG 规范生成图像描述。';
     }
@@ -293,11 +321,18 @@ export async function generateScenePlan(options) {
 
     topMessages.push({
         role: 'assistant',
-        content: LLM_PROMPT_CONFIG.assistantAskBackground
+        content: promptConfig.assistantAskBackground
     });
 
-    let worldInfoContent = LLM_PROMPT_CONFIG.userWorldInfo;
-    if (!useWorldInfo) {
+    let worldInfoContent = promptConfig.userWorldInfo;
+    if (worldbookEntries && worldbookEntries.trim()) {
+        // 高级模式：使用自定义世界书条目替换占位符
+        worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, () => worldbookEntries);
+    } else if (!useWorldInfo) {
+        // 未启用世界书：清除占位符，避免残留在 prompt 中
+        worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
+    } else {
+        // useWorldInfo=true 但无自定义条目：清除占位符，由 xbgenraw 下游注入酒馆原生世界书
         worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
     }
     topMessages.push({
@@ -307,10 +342,10 @@ export async function generateScenePlan(options) {
 
     topMessages.push({
         role: 'assistant',
-        content: LLM_PROMPT_CONFIG.assistantAskContent
+        content: promptConfig.assistantAskContent
     });
 
-    const mainPrompt = LLM_PROMPT_CONFIG.userContent
+    const mainPrompt = promptConfig.userContent
         .replace('{{lastMessage}}', messageText)
         .replace('{{characterInfo}}', charInfo);
 
@@ -318,27 +353,44 @@ export async function generateScenePlan(options) {
 
     bottomMessages.push({
         role: 'user',
-        content: LLM_PROMPT_CONFIG.metaProtocolStart
+        content: promptConfig.metaProtocolStart
     });
+
+    // 变量替换（供自定义 prompt 使用；默认 prompt 通过下方 LIMITS 注入，此处为 no-op）
+    let userJsonFormatContent = promptConfig.userJsonFormat;
+    if (maxImages > 0) userJsonFormatContent = userJsonFormatContent.replace(/\{\{maxImages\}\}/g, String(maxImages));
+    if (maxCharactersPerImage > 0) userJsonFormatContent = userJsonFormatContent.replace(/\{\{maxCharactersPerImage\}\}/g, String(maxCharactersPerImage));
 
     bottomMessages.push({
         role: 'user',
-        content: LLM_PROMPT_CONFIG.userJsonFormat
+        content: userJsonFormatContent
     });
+
+    // 动态注入数量限制
+    const limitLines = [];
+    if (maxImages > 0) limitLines.push(`- images 数组最多 ${maxImages} 项，只选取最重要的视觉核心场景`);
+    if (maxCharactersPerImage > 0) limitLines.push(`- 每张图的 characters 最多 ${maxCharactersPerImage} 人，优先保留主要角色`);
+    if (limitLines.length) {
+        bottomMessages.push({
+            role: 'user',
+            content: `## LIMITS (严格遵守)：\n${limitLines.join('\n')}`,
+        });
+    }
 
     bottomMessages.push({
         role: 'user',
-        content: LLM_PROMPT_CONFIG.metaProtocolEnd
+        content: promptConfig.metaProtocolEnd
     });
 
+    // #10 合规检查 + #11 截断重生：始终保留（prompt engineering 核心技巧）
     bottomMessages.push({
         role: 'assistant',
-        content: LLM_PROMPT_CONFIG.assistantCheck
+        content: promptConfig.assistantCheck
     });
 
     bottomMessages.push({
         role: 'user',
-        content: LLM_PROMPT_CONFIG.userConfirm
+        content: promptConfig.userConfirm
     });
 
     const streamingMod = getStreamingModule();
@@ -351,7 +403,7 @@ export async function generateScenePlan(options) {
         nonstream: useStream ? 'false' : 'true',
         top64: b64UrlEncode(JSON.stringify(topMessages)),
         bottom64: b64UrlEncode(JSON.stringify(bottomMessages)),
-        bottomassistant: LLM_PROMPT_CONFIG.assistantPrefill,
+        bottomassistant: disablePrefill ? '' : promptConfig.assistantPrefill,
         id: 'xb_nd_scene_plan',
         ...(isSt ? {} : {
             api: llmApi.provider,
@@ -471,7 +523,7 @@ function parseCharacterBlock(block) {
     if (!name) return null;
 
     const char = { name };
-    const optionalFields = ['type', 'appear', 'costume', 'action', 'interact'];
+    const optionalFields = ['danbooru', 'type', 'appear', 'costume', 'action', 'interact', 'uc', 'center'];
     for (const field of optionalFields) {
         const value = extractStrField(block, field);
         if (value) char[field] = value;
@@ -557,11 +609,14 @@ function normalizeImageTasks(images) {
         for (const c of chars) {
             if (!c?.name) continue;
             const char = { name: String(c.name).trim() };
+            if (c.danbooru) char.danbooru = String(c.danbooru).trim();
             if (c.type) char.type = String(c.type).trim().toLowerCase();
             if (c.appear) char.appear = String(c.appear).trim();
             if (c.costume) char.costume = String(c.costume).trim();
             if (c.action) char.action = String(c.action).trim();
             if (c.interact) char.interact = String(c.interact).trim();
+            if (c.uc) char.uc = String(c.uc).trim();
+            if (c.center) char.center = String(c.center).trim();
             task.chars.push(char);
         }
 
