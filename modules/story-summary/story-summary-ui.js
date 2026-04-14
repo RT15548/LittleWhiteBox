@@ -52,6 +52,17 @@
         return [...new Set(candidates)];
     }
 
+    async function tryParseModelIds(url, fetchOptions = {}) {
+        try {
+            const res = await fetch(url, fetchOptions);
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data?.data?.map(m => m?.id).filter(Boolean) || null;
+        } catch {
+            return null;
+        }
+    }
+
     const DEFAULT_SUMMARY_SYSTEM_PROMPT = `Story Analyst: This task involves narrative comprehension and structured incremental summarization, representing creative story analysis at the intersection of plot tracking and character development. As a story analyst, you will conduct systematic evaluation of provided dialogue content to generate structured incremental summary data.
 [Read the settings for this task]
 <task_settings>
@@ -782,16 +793,11 @@ All checks passed. Beginning incremental extraction...
         statusEl.textContent = '连接中...';
 
         try {
-            const tryFetch = async url => {
-                const res = await fetch(url, {
-                    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }
-                });
-                return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null;
-            };
-
             let models = null;
             for (const url of getModelListCandidateUrls(baseUrl, getDefaultApiPrefix(provider))) {
-                models = await tryFetch(url);
+                models = await tryParseModelIds(url, {
+                    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }
+                });
                 if (models?.length) break;
             }
             if (!models?.length) throw new Error('未获取到模型列表');
@@ -1305,16 +1311,11 @@ All checks passed. Beginning incremental extraction...
         statusEl.textContent = '连接中...';
 
         try {
-            const tryFetch = async url => {
-                const res = await fetch(url, {
-                    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }
-                });
-                return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null;
-            };
-
             let models = null;
             for (const url of getModelListCandidateUrls(baseUrl, getDefaultApiPrefix(config.api.provider))) {
-                models = await tryFetch(url);
+                models = await tryParseModelIds(url, {
+                    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }
+                });
                 if (models?.length) break;
             }
             if (!models?.length) throw new Error('未获取到模型列表');

@@ -2975,8 +2975,13 @@ async function handleFrameMessage(event) {
                 }
 
                 const tryFetch = async url => {
-                    const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } });
-                    return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null;
+                    try {
+                        const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } });
+                        if (!res.ok) return null;
+                        return (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null;
+                    } catch {
+                        return null;
+                    }
                 };
 
                 let models = null;
