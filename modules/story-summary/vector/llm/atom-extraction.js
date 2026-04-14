@@ -28,6 +28,10 @@ export function cancelBatchExtraction() {
     cancelAllL0Requests();
 }
 
+export function resetBatchExtractionCancel() {
+    batchCancelled = false;
+}
+
 export function isBatchCancelled() {
     return batchCancelled;
 }

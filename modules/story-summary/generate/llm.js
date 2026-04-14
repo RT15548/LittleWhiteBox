@@ -12,6 +12,7 @@ import {
     DEFAULT_SUMMARY_USER_CONFIRM_PROMPT,
     DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT,
 } from "../data/config.js";
+import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../openai-url-utils.js";
 
 const PROVIDER_MAP = {
     openai: "openai",
@@ -208,7 +209,7 @@ export async function generateSummary(options) {
         const mappedApi = PROVIDER_MAP[String(llmApi.provider).toLowerCase()];
         if (mappedApi) {
             args.api = mappedApi;
-            if (llmApi.url) args.apiurl = llmApi.url;
+            if (llmApi.url) args.apiurl = resolveApiBaseUrl(llmApi.url, getDefaultApiPrefix(llmApi.provider));
             if (llmApi.key) args.apipassword = llmApi.key;
             if (llmApi.model) args.model = llmApi.model;
         }

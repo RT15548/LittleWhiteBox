@@ -4,6 +4,54 @@
 (function () {
     'use strict';
 
+    function normalizeApiBaseUrl(url) {
+        return String(url || '').trim().replace(/\/+$/, '');
+    }
+
+    function normalizeApiPrefix(prefix) {
+        const raw = String(prefix || '').trim();
+        if (!raw) return '';
+        return `/${raw.replace(/^\/+/, '').replace(/\/+$/, '')}`;
+    }
+
+    function hasExplicitApiVersion(url) {
+        const baseUrl = normalizeApiBaseUrl(url);
+        return /\/v\d[\w.-]*$/i.test(baseUrl);
+    }
+
+    function getDefaultApiPrefix(provider) {
+        const key = String(provider || '').trim().toLowerCase();
+        if (key === 'google' || key === 'gemini') return '/v1beta';
+        return '/v1';
+    }
+
+    function resolveApiBaseUrl(url, defaultPrefix = '') {
+        const baseUrl = normalizeApiBaseUrl(url);
+        const prefix = normalizeApiPrefix(defaultPrefix);
+        if (!baseUrl || !prefix || hasExplicitApiVersion(baseUrl)) return baseUrl;
+        if (baseUrl.toLowerCase().endsWith(prefix.toLowerCase())) return baseUrl;
+        return `${baseUrl}${prefix}`;
+    }
+
+    function joinApiUrl(baseUrl, path) {
+        const normalizedBase = normalizeApiBaseUrl(baseUrl);
+        const normalizedPath = String(path || '').startsWith('/') ? String(path || '') : `/${String(path || '')}`;
+        return normalizedBase ? `${normalizedBase}${normalizedPath}` : normalizedPath;
+    }
+
+    function getModelListCandidateUrls(url, defaultPrefix = '') {
+        const baseUrl = normalizeApiBaseUrl(url);
+        if (!baseUrl) return [];
+
+        const candidates = [joinApiUrl(baseUrl, '/models')];
+        const resolvedBase = resolveApiBaseUrl(baseUrl, defaultPrefix);
+        if (resolvedBase && resolvedBase !== baseUrl) {
+            candidates.push(joinApiUrl(resolvedBase, '/models'));
+        }
+
+        return [...new Set(candidates)];
+    }
+
     const DEFAULT_SUMMARY_SYSTEM_PROMPT = `Story Analyst: This task involves narrative comprehension and structured incremental summarization, representing creative story analysis at the intersection of plot tracking and character development. As a story analyst, you will conduct systematic evaluation of provided dialogue content to generate structured incremental summary data.
 [Read the settings for this task]
 <task_settings>
@@ -722,7 +770,7 @@ All checks passed. Beginning incremental extraction...
             return;
         }
 
-        let baseUrl = $(`${prefix}-api-url`).value.trim().replace(/\/+$/, '');
+        const baseUrl = $(`${prefix}-api-url`).value.trim();
         const apiKey = $(`${prefix}-api-key`).value.trim();
         if (!apiKey) {
             statusEl.textContent = '请先填写 API KEY';
@@ -741,9 +789,11 @@ All checks passed. Beginning incremental extraction...
                 return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null;
             };
 
-            if (baseUrl.endsWith('/v1')) baseUrl = baseUrl.slice(0, -3);
-            let models = await tryFetch(`${baseUrl}/v1/models`);
-            if (!models) models = await tryFetch(`${baseUrl}/models`);
+            let models = null;
+            for (const url of getModelListCandidateUrls(baseUrl, getDefaultApiPrefix(provider))) {
+                models = await tryFetch(url);
+                if (models?.length) break;
+            }
             if (!models?.length) throw new Error('未获取到模型列表');
 
             const allModels = [...new Set(models)];
@@ -1242,7 +1292,7 @@ All checks passed. Beginning incremental extraction...
             return;
         }
 
-        let baseUrl = $('api-url').value.trim().replace(/\/+$/, '');
+        const baseUrl = $('api-url').value.trim();
         const apiKey = $('api-key').value.trim();
 
         if (!apiKey) {
@@ -1262,10 +1312,11 @@ All checks passed. Beginning incremental extraction...
                 return res.ok ? (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null : null;
             };
 
-            if (baseUrl.endsWith('/v1')) baseUrl = baseUrl.slice(0, -3);
-
-            let models = await tryFetch(`${baseUrl}/v1/models`);
-            if (!models) models = await tryFetch(`${baseUrl}/models`);
+            let models = null;
+            for (const url of getModelListCandidateUrls(baseUrl, getDefaultApiPrefix(config.api.provider))) {
+                models = await tryFetch(url);
+                if (models?.length) break;
+            }
             if (!models?.length) throw new Error('未获取到模型列表');
 
             config.api.modelCache = [...new Set(models)];

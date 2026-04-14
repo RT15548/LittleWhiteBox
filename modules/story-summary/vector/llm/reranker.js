@@ -5,6 +5,7 @@
 
 import { xbLog } from '../../../../core/debug-core.js';
 import { getVectorConfig } from '../../data/config.js';
+import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../openai-url-utils.js';
 
 const MODULE_ID = 'reranker';
 const DEFAULT_RERANK_URL = 'https://api.siliconflow.cn/v1';
@@ -96,7 +97,10 @@ export async function rerank(query, documents, options = {}) {
     try {
         const T0 = performance.now();
 
-        const baseUrl = String(apiCfg.url || DEFAULT_RERANK_URL).replace(/\/+$/, '');
+        const baseUrl = resolveApiBaseUrl(
+            String(apiCfg.url || DEFAULT_RERANK_URL),
+            getDefaultApiPrefix(apiCfg.provider || 'siliconflow')
+        );
         const response = await fetch(`${baseUrl}/rerank`, {
             method: 'POST',
             headers: {
@@ -288,7 +292,10 @@ export async function testRerankService(apiConfig = {}) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
     try {
-        const baseUrl = String(next.url || DEFAULT_RERANK_URL).replace(/\/+$/, '');
+        const baseUrl = resolveApiBaseUrl(
+            String(next.url || DEFAULT_RERANK_URL),
+            getDefaultApiPrefix(next.provider || 'siliconflow')
+        );
         const response = await fetch(`${baseUrl}/rerank`, {
             method: 'POST',
             headers: {

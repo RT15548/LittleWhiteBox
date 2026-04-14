@@ -368,9 +368,16 @@ async function handleAnchorGenerate() {
 
         postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: 0, total: 1, message: "分析中..." });
 
-        await incrementalExtractAtoms(chatId, chat, (message, current, total) => {
+        const l0Result = await incrementalExtractAtoms(chatId, chat, (message, current, total) => {
             postToFrame({ type: "ANCHOR_GEN_PROGRESS", current, total, message });
         });
+
+        if (l0Result?.cancelled) {
+            await sendAnchorStatsToFrame();
+            await sendVectorStatsToFrame();
+            xbLog.info(MODULE_ID, "记忆锚点生成已取消");
+            return;
+        }
 
         // Self-heal: if chunks are empty but boundary looks "already built",
         // reset boundary so incremental L1 rebuild can start from floor 0.
@@ -684,7 +691,8 @@ async function maybeAutoExtractL0() {
     if (!release) return;
 
     try {
-        await incrementalExtractAtoms(chatId, chat, null, { maxFloors: 20 });
+        const l0Result = await incrementalExtractAtoms(chatId, chat, null, { maxFloors: 20 });
+        if (l0Result?.cancelled) return;
 
         // 为新提取的 L0 楼层构建 L1 chunks
         const chunkResult = await buildIncrementalChunks({ vectorConfig: vectorCfg });

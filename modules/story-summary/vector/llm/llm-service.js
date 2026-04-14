@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import { xbLog } from '../../../../core/debug-core.js';
 import { getVectorConfig } from '../../data/config.js';
+import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../openai-url-utils.js';
 
 const MODULE_ID = 'vector-llm-service';
 const DEFAULT_L0_MODEL = 'Qwen/Qwen3-8B';
@@ -117,7 +118,10 @@ export async function callLLM(messages, options = {}) {
     }
 
     const model = String(apiCfg.model || DEFAULT_L0_MODEL).trim();
-    const baseUrl = String(apiCfg.url || DEFAULT_L0_API_URL).trim().replace(/\/+$/, '');
+    const baseUrl = resolveApiBaseUrl(
+        String(apiCfg.url || DEFAULT_L0_API_URL).trim(),
+        getDefaultApiPrefix(apiCfg.provider || 'openai')
+    );
     const body = {
         model,
         messages: normalizedMessages,

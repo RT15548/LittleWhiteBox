@@ -21,7 +21,7 @@ import {
     deleteL0IndexFromFloor,
 } from '../storage/state-store.js';
 import { embed } from '../llm/siliconflow.js';
-import { extractAtomsForRound, cancelBatchExtraction } from '../llm/atom-extraction.js';
+import { extractAtomsForRound, cancelBatchExtraction, resetBatchExtractionCancel } from '../llm/atom-extraction.js';
 import { getVectorConfig } from '../../data/config.js';
 import { getEngineFingerprint } from '../utils/embedder.js';
 import { filterText } from '../utils/text-filter.js';
@@ -127,13 +127,15 @@ function buildRAggregateText(atom) {
 
 export async function incrementalExtractAtoms(chatId, chat, onProgress, options = {}) {
     const { maxFloors = Infinity } = options;
-    if (!chatId || !chat?.length) return { built: 0 };
+    if (!chatId || !chat?.length) return { built: 0, cancelled: false };
 
     const vectorCfg = getVectorConfig();
-    if (!vectorCfg?.enabled) return { built: 0 };
+    if (!vectorCfg?.enabled) return { built: 0, cancelled: false };
 
-    // ★ 重置取消标志
+    // New runs must clear the previous manual-cancel latch, otherwise
+    // later floors get misread as empty results.
     extractionCancelled = false;
+    resetBatchExtractionCancel();
 
     const pendingPairs = [];
 
@@ -165,7 +167,7 @@ export async function incrementalExtractAtoms(chatId, chat, onProgress, options 
 
     if (!pendingPairs.length) {
         onProgress?.('已全部提取', 0, 0);
-        return { built: 0 };
+        return { built: 0, cancelled: false };
     }
 
     const concurrency = Math.max(1, Math.min(50, Number(vectorCfg?.l0Concurrency) || DEFAULT_CONCURRENCY));
@@ -276,7 +278,7 @@ export async function incrementalExtractAtoms(chatId, chat, onProgress, options 
     }
 
     xbLog.info(MODULE_ID, `L0 ${extractionCancelled ? '已取消' : '完成'}：atoms=${builtAtoms}, completed=${completed}/${total}, failed=${failed}`);
-    return { built: builtAtoms };
+    return { built: builtAtoms, cancelled: extractionCancelled };
 }
 
 // ============================================================================
@@ -377,6 +379,7 @@ export async function extractAndStoreAtomsForRound(aiFloor, aiMessage, userMessa
 async function processQueue() {
     if (isProcessing || extractionQueue.length === 0) return;
     isProcessing = true;
+    resetBatchExtractionCancel();
 
     while (extractionQueue.length > 0) {
         const { aiFloor, aiMessage, userMessage, chatId, onComplete } = extractionQueue.shift();

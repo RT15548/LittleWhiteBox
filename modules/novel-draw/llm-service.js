@@ -1,4 +1,5 @@
 import { extensionFolderPath } from "../../core/constants.js";
+import { getDefaultApiPrefix, resolveApiBaseUrl } from "../openai-url-utils.js";
 
 const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/novel-draw/TAG编写指南.md`;
 const PROMPTS_DIR = `${extensionFolderPath}/modules/novel-draw/prompts`;
@@ -398,6 +399,9 @@ export async function generateScenePlan(options) {
         throw new LLMServiceError('xbgenraw 模块不可用', 'MODULE_UNAVAILABLE');
     }
     const isSt = llmApi.provider === 'st';
+    const resolvedApiUrl = !isSt && llmApi.url
+        ? resolveApiBaseUrl(llmApi.url, getDefaultApiPrefix(llmApi.provider))
+        : '';
     const args = {
         as: 'user',
         nonstream: useStream ? 'false' : 'true',
@@ -407,7 +411,7 @@ export async function generateScenePlan(options) {
         id: 'xb_nd_scene_plan',
         ...(isSt ? {} : {
             api: llmApi.provider,
-            apiurl: llmApi.url,
+            apiurl: resolvedApiUrl,
             apipassword: llmApi.key,
             model: llmApi.model,
             temperature: '0.7',

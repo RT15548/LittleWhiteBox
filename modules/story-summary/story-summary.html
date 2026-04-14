@@ -212,7 +212,7 @@
                             <div class="settings-field full">
                                 <label>API URL</label>
                                 <input type="text" id="api-url" placeholder="https://api.openai.com 或代理地址">
-                                <div class="settings-hint">默认端点：OpenAI：/v1，Gemini：/v1beta，Claude：/v1</div>
+                                <div class="settings-hint">可直接填写完整前缀（如 /v1、/v3、/v1beta）；若只填裸地址，则按渠道补默认前缀：OpenAI/Claude：/v1，Gemini：/v1beta。</div>
                             </div>
                         </div>
                         <div class="settings-row hidden" id="api-key-row">
@@ -424,7 +424,7 @@
                                     <div class="settings-field full">
                                         <div class="settings-hint" style="margin-bottom:12px;">
                                             推荐给 L0 使用便宜或免费的高并发渠道。<br>
-                                            自定义渠道请填写 OpenAI 兼容基础地址（通常为 /v1）。Embedding 会自动补 <code>/embeddings</code>，Rerank 会自动补 <code>/rerank</code>。
+                                            自定义渠道可直接填写完整前缀（如 <code>/v1</code>、<code>/v3</code>、<code>/v1beta</code>）；若只填裸地址，则按渠道补默认前缀。Embedding 会在最终前缀后拼 <code>/embeddings</code>，Rerank 会拼 <code>/rerank</code>。
                                         </div>
                                         <details class="settings-collapse" id="l0-api-collapse" style="margin-bottom:12px;">
                                             <summary class="settings-collapse-header">
