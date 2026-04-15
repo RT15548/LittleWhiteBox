@@ -1,5 +1,15 @@
 import OpenAI from 'openai';
 
+function logOutgoingRequest(label, payload) {
+    try {
+        console.groupCollapsed(label);
+        console.log(JSON.parse(JSON.stringify(payload)));
+        console.groupEnd();
+    } catch {
+        console.log(label, payload);
+    }
+}
+
 function safeParseArguments(text) {
     try {
         return JSON.parse(text || '{}');
@@ -133,14 +143,16 @@ export class OpenAICompatibleAdapter {
     async chat(task) {
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
-        const response = await this.client.chat.completions.create({
+        const body = {
             model: this.config.model,
             messages: isTaggedMode ? buildTaggedMessages(task) : task.messages,
             tools: isTaggedMode ? undefined : task.tools,
             tool_choice: isTaggedMode ? undefined : (task.toolChoice || 'auto'),
             temperature: task.temperature,
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
-        }, {
+        };
+        logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI-Compatible outgoing request', body);
+        const response = await this.client.chat.completions.create(body, {
             signal: task.signal,
         });
 

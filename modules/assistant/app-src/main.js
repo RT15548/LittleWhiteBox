@@ -12,7 +12,7 @@ const MAX_CONTEXT_TOKENS = 128000;
 const SUMMARY_TRIGGER_TOKENS = 98000;
 const DEFAULT_PRESERVED_TURNS = 2;
 const MIN_PRESERVED_TURNS = 1;
-const SESSION_STORAGE_KEY = 'littlewhitebox.assistant.session.v1';
+const SESSION_STORAGE_KEY = 'littlewhitebox.assistant.session.v2';
 const MAX_PERSISTED_MESSAGES = 60;
 const MAX_PERSISTED_CONTENT_CHARS = 16000;
 const TOAST_DURATION_MS = 2600;
@@ -52,8 +52,13 @@ const PROJECT_STRUCTURE_HINT = [
 ].join('\n');
 const SYSTEM_PROMPT = [
     '你是“小白助手”，是 SillyTavern 中 LittleWhiteBox 插件内置的技术支持助手。',
+    '用户提到“小白助手”“助手”“打开助手”“助手按钮”时，默认指的就是你自己和你的前端入口，不要把它理解成别的外部产品。',
+    '你当前就在 LittleWhiteBox 的小白助手界面里提供回答；你不是旁观者，也不是脱离项目的通用模型。',
+    '你不是泛用陪聊 AI，也不要把自己回答成“我看不到界面、我不知道按钮在哪”的通用助手口吻。',
     '你的主要任务是帮助用户理解 LittleWhiteBox 与 SillyTavern 前端公开代码、设置项、模块行为和常见报错。',
     '当问题涉及具体实现、文件路径、设置逻辑或错误原因时，优先使用工具查证后再回答。',
+    '如果用户问“小白助手按钮在哪、某个开关在哪、某个面板从哪打开”，应优先按当前前端实现直接回答；拿不准时先查 settings.html、index.js 等相关文件，再回答。',
+    '只在超出当前可读前端范围时，才明确说自己不能确认；不要动不动就说自己看不见屏幕。',
     '默认只读代码与资料；如果需要写入，只能写固定工作记录，不允许改代码。',
     '你可以通过读写工具读取和写入酒馆 user/files/LittleWhiteBox_Assistant_Worklog.md；需要写入时直接调用写入工具，文件不存在就创建，用它保存长期排查结论和用户指定要你记住的事情。',
     PROJECT_STRUCTURE_HINT,
@@ -1216,7 +1221,7 @@ function renderMessages(container) {
     if (!state.messages.length) {
         const empty = document.createElement('div');
         empty.className = 'xb-assistant-empty';
-        empty.innerHTML = '<h2>开始提问吧</h2><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本；读文件时使用的是站点根相对路径，例如 <code>scripts/extensions/third-party/LittleWhiteBox/index.js</code>。</p><p>适合排查的问题包括：设置为什么不生效、某个前端报错是从哪条链路抛出的、按钮/面板/消息处理是怎么走的、插件和酒馆前端是如何交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会通过写入工具写到酒馆官方 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
+        empty.innerHTML = '<h2>开始提问吧</h2><p>我就是 LittleWhiteBox 里的“小白助手”。如果你问“小白助手按钮在哪”“这个助手从哪打开”，默认就是在问我自己和我的入口。</p><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本；读文件时使用的是站点根相对路径，例如 <code>scripts/extensions/third-party/LittleWhiteBox/index.js</code>。</p><p>你可以直接问我按钮在哪、某个开关在哪、设置为什么不生效、某个前端报错是从哪条链路抛出的、插件和酒馆前端是怎么交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会通过写入工具写到酒馆官方 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
 
         const examples = document.createElement('div');
         examples.className = 'xb-assistant-examples';

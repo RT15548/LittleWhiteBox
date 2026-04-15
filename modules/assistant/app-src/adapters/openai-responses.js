@@ -1,5 +1,15 @@
 import OpenAI from 'openai';
 
+function logOutgoingRequest(label, payload) {
+    try {
+        console.groupCollapsed(label);
+        console.log(JSON.parse(JSON.stringify(payload)));
+        console.groupEnd();
+    } catch {
+        console.log(label, payload);
+    }
+}
+
 function buildUserOrSystemMessage(role, content) {
     return {
         type: 'message',
@@ -82,6 +92,7 @@ export class OpenAIResponsesAdapter {
             })),
             ...(task.maxTokens ? { max_output_tokens: task.maxTokens } : {}),
         };
+        logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI Responses outgoing request', body);
 
         const response = await this.client.responses.create(body, {
             signal: task.signal,

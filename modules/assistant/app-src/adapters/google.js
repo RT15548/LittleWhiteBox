@@ -1,5 +1,15 @@
 import { FunctionCallingConfigMode, GoogleGenAI } from '@google/genai';
 
+function logOutgoingRequest(label, payload) {
+    try {
+        console.groupCollapsed(label);
+        console.log(JSON.parse(JSON.stringify(payload)));
+        console.groupEnd();
+    } catch {
+        console.log(label, payload);
+    }
+}
+
 function parseArguments(text) {
     try {
         return JSON.parse(text || '{}');
@@ -93,7 +103,7 @@ export class GoogleAdapter {
 
     async chat(task) {
         const conversation = buildConversation(task.messages);
-        const chat = this.client.chats.create({
+        const createPayload = {
             model: this.config.model,
             history: conversation.history,
             config: {
@@ -113,14 +123,18 @@ export class GoogleAdapter {
                 },
                 ...(task.maxTokens ? { maxOutputTokens: task.maxTokens } : {}),
             },
-        });
+        };
+        logOutgoingRequest('[LittleWhiteBox Assistant] Google AI outgoing create payload', createPayload);
+        const chat = this.client.chats.create(createPayload);
 
-        const response = await chat.sendMessage({
+        const sendPayload = {
             message: conversation.latestMessage,
             config: {
                 abortSignal: task.signal,
             },
-        });
+        };
+        logOutgoingRequest('[LittleWhiteBox Assistant] Google AI outgoing send payload', sendPayload);
+        const response = await chat.sendMessage(sendPayload);
 
         const toolCalls = (response.functionCalls || []).map((item, index) => ({
             id: item.id || `google-tool-${index + 1}`,

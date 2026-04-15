@@ -1,5 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+function logOutgoingRequest(label, payload) {
+    try {
+        console.groupCollapsed(label);
+        console.log(JSON.parse(JSON.stringify(payload)));
+        console.groupEnd();
+    } catch {
+        console.log(label, payload);
+    }
+}
+
 function parseArguments(text) {
     try {
         return JSON.parse(text || '{}');
@@ -79,15 +89,17 @@ export class AnthropicAdapter {
             description: tool.function.description,
             input_schema: tool.function.parameters,
         }));
-
-        const response = await this.client.messages.create({
+        const body = {
             model: this.config.model,
             system: task.systemPrompt,
             messages: buildAnthropicMessages(task.messages),
             tools,
             temperature: task.temperature,
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
-        }, {
+        };
+        logOutgoingRequest('[LittleWhiteBox Assistant] Anthropic outgoing request', body);
+
+        const response = await this.client.messages.create(body, {
             signal: task.signal,
         });
 
