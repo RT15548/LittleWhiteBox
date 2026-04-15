@@ -325,22 +325,22 @@ function openAssistant() {
         background: rgba(10, 16, 25, 0.12);
         backdrop-filter: blur(2px);
         z-index: 99999;
-        display: flex;
-        align-items: flex-start;
-        justify-content: center;
         overflow: hidden;
     `;
 
     const updateOverlayHeight = () => {
         if (overlay && overlay.style.display !== 'none') {
             overlay.style.height = `${window.innerHeight}px`;
+            if (!window.matchMedia('(max-width: 900px)').matches) {
+                const rect = shell.getBoundingClientRect();
+                applyShellBounds(rect.width, rect.height);
+            }
         }
     };
 
     const shell = document.createElement('div');
     shell.style.cssText = `
-        position: relative;
-        margin-top: 18px;
+        position: absolute;
         width: min(1480px, calc(100vw - 96px));
         height: min(980px, calc(100vh - 96px));
         max-width: calc(100vw - 96px);
@@ -354,15 +354,44 @@ function openAssistant() {
         background: rgba(238, 243, 248, 0.96);
     `;
 
+    const titleBar = document.createElement('div');
+    titleBar.setAttribute('aria-label', '拖动小白助手窗口');
+    titleBar.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 52px;
+        display: flex;
+        align-items: center;
+        padding: 0 16px 0 18px;
+        box-sizing: border-box;
+        background: linear-gradient(180deg, rgba(248, 250, 253, 0.96), rgba(238, 243, 248, 0.88));
+        border-bottom: 1px solid rgba(27, 55, 88, 0.12);
+        cursor: move;
+        user-select: none;
+        touch-action: none;
+        z-index: 2;
+    `;
+
+    const titleText = document.createElement('div');
+    titleText.textContent = '小白助手';
+    titleText.style.cssText = `
+        color: #142033;
+        font: 700 14px/1.2 "Microsoft YaHei", sans-serif;
+        letter-spacing: 0.02em;
+    `;
+    titleBar.appendChild(titleText);
+
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
     closeButton.textContent = '关闭';
     closeButton.setAttribute('aria-label', '关闭小白助手');
     closeButton.style.cssText = `
         position: absolute;
-        top: 14px;
+        top: 9px;
         right: 14px;
-        z-index: 2;
+        z-index: 3;
         border: none;
         border-radius: 999px;
         padding: 10px 14px;
@@ -384,8 +413,9 @@ function openAssistant() {
         width: 32px;
         height: 32px;
         z-index: 2;
-        pointer-events: none;
         border-radius: 0 0 22px 0;
+        cursor: nwse-resize;
+        touch-action: none;
         background:
             linear-gradient(135deg, transparent 46%, rgba(27, 55, 88, 0.18) 46%, rgba(27, 55, 88, 0.18) 56%, transparent 56%),
             linear-gradient(135deg, transparent 62%, rgba(27, 55, 88, 0.28) 62%, rgba(27, 55, 88, 0.28) 72%, transparent 72%),
@@ -395,17 +425,39 @@ function openAssistant() {
     const iframe = document.createElement('iframe');
     iframe.src = HTML_PATH;
     iframe.style.cssText = `
+        position: absolute;
+        top: 52px;
+        left: 0;
         display: block;
         width: 100%;
-        height: 100%;
+        height: calc(100% - 52px);
         border: none;
-        border-radius: inherit;
+        border-radius: 0 0 22px 22px;
         background: #eef3f8;
     `;
 
-    shell.append(closeButton, resizeHint, iframe);
+    shell.append(titleBar, closeButton, resizeHint, iframe);
     overlay.appendChild(shell);
     document.body.appendChild(overlay);
+
+    const clampShellPosition = (left, top) => {
+        const shellRect = shell.getBoundingClientRect();
+        const maxLeft = Math.max(0, window.innerWidth - shellRect.width);
+        const maxTop = Math.max(0, window.innerHeight - shellRect.height);
+        return {
+            left: Math.max(0, Math.min(left, maxLeft)),
+            top: Math.max(0, Math.min(top, maxTop)),
+        };
+    };
+
+    const centerShell = () => {
+        const width = shell.getBoundingClientRect().width;
+        const height = shell.getBoundingClientRect().height;
+        const nextLeft = Math.max(0, Math.round((window.innerWidth - width) / 2));
+        const nextTop = Math.max(0, Math.round((window.innerHeight - height) / 2));
+        shell.style.left = `${nextLeft}px`;
+        shell.style.top = `${nextTop}px`;
+    };
 
     const applyShellBounds = (width, height) => {
         const viewportWidth = window.innerWidth;
@@ -422,9 +474,34 @@ function openAssistant() {
         shell.style.maxHeight = `${maxHeight}px`;
         shell.style.minWidth = `${minWidth}px`;
         shell.style.minHeight = `${minHeight}px`;
+        const currentLeft = Number.parseFloat(shell.style.left || '0') || 0;
+        const currentTop = Number.parseFloat(shell.style.top || '0') || 0;
+        const clamped = clampShellPosition(currentLeft, currentTop);
+        shell.style.left = `${clamped.left}px`;
+        shell.style.top = `${clamped.top}px`;
     };
 
+    centerShell();
+
+    let dragState = null;
     let resizeState = null;
+    const stopDrag = () => {
+        dragState = null;
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        window.removeEventListener('pointermove', onDragPointerMove);
+        window.removeEventListener('pointerup', stopDrag);
+        window.removeEventListener('pointercancel', stopDrag);
+    };
+    const onDragPointerMove = (event) => {
+        if (!dragState) return;
+        event.preventDefault();
+        const nextLeft = dragState.startLeft + (event.clientX - dragState.startX);
+        const nextTop = dragState.startTop + (event.clientY - dragState.startY);
+        const clamped = clampShellPosition(nextLeft, nextTop);
+        shell.style.left = `${clamped.left}px`;
+        shell.style.top = `${clamped.top}px`;
+    };
     const stopResize = () => {
         resizeState = null;
         document.body.style.userSelect = '';
@@ -441,11 +518,27 @@ function openAssistant() {
             resizeState.startHeight + (event.clientY - resizeState.startY),
         );
     };
-    resizeHint.style.pointerEvents = 'auto';
-    resizeHint.style.cursor = 'nwse-resize';
+    titleBar.addEventListener('pointerdown', (event) => {
+        if (window.matchMedia('(max-width: 900px)').matches) return;
+        if (event.target.closest('button')) return;
+        event.preventDefault();
+        const rect = shell.getBoundingClientRect();
+        dragState = {
+            startX: event.clientX,
+            startY: event.clientY,
+            startLeft: rect.left,
+            startTop: rect.top,
+        };
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'move';
+        window.addEventListener('pointermove', onDragPointerMove);
+        window.addEventListener('pointerup', stopDrag);
+        window.addEventListener('pointercancel', stopDrag);
+    });
     resizeHint.addEventListener('pointerdown', (event) => {
         if (window.matchMedia('(max-width: 900px)').matches) return;
         event.preventDefault();
+        event.stopPropagation();
         resizeState = {
             startX: event.clientX,
             startY: event.clientY,
@@ -459,15 +552,10 @@ function openAssistant() {
         window.addEventListener('pointercancel', stopResize);
     });
 
-    overlay.addEventListener('click', (event) => {
-        if (event.target === overlay) {
-            closeAssistant();
-        }
-    });
-
     window.addEventListener('resize', updateOverlayHeight);
     window.visualViewport?.addEventListener('resize', updateOverlayHeight);
     overlay._cleanup = () => {
+        stopDrag();
         stopResize();
         window.removeEventListener('resize', updateOverlayHeight);
         window.visualViewport?.removeEventListener('resize', updateOverlayHeight);
@@ -477,19 +565,25 @@ function openAssistant() {
         overlay.style.padding = '0';
         overlay.style.background = 'rgba(10, 16, 25, 0.2)';
         overlay.style.backdropFilter = 'blur(3px)';
-        overlay.style.alignItems = 'stretch';
+        titleBar.style.height = '56px';
+        titleBar.style.padding = '0 16px';
+        titleBar.style.cursor = 'default';
         shell.style.width = '100vw';
         shell.style.height = '100vh';
         shell.style.maxWidth = '100vw';
         shell.style.maxHeight = '100vh';
         shell.style.minWidth = '100vw';
         shell.style.minHeight = '100vh';
-        shell.style.marginTop = '0';
+        shell.style.left = '0';
+        shell.style.top = '0';
         shell.style.borderRadius = '0';
         shell.style.border = 'none';
         closeButton.style.top = '12px';
         closeButton.style.right = '12px';
         resizeHint.style.display = 'none';
+        iframe.style.top = '56px';
+        iframe.style.height = 'calc(100% - 56px)';
+        iframe.style.borderRadius = '0';
     }
 
     // Guarded inside handleIframeMessage via isTrustedIframeEvent.
