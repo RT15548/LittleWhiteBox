@@ -282,7 +282,7 @@ function toggleSettingsControls(enabled) {
         'xiaobaix_novel_draw_enabled', 'xiaobaix_novel_draw_open_settings',
         'xiaobaix_tts_enabled', 'xiaobaix_tts_open_settings',
         'xiaobaix_ena_planner_enabled', 'xiaobaix_ena_planner_open_settings',
-        'xiaobaix_assistant_enabled', 'xiaobaix_assistant_open_settings'
+        'xiaobaix_assistant_open_settings'
     ];
     controls.forEach(id => {
         $(`#${id}`).prop('disabled', !enabled).closest('.flex-container').toggleClass('disabled-control', !enabled);
@@ -301,7 +301,6 @@ function toggleSettingsControls(enabled) {
 
 function syncFeatureActionButtons() {
     const bindings = [
-        { toggleId: 'xiaobaix_assistant_enabled', buttonId: 'xiaobaix_assistant_open_settings' },
         { toggleId: 'xiaobaix_ena_planner_enabled', buttonId: 'xiaobaix_ena_planner_open_settings' }
     ];
     bindings.forEach(({ toggleId, buttonId }) => {
@@ -312,6 +311,11 @@ function syncFeatureActionButtons() {
         button.disabled = !enabled;
         button.classList.toggle('disabled-action', !enabled);
     });
+    const assistantButton = document.getElementById('xiaobaix_assistant_open_settings');
+    if (assistantButton) {
+        assistantButton.disabled = !isXiaobaixEnabled;
+        assistantButton.classList.toggle('disabled-action', !isXiaobaixEnabled);
+    }
 }
 
 async function toggleAllFeatures(enabled) {
@@ -335,7 +339,6 @@ async function toggleAllFeatures(enabled) {
             { condition: extension_settings[EXT_ID].novelDraw?.enabled, init: initNovelDraw },
             { condition: extension_settings[EXT_ID].tts?.enabled, init: initTts },
             { condition: extension_settings[EXT_ID].enaPlanner?.enabled, init: initEnaPlanner },
-            { condition: extension_settings[EXT_ID].assistant?.enabled, init: initAssistant },
             { condition: true, init: initStreamingGeneration },
             { condition: true, init: initButtonCollapse }
         ];
@@ -426,7 +429,6 @@ async function setupSettings() {
             { id: 'xiaobaix_novel_draw_enabled', key: 'novelDraw', init: initNovelDraw },
             { id: 'xiaobaix_tts_enabled', key: 'tts', init: initTts },
             { id: 'xiaobaix_ena_planner_enabled', key: 'enaPlanner', init: initEnaPlanner },
-            { id: 'xiaobaix_assistant_enabled', key: 'assistant', init: initAssistant }
         ];
 
         moduleConfigs.forEach(({ id, key, init }) => {
@@ -444,9 +446,6 @@ async function setupSettings() {
                 }
                 if (!enabled && key === 'enaPlanner') {
                     try { cleanupEnaPlanner(); } catch (e) { }
-                }
-                if (!enabled && key === 'assistant') {
-                    try { cleanupAssistant(); } catch (e) { }
                 }
                 settings[key] = extension_settings[EXT_ID][key] || {};
                 settings[key].enabled = enabled;
@@ -504,10 +503,6 @@ async function setupSettings() {
 
         $("#xiaobaix_assistant_open_settings").on("click", async function () {
             if (!isXiaobaixEnabled) return;
-            if (!settings.assistant?.enabled) {
-                toastr.warning('请先启用小白助手模块');
-                return;
-            }
             if (!window.xiaobaixAssistant?.openSettings) {
                 await initAssistant();
             }

@@ -46,6 +46,7 @@ const MODEL_FILTERS = {
 const PROJECT_STRUCTURE_HINT = [
     '你当前运行在 SillyTavern 的 LittleWhiteBox 插件里；LittleWhiteBox 位于 public/scripts/extensions/third-party/LittleWhiteBox/。',
     '你的可读范围是已索引公开前端文件，重点包括 LittleWhiteBox 自身，以及 SillyTavern 的 public/scripts/*；不要假装自己能看到后端、数据库、账号密码或未索引文件。',
+    '你用读文件工具时，路径要写成站点根相对公开路径，例如 scripts/extensions/third-party/LittleWhiteBox/index.js，而不是磁盘绝对路径。',
     'LittleWhiteBox 的高频骨架可以先这样理解：index.js 是插件入口与总开关；settings.html 是设置页；bridges/ 是桥接；core/ 是基础封装；modules/ 是各功能模块；widgets/ 是小部件。',
     'modules/story-summary/ 是剧情总结与向量主线；modules/story-outline/ 是剧情大纲；modules/novel-draw/ 是画图；modules/tts/ 是语音；modules/variables/ 是变量系统；modules/assistant/ 是你自己。',
 ].join('\n');
@@ -54,7 +55,7 @@ const SYSTEM_PROMPT = [
     '你的主要任务是帮助用户理解 LittleWhiteBox 与 SillyTavern 前端公开代码、设置项、模块行为和常见报错。',
     '当问题涉及具体实现、文件路径、设置逻辑或错误原因时，优先使用工具查证后再回答。',
     '默认只读代码与资料；如果需要写入，只能写固定工作记录，不允许改代码。',
-    '你可以读取和写入固定工作记录文件 LittleWhiteBox_Assistant_Worklog.md，用它保存长期排查结论。',
+    '你可以通过读写工具读取和写入酒馆 user/files/LittleWhiteBox_Assistant_Worklog.md；需要写入时直接调用写入工具，文件不存在就创建，用它保存长期排查结论和用户指定要你记住的事情。',
     PROJECT_STRUCTURE_HINT,
     '回答尽量具体、可核对、说人话，必要时引用文件路径。',
 ].join('\n');
@@ -118,7 +119,7 @@ const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: 'read_workspace_note',
-            description: '读取固定工作记录文件 LittleWhiteBox_Assistant_Worklog.md；如果文件还不存在，也会返回不存在状态。',
+            description: '读取酒馆 user/files/LittleWhiteBox_Assistant_Worklog.md 这份固定工作记录；如果文件还不存在，也会返回不存在状态。',
             parameters: {
                 type: 'object',
                 properties: {},
@@ -130,7 +131,7 @@ const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: 'write_workspace_note',
-            description: '将排查结果或工作记录写入固定工作记录文件。默认写入酒馆 user/files 下、文件名前缀为 LittleWhiteBox_Assistant_ 的工作区文件；如果未指定 name，就写默认工作记录。',
+            description: '将排查结果或工作记录写入酒馆 user/files 下的工作记录文件。默认写入 user/files/LittleWhiteBox_Assistant_Worklog.md；如果未指定 name，就写默认工作记录。',
             parameters: {
                 type: 'object',
                 properties: {
@@ -339,9 +340,154 @@ function filterModels(models = []) {
     return filtered.length ? filtered : normalized;
 }
 
+function normalizeBaseUrl(rawBaseUrl) {
+    return String(rawBaseUrl || '').trim().replace(/\/+$/, '');
+}
+
+function uniqueUrls(urls = []) {
+    return [...new Set(urls.filter(Boolean).map((url) => String(url).trim()).filter(Boolean))];
+}
+
+function buildOpenAICandidateUrls(baseUrl) {
+    const normalized = normalizeBaseUrl(baseUrl);
+    if (!normalized) return [];
+    if (normalized.endsWith('/v1')) {
+        const root = normalized.slice(0, -3);
+        return uniqueUrls([
+            `${normalized}/models`,
+            `${root}/v1/models`,
+            `${root}/models`,
+        ]);
+    }
+    return uniqueUrls([
+        `${normalized}/v1/models`,
+        `${normalized}/models`,
+    ]);
+}
+
+function buildAnthropicCandidateUrls(baseUrl) {
+    const normalized = normalizeBaseUrl(baseUrl);
+    if (!normalized) return [];
+    if (normalized.endsWith('/v1')) {
+        const root = normalized.slice(0, -3);
+        return uniqueUrls([
+            `${normalized}/models`,
+            `${root}/v1/models`,
+            `${root}/models`,
+        ]);
+    }
+    return uniqueUrls([
+        `${normalized}/v1/models`,
+        `${normalized}/models`,
+    ]);
+}
+
+function buildGoogleCandidateUrls(baseUrl, apiKey) {
+    const normalized = normalizeBaseUrl(baseUrl);
+    if (!normalized) return [];
+    const root = normalized.endsWith('/v1beta') ? normalized.slice(0, -7) : normalized;
+    return uniqueUrls([
+        `${normalized}/models?key=${encodeURIComponent(apiKey)}`,
+        `${normalized}/models`,
+        `${root}/v1beta/models?key=${encodeURIComponent(apiKey)}`,
+        `${root}/v1beta/models`,
+        `${root}/models?key=${encodeURIComponent(apiKey)}`,
+        `${root}/models`,
+    ]);
+}
+
+function extractErrorSnippet(payload, rawText) {
+    const candidates = [
+        payload?.error?.message,
+        payload?.message,
+        payload?.detail,
+        payload?.details,
+        payload?.error,
+    ];
+    const found = candidates.find((item) => typeof item === 'string' && item.trim());
+    if (found) return found.trim();
+    return String(rawText || '').trim().slice(0, 160);
+}
+
+async function fetchJsonWithDiagnostics(url, options = {}) {
+    const response = await fetch(url, options);
+    const rawText = await response.text();
+    let data = null;
+    let parseError = null;
+
+    try {
+        data = rawText ? JSON.parse(rawText) : {};
+    } catch (error) {
+        parseError = error;
+    }
+
+    return {
+        ok: response.ok,
+        status: response.status,
+        url,
+        data,
+        rawText,
+        parseError,
+        errorSnippet: extractErrorSnippet(data, rawText),
+    };
+}
+
+function extractOpenAIModels(data) {
+    return filterModels((data?.data || []).map((item) => String(item?.id || '').trim()).filter(Boolean));
+}
+
+function extractAnthropicModels(data) {
+    return filterModels((data?.data || []).map((item) => String(item?.id || '').trim()).filter(Boolean));
+}
+
+function extractGoogleModels(data) {
+    return filterModels(
+        ((data?.models || data?.data || []).map((item) => String(item?.id || item?.name || '')))
+            .map((item) => item.split('/').pop() || '')
+            .filter(Boolean),
+    );
+}
+
+async function tryCandidateFetches({ urls, requestOptionsList, extractModels, providerLabel }) {
+    let lastFailure = null;
+
+    for (const url of urls) {
+        for (const requestOptions of requestOptionsList) {
+            const result = await fetchJsonWithDiagnostics(url, requestOptions);
+            if (!result.ok) {
+                lastFailure = result;
+                continue;
+            }
+            if (result.parseError) {
+                lastFailure = {
+                    ...result,
+                    errorSnippet: '返回的不是 JSON',
+                };
+                continue;
+            }
+            const models = extractModels(result.data);
+            if (models.length) {
+                return models;
+            }
+            lastFailure = {
+                ...result,
+                errorSnippet: '返回成功，但模型列表为空',
+            };
+        }
+    }
+
+    if (lastFailure) {
+        const suffix = lastFailure.url ? ` (${lastFailure.url})` : '';
+        const detail = lastFailure.errorSnippet ? `：${lastFailure.errorSnippet}` : '';
+        throw new Error(`${providerLabel} 拉取模型失败：${lastFailure.status || 'unknown'}${detail}${suffix}`);
+    }
+
+    throw new Error(`${providerLabel} 拉取模型失败：未获取到模型列表。`);
+}
+
 async function pullModelsForProvider(providerConfig) {
     const provider = providerConfig.provider;
-    let baseUrl = String(providerConfig.baseUrl || '').trim();
+    const baseUrl = normalizeBaseUrl(providerConfig.baseUrl || '');
     const apiKey = String(providerConfig.apiKey || '').trim();
 
     if (!apiKey) {
@@ -352,57 +498,58 @@ async function pullModelsForProvider(providerConfig) {
     }
 
     if (provider === 'google') {
-        const response = await fetch(`${baseUrl.replace(/\/$/, '')}/models?key=${encodeURIComponent(apiKey)}`, {
-            headers: { Accept: 'application/json' },
+        return await tryCandidateFetches({
+            urls: buildGoogleCandidateUrls(baseUrl, apiKey),
+            requestOptionsList: [
+                {
+                    headers: {
+                        Accept: 'application/json',
+                        'x-goog-api-key': apiKey,
+                    },
+                },
+                {
+                    headers: {
+                        Accept: 'application/json',
+                        Authorization: `Bearer ${apiKey}`,
+                    },
+                },
+                {
+                    headers: {
+                        Accept: 'application/json',
+                    },
+                },
+            ],
+            extractModels: extractGoogleModels,
+            providerLabel: 'Google AI',
         });
-        if (!response.ok) {
-            throw new Error(`Google AI 拉取模型失败：${response.status}`);
-        }
-        const data = await response.json();
-        return filterModels((data.models || [])
-            .map((item) => String(item?.id || item?.name || '').split('/').pop() || '')
-            .filter(Boolean));
     }
 
     if (provider === 'anthropic') {
-        const response = await fetch(`${baseUrl.replace(/\/$/, '')}/models`, {
-            headers: {
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
-                Accept: 'application/json',
-            },
+        return await tryCandidateFetches({
+            urls: buildAnthropicCandidateUrls(baseUrl),
+            requestOptionsList: [{
+                headers: {
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01',
+                    Accept: 'application/json',
+                },
+            }],
+            extractModels: extractAnthropicModels,
+            providerLabel: 'Anthropic',
         });
-        if (!response.ok) {
-            throw new Error(`Anthropic 拉取模型失败：${response.status}`);
-        }
-        const data = await response.json();
-        return filterModels((data.data || []).map((item) => String(item?.id || '')).filter(Boolean));
     }
 
-    if (baseUrl.endsWith('/v1')) {
-        baseUrl = baseUrl.slice(0, -3);
-    }
-
-    const tryFetch = async (url) => {
-        const response = await fetch(url, {
+    return await tryCandidateFetches({
+        urls: buildOpenAICandidateUrls(baseUrl),
+        requestOptionsList: [{
             headers: {
                 Authorization: `Bearer ${apiKey}`,
                 Accept: 'application/json',
             },
-        });
-        if (!response.ok) return null;
-        const data = await response.json();
-        return (data.data || []).map((item) => String(item?.id || '')).filter(Boolean);
-    };
-
-    let models = await tryFetch(`${baseUrl.replace(/\/$/, '')}/v1/models`);
-    if (!models) {
-        models = await tryFetch(`${baseUrl.replace(/\/$/, '')}/models`);
-    }
-    if (!models?.length) {
-        throw new Error('未获取到模型列表。');
-    }
-    return filterModels(models);
+        }],
+        extractModels: extractOpenAIModels,
+        providerLabel: provider === 'openai-responses' ? 'OpenAI Responses' : 'OpenAI-Compatible',
+    });
 }
 
 function describeError(error) {
@@ -1069,7 +1216,7 @@ function renderMessages(container) {
     if (!state.messages.length) {
         const empty = document.createElement('div');
         empty.className = 'xb-assistant-empty';
-        empty.innerHTML = '<h2>开始提问吧</h2><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本。</p><p>适合排查的问题包括：设置为什么不生效、某个前端报错是从哪条链路抛出的、按钮/面板/消息处理是怎么走的、插件和酒馆前端是如何交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会写到酒馆官方 <code>user/files</code> 下的固定工作记录文件 <code>LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
+        empty.innerHTML = '<h2>开始提问吧</h2><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本；读文件时使用的是站点根相对路径，例如 <code>scripts/extensions/third-party/LittleWhiteBox/index.js</code>。</p><p>适合排查的问题包括：设置为什么不生效、某个前端报错是从哪条链路抛出的、按钮/面板/消息处理是怎么走的、插件和酒馆前端是如何交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会通过写入工具写到酒馆官方 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
 
         const examples = document.createElement('div');
         examples.className = 'xb-assistant-examples';

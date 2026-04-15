@@ -28,6 +28,13 @@
 
           </div>
           <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
+            <span class="has-tooltip" data-tooltip="内置技术支持 Agent。可查前端源码、看设置链路、写排查记录。">小白助手</span>
+            <button id="xiaobaix_assistant_open_settings" class="menu_button menu_button_icon" type="button" style="margin-left:auto;" title="打开小白助手">
+              <i class="fa-solid fa-screwdriver-wrench"></i>
+              <small>打开助手</small>
+            </button>
+          </div>
+          <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
             <input type="checkbox" id="xiaobaix_render_enabled" />
             <label for="xiaobaix_render_enabled" class="has-tooltip" data-tooltip="控制代码块转换为iframe渲染的功能
 关闭后将清理所有已渲染的iframe">渲染开关</label>
@@ -130,14 +137,6 @@
                     title="打开 TTS 设置（音色/复刻/跳过规则）">
               <i class="fa-solid fa-microphone-lines"></i>
               <small>语音设置</small>
-            </button>
-          </div>
-          <div class="flex-container littlewhitebox-toggle-row">
-            <input type="checkbox" id="xiaobaix_assistant_enabled" />
-            <label for="xiaobaix_assistant_enabled" class="has-tooltip littlewhitebox-toggle-label" data-tooltip="内置技术支持 Agent。可查前端源码、看设置链路、写排查记录。">小白助手</label>
-            <button id="xiaobaix_assistant_open_settings" class="menu_button menu_button_icon littlewhitebox-toggle-action" type="button" title="打开小白助手">
-              <i class="fa-solid fa-screwdriver-wrench"></i>
-              <small>打开助手</small>
             </button>
           </div>
         </div>
