@@ -25,12 +25,20 @@ function getAssistantSettings() {
         provider: 'openai-compatible',
         workspaceFileName: DEFAULT_WORKSPACE_FILE,
         modelConfigs: {
+            'openai-responses': {
+                baseUrl: 'https://api.openai.com/v1',
+                model: 'gpt-4.1-mini',
+                apiKey: '',
+                temperature: 0.2,
+                maxTokens: 1600,
+            },
             'openai-compatible': {
                 baseUrl: 'https://api.openai.com/v1',
                 model: 'gpt-4o-mini',
                 apiKey: '',
                 temperature: 0.2,
                 maxTokens: 1600,
+                toolMode: 'native',
             },
             anthropic: {
                 baseUrl: 'https://api.anthropic.com/v1',
@@ -298,20 +306,61 @@ function openAssistant() {
         }
     };
 
+    const shell = document.createElement('div');
+    shell.style.cssText = `
+        position: relative;
+        width: min(1600px, calc(100vw - 16px));
+        height: min(1040px, calc(100vh - 16px));
+        max-width: calc(100vw - 16px);
+        max-height: calc(100vh - 16px);
+        min-width: min(520px, calc(100vw - 16px));
+        min-height: min(620px, calc(100vh - 16px));
+        resize: both;
+        overflow: hidden;
+        border-radius: 22px;
+        box-shadow: 0 28px 80px rgba(6, 17, 32, 0.32);
+        background: #eef3f8;
+    `;
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.textContent = '关闭';
+    closeButton.setAttribute('aria-label', '关闭小白助手');
+    closeButton.style.cssText = `
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        z-index: 2;
+        border: none;
+        border-radius: 999px;
+        padding: 10px 14px;
+        background: rgba(20, 32, 51, 0.88);
+        color: #fff;
+        cursor: pointer;
+        font: 600 13px/1 "Microsoft YaHei", sans-serif;
+        box-shadow: 0 10px 24px rgba(6, 17, 32, 0.22);
+    `;
+    closeButton.addEventListener('click', () => closeAssistant());
+
     const iframe = document.createElement('iframe');
     iframe.src = HTML_PATH;
     iframe.style.cssText = `
-        width: min(1360px, 96vw);
-        height: min(960px, 94vh);
-        max-height: calc(100% - 24px);
+        display: block;
+        width: 100%;
+        height: 100%;
         border: none;
-        border-radius: 20px;
+        border-radius: inherit;
         background: #eef3f8;
-        box-shadow: 0 28px 80px rgba(6, 17, 32, 0.32);
     `;
 
-    overlay.appendChild(iframe);
+    shell.append(closeButton, iframe);
+    overlay.appendChild(shell);
     document.body.appendChild(overlay);
+    overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) {
+            closeAssistant();
+        }
+    });
 
     window.addEventListener('resize', updateOverlayHeight);
     window.visualViewport?.addEventListener('resize', updateOverlayHeight);
@@ -319,6 +368,19 @@ function openAssistant() {
         window.removeEventListener('resize', updateOverlayHeight);
         window.visualViewport?.removeEventListener('resize', updateOverlayHeight);
     };
+
+    if (window.matchMedia('(max-width: 900px)').matches) {
+        shell.style.width = '100vw';
+        shell.style.height = '100vh';
+        shell.style.maxWidth = '100vw';
+        shell.style.maxHeight = '100vh';
+        shell.style.minWidth = '100vw';
+        shell.style.minHeight = '100vh';
+        shell.style.resize = 'none';
+        shell.style.borderRadius = '0';
+        closeButton.style.top = '12px';
+        closeButton.style.right = '12px';
+    }
 
     // Guarded inside handleIframeMessage via isTrustedIframeEvent.
     // eslint-disable-next-line no-restricted-syntax

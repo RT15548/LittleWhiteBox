@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-15T08:57:29.721Z",
+  "generatedAt": "2026-04-15T09:38:53.063Z",
   "version": 1,
   "files": [
     {
@@ -76,18 +76,6 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/assistant-code-architecture.md",
-      "relativePath": "docs/assistant-code-architecture.md",
-      "extension": ".md"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/assistant-product-design.md",
-      "relativePath": "docs/assistant-product-design.md",
-      "extension": ".md"
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/LICENSE.md",
       "relativePath": "docs/LICENSE.md",
       "extension": ".md"
@@ -97,12 +85,6 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/index.js",
       "relativePath": "index.js",
       "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/issue-35-reply.md",
-      "relativePath": "issue-35-reply.md",
-      "extension": ".md"
     },
     {
       "source": "littlewhitebox",
@@ -132,6 +114,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/openai-compatible.js",
       "relativePath": "modules/assistant/app-src/adapters/openai-compatible.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/openai-responses.js",
+      "relativePath": "modules/assistant/app-src/adapters/openai-responses.js",
       "extension": ".js"
     },
     {

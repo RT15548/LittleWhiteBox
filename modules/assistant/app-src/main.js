@@ -1,4 +1,5 @@
 import { OpenAICompatibleAdapter } from './adapters/openai-compatible.js';
+import { OpenAIResponsesAdapter } from './adapters/openai-responses.js';
 import { AnthropicAdapter } from './adapters/anthropic.js';
 import { GoogleAdapter } from './adapters/google.js';
 
@@ -12,12 +13,31 @@ const MAX_PERSISTED_CONTENT_CHARS = 16000;
 const TOAST_DURATION_MS = 2600;
 const TOAST_DURATION_MIN_MS = 1800;
 const TOAST_DURATION_MAX_MS = 4200;
+const TOOL_MODE_OPTIONS = [
+    { value: 'native', label: '原生 Tool Calling' },
+    { value: 'tagged-json', label: 'Tagged JSON 兼容模式' },
+];
+const PROVIDER_OPTIONS = [
+    { value: 'openai-responses', label: 'OpenAI Responses' },
+    { value: 'openai-compatible', label: 'OpenAI-Compatible' },
+    { value: 'anthropic', label: 'Anthropic' },
+    { value: 'google', label: 'Google AI' },
+];
 const EXAMPLE_PROMPTS = [
     '为什么某个设置勾上后刷新又没了？',
     '向量生成时报 429 是哪一层限流？',
     '这个功能的代码入口在哪个文件？',
     '帮我查一下某个报错是从哪条链路抛出来的。',
 ];
+const MODEL_FILTERS = {
+    chat: {
+        include: [],
+        exclude: [
+            'embedding', 'embed', 'rerank', 'reranker', 'tts', 'speech', 'audio',
+            'whisper', 'transcription', 'stt', 'image', 'sdxl', 'flux', 'moderation',
+        ],
+    },
+};
 const SYSTEM_PROMPT = [
     '你是“小白助手”，是 LittleWhiteBox 内置的技术支持助手。',
     '你的主要任务是帮助用户理解 LittleWhiteBox 与 SillyTavern 前端公开代码、设置项、模块行为和常见报错。',
@@ -101,6 +121,8 @@ const state = {
     activeRun: null,
     autoScroll: true,
     toast: '',
+    modelOptionsByProvider: {},
+    pullStateByProvider: {},
 };
 
 const pendingToolCalls = new Map();
@@ -217,6 +239,124 @@ function isAbortError(error) {
         || message === 'assistant_aborted'
         || message === 'tool_aborted'
         || message.includes('aborted');
+}
+
+function getProviderLabel(provider) {
+    return PROVIDER_OPTIONS.find((item) => item.value === provider)?.label || provider;
+}
+
+function getPullState(provider) {
+    return state.pullStateByProvider[provider] || { status: 'idle', message: '' };
+}
+
+function setPullState(provider, nextState) {
+    state.pullStateByProvider = {
+        ...state.pullStateByProvider,
+        [provider]: nextState,
+    };
+}
+
+function setProviderModels(provider, models) {
+    state.modelOptionsByProvider = {
+        ...state.modelOptionsByProvider,
+        [provider]: Array.isArray(models) ? models : [],
+    };
+}
+
+function getProviderModels(provider) {
+    return Array.isArray(state.modelOptionsByProvider[provider]) ? state.modelOptionsByProvider[provider] : [];
+}
+
+function refillSelect(select, options, placeholderLabel = '') {
+    select.replaceChildren();
+    if (placeholderLabel) {
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = placeholderLabel;
+        select.appendChild(placeholder);
+    }
+    options.forEach((option) => {
+        const item = document.createElement('option');
+        item.value = option.value;
+        item.textContent = option.label;
+        select.appendChild(item);
+    });
+}
+
+function filterModels(models = []) {
+    const normalized = [...new Set(models.filter(Boolean).map((model) => String(model).trim()).filter(Boolean))];
+    const rule = MODEL_FILTERS.chat;
+    const filtered = normalized.filter((modelId) => {
+        const lower = modelId.toLowerCase();
+        return !rule.exclude.some((keyword) => lower.includes(keyword));
+    });
+    return filtered.length ? filtered : normalized;
+}
+
+async function pullModelsForProvider(providerConfig) {
+    const provider = providerConfig.provider;
+    let baseUrl = String(providerConfig.baseUrl || '').trim();
+    const apiKey = String(providerConfig.apiKey || '').trim();
+
+    if (!apiKey) {
+        throw new Error('请先填写 API Key。');
+    }
+    if (!baseUrl) {
+        throw new Error('请先填写 Base URL。');
+    }
+
+    if (provider === 'google') {
+        const response = await fetch(`${baseUrl.replace(/\/$/, '')}/models?key=${encodeURIComponent(apiKey)}`, {
+            headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) {
+            throw new Error(`Google AI 拉取模型失败：${response.status}`);
+        }
+        const data = await response.json();
+        return filterModels((data.models || [])
+            .map((item) => String(item?.id || item?.name || '').split('/').pop() || '')
+            .filter(Boolean));
+    }
+
+    if (provider === 'anthropic') {
+        const response = await fetch(`${baseUrl.replace(/\/$/, '')}/models`, {
+            headers: {
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+                Accept: 'application/json',
+            },
+        });
+        if (!response.ok) {
+            throw new Error(`Anthropic 拉取模型失败：${response.status}`);
+        }
+        const data = await response.json();
+        return filterModels((data.data || []).map((item) => String(item?.id || '')).filter(Boolean));
+    }
+
+    if (baseUrl.endsWith('/v1')) {
+        baseUrl = baseUrl.slice(0, -3);
+    }
+
+    const tryFetch = async (url) => {
+        const response = await fetch(url, {
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+                Accept: 'application/json',
+            },
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        return (data.data || []).map((item) => String(item?.id || '')).filter(Boolean);
+    };
+
+    let models = await tryFetch(`${baseUrl.replace(/\/$/, '')}/v1/models`);
+    if (!models) {
+        models = await tryFetch(`${baseUrl.replace(/\/$/, '')}/models`);
+    }
+    if (!models?.length) {
+        throw new Error('未获取到模型列表。');
+    }
+    return filterModels(models);
 }
 
 function describeError(error) {
@@ -362,6 +502,7 @@ function getActiveProviderConfig() {
         temperature: Number(providerConfig.temperature ?? 0.2),
         maxTokens: Number(providerConfig.maxTokens ?? 1600),
         timeoutMs: REQUEST_TIMEOUT_MS,
+        toolMode: providerConfig.toolMode || 'native',
     };
 }
 
@@ -372,6 +513,8 @@ function createAdapter() {
     }
 
     switch (providerConfig.provider) {
+        case 'openai-responses':
+            return new OpenAIResponsesAdapter(providerConfig);
         case 'anthropic':
             return new AnthropicAdapter(providerConfig);
         case 'google':
@@ -575,6 +718,9 @@ function collectProviderDraft(root, provider) {
         apiKey: root.querySelector('#xb-assistant-api-key').value.trim(),
         temperature: Number(((state.config?.modelConfigs || {})[provider] || {}).temperature ?? 0.2),
         maxTokens: Number(((state.config?.modelConfigs || {})[provider] || {}).maxTokens ?? 1600),
+        toolMode: provider === 'openai-compatible'
+            ? (root.querySelector('#xb-assistant-tool-mode')?.value || 'native')
+            : undefined,
     };
 }
 
@@ -678,6 +824,7 @@ function buildAppMarkup(root) {
                     <label>
                         <span>Provider</span>
                         <select id="xb-assistant-provider">
+                            <option value="openai-responses">OpenAI Responses</option>
                             <option value="openai-compatible">OpenAI-compatible</option>
                             <option value="anthropic">Anthropic</option>
                             <option value="google">Google AI</option>
@@ -690,6 +837,19 @@ function buildAppMarkup(root) {
                     <label>
                         <span>Model</span>
                         <input id="xb-assistant-model" type="text" />
+                    </label>
+                    <div class="xb-assistant-inline-input xb-assistant-model-row">
+                        <label class="xb-assistant-grow">
+                            <span>已拉取模型</span>
+                            <select id="xb-assistant-model-pulled">
+                                <option value="">手动填写</option>
+                            </select>
+                        </label>
+                        <button id="xb-assistant-pull-models" type="button" class="secondary">拉取模型</button>
+                    </div>
+                    <label id="xb-assistant-tool-mode-wrap">
+                        <span>Tool 调用格式</span>
+                        <select id="xb-assistant-tool-mode"></select>
                     </label>
                     <label>
                         <span>API Key</span>
@@ -729,17 +889,26 @@ function syncConfigToForm(root) {
     if (!state.config) return;
     const provider = state.config.provider || 'openai-compatible';
     const providerConfig = (state.config.modelConfigs || {})[provider] || {};
+    const pulledModels = getProviderModels(provider);
+    const toolModeWrap = root.querySelector('#xb-assistant-tool-mode-wrap');
+    const toolModeSelect = root.querySelector('#xb-assistant-tool-mode');
+    const pulledSelect = root.querySelector('#xb-assistant-model-pulled');
 
     root.querySelector('#xb-assistant-provider').value = provider;
     root.querySelector('#xb-assistant-base-url').value = providerConfig.baseUrl || '';
     root.querySelector('#xb-assistant-model').value = providerConfig.model || '';
     root.querySelector('#xb-assistant-api-key').value = providerConfig.apiKey || '';
     root.querySelector('#xb-assistant-workspace').value = state.config.workspaceFileName || '';
+    toolModeWrap.style.display = provider === 'openai-compatible' ? '' : 'none';
+    refillSelect(toolModeSelect, TOOL_MODE_OPTIONS);
+    toolModeSelect.value = providerConfig.toolMode || 'native';
+    refillSelect(pulledSelect, pulledModels.map((model) => ({ value: model, label: model })), '手动填写');
 
     const runtimeEl = root.querySelector('#xb-assistant-runtime');
+    const pullState = getPullState(provider);
     runtimeEl.textContent = state.runtime
-        ? `已索引 ${state.runtime.indexedFileCount || 0} 个前端源码文件`
-        : '';
+        ? `${getProviderLabel(provider)} · 已索引 ${state.runtime.indexedFileCount || 0} 个前端源码文件${pullState.message ? ` · ${pullState.message}` : ''}`
+        : (pullState.message || '');
 }
 
 function saveConfigFromForm(root) {
@@ -803,6 +972,8 @@ function injectStyles() {
             gap: 8px;
             align-items: center;
         }
+        .xb-assistant-grow { min-width: 0; }
+        .xb-assistant-model-row { align-items: end; }
         .xb-assistant-actions,
         .xb-assistant-toolbar {
             display: flex;
@@ -961,6 +1132,7 @@ function injectStyles() {
             .xb-assistant-main { padding: 14px; }
             .xb-assistant-compose { grid-template-columns: 1fr; }
             .xb-assistant-toolbar { flex-direction: column; align-items: stretch; }
+            .xb-assistant-inline-input { grid-template-columns: 1fr; }
         }
     `;
     document.head.appendChild(style);
@@ -987,6 +1159,9 @@ function render() {
 
     const clearButton = root.querySelector('#xb-assistant-clear');
     clearButton.disabled = state.isBusy || !state.messages.length;
+
+    const pullButton = root.querySelector('#xb-assistant-pull-models');
+    pullButton.disabled = state.isBusy;
 
     const status = root.querySelector('#xb-assistant-status');
     status.textContent = state.progressLabel || '就绪';
@@ -1031,9 +1206,37 @@ function bindEvents(root) {
         render();
     });
 
+    root.querySelector('#xb-assistant-model-pulled').addEventListener('change', (event) => {
+        const value = event.currentTarget.value;
+        if (!value) return;
+        root.querySelector('#xb-assistant-model').value = value;
+    });
+
     root.querySelector('#xb-assistant-toggle-key').addEventListener('click', () => {
         const keyInput = root.querySelector('#xb-assistant-api-key');
         keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
+        render();
+    });
+
+    root.querySelector('#xb-assistant-pull-models').addEventListener('click', async () => {
+        syncCurrentProviderDraft(root);
+        const providerConfig = getActiveProviderConfig();
+        setPullState(providerConfig.provider, { status: 'loading', message: '正在拉取模型列表…' });
+        render();
+        try {
+            const models = await pullModelsForProvider(providerConfig);
+            setProviderModels(providerConfig.provider, models);
+            setPullState(providerConfig.provider, {
+                status: 'success',
+                message: `已拉取 ${models.length} 个模型`,
+            });
+        } catch (error) {
+            setProviderModels(providerConfig.provider, []);
+            setPullState(providerConfig.provider, {
+                status: 'error',
+                message: describeError(error),
+            });
+        }
         render();
     });
 
