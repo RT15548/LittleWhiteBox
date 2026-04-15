@@ -2,11 +2,16 @@ import { OpenAICompatibleAdapter } from './adapters/openai-compatible.js';
 import { OpenAIResponsesAdapter } from './adapters/openai-responses.js';
 import { AnthropicAdapter } from './adapters/anthropic.js';
 import { GoogleAdapter } from './adapters/google.js';
+import { countTokens } from 'gpt-tokenizer/model/gpt-4o';
 
 const SOURCE = 'xb-assistant-app';
 const ROOT_ID = 'xb-assistant-root';
 const REQUEST_TIMEOUT_MS = 180000;
-const MAX_TOOL_ROUNDS = 10;
+const MAX_TOOL_ROUNDS = 64;
+const MAX_CONTEXT_TOKENS = 128000;
+const SUMMARY_TRIGGER_TOKENS = 98000;
+const DEFAULT_PRESERVED_TURNS = 2;
+const MIN_PRESERVED_TURNS = 1;
 const SESSION_STORAGE_KEY = 'littlewhitebox.assistant.session.v1';
 const MAX_PERSISTED_MESSAGES = 60;
 const MAX_PERSISTED_CONTENT_CHARS = 16000;
@@ -44,6 +49,14 @@ const SYSTEM_PROMPT = [
     '当问题涉及具体实现、文件路径、设置逻辑或错误原因时，优先使用工具查证后再回答。',
     '默认只读代码与资料；如果需要写入，只能写工作记录，不允许改代码。',
     '回答尽量具体、可核对、说人话，必要时引用文件路径。',
+].join('\n');
+const HISTORY_SUMMARY_PREFIX = '[历史摘要]';
+const SUMMARY_SYSTEM_PROMPT = [
+    '你要把一段较早的技术支持对话压缩成后续可继续接话的历史摘要。',
+    '只保留真正对后续排查有帮助的信息，不要寒暄，不要复述大段源码，不要保留大段 JSON。',
+    '必须覆盖这些点：当前目标/问题、已确认结论、未解决点、关键文件路径、关键设置/API/报错文本、用户明确偏好或限制。',
+    '如果某项信息不存在，就不要编造。',
+    '输出中文，尽量紧凑清晰，适合直接作为后续上下文继续使用。',
 ].join('\n');
 
 const TOOL_DEFINITIONS = [
@@ -97,7 +110,7 @@ const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: 'write_workspace_note',
-            description: '将排查结果或工作记录写入助手工作区文档。',
+            description: '将排查结果或工作记录写入酒馆 user/files 下、文件名前缀为 LittleWhiteBox_Assistant_ 的工作区文件。',
             parameters: {
                 type: 'object',
                 properties: {
@@ -115,6 +128,13 @@ const state = {
     config: null,
     runtime: null,
     messages: [],
+    historySummary: '',
+    archivedTurnCount: 0,
+    contextStats: {
+        usedTokens: 0,
+        budgetTokens: MAX_CONTEXT_TOKENS,
+        summaryActive: false,
+    },
     isBusy: false,
     currentRound: 0,
     progressLabel: '',
@@ -194,6 +214,8 @@ function persistSession() {
         }
         localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
             messages: state.messages.slice(-MAX_PERSISTED_MESSAGES).map(serializeMessage),
+            historySummary: trimPersistedContent(state.historySummary || ''),
+            archivedTurnCount: Number(state.archivedTurnCount) || 0,
         }));
     } catch {
         // Ignore localStorage failures.
@@ -207,8 +229,12 @@ function restoreSession() {
         state.messages = Array.isArray(parsed.messages)
             ? parsed.messages.map(normalizeRestoredMessage).filter(Boolean)
             : [];
+        state.historySummary = String(parsed.historySummary || '');
+        state.archivedTurnCount = Math.max(0, Number(parsed.archivedTurnCount) || 0);
     } catch {
         state.messages = [];
+        state.historySummary = '';
+        state.archivedTurnCount = 0;
     }
 }
 
@@ -466,6 +492,158 @@ function formatToolResultDisplay(message) {
     };
 }
 
+function resetCompactionState() {
+    state.historySummary = '';
+    state.archivedTurnCount = 0;
+    state.contextStats = {
+        usedTokens: 0,
+        budgetTokens: MAX_CONTEXT_TOKENS,
+        summaryActive: false,
+    };
+}
+
+function formatContextCount(tokens) {
+    return `${Math.max(0, Math.round((Number(tokens) || 0) / 1000))}k`;
+}
+
+function buildContextMeterLabel(stats = state.contextStats) {
+    return `${formatContextCount(stats.usedTokens)}/${formatContextCount(stats.budgetTokens)}`;
+}
+
+function trimForSummary(text, limit = 1800) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (normalized.length <= limit) return normalized;
+    return `${normalized.slice(0, limit)}…`;
+}
+
+function getMessageTextForSummary(message) {
+    if (message.role === 'tool') {
+        return trimForSummary(formatToolResultDisplay(message).summary || message.content || '', 1400);
+    }
+    if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
+        const toolLines = message.toolCalls.map((toolCall) => `工具: ${toolCall.name} ${toolCall.arguments || '{}'}`.trim());
+        return trimForSummary([message.content || '', ...toolLines].filter(Boolean).join('\n'), 1600);
+    }
+    return trimForSummary(message.content || '', 1600);
+}
+
+function splitMessagesIntoTurns(messages = state.messages) {
+    const turns = [];
+    let currentTurn = [];
+
+    (messages || []).forEach((message) => {
+        if (message.role === 'user' && currentTurn.length) {
+            turns.push(currentTurn);
+            currentTurn = [message];
+            return;
+        }
+        currentTurn.push(message);
+    });
+
+    if (currentTurn.length) {
+        turns.push(currentTurn);
+    }
+
+    return turns.filter((turn) => turn.length);
+}
+
+function buildSummarySource(turns, existingSummary = '') {
+    const lines = [];
+    if (existingSummary?.trim()) {
+        lines.push('已有历史摘要:');
+        lines.push(existingSummary.trim());
+        lines.push('');
+    }
+
+    turns.forEach((turn, index) => {
+        lines.push(`第 ${index + 1} 段历史:`);
+        turn.forEach((message) => {
+            const roleLabel = message.role === 'user'
+                ? '用户'
+                : message.role === 'assistant'
+                    ? '助手'
+                    : `工具${message.toolName ? `(${message.toolName})` : ''}`;
+            lines.push(`${roleLabel}: ${getMessageTextForSummary(message) || '[空]'}`);
+        });
+        lines.push('');
+    });
+
+    return lines.join('\n').trim();
+}
+
+function buildFallbackSummary(turns, existingSummary = '') {
+    const sections = [];
+    if (existingSummary?.trim()) {
+        sections.push(existingSummary.trim());
+    }
+
+    turns.forEach((turn, index) => {
+        const condensed = turn.map((message) => {
+            const prefix = message.role === 'user'
+                ? '用户'
+                : message.role === 'assistant'
+                    ? '助手'
+                    : `工具${message.toolName ? `(${message.toolName})` : ''}`;
+            return `${prefix}: ${getMessageTextForSummary(message) || '[空]'}`;
+        }).join('\n');
+        sections.push(`补充历史 ${index + 1}:\n${condensed}`);
+    });
+
+    return trimForSummary(sections.join('\n\n'), 6000);
+}
+
+function buildTokenCounterMessages(messages = []) {
+    return messages.map((message) => {
+        if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
+            const toolCalls = message.tool_calls.map((toolCall) => JSON.stringify({
+                id: toolCall.id,
+                name: toolCall.function?.name || '',
+                arguments: toolCall.function?.arguments || '{}',
+            })).join('\n');
+            return {
+                role: 'assistant',
+                content: [message.content || '', toolCalls].filter(Boolean).join('\n'),
+            };
+        }
+
+        if (message.role === 'tool') {
+            return {
+                role: 'tool',
+                content: [message.tool_call_id || '', message.content || ''].filter(Boolean).join('\n'),
+            };
+        }
+
+        return {
+            role: message.role,
+            content: message.content || '',
+        };
+    });
+}
+
+function countConversationTokens({ messages = [], tools = [] } = {}) {
+    const payload = [
+        ...buildTokenCounterMessages(messages),
+        {
+            role: 'system',
+            content: tools.length ? `TOOLS\n${JSON.stringify(tools)}` : '',
+        },
+    ].filter((message) => message.content);
+
+    try {
+        return countTokens(payload);
+    } catch {
+        return countTokens(JSON.stringify(payload));
+    }
+}
+
+function updateContextStats(messages = [], tools = TOOL_DEFINITIONS) {
+    state.contextStats = {
+        usedTokens: countConversationTokens({ messages, tools }),
+        budgetTokens: MAX_CONTEXT_TOKENS,
+        summaryActive: !!state.historySummary,
+    };
+}
+
 function pushMessage(message) {
     state.messages.push(message);
     persistSession();
@@ -500,7 +678,7 @@ function getActiveProviderConfig() {
         model: providerConfig.model || '',
         apiKey: providerConfig.apiKey || '',
         temperature: Number(providerConfig.temperature ?? 0.2),
-        maxTokens: Number(providerConfig.maxTokens ?? 1600),
+        maxTokens: null,
         timeoutMs: REQUEST_TIMEOUT_MS,
         toolMode: providerConfig.toolMode || 'native',
     };
@@ -525,9 +703,15 @@ function createAdapter() {
     }
 }
 
-function toProviderMessages() {
+function toProviderMessages(baseMessages = state.messages) {
     const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
-    for (const message of state.messages) {
+    if (state.historySummary?.trim()) {
+        messages.push({
+            role: 'assistant',
+            content: `${HISTORY_SUMMARY_PREFIX}\n${state.historySummary.trim()}`,
+        });
+    }
+    for (const message of baseMessages) {
         if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
             messages.push({
                 role: 'assistant',
@@ -559,6 +743,73 @@ function toProviderMessages() {
         });
     }
     return messages;
+}
+
+function getActiveContextMessages() {
+    const turns = splitMessagesIntoTurns();
+    const archivedCount = Math.min(state.archivedTurnCount, turns.length);
+    return turns.slice(archivedCount).flat();
+}
+
+async function summarizeArchivedTurns(adapter, turnsToArchive, signal) {
+    if (!turnsToArchive.length) return;
+
+    const summarySource = buildSummarySource(turnsToArchive, state.historySummary);
+    const fallbackSummary = buildFallbackSummary(turnsToArchive, state.historySummary);
+    const providerConfig = getActiveProviderConfig();
+
+    try {
+        const result = await adapter.chat({
+            systemPrompt: SUMMARY_SYSTEM_PROMPT,
+            messages: [{ role: 'user', content: summarySource }],
+            tools: [],
+            toolChoice: 'none',
+            temperature: Math.min(providerConfig.temperature ?? 0.2, 0.2),
+            maxTokens: null,
+            signal,
+        });
+        state.historySummary = String(result.text || '').trim() || fallbackSummary;
+    } catch {
+        state.historySummary = fallbackSummary;
+    }
+}
+
+async function ensureContextBudget(adapter, signal) {
+    const turns = splitMessagesIntoTurns();
+    const preservedOptions = [DEFAULT_PRESERVED_TURNS, MIN_PRESERVED_TURNS];
+    let contextMessages = getActiveContextMessages();
+    let providerMessages = toProviderMessages(contextMessages);
+    updateContextStats(providerMessages);
+
+    if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
+        return providerMessages;
+    }
+
+    for (const preservedTurns of preservedOptions) {
+        const desiredArchivedTurnCount = Math.max(
+            state.archivedTurnCount,
+            turns.length - Math.min(preservedTurns, turns.length),
+        );
+        if (desiredArchivedTurnCount > state.archivedTurnCount) {
+            const turnsToArchive = turns.slice(state.archivedTurnCount, desiredArchivedTurnCount);
+            await summarizeArchivedTurns(adapter, turnsToArchive, signal);
+            state.archivedTurnCount = desiredArchivedTurnCount;
+            persistSession();
+        }
+
+        contextMessages = getActiveContextMessages();
+        providerMessages = toProviderMessages(contextMessages);
+        updateContextStats(providerMessages);
+        if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
+            showToast(`已压缩较早历史，当前上下文 ${buildContextMeterLabel()}`);
+            render();
+            return providerMessages;
+        }
+    }
+
+    showToast(`最近对话本身已接近上限，当前上下文 ${buildContextMeterLabel()}`);
+    render();
+    return providerMessages;
 }
 
 function callHostTool(name, args, options = {}) {
@@ -649,9 +900,10 @@ async function runAssistantLoop(run) {
         render();
 
         const providerConfig = getActiveProviderConfig();
+        const requestMessages = await ensureContextBudget(adapter, run.controller.signal);
         const result = await adapter.chat({
             systemPrompt: SYSTEM_PROMPT,
-            messages: toProviderMessages(),
+            messages: requestMessages,
             tools: TOOL_DEFINITIONS,
             toolChoice: 'auto',
             temperature: providerConfig.temperature,
@@ -717,7 +969,6 @@ function collectProviderDraft(root, provider) {
         model: root.querySelector('#xb-assistant-model').value.trim(),
         apiKey: root.querySelector('#xb-assistant-api-key').value.trim(),
         temperature: Number(((state.config?.modelConfigs || {})[provider] || {}).temperature ?? 0.2),
-        maxTokens: Number(((state.config?.modelConfigs || {})[provider] || {}).maxTokens ?? 1600),
         toolMode: provider === 'openai-compatible'
             ? (root.querySelector('#xb-assistant-tool-mode')?.value || 'native')
             : undefined,
@@ -747,7 +998,7 @@ function renderMessages(container) {
     if (!state.messages.length) {
         const empty = document.createElement('div');
         empty.className = 'xb-assistant-empty';
-        empty.innerHTML = '<h2>开始提问吧</h2><p>你可以直接问我：某个设置为什么不生效、某个报错代表什么、某个功能从哪条代码链路走。</p><p>我会优先自己查 LittleWhiteBox 和 SillyTavern 的前端代码，再给你结论。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
+        empty.innerHTML = '<h2>开始提问吧</h2><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本。</p><p>适合排查的问题包括：设置为什么不生效、某个前端报错是从哪条链路抛出的、按钮/面板/消息处理是怎么走的、插件和酒馆前端是如何交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会写到酒馆官方 <code>user/files</code> 下、文件名前缀为 <code>LittleWhiteBox_Assistant_</code> 的文件，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
 
         const examples = document.createElement('div');
         examples.className = 'xb-assistant-examples';
@@ -835,6 +1086,13 @@ function buildAppMarkup(root) {
                         <input id="xb-assistant-base-url" type="text" />
                     </label>
                     <label>
+                        <span>API Key</span>
+                        <div class="xb-assistant-inline-input">
+                            <input id="xb-assistant-api-key" type="password" />
+                            <button id="xb-assistant-toggle-key" type="button" class="secondary ghost">显示</button>
+                        </div>
+                    </label>
+                    <label>
                         <span>Model</span>
                         <input id="xb-assistant-model" type="text" />
                     </label>
@@ -852,27 +1110,22 @@ function buildAppMarkup(root) {
                         <select id="xb-assistant-tool-mode"></select>
                     </label>
                     <label>
-                        <span>API Key</span>
-                        <div class="xb-assistant-inline-input">
-                            <input id="xb-assistant-api-key" type="password" />
-                            <button id="xb-assistant-toggle-key" type="button" class="secondary ghost">显示</button>
-                        </div>
-                    </label>
-                    <label>
                         <span>Workspace 文件</span>
                         <input id="xb-assistant-workspace" type="text" />
                     </label>
                     <div class="xb-assistant-actions">
                         <button id="xb-assistant-save" type="button">保存配置</button>
-                        <button id="xb-assistant-close" type="button" class="secondary">关闭</button>
                     </div>
                     <div class="xb-assistant-runtime" id="xb-assistant-runtime"></div>
                 </section>
             </aside>
             <main class="xb-assistant-main">
                 <section class="xb-assistant-toolbar">
-                    <div class="xb-assistant-status" id="xb-assistant-status"></div>
-                    <button id="xb-assistant-clear" type="button" class="secondary">清空对话</button>
+                    <div class="xb-assistant-toolbar-cluster">
+                        <div class="xb-assistant-status" id="xb-assistant-status"></div>
+                        <div class="xb-assistant-context-meter" id="xb-assistant-context-meter" title="当前实际送模上下文 / 最大上下文"></div>
+                        <button id="xb-assistant-clear" type="button" class="secondary ghost">清空对话</button>
+                    </div>
                 </section>
                 <section class="xb-assistant-chat" id="xb-assistant-chat"></section>
                 <form class="xb-assistant-compose" id="xb-assistant-form">
@@ -925,6 +1178,7 @@ function injectStyles() {
     const style = document.createElement('style');
     style.textContent = `
         :root { color-scheme: light; font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif; }
+        html, body { height: 100%; }
         body {
             margin: 0;
             background:
@@ -933,10 +1187,10 @@ function injectStyles() {
                 linear-gradient(180deg, #f6f8fb 0%, #eef3f8 100%);
             color: #142033;
         }
-        .xb-assistant-shell { display: grid; grid-template-columns: 340px minmax(0, 1fr); height: 100vh; }
+        .xb-assistant-shell { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: 100vh; }
         .xb-assistant-sidebar {
             padding: 24px 20px;
-            background: rgba(255, 255, 255, 0.76);
+            background: rgba(255, 255, 255, 0.82);
             border-right: 1px solid rgba(20, 32, 51, 0.08);
             backdrop-filter: blur(14px);
             overflow: auto;
@@ -979,7 +1233,13 @@ function injectStyles() {
             display: flex;
             gap: 10px;
             align-items: center;
-            justify-content: space-between;
+            justify-content: flex-start;
+        }
+        .xb-assistant-toolbar-cluster {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
         }
         .xb-assistant-actions button,
         .xb-assistant-toolbar button,
@@ -1013,13 +1273,31 @@ function injectStyles() {
             min-width: 0;
         }
         .xb-assistant-status {
+            display: inline-flex;
+            align-items: center;
             min-height: 20px;
-            padding: 8px 12px;
+            padding: 10px 14px;
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.78);
+            background: rgba(255, 255, 255, 0.84);
             color: #41526a;
             font-size: 13px;
             box-shadow: 0 10px 24px rgba(17, 31, 51, 0.06);
+        }
+        .xb-assistant-context-meter {
+            display: inline-flex;
+            align-items: center;
+            min-height: 20px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(27, 55, 88, 0.09);
+            color: #1b3758;
+            font-size: 13px;
+            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.08);
+        }
+        .xb-assistant-context-meter.summary-active {
+            background: rgba(201, 107, 51, 0.12);
+            color: #8d442b;
+            box-shadow: inset 0 0 0 1px rgba(201, 107, 51, 0.18);
         }
         .xb-assistant-status.busy::before {
             content: '';
@@ -1131,8 +1409,10 @@ function injectStyles() {
             .xb-assistant-sidebar { border-right: none; border-bottom: 1px solid rgba(20, 32, 51, 0.08); }
             .xb-assistant-main { padding: 14px; }
             .xb-assistant-compose { grid-template-columns: 1fr; }
-            .xb-assistant-toolbar { flex-direction: column; align-items: stretch; }
+            .xb-assistant-toolbar,
+            .xb-assistant-toolbar-cluster { align-items: stretch; }
             .xb-assistant-inline-input { grid-template-columns: 1fr; }
+            .xb-assistant-status { justify-content: center; }
         }
     `;
     document.head.appendChild(style);
@@ -1147,6 +1427,7 @@ function render() {
     }
 
     syncConfigToForm(root);
+    updateContextStats(toProviderMessages(getActiveContextMessages()));
     const chat = root.querySelector('#xb-assistant-chat');
     renderMessages(chat);
 
@@ -1166,6 +1447,13 @@ function render() {
     const status = root.querySelector('#xb-assistant-status');
     status.textContent = state.progressLabel || '就绪';
     status.classList.toggle('busy', state.isBusy);
+
+    const contextMeter = root.querySelector('#xb-assistant-context-meter');
+    contextMeter.textContent = buildContextMeterLabel();
+    contextMeter.classList.toggle('summary-active', !!state.contextStats.summaryActive);
+    contextMeter.title = state.contextStats.summaryActive
+        ? '当前实际送模上下文 / 128k（已压缩较早历史）'
+        : '当前实际送模上下文 / 128k';
 
     const toast = root.querySelector('#xb-assistant-toast');
     toast.textContent = state.toast || '';
@@ -1247,16 +1535,10 @@ function bindEvents(root) {
     root.querySelector('#xb-assistant-clear').addEventListener('click', () => {
         if (state.isBusy) return;
         state.messages = [];
+        resetCompactionState();
         persistSession();
         showToast('对话已清空');
         render();
-    });
-
-    root.querySelector('#xb-assistant-close').addEventListener('click', () => {
-        if (state.isBusy) {
-            cancelActiveRun('');
-        }
-        post('xb-assistant:close');
     });
 
     root.querySelector('#xb-assistant-form').addEventListener('submit', async (event) => {

@@ -20,6 +20,7 @@
     "dependencies": {
         "@anthropic-ai/sdk": "^0.89.0",
         "@google/genai": "^1.50.1",
+        "gpt-tokenizer": "^3.4.0",
         "openai": "^6.34.0"
     }
 }

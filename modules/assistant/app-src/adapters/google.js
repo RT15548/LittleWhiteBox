@@ -99,7 +99,6 @@ export class GoogleAdapter {
             config: {
                 systemInstruction: task.systemPrompt,
                 temperature: task.temperature,
-                maxOutputTokens: task.maxTokens,
                 tools: [{
                     functionDeclarations: (task.tools || []).map((tool) => ({
                         name: tool.function.name,
@@ -112,6 +111,7 @@ export class GoogleAdapter {
                         mode: FunctionCallingConfigMode.AUTO,
                     },
                 },
+                ...(task.maxTokens ? { maxOutputTokens: task.maxTokens } : {}),
             },
         });
 

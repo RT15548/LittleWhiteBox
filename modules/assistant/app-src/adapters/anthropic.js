@@ -86,7 +86,7 @@ export class AnthropicAdapter {
             messages: buildAnthropicMessages(task.messages),
             tools,
             temperature: task.temperature,
-            max_tokens: task.maxTokens,
+            ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
         }, {
             signal: task.signal,
         });

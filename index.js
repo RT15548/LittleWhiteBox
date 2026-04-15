@@ -296,6 +296,22 @@ function toggleSettingsControls(enabled) {
     } else if (enabled) {
         document.getElementById(styleId)?.remove();
     }
+    syncFeatureActionButtons();
+}
+
+function syncFeatureActionButtons() {
+    const bindings = [
+        { toggleId: 'xiaobaix_assistant_enabled', buttonId: 'xiaobaix_assistant_open_settings' },
+        { toggleId: 'xiaobaix_ena_planner_enabled', buttonId: 'xiaobaix_ena_planner_open_settings' }
+    ];
+    bindings.forEach(({ toggleId, buttonId }) => {
+        const toggle = document.getElementById(toggleId);
+        const button = document.getElementById(buttonId);
+        if (!toggle || !button) return;
+        const enabled = isXiaobaixEnabled && !!toggle.checked;
+        button.disabled = !enabled;
+        button.classList.toggle('disabled-action', !enabled);
+    });
 }
 
 async function toggleAllFeatures(enabled) {
@@ -441,8 +457,10 @@ async function setupSettings() {
                 if (key === 'storyOutline') {
                     $(document).trigger('xiaobaix:storyOutline:toggle', [enabled]);
                 }
+                syncFeatureActionButtons();
             });
         });
+        syncFeatureActionButtons();
 
         // variables mode selector
         $("#xiaobaix_variables_mode")
@@ -481,11 +499,10 @@ async function setupSettings() {
         $("#xiaobaix_assistant_open_settings").on("click", async function () {
             if (!isXiaobaixEnabled) return;
             if (!settings.assistant?.enabled) {
-                settings.assistant = settings.assistant || {};
-                settings.assistant.enabled = true;
-                extension_settings[EXT_ID].assistant = settings.assistant;
-                $("#xiaobaix_assistant_enabled").prop("checked", true);
-                saveSettingsDebounced();
+                toastr.warning('请先启用小白助手模块');
+                return;
+            }
+            if (!window.xiaobaixAssistant?.openSettings) {
                 await initAssistant();
             }
             if (window.xiaobaixAssistant?.openSettings) {

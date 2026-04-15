@@ -30,14 +30,12 @@ function getAssistantSettings() {
                 model: 'gpt-4.1-mini',
                 apiKey: '',
                 temperature: 0.2,
-                maxTokens: 1600,
             },
             'openai-compatible': {
                 baseUrl: 'https://api.openai.com/v1',
                 model: 'gpt-4o-mini',
                 apiKey: '',
                 temperature: 0.2,
-                maxTokens: 1600,
                 toolMode: 'native',
             },
             anthropic: {
@@ -45,14 +43,12 @@ function getAssistantSettings() {
                 model: 'claude-sonnet-4-0',
                 apiKey: '',
                 temperature: 0.2,
-                maxTokens: 1600,
             },
             google: {
                 baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
                 model: 'gemini-2.5-pro',
                 apiKey: '',
                 temperature: 0.2,
-                maxTokens: 1600,
             },
         },
     };
@@ -291,11 +287,13 @@ function openAssistant() {
         inset: 0;
         width: 100vw;
         height: ${window.innerHeight}px;
-        background: rgba(10, 16, 25, 0.45);
-        backdrop-filter: blur(6px);
+        padding: 28px;
+        box-sizing: border-box;
+        background: rgba(10, 16, 25, 0.12);
+        backdrop-filter: blur(2px);
         z-index: 99999;
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
         overflow: hidden;
     `;
@@ -309,17 +307,19 @@ function openAssistant() {
     const shell = document.createElement('div');
     shell.style.cssText = `
         position: relative;
-        width: min(1600px, calc(100vw - 16px));
-        height: min(1040px, calc(100vh - 16px));
-        max-width: calc(100vw - 16px);
-        max-height: calc(100vh - 16px);
-        min-width: min(520px, calc(100vw - 16px));
-        min-height: min(620px, calc(100vh - 16px));
+        margin-top: 18px;
+        width: min(1480px, calc(100vw - 96px));
+        height: min(980px, calc(100vh - 96px));
+        max-width: calc(100vw - 96px);
+        max-height: calc(100vh - 96px);
+        min-width: min(560px, calc(100vw - 48px));
+        min-height: min(640px, calc(100vh - 48px));
         resize: both;
         overflow: hidden;
         border-radius: 22px;
-        box-shadow: 0 28px 80px rgba(6, 17, 32, 0.32);
-        background: #eef3f8;
+        box-shadow: 0 28px 80px rgba(6, 17, 32, 0.22);
+        border: 1px solid rgba(255, 255, 255, 0.55);
+        background: rgba(238, 243, 248, 0.96);
     `;
 
     const closeButton = document.createElement('button');
@@ -342,6 +342,24 @@ function openAssistant() {
     `;
     closeButton.addEventListener('click', () => closeAssistant());
 
+    const resizeHint = document.createElement('div');
+    resizeHint.setAttribute('aria-hidden', 'true');
+    resizeHint.title = '可拖动右下角调整大小';
+    resizeHint.style.cssText = `
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 32px;
+        height: 32px;
+        z-index: 2;
+        pointer-events: none;
+        border-radius: 0 0 22px 0;
+        background:
+            linear-gradient(135deg, transparent 46%, rgba(27, 55, 88, 0.18) 46%, rgba(27, 55, 88, 0.18) 56%, transparent 56%),
+            linear-gradient(135deg, transparent 62%, rgba(27, 55, 88, 0.28) 62%, rgba(27, 55, 88, 0.28) 72%, transparent 72%),
+            linear-gradient(135deg, transparent 78%, rgba(27, 55, 88, 0.42) 78%);
+    `;
+
     const iframe = document.createElement('iframe');
     iframe.src = HTML_PATH;
     iframe.style.cssText = `
@@ -353,7 +371,7 @@ function openAssistant() {
         background: #eef3f8;
     `;
 
-    shell.append(closeButton, iframe);
+    shell.append(closeButton, resizeHint, iframe);
     overlay.appendChild(shell);
     document.body.appendChild(overlay);
     overlay.addEventListener('click', (event) => {
@@ -370,16 +388,23 @@ function openAssistant() {
     };
 
     if (window.matchMedia('(max-width: 900px)').matches) {
+        overlay.style.padding = '0';
+        overlay.style.background = 'rgba(10, 16, 25, 0.2)';
+        overlay.style.backdropFilter = 'blur(3px)';
+        overlay.style.alignItems = 'stretch';
         shell.style.width = '100vw';
         shell.style.height = '100vh';
         shell.style.maxWidth = '100vw';
         shell.style.maxHeight = '100vh';
         shell.style.minWidth = '100vw';
         shell.style.minHeight = '100vh';
+        shell.style.marginTop = '0';
         shell.style.resize = 'none';
         shell.style.borderRadius = '0';
+        shell.style.border = 'none';
         closeButton.style.top = '12px';
         closeButton.style.right = '12px';
+        resizeHint.style.display = 'none';
     }
 
     // Guarded inside handleIframeMessage via isTrustedIframeEvent.

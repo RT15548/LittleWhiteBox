@@ -206,18 +206,18 @@
             <input type="checkbox" id="xiaobaix_story_outline_enabled" />
             <label for="xiaobaix_story_outline_enabled" class="has-tooltip" data-tooltip="在X按钮区域添加地图图标，点击可打开可视化剧情地图编辑器">小白板</label>
           </div>
-          <div class="flex-container">
+          <div class="flex-container littlewhitebox-toggle-row">
             <input type="checkbox" id="xiaobaix_assistant_enabled" />
-            <label for="xiaobaix_assistant_enabled" class="has-tooltip" data-tooltip="内置技术支持 Agent。可查前端源码、看设置链路、写排查记录。">小白助手</label>
-            <button id="xiaobaix_assistant_open_settings" class="menu_button menu_button_icon" type="button" style="margin-left:auto;" title="打开小白助手">
+            <label for="xiaobaix_assistant_enabled" class="has-tooltip littlewhitebox-toggle-label" data-tooltip="内置技术支持 Agent。可查前端源码、看设置链路、写排查记录。">小白助手</label>
+            <button id="xiaobaix_assistant_open_settings" class="menu_button menu_button_icon littlewhitebox-toggle-action" type="button" title="打开小白助手">
               <i class="fa-solid fa-screwdriver-wrench"></i>
               <small>打开助手</small>
             </button>
           </div>
-          <div class="flex-container">
+          <div class="flex-container littlewhitebox-toggle-row">
             <input type="checkbox" id="xiaobaix_ena_planner_enabled" />
-            <label for="xiaobaix_ena_planner_enabled" class="has-tooltip" data-tooltip="发送前剧情规划，自动注入 plot/note">剧情规划</label>
-            <button id="xiaobaix_ena_planner_open_settings" class="menu_button menu_button_icon" type="button" style="margin-left:auto;" title="打开剧情规划设置">
+            <label for="xiaobaix_ena_planner_enabled" class="has-tooltip littlewhitebox-toggle-label" data-tooltip="发送前剧情规划，自动注入 plot/note">剧情规划</label>
+            <button id="xiaobaix_ena_planner_open_settings" class="menu_button menu_button_icon littlewhitebox-toggle-action" type="button" title="打开剧情规划设置">
               <i class="fa-solid fa-compass-drafting"></i>
               <small>规划设置</small>
             </button>
@@ -392,6 +392,26 @@
     border-bottom-color: var(--SmartThemeAccentColor, #e9e9e9);
     color: var(--SmartThemeBodyColor, #e9e9e9);
   }
+  .littlewhitebox-toggle-row {
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+  }
+  .littlewhitebox-toggle-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-top: 0;
+    display: inline-flex;
+    align-items: center;
+  }
+  .littlewhitebox-toggle-action {
+    margin-left: auto;
+    flex: 0 0 auto;
+  }
+  .littlewhitebox-toggle-action.disabled-action {
+    opacity: .5;
+    cursor: not-allowed;
+  }
   .task-count {
     font-size: 0.85em;
     opacity: 0.7;
@@ -445,6 +465,15 @@
     color: #007bff;
     background-color: transparent;
     transform: scale(1)
+  }
+  @media (max-width: 700px) {
+    .littlewhitebox-toggle-row {
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .littlewhitebox-toggle-action {
+      margin-left: 0;
+    }
   }
 </style>
 

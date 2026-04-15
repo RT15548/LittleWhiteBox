@@ -132,14 +132,14 @@ export class OpenAICompatibleAdapter {
 
     async chat(task) {
         const toolMode = this.config.toolMode || 'native';
-        const isTaggedMode = toolMode === 'tagged-json';
+        const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const response = await this.client.chat.completions.create({
             model: this.config.model,
             messages: isTaggedMode ? buildTaggedMessages(task) : task.messages,
             tools: isTaggedMode ? undefined : task.tools,
             tool_choice: isTaggedMode ? undefined : (task.toolChoice || 'auto'),
             temperature: task.temperature,
-            max_tokens: task.maxTokens,
+            ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
         }, {
             signal: task.signal,
         });

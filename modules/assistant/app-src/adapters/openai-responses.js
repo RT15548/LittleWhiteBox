@@ -73,7 +73,6 @@ export class OpenAIResponsesAdapter {
         const body = {
             model: this.config.model,
             input: buildInputMessages(task),
-            max_output_tokens: task.maxTokens,
             temperature: task.temperature,
             tools: (task.tools || []).map((tool) => ({
                 type: 'function',
@@ -81,6 +80,7 @@ export class OpenAIResponsesAdapter {
                 description: tool.function.description,
                 parameters: tool.function.parameters,
             })),
+            ...(task.maxTokens ? { max_output_tokens: task.maxTokens } : {}),
         };
 
         const response = await this.client.responses.create(body, {
