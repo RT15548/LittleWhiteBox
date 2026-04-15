@@ -28,6 +28,7 @@ import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
 import { initTts, cleanupTts } from "./modules/tts/tts.js";
 import { initEnaPlanner, cleanupEnaPlanner } from "./modules/ena-planner/ena-planner.js";
+import { initAssistant, cleanupAssistant } from "./modules/assistant/assistant.js";
 
 extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     enabled: true,
@@ -46,6 +47,7 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     novelDraw: { enabled: false },
     tts: { enabled: false },
     enaPlanner: { enabled: false },
+    assistant: { enabled: false },
     useBlob: false,
     wrapperIframe: true,
     renderEnabled: true,
@@ -279,7 +281,8 @@ function toggleSettingsControls(enabled) {
         'xiaobaix_max_rendered', 'xiaobaix_story_outline_enabled', 'xiaobaix_story_summary_enabled',
         'xiaobaix_novel_draw_enabled', 'xiaobaix_novel_draw_open_settings',
         'xiaobaix_tts_enabled', 'xiaobaix_tts_open_settings',
-        'xiaobaix_ena_planner_enabled', 'xiaobaix_ena_planner_open_settings'
+        'xiaobaix_ena_planner_enabled', 'xiaobaix_ena_planner_open_settings',
+        'xiaobaix_assistant_enabled', 'xiaobaix_assistant_open_settings'
     ];
     controls.forEach(id => {
         $(`#${id}`).prop('disabled', !enabled).closest('.flex-container').toggleClass('disabled-control', !enabled);
@@ -316,6 +319,7 @@ async function toggleAllFeatures(enabled) {
             { condition: extension_settings[EXT_ID].novelDraw?.enabled, init: initNovelDraw },
             { condition: extension_settings[EXT_ID].tts?.enabled, init: initTts },
             { condition: extension_settings[EXT_ID].enaPlanner?.enabled, init: initEnaPlanner },
+            { condition: extension_settings[EXT_ID].assistant?.enabled, init: initAssistant },
             { condition: true, init: initStreamingGeneration },
             { condition: true, init: initButtonCollapse }
         ];
@@ -352,6 +356,7 @@ async function toggleAllFeatures(enabled) {
         try { cleanupNovelDraw(); } catch (e) { }
         try { cleanupTts(); } catch (e) { }
         try { cleanupEnaPlanner(); } catch (e) { }
+        try { cleanupAssistant(); } catch (e) { }
         try { clearBlobCaches(); } catch (e) { }
         toggleSettingsControls(false);
         try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById('xb-worldbook')?.remove(); } catch (e) { }
@@ -398,7 +403,8 @@ async function setupSettings() {
             { id: 'xiaobaix_story_outline_enabled', key: 'storyOutline' },
             { id: 'xiaobaix_novel_draw_enabled', key: 'novelDraw', init: initNovelDraw },
             { id: 'xiaobaix_tts_enabled', key: 'tts', init: initTts },
-            { id: 'xiaobaix_ena_planner_enabled', key: 'enaPlanner', init: initEnaPlanner }
+            { id: 'xiaobaix_ena_planner_enabled', key: 'enaPlanner', init: initEnaPlanner },
+            { id: 'xiaobaix_assistant_enabled', key: 'assistant', init: initAssistant }
         ];
 
         moduleConfigs.forEach(({ id, key, init }) => {
@@ -416,6 +422,9 @@ async function setupSettings() {
                 }
                 if (!enabled && key === 'enaPlanner') {
                     try { cleanupEnaPlanner(); } catch (e) { }
+                }
+                if (!enabled && key === 'assistant') {
+                    try { cleanupAssistant(); } catch (e) { }
                 }
                 settings[key] = extension_settings[EXT_ID][key] || {};
                 settings[key].enabled = enabled;
@@ -466,6 +475,23 @@ async function setupSettings() {
                 window.xiaobaixEnaPlanner.openSettings();
             } else {
                 toastr.warning('请先启用剧情规划模块');
+            }
+        });
+
+        $("#xiaobaix_assistant_open_settings").on("click", async function () {
+            if (!isXiaobaixEnabled) return;
+            if (!settings.assistant?.enabled) {
+                settings.assistant = settings.assistant || {};
+                settings.assistant.enabled = true;
+                extension_settings[EXT_ID].assistant = settings.assistant;
+                $("#xiaobaix_assistant_enabled").prop("checked", true);
+                saveSettingsDebounced();
+                await initAssistant();
+            }
+            if (window.xiaobaixAssistant?.openSettings) {
+                window.xiaobaixAssistant.openSettings();
+            } else {
+                toastr.warning('小白助手初始化失败');
             }
         });
 

@@ -3,13 +3,23 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "build:assistant:manifest": "node scripts/build-assistant-file-manifest.mjs",
+        "build:assistant:app": "vite build --config vite.assistant.config.mjs",
+        "build:assistant": "npm run build:assistant:manifest && npm run build:assistant:app",
         "lint": "node scripts/check-garbled.js && eslint \"**/*.js\"",
         "lint:fix": "eslint \"**/*.js\" --fix"
     },
-  "devDependencies": {
-    "eslint": "^8.57.1",
-    "eslint-plugin-jsdoc": "^48.10.0",
-    "eslint-plugin-no-unsanitized": "^4.1.2",
-    "eslint-plugin-security": "^1.7.1"
-  }
+    "devDependencies": {
+        "esbuild": "^0.28.0",
+        "eslint": "^8.57.1",
+        "eslint-plugin-jsdoc": "^48.10.0",
+        "eslint-plugin-no-unsanitized": "^4.1.2",
+        "eslint-plugin-security": "^1.7.1",
+        "vite": "^8.0.8"
+    },
+    "dependencies": {
+        "@anthropic-ai/sdk": "^0.89.0",
+        "@google/genai": "^1.50.1",
+        "openai": "^6.34.0"
+    }
 }
