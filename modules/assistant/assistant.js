@@ -235,7 +235,8 @@ function encodeBase64Utf8(value) {
 }
 
 async function writeWorkspaceNote(args = {}, options = {}) {
-    const name = normalizeWorkspaceName(args.name);
+    const settings = getAssistantSettings();
+    const name = normalizeWorkspaceName(args.name || settings.workspaceFileName || DEFAULT_WORKSPACE_FILE);
     const content = String(args.content || '');
     const response = await fetch('/api/files/upload', {
         method: 'POST',
@@ -262,6 +263,36 @@ async function writeWorkspaceNote(args = {}, options = {}) {
     };
 }
 
+async function readWorkspaceNote(_args = {}, options = {}) {
+    const settings = getAssistantSettings();
+    const name = normalizeWorkspaceName(settings.workspaceFileName || DEFAULT_WORKSPACE_FILE);
+    const response = await fetch(`/user/files/${encodeURIComponent(name)}`, {
+        cache: 'no-cache',
+        signal: options.signal,
+        headers: {
+            ...getRequestHeaders(),
+        },
+    });
+
+    if (response.status === 404) {
+        return {
+            name,
+            exists: false,
+            content: '',
+        };
+    }
+
+    if (!response.ok) {
+        throw new Error(`workspace_read_failed:${response.status}`);
+    }
+
+    return {
+        name,
+        exists: true,
+        content: await response.text(),
+    };
+}
+
 async function executeToolCall(name, args, options = {}) {
     switch (name) {
         case 'list_files':
@@ -270,6 +301,8 @@ async function executeToolCall(name, args, options = {}) {
             return await readFile(args, options);
         case 'search_files':
             return await searchFiles(args, options);
+        case 'read_workspace_note':
+            return await readWorkspaceNote(args, options);
         case 'write_workspace_note':
             return await writeWorkspaceNote(args, options);
         default:
@@ -314,7 +347,6 @@ function openAssistant() {
         max-height: calc(100vh - 96px);
         min-width: min(560px, calc(100vw - 48px));
         min-height: min(640px, calc(100vh - 48px));
-        resize: both;
         overflow: hidden;
         border-radius: 22px;
         box-shadow: 0 28px 80px rgba(6, 17, 32, 0.22);
@@ -374,6 +406,59 @@ function openAssistant() {
     shell.append(closeButton, resizeHint, iframe);
     overlay.appendChild(shell);
     document.body.appendChild(overlay);
+
+    const applyShellBounds = (width, height) => {
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const maxWidth = Math.max(560, viewportWidth - 96);
+        const maxHeight = Math.max(640, viewportHeight - 96);
+        const minWidth = Math.min(560, viewportWidth - 48);
+        const minHeight = Math.min(640, viewportHeight - 48);
+        const nextWidth = Math.max(minWidth, Math.min(width, maxWidth));
+        const nextHeight = Math.max(minHeight, Math.min(height, maxHeight));
+        shell.style.width = `${nextWidth}px`;
+        shell.style.height = `${nextHeight}px`;
+        shell.style.maxWidth = `${maxWidth}px`;
+        shell.style.maxHeight = `${maxHeight}px`;
+        shell.style.minWidth = `${minWidth}px`;
+        shell.style.minHeight = `${minHeight}px`;
+    };
+
+    let resizeState = null;
+    const stopResize = () => {
+        resizeState = null;
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', stopResize);
+        window.removeEventListener('pointercancel', stopResize);
+    };
+    const onPointerMove = (event) => {
+        if (!resizeState) return;
+        event.preventDefault();
+        applyShellBounds(
+            resizeState.startWidth + (event.clientX - resizeState.startX),
+            resizeState.startHeight + (event.clientY - resizeState.startY),
+        );
+    };
+    resizeHint.style.pointerEvents = 'auto';
+    resizeHint.style.cursor = 'nwse-resize';
+    resizeHint.addEventListener('pointerdown', (event) => {
+        if (window.matchMedia('(max-width: 900px)').matches) return;
+        event.preventDefault();
+        resizeState = {
+            startX: event.clientX,
+            startY: event.clientY,
+            startWidth: shell.getBoundingClientRect().width,
+            startHeight: shell.getBoundingClientRect().height,
+        };
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'nwse-resize';
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', stopResize);
+        window.addEventListener('pointercancel', stopResize);
+    });
+
     overlay.addEventListener('click', (event) => {
         if (event.target === overlay) {
             closeAssistant();
@@ -383,6 +468,7 @@ function openAssistant() {
     window.addEventListener('resize', updateOverlayHeight);
     window.visualViewport?.addEventListener('resize', updateOverlayHeight);
     overlay._cleanup = () => {
+        stopResize();
         window.removeEventListener('resize', updateOverlayHeight);
         window.visualViewport?.removeEventListener('resize', updateOverlayHeight);
     };
@@ -399,7 +485,6 @@ function openAssistant() {
         shell.style.minWidth = '100vw';
         shell.style.minHeight = '100vh';
         shell.style.marginTop = '0';
-        shell.style.resize = 'none';
         shell.style.borderRadius = '0';
         shell.style.border = 'none';
         closeButton.style.top = '12px';

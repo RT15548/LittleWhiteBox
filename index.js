@@ -357,6 +357,9 @@ async function toggleAllFeatures(enabled) {
             if (isXiaobaixEnabled && !document.getElementById('xb-worldbook'))
                 document.head.appendChild(Object.assign(document.createElement('script'), { id: 'xb-worldbook', type: 'module', src: `${extensionFolderPath}/bridges/worldbook-bridge.js` }));
         } catch (e) { }
+        if (extension_settings[EXT_ID].storySummary?.enabled) {
+            $(document).trigger('xiaobaix:storySummary:toggle', [true]);
+        }
         document.dispatchEvent(new CustomEvent('xiaobaixEnabledChanged', { detail: { enabled: true } }));
         $(document).trigger('xiaobaix:enabled:toggle', [true]);
     } else {
@@ -377,6 +380,9 @@ async function toggleAllFeatures(enabled) {
         toggleSettingsControls(false);
         try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById('xb-worldbook')?.remove(); } catch (e) { }
         try { window.cleanupCallGenerateHostBridge && window.cleanupCallGenerateHostBridge(); document.getElementById('xb-callgen')?.remove(); } catch (e) { }
+        if (extension_settings[EXT_ID].storySummary?.enabled) {
+            $(document).trigger('xiaobaix:storySummary:toggle', [false]);
+        }
         document.dispatchEvent(new CustomEvent('xiaobaixEnabledChanged', { detail: { enabled: false } }));
         $(document).trigger('xiaobaix:enabled:toggle', [false]);
     }

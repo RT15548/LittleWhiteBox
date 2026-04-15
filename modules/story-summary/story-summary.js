@@ -1473,6 +1473,7 @@ async function getHideBoundaryFloor(store) {
 }
 
 async function applyHideState() {
+    if (!getSettings().storySummary?.enabled) return;
     const store = getSummaryStore();
     const ui = getHideUiSettings();
     if (!ui.hideSummarized) return;
@@ -1489,9 +1490,17 @@ async function applyHideState() {
     await executeSlashCommand(`/hide ${range.start}-${range.end}`);
 }
 
-function applyHideStateDebounced() {
+function cancelHideApplyTimer() {
     clearTimeout(hideApplyTimer);
+    hideApplyTimer = null;
+}
+
+function applyHideStateDebounced() {
+    cancelHideApplyTimer();
     hideApplyTimer = setTimeout(() => {
+        hideApplyTimer = null;
+        if (!getSettings().storySummary?.enabled) return;
+        if (!getHideUiSettings().hideSummarized) return;
         applyHideState().catch((e) => xbLog.warn(MODULE_ID, "applyHideState failed", e));
     }, HIDE_APPLY_DEBOUNCE_MS);
 }
@@ -1507,6 +1516,7 @@ function scheduleLexicalWarmup(delayMs = LEXICAL_WARMUP_DEBOUNCE_MS) {
 }
 
 async function clearHideState() {
+    cancelHideApplyTimer();
     // 暴力全量 unhide，确保立刻恢复
     await unhideAllMessages();
 }
@@ -1559,7 +1569,9 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
                         addEventDocuments(allEvents.filter(e => idSet.has(e.id)));
                     }
 
-                    applyHideStateDebounced();
+                    if (getSettings().storySummary?.enabled && getHideUiSettings().hideSummarized) {
+                        applyHideStateDebounced();
+                    }
                     updateFrameStatsAfterSummary(endMesId, store.json || {});
 
                     await autoVectorizeNewEvents(newEventIds);
@@ -2275,6 +2287,7 @@ function unregisterEvents() {
     events.cleanup();
     events = null;
     activeChatId = null;
+    cancelHideApplyTimer();
     clearTimeout(lexicalWarmupTimer);
     lexicalWarmupTimer = null;
 
@@ -2454,11 +2467,16 @@ function showBackupManagerModal(initialFiles) {
 // Toggle 监听
 // ═══════════════════════════════════════════════════════════════════════════
 
-$(document).on("xiaobaix:storySummary:toggle", (_e, enabled) => {
+$(document).on("xiaobaix:storySummary:toggle", async (_e, enabled) => {
     if (enabled) {
         registerEvents();
         initButtonsForAll();
     } else {
+        try {
+            await clearHideState();
+        } catch (e) {
+            xbLog.warn(MODULE_ID, "clearHideState failed on toggle off", e);
+        }
         unregisterEvents();
     }
 });

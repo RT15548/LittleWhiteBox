@@ -225276,7 +225276,7 @@ var EE = class Ir {
       output: 15
     }
   }
-}), { decode: mA, decodeAsyncGenerator: gA, decodeGenerator: hA, encode: fA, encodeGenerator: bA, isWithinTokenLimit: vA, countTokens: Tc, encodeChat: yA, countChatCompletionTokens: kA, encodeChatGenerator: _A, vocabularySize: SA, setMergeCacheSize: wA, clearMergeCache: EA, estimateCost: AA } = AE, TE = "xb-assistant-app", CE = "xb-assistant-root", Sm = 18e4, Ct = 64, So = 128e3, Cc = 98e3, IE = 2, RE = 1, Rr = "littlewhitebox.assistant.session.v1", PE = 60, Ic = 16e3, ME = 2600, xE = 1800, NE = 4200, DE = [{
+}), { decode: hA, decodeAsyncGenerator: fA, decodeGenerator: bA, encode: vA, encodeGenerator: yA, isWithinTokenLimit: kA, countTokens: Tc, encodeChat: _A, countChatCompletionTokens: SA, encodeChatGenerator: wA, vocabularySize: EA, setMergeCacheSize: AA, clearMergeCache: TA, estimateCost: CA } = AE, TE = "xb-assistant-app", CE = "xb-assistant-root", Sm = 18e4, Ct = 64, So = 128e3, Cc = 98e3, IE = 2, RE = 1, Rr = "littlewhitebox.assistant.session.v1", PE = 60, Ic = 16e3, ME = 2600, xE = 1800, NE = 4200, DE = [{
   value: "native",
   label: "原生 Tool Calling"
 }, {
@@ -225326,7 +225326,8 @@ var EE = class Ir {
   "你是“小白助手”，是 LittleWhiteBox 内置的技术支持助手。",
   "你的主要任务是帮助用户理解 LittleWhiteBox 与 SillyTavern 前端公开代码、设置项、模块行为和常见报错。",
   "当问题涉及具体实现、文件路径、设置逻辑或错误原因时，优先使用工具查证后再回答。",
-  "默认只读代码与资料；如果需要写入，只能写工作记录，不允许改代码。",
+  "默认只读代码与资料；如果需要写入，只能写固定工作记录，不允许改代码。",
+  "你可以读取和写入固定工作记录文件 LittleWhiteBox_Assistant_Worklog.md，用它保存长期排查结论。",
   "回答尽量具体、可核对、说人话，必要时引用文件路径。"
 ].join(`
 `), BE = "[历史摘要]", FE = [
@@ -225399,8 +225400,20 @@ var EE = class Ir {
   {
     type: "function",
     function: {
+      name: "read_workspace_note",
+      description: "读取固定工作记录文件 LittleWhiteBox_Assistant_Worklog.md；如果文件还不存在，也会返回不存在状态。",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: !1
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "write_workspace_note",
-      description: "将排查结果或工作记录写入酒馆 user/files 下、文件名前缀为 LittleWhiteBox_Assistant_ 的工作区文件。",
+      description: "将排查结果或工作记录写入固定工作记录文件。默认写入酒馆 user/files 下、文件名前缀为 LittleWhiteBox_Assistant_ 的工作区文件；如果未指定 name，就写默认工作记录。",
       parameters: {
         type: "object",
         properties: {
@@ -225413,7 +225426,7 @@ var EE = class Ir {
             description: "完整文档内容。"
           }
         },
-        required: ["name", "content"],
+        required: ["content"],
         additionalProperties: !1
       }
     }
@@ -225612,6 +225625,8 @@ function $E(e, t = {}) {
       return `读取文件 ${t.path || ""}`.trim();
     case "search_files":
       return `搜索关键词 ${t.query || ""}`.trim();
+    case "read_workspace_note":
+      return "读取工作记录";
     case "write_workspace_note":
       return `写入工作记录 ${t.name || ""}`.trim();
     default:
@@ -225655,12 +225670,43 @@ function Tm(e) {
   } : e.toolName === "write_workspace_note" ? {
     summary: `工作记录已写入 ${t.name || ""}`.trim(),
     details: ""
+  } : e.toolName === "read_workspace_note" ? {
+    summary: t.exists ? `已读取工作记录：${t.name || "LittleWhiteBox_Assistant_Worklog.md"}` : `工作记录还不存在：${t.name || "LittleWhiteBox_Assistant_Worklog.md"}`,
+    details: t.exists ? String(t.content || "") : ""
   } : {
     summary: JSON.stringify(t, null, 2),
     details: ""
   };
 }
-function KE() {
+function KE(e) {
+  return String(e || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function JE(e) {
+  const t = String(e || "").trim();
+  if (!t) return "";
+  try {
+    const n = globalThis.parent?.showdown || globalThis.showdown, a = globalThis.parent?.DOMPurify || globalThis.DOMPurify;
+    if (n?.Converter && a?.sanitize) {
+      const i = new n.Converter({
+        simpleLineBreaks: !0,
+        strikethrough: !0,
+        tables: !0,
+        tasklists: !0,
+        ghCodeBlocks: !0,
+        simplifiedAutoLink: !0,
+        openLinksInNewWindow: !0,
+        emoji: !1
+      }).makeHtml(t);
+      return a.sanitize(i, {
+        USE_PROFILES: { html: !0 },
+        FORBID_TAGS: ["style", "script"]
+      });
+    }
+  } catch {
+  }
+  return KE(t).replace(/\n/g, "<br>");
+}
+function YE() {
   A.historySummary = "", A.archivedTurnCount = 0, A.contextStats = {
     usedTokens: 0,
     budgetTokens: So,
@@ -225697,7 +225743,7 @@ function Im(e = A.messages) {
     n.push(a);
   }), n.length && t.push(n), t.filter((a) => a.length);
 }
-function JE(e, t = "") {
+function XE(e, t = "") {
   const n = [];
   return t?.trim() && (n.push("已有历史摘要:"), n.push(t.trim()), n.push("")), e.forEach((a, i) => {
     n.push(`第 ${i + 1} 段历史:`), a.forEach((r) => {
@@ -225707,7 +225753,7 @@ function JE(e, t = "") {
   }), n.join(`
 `).trim();
 }
-function YE(e, t = "") {
+function QE(e, t = "") {
   const n = [];
   return t?.trim() && n.push(t.trim()), e.forEach((a, i) => {
     const r = a.map((s) => `${s.role === "user" ? "用户" : s.role === "assistant" ? "助手" : `工具${s.toolName ? `(${s.toolName})` : ""}`}: ${Cm(s) || "[空]"}`).join(`
@@ -225718,7 +225764,7 @@ ${r}`);
 
 `), 6e3);
 }
-function XE(e = []) {
+function ZE(e = []) {
   return e.map((t) => {
     if (t.role === "assistant" && Array.isArray(t.tool_calls) && t.tool_calls.length) {
       const n = t.tool_calls.map((a) => JSON.stringify({
@@ -225743,8 +225789,8 @@ function XE(e = []) {
     };
   });
 }
-function QE({ messages: e = [], tools: t = [] } = {}) {
-  const n = [...XE(e), {
+function eA({ messages: e = [], tools: t = [] } = {}) {
+  const n = [...ZE(e), {
     role: "system",
     content: t.length ? `TOOLS
 ${JSON.stringify(t)}` : ""
@@ -225757,7 +225803,7 @@ ${JSON.stringify(t)}` : ""
 }
 function xr(e = [], t = Em) {
   A.contextStats = {
-    usedTokens: QE({
+    usedTokens: eA({
       messages: e,
       tools: t
     }),
@@ -225768,13 +225814,13 @@ function xr(e = [], t = Em) {
 function pt(e) {
   A.messages.push(e), Ao();
 }
-function ZE(e, t) {
+function tA(e, t) {
   for (const [n, a] of mt.entries())
     a.runId === e && (mt.delete(n), a.cleanup?.(), a.reject(t));
 }
-function eA(e = "本轮请求已终止。") {
+function nA(e = "本轮请求已终止。") {
   const t = A.activeRun;
-  t && (t.cancelNotice = e, A.progressLabel = "正在终止…", ZE(t.id, /* @__PURE__ */ new Error("tool_aborted")), t.controller.abort(), K());
+  t && (t.cancelNotice = e, A.progressLabel = "正在终止…", tA(t.id, /* @__PURE__ */ new Error("tool_aborted")), t.controller.abort(), K());
 }
 function pi() {
   const e = A.config || {}, t = e.provider || "openai-compatible", n = (e.modelConfigs || {})[t] || {};
@@ -225789,7 +225835,7 @@ function pi() {
     toolMode: n.toolMode || "native"
   };
 }
-function tA() {
+function aA() {
   const e = pi();
   if (!e.apiKey) throw new Error("请先在小白助手里填写当前提供商的 API Key。");
   switch (e.provider) {
@@ -225848,9 +225894,9 @@ function Dr() {
   const e = Im(), t = Math.min(A.archivedTurnCount, e.length);
   return e.slice(t).flat();
 }
-async function nA(e, t, n) {
+async function iA(e, t, n) {
   if (!t.length) return;
-  const a = JE(t, A.historySummary), i = YE(t, A.historySummary), r = pi();
+  const a = XE(t, A.historySummary), i = QE(t, A.historySummary), r = pi();
   try {
     const s = await e.chat({
       systemPrompt: FE,
@@ -225869,18 +225915,18 @@ async function nA(e, t, n) {
     A.historySummary = i;
   }
 }
-async function aA(e, t) {
+async function rA(e, t) {
   const n = Im(), a = [IE, RE];
   let i = Dr(), r = Nr(i);
   if (xr(r), A.contextStats.usedTokens <= Cc) return r;
   for (const s of a) {
     const c = Math.max(A.archivedTurnCount, n.length - Math.min(s, n.length));
-    if (c > A.archivedTurnCount && (await nA(e, n.slice(A.archivedTurnCount, c), t), A.archivedTurnCount = c, Ao()), i = Dr(), r = Nr(i), xr(r), A.contextStats.usedTokens <= Cc)
+    if (c > A.archivedTurnCount && (await iA(e, n.slice(A.archivedTurnCount, c), t), A.archivedTurnCount = c, Ao()), i = Dr(), r = Nr(i), xr(r), A.contextStats.usedTokens <= Cc)
       return qa(`已压缩较早历史，当前上下文 ${Mr()}`), K(), r;
   }
   return qa(`最近对话本身已接近上限，当前上下文 ${Mr()}`), K(), r;
 }
-function iA(e, t, n = {}) {
+function oA(e, t, n = {}) {
   const a = wo("tool"), i = A.activeRun;
   return i && i.id === n.runId && i.toolRequestIds.add(a), new Promise((r, s) => {
     let c = !1, u = null;
@@ -225916,13 +225962,13 @@ function iA(e, t, n = {}) {
     });
   });
 }
-async function rA(e) {
-  const t = tA();
+async function sA(e) {
+  const t = aA();
   let n = 0;
   for (; n < Ct; ) {
     if (e.controller.signal.aborted) throw new Error("assistant_aborted");
     n += 1, A.currentRound = n, A.progressLabel = `第 ${n}/${Ct} 轮：正在请求模型…`, K();
-    const a = pi(), i = await aA(t, e.controller.signal), r = await t.chat({
+    const a = pi(), i = await rA(t, e.controller.signal), r = await t.chat({
       systemPrompt: wm,
       messages: i,
       tools: Em,
@@ -225941,7 +225987,7 @@ async function rA(e) {
         if (e.controller.signal.aborted) throw new Error("assistant_aborted");
         const c = Eo(s.arguments, {});
         A.progressLabel = `第 ${n}/${Ct} 轮：正在${$E(s.name, c)}…`, K();
-        const u = await iA(s.name, c, {
+        const u = await oA(s.name, c, {
           runId: e.id,
           signal: e.controller.signal
         });
@@ -225968,7 +226014,7 @@ async function rA(e) {
 function Nc(e) {
   A.config = e, K();
 }
-function oA(e, t) {
+function lA(e, t) {
   return {
     baseUrl: e.querySelector("#xb-assistant-base-url").value.trim(),
     model: e.querySelector("#xb-assistant-model").value.trim(),
@@ -225983,20 +226029,20 @@ function Ca(e) {
   A.config = {
     ...A.config,
     provider: t,
-    workspaceFileName: e.querySelector("#xb-assistant-workspace").value.trim(),
+    workspaceFileName: A.config.workspaceFileName,
     modelConfigs: {
       ...A.config.modelConfigs || {},
       [t]: {
         ...(A.config.modelConfigs || {})[t] || {},
-        ...oA(e, t)
+        ...lA(e, t)
       }
     }
   };
 }
-function sA(e) {
+function cA(e) {
   if (e.innerHTML = "", !A.messages.length) {
     const t = document.createElement("div");
-    t.className = "xb-assistant-empty", t.innerHTML = "<h2>开始提问吧</h2><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本。</p><p>适合排查的问题包括：设置为什么不生效、某个前端报错是从哪条链路抛出的、按钮/面板/消息处理是怎么走的、插件和酒馆前端是如何交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会写到酒馆官方 <code>user/files</code> 下、文件名前缀为 <code>LittleWhiteBox_Assistant_</code> 的文件，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>";
+    t.className = "xb-assistant-empty", t.innerHTML = "<h2>开始提问吧</h2><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本。</p><p>适合排查的问题包括：设置为什么不生效、某个前端报错是从哪条链路抛出的、按钮/面板/消息处理是怎么走的、插件和酒馆前端是如何交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会写到酒馆官方 <code>user/files</code> 下的固定工作记录文件 <code>LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>";
     const n = document.createElement("div");
     n.className = "xb-assistant-examples", LE.forEach((a) => {
       const i = document.createElement("button");
@@ -226019,14 +226065,14 @@ function sA(e) {
         u.className = "xb-assistant-content tool-detail", u.textContent = i.details, s.append(c, u), n.appendChild(s);
       }
     } else {
-      const i = document.createElement("pre");
-      i.className = "xb-assistant-content", i.textContent = t.content || (t.role === "assistant" ? "我先查一下相关代码。" : ""), n.append(a, i);
+      const i = document.createElement("div");
+      i.className = "xb-assistant-content xb-assistant-markdown", i.innerHTML = JE(t.content || (t.role === "assistant" ? "我先查一下相关代码。" : "")), n.append(a, i);
     }
     e.appendChild(n);
   }
   A.autoScroll && (e.scrollTop = e.scrollHeight);
 }
-function lA(e) {
+function uA(e) {
   e.innerHTML = `
         <div class="xb-assistant-shell">
             <aside class="xb-assistant-sidebar">
@@ -226073,10 +226119,6 @@ function lA(e) {
                         <span>Tool 调用格式</span>
                         <select id="xb-assistant-tool-mode"></select>
                     </label>
-                    <label>
-                        <span>Workspace 文件</span>
-                        <input id="xb-assistant-workspace" type="text" />
-                    </label>
                     <div class="xb-assistant-actions">
                         <button id="xb-assistant-save" type="button">保存配置</button>
                     </div>
@@ -226101,24 +226143,24 @@ function lA(e) {
         </div>
     `;
 }
-function cA(e) {
+function dA(e) {
   if (!A.config) return;
   const t = A.config.provider || "openai-compatible", n = (A.config.modelConfigs || {})[t] || {}, a = VE(t), i = e.querySelector("#xb-assistant-tool-mode-wrap"), r = e.querySelector("#xb-assistant-tool-mode"), s = e.querySelector("#xb-assistant-model-pulled");
-  e.querySelector("#xb-assistant-provider").value = t, e.querySelector("#xb-assistant-base-url").value = n.baseUrl || "", e.querySelector("#xb-assistant-model").value = n.model || "", e.querySelector("#xb-assistant-api-key").value = n.apiKey || "", e.querySelector("#xb-assistant-workspace").value = A.config.workspaceFileName || "", i.style.display = t === "openai-compatible" ? "" : "none", Pc(r, DE), r.value = n.toolMode || "native", Pc(s, a.map((d) => ({
+  e.querySelector("#xb-assistant-provider").value = t, e.querySelector("#xb-assistant-base-url").value = n.baseUrl || "", e.querySelector("#xb-assistant-model").value = n.model || "", e.querySelector("#xb-assistant-api-key").value = n.apiKey || "", i.style.display = t === "openai-compatible" ? "" : "none", Pc(r, DE), r.value = n.toolMode || "native", Pc(s, a.map((d) => ({
     value: d,
     label: d
   })), "手动填写");
   const c = e.querySelector("#xb-assistant-runtime"), u = HE(t);
   c.textContent = A.runtime ? `${jE(t)} · 已索引 ${A.runtime.indexedFileCount || 0} 个前端源码文件${u.message ? ` · ${u.message}` : ""}` : u.message || "";
 }
-function uA(e) {
+function pA(e) {
   Ca(e), An("xb-assistant:save-config", {
     provider: A.config?.provider || "openai-compatible",
-    workspaceFileName: e.querySelector("#xb-assistant-workspace").value.trim(),
+    workspaceFileName: A.config?.workspaceFileName || "",
     modelConfigs: A.config?.modelConfigs || {}
   });
 }
-function dA() {
+function mA() {
   const e = document.createElement("style");
   e.textContent = `
         :root { color-scheme: light; font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif; }
@@ -226301,6 +226343,54 @@ function dA() {
         }
         .xb-assistant-meta { margin-bottom: 6px; font-size: 12px; opacity: 0.78; }
         .xb-assistant-content { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
+        .xb-assistant-markdown {
+            white-space: normal;
+            line-height: 1.7;
+        }
+        .xb-assistant-markdown > *:first-child { margin-top: 0; }
+        .xb-assistant-markdown > *:last-child { margin-bottom: 0; }
+        .xb-assistant-markdown p,
+        .xb-assistant-markdown ul,
+        .xb-assistant-markdown ol,
+        .xb-assistant-markdown pre,
+        .xb-assistant-markdown blockquote,
+        .xb-assistant-markdown table,
+        .xb-assistant-markdown h1,
+        .xb-assistant-markdown h2,
+        .xb-assistant-markdown h3,
+        .xb-assistant-markdown h4 {
+            margin: 0 0 0.8em;
+        }
+        .xb-assistant-markdown code {
+            padding: 0.12em 0.38em;
+            border-radius: 8px;
+            background: rgba(20, 32, 51, 0.08);
+            font-family: "Cascadia Code", "Consolas", monospace;
+            font-size: 0.95em;
+        }
+        .xb-assistant-markdown pre {
+            overflow: auto;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: rgba(20, 32, 51, 0.06);
+        }
+        .xb-assistant-markdown pre code {
+            padding: 0;
+            background: transparent;
+        }
+        .xb-assistant-markdown blockquote {
+            padding-left: 12px;
+            border-left: 3px solid rgba(27, 55, 88, 0.24);
+            color: #4b5a70;
+        }
+        .xb-assistant-markdown a {
+            color: #285786;
+            text-decoration: underline;
+        }
+        .xb-assistant-markdown ul,
+        .xb-assistant-markdown ol {
+            padding-left: 1.4em;
+        }
         .xb-assistant-tool-details {
             margin-top: 10px;
             border-top: 1px dashed rgba(27, 55, 88, 0.12);
@@ -226363,7 +226453,7 @@ function dA() {
 function K() {
   const e = document.getElementById(CE);
   if (!e) return;
-  e.firstChild || (lA(e), pA(e)), cA(e), xr(Nr(Dr())), sA(e.querySelector("#xb-assistant-chat"));
+  e.firstChild || (uA(e), gA(e)), dA(e), xr(Nr(Dr())), cA(e.querySelector("#xb-assistant-chat"));
   const t = e.querySelector("#xb-assistant-send");
   t.disabled = !1, t.classList.toggle("is-busy", A.isBusy), t.textContent = A.isBusy ? `终止 (${Math.max(1, A.currentRound)}/${Ct})` : "发送";
   const n = e.querySelector("#xb-assistant-clear");
@@ -226379,7 +226469,7 @@ function K() {
   const c = e.querySelector("#xb-assistant-toggle-key");
   c.textContent = e.querySelector("#xb-assistant-api-key").type === "password" ? "显示" : "隐藏";
 }
-function pA(e) {
+function gA(e) {
   const t = e.querySelector("#xb-assistant-input"), n = () => {
     t.style.height = "auto", t.style.height = `${Math.min(Math.max(t.scrollHeight, 92), 240)}px`;
   };
@@ -226421,12 +226511,12 @@ function pA(e) {
     }
     K();
   }), e.querySelector("#xb-assistant-save").addEventListener("click", () => {
-    uA(e);
+    pA(e);
   }), e.querySelector("#xb-assistant-clear").addEventListener("click", () => {
-    A.isBusy || (A.messages = [], KE(), Ao(), qa("对话已清空"), K());
+    A.isBusy || (A.messages = [], YE(), Ao(), qa("对话已清空"), K());
   }), e.querySelector("#xb-assistant-form").addEventListener("submit", async (a) => {
     if (a.preventDefault(), A.isBusy) {
-      eA("本轮请求已终止。");
+      nA("本轮请求已终止。");
       return;
     }
     const i = t.value.trim();
@@ -226443,7 +226533,7 @@ function pA(e) {
     };
     A.activeRun = r, A.isBusy = !0, A.currentRound = 0, A.progressLabel = "正在请求模型…", A.autoScroll = !0, K();
     try {
-      await rA(r);
+      await sA(r);
     } catch (s) {
       Am(s) ? r.cancelNotice && pt({
         role: "assistant",
@@ -226481,6 +226571,6 @@ window.addEventListener("message", (e) => {
   }
 });
 qE();
-dA();
+mA();
 K();
 An("xb-assistant:ready");

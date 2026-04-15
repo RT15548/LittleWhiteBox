@@ -47,7 +47,8 @@ const SYSTEM_PROMPT = [
     '你是“小白助手”，是 LittleWhiteBox 内置的技术支持助手。',
     '你的主要任务是帮助用户理解 LittleWhiteBox 与 SillyTavern 前端公开代码、设置项、模块行为和常见报错。',
     '当问题涉及具体实现、文件路径、设置逻辑或错误原因时，优先使用工具查证后再回答。',
-    '默认只读代码与资料；如果需要写入，只能写工作记录，不允许改代码。',
+    '默认只读代码与资料；如果需要写入，只能写固定工作记录，不允许改代码。',
+    '你可以读取和写入固定工作记录文件 LittleWhiteBox_Assistant_Worklog.md，用它保存长期排查结论。',
     '回答尽量具体、可核对、说人话，必要时引用文件路径。',
 ].join('\n');
 const HISTORY_SUMMARY_PREFIX = '[历史摘要]';
@@ -109,15 +110,27 @@ const TOOL_DEFINITIONS = [
     {
         type: 'function',
         function: {
+            name: 'read_workspace_note',
+            description: '读取固定工作记录文件 LittleWhiteBox_Assistant_Worklog.md；如果文件还不存在，也会返回不存在状态。',
+            parameters: {
+                type: 'object',
+                properties: {},
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
             name: 'write_workspace_note',
-            description: '将排查结果或工作记录写入酒馆 user/files 下、文件名前缀为 LittleWhiteBox_Assistant_ 的工作区文件。',
+            description: '将排查结果或工作记录写入固定工作记录文件。默认写入酒馆 user/files 下、文件名前缀为 LittleWhiteBox_Assistant_ 的工作区文件；如果未指定 name，就写默认工作记录。',
             parameters: {
                 type: 'object',
                 properties: {
                     name: { type: 'string', description: '工作区文件名。' },
                     content: { type: 'string', description: '完整文档内容。' },
                 },
-                required: ['name', 'content'],
+                required: ['content'],
                 additionalProperties: false,
             },
         },
@@ -412,6 +425,8 @@ function describeToolCall(name, args = {}) {
             return `读取文件 ${args.path || ''}`.trim();
         case 'search_files':
             return `搜索关键词 ${args.query || ''}`.trim();
+        case 'read_workspace_note':
+            return '读取工作记录';
         case 'write_workspace_note':
             return `写入工作记录 ${args.name || ''}`.trim();
         default:
@@ -486,10 +501,59 @@ function formatToolResultDisplay(message) {
         };
     }
 
+    if (message.toolName === 'read_workspace_note') {
+        return {
+            summary: parsed.exists
+                ? `已读取工作记录：${parsed.name || 'LittleWhiteBox_Assistant_Worklog.md'}`
+                : `工作记录还不存在：${parsed.name || 'LittleWhiteBox_Assistant_Worklog.md'}`,
+            details: parsed.exists ? String(parsed.content || '') : '',
+        };
+    }
+
     return {
         summary: JSON.stringify(parsed, null, 2),
         details: '',
     };
+}
+
+function escapeHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function renderMarkdown(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+
+    try {
+        const showdownLib = globalThis.parent?.showdown || globalThis.showdown;
+        const DOMPurifyLib = globalThis.parent?.DOMPurify || globalThis.DOMPurify;
+        if (showdownLib?.Converter && DOMPurifyLib?.sanitize) {
+            const converter = new showdownLib.Converter({
+                simpleLineBreaks: true,
+                strikethrough: true,
+                tables: true,
+                tasklists: true,
+                ghCodeBlocks: true,
+                simplifiedAutoLink: true,
+                openLinksInNewWindow: true,
+                emoji: false,
+            });
+            const html = converter.makeHtml(raw);
+            return DOMPurifyLib.sanitize(html, {
+                USE_PROFILES: { html: true },
+                FORBID_TAGS: ['style', 'script'],
+            });
+        }
+    } catch {
+        // Fall back to escaped plain text below.
+    }
+
+    return escapeHtml(raw).replace(/\n/g, '<br>');
 }
 
 function resetCompactionState() {
@@ -981,7 +1045,7 @@ function syncCurrentProviderDraft(root) {
     state.config = {
         ...state.config,
         provider,
-        workspaceFileName: root.querySelector('#xb-assistant-workspace').value.trim(),
+        workspaceFileName: state.config.workspaceFileName,
         modelConfigs: {
             ...(state.config.modelConfigs || {}),
             [provider]: {
@@ -998,7 +1062,7 @@ function renderMessages(container) {
     if (!state.messages.length) {
         const empty = document.createElement('div');
         empty.className = 'xb-assistant-empty';
-        empty.innerHTML = '<h2>开始提问吧</h2><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本。</p><p>适合排查的问题包括：设置为什么不生效、某个前端报错是从哪条链路抛出的、按钮/面板/消息处理是怎么走的、插件和酒馆前端是如何交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会写到酒馆官方 <code>user/files</code> 下、文件名前缀为 <code>LittleWhiteBox_Assistant_</code> 的文件，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
+        empty.innerHTML = '<h2>开始提问吧</h2><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本。</p><p>适合排查的问题包括：设置为什么不生效、某个前端报错是从哪条链路抛出的、按钮/面板/消息处理是怎么走的、插件和酒馆前端是如何交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会写到酒馆官方 <code>user/files</code> 下的固定工作记录文件 <code>LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
 
         const examples = document.createElement('div');
         examples.className = 'xb-assistant-examples';
@@ -1048,9 +1112,9 @@ function renderMessages(container) {
                 bubble.appendChild(details);
             }
         } else {
-            const content = document.createElement('pre');
-            content.className = 'xb-assistant-content';
-            content.textContent = message.content || (message.role === 'assistant' ? '我先查一下相关代码。' : '');
+            const content = document.createElement('div');
+            content.className = 'xb-assistant-content xb-assistant-markdown';
+            content.innerHTML = renderMarkdown(message.content || (message.role === 'assistant' ? '我先查一下相关代码。' : ''));
             bubble.append(meta, content);
         }
 
@@ -1109,10 +1173,6 @@ function buildAppMarkup(root) {
                         <span>Tool 调用格式</span>
                         <select id="xb-assistant-tool-mode"></select>
                     </label>
-                    <label>
-                        <span>Workspace 文件</span>
-                        <input id="xb-assistant-workspace" type="text" />
-                    </label>
                     <div class="xb-assistant-actions">
                         <button id="xb-assistant-save" type="button">保存配置</button>
                     </div>
@@ -1151,7 +1211,6 @@ function syncConfigToForm(root) {
     root.querySelector('#xb-assistant-base-url').value = providerConfig.baseUrl || '';
     root.querySelector('#xb-assistant-model').value = providerConfig.model || '';
     root.querySelector('#xb-assistant-api-key').value = providerConfig.apiKey || '';
-    root.querySelector('#xb-assistant-workspace').value = state.config.workspaceFileName || '';
     toolModeWrap.style.display = provider === 'openai-compatible' ? '' : 'none';
     refillSelect(toolModeSelect, TOOL_MODE_OPTIONS);
     toolModeSelect.value = providerConfig.toolMode || 'native';
@@ -1169,7 +1228,7 @@ function saveConfigFromForm(root) {
     const provider = state.config?.provider || 'openai-compatible';
     post('xb-assistant:save-config', {
         provider,
-        workspaceFileName: root.querySelector('#xb-assistant-workspace').value.trim(),
+        workspaceFileName: state.config?.workspaceFileName || '',
         modelConfigs: state.config?.modelConfigs || {},
     });
 }
@@ -1357,6 +1416,54 @@ function injectStyles() {
         }
         .xb-assistant-meta { margin-bottom: 6px; font-size: 12px; opacity: 0.78; }
         .xb-assistant-content { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
+        .xb-assistant-markdown {
+            white-space: normal;
+            line-height: 1.7;
+        }
+        .xb-assistant-markdown > *:first-child { margin-top: 0; }
+        .xb-assistant-markdown > *:last-child { margin-bottom: 0; }
+        .xb-assistant-markdown p,
+        .xb-assistant-markdown ul,
+        .xb-assistant-markdown ol,
+        .xb-assistant-markdown pre,
+        .xb-assistant-markdown blockquote,
+        .xb-assistant-markdown table,
+        .xb-assistant-markdown h1,
+        .xb-assistant-markdown h2,
+        .xb-assistant-markdown h3,
+        .xb-assistant-markdown h4 {
+            margin: 0 0 0.8em;
+        }
+        .xb-assistant-markdown code {
+            padding: 0.12em 0.38em;
+            border-radius: 8px;
+            background: rgba(20, 32, 51, 0.08);
+            font-family: "Cascadia Code", "Consolas", monospace;
+            font-size: 0.95em;
+        }
+        .xb-assistant-markdown pre {
+            overflow: auto;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: rgba(20, 32, 51, 0.06);
+        }
+        .xb-assistant-markdown pre code {
+            padding: 0;
+            background: transparent;
+        }
+        .xb-assistant-markdown blockquote {
+            padding-left: 12px;
+            border-left: 3px solid rgba(27, 55, 88, 0.24);
+            color: #4b5a70;
+        }
+        .xb-assistant-markdown a {
+            color: #285786;
+            text-decoration: underline;
+        }
+        .xb-assistant-markdown ul,
+        .xb-assistant-markdown ol {
+            padding-left: 1.4em;
+        }
         .xb-assistant-tool-details {
             margin-top: 10px;
             border-top: 1px dashed rgba(27, 55, 88, 0.12);
