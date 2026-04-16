@@ -5,6 +5,8 @@ import { CommonSettingStorage } from "../../../core/server-storage.js";
 
 const MODULE_ID = "summaryConfig";
 const SUMMARY_CONFIG_KEY = "storySummaryPanelConfig";
+const SUMMARY_CONFIG_LOCAL_STORAGE_KEY = "summary_panel_config";
+let summaryPanelConfigCache = null;
 
 const DEFAULT_FILTER_RULES = [
     { start: "<think>", end: "</think>" },
@@ -362,13 +364,7 @@ function normalizeVectorConfig(rawVector = null) {
     };
 }
 
-export function getSummaryPanelConfig() {
-    const clampKeepVisibleCount = (value) => {
-        const n = Number.parseInt(value, 10);
-        if (!Number.isFinite(n)) return 6;
-        return Math.max(0, Math.min(50, n));
-    };
-
+function createDefaultSummaryPanelConfig() {
     const defaults = {
         api: { provider: "st", url: "", key: "", model: "", modelCache: [] },
         gen: { temperature: null, top_p: null, top_k: null, presence_penalty: null, frequency_penalty: null },
@@ -402,58 +398,97 @@ export function getSummaryPanelConfig() {
         },
         vector: normalizeVectorConfig(),
     };
+    return defaults;
+}
 
-    try {
-        const raw = localStorage.getItem("summary_panel_config");
-        if (!raw) return defaults;
-        const parsed = JSON.parse(raw);
+function cloneConfig(value) {
+    if (typeof structuredClone === "function") {
+        return structuredClone(value);
+    }
+    return JSON.parse(JSON.stringify(value));
+}
 
-        const textFilterRules = Array.isArray(parsed.textFilterRules)
-            ? parsed.textFilterRules
-            : (Array.isArray(parsed.vector?.textFilterRules)
-                ? parsed.vector.textFilterRules
-                : defaults.textFilterRules);
+function normalizeSummaryPanelConfig(rawConfig = null) {
+    const defaults = createDefaultSummaryPanelConfig();
+    const clampKeepVisibleCount = (value) => {
+        const n = Number.parseInt(value, 10);
+        if (!Number.isFinite(n)) return 6;
+        return Math.max(0, Math.min(50, n));
+    };
 
-        const result = {
-            api: { ...defaults.api, ...(parsed.api || {}) },
-            gen: { ...defaults.gen, ...(parsed.gen || {}) },
-            trigger: { ...defaults.trigger, ...(parsed.trigger || {}) },
-            ui: { ...defaults.ui, ...(parsed.ui || {}) },
-            textFilterRules,
-            prompts: { ...defaults.prompts, ...(parsed.prompts || {}) },
-            vector: normalizeVectorConfig(parsed.vector || null),
-        };
-
-        if (result.trigger.timing === "manual") result.trigger.enabled = false;
-        if (result.trigger.useStream === undefined) result.trigger.useStream = true;
-        result.ui.hideSummarized = !!result.ui.hideSummarized;
-        result.ui.keepVisibleCount = clampKeepVisibleCount(result.ui.keepVisibleCount);
-
-        return result;
-    } catch {
+    if (!rawConfig || typeof rawConfig !== "object") {
         return defaults;
     }
+
+    const textFilterRules = Array.isArray(rawConfig.textFilterRules)
+        ? rawConfig.textFilterRules
+        : (Array.isArray(rawConfig.vector?.textFilterRules)
+            ? rawConfig.vector.textFilterRules
+            : defaults.textFilterRules);
+
+    const result = {
+        api: { ...defaults.api, ...(rawConfig.api || {}) },
+        gen: { ...defaults.gen, ...(rawConfig.gen || {}) },
+        trigger: { ...defaults.trigger, ...(rawConfig.trigger || {}) },
+        ui: { ...defaults.ui, ...(rawConfig.ui || {}) },
+        textFilterRules,
+        prompts: { ...defaults.prompts, ...(rawConfig.prompts || {}) },
+        vector: normalizeVectorConfig(rawConfig.vector || null),
+    };
+
+    if (result.trigger.timing === "manual") result.trigger.enabled = false;
+    if (result.trigger.useStream === undefined) result.trigger.useStream = true;
+    result.ui.hideSummarized = !!result.ui.hideSummarized;
+    result.ui.keepVisibleCount = clampKeepVisibleCount(result.ui.keepVisibleCount);
+
+    return result;
+}
+
+function writeConfigToLocalStorage(config) {
+    localStorage.setItem(SUMMARY_CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
+}
+
+function setSummaryPanelConfigCache(config, { persistLocal = true } = {}) {
+    const normalized = normalizeSummaryPanelConfig(config);
+    summaryPanelConfigCache = normalized;
+    if (persistLocal) {
+        writeConfigToLocalStorage(normalized);
+    }
+    return normalized;
+}
+
+function ensureSummaryPanelConfigCache() {
+    if (summaryPanelConfigCache) return summaryPanelConfigCache;
+
+    try {
+        const raw = localStorage.getItem(SUMMARY_CONFIG_LOCAL_STORAGE_KEY);
+        if (!raw) {
+            return setSummaryPanelConfigCache(createDefaultSummaryPanelConfig(), { persistLocal: false });
+        }
+        return setSummaryPanelConfigCache(JSON.parse(raw), { persistLocal: false });
+    } catch {
+        return setSummaryPanelConfigCache(createDefaultSummaryPanelConfig(), { persistLocal: false });
+    }
+}
+
+export function getSummaryPanelConfig() {
+    return cloneConfig(ensureSummaryPanelConfigCache());
 }
 
 export function saveSummaryPanelConfig(config) {
     try {
-        localStorage.setItem("summary_panel_config", JSON.stringify(config));
-        CommonSettingStorage.set(SUMMARY_CONFIG_KEY, config);
+        const normalized = setSummaryPanelConfigCache(config);
+        CommonSettingStorage.set(SUMMARY_CONFIG_KEY, normalized);
+        return normalized;
     } catch (e) {
         xbLog.error(MODULE_ID, "保存面板配置失败", e);
+        return null;
     }
 }
 
 export function getVectorConfig() {
-    try {
-        const raw = localStorage.getItem("summary_panel_config");
-        if (!raw) return null;
-
-        const parsed = JSON.parse(raw);
-        return parsed.vector ? normalizeVectorConfig(parsed.vector) : normalizeVectorConfig();
-    } catch {
-        return null;
-    }
+    const cfg = ensureSummaryPanelConfigCache();
+    return cfg?.vector ? cloneConfig(cfg.vector) : normalizeVectorConfig();
 }
 
 export function getTextFilterRules() {
@@ -465,28 +500,34 @@ export function getTextFilterRules() {
 
 export function saveVectorConfig(vectorCfg) {
     try {
-        const raw = localStorage.getItem("summary_panel_config") || "{}";
-        const parsed = JSON.parse(raw);
-
+        const parsed = ensureSummaryPanelConfigCache();
         parsed.vector = normalizeVectorConfig(vectorCfg || null);
-
-        localStorage.setItem("summary_panel_config", JSON.stringify(parsed));
+        setSummaryPanelConfigCache(parsed);
         CommonSettingStorage.set(SUMMARY_CONFIG_KEY, parsed);
+        return cloneConfig(parsed.vector);
     } catch (e) {
         xbLog.error(MODULE_ID, "保存向量配置失败", e);
+        return null;
     }
+}
+
+export async function saveSummaryPanelConfigVerified(config) {
+    const normalized = normalizeSummaryPanelConfig(config);
+    await CommonSettingStorage.setAndSave(SUMMARY_CONFIG_KEY, normalized, { silent: false });
+    setSummaryPanelConfigCache(normalized);
+    return cloneConfig(normalized);
 }
 
 export async function loadConfigFromServer() {
     try {
         const savedConfig = await CommonSettingStorage.get(SUMMARY_CONFIG_KEY, null);
         if (savedConfig) {
-            localStorage.setItem("summary_panel_config", JSON.stringify(savedConfig));
+            const normalized = setSummaryPanelConfigCache(savedConfig);
             xbLog.info(MODULE_ID, "已从服务端加载面板配置");
-            return savedConfig;
+            return cloneConfig(normalized);
         }
     } catch (e) {
         xbLog.warn(MODULE_ID, "加载面板配置失败", e);
     }
-    return null;
+    return getSummaryPanelConfig();
 }

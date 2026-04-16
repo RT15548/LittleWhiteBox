@@ -557,6 +557,8 @@ All checks passed. Beginning incremental extraction...
     let activeRelationTooltip = null;
     let lastRecallLogText = '';
     let modelListFetchedThisIframe = false;
+    let configSaveSeq = 0;
+    const pendingConfigSaveRequests = new Map();
 
     // ═══════════════════════════════════════════════════════════════════════════
     // Messaging
@@ -564,6 +566,11 @@ All checks passed. Beginning incremental extraction...
 
     function postMsg(type, data = {}) {
         window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type, ...data }, PARENT_ORIGIN);
+    }
+
+    function nextConfigSaveRequestId() {
+        configSaveSeq += 1;
+        return `summary-config-save-${Date.now()}-${configSaveSeq}`;
     }
 
     function normalizeVectorConfigUI(raw = null) {
@@ -650,7 +657,7 @@ All checks passed. Beginning incremental extraction...
         localStorage.setItem('summary_panel_config', JSON.stringify(config));
     }
 
-    function saveConfig() {
+    function saveConfig(options = {}) {
         try {
             const settingsOpen = $('settings-modal')?.classList.contains('active');
             if (settingsOpen) {
@@ -667,10 +674,25 @@ All checks passed. Beginning incremental extraction...
                     rerankApi: { provider: 'siliconflow', url: 'https://api.siliconflow.cn/v1', key: '', model: 'BAAI/bge-reranker-v2-m3', modelCache: [] }
                 };
             }
-            localStorage.setItem('summary_panel_config', JSON.stringify(config));
-            postMsg('SAVE_PANEL_CONFIG', { config });
+            const requestId = nextConfigSaveRequestId();
+            const statusId = options.statusId || 'api-connect-status';
+            const statusEl = $(statusId);
+            if (statusEl && options.loadingMessage) {
+                setStatusText(statusEl, options.loadingMessage, 'loading');
+            }
+
+            return new Promise(resolve => {
+                pendingConfigSaveRequests.set(requestId, {
+                    resolve,
+                    statusId,
+                    successMessage: options.successMessage || '配置已保存',
+                    errorPrefix: options.errorPrefix || '保存失败：',
+                });
+                postMsg('SAVE_PANEL_CONFIG', { config, requestId });
+            });
         } catch (e) {
             console.error('saveConfig error:', e);
+            return Promise.resolve(false);
         }
     }
 
@@ -765,10 +787,13 @@ All checks passed. Beginning incremental extraction...
         $(`${prefix}-api-model-select`).value = cache.includes(profile.model) ? profile.model : '';
     }
 
-    function saveVectorApiSection(prefix) {
+    async function saveVectorApiSection(prefix) {
         saveCurrentVectorApiProfile(prefix);
-        saveConfig();
-        setStatusText($(`${prefix}-api-connect-status`), '此组配置已保存', 'success');
+        await saveConfig({
+            statusId: `${prefix}-api-connect-status`,
+            loadingMessage: '保存中...',
+            successMessage: '此组配置已保存',
+        });
     }
 
     async function fetchVectorModels(prefix) {
@@ -1241,7 +1266,7 @@ All checks passed. Beginning incremental extraction...
         postMsg('SETTINGS_OPENED');
     }
 
-    function closeSettings(save) {
+    async function closeSettings(save) {
         if (save) {
             const pn = id => { const v = $(id).value; return v === '' ? null : parseFloat(v); };
             const provider = $('api-provider').value;
@@ -1281,7 +1306,12 @@ All checks passed. Beginning incremental extraction...
             config.textFilterRules = collectFilterRules();
 
             config.vector = getVectorConfig();
-            saveConfig();
+            const saved = await saveConfig({
+                statusId: 'api-connect-status',
+                loadingMessage: '保存中...',
+                successMessage: '配置已保存',
+            });
+            if (!saved) return;
         }
 
         $('settings-modal').classList.remove('active');
@@ -2215,6 +2245,25 @@ All checks passed. Beginning incremental extraction...
             case 'LOAD_PANEL_CONFIG':
                 if (d.config) applyConfig(d.config);
                 break;
+
+            case 'PANEL_CONFIG_SAVE_RESULT': {
+                const pending = pendingConfigSaveRequests.get(d.requestId || '');
+                if (pending) {
+                    pendingConfigSaveRequests.delete(d.requestId || '');
+                    const statusEl = $(pending.statusId);
+                    if (d.success) {
+                        if (d.config) applyConfig(d.config);
+                        setStatusText(statusEl, pending.successMessage, 'success');
+                        pending.resolve(true);
+                    } else {
+                        setStatusText(statusEl, `${pending.errorPrefix}${d.error || '未知错误'}`, 'error');
+                        pending.resolve(false);
+                    }
+                } else if (d.success && d.config) {
+                    applyConfig(d.config);
+                }
+                break;
+            }
 
             case 'VECTOR_CONFIG':
                 if (d.config) loadVectorConfig(d.config);

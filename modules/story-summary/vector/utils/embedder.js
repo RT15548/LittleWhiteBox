@@ -7,8 +7,24 @@ import { embed as sfEmbed } from '../llm/siliconflow.js';
 // 统一 embed 接口
 // ═══════════════════════════════════════════════════════════════════════════
 
-export async function embed(texts, config, options = {}) {
-    return await sfEmbed(texts, options);
+function looksLikeVectorConfig(value) {
+    if (!value || typeof value !== 'object') return false;
+    return 'embeddingApi' in value
+        || 'l0Api' in value
+        || 'rerankApi' in value
+        || 'enabled' in value
+        || 'engine' in value;
+}
+
+export async function embed(texts, configOrOptions, maybeOptions = {}) {
+    const hasVectorConfig = looksLikeVectorConfig(configOrOptions);
+    const vectorConfig = hasVectorConfig ? configOrOptions : null;
+    const options = hasVectorConfig ? maybeOptions : (configOrOptions || {});
+
+    return await sfEmbed(texts, {
+        ...options,
+        ...(vectorConfig?.embeddingApi ? { apiConfig: vectorConfig.embeddingApi } : {}),
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

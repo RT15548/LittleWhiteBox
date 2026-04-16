@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-16T05:24:49.833Z",
+  "generatedAt": "2026-04-16T09:09:58.818Z",
   "version": 1,
   "files": [
     {
@@ -102,6 +102,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/anthropic.js",
       "relativePath": "modules/assistant/app-src/adapters/anthropic.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/cors-proxy.js",
+      "relativePath": "modules/assistant/app-src/adapters/cors-proxy.js",
       "extension": ".js"
     },
     {

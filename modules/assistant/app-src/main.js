@@ -258,6 +258,7 @@ const state = {
     modelOptionsByProvider: {},
     pullStateByProvider: {},
     draftAttachments: [],
+    sidebarCollapsed: true,
 };
 
 const pendingToolCalls = new Map();
@@ -503,6 +504,7 @@ function persistSession() {
         localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
             messages: activeMessages.map(serializeMessage),
             historySummary: summary,
+            sidebarCollapsed: state.sidebarCollapsed,
         }));
     } catch {
         // Ignore localStorage failures.
@@ -518,10 +520,12 @@ function restoreSession() {
             : [];
         state.historySummary = String(parsed.historySummary || '');
         state.archivedTurnCount = 0;
+        state.sidebarCollapsed = parsed.sidebarCollapsed !== undefined ? !!parsed.sidebarCollapsed : true;
     } catch {
         state.messages = [];
         state.historySummary = '';
         state.archivedTurnCount = 0;
+        state.sidebarCollapsed = true;
     }
 }
 
@@ -1909,12 +1913,16 @@ function renderMessages(container) {
 
 function buildAppMarkup(root) {
     root.innerHTML = `
-        <div class="xb-assistant-shell">
-            <aside class="xb-assistant-sidebar">
-                <div class="xb-assistant-brand">
-                    <div class="xb-assistant-badge">API配置</div>
-                </div>
-                <section class="xb-assistant-config">
+        <div class="xb-assistant-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
+            <aside class="xb-assistant-sidebar ${state.sidebarCollapsed ? 'is-collapsed' : ''}">
+                <button id="xb-assistant-sidebar-toggle" type="button" class="xb-assistant-sidebar-toggle" aria-expanded="${state.sidebarCollapsed ? 'false' : 'true'}" aria-label="${state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置'}" title="${state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置'}">
+                    <span class="xb-assistant-sidebar-toggle-icon">${state.sidebarCollapsed ? '⚙' : '‹'}</span>
+                </button>
+                <div class="xb-assistant-sidebar-content">
+                    <div class="xb-assistant-brand">
+                        <div class="xb-assistant-badge">API配置</div>
+                    </div>
+                    <section class="xb-assistant-config">
                     <label>
                         <span>已存预设</span>
                         <select id="xb-assistant-preset-select"></select>
@@ -1987,7 +1995,8 @@ function buildAppMarkup(root) {
                     </div>
                     <div class="xb-assistant-runtime" id="xb-assistant-runtime"></div>
                     <div class="xb-assistant-toast xb-assistant-toast-inline" id="xb-assistant-toast" aria-live="polite"></div>
-                </section>
+                    </section>
+                </div>
             </aside>
             <main class="xb-assistant-main">
                 <section class="xb-assistant-toolbar">
@@ -2128,13 +2137,66 @@ function injectStyles() {
                 linear-gradient(180deg, #f6f8fb 0%, #eef3f8 100%);
             color: #142033;
         }
-        .xb-assistant-shell { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: 100vh; }
+        .xb-assistant-shell {
+            display: grid;
+            grid-template-columns: 340px minmax(0, 1fr);
+            min-height: 100vh;
+            transition: grid-template-columns 0.22s ease;
+        }
+        .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
         .xb-assistant-sidebar {
+            position: relative;
             padding: 24px 20px;
             background: rgba(255, 255, 255, 0.82);
             border-right: 1px solid rgba(20, 32, 51, 0.08);
             backdrop-filter: blur(14px);
             overflow: auto;
+            transition: padding 0.22s ease;
+        }
+        .xb-assistant-sidebar.is-collapsed {
+            padding: 14px 10px;
+            overflow: hidden;
+        }
+        .xb-assistant-sidebar-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border: none;
+            border-radius: 12px;
+            background: rgba(20, 32, 51, 0.88);
+            color: #fff6e9;
+            cursor: pointer;
+            box-shadow: 0 10px 24px rgba(17, 31, 51, 0.12);
+            transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+        }
+        .xb-assistant-sidebar-toggle:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 28px rgba(17, 31, 51, 0.16);
+        }
+        .xb-assistant-sidebar-toggle-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            line-height: 1;
+        }
+        .xb-assistant-sidebar-content {
+            display: grid;
+            gap: 16px;
+            margin-top: 16px;
+            min-width: 0;
+            opacity: 1;
+            transition: opacity 0.18s ease;
+        }
+        .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-content {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .xb-assistant-sidebar.is-collapsed .xb-assistant-brand,
+        .xb-assistant-sidebar.is-collapsed .xb-assistant-config {
+            display: none;
         }
         .xb-assistant-brand h1 { margin: 12px 0 8px; font-size: 30px; }
         .xb-assistant-brand p { margin: 0 0 18px; color: #4b5a70; line-height: 1.55; }
@@ -2593,7 +2655,21 @@ function injectStyles() {
         }
         @media (max-width: 900px) {
             .xb-assistant-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+            .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 1fr; }
             .xb-assistant-sidebar { border-right: none; border-bottom: 1px solid rgba(20, 32, 51, 0.08); }
+            .xb-assistant-sidebar.is-collapsed {
+                padding: 12px 14px;
+                overflow: auto;
+            }
+            .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-content {
+                opacity: 1;
+                pointer-events: auto;
+            }
+            .xb-assistant-sidebar.is-collapsed .xb-assistant-brand,
+            .xb-assistant-sidebar.is-collapsed .xb-assistant-config {
+                display: grid;
+            }
+            .xb-assistant-sidebar-toggle { display: none; }
             .xb-assistant-main { padding: 14px; }
             .xb-assistant-compose { grid-template-columns: 1fr; }
             .xb-assistant-compose-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2658,6 +2734,21 @@ function render() {
     toast.textContent = state.toast || '';
     toast.classList.toggle('visible', !!state.toast);
 
+    const shell = root.querySelector('.xb-assistant-shell');
+    const sidebar = root.querySelector('.xb-assistant-sidebar');
+    const sidebarToggle = root.querySelector('#xb-assistant-sidebar-toggle');
+    shell?.classList.toggle('sidebar-collapsed', !!state.sidebarCollapsed);
+    sidebar?.classList.toggle('is-collapsed', !!state.sidebarCollapsed);
+    if (sidebarToggle) {
+        sidebarToggle.setAttribute('aria-expanded', state.sidebarCollapsed ? 'false' : 'true');
+        sidebarToggle.setAttribute('aria-label', state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置');
+        sidebarToggle.title = state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置';
+        const icon = sidebarToggle.querySelector('.xb-assistant-sidebar-toggle-icon');
+        if (icon) {
+            icon.textContent = state.sidebarCollapsed ? '⚙' : '‹';
+        }
+    }
+
     const draftGallery = root.querySelector('#xb-assistant-draft-gallery');
     renderAttachmentGallery(draftGallery, state.draftAttachments, {
         onRemove: (index) => {
@@ -2678,6 +2769,12 @@ function bindEvents(root) {
         input.style.height = 'auto';
         input.style.height = `${Math.min(Math.max(input.scrollHeight, 92), 240)}px`;
     };
+
+    root.querySelector('#xb-assistant-sidebar-toggle')?.addEventListener('click', () => {
+        state.sidebarCollapsed = !state.sidebarCollapsed;
+        persistSession();
+        render();
+    });
 
     root.querySelector('#xb-assistant-chat').addEventListener('scroll', (event) => {
         const container = event.currentTarget;

@@ -76,7 +76,12 @@ function shouldRenderContentByBlock(codeBlock) {
     if (!content) return false;
     if (extractExternalUrl(content)) return true;
     const lower = content.toLowerCase();
-    return lower.includes('<!doctype') || lower.includes('<html') || lower.includes('<script');
+    if (lower.includes('<!doctype') || lower.includes('<html') || lower.includes('<script')) return true;
+
+    // 支持直接输出的 HTML 片段，而不要求必须是完整的 <html> 文档。
+    // 这样像 <div>...</div>、<style>...</style><div>...</div>、<svg>...</svg> 也能进入 iframe 渲染。
+    const fragmentStartPattern = /^\s*(?:<!--[\s\S]*?-->\s*)*<(?:style|link|meta|svg|iframe|canvas|img|video|audio|picture|div|section|main|article|header|footer|nav|aside|p|span|button|input|textarea|select|label|ul|ol|li|table|thead|tbody|tr|td|th|form|figure|figcaption|details|summary|dialog|h[1-6])\b/i;
+    return fragmentStartPattern.test(content);
 }
 
 function generateUniqueId() {

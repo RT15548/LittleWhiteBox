@@ -19,10 +19,17 @@ import { extensionFolderPath } from "../../core/constants.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { createModuleEvents } from "../../core/event-manager.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
-import { CommonSettingStorage } from "../../core/server-storage.js";
 
 // config/store
-import { getSettings, getSummaryPanelConfig, getVectorConfig, saveVectorConfig, saveSummaryPanelConfig } from "./data/config.js";
+import {
+    getSettings,
+    getSummaryPanelConfig,
+    getVectorConfig,
+    saveVectorConfig,
+    saveSummaryPanelConfig,
+    saveSummaryPanelConfigVerified,
+    loadConfigFromServer,
+} from "./data/config.js";
 import {
     getSummaryStore,
     saveSummaryStore,
@@ -100,7 +107,6 @@ import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocume
 // ═══════════════════════════════════════════════════════════════════════════
 
 const MODULE_ID = "storySummary";
-const SUMMARY_CONFIG_KEY = "storySummaryPanelConfig";
 const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.html`;
 const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
@@ -960,7 +966,7 @@ function initButtonsForAll() {
 
 async function sendSavedConfigToFrame() {
     try {
-        const savedConfig = getSummaryPanelConfig();
+        const savedConfig = await loadConfigFromServer();
         postToFrame({ type: "LOAD_PANEL_CONFIG", config: savedConfig });
     } catch (e) {
         xbLog.warn(MODULE_ID, "加载面板配置失败", e);
@@ -1922,7 +1928,24 @@ async function handleFrameMessage(event) {
 
         case "SAVE_PANEL_CONFIG":
             if (data.config) {
-                CommonSettingStorage.set(SUMMARY_CONFIG_KEY, data.config);
+                try {
+                    const savedConfig = await saveSummaryPanelConfigVerified(data.config);
+                    postToFrame({
+                        type: "PANEL_CONFIG_SAVE_RESULT",
+                        success: true,
+                        requestId: data.requestId || "",
+                        config: savedConfig,
+                    });
+                    sendVectorConfigToFrame();
+                } catch (e) {
+                    xbLog.error(MODULE_ID, "保存面板配置失败", e);
+                    postToFrame({
+                        type: "PANEL_CONFIG_SAVE_RESULT",
+                        success: false,
+                        requestId: data.requestId || "",
+                        error: e?.message || "保存失败",
+                    });
+                }
             }
             break;
 
@@ -2487,8 +2510,15 @@ $(document).on("xiaobaix:storySummary:toggle", async (_e, enabled) => {
 
 jQuery(() => {
     if (!getSettings().storySummary?.enabled) return;
-    registerEvents();
-    initStateIntegration();
-
-    maybePreloadTokenizer();
+    (async () => {
+        await loadConfigFromServer();
+        registerEvents();
+        initStateIntegration();
+        maybePreloadTokenizer();
+    })().catch((e) => {
+        xbLog.warn(MODULE_ID, "初始化前加载服务端配置失败，继续使用本地缓存", e);
+        registerEvents();
+        initStateIntegration();
+        maybePreloadTokenizer();
+    });
 });

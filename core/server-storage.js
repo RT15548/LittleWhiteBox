@@ -71,6 +71,40 @@ class StorageFile {
         }
     }
 
+    async setAndSave(key, value, { silent = true } = {}) {
+        const data = await this.load();
+        const hadKey = Object.prototype.hasOwnProperty.call(data, key);
+        const previousValue = data[key];
+        const previousDirtyVersion = this._dirtyVersion;
+        const previousSavedVersion = this._savedVersion;
+        const previousPendingSave = this._pendingSave;
+
+        data[key] = value;
+        this._dirtyVersion++;
+
+        try {
+            return await this.saveNow({ silent });
+        } catch (err) {
+            if (hadKey) data[key] = previousValue;
+            else delete data[key];
+
+            this._dirtyVersion = previousDirtyVersion;
+            this._savedVersion = previousSavedVersion;
+            this._pendingSave = previousPendingSave;
+            this._retryCount = 0;
+
+            if (this._retryTimer) {
+                clearTimeout(this._retryTimer);
+                this._retryTimer = null;
+            }
+
+            if (!silent) {
+                throw err;
+            }
+            return false;
+        }
+    }
+
     /**
      * 立即保存
      * @param {Object} options
