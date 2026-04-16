@@ -293,7 +293,7 @@ var vg = ({ headers: e, body: t }) => ({
   RFC1738: (e) => String(e).replace(/%20/g, "+"),
   RFC3986: vu
 };
-var nr = (e, t) => (nr = Object.hasOwn ?? Function.prototype.call.bind(Object.prototype.hasOwnProperty), nr(e, t)), Oe = /* @__PURE__ */ (() => {
+var nr = (e, t) => (nr = Object.hasOwn ?? Function.prototype.call.bind(Object.prototype.hasOwnProperty), nr(e, t)), Be = /* @__PURE__ */ (() => {
   const e = [];
   for (let t = 0; t < 256; ++t) e.push("%" + ((t < 16 ? "0" : "") + t.toString(16)).toUpperCase());
   return e;
@@ -313,18 +313,18 @@ var nr = (e, t) => (nr = Object.hasOwn ?? Function.prototype.call.bind(Object.pr
         continue;
       }
       if (p < 128) {
-        d[d.length] = Oe[p];
+        d[d.length] = Be[p];
         continue;
       }
       if (p < 2048) {
-        d[d.length] = Oe[192 | p >> 6] + Oe[128 | p & 63];
+        d[d.length] = Be[192 | p >> 6] + Be[128 | p & 63];
         continue;
       }
       if (p < 55296 || p >= 57344) {
-        d[d.length] = Oe[224 | p >> 12] + Oe[128 | p >> 6 & 63] + Oe[128 | p & 63];
+        d[d.length] = Be[224 | p >> 12] + Be[128 | p >> 6 & 63] + Be[128 | p & 63];
         continue;
       }
-      m += 1, p = 65536 + ((p & 1023) << 10 | c.charCodeAt(m) & 1023), d[d.length] = Oe[240 | p >> 18] + Oe[128 | p >> 12 & 63] + Oe[128 | p >> 6 & 63] + Oe[128 | p & 63];
+      m += 1, p = 65536 + ((p & 1023) << 10 | c.charCodeAt(m) & 1023), d[d.length] = Be[240 | p >> 18] + Be[128 | p >> 12 & 63] + Be[128 | p >> 6 & 63] + Be[128 | p & 63];
     }
     s += d.join("");
   }
@@ -2191,11 +2191,11 @@ var ad = class extends D {
 }, At = (e) => {
   if (typeof globalThis.process < "u") return globalThis.process.env?.[e]?.trim() ?? void 0;
   if (typeof globalThis.Deno < "u") return globalThis.Deno.env?.get?.(e)?.trim();
-}, re, bt, mr, Be, Ra, Ie, yt, zt, ht, Ka, ke, Pa, xa, Pn, Sn, wn, ds, ps, ms, gs, hs, fs, bs, xn = class extends ao {
+}, re, bt, mr, Fe, Ra, Ie, yt, zt, ht, Ka, ke, Pa, xa, Pn, Sn, wn, ds, ps, ms, gs, hs, fs, bs, xn = class extends ao {
   constructor() {
-    super(...arguments), re.add(this), mr.set(this, []), Be.set(this, {}), Ra.set(this, {}), Ie.set(this, void 0), yt.set(this, void 0), zt.set(this, void 0), ht.set(this, void 0), Ka.set(this, void 0), ke.set(this, void 0), Pa.set(this, void 0), xa.set(this, void 0), Pn.set(this, void 0);
+    super(...arguments), re.add(this), mr.set(this, []), Fe.set(this, {}), Ra.set(this, {}), Ie.set(this, void 0), yt.set(this, void 0), zt.set(this, void 0), ht.set(this, void 0), Ka.set(this, void 0), ke.set(this, void 0), Pa.set(this, void 0), xa.set(this, void 0), Pn.set(this, void 0);
   }
-  [(mr = /* @__PURE__ */ new WeakMap(), Be = /* @__PURE__ */ new WeakMap(), Ra = /* @__PURE__ */ new WeakMap(), Ie = /* @__PURE__ */ new WeakMap(), yt = /* @__PURE__ */ new WeakMap(), zt = /* @__PURE__ */ new WeakMap(), ht = /* @__PURE__ */ new WeakMap(), Ka = /* @__PURE__ */ new WeakMap(), ke = /* @__PURE__ */ new WeakMap(), Pa = /* @__PURE__ */ new WeakMap(), xa = /* @__PURE__ */ new WeakMap(), Pn = /* @__PURE__ */ new WeakMap(), re = /* @__PURE__ */ new WeakSet(), Symbol.asyncIterator)]() {
+  [(mr = /* @__PURE__ */ new WeakMap(), Fe = /* @__PURE__ */ new WeakMap(), Ra = /* @__PURE__ */ new WeakMap(), Ie = /* @__PURE__ */ new WeakMap(), yt = /* @__PURE__ */ new WeakMap(), zt = /* @__PURE__ */ new WeakMap(), ht = /* @__PURE__ */ new WeakMap(), Ka = /* @__PURE__ */ new WeakMap(), ke = /* @__PURE__ */ new WeakMap(), Pa = /* @__PURE__ */ new WeakMap(), xa = /* @__PURE__ */ new WeakMap(), Pn = /* @__PURE__ */ new WeakMap(), re = /* @__PURE__ */ new WeakSet(), Symbol.asyncIterator)]() {
     const e = [], t = [];
     let n = !1;
     return this.on("event", (a) => {
@@ -2309,7 +2309,7 @@ var ad = class extends D {
     return k(this, Pn, "f");
   }
   async finalRunSteps() {
-    return await this.done(), Object.values(k(this, Be, "f"));
+    return await this.done(), Object.values(k(this, Fe, "f"));
   }
   async finalMessages() {
     return await this.done(), Object.values(k(this, Ra, "f"));
@@ -2514,25 +2514,25 @@ bt = xn, Sn = function(t) {
 }, gs = function(t) {
   switch (t.event) {
     case "thread.run.step.created":
-      return k(this, Be, "f")[t.data.id] = t.data, t.data;
+      return k(this, Fe, "f")[t.data.id] = t.data, t.data;
     case "thread.run.step.delta":
-      let n = k(this, Be, "f")[t.data.id];
+      let n = k(this, Fe, "f")[t.data.id];
       if (!n) throw Error("Received a RunStepDelta before creation of a snapshot");
       let a = t.data;
       if (a.delta) {
         const i = bt.accumulateDelta(n, a.delta);
-        k(this, Be, "f")[t.data.id] = i;
+        k(this, Fe, "f")[t.data.id] = i;
       }
-      return k(this, Be, "f")[t.data.id];
+      return k(this, Fe, "f")[t.data.id];
     case "thread.run.step.completed":
     case "thread.run.step.failed":
     case "thread.run.step.cancelled":
     case "thread.run.step.expired":
     case "thread.run.step.in_progress":
-      k(this, Be, "f")[t.data.id] = t.data;
+      k(this, Fe, "f")[t.data.id] = t.data;
       break;
   }
-  if (k(this, Be, "f")[t.data.id]) return k(this, Be, "f")[t.data.id];
+  if (k(this, Fe, "f")[t.data.id]) return k(this, Fe, "f")[t.data.id];
   throw new Error("No snapshot available");
 }, hs = function(t, n) {
   let a = [];
@@ -4690,7 +4690,7 @@ var fr = (e) => {
     const r = n, s = r?.error?.type;
     return t === 400 ? new Ld(t, r, a, i, s) : t === 401 ? new Od(t, r, a, i, s) : t === 403 ? new Bd(t, r, a, i, s) : t === 404 ? new Fd(t, r, a, i, s) : t === 409 ? new Gd(t, r, a, i, s) : t === 422 ? new Ud(t, r, a, i, s) : t === 429 ? new qd(t, r, a, i, s) : t >= 500 ? new jd(t, r, a, i, s) : new br(t, r, a, i, s);
   }
-}, Me = class extends _e {
+}, Ne = class extends _e {
   constructor({ message: e } = {}) {
     super(void 0, void 0, e || "Request was aborted.", void 0);
   }
@@ -5848,7 +5848,7 @@ var kf = class Sr {
     }), Zt.set(this, void 0), oa.set(this, () => {
     }), en.set(this, () => {
     }), Ve.set(this, {}), tn.set(this, !1), sa.set(this, !1), la.set(this, !1), lt.set(this, !1), ca.set(this, void 0), ua.set(this, void 0), nn.set(this, void 0), da.set(this, (a) => {
-      if (x(this, sa, !0, "f"), On(a) && (a = new Me()), a instanceof Me)
+      if (x(this, sa, !0, "f"), On(a) && (a = new Ne()), a instanceof Ne)
         return x(this, la, !0, "f"), this._emit("abort", a);
       if (a instanceof G) return this._emit("error", a);
       if (a instanceof Error) {
@@ -5927,7 +5927,7 @@ var kf = class Sr {
       }).withResponse();
       this._connected(s);
       for await (const c of u) v(this, Se, "m", Fi).call(this, c);
-      if (u.controller.signal?.aborted) throw new Me();
+      if (u.controller.signal?.aborted) throw new Ne();
       v(this, Se, "m", Gi).call(this);
     } finally {
       i && r && i.removeEventListener("abort", r);
@@ -6005,7 +6005,7 @@ var kf = class Sr {
       v(this, Se, "m", Bi).call(this), this._connected(null);
       const r = Bn.fromReadableStream(t, this.controller);
       for await (const s of r) v(this, Se, "m", Fi).call(this, s);
-      if (r.controller.signal?.aborted) throw new Me();
+      if (r.controller.signal?.aborted) throw new Ne();
       v(this, Se, "m", Gi).call(this);
     } finally {
       a && i && a.removeEventListener("abort", i);
@@ -6890,7 +6890,7 @@ var Af = class Er {
     }), ln.set(this, void 0), ma.set(this, () => {
     }), cn.set(this, () => {
     }), We.set(this, {}), un.set(this, !1), ga.set(this, !1), ha.set(this, !1), ut.set(this, !1), fa.set(this, void 0), ba.set(this, void 0), dn.set(this, void 0), qi.set(this, (a) => {
-      if (x(this, ga, !0, "f"), On(a) && (a = new Me()), a instanceof Me)
+      if (x(this, ga, !0, "f"), On(a) && (a = new Ne()), a instanceof Ne)
         return x(this, ha, !0, "f"), this._emit("abort", a);
       if (a instanceof G) return this._emit("error", a);
       if (a instanceof Error) {
@@ -6969,7 +6969,7 @@ var Af = class Er {
       }).withResponse();
       this._connected(s);
       for await (const c of u) v(this, we, "m", Hi).call(this, c);
-      if (u.controller.signal?.aborted) throw new Me();
+      if (u.controller.signal?.aborted) throw new Ne();
       v(this, we, "m", Vi).call(this);
     } finally {
       i && r && i.removeEventListener("abort", r);
@@ -7047,7 +7047,7 @@ var Af = class Er {
       v(this, we, "m", ji).call(this), this._connected(null);
       const r = Bn.fromReadableStream(t, this.controller);
       for await (const s of r) v(this, we, "m", Hi).call(this, s);
-      if (r.controller.signal?.aborted) throw new Me();
+      if (r.controller.signal?.aborted) throw new Ne();
       v(this, we, "m", Vi).call(this);
     } finally {
       a && i && a.removeEventListener("abort", i);
@@ -7440,11 +7440,11 @@ new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
       url: s,
       options: a,
       headers: r.headers
-    })), a.signal?.aborted) throw new Me();
+    })), a.signal?.aborted) throw new Ne();
     const p = new AbortController(), g = await this.fetchWithTimeout(s, r, u, p).catch(fr), h = Date.now();
     if (g instanceof globalThis.Error) {
       const b = `retrying, ${t} attempts remaining`;
-      if (a.signal?.aborted) throw new Me();
+      if (a.signal?.aborted) throw new Ne();
       const y = On(g) || /timed? ?out/i.test(String(g) + ("cause" in g ? String(g.cause) : ""));
       if (t)
         return ce(this).info(`[${c}] connection ${y ? "timed out" : "failed"} - ${b}`), ce(this).debug(`[${c}] connection ${y ? "timed out" : "failed"} (${b})`, mt({
@@ -7640,7 +7640,7 @@ Y.AnthropicError = G;
 Y.APIError = _e;
 Y.APIConnectionError = gi;
 Y.APIConnectionTimeoutError = zd;
-Y.APIUserAbortError = Me;
+Y.APIUserAbortError = Ne;
 Y.NotFoundError = Fd;
 Y.ConflictError = Gd;
 Y.RateLimitError = qd;
@@ -10255,7 +10255,7 @@ function kc(e) {
 function U(e) {
   return this instanceof U ? (this.v = e, this) : new U(e);
 }
-function Ne(e, t, n) {
+function De(e, t, n) {
   if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
   var a = n.apply(e, t || []), i, r = [];
   return i = Object.create((typeof AsyncIterator == "function" ? AsyncIterator : Object).prototype), u("next"), u("throw"), u("return", s), i[Symbol.asyncIterator] = function() {
@@ -10298,7 +10298,7 @@ function Ne(e, t, n) {
     h(f), r.shift(), r.length && c(r[0][0], r[0][1]);
   }
 }
-function De(e) {
+function ze(e) {
   if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
   var t = e[Symbol.asyncIterator], n;
   return t ? t.call(e) : (e = typeof kc == "function" ? kc(e) : e[Symbol.iterator](), n = {}, a("next"), a("throw"), a("return"), n[Symbol.asyncIterator] = function() {
@@ -10400,11 +10400,11 @@ var sv = class {
     return structuredClone(t);
   }
   processStreamResponse(e, t) {
-    return Ne(this, arguments, function* () {
+    return De(this, arguments, function* () {
       var a, i, r, s, u, c;
       const d = [];
       try {
-        for (var m = !0, p = De(e), g; g = yield U(p.next()), a = g.done, !a; m = !0) {
+        for (var m = !0, p = ze(e), g; g = yield U(p.next()), a = g.done, !a; m = !0) {
           s = g.value, m = !1;
           const h = s;
           if (rv(h)) {
@@ -11951,7 +11951,7 @@ function Dk(e, t, n) {
   const b = o(e, ["generateAudio"]);
   t !== void 0 && b != null && l(t, ["parameters", "generateAudio"], b);
   const y = o(e, ["lastFrame"]);
-  t !== void 0 && y != null && l(t, ["instances[0]", "lastFrame"], Le(y));
+  t !== void 0 && y != null && l(t, ["instances[0]", "lastFrame"], Oe(y));
   const A = o(e, ["referenceImages"]);
   if (t !== void 0 && A != null) {
     let O = A;
@@ -12009,7 +12009,7 @@ function Bk(e, t, n) {
   const r = o(t, ["prompt"]);
   r != null && l(a, ["instances[0]", "prompt"], r);
   const s = o(t, ["image"]);
-  s != null && l(a, ["instances[0]", "image"], Le(s));
+  s != null && l(a, ["instances[0]", "image"], Oe(s));
   const u = o(t, ["video"]);
   u != null && l(a, ["instances[0]", "video"], Zp(u));
   const c = o(t, ["source"]);
@@ -12051,7 +12051,7 @@ function qk(e, t, n) {
   const a = {}, i = o(e, ["prompt"]);
   t !== void 0 && i != null && l(t, ["instances[0]", "prompt"], i);
   const r = o(e, ["image"]);
-  t !== void 0 && r != null && l(t, ["instances[0]", "image"], Le(r));
+  t !== void 0 && r != null && l(t, ["instances[0]", "image"], Oe(r));
   const s = o(e, ["video"]);
   return t !== void 0 && s != null && l(t, ["instances[0]", "video"], Zp(s)), a;
 }
@@ -12208,7 +12208,7 @@ function bi(e, t) {
   const i = o(e, ["mimeType"]);
   return i != null && l(n, ["mimeType"], i), n;
 }
-function Le(e, t) {
+function Oe(e, t) {
   const n = {}, a = o(e, ["gcsUri"]);
   a != null && l(n, ["gcsUri"], a);
   const i = o(e, ["imageBytes"]);
@@ -12390,7 +12390,7 @@ function c_(e, t) {
 }
 function u_(e, t) {
   const n = {}, a = o(e, ["productImage"]);
-  return a != null && l(n, ["image"], Le(a)), n;
+  return a != null && l(n, ["image"], Oe(a)), n;
 }
 function d_(e, t, n) {
   const a = {}, i = o(e, ["numberOfImages"]);
@@ -12448,7 +12448,7 @@ function g_(e, t, n) {
     "instances[0]",
     "personImage",
     "image"
-  ], Le(r));
+  ], Oe(r));
   const s = o(e, ["productImages"]);
   if (t !== void 0 && s != null) {
     let u = s;
@@ -12458,7 +12458,7 @@ function g_(e, t, n) {
 }
 function h_(e, t) {
   const n = {}, a = o(e, ["referenceImage"]);
-  a != null && l(n, ["referenceImage"], Le(a));
+  a != null && l(n, ["referenceImage"], Oe(a));
   const i = o(e, ["referenceId"]);
   i != null && l(n, ["referenceId"], i);
   const r = o(e, ["referenceType"]);
@@ -12496,7 +12496,7 @@ function f_(e, t) {
 }
 function b_(e, t) {
   const n = {}, a = o(e, ["image"]);
-  return a != null && l(n, ["image"], Le(a)), n;
+  return a != null && l(n, ["image"], Oe(a)), n;
 }
 function y_(e, t, n) {
   const a = {}, i = o(e, ["mode"]);
@@ -12532,7 +12532,7 @@ function __(e, t, n) {
   const a = {}, i = o(e, ["prompt"]);
   t !== void 0 && i != null && l(t, ["instances[0]", "prompt"], i);
   const r = o(e, ["image"]);
-  t !== void 0 && r != null && l(t, ["instances[0]", "image"], Le(r));
+  t !== void 0 && r != null && l(t, ["instances[0]", "image"], Oe(r));
   const s = o(e, ["scribbleImage"]);
   return t !== void 0 && s != null && l(t, ["instances[0]", "scribble"], b_(s)), a;
 }
@@ -12694,7 +12694,7 @@ function M_(e, t, n) {
   const a = {}, i = o(t, ["model"]);
   i != null && l(a, ["_url", "model"], H(e, i));
   const r = o(t, ["image"]);
-  r != null && l(a, ["instances[0]", "image"], Le(r));
+  r != null && l(a, ["instances[0]", "image"], Oe(r));
   const s = o(t, ["upscaleFactor"]);
   s != null && l(a, [
     "parameters",
@@ -12732,7 +12732,7 @@ function z_(e, t) {
 }
 function L_(e, t) {
   const n = {}, a = o(e, ["image"]);
-  a != null && l(n, ["_self"], Le(a));
+  a != null && l(n, ["_self"], Oe(a));
   const i = o(e, ["maskMode"]);
   return i != null && l(n, ["maskMode"], i), n;
 }
@@ -12744,7 +12744,7 @@ function O_(e, t) {
 }
 function B_(e, t) {
   const n = {}, a = o(e, ["image"]);
-  a != null && l(n, ["image"], Le(a));
+  a != null && l(n, ["image"], Oe(a));
   const i = o(e, ["referenceType"]);
   return i != null && l(n, ["referenceType"], i), n;
 }
@@ -12994,7 +12994,7 @@ var Z_ = "Content-Type", eS = "X-Server-Timeout", tS = "User-Agent", zr = "x-goo
     });
   }
   processStreamResponse(e) {
-    return Ne(this, arguments, function* () {
+    return De(this, arguments, function* () {
       var n;
       const a = (n = e?.body) === null || n === void 0 ? void 0 : n.getReader(), i = new TextDecoder("utf-8");
       if (!a) throw new Error("Response body is empty");
@@ -13196,7 +13196,7 @@ function pS(e) {
   return e !== null && typeof e == "object" && e instanceof gS;
 }
 function mS(e) {
-  return Ne(this, arguments, function* (n, a = 100) {
+  return De(this, arguments, function* (n, a = 100) {
     let i, r = 0;
     for (; r < a; ) {
       const s = yield U(n.listTools({ cursor: i }));
@@ -13219,7 +13219,7 @@ var gS = class am {
     if (this.mcpTools.length > 0) return;
     const r = {}, s = [];
     for (const m of this.mcpClients) try {
-      for (var u = !0, c = (n = void 0, De(mS(m))), d; d = await c.next(), t = d.done, !t; u = !0) {
+      for (var u = !0, c = (n = void 0, ze(mS(m))), d; d = await c.next(), t = d.done, !t; u = !0) {
         i = d.value, u = !1;
         const p = i;
         s.push(p);
@@ -13651,12 +13651,12 @@ var IS = class extends Ye {
     let r = !1, s = 0;
     const u = await this.initAfcToolsMap(e);
     return (function(c, d, m) {
-      return Ne(this, arguments, function* () {
+      return De(this, arguments, function* () {
         for (var p, g, h, f, b, y; s < i; ) {
           r && (s++, r = !1);
           const I = yield U(c.processParamsMaybeAddMcpUsage(m)), O = yield U(c.generateContentStreamInternal(I)), S = [], L = [];
           try {
-            for (var A = !0, w = (g = void 0, De(O)), T; T = yield U(w.next()), p = T.done, !p; A = !0) {
+            for (var A = !0, w = (g = void 0, ze(O)), T; T = yield U(w.next()), p = T.done, !p; A = !0) {
               f = T.value, A = !1;
               const C = f;
               if (yield yield U(C), C.candidates && (!((b = C.candidates[0]) === null || b === void 0) && b.content)) {
@@ -13747,10 +13747,10 @@ var IS = class extends Ye {
         httpOptions: (t = e.config) === null || t === void 0 ? void 0 : t.httpOptions,
         abortSignal: (n = e.config) === null || n === void 0 ? void 0 : n.abortSignal
       }), r.then(function(d) {
-        return Ne(this, arguments, function* () {
+        return De(this, arguments, function* () {
           var m, p, g, h;
           try {
-            for (var f = !0, b = De(d), y; y = yield U(b.next()), m = y.done, !m; f = !0) {
+            for (var f = !0, b = ze(d), y; y = yield U(b.next()), m = y.done, !m; f = !0) {
               h = y.value, f = !1;
               const A = h, w = Cc(yield U(A.json()), e);
               w.sdkHttpResponse = { headers: A.headers };
@@ -13778,10 +13778,10 @@ var IS = class extends Ye {
         httpOptions: (a = e.config) === null || a === void 0 ? void 0 : a.httpOptions,
         abortSignal: (i = e.config) === null || i === void 0 ? void 0 : i.abortSignal
       }), r.then(function(d) {
-        return Ne(this, arguments, function* () {
+        return De(this, arguments, function* () {
           var m, p, g, h;
           try {
-            for (var f = !0, b = De(d), y; y = yield U(b.next()), m = y.done, !m; f = !0) {
+            for (var f = !0, b = ze(d), y; y = yield U(b.next()), m = y.done, !m; f = !0) {
               h = y.value, f = !1;
               const A = h, w = Ac(yield U(A.json()), e);
               w.sdkHttpResponse = { headers: A.headers };
@@ -14967,7 +14967,7 @@ async function Ur(e) {
   if (typeof e == "string" || ArrayBuffer.isView(e) || e instanceof ArrayBuffer) s.push(e);
   else if (bm(e)) s.push(e instanceof Blob ? e : await e.arrayBuffer());
   else if (fw(e)) try {
-    for (var u = !0, c = De(e), d; d = await c.next(), t = d.done, !t; u = !0) {
+    for (var u = !0, c = ze(e), d; d = await c.next(), t = d.done, !t; u = !0) {
       i = d.value, u = !1;
       const m = i;
       s.push(...await Ur(m));
@@ -15209,14 +15209,14 @@ var gt = (e) => (e.options && (e.options = Object.assign({}, e.options), delete 
     let i = !1;
     const r = a ? ue(a) : console;
     function s() {
-      return Ne(this, arguments, function* () {
+      return De(this, arguments, function* () {
         var c, d, m, p;
         if (i) throw new Ae("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
         i = !0;
         let g = !1;
         try {
           try {
-            for (var h = !0, f = De(Cw(t, n)), b; b = yield U(f.next()), c = b.done, !c; h = !0) {
+            for (var h = !0, f = ze(Cw(t, n)), b; b = yield U(f.next()), c = b.done, !c; h = !0) {
               p = b.value, h = !1;
               const y = p;
               if (!g)
@@ -15252,11 +15252,11 @@ var gt = (e) => (e.options && (e.options = Object.assign({}, e.options), delete 
   static fromReadableStream(t, n, a) {
     let i = !1;
     function r() {
-      return Ne(this, arguments, function* () {
+      return De(this, arguments, function* () {
         var c, d, m, p;
         const g = new vi(), h = hm(t);
         try {
-          for (var f = !0, b = De(h), y; y = yield U(b.next()), c = y.done, !c; f = !0) {
+          for (var f = !0, b = ze(h), y; y = yield U(b.next()), c = y.done, !c; f = !0) {
             p = y.value, f = !1;
             const A = p;
             for (const w of g.decode(A)) yield yield U(w);
@@ -15274,14 +15274,14 @@ var gt = (e) => (e.options && (e.options = Object.assign({}, e.options), delete 
       });
     }
     function s() {
-      return Ne(this, arguments, function* () {
+      return De(this, arguments, function* () {
         var c, d, m, p;
         if (i) throw new Ae("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
         i = !0;
         let g = !1;
         try {
           try {
-            for (var h = !0, f = De(r()), b; b = yield U(f.next()), c = b.done, !c; h = !0) {
+            for (var h = !0, f = ze(r()), b; b = yield U(f.next()), c = b.done, !c; h = !0) {
               p = b.value, h = !1;
               const y = p;
               g || y && (yield yield U(JSON.parse(y)));
@@ -15345,13 +15345,13 @@ var gt = (e) => (e.options && (e.options = Object.assign({}, e.options), delete 
   }
 };
 function Cw(e, t) {
-  return Ne(this, arguments, function* () {
+  return De(this, arguments, function* () {
     var a, i, r, s;
     if (!e.body)
       throw t.abort(), typeof globalThis.navigator < "u" && globalThis.navigator.product === "ReactNative" ? new Ae("The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api") : new Ae("Attempted to iterate over a response with no body");
     const u = new Iw(), c = new vi(), d = hm(e.body);
     try {
-      for (var m = !0, p = De(Tw(d)), g; g = yield U(p.next()), a = g.done, !a; m = !0) {
+      for (var m = !0, p = ze(Tw(d)), g; g = yield U(p.next()), a = g.done, !a; m = !0) {
         s = g.value, m = !1;
         const h = s;
         for (const f of c.decode(h)) {
@@ -15375,10 +15375,10 @@ function Cw(e, t) {
   });
 }
 function Tw(e) {
-  return Ne(this, arguments, function* () {
+  return De(this, arguments, function* () {
     var n, a, i, r;
     try {
-      for (var s = !0, u = De(e), c; c = yield U(u.next()), n = c.done, !n; s = !0) {
+      for (var s = !0, u = ze(e), c; c = yield U(u.next()), n = c.done, !n; s = !0) {
         r = c.value, s = !1;
         const d = r;
         d != null && (yield yield U(d instanceof ArrayBuffer ? new Uint8Array(d) : typeof d == "string" ? Do(d) : d));
@@ -225587,7 +225587,7 @@ var dA = class Hr {
     value: "google",
     label: "Google AI"
   }
-], ze = "默认", Wr = {
+], Le = "默认", Wr = {
   "openai-responses": {
     baseUrl: "https://api.openai.com/v1",
     model: "gpt-4.1-mini",
@@ -225872,7 +225872,7 @@ function ti() {
   return JSON.parse(JSON.stringify(Wr));
 }
 function xe(e) {
-  return String(e || "").trim() || ze;
+  return String(e || "").trim() || Le;
 }
 function TA(e = {}) {
   const t = ti();
@@ -225890,7 +225890,7 @@ function Fn() {
   };
 }
 function Jn(e = {}) {
-  const t = e && typeof e.presets == "object" && e.presets ? e.presets : e?.modelConfigs ? { [xe(e.currentPresetName || e.presetDraftName || ze)]: {
+  const t = e && typeof e.presets == "object" && e.presets ? e.presets : e?.modelConfigs ? { [xe(e.currentPresetName || e.presetDraftName || Le)]: {
     provider: e.provider || "openai-compatible",
     modelConfigs: e.modelConfigs
   } } : {}, n = {};
@@ -225901,7 +225901,7 @@ function Jn(e = {}) {
       provider: typeof s.provider == "string" && s.provider.trim() ? s.provider : "openai-compatible",
       modelConfigs: TA(s.modelConfigs || {})
     };
-  }), Object.keys(n).length || (n[ze] = Fn());
+  }), Object.keys(n).length || (n[Le] = Fn());
   const a = n[xe(e.currentPresetName)] ? xe(e.currentPresetName) : Object.keys(n)[0], i = n[a] || Fn();
   return {
     workspaceFileName: String(e.workspaceFileName || ""),
@@ -226042,7 +226042,7 @@ function DA() {
     _.messages = [], _.historySummary = "", _.archivedTurnCount = 0;
   }
 }
-function Fe(e) {
+function Me(e) {
   if (_.toast = String(e || "").trim(), wa && clearTimeout(wa), !_.toast) {
     W();
     return;
@@ -226629,9 +226629,9 @@ async function oC(e, t) {
   for (const s of a) {
     const u = Math.max(_.archivedTurnCount, n.length - Math.min(s, n.length));
     if (u > _.archivedTurnCount && (await rC(e, n.slice(_.archivedTurnCount, u), t), _.archivedTurnCount = u, jo()), i = Yr(), r = Jr(i), Kr(r), _.contextStats.usedTokens <= Jc)
-      return Fe(`已压缩较早历史，当前上下文 ${$r()}`), W(), r;
+      return Me(`已压缩较早历史，当前上下文 ${$r()}`), W(), r;
   }
-  return Fe(`最近对话本身已接近上限，当前上下文 ${$r()}`), W(), r;
+  return Me(`最近对话本身已接近上限，当前上下文 ${$r()}`), W(), r;
 }
 function sC(e, t, n = {}) {
   const a = Fo("tool"), i = _.activeRun;
@@ -226827,9 +226827,7 @@ function dC(e) {
         <div class="xb-assistant-shell">
             <aside class="xb-assistant-sidebar">
                 <div class="xb-assistant-brand">
-                    <div class="xb-assistant-badge">小白助手</div>
-                    <h1>技术支持 Agent</h1>
-                    <p>查代码、看设置、做排查记录。</p>
+                    <div class="xb-assistant-badge">API配置</div>
                 </div>
                 <section class="xb-assistant-config">
                     <label>
@@ -226890,9 +226888,10 @@ function dC(e) {
                     </label>
                     <div class="xb-assistant-actions">
                         <button id="xb-assistant-save" type="button">保存配置</button>
-                        <button id="xb-assistant-delete-preset" type="button" class="secondary">删除当前预设</button>
+                        <button id="xb-assistant-delete-preset" type="button" class="secondary">删除配置</button>
                     </div>
                     <div class="xb-assistant-runtime" id="xb-assistant-runtime"></div>
+                    <div class="xb-assistant-toast xb-assistant-toast-inline" id="xb-assistant-toast" aria-live="polite"></div>
                 </section>
             </aside>
             <main class="xb-assistant-main">
@@ -226915,7 +226914,6 @@ function dC(e) {
                         <button id="xb-assistant-send" type="submit">发送</button>
                     </div>
                 </form>
-                <div class="xb-assistant-toast" id="xb-assistant-toast" aria-live="polite"></div>
             </main>
         </div>
     `;
@@ -226926,38 +226924,43 @@ function pC(e) {
   Ea(m, (_.config.presetNames || []).map((f) => ({
     value: f,
     label: f
-  }))), m.value = _.config.currentPresetName || ze, p.value = _.config.presetDraftName || _.config.currentPresetName || ze, e.querySelector("#xb-assistant-provider").value = t, e.querySelector("#xb-assistant-base-url").value = n.baseUrl || "", e.querySelector("#xb-assistant-model").value = n.model || "", e.querySelector("#xb-assistant-api-key").value = n.apiKey || "", i.style.display = t === "openai-compatible" ? "" : "none", Ea(r, _A), r.value = n.toolMode || "native", Ea(c, Vm), s.checked = !!n.reasoningEnabled, c.value = Uo(n.reasoningEffort), u.style.display = s.checked ? "" : "none", Ea(d, a.map((f) => ({
+  }))), m.value = _.config.currentPresetName || Le, p.value = _.config.presetDraftName || _.config.currentPresetName || Le, e.querySelector("#xb-assistant-provider").value = t, e.querySelector("#xb-assistant-base-url").value = n.baseUrl || "", e.querySelector("#xb-assistant-model").value = n.model || "", e.querySelector("#xb-assistant-api-key").value = n.apiKey || "", i.style.display = t === "openai-compatible" ? "" : "none", Ea(r, _A), r.value = n.toolMode || "native", Ea(c, Vm), s.checked = !!n.reasoningEnabled, c.value = Uo(n.reasoningEffort), u.style.display = s.checked ? "" : "none", Ea(d, a.map((f) => ({
     value: f,
     label: f
   })), "手动填写");
   const g = e.querySelector("#xb-assistant-runtime"), h = LA(t);
-  g.textContent = _.runtime ? `预设「${_.config.currentPresetName || ze}」 · ${zA(t)} · 已索引 ${_.runtime.indexedFileCount || 0} 个前端源码文件${h.message ? ` · ${h.message}` : ""}` : h.message || "";
+  g.textContent = _.runtime ? `预设「${_.config.currentPresetName || Le}」 · ${zA(t)} · 已索引 ${_.runtime.indexedFileCount || 0} 个前端源码文件${h.message ? ` · ${h.message}` : ""}` : h.message || "";
 }
 function mC(e) {
   at(e);
-  const t = xe(e.querySelector("#xb-assistant-preset-name")?.value), n = xe(_.config?.currentPresetName || ze), a = (_.config?.presets || {})[n] || Fn(), i = {
+  const t = xe(e.querySelector("#xb-assistant-preset-name")?.value), n = xe(_.config?.currentPresetName || Le), a = (_.config?.presets || {})[t];
+  if (t !== n && a) {
+    Me(`预设「${t}」已存在，请从下拉切换到它；如果要新建，请换个名字。`), W();
+    return;
+  }
+  const i = (_.config?.presets || {})[n] || Fn(), r = {
     ..._.config?.presets || {},
-    [t]: a
+    [t]: i
   };
   _.config = Jn({
     ..._.config,
     currentPresetName: t,
     presetDraftName: t,
-    presets: i
+    presets: r
   }), Ut("xb-assistant:save-config", {
     workspaceFileName: _.config?.workspaceFileName || "",
-    currentPresetName: _.config?.currentPresetName || ze,
+    currentPresetName: _.config?.currentPresetName || Le,
     presets: _.config?.presets || {}
   });
 }
 function gC(e) {
   if (at(e), Object.keys(_.config?.presets || {}).length <= 1) {
-    Fe("至少要保留一套预设");
+    Me("至少要保留一套预设");
     return;
   }
-  const t = xe(_.config?.currentPresetName || ze), n = { ..._.config?.presets || {} };
+  const t = xe(_.config?.currentPresetName || Le), n = { ..._.config?.presets || {} };
   delete n[t];
-  const a = Object.keys(n)[0] || ze;
+  const a = Object.keys(n)[0] || Le;
   _.config = Jn({
     ..._.config,
     currentPresetName: a,
@@ -226965,7 +226968,7 @@ function gC(e) {
     presets: n
   }), Ut("xb-assistant:save-config", {
     workspaceFileName: _.config?.workspaceFileName || "",
-    currentPresetName: _.config?.currentPresetName || ze,
+    currentPresetName: _.config?.currentPresetName || Le,
     presets: _.config?.presets || {}
   }), W();
 }
@@ -227046,41 +227049,72 @@ function hC() {
             align-items: center;
             justify-content: flex-start;
         }
+        .xb-assistant-actions {
+            gap: 8px;
+            flex-wrap: wrap;
+        }
         .xb-assistant-toolbar-cluster {
             display: inline-flex;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
         }
         .xb-assistant-actions button,
         .xb-assistant-toolbar button,
         .xb-assistant-compose button {
             border: none;
-            border-radius: 14px;
-            padding: 12px 16px;
+            border-radius: 999px;
+            min-height: 40px;
+            padding: 0 16px;
             background: #1b3758;
             color: #fff;
             cursor: pointer;
             font: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            box-shadow: 0 10px 24px rgba(27, 55, 88, 0.12);
+            transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, color 0.16s ease;
+        }
+        .xb-assistant-actions button:hover,
+        .xb-assistant-toolbar button:hover,
+        .xb-assistant-compose button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 28px rgba(27, 55, 88, 0.16);
         }
         .xb-assistant-actions button.secondary,
         .xb-assistant-toolbar button.secondary,
         .xb-assistant-compose button.secondary {
-            background: #dbe3ee;
+            background: rgba(255, 255, 255, 0.9);
             color: #1b3758;
+            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
         }
         .xb-assistant-actions button.ghost,
         .xb-assistant-toolbar button.ghost,
         .xb-assistant-compose button.ghost,
         .xb-assistant-inline-input button.ghost {
             padding-inline: 14px;
-            background: rgba(219, 227, 238, 0.82);
+            background: rgba(255, 255, 255, 0.74);
             color: #1b3758;
+            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.1);
         }
-        .xb-assistant-runtime { font-size: 12px; color: #5a6a81; min-height: 18px; }
+        .xb-assistant-actions button:disabled,
+        .xb-assistant-toolbar button:disabled,
+        .xb-assistant-compose button:disabled {
+            opacity: 0.52;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .xb-assistant-runtime {
+            font-size: 12px;
+            color: #5a6a81;
+            min-height: 18px;
+            line-height: 1.6;
+        }
         .xb-assistant-main {
             display: grid;
-            grid-template-rows: auto minmax(0, 1fr) auto auto;
+            grid-template-rows: auto minmax(0, 1fr) auto;
             padding: 20px;
             gap: 16px;
             min-width: 0;
@@ -227089,22 +227123,24 @@ function hC() {
             display: inline-flex;
             align-items: center;
             min-height: 20px;
-            padding: 10px 14px;
+            padding: 9px 14px;
             border-radius: 999px;
             background: rgba(255, 255, 255, 0.84);
             color: #41526a;
-            font-size: 13px;
+            font-size: 12px;
+            font-weight: 600;
             box-shadow: 0 10px 24px rgba(17, 31, 51, 0.06);
         }
         .xb-assistant-context-meter {
             display: inline-flex;
             align-items: center;
             min-height: 20px;
-            padding: 10px 14px;
+            padding: 9px 14px;
             border-radius: 999px;
             background: rgba(27, 55, 88, 0.09);
             color: #1b3758;
-            font-size: 13px;
+            font-size: 12px;
+            font-weight: 600;
             box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.08);
         }
         .xb-assistant-context-meter.summary-active {
@@ -227372,14 +227408,15 @@ function hC() {
         }
         .xb-assistant-compose-actions {
             display: grid;
-            gap: 10px;
+            gap: 8px;
         }
         .xb-assistant-compose textarea { min-height: 92px; resize: vertical; }
         .xb-assistant-compose button.is-busy { background: #8d442b; }
         .xb-assistant-toast {
-            min-height: 24px;
-            color: #1b3758;
-            font-size: 13px;
+            min-height: 22px;
+            color: #36567b;
+            font-size: 12px;
+            font-weight: 600;
             opacity: 0;
             transform: translateY(4px);
             transition: opacity 0.18s ease, transform 0.18s ease;
@@ -227387,6 +227424,9 @@ function hC() {
         .xb-assistant-toast.visible {
             opacity: 1;
             transform: translateY(0);
+        }
+        .xb-assistant-toast-inline {
+            padding: 4px 2px 0;
         }
         @keyframes xb-assistant-pulse {
             0% { box-shadow: 0 0 0 0 rgba(201, 107, 51, 0.35); }
@@ -227403,6 +227443,10 @@ function hC() {
             .xb-assistant-toolbar-cluster { align-items: stretch; }
             .xb-assistant-inline-input { grid-template-columns: 1fr; }
             .xb-assistant-status { justify-content: center; }
+            .xb-assistant-actions {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
         }
     `, document.head.appendChild(e);
 }
@@ -227493,7 +227537,7 @@ function fC(e) {
   }), e.querySelector("#xb-assistant-delete-preset").addEventListener("click", () => {
     gC(e);
   }), e.querySelector("#xb-assistant-clear").addEventListener("click", () => {
-    _.isBusy || (_.messages = [], _.draftAttachments = [], XA(), jo(), Fe("对话已清空"), W());
+    _.isBusy || (_.messages = [], _.draftAttachments = [], XA(), jo(), Me("对话已清空"), W());
   }), e.querySelector("#xb-assistant-add-image").addEventListener("click", () => {
     _.isBusy || _.draftAttachments.length >= ft || n.click();
   }), n.addEventListener("change", async (i) => {
@@ -227501,7 +227545,7 @@ function fC(e) {
     if (!r.length) return;
     const s = Math.max(0, ft - _.draftAttachments.length);
     if (!s) {
-      Fe(`最多只能附 ${ft} 张图片`), i.currentTarget.value = "";
+      Me(`最多只能附 ${ft} 张图片`), i.currentTarget.value = "";
       return;
     }
     const u = r.slice(0, s), c = [];
@@ -227517,14 +227561,14 @@ function fC(e) {
       }
       c.push(m);
     }), !c.length) {
-      Fe(d || "没有可添加的图片"), i.currentTarget.value = "";
+      Me(d || "没有可添加的图片"), i.currentTarget.value = "";
       return;
     }
     try {
       const m = await Promise.all(c.map((p) => xA(p)));
-      _.draftAttachments = [..._.draftAttachments, ...m].slice(0, ft), W(), (d || r.length > s) && Fe(d || `最多只能附 ${ft} 张图片`);
+      _.draftAttachments = [..._.draftAttachments, ...m].slice(0, ft), W(), (d || r.length > s) && Me(d || `最多只能附 ${ft} 张图片`);
     } catch (m) {
-      Fe(String(m?.message || "读取图片失败"));
+      Me(String(m?.message || "读取图片失败"));
     } finally {
       i.currentTarget.value = "";
     }
@@ -227570,11 +227614,11 @@ window.addEventListener("message", (e) => {
     return;
   }
   if (t.type === "xb-assistant:config-saved") {
-    Qi(t.payload?.config || {}), Fe("配置已保存");
+    Qi(t.payload?.config || {}), Me("配置已保存");
     return;
   }
   if (t.type === "xb-assistant:config-save-error") {
-    Qi(t.payload?.config || {}), Fe(`保存失败：${t.payload?.error || "网络异常"}`);
+    Qi(t.payload?.config || {}), Me(`保存失败：${t.payload?.error || "网络异常"}`);
     return;
   }
   if (t.type === "xb-assistant:tool-result") {

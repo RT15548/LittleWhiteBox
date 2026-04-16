@@ -1810,9 +1810,7 @@ function buildAppMarkup(root) {
         <div class="xb-assistant-shell">
             <aside class="xb-assistant-sidebar">
                 <div class="xb-assistant-brand">
-                    <div class="xb-assistant-badge">小白助手</div>
-                    <h1>技术支持 Agent</h1>
-                    <p>查代码、看设置、做排查记录。</p>
+                    <div class="xb-assistant-badge">API配置</div>
                 </div>
                 <section class="xb-assistant-config">
                     <label>
@@ -1873,9 +1871,10 @@ function buildAppMarkup(root) {
                     </label>
                     <div class="xb-assistant-actions">
                         <button id="xb-assistant-save" type="button">保存配置</button>
-                        <button id="xb-assistant-delete-preset" type="button" class="secondary">删除当前预设</button>
+                        <button id="xb-assistant-delete-preset" type="button" class="secondary">删除配置</button>
                     </div>
                     <div class="xb-assistant-runtime" id="xb-assistant-runtime"></div>
+                    <div class="xb-assistant-toast xb-assistant-toast-inline" id="xb-assistant-toast" aria-live="polite"></div>
                 </section>
             </aside>
             <main class="xb-assistant-main">
@@ -1898,7 +1897,6 @@ function buildAppMarkup(root) {
                         <button id="xb-assistant-send" type="submit">发送</button>
                     </div>
                 </form>
-                <div class="xb-assistant-toast" id="xb-assistant-toast" aria-live="polite"></div>
             </main>
         </div>
     `;
@@ -1948,6 +1946,12 @@ function saveConfigFromForm(root) {
     syncCurrentProviderDraft(root);
     const nextPresetName = normalizePresetName(root.querySelector('#xb-assistant-preset-name')?.value);
     const currentPresetName = normalizePresetName(state.config?.currentPresetName || DEFAULT_PRESET_NAME);
+    const existingPreset = (state.config?.presets || {})[nextPresetName];
+    if (nextPresetName !== currentPresetName && existingPreset) {
+        showToast(`预设「${nextPresetName}」已存在，请从下拉切换到它；如果要新建，请换个名字。`);
+        render();
+        return;
+    }
     const currentPreset = (state.config?.presets || {})[currentPresetName] || buildDefaultPreset();
     const nextPresets = {
         ...(state.config?.presets || {}),
@@ -2072,41 +2076,72 @@ function injectStyles() {
             align-items: center;
             justify-content: flex-start;
         }
+        .xb-assistant-actions {
+            gap: 8px;
+            flex-wrap: wrap;
+        }
         .xb-assistant-toolbar-cluster {
             display: inline-flex;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
         }
         .xb-assistant-actions button,
         .xb-assistant-toolbar button,
         .xb-assistant-compose button {
             border: none;
-            border-radius: 14px;
-            padding: 12px 16px;
+            border-radius: 999px;
+            min-height: 40px;
+            padding: 0 16px;
             background: #1b3758;
             color: #fff;
             cursor: pointer;
             font: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            box-shadow: 0 10px 24px rgba(27, 55, 88, 0.12);
+            transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, color 0.16s ease;
+        }
+        .xb-assistant-actions button:hover,
+        .xb-assistant-toolbar button:hover,
+        .xb-assistant-compose button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 14px 28px rgba(27, 55, 88, 0.16);
         }
         .xb-assistant-actions button.secondary,
         .xb-assistant-toolbar button.secondary,
         .xb-assistant-compose button.secondary {
-            background: #dbe3ee;
+            background: rgba(255, 255, 255, 0.9);
             color: #1b3758;
+            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
         }
         .xb-assistant-actions button.ghost,
         .xb-assistant-toolbar button.ghost,
         .xb-assistant-compose button.ghost,
         .xb-assistant-inline-input button.ghost {
             padding-inline: 14px;
-            background: rgba(219, 227, 238, 0.82);
+            background: rgba(255, 255, 255, 0.74);
             color: #1b3758;
+            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.1);
         }
-        .xb-assistant-runtime { font-size: 12px; color: #5a6a81; min-height: 18px; }
+        .xb-assistant-actions button:disabled,
+        .xb-assistant-toolbar button:disabled,
+        .xb-assistant-compose button:disabled {
+            opacity: 0.52;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .xb-assistant-runtime {
+            font-size: 12px;
+            color: #5a6a81;
+            min-height: 18px;
+            line-height: 1.6;
+        }
         .xb-assistant-main {
             display: grid;
-            grid-template-rows: auto minmax(0, 1fr) auto auto;
+            grid-template-rows: auto minmax(0, 1fr) auto;
             padding: 20px;
             gap: 16px;
             min-width: 0;
@@ -2115,22 +2150,24 @@ function injectStyles() {
             display: inline-flex;
             align-items: center;
             min-height: 20px;
-            padding: 10px 14px;
+            padding: 9px 14px;
             border-radius: 999px;
             background: rgba(255, 255, 255, 0.84);
             color: #41526a;
-            font-size: 13px;
+            font-size: 12px;
+            font-weight: 600;
             box-shadow: 0 10px 24px rgba(17, 31, 51, 0.06);
         }
         .xb-assistant-context-meter {
             display: inline-flex;
             align-items: center;
             min-height: 20px;
-            padding: 10px 14px;
+            padding: 9px 14px;
             border-radius: 999px;
             background: rgba(27, 55, 88, 0.09);
             color: #1b3758;
-            font-size: 13px;
+            font-size: 12px;
+            font-weight: 600;
             box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.08);
         }
         .xb-assistant-context-meter.summary-active {
@@ -2398,14 +2435,15 @@ function injectStyles() {
         }
         .xb-assistant-compose-actions {
             display: grid;
-            gap: 10px;
+            gap: 8px;
         }
         .xb-assistant-compose textarea { min-height: 92px; resize: vertical; }
         .xb-assistant-compose button.is-busy { background: #8d442b; }
         .xb-assistant-toast {
-            min-height: 24px;
-            color: #1b3758;
-            font-size: 13px;
+            min-height: 22px;
+            color: #36567b;
+            font-size: 12px;
+            font-weight: 600;
             opacity: 0;
             transform: translateY(4px);
             transition: opacity 0.18s ease, transform 0.18s ease;
@@ -2413,6 +2451,9 @@ function injectStyles() {
         .xb-assistant-toast.visible {
             opacity: 1;
             transform: translateY(0);
+        }
+        .xb-assistant-toast-inline {
+            padding: 4px 2px 0;
         }
         @keyframes xb-assistant-pulse {
             0% { box-shadow: 0 0 0 0 rgba(201, 107, 51, 0.35); }
@@ -2429,6 +2470,10 @@ function injectStyles() {
             .xb-assistant-toolbar-cluster { align-items: stretch; }
             .xb-assistant-inline-input { grid-template-columns: 1fr; }
             .xb-assistant-status { justify-content: center; }
+            .xb-assistant-actions {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
         }
     `;
     document.head.appendChild(style);
