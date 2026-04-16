@@ -667,8 +667,7 @@ function openAssistant() {
         if (overlay && overlay.style.display !== 'none') {
             overlay.style.height = `${window.innerHeight}px`;
             if (!window.matchMedia('(max-width: 900px)').matches) {
-                const rect = shell.getBoundingClientRect();
-                applyShellBounds(rect.width, rect.height);
+                applyShellBounds(shellMetrics.width || shell.getBoundingClientRect().width, shellMetrics.height || shell.getBoundingClientRect().height);
             }
         }
     };
@@ -772,18 +771,73 @@ function openAssistant() {
         background: #eef3f8;
     `;
 
-    shell.append(titleBar, closeButton, resizeHint, iframe);
+    const resizeMask = document.createElement('div');
+    resizeMask.setAttribute('aria-hidden', 'true');
+    resizeMask.style.cssText = `
+        position: absolute;
+        top: 52px;
+        left: 0;
+        width: 100%;
+        height: calc(100% - 52px);
+        display: none;
+        pointer-events: none;
+        border-radius: 0 0 22px 22px;
+        background:
+            linear-gradient(180deg, rgba(248, 250, 253, 0.9), rgba(238, 243, 248, 0.9)),
+            repeating-linear-gradient(
+                -45deg,
+                rgba(27, 55, 88, 0.04) 0 12px,
+                rgba(27, 55, 88, 0.08) 12px 24px
+            );
+    `;
+
+    shell.append(titleBar, closeButton, resizeHint, iframe, resizeMask);
     overlay.appendChild(shell);
     document.body.appendChild(overlay);
 
-    const clampShellPosition = (left, top) => {
-        const shellRect = shell.getBoundingClientRect();
-        const maxLeft = Math.max(0, window.innerWidth - shellRect.width);
-        const maxTop = Math.max(0, window.innerHeight - shellRect.height);
+    let shellMetrics = {
+        width: 0,
+        height: 0,
+        left: 0,
+        top: 0,
+    };
+    let layoutFrame = 0;
+    let pendingLayout = null;
+
+    const clampShellPosition = (left, top, width = shellMetrics.width, height = shellMetrics.height) => {
+        const maxLeft = Math.max(0, window.innerWidth - width);
+        const maxTop = Math.max(0, window.innerHeight - height);
         return {
             left: Math.max(0, Math.min(left, maxLeft)),
             top: Math.max(0, Math.min(top, maxTop)),
         };
+    };
+
+    const flushShellLayout = () => {
+        layoutFrame = 0;
+        if (!pendingLayout) return;
+        const next = {
+            width: pendingLayout.width ?? shellMetrics.width,
+            height: pendingLayout.height ?? shellMetrics.height,
+            left: pendingLayout.left ?? shellMetrics.left,
+            top: pendingLayout.top ?? shellMetrics.top,
+        };
+        shellMetrics = next;
+        shell.style.width = `${next.width}px`;
+        shell.style.height = `${next.height}px`;
+        shell.style.left = `${next.left}px`;
+        shell.style.top = `${next.top}px`;
+        pendingLayout = null;
+    };
+
+    const scheduleShellLayout = (patch) => {
+        pendingLayout = {
+            ...(pendingLayout || {}),
+            ...patch,
+        };
+        if (!layoutFrame) {
+            layoutFrame = requestAnimationFrame(flushShellLayout);
+        }
     };
 
     const centerShell = () => {
@@ -791,6 +845,12 @@ function openAssistant() {
         const height = shell.getBoundingClientRect().height;
         const nextLeft = Math.max(0, Math.round((window.innerWidth - width) / 2));
         const nextTop = Math.max(0, Math.round((window.innerHeight - height) / 2));
+        shellMetrics = {
+            width,
+            height,
+            left: nextLeft,
+            top: nextTop,
+        };
         shell.style.left = `${nextLeft}px`;
         shell.style.top = `${nextTop}px`;
     };
@@ -804,23 +864,30 @@ function openAssistant() {
         const minHeight = Math.min(640, viewportHeight - 48);
         const nextWidth = Math.max(minWidth, Math.min(width, maxWidth));
         const nextHeight = Math.max(minHeight, Math.min(height, maxHeight));
-        shell.style.width = `${nextWidth}px`;
-        shell.style.height = `${nextHeight}px`;
         shell.style.maxWidth = `${maxWidth}px`;
         shell.style.maxHeight = `${maxHeight}px`;
         shell.style.minWidth = `${minWidth}px`;
         shell.style.minHeight = `${minHeight}px`;
-        const currentLeft = Number.parseFloat(shell.style.left || '0') || 0;
-        const currentTop = Number.parseFloat(shell.style.top || '0') || 0;
-        const clamped = clampShellPosition(currentLeft, currentTop);
-        shell.style.left = `${clamped.left}px`;
-        shell.style.top = `${clamped.top}px`;
+        const currentLeft = pendingLayout?.left ?? shellMetrics.left;
+        const currentTop = pendingLayout?.top ?? shellMetrics.top;
+        const clamped = clampShellPosition(currentLeft, currentTop, nextWidth, nextHeight);
+        scheduleShellLayout({
+            width: nextWidth,
+            height: nextHeight,
+            left: clamped.left,
+            top: clamped.top,
+        });
     };
 
     centerShell();
 
     let dragState = null;
     let resizeState = null;
+    const setResizePreviewActive = (active) => {
+        iframe.style.visibility = active ? 'hidden' : '';
+        iframe.style.pointerEvents = active ? 'none' : '';
+        resizeMask.style.display = active ? 'block' : 'none';
+    };
     const stopDrag = () => {
         dragState = null;
         document.body.style.userSelect = '';
@@ -835,15 +902,19 @@ function openAssistant() {
         event.preventDefault();
         const nextLeft = dragState.startLeft + (event.clientX - dragState.startX);
         const nextTop = dragState.startTop + (event.clientY - dragState.startY);
-        const clamped = clampShellPosition(nextLeft, nextTop);
-        shell.style.left = `${clamped.left}px`;
-        shell.style.top = `${clamped.top}px`;
+        const clamped = clampShellPosition(nextLeft, nextTop, shellMetrics.width, shellMetrics.height);
+        scheduleShellLayout({ left: clamped.left, top: clamped.top });
     };
     const stopResize = () => {
+        if (layoutFrame) {
+            cancelAnimationFrame(layoutFrame);
+            flushShellLayout();
+        }
         resizeState = null;
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
         shell.style.willChange = '';  // 清除 will-change
+        setResizePreviewActive(false);
         window.removeEventListener('pointermove', onPointerMove);
         window.removeEventListener('pointerup', stopResize);
         window.removeEventListener('pointercancel', stopResize);
@@ -864,8 +935,8 @@ function openAssistant() {
         dragState = {
             startX: event.clientX,
             startY: event.clientY,
-            startLeft: rect.left,
-            startTop: rect.top,
+            startLeft: shellMetrics.left || rect.left,
+            startTop: shellMetrics.top || rect.top,
         };
         document.body.style.userSelect = 'none';
         document.body.style.cursor = 'move';
@@ -881,12 +952,13 @@ function openAssistant() {
         resizeState = {
             startX: event.clientX,
             startY: event.clientY,
-            startWidth: shell.getBoundingClientRect().width,
-            startHeight: shell.getBoundingClientRect().height,
+            startWidth: shellMetrics.width || shell.getBoundingClientRect().width,
+            startHeight: shellMetrics.height || shell.getBoundingClientRect().height,
         };
         document.body.style.userSelect = 'none';
         document.body.style.cursor = 'nwse-resize';
         shell.style.willChange = 'width, height';  // 提示浏览器优化
+        setResizePreviewActive(true);
         window.addEventListener('pointermove', onPointerMove);
         window.addEventListener('pointerup', stopResize);
         window.addEventListener('pointercancel', stopResize);
@@ -897,6 +969,11 @@ function openAssistant() {
     overlay._cleanup = () => {
         stopDrag();
         stopResize();
+        if (layoutFrame) {
+            cancelAnimationFrame(layoutFrame);
+            layoutFrame = 0;
+            pendingLayout = null;
+        }
         window.removeEventListener('resize', updateOverlayHeight);
         window.visualViewport?.removeEventListener('resize', updateOverlayHeight);
     };
@@ -922,6 +999,9 @@ function openAssistant() {
         iframe.style.top = '56px';
         iframe.style.height = 'calc(100% - 56px)';
         iframe.style.borderRadius = '0';
+        resizeMask.style.top = '56px';
+        resizeMask.style.height = 'calc(100% - 56px)';
+        resizeMask.style.borderRadius = '0';
     }
 
     // Guarded inside handleIframeMessage via isTrustedIframeEvent.

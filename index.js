@@ -609,14 +609,13 @@ function setupDebugButtonInSettings() {
         }
         const row = enableCheckbox.closest('.flex-container') || enableCheckbox.parentElement;
         if (!row) return;
+        const actionGroup = row.querySelector('.littlewhitebox-top-actions') || row;
 
         const btn = document.createElement('div');
         btn.id = 'xiaobaix-debug-btn';
-        btn.className = 'menu_button';
+        btn.className = 'menu_button littlewhitebox-top-action-button';
         btn.title = '切换调试监控';
         btn.tabIndex = 0;
-        btn.style.marginLeft = '4px';
-        btn.style.whiteSpace = 'nowrap';
         btn.innerHTML = '<span class="dbg-light"></span><span>监控</span>';
 
         const onActivate = async () => {
@@ -630,7 +629,7 @@ function setupDebugButtonInSettings() {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onActivate(); }
         });
 
-        row.appendChild(btn);
+        actionGroup.appendChild(btn);
     } catch (e) { }
 }
 

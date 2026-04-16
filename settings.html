@@ -25,10 +25,11 @@
                         提供STscript(command)异步函数执行酒馆命令:
 
                         await STscript('/echo 你好世界！')">启用小白X</label>
-            <button id="xiaobaix_assistant_open_settings" class="menu_button menu_button_icon" type="button" style="white-space:nowrap;" title="打开小白助手">
-              <i class="fa-solid fa-screwdriver-wrench"></i>
-              <small>小白助手</small>
-            </button>
+            <div class="littlewhitebox-top-actions">
+              <button id="xiaobaix_assistant_open_settings" class="menu_button menu_button_icon littlewhitebox-top-action-button" type="button" title="打开小白助手">
+                <span>小白助手</span>
+              </button>
+            </div>
           </div>
           <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
             <input type="checkbox" id="xiaobaix_render_enabled" />
@@ -407,6 +408,31 @@
     opacity: .5;
     cursor: not-allowed;
   }
+  .littlewhitebox-top-actions {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .littlewhitebox-top-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .littlewhitebox-top-action-button span,
+  .littlewhitebox-top-action-button small {
+    color: inherit;
+    font: inherit;
+    font-size: inherit;
+    line-height: inherit;
+  }
+  .littlewhitebox-top-action-button .dbg-light {
+    flex: 0 0 auto;
+  }
   .task-count {
     font-size: 0.85em;
     opacity: 0.7;
@@ -462,6 +488,11 @@
     transform: scale(1)
   }
   @media (max-width: 700px) {
+    .littlewhitebox-top-actions {
+      width: 100%;
+      margin-left: 0;
+      justify-content: flex-end;
+    }
     .littlewhitebox-toggle-row {
       flex-wrap: wrap;
       align-items: center;
