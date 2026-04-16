@@ -108,6 +108,11 @@ function resolveInstructions(task) {
 }
 
 function extractResponseText(response) {
+    const legacyChoiceContent = response?.choices?.[0]?.message?.content;
+    if (typeof legacyChoiceContent === 'string' && legacyChoiceContent.trim()) {
+        return legacyChoiceContent.trim();
+    }
+
     if (typeof response?.output_text === 'string' && response.output_text.trim()) {
         return response.output_text.trim();
     }
@@ -135,6 +140,19 @@ function extractResponseText(response) {
     });
 
     return chunks.join('\n').trim();
+}
+
+function detectProxyEndpointError(response) {
+    const choice = response?.choices?.[0];
+    const content = choice?.message?.content;
+    const finishReason = String(choice?.finish_reason || '');
+    if (typeof content !== 'string' || !content.trim()) return null;
+
+    const normalized = content.toLowerCase();
+    if (!normalized.includes('proxy error')) return null;
+    if (!normalized.includes('/responses') && !finishReason.toLowerCase().includes('proxy error')) return null;
+
+    return content.trim();
 }
 
 function buildInputMessages(task) {
@@ -271,6 +289,14 @@ export class OpenAIResponsesAdapter {
 
     async chat(task) {
         const parseResponse = (response) => {
+            const proxyError = detectProxyEndpointError(response);
+            if (proxyError) {
+                const error = new Error(proxyError);
+                error.name = 'ProxyEndpointError';
+                error.rawDisplay = proxyError;
+                throw error;
+            }
+
             const output = Array.isArray(response.output) ? response.output : [];
             const thoughts = extractThoughts(output);
             const toolCalls = output

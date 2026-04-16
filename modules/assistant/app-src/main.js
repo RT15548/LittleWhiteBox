@@ -3,6 +3,13 @@ import { OpenAIResponsesAdapter } from './adapters/openai-responses.js';
 import { AnthropicAdapter } from './adapters/anthropic.js';
 import { GoogleAdapter } from './adapters/google.js';
 import { buildCorsProxyUrl } from './adapters/cors-proxy.js';
+import {
+    TOOL_DEFINITIONS,
+    TOOL_NAMES,
+    TOOL_USAGE_GUIDANCE,
+    describeToolCall,
+    formatToolResultDisplay,
+} from './tooling.js';
 import { countTokens } from 'gpt-tokenizer/model/gpt-4o';
 
 const SOURCE = 'xb-assistant-app';
@@ -89,7 +96,7 @@ const PROJECT_STRUCTURE_HINT = [
     '你当前运行在 SillyTavern 的 LittleWhiteBox 插件里；LittleWhiteBox 位于 public/scripts/extensions/third-party/LittleWhiteBox/。',
     '你的可读范围是已索引公开前端文件，重点包括 LittleWhiteBox 自身，以及 SillyTavern 的 public/scripts/*；不要假装自己能看到后端、数据库、账号密码或未索引文件。',
     '你用读文件工具时，路径要写成站点根相对公开路径，例如 scripts/extensions/third-party/LittleWhiteBox/index.js，而不是磁盘绝对路径。',
-    '如果你需要快速建立 LittleWhiteBox 的目录心智、模块分层和常见入口，请优先读取：scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/project-structure.md 。',
+    '如果你需要快速建立 SillyTavern 和 LittleWhiteBox 的目录心智、模块分层和常见入口，请优先读取：scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/project-structure.md 。',
     '如果用户问 STscript 或 SillyTavern 前端 API，可以优先查看这两份参考资料：scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-language-reference.md 与 scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/sillytavern-javascript-api-reference.md 。',
 ].join('\n');
 const SYSTEM_PROMPT = [
@@ -98,17 +105,16 @@ const SYSTEM_PROMPT = [
     '你的职责是：',
     '- 解答 LittleWhiteBox 和 SillyTavern 前端代码、设置、模块行为和报错问题。',
     '- 当问题涉及具体实现、文件路径、设置逻辑或错误原因时，优先使用工具查证后再回答。',
-    '- 根据当前前端实现直接回答界面相关问题。',
-    '- 用户提到“小白助手”“助手”“打开助手”“助手按钮”时，默认指的就是你自己和你的前端入口，不要理解成别的外部产品。',
     '',
     '你的能力范围：',
     '- 默认只读代码与资料；如果需要写入，只能写固定工作记录，不允许改代码。',
     '- 可读取已索引的公开前端文件（LittleWhiteBox 和 SillyTavern public/scripts/*）。',
     '- 可读写工作记录（user/files/LittleWhiteBox_Assistant_Worklog.md），需要写入时直接调用写入工具，文件不存在就创建，用它保存长期排查结论和用户指定要你记住的事情。',
     '- 不能访问后端、数据库、未索引文件。',
-    '- 只在超出当前可读前端范围时，才明确说自己不能确认；不要动不动就说自己看不见屏幕。',
     '',
     PROJECT_STRUCTURE_HINT,
+    '',
+    ...TOOL_USAGE_GUIDANCE,
     '',
     '回答要求：',
     '- 具体、可核对，热情主动，必要时引用文件路径。',
@@ -121,122 +127,6 @@ const SUMMARY_SYSTEM_PROMPT = [
     '如果某项信息不存在，就不要编造。',
     '尽量紧凑清晰，适合直接作为后续上下文继续使用。',
 ].join('\n');
-
-const TOOL_DEFINITIONS = [
-    {
-        type: 'function',
-        function: {
-            name: 'list_files',
-            description: '按文件名、路径名或来源列出候选文件。',
-            parameters: {
-                type: 'object',
-                properties: {
-                    query: { type: 'string', description: '用于过滤文件路径的关键词。' },
-                    limit: { type: 'number', description: '最多返回多少个文件。' },
-                },
-                additionalProperties: false,
-            },
-        },
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'read_file',
-            description: '读取某个已索引公开文本文件的完整内容。',
-            parameters: {
-                type: 'object',
-                properties: {
-                    path: { type: 'string', description: '文件公开路径，例如 scripts/extensions/third-party/LittleWhiteBox/index.js。' },
-                },
-                required: ['path'],
-                additionalProperties: false,
-            },
-        },
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'read_file_range',
-            description: '按行读取某个已索引文件的局部范围。适合大文件精读，默认从 startLine 开始最多读取约 200 行。',
-            parameters: {
-                type: 'object',
-                properties: {
-                    path: { type: 'string', description: '文件公开路径，例如 scripts/extensions/third-party/LittleWhiteBox/index.js。' },
-                    startLine: { type: 'number', description: '起始行号（从 1 开始）。默认 1。' },
-                    endLine: { type: 'number', description: '结束行号。可不填；不填时会自动给出一个合适范围。' },
-                },
-                required: ['path'],
-                additionalProperties: false,
-            },
-        },
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'read_multiple_files',
-            description: '一次顺序读取多个文件的内容，比多次调用 read_file 更高效。会返回每个文件是否被截断、截断原因，以及如果要继续读取应从哪一行开始。',
-            parameters: {
-                type: 'object',
-                properties: {
-                    paths: {
-                        type: 'array',
-                        items: { type: 'string' },
-                        description: '要读取的文件路径数组，最多 10 个文件。',
-                    },
-                },
-                required: ['paths'],
-                additionalProperties: false,
-            },
-        },
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'search_files',
-            description: '在可读源码文件中搜索关键词，类似 grep。默认是字面量匹配（不区分大小写）；如果需要正则表达式，在 query 中使用正则语法（如 "tool.*call"）并设置 useRegex: true。',
-            parameters: {
-                type: 'object',
-                properties: {
-                    query: { type: 'string', description: '要搜索的关键词或正则表达式。' },
-                    useRegex: { type: 'boolean', description: '是否将 query 作为正则表达式处理（默认 false，即字面量匹配）。' },
-                    limit: { type: 'number', description: '最多返回多少个匹配文件（默认 10，最大 50）。' },
-                    contextLines: { type: 'number', description: '每个匹配前后显示多少行上下文（默认 0，最大 5）。' },
-                    filePattern: { type: 'string', description: '文件路径过滤模式，例如 "story-summary" 只搜索路径包含该词的文件。' },
-                },
-                required: ['query'],
-                additionalProperties: false,
-            },
-        },
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'read_workspace_note',
-            description: '读取酒馆 user/files/LittleWhiteBox_Assistant_Worklog.md 这份固定工作记录；如果文件还不存在，也会返回不存在状态。',
-            parameters: {
-                type: 'object',
-                properties: {},
-                additionalProperties: false,
-            },
-        },
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'write_workspace_note',
-            description: '将排查结果或工作记录写入酒馆 user/files 下的工作记录文件。默认写入 user/files/LittleWhiteBox_Assistant_Worklog.md；如果未指定 name，就写默认工作记录。',
-            parameters: {
-                type: 'object',
-                properties: {
-                    name: { type: 'string', description: '工作区文件名。' },
-                    content: { type: 'string', description: '完整文档内容。' },
-                },
-                required: ['content'],
-                additionalProperties: false,
-            },
-        },
-    },
-];
 
 const state = {
     config: null,
@@ -263,6 +153,7 @@ const state = {
 
 const pendingToolCalls = new Map();
 let toastTimer = null;
+let lastRenderedMessageCount = 0;
 
 function post(type, payload = {}) {
     parent.postMessage({ source: SOURCE, type, payload }, window.location.origin);
@@ -908,263 +799,18 @@ function describeError(error) {
     const raw = String(error?.message || error || 'unknown_error');
     const lowered = raw.toLowerCase();
 
+    if (error?.rawDisplay) return String(error.rawDisplay);
     if (isAbortError(error)) return '本轮请求已终止。';
     if (lowered === 'tool_timeout') return '工具调用超时了（180 秒），可以重试，或把问题收窄一点。';
     if (lowered.startsWith('workspace_write_failed:')) return '工作区写入失败，请检查酒馆文件权限或稍后重试。';
     if (lowered.startsWith('manifest_load_failed:')) return '助手索引文件清单加载失败，请刷新页面后再试。';
     if (lowered.startsWith('file_read_failed:')) return '读取源码文件失败了，请换个文件再试，或刷新页面重试。';
     if (lowered === 'file_not_indexed') return '这个文件不在当前助手索引范围里。';
-    if (lowered === 'no_paths_provided') return '还没有提供要批量读取的文件路径。';
+    if (lowered === 'directory_path_required') return '还没有提供要查看的目录路径。';
+    if (lowered === 'glob_pattern_required') return '还没有提供 glob 路径模式。';
     if (lowered === 'empty_query') return '搜索词是空的，换一个明确点的关键词就行。';
-    if (lowered.startsWith('file_too_large')) return '这个文件太大了，请改用 read_file_range 按行读取局部内容。';
-    if (lowered.includes('401') || lowered.includes('authentication')) return '认证失败了，请检查当前 Provider 的 API Key。';
-    if (lowered.includes('403') || lowered.includes('permission')) return '请求被拒绝了，请检查 API Key 权限、模型权限或站点限制。';
-    if (lowered.includes('429') || lowered.includes('rate limit')) return '请求太频繁了，接口触发了限流，请稍后再试。';
     if (lowered.includes('cors proxy is disabled')) return '酒馆的 CORS 代理还没开启。请到酒馆目录的 config.yaml 把 enableCorsProxy 改成 true，保存后重启酒馆进程或容器，不是 F5 刷新。';
-    if (lowered.includes('timeout') || lowered.includes('timed out')) return '请求超时了，请稍后再试。';
-    if (lowered.includes('failed to fetch') || lowered.includes('network')) return '网络请求失败了，请检查 Base URL、代理或跨域设置。';
-    return `请求失败：${raw}`;
-}
-
-function describeToolCall(name, args = {}) {
-    switch (name) {
-        case 'list_files':
-            return `列出文件${args.query ? `（${args.query}）` : ''}`;
-        case 'read_file':
-            return `读取文件 ${args.path || ''}`.trim();
-        case 'read_file_range':
-            return `读取文件片段 ${args.path || ''}${args.startLine ? `:${args.startLine}` : ''}${args.endLine ? `-${args.endLine}` : ''}`.trim();
-        case 'read_multiple_files':
-            return `批量读取 ${Array.isArray(args.paths) ? args.paths.length : 0} 个文件`;
-        case 'search_files':
-            return `搜索关键词 ${args.query || ''}`.trim();
-        case 'read_workspace_note':
-            return '读取工作记录';
-        case 'write_workspace_note':
-            return `写入工作记录 ${args.name || ''}`.trim();
-        default:
-            return `调用工具 ${name}`;
-    }
-}
-
-function formatToolResultDisplay(message) {
-    const parsed = safeJsonParse(message.content, null);
-    if (!parsed || typeof parsed !== 'object') {
-        return {
-            summary: message.content || '',
-            details: '',
-        };
-    }
-
-    if (parsed.ok === false && parsed.error) {
-        const lines = [
-            `工具返回错误：${parsed.error}`,
-            parsed.message ? `说明：${parsed.message}` : '',
-            parsed.suggestion ? `建议：${parsed.suggestion}` : '',
-        ].filter(Boolean);
-        const detailLines = [];
-        if (parsed.path) detailLines.push(`路径：${parsed.path}`);
-        if (Number.isFinite(parsed.sizeBytes) && parsed.sizeBytes > 0) {
-            detailLines.push(`大小：${Math.round(parsed.sizeBytes / 1024)} KB`);
-        }
-        if (Number.isFinite(parsed.lineCount) && parsed.lineCount >= 0) {
-            detailLines.push(`行数：${parsed.lineCount}`);
-        }
-        if (parsed.raw && parsed.raw !== parsed.error) {
-            detailLines.push(`原始错误：${parsed.raw}`);
-        }
-        return {
-            summary: lines.join('\n'),
-            details: detailLines.join('\n'),
-        };
-    }
-
-    if (message.toolName === 'list_files') {
-        const items = Array.isArray(parsed.items) ? parsed.items : [];
-        const lines = [
-            `找到 ${parsed.total || 0} 个候选文件，当前展示 ${items.length} 个。`,
-        ];
-        if (parsed.truncated) {
-            lines.push('结果已截断，可以把关键词再收窄一点。');
-        }
-        if (items.length) {
-            lines.push('');
-            items.forEach((item) => {
-                lines.push(`- ${item.publicPath}${item.source ? ` [${item.source}]` : ''}`);
-            });
-        }
-        return {
-            summary: lines.join('\n'),
-            details: '',
-        };
-    }
-
-    if (message.toolName === 'search_files') {
-        const items = Array.isArray(parsed.items) ? parsed.items : [];
-        const lines = [
-            `关键词“${parsed.query || ''}”当前返回 ${parsed.total || 0} 个命中文件。`,
-        ];
-        if (parsed.filePattern && parsed.filePattern !== '(all)') {
-            lines.push(`路径过滤：${parsed.filePattern}`);
-        }
-        if (Number(parsed.contextLines) > 0) {
-            lines.push(`上下文：前后 ${parsed.contextLines} 行`);
-        }
-        if (parsed.truncated) {
-            lines.push(`已达到返回上限；本次扫描 ${parsed.scannedFiles || 0}/${parsed.indexedFiles || 0} 个文件。`);
-        }
-        const detailLines = [];
-        if (items.length) {
-            lines.push('');
-            items.forEach((item) => {
-                const firstMatch = Array.isArray(item.matches) ? item.matches[0] : null;
-                const lineInfo = firstMatch?.line ? `:${firstMatch.line}` : '';
-                lines.push(`- ${item.path}${lineInfo}${item.matchCount ? `（${item.matchCount} 处）` : ''}`);
-
-                if (Array.isArray(item.matches) && item.matches.length) {
-                    detailLines.push(item.path);
-                    item.matches.forEach((match, index) => {
-                        detailLines.push(`  [${index + 1}] 第 ${match.line || '?'} 行: ${match.text || ''}`);
-                        if (match.context) {
-                            detailLines.push(match.context);
-                        }
-                    });
-                    detailLines.push('');
-                }
-            });
-        }
-        return {
-            summary: lines.join('\n'),
-            details: detailLines.join('\n').trim(),
-        };
-    }
-
-    if (message.toolName === 'read_file') {
-        return {
-            summary: [
-                `已读取文件：${parsed.path || ''}`,
-                parsed.source ? `来源：${parsed.source}` : '',
-                '文件内容已提供给助手分析，本轮不直接展开原文。',
-            ].filter(Boolean).join('\n'),
-            details: '',
-        };
-    }
-
-    if (message.toolName === 'read_file_range') {
-        const lines = [
-            `已读取文件片段：${parsed.path || ''}`,
-            parsed.source ? `来源：${parsed.source}` : '',
-            `范围：第 ${parsed.startLine || 1} 行到第 ${parsed.endLine || 0} 行 / 共 ${parsed.totalLines || 0} 行`,
-        ];
-        if (parsed.hasMoreBefore) {
-            lines.push('前面还有内容。');
-        }
-        if (parsed.hasMoreAfter) {
-            lines.push(`后面还有内容；如需继续，可从第 ${parsed.nextStartLine} 行读到第 ${parsed.nextEndLine} 行。`);
-        }
-        return {
-            summary: lines.filter(Boolean).join('\n'),
-            details: String(parsed.content || ''),
-        };
-    }
-
-    if (message.toolName === 'read_multiple_files') {
-        const files = Array.isArray(parsed.files) ? parsed.files : [];
-        const successFiles = files.filter((item) => !item?.error);
-        const failedFiles = files.filter((item) => item?.error);
-        const truncatedFiles = successFiles.filter((item) => item?.truncated);
-        const lines = [
-            `批量读取完成：成功 ${successFiles.length} 个，失败 ${failedFiles.length} 个。`,
-        ];
-        if (truncatedFiles.length) {
-            lines.push(`其中 ${truncatedFiles.length} 个文件被截断。`);
-        }
-        if (parsed.totalChars) {
-            lines.push(`本轮共返回 ${parsed.totalChars} 个字符。`);
-        }
-        if (parsed.warning === 'total_char_budget_reached') {
-            lines.push('已达到本轮批量读取总量上限；后续文件可能未读或只读到前半段。');
-        }
-
-        if (successFiles.length) {
-            lines.push('');
-            successFiles.forEach((item) => {
-                const meta = [];
-                if (item.source) meta.push(item.source);
-                if (item.returnedLines) meta.push(`返回 ${item.returnedLines} 行`);
-                if (item.originalLines && item.returnedLines && item.originalLines !== item.returnedLines) {
-                    meta.push(`原始 ${item.originalLines} 行`);
-                }
-                if (item.truncated) {
-                    const reasonText = Array.isArray(item.truncatedBy) && item.truncatedBy.length
-                        ? item.truncatedBy.map((reason) => (
-                            reason === 'line_limit'
-                                ? '单文件行数上限'
-                                : reason === 'total_char_budget'
-                                    ? '本轮总量上限'
-                                    : reason
-                        )).join(' + ')
-                        : '已截断';
-                    meta.push(`已截断：${reasonText}`);
-                }
-                if (item.nextStartLine) {
-                    meta.push(`下次从第 ${item.nextStartLine} 行继续`);
-                }
-                lines.push(`- ${item.path}${meta.length ? ` [${meta.join(' | ')}]` : ''}`);
-            });
-        }
-
-        if (failedFiles.length) {
-            lines.push('');
-            failedFiles.forEach((item) => {
-                const errorText = item.error === 'total_char_budget_reached'
-                    ? '未读取：本轮批量读取总量已用尽'
-                    : item.error;
-                lines.push(`- ${item.path || '(未知路径)'} · ${errorText}`);
-            });
-        }
-
-        const detailLines = [];
-        successFiles.forEach((item) => {
-            detailLines.push(item.path || '(未知路径)');
-            if (item.truncated) {
-                if (Array.isArray(item.truncatedBy) && item.truncatedBy.length) {
-                    detailLines.push(`已截断：${item.truncatedBy.join(', ')}`);
-                }
-                if (item.nextStartLine) {
-                    detailLines.push(`如需继续，可从第 ${item.nextStartLine} 行附近接着读。`);
-                }
-            }
-            detailLines.push(item.content || '[空内容]');
-            detailLines.push('');
-        });
-
-        return {
-            summary: lines.join('\n'),
-            details: detailLines.join('\n').trim(),
-        };
-    }
-
-    if (message.toolName === 'write_workspace_note') {
-        return {
-            summary: `工作记录已写入 ${parsed.name || ''}`.trim(),
-            details: '',
-        };
-    }
-
-    if (message.toolName === 'read_workspace_note') {
-        return {
-            summary: parsed.exists
-                ? `已读取工作记录：${parsed.name || 'LittleWhiteBox_Assistant_Worklog.md'}`
-                : `工作记录还不存在：${parsed.name || 'LittleWhiteBox_Assistant_Worklog.md'}`,
-            details: parsed.exists ? String(parsed.content || '') : '',
-        };
-    }
-
-    return {
-        summary: JSON.stringify(parsed, null, 2),
-        details: '',
-    };
+    return raw;
 }
 
 function escapeHtml(text) {
@@ -1443,6 +1089,7 @@ function pushMessage(message) {
         attachments: normalizeAttachments(message.attachments),
         thoughts: normalizeThoughtBlocks(message.thoughts),
     });
+    state.autoScroll = true;
     persistSession();
 }
 
@@ -1553,7 +1200,7 @@ function getActiveContextMessages() {
 
 function buildToolFailureResult(toolName, args, error) {
     const raw = String(error?.message || error || 'tool_failed');
-    const [code, detailA = '', detailB = ''] = raw.split(':');
+    const [code] = raw.split(':');
     const result = {
         ok: false,
         toolName,
@@ -1562,12 +1209,6 @@ function buildToolFailureResult(toolName, args, error) {
         raw,
         message: describeError(error),
     };
-
-    if (code === 'file_too_large') {
-        result.sizeBytes = Math.max(0, Number(detailA) || 0);
-        result.lineCount = Math.max(0, Number(detailB) || 0);
-        result.suggestion = '请改用 read_file_range 按行分段读取需要的局部内容。';
-    }
 
     return result;
 }
@@ -1923,7 +1564,7 @@ function renderMessages(container) {
         if (message.role === 'tool') {
             const display = formatToolResultDisplay(message);
             const summary = document.createElement('pre');
-            summary.className = 'xb-assistant-content';
+            summary.className = 'xb-assistant-content tool-summary';
             summary.textContent = display.summary || '工具已返回结果。';
             bubble.append(meta, summary);
 
@@ -1931,7 +1572,7 @@ function renderMessages(container) {
                 const details = document.createElement('details');
                 details.className = 'xb-assistant-tool-details';
                 const summaryEl = document.createElement('summary');
-                summaryEl.textContent = message.toolName === 'read_file' ? '展开文件内容' : '展开详细结果';
+                summaryEl.textContent = message.toolName === TOOL_NAMES.READ ? '展开文件内容' : '展开详细结果';
                 const detailPre = document.createElement('pre');
                 detailPre.className = 'xb-assistant-content tool-detail';
                 detailPre.textContent = display.details;
@@ -1992,16 +1633,31 @@ function renderMessages(container) {
     }
 }
 
+function scrollChatToBottom(container) {
+    if (!container) return;
+    const apply = () => {
+        container.scrollTop = container.scrollHeight;
+    };
+    apply();
+    requestAnimationFrame(() => {
+        apply();
+        requestAnimationFrame(apply);
+    });
+}
+
 function buildAppMarkup(root) {
-    root.innerHTML = `
+    const markup = `
         <div class="xb-assistant-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
             <aside class="xb-assistant-sidebar ${state.sidebarCollapsed ? 'is-collapsed' : ''}">
-                <button id="xb-assistant-sidebar-toggle" type="button" class="xb-assistant-sidebar-toggle" aria-expanded="${state.sidebarCollapsed ? 'false' : 'true'}" aria-label="${state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置'}" title="${state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置'}">
-                    <span class="xb-assistant-sidebar-toggle-icon">${state.sidebarCollapsed ? '⚙' : '‹'}</span>
-                </button>
-                <div class="xb-assistant-sidebar-content">
+                <div class="xb-assistant-sidebar-header">
+                    <div class="xb-assistant-badge">API配置</div>
+                    <button id="xb-assistant-sidebar-toggle" type="button" class="xb-assistant-sidebar-toggle" aria-expanded="${state.sidebarCollapsed ? 'false' : 'true'}" aria-label="${state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置'}" title="${state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置'}">
+                        <span class="xb-assistant-sidebar-toggle-text"></span>
+                        <span class="xb-assistant-sidebar-toggle-icon"></span>
+                    </button>
+                </div>
+                <div class="xb-assistant-sidebar-content" ${state.sidebarCollapsed ? 'hidden' : ''}>
                     <div class="xb-assistant-brand">
-                        <div class="xb-assistant-badge">API配置</div>
                     </div>
                     <section class="xb-assistant-config">
                     <label>
@@ -2102,6 +1758,7 @@ function buildAppMarkup(root) {
             </main>
         </div>
     `;
+    root.replaceChildren(buildSanitizedHtmlFragment(markup));
 }
 
 function syncConfigToForm(root) {
@@ -2209,7 +1866,7 @@ function injectStyles() {
     const style = document.createElement('style');
     style.textContent = `
         :root { color-scheme: light; font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif; }
-        html, body { height: 100%; }
+        html, body { height: 100%; width: 100%; overflow: hidden; }
         body {
             margin: 0;
             background:
@@ -2217,11 +1874,16 @@ function injectStyles() {
                 radial-gradient(circle at top right, rgba(154, 210, 255, 0.58), transparent 28%),
                 linear-gradient(180deg, #f6f8fb 0%, #eef3f8 100%);
             color: #142033;
+            overflow-x: hidden;
         }
+        #${ROOT_ID} { width: 100%; height: 100%; overflow: hidden; }
         .xb-assistant-shell {
             display: grid;
             grid-template-columns: 340px minmax(0, 1fr);
             min-height: 100vh;
+            width: 100%;
+            max-width: 100%;
+            overflow: hidden;
             transition: grid-template-columns 0.22s ease;
         }
         .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
@@ -2234,6 +1896,12 @@ function injectStyles() {
             overflow: auto;
             transition: padding 0.22s ease;
         }
+        .xb-assistant-sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
         .xb-assistant-sidebar.is-collapsed {
             padding: 14px 10px;
             overflow: hidden;
@@ -2242,8 +1910,9 @@ function injectStyles() {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 36px;
-            height: 36px;
+            gap: 8px;
+            min-height: 36px;
+            padding: 0 10px;
             border: none;
             border-radius: 12px;
             background: rgba(20, 32, 51, 0.88);
@@ -2263,6 +1932,12 @@ function injectStyles() {
             font-size: 18px;
             line-height: 1;
         }
+        .xb-assistant-sidebar-toggle-text {
+            display: none;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1;
+        }
         .xb-assistant-sidebar-content {
             display: grid;
             gap: 16px;
@@ -2270,6 +1945,9 @@ function injectStyles() {
             min-width: 0;
             opacity: 1;
             transition: opacity 0.18s ease;
+        }
+        .xb-assistant-sidebar-content[hidden] {
+            display: none !important;
         }
         .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-content {
             opacity: 0;
@@ -2419,6 +2097,8 @@ function injectStyles() {
             padding: 20px;
             gap: 16px;
             min-width: 0;
+            max-width: 100%;
+            overflow: hidden;
         }
         .xb-assistant-status {
             display: inline-flex;
@@ -2463,12 +2143,17 @@ function injectStyles() {
         }
         .xb-assistant-chat {
             overflow: auto;
+            overflow-x: hidden;
             padding: 4px;
             display: grid;
             gap: 12px;
             align-content: start;
             justify-items: start;
             grid-auto-rows: max-content;
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+            overscroll-behavior: contain;
         }
         .xb-assistant-empty {
             align-self: center;
@@ -2498,11 +2183,14 @@ function injectStyles() {
             font: inherit;
         }
         .xb-assistant-bubble {
-            max-width: min(860px, 100%);
+            width: min(860px, 100%);
+            max-width: 100%;
+            box-sizing: border-box;
             border-radius: 18px;
             padding: 14px 16px;
             box-shadow: 0 12px 30px rgba(17, 31, 51, 0.07);
             align-self: start;
+            overflow-wrap: anywhere;
         }
         .xb-assistant-bubble.role-user {
             justify-self: end;
@@ -2543,6 +2231,7 @@ function injectStyles() {
         }
         .xb-assistant-markdown pre {
             overflow: auto;
+            max-width: 100%;
             padding: 12px 14px;
             border-radius: 12px;
             background: rgba(20, 32, 51, 0.06);
@@ -2673,6 +2362,10 @@ function injectStyles() {
             border-radius: 12px;
             padding: 12px;
         }
+        .xb-assistant-content.tool-summary {
+            max-height: calc(1.6em * 3 + 12px);
+            overflow: hidden;
+        }
         .xb-assistant-tool-details[open] .xb-assistant-content.tool-detail {
             max-height: none;
             overflow: auto;
@@ -2703,15 +2396,20 @@ function injectStyles() {
             border-radius: 22px;
             padding: 14px;
             box-shadow: 0 16px 40px rgba(17, 31, 51, 0.08);
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            overflow: hidden;
         }
         .xb-assistant-compose-main {
             min-width: 0;
+            max-width: 100%;
         }
         .xb-assistant-compose-actions {
             display: grid;
             gap: 8px;
         }
-        .xb-assistant-compose textarea { min-height: 92px; resize: vertical; }
+        .xb-assistant-compose textarea { min-height: 92px; resize: vertical; max-width: 100%; overflow-x: hidden; }
         .xb-assistant-compose button.is-busy { background: #8d442b; }
         .xb-assistant-toast {
             min-height: 22px;
@@ -2735,29 +2433,44 @@ function injectStyles() {
             100% { box-shadow: 0 0 0 0 rgba(201, 107, 51, 0); }
         }
         @media (max-width: 900px) {
-            .xb-assistant-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+            .xb-assistant-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); min-height: 100dvh; }
             .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 1fr; }
-            .xb-assistant-sidebar { border-right: none; border-bottom: 1px solid rgba(20, 32, 51, 0.08); }
+            .xb-assistant-sidebar {
+                padding: 12px 14px;
+                border-right: none;
+                border-bottom: 1px solid rgba(20, 32, 51, 0.08);
+                overflow-x: hidden;
+            }
             .xb-assistant-sidebar.is-collapsed {
                 padding: 12px 14px;
-                overflow: auto;
+                overflow: hidden;
             }
             .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-content {
-                opacity: 1;
-                pointer-events: auto;
+                opacity: 0;
+                pointer-events: none;
             }
             .xb-assistant-sidebar.is-collapsed .xb-assistant-brand,
             .xb-assistant-sidebar.is-collapsed .xb-assistant-config {
-                display: grid;
+                display: none;
             }
-            .xb-assistant-sidebar-toggle { display: none; }
-            .xb-assistant-main { padding: 14px; }
+            .xb-assistant-sidebar-toggle {
+                min-width: 108px;
+                padding: 0 12px;
+                justify-content: space-between;
+            }
+            .xb-assistant-sidebar-toggle-text {
+                display: inline-flex;
+                align-items: center;
+            }
+            .xb-assistant-main { padding: 14px; min-height: 0; }
             .xb-assistant-compose { grid-template-columns: 1fr; }
             .xb-assistant-compose-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .xb-assistant-toolbar,
             .xb-assistant-toolbar-cluster { align-items: stretch; }
             .xb-assistant-inline-input { grid-template-columns: 1fr; }
             .xb-assistant-status { justify-content: center; }
+            .xb-assistant-chat { padding-inline: 0; }
+            .xb-assistant-bubble { width: 100%; }
             .xb-assistant-actions {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2779,6 +2492,11 @@ function render() {
     updateContextStats(toProviderMessages(getActiveContextMessages()));
     const chat = root.querySelector('#xb-assistant-chat');
     renderMessages(chat);
+    const shouldForceScroll = state.messages.length !== lastRenderedMessageCount;
+    lastRenderedMessageCount = state.messages.length;
+    if (state.autoScroll || shouldForceScroll) {
+        scrollChatToBottom(chat);
+    }
 
     const sendButton = root.querySelector('#xb-assistant-send');
     sendButton.disabled = false;
@@ -2818,15 +2536,26 @@ function render() {
     const shell = root.querySelector('.xb-assistant-shell');
     const sidebar = root.querySelector('.xb-assistant-sidebar');
     const sidebarToggle = root.querySelector('#xb-assistant-sidebar-toggle');
+    const sidebarContent = root.querySelector('.xb-assistant-sidebar-content');
     shell?.classList.toggle('sidebar-collapsed', !!state.sidebarCollapsed);
     sidebar?.classList.toggle('is-collapsed', !!state.sidebarCollapsed);
+    sidebarContent?.toggleAttribute('hidden', !!state.sidebarCollapsed);
     if (sidebarToggle) {
+        const isMobile = window.matchMedia('(max-width: 900px)').matches;
         sidebarToggle.setAttribute('aria-expanded', state.sidebarCollapsed ? 'false' : 'true');
         sidebarToggle.setAttribute('aria-label', state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置');
         sidebarToggle.title = state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置';
+        const text = sidebarToggle.querySelector('.xb-assistant-sidebar-toggle-text');
         const icon = sidebarToggle.querySelector('.xb-assistant-sidebar-toggle-icon');
+        if (text) {
+            text.textContent = isMobile
+                ? (state.sidebarCollapsed ? '展开设置' : '收起设置')
+                : '';
+        }
         if (icon) {
-            icon.textContent = state.sidebarCollapsed ? '⚙' : '‹';
+            icon.textContent = isMobile
+                ? (state.sidebarCollapsed ? '▾' : '▴')
+                : (state.sidebarCollapsed ? '⚙' : '‹');
         }
     }
 
@@ -2869,6 +2598,8 @@ function bindEvents(root) {
         input.value = chip.dataset.prompt || '';
         resizeComposer();
         input.focus();
+        state.autoScroll = true;
+        scrollChatToBottom(root.querySelector('#xb-assistant-chat'));
     });
 
     root.querySelector('#xb-assistant-provider').addEventListener('change', () => {

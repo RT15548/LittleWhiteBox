@@ -2,6 +2,7 @@ import { getRequestHeaders } from "../../../../../../script.js";
 import { extensionFolderPath } from "../../core/constants.js";
 import { isTrustedIframeEvent, postToIframe } from "../../core/iframe-messaging.js";
 import { AssistantStorage } from "../../core/server-storage.js";
+import { TOOL_NAMES } from "./app-src/tooling.js";
 
 const MODULE_ID = 'assistant';
 const OVERLAY_ID = 'xiaobaix-assistant-overlay';
@@ -15,6 +16,9 @@ const WORKSPACE_PREFIX = 'LittleWhiteBox_Assistant_';
 const DEFAULT_WORKSPACE_FILE = `${WORKSPACE_PREFIX}Worklog.md`;
 const MAX_CONTENT_CACHE_ENTRIES = 48;
 const MAX_READ_FILE_BYTES = 100 * 1024;
+const MAX_READ_RETURN_CHARS = 24_000;
+const DEFAULT_AUTO_READ_LINES = 220;
+const MAX_READ_RANGE_LINES = 400;
 const SERVER_FILE_KEY = 'settings';
 const CONFIG_VERSION = 1;
 const DEFAULT_PRESET_NAME = '默认';
@@ -254,21 +258,278 @@ async function readTextFile(publicPath, options = {}) {
     return text;
 }
 
-async function listFiles(args = {}, options = {}) {
-    const manifest = await loadManifest(options.signal);
-    const query = String(args.query || '').trim().toLowerCase();
-    const limit = Math.max(1, Math.min(Number(args.limit) || 20, 100));
-    const files = Array.isArray(manifest.files) ? manifest.files : [];
-    const matched = files.filter((entry) => {
-        if (!query) return true;
-        return entry.publicPath.toLowerCase().includes(query)
-            || entry.relativePath.toLowerCase().includes(query)
-            || entry.source.toLowerCase().includes(query);
-    });
+function escapeRegExp(text) {
+    return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizePathForMatch(value) {
+    return String(value || '').replace(/\\/g, '/');
+}
+
+function escapeCharClass(text) {
+    return String(text || '').replace(/\\/g, '\\\\').replace(/\]/g, '\\]');
+}
+
+function findMatchingToken(text, startIndex, openChar, closeChar) {
+    let depth = 0;
+    for (let index = startIndex; index < text.length; index += 1) {
+        const char = text[index];
+        if (char === '\\') {
+            index += 1;
+            continue;
+        }
+        if (char === openChar) depth += 1;
+        if (char === closeChar) {
+            depth -= 1;
+            if (depth === 0) return index;
+        }
+    }
+    return -1;
+}
+
+function splitTopLevel(text, separator = ',') {
+    const parts = [];
+    let depth = 0;
+    let current = '';
+    for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        if (char === '\\') {
+            current += char;
+            if (index + 1 < text.length) {
+                current += text[index + 1];
+                index += 1;
+            }
+            continue;
+        }
+        if (char === '{' || char === '[' || char === '(') depth += 1;
+        if (char === '}' || char === ']' || char === ')') depth = Math.max(0, depth - 1);
+        if (char === separator && depth === 0) {
+            parts.push(current);
+            current = '';
+            continue;
+        }
+        current += char;
+    }
+    parts.push(current);
+    return parts;
+}
+
+function globFragmentToRegex(pattern) {
+    let regexText = '';
+    for (let index = 0; index < pattern.length; index += 1) {
+        const char = pattern[index];
+        const nextChar = pattern[index + 1];
+
+        if (char === '\\') {
+            if (index + 1 < pattern.length) {
+                regexText += escapeRegExp(pattern[index + 1]);
+                index += 1;
+            } else {
+                regexText += '\\\\';
+            }
+            continue;
+        }
+
+        if (char === '*') {
+            if (nextChar === '*') {
+                const afterNext = pattern[index + 2];
+                if (afterNext === '/') {
+                    regexText += '(?:.*\\/)?';
+                    index += 2;
+                } else {
+                    regexText += '.*';
+                    index += 1;
+                }
+            } else {
+                regexText += '[^/]*';
+            }
+            continue;
+        }
+
+        if (char === '?') {
+            regexText += '[^/]';
+            continue;
+        }
+
+        if (char === '[') {
+            const closingIndex = pattern.indexOf(']', index + 1);
+            if (closingIndex === -1) {
+                regexText += '\\[';
+                continue;
+            }
+            const rawClass = pattern.slice(index + 1, closingIndex);
+            const negated = rawClass.startsWith('!');
+            const classBody = negated ? rawClass.slice(1) : rawClass;
+            regexText += `[${negated ? '^' : ''}${escapeCharClass(classBody)}]`;
+            index = closingIndex;
+            continue;
+        }
+
+        if (char === '{') {
+            const closingIndex = findMatchingToken(pattern, index, '{', '}');
+            if (closingIndex === -1) {
+                regexText += '\\{';
+                continue;
+            }
+            const rawGroup = pattern.slice(index + 1, closingIndex);
+            const alternatives = splitTopLevel(rawGroup).filter(Boolean);
+            if (alternatives.length > 1) {
+                regexText += `(?:${alternatives.map((item) => globFragmentToRegex(item)).join('|')})`;
+            } else {
+                regexText += `\\{${escapeRegExp(rawGroup)}\\}`;
+            }
+            index = closingIndex;
+            continue;
+        }
+
+        regexText += escapeRegExp(char);
+    }
+    return regexText;
+}
+
+function compileGlobPattern(pattern) {
+    const normalized = normalizePathForMatch(pattern).trim();
+    if (!normalized) {
+        throw new Error('glob_pattern_required');
+    }
+
+    const regex = new RegExp(`^${globFragmentToRegex(normalized)}$`, 'i');
+    const basenameRegex = normalized.includes('/')
+        ? null
+        : new RegExp(`^${globFragmentToRegex(normalized)}$`, 'i');
+
     return {
+        pattern: normalized,
+        regex,
+        basenameRegex,
+    };
+}
+
+function matchesGlob(publicPath, relativePath, matcher) {
+    const fullPath = normalizePathForMatch(publicPath);
+    const shortPath = normalizePathForMatch(relativePath);
+    if (matcher.regex.test(fullPath) || matcher.regex.test(shortPath)) {
+        return true;
+    }
+    if (matcher.basenameRegex) {
+        const fullName = fullPath.split('/').pop() || '';
+        const shortName = shortPath.split('/').pop() || '';
+        return matcher.basenameRegex.test(fullName) || matcher.basenameRegex.test(shortName);
+    }
+    return false;
+}
+
+async function globFiles(args = {}, options = {}) {
+    const manifest = await loadManifest(options.signal);
+    const pattern = String(args.pattern || '').trim();
+    const matcher = compileGlobPattern(pattern);
+    const limit = Math.max(1, Math.min(Number(args.limit) || 50, 100));
+    const files = Array.isArray(manifest.files) ? manifest.files : [];
+    const matched = files.filter((entry) => matchesGlob(entry.publicPath, entry.relativePath, matcher));
+
+    return {
+        pattern,
         total: matched.length,
         items: matched.slice(0, limit),
         truncated: matched.length > limit,
+    };
+}
+
+async function listDirectory(args = {}, options = {}) {
+    const manifest = await loadManifest(options.signal);
+    const rawPath = String(args.path || '').trim();
+    if (!rawPath) {
+        throw new Error('directory_path_required');
+    }
+
+    const directoryPath = rawPath.endsWith('/') ? rawPath : `${rawPath}/`;
+    const normalizedPrefix = directoryPath.toLowerCase();
+    const limit = Math.max(1, Math.min(Number(args.limit) || 50, 100));
+    const files = Array.isArray(manifest.files) ? manifest.files : [];
+    const entryMap = new Map();
+
+    files.forEach((entry) => {
+        const publicPath = String(entry.publicPath || '');
+        const normalizedPath = publicPath.toLowerCase();
+        if (!normalizedPath.startsWith(normalizedPrefix)) return;
+
+        const remainder = publicPath.slice(directoryPath.length);
+        if (!remainder) return;
+
+        const slashIndex = remainder.indexOf('/');
+        const childName = slashIndex === -1 ? remainder : remainder.slice(0, slashIndex);
+        const isDirectory = slashIndex !== -1;
+        const childPath = isDirectory ? `${directoryPath}${childName}/` : `${directoryPath}${childName}`;
+        const existing = entryMap.get(childPath);
+
+        if (existing) {
+            existing.descendantFileCount += 1;
+            if (isDirectory) existing.type = 'directory';
+            return;
+        }
+
+        entryMap.set(childPath, {
+            publicPath: childPath,
+            source: entry.source,
+            type: isDirectory ? 'directory' : 'file',
+            descendantFileCount: 1,
+        });
+    });
+
+    const items = Array.from(entryMap.values()).sort((a, b) => a.publicPath.localeCompare(b.publicPath, 'zh-CN'));
+    return {
+        directoryPath,
+        total: items.length,
+        items: items.slice(0, limit),
+        truncated: items.length > limit,
+    };
+}
+
+function clampLineNumber(value, fallback, totalLines) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.min(Math.max(1, Math.trunc(numeric)), Math.max(totalLines, 1));
+}
+
+function sliceLinesWithBudget(lines, startLine, requestedEndLine, maxChars) {
+    const totalLines = lines.length;
+    const safeEndLine = Math.min(Math.max(startLine, requestedEndLine), Math.max(totalLines, 1));
+    const selected = [];
+    let totalChars = 0;
+    let endLine = startLine - 1;
+    let charLimited = false;
+
+    for (let lineNumber = startLine; lineNumber <= safeEndLine; lineNumber += 1) {
+        const line = lines[lineNumber - 1] ?? '';
+        const addition = selected.length ? line.length + 1 : line.length;
+        if (selected.length && totalChars + addition > maxChars) {
+            charLimited = true;
+            break;
+        }
+        if (!selected.length && addition > maxChars) {
+            selected.push(line.slice(0, maxChars));
+            totalChars = maxChars;
+            endLine = lineNumber;
+            charLimited = true;
+            break;
+        }
+        selected.push(line);
+        totalChars += addition;
+        endLine = lineNumber;
+    }
+
+    if (!selected.length && totalLines === 0) {
+        return {
+            content: '',
+            endLine: 0,
+            charLimited: false,
+        };
+    }
+
+    return {
+        content: selected.join('\n'),
+        endLine,
+        charLimited,
     };
 }
 
@@ -280,39 +541,16 @@ async function readFile(args = {}, options = {}) {
         throw new Error('file_not_indexed');
     }
     const content = await readTextFile(entry.publicPath, options);
-    const sizeBytes = new TextEncoder().encode(content).length;
-    if (sizeBytes > MAX_READ_FILE_BYTES) {
-        const lineCount = content === '' ? 0 : content.split('\n').length;
-        throw new Error(`file_too_large:${sizeBytes}:${lineCount}`);
-    }
-    return {
-        path: entry.publicPath,
-        source: entry.source,
-        content,
-    };
-}
-
-async function readFileRange(args = {}, options = {}) {
-    const manifest = await loadManifest(options.signal);
-    const targetPath = String(args.path || '').trim();
-    const entry = (manifest.files || []).find((item) => item.publicPath === targetPath);
-    if (!entry) {
-        throw new Error('file_not_indexed');
-    }
-
-    const fullContent = await readTextFile(entry.publicPath, options);
-    const lines = fullContent === '' ? [] : fullContent.split('\n');
+    const lines = content === '' ? [] : content.split('\n');
     const totalLines = lines.length;
-    const requestedStart = Math.max(1, Number(args.startLine) || 1);
-    const requestedEnd = Math.max(requestedStart, Number(args.endLine) || Math.min(requestedStart + 199, requestedStart + 199));
-    const maxRange = 400;
-    const startLine = Math.min(requestedStart, Math.max(totalLines, 1));
-    const endLine = Math.min(requestedEnd, startLine + maxRange - 1, Math.max(totalLines, 1));
+    const sizeBytes = new TextEncoder().encode(content).length;
+    const hasRange = Number.isFinite(Number(args.startLine)) || Number.isFinite(Number(args.endLine));
 
     if (totalLines === 0) {
         return {
             path: entry.publicPath,
             source: entry.source,
+            sizeBytes,
             totalLines: 0,
             startLine: 1,
             endLine: 0,
@@ -321,243 +559,149 @@ async function readFileRange(args = {}, options = {}) {
             hasMoreAfter: false,
             nextStartLine: null,
             nextEndLine: null,
+            truncated: false,
+            autoChunked: false,
+            charLimited: false,
+            limitReason: null,
             content: '',
         };
     }
 
-    const selectedLines = lines.slice(startLine - 1, endLine);
+    const startLine = clampLineNumber(args.startLine, 1, totalLines);
+    let requestedEndLine;
+    let autoChunked = false;
+
+    if (hasRange) {
+        requestedEndLine = clampLineNumber(
+            args.endLine,
+            Math.min(totalLines, startLine + DEFAULT_AUTO_READ_LINES - 1),
+            totalLines,
+        );
+    } else if (sizeBytes > MAX_READ_FILE_BYTES || content.length > MAX_READ_RETURN_CHARS) {
+        requestedEndLine = Math.min(totalLines, startLine + DEFAULT_AUTO_READ_LINES - 1);
+        autoChunked = true;
+    } else {
+        requestedEndLine = totalLines;
+    }
+
+    requestedEndLine = Math.min(requestedEndLine, startLine + MAX_READ_RANGE_LINES - 1, totalLines);
+    const slice = sliceLinesWithBudget(lines, startLine, requestedEndLine, MAX_READ_RETURN_CHARS);
+    const endLine = slice.endLine || requestedEndLine;
+    const hasMoreBefore = startLine > 1;
+    const hasMoreAfter = endLine < totalLines;
+
     return {
         path: entry.publicPath,
         source: entry.source,
+        sizeBytes,
         totalLines,
         startLine,
         endLine,
-        returnedLines: selectedLines.length,
-        hasMoreBefore: startLine > 1,
-        hasMoreAfter: endLine < totalLines,
-        nextStartLine: endLine < totalLines ? endLine + 1 : null,
-        nextEndLine: endLine < totalLines ? Math.min(totalLines, endLine + maxRange) : null,
-        content: selectedLines.join('\n'),
+        returnedLines: endLine >= startLine ? (endLine - startLine + 1) : 0,
+        hasMoreBefore,
+        hasMoreAfter,
+        nextStartLine: hasMoreAfter ? endLine + 1 : null,
+        nextEndLine: hasMoreAfter ? Math.min(totalLines, endLine + DEFAULT_AUTO_READ_LINES) : null,
+        truncated: hasMoreBefore || hasMoreAfter || slice.charLimited || autoChunked,
+        autoChunked,
+        charLimited: slice.charLimited,
+        limitReason: autoChunked
+            ? 'auto_chunked'
+            : slice.charLimited
+                ? 'output_budget'
+                : (hasMoreBefore || hasMoreAfter)
+                    ? 'requested_range'
+                    : null,
+        content: slice.content,
     };
 }
 
-async function readMultipleFiles(args = {}, options = {}) {
+async function grepFiles(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
-    const paths = Array.isArray(args.paths) ? args.paths : [];
-    const limit = Math.min(paths.length, 10);
-    const targetPaths = paths.slice(0, limit).map((p) => String(p || '').trim()).filter(Boolean);
+    const pattern = String(args.pattern || '').trim();
+    if (!pattern) throw new Error('empty_query');
 
-    if (targetPaths.length === 0) {
-        throw new Error('no_paths_provided');
-    }
-
-    const MAX_LINES_PER_FILE = 500;
-    const MAX_TOTAL_CHARS = 50000;
-    let totalChars = 0;
-    let warning = null;
-    const results = [];
-
-    for (const targetPath of targetPaths) {
-        ensureNotAborted(options.signal);
-        try {
-            const entry = (manifest.files || []).find((item) => item.publicPath === targetPath);
-            if (!entry) {
-                results.push({
-                    path: targetPath,
-                    error: 'file_not_indexed',
-                    content: null,
-                    truncated: false,
-                });
-                continue;
-            }
-
-            const remainingChars = MAX_TOTAL_CHARS - totalChars;
-            if (remainingChars <= 0) {
-                warning = 'total_char_budget_reached';
-                results.push({
-                    path: entry.publicPath,
-                    source: entry.source,
-                    error: 'total_char_budget_reached',
-                    content: null,
-                    truncated: false,
-                    truncatedBy: [],
-                    originalLines: null,
-                    originalChars: null,
-                    returnedLines: 0,
-                    returnedChars: 0,
-                    nextStartLine: 1,
-                });
-                continue;
-            }
-
-            const fullContent = await readTextFile(entry.publicPath, options);
-            const originalLinesArray = fullContent === '' ? [] : fullContent.split('\n');
-            const originalLines = originalLinesArray.length;
-            const originalChars = fullContent.length;
-            const truncatedBy = [];
-            let candidateLines = [...originalLinesArray];
-
-            if (candidateLines.length > MAX_LINES_PER_FILE) {
-                candidateLines = candidateLines.slice(0, MAX_LINES_PER_FILE);
-                truncatedBy.push('line_limit');
-            }
-
-            let returnedLinesArray = candidateLines;
-            let returnedContent = returnedLinesArray.join('\n');
-            if (returnedContent.length > remainingChars) {
-                const fittingLines = [];
-                let usedChars = 0;
-                for (const line of returnedLinesArray) {
-                    const addition = (fittingLines.length ? 1 : 0) + line.length;
-                    if (usedChars + addition > remainingChars) break;
-                    fittingLines.push(line);
-                    usedChars += addition;
-                }
-                returnedLinesArray = fittingLines;
-                returnedContent = fittingLines.join('\n');
-                truncatedBy.push('total_char_budget');
-                warning = 'total_char_budget_reached';
-            }
-
-            const returnedLines = returnedLinesArray.length;
-            const returnedChars = returnedContent.length;
-            const truncated = truncatedBy.length > 0;
-            const nextStartLine = truncated ? (returnedLines + 1) : null;
-
-            totalChars += returnedChars;
-
-            results.push({
-                path: entry.publicPath,
-                source: entry.source,
-                content: returnedContent,
-                truncated,
-                truncatedBy,
-                originalLines,
-                originalChars,
-                returnedLines,
-                returnedChars,
-                nextStartLine,
-                error: null,
-            });
-        } catch (error) {
-            results.push({
-                path: targetPath,
-                error: error.message || 'read_failed',
-                content: null,
-                truncated: false,
-            });
-        }
-    }
-
-    return {
-        total: results.length,
-        files: results,
-        totalChars,
-        warning,
-    };
-}
-
-async function searchFiles(args = {}, options = {}) {
-    const manifest = await loadManifest(options.signal);
-    const query = String(args.query || '').trim();
-    if (!query) throw new Error('empty_query');
-
-    const useRegex = !!args.useRegex;
+    const useRegex = 'useRegex' in args ? !!args.useRegex : true;
     const limit = Math.max(1, Math.min(Number(args.limit) || 10, 50));
     const contextLines = Math.max(0, Math.min(Number(args.contextLines) || 0, 5));
-    const filePattern = String(args.filePattern || '').trim().toLowerCase();
-    const concurrency = 6;
+    const glob = String(args.glob || '').trim();
     const files = Array.isArray(manifest.files) ? manifest.files : [];
+    const fileMatcher = glob ? compileGlobPattern(glob) : null;
 
-    // 编译正则表达式（如果启用）
     let regex = null;
     if (useRegex) {
         try {
-            regex = new RegExp(query, 'i');  // 不区分大小写
+            regex = new RegExp(pattern, 'i');
         } catch (error) {
             throw new Error(`invalid_regex:${error.message}`);
         }
     }
-    const loweredQuery = useRegex ? null : query.toLowerCase();
-
-    // 文件路径过滤
-    const filteredFiles = filePattern
-        ? files.filter(f => f.publicPath.toLowerCase().includes(filePattern))
-        : files;
+    const loweredPattern = useRegex ? null : pattern.toLowerCase();
 
     const results = [];
     let scannedFiles = 0;
-    let truncated = false;
-
-    for (let index = 0; index < filteredFiles.length; index += concurrency) {
+    for (const entry of files) {
         ensureNotAborted(options.signal);
-        if (results.length >= limit) break;
-        const batch = filteredFiles.slice(index, index + concurrency);
-        scannedFiles += batch.length;
-        const batchResults = await Promise.all(batch.map(async (entry) => {
-            try {
-                const text = await readTextFile(entry.publicPath, options);
-                const lines = text.split('\n');
-                const matches = [];
+        if (fileMatcher && !matchesGlob(entry.publicPath, entry.relativePath, fileMatcher)) {
+            continue;
+        }
+        scannedFiles += 1;
 
-                // 查找所有匹配行
-                lines.forEach((line, lineIndex) => {
-                    const isMatch = useRegex
-                        ? regex.test(line)
-                        : line.toLowerCase().includes(loweredQuery);
+        try {
+            const text = await readTextFile(entry.publicPath, options);
+            const lines = text.split('\n');
+            const matches = [];
 
-                    if (isMatch) {
-                        const lineNumber = lineIndex + 1;
-                        const contextStart = Math.max(0, lineIndex - contextLines);
-                        const contextEnd = Math.min(lines.length, lineIndex + contextLines + 1);
-                        const contextText = lines.slice(contextStart, contextEnd)
-                            .map((l, i) => {
-                                const num = contextStart + i + 1;
-                                const prefix = num === lineNumber ? '>' : ' ';
-                                return `${prefix} ${num}: ${l}`;
-                            })
-                            .join('\n');
+            lines.forEach((line, lineIndex) => {
+                const isMatch = useRegex
+                    ? regex.test(line)
+                    : line.toLowerCase().includes(loweredPattern);
 
-                        matches.push({
-                            line: lineNumber,
-                            text: line.trim(),
-                            context: contextLines > 0 ? contextText : null,
-                        });
-                    }
+                if (!isMatch) return;
+
+                const lineNumber = lineIndex + 1;
+                const contextStart = Math.max(0, lineIndex - contextLines);
+                const contextEnd = Math.min(lines.length, lineIndex + contextLines + 1);
+                const contextText = lines.slice(contextStart, contextEnd)
+                    .map((contextLine, contextIndex) => {
+                        const num = contextStart + contextIndex + 1;
+                        const prefix = num === lineNumber ? '>' : ' ';
+                        return `${prefix} ${num}: ${contextLine}`;
+                    })
+                    .join('\n');
+
+                matches.push({
+                    line: lineNumber,
+                    text: line.trim(),
+                    context: contextLines > 0 ? contextText : null,
                 });
+            });
 
-                if (matches.length === 0) return null;
+            if (!matches.length) continue;
 
-                return {
-                    path: entry.publicPath,
-                    source: entry.source,
-                    matchCount: matches.length,
-                    matches: matches.slice(0, 10), // 每个文件最多返回 10 个匹配
-                };
-            } catch {
-                return null;
-            }
-        }));
-
-        for (const item of batchResults) {
-            if (!item) continue;
-            results.push(item);
-            if (results.length >= limit) {
-                truncated = true;
-                break;
-            }
+            results.push({
+                path: entry.publicPath,
+                source: entry.source,
+                matchCount: matches.length,
+                matches: matches.slice(0, 10),
+            });
+        } catch {
+            continue;
         }
     }
 
+    const truncated = results.length > limit;
+    const limitedResults = results.slice(0, limit);
+
     return {
-        query,
+        pattern,
         useRegex,
-        filePattern: filePattern || '(all)',
+        glob: glob || '',
         contextLines,
         total: results.length,
-        items: results,
+        items: limitedResults,
         truncated,
-        scannedFiles: Math.min(scannedFiles, filteredFiles.length),
+        scannedFiles,
         indexedFiles: files.length,
     };
 }
@@ -627,19 +771,17 @@ async function readWorkspaceNote(_args = {}, options = {}) {
 
 async function executeToolCall(name, args, options = {}) {
     switch (name) {
-        case 'list_files':
-            return await listFiles(args, options);
-        case 'read_file':
+        case TOOL_NAMES.LS:
+            return await listDirectory(args, options);
+        case TOOL_NAMES.GLOB:
+            return await globFiles(args, options);
+        case TOOL_NAMES.GREP:
+            return await grepFiles(args, options);
+        case TOOL_NAMES.READ:
             return await readFile(args, options);
-        case 'read_file_range':
-            return await readFileRange(args, options);
-        case 'read_multiple_files':
-            return await readMultipleFiles(args, options);
-        case 'search_files':
-            return await searchFiles(args, options);
-        case 'read_workspace_note':
+        case TOOL_NAMES.READ_WORKLOG:
             return await readWorkspaceNote(args, options);
-        case 'write_workspace_note':
+        case TOOL_NAMES.WRITE_WORKLOG:
             return await writeWorkspaceNote(args, options);
         default:
             throw new Error(`unsupported_tool:${name}`);
@@ -666,7 +808,9 @@ function openAssistant() {
     const updateOverlayHeight = () => {
         if (overlay && overlay.style.display !== 'none') {
             overlay.style.height = `${window.innerHeight}px`;
-            if (!window.matchMedia('(max-width: 900px)').matches) {
+            if (window.matchMedia('(max-width: 900px)').matches) {
+                shell.style.height = `${window.innerHeight}px`;
+            } else {
                 applyShellBounds(shellMetrics.width || shell.getBoundingClientRect().width, shellMetrics.height || shell.getBoundingClientRect().height);
             }
         }
@@ -983,12 +1127,12 @@ function openAssistant() {
         titleBar.style.height = '56px';
         titleBar.style.padding = '0 16px';
         titleBar.style.cursor = 'default';
-        shell.style.width = '100vw';
-        shell.style.height = '100vh';
-        shell.style.maxWidth = '100vw';
-        shell.style.maxHeight = '100vh';
-        shell.style.minWidth = '100vw';
-        shell.style.minHeight = '100vh';
+        shell.style.width = '100%';
+        shell.style.height = `${window.innerHeight}px`;
+        shell.style.maxWidth = '100%';
+        shell.style.maxHeight = `${window.innerHeight}px`;
+        shell.style.minWidth = '100%';
+        shell.style.minHeight = `${window.innerHeight}px`;
         shell.style.left = '0';
         shell.style.top = '0';
         shell.style.borderRadius = '0';

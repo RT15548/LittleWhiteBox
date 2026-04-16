@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-16T09:53:45.301Z",
+  "generatedAt": "2026-04-16T14:15:58.954Z",
   "version": 1,
   "files": [
     {
@@ -132,6 +132,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/main.js",
       "relativePath": "modules/assistant/app-src/main.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/tooling.js",
+      "relativePath": "modules/assistant/app-src/tooling.js",
       "extension": ".js"
     },
     {
@@ -1975,6 +1981,144 @@
       "publicPath": "scripts/extensions/third-party/noass/styles.css",
       "relativePath": "scripts/extensions/third-party/noass/styles.css",
       "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/extract-sources.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/extract-sources.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/package/LICENSE.md",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/package/LICENSE.md",
+      "extension": ".md"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/package/package.json",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/package/package.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/package/README.md",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/package/README.md",
+      "extension": ".md"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/README.md",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/README.md",
+      "extension": ".md"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/ant-trace/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/ant-trace/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/autofix-pr/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/autofix-pr/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/backfill-sessions/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/backfill-sessions/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/break-cache/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/break-cache/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/bughunter/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/bughunter/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/ctx_viz/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/ctx_viz/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/debug-tool-call/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/debug-tool-call/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/env/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/env/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/good-claude/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/good-claude/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/issue/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/issue/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/mock-limits/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/mock-limits/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/oauth-refresh/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/oauth-refresh/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/onboarding/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/onboarding/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/perf-issue/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/perf-issue/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/reset-limits/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/reset-limits/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/share/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/share/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/summary/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/summary/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/teleport/index.js",
+      "relativePath": "scripts/extensions/third-party/_tmp_compare/claude-code-sourcemap/restored-src/src/commands/teleport/index.js",
+      "extension": ".js"
     },
     {
       "source": "sillytavern-public",

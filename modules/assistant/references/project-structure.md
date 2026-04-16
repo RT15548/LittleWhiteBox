@@ -1,6 +1,58 @@
-# LittleWhiteBox 项目结构参考
+# SillyTavern 与 LittleWhiteBox 项目结构参考
 
 本文档用于快速建立目录心智，减少为找入口而盲目搜索。
+
+你当前所在的是 SillyTavern 前端里的一个第三方插件：
+
+- SillyTavern 根目录下有整站代码与运行配置
+- `public/` 是前端静态资源根目录
+- `public/scripts/` 是酒馆前端脚本主区域
+- `public/scripts/extensions/` 是扩展系统目录
+- `public/scripts/extensions/third-party/` 是第三方插件目录
+- LittleWhiteBox 位于：`public/scripts/extensions/third-party/LittleWhiteBox/`
+
+## SillyTavern 结构心智
+
+这不是完整文件清单，只是给你建立“酒馆本体 -> 前端 -> 扩展系统 -> 第三方插件 -> LittleWhiteBox”的结构树。
+
+```text
+SillyTavern/
+├── config.yaml                         # 酒馆主配置；很多服务端开关在这里
+├── data/                               # 酒馆运行数据、用户数据、配置存档等
+├── plugins/                            # 其他插件/服务端插件生态（不是前端 third-party 扩展本身）
+├── public/                             # 前端静态资源根目录
+│   ├── index.html                      # 前端入口页面
+│   ├── img/                            # 图片资源
+│   ├── css/                            # 全局样式资源
+│   └── scripts/                        # 前端脚本主区域
+│       ├── script.js                   # 酒馆前端主入口之一；很多全局导出与运行时从这里来
+│       ├── extensions/                 # 扩展系统
+│       │   ├── assets/                 # 扩展资源
+│       │   ├── shared/                 # 扩展共用逻辑
+│       │   ├── built-in/               # 内建扩展
+│       │   └── third-party/            # 第三方扩展；LittleWhiteBox 就在这里
+│       ├── slash-commands/             # 斜杠命令前端相关逻辑
+│       ├── openai.js / anthropic.js    # 各类模型渠道前端接线
+│       ├── group-chats.js              # 群聊相关前端逻辑
+│       ├── power-user.js               # 高级设置 / Power User 前端逻辑
+│       └── ...                         # 其他前端模块
+├── src/                                # 酒馆后端源码主目录
+├── server.js                           # 服务端入口之一（不同版本可能有差异）
+└── package.json                        # 依赖与脚本
+```
+
+## 怎么理解“插件”
+
+- 在你当前语境里，LittleWhiteBox 是一个 SillyTavern 第三方前端插件
+- 它不是独立网站，也不是外部 SaaS；它挂在酒馆扩展系统里运行
+
+## 前端可读范围怎么理解
+
+- 你当前能直接查证的重点范围，是 LittleWhiteBox 自身和 SillyTavern 的 `public/scripts/*`
+- 这意味着你对酒馆前端扩展系统、UI 入口、前端脚本调用链有一定可读能力
+- 但如果问题落到服务端实现、数据库、容器、Node 进程、后端路由，就不能假装自己已查证
+
+## LittleWhiteBox 所在位置
 
 LittleWhiteBox 位于：`public/scripts/extensions/third-party/LittleWhiteBox/`
 
@@ -223,35 +275,6 @@ LittleWhiteBox/
 ```
 
 ## 快速定位建议
-
-### 设置与入口
-- 问设置项/按钮/开关/UI入口：先看 `settings.html` 和 `index.js`
-- 问全局样式/通用外观/整体布局：先看 `style.css`
-
-### 桥接与通信
-- 问桥接/iframe 通信/宿主注入/存储同步：先看 `bridges/` 和 `core/`
-- 问 postMessage 通信：看 `core/iframe-messaging.js`
-- 问服务端存储：看 `core/server-storage.js`
-
-### 剧情总结与向量
-- 问剧情总结/向量化/召回/L0-L3/embedding/rerank：重点看 `modules/story-summary/`
-- 问向量构建流程：看 `modules/story-summary/vector/pipeline/`
-- 问召回与检索：看 `modules/story-summary/vector/retrieval/`
-- 问 L0 原子抽取：看 `modules/story-summary/vector/llm/atom-extraction.js`
-- 问分词/停用词/文本过滤：看 `modules/story-summary/vector/utils/`
-
-### 其他功能模块
-- 问语音/TTS：看 `modules/tts/`
-- 问画图/图像生成：看 `modules/novel-draw/`
-- 问变量系统：看 `modules/variables/`
-- 问次元壁/四次元壁：看 `modules/fourth-wall/`
-- 问剧情规划：看 `modules/ena-planner/`
-- 问剧情大纲：看 `modules/story-outline/`
-- 问定时任务：看 `modules/scheduled-tasks/`
-- 问小白助手自身：看 `modules/assistant/`
-
-### 面板与渲染
-- 问某个面板渲染不了：先找对应模块目录，看该模块的 `html/css/js`，再看 `modules/iframe-renderer.js`、桥接层和样式
 
 ### 参考资料
 - 问 STscript 语法：看 `modules/assistant/references/stscript-language-reference.md`
