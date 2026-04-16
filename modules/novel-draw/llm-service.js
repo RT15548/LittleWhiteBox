@@ -267,7 +267,13 @@ export function buildCharacterInfoForLLM(presentCharacters) {
         const type = c.type || 'girl';
         const danbooru = c.danbooruTag ? ` | danbooru: ${c.danbooruTag}` : '';
         const appear = c.appearance ? `\n  外貌参考: ${c.appearance}` : '';
-        return `- ${c.name}${aliases} [${type}]${danbooru}: 外貌已预设，只需输出 name + danbooru + costume + action + interact + uc + center${appear}`;
+        const outfits = Array.isArray(c.outfits) && c.outfits.length
+            ? `\n  可选服装: ${c.outfits
+                .filter(o => o?.name || o?.tags)
+                .map(o => `${o.name || '服装'}=${o.tags || '未填写tag'}`)
+                .join('； ')}`
+            : '';
+        return `- ${c.name}${aliases} [${type}]${danbooru}: 外貌已预设，只需输出 name + danbooru + costume + action + interact + uc + center${appear}${outfits}`;
     });
 
     return `【已录入角色】(不要输出这些角色的 type/appear，但 costume 必须完整输出):

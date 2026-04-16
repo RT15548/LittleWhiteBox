@@ -776,6 +776,7 @@ function normalizeSettings(saved) {
         appearance: char.appearance || char.tags || '',
         negativeTags: char.negativeTags || '',
         danbooruTag: char.danbooruTag || '',
+        outfits: normalizeCharacterOutfits(char.outfits || char.costumes || char.clothes || []),
     }));
 
     merged.autoLearnCharacters = !!merged.autoLearnCharacters;
@@ -1023,6 +1024,32 @@ async function extractImageFromZip(zipData) {
 // 角色检测与标签组装
 // ═══════════════════════════════════════════════════════════════════════════
 
+function normalizeCharacterOutfits(outfits = []) {
+    return (Array.isArray(outfits) ? outfits : [])
+        .map(outfit => ({
+            name: String(outfit?.name || '').trim(),
+            tags: String(outfit?.tags || '').trim(),
+        }))
+        .filter(outfit => outfit.name || outfit.tags);
+}
+
+function buildCharacterOutfitReference(outfits = []) {
+    const normalized = normalizeCharacterOutfits(outfits);
+    if (!normalized.length) return '';
+
+    return normalized
+        .map(outfit => {
+            const label = outfit.name || '服装';
+            return outfit.tags ? `${label}tag ${outfit.tags}` : label;
+        })
+        .join('; ');
+}
+
+function buildKnownCharacterBasePrompt(character = {}) {
+    const naiTag = character.danbooruTag ? danbooruToNai(character.danbooruTag) : '';
+    return joinTags(naiTag, character.type, character.appearance, buildCharacterOutfitReference(character.outfits));
+}
+
 function detectPresentCharacters(messageText, characterTags) {
     if (!messageText || !characterTags?.length) return [];
     const text = messageText.toLowerCase();
@@ -1044,6 +1071,7 @@ function detectPresentCharacters(messageText, characterTags) {
                 appearance: char.appearance || '',
                 danbooruTag: char.danbooruTag || '',
                 negativeTags: char.negativeTags || '',
+                outfits: normalizeCharacterOutfits(char.outfits),
             });
         }
     }
@@ -1059,10 +1087,9 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
         );
 
         if (known) {
-            const naiTag = known.danbooruTag ? danbooruToNai(known.danbooruTag) : '';
             const defaultCenter = { x: 0.5, y: 0.5 };
             return {
-                prompt: joinTags(naiTag, known.type, known.appearance, char.costume, char.action, char.interact),
+                prompt: joinTags(buildKnownCharacterBasePrompt(known), char.costume, char.action, char.interact),
                 uc: joinTags(known.negativeTags, char.uc),
                 center: gridToCoord(char.center) || defaultCenter
             };
@@ -1147,6 +1174,7 @@ function autoLearnFromTasks(tasks, settings) {
                 appearance: char.appear || '',
                 negativeTags: '',
                 danbooruTag: char.danbooru || '',
+                outfits: [],
             };
             // 本地 DB 自动匹配 danbooruTag
             if (isDanbooruDBLoaded() && !newChar.danbooruTag) {
@@ -2057,7 +2085,7 @@ async function refreshSingleImage(container) {
             const message = ctx.chat?.[messageId];
             const presentCharacters = detectPresentCharacters(String(message?.mes || ''), settings.characterTags || []);
             characterPrompts = presentCharacters.map(c => ({
-                prompt: joinTags(c.type, c.appearance),
+                prompt: buildKnownCharacterBasePrompt(c),
                 uc: c.negativeTags || '',
                 center: { x: 0.5, y: 0.5 }
             }));
@@ -2209,7 +2237,7 @@ async function retryFailedImage(container) {
             const message = ctx.chat?.[messageId];
             const presentCharacters = detectPresentCharacters(String(message?.mes || ''), settings.characterTags || []);
             characterPrompts = presentCharacters.map(c => ({
-                prompt: joinTags(c.type, c.appearance),
+                prompt: buildKnownCharacterBasePrompt(c),
                 uc: c.negativeTags || '',
                 center: { x: 0.5, y: 0.5 }
             }));
