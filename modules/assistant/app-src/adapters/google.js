@@ -1,4 +1,5 @@
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { createCorsProxyFetch } from './cors-proxy.js';
 
 function logOutgoingRequest(label, payload) {
     const targetConsole = globalThis.top?.console || console;
@@ -183,6 +184,7 @@ export class GoogleAdapter {
         this.config = config;
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
+            fetch: createCorsProxyFetch(Boolean(config.useCorsProxy)),
             httpOptions: {
                 baseUrl: String(config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, ''),
                 timeout: Number(config.timeoutMs) || 180000,

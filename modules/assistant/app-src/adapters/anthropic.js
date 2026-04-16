@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { createCorsProxyFetch } from './cors-proxy.js';
 
 function logOutgoingRequest(label, payload) {
     const targetConsole = globalThis.top?.console || console;
@@ -71,6 +72,18 @@ function mapThinkingBudget(effort) {
     }
 }
 
+function resolveSystemPrompt(task) {
+    const parts = [
+        String(task.systemPrompt || '').trim(),
+        ...((task.messages || [])
+            .filter((message) => message.role === 'system')
+            .map((message) => String(message.content || '').trim())),
+    ].filter(Boolean);
+
+    if (!parts.length) return '';
+    return [...new Set(parts)].join('\n\n');
+}
+
 function buildAnthropicMessages(messages) {
     const filtered = [];
     const toolNameById = new Map();
@@ -132,6 +145,7 @@ export class AnthropicAdapter {
             baseURL: String(config.baseUrl || 'https://api.anthropic.com/v1').replace(/\/$/, ''),
             timeout: Number(config.timeoutMs) || 180000,
             maxRetries: 0,
+            fetch: createCorsProxyFetch(Boolean(config.useCorsProxy)),
             dangerouslyAllowBrowser: true,
         });
     }
@@ -142,9 +156,10 @@ export class AnthropicAdapter {
             description: tool.function.description,
             input_schema: tool.function.parameters,
         }));
+        const system = resolveSystemPrompt(task);
         const body = {
             model: this.config.model,
-            system: task.systemPrompt,
+            system,
             messages: buildAnthropicMessages(task.messages),
             tools,
             temperature: task.temperature,

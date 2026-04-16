@@ -2,6 +2,7 @@ import { OpenAICompatibleAdapter } from './adapters/openai-compatible.js';
 import { OpenAIResponsesAdapter } from './adapters/openai-responses.js';
 import { AnthropicAdapter } from './adapters/anthropic.js';
 import { GoogleAdapter } from './adapters/google.js';
+import { buildCorsProxyUrl } from './adapters/cors-proxy.js';
 import { countTokens } from 'gpt-tokenizer/model/gpt-4o';
 
 const SOURCE = 'xb-assistant-app';
@@ -43,6 +44,7 @@ const DEFAULT_MODEL_CONFIGS = {
         model: 'gpt-4.1-mini',
         apiKey: '',
         temperature: 0.2,
+        useCorsProxy: false,
     },
     'openai-compatible': {
         baseUrl: 'https://api.openai.com/v1',
@@ -50,18 +52,21 @@ const DEFAULT_MODEL_CONFIGS = {
         apiKey: '',
         temperature: 0.2,
         toolMode: 'native',
+        useCorsProxy: false,
     },
     anthropic: {
         baseUrl: 'https://api.anthropic.com/v1',
         model: 'claude-sonnet-4-0',
         apiKey: '',
         temperature: 0.2,
+        useCorsProxy: false,
     },
     google: {
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
         model: 'gemini-2.5-pro',
         apiKey: '',
         temperature: 0.2,
+        useCorsProxy: false,
     },
 };
 const EXAMPLE_PROMPTS = [
@@ -489,14 +494,15 @@ function normalizeRestoredMessage(message) {
 
 function persistSession() {
     try {
-        if (!state.messages.length) {
+        const activeMessages = getActiveContextMessages().slice(-MAX_PERSISTED_MESSAGES);
+        const summary = trimPersistedContent(state.historySummary || '');
+        if (!activeMessages.length && !summary) {
             localStorage.removeItem(SESSION_STORAGE_KEY);
             return;
         }
         localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-            messages: state.messages.slice(-MAX_PERSISTED_MESSAGES).map(serializeMessage),
-            historySummary: trimPersistedContent(state.historySummary || ''),
-            archivedTurnCount: Number(state.archivedTurnCount) || 0,
+            messages: activeMessages.map(serializeMessage),
+            historySummary: summary,
         }));
     } catch {
         // Ignore localStorage failures.
@@ -511,7 +517,7 @@ function restoreSession() {
             ? parsed.messages.map(normalizeRestoredMessage).filter(Boolean)
             : [];
         state.historySummary = String(parsed.historySummary || '');
-        state.archivedTurnCount = Math.max(0, Number(parsed.archivedTurnCount) || 0);
+        state.archivedTurnCount = 0;
     } catch {
         state.messages = [];
         state.historySummary = '';
@@ -749,6 +755,7 @@ async function pullModelsForProvider(providerConfig) {
     const provider = providerConfig.provider;
     const baseUrl = normalizeBaseUrl(providerConfig.baseUrl || '');
     const apiKey = String(providerConfig.apiKey || '').trim();
+    const useCorsProxy = Boolean(providerConfig.useCorsProxy);
 
     if (!apiKey) {
         throw new Error('请先填写 API Key。');
@@ -759,7 +766,7 @@ async function pullModelsForProvider(providerConfig) {
 
     if (provider === 'google') {
         return await tryCandidateFetches({
-            urls: buildGoogleCandidateUrls(baseUrl, apiKey),
+            urls: buildGoogleCandidateUrls(baseUrl, apiKey).map((url) => useCorsProxy ? buildCorsProxyUrl(url) : url),
             requestOptionsList: [
                 {
                     headers: {
@@ -786,7 +793,7 @@ async function pullModelsForProvider(providerConfig) {
 
     if (provider === 'anthropic') {
         return await tryCandidateFetches({
-            urls: buildAnthropicCandidateUrls(baseUrl),
+            urls: buildAnthropicCandidateUrls(baseUrl).map((url) => useCorsProxy ? buildCorsProxyUrl(url) : url),
             requestOptionsList: [{
                 headers: {
                     'x-api-key': apiKey,
@@ -800,7 +807,7 @@ async function pullModelsForProvider(providerConfig) {
     }
 
     return await tryCandidateFetches({
-        urls: buildOpenAICandidateUrls(baseUrl),
+        urls: buildOpenAICandidateUrls(baseUrl).map((url) => useCorsProxy ? buildCorsProxyUrl(url) : url),
         requestOptionsList: [{
             headers: {
                 Authorization: `Bearer ${apiKey}`,
@@ -824,9 +831,11 @@ function describeError(error) {
     if (lowered === 'file_not_indexed') return '这个文件不在当前助手索引范围里。';
     if (lowered === 'no_paths_provided') return '还没有提供要批量读取的文件路径。';
     if (lowered === 'empty_query') return '搜索词是空的，换一个明确点的关键词就行。';
+    if (lowered.startsWith('file_too_large')) return '这个文件太大了，请改用 read_file_range 按行读取局部内容。';
     if (lowered.includes('401') || lowered.includes('authentication')) return '认证失败了，请检查当前 Provider 的 API Key。';
     if (lowered.includes('403') || lowered.includes('permission')) return '请求被拒绝了，请检查 API Key 权限、模型权限或站点限制。';
     if (lowered.includes('429') || lowered.includes('rate limit')) return '请求太频繁了，接口触发了限流，请稍后再试。';
+    if (lowered.includes('cors proxy is disabled')) return '酒馆的 CORS 代理还没开启。请到酒馆目录的 config.yaml 把 enableCorsProxy 改成 true，保存后重启酒馆进程或容器，不是 F5 刷新。';
     if (lowered.includes('timeout') || lowered.includes('timed out')) return '请求超时了，请稍后再试。';
     if (lowered.includes('failed to fetch') || lowered.includes('network')) return '网络请求失败了，请检查 Base URL、代理或跨域设置。';
     return `请求失败：${raw}`;
@@ -859,6 +868,29 @@ function formatToolResultDisplay(message) {
         return {
             summary: message.content || '',
             details: '',
+        };
+    }
+
+    if (parsed.ok === false && parsed.error) {
+        const lines = [
+            `工具返回错误：${parsed.error}`,
+            parsed.message ? `说明：${parsed.message}` : '',
+            parsed.suggestion ? `建议：${parsed.suggestion}` : '',
+        ].filter(Boolean);
+        const detailLines = [];
+        if (parsed.path) detailLines.push(`路径：${parsed.path}`);
+        if (Number.isFinite(parsed.sizeBytes) && parsed.sizeBytes > 0) {
+            detailLines.push(`大小：${Math.round(parsed.sizeBytes / 1024)} KB`);
+        }
+        if (Number.isFinite(parsed.lineCount) && parsed.lineCount >= 0) {
+            detailLines.push(`行数：${parsed.lineCount}`);
+        }
+        if (parsed.raw && parsed.raw !== parsed.error) {
+            detailLines.push(`原始错误：${parsed.raw}`);
+        }
+        return {
+            summary: lines.join('\n'),
+            details: detailLines.join('\n'),
         };
     }
 
@@ -1152,6 +1184,23 @@ function resetCompactionState() {
     };
 }
 
+function buildHistorySummarySystemMessage() {
+    if (!state.historySummary?.trim()) return null;
+    return {
+        role: 'system',
+        content: `${HISTORY_SUMMARY_PREFIX}\n${state.historySummary.trim()}`,
+    };
+}
+
+function buildRepeatedToolErrorSystemMessage() {
+    const hint = state.activeRun?.lightBrakeMessage;
+    if (!hint) return null;
+    return {
+        role: 'system',
+        content: hint,
+    };
+}
+
 function formatContextCount(tokens) {
     return `${Math.max(0, Math.round((Number(tokens) || 0) / 1000))}k`;
 }
@@ -1344,6 +1393,7 @@ function getActiveProviderConfig() {
         maxTokens: null,
         timeoutMs: REQUEST_TIMEOUT_MS,
         toolMode: providerConfig.toolMode || 'native',
+        useCorsProxy: Boolean(providerConfig.useCorsProxy),
         reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
         reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
     };
@@ -1370,12 +1420,10 @@ function createAdapter() {
 
 function toProviderMessages(baseMessages = state.messages) {
     const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
-    if (state.historySummary?.trim()) {
-        messages.push({
-            role: 'assistant',
-            content: `${HISTORY_SUMMARY_PREFIX}\n${state.historySummary.trim()}`,
-        });
-    }
+    const summaryMessage = buildHistorySummarySystemMessage();
+    const lightBrakeMessage = buildRepeatedToolErrorSystemMessage();
+    if (summaryMessage) messages.push(summaryMessage);
+    if (lightBrakeMessage) messages.push(lightBrakeMessage);
     for (const message of baseMessages) {
         if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
             messages.push({
@@ -1416,6 +1464,49 @@ function getActiveContextMessages() {
     const turns = splitMessagesIntoTurns();
     const archivedCount = Math.min(state.archivedTurnCount, turns.length);
     return turns.slice(archivedCount).flat();
+}
+
+function buildToolFailureResult(toolName, args, error) {
+    const raw = String(error?.message || error || 'tool_failed');
+    const [code, detailA = '', detailB = ''] = raw.split(':');
+    const result = {
+        ok: false,
+        toolName,
+        path: typeof args?.path === 'string' ? args.path : '',
+        error: code || 'tool_failed',
+        raw,
+        message: describeError(error),
+    };
+
+    if (code === 'file_too_large') {
+        result.sizeBytes = Math.max(0, Number(detailA) || 0);
+        result.lineCount = Math.max(0, Number(detailB) || 0);
+        result.suggestion = '请改用 read_file_range 按行分段读取需要的局部内容。';
+    }
+
+    return result;
+}
+
+function recordToolErrorForLightBrake(run, toolName, errorCode) {
+    if (!run || !toolName || !errorCode) return;
+    const nextKey = `${toolName}::${errorCode}`;
+    if (run.toolErrorStreakKey === nextKey) {
+        run.toolErrorStreakCount += 1;
+    } else {
+        run.toolErrorStreakKey = nextKey;
+        run.toolErrorStreakCount = 1;
+    }
+
+    if (run.toolErrorStreakCount >= 3 && run.lastLightBrakeKey !== nextKey) {
+        run.lightBrakeMessage = `系统提醒：刚刚连续三次调用工具 \`${toolName}\` 都返回了同一个错误：\`${errorCode}\`。请不要继续重复同一路径，改用别的工具、缩小范围，或先向用户确认缺失信息。`;
+        run.lastLightBrakeKey = nextKey;
+    }
+}
+
+function resetToolErrorLightBrake(run) {
+    if (!run) return;
+    run.toolErrorStreakKey = '';
+    run.toolErrorStreakCount = 0;
 }
 
 async function summarizeArchivedTurns(adapter, turnsToArchive, signal) {
@@ -1598,10 +1689,20 @@ async function runAssistantLoop(run) {
                 const parsedArguments = safeJsonParse(toolCall.arguments, {});
                 state.progressLabel = `正在${describeToolCall(toolCall.name, parsedArguments)}…`;
                 render();
-                const toolResult = await callHostTool(toolCall.name, parsedArguments, {
-                    runId: run.id,
-                    signal: run.controller.signal,
-                });
+                let toolResult = null;
+                try {
+                    toolResult = await callHostTool(toolCall.name, parsedArguments, {
+                        runId: run.id,
+                        signal: run.controller.signal,
+                    });
+                    resetToolErrorLightBrake(run);
+                } catch (error) {
+                    if (isAbortError(error)) {
+                        throw error;
+                    }
+                    toolResult = buildToolFailureResult(toolCall.name, parsedArguments, error);
+                    recordToolErrorForLightBrake(run, toolCall.name, toolResult.error);
+                }
                 pushMessage({
                     role: 'tool',
                     toolCallId: toolCall.id,
@@ -1642,6 +1743,7 @@ function collectProviderDraft(root, provider) {
         model: root.querySelector('#xb-assistant-model').value.trim(),
         apiKey: root.querySelector('#xb-assistant-api-key').value.trim(),
         temperature: Number(((state.config?.modelConfigs || {})[provider] || {}).temperature ?? 0.2),
+        useCorsProxy: root.querySelector('#xb-assistant-use-cors-proxy')?.checked || false,
         reasoningEnabled: root.querySelector('#xb-assistant-reasoning-enabled')?.checked || false,
         reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value),
         toolMode: provider === 'openai-compatible'
@@ -1841,6 +1943,16 @@ function buildAppMarkup(root) {
                             <button id="xb-assistant-toggle-key" type="button" class="secondary ghost">显示</button>
                         </div>
                     </label>
+                    <label class="xb-assistant-checkbox-row">
+                        <span>开启 CORS 代理</span>
+                        <span class="xb-assistant-checkbox-control">
+                            <input id="xb-assistant-use-cors-proxy" type="checkbox" />
+                            <span>开启</span>
+                        </span>
+                    </label>
+                    <div class="xb-assistant-help" id="xb-assistant-cors-proxy-help">
+                        如果你的代理没有返回浏览器可用的 CORS 允许头，再勾选这一项。还需要打开酒馆目录的 <code>config.yaml</code>，将 <code>enableCorsProxy</code> 改为 <code>true</code> 并保存，然后重启酒馆（重启容器或进程，不是 F5 刷新）。
+                    </div>
                     <label>
                         <span>Model</span>
                         <input id="xb-assistant-model" type="text" />
@@ -1912,6 +2024,8 @@ function syncConfigToForm(root) {
     const reasoningEnabledInput = root.querySelector('#xb-assistant-reasoning-enabled');
     const reasoningEffortWrap = root.querySelector('#xb-assistant-reasoning-effort-wrap');
     const reasoningEffortSelect = root.querySelector('#xb-assistant-reasoning-effort');
+    const corsProxyInput = root.querySelector('#xb-assistant-use-cors-proxy');
+    const corsProxyHelp = root.querySelector('#xb-assistant-cors-proxy-help');
     const pulledSelect = root.querySelector('#xb-assistant-model-pulled');
     const presetSelect = root.querySelector('#xb-assistant-preset-select');
     const presetNameInput = root.querySelector('#xb-assistant-preset-name');
@@ -1926,6 +2040,8 @@ function syncConfigToForm(root) {
     root.querySelector('#xb-assistant-base-url').value = providerConfig.baseUrl || '';
     root.querySelector('#xb-assistant-model').value = providerConfig.model || '';
     root.querySelector('#xb-assistant-api-key').value = providerConfig.apiKey || '';
+    corsProxyInput.checked = Boolean(providerConfig.useCorsProxy);
+    corsProxyHelp.style.display = corsProxyInput.checked ? '' : 'none';
     toolModeWrap.style.display = provider === 'openai-compatible' ? '' : 'none';
     refillSelect(toolModeSelect, TOOL_MODE_OPTIONS);
     toolModeSelect.value = providerConfig.toolMode || 'native';
@@ -2063,6 +2179,21 @@ function injectStyles() {
             gap: 8px;
             color: #1b3758;
             font-size: 14px;
+        }
+        .xb-assistant-help {
+            margin-top: -2px;
+            padding: 10px 12px;
+            border-radius: 14px;
+            background: rgba(27, 55, 88, 0.05);
+            color: #52637a;
+            font-size: 12px;
+            line-height: 1.65;
+        }
+        .xb-assistant-help code {
+            padding: 0.08em 0.34em;
+            border-radius: 8px;
+            background: rgba(20, 32, 51, 0.08);
+            font-family: "Cascadia Code", "Consolas", monospace;
         }
         .xb-assistant-checkbox-control input {
             width: 16px;
@@ -2606,6 +2737,11 @@ function bindEvents(root) {
         render();
     });
 
+    root.querySelector('#xb-assistant-use-cors-proxy').addEventListener('change', () => {
+        syncCurrentProviderDraft(root);
+        render();
+    });
+
     root.querySelector('#xb-assistant-reasoning-effort').addEventListener('change', () => {
         syncCurrentProviderDraft(root);
     });
@@ -2724,6 +2860,10 @@ function bindEvents(root) {
             controller: new AbortController(),
             toolRequestIds: new Set(),
             cancelNotice: '',
+            lightBrakeMessage: '',
+            lastLightBrakeKey: '',
+            toolErrorStreakKey: '',
+            toolErrorStreakCount: 0,
         };
 
         state.activeRun = run;

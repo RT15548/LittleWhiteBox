@@ -14,6 +14,7 @@ const CONFIG_SAVE_ERROR = 'xb-assistant:config-save-error';
 const WORKSPACE_PREFIX = 'LittleWhiteBox_Assistant_';
 const DEFAULT_WORKSPACE_FILE = `${WORKSPACE_PREFIX}Worklog.md`;
 const MAX_CONTENT_CACHE_ENTRIES = 48;
+const MAX_READ_FILE_BYTES = 100 * 1024;
 const SERVER_FILE_KEY = 'settings';
 const CONFIG_VERSION = 1;
 const DEFAULT_PRESET_NAME = '默认';
@@ -279,6 +280,11 @@ async function readFile(args = {}, options = {}) {
         throw new Error('file_not_indexed');
     }
     const content = await readTextFile(entry.publicPath, options);
+    const sizeBytes = new TextEncoder().encode(content).length;
+    if (sizeBytes > MAX_READ_FILE_BYTES) {
+        const lineCount = content === '' ? 0 : content.split('\n').length;
+        throw new Error(`file_too_large:${sizeBytes}:${lineCount}`);
+    }
     return {
         path: entry.publicPath,
         source: entry.source,

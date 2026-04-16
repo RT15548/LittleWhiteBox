@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { createCorsProxyFetch } from './cors-proxy.js';
 
 function logOutgoingRequest(label, payload) {
     const targetConsole = globalThis.top?.console || console;
@@ -144,6 +145,7 @@ export class OpenAIResponsesAdapter {
             baseURL: String(config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, ''),
             timeout: Number(config.timeoutMs) || 180000,
             maxRetries: 0,
+            fetch: createCorsProxyFetch(Boolean(config.useCorsProxy)),
             dangerouslyAllowBrowser: true,
         });
     }
