@@ -1880,7 +1880,7 @@ function injectStyles() {
         .xb-assistant-shell {
             display: grid;
             grid-template-columns: 340px minmax(0, 1fr);
-            min-height: 100vh;
+            height: 100%;
             width: 100%;
             max-width: 100%;
             overflow: hidden;
@@ -2449,7 +2449,7 @@ function injectStyles() {
             100% { box-shadow: 0 0 0 0 rgba(201, 107, 51, 0); }
         }
         @media (max-width: 900px) {
-            .xb-assistant-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); height: 100dvh; min-height: 100dvh; }
+            .xb-assistant-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); height: 100%; }
             .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 1fr; }
             .xb-assistant-sidebar {
                 padding: 12px 14px;

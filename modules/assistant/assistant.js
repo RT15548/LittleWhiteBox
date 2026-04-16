@@ -1202,6 +1202,7 @@ async function handleIframeMessage(event) {
         case 'xb-assistant:ready': {
             console.log('[LittleWhiteBox Assistant] iframe ready, loading config...');
             await loadAssistantSettings();
+            console.log('[LittleWhiteBox Assistant] settingsCache after load:', JSON.stringify(settingsCache, null, 2));
             let fileCount = 0;
             try {
                 const manifest = await loadManifest();
@@ -1210,7 +1211,8 @@ async function handleIframeMessage(event) {
                 fileCount = 0;
             }
             const config = buildRuntimeConfig();
-            console.log('[LittleWhiteBox Assistant] sending config to iframe:', config);
+            console.log('[LittleWhiteBox Assistant] config object:', config);
+            console.log('[LittleWhiteBox Assistant] config JSON:', JSON.stringify(config, null, 2));
             postToIframe(iframe, {
                 type: 'xb-assistant:config',
                 payload: {
