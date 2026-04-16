@@ -425,7 +425,9 @@ async function globFiles(args = {}, options = {}) {
     const matcher = compileGlobPattern(pattern);
     const limit = Math.max(1, Math.min(Number(args.limit) || 50, 100));
     const files = Array.isArray(manifest.files) ? manifest.files : [];
-    const matched = files.filter((entry) => matchesGlob(entry.publicPath, entry.relativePath, matcher));
+    const matched = files
+        .filter((entry) => matchesGlob(entry.publicPath, entry.relativePath, matcher))
+        .sort((a, b) => String(a.publicPath || '').localeCompare(String(b.publicPath || ''), 'zh-CN'));
 
     return {
         pattern,
@@ -491,6 +493,11 @@ function clampLineNumber(value, fallback, totalLines) {
     return Math.min(Math.max(1, Math.trunc(numeric)), Math.max(totalLines, 1));
 }
 
+function formatLineNumberedContent(lines, startLine, totalLines) {
+    const width = String(Math.max(totalLines, startLine)).length;
+    return lines.map((line, index) => `${String(startLine + index).padStart(width, ' ')}\t${line}`);
+}
+
 function sliceLinesWithBudget(lines, startLine, requestedEndLine, maxChars) {
     const totalLines = lines.length;
     const safeEndLine = Math.min(Math.max(startLine, requestedEndLine), Math.max(totalLines, 1));
@@ -501,19 +508,20 @@ function sliceLinesWithBudget(lines, startLine, requestedEndLine, maxChars) {
 
     for (let lineNumber = startLine; lineNumber <= safeEndLine; lineNumber += 1) {
         const line = lines[lineNumber - 1] ?? '';
-        const addition = selected.length ? line.length + 1 : line.length;
+        const numberedLine = formatLineNumberedContent([line], lineNumber, totalLines)[0];
+        const addition = selected.length ? numberedLine.length + 1 : numberedLine.length;
         if (selected.length && totalChars + addition > maxChars) {
             charLimited = true;
             break;
         }
         if (!selected.length && addition > maxChars) {
-            selected.push(line.slice(0, maxChars));
+            selected.push(numberedLine.slice(0, maxChars));
             totalChars = maxChars;
             endLine = lineNumber;
             charLimited = true;
             break;
         }
-        selected.push(line);
+        selected.push(numberedLine);
         totalChars += addition;
         endLine = lineNumber;
     }
@@ -554,18 +562,19 @@ async function readFile(args = {}, options = {}) {
             totalLines: 0,
             startLine: 1,
             endLine: 0,
-            returnedLines: 0,
-            hasMoreBefore: false,
-            hasMoreAfter: false,
-            nextStartLine: null,
-            nextEndLine: null,
-            truncated: false,
-            autoChunked: false,
-            charLimited: false,
-            limitReason: null,
-            content: '',
-        };
-    }
+        returnedLines: 0,
+        hasMoreBefore: false,
+        hasMoreAfter: false,
+        nextStartLine: null,
+        nextEndLine: null,
+        truncated: false,
+        autoChunked: false,
+        charLimited: false,
+        limitReason: null,
+        contentFormat: 'numbered_lines',
+        content: '',
+    };
+}
 
     const startLine = clampLineNumber(args.startLine, 1, totalLines);
     let requestedEndLine;
@@ -612,6 +621,7 @@ async function readFile(args = {}, options = {}) {
                 : (hasMoreBefore || hasMoreAfter)
                     ? 'requested_range'
                     : null,
+        contentFormat: 'numbered_lines',
         content: slice.content,
     };
 }
@@ -622,11 +632,18 @@ async function grepFiles(args = {}, options = {}) {
     if (!pattern) throw new Error('empty_query');
 
     const useRegex = 'useRegex' in args ? !!args.useRegex : true;
+    const outputMode = ['content', 'files_with_matches', 'count'].includes(String(args.outputMode || ''))
+        ? String(args.outputMode)
+        : 'files_with_matches';
     const limit = Math.max(1, Math.min(Number(args.limit) || 10, 50));
+    const offset = Math.max(0, Math.trunc(Number(args.offset) || 0));
     const contextLines = Math.max(0, Math.min(Number(args.contextLines) || 0, 5));
     const glob = String(args.glob || '').trim();
     const files = Array.isArray(manifest.files) ? manifest.files : [];
     const fileMatcher = glob ? compileGlobPattern(glob) : null;
+    const candidateFiles = fileMatcher
+        ? files.filter((entry) => matchesGlob(entry.publicPath, entry.relativePath, fileMatcher))
+        : files;
 
     let regex = null;
     if (useRegex) {
@@ -640,11 +657,10 @@ async function grepFiles(args = {}, options = {}) {
 
     const results = [];
     let scannedFiles = 0;
-    for (const entry of files) {
+    let truncated = false;
+    let matchedFiles = 0;
+    for (const entry of candidateFiles) {
         ensureNotAborted(options.signal);
-        if (fileMatcher && !matchesGlob(entry.publicPath, entry.relativePath, fileMatcher)) {
-            continue;
-        }
         scannedFiles += 1;
 
         try {
@@ -678,31 +694,56 @@ async function grepFiles(args = {}, options = {}) {
             });
 
             if (!matches.length) continue;
+            matchedFiles += 1;
+            if (matchedFiles <= offset) continue;
 
-            results.push({
-                path: entry.publicPath,
-                source: entry.source,
-                matchCount: matches.length,
-                matches: matches.slice(0, 10),
-            });
+            if (outputMode === 'count') {
+                results.push({
+                    path: entry.publicPath,
+                    source: entry.source,
+                    matchCount: matches.length,
+                });
+            } else if (outputMode === 'files_with_matches') {
+                results.push({
+                    path: entry.publicPath,
+                    source: entry.source,
+                    matchCount: matches.length,
+                });
+            } else {
+                results.push({
+                    path: entry.publicPath,
+                    source: entry.source,
+                    matchCount: matches.length,
+                    matches: matches.slice(0, 10),
+                });
+            }
+            if (results.length >= limit) {
+                truncated = matchedFiles < candidateFiles.length || scannedFiles < candidateFiles.length;
+                break;
+            }
         } catch {
             continue;
         }
     }
 
-    const truncated = results.length > limit;
-    const limitedResults = results.slice(0, limit);
-
     return {
         pattern,
         useRegex,
+        outputMode,
         glob: glob || '',
+        limit,
+        offset,
         contextLines,
-        total: results.length,
-        items: limitedResults,
+        total: truncated ? null : matchedFiles,
+        returned: results.length,
+        matchedFilesSeen: matchedFiles,
+        items: results,
         truncated,
         scannedFiles,
+        candidateFiles: candidateFiles.length,
         indexedFiles: files.length,
+        searchComplete: !truncated && scannedFiles >= candidateFiles.length,
+        nextOffset: offset + results.length,
     };
 }
 
@@ -791,13 +832,6 @@ async function executeToolCall(name, args, options = {}) {
 function openAssistant() {
     if (document.getElementById(OVERLAY_ID)) return;
 
-    console.log('[LittleWhiteBox Assistant] Opening assistant...');
-    console.log('[LittleWhiteBox Assistant] Viewport:', {
-        width: window.innerWidth,
-        height: window.innerHeight,
-        devicePixelRatio: window.devicePixelRatio,
-    });
-
     overlay = document.createElement('div');
     overlay.id = OVERLAY_ID;
     overlay.style.cssText = `
@@ -839,11 +873,6 @@ function openAssistant() {
         background: rgba(238, 243, 248, 0.96);
         pointer-events: auto;
     `;
-
-    console.log('[LittleWhiteBox Assistant] Shell initial style:', {
-        width: shell.style.width,
-        height: shell.style.height,
-    });
 
     const titleBar = document.createElement('div');
     titleBar.setAttribute('aria-label', '拖动小白助手窗口');
@@ -1037,22 +1066,6 @@ function openAssistant() {
 
     centerShell();
 
-    console.log('[LittleWhiteBox Assistant] Shell after centerShell:', {
-        computed: {
-            width: shell.getBoundingClientRect().width,
-            height: shell.getBoundingClientRect().height,
-            left: shell.getBoundingClientRect().left,
-            top: shell.getBoundingClientRect().top,
-        },
-        style: {
-            width: shell.style.width,
-            height: shell.style.height,
-            left: shell.style.left,
-            top: shell.style.top,
-        },
-        shellMetrics,
-    });
-
     let dragState = null;
     let resizeState = null;
     const setResizePreviewActive = (active) => {
@@ -1200,9 +1213,7 @@ async function handleIframeMessage(event) {
 
     switch (type) {
         case 'xb-assistant:ready': {
-            console.log('[LittleWhiteBox Assistant] iframe ready, loading config...');
             await loadAssistantSettings();
-            console.log('[LittleWhiteBox Assistant] settingsCache after load:', JSON.stringify(settingsCache, null, 2));
             let fileCount = 0;
             try {
                 const manifest = await loadManifest();
@@ -1211,8 +1222,6 @@ async function handleIframeMessage(event) {
                 fileCount = 0;
             }
             const config = buildRuntimeConfig();
-            console.log('[LittleWhiteBox Assistant] config object:', config);
-            console.log('[LittleWhiteBox Assistant] config JSON:', JSON.stringify(config, null, 2));
             postToIframe(iframe, {
                 type: 'xb-assistant:config',
                 payload: {

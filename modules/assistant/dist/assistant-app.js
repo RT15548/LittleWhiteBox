@@ -16882,8 +16882,8 @@ var BE = class {
   "工具使用规则：",
   "- `LS` 只列目录的一级子项，适合看某层有哪些文件夹/文件，不能搜索文件内容。",
   "- `Glob` 只按路径模式匹配文件，适合先缩小文件集合；它不检查文件内容对不对。",
-  "- `Grep` 只搜索文件内容里的命中片段；命中片段不是全文，也不代表上下文完整。",
-  "- `Read` 读取文件内容；如果返回 `truncated: true`、`hasMoreAfter: true`、`charLimited: true` 或 `nextStartLine`，表示当前只拿到一段，不是全文。",
+  "- `Grep` 只搜索文件内容里的命中片段；命中片段不是全文，也不代表上下文完整。结果很多时可配合 `offset` 和 `limit` 分页继续看。",
+  "- `Read` 返回的是带行号的文件内容；如果返回 `truncated: true`、`hasMoreAfter: true`、`charLimited: true` 或 `nextStartLine`，表示当前只拿到一段，不是全文。",
   "- 调用工具时，使用工具定义里的确切名字和参数名，不要自己改名或脑补额外字段。",
   "- 工具如果返回 `ok: false`、`error`、`raw`、`truncated`、`warning` 等字段，必须按字面理解并如实告诉用户，不要把失败、截断、空结果当成成功证据。",
   "- 如果工具返回的是原样 API / 代理错误文本，就直接基于该文本说明问题，不要擅自改写成别的原因。",
@@ -16893,7 +16893,13 @@ var BE = class {
     type: "function",
     function: {
       name: ee.LS,
-      description: "列出某个目录下的一级子项。适合确认项目结构、数某层有几个插件目录/模块目录，或查看某层入口文件。",
+      description: [
+        "列出某个目录下的一级子项。",
+        "用途：查看项目结构、确认某层有哪些目录/文件、数插件目录或模块目录。",
+        "限制：只看一级子项，不读文件内容，不递归搜索。",
+        "当你想知道“这一层有什么”时优先用它。"
+      ].join(`
+`),
       parameters: {
         type: "object",
         properties: {
@@ -16915,7 +16921,13 @@ var BE = class {
     type: "function",
     function: {
       name: ee.GLOB,
-      description: "按 glob 模式匹配文件路径。适合像成熟代码助手那样先缩小文件集合，例如 **/*.js、modules/assistant/**/*.js、story-summary/**/vector*.js。",
+      description: [
+        "按 glob 模式匹配文件路径。",
+        "用途：先按路径模式缩小文件集合，例如 **/*.js、modules/assistant/**/*.js、story-summary/**/vector*.js。",
+        "限制：只匹配文件路径，不检查文件内容。",
+        "当你已经大致知道目录范围、想找某类文件时优先用它。"
+      ].join(`
+`),
       parameters: {
         type: "object",
         properties: {
@@ -16937,7 +16949,15 @@ var BE = class {
     type: "function",
     function: {
       name: ee.GREP,
-      description: "在文件内容中按 grep/rg 风格搜索。默认按正则表达式处理；可用 glob 限定文件范围，也可返回上下文行。",
+      description: [
+        "在文件内容中按 grep/rg 风格搜索。",
+        "用途：搜索明确关键词、函数名、变量名、报错文本、配置项名或正则模式。",
+        "默认按正则表达式处理；可用 glob 限定文件范围。",
+        "输出模式：content 返回命中片段；files_with_matches 只返回命中文件；count 返回每个文件的命中次数。",
+        "结果很多时，用 offset 跳过前 N 个结果，再配合 limit 查看下一页。",
+        "不要用它做“熟悉整个项目”的宽泛扫射；开放式探索应先 LS / Glob，再针对性 Grep。"
+      ].join(`
+`),
       parameters: {
         type: "object",
         properties: {
@@ -16949,9 +16969,22 @@ var BE = class {
             type: "string",
             description: "可选的文件路径 glob，例如 **/*.js 或 modules/assistant/**/*.js。"
           },
+          outputMode: {
+            type: "string",
+            enum: [
+              "content",
+              "files_with_matches",
+              "count"
+            ],
+            description: "输出模式。content 返回命中行和上下文；files_with_matches 只返回命中文件；count 返回每个文件的命中次数。默认 files_with_matches。"
+          },
           limit: {
             type: "number",
-            description: "最多返回多少个命中文件。默认 10，最大 50。"
+            description: "最多返回多少个结果。默认 10，最大 50。可与 offset 一起用于分页。"
+          },
+          offset: {
+            type: "number",
+            description: "跳过前多少个结果后再返回。默认 0。适合结果很多时继续看下一页。"
           },
           contextLines: {
             type: "number",
@@ -16971,7 +17004,16 @@ var BE = class {
     type: "function",
     function: {
       name: ee.READ,
-      description: "读取某个已索引公开文本文件。可选 startLine/endLine 按行读取；大文件会自动返回首段，并给出 nextStartLine / nextEndLine 供继续读取。",
+      description: [
+        "读取某个已索引公开文本文件。",
+        "用途：查看具体实现、配置、样式、注释和文档内容。",
+        "默认会尽量读取整文件；文件过大时会自动返回首段，并给出 nextStartLine / nextEndLine 供继续读取。",
+        "可选 startLine / endLine 按行读取；当你已经知道大致位置时，优先定向读取需要的片段。",
+        "结果使用带行号的文本格式返回，便于直接引用具体行。",
+        "如果返回 truncated、hasMoreAfter、charLimited 或 nextStartLine，表示当前只拿到一段，不是全文。",
+        "目录不能用 Read；目录结构请用 LS，文件集合请用 Glob，内容搜索请用 Grep。"
+      ].join(`
+`),
       parameters: {
         type: "object",
         properties: {
@@ -17102,18 +17144,24 @@ function Fm(e) {
     };
   }
   if (e.toolName === ee.GREP) {
-    const n = Array.isArray(t.items) ? t.items : [], a = [`grep“${t.pattern || ""}”当前返回 ${t.total || 0} 个命中文件。`];
-    t.glob && a.push(`glob 限定：${t.glob}`), Number(t.contextLines) > 0 && a.push(`上下文：前后 ${t.contextLines} 行`), t.truncated && a.push(`已达到返回上限；本次扫描 ${t.scannedFiles || 0}/${t.indexedFiles || 0} 个文件。`);
-    const i = [];
-    return n.length && (a.push(""), n.forEach((r) => {
-      const o = Array.isArray(r.matches) ? r.matches[0] : null, c = o?.line ? `:${o.line}` : "";
-      a.push(`- ${r.path}${c}${r.matchCount ? `（${r.matchCount} 处）` : ""}`), Array.isArray(r.matches) && r.matches.length && (i.push(r.path), r.matches.forEach((u, d) => {
-        i.push(`  [${d + 1}] 第 ${u.line || "?"} 行: ${u.text || ""}`), u.context && i.push(u.context);
-      }), i.push(""));
+    const n = Array.isArray(t.items) ? t.items : [], a = t.outputMode || "files_with_matches", i = [`grep“${t.pattern || ""}”模式：${a}。当前展示 ${n.length} 个结果。`];
+    t.glob && i.push(`glob 限定：${t.glob}`), Number(t.offset) > 0 && i.push(`偏移：已跳过前 ${t.offset} 个结果`), a === "content" && Number(t.contextLines) > 0 && i.push(`上下文：前后 ${t.contextLines} 行`), t.truncated ? (i.push(`结果仍有剩余；本次已扫描 ${t.scannedFiles || 0}/${t.candidateFiles || t.indexedFiles || 0} 个候选文件。`), i.push(`如需继续，可把 offset 设为 ${Number(t.nextOffset) || (Number(t.offset) || 0) + n.length}。`)) : Number(t.candidateFiles) > 0 && t.glob ? (i.push(`本次扫描 ${t.scannedFiles || 0}/${t.candidateFiles} 个候选文件。`), Number.isFinite(t.total) && i.push(`总命中文件数：${t.total}`)) : Number.isFinite(t.total) && i.push(`总命中文件数：${t.total}`);
+    const r = [];
+    return n.length && (i.push(""), n.forEach((o) => {
+      if (a === "count")
+        i.push(`- ${o.path}${Number.isFinite(o.matchCount) ? `（${o.matchCount} 处）` : ""}`), r.push(`${o.path}${Number.isFinite(o.matchCount) ? `: ${o.matchCount}` : ""}`);
+      else if (a === "files_with_matches")
+        i.push(`- ${o.path}${Number.isFinite(o.matchCount) ? `（${o.matchCount} 处）` : ""}`), r.push(o.path);
+      else {
+        const c = Array.isArray(o.matches) ? o.matches[0] : null, u = c?.line ? `:${c.line}` : "";
+        i.push(`- ${o.path}${u}${o.matchCount ? `（${o.matchCount} 处）` : ""}`), Array.isArray(o.matches) && o.matches.length && (r.push(o.path), o.matches.forEach((d, m) => {
+          r.push(`  [${m + 1}] 第 ${d.line || "?"} 行: ${d.text || ""}`), d.context && r.push(d.context);
+        }), r.push(""));
+      }
     })), {
-      summary: a.join(`
+      summary: i.join(`
 `),
-      details: i.join(`
+      details: r.join(`
 `).trim()
     };
   }
@@ -17121,7 +17169,8 @@ function Fm(e) {
     const n = [
       `已读取文件：${t.path || ""}`,
       t.source ? `来源：${t.source}` : "",
-      `范围：第 ${t.startLine || 1} 行到第 ${t.endLine || 0} 行 / 共 ${t.totalLines || 0} 行`
+      `范围：第 ${t.startLine || 1} 行到第 ${t.endLine || 0} 行 / 共 ${t.totalLines || 0} 行`,
+      t.contentFormat === "numbered_lines" ? "格式：带行号内容" : ""
     ];
     return t.autoChunked && n.push("文件较大，当前自动返回首段。"), t.charLimited && n.push("当前结果还受输出预算限制，继续读取时请按 nextStartLine / nextEndLine 往后读。"), t.hasMoreBefore && n.push("前面还有内容。"), t.hasMoreAfter && n.push(`后面还有内容；如需继续，可从第 ${t.nextStartLine} 行读到第 ${t.nextEndLine} 行。`), !t.hasMoreBefore && !t.hasMoreAfter && n.push("当前已是完整读取结果。"), {
       summary: n.filter(Boolean).join(`
@@ -227895,19 +227944,9 @@ function GC() {
     `, document.head.appendChild(e);
 }
 function W() {
-  console.log("[LittleWhiteBox Assistant iframe] render() called, state:", {
-    hasConfig: !!v.config,
-    hasRuntime: !!v.runtime,
-    messageCount: v.messages.length,
-    isBusy: v.isBusy,
-    sidebarCollapsed: v.sidebarCollapsed
-  });
   const e = document.getElementById(Zm);
-  if (!e) {
-    console.error("[LittleWhiteBox Assistant iframe] ROOT element not found!");
-    return;
-  }
-  e.firstChild || (console.log("[LittleWhiteBox Assistant iframe] Building app markup..."), LC(e), UC(e)), OC(e), ns(as(oi()));
+  if (!e) return;
+  e.firstChild || (LC(e), UC(e)), OC(e), ns(as(oi()));
   const t = e.querySelector("#xb-assistant-chat");
   zC(t);
   const n = v.messages.length !== iu;
@@ -228066,7 +228105,7 @@ window.addEventListener("message", (e) => {
   if (e.origin !== window.location.origin || e.source !== parent) return;
   const t = e.data || {};
   if (t.type === "xb-assistant:config") {
-    console.log("[LittleWhiteBox Assistant iframe] received config:", t.payload), v.runtime = t.payload?.runtime || null, rr(t.payload?.config || {}), console.log("[LittleWhiteBox Assistant iframe] state.config after apply:", v.config);
+    v.runtime = t.payload?.runtime || null, rr(t.payload?.config || {});
     return;
   }
   if (t.type === "xb-assistant:config-saved") {

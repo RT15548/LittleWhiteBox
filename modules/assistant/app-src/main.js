@@ -2503,21 +2503,11 @@ function injectStyles() {
 }
 
 function render() {
-    console.log('[LittleWhiteBox Assistant iframe] render() called, state:', {
-        hasConfig: !!state.config,
-        hasRuntime: !!state.runtime,
-        messageCount: state.messages.length,
-        isBusy: state.isBusy,
-        sidebarCollapsed: state.sidebarCollapsed,
-    });
-
     const root = document.getElementById(ROOT_ID);
     if (!root) {
-        console.error('[LittleWhiteBox Assistant iframe] ROOT element not found!');
         return;
     }
     if (!root.firstChild) {
-        console.log('[LittleWhiteBox Assistant iframe] Building app markup...');
         buildAppMarkup(root);
         bindEvents(root);
     }
@@ -2832,10 +2822,8 @@ window.addEventListener('message', (event) => {
     }
     const data = event.data || {};
     if (data.type === 'xb-assistant:config') {
-        console.log('[LittleWhiteBox Assistant iframe] received config:', data.payload);
         state.runtime = data.payload?.runtime || null;
         applyConfig(data.payload?.config || {});
-        console.log('[LittleWhiteBox Assistant iframe] state.config after apply:', state.config);
         return;
     }
 
