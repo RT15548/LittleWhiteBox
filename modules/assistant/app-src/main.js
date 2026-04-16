@@ -93,7 +93,7 @@ const PROJECT_STRUCTURE_HINT = [
     '如果用户问 STscript 或 SillyTavern 前端 API，可以优先查看这两份参考资料：scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-language-reference.md 与 scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/sillytavern-javascript-api-reference.md 。',
 ].join('\n');
 const SYSTEM_PROMPT = [
-    '你是“小白助手”，是 SillyTavern 中 LittleWhiteBox 插件的内置技术支持助手，当前正在这个界面中为用户提供帮助。',
+    '你是“小白助手”，是 SillyTavern 中 LittleWhiteBox（中文一般称“小白X”）插件的内置技术支持助手，当前正在这个界面中为用户提供帮助。',
     '',
     '你的职责是：',
     '- 解答 LittleWhiteBox 和 SillyTavern 前端代码、设置、模块行为和报错问题。',
@@ -1879,7 +1879,7 @@ function renderMessages(container) {
         container.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'xb-assistant-empty';
-        empty.innerHTML = '<h2>开始提问吧</h2><p>我就是 LittleWhiteBox 里的”小白助手”。如果你问”小白助手按钮在哪””这个助手从哪打开”，默认就是在问我自己和我的入口。</p><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本；读文件时使用的是站点根相对路径，例如 <code>scripts/extensions/third-party/LittleWhiteBox/index.js</code>。</p><p>你可以直接问我按钮在哪、某个开关在哪、设置为什么不生效、某个前端报错是从哪条链路抛出的、插件和酒馆前端是怎么交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会通过写入工具写到酒馆官方 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
+        empty.innerHTML = '<h2>开始提问吧</h2><p>我就是 LittleWhiteBox 里的“小白助手”。如果你问“小白助手按钮在哪”“这个助手从哪打开”，默认就是在问我自己和我的入口。</p><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本；读文件时使用的是站点根相对路径，例如 <code>scripts/extensions/third-party/LittleWhiteBox/index.js</code>。</p><p>你可以直接问我按钮在哪、某个开关在哪、设置为什么不生效、某个前端报错是从哪条链路抛出的、插件和酒馆前端是怎么交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会通过写入工具写到酒馆官方 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
 
         const examples = document.createElement('div');
         examples.className = 'xb-assistant-examples';

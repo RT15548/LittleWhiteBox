@@ -22,10 +22,8 @@ function buildUserOrSystemMessage(role, content) {
 
 function buildAssistantMessage(content) {
     return {
-        type: 'message',
         role: 'assistant',
-        status: 'completed',
-        content: [{ type: 'output_text', text: content }],
+        content: typeof content === 'string' ? content : '',
     };
 }
 
@@ -177,7 +175,12 @@ function buildInputMessages(task) {
             continue;
         }
 
-        input.push(buildUserOrSystemMessage(message.role, message.content || ''));
+        input.push(message.role === 'user'
+            ? buildUserOrSystemMessage(message.role, message.content || '')
+            : {
+                role: message.role,
+                content: typeof message.content === 'string' ? message.content : '',
+            });
     }
 
     return input;
@@ -188,7 +191,10 @@ function buildInputMessagesWithSystem(task) {
 
     for (const message of task.messages || []) {
         if (message.role === 'system') {
-            input.push(buildUserOrSystemMessage('system', message.content || ''));
+            input.push({
+                role: 'system',
+                content: typeof message.content === 'string' ? message.content : '',
+            });
             continue;
         }
 
@@ -222,7 +228,12 @@ function buildInputMessagesWithSystem(task) {
             continue;
         }
 
-        input.push(buildUserOrSystemMessage(message.role, message.content || ''));
+        input.push(message.role === 'user'
+            ? buildUserOrSystemMessage(message.role, message.content || '')
+            : {
+                role: message.role,
+                content: typeof message.content === 'string' ? message.content : '',
+            });
     }
 
     return input;
@@ -279,12 +290,17 @@ export class OpenAIResponsesAdapter {
                 instructions: legacySystemInInput ? undefined : (resolveInstructions(task) || undefined),
                 input: legacySystemInInput ? buildInputMessagesWithSystem(task) : buildInputMessages(task),
                 temperature: task.temperature,
-                tools: (task.tools || []).map((tool) => ({
-                    type: 'function',
-                    name: tool.function.name,
-                    description: tool.function.description,
-                    parameters: tool.function.parameters,
-                })),
+                ...(Array.isArray(task.tools) && task.tools.length
+                    ? {
+                        tools: task.tools.map((tool) => ({
+                            type: 'function',
+                            name: tool.function.name,
+                            description: tool.function.description,
+                            parameters: tool.function.parameters,
+                        })),
+                        tool_choice: task.toolChoice || 'auto',
+                    }
+                    : {}),
                 ...(task.maxTokens ? { max_output_tokens: task.maxTokens } : {}),
             };
             if (task.reasoning?.enabled) {
@@ -311,9 +327,15 @@ export class OpenAIResponsesAdapter {
         try {
             response = await createRequest(false);
             parsed = parseResponse(response);
+            if (!parsed.text && !parsed.toolCalls.length) {
+                logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI Responses raw empty response', response);
+            }
             if (allowCompatibilityFallback && !parsed.text && !parsed.toolCalls.length) {
                 response = await createRequest(true);
                 parsed = parseResponse(response);
+                if (!parsed.text && !parsed.toolCalls.length) {
+                    logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI Responses raw empty response after legacy fallback', response);
+                }
             }
         } catch (error) {
             if (!allowCompatibilityFallback || !shouldRetryWithLegacySystem(error)) {
@@ -321,6 +343,9 @@ export class OpenAIResponsesAdapter {
             }
             response = await createRequest(true);
             parsed = parseResponse(response);
+            if (!parsed.text && !parsed.toolCalls.length) {
+                logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI Responses raw empty response after legacy fallback', response);
+            }
         }
 
         return {
