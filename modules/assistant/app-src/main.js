@@ -1889,11 +1889,13 @@ function injectStyles() {
         .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
         .xb-assistant-sidebar {
             position: relative;
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr);
             padding: 24px 20px;
             background: rgba(255, 255, 255, 0.82);
             border-right: 1px solid rgba(20, 32, 51, 0.08);
             backdrop-filter: blur(14px);
-            overflow: auto;
+            overflow: hidden;
             transition: padding 0.22s ease;
         }
         .xb-assistant-sidebar-header {
@@ -1943,6 +1945,8 @@ function injectStyles() {
             gap: 16px;
             margin-top: 16px;
             min-width: 0;
+            min-height: 0;
+            overflow: auto;
             opacity: 1;
             transition: opacity 0.18s ease;
         }
@@ -1956,6 +1960,18 @@ function injectStyles() {
         .xb-assistant-sidebar.is-collapsed .xb-assistant-brand,
         .xb-assistant-sidebar.is-collapsed .xb-assistant-config {
             display: none;
+        }
+        .xb-assistant-sidebar.is-collapsed .xb-assistant-badge {
+            display: none;
+        }
+        .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-header {
+            justify-content: center;
+        }
+        .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-toggle {
+            width: 36px;
+            min-width: 36px;
+            height: 36px;
+            padding: 0;
         }
         .xb-assistant-brand h1 { margin: 12px 0 8px; font-size: 30px; }
         .xb-assistant-brand p { margin: 0 0 18px; color: #4b5a70; line-height: 1.55; }
@@ -2433,17 +2449,20 @@ function injectStyles() {
             100% { box-shadow: 0 0 0 0 rgba(201, 107, 51, 0); }
         }
         @media (max-width: 900px) {
-            .xb-assistant-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); min-height: 100dvh; }
+            .xb-assistant-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); height: 100dvh; min-height: 100dvh; }
             .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 1fr; }
             .xb-assistant-sidebar {
                 padding: 12px 14px;
+                grid-template-rows: auto minmax(0, 1fr);
                 border-right: none;
                 border-bottom: 1px solid rgba(20, 32, 51, 0.08);
-                overflow-x: hidden;
+                max-height: min(46vh, 420px);
+                overflow: hidden;
             }
             .xb-assistant-sidebar.is-collapsed {
                 padding: 12px 14px;
                 overflow: hidden;
+                max-height: none;
             }
             .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-content {
                 opacity: 0;
@@ -2458,18 +2477,21 @@ function injectStyles() {
                 padding: 0 12px;
                 justify-content: space-between;
             }
+            .xb-assistant-sidebar-content {
+                padding-right: 2px;
+            }
             .xb-assistant-sidebar-toggle-text {
                 display: inline-flex;
                 align-items: center;
             }
-            .xb-assistant-main { padding: 14px; min-height: 0; }
+            .xb-assistant-main { padding: 14px; min-height: 0; height: 100%; }
             .xb-assistant-compose { grid-template-columns: 1fr; }
             .xb-assistant-compose-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .xb-assistant-toolbar,
             .xb-assistant-toolbar-cluster { align-items: stretch; }
             .xb-assistant-inline-input { grid-template-columns: 1fr; }
             .xb-assistant-status { justify-content: center; }
-            .xb-assistant-chat { padding-inline: 0; }
+            .xb-assistant-chat { padding-inline: 0; min-height: 0; }
             .xb-assistant-bubble { width: 100%; }
             .xb-assistant-actions {
                 display: grid;
