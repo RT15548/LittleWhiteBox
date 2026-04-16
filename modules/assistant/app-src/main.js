@@ -435,7 +435,7 @@ function createImageAttachmentFromFile(file) {
         reader.onload = () => {
             resolve({
                 kind: 'image',
-                name: file.name || 'image',
+                name: getImageAttachmentName(file),
                 type: file.type || 'image/png',
                 size: Number(file.size) || 0,
                 dataUrl: typeof reader.result === 'string' ? reader.result : '',
@@ -443,6 +443,87 @@ function createImageAttachmentFromFile(file) {
         };
         reader.readAsDataURL(file);
     });
+}
+
+function getImageAttachmentName(file) {
+    const name = typeof file?.name === 'string' ? file.name.trim() : '';
+    if (name) return name;
+    const ext = getImageExtensionFromMime(file?.type);
+    return `clipboard-image-${Date.now()}.${ext}`;
+}
+
+function getImageExtensionFromMime(mimeType) {
+    switch (String(mimeType || '').toLowerCase()) {
+        case 'image/jpeg':
+            return 'jpg';
+        case 'image/webp':
+            return 'webp';
+        case 'image/gif':
+            return 'gif';
+        case 'image/png':
+        default:
+            return 'png';
+    }
+}
+
+function validateImageFiles(files) {
+    const normalizedFiles = Array.isArray(files) ? files.filter(Boolean) : [];
+    const remainingSlots = Math.max(0, MAX_IMAGE_ATTACHMENTS - state.draftAttachments.length);
+    if (!remainingSlots) {
+        return {
+            validFiles: [],
+            rejectedReason: `最多只能附 ${MAX_IMAGE_ATTACHMENTS} 张图片`,
+            reachedLimit: true,
+            hadOverflow: false,
+        };
+    }
+
+    const acceptedFiles = normalizedFiles.slice(0, remainingSlots);
+    const validFiles = [];
+    let rejectedReason = '';
+
+    acceptedFiles.forEach((file) => {
+        if (!ACCEPTED_IMAGE_MIME_TYPES.includes(file.type)) {
+            rejectedReason = '只支持 PNG、JPG、WEBP、GIF 图片';
+            return;
+        }
+        if ((Number(file.size) || 0) > MAX_IMAGE_FILE_BYTES) {
+            rejectedReason = `单张图片不能超过 ${Math.round(MAX_IMAGE_FILE_BYTES / (1024 * 1024))}MB`;
+            return;
+        }
+        validFiles.push(file);
+    });
+
+    return {
+        validFiles,
+        rejectedReason,
+        reachedLimit: false,
+        hadOverflow: normalizedFiles.length > remainingSlots,
+    };
+}
+
+async function appendDraftImageFiles(files) {
+    const normalizedFiles = Array.isArray(files) ? files.filter(Boolean) : [];
+    if (!normalizedFiles.length) return false;
+
+    const { validFiles, rejectedReason, reachedLimit, hadOverflow } = validateImageFiles(normalizedFiles);
+    if (!validFiles.length) {
+        showToast(rejectedReason || '没有可添加的图片');
+        return reachedLimit || Boolean(rejectedReason);
+    }
+
+    try {
+        const attachments = await Promise.all(validFiles.map((file) => createImageAttachmentFromFile(file)));
+        state.draftAttachments = [...state.draftAttachments, ...attachments].slice(0, MAX_IMAGE_ATTACHMENTS);
+        render();
+        if (rejectedReason || hadOverflow) {
+            showToast(rejectedReason || `最多只能附 ${MAX_IMAGE_ATTACHMENTS} 张图片`);
+        }
+        return true;
+    } catch (error) {
+        showToast(String(error?.message || '读取图片失败'));
+        return true;
+    }
 }
 
 function serializeMessage(message) {
@@ -2009,7 +2090,7 @@ function buildAppMarkup(root) {
                 <section class="xb-assistant-chat" id="xb-assistant-chat"></section>
                 <form class="xb-assistant-compose" id="xb-assistant-form">
                     <div class="xb-assistant-compose-main">
-                        <textarea id="xb-assistant-input" placeholder="问我：某个设置为什么不生效、某个报错代表什么、某个功能从哪条代码链路走……"></textarea>
+                        <textarea id="xb-assistant-input" placeholder=""></textarea>
                         <input id="xb-assistant-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
                         <div class="xb-assistant-attachment-gallery xb-assistant-draft-gallery" id="xb-assistant-draft-gallery" style="display:none;"></div>
                     </div>
@@ -2891,48 +2972,25 @@ function bindEvents(root) {
     imageInput.addEventListener('change', async (event) => {
         const files = Array.from(event.currentTarget.files || []);
         if (!files.length) return;
-
-        const remainingSlots = Math.max(0, MAX_IMAGE_ATTACHMENTS - state.draftAttachments.length);
-        if (!remainingSlots) {
-            showToast(`最多只能附 ${MAX_IMAGE_ATTACHMENTS} 张图片`);
-            event.currentTarget.value = '';
-            return;
-        }
-
-        const acceptedFiles = files.slice(0, remainingSlots);
-        const validFiles = [];
-        let rejectedReason = '';
-
-        acceptedFiles.forEach((file) => {
-            if (!ACCEPTED_IMAGE_MIME_TYPES.includes(file.type)) {
-                rejectedReason = '只支持 PNG、JPG、WEBP、GIF 图片';
-                return;
-            }
-            if ((Number(file.size) || 0) > MAX_IMAGE_FILE_BYTES) {
-                rejectedReason = `单张图片不能超过 ${Math.round(MAX_IMAGE_FILE_BYTES / (1024 * 1024))}MB`;
-                return;
-            }
-            validFiles.push(file);
-        });
-
-        if (!validFiles.length) {
-            showToast(rejectedReason || '没有可添加的图片');
-            event.currentTarget.value = '';
-            return;
-        }
-
         try {
-            const attachments = await Promise.all(validFiles.map((file) => createImageAttachmentFromFile(file)));
-            state.draftAttachments = [...state.draftAttachments, ...attachments].slice(0, MAX_IMAGE_ATTACHMENTS);
-            render();
-            if (rejectedReason || files.length > remainingSlots) {
-                showToast(rejectedReason || `最多只能附 ${MAX_IMAGE_ATTACHMENTS} 张图片`);
-            }
-        } catch (error) {
-            showToast(String(error?.message || '读取图片失败'));
+            await appendDraftImageFiles(files);
         } finally {
             event.currentTarget.value = '';
         }
+    });
+
+    input.addEventListener('paste', async (event) => {
+        if (state.isBusy) return;
+        const items = Array.from(event.clipboardData?.items || []);
+        if (!items.length) return;
+        const pastedImageFiles = items
+            .filter((item) => item.kind === 'file' && String(item.type || '').startsWith('image/'))
+            .map((item) => item.getAsFile())
+            .filter(Boolean);
+        if (!pastedImageFiles.length) return;
+
+        event.preventDefault();
+        await appendDraftImageFiles(pastedImageFiles);
     });
 
     root.querySelector('#xb-assistant-form').addEventListener('submit', async (event) => {
