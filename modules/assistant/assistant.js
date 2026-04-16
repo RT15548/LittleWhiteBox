@@ -791,6 +791,13 @@ async function executeToolCall(name, args, options = {}) {
 function openAssistant() {
     if (document.getElementById(OVERLAY_ID)) return;
 
+    console.log('[LittleWhiteBox Assistant] Opening assistant...');
+    console.log('[LittleWhiteBox Assistant] Viewport:', {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio,
+    });
+
     overlay = document.createElement('div');
     overlay.id = OVERLAY_ID;
     overlay.style.cssText = `
@@ -819,8 +826,8 @@ function openAssistant() {
     const shell = document.createElement('div');
     shell.style.cssText = `
         position: absolute;
-        width: min(1480px, calc(100vw - 96px));
-        height: min(980px, calc(100vh - 96px));
+        width: min(1200px, calc(100vw - 200px));
+        height: min(800px, calc(100vh - 200px));
         max-width: calc(100vw - 96px);
         max-height: calc(100vh - 96px);
         min-width: min(560px, calc(100vw - 48px));
@@ -832,6 +839,11 @@ function openAssistant() {
         background: rgba(238, 243, 248, 0.96);
         pointer-events: auto;
     `;
+
+    console.log('[LittleWhiteBox Assistant] Shell initial style:', {
+        width: shell.style.width,
+        height: shell.style.height,
+    });
 
     const titleBar = document.createElement('div');
     titleBar.setAttribute('aria-label', '拖动小白助手窗口');
@@ -1025,6 +1037,22 @@ function openAssistant() {
 
     centerShell();
 
+    console.log('[LittleWhiteBox Assistant] Shell after centerShell:', {
+        computed: {
+            width: shell.getBoundingClientRect().width,
+            height: shell.getBoundingClientRect().height,
+            left: shell.getBoundingClientRect().left,
+            top: shell.getBoundingClientRect().top,
+        },
+        style: {
+            width: shell.style.width,
+            height: shell.style.height,
+            left: shell.style.left,
+            top: shell.style.top,
+        },
+        shellMetrics,
+    });
+
     let dragState = null;
     let resizeState = null;
     const setResizePreviewActive = (active) => {
@@ -1172,6 +1200,7 @@ async function handleIframeMessage(event) {
 
     switch (type) {
         case 'xb-assistant:ready': {
+            console.log('[LittleWhiteBox Assistant] iframe ready, loading config...');
             await loadAssistantSettings();
             let fileCount = 0;
             try {
@@ -1180,10 +1209,12 @@ async function handleIframeMessage(event) {
             } catch {
                 fileCount = 0;
             }
+            const config = buildRuntimeConfig();
+            console.log('[LittleWhiteBox Assistant] sending config to iframe:', config);
             postToIframe(iframe, {
                 type: 'xb-assistant:config',
                 payload: {
-                    config: buildRuntimeConfig(),
+                    config,
                     runtime: {
                         moduleId: MODULE_ID,
                         extensionPath: extensionFolderPath,

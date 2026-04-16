@@ -227895,9 +227895,19 @@ function GC() {
     `, document.head.appendChild(e);
 }
 function W() {
+  console.log("[LittleWhiteBox Assistant iframe] render() called, state:", {
+    hasConfig: !!v.config,
+    hasRuntime: !!v.runtime,
+    messageCount: v.messages.length,
+    isBusy: v.isBusy,
+    sidebarCollapsed: v.sidebarCollapsed
+  });
   const e = document.getElementById(Zm);
-  if (!e) return;
-  e.firstChild || (LC(e), UC(e)), OC(e), ns(as(oi()));
+  if (!e) {
+    console.error("[LittleWhiteBox Assistant iframe] ROOT element not found!");
+    return;
+  }
+  e.firstChild || (console.log("[LittleWhiteBox Assistant iframe] Building app markup..."), LC(e), UC(e)), OC(e), ns(as(oi()));
   const t = e.querySelector("#xb-assistant-chat");
   zC(t);
   const n = v.messages.length !== iu;
@@ -228056,7 +228066,7 @@ window.addEventListener("message", (e) => {
   if (e.origin !== window.location.origin || e.source !== parent) return;
   const t = e.data || {};
   if (t.type === "xb-assistant:config") {
-    v.runtime = t.payload?.runtime || null, rr(t.payload?.config || {});
+    console.log("[LittleWhiteBox Assistant iframe] received config:", t.payload), v.runtime = t.payload?.runtime || null, rr(t.payload?.config || {}), console.log("[LittleWhiteBox Assistant iframe] state.config after apply:", v.config);
     return;
   }
   if (t.type === "xb-assistant:config-saved") {
