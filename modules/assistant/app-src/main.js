@@ -15,6 +15,9 @@ const MIN_PRESERVED_TURNS = 1;
 const SESSION_STORAGE_KEY = 'littlewhitebox.assistant.session.v2';
 const MAX_PERSISTED_MESSAGES = 60;
 const MAX_PERSISTED_CONTENT_CHARS = 16000;
+const MAX_IMAGE_ATTACHMENTS = 3;
+const MAX_IMAGE_FILE_BYTES = 4 * 1024 * 1024;
+const ACCEPTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 const TOAST_DURATION_MS = 2600;
 const TOAST_DURATION_MIN_MS = 1800;
 const TOAST_DURATION_MAX_MS = 4200;
@@ -22,12 +25,45 @@ const TOOL_MODE_OPTIONS = [
     { value: 'native', label: '原生 Tool Calling' },
     { value: 'tagged-json', label: 'Tagged JSON 兼容模式' },
 ];
+const REASONING_EFFORT_OPTIONS = [
+    { value: 'low', label: '低' },
+    { value: 'medium', label: '中' },
+    { value: 'high', label: '高' },
+];
 const PROVIDER_OPTIONS = [
     { value: 'openai-responses', label: 'OpenAI Responses' },
     { value: 'openai-compatible', label: 'OpenAI-Compatible' },
     { value: 'anthropic', label: 'Anthropic' },
     { value: 'google', label: 'Google AI' },
 ];
+const DEFAULT_PRESET_NAME = '默认';
+const DEFAULT_MODEL_CONFIGS = {
+    'openai-responses': {
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4.1-mini',
+        apiKey: '',
+        temperature: 0.2,
+    },
+    'openai-compatible': {
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o-mini',
+        apiKey: '',
+        temperature: 0.2,
+        toolMode: 'native',
+    },
+    anthropic: {
+        baseUrl: 'https://api.anthropic.com/v1',
+        model: 'claude-sonnet-4-0',
+        apiKey: '',
+        temperature: 0.2,
+    },
+    google: {
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        model: 'gemini-2.5-pro',
+        apiKey: '',
+        temperature: 0.2,
+    },
+};
 const EXAMPLE_PROMPTS = [
     '为什么某个设置勾上后刷新又没了？',
     '向量生成时报 429 是哪一层限流？',
@@ -44,25 +80,33 @@ const MODEL_FILTERS = {
     },
 };
 const PROJECT_STRUCTURE_HINT = [
+    '项目结构提示：',
     '你当前运行在 SillyTavern 的 LittleWhiteBox 插件里；LittleWhiteBox 位于 public/scripts/extensions/third-party/LittleWhiteBox/。',
     '你的可读范围是已索引公开前端文件，重点包括 LittleWhiteBox 自身，以及 SillyTavern 的 public/scripts/*；不要假装自己能看到后端、数据库、账号密码或未索引文件。',
     '你用读文件工具时，路径要写成站点根相对公开路径，例如 scripts/extensions/third-party/LittleWhiteBox/index.js，而不是磁盘绝对路径。',
-    'LittleWhiteBox 的高频骨架可以先这样理解：index.js 是插件入口与总开关；settings.html 是设置页；bridges/ 是桥接；core/ 是基础封装；modules/ 是各功能模块；widgets/ 是小部件。',
-    'modules/story-summary/ 是剧情总结与向量主线；modules/story-outline/ 是剧情大纲；modules/novel-draw/ 是画图；modules/tts/ 是语音；modules/variables/ 是变量系统；modules/assistant/ 是你自己。',
+    '如果你需要快速建立 LittleWhiteBox 的目录心智、模块分层和常见入口，请优先读取：scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/project-structure.md 。',
+    '如果用户问 STscript 或 SillyTavern 前端 API，可以优先查看这两份参考资料：scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-language-reference.md 与 scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/sillytavern-javascript-api-reference.md 。',
 ].join('\n');
 const SYSTEM_PROMPT = [
-    '你是“小白助手”，是 SillyTavern 中 LittleWhiteBox 插件内置的技术支持助手。',
-    '用户提到“小白助手”“助手”“打开助手”“助手按钮”时，默认指的就是你自己和你的前端入口，不要把它理解成别的外部产品。',
-    '你当前就在 LittleWhiteBox 的小白助手界面里提供回答；你不是旁观者，也不是脱离项目的通用模型。',
-    '你不是泛用陪聊 AI，也不要把自己回答成“我看不到界面、我不知道按钮在哪”的通用助手口吻。',
-    '你的主要任务是帮助用户理解 LittleWhiteBox 与 SillyTavern 前端公开代码、设置项、模块行为和常见报错。',
-    '当问题涉及具体实现、文件路径、设置逻辑或错误原因时，优先使用工具查证后再回答。',
-    '如果用户问“小白助手按钮在哪、某个开关在哪、某个面板从哪打开”，应优先按当前前端实现直接回答；拿不准时先查 settings.html、index.js 等相关文件，再回答。',
-    '只在超出当前可读前端范围时，才明确说自己不能确认；不要动不动就说自己看不见屏幕。',
-    '默认只读代码与资料；如果需要写入，只能写固定工作记录，不允许改代码。',
-    '你可以通过读写工具读取和写入酒馆 user/files/LittleWhiteBox_Assistant_Worklog.md；需要写入时直接调用写入工具，文件不存在就创建，用它保存长期排查结论和用户指定要你记住的事情。',
+    '你是“小白助手”，是 SillyTavern 中 LittleWhiteBox 插件的内置技术支持助手，当前正在这个界面中为用户提供帮助。',
+    '',
+    '你的职责是：',
+    '- 解答 LittleWhiteBox 和 SillyTavern 前端代码、设置、模块行为和报错问题。',
+    '- 当问题涉及具体实现、文件路径、设置逻辑或错误原因时，优先使用工具查证后再回答。',
+    '- 根据当前前端实现直接回答界面相关问题。',
+    '- 用户提到“小白助手”“助手”“打开助手”“助手按钮”时，默认指的就是你自己和你的前端入口，不要理解成别的外部产品。',
+    '',
+    '你的能力范围：',
+    '- 默认只读代码与资料；如果需要写入，只能写固定工作记录，不允许改代码。',
+    '- 可读取已索引的公开前端文件（LittleWhiteBox 和 SillyTavern public/scripts/*）。',
+    '- 可读写工作记录（user/files/LittleWhiteBox_Assistant_Worklog.md），需要写入时直接调用写入工具，文件不存在就创建，用它保存长期排查结论和用户指定要你记住的事情。',
+    '- 不能访问后端、数据库、未索引文件。',
+    '- 只在超出当前可读前端范围时，才明确说自己不能确认；不要动不动就说自己看不见屏幕。',
+    '',
     PROJECT_STRUCTURE_HINT,
-    '回答尽量具体、可核对、说人话，必要时引用文件路径。',
+    '',
+    '回答要求：',
+    '- 具体、可核对，热情主动，必要时引用文件路径。',
 ].join('\n');
 const HISTORY_SUMMARY_PREFIX = '[历史摘要]';
 const SUMMARY_SYSTEM_PROMPT = [
@@ -107,13 +151,52 @@ const TOOL_DEFINITIONS = [
     {
         type: 'function',
         function: {
-            name: 'search_files',
-            description: '在可读源码文件中搜索关键词。',
+            name: 'read_file_range',
+            description: '按行读取某个已索引文件的局部范围。适合大文件精读，默认从 startLine 开始最多读取约 200 行。',
             parameters: {
                 type: 'object',
                 properties: {
-                    query: { type: 'string', description: '要搜索的关键词。' },
-                    limit: { type: 'number', description: '最多返回多少条命中。' },
+                    path: { type: 'string', description: '文件公开路径，例如 scripts/extensions/third-party/LittleWhiteBox/index.js。' },
+                    startLine: { type: 'number', description: '起始行号（从 1 开始）。默认 1。' },
+                    endLine: { type: 'number', description: '结束行号。可不填；不填时会自动给出一个合适范围。' },
+                },
+                required: ['path'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'read_multiple_files',
+            description: '一次顺序读取多个文件的内容，比多次调用 read_file 更高效。会返回每个文件是否被截断、截断原因，以及如果要继续读取应从哪一行开始。',
+            parameters: {
+                type: 'object',
+                properties: {
+                    paths: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: '要读取的文件路径数组，最多 10 个文件。',
+                    },
+                },
+                required: ['paths'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'search_files',
+            description: '在可读源码文件中搜索关键词，类似 grep。默认是字面量匹配（不区分大小写）；如果需要正则表达式，在 query 中使用正则语法（如 "tool.*call"）并设置 useRegex: true。',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: '要搜索的关键词或正则表达式。' },
+                    useRegex: { type: 'boolean', description: '是否将 query 作为正则表达式处理（默认 false，即字面量匹配）。' },
+                    limit: { type: 'number', description: '最多返回多少个匹配文件（默认 10，最大 50）。' },
+                    contextLines: { type: 'number', description: '每个匹配前后显示多少行上下文（默认 0，最大 5）。' },
+                    filePattern: { type: 'string', description: '文件路径过滤模式，例如 "story-summary" 只搜索路径包含该词的文件。' },
                 },
                 required: ['query'],
                 additionalProperties: false,
@@ -169,6 +252,7 @@ const state = {
     toast: '',
     modelOptionsByProvider: {},
     pullStateByProvider: {},
+    draftAttachments: [],
 };
 
 const pendingToolCalls = new Map();
@@ -196,10 +280,175 @@ function trimPersistedContent(content) {
     return `${text.slice(0, MAX_PERSISTED_CONTENT_CHARS)}\n\n[内容过长，已截断保存]`;
 }
 
+function normalizeReasoningEffort(value) {
+    return REASONING_EFFORT_OPTIONS.some((item) => item.value === value) ? value : 'medium';
+}
+
+function cloneDefaultModelConfigs() {
+    return JSON.parse(JSON.stringify(DEFAULT_MODEL_CONFIGS));
+}
+
+function normalizePresetName(value) {
+    const normalized = String(value || '').trim();
+    return normalized || DEFAULT_PRESET_NAME;
+}
+
+function normalizeModelConfigs(modelConfigs = {}) {
+    const next = cloneDefaultModelConfigs();
+    Object.keys(DEFAULT_MODEL_CONFIGS).forEach((provider) => {
+        next[provider] = {
+            ...DEFAULT_MODEL_CONFIGS[provider],
+            ...((modelConfigs && typeof modelConfigs[provider] === 'object') ? modelConfigs[provider] : {}),
+        };
+    });
+    return next;
+}
+
+function buildDefaultPreset() {
+    return {
+        provider: 'openai-compatible',
+        modelConfigs: cloneDefaultModelConfigs(),
+    };
+}
+
+function normalizeAssistantConfig(config = {}) {
+    const presetsInput = (config && typeof config.presets === 'object' && config.presets)
+        ? config.presets
+        : (config?.modelConfigs
+            ? {
+                [normalizePresetName(config.currentPresetName || config.presetDraftName || DEFAULT_PRESET_NAME)]: {
+                    provider: config.provider || 'openai-compatible',
+                    modelConfigs: config.modelConfigs,
+                },
+            }
+            : {});
+
+    const presets = {};
+    Object.entries(presetsInput).forEach(([rawName, rawPreset]) => {
+        if (!rawPreset || typeof rawPreset !== 'object') return;
+        const name = normalizePresetName(rawName);
+        presets[name] = {
+            provider: typeof rawPreset.provider === 'string' && rawPreset.provider.trim()
+                ? rawPreset.provider
+                : 'openai-compatible',
+            modelConfigs: normalizeModelConfigs(rawPreset.modelConfigs || {}),
+        };
+    });
+
+    if (!Object.keys(presets).length) {
+        presets[DEFAULT_PRESET_NAME] = buildDefaultPreset();
+    }
+
+    const currentPresetName = presets[normalizePresetName(config.currentPresetName)]
+        ? normalizePresetName(config.currentPresetName)
+        : Object.keys(presets)[0];
+    const currentPreset = presets[currentPresetName] || buildDefaultPreset();
+
+    return {
+        workspaceFileName: String(config.workspaceFileName || ''),
+        currentPresetName,
+        presetDraftName: normalizePresetName(config.presetDraftName || currentPresetName),
+        presetNames: Object.keys(presets),
+        presets,
+        provider: currentPreset.provider,
+        modelConfigs: currentPreset.modelConfigs,
+    };
+}
+
+function normalizeThoughtBlocks(thoughts) {
+    if (!Array.isArray(thoughts)) return [];
+    return thoughts
+        .map((item) => {
+            if (!item || typeof item !== 'object') return null;
+            const text = String(item.text || '').trim();
+            if (!text) return null;
+            return {
+                label: String(item.label || '思考块').trim() || '思考块',
+                text,
+            };
+        })
+        .filter(Boolean);
+}
+
+function normalizeAttachments(attachments) {
+    if (!Array.isArray(attachments)) return [];
+    return attachments
+        .map((item) => {
+            if (!item || typeof item !== 'object') return null;
+            if (item.kind !== 'image') return null;
+            const type = String(item.type || '').trim().toLowerCase();
+            const dataUrl = typeof item.dataUrl === 'string' ? item.dataUrl.trim() : '';
+            const hasPayload = dataUrl.startsWith('data:image/');
+            if (type && !ACCEPTED_IMAGE_MIME_TYPES.includes(type)) return null;
+            return {
+                kind: 'image',
+                name: String(item.name || 'image').trim() || 'image',
+                type: type || 'image/png',
+                dataUrl: hasPayload ? dataUrl : '',
+                size: Math.max(0, Number(item.size) || 0),
+            };
+        })
+        .filter(Boolean);
+}
+
+function buildAttachmentSummary(attachments) {
+    const normalized = normalizeAttachments(attachments);
+    if (!normalized.length) return '';
+    const names = normalized.map((item) => item.name).join('、');
+    return `[附图 ${normalized.length} 张：${names}]`;
+}
+
+function buildTextWithAttachmentSummary(text, attachments) {
+    const summary = buildAttachmentSummary(attachments);
+    const content = String(text || '').trim();
+    if (!summary) return content;
+    return [content, summary].filter(Boolean).join('\n');
+}
+
+function buildUserContentParts(message = {}) {
+    const attachments = normalizeAttachments(message.attachments).filter((item) => item.dataUrl);
+    const parts = [];
+    if (message.content?.trim()) {
+        parts.push({ type: 'text', text: message.content.trim() });
+    }
+    attachments.forEach((attachment) => {
+        parts.push({
+            type: 'image_url',
+            image_url: { url: attachment.dataUrl },
+            mimeType: attachment.type,
+            name: attachment.name,
+        });
+    });
+    return parts.length ? parts : [{ type: 'text', text: '' }];
+}
+
+function createImageAttachmentFromFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error(`读取图片失败：${file.name || '未命名图片'}`));
+        reader.onload = () => {
+            resolve({
+                kind: 'image',
+                name: file.name || 'image',
+                type: file.type || 'image/png',
+                size: Number(file.size) || 0,
+                dataUrl: typeof reader.result === 'string' ? reader.result : '',
+            });
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
 function serializeMessage(message) {
     return {
         role: message.role,
         content: trimPersistedContent(message.content),
+        attachments: normalizeAttachments(message.attachments).map((attachment) => ({
+            kind: attachment.kind,
+            name: attachment.name,
+            type: attachment.type,
+            size: attachment.size,
+        })),
         toolCallId: message.toolCallId || '',
         toolName: message.toolName || '',
         toolCalls: Array.isArray(message.toolCalls)
@@ -209,6 +458,10 @@ function serializeMessage(message) {
                 arguments: trimPersistedContent(toolCall.arguments || '{}'),
             }))
             : [],
+        thoughts: normalizeThoughtBlocks(message.thoughts).map((item) => ({
+            label: item.label,
+            text: trimPersistedContent(item.text),
+        })),
     };
 }
 
@@ -218,6 +471,7 @@ function normalizeRestoredMessage(message) {
     return {
         role: message.role,
         content: String(message.content || ''),
+        attachments: normalizeAttachments(message.attachments),
         toolCallId: message.toolCallId ? String(message.toolCallId) : undefined,
         toolName: message.toolName ? String(message.toolName) : undefined,
         toolCalls: Array.isArray(message.toolCalls)
@@ -229,6 +483,7 @@ function normalizeRestoredMessage(message) {
                     arguments: String(toolCall.arguments || '{}'),
                 }))
             : undefined,
+        thoughts: normalizeThoughtBlocks(message.thoughts),
     };
 }
 
@@ -567,6 +822,7 @@ function describeError(error) {
     if (lowered.startsWith('manifest_load_failed:')) return '助手索引文件清单加载失败，请刷新页面后再试。';
     if (lowered.startsWith('file_read_failed:')) return '读取源码文件失败了，请换个文件再试，或刷新页面重试。';
     if (lowered === 'file_not_indexed') return '这个文件不在当前助手索引范围里。';
+    if (lowered === 'no_paths_provided') return '还没有提供要批量读取的文件路径。';
     if (lowered === 'empty_query') return '搜索词是空的，换一个明确点的关键词就行。';
     if (lowered.includes('401') || lowered.includes('authentication')) return '认证失败了，请检查当前 Provider 的 API Key。';
     if (lowered.includes('403') || lowered.includes('permission')) return '请求被拒绝了，请检查 API Key 权限、模型权限或站点限制。';
@@ -582,6 +838,10 @@ function describeToolCall(name, args = {}) {
             return `列出文件${args.query ? `（${args.query}）` : ''}`;
         case 'read_file':
             return `读取文件 ${args.path || ''}`.trim();
+        case 'read_file_range':
+            return `读取文件片段 ${args.path || ''}${args.startLine ? `:${args.startLine}` : ''}${args.endLine ? `-${args.endLine}` : ''}`.trim();
+        case 'read_multiple_files':
+            return `批量读取 ${Array.isArray(args.paths) ? args.paths.length : 0} 个文件`;
         case 'search_files':
             return `搜索关键词 ${args.query || ''}`.trim();
         case 'read_workspace_note':
@@ -625,20 +885,40 @@ function formatToolResultDisplay(message) {
     if (message.toolName === 'search_files') {
         const items = Array.isArray(parsed.items) ? parsed.items : [];
         const lines = [
-            `关键词“${parsed.query || ''}”命中 ${parsed.total || 0} 个文件。`,
+            `关键词“${parsed.query || ''}”当前返回 ${parsed.total || 0} 个命中文件。`,
         ];
+        if (parsed.filePattern && parsed.filePattern !== '(all)') {
+            lines.push(`路径过滤：${parsed.filePattern}`);
+        }
+        if (Number(parsed.contextLines) > 0) {
+            lines.push(`上下文：前后 ${parsed.contextLines} 行`);
+        }
         if (parsed.truncated) {
             lines.push(`已达到返回上限；本次扫描 ${parsed.scannedFiles || 0}/${parsed.indexedFiles || 0} 个文件。`);
         }
+        const detailLines = [];
         if (items.length) {
             lines.push('');
             items.forEach((item) => {
-                lines.push(`- ${item.path}`);
+                const firstMatch = Array.isArray(item.matches) ? item.matches[0] : null;
+                const lineInfo = firstMatch?.line ? `:${firstMatch.line}` : '';
+                lines.push(`- ${item.path}${lineInfo}${item.matchCount ? `（${item.matchCount} 处）` : ''}`);
+
+                if (Array.isArray(item.matches) && item.matches.length) {
+                    detailLines.push(item.path);
+                    item.matches.forEach((match, index) => {
+                        detailLines.push(`  [${index + 1}] 第 ${match.line || '?'} 行: ${match.text || ''}`);
+                        if (match.context) {
+                            detailLines.push(match.context);
+                        }
+                    });
+                    detailLines.push('');
+                }
             });
         }
         return {
             summary: lines.join('\n'),
-            details: '',
+            details: detailLines.join('\n').trim(),
         };
     }
 
@@ -650,6 +930,101 @@ function formatToolResultDisplay(message) {
                 '文件内容已提供给助手分析，本轮不直接展开原文。',
             ].filter(Boolean).join('\n'),
             details: '',
+        };
+    }
+
+    if (message.toolName === 'read_file_range') {
+        const lines = [
+            `已读取文件片段：${parsed.path || ''}`,
+            parsed.source ? `来源：${parsed.source}` : '',
+            `范围：第 ${parsed.startLine || 1} 行到第 ${parsed.endLine || 0} 行 / 共 ${parsed.totalLines || 0} 行`,
+        ];
+        if (parsed.hasMoreBefore) {
+            lines.push('前面还有内容。');
+        }
+        if (parsed.hasMoreAfter) {
+            lines.push(`后面还有内容；如需继续，可从第 ${parsed.nextStartLine} 行读到第 ${parsed.nextEndLine} 行。`);
+        }
+        return {
+            summary: lines.filter(Boolean).join('\n'),
+            details: String(parsed.content || ''),
+        };
+    }
+
+    if (message.toolName === 'read_multiple_files') {
+        const files = Array.isArray(parsed.files) ? parsed.files : [];
+        const successFiles = files.filter((item) => !item?.error);
+        const failedFiles = files.filter((item) => item?.error);
+        const truncatedFiles = successFiles.filter((item) => item?.truncated);
+        const lines = [
+            `批量读取完成：成功 ${successFiles.length} 个，失败 ${failedFiles.length} 个。`,
+        ];
+        if (truncatedFiles.length) {
+            lines.push(`其中 ${truncatedFiles.length} 个文件被截断。`);
+        }
+        if (parsed.totalChars) {
+            lines.push(`本轮共返回 ${parsed.totalChars} 个字符。`);
+        }
+        if (parsed.warning === 'total_char_budget_reached') {
+            lines.push('已达到本轮批量读取总量上限；后续文件可能未读或只读到前半段。');
+        }
+
+        if (successFiles.length) {
+            lines.push('');
+            successFiles.forEach((item) => {
+                const meta = [];
+                if (item.source) meta.push(item.source);
+                if (item.returnedLines) meta.push(`返回 ${item.returnedLines} 行`);
+                if (item.originalLines && item.returnedLines && item.originalLines !== item.returnedLines) {
+                    meta.push(`原始 ${item.originalLines} 行`);
+                }
+                if (item.truncated) {
+                    const reasonText = Array.isArray(item.truncatedBy) && item.truncatedBy.length
+                        ? item.truncatedBy.map((reason) => (
+                            reason === 'line_limit'
+                                ? '单文件行数上限'
+                                : reason === 'total_char_budget'
+                                    ? '本轮总量上限'
+                                    : reason
+                        )).join(' + ')
+                        : '已截断';
+                    meta.push(`已截断：${reasonText}`);
+                }
+                if (item.nextStartLine) {
+                    meta.push(`下次从第 ${item.nextStartLine} 行继续`);
+                }
+                lines.push(`- ${item.path}${meta.length ? ` [${meta.join(' | ')}]` : ''}`);
+            });
+        }
+
+        if (failedFiles.length) {
+            lines.push('');
+            failedFiles.forEach((item) => {
+                const errorText = item.error === 'total_char_budget_reached'
+                    ? '未读取：本轮批量读取总量已用尽'
+                    : item.error;
+                lines.push(`- ${item.path || '(未知路径)'} · ${errorText}`);
+            });
+        }
+
+        const detailLines = [];
+        successFiles.forEach((item) => {
+            detailLines.push(item.path || '(未知路径)');
+            if (item.truncated) {
+                if (Array.isArray(item.truncatedBy) && item.truncatedBy.length) {
+                    detailLines.push(`已截断：${item.truncatedBy.join(', ')}`);
+                }
+                if (item.nextStartLine) {
+                    detailLines.push(`如需继续，可从第 ${item.nextStartLine} 行附近接着读。`);
+                }
+            }
+            detailLines.push(item.content || '[空内容]');
+            detailLines.push('');
+        });
+
+        return {
+            summary: lines.join('\n'),
+            details: detailLines.join('\n').trim(),
         };
     }
 
@@ -715,6 +1090,58 @@ function renderMarkdown(text) {
     return escapeHtml(raw).replace(/\n/g, '<br>');
 }
 
+function buildSanitizedHtmlFragment(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<body>${String(html || '')}</body>`, 'text/html');
+    const fragment = document.createDocumentFragment();
+    Array.from(doc.body.childNodes).forEach((node) => {
+        fragment.appendChild(document.importNode(node, true));
+    });
+    return fragment;
+}
+
+function renderAttachmentGallery(container, attachments = [], options = {}) {
+    const items = normalizeAttachments(attachments);
+    container.replaceChildren();
+    container.style.display = items.length ? '' : 'none';
+    if (!items.length) return;
+
+    items.forEach((attachment, index) => {
+        const card = document.createElement('div');
+        card.className = options.compact ? 'xb-assistant-attachment-card compact' : 'xb-assistant-attachment-card';
+
+        if (attachment.dataUrl) {
+            const image = document.createElement('img');
+            image.className = 'xb-assistant-attachment-image';
+            image.src = attachment.dataUrl;
+            image.alt = attachment.name;
+            card.appendChild(image);
+        } else {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'xb-assistant-attachment-placeholder';
+            placeholder.textContent = '图片';
+            card.appendChild(placeholder);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'xb-assistant-attachment-name';
+        meta.textContent = attachment.name;
+        card.appendChild(meta);
+
+        if (typeof options.onRemove === 'function') {
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'xb-assistant-attachment-remove';
+            removeButton.textContent = '×';
+            removeButton.title = '移除图片';
+            removeButton.addEventListener('click', () => options.onRemove(index));
+            card.appendChild(removeButton);
+        }
+
+        container.appendChild(card);
+    });
+}
+
 function resetCompactionState() {
     state.historySummary = '';
     state.archivedTurnCount = 0;
@@ -747,7 +1174,7 @@ function getMessageTextForSummary(message) {
         const toolLines = message.toolCalls.map((toolCall) => `工具: ${toolCall.name} ${toolCall.arguments || '{}'}`.trim());
         return trimForSummary([message.content || '', ...toolLines].filter(Boolean).join('\n'), 1600);
     }
-    return trimForSummary(message.content || '', 1600);
+    return trimForSummary(buildTextWithAttachmentSummary(message.content || '', message.attachments), 1600);
 }
 
 function splitMessagesIntoTurns(messages = state.messages) {
@@ -817,6 +1244,15 @@ function buildFallbackSummary(turns, existingSummary = '') {
 
 function buildTokenCounterMessages(messages = []) {
     return messages.map((message) => {
+        const contentText = Array.isArray(message.content)
+            ? message.content.map((part) => {
+                if (!part || typeof part !== 'object') return '';
+                if (part.type === 'text') return part.text || '';
+                if (part.type === 'image_url') return `[image:${part.name || part.mimeType || 'image'}]`;
+                return '';
+            }).filter(Boolean).join('\n')
+            : (message.content || '');
+
         if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
             const toolCalls = message.tool_calls.map((toolCall) => JSON.stringify({
                 id: toolCall.id,
@@ -825,7 +1261,7 @@ function buildTokenCounterMessages(messages = []) {
             })).join('\n');
             return {
                 role: 'assistant',
-                content: [message.content || '', toolCalls].filter(Boolean).join('\n'),
+                content: [contentText, toolCalls].filter(Boolean).join('\n'),
             };
         }
 
@@ -838,7 +1274,7 @@ function buildTokenCounterMessages(messages = []) {
 
         return {
             role: message.role,
-            content: message.content || '',
+            content: contentText,
         };
     });
 }
@@ -868,7 +1304,11 @@ function updateContextStats(messages = [], tools = TOOL_DEFINITIONS) {
 }
 
 function pushMessage(message) {
-    state.messages.push(message);
+    state.messages.push({
+        ...message,
+        attachments: normalizeAttachments(message.attachments),
+        thoughts: normalizeThoughtBlocks(message.thoughts),
+    });
     persistSession();
 }
 
@@ -904,6 +1344,8 @@ function getActiveProviderConfig() {
         maxTokens: null,
         timeoutMs: REQUEST_TIMEOUT_MS,
         toolMode: providerConfig.toolMode || 'native',
+        reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
+        reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
     };
 }
 
@@ -962,7 +1404,9 @@ function toProviderMessages(baseMessages = state.messages) {
 
         messages.push({
             role: message.role,
-            content: message.content,
+            content: message.role === 'user'
+                ? buildUserContentParts(message)
+                : message.content,
         });
     }
     return messages;
@@ -1119,7 +1563,7 @@ async function runAssistantLoop(run) {
 
         rounds += 1;
         state.currentRound = rounds;
-        state.progressLabel = `第 ${rounds}/${MAX_TOOL_ROUNDS} 轮：正在请求模型…`;
+        state.progressLabel = '正在请求模型…';
         render();
 
         const providerConfig = getActiveProviderConfig();
@@ -1131,6 +1575,10 @@ async function runAssistantLoop(run) {
             toolChoice: 'auto',
             temperature: providerConfig.temperature,
             maxTokens: providerConfig.maxTokens,
+            reasoning: {
+                enabled: providerConfig.reasoningEnabled,
+                effort: providerConfig.reasoningEffort,
+            },
             signal: run.controller.signal,
         });
 
@@ -1139,6 +1587,7 @@ async function runAssistantLoop(run) {
                 role: 'assistant',
                 content: result.text || '',
                 toolCalls: result.toolCalls,
+                thoughts: result.thoughts,
             });
             render();
 
@@ -1147,7 +1596,7 @@ async function runAssistantLoop(run) {
                     throw new Error('assistant_aborted');
                 }
                 const parsedArguments = safeJsonParse(toolCall.arguments, {});
-                state.progressLabel = `第 ${rounds}/${MAX_TOOL_ROUNDS} 轮：正在${describeToolCall(toolCall.name, parsedArguments)}…`;
+                state.progressLabel = `正在${describeToolCall(toolCall.name, parsedArguments)}…`;
                 render();
                 const toolResult = await callHostTool(toolCall.name, parsedArguments, {
                     runId: run.id,
@@ -1167,6 +1616,7 @@ async function runAssistantLoop(run) {
         pushMessage({
             role: 'assistant',
             content: result.text || '没有拿到有效回复。',
+            thoughts: result.thoughts,
         });
         state.progressLabel = '';
         render();
@@ -1182,7 +1632,7 @@ async function runAssistantLoop(run) {
 }
 
 function applyConfig(config) {
-    state.config = config;
+    state.config = normalizeAssistantConfig(config || {});
     render();
 }
 
@@ -1192,36 +1642,57 @@ function collectProviderDraft(root, provider) {
         model: root.querySelector('#xb-assistant-model').value.trim(),
         apiKey: root.querySelector('#xb-assistant-api-key').value.trim(),
         temperature: Number(((state.config?.modelConfigs || {})[provider] || {}).temperature ?? 0.2),
+        reasoningEnabled: root.querySelector('#xb-assistant-reasoning-enabled')?.checked || false,
+        reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value),
         toolMode: provider === 'openai-compatible'
             ? (root.querySelector('#xb-assistant-tool-mode')?.value || 'native')
             : undefined,
     };
 }
 
+function syncPresetDraftName(root) {
+    if (!state.config) return;
+    state.config.presetDraftName = normalizePresetName(root.querySelector('#xb-assistant-preset-name')?.value);
+}
+
 function syncCurrentProviderDraft(root) {
     if (!state.config) return;
+    syncPresetDraftName(root);
     const provider = root.querySelector('#xb-assistant-provider').value;
+    const currentPresetName = normalizePresetName(state.config.currentPresetName);
     state.config = {
-        ...state.config,
-        provider,
-        workspaceFileName: state.config.workspaceFileName,
-        modelConfigs: {
-            ...(state.config.modelConfigs || {}),
-            [provider]: {
-                ...((state.config.modelConfigs || {})[provider] || {}),
-                ...collectProviderDraft(root, provider),
+        ...normalizeAssistantConfig({
+            ...state.config,
+            currentPresetName,
+            presetDraftName: state.config.presetDraftName,
+            presets: {
+                ...(state.config.presets || {}),
+                [currentPresetName]: {
+                    ...((state.config.presets || {})[currentPresetName] || buildDefaultPreset()),
+                    provider,
+                    modelConfigs: {
+                        ...(((state.config.presets || {})[currentPresetName] || {}).modelConfigs || cloneDefaultModelConfigs()),
+                        [provider]: {
+                            ...((((state.config.presets || {})[currentPresetName] || {}).modelConfigs || cloneDefaultModelConfigs())[provider] || {}),
+                            ...collectProviderDraft(root, provider),
+                        },
+                    },
+                },
             },
-        },
+        }),
+        provider,
     };
 }
 
 function renderMessages(container) {
-    container.innerHTML = '';
+    // 增量渲染优化：只渲染新增或变化的消息
+    const existingBubbles = Array.from(container.querySelectorAll('.xb-assistant-bubble'));
 
     if (!state.messages.length) {
+        container.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'xb-assistant-empty';
-        empty.innerHTML = '<h2>开始提问吧</h2><p>我就是 LittleWhiteBox 里的“小白助手”。如果你问“小白助手按钮在哪”“这个助手从哪打开”，默认就是在问我自己和我的入口。</p><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本；读文件时使用的是站点根相对路径，例如 <code>scripts/extensions/third-party/LittleWhiteBox/index.js</code>。</p><p>你可以直接问我按钮在哪、某个开关在哪、设置为什么不生效、某个前端报错是从哪条链路抛出的、插件和酒馆前端是怎么交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会通过写入工具写到酒馆官方 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
+        empty.innerHTML = '<h2>开始提问吧</h2><p>我就是 LittleWhiteBox 里的”小白助手”。如果你问”小白助手按钮在哪””这个助手从哪打开”，默认就是在问我自己和我的入口。</p><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本；读文件时使用的是站点根相对路径，例如 <code>scripts/extensions/third-party/LittleWhiteBox/index.js</code>。</p><p>你可以直接问我按钮在哪、某个开关在哪、设置为什么不生效、某个前端报错是从哪条链路抛出的、插件和酒馆前端是怎么交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会通过写入工具写到酒馆官方 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
 
         const examples = document.createElement('div');
         examples.className = 'xb-assistant-examples';
@@ -1238,7 +1709,17 @@ function renderMessages(container) {
         return;
     }
 
-    for (const message of state.messages) {
+    // 移除空状态提示（如果存在）
+    const emptyEl = container.querySelector('.xb-assistant-empty');
+    if (emptyEl) {
+        emptyEl.remove();
+    }
+
+    // 增量渲染：只添加新消息
+    const existingCount = existingBubbles.length;
+    const messagesToRender = state.messages.slice(existingCount);
+
+    for (const message of messagesToRender) {
         const bubble = document.createElement('div');
         bubble.className = `xb-assistant-bubble role-${message.role}`;
 
@@ -1248,8 +1729,8 @@ function renderMessages(container) {
             ? '你'
             : message.role === 'assistant'
                 ? Array.isArray(message.toolCalls) && message.toolCalls.length
-                    ? `小白助手 · 已发起 ${message.toolCalls.length} 个工具调用`
-                    : '小白助手'
+                    ? `小白助手 · 已发起 ${message.toolCalls.length} 个工具调用${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
+                    : `小白助手${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
                 : `工具结果${message.toolName ? ` · ${message.toolName}` : ''}`;
 
         if (message.role === 'tool') {
@@ -1263,7 +1744,7 @@ function renderMessages(container) {
                 const details = document.createElement('details');
                 details.className = 'xb-assistant-tool-details';
                 const summaryEl = document.createElement('summary');
-                summaryEl.textContent = message.toolName === 'read_file' ? '查看文件内容' : '查看详细结果';
+                summaryEl.textContent = message.toolName === 'read_file' ? '展开文件内容' : '展开详细结果';
                 const detailPre = document.createElement('pre');
                 detailPre.className = 'xb-assistant-content tool-detail';
                 detailPre.textContent = display.details;
@@ -1273,8 +1754,47 @@ function renderMessages(container) {
         } else {
             const content = document.createElement('div');
             content.className = 'xb-assistant-content xb-assistant-markdown';
-            content.innerHTML = renderMarkdown(message.content || (message.role === 'assistant' ? '我先查一下相关代码。' : ''));
+            content.appendChild(
+                buildSanitizedHtmlFragment(
+                    renderMarkdown(message.content || (message.role === 'assistant' ? '我先查一下相关代码。' : '')),
+                ),
+            );
             bubble.append(meta, content);
+
+            if (Array.isArray(message.attachments) && message.attachments.length) {
+                const gallery = document.createElement('div');
+                gallery.className = 'xb-assistant-attachment-gallery';
+                renderAttachmentGallery(gallery, message.attachments, { compact: true });
+                bubble.appendChild(gallery);
+            }
+
+            if (message.role === 'assistant' && Array.isArray(message.thoughts) && message.thoughts.length) {
+                const details = document.createElement('details');
+                details.className = 'xb-assistant-thought-details';
+                const summaryEl = document.createElement('summary');
+                summaryEl.textContent = message.thoughts.length > 1
+                    ? `展开思考块（${message.thoughts.length} 段）`
+                    : '展开思考块';
+                details.appendChild(summaryEl);
+
+                message.thoughts.forEach((item) => {
+                    const block = document.createElement('div');
+                    block.className = 'xb-assistant-thought-block';
+
+                    const label = document.createElement('div');
+                    label.className = 'xb-assistant-thought-label';
+                    label.textContent = item.label;
+
+                    const pre = document.createElement('pre');
+                    pre.className = 'xb-assistant-content xb-assistant-thought-content';
+                    pre.textContent = item.text;
+
+                    block.append(label, pre);
+                    details.appendChild(block);
+                });
+
+                bubble.appendChild(details);
+            }
         }
 
         container.appendChild(bubble);
@@ -1295,6 +1815,14 @@ function buildAppMarkup(root) {
                     <p>查代码、看设置、做排查记录。</p>
                 </div>
                 <section class="xb-assistant-config">
+                    <label>
+                        <span>已存预设</span>
+                        <select id="xb-assistant-preset-select"></select>
+                    </label>
+                    <label>
+                        <span>预设名称</span>
+                        <input id="xb-assistant-preset-name" type="text" placeholder="例如：OpenAI 测试号" />
+                    </label>
                     <label>
                         <span>Provider</span>
                         <select id="xb-assistant-provider">
@@ -1332,8 +1860,20 @@ function buildAppMarkup(root) {
                         <span>Tool 调用格式</span>
                         <select id="xb-assistant-tool-mode"></select>
                     </label>
+                    <label class="xb-assistant-checkbox-row">
+                        <span>思考模式</span>
+                        <span class="xb-assistant-checkbox-control">
+                            <input id="xb-assistant-reasoning-enabled" type="checkbox" />
+                            <span>开启</span>
+                        </span>
+                    </label>
+                    <label id="xb-assistant-reasoning-effort-wrap">
+                        <span>思考强度</span>
+                        <select id="xb-assistant-reasoning-effort"></select>
+                    </label>
                     <div class="xb-assistant-actions">
                         <button id="xb-assistant-save" type="button">保存配置</button>
+                        <button id="xb-assistant-delete-preset" type="button" class="secondary">删除当前预设</button>
                     </div>
                     <div class="xb-assistant-runtime" id="xb-assistant-runtime"></div>
                 </section>
@@ -1348,8 +1888,15 @@ function buildAppMarkup(root) {
                 </section>
                 <section class="xb-assistant-chat" id="xb-assistant-chat"></section>
                 <form class="xb-assistant-compose" id="xb-assistant-form">
-                    <textarea id="xb-assistant-input" placeholder="问我：某个设置为什么不生效、某个报错代表什么、某个功能从哪条代码链路走……"></textarea>
-                    <button id="xb-assistant-send" type="submit">发送</button>
+                    <div class="xb-assistant-compose-main">
+                        <textarea id="xb-assistant-input" placeholder="问我：某个设置为什么不生效、某个报错代表什么、某个功能从哪条代码链路走……"></textarea>
+                        <input id="xb-assistant-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+                        <div class="xb-assistant-attachment-gallery xb-assistant-draft-gallery" id="xb-assistant-draft-gallery" style="display:none;"></div>
+                    </div>
+                    <div class="xb-assistant-compose-actions">
+                        <button id="xb-assistant-add-image" type="button" class="secondary ghost">发图</button>
+                        <button id="xb-assistant-send" type="submit">发送</button>
+                    </div>
                 </form>
                 <div class="xb-assistant-toast" id="xb-assistant-toast" aria-live="polite"></div>
             </main>
@@ -1364,8 +1911,19 @@ function syncConfigToForm(root) {
     const pulledModels = getProviderModels(provider);
     const toolModeWrap = root.querySelector('#xb-assistant-tool-mode-wrap');
     const toolModeSelect = root.querySelector('#xb-assistant-tool-mode');
+    const reasoningEnabledInput = root.querySelector('#xb-assistant-reasoning-enabled');
+    const reasoningEffortWrap = root.querySelector('#xb-assistant-reasoning-effort-wrap');
+    const reasoningEffortSelect = root.querySelector('#xb-assistant-reasoning-effort');
     const pulledSelect = root.querySelector('#xb-assistant-model-pulled');
+    const presetSelect = root.querySelector('#xb-assistant-preset-select');
+    const presetNameInput = root.querySelector('#xb-assistant-preset-name');
 
+    refillSelect(
+        presetSelect,
+        (state.config.presetNames || []).map((name) => ({ value: name, label: name })),
+    );
+    presetSelect.value = state.config.currentPresetName || DEFAULT_PRESET_NAME;
+    presetNameInput.value = state.config.presetDraftName || state.config.currentPresetName || DEFAULT_PRESET_NAME;
     root.querySelector('#xb-assistant-provider').value = provider;
     root.querySelector('#xb-assistant-base-url').value = providerConfig.baseUrl || '';
     root.querySelector('#xb-assistant-model').value = providerConfig.model || '';
@@ -1373,23 +1931,68 @@ function syncConfigToForm(root) {
     toolModeWrap.style.display = provider === 'openai-compatible' ? '' : 'none';
     refillSelect(toolModeSelect, TOOL_MODE_OPTIONS);
     toolModeSelect.value = providerConfig.toolMode || 'native';
+    refillSelect(reasoningEffortSelect, REASONING_EFFORT_OPTIONS);
+    reasoningEnabledInput.checked = Boolean(providerConfig.reasoningEnabled);
+    reasoningEffortSelect.value = normalizeReasoningEffort(providerConfig.reasoningEffort);
+    reasoningEffortWrap.style.display = reasoningEnabledInput.checked ? '' : 'none';
     refillSelect(pulledSelect, pulledModels.map((model) => ({ value: model, label: model })), '手动填写');
 
     const runtimeEl = root.querySelector('#xb-assistant-runtime');
     const pullState = getPullState(provider);
     runtimeEl.textContent = state.runtime
-        ? `${getProviderLabel(provider)} · 已索引 ${state.runtime.indexedFileCount || 0} 个前端源码文件${pullState.message ? ` · ${pullState.message}` : ''}`
+        ? `预设「${state.config.currentPresetName || DEFAULT_PRESET_NAME}」 · ${getProviderLabel(provider)} · 已索引 ${state.runtime.indexedFileCount || 0} 个前端源码文件${pullState.message ? ` · ${pullState.message}` : ''}`
         : (pullState.message || '');
 }
 
 function saveConfigFromForm(root) {
     syncCurrentProviderDraft(root);
-    const provider = state.config?.provider || 'openai-compatible';
-    post('xb-assistant:save-config', {
-        provider,
-        workspaceFileName: state.config?.workspaceFileName || '',
-        modelConfigs: state.config?.modelConfigs || {},
+    const nextPresetName = normalizePresetName(root.querySelector('#xb-assistant-preset-name')?.value);
+    const currentPresetName = normalizePresetName(state.config?.currentPresetName || DEFAULT_PRESET_NAME);
+    const currentPreset = (state.config?.presets || {})[currentPresetName] || buildDefaultPreset();
+    const nextPresets = {
+        ...(state.config?.presets || {}),
+        [nextPresetName]: currentPreset,
+    };
+    state.config = normalizeAssistantConfig({
+        ...state.config,
+        currentPresetName: nextPresetName,
+        presetDraftName: nextPresetName,
+        presets: nextPresets,
     });
+    post('xb-assistant:save-config', {
+        workspaceFileName: state.config?.workspaceFileName || '',
+        currentPresetName: state.config?.currentPresetName || DEFAULT_PRESET_NAME,
+        presets: state.config?.presets || {},
+    });
+}
+
+function deleteCurrentPreset(root) {
+    syncCurrentProviderDraft(root);
+    const presetNames = Object.keys(state.config?.presets || {});
+    if (presetNames.length <= 1) {
+        showToast('至少要保留一套预设');
+        return;
+    }
+
+    const currentPresetName = normalizePresetName(state.config?.currentPresetName || DEFAULT_PRESET_NAME);
+    const nextPresets = { ...(state.config?.presets || {}) };
+    delete nextPresets[currentPresetName];
+    const nextPresetName = Object.keys(nextPresets)[0] || DEFAULT_PRESET_NAME;
+
+    state.config = normalizeAssistantConfig({
+        ...state.config,
+        currentPresetName: nextPresetName,
+        presetDraftName: nextPresetName,
+        presets: nextPresets,
+    });
+
+    post('xb-assistant:save-config', {
+        workspaceFileName: state.config?.workspaceFileName || '',
+        currentPresetName: state.config?.currentPresetName || DEFAULT_PRESET_NAME,
+        presets: state.config?.presets || {},
+    });
+
+    render();
 }
 
 function injectStyles() {
@@ -1446,6 +2049,22 @@ function injectStyles() {
         }
         .xb-assistant-grow { min-width: 0; }
         .xb-assistant-model-row { align-items: end; }
+        .xb-assistant-checkbox-row {
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+        }
+        .xb-assistant-checkbox-control {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #1b3758;
+            font-size: 14px;
+        }
+        .xb-assistant-checkbox-control input {
+            width: 16px;
+            height: 16px;
+            accent-color: #1b3758;
+        }
         .xb-assistant-actions,
         .xb-assistant-toolbar {
             display: flex;
@@ -1471,12 +2090,14 @@ function injectStyles() {
             font: inherit;
         }
         .xb-assistant-actions button.secondary,
-        .xb-assistant-toolbar button.secondary {
+        .xb-assistant-toolbar button.secondary,
+        .xb-assistant-compose button.secondary {
             background: #dbe3ee;
             color: #1b3758;
         }
         .xb-assistant-actions button.ghost,
         .xb-assistant-toolbar button.ghost,
+        .xb-assistant-compose button.ghost,
         .xb-assistant-inline-input button.ghost {
             padding-inline: 14px;
             background: rgba(219, 227, 238, 0.82);
@@ -1529,7 +2150,15 @@ function injectStyles() {
             animation: xb-assistant-pulse 1.2s ease infinite;
             vertical-align: middle;
         }
-        .xb-assistant-chat { overflow: auto; padding: 4px; display: grid; gap: 12px; }
+        .xb-assistant-chat {
+            overflow: auto;
+            padding: 4px;
+            display: grid;
+            gap: 12px;
+            align-content: start;
+            justify-items: start;
+            grid-auto-rows: max-content;
+        }
         .xb-assistant-empty {
             align-self: center;
             justify-self: center;
@@ -1562,6 +2191,7 @@ function injectStyles() {
             border-radius: 18px;
             padding: 14px 16px;
             box-shadow: 0 12px 30px rgba(17, 31, 51, 0.07);
+            align-self: start;
         }
         .xb-assistant-bubble.role-user {
             justify-self: end;
@@ -1623,7 +2253,64 @@ function injectStyles() {
         .xb-assistant-markdown ol {
             padding-left: 1.4em;
         }
+        .xb-assistant-attachment-gallery {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .xb-assistant-attachment-card {
+            position: relative;
+            width: 132px;
+            padding: 8px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
+        }
+        .xb-assistant-attachment-card.compact {
+            background: rgba(255, 255, 255, 0.18);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+        }
+        .xb-assistant-attachment-image,
+        .xb-assistant-attachment-placeholder {
+            width: 100%;
+            height: 90px;
+            border-radius: 10px;
+            object-fit: cover;
+            display: block;
+            background: rgba(20, 32, 51, 0.08);
+        }
+        .xb-assistant-attachment-placeholder {
+            display: grid;
+            place-items: center;
+            color: #41526a;
+            font-size: 13px;
+        }
+        .xb-assistant-attachment-name {
+            margin-top: 8px;
+            font-size: 12px;
+            line-height: 1.4;
+            word-break: break-word;
+        }
+        .xb-assistant-attachment-remove {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 999px;
+            background: rgba(20, 32, 51, 0.72);
+            color: #fff;
+            cursor: pointer;
+            font: inherit;
+        }
         .xb-assistant-tool-details {
+            margin-top: 10px;
+            border-top: 1px dashed rgba(27, 55, 88, 0.12);
+            padding-top: 10px;
+        }
+        .xb-assistant-thought-details {
             margin-top: 10px;
             border-top: 1px dashed rgba(27, 55, 88, 0.12);
             padding-top: 10px;
@@ -1632,14 +2319,69 @@ function injectStyles() {
             cursor: pointer;
             color: #36567b;
             font-size: 13px;
+            list-style: none;
+        }
+        .xb-assistant-thought-details summary {
+            cursor: pointer;
+            color: #36567b;
+            font-size: 13px;
+            list-style: none;
+        }
+        .xb-assistant-tool-details summary::marker,
+        .xb-assistant-tool-details summary::-webkit-details-marker {
+            display: none;
+        }
+        .xb-assistant-thought-details summary::marker,
+        .xb-assistant-thought-details summary::-webkit-details-marker {
+            display: none;
+        }
+        .xb-assistant-tool-details summary::after {
+            content: '（默认折叠）';
+            margin-left: 6px;
+            color: #5a6a81;
+            font-size: 12px;
+        }
+        .xb-assistant-thought-details summary::after {
+            content: '（默认折叠）';
+            margin-left: 6px;
+            color: #5a6a81;
+            font-size: 12px;
+        }
+        .xb-assistant-tool-details[open] summary::after {
+            content: '（点击收起）';
+        }
+        .xb-assistant-thought-details[open] summary::after {
+            content: '（点击收起）';
         }
         .xb-assistant-content.tool-detail {
             margin-top: 10px;
-            max-height: 360px;
-            overflow: auto;
+            line-height: 1.6;
+            max-height: calc(1.6em * 3 + 24px);
+            overflow: hidden;
             background: rgba(255, 255, 255, 0.72);
             border-radius: 12px;
             padding: 12px;
+        }
+        .xb-assistant-tool-details[open] .xb-assistant-content.tool-detail {
+            max-height: none;
+            overflow: auto;
+        }
+        .xb-assistant-thought-block + .xb-assistant-thought-block {
+            margin-top: 12px;
+        }
+        .xb-assistant-thought-label {
+            margin-top: 10px;
+            margin-bottom: 8px;
+            color: #5a6a81;
+            font-size: 12px;
+        }
+        .xb-assistant-thought-content {
+            margin-top: 0;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(245, 247, 250, 0.96);
+            border: 1px solid rgba(27, 55, 88, 0.1);
+            line-height: 1.65;
         }
         .xb-assistant-compose {
             display: grid;
@@ -1650,6 +2392,13 @@ function injectStyles() {
             border-radius: 22px;
             padding: 14px;
             box-shadow: 0 16px 40px rgba(17, 31, 51, 0.08);
+        }
+        .xb-assistant-compose-main {
+            min-width: 0;
+        }
+        .xb-assistant-compose-actions {
+            display: grid;
+            gap: 10px;
         }
         .xb-assistant-compose textarea { min-height: 92px; resize: vertical; }
         .xb-assistant-compose button.is-busy { background: #8d442b; }
@@ -1675,6 +2424,7 @@ function injectStyles() {
             .xb-assistant-sidebar { border-right: none; border-bottom: 1px solid rgba(20, 32, 51, 0.08); }
             .xb-assistant-main { padding: 14px; }
             .xb-assistant-compose { grid-template-columns: 1fr; }
+            .xb-assistant-compose-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .xb-assistant-toolbar,
             .xb-assistant-toolbar-cluster { align-items: stretch; }
             .xb-assistant-inline-input { grid-template-columns: 1fr; }
@@ -1700,12 +2450,19 @@ function render() {
     const sendButton = root.querySelector('#xb-assistant-send');
     sendButton.disabled = false;
     sendButton.classList.toggle('is-busy', state.isBusy);
-    sendButton.textContent = state.isBusy
-        ? `终止 (${Math.max(1, state.currentRound)}/${MAX_TOOL_ROUNDS})`
-        : '发送';
+    sendButton.textContent = state.isBusy ? '终止' : '发送';
+
+    const addImageButton = root.querySelector('#xb-assistant-add-image');
+    addImageButton.disabled = state.isBusy || state.draftAttachments.length >= MAX_IMAGE_ATTACHMENTS;
+    addImageButton.textContent = state.draftAttachments.length
+        ? `发图（${state.draftAttachments.length}/${MAX_IMAGE_ATTACHMENTS}）`
+        : '发图';
 
     const clearButton = root.querySelector('#xb-assistant-clear');
     clearButton.disabled = state.isBusy || !state.messages.length;
+
+    const deletePresetButton = root.querySelector('#xb-assistant-delete-preset');
+    deletePresetButton.disabled = state.isBusy || (state.config?.presetNames || []).length <= 1;
 
     const pullButton = root.querySelector('#xb-assistant-pull-models');
     pullButton.disabled = state.isBusy;
@@ -1725,6 +2482,14 @@ function render() {
     toast.textContent = state.toast || '';
     toast.classList.toggle('visible', !!state.toast);
 
+    const draftGallery = root.querySelector('#xb-assistant-draft-gallery');
+    renderAttachmentGallery(draftGallery, state.draftAttachments, {
+        onRemove: (index) => {
+            state.draftAttachments = state.draftAttachments.filter((_, itemIndex) => itemIndex !== index);
+            render();
+        },
+    });
+
     const toggleKey = root.querySelector('#xb-assistant-toggle-key');
     const apiKeyInput = root.querySelector('#xb-assistant-api-key');
     toggleKey.textContent = apiKeyInput.type === 'password' ? '显示' : '隐藏';
@@ -1732,6 +2497,7 @@ function render() {
 
 function bindEvents(root) {
     const input = root.querySelector('#xb-assistant-input');
+    const imageInput = root.querySelector('#xb-assistant-image-input');
     const resizeComposer = () => {
         input.style.height = 'auto';
         input.style.height = `${Math.min(Math.max(input.scrollHeight, 92), 240)}px`;
@@ -1760,6 +2526,24 @@ function bindEvents(root) {
         render();
     });
 
+    root.querySelector('#xb-assistant-preset-select').addEventListener('change', (event) => {
+        syncCurrentProviderDraft(root);
+        const nextPresetName = normalizePresetName(event.currentTarget.value);
+        const nextPreset = (state.config?.presets || {})[nextPresetName] || buildDefaultPreset();
+        state.config = normalizeAssistantConfig({
+            ...state.config,
+            currentPresetName: nextPresetName,
+            presetDraftName: nextPresetName,
+            provider: nextPreset.provider,
+            modelConfigs: nextPreset.modelConfigs,
+        });
+        render();
+    });
+
+    root.querySelector('#xb-assistant-preset-name').addEventListener('input', () => {
+        syncPresetDraftName(root);
+    });
+
     root.querySelector('#xb-assistant-model-pulled').addEventListener('change', (event) => {
         const value = event.currentTarget.value;
         if (!value) return;
@@ -1770,6 +2554,15 @@ function bindEvents(root) {
         const keyInput = root.querySelector('#xb-assistant-api-key');
         keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
         render();
+    });
+
+    root.querySelector('#xb-assistant-reasoning-enabled').addEventListener('change', () => {
+        syncCurrentProviderDraft(root);
+        render();
+    });
+
+    root.querySelector('#xb-assistant-reasoning-effort').addEventListener('change', () => {
+        syncCurrentProviderDraft(root);
     });
 
     root.querySelector('#xb-assistant-pull-models').addEventListener('click', async () => {
@@ -1798,13 +2591,70 @@ function bindEvents(root) {
         saveConfigFromForm(root);
     });
 
+    root.querySelector('#xb-assistant-delete-preset').addEventListener('click', () => {
+        deleteCurrentPreset(root);
+    });
+
     root.querySelector('#xb-assistant-clear').addEventListener('click', () => {
         if (state.isBusy) return;
         state.messages = [];
+        state.draftAttachments = [];
         resetCompactionState();
         persistSession();
         showToast('对话已清空');
         render();
+    });
+
+    root.querySelector('#xb-assistant-add-image').addEventListener('click', () => {
+        if (state.isBusy || state.draftAttachments.length >= MAX_IMAGE_ATTACHMENTS) return;
+        imageInput.click();
+    });
+
+    imageInput.addEventListener('change', async (event) => {
+        const files = Array.from(event.currentTarget.files || []);
+        if (!files.length) return;
+
+        const remainingSlots = Math.max(0, MAX_IMAGE_ATTACHMENTS - state.draftAttachments.length);
+        if (!remainingSlots) {
+            showToast(`最多只能附 ${MAX_IMAGE_ATTACHMENTS} 张图片`);
+            event.currentTarget.value = '';
+            return;
+        }
+
+        const acceptedFiles = files.slice(0, remainingSlots);
+        const validFiles = [];
+        let rejectedReason = '';
+
+        acceptedFiles.forEach((file) => {
+            if (!ACCEPTED_IMAGE_MIME_TYPES.includes(file.type)) {
+                rejectedReason = '只支持 PNG、JPG、WEBP、GIF 图片';
+                return;
+            }
+            if ((Number(file.size) || 0) > MAX_IMAGE_FILE_BYTES) {
+                rejectedReason = `单张图片不能超过 ${Math.round(MAX_IMAGE_FILE_BYTES / (1024 * 1024))}MB`;
+                return;
+            }
+            validFiles.push(file);
+        });
+
+        if (!validFiles.length) {
+            showToast(rejectedReason || '没有可添加的图片');
+            event.currentTarget.value = '';
+            return;
+        }
+
+        try {
+            const attachments = await Promise.all(validFiles.map((file) => createImageAttachmentFromFile(file)));
+            state.draftAttachments = [...state.draftAttachments, ...attachments].slice(0, MAX_IMAGE_ATTACHMENTS);
+            render();
+            if (rejectedReason || files.length > remainingSlots) {
+                showToast(rejectedReason || `最多只能附 ${MAX_IMAGE_ATTACHMENTS} 张图片`);
+            }
+        } catch (error) {
+            showToast(String(error?.message || '读取图片失败'));
+        } finally {
+            event.currentTarget.value = '';
+        }
     });
 
     root.querySelector('#xb-assistant-form').addEventListener('submit', async (event) => {
@@ -1814,12 +2664,15 @@ function bindEvents(root) {
             return;
         }
         const value = input.value.trim();
-        if (!value) return;
+        const attachments = normalizeAttachments(state.draftAttachments);
+        if (!value && !attachments.length) return;
 
         syncCurrentProviderDraft(root);
-        pushMessage({ role: 'user', content: value });
+        pushMessage({ role: 'user', content: value, attachments });
         input.value = '';
+        state.draftAttachments = [];
         resizeComposer();
+        render();
 
         const run = {
             id: createRequestId('run'),
@@ -1882,6 +2735,12 @@ window.addEventListener('message', (event) => {
     if (data.type === 'xb-assistant:config-saved') {
         applyConfig(data.payload?.config || {});
         showToast('配置已保存');
+        return;
+    }
+
+    if (data.type === 'xb-assistant:config-save-error') {
+        applyConfig(data.payload?.config || {});
+        showToast(`保存失败：${data.payload?.error || '网络异常'}`);
         return;
     }
 

@@ -1,12 +1,13 @@
 import OpenAI from 'openai';
 
 function logOutgoingRequest(label, payload) {
+    const targetConsole = globalThis.top?.console || console;
     try {
-        console.groupCollapsed(label);
-        console.log(JSON.parse(JSON.stringify(payload)));
-        console.groupEnd();
+        targetConsole.groupCollapsed(label);
+        targetConsole.log(JSON.parse(JSON.stringify(payload)));
+        targetConsole.groupEnd();
     } catch {
-        console.log(label, payload);
+        targetConsole.log(label, payload);
     }
 }
 
@@ -16,6 +17,108 @@ function safeParseArguments(text) {
     } catch {
         return {};
     }
+}
+
+function pushThought(thoughts, label, text) {
+    const normalized = String(text || '').trim();
+    if (!normalized) return;
+    thoughts.push({
+        label,
+        text: normalized,
+    });
+}
+
+function flattenTextContent(content) {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    return content
+        .map((part) => {
+            if (!part) return '';
+            if (typeof part === 'string') return part;
+            return part.text || part.content || '';
+        })
+        .filter(Boolean)
+        .join('\n');
+}
+
+function extractThinkTaggedContent(text = '') {
+    const thoughts = [];
+    const cleaned = String(text || '').replace(/<think>([\s\S]*?)<\/think>/gi, (_, inner) => {
+        pushThought(thoughts, '思考块', inner);
+        return '';
+    }).trim();
+    return {
+        cleaned,
+        thoughts,
+    };
+}
+
+function collectThoughtsFromUnknown(thoughts, value, label) {
+    if (!value) return;
+    if (typeof value === 'string') {
+        pushThought(thoughts, label, value);
+        return;
+    }
+    if (Array.isArray(value)) {
+        value.forEach((item) => collectThoughtsFromUnknown(thoughts, item, label));
+        return;
+    }
+    if (typeof value !== 'object') return;
+
+    if (typeof value.text === 'string') {
+        pushThought(thoughts, label, value.text);
+    }
+    if (typeof value.content === 'string') {
+        pushThought(thoughts, label, value.content);
+    }
+    if (typeof value.reasoning_content === 'string') {
+        pushThought(thoughts, label, value.reasoning_content);
+    }
+    if (typeof value.thinking === 'string') {
+        pushThought(thoughts, label, value.thinking);
+    }
+
+    if (Array.isArray(value.summary)) {
+        value.summary.forEach((item) => {
+            if (typeof item === 'string') {
+                pushThought(thoughts, '推理摘要', item);
+                return;
+            }
+            if (item && typeof item === 'object') {
+                pushThought(thoughts, '推理摘要', item.text || item.content || '');
+            }
+        });
+    }
+}
+
+function extractThoughtsFromMessage(message = {}, choice = {}) {
+    const thoughts = [];
+
+    collectThoughtsFromUnknown(thoughts, message.reasoning_content, '推理文本');
+    collectThoughtsFromUnknown(thoughts, message.reasoning, '推理文本');
+    collectThoughtsFromUnknown(thoughts, message.reasoning_text, '推理文本');
+    collectThoughtsFromUnknown(thoughts, message.thinking, '思考块');
+    collectThoughtsFromUnknown(thoughts, choice.reasoning_content, '推理文本');
+    collectThoughtsFromUnknown(thoughts, choice.reasoning, '推理文本');
+
+    if (Array.isArray(message.content)) {
+        message.content.forEach((part) => {
+            if (!part || typeof part !== 'object') return;
+            if (part.type === 'reasoning_text') {
+                pushThought(thoughts, '推理文本', part.text);
+                return;
+            }
+            if (part.type === 'summary_text') {
+                pushThought(thoughts, '推理摘要', part.text);
+                return;
+            }
+            if (part.type === 'thinking' || part.type === 'reasoning' || part.type === 'reasoning_content') {
+                pushThought(thoughts, '思考块', part.text || part.content || part.reasoning || '');
+            }
+        });
+    }
+
+    return thoughts;
 }
 
 function extractTaggedToolCalls(content = '') {
@@ -151,6 +254,18 @@ export class OpenAICompatibleAdapter {
             temperature: task.temperature,
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
         };
+        if (task.reasoning?.enabled) {
+            body.reasoning_effort = task.reasoning.effort;
+            body.reasoning = {
+                effort: task.reasoning.effort,
+                summary: 'detailed',
+            };
+            body.thinking = {
+                type: 'enabled',
+                budget_tokens: task.reasoning.effort === 'high' ? 4096 : task.reasoning.effort === 'medium' ? 2048 : 1024,
+                display: 'summarized',
+            };
+        }
         logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI-Compatible outgoing request', body);
         const response = await this.client.chat.completions.create(body, {
             signal: task.signal,
@@ -158,16 +273,20 @@ export class OpenAICompatibleAdapter {
 
         const choice = response.choices?.[0] || {};
         const message = choice.message || {};
+        const thoughts = extractThoughtsFromMessage(message, choice);
         const standardToolCalls = (message.tool_calls || []).map((item) => ({
             id: item.id || `openai-tool-${Date.now()}`,
             name: item.function?.name || '',
             arguments: item.function?.arguments || '{}',
         })).filter((item) => item.name);
-        const taggedToolCalls = standardToolCalls.length ? [] : extractTaggedToolCalls(message.content || '');
+        const contentText = flattenTextContent(message.content);
+        const thinkTagged = extractThinkTaggedContent(contentText);
+        thinkTagged.thoughts.forEach((item) => thoughts.push(item));
+        const taggedToolCalls = standardToolCalls.length ? [] : extractTaggedToolCalls(thinkTagged.cleaned);
         const toolCalls = [...standardToolCalls, ...taggedToolCalls];
         const cleanedText = standardToolCalls.length
-            ? (message.content || '')
-            : (message.content || '')
+            ? thinkTagged.cleaned
+            : thinkTagged.cleaned
                 .replace(/<<TOOL_CALL>>[\s\S]*?<<\/TOOL_CALL>>/g, '')
                 .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
                 .trim();
@@ -175,6 +294,7 @@ export class OpenAICompatibleAdapter {
         return {
             text: cleanedText,
             toolCalls,
+            thoughts,
             finishReason: choice.finish_reason || 'stop',
             model: response.model || this.config.model,
             provider: 'openai-compatible',

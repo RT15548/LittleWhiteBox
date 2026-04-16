@@ -1,7 +1,7 @@
-import { saveSettingsDebounced, getRequestHeaders } from "../../../../../../script.js";
-import { extension_settings } from "../../../../../extensions.js";
-import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
+import { getRequestHeaders } from "../../../../../../script.js";
+import { extensionFolderPath } from "../../core/constants.js";
 import { isTrustedIframeEvent, postToIframe } from "../../core/iframe-messaging.js";
+import { AssistantStorage } from "../../core/server-storage.js";
 
 const MODULE_ID = 'assistant';
 const OVERLAY_ID = 'xiaobaix-assistant-overlay';
@@ -9,59 +9,179 @@ const HTML_PATH = `${extensionFolderPath}/modules/assistant/assistant-overlay.ht
 const MANIFEST_PATH = `${extensionFolderPath}/modules/assistant/assistant-file-manifest.json`;
 const TOOL_RESULT = 'xb-assistant:tool-result';
 const TOOL_ERROR = 'xb-assistant:tool-error';
+const CONFIG_SAVED = 'xb-assistant:config-saved';
+const CONFIG_SAVE_ERROR = 'xb-assistant:config-save-error';
 const WORKSPACE_PREFIX = 'LittleWhiteBox_Assistant_';
 const DEFAULT_WORKSPACE_FILE = `${WORKSPACE_PREFIX}Worklog.md`;
 const MAX_CONTENT_CACHE_ENTRIES = 48;
+const SERVER_FILE_KEY = 'settings';
+const CONFIG_VERSION = 1;
+const DEFAULT_PRESET_NAME = '默认';
+
+const DEFAULT_MODEL_CONFIGS = {
+    'openai-responses': {
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4.1-mini',
+        apiKey: '',
+        temperature: 0.2,
+    },
+    'openai-compatible': {
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o-mini',
+        apiKey: '',
+        temperature: 0.2,
+        toolMode: 'native',
+    },
+    anthropic: {
+        baseUrl: 'https://api.anthropic.com/v1',
+        model: 'claude-sonnet-4-0',
+        apiKey: '',
+        temperature: 0.2,
+    },
+    google: {
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        model: 'gemini-2.5-pro',
+        apiKey: '',
+        temperature: 0.2,
+    },
+};
 
 let overlay = null;
 let manifestCache = null;
 const contentCache = new Map();
 const activeToolControllers = new Map();
+let settingsCache = null;
+let settingsLoaded = false;
+
+function cloneDefaultModelConfigs() {
+    return JSON.parse(JSON.stringify(DEFAULT_MODEL_CONFIGS));
+}
+
+function buildDefaultPreset() {
+    return {
+        provider: 'openai-compatible',
+        modelConfigs: cloneDefaultModelConfigs(),
+    };
+}
+
+function normalizePresetName(input) {
+    const normalized = String(input || '').trim();
+    return normalized || DEFAULT_PRESET_NAME;
+}
+
+function normalizeModelConfigs(savedConfigs = {}) {
+    const next = cloneDefaultModelConfigs();
+    Object.keys(DEFAULT_MODEL_CONFIGS).forEach((provider) => {
+        next[provider] = {
+            ...DEFAULT_MODEL_CONFIGS[provider],
+            ...((savedConfigs && typeof savedConfigs[provider] === 'object') ? savedConfigs[provider] : {}),
+        };
+    });
+    return next;
+}
+
+function normalizeAssistantSettings(saved = {}) {
+    const legacyPresetName = normalizePresetName(saved.currentPresetName || saved.presetName || DEFAULT_PRESET_NAME);
+    const presetSource = (saved && typeof saved.presets === 'object' && saved.presets)
+        ? saved.presets
+        : (saved?.modelConfigs
+            ? {
+                [legacyPresetName]: {
+                    provider: saved.provider || 'openai-compatible',
+                    modelConfigs: saved.modelConfigs,
+                },
+            }
+            : {});
+
+    const presets = {};
+    Object.entries(presetSource).forEach(([rawName, rawPreset]) => {
+        if (!rawPreset || typeof rawPreset !== 'object') return;
+        const name = normalizePresetName(rawName);
+        presets[name] = {
+            provider: typeof rawPreset.provider === 'string' && rawPreset.provider.trim()
+                ? rawPreset.provider
+                : 'openai-compatible',
+            modelConfigs: normalizeModelConfigs(rawPreset.modelConfigs || {}),
+        };
+    });
+
+    if (!Object.keys(presets).length) {
+        presets[DEFAULT_PRESET_NAME] = buildDefaultPreset();
+    }
+
+    const currentPresetName = presets[normalizePresetName(saved.currentPresetName)]
+        ? normalizePresetName(saved.currentPresetName)
+        : Object.keys(presets)[0];
+
+    return {
+        enabled: !!saved.enabled,
+        workspaceFileName: normalizeWorkspaceName(saved.workspaceFileName || DEFAULT_WORKSPACE_FILE),
+        currentPresetName,
+        presets,
+        updatedAt: Number(saved.updatedAt) || 0,
+        configVersion: Number(saved.configVersion) || 0,
+    };
+}
+
+async function persistAssistantSettings(settings, { silent = true } = {}) {
+    const next = normalizeAssistantSettings({
+        ...settings,
+        updatedAt: Date.now(),
+        configVersion: CONFIG_VERSION,
+    });
+    settingsCache = next;
+
+    try {
+        const data = await AssistantStorage.load();
+        data[SERVER_FILE_KEY] = next;
+        AssistantStorage._dirtyVersion = (AssistantStorage._dirtyVersion || 0) + 1;
+        await AssistantStorage.saveNow({ silent });
+        return { ok: true, settings: next };
+    } catch (error) {
+        return {
+            ok: false,
+            settings: next,
+            error: error instanceof Error ? error.message : String(error || 'unknown_error'),
+        };
+    }
+}
+
+async function loadAssistantSettings() {
+    if (settingsLoaded && settingsCache) return settingsCache;
+
+    try {
+        const saved = await AssistantStorage.get(SERVER_FILE_KEY, null);
+        settingsCache = normalizeAssistantSettings(saved || {});
+
+        if (!saved || settingsCache.configVersion !== CONFIG_VERSION) {
+            await persistAssistantSettings(settingsCache, { silent: true });
+        }
+    } catch {
+        settingsCache = normalizeAssistantSettings({});
+    }
+
+    settingsLoaded = true;
+    return settingsCache;
+}
 
 function getAssistantSettings() {
-    extension_settings[EXT_ID] = extension_settings[EXT_ID] || {};
-    extension_settings[EXT_ID].assistant = extension_settings[EXT_ID].assistant || {
-        enabled: false,
-        provider: 'openai-compatible',
-        workspaceFileName: DEFAULT_WORKSPACE_FILE,
-        modelConfigs: {
-            'openai-responses': {
-                baseUrl: 'https://api.openai.com/v1',
-                model: 'gpt-4.1-mini',
-                apiKey: '',
-                temperature: 0.2,
-            },
-            'openai-compatible': {
-                baseUrl: 'https://api.openai.com/v1',
-                model: 'gpt-4o-mini',
-                apiKey: '',
-                temperature: 0.2,
-                toolMode: 'native',
-            },
-            anthropic: {
-                baseUrl: 'https://api.anthropic.com/v1',
-                model: 'claude-sonnet-4-0',
-                apiKey: '',
-                temperature: 0.2,
-            },
-            google: {
-                baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-                model: 'gemini-2.5-pro',
-                apiKey: '',
-                temperature: 0.2,
-            },
-        },
-    };
-    return extension_settings[EXT_ID].assistant;
+    if (!settingsCache) {
+        settingsCache = normalizeAssistantSettings({});
+    }
+    return settingsCache;
 }
 
 function buildRuntimeConfig() {
     const settings = getAssistantSettings();
+    const currentPreset = settings.presets?.[settings.currentPresetName] || buildDefaultPreset();
     return {
         enabled: !!settings.enabled,
-        provider: settings.provider || 'openai-compatible',
+        provider: currentPreset.provider || 'openai-compatible',
         workspaceFileName: settings.workspaceFileName || DEFAULT_WORKSPACE_FILE,
-        modelConfigs: settings.modelConfigs || {},
+        modelConfigs: currentPreset.modelConfigs || cloneDefaultModelConfigs(),
+        currentPresetName: settings.currentPresetName || DEFAULT_PRESET_NAME,
+        presetNames: Object.keys(settings.presets || {}),
+        presets: settings.presets || {},
         toolInfo: {
             readableSources: ['littlewhitebox', 'sillytavern-public'],
             writableWorkspacePrefix: WORKSPACE_PREFIX,
@@ -133,17 +253,6 @@ async function readTextFile(publicPath, options = {}) {
     return text;
 }
 
-function makeSnippet(text, query) {
-    const lowered = text.toLowerCase();
-    const loweredQuery = query.toLowerCase();
-    const index = lowered.indexOf(loweredQuery);
-    if (index < 0) return '';
-
-    const start = Math.max(0, index - 120);
-    const end = Math.min(text.length, index + loweredQuery.length + 120);
-    return text.slice(start, end).replace(/\s+/g, ' ').trim();
-}
-
 async function listFiles(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
     const query = String(args.query || '').trim().toLowerCase();
@@ -177,35 +286,249 @@ async function readFile(args = {}, options = {}) {
     };
 }
 
+async function readFileRange(args = {}, options = {}) {
+    const manifest = await loadManifest(options.signal);
+    const targetPath = String(args.path || '').trim();
+    const entry = (manifest.files || []).find((item) => item.publicPath === targetPath);
+    if (!entry) {
+        throw new Error('file_not_indexed');
+    }
+
+    const fullContent = await readTextFile(entry.publicPath, options);
+    const lines = fullContent === '' ? [] : fullContent.split('\n');
+    const totalLines = lines.length;
+    const requestedStart = Math.max(1, Number(args.startLine) || 1);
+    const requestedEnd = Math.max(requestedStart, Number(args.endLine) || Math.min(requestedStart + 199, requestedStart + 199));
+    const maxRange = 400;
+    const startLine = Math.min(requestedStart, Math.max(totalLines, 1));
+    const endLine = Math.min(requestedEnd, startLine + maxRange - 1, Math.max(totalLines, 1));
+
+    if (totalLines === 0) {
+        return {
+            path: entry.publicPath,
+            source: entry.source,
+            totalLines: 0,
+            startLine: 1,
+            endLine: 0,
+            returnedLines: 0,
+            hasMoreBefore: false,
+            hasMoreAfter: false,
+            nextStartLine: null,
+            nextEndLine: null,
+            content: '',
+        };
+    }
+
+    const selectedLines = lines.slice(startLine - 1, endLine);
+    return {
+        path: entry.publicPath,
+        source: entry.source,
+        totalLines,
+        startLine,
+        endLine,
+        returnedLines: selectedLines.length,
+        hasMoreBefore: startLine > 1,
+        hasMoreAfter: endLine < totalLines,
+        nextStartLine: endLine < totalLines ? endLine + 1 : null,
+        nextEndLine: endLine < totalLines ? Math.min(totalLines, endLine + maxRange) : null,
+        content: selectedLines.join('\n'),
+    };
+}
+
+async function readMultipleFiles(args = {}, options = {}) {
+    const manifest = await loadManifest(options.signal);
+    const paths = Array.isArray(args.paths) ? args.paths : [];
+    const limit = Math.min(paths.length, 10);
+    const targetPaths = paths.slice(0, limit).map((p) => String(p || '').trim()).filter(Boolean);
+
+    if (targetPaths.length === 0) {
+        throw new Error('no_paths_provided');
+    }
+
+    const MAX_LINES_PER_FILE = 500;
+    const MAX_TOTAL_CHARS = 50000;
+    let totalChars = 0;
+    let warning = null;
+    const results = [];
+
+    for (const targetPath of targetPaths) {
+        ensureNotAborted(options.signal);
+        try {
+            const entry = (manifest.files || []).find((item) => item.publicPath === targetPath);
+            if (!entry) {
+                results.push({
+                    path: targetPath,
+                    error: 'file_not_indexed',
+                    content: null,
+                    truncated: false,
+                });
+                continue;
+            }
+
+            const remainingChars = MAX_TOTAL_CHARS - totalChars;
+            if (remainingChars <= 0) {
+                warning = 'total_char_budget_reached';
+                results.push({
+                    path: entry.publicPath,
+                    source: entry.source,
+                    error: 'total_char_budget_reached',
+                    content: null,
+                    truncated: false,
+                    truncatedBy: [],
+                    originalLines: null,
+                    originalChars: null,
+                    returnedLines: 0,
+                    returnedChars: 0,
+                    nextStartLine: 1,
+                });
+                continue;
+            }
+
+            const fullContent = await readTextFile(entry.publicPath, options);
+            const originalLinesArray = fullContent === '' ? [] : fullContent.split('\n');
+            const originalLines = originalLinesArray.length;
+            const originalChars = fullContent.length;
+            const truncatedBy = [];
+            let candidateLines = [...originalLinesArray];
+
+            if (candidateLines.length > MAX_LINES_PER_FILE) {
+                candidateLines = candidateLines.slice(0, MAX_LINES_PER_FILE);
+                truncatedBy.push('line_limit');
+            }
+
+            let returnedLinesArray = candidateLines;
+            let returnedContent = returnedLinesArray.join('\n');
+            if (returnedContent.length > remainingChars) {
+                const fittingLines = [];
+                let usedChars = 0;
+                for (const line of returnedLinesArray) {
+                    const addition = (fittingLines.length ? 1 : 0) + line.length;
+                    if (usedChars + addition > remainingChars) break;
+                    fittingLines.push(line);
+                    usedChars += addition;
+                }
+                returnedLinesArray = fittingLines;
+                returnedContent = fittingLines.join('\n');
+                truncatedBy.push('total_char_budget');
+                warning = 'total_char_budget_reached';
+            }
+
+            const returnedLines = returnedLinesArray.length;
+            const returnedChars = returnedContent.length;
+            const truncated = truncatedBy.length > 0;
+            const nextStartLine = truncated ? (returnedLines + 1) : null;
+
+            totalChars += returnedChars;
+
+            results.push({
+                path: entry.publicPath,
+                source: entry.source,
+                content: returnedContent,
+                truncated,
+                truncatedBy,
+                originalLines,
+                originalChars,
+                returnedLines,
+                returnedChars,
+                nextStartLine,
+                error: null,
+            });
+        } catch (error) {
+            results.push({
+                path: targetPath,
+                error: error.message || 'read_failed',
+                content: null,
+                truncated: false,
+            });
+        }
+    }
+
+    return {
+        total: results.length,
+        files: results,
+        totalChars,
+        warning,
+    };
+}
+
 async function searchFiles(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
     const query = String(args.query || '').trim();
     if (!query) throw new Error('empty_query');
 
-    const limit = Math.max(1, Math.min(Number(args.limit) || 10, 30));
+    const useRegex = !!args.useRegex;
+    const limit = Math.max(1, Math.min(Number(args.limit) || 10, 50));
+    const contextLines = Math.max(0, Math.min(Number(args.contextLines) || 0, 5));
+    const filePattern = String(args.filePattern || '').trim().toLowerCase();
     const concurrency = 6;
-    const loweredQuery = query.toLowerCase();
     const files = Array.isArray(manifest.files) ? manifest.files : [];
+
+    // 编译正则表达式（如果启用）
+    let regex = null;
+    if (useRegex) {
+        try {
+            regex = new RegExp(query, 'i');  // 不区分大小写
+        } catch (error) {
+            throw new Error(`invalid_regex:${error.message}`);
+        }
+    }
+    const loweredQuery = useRegex ? null : query.toLowerCase();
+
+    // 文件路径过滤
+    const filteredFiles = filePattern
+        ? files.filter(f => f.publicPath.toLowerCase().includes(filePattern))
+        : files;
+
     const results = [];
     let scannedFiles = 0;
     let truncated = false;
 
-    for (let index = 0; index < files.length; index += concurrency) {
+    for (let index = 0; index < filteredFiles.length; index += concurrency) {
         ensureNotAborted(options.signal);
         if (results.length >= limit) break;
-        const batch = files.slice(index, index + concurrency);
+        const batch = filteredFiles.slice(index, index + concurrency);
         scannedFiles += batch.length;
         const batchResults = await Promise.all(batch.map(async (entry) => {
             try {
                 const text = await readTextFile(entry.publicPath, options);
-                if (!text.toLowerCase().includes(loweredQuery)) return null;
+                const lines = text.split('\n');
+                const matches = [];
+
+                // 查找所有匹配行
+                lines.forEach((line, lineIndex) => {
+                    const isMatch = useRegex
+                        ? regex.test(line)
+                        : line.toLowerCase().includes(loweredQuery);
+
+                    if (isMatch) {
+                        const lineNumber = lineIndex + 1;
+                        const contextStart = Math.max(0, lineIndex - contextLines);
+                        const contextEnd = Math.min(lines.length, lineIndex + contextLines + 1);
+                        const contextText = lines.slice(contextStart, contextEnd)
+                            .map((l, i) => {
+                                const num = contextStart + i + 1;
+                                const prefix = num === lineNumber ? '>' : ' ';
+                                return `${prefix} ${num}: ${l}`;
+                            })
+                            .join('\n');
+
+                        matches.push({
+                            line: lineNumber,
+                            text: line.trim(),
+                            context: contextLines > 0 ? contextText : null,
+                        });
+                    }
+                });
+
+                if (matches.length === 0) return null;
+
                 return {
                     path: entry.publicPath,
                     source: entry.source,
-                    snippet: makeSnippet(text, query),
+                    matchCount: matches.length,
+                    matches: matches.slice(0, 10), // 每个文件最多返回 10 个匹配
                 };
             } catch {
-                // Ignore unreadable files and continue searching.
                 return null;
             }
         }));
@@ -222,10 +545,13 @@ async function searchFiles(args = {}, options = {}) {
 
     return {
         query,
+        useRegex,
+        filePattern: filePattern || '(all)',
+        contextLines,
         total: results.length,
         items: results,
         truncated,
-        scannedFiles: Math.min(scannedFiles, files.length),
+        scannedFiles: Math.min(scannedFiles, filteredFiles.length),
         indexedFiles: files.length,
     };
 }
@@ -299,6 +625,10 @@ async function executeToolCall(name, args, options = {}) {
             return await listFiles(args, options);
         case 'read_file':
             return await readFile(args, options);
+        case 'read_file_range':
+            return await readFileRange(args, options);
+        case 'read_multiple_files':
+            return await readMultipleFiles(args, options);
         case 'search_files':
             return await searchFiles(args, options);
         case 'read_workspace_note':
@@ -322,10 +652,9 @@ function openAssistant() {
         height: ${window.innerHeight}px;
         padding: 28px;
         box-sizing: border-box;
-        background: rgba(10, 16, 25, 0.12);
-        backdrop-filter: blur(2px);
         z-index: 99999;
         overflow: hidden;
+        pointer-events: none;
     `;
 
     const updateOverlayHeight = () => {
@@ -352,6 +681,7 @@ function openAssistant() {
         box-shadow: 0 28px 80px rgba(6, 17, 32, 0.22);
         border: 1px solid rgba(255, 255, 255, 0.55);
         background: rgba(238, 243, 248, 0.96);
+        pointer-events: auto;
     `;
 
     const titleBar = document.createElement('div');
@@ -489,6 +819,7 @@ function openAssistant() {
         dragState = null;
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
+        shell.style.willChange = '';  // 清除 will-change
         window.removeEventListener('pointermove', onDragPointerMove);
         window.removeEventListener('pointerup', stopDrag);
         window.removeEventListener('pointercancel', stopDrag);
@@ -506,6 +837,7 @@ function openAssistant() {
         resizeState = null;
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
+        shell.style.willChange = '';  // 清除 will-change
         window.removeEventListener('pointermove', onPointerMove);
         window.removeEventListener('pointerup', stopResize);
         window.removeEventListener('pointercancel', stopResize);
@@ -531,6 +863,7 @@ function openAssistant() {
         };
         document.body.style.userSelect = 'none';
         document.body.style.cursor = 'move';
+        shell.style.willChange = 'left, top';  // 提示浏览器优化
         window.addEventListener('pointermove', onDragPointerMove);
         window.addEventListener('pointerup', stopDrag);
         window.addEventListener('pointercancel', stopDrag);
@@ -547,6 +880,7 @@ function openAssistant() {
         };
         document.body.style.userSelect = 'none';
         document.body.style.cursor = 'nwse-resize';
+        shell.style.willChange = 'width, height';  // 提示浏览器优化
         window.addEventListener('pointermove', onPointerMove);
         window.addEventListener('pointerup', stopResize);
         window.addEventListener('pointercancel', stopResize);
@@ -563,8 +897,6 @@ function openAssistant() {
 
     if (window.matchMedia('(max-width: 900px)').matches) {
         overlay.style.padding = '0';
-        overlay.style.background = 'rgba(10, 16, 25, 0.2)';
-        overlay.style.backdropFilter = 'blur(3px)';
         titleBar.style.height = '56px';
         titleBar.style.padding = '0 16px';
         titleBar.style.cursor = 'default';
@@ -610,6 +942,7 @@ async function handleIframeMessage(event) {
 
     switch (type) {
         case 'xb-assistant:ready': {
+            await loadAssistantSettings();
             let fileCount = 0;
             try {
                 const manifest = await loadManifest();
@@ -634,21 +967,34 @@ async function handleIframeMessage(event) {
             closeAssistant();
             break;
         case 'xb-assistant:save-config': {
-            const settings = getAssistantSettings();
             const patch = payload && typeof payload === 'object' ? payload : {};
-            settings.provider = patch.provider || settings.provider;
-            settings.workspaceFileName = normalizeWorkspaceName(patch.workspaceFileName || settings.workspaceFileName);
-            settings.modelConfigs = {
-                ...(settings.modelConfigs || {}),
-                ...(patch.modelConfigs || {}),
-            };
-            saveSettingsDebounced();
-            postToIframe(iframe, {
-                type: 'xb-assistant:config-saved',
-                payload: {
-                    config: buildRuntimeConfig(),
-                },
+            const current = getAssistantSettings();
+            const next = normalizeAssistantSettings({
+                ...current,
+                workspaceFileName: normalizeWorkspaceName(patch.workspaceFileName || current.workspaceFileName),
+                currentPresetName: normalizePresetName(patch.currentPresetName || current.currentPresetName),
+                presets: patch.presets && typeof patch.presets === 'object'
+                    ? patch.presets
+                    : current.presets,
             });
+
+            const result = await persistAssistantSettings(next, { silent: false });
+            if (result.ok) {
+                postToIframe(iframe, {
+                    type: CONFIG_SAVED,
+                    payload: {
+                        config: buildRuntimeConfig(),
+                    },
+                });
+            } else {
+                postToIframe(iframe, {
+                    type: CONFIG_SAVE_ERROR,
+                    payload: {
+                        error: result.error || '保存失败',
+                        config: buildRuntimeConfig(),
+                    },
+                });
+            }
             break;
         }
         case 'xb-assistant:tool-call': {
@@ -688,11 +1034,11 @@ async function handleIframeMessage(event) {
 }
 
 export async function initAssistant() {
-    const settings = getAssistantSettings();
+    await loadAssistantSettings();
     window.xiaobaixAssistant = {
         openSettings: openAssistant,
         closeSettings: closeAssistant,
-        getSettings: () => ({ ...settings }),
+        getSettings: () => ({ ...getAssistantSettings() }),
     };
 }
 

@@ -1,12 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 
 function logOutgoingRequest(label, payload) {
+    const targetConsole = globalThis.top?.console || console;
     try {
-        console.groupCollapsed(label);
-        console.log(JSON.parse(JSON.stringify(payload)));
-        console.groupEnd();
+        targetConsole.groupCollapsed(label);
+        targetConsole.log(JSON.parse(JSON.stringify(payload)));
+        targetConsole.groupEnd();
     } catch {
-        console.log(label, payload);
+        targetConsole.log(label, payload);
     }
 }
 
@@ -15,6 +16,58 @@ function parseArguments(text) {
         return JSON.parse(text || '{}');
     } catch {
         return {};
+    }
+}
+
+function parseDataUrl(dataUrl = '') {
+    const match = String(dataUrl || '').match(/^data:([^;,]+);base64,(.+)$/);
+    if (!match) {
+        return { mediaType: '', data: '' };
+    }
+    return {
+        mediaType: match[1],
+        data: match[2],
+    };
+}
+
+function buildMessageContent(content) {
+    if (typeof content === 'string') {
+        return [{ type: 'text', text: content }];
+    }
+    if (!Array.isArray(content)) {
+        return [{ type: 'text', text: '' }];
+    }
+    const parts = content.map((part) => {
+        if (!part || typeof part !== 'object') return null;
+        if (part.type === 'text') {
+            return { type: 'text', text: part.text || '' };
+        }
+        if (part.type === 'image_url' && part.image_url?.url) {
+            const parsed = parseDataUrl(part.image_url.url);
+            if (!parsed.mediaType || !parsed.data) return null;
+            return {
+                type: 'image',
+                source: {
+                    type: 'base64',
+                    media_type: parsed.mediaType,
+                    data: parsed.data,
+                },
+            };
+        }
+        return null;
+    }).filter(Boolean);
+    return parts.length ? parts : [{ type: 'text', text: '' }];
+}
+
+function mapThinkingBudget(effort) {
+    switch (effort) {
+        case 'high':
+            return 4096;
+        case 'medium':
+            return 2048;
+        case 'low':
+        default:
+            return 1024;
     }
 }
 
@@ -64,7 +117,7 @@ function buildAnthropicMessages(messages) {
 
         filtered.push({
             role: message.role,
-            content: [{ type: 'text', text: message.content || '' }],
+            content: buildMessageContent(message.content),
         });
     }
 
@@ -97,6 +150,13 @@ export class AnthropicAdapter {
             temperature: task.temperature,
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
         };
+        if (task.reasoning?.enabled) {
+            body.thinking = {
+                type: 'enabled',
+                budget_tokens: mapThinkingBudget(task.reasoning.effort),
+                display: 'summarized',
+            };
+        }
         logOutgoingRequest('[LittleWhiteBox Assistant] Anthropic outgoing request', body);
 
         const response = await this.client.messages.create(body, {
@@ -115,10 +175,18 @@ export class AnthropicAdapter {
             .filter((item) => item.type === 'text')
             .map((item) => item.text || '')
             .join('\n');
+        const thoughts = (response.content || [])
+            .filter((item) => item.type === 'thinking' || item.type === 'redacted_thinking')
+            .map((item) => ({
+                label: item.type === 'thinking' ? '思考块' : '已脱敏思考块',
+                text: item.type === 'thinking' ? (item.thinking || '') : (item.data || ''),
+            }))
+            .filter((item) => item.text);
 
         return {
             text,
             toolCalls,
+            thoughts,
             finishReason: response.stop_reason || 'stop',
             model: response.model || this.config.model,
             provider: 'anthropic',

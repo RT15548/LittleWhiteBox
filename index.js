@@ -3,6 +3,7 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 import { EXT_ID, extensionFolderPath } from "./core/constants.js";
 import { executeSlashCommand } from "./core/slash-command.js";
 import { EventCenter } from "./core/event-manager.js";
+import { enablePersistentDebugLogging, disablePersistentDebugLogging } from "./core/debug-core.js";
 import { initTasks } from "./modules/scheduled-tasks/scheduled-tasks.js";
 import { initMessagePreview, addHistoryButtonsDebounced } from "./modules/message-preview.js";
 import { initImmersiveMode } from "./modules/immersive-mode.js";
@@ -320,6 +321,7 @@ function syncFeatureActionButtons() {
 
 async function toggleAllFeatures(enabled) {
     if (enabled) {
+        enablePersistentDebugLogging();
         toggleSettingsControls(true);
         try { window.XB_applyPrevStates && window.XB_applyPrevStates(); } catch (e) { }
         saveSettingsDebounced();
@@ -386,6 +388,7 @@ async function toggleAllFeatures(enabled) {
         if (extension_settings[EXT_ID].storySummary?.enabled) {
             $(document).trigger('xiaobaix:storySummary:toggle', [false]);
         }
+        disablePersistentDebugLogging({ clear: true });
         document.dispatchEvent(new CustomEvent('xiaobaixEnabledChanged', { detail: { enabled: false } }));
         $(document).trigger('xiaobaix:enabled:toggle', [false]);
     }
@@ -612,7 +615,7 @@ function setupDebugButtonInSettings() {
         btn.className = 'menu_button';
         btn.title = '切换调试监控';
         btn.tabIndex = 0;
-        btn.style.marginLeft = 'auto';
+        btn.style.marginLeft = '4px';
         btn.style.whiteSpace = 'nowrap';
         btn.innerHTML = '<span class="dbg-light"></span><span>监控</span>';
 
@@ -676,6 +679,7 @@ jQuery(async () => {
         try { initControlAudio(); } catch (e) { }
 
         if (isXiaobaixEnabled) {
+            enablePersistentDebugLogging();
             initRenderer();
         }
 

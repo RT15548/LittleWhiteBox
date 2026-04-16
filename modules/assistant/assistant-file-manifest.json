@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-15T09:38:53.063Z",
+  "generatedAt": "2026-04-16T05:24:49.833Z",
   "version": 1,
   "files": [
     {
@@ -145,6 +145,24 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant.js",
       "relativePath": "modules/assistant/assistant.js",
       "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/project-structure.md",
+      "relativePath": "modules/assistant/references/project-structure.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/sillytavern-javascript-api-reference.md",
+      "relativePath": "modules/assistant/references/sillytavern-javascript-api-reference.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-language-reference.md",
+      "relativePath": "modules/assistant/references/stscript-language-reference.md",
+      "extension": ".md"
     },
     {
       "source": "littlewhitebox",
