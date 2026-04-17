@@ -59,6 +59,19 @@ const activeToolControllers = new Map();
 let settingsCache = null;
 let settingsLoaded = false;
 
+function isAssistantMobileDevice() {
+    const mobileTypes = ['mobile', 'tablet'];
+    try {
+        const platformType = globalThis.Bowser?.parse?.(navigator.userAgent)?.platform?.type;
+        if (mobileTypes.includes(platformType)) {
+            return true;
+        }
+    } catch {
+        // Fall back to pointer/screen heuristics below.
+    }
+    return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
+}
+
 function cloneDefaultModelConfigs() {
     return JSON.parse(JSON.stringify(DEFAULT_MODEL_CONFIGS));
 }
@@ -903,7 +916,7 @@ function openAssistant() {
     const updateOverlayHeight = () => {
         if (overlay && overlay.style.display !== 'none') {
             overlay.style.height = `${window.innerHeight}px`;
-            if (window.matchMedia('(max-width: 900px)').matches) {
+            if (isAssistantMobileDevice()) {
                 shell.style.height = `${window.innerHeight}px`;
             } else {
                 applyShellBounds(shellMetrics.width || shell.getBoundingClientRect().width, shellMetrics.height || shell.getBoundingClientRect().height);
@@ -1097,17 +1110,15 @@ function openAssistant() {
     const applyShellBounds = (width, height) => {
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
-        const isMobile = window.matchMedia('(max-width: 900px)').matches;
-        const maxWidth = Math.max(560, viewportWidth - 96);
-        const maxHeight = Math.max(640, viewportHeight - 96);
-        const minWidth = isMobile ? Math.min(320, viewportWidth - 48) : Math.min(560, viewportWidth - 48);
-        const minHeight = isMobile ? Math.min(400, viewportHeight - 48) : Math.min(640, viewportHeight - 48);
-        const nextWidth = Math.max(minWidth, Math.min(width, maxWidth));
-        const nextHeight = Math.max(minHeight, Math.min(height, maxHeight));
-        shell.style.maxWidth = `${maxWidth}px`;
-        shell.style.maxHeight = `${maxHeight}px`;
-        shell.style.minWidth = `${minWidth}px`;
-        shell.style.minHeight = `${minHeight}px`;
+        const gutter = 24;
+        const maxWidth = Math.max(320, viewportWidth - gutter * 2);
+        const maxHeight = Math.max(240, viewportHeight - gutter * 2);
+        const nextWidth = Math.max(220, Math.min(width, maxWidth));
+        const nextHeight = Math.max(140, Math.min(height, maxHeight));
+        shell.style.maxWidth = 'none';
+        shell.style.maxHeight = 'none';
+        shell.style.minWidth = '0';
+        shell.style.minHeight = '0';
         const currentLeft = pendingLayout?.left ?? shellMetrics.left;
         const currentTop = pendingLayout?.top ?? shellMetrics.top;
         const clamped = clampShellPosition(currentLeft, currentTop, nextWidth, nextHeight);
@@ -1168,7 +1179,7 @@ function openAssistant() {
         );
     };
     titleBar.addEventListener('pointerdown', (event) => {
-        if (window.matchMedia('(max-width: 900px)').matches) return;
+        if (isAssistantMobileDevice()) return;
         if (event.target.closest('button')) return;
         event.preventDefault();
         const rect = shell.getBoundingClientRect();
@@ -1186,7 +1197,7 @@ function openAssistant() {
         window.addEventListener('pointercancel', stopDrag);
     });
     resizeHint.addEventListener('pointerdown', (event) => {
-        if (window.matchMedia('(max-width: 900px)').matches) return;
+        if (isAssistantMobileDevice()) return;
         event.preventDefault();
         event.stopPropagation();
         resizeState = {
@@ -1218,7 +1229,7 @@ function openAssistant() {
         window.visualViewport?.removeEventListener('resize', updateOverlayHeight);
     };
 
-    if (window.matchMedia('(max-width: 900px)').matches) {
+    if (isAssistantMobileDevice()) {
         overlay.style.padding = '0';
         titleBar.style.height = '56px';
         titleBar.style.padding = '0 16px';
