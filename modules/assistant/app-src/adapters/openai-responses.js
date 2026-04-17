@@ -327,7 +327,6 @@ export class OpenAIResponsesAdapter {
                 model: this.config.model,
                 instructions: legacySystemInInput ? undefined : (resolveInstructions(task) || undefined),
                 input: legacySystemInInput ? buildInputMessagesWithSystem(task) : buildInputMessages(task),
-                temperature: task.temperature,
                 ...(Array.isArray(task.tools) && task.tools.length
                     ? {
                         tools: task.tools.map((tool) => ({
@@ -341,6 +340,9 @@ export class OpenAIResponsesAdapter {
                     : {}),
                 ...(task.maxTokens ? { max_output_tokens: task.maxTokens } : {}),
             };
+            if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
+                body.temperature = task.temperature;
+            }
             if (task.reasoning?.enabled) {
                 body.reasoning = {
                     effort: task.reasoning.effort,

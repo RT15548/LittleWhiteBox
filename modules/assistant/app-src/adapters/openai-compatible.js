@@ -259,9 +259,11 @@ export class OpenAICompatibleAdapter {
             messages: isTaggedMode ? buildTaggedMessages(task) : task.messages,
             tools: isTaggedMode ? undefined : task.tools,
             tool_choice: isTaggedMode ? undefined : (task.toolChoice || 'auto'),
-            temperature: task.temperature,
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
         };
+        if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
+            body.temperature = task.temperature;
+        }
         if (task.reasoning?.enabled) {
             body.reasoning_effort = task.reasoning.effort;
             body.reasoning = {

@@ -4463,10 +4463,9 @@ var Mf = class {
       messages: t ? Pf(e) : e.messages,
       tools: t ? void 0 : e.tools,
       tool_choice: t ? void 0 : e.toolChoice || "auto",
-      temperature: e.temperature,
       ...e.maxTokens ? { max_tokens: e.maxTokens } : {}
     };
-    if (e.reasoning?.enabled && (n.reasoning_effort = e.reasoning.effort, n.reasoning = {
+    if (!e.reasoning?.enabled && typeof e.temperature == "number" && (n.temperature = e.temperature), e.reasoning?.enabled && (n.reasoning_effort = e.reasoning.effort, n.reasoning = {
       effort: e.reasoning.effort,
       summary: "detailed"
     }, n.thinking = {
@@ -4779,7 +4778,6 @@ var jf = class {
         model: this.config.model,
         instructions: u ? void 0 : zf(e) || void 0,
         input: u ? Ff(e) : Bf(e),
-        temperature: e.temperature,
         ...Array.isArray(e.tools) && e.tools.length ? {
           tools: e.tools.map((m) => ({
             type: "function",
@@ -4791,7 +4789,7 @@ var jf = class {
         } : {},
         ...e.maxTokens ? { max_output_tokens: e.maxTokens } : {}
       };
-      return e.reasoning?.enabled && (d.reasoning = {
+      return !e.reasoning?.enabled && typeof e.temperature == "number" && (d.temperature = e.temperature), e.reasoning?.enabled && (d.reasoning = {
         effort: e.reasoning.effort,
         summary: "detailed"
       }), d;
