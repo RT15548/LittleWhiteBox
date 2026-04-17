@@ -198,6 +198,7 @@ const pendingToolCalls = new Map();
 const pendingApprovals = new Map();
 let toastTimer = null;
 let lastRenderedMessageCount = 0;
+let parsedAssistantUA = null;
 
 function post(type, payload = {}) {
     parent.postMessage({ source: SOURCE, type, payload }, window.location.origin);
@@ -213,6 +214,24 @@ function safeJsonParse(text, fallback = {}) {
     } catch {
         return fallback;
     }
+}
+
+function getAssistantParsedUA() {
+    if (parsedAssistantUA !== null) return parsedAssistantUA;
+    try {
+        parsedAssistantUA = globalThis.Bowser?.parse?.(navigator.userAgent) || {};
+    } catch {
+        parsedAssistantUA = {};
+    }
+    return parsedAssistantUA;
+}
+
+function isAssistantMobile() {
+    const mobileTypes = ['mobile', 'tablet'];
+    if (mobileTypes.includes(getAssistantParsedUA()?.platform?.type)) {
+        return true;
+    }
+    return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
 }
 
 function normalizeSlashCommand(command) {
@@ -2732,6 +2751,20 @@ function bindEvents(root) {
     });
 
     input.addEventListener('input', resizeComposer);
+
+    input.addEventListener('keydown', (event) => {
+        const sendOnEnter = !isAssistantMobile();
+        if (!event.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.key === 'Enter' && sendOnEnter) {
+            event.preventDefault();
+            const form = root.querySelector('#xb-assistant-form');
+            if (typeof form?.requestSubmit === 'function') {
+                form.requestSubmit();
+                return;
+            }
+            form?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        }
+    });
+
     resizeComposer();
 }
 
