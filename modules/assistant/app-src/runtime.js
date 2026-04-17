@@ -1,4 +1,6 @@
-import { countTokens } from 'gpt-tokenizer/model/gpt-4o';
+const TOKEN_ESTIMATE_BYTES_PER_TOKEN = 3.35;
+const OPENAI_TOKENIZER_PROVIDERS = new Set(['openai-compatible', 'openai-responses']);
+const textEncoder = new TextEncoder();
 
 export function createAssistantRuntime(deps) {
     const {
@@ -39,6 +41,10 @@ export function createAssistantRuntime(deps) {
     } = deps;
     let streamRenderScheduled = false;
     let lastStreamPersistAt = 0;
+    let latestContextStatsSignature = '';
+    let latestResolvedContextStatsSignature = '';
+    let latestResolvedContextTokens = 0;
+    let contextStatsRequestSerial = 0;
 
     function resetCompactionState() {
         state.historySummary = '';
@@ -157,6 +163,21 @@ export function createAssistantRuntime(deps) {
         return trimForSummary(sections.join('\n\n'), 6000);
     }
 
+    function clearHistoricalThoughts() {
+        let changed = false;
+        state.messages = state.messages.map((message) => {
+            if (message?.role !== 'assistant' || !Array.isArray(message.thoughts) || !message.thoughts.length) {
+                return message;
+            }
+            changed = true;
+            return {
+                ...message,
+                thoughts: [],
+            };
+        });
+        return changed;
+    }
+
     function buildTokenCounterMessages(messages = []) {
         return messages.map((message) => {
             const contentText = Array.isArray(message.content)
@@ -194,31 +215,165 @@ export function createAssistantRuntime(deps) {
         });
     }
 
-    function countConversationTokens({ messages = [], tools = [] } = {}) {
-        const payload = [
+    function buildTokenCounterPayload(messages = [], tools = []) {
+        return [
             ...buildTokenCounterMessages(messages),
             {
                 role: 'system',
                 content: tools.length ? `TOOLS\n${JSON.stringify(tools)}` : '',
             },
         ].filter((message) => message.content);
+    }
+
+    function estimateTokenCount(value) {
+        return Math.ceil(textEncoder.encode(String(value || '')).length / TOKEN_ESTIMATE_BYTES_PER_TOKEN);
+    }
+
+    function estimateConversationTokens({ messages = [], tools = [] } = {}) {
+        return estimateTokenCount(JSON.stringify(buildTokenCounterPayload(messages, tools)));
+    }
+
+    function buildContextStatsSignature(messages = [], tools = TOOL_DEFINITIONS) {
+        const providerConfig = getActiveProviderConfig();
+        return JSON.stringify({
+            provider: String(providerConfig?.provider || ''),
+            model: String(providerConfig?.model || ''),
+            messages: buildTokenCounterPayload(messages, tools),
+        });
+    }
+
+    function getTokenizerModelHint(providerConfig) {
+        const model = String(providerConfig?.model || '').trim();
+        if (model) return model;
+        if (providerConfig?.provider === 'anthropic') return 'claude';
+        return 'gpt-4o';
+    }
+
+    async function postJson(url, body) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+            throw new Error(`tokenizer_http_${response.status}`);
+        }
+        return await response.json();
+    }
+
+    async function countOpenAIContextTokens(messages = [], model = '') {
+        if (!messages.length) return 0;
+        const endpoint = `/api/tokenizers/openai/count?model=${encodeURIComponent(model || 'gpt-4o')}`;
+        let total = -1;
+        for (const message of messages) {
+            const data = await postJson(endpoint, [message]);
+            const tokenCount = Number(data?.token_count);
+            if (!Number.isFinite(tokenCount)) {
+                throw new Error('tokenizer_invalid_response');
+            }
+            total += tokenCount;
+        }
+        return Math.max(0, total);
+    }
+
+    async function countTextTokensWithEndpoint(endpoint, text) {
+        const data = await postJson(endpoint, { text });
+        const tokenCount = Number(data?.count);
+        if (!Number.isFinite(tokenCount)) {
+            throw new Error('tokenizer_invalid_response');
+        }
+        return tokenCount;
+    }
+
+    async function resolveConversationTokens({ messages = [], tools = [] } = {}) {
+        const providerConfig = getActiveProviderConfig();
+        const provider = String(providerConfig?.provider || '');
+        const payload = buildTokenCounterPayload(messages, tools);
+        const flattenedText = JSON.stringify(payload);
 
         try {
-            return countTokens(payload);
+            if (OPENAI_TOKENIZER_PROVIDERS.has(provider)) {
+                return await countOpenAIContextTokens(payload, getTokenizerModelHint(providerConfig));
+            }
+            if (provider === 'anthropic') {
+                return await countTextTokensWithEndpoint('/api/tokenizers/claude/encode', flattenedText);
+            }
         } catch {
-            return countTokens(JSON.stringify(payload));
+            return estimateConversationTokens({ messages, tools });
         }
+
+        return estimateConversationTokens({ messages, tools });
+    }
+
+    async function forceUpdateContextStats(messages = [], tools = TOOL_DEFINITIONS) {
+        const signature = buildContextStatsSignature(messages, tools);
+        const summaryActive = !!state.historySummary;
+        let usedTokens = latestResolvedContextStatsSignature === signature
+            ? latestResolvedContextTokens
+            : await resolveConversationTokens({ messages, tools });
+
+        if (!Number.isFinite(usedTokens)) {
+            usedTokens = estimateConversationTokens({ messages, tools });
+        }
+
+        latestResolvedContextStatsSignature = signature;
+        latestResolvedContextTokens = usedTokens;
+        latestContextStatsSignature = signature;
+        state.contextStats = {
+            usedTokens,
+            budgetTokens: MAX_CONTEXT_TOKENS,
+            summaryActive,
+        };
+        return usedTokens;
     }
 
     function updateContextStats(messages = [], tools = TOOL_DEFINITIONS) {
+        const signature = buildContextStatsSignature(messages, tools);
+        const summaryActive = !!state.historySummary;
+        const estimatedTokens = latestResolvedContextStatsSignature === signature
+            ? latestResolvedContextTokens
+            : estimateConversationTokens({ messages, tools });
+
+        latestContextStatsSignature = signature;
         state.contextStats = {
-            usedTokens: countConversationTokens({ messages, tools }),
+            usedTokens: estimatedTokens,
             budgetTokens: MAX_CONTEXT_TOKENS,
-            summaryActive: !!state.historySummary,
+            summaryActive,
         };
+
+        if (latestResolvedContextStatsSignature === signature) {
+            return;
+        }
+
+        const requestSerial = ++contextStatsRequestSerial;
+        resolveConversationTokens({ messages, tools }).then((usedTokens) => {
+            if (requestSerial !== contextStatsRequestSerial) return;
+            if (latestContextStatsSignature !== signature) return;
+            if (!Number.isFinite(usedTokens)) return;
+            latestResolvedContextStatsSignature = signature;
+            latestResolvedContextTokens = usedTokens;
+            const changed = state.contextStats.usedTokens !== usedTokens
+                || state.contextStats.summaryActive !== summaryActive
+                || state.contextStats.budgetTokens !== MAX_CONTEXT_TOKENS;
+            state.contextStats = {
+                usedTokens,
+                budgetTokens: MAX_CONTEXT_TOKENS,
+                summaryActive,
+            };
+            if (changed) {
+                render();
+            }
+        }).catch(() => {
+            // Keep estimated stats on tokenizer failure.
+        });
     }
 
     function pushMessage(message) {
+        if (message?.role === 'user') {
+            clearHistoricalThoughts();
+        }
         state.messages.push({
             ...message,
             attachments: normalizeAttachments(message.attachments),
@@ -442,7 +597,7 @@ export function createAssistantRuntime(deps) {
         const preservedOptions = [DEFAULT_PRESERVED_TURNS, MIN_PRESERVED_TURNS];
         let contextMessages = getActiveContextMessages();
         let providerMessages = toProviderMessages(contextMessages);
-        updateContextStats(providerMessages);
+        await forceUpdateContextStats(providerMessages);
 
         if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
             return providerMessages;
@@ -462,7 +617,7 @@ export function createAssistantRuntime(deps) {
 
             contextMessages = getActiveContextMessages();
             providerMessages = toProviderMessages(contextMessages);
-            updateContextStats(providerMessages);
+            await forceUpdateContextStats(providerMessages);
             if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
                 showToast(`已压缩较早历史，当前上下文 ${buildContextMeterLabel()}`);
                 render();
