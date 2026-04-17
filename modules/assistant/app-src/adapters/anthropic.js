@@ -168,9 +168,11 @@ export class AnthropicAdapter {
             system,
             messages: buildAnthropicMessages(task.messages),
             tools,
-            temperature: task.temperature,
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
         };
+        if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
+            body.temperature = task.temperature;
+        }
         if (task.reasoning?.enabled) {
             body.thinking = {
                 type: 'enabled',

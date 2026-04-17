@@ -8001,10 +8001,9 @@ var jb = class {
       system: n,
       messages: Ub(e.messages),
       tools: t,
-      temperature: e.temperature,
       ...e.maxTokens ? { max_tokens: e.maxTokens } : {}
     };
-    e.reasoning?.enabled && (a.thinking = {
+    !e.reasoning?.enabled && typeof e.temperature == "number" && (a.temperature = e.temperature), e.reasoning?.enabled && (a.thinking = {
       type: "enabled",
       budget_tokens: Gb(e.reasoning.effort),
       display: "summarized"
