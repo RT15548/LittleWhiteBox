@@ -1,5 +1,4 @@
 import OpenAI from 'openai';
-import { createCorsProxyFetch } from './cors-proxy.js';
 
 function logOutgoingRequest(label, payload) {
     const targetConsole = globalThis.top?.console || console;
@@ -274,6 +273,20 @@ function shouldRetryWithLegacySystem(error) {
         || text.includes('invalid input');
 }
 
+function emitStreamProgress(task, payload) {
+    if (typeof task.onStreamProgress !== 'function') return;
+    task.onStreamProgress({
+        ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
+        ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+    });
+}
+
+function comparePartKeys(left, right) {
+    const [leftA = '0', leftB = '0'] = String(left || '').split(':');
+    const [rightA = '0', rightB = '0'] = String(right || '').split(':');
+    return Number(leftA) - Number(rightA) || Number(leftB) - Number(rightB);
+}
+
 export class OpenAIResponsesAdapter {
     constructor(config) {
         this.config = config;
@@ -282,7 +295,6 @@ export class OpenAIResponsesAdapter {
             baseURL: String(config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, ''),
             timeout: Number(config.timeoutMs) || 180000,
             maxRetries: 0,
-            fetch: createCorsProxyFetch(Boolean(config.useCorsProxy)),
             dangerouslyAllowBrowser: true,
         });
     }
@@ -310,7 +322,7 @@ export class OpenAIResponsesAdapter {
             return { output, thoughts, toolCalls, text };
         };
 
-        const createRequest = async (legacySystemInInput = false) => {
+        const createRequestBody = (legacySystemInInput = false) => {
             const body = {
                 model: this.config.model,
                 instructions: legacySystemInInput ? undefined : (resolveInstructions(task) || undefined),
@@ -335,6 +347,11 @@ export class OpenAIResponsesAdapter {
                     summary: 'detailed',
                 };
             }
+            return body;
+        };
+
+        const createRequest = async (legacySystemInInput = false) => {
+            const body = createRequestBody(legacySystemInInput);
             logOutgoingRequest(
                 legacySystemInInput
                     ? '[LittleWhiteBox Assistant] OpenAI Responses outgoing request (legacy system-in-input fallback)'
@@ -346,18 +363,74 @@ export class OpenAIResponsesAdapter {
             });
         };
 
+        const createStreamRequest = async (legacySystemInInput = false) => {
+            const body = createRequestBody(legacySystemInInput);
+            logOutgoingRequest(
+                legacySystemInInput
+                    ? '[LittleWhiteBox Assistant] OpenAI Responses outgoing stream request (legacy system-in-input fallback)'
+                    : '[LittleWhiteBox Assistant] OpenAI Responses outgoing stream request',
+                body,
+            );
+            const stream = this.client.responses.stream(body, {
+                signal: task.signal,
+            });
+            const textByPart = new Map();
+            const reasoningByPart = new Map();
+            const summaryByPart = new Map();
+
+            const emitSnapshot = () => {
+                const thoughts = [];
+                Array.from(reasoningByPart.entries())
+                    .sort(([left], [right]) => comparePartKeys(left, right))
+                    .forEach(([, text]) => pushThought(thoughts, '推理文本', text));
+                Array.from(summaryByPart.entries())
+                    .sort(([left], [right]) => comparePartKeys(left, right))
+                    .forEach(([, text]) => pushThought(thoughts, '推理摘要', text));
+                emitStreamProgress(task, {
+                    text: Array.from(textByPart.entries())
+                        .sort(([left], [right]) => comparePartKeys(left, right))
+                        .map(([, text]) => text)
+                        .join('\n')
+                        .trim(),
+                    thoughts,
+                });
+            };
+
+            stream.on('response.output_text.delta', (event) => {
+                const key = `${event.output_index}:${event.content_index}`;
+                textByPart.set(key, `${textByPart.get(key) || ''}${event.delta}`);
+                emitSnapshot();
+            });
+            stream.on('response.reasoning_text.delta', (event) => {
+                const key = `${event.output_index}:${event.content_index}`;
+                reasoningByPart.set(key, `${reasoningByPart.get(key) || ''}${event.delta}`);
+                emitSnapshot();
+            });
+            stream.on('response.reasoning_summary_text.delta', (event) => {
+                const key = `${event.output_index}:${event.summary_index}`;
+                summaryByPart.set(key, `${summaryByPart.get(key) || ''}${event.delta}`);
+                emitSnapshot();
+            });
+
+            return await stream.finalResponse();
+        };
+
         const allowCompatibilityFallback = !isOfficialOpenAIBaseUrl(this.config.baseUrl);
         let response;
         let parsed;
 
         try {
-            response = await createRequest(false);
+            response = typeof task.onStreamProgress === 'function'
+                ? await createStreamRequest(false)
+                : await createRequest(false);
             parsed = parseResponse(response);
             if (!parsed.text && !parsed.toolCalls.length) {
                 logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI Responses raw empty response', response);
             }
             if (allowCompatibilityFallback && !parsed.text && !parsed.toolCalls.length) {
-                response = await createRequest(true);
+                response = typeof task.onStreamProgress === 'function'
+                    ? await createStreamRequest(true)
+                    : await createRequest(true);
                 parsed = parseResponse(response);
                 if (!parsed.text && !parsed.toolCalls.length) {
                     logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI Responses raw empty response after legacy fallback', response);
@@ -367,7 +440,9 @@ export class OpenAIResponsesAdapter {
             if (!allowCompatibilityFallback || !shouldRetryWithLegacySystem(error)) {
                 throw error;
             }
-            response = await createRequest(true);
+            response = typeof task.onStreamProgress === 'function'
+                ? await createStreamRequest(true)
+                : await createRequest(true);
             parsed = parseResponse(response);
             if (!parsed.text && !parsed.toolCalls.length) {
                 logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI Responses raw empty response after legacy fallback', response);

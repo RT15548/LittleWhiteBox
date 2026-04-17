@@ -2,7 +2,6 @@ import { OpenAICompatibleAdapter } from './adapters/openai-compatible.js';
 import { OpenAIResponsesAdapter } from './adapters/openai-responses.js';
 import { AnthropicAdapter } from './adapters/anthropic.js';
 import { GoogleAdapter } from './adapters/google.js';
-import { buildCorsProxyUrl } from './adapters/cors-proxy.js';
 import {
     TOOL_DEFINITIONS,
     TOOL_NAMES,
@@ -10,7 +9,7 @@ import {
     describeToolCall,
     formatToolResultDisplay,
 } from './tooling.js';
-import { countTokens } from 'gpt-tokenizer/model/gpt-4o';
+import { createAssistantRuntime } from './runtime.js';
 
 const SOURCE = 'xb-assistant-app';
 const ROOT_ID = 'xb-assistant-root';
@@ -25,6 +24,44 @@ const MAX_PERSISTED_MESSAGES = 60;
 const MAX_PERSISTED_CONTENT_CHARS = 16000;
 const MAX_IMAGE_ATTACHMENTS = 3;
 const MAX_IMAGE_FILE_BYTES = 4 * 1024 * 1024;
+const READ_ONLY_SLASH_COMMANDS = new Set([
+    'char-data',
+    'char-get',
+    'char-find',
+    'clipboard-get',
+    'extension-exists',
+    'extension-installed',
+    'extension-state',
+    'findchar',
+    'findentry',
+    'getchatname',
+    'getentryfield',
+    'getglobalbooks',
+    'getglobalvar',
+    'getpromptentry',
+    'getvar',
+    'is-mobile',
+    'len',
+    'listinjects',
+    'listvar',
+    'member-count',
+    'member-get',
+    'messages',
+    'tokens',
+    'wi-get-timed-effect',
+]);
+const READ_ONLY_SLASH_COMMANDS_WITH_SAFE_FLAGS = new Set([
+    'api',
+    'api-url',
+    'context',
+    'getcharbook',
+    'getchatbook',
+    'getpersonabook',
+    'instruct',
+    'instruct-state',
+    'model',
+    'tokenizer',
+]);
 const ACCEPTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 const TOAST_DURATION_MS = 2600;
 const TOAST_DURATION_MIN_MS = 1800;
@@ -51,7 +88,6 @@ const DEFAULT_MODEL_CONFIGS = {
         model: 'gpt-4.1-mini',
         apiKey: '',
         temperature: 0.2,
-        useCorsProxy: false,
     },
     'openai-compatible': {
         baseUrl: 'https://api.openai.com/v1',
@@ -59,27 +95,24 @@ const DEFAULT_MODEL_CONFIGS = {
         apiKey: '',
         temperature: 0.2,
         toolMode: 'native',
-        useCorsProxy: false,
     },
     anthropic: {
         baseUrl: 'https://api.anthropic.com/v1',
         model: 'claude-sonnet-4-0',
         apiKey: '',
         temperature: 0.2,
-        useCorsProxy: false,
     },
     google: {
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
         model: 'gemini-2.5-pro',
         apiKey: '',
         temperature: 0.2,
-        useCorsProxy: false,
     },
 };
 const EXAMPLE_PROMPTS = [
-    '为什么某个设置勾上后刷新又没了？',
-    '向量生成时报 429 是哪一层限流？',
     '这个功能的代码入口在哪个文件？',
+    '我当前用的是什么 API 和模型？',
+    '为什么某个设置勾上后刷新又没了？',
     '帮我查一下某个报错是从哪条链路抛出来的。',
 ];
 const MODEL_FILTERS = {
@@ -108,9 +141,16 @@ const SYSTEM_PROMPT = [
     '',
     '你的能力范围：',
     '- 默认只读代码与资料；如果需要写入，只能写固定工作记录，不允许改代码。',
-    '- 可读取已索引的公开前端文件（LittleWhiteBox 和 SillyTavern public/scripts/*）。',
+    '- 可读取已索引的公开前端文件（LittleWhiteBox 和 SillyTavern public/scripts/*）；**这些文件是构建时的静态快照，不是用户当前实例的实时状态**。',
+    '- 可执行斜杠命令工具（RunSlashCommand）；**该工具作用于用户当前真实酒馆实例，可以查询实时状态（如当前 API、模型、角色等）**。',
     '- 可读写工作记录（user/files/LittleWhiteBox_Assistant_Worklog.md），需要写入时直接调用写入工具，文件不存在就创建，用它保存长期排查结论和用户指定要你记住的事情。',
     '- 不能访问后端、数据库、未索引文件。',
+    '',
+    '**重要区分 - 静态快照 vs 动态实例**：',
+    '- LS/Glob/Grep/Read 工具读取的是**静态代码快照**（构建时索引），用于查看源码实现、配置逻辑、模块结构。',
+    '- RunSlashCommand 工具查询的是**动态运行实例**（用户当前打开的酒馆），用于获取实时状态、设置值、角色数据。',
+    '- 当用户问"我的 API 是什么"时，用 RunSlashCommand；当用户问"API 设置的代码在哪"时，用 Grep/Read。',
+    '- 索引快照可能不包含用户最新修改的代码或配置文件；如需确认用户当前实例的实际状态，必须用 RunSlashCommand。',
     '',
     PROJECT_STRUCTURE_HINT,
     '',
@@ -118,6 +158,9 @@ const SYSTEM_PROMPT = [
     '',
     '回答要求：',
     '- 具体、可核对，热情主动，必要时引用文件路径。',
+    '- 使用 RunSlashCommand 查询真实实例状态时，可以直接执行查询类命令。',
+    '- 如果 RunSlashCommand 可能创建、修改、删除、发送消息、切换状态或重载页面，必须先明确告诉用户准备执行的命令和预期结果，并在用户同意后再执行。',
+    '- 执行 RunSlashCommand 后，要如实说明实际执行的命令和工具返回结果，不要美化或改写失败原因。',
 ].join('\n');
 const HISTORY_SUMMARY_PREFIX = '[历史摘要]';
 const SUMMARY_SYSTEM_PROMPT = [
@@ -152,6 +195,7 @@ const state = {
 };
 
 const pendingToolCalls = new Map();
+const pendingApprovals = new Map();
 let toastTimer = null;
 let lastRenderedMessageCount = 0;
 
@@ -169,6 +213,173 @@ function safeJsonParse(text, fallback = {}) {
     } catch {
         return fallback;
     }
+}
+
+function normalizeSlashCommand(command) {
+    const normalized = String(command || '').trim();
+    if (!normalized) return '';
+    return normalized.startsWith('/') ? normalized : `/${normalized}`;
+}
+
+function getSlashCommandName(command) {
+    const normalized = normalizeSlashCommand(command);
+    if (!normalized) return '';
+    const body = normalized.slice(1).trim();
+    if (!body) return '';
+    return body.split(/\s+/)[0].toLowerCase();
+}
+
+function getSlashCommandTail(command) {
+    const normalized = normalizeSlashCommand(command);
+    if (!normalized) return '';
+    const body = normalized.slice(1).trim();
+    if (!body) return '';
+    const firstWhitespace = body.search(/\s/);
+    if (firstWhitespace < 0) return '';
+    return body.slice(firstWhitespace + 1).trim();
+}
+
+function tokenizeSlashCommandTail(tail) {
+    const normalized = String(tail || '').trim();
+    if (!normalized) return [];
+    return normalized.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+}
+
+function parseSlashCommandTail(tail) {
+    const tokens = tokenizeSlashCommandTail(tail);
+    const named = new Map();
+    const positional = [];
+
+    tokens.forEach((token) => {
+        const match = token.match(/^([A-Za-z0-9_-]+)=(.+)$/);
+        if (!match) {
+            positional.push(token);
+            return;
+        }
+        const key = String(match[1] || '').trim();
+        const value = String(match[2] || '').trim();
+        named.set(key, value);
+    });
+
+    return { tokens, named, positional };
+}
+
+function stripOptionalQuotes(value) {
+    const text = String(value || '').trim();
+    if (text.length >= 2 && ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'")))) {
+        return text.slice(1, -1);
+    }
+    return text;
+}
+
+function isExplicitFalseLike(value) {
+    const normalized = stripOptionalQuotes(value).toLowerCase();
+    return ['false', 'off', '0', 'no'].includes(normalized);
+}
+
+function hasOnlySafeReadFlags(tail, allowedFlags = [], options = {}) {
+    const { allowPositional = false } = options;
+    const parsed = parseSlashCommandTail(tail);
+    if (!allowPositional && parsed.positional.length) {
+        return false;
+    }
+    return Array.from(parsed.named.keys()).every((key) => allowedFlags.includes(key));
+}
+
+function isReadOnlySlashInvocation(command) {
+    const name = getSlashCommandName(command);
+    if (!name) return false;
+
+    if (READ_ONLY_SLASH_COMMANDS.has(name)) {
+        return true;
+    }
+
+    const tail = getSlashCommandTail(command);
+    if (!READ_ONLY_SLASH_COMMANDS_WITH_SAFE_FLAGS.has(name)) {
+        return false;
+    }
+
+    switch (name) {
+        case 'api':
+        case 'context':
+        case 'model':
+            return hasOnlySafeReadFlags(tail, ['quiet']);
+        case 'tokenizer':
+            return tokenizeSlashCommandTail(tail).length === 0;
+        case 'api-url':
+            return hasOnlySafeReadFlags(tail, ['api', 'connect', 'quiet']);
+        case 'instruct':
+            return hasOnlySafeReadFlags(tail, ['quiet', 'forceGet']);
+        case 'instruct-state':
+            return tokenizeSlashCommandTail(tail).length === 0;
+        case 'getchatbook': {
+            const parsed = parseSlashCommandTail(tail);
+            return !parsed.positional.length
+                && !parsed.named.has('name')
+                && parsed.named.has('create')
+                && isExplicitFalseLike(parsed.named.get('create'));
+        }
+        case 'getpersonabook': {
+            const parsed = parseSlashCommandTail(tail);
+            if (parsed.positional.length || parsed.named.has('name')) {
+                return false;
+            }
+            if (!parsed.named.size) {
+                return true;
+            }
+            return parsed.named.size === 1
+                && parsed.named.has('create')
+                && isExplicitFalseLike(parsed.named.get('create'));
+        }
+        case 'getcharbook': {
+            const parsed = parseSlashCommandTail(tail);
+            const allowedKeys = ['type', 'create'];
+            const hasOnlyAllowedKeys = Array.from(parsed.named.keys()).every((key) => allowedKeys.includes(key));
+            if (!hasOnlyAllowedKeys || parsed.named.has('name')) {
+                return false;
+            }
+            if (parsed.named.has('create') && !isExplicitFalseLike(parsed.named.get('create'))) {
+                return false;
+            }
+            return parsed.positional.length <= 1;
+        }
+        default:
+            return false;
+    }
+}
+
+function shouldRequireSlashCommandApproval(command) {
+    const name = getSlashCommandName(command);
+    if (!name) return false;
+    return !isReadOnlySlashInvocation(command);
+}
+
+function findMessageByApprovalId(requestId) {
+    return state.messages.find((message) => message?.approvalRequest?.id === requestId) || null;
+}
+
+function setApprovalStatus(requestId, status) {
+    const target = findMessageByApprovalId(requestId);
+    if (!target?.approvalRequest) return;
+    target.approvalRequest.status = status;
+    persistSession();
+}
+
+function buildSlashApprovalResult(command, approved) {
+    if (approved) {
+        return {
+            ok: true,
+            command,
+            note: '用户已同意执行该斜杠命令。',
+        };
+    }
+    return {
+        ok: false,
+        command,
+        skipped: true,
+        error: 'user_declined',
+        note: '用户未同意执行该斜杠命令，本次已跳过。',
+    };
 }
 
 function trimPersistedContent(content) {
@@ -418,6 +629,14 @@ async function appendDraftImageFiles(files) {
 }
 
 function serializeMessage(message) {
+    const approvalRequest = message?.approvalRequest && typeof message.approvalRequest === 'object'
+        ? {
+            id: String(message.approvalRequest.id || ''),
+            kind: String(message.approvalRequest.kind || ''),
+            command: String(message.approvalRequest.command || ''),
+            status: String(message.approvalRequest.status || ''),
+        }
+        : null;
     return {
         role: message.role,
         content: trimPersistedContent(message.content),
@@ -440,12 +659,23 @@ function serializeMessage(message) {
             label: item.label,
             text: trimPersistedContent(item.text),
         })),
+        approvalRequest: approvalRequest && approvalRequest.status && approvalRequest.status !== 'pending'
+            ? approvalRequest
+            : undefined,
     };
 }
 
 function normalizeRestoredMessage(message) {
     if (!message || typeof message !== 'object') return null;
     if (!['user', 'assistant', 'tool'].includes(message.role)) return null;
+    const approvalRequest = message.approvalRequest && typeof message.approvalRequest === 'object'
+        ? {
+            id: String(message.approvalRequest.id || ''),
+            kind: String(message.approvalRequest.kind || ''),
+            command: String(message.approvalRequest.command || ''),
+            status: String(message.approvalRequest.status || ''),
+        }
+        : undefined;
     return {
         role: message.role,
         content: String(message.content || ''),
@@ -462,12 +692,24 @@ function normalizeRestoredMessage(message) {
                 }))
             : undefined,
         thoughts: normalizeThoughtBlocks(message.thoughts),
+        approvalRequest: approvalRequest?.status && approvalRequest.status !== 'pending'
+            ? approvalRequest
+            : undefined,
     };
+}
+
+function isPersistableMessage(message) {
+    if (!message || typeof message !== 'object') return false;
+    if (message.streaming) return false;
+    if (message.approvalRequest?.status === 'pending') return false;
+    return true;
 }
 
 function persistSession() {
     try {
-        const activeMessages = getActiveContextMessages().slice(-MAX_PERSISTED_MESSAGES);
+        const activeMessages = getActiveContextMessages()
+            .filter(isPersistableMessage)
+            .slice(-MAX_PERSISTED_MESSAGES);
         const summary = trimPersistedContent(state.historySummary || '');
         if (!activeMessages.length && !summary) {
             localStorage.removeItem(SESSION_STORAGE_KEY);
@@ -731,7 +973,6 @@ async function pullModelsForProvider(providerConfig) {
     const provider = providerConfig.provider;
     const baseUrl = normalizeBaseUrl(providerConfig.baseUrl || '');
     const apiKey = String(providerConfig.apiKey || '').trim();
-    const useCorsProxy = Boolean(providerConfig.useCorsProxy);
 
     if (!apiKey) {
         throw new Error('请先填写 API Key。');
@@ -742,7 +983,7 @@ async function pullModelsForProvider(providerConfig) {
 
     if (provider === 'google') {
         return await tryCandidateFetches({
-            urls: buildGoogleCandidateUrls(baseUrl, apiKey).map((url) => useCorsProxy ? buildCorsProxyUrl(url) : url),
+            urls: buildGoogleCandidateUrls(baseUrl, apiKey),
             requestOptionsList: [
                 {
                     headers: {
@@ -769,7 +1010,7 @@ async function pullModelsForProvider(providerConfig) {
 
     if (provider === 'anthropic') {
         return await tryCandidateFetches({
-            urls: buildAnthropicCandidateUrls(baseUrl).map((url) => useCorsProxy ? buildCorsProxyUrl(url) : url),
+            urls: buildAnthropicCandidateUrls(baseUrl),
             requestOptionsList: [{
                 headers: {
                     'x-api-key': apiKey,
@@ -783,7 +1024,7 @@ async function pullModelsForProvider(providerConfig) {
     }
 
     return await tryCandidateFetches({
-        urls: buildOpenAICandidateUrls(baseUrl).map((url) => useCorsProxy ? buildCorsProxyUrl(url) : url),
+        urls: buildOpenAICandidateUrls(baseUrl),
         requestOptionsList: [{
             headers: {
                 Authorization: `Bearer ${apiKey}`,
@@ -809,7 +1050,6 @@ function describeError(error) {
     if (lowered === 'directory_path_required') return '还没有提供要查看的目录路径。';
     if (lowered === 'glob_pattern_required') return '还没有提供 glob 路径模式。';
     if (lowered === 'empty_query') return '搜索词是空的，换一个明确点的关键词就行。';
-    if (lowered.includes('cors proxy is disabled')) return '酒馆的 CORS 代理还没开启。请到酒馆目录的 config.yaml 把 enableCorsProxy 改成 true，保存后重启酒馆进程或容器，不是 F5 刷新。';
     return raw;
 }
 
@@ -905,213 +1145,6 @@ function renderAttachmentGallery(container, attachments = [], options = {}) {
     });
 }
 
-function resetCompactionState() {
-    state.historySummary = '';
-    state.archivedTurnCount = 0;
-    state.contextStats = {
-        usedTokens: 0,
-        budgetTokens: MAX_CONTEXT_TOKENS,
-        summaryActive: false,
-    };
-}
-
-function buildHistorySummarySystemMessage() {
-    if (!state.historySummary?.trim()) return null;
-    return {
-        role: 'system',
-        content: `${HISTORY_SUMMARY_PREFIX}\n${state.historySummary.trim()}`,
-    };
-}
-
-function buildRepeatedToolErrorSystemMessage() {
-    const hint = state.activeRun?.lightBrakeMessage;
-    if (!hint) return null;
-    return {
-        role: 'system',
-        content: hint,
-    };
-}
-
-function formatContextCount(tokens) {
-    return `${Math.max(0, Math.round((Number(tokens) || 0) / 1000))}k`;
-}
-
-function buildContextMeterLabel(stats = state.contextStats) {
-    return `${formatContextCount(stats.usedTokens)}/${formatContextCount(stats.budgetTokens)}`;
-}
-
-function trimForSummary(text, limit = 1800) {
-    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
-    if (normalized.length <= limit) return normalized;
-    return `${normalized.slice(0, limit)}…`;
-}
-
-function getMessageTextForSummary(message) {
-    if (message.role === 'tool') {
-        return trimForSummary(formatToolResultDisplay(message).summary || message.content || '', 1400);
-    }
-    if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
-        const toolLines = message.toolCalls.map((toolCall) => `工具: ${toolCall.name} ${toolCall.arguments || '{}'}`.trim());
-        return trimForSummary([message.content || '', ...toolLines].filter(Boolean).join('\n'), 1600);
-    }
-    return trimForSummary(buildTextWithAttachmentSummary(message.content || '', message.attachments), 1600);
-}
-
-function splitMessagesIntoTurns(messages = state.messages) {
-    const turns = [];
-    let currentTurn = [];
-
-    (messages || []).forEach((message) => {
-        if (message.role === 'user' && currentTurn.length) {
-            turns.push(currentTurn);
-            currentTurn = [message];
-            return;
-        }
-        currentTurn.push(message);
-    });
-
-    if (currentTurn.length) {
-        turns.push(currentTurn);
-    }
-
-    return turns.filter((turn) => turn.length);
-}
-
-function buildSummarySource(turns, existingSummary = '') {
-    const lines = [];
-    if (existingSummary?.trim()) {
-        lines.push('已有历史摘要:');
-        lines.push(existingSummary.trim());
-        lines.push('');
-    }
-
-    turns.forEach((turn, index) => {
-        lines.push(`第 ${index + 1} 段历史:`);
-        turn.forEach((message) => {
-            const roleLabel = message.role === 'user'
-                ? '用户'
-                : message.role === 'assistant'
-                    ? '助手'
-                    : `工具${message.toolName ? `(${message.toolName})` : ''}`;
-            lines.push(`${roleLabel}: ${getMessageTextForSummary(message) || '[空]'}`);
-        });
-        lines.push('');
-    });
-
-    return lines.join('\n').trim();
-}
-
-function buildFallbackSummary(turns, existingSummary = '') {
-    const sections = [];
-    if (existingSummary?.trim()) {
-        sections.push(existingSummary.trim());
-    }
-
-    turns.forEach((turn, index) => {
-        const condensed = turn.map((message) => {
-            const prefix = message.role === 'user'
-                ? '用户'
-                : message.role === 'assistant'
-                    ? '助手'
-                    : `工具${message.toolName ? `(${message.toolName})` : ''}`;
-            return `${prefix}: ${getMessageTextForSummary(message) || '[空]'}`;
-        }).join('\n');
-        sections.push(`补充历史 ${index + 1}:\n${condensed}`);
-    });
-
-    return trimForSummary(sections.join('\n\n'), 6000);
-}
-
-function buildTokenCounterMessages(messages = []) {
-    return messages.map((message) => {
-        const contentText = Array.isArray(message.content)
-            ? message.content.map((part) => {
-                if (!part || typeof part !== 'object') return '';
-                if (part.type === 'text') return part.text || '';
-                if (part.type === 'image_url') return `[image:${part.name || part.mimeType || 'image'}]`;
-                return '';
-            }).filter(Boolean).join('\n')
-            : (message.content || '');
-
-        if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
-            const toolCalls = message.tool_calls.map((toolCall) => JSON.stringify({
-                id: toolCall.id,
-                name: toolCall.function?.name || '',
-                arguments: toolCall.function?.arguments || '{}',
-            })).join('\n');
-            return {
-                role: 'assistant',
-                content: [contentText, toolCalls].filter(Boolean).join('\n'),
-            };
-        }
-
-        if (message.role === 'tool') {
-            return {
-                role: 'tool',
-                content: [message.tool_call_id || '', message.content || ''].filter(Boolean).join('\n'),
-            };
-        }
-
-        return {
-            role: message.role,
-            content: contentText,
-        };
-    });
-}
-
-function countConversationTokens({ messages = [], tools = [] } = {}) {
-    const payload = [
-        ...buildTokenCounterMessages(messages),
-        {
-            role: 'system',
-            content: tools.length ? `TOOLS\n${JSON.stringify(tools)}` : '',
-        },
-    ].filter((message) => message.content);
-
-    try {
-        return countTokens(payload);
-    } catch {
-        return countTokens(JSON.stringify(payload));
-    }
-}
-
-function updateContextStats(messages = [], tools = TOOL_DEFINITIONS) {
-    state.contextStats = {
-        usedTokens: countConversationTokens({ messages, tools }),
-        budgetTokens: MAX_CONTEXT_TOKENS,
-        summaryActive: !!state.historySummary,
-    };
-}
-
-function pushMessage(message) {
-    state.messages.push({
-        ...message,
-        attachments: normalizeAttachments(message.attachments),
-        thoughts: normalizeThoughtBlocks(message.thoughts),
-    });
-    state.autoScroll = true;
-    persistSession();
-}
-
-function clearPendingToolCalls(runId, error) {
-    for (const [requestId, entry] of pendingToolCalls.entries()) {
-        if (entry.runId !== runId) continue;
-        pendingToolCalls.delete(requestId);
-        entry.cleanup?.();
-        entry.reject(error);
-    }
-}
-
-function cancelActiveRun(notice = '本轮请求已终止。') {
-    const run = state.activeRun;
-    if (!run) return;
-    run.cancelNotice = notice;
-    state.progressLabel = '正在终止…';
-    clearPendingToolCalls(run.id, new Error('tool_aborted'));
-    run.controller.abort();
-    render();
-}
-
 function getActiveProviderConfig() {
     const config = state.config || {};
     const provider = config.provider || 'openai-compatible';
@@ -1125,7 +1158,6 @@ function getActiveProviderConfig() {
         maxTokens: null,
         timeoutMs: REQUEST_TIMEOUT_MS,
         toolMode: providerConfig.toolMode || 'native',
-        useCorsProxy: Boolean(providerConfig.useCorsProxy),
         reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
         reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
     };
@@ -1150,313 +1182,53 @@ function createAdapter() {
     }
 }
 
-function toProviderMessages(baseMessages = state.messages) {
-    const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
-    const summaryMessage = buildHistorySummarySystemMessage();
-    const lightBrakeMessage = buildRepeatedToolErrorSystemMessage();
-    if (summaryMessage) messages.push(summaryMessage);
-    if (lightBrakeMessage) messages.push(lightBrakeMessage);
-    for (const message of baseMessages) {
-        if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
-            messages.push({
-                role: 'assistant',
-                content: message.content || '',
-                tool_calls: message.toolCalls.map((toolCall) => ({
-                    id: toolCall.id,
-                    type: 'function',
-                    function: {
-                        name: toolCall.name,
-                        arguments: toolCall.arguments,
-                    },
-                })),
-            });
-            continue;
-        }
+const runtime = createAssistantRuntime({
+    state,
+    pendingToolCalls,
+    pendingApprovals,
+    persistSession,
+    render,
+    showToast,
+    post,
+    createRequestId,
+    safeJsonParse,
+    describeError,
+    describeToolCall,
+    formatToolResultDisplay,
+    buildTextWithAttachmentSummary,
+    buildUserContentParts,
+    normalizeAttachments,
+    normalizeThoughtBlocks,
+    normalizeSlashCommand,
+    shouldRequireSlashCommandApproval,
+    setApprovalStatus,
+    buildSlashApprovalResult,
+    isAbortError,
+    createAdapter,
+    getActiveProviderConfig,
+    SYSTEM_PROMPT,
+    SUMMARY_SYSTEM_PROMPT,
+    HISTORY_SUMMARY_PREFIX,
+    MAX_CONTEXT_TOKENS,
+    SUMMARY_TRIGGER_TOKENS,
+    DEFAULT_PRESERVED_TURNS,
+    MIN_PRESERVED_TURNS,
+    MAX_TOOL_ROUNDS,
+    REQUEST_TIMEOUT_MS,
+    TOOL_DEFINITIONS,
+    TOOL_NAMES,
+});
 
-        if (message.role === 'tool') {
-            messages.push({
-                role: 'tool',
-                tool_call_id: message.toolCallId,
-                content: message.content,
-            });
-            continue;
-        }
-
-        messages.push({
-            role: message.role,
-            content: message.role === 'user'
-                ? buildUserContentParts(message)
-                : message.content,
-        });
-    }
-    return messages;
-}
-
-function getActiveContextMessages() {
-    const turns = splitMessagesIntoTurns();
-    const archivedCount = Math.min(state.archivedTurnCount, turns.length);
-    return turns.slice(archivedCount).flat();
-}
-
-function buildToolFailureResult(toolName, args, error) {
-    const raw = String(error?.message || error || 'tool_failed');
-    const [code] = raw.split(':');
-    const result = {
-        ok: false,
-        toolName,
-        path: typeof args?.path === 'string' ? args.path : '',
-        error: code || 'tool_failed',
-        raw,
-        message: describeError(error),
-    };
-
-    return result;
-}
-
-function recordToolErrorForLightBrake(run, toolName, errorCode) {
-    if (!run || !toolName || !errorCode) return;
-    const nextKey = `${toolName}::${errorCode}`;
-    if (run.toolErrorStreakKey === nextKey) {
-        run.toolErrorStreakCount += 1;
-    } else {
-        run.toolErrorStreakKey = nextKey;
-        run.toolErrorStreakCount = 1;
-    }
-
-    if (run.toolErrorStreakCount >= 3 && run.lastLightBrakeKey !== nextKey) {
-        run.lightBrakeMessage = `系统提醒：刚刚连续三次调用工具 \`${toolName}\` 都返回了同一个错误：\`${errorCode}\`。请不要继续重复同一路径，改用别的工具、缩小范围，或先向用户确认缺失信息。`;
-        run.lastLightBrakeKey = nextKey;
-    }
-}
-
-function resetToolErrorLightBrake(run) {
-    if (!run) return;
-    run.toolErrorStreakKey = '';
-    run.toolErrorStreakCount = 0;
-}
-
-async function summarizeArchivedTurns(adapter, turnsToArchive, signal) {
-    if (!turnsToArchive.length) return;
-
-    const summarySource = buildSummarySource(turnsToArchive, state.historySummary);
-    const fallbackSummary = buildFallbackSummary(turnsToArchive, state.historySummary);
-    const providerConfig = getActiveProviderConfig();
-
-    try {
-        const result = await adapter.chat({
-            systemPrompt: SUMMARY_SYSTEM_PROMPT,
-            messages: [{ role: 'user', content: summarySource }],
-            tools: [],
-            toolChoice: 'none',
-            temperature: Math.min(providerConfig.temperature ?? 0.2, 0.2),
-            maxTokens: null,
-            signal,
-        });
-        state.historySummary = String(result.text || '').trim() || fallbackSummary;
-    } catch {
-        state.historySummary = fallbackSummary;
-    }
-}
-
-async function ensureContextBudget(adapter, signal) {
-    const turns = splitMessagesIntoTurns();
-    const preservedOptions = [DEFAULT_PRESERVED_TURNS, MIN_PRESERVED_TURNS];
-    let contextMessages = getActiveContextMessages();
-    let providerMessages = toProviderMessages(contextMessages);
-    updateContextStats(providerMessages);
-
-    if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
-        return providerMessages;
-    }
-
-    for (const preservedTurns of preservedOptions) {
-        const desiredArchivedTurnCount = Math.max(
-            state.archivedTurnCount,
-            turns.length - Math.min(preservedTurns, turns.length),
-        );
-        if (desiredArchivedTurnCount > state.archivedTurnCount) {
-            const turnsToArchive = turns.slice(state.archivedTurnCount, desiredArchivedTurnCount);
-            await summarizeArchivedTurns(adapter, turnsToArchive, signal);
-            state.archivedTurnCount = desiredArchivedTurnCount;
-            persistSession();
-        }
-
-        contextMessages = getActiveContextMessages();
-        providerMessages = toProviderMessages(contextMessages);
-        updateContextStats(providerMessages);
-        if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
-            showToast(`已压缩较早历史，当前上下文 ${buildContextMeterLabel()}`);
-            render();
-            return providerMessages;
-        }
-    }
-
-    showToast(`最近对话本身已接近上限，当前上下文 ${buildContextMeterLabel()}`);
-    render();
-    return providerMessages;
-}
-
-function callHostTool(name, args, options = {}) {
-    const requestId = createRequestId('tool');
-    const run = state.activeRun;
-    if (run && run.id === options.runId) {
-        run.toolRequestIds.add(requestId);
-    }
-    return new Promise((resolve, reject) => {
-        let settled = false;
-        let timer = null;
-
-        const cleanup = () => {
-            if (timer) {
-                clearTimeout(timer);
-                timer = null;
-            }
-            if (options.signal && abortHandler) {
-                options.signal.removeEventListener('abort', abortHandler);
-            }
-            const activeRun = state.activeRun;
-            if (activeRun && activeRun.id === options.runId) {
-                activeRun.toolRequestIds.delete(requestId);
-            }
-        };
-
-        const finishReject = (error) => {
-            if (settled) return;
-            settled = true;
-            pendingToolCalls.delete(requestId);
-            cleanup();
-            reject(error);
-        };
-
-        const finishResolve = (value) => {
-            if (settled) return;
-            settled = true;
-            pendingToolCalls.delete(requestId);
-            cleanup();
-            resolve(value);
-        };
-
-        const abortHandler = () => {
-            post('xb-assistant:tool-abort', { requestId });
-            finishReject(new Error('tool_aborted'));
-        };
-
-        timer = setTimeout(() => {
-            post('xb-assistant:tool-abort', { requestId });
-            finishReject(new Error('tool_timeout'));
-        }, REQUEST_TIMEOUT_MS);
-
-        pendingToolCalls.set(requestId, {
-            runId: options.runId,
-            cleanup,
-            resolve: finishResolve,
-            reject: finishReject,
-        });
-
-        if (options.signal) {
-            if (options.signal.aborted) {
-                abortHandler();
-                return;
-            }
-            options.signal.addEventListener('abort', abortHandler, { once: true });
-        }
-
-        post('xb-assistant:tool-call', {
-            requestId,
-            name,
-            arguments: args,
-        });
-    });
-}
-
-async function runAssistantLoop(run) {
-    const adapter = createAdapter();
-    let rounds = 0;
-
-    while (rounds < MAX_TOOL_ROUNDS) {
-        if (run.controller.signal.aborted) {
-            throw new Error('assistant_aborted');
-        }
-
-        rounds += 1;
-        state.currentRound = rounds;
-        state.progressLabel = '正在请求模型…';
-        render();
-
-        const providerConfig = getActiveProviderConfig();
-        const requestMessages = await ensureContextBudget(adapter, run.controller.signal);
-        const result = await adapter.chat({
-            systemPrompt: SYSTEM_PROMPT,
-            messages: requestMessages,
-            tools: TOOL_DEFINITIONS,
-            toolChoice: 'auto',
-            temperature: providerConfig.temperature,
-            maxTokens: providerConfig.maxTokens,
-            reasoning: {
-                enabled: providerConfig.reasoningEnabled,
-                effort: providerConfig.reasoningEffort,
-            },
-            signal: run.controller.signal,
-        });
-
-        if (Array.isArray(result.toolCalls) && result.toolCalls.length) {
-            pushMessage({
-                role: 'assistant',
-                content: result.text || '',
-                toolCalls: result.toolCalls,
-                thoughts: result.thoughts,
-            });
-            render();
-
-            for (const toolCall of result.toolCalls) {
-                if (run.controller.signal.aborted) {
-                    throw new Error('assistant_aborted');
-                }
-                const parsedArguments = safeJsonParse(toolCall.arguments, {});
-                state.progressLabel = `正在${describeToolCall(toolCall.name, parsedArguments)}…`;
-                render();
-                let toolResult = null;
-                try {
-                    toolResult = await callHostTool(toolCall.name, parsedArguments, {
-                        runId: run.id,
-                        signal: run.controller.signal,
-                    });
-                    resetToolErrorLightBrake(run);
-                } catch (error) {
-                    if (isAbortError(error)) {
-                        throw error;
-                    }
-                    toolResult = buildToolFailureResult(toolCall.name, parsedArguments, error);
-                    recordToolErrorForLightBrake(run, toolCall.name, toolResult.error);
-                }
-                pushMessage({
-                    role: 'tool',
-                    toolCallId: toolCall.id,
-                    toolName: toolCall.name,
-                    content: JSON.stringify(toolResult, null, 2),
-                });
-                render();
-            }
-            continue;
-        }
-
-        pushMessage({
-            role: 'assistant',
-            content: result.text || '没有拿到有效回复。',
-            thoughts: result.thoughts,
-        });
-        state.progressLabel = '';
-        render();
-        return;
-    }
-
-    pushMessage({
-        role: 'assistant',
-        content: `这轮工具调用已经到上限了（${MAX_TOOL_ROUNDS}/${MAX_TOOL_ROUNDS}）。你可以把问题再收窄一点，比如直接给我模块名、设置项名或报错文本。`,
-    });
-    state.progressLabel = '';
-    render();
-}
+const {
+    resetCompactionState,
+    buildContextMeterLabel,
+    updateContextStats,
+    pushMessage,
+    cancelActiveRun,
+    toProviderMessages,
+    getActiveContextMessages,
+    runAssistantLoop,
+} = runtime;
 
 function applyConfig(config) {
     state.config = normalizeAssistantConfig(config || {});
@@ -1469,7 +1241,6 @@ function collectProviderDraft(root, provider) {
         model: root.querySelector('#xb-assistant-model').value.trim(),
         apiKey: root.querySelector('#xb-assistant-api-key').value.trim(),
         temperature: Number(((state.config?.modelConfigs || {})[provider] || {}).temperature ?? 0.2),
-        useCorsProxy: root.querySelector('#xb-assistant-use-cors-proxy')?.checked || false,
         reasoningEnabled: root.querySelector('#xb-assistant-reasoning-enabled')?.checked || false,
         reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value),
         toolMode: provider === 'openai-compatible'
@@ -1512,15 +1283,182 @@ function syncCurrentProviderDraft(root) {
     };
 }
 
+function getRenderableMessageSignature(message) {
+    return JSON.stringify({
+        role: message.role,
+        content: String(message.content || ''),
+        toolCallId: String(message.toolCallId || ''),
+        toolName: String(message.toolName || ''),
+        toolCalls: Array.isArray(message.toolCalls)
+            ? message.toolCalls.map((toolCall) => ({
+                id: String(toolCall.id || ''),
+                name: String(toolCall.name || ''),
+                arguments: String(toolCall.arguments || ''),
+            }))
+            : [],
+        thoughts: normalizeThoughtBlocks(message.thoughts),
+        attachments: normalizeAttachments(message.attachments).map((attachment) => ({
+            kind: attachment.kind,
+            name: attachment.name,
+            type: attachment.type,
+            size: attachment.size,
+        })),
+        approvalRequest: message.approvalRequest
+            ? {
+                id: String(message.approvalRequest.id || ''),
+                kind: String(message.approvalRequest.kind || ''),
+                command: String(message.approvalRequest.command || ''),
+                status: String(message.approvalRequest.status || ''),
+            }
+            : null,
+        streaming: Boolean(message.streaming),
+    });
+}
+
+function buildMessageBubble(message) {
+    const bubble = document.createElement('div');
+    bubble.className = `xb-assistant-bubble role-${message.role}`;
+
+    const meta = document.createElement('div');
+    meta.className = 'xb-assistant-meta';
+    meta.textContent = message.role === 'user'
+        ? '你'
+        : message.role === 'assistant'
+            ? Array.isArray(message.toolCalls) && message.toolCalls.length
+                ? `小白助手 · 已发起 ${message.toolCalls.length} 个工具调用${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
+                : `小白助手${message.streaming ? ' · 正在生成' : ''}${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
+            : `工具结果${message.toolName ? ` · ${message.toolName}` : ''}`;
+
+    if (message.role === 'tool') {
+        const display = formatToolResultDisplay(message);
+        const summary = document.createElement('pre');
+        summary.className = 'xb-assistant-content tool-summary';
+        summary.textContent = display.summary || '工具已返回结果。';
+        bubble.append(meta, summary);
+
+        if (display.details) {
+            const details = document.createElement('details');
+            details.className = 'xb-assistant-tool-details';
+            const summaryEl = document.createElement('summary');
+            summaryEl.textContent = message.toolName === TOOL_NAMES.READ ? '展开文件内容' : '展开详细结果';
+            const detailPre = document.createElement('pre');
+            detailPre.className = 'xb-assistant-content tool-detail';
+            detailPre.textContent = display.details;
+            details.append(summaryEl, detailPre);
+            bubble.appendChild(details);
+        }
+
+        return bubble;
+    }
+
+    const content = document.createElement('div');
+    content.className = 'xb-assistant-content xb-assistant-markdown';
+    content.appendChild(
+        buildSanitizedHtmlFragment(
+            renderMarkdown(
+                message.content || (message.role === 'assistant'
+                    ? (message.streaming ? '思考中…' : '我先查一下相关代码。')
+                    : ''),
+            ),
+        ),
+    );
+    bubble.append(meta, content);
+
+    if (Array.isArray(message.attachments) && message.attachments.length) {
+        const gallery = document.createElement('div');
+        gallery.className = 'xb-assistant-attachment-gallery';
+        renderAttachmentGallery(gallery, message.attachments, { compact: true });
+        bubble.appendChild(gallery);
+    }
+
+    if (message.role === 'assistant' && message.approvalRequest?.kind === 'slash-command') {
+        const approval = document.createElement('div');
+        approval.className = 'xb-assistant-approval';
+
+        const title = document.createElement('div');
+        title.className = 'xb-assistant-approval-title';
+        title.textContent = '待确认的斜杠命令';
+
+        const command = document.createElement('pre');
+        command.className = 'xb-assistant-content xb-assistant-approval-command';
+        command.textContent = message.approvalRequest.command || '';
+
+        const note = document.createElement('div');
+        note.className = 'xb-assistant-approval-note';
+        note.textContent = message.approvalRequest.status === 'approved'
+            ? '已同意，命令已进入执行流程。'
+            : message.approvalRequest.status === 'declined'
+                ? '已拒绝，本次不会执行这条命令。'
+                : message.approvalRequest.status === 'cancelled'
+                    ? '本轮请求已终止，这条命令未执行。'
+                    : '这条命令可能改动真实实例状态；点“是”后才会真正执行。';
+
+        approval.append(title, command, note);
+
+        if (message.approvalRequest.status === 'pending') {
+            const actions = document.createElement('div');
+            actions.className = 'xb-assistant-approval-actions';
+
+            const approveButton = document.createElement('button');
+            approveButton.type = 'button';
+            approveButton.className = 'xb-assistant-approval-button';
+            approveButton.dataset.approvalId = message.approvalRequest.id;
+            approveButton.dataset.approvalDecision = 'approve';
+            approveButton.textContent = '是，执行';
+
+            const declineButton = document.createElement('button');
+            declineButton.type = 'button';
+            declineButton.className = 'xb-assistant-approval-button secondary';
+            declineButton.dataset.approvalId = message.approvalRequest.id;
+            declineButton.dataset.approvalDecision = 'decline';
+            declineButton.textContent = '否，跳过';
+
+            actions.append(approveButton, declineButton);
+            approval.appendChild(actions);
+        }
+
+        bubble.appendChild(approval);
+    }
+
+    if (message.role === 'assistant' && Array.isArray(message.thoughts) && message.thoughts.length) {
+        const details = document.createElement('details');
+        details.className = 'xb-assistant-thought-details';
+        const summaryEl = document.createElement('summary');
+        summaryEl.textContent = message.thoughts.length > 1
+            ? `展开思考块（${message.thoughts.length} 段）`
+            : '展开思考块';
+        details.appendChild(summaryEl);
+
+        message.thoughts.forEach((item) => {
+            const block = document.createElement('div');
+            block.className = 'xb-assistant-thought-block';
+
+            const label = document.createElement('div');
+            label.className = 'xb-assistant-thought-label';
+            label.textContent = item.label;
+
+            const pre = document.createElement('pre');
+            pre.className = 'xb-assistant-content xb-assistant-thought-content';
+            pre.textContent = item.text;
+
+            block.append(label, pre);
+            details.appendChild(block);
+        });
+
+        bubble.appendChild(details);
+    }
+
+    return bubble;
+}
+
 function renderMessages(container) {
-    // 增量渲染优化：只渲染新增或变化的消息
     const existingBubbles = Array.from(container.querySelectorAll('.xb-assistant-bubble'));
 
     if (!state.messages.length) {
         container.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'xb-assistant-empty';
-        empty.innerHTML = '<h2>开始提问吧</h2><p>我就是 LittleWhiteBox 里的“小白助手”。如果你问“小白助手按钮在哪”“这个助手从哪打开”，默认就是在问我自己和我的入口。</p><p>我当前能读取的源码范围是 <code>SillyTavern/public/scripts/*</code>，包括 LittleWhiteBox 插件前端和酒馆前端脚本；读文件时使用的是站点根相对路径，例如 <code>scripts/extensions/third-party/LittleWhiteBox/index.js</code>。</p><p>你可以直接问我按钮在哪、某个开关在哪、设置为什么不生效、某个前端报错是从哪条链路抛出的、插件和酒馆前端是怎么交互的。</p><p>我不会读取不在这块前端目录里的内容，例如后端实现、数据库、酒馆保存 API Key 的位置等不在当前可读范围内的东西。</p><p>如果你让我写工作记录，我现在只会通过写入工具写到酒馆官方 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，不会改源码。</p><p>下面的示例问题点击后会填入输入框，不会自动发送。</p>';
+        empty.innerHTML = '<h2>你好，我是小白助手</h2><p>我运行在你当前打开的 SillyTavern 酒馆里，专门帮你解答 LittleWhiteBox 和酒馆前端的问题。</p><p><strong>我能做什么：</strong></p><ul><li><strong>查看源码</strong>：读取 LittleWhiteBox 和酒馆前端的代码快照（构建时索引），帮你找按钮位置、设置逻辑、报错链路。</li><li><strong>查询实例</strong>：执行斜杠命令查询你当前酒馆的实时状态，比如当前 API、模型、角色、扩展开关等。</li><li><strong>记录工作</strong>：把排查结论写到 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，方便你后续查看。</li></ul><p><strong>我不能做什么：</strong></p><ul><li>不能访问后端代码、数据库、API Key 存储位置。</li><li>不能修改你的源码或配置文件。</li><li>代码快照可能不包含你最新的修改；如需确认当前实例状态，我会用斜杠命令查询。</li></ul><p>下面是一些示例问题，点击后会填入输入框（不会自动发送）：</p>';
 
         const examples = document.createElement('div');
         examples.className = 'xb-assistant-examples';
@@ -1543,90 +1481,22 @@ function renderMessages(container) {
         emptyEl.remove();
     }
 
-    // 增量渲染：只添加新消息
-    const existingCount = existingBubbles.length;
-    const messagesToRender = state.messages.slice(existingCount);
-
-    for (const message of messagesToRender) {
-        const bubble = document.createElement('div');
-        bubble.className = `xb-assistant-bubble role-${message.role}`;
-
-        const meta = document.createElement('div');
-        meta.className = 'xb-assistant-meta';
-        meta.textContent = message.role === 'user'
-            ? '你'
-            : message.role === 'assistant'
-                ? Array.isArray(message.toolCalls) && message.toolCalls.length
-                    ? `小白助手 · 已发起 ${message.toolCalls.length} 个工具调用${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
-                    : `小白助手${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
-                : `工具结果${message.toolName ? ` · ${message.toolName}` : ''}`;
-
-        if (message.role === 'tool') {
-            const display = formatToolResultDisplay(message);
-            const summary = document.createElement('pre');
-            summary.className = 'xb-assistant-content tool-summary';
-            summary.textContent = display.summary || '工具已返回结果。';
-            bubble.append(meta, summary);
-
-            if (display.details) {
-                const details = document.createElement('details');
-                details.className = 'xb-assistant-tool-details';
-                const summaryEl = document.createElement('summary');
-                summaryEl.textContent = message.toolName === TOOL_NAMES.READ ? '展开文件内容' : '展开详细结果';
-                const detailPre = document.createElement('pre');
-                detailPre.className = 'xb-assistant-content tool-detail';
-                detailPre.textContent = display.details;
-                details.append(summaryEl, detailPre);
-                bubble.appendChild(details);
-            }
-        } else {
-            const content = document.createElement('div');
-            content.className = 'xb-assistant-content xb-assistant-markdown';
-            content.appendChild(
-                buildSanitizedHtmlFragment(
-                    renderMarkdown(message.content || (message.role === 'assistant' ? '我先查一下相关代码。' : '')),
-                ),
-            );
-            bubble.append(meta, content);
-
-            if (Array.isArray(message.attachments) && message.attachments.length) {
-                const gallery = document.createElement('div');
-                gallery.className = 'xb-assistant-attachment-gallery';
-                renderAttachmentGallery(gallery, message.attachments, { compact: true });
-                bubble.appendChild(gallery);
-            }
-
-            if (message.role === 'assistant' && Array.isArray(message.thoughts) && message.thoughts.length) {
-                const details = document.createElement('details');
-                details.className = 'xb-assistant-thought-details';
-                const summaryEl = document.createElement('summary');
-                summaryEl.textContent = message.thoughts.length > 1
-                    ? `展开思考块（${message.thoughts.length} 段）`
-                    : '展开思考块';
-                details.appendChild(summaryEl);
-
-                message.thoughts.forEach((item) => {
-                    const block = document.createElement('div');
-                    block.className = 'xb-assistant-thought-block';
-
-                    const label = document.createElement('div');
-                    label.className = 'xb-assistant-thought-label';
-                    label.textContent = item.label;
-
-                    const pre = document.createElement('pre');
-                    pre.className = 'xb-assistant-content xb-assistant-thought-content';
-                    pre.textContent = item.text;
-
-                    block.append(label, pre);
-                    details.appendChild(block);
-                });
-
-                bubble.appendChild(details);
-            }
+    state.messages.forEach((message, index) => {
+        const signature = getRenderableMessageSignature(message);
+        const existingBubble = existingBubbles[index] || null;
+        if (existingBubble?.dataset.renderSignature === signature) {
+            return;
         }
+        const nextBubble = buildMessageBubble(message);
+        nextBubble.dataset.renderSignature = signature;
+        if (existingBubble) {
+            container.replaceChild(nextBubble, existingBubble);
+        } else {
+            container.appendChild(nextBubble);
+        }
+    });
 
-        container.appendChild(bubble);
-    }
+    existingBubbles.slice(state.messages.length).forEach((bubble) => bubble.remove());
 
     if (state.autoScroll) {
         container.scrollTop = container.scrollHeight;
@@ -1688,16 +1558,6 @@ function buildAppMarkup(root) {
                             <button id="xb-assistant-toggle-key" type="button" class="secondary ghost">显示</button>
                         </div>
                     </label>
-                    <label class="xb-assistant-checkbox-row">
-                        <span>开启 CORS 代理</span>
-                        <span class="xb-assistant-checkbox-control">
-                            <input id="xb-assistant-use-cors-proxy" type="checkbox" />
-                            <span>开启</span>
-                        </span>
-                    </label>
-                    <div class="xb-assistant-help" id="xb-assistant-cors-proxy-help">
-                        如果你的代理没有返回浏览器可用的 CORS 允许头，再勾选这一项。还需要打开酒馆目录的 <code>config.yaml</code>，将 <code>enableCorsProxy</code> 改为 <code>true</code> 并保存，然后重启酒馆（重启容器或进程，不是 F5 刷新）。
-                    </div>
                     <label>
                         <span>Model</span>
                         <input id="xb-assistant-model" type="text" />
@@ -1771,8 +1631,6 @@ function syncConfigToForm(root) {
     const reasoningEnabledInput = root.querySelector('#xb-assistant-reasoning-enabled');
     const reasoningEffortWrap = root.querySelector('#xb-assistant-reasoning-effort-wrap');
     const reasoningEffortSelect = root.querySelector('#xb-assistant-reasoning-effort');
-    const corsProxyInput = root.querySelector('#xb-assistant-use-cors-proxy');
-    const corsProxyHelp = root.querySelector('#xb-assistant-cors-proxy-help');
     const pulledSelect = root.querySelector('#xb-assistant-model-pulled');
     const presetSelect = root.querySelector('#xb-assistant-preset-select');
     const presetNameInput = root.querySelector('#xb-assistant-preset-name');
@@ -1787,8 +1645,6 @@ function syncConfigToForm(root) {
     root.querySelector('#xb-assistant-base-url').value = providerConfig.baseUrl || '';
     root.querySelector('#xb-assistant-model').value = providerConfig.model || '';
     root.querySelector('#xb-assistant-api-key').value = providerConfig.apiKey || '';
-    corsProxyInput.checked = Boolean(providerConfig.useCorsProxy);
-    corsProxyHelp.style.display = corsProxyInput.checked ? '' : 'none';
     toolModeWrap.style.display = provider === 'openai-compatible' ? '' : 'none';
     refillSelect(toolModeSelect, TOOL_MODE_OPTIONS);
     toolModeSelect.value = providerConfig.toolMode || 'native';
@@ -2246,11 +2102,14 @@ function injectStyles() {
             font-size: 0.95em;
         }
         .xb-assistant-markdown pre {
-            overflow: auto;
+            overflow: visible;
             max-width: 100%;
             padding: 12px 14px;
             border-radius: 12px;
             background: rgba(20, 32, 51, 0.06);
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            word-break: break-all;
         }
         .xb-assistant-markdown pre code {
             padding: 0;
@@ -2325,6 +2184,56 @@ function injectStyles() {
             margin-top: 10px;
             border-top: 1px dashed rgba(27, 55, 88, 0.12);
             padding-top: 10px;
+        }
+        .xb-assistant-approval {
+            margin-top: 12px;
+            padding: 14px;
+            border-radius: 14px;
+            background: rgba(244, 248, 252, 0.96);
+            border: 1px solid rgba(27, 55, 88, 0.12);
+        }
+        .xb-assistant-approval-title {
+            margin-bottom: 8px;
+            color: #1b3758;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+        .xb-assistant-approval-command {
+            margin-top: 0;
+            margin-bottom: 8px;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(27, 55, 88, 0.1);
+        }
+        .xb-assistant-approval-note {
+            color: #4b5a70;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .xb-assistant-approval-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+        .xb-assistant-approval-button {
+            border: none;
+            border-radius: 999px;
+            min-height: 36px;
+            padding: 0 14px;
+            background: #1b3758;
+            color: #fff;
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .xb-assistant-approval-button.secondary {
+            background: rgba(255, 255, 255, 0.92);
+            color: #1b3758;
+            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
         }
         .xb-assistant-thought-details {
             margin-top: 10px;
@@ -2474,8 +2383,10 @@ function injectStyles() {
             }
             .xb-assistant-sidebar-toggle {
                 min-width: 108px;
-                padding: 0 12px;
+                padding: 8px 14px;
                 justify-content: space-between;
+                background: linear-gradient(135deg, rgba(27, 55, 88, 0.92), rgba(40, 87, 134, 0.92));
+                font-size: 14px;
             }
             .xb-assistant-sidebar-content {
                 padding-right: 2px;
@@ -2578,7 +2489,7 @@ function render() {
         }
         if (icon) {
             icon.textContent = isMobile
-                ? (state.sidebarCollapsed ? '▾' : '▴')
+                ? (state.sidebarCollapsed ? '▼' : '▲')
                 : (state.sidebarCollapsed ? '⚙' : '‹');
         }
     }
@@ -2618,12 +2529,27 @@ function bindEvents(root) {
 
     root.querySelector('#xb-assistant-chat').addEventListener('click', (event) => {
         const chip = event.target.closest('.xb-assistant-example-chip');
-        if (!chip) return;
-        input.value = chip.dataset.prompt || '';
-        resizeComposer();
-        input.focus();
-        state.autoScroll = true;
-        scrollChatToBottom(root.querySelector('#xb-assistant-chat'));
+        if (chip) {
+            input.value = chip.dataset.prompt || '';
+            resizeComposer();
+            input.focus();
+            state.autoScroll = true;
+            scrollChatToBottom(root.querySelector('#xb-assistant-chat'));
+            return;
+        }
+
+        const approvalButton = event.target.closest('[data-approval-id][data-approval-decision]');
+        if (!approvalButton) return;
+        const approvalId = approvalButton.dataset.approvalId || '';
+        const decision = approvalButton.dataset.approvalDecision || '';
+        const entry = pendingApprovals.get(approvalId);
+        if (!entry) return;
+        if (decision === 'approve') {
+            entry.resolve(true);
+        } else {
+            entry.resolve(false);
+        }
+        render();
     });
 
     root.querySelector('#xb-assistant-provider').addEventListener('change', () => {
@@ -2666,11 +2592,6 @@ function bindEvents(root) {
     });
 
     root.querySelector('#xb-assistant-reasoning-enabled').addEventListener('change', () => {
-        syncCurrentProviderDraft(root);
-        render();
-    });
-
-    root.querySelector('#xb-assistant-use-cors-proxy').addEventListener('change', () => {
         syncCurrentProviderDraft(root);
         render();
     });

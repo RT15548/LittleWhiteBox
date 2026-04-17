@@ -1,6 +1,7 @@
 import { getRequestHeaders } from "../../../../../../script.js";
 import { extensionFolderPath } from "../../core/constants.js";
 import { isTrustedIframeEvent, postToIframe } from "../../core/iframe-messaging.js";
+import { executeSlashCommand } from "../../core/slash-command.js";
 import { AssistantStorage } from "../../core/server-storage.js";
 import { TOOL_NAMES } from "./app-src/tooling.js";
 
@@ -810,6 +811,57 @@ async function readWorkspaceNote(_args = {}, options = {}) {
     };
 }
 
+async function runSlashCommand(args = {}, options = {}) {
+    ensureNotAborted(options.signal);
+
+    let command = String(args.command || '').trim();
+    if (!command) {
+        return {
+            ok: false,
+            command: '',
+            error: 'slash_command_required',
+            note: '必须提供要执行的斜杠命令。',
+        };
+    }
+
+    if (!command.startsWith('/')) {
+        command = `/${command}`;
+    }
+
+    try {
+        const result = await executeSlashCommand(command);
+        ensureNotAborted(options.signal);
+        const normalizedError = result && typeof result === 'object'
+            ? (result.ok === false
+                ? String(result.error || result.message || 'slash_command_failed')
+                : (result.error ? String(result.error) : ''))
+            : '';
+
+        if (normalizedError) {
+            return {
+                ok: false,
+                command,
+                error: normalizedError,
+                result,
+            };
+        }
+
+        return {
+            ok: true,
+            command,
+            result,
+        };
+    } catch (error) {
+        ensureNotAborted(options.signal);
+        return {
+            ok: false,
+            command,
+            error: error instanceof Error ? error.message : String(error || 'unknown_error'),
+            raw: error instanceof Error ? (error.stack || error.message) : String(error || 'unknown_error'),
+        };
+    }
+}
+
 async function executeToolCall(name, args, options = {}) {
     switch (name) {
         case TOOL_NAMES.LS:
@@ -820,6 +872,8 @@ async function executeToolCall(name, args, options = {}) {
             return await grepFiles(args, options);
         case TOOL_NAMES.READ:
             return await readFile(args, options);
+        case TOOL_NAMES.RUN_SLASH_COMMAND:
+            return await runSlashCommand(args, options);
         case TOOL_NAMES.READ_WORKLOG:
             return await readWorkspaceNote(args, options);
         case TOOL_NAMES.WRITE_WORKLOG:
@@ -864,8 +918,8 @@ function openAssistant() {
         height: min(800px, calc(100vh - 200px));
         max-width: calc(100vw - 96px);
         max-height: calc(100vh - 96px);
-        min-width: min(560px, calc(100vw - 48px));
-        min-height: min(640px, calc(100vh - 48px));
+        min-width: 320px;
+        min-height: 400px;
         overflow: hidden;
         border-radius: 22px;
         box-shadow: 0 28px 80px rgba(6, 17, 32, 0.22);
@@ -1043,10 +1097,11 @@ function openAssistant() {
     const applyShellBounds = (width, height) => {
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
+        const isMobile = window.matchMedia('(max-width: 900px)').matches;
         const maxWidth = Math.max(560, viewportWidth - 96);
         const maxHeight = Math.max(640, viewportHeight - 96);
-        const minWidth = Math.min(560, viewportWidth - 48);
-        const minHeight = Math.min(640, viewportHeight - 48);
+        const minWidth = isMobile ? Math.min(320, viewportWidth - 48) : Math.min(560, viewportWidth - 48);
+        const minHeight = isMobile ? Math.min(400, viewportHeight - 48) : Math.min(640, viewportHeight - 48);
         const nextWidth = Math.max(minWidth, Math.min(width, maxWidth));
         const nextHeight = Math.max(minHeight, Math.min(height, maxHeight));
         shell.style.maxWidth = `${maxWidth}px`;

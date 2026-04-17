@@ -1,5 +1,4 @@
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
-import { createCorsProxyFetch } from './cors-proxy.js';
 
 function logOutgoingRequest(label, payload) {
     const targetConsole = globalThis.top?.console || console;
@@ -179,12 +178,29 @@ function buildConversation(messages) {
     };
 }
 
+function emitStreamProgress(task, payload) {
+    if (typeof task.onStreamProgress !== 'function') return;
+    task.onStreamProgress({
+        ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
+        ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+    });
+}
+
+function mergeStreamText(previous, incoming) {
+    const next = String(incoming || '');
+    const current = String(previous || '');
+    if (!next) return current;
+    if (!current) return next;
+    if (next.startsWith(current)) return next;
+    if (current.endsWith(next)) return current;
+    return `${current}${next}`;
+}
+
 export class GoogleAdapter {
     constructor(config) {
         this.config = config;
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
-            fetch: createCorsProxyFetch(Boolean(config.useCorsProxy)),
             httpOptions: {
                 baseUrl: String(config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/$/, ''),
                 timeout: Number(config.timeoutMs) || 180000,
@@ -241,22 +257,75 @@ export class GoogleAdapter {
             },
         };
         logOutgoingRequest('[LittleWhiteBox Assistant] Google AI outgoing send payload', sendPayload);
-        const response = await chat.sendMessage(sendPayload);
-        const thoughts = extractThoughts(response);
+        let response;
+        let thoughts;
+        let text;
+        let finalFunctionCalls = [];
 
+        if (typeof task.onStreamProgress === 'function') {
+            const stream = await chat.sendMessageStream(sendPayload);
+            const thoughtMap = new Map();
+            let streamedText = '';
+            let streamedToolCalls = [];
+            let lastChunk = null;
+
+            for await (const chunk of stream) {
+                lastChunk = chunk;
+                const chunkText = typeof chunk.text === 'string'
+                    ? chunk.text
+                    : (chunk.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').filter(Boolean).join('\n');
+                streamedText = mergeStreamText(streamedText, chunkText);
+
+                extractThoughts(chunk).forEach((item, index) => {
+                    const key = `${item.label}:${index}`;
+                    thoughtMap.set(key, mergeStreamText(thoughtMap.get(key) || '', item.text));
+                });
+
+                streamedToolCalls = (chunk.functionCalls || []).map((item, index) => ({
+                    id: item.id || `google-tool-${index + 1}`,
+                    name: item.name || '',
+                    arguments: JSON.stringify(item.args || {}),
+                })).filter((item) => item.name);
+                finalFunctionCalls = streamedToolCalls;
+
+                emitStreamProgress(task, {
+                    text: streamedText,
+                    thoughts: Array.from(thoughtMap.values())
+                        .filter(Boolean)
+                        .map((value, index) => ({
+                            label: `思考块 ${index + 1}`,
+                            text: value,
+                        })),
+                });
+            }
+
+            response = lastChunk || { functionCalls: streamedToolCalls };
+            thoughts = Array.from(thoughtMap.values())
+                .filter(Boolean)
+                .map((value, index) => ({
+                    label: `思考块 ${index + 1}`,
+                    text: value,
+                }));
+            text = streamedText;
+        } else {
+            response = await chat.sendMessage(sendPayload);
+            thoughts = extractThoughts(response);
+            text = typeof response.text === 'string'
+                ? response.text
+                : (response.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').filter(Boolean).join('\n');
+        }
         const toolCalls = (response.functionCalls || []).map((item, index) => ({
             id: item.id || `google-tool-${index + 1}`,
             name: item.name || '',
             arguments: JSON.stringify(item.args || {}),
         })).filter((item) => item.name);
-
-        const text = typeof response.text === 'string'
-            ? response.text
-            : (response.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').filter(Boolean).join('\n');
+        const normalizedToolCalls = toolCalls.length
+            ? toolCalls
+            : finalFunctionCalls;
 
         return {
             text,
-            toolCalls,
+            toolCalls: normalizedToolCalls,
             thoughts,
             finishReason: response.candidates?.[0]?.finishReason || 'STOP',
             model: response.modelVersion || this.config.model,

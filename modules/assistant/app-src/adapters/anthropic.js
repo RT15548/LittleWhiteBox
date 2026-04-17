@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { createCorsProxyFetch } from './cors-proxy.js';
 
 function logOutgoingRequest(label, payload) {
     const targetConsole = globalThis.top?.console || console;
@@ -137,6 +136,14 @@ function buildAnthropicMessages(messages) {
     return filtered;
 }
 
+function emitStreamProgress(task, payload) {
+    if (typeof task.onStreamProgress !== 'function') return;
+    task.onStreamProgress({
+        ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
+        ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+    });
+}
+
 export class AnthropicAdapter {
     constructor(config) {
         this.config = config;
@@ -145,7 +152,6 @@ export class AnthropicAdapter {
             baseURL: String(config.baseUrl || 'https://api.anthropic.com/v1').replace(/\/$/, ''),
             timeout: Number(config.timeoutMs) || 180000,
             maxRetries: 0,
-            fetch: createCorsProxyFetch(Boolean(config.useCorsProxy)),
             dangerouslyAllowBrowser: true,
         });
     }
@@ -173,10 +179,46 @@ export class AnthropicAdapter {
             };
         }
         logOutgoingRequest('[LittleWhiteBox Assistant] Anthropic outgoing request', body);
+        let response;
 
-        const response = await this.client.messages.create(body, {
-            signal: task.signal,
-        });
+        if (typeof task.onStreamProgress === 'function') {
+            const stream = this.client.messages.stream(body, {
+                signal: task.signal,
+            });
+            const thoughtMap = new Map();
+            const buildThoughts = () => Array.from(thoughtMap.entries())
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([key, text]) => ({
+                    label: key.startsWith('redacted:') ? '已脱敏思考块' : '思考块',
+                    text,
+                }))
+                .filter((item) => item.text);
+
+            stream.on('text', (_delta, snapshot) => {
+                emitStreamProgress(task, {
+                    text: snapshot || '',
+                    thoughts: buildThoughts(),
+                });
+            });
+            stream.on('thinking', (_delta, snapshot) => {
+                thoughtMap.set('thinking:0', snapshot || '');
+                emitStreamProgress(task, {
+                    thoughts: buildThoughts(),
+                });
+            });
+            stream.on('contentBlock', (contentBlock) => {
+                if (contentBlock?.type !== 'redacted_thinking') return;
+                thoughtMap.set('redacted:0', contentBlock.data || '');
+                emitStreamProgress(task, {
+                    thoughts: buildThoughts(),
+                });
+            });
+            response = await stream.finalMessage();
+        } else {
+            response = await this.client.messages.create(body, {
+                signal: task.signal,
+            });
+        }
 
         const toolCalls = (response.content || [])
             .filter((item) => item.type === 'tool_use' && item.name)

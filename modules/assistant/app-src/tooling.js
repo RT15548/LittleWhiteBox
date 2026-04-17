@@ -3,6 +3,7 @@ export const TOOL_NAMES = {
     GLOB: 'Glob',
     GREP: 'Grep',
     READ: 'Read',
+    RUN_SLASH_COMMAND: 'RunSlashCommand',
     READ_WORKLOG: 'ReadWorklog',
     WRITE_WORKLOG: 'WriteWorklog',
 };
@@ -13,6 +14,7 @@ export const TOOL_USAGE_GUIDANCE = [
     '- `Glob` 只按路径模式匹配文件，适合先缩小文件集合；它不检查文件内容对不对。',
     '- `Grep` 只搜索文件内容里的命中片段；命中片段不是全文，也不代表上下文完整。结果很多时可配合 `offset` 和 `limit` 分页继续看。',
     '- `Read` 返回的是带行号的文件内容；如果返回 `truncated: true`、`hasMoreAfter: true`、`charLimited: true` 或 `nextStartLine`，表示当前只拿到一段，不是全文。',
+    '- `RunSlashCommand` 执行的是用户当前真实酒馆实例中的斜杠命令，不是快照；查询类可以直接用，可能改动实例状态的命令要先明确说明并征得用户同意。',
     '- 调用工具时，使用工具定义里的确切名字和参数名，不要自己改名或脑补额外字段。',
     '- 工具如果返回 `ok: false`、`error`、`raw`、`truncated`、`warning` 等字段，必须按字面理解并如实告诉用户，不要把失败、截断、空结果当成成功证据。',
     '- 如果工具返回的是原样 API / 代理错误文本，就直接基于该文本说明问题，不要擅自改写成别的原因。',
@@ -122,6 +124,26 @@ export const TOOL_DEFINITIONS = [
     {
         type: 'function',
         function: {
+            name: TOOL_NAMES.RUN_SLASH_COMMAND,
+            description: [
+                '执行 SillyTavern 斜杠命令（STscript）。',
+                '用途：查询用户当前真实酒馆实例里的 API、模型、角色、聊天、扩展状态，或在用户明确同意后执行角色创建等操作。',
+                '这不是读快照，而是直接作用于用户当前打开的实例。',
+                '调用前要先想清楚命令会不会改动实例状态；查询类命令可直接执行，创建/修改/删除/发送消息/切换状态类命令要先征得用户同意。',
+            ].join('\n'),
+            parameters: {
+                type: 'object',
+                properties: {
+                    command: { type: 'string', description: '要执行的斜杠命令文本，例如 /api、/model、/char-get field=name、/char-create name=\"Alice\"。' },
+                },
+                required: ['command'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
             name: TOOL_NAMES.READ_WORKLOG,
             description: '读取酒馆 user/files/LittleWhiteBox_Assistant_Worklog.md 这份固定工作记录；如果文件还不存在，也会返回不存在状态。',
             parameters: {
@@ -177,6 +199,8 @@ export function describeToolCall(name, args = {}) {
             return `搜索内容 ${args.pattern || ''}`.trim();
         case TOOL_NAMES.READ:
             return `读取文件 ${args.path || ''}${args.startLine ? `:${args.startLine}` : ''}${args.endLine ? `-${args.endLine}` : ''}`.trim();
+        case TOOL_NAMES.RUN_SLASH_COMMAND:
+            return `执行斜杠命令 ${args.command || ''}`.trim();
         case TOOL_NAMES.READ_WORKLOG:
             return '读取工作记录';
         case TOOL_NAMES.WRITE_WORKLOG:
@@ -344,6 +368,35 @@ export function formatToolResultDisplay(message) {
         return {
             summary: lines.filter(Boolean).join('\n'),
             details: String(parsed.content || ''),
+        };
+    }
+
+    if (message.toolName === TOOL_NAMES.RUN_SLASH_COMMAND) {
+        const lines = [
+            `已执行斜杠命令：${parsed.command || ''}`,
+            parsed.ok === false ? '状态：失败' : '状态：成功',
+        ];
+        if (parsed.error) {
+            lines.push(`错误：${parsed.error}`);
+        }
+        if (parsed.note) {
+            lines.push(`说明：${parsed.note}`);
+        }
+
+        let details = '';
+        if (parsed.result !== undefined) {
+            details = typeof parsed.result === 'string'
+                ? parsed.result
+                : JSON.stringify(parsed.result, null, 2);
+        } else if (parsed.raw) {
+            details = typeof parsed.raw === 'string'
+                ? parsed.raw
+                : JSON.stringify(parsed.raw, null, 2);
+        }
+
+        return {
+            summary: lines.filter(Boolean).join('\n'),
+            details,
         };
     }
 

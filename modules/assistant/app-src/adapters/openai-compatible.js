@@ -1,5 +1,4 @@
 import OpenAI from 'openai';
-import { createCorsProxyFetch } from './cors-proxy.js';
 
 function logOutgoingRequest(label, payload) {
     const targetConsole = globalThis.top?.console || console;
@@ -232,6 +231,14 @@ function buildTaggedMessages(task) {
     return messages;
 }
 
+function emitStreamProgress(task, payload) {
+    if (typeof task.onStreamProgress !== 'function') return;
+    task.onStreamProgress({
+        ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
+        ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+    });
+}
+
 export class OpenAICompatibleAdapter {
     constructor(config) {
         this.config = config;
@@ -240,7 +247,6 @@ export class OpenAICompatibleAdapter {
             baseURL: String(config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, ''),
             timeout: Number(config.timeoutMs) || 180000,
             maxRetries: 0,
-            fetch: createCorsProxyFetch(Boolean(config.useCorsProxy)),
             dangerouslyAllowBrowser: true,
         });
     }
@@ -269,6 +275,91 @@ export class OpenAICompatibleAdapter {
             };
         }
         logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI-Compatible outgoing request', body);
+        if (typeof task.onStreamProgress === 'function') {
+            const stream = await this.client.chat.completions.create({
+                ...body,
+                stream: true,
+            }, {
+                signal: task.signal,
+            });
+            const snapshot = {
+                content: '',
+                toolCalls: [],
+            };
+            let lastFinishReason = 'stop';
+            let lastModel = this.config.model;
+
+            for await (const chunk of stream) {
+                lastModel = chunk.model || lastModel;
+                const choice = chunk.choices?.[0];
+                const delta = choice?.delta || {};
+                if (choice?.finish_reason) {
+                    lastFinishReason = choice.finish_reason;
+                }
+                if (typeof delta.content === 'string') {
+                    snapshot.content += delta.content;
+                }
+                if (Array.isArray(delta.tool_calls)) {
+                    delta.tool_calls.forEach((toolCallDelta) => {
+                        const index = Number(toolCallDelta.index ?? 0);
+                        const current = snapshot.toolCalls[index] || {
+                            id: '',
+                            type: 'function',
+                            function: {
+                                name: '',
+                                arguments: '',
+                            },
+                        };
+                        snapshot.toolCalls[index] = {
+                            ...current,
+                            id: toolCallDelta.id || current.id,
+                            type: toolCallDelta.type || current.type,
+                            function: {
+                                name: toolCallDelta.function?.name || current.function?.name || '',
+                                arguments: `${current.function?.arguments || ''}${toolCallDelta.function?.arguments || ''}`,
+                            },
+                        };
+                    });
+                }
+
+                const thinkTagged = extractThinkTaggedContent(snapshot.content);
+                const standardToolCalls = snapshot.toolCalls.filter((item) => item?.function?.name);
+                const cleanedText = standardToolCalls.length
+                    ? thinkTagged.cleaned
+                    : thinkTagged.cleaned
+                        .replace(/<<TOOL_CALL>>[\s\S]*?<<\/TOOL_CALL>>/g, '')
+                        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+                        .trim();
+                emitStreamProgress(task, {
+                    text: cleanedText,
+                    thoughts: thinkTagged.thoughts,
+                });
+            }
+            const standardToolCalls = snapshot.toolCalls.map((item) => ({
+                id: item.id || `openai-tool-${Date.now()}`,
+                name: item.function?.name || '',
+                arguments: item.function?.arguments || '{}',
+            })).filter((item) => item.name);
+            const thinkTagged = extractThinkTaggedContent(snapshot.content);
+            const taggedToolCalls = standardToolCalls.length ? [] : extractTaggedToolCalls(thinkTagged.cleaned);
+            const toolCalls = [...standardToolCalls, ...taggedToolCalls];
+            const cleanedText = standardToolCalls.length
+                ? thinkTagged.cleaned
+                : thinkTagged.cleaned
+                    .replace(/<<TOOL_CALL>>[\s\S]*?<<\/TOOL_CALL>>/g, '')
+                    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+                    .trim();
+
+            return {
+                text: cleanedText,
+                toolCalls,
+                thoughts: thinkTagged.thoughts,
+                finishReason: lastFinishReason,
+                model: lastModel,
+                provider: 'openai-compatible',
+            };
+        }
+
         const response = await this.client.chat.completions.create(body, {
             signal: task.signal,
         });

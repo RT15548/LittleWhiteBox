@@ -1,13 +1,18 @@
 # SillyTavern JavaScript API 参考（第一部分：核心API与模块）
 
+> 版本基线：本文件按 SillyTavern `1.17.0` 前端源码整理。
+> 如果用户实际实例低于 `1.17.0`，或后续升级到更高版本，导出项、路径、事件、上下文字段和行为细节都可能变化；答疑时应先考虑版本差异。
+
 ---
 
 ## 1. 全局上下文 getContext()
 
-SillyTavern 通过 `SillyTavern.getContext()` 暴露核心功能接口。
+第三方前端扩展通常通过 `extensions.js` 获取上下文对象。
 
 ```javascript
-const context = SillyTavern.getContext();
+import { getContext } from "../../../extensions.js";
+
+const context = getContext();
 ```
 
 ### 1.1 聊天数据
@@ -17,6 +22,9 @@ const context = SillyTavern.getContext();
 | `context.chat` | Array | 当前聊天消息数组（可修改） |
 | `context.chatId` | String | 当前聊天ID |
 | `context.chatMetadata` | Object | 聊天元数据 |
+| `context.getCurrentChatId()` | Function | 获取当前聊天ID |
+| `context.reloadCurrentChat()` | Function | 重新加载当前聊天 |
+| `context.renameChat()` | Function | 重命名当前聊天 |
 | `context.saveChat()` | Function | 保存当前聊天 |
 | `context.clearChat()` | Function | 清空当前聊天 |
 
@@ -26,35 +34,123 @@ const context = SillyTavern.getContext();
 |----------|------|------|
 | `context.characters` | Array | 所有角色列表 |
 | `context.characterId` | Number | 当前角色ID |
-| `context.getCharacter(id)` | Function | 获取指定ID的角色 |
-| `context.saveCharacter()` | Function | 保存当前角色 |
+| `context.getCharacters()` | Function | 获取角色列表 |
+| `context.getOneCharacter()` | Function | 获取单个角色 |
+| `context.getCharacterCardFields()` | Function | 获取角色卡字段定义 |
+| `context.getCharacterSource()` | Function | 获取角色来源信息 |
+| `context.selectCharacterById()` | Function | 切换到指定角色 |
+| `context.openCharacterChat()` | Function | 打开角色聊天 |
 
 ### 1.3 群组数据
 
 | 属性/方法 | 类型 | 说明 |
 |----------|------|------|
 | `context.groups` | Array | 所有群组列表 |
-| `context.selectedGroup` | String | 当前选中群组ID |
-| `context.saveGroup()` | Function | 保存当前群组 |
+| `context.groupId` | String | 当前选中群组ID |
+| `context.openGroupChat()` | Function | 打开群组聊天 |
 
 ### 1.4 设置与工具
 
 | 属性/方法 | 说明 |
 |----------|------|
 | `context.extensionSettings` | 扩展设置对象 |
+| `context.mainApi` | 当前主 API 类型 |
+| `context.onlineStatus` | 当前在线状态 |
+| `context.maxContext` | 当前最大上下文长度 |
 | `context.saveSettingsDebounced` | 防抖保存设置函数 |
 | `context.saveMetadata()` | 保存元数据 |
+| `context.saveMetadataDebounced` | 防抖保存聊天元数据 |
+| `context.eventSource` | 事件发射器 |
+| `context.eventTypes` | 事件枚举 |
+| `context.extensionPrompts` | 当前扩展提示集合 |
+| `context.setExtensionPrompt()` | 写入扩展提示 |
 | `context.addLocaleData(locale, data)` | 添加本地化数据 |
-| `context.renderTemplate(path, data)` | 渲染模板 |
-| `context.getTokenCount(text)` | 获取文本token数量 |
+| `context.renderExtensionTemplateAsync(name, templateId, data)` | 渲染扩展模板 |
+| `context.getTokenCountAsync(text)` | 获取文本token数量 |
 | `context.generateQuietPrompt(text)` | 静默生成（不显示在聊天中） |
+| `context.generateRaw(prompt)` | 原始文本生成 |
+| `context.generateRawData(prompt)` | 原始生成数据接口 |
+| `context.chatCompletionSettings` | OpenAI/Chat Completion 设置对象 |
+| `context.textCompletionSettings` | 文本补全设置对象 |
+| `context.powerUserSettings` | 高级用户设置对象 |
+| `context.variables` | 本地/全局变量API集合 |
+| `context.swipe` | swipe操作集合 |
+| `context.registerFunctionTool()` | 注册函数工具 |
+| `context.unregisterFunctionTool()` | 注销函数工具 |
+| `context.isToolCallingSupported()` | 检查当前设置/模型是否支持工具调用 |
+| `context.canPerformToolCalls()` | 检查当前生成类型下是否允许执行工具调用 |
+| `context.ToolManager` | ToolManager 类本体 |
+| `context.getThumbnailUrl()` | 生成缩略图 URL |
+| `context.importFromExternalUrl()` | 从外部 URL 导入资源 |
+| `context.loader` | 全局加载器控制对象 |
+| `context.macros` | 宏系统入口 |
+| `context.accountStorage` | 账号级存储封装 |
+| `context.addOneMessage()` | 直接追加消息到当前聊天 |
+| `context.deleteLastMessage()` | 删除最后一条消息 |
+| `context.deleteMessage()` | 删除指定消息 |
+| `context.generate()` | 触发标准生成流程 |
+| `context.sendGenerationRequest()` | 发送非流式生成请求 |
+| `context.sendStreamingRequest()` | 发送流式生成请求 |
+| `context.stopGeneration()` | 停止当前生成 |
+| `context.tokenizers` | 可用 tokenizer 集合 |
+| `context.getTextTokens()` | 获取 tokenizer 切分结果 |
+| `context.getTokenizerModel()` | 获取当前 tokenizer 关联模型 |
+| `context.callGenericPopup()` | 打开通用弹窗 |
+| `context.Popup` | Popup 类 |
+| `context.POPUP_TYPE` | 弹窗类型枚举 |
+| `context.POPUP_RESULT` | 弹窗结果枚举 |
+| `context.messageFormatting` | 消息格式化工具集合 |
+| `context.shouldSendOnEnter` | 当前回车发送策略 |
+| `context.isMobile` | 当前是否移动端 |
+| `context.t` | i18n 翻译函数 |
+| `context.translate` | 翻译辅助函数 |
+| `context.getCurrentLocale()` | 获取当前语言 |
+| `context.tags` | 标签列表 |
+| `context.tagMap` | 标签映射 |
+| `context.menuType` | 当前右键/菜单模式 |
+| `context.createCharacterData` | 创建角色卡数据结构 |
+| `context.loadWorldInfo()` | 加载世界书 |
+| `context.saveWorldInfo()` | 保存世界书 |
+| `context.reloadWorldInfoEditor()` | 重载世界书编辑器 |
+| `context.updateWorldInfoList()` | 刷新世界书列表 |
+| `context.convertCharacterBook()` | 角色卡 lorebook 转换 |
+| `context.getWorldInfoPrompt()` | 获取 WI 注入结果 |
+| `context.CONNECT_API_MAP` | API 名称到连接配置的映射 |
+| `context.getTextGenServer()` | 获取当前文本补全服务端 |
+| `context.getPresetManager()` | 获取 preset manager |
+| `context.printMessages()` | 重新打印消息列表 |
+| `context.ChatCompletionService` | 聊天补全请求服务类 |
+| `context.TextCompletionService` | 文本补全请求服务类 |
+| `context.ConnectionManagerRequestService` | 连接管理请求服务类 |
+| `context.openThirdPartyExtensionMenu()` | 打开第三方扩展菜单 |
+| `context.symbols.ignore` | 临时忽略消息的 Symbol 标记 |
+
+### 1.5 `context.variables`
+
+| 路径 | 说明 |
+|------|------|
+| `context.variables.local.get/set/del/add/inc/dec/has` | 当前聊天局部变量读写 |
+| `context.variables.global.get/set/del/add/inc/dec/has` | 全局变量读写 |
+
+### 1.6 `context.swipe`
+
+| 路径 | 说明 |
+|------|------|
+| `context.swipe.left()` | 切到上一条 swipe |
+| `context.swipe.right()` | 切到下一条 swipe |
+| `context.swipe.to(index)` | 切到指定 swipe |
+| `context.swipe.show()` | 显示 swipe 按钮 |
+| `context.swipe.hide()` | 隐藏 swipe 按钮 |
+| `context.swipe.refresh()` | 刷新 swipe 按钮状态 |
+| `context.swipe.isAllowed()` | 检查当前是否允许 swipe |
+| `context.swipe.state()` | 读取当前 swipe 状态对象 |
 
 ---
 
 ## 2. 主模块导出 (script.js)
 
 ```javascript
-import { ... } from "../../../../script.js";
+import { ... } from "../../../script.js";
 ```
 
 ### 2.1 事件系统
@@ -106,7 +202,7 @@ import { ... } from "../../../../script.js";
 | `system_avatar` | `'img/five.png'` | 系统头像 |
 | `comment_avatar` | `'img/quill.png'` | 评论头像 |
 | `default_user_avatar` | `'img/user-default.png'` | 默认用户头像 |
-| `MAX_INJECTION_DEPTH` | `1000` | 最大注入深度 |
+| `MAX_INJECTION_DEPTH` | `10000` | 最大注入深度 |
 | `ANIMATION_DURATION_DEFAULT` | `125` | 默认动画时长(ms) |
 
 ---
@@ -123,11 +219,14 @@ import { ... } from "../../../extensions.js";
 | `getApiUrl` | 获取API URL |
 | `extension_settings` | 扩展设置存储对象 |
 | `extensionNames` | 扩展名称列表 |
+| `extensionTypes` | 扩展类型映射 |
 | `modules` | 活动模块列表 |
+| `cancelDebouncedMetadataSave` | 取消防抖元数据保存 |
 | `saveMetadataDebounced` | 防抖保存元数据 |
+| `renderExtensionTemplate` | 同步渲染扩展模板 |
 | `renderExtensionTemplateAsync` | 异步渲染扩展模板 |
-| `doExtrasFetch` | 执行Extras API请求 |
-| `runGenerationInterceptors` | 运行生成拦截器 |
+| `runGenerationInterceptors` | 运行所有扩展生成拦截器 |
+| `ModuleWorkerWrapper` | `SimpleMutex` 的导出别名 |
 | `writeExtensionField` | 写入扩展字段到角色数据 |
 
 ---
@@ -185,6 +284,7 @@ import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '
 |------|------|
 | `ARGUMENT_TYPE.STRING` | 字符串 |
 | `ARGUMENT_TYPE.NUMBER` | 数字 |
+| `ARGUMENT_TYPE.RANGE` | 范围 |
 | `ARGUMENT_TYPE.BOOLEAN` | 布尔值 |
 | `ARGUMENT_TYPE.LIST` | 列表/数组 |
 | `ARGUMENT_TYPE.DICTIONARY` | 对象/字典 |
@@ -223,12 +323,32 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
 }));
 ```
 
+### 5.3 运行时辅助
+
+```javascript
+import {
+  executeSlashCommands,
+  executeSlashCommandsWithOptions,
+  getSlashCommandsHelp,
+  registerSlashCommand,
+  CONNECT_API_MAP,
+} from '../../../slash-commands.js';
+```
+
+| 导出 | 说明 |
+|------|------|
+| `executeSlashCommands()` | 执行 STscript 文本 |
+| `executeSlashCommandsWithOptions()` | 带选项执行 STscript |
+| `getSlashCommandsHelp()` | 获取斜杠命令帮助 HTML |
+| `registerSlashCommand()` | 旧式命令注册接口，兼容用 |
+| `CONNECT_API_MAP` | `/api` 使用的 API 名称映射表 |
+
 ---
 
 ## 6. 工具函数模块 (utils.js)
 
 ```javascript
-import { ... } from './scripts/utils.js';
+import { ... } from '../../../utils.js';
 ```
 
 ### 6.1 时间与异步
@@ -280,12 +400,14 @@ import { ... } from './scripts/utils.js';
 
 | 导出 | 说明 |
 |------|------|
-| `world_info` | 世界信息数组 |
-| `world_names` | 世界名称列表 |
+| `world_info` | 世界书数据对象 |
+| `selected_world_info` | 当前激活的世界书列表 |
+| `world_names` | 世界书名称列表 |
 | `getWorldInfoPrompt()` | 获取世界信息提示 |
 | `getWorldInfoSettings()` | 获取世界信息设置 |
+| `updateWorldInfoSettings()` | 合并更新世界信息设置 |
 | `setWorldInfoSettings()` | 设置世界信息设置 |
-| `importWorldInfo()` | 导入世界信息 |
+| `convertCharacterBook()` | 将角色卡 lorebook 转成当前 WI 结构 |
 
 ### 7.2 标签 (tags.js)
 
@@ -313,14 +435,15 @@ const text = t`Settings`;  // 自动翻译
 
 | 导出 | 说明 |
 |------|------|
-| `renderTemplate(path, data)` | 同步渲染模板 |
-| `renderTemplateAsync(path, data)` | 异步渲染模板 |
+| `renderTemplate(templateId, data)` | 同步渲染模板 |
+| `renderTemplateAsync(templateId, data)` | 异步渲染模板 |
 
 ### 7.5 用户 (user.js)
 
 | 导出 | 说明 |
 |------|------|
 | `currentUser` | 当前用户对象 |
+| `accountsEnabled` | 是否启用多账号 |
 | `isAdmin()` | 是否为管理员 |
 | `setUserControls()` | 设置用户控制 |
 
@@ -336,6 +459,7 @@ const text = t`Settings`;  // 自动翻译
 
 | 导出 | 说明 |
 |------|------|
+| `MacrosParser` | 宏解析器类 |
 | `evaluateMacros(text)` | 解析文本中的宏 |
 | `getLastMessageId()` | 获取最后消息ID |
 
@@ -355,6 +479,8 @@ const text = t`Settings`;  // 自动翻译
 | `getBackgrounds()` | 获取背景列表 |
 | `background_settings` | 背景设置 |
 | `loadBackgroundSettings()` | 加载背景设置 |
+| `getBackgroundPath()` | 解析背景路径 |
+| `getActiveBackgroundTab()` | 获取当前背景页签 |
 
 ### 7.10 高级用户设置 (power-user.js)
 
@@ -371,10 +497,26 @@ const text = t`Settings`;  // 自动翻译
 | 导出 | 说明 |
 |------|------|
 | `oai_settings` | OpenAI设置对象 |
+| `model_list` | 当前模型列表缓存 |
+| `promptManager` | Chat Completion PromptManager 实例 |
 | `chat_completion_sources` | 聊天完成源枚举 |
+| `custom_prompt_post_processing_types` | Prompt Post-Processing 枚举 |
+| `setupChatCompletionPromptManager()` | 初始化 prompt manager |
 | `sendOpenAIRequest()` | 发送OpenAI请求 |
 | `getChatCompletionModel()` | 获取当前模型 |
 | `prepareOpenAIMessages()` | 准备消息数组 |
+| `TokenHandler` | token 预算/统计处理类 |
+| `IdentifierNotFoundError` | Prompt / MessageCollection 标识查找失败异常 |
+| `Message` | 单条聊天消息类 |
+| `MessageCollection` | 消息集合类 |
+
+### 7.12 系统消息 (system-messages.js)
+
+| 导出 | 说明 |
+|------|------|
+| `system_messages` | 已初始化的系统消息对象表 |
+| `SAFETY_CHAT` | 安全聊天消息数组 |
+| `system_message_types` | 系统消息类型枚举 |
 
 ---
 
@@ -387,7 +529,7 @@ const text = t`Settings`;  // 自动翻译
 ### 8.1 基本用法
 
 ```javascript
-import { eventSource, event_types } from "../../../../script.js";
+import { eventSource, event_types } from "../../../script.js";
 
 // 监听事件
 eventSource.on(event_types.MESSAGE_RECEIVED, handler);
@@ -406,6 +548,7 @@ await eventSource.emit('event_name', data);
 
 | 事件常量 | 实际值 | 触发时机 |
 |---------|--------|---------|
+| `APP_INITIALIZED` | `'app_initialized'` | 应用初始化逻辑完成 |
 | `APP_READY` | `'app_ready'` | 应用完全加载初始化后 |
 | `SETTINGS_LOADED` | `'settings_loaded'` | 用户设置加载完成 |
 | `SETTINGS_UPDATED` | `'settings_updated'` | 设置被修改保存 |
@@ -423,12 +566,17 @@ await eventSource.emit('event_name', data);
 | `MESSAGE_UPDATED` | `'message_updated'` | 消息内容或元数据更新 |
 | `MESSAGE_SWIPED` | `'message_swiped'` | 用户滑动消息变体 |
 | `MESSAGE_FILE_EMBEDDED` | `'message_file_embedded'` | 文件嵌入消息 |
+| `MESSAGE_REASONING_EDITED` | `'message_reasoning_edited'` | 推理内容被编辑 |
+| `MESSAGE_REASONING_DELETED` | `'message_reasoning_deleted'` | 推理内容被删除 |
+| `MESSAGE_SWIPE_DELETED` | `'message_swipe_deleted'` | 某条 swipe 被删除 |
+| `MORE_MESSAGES_LOADED` | `'more_messages_loaded'` | 向上加载更多历史消息 |
 
 ### 8.4 聊天事件
 
 | 事件常量 | 实际值 | 触发时机 |
 |---------|--------|---------|
 | `CHAT_CHANGED` | `'chat_id_changed'` | 切换聊天会话 |
+| `CHAT_LOADED` | `'chatLoaded'` | 聊天被载入到当前界面 |
 | `CHAT_CREATED` | `'chat_created'` | 新聊天被创建 |
 | `CHAT_DELETED` | `'chat_deleted'` | 聊天被删除 |
 
@@ -439,9 +587,12 @@ await eventSource.emit('event_name', data);
 | `CHARACTER_EDITED` | `'character_edited'` | 角色信息被修改保存 |
 | `CHARACTER_DELETED` | `'characterDeleted'` | 角色被删除 |
 | `CHARACTER_DUPLICATED` | `'character_duplicated'` | 角色被复制 |
+| `CHARACTER_RENAMED` | `'character_renamed'` | 角色被重命名 |
+| `CHARACTER_RENAMED_IN_PAST_CHAT` | `'character_renamed_in_past_chat'` | 历史聊天中的角色名被同步替换 |
 | `CHARACTER_PAGE_LOADED` | `'character_page_loaded'` | 角色管理页面加载完成 |
 | `CHARACTER_MESSAGE_RENDERED` | `'character_message_rendered'` | 角色消息UI渲染完成 |
 | `CHARACTER_FIRST_MESSAGE_SELECTED` | `'character_first_message_selected'` | 首条消息被选中 |
+| `CHARACTER_EDITOR_OPENED` | `'character_editor_opened'` | 角色编辑器被打开 |
 
 ### 8.6 生成事件
 
@@ -452,6 +603,7 @@ await eventSource.emit('event_name', data);
 | `GENERATION_ENDED` | `'generation_ended'` | AI完成生成 |
 | `GENERATION_AFTER_COMMANDS` | `'GENERATION_AFTER_COMMANDS'` | 斜杠命令执行后开始生成 |
 | `STREAM_TOKEN_RECEIVED` | `'stream_token_received'` | 流式生成收到token |
+| `STREAM_REASONING_DONE` | `'stream_reasoning_done'` | 推理流输出结束 |
 | `GENERATE_BEFORE_COMBINE_PROMPTS` | `'generate_before_combine_prompts'` | 合并提示组件前 |
 | `GENERATE_AFTER_COMBINE_PROMPTS` | `'generate_after_combine_prompts'` | 合并提示组件后 |
 | `GENERATE_AFTER_DATA` | `'generate_after_data'` | 生成数据处理完成 |
@@ -464,6 +616,8 @@ await eventSource.emit('event_name', data);
 | `GROUP_CHAT_CREATED` | `'group_chat_created'` | 群组聊天被创建 |
 | `GROUP_CHAT_DELETED` | `'group_chat_deleted'` | 群组聊天被删除 |
 | `GROUP_MEMBER_DRAFTED` | `'group_member_drafted'` | 群组成员被选中发言 |
+| `GROUP_WRAPPER_STARTED` | `'group_wrapper_started'` | 群组包装流程开始 |
+| `GROUP_WRAPPER_FINISHED` | `'group_wrapper_finished'` | 群组包装流程结束 |
 
 ### 8.8 扩展事件
 
@@ -497,6 +651,7 @@ await eventSource.emit('event_name', data);
 |---------|--------|---------|
 | `CHATCOMPLETION_SOURCE_CHANGED` | `'chatcompletion_source_changed'` | 切换API源 |
 | `CHATCOMPLETION_MODEL_CHANGED` | `'chatcompletion_model_changed'` | 切换模型 |
+| `MAIN_API_CHANGED` | `'main_api_changed'` | 切换主 API 类型 |
 | `OAI_PRESET_CHANGED_BEFORE` | `'oai_preset_changed_before'` | OpenAI预设即将更改 |
 | `OAI_PRESET_CHANGED_AFTER` | `'oai_preset_changed_after'` | OpenAI预设更改完成 |
 | `OAI_PRESET_EXPORT_READY` | `'oai_preset_export_ready'` | OpenAI预设准备导出 |
@@ -513,9 +668,27 @@ await eventSource.emit('event_name', data);
 | `FILE_ATTACHMENT_DELETED` | `'file_attachment_deleted'` | 文件附件被删除 |
 | `ONLINE_STATUS_CHANGED` | `'online_status_changed'` | 在线状态变化 |
 | `CONNECTION_PROFILE_LOADED` | `'connection_profile_loaded'` | 连接配置加载完成 |
+| `CONNECTION_PROFILE_CREATED` | `'connection_profile_created'` | 新建连接配置 |
+| `CONNECTION_PROFILE_DELETED` | `'connection_profile_deleted'` | 删除连接配置 |
+| `CONNECTION_PROFILE_UPDATED` | `'connection_profile_updated'` | 更新连接配置 |
 | `TOOL_CALLS_PERFORMED` | `'tool_calls_performed'` | 工具调用执行完成 |
 | `TOOL_CALLS_RENDERED` | `'tool_calls_rendered'` | 工具调用结果渲染完成 |
 | `OPEN_CHARACTER_LIBRARY` | `'open_character_library'` | 角色库界面被打开 |
+| `PRESET_CHANGED` | `'preset_changed'` | 预设切换或更新 |
+| `PRESET_DELETED` | `'preset_deleted'` | 预设被删除 |
+| `PRESET_RENAMED` | `'preset_renamed'` | 预设被重命名 |
+| `PRESET_RENAMED_BEFORE` | `'preset_renamed_before'` | 预设重命名前 |
+| `WORLDINFO_ENTRIES_LOADED` | `'worldinfo_entries_loaded'` | 世界书条目加载完成 |
+| `WORLDINFO_SCAN_DONE` | `'worldinfo_scan_done'` | 世界书扫描完成 |
+| `MEDIA_ATTACHMENT_DELETED` | `'media_attachment_deleted'` | 媒体附件被删除 |
+| `PERSONA_CHANGED` | `'persona_changed'` | 当前人格切换 |
+| `SECRET_WRITTEN` | `'secret_written'` | 密钥写入 |
+| `SECRET_DELETED` | `'secret_deleted'` | 密钥删除 |
+| `SECRET_ROTATED` | `'secret_rotated'` | 密钥轮换 |
+| `SECRET_EDITED` | `'secret_edited'` | 密钥编辑 |
+| `TTS_JOB_STARTED` | `'tts_job_started'` | TTS 任务开始 |
+| `TTS_AUDIO_READY` | `'tts_audio_ready'` | TTS 音频可播放 |
+| `TTS_JOB_COMPLETE` | `'tts_job_complete'` | TTS 任务完成 |
 
 ---
 
@@ -577,8 +750,9 @@ import { ToolManager } from '../../../tool-calling.js';
 ### 10.1 注册工具
 
 ```javascript
-ToolManager.registerTool({
+ToolManager.registerFunctionTool({
     name: 'tool_name',
+    displayName: '工具名',
     description: '工具描述',
     parameters: {
         type: 'object',
@@ -588,7 +762,7 @@ ToolManager.registerTool({
         },
         required: ['param1']
     },
-    handler: async (parameters) => {
+    action: async (parameters) => {
         return { result: '处理结果' };
     }
 });
@@ -598,10 +772,17 @@ ToolManager.registerTool({
 
 | 方法 | 说明 |
 |------|------|
-| `ToolManager.registerTool(config)` | 注册工具 |
-| `ToolManager.getAvailableTools()` | 获取可用工具列表 |
-| `ToolManager.invokeTool(name, params)` | 调用指定工具 |
-| `ToolManager.initToolSlashCommands()` | 初始化工具斜杠命令 |
+| `ToolManager.registerFunctionTool(config)` | 注册函数工具 |
+| `ToolManager.unregisterFunctionTool(name)` | 注销函数工具 |
+| `ToolManager.invokeFunctionTool(name, params)` | 调用指定函数工具 |
+| `ToolManager.getDisplayName(name)` | 获取工具显示名 |
+| `ToolManager.isStealthTool(name)` | 检查工具是否为 stealth 模式 |
+| `ToolManager.isToolCallingSupported(settings, model)` | 判断模型是否支持工具调用 |
+| `ToolManager.canPerformToolCalls(type, settings, model)` | 判断当前生成类型是否允许执行工具 |
+| `ToolManager.hasToolCalls(data)` | 判断返回数据里是否含工具调用 |
+| `ToolManager.showToolCallError(errors)` | 统一显示工具调用错误 |
+| `ToolManager.tools` | 当前已注册工具列表 |
+| `ToolManager.RECURSE_LIMIT` | 工具递归调用上限，当前为 `5` |
 
 ---
 
@@ -612,14 +793,13 @@ ToolManager.registerTool({
 ## 11. 系统消息类型
 
 ```javascript
-import { system_message_types } from "../../../../script.js";
+import { system_message_types } from "../../../system-messages.js";
 ```
 
 | 常量 | 值 | 说明 |
 |------|-----|------|
 | `HELP` | `'help'` | 帮助消息 |
 | `WELCOME` | `'welcome'` | 欢迎消息 |
-| `GROUP` | `'group'` | 群组消息 |
 | `EMPTY` | `'empty'` | 空消息 |
 | `GENERIC` | `'generic'` | 通用消息 |
 | `NARRATOR` | `'narrator'` | 旁白消息 |
@@ -630,13 +810,14 @@ import { system_message_types } from "../../../../script.js";
 | `MACROS` | `'macros'` | 宏消息 |
 | `WELCOME_PROMPT` | `'welcome_prompt'` | 欢迎提示 |
 | `ASSISTANT_NOTE` | `'assistant_note'` | 助手注释 |
+| `ASSISTANT_MESSAGE` | `'assistant_message'` | 助手系统消息 |
 
 ---
 
 ## 12. 扩展提示类型
 
 ```javascript
-import { extension_prompt_types, extension_prompt_roles } from "../../../../script.js";
+import { extension_prompt_types, extension_prompt_roles } from "../../../script.js";
 ```
 
 ### 12.1 提示类型
@@ -667,14 +848,29 @@ import { chat_completion_sources } from '../../../openai.js';
 | 常量 | 说明 |
 |------|------|
 | `OPENAI` | OpenAI API |
-| `WINDOWAI` | WindowAI |
 | `CLAUDE` | Anthropic Claude |
-| `SCALE` | Scale AI |
 | `OPENROUTER` | OpenRouter |
 | `AI21` | AI21 Labs |
 | `MAKERSUITE` | Google MakerSuite |
+| `VERTEXAI` | Google Vertex AI |
 | `MISTRALAI` | Mistral AI |
 | `CUSTOM` | 自定义API |
+| `COHERE` | Cohere |
+| `PERPLEXITY` | Perplexity |
+| `GROQ` | Groq |
+| `ELECTRONHUB` | ElectronHub |
+| `CHUTES` | Chutes |
+| `NANOGPT` | NanoGPT |
+| `DEEPSEEK` | DeepSeek |
+| `AIMLAPI` | AIMLAPI |
+| `XAI` | xAI |
+| `POLLINATIONS` | Pollinations |
+| `MOONSHOT` | Moonshot |
+| `FIREWORKS` | Fireworks |
+| `COMETAPI` | CometAPI |
+| `AZURE_OPENAI` | Azure OpenAI |
+| `ZAI` | Z.ai |
+| `SILICONFLOW` | SiliconFlow |
 
 ---
 
@@ -696,25 +892,29 @@ import { FILTER_STATES, FILTER_TYPES } from '../../../filters.js';
 
 | 常量 | 说明 |
 |------|------|
-| `CHARACTER` | 角色过滤器 |
+| `SEARCH` | 通用搜索过滤器 |
 | `GROUP` | 群组过滤器 |
 | `TAG` | 标签过滤器 |
 | `FOLDER` | 文件夹过滤器 |
+| `FAV` | 收藏过滤器 |
+| `WORLD_INFO_SEARCH` | 世界书搜索过滤器 |
+| `PERSONA_SEARCH` | 人格搜索过滤器 |
 
 ---
 
 ## 15. 防抖超时预设
 
 ```javascript
-import { debounce_timeout } from "../../../../script.js";
+import { debounce_timeout } from "../../../constants.js";
 ```
 
 | 常量 | 值 | 说明 |
 |------|-----|------|
 | `quick` | `100` | 快速 100ms |
-| `short` | `300` | 短 300ms |
+| `short` | `200` | 短 200ms |
+| `standard` | `300` | 标准 300ms |
 | `relaxed` | `1000` | 放松 1000ms |
-| `extended` | `3000` | 扩展 3000ms |
+| `extended` | `5000` | 扩展 5000ms |
 
 ---
 
@@ -874,10 +1074,10 @@ $.post(url, data).then(response => { ... })
 
 | 模块 | 相对路径（从扩展目录） |
 |------|----------------------|
-| script.js | `../../../../script.js` |
+| script.js | `../../../script.js` |
 | extensions.js | `../../../extensions.js` |
 | popup.js | `../../../popup.js` |
-| utils.js | `./scripts/utils.js` 或绝对路径 |
+| utils.js | `../../../utils.js` |
 | SlashCommandParser.js | `../../../slash-commands/SlashCommandParser.js` |
 | SlashCommand.js | `../../../slash-commands/SlashCommand.js` |
 | SlashCommandArgument.js | `../../../slash-commands/SlashCommandArgument.js` |
@@ -895,6 +1095,8 @@ $.post(url, data).then(response => { ... })
 | macros.js | `../../../macros.js` |
 | chats.js | `../../../chats.js` |
 | user.js | `../../../user.js` |
+| system-messages.js | `../../../system-messages.js` |
+| constants.js | `../../../constants.js` |
 | secrets.js | `../../../secrets.js` |
 
 ---
