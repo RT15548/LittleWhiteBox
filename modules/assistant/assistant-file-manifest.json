@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-17T09:08:56.348Z",
+  "generatedAt": "2026-04-17T10:19:19.382Z",
   "version": 1,
   "files": [
     {
@@ -124,14 +124,50 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/attachments.js",
+      "relativePath": "modules/assistant/app-src/attachments.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/chat-ui.js",
+      "relativePath": "modules/assistant/app-src/chat-ui.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/main.js",
       "relativePath": "modules/assistant/app-src/main.js",
       "extension": ".js"
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/prompts/system-prompt.js",
+      "relativePath": "modules/assistant/app-src/prompts/system-prompt.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime.js",
       "relativePath": "modules/assistant/app-src/runtime.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/session-store.js",
+      "relativePath": "modules/assistant/app-src/session-store.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/settings-panel.js",
+      "relativePath": "modules/assistant/app-src/settings-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/slash-command-policy.js",
+      "relativePath": "modules/assistant/app-src/slash-command-policy.js",
       "extension": ".js"
     },
     {
@@ -175,6 +211,12 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-language-reference.md",
       "relativePath": "modules/assistant/references/stscript-language-reference.md",
       "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/config.js",
+      "relativePath": "modules/assistant/shared/config.js",
+      "extension": ".js"
     },
     {
       "source": "littlewhitebox",

@@ -252,9 +252,6 @@ export class GoogleAdapter {
 
         const sendPayload = {
             message: conversation.latestMessage,
-            config: {
-                abortSignal: task.signal,
-            },
         };
         logOutgoingRequest('[LittleWhiteBox Assistant] Google AI outgoing send payload', sendPayload);
         let response;

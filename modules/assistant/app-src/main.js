@@ -5,11 +5,31 @@ import { GoogleAdapter } from './adapters/google.js';
 import {
     TOOL_DEFINITIONS,
     TOOL_NAMES,
-    TOOL_USAGE_GUIDANCE,
     describeToolCall,
     formatToolResultDisplay,
 } from './tooling.js';
 import { createAssistantRuntime } from './runtime.js';
+import {
+    DEFAULT_PRESET_NAME,
+    buildDefaultPreset,
+    cloneDefaultModelConfigs,
+    normalizeAssistantConfig,
+    normalizePresetName,
+} from '../shared/config.js';
+import {
+    normalizeSlashCommand,
+    shouldRequireSlashCommandApproval,
+} from './slash-command-policy.js';
+import { createSessionStore } from './session-store.js';
+import { createAttachmentsManager } from './attachments.js';
+import { createSettingsPanel } from './settings-panel.js';
+import { createChatUi } from './chat-ui.js';
+import {
+    EXAMPLE_PROMPTS,
+    HISTORY_SUMMARY_PREFIX,
+    SUMMARY_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+} from './prompts/system-prompt.js';
 
 const SOURCE = 'xb-assistant-app';
 const ROOT_ID = 'xb-assistant-root';
@@ -19,49 +39,8 @@ const MAX_CONTEXT_TOKENS = 128000;
 const SUMMARY_TRIGGER_TOKENS = 98000;
 const DEFAULT_PRESERVED_TURNS = 2;
 const MIN_PRESERVED_TURNS = 1;
-const SESSION_STORAGE_KEY = 'littlewhitebox.assistant.session.v2';
-const MAX_PERSISTED_MESSAGES = 60;
-const MAX_PERSISTED_CONTENT_CHARS = 16000;
 const MAX_IMAGE_ATTACHMENTS = 3;
 const MAX_IMAGE_FILE_BYTES = 4 * 1024 * 1024;
-const READ_ONLY_SLASH_COMMANDS = new Set([
-    'char-data',
-    'char-get',
-    'char-find',
-    'clipboard-get',
-    'extension-exists',
-    'extension-installed',
-    'extension-state',
-    'findchar',
-    'findentry',
-    'getchatname',
-    'getentryfield',
-    'getglobalbooks',
-    'getglobalvar',
-    'getpromptentry',
-    'getvar',
-    'is-mobile',
-    'len',
-    'listinjects',
-    'listvar',
-    'member-count',
-    'member-get',
-    'messages',
-    'tokens',
-    'wi-get-timed-effect',
-]);
-const READ_ONLY_SLASH_COMMANDS_WITH_SAFE_FLAGS = new Set([
-    'api',
-    'api-url',
-    'context',
-    'getcharbook',
-    'getchatbook',
-    'getpersonabook',
-    'instruct',
-    'instruct-state',
-    'model',
-    'tokenizer',
-]);
 const ACCEPTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 const TOAST_DURATION_MS = 2600;
 const TOAST_DURATION_MIN_MS = 1800;
@@ -81,96 +60,6 @@ const PROVIDER_OPTIONS = [
     { value: 'anthropic', label: 'Anthropic' },
     { value: 'google', label: 'Google AI' },
 ];
-const DEFAULT_PRESET_NAME = '默认';
-const DEFAULT_MODEL_CONFIGS = {
-    'openai-responses': {
-        baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-4.1-mini',
-        apiKey: '',
-        temperature: 0.2,
-    },
-    'openai-compatible': {
-        baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-4o-mini',
-        apiKey: '',
-        temperature: 0.2,
-        toolMode: 'native',
-    },
-    anthropic: {
-        baseUrl: 'https://api.anthropic.com/v1',
-        model: 'claude-sonnet-4-0',
-        apiKey: '',
-        temperature: 0.2,
-    },
-    google: {
-        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-        model: 'gemini-2.5-pro',
-        apiKey: '',
-        temperature: 0.2,
-    },
-};
-const EXAMPLE_PROMPTS = [
-    '这个功能的代码入口在哪个文件？',
-    '我当前用的是什么 API 和模型？',
-    '为什么某个设置勾上后刷新又没了？',
-    '帮我查一下某个报错是从哪条链路抛出来的。',
-];
-const MODEL_FILTERS = {
-    chat: {
-        include: [],
-        exclude: [
-            'embedding', 'embed', 'rerank', 'reranker', 'tts', 'speech', 'audio',
-            'whisper', 'transcription', 'stt', 'image', 'sdxl', 'flux', 'moderation',
-        ],
-    },
-};
-const PROJECT_STRUCTURE_HINT = [
-    '项目结构提示：',
-    '你当前运行在 SillyTavern 的 LittleWhiteBox 插件里；LittleWhiteBox 位于 public/scripts/extensions/third-party/LittleWhiteBox/。',
-    '你的可读范围是已索引公开前端文件，重点包括 LittleWhiteBox 自身，以及 SillyTavern 的 public/scripts/*；不要假装自己能看到后端、数据库、账号密码或未索引文件。',
-    '你用读文件工具时，路径要写成站点根相对公开路径，例如 scripts/extensions/third-party/LittleWhiteBox/index.js，而不是磁盘绝对路径。',
-    '如果你需要快速建立 SillyTavern 和 LittleWhiteBox 的目录心智、模块分层和常见入口，请优先读取：scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/project-structure.md 。',
-    '如果用户问 STscript 或 SillyTavern 前端 API，可以优先查看这两份参考资料：scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-language-reference.md 与 scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/sillytavern-javascript-api-reference.md 。',
-].join('\n');
-const SYSTEM_PROMPT = [
-    '你是“小白助手”，是 SillyTavern 中 LittleWhiteBox（中文一般称“小白X”）插件的内置技术支持助手，当前正在这个界面中为用户提供帮助。',
-    '',
-    '你的职责是：',
-    '- 解答 LittleWhiteBox 和 SillyTavern 前端代码、设置、模块行为和报错问题。',
-    '- 当问题涉及具体实现、文件路径、设置逻辑或错误原因时，优先使用工具查证后再回答。',
-    '',
-    '你的能力范围：',
-    '- 默认只读代码与资料；如果需要写入，只能写固定工作记录，不允许改代码。',
-    '- 可读取已索引的公开前端文件（LittleWhiteBox 和 SillyTavern public/scripts/*）；**这些文件是构建时的静态快照，不是用户当前实例的实时状态**。',
-    '- 可执行斜杠命令工具（RunSlashCommand）；**该工具作用于用户当前真实酒馆实例，可以查询实时状态（如当前 API、模型、角色等）**。',
-    '- 可读写工作记录（user/files/LittleWhiteBox_Assistant_Worklog.md），需要写入时直接调用写入工具，文件不存在就创建，用它保存长期排查结论和用户指定要你记住的事情。',
-    '- 不能访问后端、数据库、未索引文件。',
-    '',
-    '**重要区分 - 静态快照 vs 动态实例**：',
-    '- LS/Glob/Grep/Read 工具读取的是**静态代码快照**（构建时索引），用于查看源码实现、配置逻辑、模块结构。',
-    '- RunSlashCommand 工具查询的是**动态运行实例**（用户当前打开的酒馆），用于获取实时状态、设置值、角色数据。',
-    '- 当用户问"我的 API 是什么"时，用 RunSlashCommand；当用户问"API 设置的代码在哪"时，用 Grep/Read。',
-    '- 索引快照可能不包含用户最新修改的代码或配置文件；如需确认用户当前实例的实际状态，必须用 RunSlashCommand。',
-    '',
-    PROJECT_STRUCTURE_HINT,
-    '',
-    ...TOOL_USAGE_GUIDANCE,
-    '',
-    '回答要求：',
-    '- 具体、可核对，热情主动，必要时引用文件路径。',
-    '- 使用 RunSlashCommand 查询真实实例状态时，可以直接执行查询类命令。',
-    '- 如果 RunSlashCommand 可能创建、修改、删除、发送消息、切换状态或重载页面，必须先明确告诉用户准备执行的命令和预期结果，并在用户同意后再执行。',
-    '- 执行 RunSlashCommand 后，要如实说明实际执行的命令和工具返回结果，不要美化或改写失败原因。',
-].join('\n');
-const HISTORY_SUMMARY_PREFIX = '[历史摘要]';
-const SUMMARY_SYSTEM_PROMPT = [
-    '你要把一段较早的技术支持对话压缩成后续可继续接话的历史摘要。',
-    '只保留真正对后续排查有帮助的信息，不要寒暄，不要复述大段源码，不要保留大段 JSON。',
-    '必须覆盖这些点：当前目标/问题、已确认结论、未解决点、关键文件路径、关键设置/API/报错文本、用户明确偏好或限制。',
-    '如果某项信息不存在，就不要编造。',
-    '尽量紧凑清晰，适合直接作为后续上下文继续使用。',
-].join('\n');
-
 const state = {
     config: null,
     runtime: null,
@@ -197,10 +86,7 @@ const state = {
 const pendingToolCalls = new Map();
 const pendingApprovals = new Map();
 let toastTimer = null;
-let lastRenderedMessageCount = 0;
 let parsedAssistantUA = null;
-let chatScrollTicking = false;
-let chatScrollHideTimer = null;
 
 function post(type, payload = {}) {
     parent.postMessage({ source: SOURCE, type, payload }, window.location.origin);
@@ -216,6 +102,16 @@ function safeJsonParse(text, fallback = {}) {
     } catch {
         return fallback;
     }
+}
+
+let sessionStore = null;
+
+function persistSession() {
+    sessionStore?.persistSession();
+}
+
+function restoreSession() {
+    sessionStore?.restoreSession();
 }
 
 function getAssistantParsedUA() {
@@ -234,145 +130,6 @@ function isAssistantMobile() {
         return true;
     }
     return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
-}
-
-function normalizeSlashCommand(command) {
-    const normalized = String(command || '').trim();
-    if (!normalized) return '';
-    return normalized.startsWith('/') ? normalized : `/${normalized}`;
-}
-
-function getSlashCommandName(command) {
-    const normalized = normalizeSlashCommand(command);
-    if (!normalized) return '';
-    const body = normalized.slice(1).trim();
-    if (!body) return '';
-    return body.split(/\s+/)[0].toLowerCase();
-}
-
-function getSlashCommandTail(command) {
-    const normalized = normalizeSlashCommand(command);
-    if (!normalized) return '';
-    const body = normalized.slice(1).trim();
-    if (!body) return '';
-    const firstWhitespace = body.search(/\s/);
-    if (firstWhitespace < 0) return '';
-    return body.slice(firstWhitespace + 1).trim();
-}
-
-function tokenizeSlashCommandTail(tail) {
-    const normalized = String(tail || '').trim();
-    if (!normalized) return [];
-    return normalized.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
-}
-
-function parseSlashCommandTail(tail) {
-    const tokens = tokenizeSlashCommandTail(tail);
-    const named = new Map();
-    const positional = [];
-
-    tokens.forEach((token) => {
-        const match = token.match(/^([A-Za-z0-9_-]+)=(.+)$/);
-        if (!match) {
-            positional.push(token);
-            return;
-        }
-        const key = String(match[1] || '').trim();
-        const value = String(match[2] || '').trim();
-        named.set(key, value);
-    });
-
-    return { tokens, named, positional };
-}
-
-function stripOptionalQuotes(value) {
-    const text = String(value || '').trim();
-    if (text.length >= 2 && ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'")))) {
-        return text.slice(1, -1);
-    }
-    return text;
-}
-
-function isExplicitFalseLike(value) {
-    const normalized = stripOptionalQuotes(value).toLowerCase();
-    return ['false', 'off', '0', 'no'].includes(normalized);
-}
-
-function hasOnlySafeReadFlags(tail, allowedFlags = [], options = {}) {
-    const { allowPositional = false } = options;
-    const parsed = parseSlashCommandTail(tail);
-    if (!allowPositional && parsed.positional.length) {
-        return false;
-    }
-    return Array.from(parsed.named.keys()).every((key) => allowedFlags.includes(key));
-}
-
-function isReadOnlySlashInvocation(command) {
-    const name = getSlashCommandName(command);
-    if (!name) return false;
-
-    if (READ_ONLY_SLASH_COMMANDS.has(name)) {
-        return true;
-    }
-
-    const tail = getSlashCommandTail(command);
-    if (!READ_ONLY_SLASH_COMMANDS_WITH_SAFE_FLAGS.has(name)) {
-        return false;
-    }
-
-    switch (name) {
-        case 'api':
-        case 'context':
-        case 'model':
-            return hasOnlySafeReadFlags(tail, ['quiet']);
-        case 'tokenizer':
-            return tokenizeSlashCommandTail(tail).length === 0;
-        case 'api-url':
-            return hasOnlySafeReadFlags(tail, ['api', 'connect', 'quiet']);
-        case 'instruct':
-            return hasOnlySafeReadFlags(tail, ['quiet', 'forceGet']);
-        case 'instruct-state':
-            return tokenizeSlashCommandTail(tail).length === 0;
-        case 'getchatbook': {
-            const parsed = parseSlashCommandTail(tail);
-            return !parsed.positional.length
-                && !parsed.named.has('name')
-                && parsed.named.has('create')
-                && isExplicitFalseLike(parsed.named.get('create'));
-        }
-        case 'getpersonabook': {
-            const parsed = parseSlashCommandTail(tail);
-            if (parsed.positional.length || parsed.named.has('name')) {
-                return false;
-            }
-            if (!parsed.named.size) {
-                return true;
-            }
-            return parsed.named.size === 1
-                && parsed.named.has('create')
-                && isExplicitFalseLike(parsed.named.get('create'));
-        }
-        case 'getcharbook': {
-            const parsed = parseSlashCommandTail(tail);
-            const allowedKeys = ['type', 'create'];
-            const hasOnlyAllowedKeys = Array.from(parsed.named.keys()).every((key) => allowedKeys.includes(key));
-            if (!hasOnlyAllowedKeys || parsed.named.has('name')) {
-                return false;
-            }
-            if (parsed.named.has('create') && !isExplicitFalseLike(parsed.named.get('create'))) {
-                return false;
-            }
-            return parsed.positional.length <= 1;
-        }
-        default:
-            return false;
-    }
-}
-
-function shouldRequireSlashCommandApproval(command) {
-    const name = getSlashCommandName(command);
-    if (!name) return false;
-    return !isReadOnlySlashInvocation(command);
 }
 
 function findMessageByApprovalId(requestId) {
@@ -403,85 +160,8 @@ function buildSlashApprovalResult(command, approved) {
     };
 }
 
-function trimPersistedContent(content) {
-    const text = String(content || '');
-    if (text.length <= MAX_PERSISTED_CONTENT_CHARS) return text;
-    return `${text.slice(0, MAX_PERSISTED_CONTENT_CHARS)}\n\n[内容过长，已截断保存]`;
-}
-
 function normalizeReasoningEffort(value) {
     return REASONING_EFFORT_OPTIONS.some((item) => item.value === value) ? value : 'medium';
-}
-
-function cloneDefaultModelConfigs() {
-    return JSON.parse(JSON.stringify(DEFAULT_MODEL_CONFIGS));
-}
-
-function normalizePresetName(value) {
-    const normalized = String(value || '').trim();
-    return normalized || DEFAULT_PRESET_NAME;
-}
-
-function normalizeModelConfigs(modelConfigs = {}) {
-    const next = cloneDefaultModelConfigs();
-    Object.keys(DEFAULT_MODEL_CONFIGS).forEach((provider) => {
-        next[provider] = {
-            ...DEFAULT_MODEL_CONFIGS[provider],
-            ...((modelConfigs && typeof modelConfigs[provider] === 'object') ? modelConfigs[provider] : {}),
-        };
-    });
-    return next;
-}
-
-function buildDefaultPreset() {
-    return {
-        provider: 'openai-compatible',
-        modelConfigs: cloneDefaultModelConfigs(),
-    };
-}
-
-function normalizeAssistantConfig(config = {}) {
-    const presetsInput = (config && typeof config.presets === 'object' && config.presets)
-        ? config.presets
-        : (config?.modelConfigs
-            ? {
-                [normalizePresetName(config.currentPresetName || config.presetDraftName || DEFAULT_PRESET_NAME)]: {
-                    provider: config.provider || 'openai-compatible',
-                    modelConfigs: config.modelConfigs,
-                },
-            }
-            : {});
-
-    const presets = {};
-    Object.entries(presetsInput).forEach(([rawName, rawPreset]) => {
-        if (!rawPreset || typeof rawPreset !== 'object') return;
-        const name = normalizePresetName(rawName);
-        presets[name] = {
-            provider: typeof rawPreset.provider === 'string' && rawPreset.provider.trim()
-                ? rawPreset.provider
-                : 'openai-compatible',
-            modelConfigs: normalizeModelConfigs(rawPreset.modelConfigs || {}),
-        };
-    });
-
-    if (!Object.keys(presets).length) {
-        presets[DEFAULT_PRESET_NAME] = buildDefaultPreset();
-    }
-
-    const currentPresetName = presets[normalizePresetName(config.currentPresetName)]
-        ? normalizePresetName(config.currentPresetName)
-        : Object.keys(presets)[0];
-    const currentPreset = presets[currentPresetName] || buildDefaultPreset();
-
-    return {
-        workspaceFileName: String(config.workspaceFileName || ''),
-        currentPresetName,
-        presetDraftName: normalizePresetName(config.presetDraftName || currentPresetName),
-        presetNames: Object.keys(presets),
-        presets,
-        provider: currentPreset.provider,
-        modelConfigs: currentPreset.modelConfigs,
-    };
 }
 
 function normalizeThoughtBlocks(thoughts) {
@@ -504,271 +184,6 @@ function normalizeThoughtBlocks(thoughts) {
             seen.add(key);
             return true;
         });
-}
-
-function normalizeAttachments(attachments) {
-    if (!Array.isArray(attachments)) return [];
-    return attachments
-        .map((item) => {
-            if (!item || typeof item !== 'object') return null;
-            if (item.kind !== 'image') return null;
-            const type = String(item.type || '').trim().toLowerCase();
-            const dataUrl = typeof item.dataUrl === 'string' ? item.dataUrl.trim() : '';
-            const hasPayload = dataUrl.startsWith('data:image/');
-            if (type && !ACCEPTED_IMAGE_MIME_TYPES.includes(type)) return null;
-            return {
-                kind: 'image',
-                name: String(item.name || 'image').trim() || 'image',
-                type: type || 'image/png',
-                dataUrl: hasPayload ? dataUrl : '',
-                size: Math.max(0, Number(item.size) || 0),
-            };
-        })
-        .filter(Boolean);
-}
-
-function buildAttachmentSummary(attachments) {
-    const normalized = normalizeAttachments(attachments);
-    if (!normalized.length) return '';
-    const names = normalized.map((item) => item.name).join('、');
-    return `[附图 ${normalized.length} 张：${names}]`;
-}
-
-function buildTextWithAttachmentSummary(text, attachments) {
-    const summary = buildAttachmentSummary(attachments);
-    const content = String(text || '').trim();
-    if (!summary) return content;
-    return [content, summary].filter(Boolean).join('\n');
-}
-
-function buildUserContentParts(message = {}) {
-    const attachments = normalizeAttachments(message.attachments).filter((item) => item.dataUrl);
-    const parts = [];
-    if (message.content?.trim()) {
-        parts.push({ type: 'text', text: message.content.trim() });
-    }
-    attachments.forEach((attachment) => {
-        parts.push({
-            type: 'image_url',
-            image_url: { url: attachment.dataUrl },
-            mimeType: attachment.type,
-            name: attachment.name,
-        });
-    });
-    return parts.length ? parts : [{ type: 'text', text: '' }];
-}
-
-function createImageAttachmentFromFile(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error(`读取图片失败：${file.name || '未命名图片'}`));
-        reader.onload = () => {
-            resolve({
-                kind: 'image',
-                name: getImageAttachmentName(file),
-                type: file.type || 'image/png',
-                size: Number(file.size) || 0,
-                dataUrl: typeof reader.result === 'string' ? reader.result : '',
-            });
-        };
-        reader.readAsDataURL(file);
-    });
-}
-
-function getImageAttachmentName(file) {
-    const name = typeof file?.name === 'string' ? file.name.trim() : '';
-    if (name) return name;
-    const ext = getImageExtensionFromMime(file?.type);
-    return `clipboard-image-${Date.now()}.${ext}`;
-}
-
-function getImageExtensionFromMime(mimeType) {
-    switch (String(mimeType || '').toLowerCase()) {
-        case 'image/jpeg':
-            return 'jpg';
-        case 'image/webp':
-            return 'webp';
-        case 'image/gif':
-            return 'gif';
-        case 'image/png':
-        default:
-            return 'png';
-    }
-}
-
-function validateImageFiles(files) {
-    const normalizedFiles = Array.isArray(files) ? files.filter(Boolean) : [];
-    const remainingSlots = Math.max(0, MAX_IMAGE_ATTACHMENTS - state.draftAttachments.length);
-    if (!remainingSlots) {
-        return {
-            validFiles: [],
-            rejectedReason: `最多只能附 ${MAX_IMAGE_ATTACHMENTS} 张图片`,
-            reachedLimit: true,
-            hadOverflow: false,
-        };
-    }
-
-    const acceptedFiles = normalizedFiles.slice(0, remainingSlots);
-    const validFiles = [];
-    let rejectedReason = '';
-
-    acceptedFiles.forEach((file) => {
-        if (!ACCEPTED_IMAGE_MIME_TYPES.includes(file.type)) {
-            rejectedReason = '只支持 PNG、JPG、WEBP、GIF 图片';
-            return;
-        }
-        if ((Number(file.size) || 0) > MAX_IMAGE_FILE_BYTES) {
-            rejectedReason = `单张图片不能超过 ${Math.round(MAX_IMAGE_FILE_BYTES / (1024 * 1024))}MB`;
-            return;
-        }
-        validFiles.push(file);
-    });
-
-    return {
-        validFiles,
-        rejectedReason,
-        reachedLimit: false,
-        hadOverflow: normalizedFiles.length > remainingSlots,
-    };
-}
-
-async function appendDraftImageFiles(files) {
-    const normalizedFiles = Array.isArray(files) ? files.filter(Boolean) : [];
-    if (!normalizedFiles.length) return false;
-
-    const { validFiles, rejectedReason, reachedLimit, hadOverflow } = validateImageFiles(normalizedFiles);
-    if (!validFiles.length) {
-        showToast(rejectedReason || '没有可添加的图片');
-        return reachedLimit || Boolean(rejectedReason);
-    }
-
-    try {
-        const attachments = await Promise.all(validFiles.map((file) => createImageAttachmentFromFile(file)));
-        state.draftAttachments = [...state.draftAttachments, ...attachments].slice(0, MAX_IMAGE_ATTACHMENTS);
-        render();
-        if (rejectedReason || hadOverflow) {
-            showToast(rejectedReason || `最多只能附 ${MAX_IMAGE_ATTACHMENTS} 张图片`);
-        }
-        return true;
-    } catch (error) {
-        showToast(String(error?.message || '读取图片失败'));
-        return true;
-    }
-}
-
-function serializeMessage(message) {
-    const approvalRequest = message?.approvalRequest && typeof message.approvalRequest === 'object'
-        ? {
-            id: String(message.approvalRequest.id || ''),
-            kind: String(message.approvalRequest.kind || ''),
-            command: String(message.approvalRequest.command || ''),
-            status: String(message.approvalRequest.status || ''),
-        }
-        : null;
-    return {
-        role: message.role,
-        content: trimPersistedContent(message.content),
-        attachments: normalizeAttachments(message.attachments).map((attachment) => ({
-            kind: attachment.kind,
-            name: attachment.name,
-            type: attachment.type,
-            size: attachment.size,
-        })),
-        toolCallId: message.toolCallId || '',
-        toolName: message.toolName || '',
-        toolCalls: Array.isArray(message.toolCalls)
-            ? message.toolCalls.map((toolCall) => ({
-                id: toolCall.id || '',
-                name: toolCall.name || '',
-                arguments: trimPersistedContent(toolCall.arguments || '{}'),
-            }))
-            : [],
-        thoughts: normalizeThoughtBlocks(message.thoughts).map((item) => ({
-            label: item.label,
-            text: trimPersistedContent(item.text),
-        })),
-        approvalRequest: approvalRequest && approvalRequest.status && approvalRequest.status !== 'pending'
-            ? approvalRequest
-            : undefined,
-    };
-}
-
-function normalizeRestoredMessage(message) {
-    if (!message || typeof message !== 'object') return null;
-    if (!['user', 'assistant', 'tool'].includes(message.role)) return null;
-    const approvalRequest = message.approvalRequest && typeof message.approvalRequest === 'object'
-        ? {
-            id: String(message.approvalRequest.id || ''),
-            kind: String(message.approvalRequest.kind || ''),
-            command: String(message.approvalRequest.command || ''),
-            status: String(message.approvalRequest.status || ''),
-        }
-        : undefined;
-    return {
-        role: message.role,
-        content: String(message.content || ''),
-        attachments: normalizeAttachments(message.attachments),
-        toolCallId: message.toolCallId ? String(message.toolCallId) : undefined,
-        toolName: message.toolName ? String(message.toolName) : undefined,
-        toolCalls: Array.isArray(message.toolCalls)
-            ? message.toolCalls
-                .filter((toolCall) => toolCall && typeof toolCall === 'object' && toolCall.name)
-                .map((toolCall) => ({
-                    id: String(toolCall.id || createRequestId('tool')),
-                    name: String(toolCall.name || ''),
-                    arguments: String(toolCall.arguments || '{}'),
-                }))
-            : undefined,
-        thoughts: normalizeThoughtBlocks(message.thoughts),
-        approvalRequest: approvalRequest?.status && approvalRequest.status !== 'pending'
-            ? approvalRequest
-            : undefined,
-    };
-}
-
-function isPersistableMessage(message) {
-    if (!message || typeof message !== 'object') return false;
-    if (message.streaming) return false;
-    if (message.approvalRequest?.status === 'pending') return false;
-    return true;
-}
-
-function persistSession() {
-    try {
-        const activeMessages = getActiveContextMessages()
-            .filter(isPersistableMessage)
-            .slice(-MAX_PERSISTED_MESSAGES);
-        const summary = trimPersistedContent(state.historySummary || '');
-        if (!activeMessages.length && !summary) {
-            localStorage.removeItem(SESSION_STORAGE_KEY);
-            return;
-        }
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-            messages: activeMessages.map(serializeMessage),
-            historySummary: summary,
-            sidebarCollapsed: state.sidebarCollapsed,
-        }));
-    } catch {
-        // Ignore localStorage failures.
-    }
-}
-
-function restoreSession() {
-    try {
-        const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-        const parsed = safeJsonParse(raw, {});
-        state.messages = Array.isArray(parsed.messages)
-            ? parsed.messages.map(normalizeRestoredMessage).filter(Boolean)
-            : [];
-        state.historySummary = String(parsed.historySummary || '');
-        state.archivedTurnCount = 0;
-        state.sidebarCollapsed = parsed.sidebarCollapsed !== undefined ? !!parsed.sidebarCollapsed : true;
-    } catch {
-        state.messages = [];
-        state.historySummary = '';
-        state.archivedTurnCount = 0;
-        state.sidebarCollapsed = true;
-    }
 }
 
 function showToast(text) {
@@ -826,243 +241,22 @@ function getProviderModels(provider) {
     return Array.isArray(state.modelOptionsByProvider[provider]) ? state.modelOptionsByProvider[provider] : [];
 }
 
-function refillSelect(select, options, placeholderLabel = '') {
-    select.replaceChildren();
-    if (placeholderLabel) {
-        const placeholder = document.createElement('option');
-        placeholder.value = '';
-        placeholder.textContent = placeholderLabel;
-        select.appendChild(placeholder);
-    }
-    options.forEach((option) => {
-        const item = document.createElement('option');
-        item.value = option.value;
-        item.textContent = option.label;
-        select.appendChild(item);
-    });
-}
+const attachmentsManager = createAttachmentsManager({
+    state,
+    showToast,
+    render,
+    acceptedImageMimeTypes: ACCEPTED_IMAGE_MIME_TYPES,
+    maxImageAttachments: MAX_IMAGE_ATTACHMENTS,
+    maxImageFileBytes: MAX_IMAGE_FILE_BYTES,
+});
 
-function filterModels(models = []) {
-    const normalized = [...new Set(models.filter(Boolean).map((model) => String(model).trim()).filter(Boolean))];
-    const rule = MODEL_FILTERS.chat;
-    const filtered = normalized.filter((modelId) => {
-        const lower = modelId.toLowerCase();
-        return !rule.exclude.some((keyword) => lower.includes(keyword));
-    });
-    return filtered.length ? filtered : normalized;
-}
-
-function normalizeBaseUrl(rawBaseUrl) {
-    return String(rawBaseUrl || '').trim().replace(/\/+$/, '');
-}
-
-function uniqueUrls(urls = []) {
-    return [...new Set(urls.filter(Boolean).map((url) => String(url).trim()).filter(Boolean))];
-}
-
-function buildOpenAICandidateUrls(baseUrl) {
-    const normalized = normalizeBaseUrl(baseUrl);
-    if (!normalized) return [];
-    if (normalized.endsWith('/v1')) {
-        const root = normalized.slice(0, -3);
-        return uniqueUrls([
-            `${normalized}/models`,
-            `${root}/v1/models`,
-            `${root}/models`,
-        ]);
-    }
-    return uniqueUrls([
-        `${normalized}/v1/models`,
-        `${normalized}/models`,
-    ]);
-}
-
-function buildAnthropicCandidateUrls(baseUrl) {
-    const normalized = normalizeBaseUrl(baseUrl);
-    if (!normalized) return [];
-    if (normalized.endsWith('/v1')) {
-        const root = normalized.slice(0, -3);
-        return uniqueUrls([
-            `${normalized}/models`,
-            `${root}/v1/models`,
-            `${root}/models`,
-        ]);
-    }
-    return uniqueUrls([
-        `${normalized}/v1/models`,
-        `${normalized}/models`,
-    ]);
-}
-
-function buildGoogleCandidateUrls(baseUrl, apiKey) {
-    const normalized = normalizeBaseUrl(baseUrl);
-    if (!normalized) return [];
-    const root = normalized.endsWith('/v1beta') ? normalized.slice(0, -7) : normalized;
-    return uniqueUrls([
-        `${normalized}/models?key=${encodeURIComponent(apiKey)}`,
-        `${normalized}/models`,
-        `${root}/v1beta/models?key=${encodeURIComponent(apiKey)}`,
-        `${root}/v1beta/models`,
-        `${root}/models?key=${encodeURIComponent(apiKey)}`,
-        `${root}/models`,
-    ]);
-}
-
-function extractErrorSnippet(payload, rawText) {
-    const candidates = [
-        payload?.error?.message,
-        payload?.message,
-        payload?.detail,
-        payload?.details,
-        payload?.error,
-    ];
-    const found = candidates.find((item) => typeof item === 'string' && item.trim());
-    if (found) return found.trim();
-    return String(rawText || '').trim().slice(0, 160);
-}
-
-async function fetchJsonWithDiagnostics(url, options = {}) {
-    const response = await fetch(url, options);
-    const rawText = await response.text();
-    let data = null;
-    let parseError = null;
-
-    try {
-        data = rawText ? JSON.parse(rawText) : {};
-    } catch (error) {
-        parseError = error;
-    }
-
-    return {
-        ok: response.ok,
-        status: response.status,
-        url,
-        data,
-        rawText,
-        parseError,
-        errorSnippet: extractErrorSnippet(data, rawText),
-    };
-}
-
-function extractOpenAIModels(data) {
-    return filterModels((data?.data || []).map((item) => String(item?.id || '').trim()).filter(Boolean));
-}
-
-function extractAnthropicModels(data) {
-    return filterModels((data?.data || []).map((item) => String(item?.id || '').trim()).filter(Boolean));
-}
-
-function extractGoogleModels(data) {
-    return filterModels(
-        ((data?.models || data?.data || []).map((item) => String(item?.id || item?.name || '')))
-            .map((item) => item.split('/').pop() || '')
-            .filter(Boolean),
-    );
-}
-
-async function tryCandidateFetches({ urls, requestOptionsList, extractModels, providerLabel }) {
-    let lastFailure = null;
-
-    for (const url of urls) {
-        for (const requestOptions of requestOptionsList) {
-            const result = await fetchJsonWithDiagnostics(url, requestOptions);
-            if (!result.ok) {
-                lastFailure = result;
-                continue;
-            }
-            if (result.parseError) {
-                lastFailure = {
-                    ...result,
-                    errorSnippet: '返回的不是 JSON',
-                };
-                continue;
-            }
-            const models = extractModels(result.data);
-            if (models.length) {
-                return models;
-            }
-            lastFailure = {
-                ...result,
-                errorSnippet: '返回成功，但模型列表为空',
-            };
-        }
-    }
-
-    if (lastFailure) {
-        const suffix = lastFailure.url ? ` (${lastFailure.url})` : '';
-        const detail = lastFailure.errorSnippet ? `：${lastFailure.errorSnippet}` : '';
-        throw new Error(`${providerLabel} 拉取模型失败：${lastFailure.status || 'unknown'}${detail}${suffix}`);
-    }
-
-    throw new Error(`${providerLabel} 拉取模型失败：未获取到模型列表。`);
-}
-
-async function pullModelsForProvider(providerConfig) {
-    const provider = providerConfig.provider;
-    const baseUrl = normalizeBaseUrl(providerConfig.baseUrl || '');
-    const apiKey = String(providerConfig.apiKey || '').trim();
-
-    if (!apiKey) {
-        throw new Error('请先填写 API Key。');
-    }
-    if (!baseUrl) {
-        throw new Error('请先填写 Base URL。');
-    }
-
-    if (provider === 'google') {
-        return await tryCandidateFetches({
-            urls: buildGoogleCandidateUrls(baseUrl, apiKey),
-            requestOptionsList: [
-                {
-                    headers: {
-                        Accept: 'application/json',
-                        'x-goog-api-key': apiKey,
-                    },
-                },
-                {
-                    headers: {
-                        Accept: 'application/json',
-                        Authorization: `Bearer ${apiKey}`,
-                    },
-                },
-                {
-                    headers: {
-                        Accept: 'application/json',
-                    },
-                },
-            ],
-            extractModels: extractGoogleModels,
-            providerLabel: 'Google AI',
-        });
-    }
-
-    if (provider === 'anthropic') {
-        return await tryCandidateFetches({
-            urls: buildAnthropicCandidateUrls(baseUrl),
-            requestOptionsList: [{
-                headers: {
-                    'x-api-key': apiKey,
-                    'anthropic-version': '2023-06-01',
-                    Accept: 'application/json',
-                },
-            }],
-            extractModels: extractAnthropicModels,
-            providerLabel: 'Anthropic',
-        });
-    }
-
-    return await tryCandidateFetches({
-        urls: buildOpenAICandidateUrls(baseUrl),
-        requestOptionsList: [{
-            headers: {
-                Authorization: `Bearer ${apiKey}`,
-                Accept: 'application/json',
-            },
-        }],
-        extractModels: extractOpenAIModels,
-        providerLabel: provider === 'openai-responses' ? 'OpenAI Responses' : 'OpenAI-Compatible',
-    });
-}
+const {
+    normalizeAttachments,
+    buildTextWithAttachmentSummary,
+    buildUserContentParts,
+    appendDraftImageFiles,
+    renderAttachmentGallery,
+} = attachmentsManager;
 
 function describeError(error) {
     const raw = String(error?.message || error || 'unknown_error');
@@ -1081,115 +275,52 @@ function describeError(error) {
     return raw;
 }
 
-function escapeHtml(text) {
-    return String(text || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+const settingsPanel = createSettingsPanel({
+    state,
+    post,
+    render,
+    showToast,
+    describeError,
+    getPullState,
+    setPullState,
+    setProviderModels,
+    getProviderModels,
+    getProviderLabel,
+    normalizeReasoningEffort,
+    normalizeAssistantConfig,
+    normalizePresetName,
+    buildDefaultPreset,
+    cloneDefaultModelConfigs,
+    defaultPresetName: DEFAULT_PRESET_NAME,
+    requestTimeoutMs: REQUEST_TIMEOUT_MS,
+    toolModeOptions: TOOL_MODE_OPTIONS,
+    reasoningEffortOptions: REASONING_EFFORT_OPTIONS,
+});
 
-function renderMarkdown(text) {
-    const raw = String(text || '').trim();
-    if (!raw) return '';
+const {
+    getActiveProviderConfig,
+    syncCurrentProviderDraft,
+    syncConfigToForm,
+    bindSettingsPanelEvents,
+} = settingsPanel;
 
-    try {
-        const showdownLib = globalThis.parent?.showdown || globalThis.showdown;
-        const DOMPurifyLib = globalThis.parent?.DOMPurify || globalThis.DOMPurify;
-        if (showdownLib?.Converter && DOMPurifyLib?.sanitize) {
-            const converter = new showdownLib.Converter({
-                simpleLineBreaks: true,
-                strikethrough: true,
-                tables: true,
-                tasklists: true,
-                ghCodeBlocks: true,
-                simplifiedAutoLink: true,
-                openLinksInNewWindow: true,
-                emoji: false,
-            });
-            const html = converter.makeHtml(raw);
-            return DOMPurifyLib.sanitize(html, {
-                USE_PROFILES: { html: true },
-                FORBID_TAGS: ['style', 'script'],
-            });
-        }
-    } catch {
-        // Fall back to escaped plain text below.
-    }
+const chatUi = createChatUi({
+    state,
+    examplePrompts: EXAMPLE_PROMPTS,
+    toolNames: TOOL_NAMES,
+    formatToolResultDisplay,
+    normalizeThoughtBlocks,
+    normalizeAttachments,
+    renderAttachmentGallery,
+});
 
-    return escapeHtml(raw).replace(/\n/g, '<br>');
-}
-
-function buildSanitizedHtmlFragment(html) {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(`<body>${String(html || '')}</body>`, 'text/html');
-    const fragment = document.createDocumentFragment();
-    Array.from(doc.body.childNodes).forEach((node) => {
-        fragment.appendChild(document.importNode(node, true));
-    });
-    return fragment;
-}
-
-function renderAttachmentGallery(container, attachments = [], options = {}) {
-    const items = normalizeAttachments(attachments);
-    container.replaceChildren();
-    container.style.display = items.length ? '' : 'none';
-    if (!items.length) return;
-
-    items.forEach((attachment, index) => {
-        const card = document.createElement('div');
-        card.className = options.compact ? 'xb-assistant-attachment-card compact' : 'xb-assistant-attachment-card';
-
-        if (attachment.dataUrl) {
-            const image = document.createElement('img');
-            image.className = 'xb-assistant-attachment-image';
-            image.src = attachment.dataUrl;
-            image.alt = attachment.name;
-            card.appendChild(image);
-        } else {
-            const placeholder = document.createElement('div');
-            placeholder.className = 'xb-assistant-attachment-placeholder';
-            placeholder.textContent = '图片';
-            card.appendChild(placeholder);
-        }
-
-        const meta = document.createElement('div');
-        meta.className = 'xb-assistant-attachment-name';
-        meta.textContent = attachment.name;
-        card.appendChild(meta);
-
-        if (typeof options.onRemove === 'function') {
-            const removeButton = document.createElement('button');
-            removeButton.type = 'button';
-            removeButton.className = 'xb-assistant-attachment-remove';
-            removeButton.textContent = '×';
-            removeButton.title = '移除图片';
-            removeButton.addEventListener('click', () => options.onRemove(index));
-            card.appendChild(removeButton);
-        }
-
-        container.appendChild(card);
-    });
-}
-
-function getActiveProviderConfig() {
-    const config = state.config || {};
-    const provider = config.provider || 'openai-compatible';
-    const providerConfig = (config.modelConfigs || {})[provider] || {};
-    return {
-        provider,
-        baseUrl: providerConfig.baseUrl || '',
-        model: providerConfig.model || '',
-        apiKey: providerConfig.apiKey || '',
-        temperature: Number(providerConfig.temperature ?? 0.2),
-        maxTokens: null,
-        timeoutMs: REQUEST_TIMEOUT_MS,
-        toolMode: providerConfig.toolMode || 'native',
-        reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
-        reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
-    };
-}
+const {
+    renderMessages,
+    scrollChatToBottom,
+    scrollChatToTop,
+    updateChatScrollButtonsVisibility,
+    handleAssistantChatScroll,
+} = chatUi;
 
 function createAdapter() {
     const providerConfig = getActiveProviderConfig();
@@ -1258,338 +389,28 @@ const {
     runAssistantLoop,
 } = runtime;
 
+sessionStore = createSessionStore({
+    state,
+    safeJsonParse,
+    createRequestId,
+    normalizeAttachments,
+    normalizeThoughtBlocks,
+    getActiveContextMessages,
+});
+
 function applyConfig(config) {
     state.config = normalizeAssistantConfig(config || {});
     render();
 }
 
-function collectProviderDraft(root, provider) {
-    return {
-        baseUrl: root.querySelector('#xb-assistant-base-url').value.trim(),
-        model: root.querySelector('#xb-assistant-model').value.trim(),
-        apiKey: root.querySelector('#xb-assistant-api-key').value.trim(),
-        temperature: Number(((state.config?.modelConfigs || {})[provider] || {}).temperature ?? 0.2),
-        reasoningEnabled: root.querySelector('#xb-assistant-reasoning-enabled')?.checked || false,
-        reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value),
-        toolMode: provider === 'openai-compatible'
-            ? (root.querySelector('#xb-assistant-tool-mode')?.value || 'native')
-            : undefined,
-    };
-}
-
-function syncPresetDraftName(root) {
-    if (!state.config) return;
-    state.config.presetDraftName = normalizePresetName(root.querySelector('#xb-assistant-preset-name')?.value);
-}
-
-function syncCurrentProviderDraft(root) {
-    if (!state.config) return;
-    syncPresetDraftName(root);
-    const provider = root.querySelector('#xb-assistant-provider').value;
-    const currentPresetName = normalizePresetName(state.config.currentPresetName);
-    state.config = {
-        ...normalizeAssistantConfig({
-            ...state.config,
-            currentPresetName,
-            presetDraftName: state.config.presetDraftName,
-            presets: {
-                ...(state.config.presets || {}),
-                [currentPresetName]: {
-                    ...((state.config.presets || {})[currentPresetName] || buildDefaultPreset()),
-                    provider,
-                    modelConfigs: {
-                        ...(((state.config.presets || {})[currentPresetName] || {}).modelConfigs || cloneDefaultModelConfigs()),
-                        [provider]: {
-                            ...((((state.config.presets || {})[currentPresetName] || {}).modelConfigs || cloneDefaultModelConfigs())[provider] || {}),
-                            ...collectProviderDraft(root, provider),
-                        },
-                    },
-                },
-            },
-        }),
-        provider,
-    };
-}
-
-function getRenderableMessageSignature(message) {
-    return JSON.stringify({
-        role: message.role,
-        content: String(message.content || ''),
-        toolCallId: String(message.toolCallId || ''),
-        toolName: String(message.toolName || ''),
-        toolCalls: Array.isArray(message.toolCalls)
-            ? message.toolCalls.map((toolCall) => ({
-                id: String(toolCall.id || ''),
-                name: String(toolCall.name || ''),
-                arguments: String(toolCall.arguments || ''),
-            }))
-            : [],
-        thoughts: normalizeThoughtBlocks(message.thoughts),
-        attachments: normalizeAttachments(message.attachments).map((attachment) => ({
-            kind: attachment.kind,
-            name: attachment.name,
-            type: attachment.type,
-            size: attachment.size,
-        })),
-        approvalRequest: message.approvalRequest
-            ? {
-                id: String(message.approvalRequest.id || ''),
-                kind: String(message.approvalRequest.kind || ''),
-                command: String(message.approvalRequest.command || ''),
-                status: String(message.approvalRequest.status || ''),
-            }
-            : null,
-        streaming: Boolean(message.streaming),
+function buildSanitizedHtmlFragment(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<body>${String(html || '')}</body>`, 'text/html');
+    const fragment = document.createDocumentFragment();
+    Array.from(doc.body.childNodes).forEach((node) => {
+        fragment.appendChild(document.importNode(node, true));
     });
-}
-
-function buildMessageBubble(message) {
-    const bubble = document.createElement('div');
-    bubble.className = `xb-assistant-bubble role-${message.role}`;
-
-    const meta = document.createElement('div');
-    meta.className = 'xb-assistant-meta';
-    meta.textContent = message.role === 'user'
-        ? '你'
-        : message.role === 'assistant'
-            ? Array.isArray(message.toolCalls) && message.toolCalls.length
-                ? `小白助手 · 已发起 ${message.toolCalls.length} 个工具调用${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
-                : `小白助手${message.streaming ? ' · 正在生成' : ''}${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
-            : `工具结果${message.toolName ? ` · ${message.toolName}` : ''}`;
-
-    if (message.role === 'tool') {
-        const display = formatToolResultDisplay(message);
-        const summary = document.createElement('pre');
-        summary.className = 'xb-assistant-content tool-summary';
-        summary.textContent = display.summary || '工具已返回结果。';
-        bubble.append(meta, summary);
-
-        if (display.details) {
-            const details = document.createElement('details');
-            details.className = 'xb-assistant-tool-details';
-            const summaryEl = document.createElement('summary');
-            summaryEl.textContent = message.toolName === TOOL_NAMES.READ ? '展开文件内容' : '展开详细结果';
-            const detailPre = document.createElement('pre');
-            detailPre.className = 'xb-assistant-content tool-detail';
-            detailPre.textContent = display.details;
-            details.append(summaryEl, detailPre);
-            bubble.appendChild(details);
-        }
-
-        return bubble;
-    }
-
-    const content = document.createElement('div');
-    content.className = 'xb-assistant-content xb-assistant-markdown';
-    content.appendChild(
-        buildSanitizedHtmlFragment(
-            renderMarkdown(
-                message.content || (message.role === 'assistant'
-                    ? (message.streaming ? '思考中…' : '我先查一下相关代码。')
-                    : ''),
-            ),
-        ),
-    );
-    bubble.append(meta, content);
-
-    if (Array.isArray(message.attachments) && message.attachments.length) {
-        const gallery = document.createElement('div');
-        gallery.className = 'xb-assistant-attachment-gallery';
-        renderAttachmentGallery(gallery, message.attachments, { compact: true });
-        bubble.appendChild(gallery);
-    }
-
-    if (message.role === 'assistant' && message.approvalRequest?.kind === 'slash-command') {
-        const approval = document.createElement('div');
-        approval.className = 'xb-assistant-approval';
-
-        const title = document.createElement('div');
-        title.className = 'xb-assistant-approval-title';
-        title.textContent = '待确认的斜杠命令';
-
-        const command = document.createElement('pre');
-        command.className = 'xb-assistant-content xb-assistant-approval-command';
-        command.textContent = message.approvalRequest.command || '';
-
-        const note = document.createElement('div');
-        note.className = 'xb-assistant-approval-note';
-        note.textContent = message.approvalRequest.status === 'approved'
-            ? '已同意，命令已进入执行流程。'
-            : message.approvalRequest.status === 'declined'
-                ? '已拒绝，本次不会执行这条命令。'
-                : message.approvalRequest.status === 'cancelled'
-                    ? '本轮请求已终止，这条命令未执行。'
-                    : '这条命令可能改动真实实例状态；点“是”后才会真正执行。';
-
-        approval.append(title, command, note);
-
-        if (message.approvalRequest.status === 'pending') {
-            const actions = document.createElement('div');
-            actions.className = 'xb-assistant-approval-actions';
-
-            const approveButton = document.createElement('button');
-            approveButton.type = 'button';
-            approveButton.className = 'xb-assistant-approval-button';
-            approveButton.dataset.approvalId = message.approvalRequest.id;
-            approveButton.dataset.approvalDecision = 'approve';
-            approveButton.textContent = '是，执行';
-
-            const declineButton = document.createElement('button');
-            declineButton.type = 'button';
-            declineButton.className = 'xb-assistant-approval-button secondary';
-            declineButton.dataset.approvalId = message.approvalRequest.id;
-            declineButton.dataset.approvalDecision = 'decline';
-            declineButton.textContent = '否，跳过';
-
-            actions.append(approveButton, declineButton);
-            approval.appendChild(actions);
-        }
-
-        bubble.appendChild(approval);
-    }
-
-    if (message.role === 'assistant' && Array.isArray(message.thoughts) && message.thoughts.length) {
-        const details = document.createElement('details');
-        details.className = 'xb-assistant-thought-details';
-        const summaryEl = document.createElement('summary');
-        summaryEl.textContent = message.thoughts.length > 1
-            ? `展开思考块（${message.thoughts.length} 段）`
-            : '展开思考块';
-        details.appendChild(summaryEl);
-
-        message.thoughts.forEach((item) => {
-            const block = document.createElement('div');
-            block.className = 'xb-assistant-thought-block';
-
-            const label = document.createElement('div');
-            label.className = 'xb-assistant-thought-label';
-            label.textContent = item.label;
-
-            const pre = document.createElement('pre');
-            pre.className = 'xb-assistant-content xb-assistant-thought-content';
-            pre.textContent = item.text;
-
-            block.append(label, pre);
-            details.appendChild(block);
-        });
-
-        bubble.appendChild(details);
-    }
-
-    return bubble;
-}
-
-function renderMessages(container) {
-    const existingBubbles = Array.from(container.querySelectorAll('.xb-assistant-bubble'));
-
-    if (!state.messages.length) {
-        container.innerHTML = '';
-        const empty = document.createElement('div');
-        empty.className = 'xb-assistant-empty';
-        empty.innerHTML = '<h2>你好，我是小白助手</h2><p>我运行在你当前打开的 SillyTavern 酒馆里，专门帮你解答 LittleWhiteBox 和酒馆前端的问题。</p><p><strong>我能做什么：</strong></p><ul><li><strong>查看源码</strong>：读取 LittleWhiteBox 和酒馆前端的代码快照（构建时索引），帮你找按钮位置、设置逻辑、报错链路。</li><li><strong>查询实例</strong>：执行斜杠命令查询你当前酒馆的实时状态，比如当前 API、模型、角色、扩展开关等。</li><li><strong>记录工作</strong>：把排查结论写到 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，方便你后续查看。</li></ul><p><strong>我不能做什么：</strong></p><ul><li>不能访问后端代码、数据库、API Key 存储位置。</li><li>不能修改你的源码或配置文件。</li><li>代码快照可能不包含你最新的修改；如需确认当前实例状态，我会用斜杠命令查询。</li></ul><p>下面是一些示例问题，点击后会填入输入框（不会自动发送）：</p>';
-
-        const examples = document.createElement('div');
-        examples.className = 'xb-assistant-examples';
-        EXAMPLE_PROMPTS.forEach((prompt) => {
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'xb-assistant-example-chip';
-            button.dataset.prompt = prompt;
-            button.textContent = prompt;
-            examples.appendChild(button);
-        });
-        empty.appendChild(examples);
-        container.appendChild(empty);
-        return;
-    }
-
-    // 移除空状态提示（如果存在）
-    const emptyEl = container.querySelector('.xb-assistant-empty');
-    if (emptyEl) {
-        emptyEl.remove();
-    }
-
-    state.messages.forEach((message, index) => {
-        const signature = getRenderableMessageSignature(message);
-        const existingBubble = existingBubbles[index] || null;
-        if (existingBubble?.dataset.renderSignature === signature) {
-            return;
-        }
-        const nextBubble = buildMessageBubble(message);
-        nextBubble.dataset.renderSignature = signature;
-        if (existingBubble) {
-            container.replaceChild(nextBubble, existingBubble);
-        } else {
-            container.appendChild(nextBubble);
-        }
-    });
-
-    existingBubbles.slice(state.messages.length).forEach((bubble) => bubble.remove());
-
-    if (state.autoScroll) {
-        container.scrollTop = container.scrollHeight;
-    }
-}
-
-function scrollChatToBottom(container) {
-    if (!container) return;
-    const apply = () => {
-        container.scrollTop = container.scrollHeight;
-    };
-    apply();
-    requestAnimationFrame(() => {
-        apply();
-        requestAnimationFrame(apply);
-    });
-}
-
-function scrollChatToTop(container) {
-    if (!container) return;
-    container.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function updateChatScrollButtonsVisibility(root) {
-    const chat = root.querySelector('#xb-assistant-chat');
-    const topButton = root.querySelector('#xb-assistant-scroll-top');
-    const bottomButton = root.querySelector('#xb-assistant-scroll-bottom');
-    if (!chat || !topButton || !bottomButton) return;
-
-    const scrollTop = chat.scrollTop;
-    const scrollHeight = chat.scrollHeight;
-    const clientHeight = chat.clientHeight;
-    const threshold = 80;
-
-    topButton.classList.toggle('visible', scrollTop > threshold);
-    bottomButton.classList.toggle('visible', scrollHeight - scrollTop - clientHeight > threshold);
-}
-
-function showChatScrollHelpers(root) {
-    root.querySelector('#xb-assistant-scroll-helpers')?.classList.add('active');
-}
-
-function hideChatScrollHelpers(root) {
-    root.querySelector('#xb-assistant-scroll-helpers')?.classList.remove('active');
-}
-
-function scheduleHideChatScrollHelpers(root) {
-    if (chatScrollHideTimer) {
-        clearTimeout(chatScrollHideTimer);
-    }
-    chatScrollHideTimer = setTimeout(() => {
-        hideChatScrollHelpers(root);
-        chatScrollHideTimer = null;
-    }, 1500);
-}
-
-function handleAssistantChatScroll(root) {
-    if (chatScrollTicking) return;
-    chatScrollTicking = true;
-    requestAnimationFrame(() => {
-        updateChatScrollButtonsVisibility(root);
-        showChatScrollHelpers(root);
-        scheduleHideChatScrollHelpers(root);
-        chatScrollTicking = false;
-    });
+    return fragment;
 }
 
 function buildAppMarkup(root) {
@@ -1702,103 +523,6 @@ function buildAppMarkup(root) {
         </div>
     `;
     root.replaceChildren(buildSanitizedHtmlFragment(markup));
-}
-
-function syncConfigToForm(root) {
-    if (!state.config) return;
-    const provider = state.config.provider || 'openai-compatible';
-    const providerConfig = (state.config.modelConfigs || {})[provider] || {};
-    const pulledModels = getProviderModels(provider);
-    const toolModeWrap = root.querySelector('#xb-assistant-tool-mode-wrap');
-    const toolModeSelect = root.querySelector('#xb-assistant-tool-mode');
-    const reasoningEnabledInput = root.querySelector('#xb-assistant-reasoning-enabled');
-    const reasoningEffortWrap = root.querySelector('#xb-assistant-reasoning-effort-wrap');
-    const reasoningEffortSelect = root.querySelector('#xb-assistant-reasoning-effort');
-    const pulledSelect = root.querySelector('#xb-assistant-model-pulled');
-    const presetSelect = root.querySelector('#xb-assistant-preset-select');
-    const presetNameInput = root.querySelector('#xb-assistant-preset-name');
-
-    refillSelect(
-        presetSelect,
-        (state.config.presetNames || []).map((name) => ({ value: name, label: name })),
-    );
-    presetSelect.value = state.config.currentPresetName || DEFAULT_PRESET_NAME;
-    presetNameInput.value = state.config.presetDraftName || state.config.currentPresetName || DEFAULT_PRESET_NAME;
-    root.querySelector('#xb-assistant-provider').value = provider;
-    root.querySelector('#xb-assistant-base-url').value = providerConfig.baseUrl || '';
-    root.querySelector('#xb-assistant-model').value = providerConfig.model || '';
-    root.querySelector('#xb-assistant-api-key').value = providerConfig.apiKey || '';
-    toolModeWrap.style.display = provider === 'openai-compatible' ? '' : 'none';
-    refillSelect(toolModeSelect, TOOL_MODE_OPTIONS);
-    toolModeSelect.value = providerConfig.toolMode || 'native';
-    refillSelect(reasoningEffortSelect, REASONING_EFFORT_OPTIONS);
-    reasoningEnabledInput.checked = Boolean(providerConfig.reasoningEnabled);
-    reasoningEffortSelect.value = normalizeReasoningEffort(providerConfig.reasoningEffort);
-    reasoningEffortWrap.style.display = reasoningEnabledInput.checked ? '' : 'none';
-    refillSelect(pulledSelect, pulledModels.map((model) => ({ value: model, label: model })), '手动填写');
-
-    const runtimeEl = root.querySelector('#xb-assistant-runtime');
-    const pullState = getPullState(provider);
-    runtimeEl.textContent = state.runtime
-        ? `预设「${state.config.currentPresetName || DEFAULT_PRESET_NAME}」 · ${getProviderLabel(provider)} · 已索引 ${state.runtime.indexedFileCount || 0} 个前端源码文件${pullState.message ? ` · ${pullState.message}` : ''}`
-        : (pullState.message || '');
-}
-
-function saveConfigFromForm(root) {
-    syncCurrentProviderDraft(root);
-    const nextPresetName = normalizePresetName(root.querySelector('#xb-assistant-preset-name')?.value);
-    const currentPresetName = normalizePresetName(state.config?.currentPresetName || DEFAULT_PRESET_NAME);
-    const existingPreset = (state.config?.presets || {})[nextPresetName];
-    if (nextPresetName !== currentPresetName && existingPreset) {
-        showToast(`预设「${nextPresetName}」已存在，请从下拉切换到它；如果要新建，请换个名字。`);
-        render();
-        return;
-    }
-    const currentPreset = (state.config?.presets || {})[currentPresetName] || buildDefaultPreset();
-    const nextPresets = {
-        ...(state.config?.presets || {}),
-        [nextPresetName]: currentPreset,
-    };
-    state.config = normalizeAssistantConfig({
-        ...state.config,
-        currentPresetName: nextPresetName,
-        presetDraftName: nextPresetName,
-        presets: nextPresets,
-    });
-    post('xb-assistant:save-config', {
-        workspaceFileName: state.config?.workspaceFileName || '',
-        currentPresetName: state.config?.currentPresetName || DEFAULT_PRESET_NAME,
-        presets: state.config?.presets || {},
-    });
-}
-
-function deleteCurrentPreset(root) {
-    syncCurrentProviderDraft(root);
-    const presetNames = Object.keys(state.config?.presets || {});
-    if (presetNames.length <= 1) {
-        showToast('至少要保留一套预设');
-        return;
-    }
-
-    const currentPresetName = normalizePresetName(state.config?.currentPresetName || DEFAULT_PRESET_NAME);
-    const nextPresets = { ...(state.config?.presets || {}) };
-    delete nextPresets[currentPresetName];
-    const nextPresetName = Object.keys(nextPresets)[0] || DEFAULT_PRESET_NAME;
-
-    state.config = normalizeAssistantConfig({
-        ...state.config,
-        currentPresetName: nextPresetName,
-        presetDraftName: nextPresetName,
-        presets: nextPresets,
-    });
-
-    post('xb-assistant:save-config', {
-        workspaceFileName: state.config?.workspaceFileName || '',
-        currentPresetName: state.config?.currentPresetName || DEFAULT_PRESET_NAME,
-        presets: state.config?.presets || {},
-    });
-
-    render();
 }
 
 function injectStyles() {
@@ -2563,7 +1287,6 @@ function render() {
     updateContextStats(toProviderMessages(getActiveContextMessages()));
     const chat = root.querySelector('#xb-assistant-chat');
     renderMessages(chat);
-    lastRenderedMessageCount = state.messages.length;
     if (state.autoScroll) {
         scrollChatToBottom(chat);
     }
@@ -2688,84 +1411,7 @@ function bindEvents(root) {
         }
         render();
     });
-
-    root.querySelector('#xb-assistant-provider').addEventListener('change', () => {
-        syncCurrentProviderDraft(root);
-        state.config = {
-            ...(state.config || {}),
-            provider: root.querySelector('#xb-assistant-provider').value,
-        };
-        render();
-    });
-
-    root.querySelector('#xb-assistant-preset-select').addEventListener('change', (event) => {
-        syncCurrentProviderDraft(root);
-        const nextPresetName = normalizePresetName(event.currentTarget.value);
-        const nextPreset = (state.config?.presets || {})[nextPresetName] || buildDefaultPreset();
-        state.config = normalizeAssistantConfig({
-            ...state.config,
-            currentPresetName: nextPresetName,
-            presetDraftName: nextPresetName,
-            provider: nextPreset.provider,
-            modelConfigs: nextPreset.modelConfigs,
-        });
-        render();
-    });
-
-    root.querySelector('#xb-assistant-preset-name').addEventListener('input', () => {
-        syncPresetDraftName(root);
-    });
-
-    root.querySelector('#xb-assistant-model-pulled').addEventListener('change', (event) => {
-        const value = event.currentTarget.value;
-        if (!value) return;
-        root.querySelector('#xb-assistant-model').value = value;
-    });
-
-    root.querySelector('#xb-assistant-toggle-key').addEventListener('click', () => {
-        const keyInput = root.querySelector('#xb-assistant-api-key');
-        keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
-        render();
-    });
-
-    root.querySelector('#xb-assistant-reasoning-enabled').addEventListener('change', () => {
-        syncCurrentProviderDraft(root);
-        render();
-    });
-
-    root.querySelector('#xb-assistant-reasoning-effort').addEventListener('change', () => {
-        syncCurrentProviderDraft(root);
-    });
-
-    root.querySelector('#xb-assistant-pull-models').addEventListener('click', async () => {
-        syncCurrentProviderDraft(root);
-        const providerConfig = getActiveProviderConfig();
-        setPullState(providerConfig.provider, { status: 'loading', message: '正在拉取模型列表…' });
-        render();
-        try {
-            const models = await pullModelsForProvider(providerConfig);
-            setProviderModels(providerConfig.provider, models);
-            setPullState(providerConfig.provider, {
-                status: 'success',
-                message: `已拉取 ${models.length} 个模型`,
-            });
-        } catch (error) {
-            setProviderModels(providerConfig.provider, []);
-            setPullState(providerConfig.provider, {
-                status: 'error',
-                message: describeError(error),
-            });
-        }
-        render();
-    });
-
-    root.querySelector('#xb-assistant-save').addEventListener('click', () => {
-        saveConfigFromForm(root);
-    });
-
-    root.querySelector('#xb-assistant-delete-preset').addEventListener('click', () => {
-        deleteCurrentPreset(root);
-    });
+    bindSettingsPanelEvents(root);
 
     root.querySelector('#xb-assistant-clear').addEventListener('click', () => {
         if (state.isBusy) return;

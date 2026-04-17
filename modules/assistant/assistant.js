@@ -4,6 +4,13 @@ import { isTrustedIframeEvent, postToIframe } from "../../core/iframe-messaging.
 import { executeSlashCommand } from "../../core/slash-command.js";
 import { AssistantStorage } from "../../core/server-storage.js";
 import { TOOL_NAMES } from "./app-src/tooling.js";
+import {
+    DEFAULT_PRESET_NAME,
+    buildDefaultPreset,
+    cloneDefaultModelConfigs,
+    normalizeAssistantSettings,
+    normalizePresetName,
+} from "./shared/config.js";
 
 const MODULE_ID = 'assistant';
 const OVERLAY_ID = 'xiaobaix-assistant-overlay';
@@ -22,35 +29,6 @@ const DEFAULT_AUTO_READ_LINES = 220;
 const MAX_READ_RANGE_LINES = 400;
 const SERVER_FILE_KEY = 'settings';
 const CONFIG_VERSION = 1;
-const DEFAULT_PRESET_NAME = '默认';
-
-const DEFAULT_MODEL_CONFIGS = {
-    'openai-responses': {
-        baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-4.1-mini',
-        apiKey: '',
-        temperature: 0.2,
-    },
-    'openai-compatible': {
-        baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-4o-mini',
-        apiKey: '',
-        temperature: 0.2,
-        toolMode: 'native',
-    },
-    anthropic: {
-        baseUrl: 'https://api.anthropic.com/v1',
-        model: 'claude-sonnet-4-0',
-        apiKey: '',
-        temperature: 0.2,
-    },
-    google: {
-        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-        model: 'gemini-2.5-pro',
-        apiKey: '',
-        temperature: 0.2,
-    },
-};
 
 let overlay = null;
 let manifestCache = null;
@@ -72,81 +50,14 @@ function isAssistantMobileDevice() {
     return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
 }
 
-function cloneDefaultModelConfigs() {
-    return JSON.parse(JSON.stringify(DEFAULT_MODEL_CONFIGS));
-}
-
-function buildDefaultPreset() {
-    return {
-        provider: 'openai-compatible',
-        modelConfigs: cloneDefaultModelConfigs(),
-    };
-}
-
-function normalizePresetName(input) {
-    const normalized = String(input || '').trim();
-    return normalized || DEFAULT_PRESET_NAME;
-}
-
-function normalizeModelConfigs(savedConfigs = {}) {
-    const next = cloneDefaultModelConfigs();
-    Object.keys(DEFAULT_MODEL_CONFIGS).forEach((provider) => {
-        next[provider] = {
-            ...DEFAULT_MODEL_CONFIGS[provider],
-            ...((savedConfigs && typeof savedConfigs[provider] === 'object') ? savedConfigs[provider] : {}),
-        };
-    });
-    return next;
-}
-
-function normalizeAssistantSettings(saved = {}) {
-    const legacyPresetName = normalizePresetName(saved.currentPresetName || saved.presetName || DEFAULT_PRESET_NAME);
-    const presetSource = (saved && typeof saved.presets === 'object' && saved.presets)
-        ? saved.presets
-        : (saved?.modelConfigs
-            ? {
-                [legacyPresetName]: {
-                    provider: saved.provider || 'openai-compatible',
-                    modelConfigs: saved.modelConfigs,
-                },
-            }
-            : {});
-
-    const presets = {};
-    Object.entries(presetSource).forEach(([rawName, rawPreset]) => {
-        if (!rawPreset || typeof rawPreset !== 'object') return;
-        const name = normalizePresetName(rawName);
-        presets[name] = {
-            provider: typeof rawPreset.provider === 'string' && rawPreset.provider.trim()
-                ? rawPreset.provider
-                : 'openai-compatible',
-            modelConfigs: normalizeModelConfigs(rawPreset.modelConfigs || {}),
-        };
-    });
-
-    if (!Object.keys(presets).length) {
-        presets[DEFAULT_PRESET_NAME] = buildDefaultPreset();
-    }
-
-    const currentPresetName = presets[normalizePresetName(saved.currentPresetName)]
-        ? normalizePresetName(saved.currentPresetName)
-        : Object.keys(presets)[0];
-
-    return {
-        enabled: !!saved.enabled,
-        workspaceFileName: normalizeWorkspaceName(saved.workspaceFileName || DEFAULT_WORKSPACE_FILE),
-        currentPresetName,
-        presets,
-        updatedAt: Number(saved.updatedAt) || 0,
-        configVersion: Number(saved.configVersion) || 0,
-    };
-}
-
 async function persistAssistantSettings(settings, { silent = true } = {}) {
     const next = normalizeAssistantSettings({
         ...settings,
         updatedAt: Date.now(),
         configVersion: CONFIG_VERSION,
+    }, {
+        defaultWorkspaceFileName: DEFAULT_WORKSPACE_FILE,
+        normalizeWorkspaceName,
     });
     settingsCache = next;
 
@@ -170,13 +81,19 @@ async function loadAssistantSettings() {
 
     try {
         const saved = await AssistantStorage.get(SERVER_FILE_KEY, null);
-        settingsCache = normalizeAssistantSettings(saved || {});
+        settingsCache = normalizeAssistantSettings(saved || {}, {
+            defaultWorkspaceFileName: DEFAULT_WORKSPACE_FILE,
+            normalizeWorkspaceName,
+        });
 
         if (!saved || settingsCache.configVersion !== CONFIG_VERSION) {
             await persistAssistantSettings(settingsCache, { silent: true });
         }
     } catch {
-        settingsCache = normalizeAssistantSettings({});
+        settingsCache = normalizeAssistantSettings({}, {
+            defaultWorkspaceFileName: DEFAULT_WORKSPACE_FILE,
+            normalizeWorkspaceName,
+        });
     }
 
     settingsLoaded = true;
@@ -185,7 +102,10 @@ async function loadAssistantSettings() {
 
 function getAssistantSettings() {
     if (!settingsCache) {
-        settingsCache = normalizeAssistantSettings({});
+        settingsCache = normalizeAssistantSettings({}, {
+            defaultWorkspaceFileName: DEFAULT_WORKSPACE_FILE,
+            normalizeWorkspaceName,
+        });
     }
     return settingsCache;
 }
@@ -1314,6 +1234,9 @@ async function handleIframeMessage(event) {
                 presets: patch.presets && typeof patch.presets === 'object'
                     ? patch.presets
                     : current.presets,
+            }, {
+                defaultWorkspaceFileName: DEFAULT_WORKSPACE_FILE,
+                normalizeWorkspaceName,
             });
 
             const result = await persistAssistantSettings(next, { silent: false });
