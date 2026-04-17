@@ -199,6 +199,8 @@ const pendingApprovals = new Map();
 let toastTimer = null;
 let lastRenderedMessageCount = 0;
 let parsedAssistantUA = null;
+let chatScrollTicking = false;
+let chatScrollHideTimer = null;
 
 function post(type, payload = {}) {
     parent.postMessage({ source: SOURCE, type, payload }, window.location.origin);
@@ -484,6 +486,7 @@ function normalizeAssistantConfig(config = {}) {
 
 function normalizeThoughtBlocks(thoughts) {
     if (!Array.isArray(thoughts)) return [];
+    const seen = new Set();
     return thoughts
         .map((item) => {
             if (!item || typeof item !== 'object') return null;
@@ -494,7 +497,13 @@ function normalizeThoughtBlocks(thoughts) {
                 text,
             };
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        .filter((item) => {
+            const key = `${item.label}\u0000${item.text}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
 }
 
 function normalizeAttachments(attachments) {
@@ -1534,6 +1543,55 @@ function scrollChatToBottom(container) {
     });
 }
 
+function scrollChatToTop(container) {
+    if (!container) return;
+    container.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function updateChatScrollButtonsVisibility(root) {
+    const chat = root.querySelector('#xb-assistant-chat');
+    const topButton = root.querySelector('#xb-assistant-scroll-top');
+    const bottomButton = root.querySelector('#xb-assistant-scroll-bottom');
+    if (!chat || !topButton || !bottomButton) return;
+
+    const scrollTop = chat.scrollTop;
+    const scrollHeight = chat.scrollHeight;
+    const clientHeight = chat.clientHeight;
+    const threshold = 80;
+
+    topButton.classList.toggle('visible', scrollTop > threshold);
+    bottomButton.classList.toggle('visible', scrollHeight - scrollTop - clientHeight > threshold);
+}
+
+function showChatScrollHelpers(root) {
+    root.querySelector('#xb-assistant-scroll-helpers')?.classList.add('active');
+}
+
+function hideChatScrollHelpers(root) {
+    root.querySelector('#xb-assistant-scroll-helpers')?.classList.remove('active');
+}
+
+function scheduleHideChatScrollHelpers(root) {
+    if (chatScrollHideTimer) {
+        clearTimeout(chatScrollHideTimer);
+    }
+    chatScrollHideTimer = setTimeout(() => {
+        hideChatScrollHelpers(root);
+        chatScrollHideTimer = null;
+    }, 1500);
+}
+
+function handleAssistantChatScroll(root) {
+    if (chatScrollTicking) return;
+    chatScrollTicking = true;
+    requestAnimationFrame(() => {
+        updateChatScrollButtonsVisibility(root);
+        showChatScrollHelpers(root);
+        scheduleHideChatScrollHelpers(root);
+        chatScrollTicking = false;
+    });
+}
+
 function buildAppMarkup(root) {
     const markup = `
         <div class="xb-assistant-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
@@ -1622,7 +1680,13 @@ function buildAppMarkup(root) {
                         <button id="xb-assistant-clear" type="button" class="secondary ghost">清空对话</button>
                     </div>
                 </section>
-                <section class="xb-assistant-chat" id="xb-assistant-chat"></section>
+                <section class="xb-assistant-chat-wrap">
+                    <section class="xb-assistant-chat" id="xb-assistant-chat"></section>
+                    <div class="xb-assistant-scroll-helpers" id="xb-assistant-scroll-helpers">
+                        <button id="xb-assistant-scroll-top" type="button" class="xb-assistant-scroll-btn" title="回到顶部" aria-label="回到顶部">▲</button>
+                        <button id="xb-assistant-scroll-bottom" type="button" class="xb-assistant-scroll-btn" title="回到底部" aria-label="回到底部">▼</button>
+                    </div>
+                </section>
                 <form class="xb-assistant-compose" id="xb-assistant-form">
                     <div class="xb-assistant-compose-main">
                         <textarea id="xb-assistant-input" placeholder=""></textarea>
@@ -2020,6 +2084,10 @@ function injectStyles() {
             color: #8d442b;
             box-shadow: inset 0 0 0 1px rgba(201, 107, 51, 0.18);
         }
+        .xb-assistant-chat-wrap {
+            position: relative;
+            min-height: 0;
+        }
         .xb-assistant-status.busy::before {
             content: '';
             display: inline-block;
@@ -2045,6 +2113,50 @@ function injectStyles() {
             min-width: 0;
             max-width: 100%;
             overscroll-behavior: contain;
+        }
+        .xb-assistant-scroll-helpers {
+            position: absolute;
+            top: 12%;
+            right: 10px;
+            bottom: 12%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+        }
+        .xb-assistant-scroll-helpers.active {
+            opacity: 1;
+        }
+        .xb-assistant-scroll-btn {
+            width: 32px;
+            height: 32px;
+            border: 1px solid rgba(27, 55, 88, 0.14);
+            border-radius: 999px;
+            background: rgba(244, 248, 252, 0.92);
+            color: #1b3758;
+            cursor: pointer;
+            pointer-events: none;
+            opacity: 0;
+            transform: scale(0.8) translateX(8px);
+            transition: all 0.2s ease;
+            box-shadow: 0 10px 24px rgba(17, 31, 51, 0.08);
+            font: inherit;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .xb-assistant-scroll-btn.visible {
+            opacity: 1;
+            pointer-events: auto;
+            transform: scale(1) translateX(0);
+        }
+        .xb-assistant-scroll-btn:hover {
+            background: rgba(255, 255, 255, 0.98);
+            transform: scale(1.08) translateX(0);
+        }
+        .xb-assistant-scroll-btn:active {
+            transform: scale(0.96) translateX(0);
         }
         .xb-assistant-empty {
             align-self: center;
@@ -2423,6 +2535,11 @@ function injectStyles() {
             .xb-assistant-status { justify-content: center; }
             .xb-assistant-chat { padding-inline: 0; min-height: 0; }
             .xb-assistant-bubble { width: 100%; }
+            .xb-assistant-scroll-btn {
+                width: 28px;
+                height: 28px;
+                font-size: 11px;
+            }
             .xb-assistant-actions {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2446,11 +2563,11 @@ function render() {
     updateContextStats(toProviderMessages(getActiveContextMessages()));
     const chat = root.querySelector('#xb-assistant-chat');
     renderMessages(chat);
-    const shouldForceScroll = state.messages.length !== lastRenderedMessageCount;
     lastRenderedMessageCount = state.messages.length;
-    if (state.autoScroll || shouldForceScroll) {
+    if (state.autoScroll) {
         scrollChatToBottom(chat);
     }
+    updateChatScrollButtonsVisibility(root);
 
     const sendButton = root.querySelector('#xb-assistant-send');
     sendButton.disabled = false;
@@ -2544,6 +2661,7 @@ function bindEvents(root) {
         const container = event.currentTarget;
         const threshold = 48;
         state.autoScroll = container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
+        handleAssistantChatScroll(root);
     });
 
     root.querySelector('#xb-assistant-chat').addEventListener('click', (event) => {
@@ -2662,6 +2780,17 @@ function bindEvents(root) {
     root.querySelector('#xb-assistant-add-image').addEventListener('click', () => {
         if (state.isBusy || state.draftAttachments.length >= MAX_IMAGE_ATTACHMENTS) return;
         imageInput.click();
+    });
+
+    root.querySelector('#xb-assistant-scroll-top').addEventListener('click', () => {
+        state.autoScroll = false;
+        scrollChatToTop(root.querySelector('#xb-assistant-chat'));
+    });
+
+    root.querySelector('#xb-assistant-scroll-bottom').addEventListener('click', () => {
+        state.autoScroll = true;
+        scrollChatToBottom(root.querySelector('#xb-assistant-chat'));
+        updateChatScrollButtonsVisibility(root);
     });
 
     imageInput.addEventListener('change', async (event) => {

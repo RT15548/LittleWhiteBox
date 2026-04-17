@@ -178,6 +178,24 @@ export function createAssistantRuntime(deps) {
         return changed;
     }
 
+    function getCurrentTurnMessages() {
+        const turns = splitMessagesIntoTurns();
+        return turns.length ? turns[turns.length - 1] : [];
+    }
+
+    function filterThoughtsForCurrentTurn(thoughts = [], currentMessage = null) {
+        const normalized = normalizeThoughtBlocks(thoughts);
+        if (!normalized.length) return normalized;
+        const existingKeys = new Set();
+        getCurrentTurnMessages().forEach((message) => {
+            if (message === currentMessage || message?.role !== 'assistant') return;
+            normalizeThoughtBlocks(message.thoughts).forEach((item) => {
+                existingKeys.add(`${item.label}\u0000${item.text}`);
+            });
+        });
+        return normalized.filter((item) => !existingKeys.has(`${item.label}\u0000${item.text}`));
+    }
+
     function buildTokenCounterMessages(messages = []) {
         return messages.map((message) => {
             const contentText = Array.isArray(message.content)
@@ -377,9 +395,10 @@ export function createAssistantRuntime(deps) {
         state.messages.push({
             ...message,
             attachments: normalizeAttachments(message.attachments),
-            thoughts: normalizeThoughtBlocks(message.thoughts),
+            thoughts: message?.role === 'assistant'
+                ? filterThoughtsForCurrentTurn(message.thoughts)
+                : normalizeThoughtBlocks(message.thoughts),
         });
-        state.autoScroll = true;
         persistSession();
     }
 
@@ -397,7 +416,6 @@ export function createAssistantRuntime(deps) {
     }
 
     function scheduleStreamRender({ persist = false } = {}) {
-        state.autoScroll = true;
         const now = Date.now();
         if (persist || now - lastStreamPersistAt >= 1500) {
             persistSession();
@@ -424,7 +442,6 @@ export function createAssistantRuntime(deps) {
             streaming: true,
         };
         state.messages.push(message);
-        state.autoScroll = true;
         render();
         return message;
     }
@@ -435,7 +452,7 @@ export function createAssistantRuntime(deps) {
             message.content = patch.content;
         }
         if (Array.isArray(patch.thoughts)) {
-            message.thoughts = normalizeThoughtBlocks(patch.thoughts);
+            message.thoughts = filterThoughtsForCurrentTurn(patch.thoughts, message);
         }
         if (Array.isArray(patch.toolCalls)) {
             message.toolCalls = normalizeToolCalls(patch.toolCalls);
