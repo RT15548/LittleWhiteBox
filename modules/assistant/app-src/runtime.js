@@ -573,6 +573,15 @@ export function createAssistantRuntime(deps) {
         return turns.slice(archivedCount).flat();
     }
 
+    function pruneArchivedTurnsFromState() {
+        const turns = splitMessagesIntoTurns();
+        const archivedCount = Math.min(state.archivedTurnCount, turns.length);
+        if (archivedCount <= 0) return false;
+        state.messages = turns.slice(archivedCount).flat();
+        state.archivedTurnCount = 0;
+        return true;
+    }
+
     function buildToolFailureResult(toolName, args, error) {
         const raw = String(error?.message || error || 'tool_failed');
         const [code] = raw.split(':');
@@ -634,7 +643,6 @@ export function createAssistantRuntime(deps) {
     }
 
     async function ensureContextBudget(adapter, signal) {
-        const turns = splitMessagesIntoTurns();
         const preservedOptions = [DEFAULT_PRESERVED_TURNS, MIN_PRESERVED_TURNS];
         let contextMessages = getActiveContextMessages();
         let providerMessages = toProviderMessages(contextMessages);
@@ -645,6 +653,7 @@ export function createAssistantRuntime(deps) {
         }
 
         for (const preservedTurns of preservedOptions) {
+            const turns = splitMessagesIntoTurns();
             const desiredArchivedTurnCount = Math.max(
                 state.archivedTurnCount,
                 turns.length - Math.min(preservedTurns, turns.length),
@@ -653,6 +662,7 @@ export function createAssistantRuntime(deps) {
                 const turnsToArchive = turns.slice(state.archivedTurnCount, desiredArchivedTurnCount);
                 await summarizeArchivedTurns(adapter, turnsToArchive, signal);
                 state.archivedTurnCount = desiredArchivedTurnCount;
+                pruneArchivedTurnsFromState();
                 persistSession();
             }
 
@@ -745,14 +755,13 @@ export function createAssistantRuntime(deps) {
         });
     }
 
-    function requestSlashCommandApproval(command, options = {}) {
+    function requestApproval(approvalRequest, options = {}) {
         const requestId = createRequestId('approval');
         const run = state.activeRun?.id === options.runId ? state.activeRun : null;
 
         state.pendingApproval = {
             id: requestId,
-            kind: 'slash-command',
-            command,
+            ...approvalRequest,
             status: 'pending',
         };
         render();
@@ -819,6 +828,22 @@ export function createAssistantRuntime(deps) {
                 options.signal.addEventListener('abort', abortHandler, { once: true });
             }
         });
+    }
+
+    function requestSlashCommandApproval(command, options = {}) {
+        return requestApproval({
+            kind: 'slash-command',
+            command,
+        }, options);
+    }
+
+    function requestSkillGenerationApproval(args = {}, options = {}) {
+        return requestApproval({
+            kind: 'generate-skill',
+            title: String(args.title || '').trim(),
+            reason: String(args.reason || '').trim(),
+            sourceSummary: String(args.sourceSummary || '').trim(),
+        }, options);
     }
 
     async function runAssistantLoop(run) {
@@ -924,6 +949,25 @@ export function createAssistantRuntime(deps) {
                             });
                             if (!approved) {
                                 toolResult = buildSlashApprovalResult(slashCommand, false);
+                            }
+                        }
+
+                        if (toolCall.name === TOOL_NAMES.GENERATE_SKILL && String(parsedArguments.action || '').trim() === 'propose') {
+                            state.progressLabel = '确认中';
+                            render();
+                            const approved = await requestSkillGenerationApproval(parsedArguments, {
+                                runId: run.id,
+                                signal: run.controller.signal,
+                            });
+                            if (!approved) {
+                                toolResult = {
+                                    ok: true,
+                                    action: 'propose',
+                                    approved: false,
+                                    skipped: true,
+                                    title: String(parsedArguments.title || '').trim(),
+                                    note: '用户未同意生成 skill，本次已跳过。',
+                                };
                             }
                         }
 

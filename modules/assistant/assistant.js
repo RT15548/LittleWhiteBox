@@ -21,10 +21,18 @@ const TOOL_RESULT = 'xb-assistant:tool-result';
 const TOOL_ERROR = 'xb-assistant:tool-error';
 const CONFIG_SAVED = 'xb-assistant:config-saved';
 const CONFIG_SAVE_ERROR = 'xb-assistant:config-save-error';
+const SKILLS_UPDATED = 'xb-assistant:skills-updated';
 const WORKSPACE_PREFIX = 'LittleWhiteBox_Assistant_';
 const DEFAULT_WORKSPACE_FILE = `${WORKSPACE_PREFIX}Worklog.md`;
 const DEFAULT_IDENTITY_FILE = `${WORKSPACE_PREFIX}Identity.md`;
+const DEFAULT_SKILLS_FILE = `${WORKSPACE_PREFIX}Skills.json`;
+const SKILL_FILE_PREFIX = `${WORKSPACE_PREFIX}Skill_`;
 const DEFAULT_IDENTITY_CONTENT = '你默认叫“小白助手”，这里是你的身份设定，用于保持长期工作习惯和创作风格，请尽快引导用户设定你的身份';
+const EMPTY_SKILLS_CATALOG = Object.freeze({
+    version: 1,
+    skills: [],
+});
+const MAX_SKILL_PROMPT_ITEMS = 20;
 const MAX_CONTENT_CACHE_ENTRIES = 48;
 const MAX_READ_FILE_BYTES = 100 * 1024;
 const MAX_READ_RETURN_CHARS = 24_000;
@@ -37,6 +45,7 @@ let overlay = null;
 let manifestCache = null;
 const contentCache = new Map();
 const activeToolControllers = new Map();
+const activeSkillProposalTokens = new Map();
 let settingsCache = null;
 let settingsLoaded = false;
 
@@ -257,6 +266,39 @@ function buildRuntimeConfig() {
     };
 }
 
+async function buildAssistantRuntimePayload(signal) {
+    let fileCount = 0;
+    try {
+        const manifest = await loadManifest(signal);
+        fileCount = Array.isArray(manifest.files) ? manifest.files.length : 0;
+    } catch {
+        fileCount = 0;
+    }
+
+    let identityContent = DEFAULT_IDENTITY_CONTENT;
+    try {
+        const identityFile = await ensureUserFile(DEFAULT_IDENTITY_FILE, DEFAULT_IDENTITY_CONTENT, { signal });
+        identityContent = String(identityFile.content || '').trim() || DEFAULT_IDENTITY_CONTENT;
+    } catch {
+        identityContent = DEFAULT_IDENTITY_CONTENT;
+    }
+
+    try {
+        await ensureUserFile(getAssistantSettings().workspaceFileName || DEFAULT_WORKSPACE_FILE, '', { signal });
+    } catch {
+        // Ignore auto-create failures so the assistant can still start.
+    }
+
+    const skillsRuntime = await readSkillsRuntimeData({ signal });
+    return {
+        moduleId: MODULE_ID,
+        extensionPath: extensionFolderPath,
+        indexedFileCount: fileCount,
+        identityContent,
+        ...skillsRuntime,
+    };
+}
+
 function getCachedContent(cacheKey) {
     if (!contentCache.has(cacheKey)) return null;
     const cached = contentCache.get(cacheKey);
@@ -295,6 +337,168 @@ function normalizeWorkspaceName(input) {
     const sanitized = raw.replace(/[^a-zA-Z0-9_.-]/g, '_').replace(/^_+/, '');
     const prefixed = sanitized.startsWith(WORKSPACE_PREFIX) ? sanitized : `${WORKSPACE_PREFIX}${sanitized}`;
     return prefixed || DEFAULT_WORKSPACE_FILE;
+}
+
+function normalizeSkillSlug(input) {
+    return String(input || '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 64);
+}
+
+function normalizeSkillFileName(input) {
+    const raw = String(input || '').trim();
+    if (!raw) return '';
+    const sanitized = raw.replace(/[^a-zA-Z0-9_.-]/g, '_').replace(/^_+/, '');
+    if (!sanitized) return '';
+    const withoutExtension = sanitized.replace(/\.md$/i, '');
+    const withPrefix = withoutExtension.startsWith(SKILL_FILE_PREFIX)
+        ? withoutExtension
+        : `${SKILL_FILE_PREFIX}${withoutExtension.replace(/^LittleWhiteBox_Assistant_/, '')}`;
+    return `${withPrefix}.md`;
+}
+
+function safeJsonString(value) {
+    return JSON.stringify(String(value ?? ''));
+}
+
+function normalizeSkillCatalogEntry(entry = {}) {
+    if (!entry || typeof entry !== 'object') return null;
+    const id = String(entry.id || '').trim();
+    const title = String(entry.title || '').trim();
+    const filename = normalizeSkillFileName(entry.filename || '');
+    if (!id || !title || !filename) return null;
+    const seenTriggers = new Set();
+    const triggers = Array.isArray(entry.triggers)
+        ? entry.triggers
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+            .filter((item) => {
+                const lowered = item.toLowerCase();
+                if (seenTriggers.has(lowered)) return false;
+                seenTriggers.add(lowered);
+                return true;
+            })
+        : [];
+    return {
+        id,
+        title,
+        summary: String(entry.summary || '').trim(),
+        filename,
+        triggers,
+        enabled: entry.enabled !== false,
+        updatedAt: String(entry.updatedAt || '').trim() || new Date().toISOString(),
+    };
+}
+
+function normalizeSkillsCatalog(catalog = {}) {
+    const skills = Array.isArray(catalog.skills)
+        ? catalog.skills.map(normalizeSkillCatalogEntry).filter(Boolean)
+        : [];
+    return {
+        version: 1,
+        skills,
+    };
+}
+
+function serializeSkillsCatalog(catalog = EMPTY_SKILLS_CATALOG) {
+    return `${JSON.stringify(normalizeSkillsCatalog(catalog), null, 2)}\n`;
+}
+
+function parseSkillsCatalog(text = '') {
+    const parsed = JSON.parse(String(text || '{}'));
+    return normalizeSkillsCatalog(parsed);
+}
+
+function buildSkillsPromptSummary(catalog = EMPTY_SKILLS_CATALOG) {
+    const enabledSkills = (catalog.skills || []).filter((item) => item.enabled !== false);
+    if (!enabledSkills.length) return '';
+    const visibleSkills = enabledSkills.slice(0, MAX_SKILL_PROMPT_ITEMS);
+    const lines = [
+        '技能目录摘要：只注入目录，不注入正文；命中某项后先读目录，再按需读取对应 skill。',
+    ];
+    visibleSkills.forEach((skill) => {
+        lines.push(`- ${skill.title}｜${skill.summary || '无摘要'}｜触发词: ${(skill.triggers || []).join(', ') || '无'}｜文件: ${skill.filename}`);
+    });
+    if (enabledSkills.length > visibleSkills.length) {
+        lines.push(`- 其余 ${enabledSkills.length - visibleSkills.length} 条技能未注入；如需查看，请调用 ReadSkillsCatalog。`);
+    }
+    return lines.join('\n');
+}
+
+function buildSkillFileContent({
+    id,
+    title,
+    summary,
+    triggers,
+    whenToUse,
+    enabled,
+    createdAt,
+    updatedAt,
+    body,
+}) {
+    const triggerLines = Array.isArray(triggers) && triggers.length
+        ? triggers.map((item) => `  - ${safeJsonString(item)}`).join('\n')
+        : '  - "skill"';
+    const normalizedBody = String(body || '').trim();
+    return [
+        '---',
+        `id: ${safeJsonString(id)}`,
+        `title: ${safeJsonString(title)}`,
+        `summary: ${safeJsonString(summary)}`,
+        'triggers:',
+        triggerLines,
+        `when_to_use: ${safeJsonString(whenToUse)}`,
+        `enabled: ${enabled !== false ? 'true' : 'false'}`,
+        `created_at: ${safeJsonString(createdAt)}`,
+        `updated_at: ${safeJsonString(updatedAt)}`,
+        '---',
+        '',
+        normalizedBody,
+        '',
+    ].join('\n');
+}
+
+function validateSkillBody(content = '') {
+    const requiredSections = [
+        '# Goal',
+        '# When to Use',
+        '# Inputs',
+        '# Workflow',
+        '# Pitfalls',
+        '# Examples',
+        '# References',
+    ];
+    const normalized = String(content || '');
+    const missing = requiredSections.filter((section) => !normalized.includes(section));
+    return {
+        ok: missing.length === 0,
+        missing,
+    };
+}
+
+function createSkillProposalToken(payload = {}) {
+    const token = `skill-proposal-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    activeSkillProposalTokens.set(token, {
+        ...payload,
+        createdAt: Date.now(),
+    });
+    return token;
+}
+
+function getSkillProposalToken(token) {
+    const normalized = String(token || '').trim();
+    if (!normalized) return null;
+    return activeSkillProposalTokens.get(normalized) || null;
+}
+
+function deleteSkillProposalToken(token) {
+    const normalized = String(token || '').trim();
+    if (!normalized) return;
+    activeSkillProposalTokens.delete(normalized);
 }
 
 function ensureNotAborted(signal) {
@@ -886,6 +1090,358 @@ async function ensureUserFile(name, defaultContent = '', options = {}) {
     };
 }
 
+async function ensureSkillsCatalogFile(options = {}) {
+    return ensureUserFile(DEFAULT_SKILLS_FILE, serializeSkillsCatalog(EMPTY_SKILLS_CATALOG), options);
+}
+
+async function readSkillsCatalogData(options = {}) {
+    const file = await ensureSkillsCatalogFile(options);
+    try {
+        const catalog = parseSkillsCatalog(file.content || '');
+        return {
+            ok: true,
+            name: file.name,
+            catalog,
+            summaryText: buildSkillsPromptSummary(catalog),
+            content: serializeSkillsCatalog(catalog),
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            name: file.name,
+            error: 'skills_catalog_invalid',
+            message: error instanceof Error ? error.message : String(error || 'invalid_json'),
+            catalog: normalizeSkillsCatalog(EMPTY_SKILLS_CATALOG),
+            summaryText: '',
+            content: String(file.content || ''),
+        };
+    }
+}
+
+async function writeSkillsCatalogData(catalog, options = {}) {
+    const normalized = normalizeSkillsCatalog(catalog);
+    const content = serializeSkillsCatalog(normalized);
+    const file = await writeUserFile(DEFAULT_SKILLS_FILE, content, options);
+    return {
+        name: file.name,
+        path: file.path,
+        catalog: normalized,
+        content,
+        summaryText: buildSkillsPromptSummary(normalized),
+    };
+}
+
+function createUniqueSkillIdentity(title, catalog = EMPTY_SKILLS_CATALOG) {
+    const baseSlug = normalizeSkillSlug(title) || `skill-${Date.now()}`;
+    const existingIds = new Set((catalog.skills || []).map((item) => item.id));
+    const existingFiles = new Set((catalog.skills || []).map((item) => item.filename));
+    let slug = baseSlug;
+    let suffix = 1;
+    let id = `skill-${slug}`;
+    let filename = `${SKILL_FILE_PREFIX}${slug}.md`;
+    while (existingIds.has(id) || existingFiles.has(filename)) {
+        slug = `${baseSlug}-${suffix}`;
+        id = `skill-${slug}`;
+        filename = `${SKILL_FILE_PREFIX}${slug}.md`;
+        suffix += 1;
+    }
+    return { id, filename, slug };
+}
+
+async function readSkillsCatalogTool(_args = {}, options = {}) {
+    const result = await readSkillsCatalogData(options);
+    if (!result.ok) {
+        return {
+            ok: false,
+            name: result.name,
+            error: result.error,
+            message: `Skills.json 解析失败：${result.message}`,
+            details: String(result.content || ''),
+        };
+    }
+    return {
+        ok: true,
+        name: result.name,
+        version: result.catalog.version,
+        total: result.catalog.skills.length,
+        enabledCount: result.catalog.skills.filter((item) => item.enabled !== false).length,
+        skills: result.catalog.skills,
+        summaryText: result.summaryText,
+        content: result.content,
+    };
+}
+
+async function readSkillTool(args = {}, options = {}) {
+    const byId = String(args.id || '').trim();
+    const byFilename = normalizeSkillFileName(args.filename || '');
+    if (!byId && !byFilename) {
+        return {
+            ok: false,
+            error: 'skill_identifier_required',
+            message: '必须提供 id 或 filename 其中之一。',
+        };
+    }
+
+    const catalogResult = await readSkillsCatalogData(options);
+    if (!catalogResult.ok) {
+        return {
+            ok: false,
+            error: catalogResult.error,
+            message: `Skills.json 解析失败：${catalogResult.message}`,
+        };
+    }
+
+    const skill = byId
+        ? catalogResult.catalog.skills.find((item) => item.id === byId)
+        : catalogResult.catalog.skills.find((item) => item.filename === byFilename);
+
+    if (!skill) {
+        return {
+            ok: false,
+            error: 'skill_not_found',
+            message: byId ? `目录里找不到 id 为 ${byId} 的 skill。` : `目录里找不到文件 ${byFilename} 对应的 skill。`,
+        };
+    }
+
+    const file = await readUserFile(skill.filename, options);
+    if (!file.exists) {
+        return {
+            ok: false,
+            error: 'skill_file_not_found',
+            message: `skill 文件不存在：${skill.filename}`,
+            id: skill.id,
+            filename: skill.filename,
+        };
+    }
+
+    return {
+        ok: true,
+        id: skill.id,
+        title: skill.title,
+        summary: skill.summary,
+        filename: skill.filename,
+        triggers: skill.triggers,
+        enabled: skill.enabled,
+        updatedAt: skill.updatedAt,
+        content: String(file.content || ''),
+    };
+}
+
+async function generateSkillTool(args = {}, options = {}) {
+    const action = String(args.action || '').trim();
+    if (action !== 'propose' && action !== 'save') {
+        return {
+            ok: false,
+            error: 'skill_action_required',
+            message: 'GenerateSkill 必须提供 action=propose 或 action=save。',
+        };
+    }
+
+    const catalogResult = await readSkillsCatalogData(options);
+    if (!catalogResult.ok) {
+        return {
+            ok: false,
+            error: catalogResult.error,
+            message: `Skills.json 解析失败：${catalogResult.message}`,
+        };
+    }
+
+    if (action === 'propose') {
+        const title = String(args.title || '').trim();
+        const reason = String(args.reason || '').trim();
+        const sourceSummary = String(args.sourceSummary || '').trim();
+        if (!title) {
+            return {
+                ok: false,
+                error: 'skill_title_required',
+                message: 'propose 阶段必须提供 title。',
+            };
+        }
+        if (!reason) {
+            return {
+                ok: false,
+                error: 'skill_reason_required',
+                message: 'propose 阶段必须提供 reason。',
+            };
+        }
+        if (!sourceSummary) {
+            return {
+                ok: false,
+                error: 'skill_source_summary_required',
+                message: 'propose 阶段必须提供 sourceSummary。',
+            };
+        }
+        const suggestion = createUniqueSkillIdentity(title, catalogResult.catalog);
+        const approvalToken = createSkillProposalToken({
+            id: suggestion.id,
+            filename: suggestion.filename,
+            title,
+        });
+        return {
+            ok: true,
+            action: 'propose',
+            approved: true,
+            approvalToken,
+            id: suggestion.id,
+            filename: suggestion.filename,
+            title,
+            reason,
+            sourceSummary,
+            instructions: [
+                '请把刚才完成的任务过程沉淀成一条可复用 skill。',
+                '重点总结：关键步骤、分支判断、踩坑与恢复方式、适用边界。',
+                '正文不要包含 frontmatter；只提交 markdown 正文，并严格包含这些章节：# Goal、# When to Use、# Inputs、# Workflow、# Pitfalls、# Examples、# References。',
+                '准备好后，再调用 GenerateSkill action="save" 写入 skill。',
+            ].join('\n'),
+            template: {
+                requiredSections: ['# Goal', '# When to Use', '# Inputs', '# Workflow', '# Pitfalls', '# Examples', '# References'],
+            },
+        };
+    }
+
+    const approvalToken = String(args.approvalToken || '').trim();
+    const proposal = getSkillProposalToken(approvalToken);
+    if (!proposal) {
+        return {
+            ok: false,
+            error: 'skill_approval_token_invalid',
+            message: 'approvalToken 无效、已过期，或已经被使用过。',
+        };
+    }
+
+    const id = String(args.id || '').trim();
+    if (id !== proposal.id) {
+        return {
+            ok: false,
+            error: 'skill_id_mismatch',
+            message: `save 阶段必须使用 propose 返回的 id：${proposal.id}`,
+        };
+    }
+
+    const title = String(args.title || '').trim() || proposal.title;
+    const summary = String(args.summary || '').trim();
+    const whenToUse = String(args.when_to_use || '').trim();
+    const content = String(args.content || '');
+    const enabled = args.enabled !== false;
+    const seenTriggers = new Set();
+    const triggers = Array.isArray(args.triggers)
+        ? args.triggers
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+            .filter((item) => {
+                const lowered = item.toLowerCase();
+                if (seenTriggers.has(lowered)) return false;
+                seenTriggers.add(lowered);
+                return true;
+            })
+        : [];
+
+    if (!title) {
+        return {
+            ok: false,
+            error: 'skill_title_required',
+            message: 'save 阶段必须提供 title。',
+        };
+    }
+    if (!summary) {
+        return {
+            ok: false,
+            error: 'skill_summary_required',
+            message: 'save 阶段必须提供 summary。',
+        };
+    }
+    if (!whenToUse) {
+        return {
+            ok: false,
+            error: 'skill_when_to_use_required',
+            message: 'save 阶段必须提供 when_to_use。',
+        };
+    }
+    if (!content.trim()) {
+        return {
+            ok: false,
+            error: 'skill_content_required',
+            message: 'save 阶段必须提供 skill 正文。',
+        };
+    }
+
+    const validation = validateSkillBody(content);
+    if (!validation.ok) {
+        return {
+            ok: false,
+            error: 'skill_sections_missing',
+            message: `skill 正文缺少必填章节：${validation.missing.join('、')}`,
+        };
+    }
+
+    if (catalogResult.catalog.skills.some((item) => item.id === id || item.filename === proposal.filename)) {
+        return {
+            ok: false,
+            error: 'skill_already_exists',
+            message: `技能已存在：${id}`,
+        };
+    }
+
+    const now = new Date().toISOString();
+    const fileContent = buildSkillFileContent({
+        id,
+        title,
+        summary,
+        triggers,
+        whenToUse,
+        enabled,
+        createdAt: now,
+        updatedAt: now,
+        body: content,
+    });
+    await writeUserFile(proposal.filename, fileContent, options);
+
+    const nextCatalog = normalizeSkillsCatalog({
+        ...catalogResult.catalog,
+        skills: [
+            ...catalogResult.catalog.skills,
+            {
+                id,
+                title,
+                summary,
+                filename: proposal.filename,
+                triggers,
+                enabled,
+                updatedAt: now,
+            },
+        ],
+    });
+    await writeSkillsCatalogData(nextCatalog, options);
+    deleteSkillProposalToken(approvalToken);
+
+    return {
+        ok: true,
+        action: 'save',
+        id,
+        title,
+        filename: proposal.filename,
+        enabled,
+        updatedAt: now,
+        note: '技能正文和 Skills.json 已写入，当前会话技能目录会立即刷新。',
+    };
+}
+
+async function readSkillsRuntimeData(options = {}) {
+    const catalogResult = await readSkillsCatalogData(options);
+    if (!catalogResult.ok) {
+        return {
+            skillsCatalog: normalizeSkillsCatalog(EMPTY_SKILLS_CATALOG),
+            skillsPromptSummary: '',
+            skillsCatalogError: catalogResult.message,
+        };
+    }
+    return {
+        skillsCatalog: catalogResult.catalog,
+        skillsPromptSummary: catalogResult.summaryText,
+        skillsCatalogError: '',
+    };
+}
+
 async function readIdentityNote(_args = {}, options = {}) {
     return readUserFile(DEFAULT_IDENTITY_FILE, options);
 }
@@ -979,6 +1535,12 @@ async function executeToolCall(name, args, options = {}) {
             return await readWorkspaceNote(args, options);
         case TOOL_NAMES.WRITE_WORKLOG:
             return await writeWorkspaceNote(args, options);
+        case TOOL_NAMES.READ_SKILLS_CATALOG:
+            return await readSkillsCatalogTool(args, options);
+        case TOOL_NAMES.READ_SKILL:
+            return await readSkillTool(args, options);
+        case TOOL_NAMES.GENERATE_SKILL:
+            return await generateSkillTool(args, options);
         default:
             throw new Error(`unsupported_tool:${name}`);
     }
@@ -1702,36 +2264,12 @@ async function handleIframeMessage(event) {
     switch (type) {
         case 'xb-assistant:ready': {
             await loadAssistantSettings();
-            let fileCount = 0;
-            try {
-                const manifest = await loadManifest();
-                fileCount = Array.isArray(manifest.files) ? manifest.files.length : 0;
-            } catch {
-                fileCount = 0;
-            }
             const config = buildRuntimeConfig();
-            let identityContent = DEFAULT_IDENTITY_CONTENT;
-            try {
-                await ensureUserFile(config.workspaceFileName || DEFAULT_WORKSPACE_FILE, '');
-            } catch {
-                // Ignore auto-create failures so the assistant can still start.
-            }
-            try {
-                const identityFile = await ensureUserFile(DEFAULT_IDENTITY_FILE, DEFAULT_IDENTITY_CONTENT);
-                identityContent = String(identityFile.content || '').trim() || DEFAULT_IDENTITY_CONTENT;
-            } catch {
-                identityContent = DEFAULT_IDENTITY_CONTENT;
-            }
             postToIframe(iframe, {
                 type: 'xb-assistant:config',
                 payload: {
                     config,
-                    runtime: {
-                        moduleId: MODULE_ID,
-                        extensionPath: extensionFolderPath,
-                        indexedFileCount: fileCount,
-                        identityContent,
-                    },
+                    runtime: await buildAssistantRuntimePayload(),
                 },
             });
             break;
@@ -1795,6 +2333,12 @@ async function handleIframeMessage(event) {
                         payload: {
                             identityContent: String(identityFile.content || '').trim() || DEFAULT_IDENTITY_CONTENT,
                         },
+                    });
+                }
+                if (toolName === TOOL_NAMES.GENERATE_SKILL && result?.ok && result.action === 'save') {
+                    postToIframe(iframe, {
+                        type: SKILLS_UPDATED,
+                        payload: await readSkillsRuntimeData({ signal: controller.signal }),
                     });
                 }
                 postToIframe(iframe, {

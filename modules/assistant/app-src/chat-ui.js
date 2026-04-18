@@ -115,9 +115,9 @@ export function createChatUi(deps) {
         const doc = parser.parseFromString(`<body>${String(html || '')}</body>`, 'text/html');
         enhanceMarkdownCodeBlocks(doc);
         const fragment = document.createDocumentFragment();
-        Array.from(doc.body.childNodes).forEach((node) => {
-            fragment.appendChild(document.importNode(node, true));
-        });
+        while (doc.body.firstChild) {
+            fragment.appendChild(doc.body.firstChild);
+        }
         return fragment;
     }
 
@@ -146,7 +146,7 @@ export function createChatUi(deps) {
     }
 
     function buildApprovalPanel(approvalRequest) {
-        if (!approvalRequest || approvalRequest.kind !== 'slash-command') {
+        if (!approvalRequest || !approvalRequest.kind) {
             return null;
         }
 
@@ -155,21 +155,37 @@ export function createChatUi(deps) {
 
         const title = document.createElement('div');
         title.className = 'xb-assistant-approval-title';
-        title.textContent = '待确认的斜杠命令';
+        title.textContent = approvalRequest.kind === 'generate-skill'
+            ? '待确认的技能沉淀'
+            : '待确认的斜杠命令';
 
         const command = document.createElement('pre');
         command.className = 'xb-assistant-content xb-assistant-approval-command';
-        command.textContent = approvalRequest.command || '';
+        command.textContent = approvalRequest.kind === 'generate-skill'
+            ? [
+                approvalRequest.title ? `标题：${approvalRequest.title}` : '',
+                approvalRequest.reason ? `原因：${approvalRequest.reason}` : '',
+                approvalRequest.sourceSummary ? `过程摘要：${approvalRequest.sourceSummary}` : '',
+            ].filter(Boolean).join('\n\n')
+            : (approvalRequest.command || '');
 
         const note = document.createElement('div');
         note.className = 'xb-assistant-approval-note';
-        note.textContent = approvalRequest.status === 'approved'
-            ? '已同意，命令已进入执行流程。'
-            : approvalRequest.status === 'declined'
-                ? '已拒绝，本次不会执行这条命令。'
-                : approvalRequest.status === 'cancelled'
-                    ? '本轮请求已终止，这条命令未执行。'
-                    : '这条命令会直接作用于你当前打开的真实酒馆实例；点“是”后才会真正执行。';
+        note.textContent = approvalRequest.kind === 'generate-skill'
+            ? (approvalRequest.status === 'approved'
+                ? '已同意，接下来会生成 skill 草稿并继续保存流程。'
+                : approvalRequest.status === 'declined'
+                    ? '已拒绝，本次不会生成 skill。'
+                    : approvalRequest.status === 'cancelled'
+                        ? '本轮请求已终止，这次 skill 沉淀未继续。'
+                        : '这会把刚完成的过程沉淀成可复用 skill；点“是”后才会进入生成。')
+            : (approvalRequest.status === 'approved'
+                ? '已同意，命令已进入执行流程。'
+                : approvalRequest.status === 'declined'
+                    ? '已拒绝，本次不会执行这条命令。'
+                    : approvalRequest.status === 'cancelled'
+                        ? '本轮请求已终止，这条命令未执行。'
+                        : '这条命令会直接作用于你当前打开的真实酒馆实例；点“是”后才会真正执行。');
 
         panel.append(title, command, note);
 
@@ -182,7 +198,7 @@ export function createChatUi(deps) {
             approveButton.className = 'xb-assistant-approval-button';
             approveButton.dataset.approvalId = approvalRequest.id;
             approveButton.dataset.approvalDecision = 'approve';
-            approveButton.textContent = '是，执行';
+            approveButton.textContent = approvalRequest.kind === 'generate-skill' ? '是，生成' : '是，执行';
 
             const declineButton = document.createElement('button');
             declineButton.type = 'button';

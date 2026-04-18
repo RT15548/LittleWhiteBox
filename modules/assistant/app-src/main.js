@@ -34,8 +34,8 @@ const SOURCE = 'xb-assistant-app';
 const ROOT_ID = 'xb-assistant-root';
 const REQUEST_TIMEOUT_MS = 180000;
 const MAX_TOOL_ROUNDS = 64;
-const MAX_CONTEXT_TOKENS = 158000;
-const SUMMARY_TRIGGER_TOKENS = 128000;
+const MAX_CONTEXT_TOKENS = 128000;
+const SUMMARY_TRIGGER_TOKENS = 98000;
 const DEFAULT_PRESERVED_TURNS = 2;
 const MIN_PRESERVED_TURNS = 1;
 const MAX_IMAGE_ATTACHMENTS = 3;
@@ -428,7 +428,8 @@ function createAdapter() {
 
 function getInjectedSystemPrompt() {
     const identityContent = String(state.runtime?.identityContent || '').trim();
-    return [SYSTEM_PROMPT, identityContent].filter(Boolean).join('\n\n');
+    const skillsPromptSummary = String(state.runtime?.skillsPromptSummary || '').trim();
+    return [SYSTEM_PROMPT, skillsPromptSummary, identityContent].filter(Boolean).join('\n\n');
 }
 
 const runtime = createAssistantRuntime({
@@ -953,8 +954,12 @@ function injectStyles() {
             position: relative;
             display: flex;
             min-height: 0;
+            min-width: 0;
             height: 100%;
+            width: 100%;
+            max-width: 100%;
             overflow: hidden;
+            box-sizing: border-box;
         }
         .xb-assistant-status.busy::before {
             content: '';
@@ -1052,6 +1057,7 @@ function injectStyles() {
         .xb-assistant-bubble {
             width: min(860px, 100%);
             max-width: 100%;
+            min-width: 0;
             box-sizing: border-box;
             border-radius: 18px;
             padding: 14px 16px;
@@ -1076,10 +1082,21 @@ function injectStyles() {
         }
         .xb-assistant-meta { margin-bottom: 6px; font-size: 12px; opacity: 0.78; }
         .xb-assistant-bubble.is-tool-call .xb-assistant-meta { margin-bottom: 0; }
-        .xb-assistant-content { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
+        .xb-assistant-content {
+            margin: 0;
+            min-width: 0;
+            max-width: 100%;
+            box-sizing: border-box;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font: inherit;
+        }
         .xb-assistant-markdown {
+            min-width: 0;
+            max-width: 100%;
             white-space: normal;
             line-height: 1.7;
+            overflow-wrap: anywhere;
         }
         .xb-assistant-markdown > *:first-child { margin-top: 0; }
         .xb-assistant-markdown > *:last-child { margin-bottom: 0; }
@@ -1103,8 +1120,11 @@ function injectStyles() {
             font-size: 0.95em;
         }
         .xb-assistant-markdown pre {
-            overflow: visible;
+            overflow-x: hidden;
+            overflow-y: visible;
+            min-width: 0;
             max-width: 100%;
+            box-sizing: border-box;
             padding: 12px 14px;
             border-radius: 12px;
             background: rgba(20, 32, 51, 0.06);
@@ -1114,6 +1134,8 @@ function injectStyles() {
         }
         .xb-assistant-codeblock {
             position: relative;
+            min-width: 0;
+            max-width: 100%;
         }
         .xb-assistant-codeblock .xb-assistant-code-copy {
             position: absolute;
@@ -1893,6 +1915,17 @@ window.addEventListener('message', (event) => {
             identityContent: String(data.payload?.identityContent || '').trim(),
         };
         showToast('身份设定已更新');
+        return;
+    }
+
+    if (data.type === 'xb-assistant:skills-updated') {
+        state.runtime = {
+            ...(state.runtime || {}),
+            skillsCatalog: data.payload?.skillsCatalog || { version: 1, skills: [] },
+            skillsPromptSummary: String(data.payload?.skillsPromptSummary || ''),
+            skillsCatalogError: String(data.payload?.skillsCatalogError || ''),
+        };
+        showToast('技能目录已刷新');
         return;
     }
 

@@ -150,10 +150,11 @@ function buildTaggedProtocolPrompt(task) {
     return [
         task.systemPrompt || '',
         '如果你需要调用工具，不要使用原生 tool calling 字段。',
-        '请严格输出如下边界标记包裹的 JSON，不要改写边界标记：',
+        '用 <tool_call> 和 </tool_call> 明确 JSON 范围，请严格输出如下边界标记和包裹的 JSON，不要改写边界标记：',
         '<tool_call>{"name":"工具名","arguments":{...}}</tool_call>',
-        '可以输出多段 <tool_call> ... </tool_call>。',
-        '除非必须说明，否则不要在工具调用前后输出多余解释。',
+        '如果需要多个工具调用，可以连续输出多段 <tool_call> ... </tool_call>。',
+        '在输出第一个 <tool_call> 之前，可根据任务复杂度决定是否需要先说明：简单查询可直接输出 <tool_call>；复杂任务可先简要说明你准备查什么或怎么查。',
+        '一旦开始输出第一个 <tool_call>，就不要再继续输出面向用户的正文、解释、总结或补充；把本轮需要的 tool_call 连续输出完就结束。',
         toolDescriptions ? `可用工具:\n${toolDescriptions}` : '',
     ].filter(Boolean).join('\n\n');
 }
