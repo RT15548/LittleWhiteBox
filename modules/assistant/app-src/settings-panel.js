@@ -271,76 +271,97 @@ export function createSettingsPanel(deps) {
         reasoningEffortOptions,
     } = deps;
 
-    function getActiveProviderConfig() {
-        const config = state.config || {};
-        const provider = config.provider || 'openai-compatible';
-        const providerConfig = (config.modelConfigs || {})[provider] || {};
+    function buildDraftFromPreset(presetName, preset) {
+        const normalizedPresetName = normalizePresetName(presetName || defaultPresetName);
+        const sourcePreset = preset && typeof preset === 'object' ? preset : buildDefaultPreset();
+        const provider = sourcePreset.provider || 'openai-compatible';
+        const providerConfig = (sourcePreset.modelConfigs || cloneDefaultModelConfigs())[provider] || {};
         return {
+            currentPresetName: normalizedPresetName,
+            presetDraftName: normalizedPresetName,
             provider,
-            baseUrl: providerConfig.baseUrl || '',
-            model: providerConfig.model || '',
-            apiKey: providerConfig.apiKey || '',
+            baseUrl: String(providerConfig.baseUrl || ''),
+            model: String(providerConfig.model || ''),
+            apiKey: String(providerConfig.apiKey || ''),
             temperature: Number(providerConfig.temperature ?? 0.2),
-            maxTokens: null,
-            timeoutMs: requestTimeoutMs,
-            toolMode: providerConfig.toolMode || 'native',
             reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
             reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
+            toolMode: providerConfig.toolMode || 'native',
         };
     }
 
-    function collectProviderDraft(root, provider) {
+    function ensureConfigDraft() {
+        if (state.configDraft) return state.configDraft;
+        const currentPresetName = normalizePresetName(state.config?.currentPresetName || defaultPresetName);
+        const currentPreset = (state.config?.presets || {})[currentPresetName] || buildDefaultPreset();
+        state.configDraft = buildDraftFromPreset(currentPresetName, currentPreset);
+        return state.configDraft;
+    }
+
+    function readDraftFromForm(root) {
+        const draft = ensureConfigDraft();
         return {
-            baseUrl: root.querySelector('#xb-assistant-base-url').value.trim(),
-            model: root.querySelector('#xb-assistant-model').value.trim(),
-            apiKey: root.querySelector('#xb-assistant-api-key').value.trim(),
-            temperature: Number(((state.config?.modelConfigs || {})[provider] || {}).temperature ?? 0.2),
+            ...draft,
+            currentPresetName: draft.currentPresetName,
+            presetDraftName: normalizePresetName(root.querySelector('#xb-assistant-preset-name')?.value),
+            provider: root.querySelector('#xb-assistant-provider')?.value || draft.provider || 'openai-compatible',
+            baseUrl: root.querySelector('#xb-assistant-base-url')?.value.trim() || '',
+            model: root.querySelector('#xb-assistant-model')?.value.trim() || '',
+            apiKey: root.querySelector('#xb-assistant-api-key')?.value.trim() || '',
+            temperature: Number(draft.temperature ?? 0.2),
             reasoningEnabled: root.querySelector('#xb-assistant-reasoning-enabled')?.checked || false,
             reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value),
-            toolMode: provider === 'openai-compatible'
-                ? (root.querySelector('#xb-assistant-tool-mode')?.value || 'native')
+            toolMode: (root.querySelector('#xb-assistant-tool-mode')?.value || draft.toolMode || 'native'),
+        };
+    }
+
+    function syncConfigDraft(root) {
+        state.configDraft = readDraftFromForm(root);
+        return state.configDraft;
+    }
+
+    function buildProviderConfigFromDraft(draft = ensureConfigDraft()) {
+        return {
+            baseUrl: String(draft.baseUrl || ''),
+            model: String(draft.model || ''),
+            apiKey: String(draft.apiKey || ''),
+            temperature: Number(draft.temperature ?? 0.2),
+            reasoningEnabled: Boolean(draft.reasoningEnabled),
+            reasoningEffort: normalizeReasoningEffort(draft.reasoningEffort),
+            toolMode: draft.provider === 'openai-compatible'
+                ? (draft.toolMode || 'native')
                 : undefined,
         };
     }
 
-    function syncPresetDraftName(root) {
-        if (!state.config) return;
-        state.config.presetDraftName = normalizePresetName(root.querySelector('#xb-assistant-preset-name')?.value);
+    function getActiveProviderConfig() {
+        const draft = ensureConfigDraft();
+        return {
+            provider: draft.provider || 'openai-compatible',
+            baseUrl: draft.baseUrl || '',
+            model: draft.model || '',
+            apiKey: draft.apiKey || '',
+            temperature: Number(draft.temperature ?? 0.2),
+            maxTokens: null,
+            timeoutMs: requestTimeoutMs,
+            toolMode: draft.toolMode || 'native',
+            reasoningEnabled: Boolean(draft.reasoningEnabled),
+            reasoningEffort: normalizeReasoningEffort(draft.reasoningEffort),
+        };
     }
 
-    function syncCurrentProviderDraft(root, options = {}) {
-        if (!state.config) return;
-        syncPresetDraftName(root);
-        const provider = options.providerOverride || root.querySelector('#xb-assistant-provider').value;
-        const currentPresetName = normalizePresetName(state.config.currentPresetName);
-        state.config = {
-            ...normalizeAssistantConfig({
-                ...state.config,
-                currentPresetName,
-                presetDraftName: state.config.presetDraftName,
-                presets: {
-                    ...(state.config.presets || {}),
-                    [currentPresetName]: {
-                        ...((state.config.presets || {})[currentPresetName] || buildDefaultPreset()),
-                        provider,
-                        modelConfigs: {
-                            ...(((state.config.presets || {})[currentPresetName] || {}).modelConfigs || cloneDefaultModelConfigs()),
-                            [provider]: {
-                                ...((((state.config.presets || {})[currentPresetName] || {}).modelConfigs || cloneDefaultModelConfigs())[provider] || {}),
-                                ...collectProviderDraft(root, provider),
-                            },
-                        },
-                    },
-                },
-            }),
-            provider,
+    function syncPresetDraftName(root) {
+        ensureConfigDraft();
+        state.configDraft = {
+            ...state.configDraft,
+            presetDraftName: normalizePresetName(root.querySelector('#xb-assistant-preset-name')?.value),
         };
     }
 
     function syncConfigToForm(root) {
         if (!state.config) return;
-        const provider = state.config.provider || 'openai-compatible';
-        const providerConfig = (state.config.modelConfigs || {})[provider] || {};
+        const draft = ensureConfigDraft();
+        const provider = draft.provider || 'openai-compatible';
         const pulledModels = getProviderModels(provider);
         const toolModeWrap = root.querySelector('#xb-assistant-tool-mode-wrap');
         const toolModeSelect = root.querySelector('#xb-assistant-tool-mode');
@@ -355,49 +376,54 @@ export function createSettingsPanel(deps) {
             presetSelect,
             (state.config.presetNames || []).map((name) => ({ value: name, label: name })),
         );
-        presetSelect.value = state.config.currentPresetName || defaultPresetName;
-        presetNameInput.value = state.config.presetDraftName || state.config.currentPresetName || defaultPresetName;
+        presetSelect.value = draft.currentPresetName || state.config.currentPresetName || defaultPresetName;
+        presetNameInput.value = draft.presetDraftName || draft.currentPresetName || defaultPresetName;
         root.querySelector('#xb-assistant-provider').value = provider;
-        root.querySelector('#xb-assistant-base-url').value = providerConfig.baseUrl || '';
-        root.querySelector('#xb-assistant-model').value = providerConfig.model || '';
-        root.querySelector('#xb-assistant-api-key').value = providerConfig.apiKey || '';
+        root.querySelector('#xb-assistant-base-url').value = draft.baseUrl || '';
+        root.querySelector('#xb-assistant-model').value = draft.model || '';
+        root.querySelector('#xb-assistant-api-key').value = draft.apiKey || '';
         toolModeWrap.style.display = provider === 'openai-compatible' ? '' : 'none';
         refillSelect(toolModeSelect, toolModeOptions);
-        toolModeSelect.value = providerConfig.toolMode || 'native';
+        toolModeSelect.value = draft.toolMode || 'native';
         refillSelect(reasoningEffortSelect, reasoningEffortOptions);
-        reasoningEnabledInput.checked = Boolean(providerConfig.reasoningEnabled);
-        reasoningEffortSelect.value = normalizeReasoningEffort(providerConfig.reasoningEffort);
+        reasoningEnabledInput.checked = Boolean(draft.reasoningEnabled);
+        reasoningEffortSelect.value = normalizeReasoningEffort(draft.reasoningEffort);
         reasoningEffortWrap.style.display = reasoningEnabledInput.checked ? '' : 'none';
         refillSelect(pulledSelect, pulledModels.map((model) => ({ value: model, label: model })), '手动填写');
 
         const runtimeEl = root.querySelector('#xb-assistant-runtime');
         const pullState = getPullState(provider);
         runtimeEl.textContent = state.runtime
-            ? `预设「${state.config.currentPresetName || defaultPresetName}」 · ${getProviderLabel(provider)} · 已索引 ${state.runtime.indexedFileCount || 0} 个前端源码文件${pullState.message ? ` · ${pullState.message}` : ''}`
+            ? `预设「${draft.currentPresetName || defaultPresetName}」 · ${getProviderLabel(provider)} · 已索引 ${state.runtime.indexedFileCount || 0} 个前端源码文件${pullState.message ? ` · ${pullState.message}` : ''}`
             : (pullState.message || '');
     }
 
     function saveConfigFromForm(root) {
-        syncCurrentProviderDraft(root);
-        const nextPresetName = normalizePresetName(root.querySelector('#xb-assistant-preset-name')?.value);
-        const currentPresetName = normalizePresetName(state.config?.currentPresetName || defaultPresetName);
-        const existingPreset = (state.config?.presets || {})[nextPresetName];
-        if (nextPresetName !== currentPresetName && existingPreset) {
-            showToast(`预设「${nextPresetName}」已存在，请从下拉切换到它；如果要新建，请换个名字。`);
-            render();
-            return;
-        }
+        const draft = syncConfigDraft(root);
+        const nextPresetName = normalizePresetName(draft.presetDraftName);
+        const currentPresetName = normalizePresetName(draft.currentPresetName || state.config?.currentPresetName || defaultPresetName);
         const currentPreset = (state.config?.presets || {})[currentPresetName] || buildDefaultPreset();
+        const nextPreset = {
+            ...currentPreset,
+            provider: draft.provider,
+            modelConfigs: {
+                ...(currentPreset.modelConfigs || cloneDefaultModelConfigs()),
+                [draft.provider]: {
+                    ...(((currentPreset.modelConfigs || cloneDefaultModelConfigs())[draft.provider]) || {}),
+                    ...buildProviderConfigFromDraft(draft),
+                },
+            },
+        };
         const nextPresets = {
             ...(state.config?.presets || {}),
-            [nextPresetName]: currentPreset,
+            [nextPresetName]: nextPreset,
         };
         state.config = normalizeAssistantConfig({
             ...state.config,
             currentPresetName: nextPresetName,
-            presetDraftName: nextPresetName,
             presets: nextPresets,
         });
+        state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset);
         requestConfigFormSync();
         const requestId = createRequestId('save-config');
         beginConfigSave(requestId);
@@ -410,24 +436,24 @@ export function createSettingsPanel(deps) {
     }
 
     function deleteCurrentPreset(root) {
-        syncCurrentProviderDraft(root);
         const presetNames = Object.keys(state.config?.presets || {});
         if (presetNames.length <= 1) {
             showToast('至少要保留一套预设');
             return;
         }
 
-        const currentPresetName = normalizePresetName(state.config?.currentPresetName || defaultPresetName);
+        const currentPresetName = normalizePresetName(state.configDraft?.currentPresetName || state.config?.currentPresetName || defaultPresetName);
         const nextPresets = { ...(state.config?.presets || {}) };
         delete nextPresets[currentPresetName];
         const nextPresetName = Object.keys(nextPresets)[0] || defaultPresetName;
+        const nextPreset = nextPresets[nextPresetName] || buildDefaultPreset();
 
         state.config = normalizeAssistantConfig({
             ...state.config,
             currentPresetName: nextPresetName,
-            presetDraftName: nextPresetName,
             presets: nextPresets,
         });
+        state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset);
         requestConfigFormSync();
         const requestId = createRequestId('delete-preset');
         beginConfigSave(requestId);
@@ -444,37 +470,24 @@ export function createSettingsPanel(deps) {
 
     function bindSettingsPanelEvents(root) {
         root.querySelector('#xb-assistant-provider').addEventListener('change', (event) => {
-            const previousProvider = state.config?.provider || 'openai-compatible';
             const nextProvider = event.currentTarget.value;
-            syncCurrentProviderDraft(root, { providerOverride: previousProvider });
-            const currentPresetName = normalizePresetName(state.config?.currentPresetName || defaultPresetName);
-            state.config = normalizeAssistantConfig({
-                ...state.config,
-                currentPresetName,
-                presetDraftName: state.config?.presetDraftName || currentPresetName,
-                presets: {
-                    ...(state.config?.presets || {}),
-                    [currentPresetName]: {
-                        ...((state.config?.presets || {})[currentPresetName] || buildDefaultPreset()),
-                        provider: nextProvider,
-                    },
-                },
-            });
+            ensureConfigDraft();
+            state.configDraft = {
+                ...state.configDraft,
+                provider: nextProvider,
+            };
             requestConfigFormSync();
             render();
         });
 
         root.querySelector('#xb-assistant-preset-select').addEventListener('change', (event) => {
-            syncCurrentProviderDraft(root);
             const nextPresetName = normalizePresetName(event.currentTarget.value);
             const nextPreset = (state.config?.presets || {})[nextPresetName] || buildDefaultPreset();
             state.config = normalizeAssistantConfig({
                 ...state.config,
                 currentPresetName: nextPresetName,
-                presetDraftName: nextPresetName,
-                provider: nextPreset.provider,
-                modelConfigs: nextPreset.modelConfigs,
             });
+            state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset);
             requestConfigFormSync();
             render();
         });
@@ -484,22 +497,22 @@ export function createSettingsPanel(deps) {
         });
 
         root.querySelector('#xb-assistant-base-url').addEventListener('input', () => {
-            syncCurrentProviderDraft(root);
+            syncConfigDraft(root);
         });
 
         root.querySelector('#xb-assistant-model').addEventListener('input', () => {
-            syncCurrentProviderDraft(root);
+            syncConfigDraft(root);
         });
 
         root.querySelector('#xb-assistant-api-key').addEventListener('input', () => {
-            syncCurrentProviderDraft(root);
+            syncConfigDraft(root);
         });
 
         root.querySelector('#xb-assistant-model-pulled').addEventListener('change', (event) => {
             const value = event.currentTarget.value;
             if (!value) return;
             root.querySelector('#xb-assistant-model').value = value;
-            syncCurrentProviderDraft(root);
+            syncConfigDraft(root);
         });
 
         root.querySelector('#xb-assistant-toggle-key').addEventListener('click', () => {
@@ -509,17 +522,21 @@ export function createSettingsPanel(deps) {
         });
 
         root.querySelector('#xb-assistant-reasoning-enabled').addEventListener('change', () => {
-            syncCurrentProviderDraft(root);
+            syncConfigDraft(root);
             requestConfigFormSync();
             render();
         });
 
         root.querySelector('#xb-assistant-reasoning-effort').addEventListener('change', () => {
-            syncCurrentProviderDraft(root);
+            syncConfigDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-tool-mode').addEventListener('change', () => {
+            syncConfigDraft(root);
         });
 
         root.querySelector('#xb-assistant-pull-models').addEventListener('click', async () => {
-            syncCurrentProviderDraft(root);
+            syncConfigDraft(root);
             requestConfigFormSync();
             const providerConfig = getActiveProviderConfig();
             setPullState(providerConfig.provider, { status: 'loading', message: '正在拉取模型列表…' });
@@ -553,7 +570,6 @@ export function createSettingsPanel(deps) {
 
     return {
         getActiveProviderConfig,
-        syncCurrentProviderDraft,
         syncConfigToForm,
         bindSettingsPanelEvents,
     };

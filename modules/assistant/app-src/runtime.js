@@ -94,6 +94,9 @@ export function createAssistantRuntime(deps) {
     }
 
     function getMessageTextForSummary(message) {
+        if (message?.approvalRequest) {
+            return '';
+        }
         if (message.role === 'tool') {
             return trimForSummary(formatToolResultDisplay(message).summary || message.content || '', 1400);
         }
@@ -108,7 +111,7 @@ export function createAssistantRuntime(deps) {
         const turns = [];
         let currentTurn = [];
 
-        (messages || []).forEach((message) => {
+        (messages || []).filter((message) => !message?.approvalRequest).forEach((message) => {
             if (message.role === 'user' && currentTurn.length) {
                 turns.push(currentTurn);
                 currentTurn = [message];
@@ -497,10 +500,13 @@ export function createAssistantRuntime(deps) {
         for (const [requestId, entry] of pendingApprovals.entries()) {
             if (entry.runId !== runId) continue;
             pendingApprovals.delete(requestId);
-            setApprovalStatus(requestId, 'cancelled');
+            if (state.pendingApproval?.id === requestId) {
+                state.pendingApproval = null;
+            }
             entry.cleanup?.();
             entry.reject(error);
         }
+        render();
     }
 
     function cancelActiveRun(notice = '本轮请求已终止。') {
@@ -521,6 +527,9 @@ export function createAssistantRuntime(deps) {
         if (summaryMessage) messages.push(summaryMessage);
         if (lightBrakeMessage) messages.push(lightBrakeMessage);
         for (const message of baseMessages) {
+            if (message?.approvalRequest) {
+                continue;
+            }
             if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
                 messages.push({
                     role: 'assistant',
@@ -740,16 +749,12 @@ export function createAssistantRuntime(deps) {
         const requestId = createRequestId('approval');
         const run = state.activeRun?.id === options.runId ? state.activeRun : null;
 
-        pushMessage({
-            role: 'assistant',
-            content: '这条斜杠命令会直接作用于你当前打开的真实酒馆实例。请确认是否继续执行。',
-            approvalRequest: {
-                id: requestId,
-                kind: 'slash-command',
-                command,
-                status: 'pending',
-            },
-        });
+        state.pendingApproval = {
+            id: requestId,
+            kind: 'slash-command',
+            command,
+            status: 'pending',
+        };
         render();
 
         return new Promise((resolve, reject) => {
@@ -765,11 +770,18 @@ export function createAssistantRuntime(deps) {
                 }
             };
 
+            const clearApprovalPanel = () => {
+                if (state.pendingApproval?.id !== requestId) return;
+                state.pendingApproval = null;
+                render();
+            };
+
             const finishResolve = (value) => {
                 if (settled) return;
                 settled = true;
                 pendingApprovals.delete(requestId);
                 cleanup();
+                clearApprovalPanel();
                 resolve(value);
             };
 
@@ -778,11 +790,11 @@ export function createAssistantRuntime(deps) {
                 settled = true;
                 pendingApprovals.delete(requestId);
                 cleanup();
+                clearApprovalPanel();
                 reject(error);
             };
 
             abortHandler = () => {
-                setApprovalStatus(requestId, 'cancelled');
                 finishReject(new Error('tool_aborted'));
             };
 
@@ -794,7 +806,6 @@ export function createAssistantRuntime(deps) {
                 runId: options.runId,
                 cleanup,
                 resolve: (approved) => {
-                    setApprovalStatus(requestId, approved ? 'approved' : 'declined');
                     finishResolve(approved);
                 },
                 reject: finishReject,

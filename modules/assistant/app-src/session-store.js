@@ -13,15 +13,6 @@ function cloneJson(value) {
 }
 
 function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks, order) {
-    const approvalRequest = message?.approvalRequest && typeof message.approvalRequest === 'object'
-        ? {
-            id: String(message.approvalRequest.id || ''),
-            kind: String(message.approvalRequest.kind || ''),
-            command: String(message.approvalRequest.command || ''),
-            status: String(message.approvalRequest.status || ''),
-        }
-        : undefined;
-
     return {
         sessionId: SESSION_ID,
         order,
@@ -47,9 +38,6 @@ function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks,
             text: item.text,
         })),
         providerPayload: cloneJson(message?.providerPayload),
-        approvalRequest: approvalRequest && approvalRequest.status && approvalRequest.status !== 'pending'
-            ? approvalRequest
-            : undefined,
     };
 }
 
@@ -57,15 +45,7 @@ function normalizeRestoredMessage(message, deps) {
     const { normalizeAttachments, normalizeThoughtBlocks, createRequestId } = deps;
     if (!message || typeof message !== 'object') return null;
     if (!['user', 'assistant', 'tool'].includes(message.role)) return null;
-
-    const approvalRequest = message.approvalRequest && typeof message.approvalRequest === 'object'
-        ? {
-            id: String(message.approvalRequest.id || ''),
-            kind: String(message.approvalRequest.kind || ''),
-            command: String(message.approvalRequest.command || ''),
-            status: String(message.approvalRequest.status || ''),
-        }
-        : undefined;
+    if (message.approvalRequest) return null;
 
     return {
         role: message.role,
@@ -84,16 +64,13 @@ function normalizeRestoredMessage(message, deps) {
             : undefined,
         thoughts: normalizeThoughtBlocks(message.thoughts || []),
         providerPayload: cloneJson(message?.providerPayload),
-        approvalRequest: approvalRequest?.status && approvalRequest.status !== 'pending'
-            ? approvalRequest
-            : undefined,
     };
 }
 
 function isPersistableMessage(message) {
     if (!message || typeof message !== 'object') return false;
     if (message.streaming) return false;
-    if (message.approvalRequest?.status === 'pending') return false;
+    if (message.approvalRequest) return false;
     return true;
 }
 

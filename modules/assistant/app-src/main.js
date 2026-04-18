@@ -64,7 +64,9 @@ const PROVIDER_OPTIONS = [
 ];
 const state = {
     config: null,
+    configDraft: null,
     runtime: null,
+    pendingApproval: null,
     messages: [],
     historySummary: '',
     archivedTurnCount: 0,
@@ -142,15 +144,13 @@ function isAssistantMobile() {
     return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
 }
 
-function findMessageByApprovalId(requestId) {
-    return state.messages.find((message) => message?.approvalRequest?.id === requestId) || null;
-}
-
 function setApprovalStatus(requestId, status) {
-    const target = findMessageByApprovalId(requestId);
-    if (!target?.approvalRequest) return;
-    target.approvalRequest.status = status;
-    persistSession();
+    if (!state.pendingApproval || state.pendingApproval.id !== requestId) return;
+    state.pendingApproval = {
+        ...state.pendingApproval,
+        status,
+    };
+    render();
 }
 
 function buildSlashApprovalResult(command, approved) {
@@ -382,7 +382,6 @@ const settingsPanel = createSettingsPanel({
 
 const {
     getActiveProviderConfig,
-    syncCurrentProviderDraft,
     syncConfigToForm,
     bindSettingsPanelEvents,
 } = settingsPanel;
@@ -399,6 +398,7 @@ const chatUi = createChatUi({
 
 const {
     renderMessages,
+    renderApprovalPanel,
     scrollChatToBottom,
     scrollChatToTop,
     updateChatScrollButtonsVisibility,
@@ -489,6 +489,7 @@ sessionStore = createSessionStore({
 
 function applyConfig(config) {
     state.config = normalizeAssistantConfig(config || {});
+    state.configDraft = null;
     requestConfigFormSync();
     render();
 }
@@ -603,6 +604,7 @@ function buildAppMarkup(root) {
                         <button id="xb-assistant-scroll-bottom" type="button" class="xb-assistant-scroll-btn" title="回到底部" aria-label="回到底部">▼</button>
                     </div>
                 </section>
+                <section class="xb-assistant-approval-slot" id="xb-assistant-approval-slot"></section>
                 <form class="xb-assistant-compose" id="xb-assistant-form">
                     <div class="xb-assistant-compose-main">
                         <textarea id="xb-assistant-input" placeholder=""></textarea>
@@ -1024,6 +1026,14 @@ function injectStyles() {
         }
         .xb-assistant-scroll-btn:active {
             transform: scale(0.96) translateX(0);
+        }
+        .xb-assistant-approval-slot {
+            display: grid;
+            gap: 12px;
+            margin-top: 10px;
+        }
+        .xb-assistant-approval-slot:empty {
+            display: none;
         }
         .xb-assistant-empty {
             align-self: center;
@@ -1561,7 +1571,9 @@ function render() {
     }
     updateContextStats(toProviderMessages(getActiveContextMessages()));
     const chat = root.querySelector('#xb-assistant-chat');
+    const approvalSlot = root.querySelector('#xb-assistant-approval-slot');
     renderMessages(chat);
+    renderApprovalPanel(approvalSlot);
     if (state.autoScroll) {
         scrollChatToBottom(chat);
     }
@@ -1717,7 +1729,7 @@ function bindEvents(root) {
         handleAssistantChatScroll(root);
     });
 
-    root.querySelector('#xb-assistant-chat').addEventListener('click', (event) => {
+    const handleAssistantPanelClick = (event) => {
         const chip = event.target.closest('.xb-assistant-example-chip');
         if (chip) {
             input.value = chip.dataset.prompt || '';
@@ -1740,7 +1752,10 @@ function bindEvents(root) {
             entry.resolve(false);
         }
         render();
-    });
+    };
+
+    root.querySelector('#xb-assistant-chat').addEventListener('click', handleAssistantPanelClick);
+    root.querySelector('#xb-assistant-approval-slot')?.addEventListener('click', handleAssistantPanelClick);
     bindSettingsPanelEvents(root);
 
     root.querySelector('#xb-assistant-clear').addEventListener('click', () => {
@@ -1803,7 +1818,6 @@ function bindEvents(root) {
         const attachments = normalizeAttachments(state.draftAttachments);
         if (!value && !attachments.length) return;
 
-        syncCurrentProviderDraft(root);
         pushMessage({ role: 'user', content: value, attachments });
         input.value = '';
         state.draftAttachments = [];

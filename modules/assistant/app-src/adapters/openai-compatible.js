@@ -112,7 +112,6 @@ function extractThoughtsFromMessage(message = {}, choice = {}) {
 
 function extractTaggedToolCalls(content = '') {
     const patterns = [
-        /<<TOOL_CALL>>\s*([\s\S]*?)\s*<<\/TOOL_CALL>>/g,
         /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g,
     ];
     const results = [];
@@ -152,8 +151,8 @@ function buildTaggedProtocolPrompt(task) {
         task.systemPrompt || '',
         '如果你需要调用工具，不要使用原生 tool calling 字段。',
         '请严格输出如下边界标记包裹的 JSON，不要改写边界标记：',
-        '<<TOOL_CALL>>{"name":"工具名","arguments":{...}}<</TOOL_CALL>>',
-        '可以输出多段 <<TOOL_CALL>> ... <</TOOL_CALL>>。',
+        '<tool_call>{"name":"工具名","arguments":{...}}</tool_call>',
+        '可以输出多段 <tool_call> ... </tool_call>。',
         '除非必须说明，否则不要在工具调用前后输出多余解释。',
         toolDescriptions ? `可用工具:\n${toolDescriptions}` : '',
     ].filter(Boolean).join('\n\n');
@@ -171,11 +170,11 @@ function buildTaggedMessages(task) {
                 if (toolName) {
                     toolNameById.set(toolId, toolName);
                 }
-                return `<<TOOL_CALL>>${JSON.stringify({
+                return `<tool_call>${JSON.stringify({
                     id: toolId,
                     name: toolName,
                     arguments: safeParseArguments(toolCall.function?.arguments || '{}'),
-                })}<</TOOL_CALL>>`;
+                })}</tool_call>`;
             }).join('\n');
 
             messages.push({
@@ -186,12 +185,17 @@ function buildTaggedMessages(task) {
         }
 
         if (message.role === 'tool') {
+            const toolName = toolNameById.get(message.tool_call_id || '') || 'unknown_tool';
+            const toolContent = String(message.content || '');
             messages.push({
                 role: 'user',
                 content: [
-                    `工具 ${toolNameById.get(message.tool_call_id || '') || 'unknown_tool'} 已返回结果。`,
-                    message.content || '',
-                ].filter(Boolean).join('\n'),
+                    '<tool_result>',
+                    `name: ${toolName}`,
+                    'content:',
+                    toolContent,
+                    '</tool_result>',
+                ].join('\n'),
             });
             continue;
         }
@@ -255,15 +259,6 @@ export class OpenAICompatibleAdapter {
         }
         if (task.reasoning?.enabled) {
             body.reasoning_effort = task.reasoning.effort;
-            body.reasoning = {
-                effort: task.reasoning.effort,
-                summary: 'detailed',
-            };
-            body.thinking = {
-                type: 'enabled',
-                budget_tokens: task.reasoning.effort === 'high' ? 4096 : task.reasoning.effort === 'medium' ? 2048 : 1024,
-                display: 'summarized',
-            };
         }
         if (typeof task.onStreamProgress === 'function') {
             const stream = await this.client.chat.completions.create({
@@ -317,7 +312,6 @@ export class OpenAICompatibleAdapter {
                 const cleanedText = standardToolCalls.length
                     ? thinkTagged.cleaned
                     : thinkTagged.cleaned
-                        .replace(/<<TOOL_CALL>>[\s\S]*?<<\/TOOL_CALL>>/g, '')
                         .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
                         .trim();
                 emitStreamProgress(task, {
@@ -336,7 +330,6 @@ export class OpenAICompatibleAdapter {
             const cleanedText = standardToolCalls.length
                 ? thinkTagged.cleaned
                 : thinkTagged.cleaned
-                    .replace(/<<TOOL_CALL>>[\s\S]*?<<\/TOOL_CALL>>/g, '')
                     .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
                     .trim();
 
@@ -370,7 +363,6 @@ export class OpenAICompatibleAdapter {
         const cleanedText = standardToolCalls.length
             ? thinkTagged.cleaned
             : thinkTagged.cleaned
-                .replace(/<<TOOL_CALL>>[\s\S]*?<<\/TOOL_CALL>>/g, '')
                 .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
                 .trim();
 

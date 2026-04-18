@@ -142,16 +142,61 @@ export function createChatUi(deps) {
                 type: attachment.type,
                 size: attachment.size,
             })),
-            approvalRequest: message.approvalRequest
-                ? {
-                    id: String(message.approvalRequest.id || ''),
-                    kind: String(message.approvalRequest.kind || ''),
-                    command: String(message.approvalRequest.command || ''),
-                    status: String(message.approvalRequest.status || ''),
-                }
-                : null,
             streaming: Boolean(message.streaming),
         });
+    }
+
+    function buildApprovalPanel(approvalRequest) {
+        if (!approvalRequest || approvalRequest.kind !== 'slash-command') {
+            return null;
+        }
+
+        const panel = document.createElement('div');
+        panel.className = 'xb-assistant-approval';
+
+        const title = document.createElement('div');
+        title.className = 'xb-assistant-approval-title';
+        title.textContent = '待确认的斜杠命令';
+
+        const command = document.createElement('pre');
+        command.className = 'xb-assistant-content xb-assistant-approval-command';
+        command.textContent = approvalRequest.command || '';
+
+        const note = document.createElement('div');
+        note.className = 'xb-assistant-approval-note';
+        note.textContent = approvalRequest.status === 'approved'
+            ? '已同意，命令已进入执行流程。'
+            : approvalRequest.status === 'declined'
+                ? '已拒绝，本次不会执行这条命令。'
+                : approvalRequest.status === 'cancelled'
+                    ? '本轮请求已终止，这条命令未执行。'
+                    : '这条命令会直接作用于你当前打开的真实酒馆实例；点“是”后才会真正执行。';
+
+        panel.append(title, command, note);
+
+        if (approvalRequest.status === 'pending') {
+            const actions = document.createElement('div');
+            actions.className = 'xb-assistant-approval-actions';
+
+            const approveButton = document.createElement('button');
+            approveButton.type = 'button';
+            approveButton.className = 'xb-assistant-approval-button';
+            approveButton.dataset.approvalId = approvalRequest.id;
+            approveButton.dataset.approvalDecision = 'approve';
+            approveButton.textContent = '是，执行';
+
+            const declineButton = document.createElement('button');
+            declineButton.type = 'button';
+            declineButton.className = 'xb-assistant-approval-button secondary';
+            declineButton.dataset.approvalId = approvalRequest.id;
+            declineButton.dataset.approvalDecision = 'decline';
+            declineButton.textContent = '否，跳过';
+
+            actions.append(approveButton, declineButton);
+            panel.appendChild(actions);
+        }
+
+        return panel;
     }
 
     function buildMessageBubble(message) {
@@ -217,55 +262,6 @@ export function createChatUi(deps) {
             bubble.appendChild(gallery);
         }
 
-        if (message.role === 'assistant' && message.approvalRequest?.kind === 'slash-command') {
-            const approval = document.createElement('div');
-            approval.className = 'xb-assistant-approval';
-
-            const title = document.createElement('div');
-            title.className = 'xb-assistant-approval-title';
-            title.textContent = '待确认的斜杠命令';
-
-            const command = document.createElement('pre');
-            command.className = 'xb-assistant-content xb-assistant-approval-command';
-            command.textContent = message.approvalRequest.command || '';
-
-            const note = document.createElement('div');
-            note.className = 'xb-assistant-approval-note';
-            note.textContent = message.approvalRequest.status === 'approved'
-                ? '已同意，命令已进入执行流程。'
-                : message.approvalRequest.status === 'declined'
-                    ? '已拒绝，本次不会执行这条命令。'
-                    : message.approvalRequest.status === 'cancelled'
-                        ? '本轮请求已终止，这条命令未执行。'
-                        : '这条命令可能改动真实实例状态；点“是”后才会真正执行。';
-
-            approval.append(title, command, note);
-
-            if (message.approvalRequest.status === 'pending') {
-                const actions = document.createElement('div');
-                actions.className = 'xb-assistant-approval-actions';
-
-                const approveButton = document.createElement('button');
-                approveButton.type = 'button';
-                approveButton.className = 'xb-assistant-approval-button';
-                approveButton.dataset.approvalId = message.approvalRequest.id;
-                approveButton.dataset.approvalDecision = 'approve';
-                approveButton.textContent = '是，执行';
-
-                const declineButton = document.createElement('button');
-                declineButton.type = 'button';
-                declineButton.className = 'xb-assistant-approval-button secondary';
-                declineButton.dataset.approvalId = message.approvalRequest.id;
-                declineButton.dataset.approvalDecision = 'decline';
-                declineButton.textContent = '否，跳过';
-
-                actions.append(approveButton, declineButton);
-                approval.appendChild(actions);
-            }
-
-            bubble.appendChild(approval);
-        }
-
         if (message.role === 'assistant' && Array.isArray(message.thoughts) && message.thoughts.length) {
             const details = document.createElement('details');
             details.className = 'xb-assistant-thought-details';
@@ -298,8 +294,6 @@ export function createChatUi(deps) {
     }
 
     function renderMessages(container) {
-        const existingBubbles = Array.from(container.querySelectorAll('.xb-assistant-bubble'));
-
         if (!state.messages.length) {
             container.innerHTML = '';
             const empty = document.createElement('div');
@@ -321,30 +315,25 @@ export function createChatUi(deps) {
             return;
         }
 
-        const emptyEl = container.querySelector('.xb-assistant-empty');
-        if (emptyEl) {
-            emptyEl.remove();
-        }
+        container.innerHTML = '';
 
-        state.messages.forEach((message, index) => {
-            const signature = getRenderableMessageSignature(message);
-            const existingBubble = existingBubbles[index] || null;
-            if (existingBubble?.dataset.renderSignature === signature) {
-                return;
-            }
+        state.messages.forEach((message) => {
             const nextBubble = buildMessageBubble(message);
-            nextBubble.dataset.renderSignature = signature;
-            if (existingBubble) {
-                container.replaceChild(nextBubble, existingBubble);
-            } else {
-                container.appendChild(nextBubble);
-            }
+            nextBubble.dataset.renderSignature = getRenderableMessageSignature(message);
+            container.appendChild(nextBubble);
         });
-
-        existingBubbles.slice(state.messages.length).forEach((bubble) => bubble.remove());
 
         if (state.autoScroll) {
             container.scrollTop = container.scrollHeight;
+        }
+    }
+
+    function renderApprovalPanel(container) {
+        if (!container) return;
+        container.innerHTML = '';
+        const nextApproval = buildApprovalPanel(state.pendingApproval);
+        if (nextApproval) {
+            container.appendChild(nextApproval);
         }
     }
 
@@ -411,6 +400,7 @@ export function createChatUi(deps) {
 
     return {
         renderMessages,
+        renderApprovalPanel,
         scrollChatToBottom,
         scrollChatToTop,
         updateChatScrollButtonsVisibility,
