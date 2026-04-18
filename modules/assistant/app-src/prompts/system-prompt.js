@@ -1,12 +1,5 @@
 import { TOOL_USAGE_GUIDANCE } from '../tooling.js';
 
-export const EXAMPLE_PROMPTS = [
-    '帮我找一下“【功能名/按钮文案】”对应的前端文件和入口函数。',
-    '帮我查询一下我当前酒馆正在用的 API、模型和预设。',
-    '“【设置项名】”勾上后刷新又没了，帮我查它的保存和读取链路。',
-    '报错“【把报错贴这里】”是从哪条代码链路抛出来的？',
-];
-
 const PROJECT_STRUCTURE_HINT = [
     '项目结构提示：',
     '你当前运行在 SillyTavern 的 LittleWhiteBox 插件里；LittleWhiteBox 位于 public/scripts/extensions/third-party/LittleWhiteBox/。',

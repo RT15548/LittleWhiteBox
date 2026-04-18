@@ -25,7 +25,6 @@ import { createAttachmentsManager } from './attachments.js';
 import { createSettingsPanel } from './settings-panel.js';
 import { createChatUi } from './chat-ui.js';
 import {
-    EXAMPLE_PROMPTS,
     HISTORY_SUMMARY_PREFIX,
     SUMMARY_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
@@ -119,11 +118,15 @@ function safeJsonParse(text, fallback = {}) {
 let sessionStore = null;
 
 function persistSession() {
-    sessionStore?.persistSession();
+    return sessionStore?.persistSession();
+}
+
+function clearSession() {
+    return sessionStore?.clearSession();
 }
 
 function restoreSession() {
-    sessionStore?.restoreSession();
+    return sessionStore?.restoreSession();
 }
 
 function getAssistantParsedUA() {
@@ -388,7 +391,6 @@ const {
 
 const chatUi = createChatUi({
     state,
-    examplePrompts: EXAMPLE_PROMPTS,
     toolNames: TOOL_NAMES,
     formatToolResultDisplay,
     normalizeThoughtBlocks,
@@ -1047,21 +1049,6 @@ function injectStyles() {
         .xb-assistant-empty h2 { margin: 0 0 10px; font-size: 24px; }
         .xb-assistant-empty p { margin: 0; color: #4b5a70; line-height: 1.7; }
         .xb-assistant-empty p + p { margin-top: 8px; }
-        .xb-assistant-examples {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 16px;
-        }
-        .xb-assistant-example-chip {
-            border: 1px solid rgba(27, 55, 88, 0.14);
-            border-radius: 999px;
-            padding: 10px 14px;
-            background: rgba(244, 248, 252, 0.96);
-            color: #1b3758;
-            cursor: pointer;
-            font: inherit;
-        }
         .xb-assistant-bubble {
             width: min(860px, 100%);
             max-width: 100%;
@@ -1730,16 +1717,6 @@ function bindEvents(root) {
     });
 
     const handleAssistantPanelClick = (event) => {
-        const chip = event.target.closest('.xb-assistant-example-chip');
-        if (chip) {
-            input.value = chip.dataset.prompt || '';
-            resizeComposer();
-            input.focus();
-            state.autoScroll = true;
-            scrollChatToBottom(root.querySelector('#xb-assistant-chat'));
-            return;
-        }
-
         const approvalButton = event.target.closest('[data-approval-id][data-approval-decision]');
         if (!approvalButton) return;
         const approvalId = approvalButton.dataset.approvalId || '';
@@ -1758,12 +1735,15 @@ function bindEvents(root) {
     root.querySelector('#xb-assistant-approval-slot')?.addEventListener('click', handleAssistantPanelClick);
     bindSettingsPanelEvents(root);
 
-    root.querySelector('#xb-assistant-clear').addEventListener('click', () => {
+    root.querySelector('#xb-assistant-clear').addEventListener('click', async () => {
         if (state.isBusy) return;
         state.messages = [];
         state.draftAttachments = [];
+        state.historySummary = '';
+        state.archivedTurnCount = 0;
+        state.pendingApproval = null;
         resetCompactionState();
-        persistSession();
+        await clearSession();
         showToast('对话已清空');
         render();
     });
@@ -1838,7 +1818,7 @@ function bindEvents(root) {
         state.activeRun = run;
         state.isBusy = true;
         state.currentRound = 0;
-        state.progressLabel = '正在请求模型…';
+        state.progressLabel = '生成中';
         state.autoScroll = true;
         render();
 

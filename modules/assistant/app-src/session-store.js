@@ -124,6 +124,20 @@ export function createSessionStore(deps) {
         return writeQueue;
     }
 
+    function clearSession() {
+        writeQueue = writeQueue
+            .catch(() => {})
+            .then(async () => {
+                try {
+                    await messagesTable.where('sessionId').equals(SESSION_ID).delete();
+                    await sessionsTable.delete(SESSION_ID);
+                } catch (error) {
+                    console.error('[Assistant] 清空会话失败:', error);
+                }
+            });
+        return writeQueue;
+    }
+
     async function restoreSession() {
         try {
             const session = await sessionsTable.get(SESSION_ID);
@@ -158,6 +172,7 @@ export function createSessionStore(deps) {
     }
 
     return {
+        clearSession,
         persistSession,
         restoreSession,
     };

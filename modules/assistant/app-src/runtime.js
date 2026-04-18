@@ -513,7 +513,7 @@ export function createAssistantRuntime(deps) {
         const run = state.activeRun;
         if (!run) return;
         run.cancelNotice = notice;
-        state.progressLabel = '正在终止…';
+        state.progressLabel = '终止中';
         clearPendingToolCalls(run.id, new Error('tool_aborted'));
         clearPendingApprovals(run.id, new Error('tool_aborted'));
         run.controller.abort();
@@ -833,7 +833,7 @@ export function createAssistantRuntime(deps) {
 
             rounds += 1;
             state.currentRound = rounds;
-            state.progressLabel = '正在请求模型…';
+            state.progressLabel = '生成中';
             render();
 
             const providerConfig = getActiveProviderConfig();
@@ -911,12 +911,12 @@ export function createAssistantRuntime(deps) {
                     const slashCommand = toolCall.name === TOOL_NAMES.RUN_SLASH_COMMAND
                         ? normalizeSlashCommand(parsedArguments.command)
                         : '';
-                    state.progressLabel = `正在${describeToolCall(toolCall.name, parsedArguments)}…`;
+                    state.progressLabel = '工具中';
                     render();
                     let toolResult = null;
                     try {
                         if (toolCall.name === TOOL_NAMES.RUN_SLASH_COMMAND && shouldRequireSlashCommandApproval(slashCommand)) {
-                            state.progressLabel = '等待你确认斜杠命令…';
+                            state.progressLabel = '确认中';
                             render();
                             const approved = await requestSlashCommandApproval(slashCommand, {
                                 runId: run.id,
