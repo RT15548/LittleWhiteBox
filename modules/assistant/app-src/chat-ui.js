@@ -52,9 +52,69 @@ export function createChatUi(deps) {
         return escapeHtml(raw).replace(/\n/g, '<br>');
     }
 
+    async function copyText(text) {
+        const normalized = String(text || '');
+        if (!normalized) return false;
+
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(normalized);
+                return true;
+            }
+        } catch {
+            // Fall through to execCommand fallback.
+        }
+
+        try {
+            const textarea = document.createElement('textarea');
+            textarea.value = normalized;
+            textarea.setAttribute('readonly', 'readonly');
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            textarea.style.pointerEvents = 'none';
+            document.body.appendChild(textarea);
+            textarea.select();
+            textarea.setSelectionRange(0, textarea.value.length);
+            const copied = document.execCommand('copy');
+            textarea.remove();
+            return copied;
+        } catch {
+            return false;
+        }
+    }
+
+    function enhanceMarkdownCodeBlocks(doc) {
+        Array.from(doc.body.querySelectorAll('pre')).forEach((pre) => {
+            if (pre.closest('.xb-assistant-codeblock')) return;
+
+            const wrapper = doc.createElement('div');
+            wrapper.className = 'xb-assistant-codeblock';
+            const copyButton = doc.createElement('button');
+            copyButton.type = 'button';
+            copyButton.className = 'xb-assistant-code-copy';
+            copyButton.textContent = '⧉';
+            copyButton.title = '复制代码';
+            copyButton.setAttribute('aria-label', '复制代码');
+            copyButton.addEventListener('click', async () => {
+                const codeText = pre.querySelector('code')?.textContent || pre.textContent || '';
+                const copied = await copyText(codeText);
+                copyButton.textContent = copied ? '✓' : '!';
+                copyButton.title = copied ? '已复制' : '复制失败';
+                setTimeout(() => {
+                    copyButton.textContent = '⧉';
+                    copyButton.title = '复制代码';
+                }, 1200);
+            });
+
+            pre.parentNode?.insertBefore(wrapper, pre);
+            wrapper.append(copyButton, pre);
+        });
+    }
+
     function buildSanitizedHtmlFragment(html) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(`<body>${String(html || '')}</body>`, 'text/html');
+        enhanceMarkdownCodeBlocks(doc);
         const fragment = document.createDocumentFragment();
         Array.from(doc.body.childNodes).forEach((node) => {
             fragment.appendChild(document.importNode(node, true));
@@ -97,6 +157,14 @@ export function createChatUi(deps) {
     function buildMessageBubble(message) {
         const bubble = document.createElement('div');
         bubble.className = `xb-assistant-bubble role-${message.role}`;
+        const assistantContentText = String(message.content || '').trim();
+        const isAssistantToolCall = message.role === 'assistant'
+            && Array.isArray(message.toolCalls)
+            && message.toolCalls.length > 0;
+        const isMetaOnlyToolCall = isAssistantToolCall && !assistantContentText;
+        if (isMetaOnlyToolCall) {
+            bubble.classList.add('is-tool-call');
+        }
 
         const meta = document.createElement('div');
         meta.className = 'xb-assistant-meta';
@@ -104,7 +172,7 @@ export function createChatUi(deps) {
             ? '你'
             : message.role === 'assistant'
                 ? Array.isArray(message.toolCalls) && message.toolCalls.length
-                    ? `小白助手 · 已发起 ${message.toolCalls.length} 个工具调用${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
+                    ? `小白助手 · 已发起 ${message.toolCalls.length} 个工具调用`
                     : `小白助手${message.streaming ? ' · 正在生成' : ''}${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
                 : `工具结果${message.toolName ? ` · ${message.toolName}` : ''}`;
 
@@ -132,16 +200,15 @@ export function createChatUi(deps) {
 
         const content = document.createElement('div');
         content.className = 'xb-assistant-content xb-assistant-markdown';
-        content.appendChild(
-            buildSanitizedHtmlFragment(
-                renderMarkdown(
-                    message.content || (message.role === 'assistant'
-                        ? (message.streaming ? '思考中…' : '我先查一下相关代码。')
-                        : ''),
-                ),
-            ),
-        );
-        bubble.append(meta, content);
+        const fallbackContent = message.role === 'assistant' && !isAssistantToolCall
+            ? (message.streaming ? '思考中…' : '我先查一下相关代码。')
+            : '';
+        const bodyText = assistantContentText || String(fallbackContent || '').trim();
+        bubble.appendChild(meta);
+        if (bodyText) {
+            content.appendChild(buildSanitizedHtmlFragment(renderMarkdown(bodyText)));
+            bubble.appendChild(content);
+        }
 
         if (Array.isArray(message.attachments) && message.attachments.length) {
             const gallery = document.createElement('div');
@@ -237,7 +304,7 @@ export function createChatUi(deps) {
             container.innerHTML = '';
             const empty = document.createElement('div');
             empty.className = 'xb-assistant-empty';
-            empty.innerHTML = '<h2>你好，我是小白助手</h2><p>我运行在你当前打开的 SillyTavern 酒馆里，专门帮你解答 LittleWhiteBox 和酒馆前端的问题。</p><p><strong>我能做什么：</strong></p><ul><li><strong>查看源码</strong>：读取 LittleWhiteBox 和酒馆前端的代码快照（构建时索引），帮你找按钮位置、设置逻辑、报错链路。</li><li><strong>查询实例</strong>：执行斜杠命令查询你当前酒馆的实时状态，比如当前 API、模型、角色、扩展开关等。</li><li><strong>记录工作</strong>：把排查结论写到 <code>user/files/LittleWhiteBox_Assistant_Worklog.md</code>，方便你后续查看。</li></ul><p><strong>我不能做什么：</strong></p><ul><li>不能访问后端代码、数据库、API Key 存储位置。</li><li>不能修改你的源码或配置文件。</li><li>代码快照可能不包含你最新的修改；如需确认当前实例状态，我会用斜杠命令查询。</li></ul><p>下面是一些示例问题，点击后会填入输入框（不会自动发送）：</p>';
+            empty.innerHTML = '<h2>你好！我是小白助手</h2><p>我是 SillyTavern 中 LittleWhiteBox（小白X）插件的内置技术支持助手。</p><p>我可以帮你做很多事情，比如：</p><ul><li><strong>解答问题与排查报错</strong>：解答关于 SillyTavern 或小白X插件的代码、设置、模块行为等问题，帮你排查报错。</li><li><strong>编写与创作辅助</strong>：辅助你写角色卡、写插件、写 STscript 脚本、整理设定或构思剧情。</li><li><strong>查询实例状态</strong>：我可以执行斜杠命令，帮你查询当前酒馆的 API、模型、角色状态等实时信息。</li><li><strong>查阅文档与源码</strong>：我可以读取酒馆和插件的前端源码及参考文档，为你提供准确的技术支持。</li></ul><p>另外，如果你希望我以特定的性格、语气和你交流，或者有特定的工作习惯要求，你可以随时告诉我，我可以将这些设定保存到我的专属身份设定文件中长期记住。</p><p>今天有什么我可以帮你的吗？</p><p>下面是一些示例问题，点击后会填入输入框（不会自动发送）：</p>';
 
             const examples = document.createElement('div');
             examples.className = 'xb-assistant-examples';

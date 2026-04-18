@@ -429,8 +429,11 @@ export function createSettingsPanel(deps) {
             presets: nextPresets,
         });
         requestConfigFormSync();
+        const requestId = createRequestId('delete-preset');
+        beginConfigSave(requestId);
 
         post('xb-assistant:save-config', {
+            requestId,
             workspaceFileName: state.config?.workspaceFileName || '',
             currentPresetName: state.config?.currentPresetName || defaultPresetName,
             presets: state.config?.presets || {},

@@ -35,8 +35,8 @@ const SOURCE = 'xb-assistant-app';
 const ROOT_ID = 'xb-assistant-root';
 const REQUEST_TIMEOUT_MS = 180000;
 const MAX_TOOL_ROUNDS = 64;
-const MAX_CONTEXT_TOKENS = 128000;
-const SUMMARY_TRIGGER_TOKENS = 98000;
+const MAX_CONTEXT_TOKENS = 158000;
+const SUMMARY_TRIGGER_TOKENS = 128000;
 const DEFAULT_PRESERVED_TURNS = 2;
 const MIN_PRESERVED_TURNS = 1;
 const MAX_IMAGE_ATTACHMENTS = 3;
@@ -585,15 +585,17 @@ function buildAppMarkup(root) {
             </aside>
             <div class="xb-assistant-mobile-backdrop" id="xb-assistant-mobile-backdrop" ${state.sidebarCollapsed ? 'hidden' : ''}></div>
             <main class="xb-assistant-main">
-                <section class="xb-assistant-toolbar">
-                    <div class="xb-assistant-toolbar-cluster">
-                        <div class="xb-assistant-status" id="xb-assistant-status"></div>
-                        <div class="xb-assistant-context-meter" id="xb-assistant-context-meter" title="当前实际送模上下文 / 最大上下文"></div>
-                        <button id="xb-assistant-clear" type="button" class="secondary ghost">清空对话</button>
-                    </div>
-                    <button id="xb-assistant-mobile-settings" type="button" class="secondary ghost xb-assistant-mobile-settings">设置</button>
-                    <button id="xb-assistant-mobile-close" type="button" class="secondary ghost xb-assistant-mobile-close">关闭</button>
-                </section>
+                <div class="xb-assistant-mobile-topbar">
+                    <section class="xb-assistant-toolbar">
+                        <div class="xb-assistant-toolbar-cluster">
+                            <div class="xb-assistant-status" id="xb-assistant-status"></div>
+                            <div class="xb-assistant-context-meter" id="xb-assistant-context-meter" title="当前实际送模上下文 / 最大上下文"></div>
+                            <button id="xb-assistant-clear" type="button" class="secondary ghost">清空对话</button>
+                        </div>
+                        <button id="xb-assistant-mobile-settings" type="button" class="secondary ghost xb-assistant-mobile-settings">设置</button>
+                    </section>
+                    <button id="xb-assistant-mobile-close" type="button" class="xb-assistant-mobile-close" hidden>关闭</button>
+                </div>
                 <section class="xb-assistant-chat-wrap">
                     <section class="xb-assistant-chat" id="xb-assistant-chat"></section>
                     <div class="xb-assistant-scroll-helpers" id="xb-assistant-scroll-helpers">
@@ -1066,11 +1068,17 @@ function injectStyles() {
             color: white;
         }
         .xb-assistant-bubble.role-assistant { background: rgba(255, 255, 255, 0.9); }
+        .xb-assistant-bubble.role-assistant.is-tool-call {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+        }
         .xb-assistant-bubble.role-tool {
-            background: rgba(244, 248, 252, 0.95);
+            background: transparent;
             border: 1px dashed rgba(27, 55, 88, 0.18);
         }
         .xb-assistant-meta { margin-bottom: 6px; font-size: 12px; opacity: 0.78; }
+        .xb-assistant-bubble.is-tool-call .xb-assistant-meta { margin-bottom: 0; }
         .xb-assistant-content { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
         .xb-assistant-markdown {
             white-space: normal;
@@ -1106,6 +1114,33 @@ function injectStyles() {
             white-space: pre-wrap;
             word-wrap: break-word;
             word-break: break-all;
+        }
+        .xb-assistant-codeblock {
+            position: relative;
+        }
+        .xb-assistant-codeblock .xb-assistant-code-copy {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(20, 32, 51, 0.14);
+            color: #36567b;
+            cursor: pointer;
+            font: 600 12px/1 "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.8;
+        }
+        .xb-assistant-codeblock .xb-assistant-code-copy:hover {
+            background: rgba(20, 32, 51, 0.22);
+            opacity: 1;
+        }
+        .xb-assistant-codeblock pre {
+            padding-top: 34px;
         }
         .xb-assistant-markdown pre code {
             padding: 0;
@@ -1284,8 +1319,10 @@ function injectStyles() {
             padding: 12px;
         }
         .xb-assistant-content.tool-summary {
-            max-height: calc(1.6em * 3 + 12px);
+            max-height: calc(1.6em + 2px);
             overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
         }
         .xb-assistant-tool-details[open] .xb-assistant-content.tool-detail {
             max-height: none;
@@ -1331,7 +1368,7 @@ function injectStyles() {
             display: grid;
             gap: 8px;
         }
-        .xb-assistant-compose textarea { min-height: 92px; resize: vertical; max-width: 100%; overflow-x: hidden; }
+        .xb-assistant-compose textarea { min-height: 60px; resize: vertical; max-width: 100%; overflow-x: hidden; }
         .xb-assistant-compose button.is-busy { background: #8d442b; }
         .xb-assistant-toast {
             min-height: 22px;
@@ -1414,10 +1451,6 @@ function injectStyles() {
                 display: inline-flex;
                 flex: 0 0 auto;
             }
-            .xb-assistant-mobile-close {
-                display: inline-flex;
-                flex: 0 0 auto;
-            }
             .xb-assistant-sidebar-content {
                 padding-right: 2px;
             }
@@ -1425,11 +1458,31 @@ function injectStyles() {
                 display: inline-flex;
                 align-items: center;
             }
+            .xb-assistant-mobile-topbar {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: stretch;
+                gap: 8px;
+            }
             .xb-assistant-main {
                 padding: 12px;
                 min-height: 0;
                 height: 100%;
                 gap: 12px;
+            }
+            .xb-assistant-mobile-close {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 56px;
+                min-height: 36px;
+                padding: 0 14px;
+                border: 1px solid rgba(20, 32, 51, 0.14);
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.88);
+                color: #203249;
+                box-shadow: 0 8px 18px rgba(17, 31, 51, 0.10);
+                white-space: nowrap;
             }
             .xb-assistant-compose {
                 grid-template-columns: 1fr;
@@ -1439,7 +1492,7 @@ function injectStyles() {
             .xb-assistant-compose-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .xb-assistant-toolbar {
                 display: grid;
-                grid-template-columns: repeat(5, minmax(0, 1fr));
+                grid-template-columns: repeat(4, minmax(0, 1fr));
                 align-items: stretch;
                 gap: 8px;
             }
@@ -1482,8 +1535,8 @@ function injectStyles() {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
             .xb-assistant-compose textarea {
-                min-height: 88px;
-                max-height: min(220px, 32vh);
+                min-height: 60px;
+                max-height: min(200px, 32vh);
                 resize: none;
                 overflow-y: auto;
             }
@@ -1563,9 +1616,10 @@ function render() {
     const contextMeter = root.querySelector('#xb-assistant-context-meter');
     contextMeter.textContent = buildContextMeterLabel();
     contextMeter.classList.toggle('summary-active', !!state.contextStats.summaryActive);
+    const contextBudgetLabel = `${Math.round(MAX_CONTEXT_TOKENS / 1000)}k`;
     contextMeter.title = state.contextStats.summaryActive
-        ? '当前实际送模上下文 / 128k（已压缩较早历史）'
-        : '当前实际送模上下文 / 128k';
+        ? `当前实际送模上下文 / ${contextBudgetLabel}（已压缩较早历史）`
+        : `当前实际送模上下文 / ${contextBudgetLabel}`;
 
     const toast = root.querySelector('#xb-assistant-toast');
     toast.textContent = state.toast || '';
@@ -1630,7 +1684,7 @@ function bindEvents(root) {
     const imageInput = root.querySelector('#xb-assistant-image-input');
     const resizeComposer = () => {
         input.style.height = 'auto';
-        input.style.height = `${Math.min(Math.max(input.scrollHeight, 92), 240)}px`;
+        input.style.height = `${Math.min(Math.max(input.scrollHeight, 60), 200)}px`;
     };
 
     root.querySelector('#xb-assistant-sidebar-toggle')?.addEventListener('click', () => {
@@ -1869,7 +1923,16 @@ window.addEventListener('message', (event) => {
     }
 });
 
-restoreSession();
-injectStyles();
-render();
-post('xb-assistant:ready');
+async function bootstrap() {
+    await restoreSession();
+    injectStyles();
+    render();
+    post('xb-assistant:ready');
+}
+
+bootstrap().catch((error) => {
+    console.error('[Assistant] 启动失败:', error);
+    injectStyles();
+    render();
+    post('xb-assistant:ready');
+});

@@ -1,6 +1,7 @@
-const SESSION_STORAGE_KEY = 'littlewhitebox.assistant.session.v2';
-const MAX_PERSISTED_MESSAGES = 60;
-const MAX_PERSISTED_CONTENT_CHARS = 16000;
+import db, { sessionsTable, messagesTable } from './session-db.js';
+
+const SESSION_ID = 'default';
+let writeQueue = Promise.resolve();
 
 function cloneJson(value) {
     if (value === undefined) return undefined;
@@ -11,29 +12,7 @@ function cloneJson(value) {
     }
 }
 
-function serializeProviderPayload(message) {
-    const providerPayload = cloneJson(message?.providerPayload);
-    if (!providerPayload || typeof providerPayload !== 'object' || !Object.keys(providerPayload).length) {
-        return undefined;
-    }
-    return providerPayload;
-}
-
-function restoreProviderPayload(message) {
-    const providerPayload = cloneJson(message?.providerPayload);
-    if (!providerPayload || typeof providerPayload !== 'object' || !Object.keys(providerPayload).length) {
-        return undefined;
-    }
-    return providerPayload;
-}
-
-function trimPersistedContent(content) {
-    const text = String(content || '');
-    if (text.length <= MAX_PERSISTED_CONTENT_CHARS) return text;
-    return `${text.slice(0, MAX_PERSISTED_CONTENT_CHARS)}\n\n[内容过长，已截断保存]`;
-}
-
-function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks) {
+function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks, order) {
     const approvalRequest = message?.approvalRequest && typeof message.approvalRequest === 'object'
         ? {
             id: String(message.approvalRequest.id || ''),
@@ -41,10 +20,13 @@ function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks)
             command: String(message.approvalRequest.command || ''),
             status: String(message.approvalRequest.status || ''),
         }
-        : null;
+        : undefined;
+
     return {
+        sessionId: SESSION_ID,
+        order,
         role: message.role,
-        content: trimPersistedContent(message.content),
+        content: String(message.content || ''),
         attachments: normalizeAttachments(message.attachments).map((attachment) => ({
             kind: attachment.kind,
             name: attachment.name,
@@ -57,14 +39,14 @@ function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks)
             ? message.toolCalls.map((toolCall) => ({
                 id: toolCall.id || '',
                 name: toolCall.name || '',
-                arguments: trimPersistedContent(toolCall.arguments || '{}'),
+                arguments: String(toolCall.arguments || '{}'),
             }))
             : [],
         thoughts: normalizeThoughtBlocks(message.thoughts).map((item) => ({
             label: item.label,
-            text: trimPersistedContent(item.text),
+            text: item.text,
         })),
-        providerPayload: serializeProviderPayload(message),
+        providerPayload: cloneJson(message?.providerPayload),
         approvalRequest: approvalRequest && approvalRequest.status && approvalRequest.status !== 'pending'
             ? approvalRequest
             : undefined,
@@ -75,6 +57,7 @@ function normalizeRestoredMessage(message, deps) {
     const { normalizeAttachments, normalizeThoughtBlocks, createRequestId } = deps;
     if (!message || typeof message !== 'object') return null;
     if (!['user', 'assistant', 'tool'].includes(message.role)) return null;
+
     const approvalRequest = message.approvalRequest && typeof message.approvalRequest === 'object'
         ? {
             id: String(message.approvalRequest.id || ''),
@@ -83,10 +66,11 @@ function normalizeRestoredMessage(message, deps) {
             status: String(message.approvalRequest.status || ''),
         }
         : undefined;
+
     return {
         role: message.role,
         content: String(message.content || ''),
-        attachments: normalizeAttachments(message.attachments),
+        attachments: normalizeAttachments(message.attachments || []),
         toolCallId: message.toolCallId ? String(message.toolCallId) : undefined,
         toolName: message.toolName ? String(message.toolName) : undefined,
         toolCalls: Array.isArray(message.toolCalls)
@@ -98,8 +82,8 @@ function normalizeRestoredMessage(message, deps) {
                     arguments: String(toolCall.arguments || '{}'),
                 }))
             : undefined,
-        thoughts: normalizeThoughtBlocks(message.thoughts),
-        providerPayload: restoreProviderPayload(message),
+        thoughts: normalizeThoughtBlocks(message.thoughts || []),
+        providerPayload: cloneJson(message?.providerPayload),
         approvalRequest: approvalRequest?.status && approvalRequest.status !== 'pending'
             ? approvalRequest
             : undefined,
@@ -116,51 +100,79 @@ function isPersistableMessage(message) {
 export function createSessionStore(deps) {
     const {
         state,
-        storage = globalThis.localStorage,
-        safeJsonParse,
         createRequestId,
         normalizeAttachments,
         normalizeThoughtBlocks,
         getActiveContextMessages,
     } = deps;
 
-    function persistSession() {
-        try {
-            const activeMessages = getActiveContextMessages()
-                .filter(isPersistableMessage)
-                .slice(-MAX_PERSISTED_MESSAGES);
-            const summary = trimPersistedContent(state.historySummary || '');
-            if (!activeMessages.length && !summary) {
-                storage.removeItem(SESSION_STORAGE_KEY);
-                return;
-            }
-            storage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-                messages: activeMessages.map((message) => serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks)),
-                historySummary: summary,
-                sidebarCollapsed: state.sidebarCollapsed,
-            }));
-        } catch {
-            // Ignore localStorage failures.
-        }
+    function buildSnapshot() {
+        const activeMessages = getActiveContextMessages()
+            .filter(isPersistableMessage)
+            .map((message, index) => serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks, index));
+
+        return {
+            historySummary: String(state.historySummary || ''),
+            sidebarCollapsed: state.sidebarCollapsed !== undefined ? !!state.sidebarCollapsed : true,
+            messages: activeMessages,
+        };
     }
 
-    function restoreSession() {
+    async function saveSnapshot(snapshot) {
+        await db.transaction('rw', sessionsTable, messagesTable, async () => {
+            await sessionsTable.put({
+                id: SESSION_ID,
+                updatedAt: Date.now(),
+                historySummary: snapshot.historySummary,
+                sidebarCollapsed: snapshot.sidebarCollapsed,
+            });
+            await messagesTable.where('sessionId').equals(SESSION_ID).delete();
+            if (snapshot.messages.length) {
+                await messagesTable.bulkPut(snapshot.messages);
+            }
+        });
+    }
+
+    function persistSession() {
+        const snapshot = buildSnapshot();
+        writeQueue = writeQueue
+            .catch(() => {})
+            .then(async () => {
+                try {
+                    await saveSnapshot(snapshot);
+                } catch (error) {
+                    console.error('[Assistant] 保存会话失败:', error);
+                }
+            });
+        return writeQueue;
+    }
+
+    async function restoreSession() {
         try {
-            const raw = storage.getItem(SESSION_STORAGE_KEY);
-            const parsed = safeJsonParse(raw, {});
-            state.messages = Array.isArray(parsed.messages)
-                ? parsed.messages
-                    .map((message) => normalizeRestoredMessage(message, {
-                        normalizeAttachments,
-                        normalizeThoughtBlocks,
-                        createRequestId,
-                    }))
-                    .filter(Boolean)
-                : [];
-            state.historySummary = String(parsed.historySummary || '');
+            const session = await sessionsTable.get(SESSION_ID);
+            if (!session) {
+                state.messages = [];
+                state.historySummary = '';
+                state.archivedTurnCount = 0;
+                state.sidebarCollapsed = true;
+                return;
+            }
+
+            const messages = await messagesTable.where('sessionId').equals(SESSION_ID).toArray();
+            messages.sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
+
+            state.messages = messages
+                .map((message) => normalizeRestoredMessage(message, {
+                    normalizeAttachments,
+                    normalizeThoughtBlocks,
+                    createRequestId,
+                }))
+                .filter(Boolean);
+            state.historySummary = String(session.historySummary || '');
             state.archivedTurnCount = 0;
-            state.sidebarCollapsed = parsed.sidebarCollapsed !== undefined ? !!parsed.sidebarCollapsed : true;
-        } catch {
+            state.sidebarCollapsed = session.sidebarCollapsed !== undefined ? !!session.sidebarCollapsed : true;
+        } catch (error) {
+            console.error('[Assistant] 恢复会话失败:', error);
             state.messages = [];
             state.historySummary = '';
             state.archivedTurnCount = 0;

@@ -274,9 +274,14 @@ export class GoogleAdapter {
         let thoughts;
         let text;
         let finalFunctionCalls = [];
+        const requestPayload = { ...sendPayload };
+        // Google SDK 的 sendMessage/sendMessageStream 一旦传 per-request config，
+        // 就不会继承 chats.create() 时的 session config。
+        // 这里不能只为了 abortSignal 再拼一个 config，否则会把
+        // systemInstruction / tools / thinkingConfig 冲掉。
 
         if (typeof task.onStreamProgress === 'function') {
-            const stream = await chat.sendMessageStream(sendPayload);
+            const stream = await chat.sendMessageStream(requestPayload);
             const thoughtMap = new Map();
             let streamedText = '';
             let streamedToolCalls = [];
@@ -323,7 +328,7 @@ export class GoogleAdapter {
                 }));
             text = finalFunctionCalls.length ? '' : streamedText;
         } else {
-            response = await chat.sendMessage(sendPayload);
+            response = await chat.sendMessage(requestPayload);
             thoughts = extractThoughts(response);
             text = response.functionCalls?.length
                 ? ''

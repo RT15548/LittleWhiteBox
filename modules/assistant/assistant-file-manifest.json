@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-18T03:09:59.094Z",
+  "generatedAt": "2026-04-18T08:05:11.714Z",
   "version": 1,
   "files": [
     {
@@ -150,6 +150,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime.js",
       "relativePath": "modules/assistant/app-src/runtime.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/session-db.js",
+      "relativePath": "modules/assistant/app-src/session-db.js",
       "extension": ".js"
     },
     {
