@@ -251,6 +251,8 @@ export function createSettingsPanel(deps) {
         post,
         render,
         showToast,
+        beginConfigSave,
+        requestConfigFormSync,
         describeError,
         getPullState,
         setPullState,
@@ -262,6 +264,7 @@ export function createSettingsPanel(deps) {
         normalizePresetName,
         buildDefaultPreset,
         cloneDefaultModelConfigs,
+        createRequestId,
         defaultPresetName,
         requestTimeoutMs,
         toolModeOptions,
@@ -305,10 +308,10 @@ export function createSettingsPanel(deps) {
         state.config.presetDraftName = normalizePresetName(root.querySelector('#xb-assistant-preset-name')?.value);
     }
 
-    function syncCurrentProviderDraft(root) {
+    function syncCurrentProviderDraft(root, options = {}) {
         if (!state.config) return;
         syncPresetDraftName(root);
-        const provider = root.querySelector('#xb-assistant-provider').value;
+        const provider = options.providerOverride || root.querySelector('#xb-assistant-provider').value;
         const currentPresetName = normalizePresetName(state.config.currentPresetName);
         state.config = {
             ...normalizeAssistantConfig({
@@ -395,7 +398,11 @@ export function createSettingsPanel(deps) {
             presetDraftName: nextPresetName,
             presets: nextPresets,
         });
+        requestConfigFormSync();
+        const requestId = createRequestId('save-config');
+        beginConfigSave(requestId);
         post('xb-assistant:save-config', {
+            requestId,
             workspaceFileName: state.config?.workspaceFileName || '',
             currentPresetName: state.config?.currentPresetName || defaultPresetName,
             presets: state.config?.presets || {},
@@ -421,6 +428,7 @@ export function createSettingsPanel(deps) {
             presetDraftName: nextPresetName,
             presets: nextPresets,
         });
+        requestConfigFormSync();
 
         post('xb-assistant:save-config', {
             workspaceFileName: state.config?.workspaceFileName || '',
@@ -432,12 +440,24 @@ export function createSettingsPanel(deps) {
     }
 
     function bindSettingsPanelEvents(root) {
-        root.querySelector('#xb-assistant-provider').addEventListener('change', () => {
-            syncCurrentProviderDraft(root);
-            state.config = {
-                ...(state.config || {}),
-                provider: root.querySelector('#xb-assistant-provider').value,
-            };
+        root.querySelector('#xb-assistant-provider').addEventListener('change', (event) => {
+            const previousProvider = state.config?.provider || 'openai-compatible';
+            const nextProvider = event.currentTarget.value;
+            syncCurrentProviderDraft(root, { providerOverride: previousProvider });
+            const currentPresetName = normalizePresetName(state.config?.currentPresetName || defaultPresetName);
+            state.config = normalizeAssistantConfig({
+                ...state.config,
+                currentPresetName,
+                presetDraftName: state.config?.presetDraftName || currentPresetName,
+                presets: {
+                    ...(state.config?.presets || {}),
+                    [currentPresetName]: {
+                        ...((state.config?.presets || {})[currentPresetName] || buildDefaultPreset()),
+                        provider: nextProvider,
+                    },
+                },
+            });
+            requestConfigFormSync();
             render();
         });
 
@@ -452,6 +472,7 @@ export function createSettingsPanel(deps) {
                 provider: nextPreset.provider,
                 modelConfigs: nextPreset.modelConfigs,
             });
+            requestConfigFormSync();
             render();
         });
 
@@ -459,10 +480,23 @@ export function createSettingsPanel(deps) {
             syncPresetDraftName(root);
         });
 
+        root.querySelector('#xb-assistant-base-url').addEventListener('input', () => {
+            syncCurrentProviderDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-model').addEventListener('input', () => {
+            syncCurrentProviderDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-api-key').addEventListener('input', () => {
+            syncCurrentProviderDraft(root);
+        });
+
         root.querySelector('#xb-assistant-model-pulled').addEventListener('change', (event) => {
             const value = event.currentTarget.value;
             if (!value) return;
             root.querySelector('#xb-assistant-model').value = value;
+            syncCurrentProviderDraft(root);
         });
 
         root.querySelector('#xb-assistant-toggle-key').addEventListener('click', () => {
@@ -473,6 +507,7 @@ export function createSettingsPanel(deps) {
 
         root.querySelector('#xb-assistant-reasoning-enabled').addEventListener('change', () => {
             syncCurrentProviderDraft(root);
+            requestConfigFormSync();
             render();
         });
 
@@ -482,6 +517,7 @@ export function createSettingsPanel(deps) {
 
         root.querySelector('#xb-assistant-pull-models').addEventListener('click', async () => {
             syncCurrentProviderDraft(root);
+            requestConfigFormSync();
             const providerConfig = getActiveProviderConfig();
             setPullState(providerConfig.provider, { status: 'loading', message: '正在拉取模型列表…' });
             render();
@@ -499,6 +535,7 @@ export function createSettingsPanel(deps) {
                     message: describeError(error),
                 });
             }
+            requestConfigFormSync();
             render();
         });
 

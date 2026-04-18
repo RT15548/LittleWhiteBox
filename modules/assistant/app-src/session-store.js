@@ -2,6 +2,31 @@ const SESSION_STORAGE_KEY = 'littlewhitebox.assistant.session.v2';
 const MAX_PERSISTED_MESSAGES = 60;
 const MAX_PERSISTED_CONTENT_CHARS = 16000;
 
+function cloneJson(value) {
+    if (value === undefined) return undefined;
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch {
+        return undefined;
+    }
+}
+
+function serializeProviderPayload(message) {
+    const providerPayload = cloneJson(message?.providerPayload);
+    if (!providerPayload || typeof providerPayload !== 'object' || !Object.keys(providerPayload).length) {
+        return undefined;
+    }
+    return providerPayload;
+}
+
+function restoreProviderPayload(message) {
+    const providerPayload = cloneJson(message?.providerPayload);
+    if (!providerPayload || typeof providerPayload !== 'object' || !Object.keys(providerPayload).length) {
+        return undefined;
+    }
+    return providerPayload;
+}
+
 function trimPersistedContent(content) {
     const text = String(content || '');
     if (text.length <= MAX_PERSISTED_CONTENT_CHARS) return text;
@@ -39,6 +64,7 @@ function serializeMessage(message, normalizeAttachments, normalizeThoughtBlocks)
             label: item.label,
             text: trimPersistedContent(item.text),
         })),
+        providerPayload: serializeProviderPayload(message),
         approvalRequest: approvalRequest && approvalRequest.status && approvalRequest.status !== 'pending'
             ? approvalRequest
             : undefined,
@@ -73,6 +99,7 @@ function normalizeRestoredMessage(message, deps) {
                 }))
             : undefined,
         thoughts: normalizeThoughtBlocks(message.thoughts),
+        providerPayload: restoreProviderPayload(message),
         approvalRequest: approvalRequest?.status && approvalRequest.status !== 'pending'
             ? approvalRequest
             : undefined,

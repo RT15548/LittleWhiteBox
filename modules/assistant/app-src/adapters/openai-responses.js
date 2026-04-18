@@ -1,16 +1,5 @@
 import OpenAI from 'openai';
 
-function logOutgoingRequest(label, payload) {
-    const targetConsole = globalThis.top?.console || console;
-    try {
-        targetConsole.groupCollapsed(label);
-        targetConsole.log(JSON.parse(JSON.stringify(payload)));
-        targetConsole.groupEnd();
-    } catch {
-        targetConsole.log(label, payload);
-    }
-}
-
 function buildUserOrSystemMessage(role, content) {
     return {
         type: 'message',
@@ -354,12 +343,6 @@ export class OpenAIResponsesAdapter {
 
         const createRequest = async (legacySystemInInput = false) => {
             const body = createRequestBody(legacySystemInInput);
-            logOutgoingRequest(
-                legacySystemInInput
-                    ? '[LittleWhiteBox Assistant] OpenAI Responses outgoing request (legacy system-in-input fallback)'
-                    : '[LittleWhiteBox Assistant] OpenAI Responses outgoing request',
-                body,
-            );
             return await this.client.responses.create(body, {
                 signal: task.signal,
             });
@@ -367,12 +350,6 @@ export class OpenAIResponsesAdapter {
 
         const createStreamRequest = async (legacySystemInInput = false) => {
             const body = createRequestBody(legacySystemInInput);
-            logOutgoingRequest(
-                legacySystemInInput
-                    ? '[LittleWhiteBox Assistant] OpenAI Responses outgoing stream request (legacy system-in-input fallback)'
-                    : '[LittleWhiteBox Assistant] OpenAI Responses outgoing stream request',
-                body,
-            );
             const stream = this.client.responses.stream(body, {
                 signal: task.signal,
             });
@@ -426,17 +403,11 @@ export class OpenAIResponsesAdapter {
                 ? await createStreamRequest(false)
                 : await createRequest(false);
             parsed = parseResponse(response);
-            if (!parsed.text && !parsed.toolCalls.length) {
-                logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI Responses raw empty response', response);
-            }
             if (allowCompatibilityFallback && !parsed.text && !parsed.toolCalls.length) {
                 response = typeof task.onStreamProgress === 'function'
                     ? await createStreamRequest(true)
                     : await createRequest(true);
                 parsed = parseResponse(response);
-                if (!parsed.text && !parsed.toolCalls.length) {
-                    logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI Responses raw empty response after legacy fallback', response);
-                }
             }
         } catch (error) {
             if (!allowCompatibilityFallback || !shouldRetryWithLegacySystem(error)) {
@@ -446,9 +417,6 @@ export class OpenAIResponsesAdapter {
                 ? await createStreamRequest(true)
                 : await createRequest(true);
             parsed = parseResponse(response);
-            if (!parsed.text && !parsed.toolCalls.length) {
-                logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI Responses raw empty response after legacy fallback', response);
-            }
         }
 
         return {

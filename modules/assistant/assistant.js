@@ -22,6 +22,8 @@ const CONFIG_SAVED = 'xb-assistant:config-saved';
 const CONFIG_SAVE_ERROR = 'xb-assistant:config-save-error';
 const WORKSPACE_PREFIX = 'LittleWhiteBox_Assistant_';
 const DEFAULT_WORKSPACE_FILE = `${WORKSPACE_PREFIX}Worklog.md`;
+const DEFAULT_IDENTITY_FILE = `${WORKSPACE_PREFIX}Identity.md`;
+const DEFAULT_IDENTITY_CONTENT = '你默认叫“小白助手”，可以推荐用户设定你的身份，用于保持长期工作习惯和创作风格。';
 const MAX_CONTENT_CACHE_ENTRIES = 48;
 const MAX_READ_FILE_BYTES = 100 * 1024;
 const MAX_READ_RETURN_CHARS = 24_000;
@@ -48,6 +50,16 @@ function isAssistantMobileDevice() {
         // Fall back to pointer/screen heuristics below.
     }
     return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
+}
+
+function getAssistantMobileTopOffset() {
+    const rawValue = getComputedStyle(document.documentElement).getPropertyValue('--topBarBlockSize').trim();
+    const parsedValue = Number.parseFloat(rawValue);
+    return Number.isFinite(parsedValue) ? Math.max(0, parsedValue) : 0;
+}
+
+function getAssistantMobileViewportHeight() {
+    return Math.max(240, window.innerHeight - getAssistantMobileTopOffset());
 }
 
 async function persistAssistantSettings(settings, { silent = true } = {}) {
@@ -685,10 +697,7 @@ function encodeBase64Utf8(value) {
     return btoa(String.fromCharCode(...new TextEncoder().encode(value)));
 }
 
-async function writeWorkspaceNote(args = {}, options = {}) {
-    const settings = getAssistantSettings();
-    const name = normalizeWorkspaceName(args.name || settings.workspaceFileName || DEFAULT_WORKSPACE_FILE);
-    const content = String(args.content || '');
+async function writeUserFile(name, content, options = {}) {
     const response = await fetch('/api/files/upload', {
         method: 'POST',
         signal: options.signal,
@@ -714,9 +723,7 @@ async function writeWorkspaceNote(args = {}, options = {}) {
     };
 }
 
-async function readWorkspaceNote(_args = {}, options = {}) {
-    const settings = getAssistantSettings();
-    const name = normalizeWorkspaceName(settings.workspaceFileName || DEFAULT_WORKSPACE_FILE);
+async function readUserFile(name, options = {}) {
     const response = await fetch(`/user/files/${encodeURIComponent(name)}`, {
         cache: 'no-cache',
         signal: options.signal,
@@ -742,6 +749,46 @@ async function readWorkspaceNote(_args = {}, options = {}) {
         exists: true,
         content: await response.text(),
     };
+}
+
+async function ensureUserFile(name, defaultContent = '', options = {}) {
+    const existing = await readUserFile(name, options);
+    if (existing.exists) {
+        return {
+            ...existing,
+            created: false,
+        };
+    }
+
+    await writeUserFile(name, defaultContent, options);
+    return {
+        name,
+        exists: true,
+        content: defaultContent,
+        created: true,
+    };
+}
+
+async function readIdentityNote(_args = {}, options = {}) {
+    return readUserFile(DEFAULT_IDENTITY_FILE, options);
+}
+
+async function writeIdentityNote(args = {}, options = {}) {
+    const content = String(args.content || '');
+    return writeUserFile(DEFAULT_IDENTITY_FILE, content, options);
+}
+
+async function writeWorkspaceNote(args = {}, options = {}) {
+    const settings = getAssistantSettings();
+    const name = normalizeWorkspaceName(args.name || settings.workspaceFileName || DEFAULT_WORKSPACE_FILE);
+    const content = String(args.content || '');
+    return writeUserFile(name, content, options);
+}
+
+async function readWorkspaceNote(_args = {}, options = {}) {
+    const settings = getAssistantSettings();
+    const name = normalizeWorkspaceName(settings.workspaceFileName || DEFAULT_WORKSPACE_FILE);
+    return readUserFile(name, options);
 }
 
 async function runSlashCommand(args = {}, options = {}) {
@@ -807,6 +854,10 @@ async function executeToolCall(name, args, options = {}) {
             return await readFile(args, options);
         case TOOL_NAMES.RUN_SLASH_COMMAND:
             return await runSlashCommand(args, options);
+        case TOOL_NAMES.READ_IDENTITY:
+            return await readIdentityNote(args, options);
+        case TOOL_NAMES.WRITE_IDENTITY:
+            return await writeIdentityNote(args, options);
         case TOOL_NAMES.READ_WORKLOG:
             return await readWorkspaceNote(args, options);
         case TOOL_NAMES.WRITE_WORKLOG:
@@ -823,7 +874,8 @@ function openAssistant() {
     overlay.id = OVERLAY_ID;
     overlay.style.cssText = `
         position: fixed;
-        inset: 0;
+        top: 0;
+        left: 0;
         width: 100vw;
         height: ${window.innerHeight}px;
         padding: 28px;
@@ -835,10 +887,17 @@ function openAssistant() {
 
     const updateOverlayHeight = () => {
         if (overlay && overlay.style.display !== 'none') {
-            overlay.style.height = `${window.innerHeight}px`;
             if (isAssistantMobileDevice()) {
-                shell.style.height = `${window.innerHeight}px`;
+                const topOffset = getAssistantMobileTopOffset();
+                const viewportHeight = getAssistantMobileViewportHeight();
+                overlay.style.top = `${topOffset}px`;
+                overlay.style.height = `${viewportHeight}px`;
+                shell.style.height = `${viewportHeight}px`;
+                shell.style.maxHeight = `${viewportHeight}px`;
+                shell.style.minHeight = `${viewportHeight}px`;
             } else {
+                overlay.style.top = '0';
+                overlay.style.height = `${window.innerHeight}px`;
                 applyShellBounds(shellMetrics.width || shell.getBoundingClientRect().width, shellMetrics.height || shell.getBoundingClientRect().height);
             }
         }
@@ -1150,28 +1209,34 @@ function openAssistant() {
     };
 
     if (isAssistantMobileDevice()) {
+        const topOffset = getAssistantMobileTopOffset();
+        const viewportHeight = getAssistantMobileViewportHeight();
         overlay.style.padding = '0';
+        overlay.style.top = `${topOffset}px`;
+        overlay.style.height = `${viewportHeight}px`;
         titleBar.style.height = '56px';
         titleBar.style.padding = '0 16px';
         titleBar.style.cursor = 'default';
+        titleBar.style.display = 'none';
         shell.style.width = '100%';
-        shell.style.height = `${window.innerHeight}px`;
+        shell.style.height = `${viewportHeight}px`;
         shell.style.maxWidth = '100%';
-        shell.style.maxHeight = `${window.innerHeight}px`;
+        shell.style.maxHeight = `${viewportHeight}px`;
         shell.style.minWidth = '100%';
-        shell.style.minHeight = `${window.innerHeight}px`;
+        shell.style.minHeight = `${viewportHeight}px`;
         shell.style.left = '0';
         shell.style.top = '0';
         shell.style.borderRadius = '0';
         shell.style.border = 'none';
-        closeButton.style.top = '12px';
-        closeButton.style.right = '12px';
+        shell.style.boxShadow = 'none';
+        shell.style.background = 'rgba(238, 243, 248, 0.98)';
+        closeButton.style.display = 'none';
         resizeHint.style.display = 'none';
-        iframe.style.top = '56px';
-        iframe.style.height = 'calc(100% - 56px)';
+        iframe.style.top = '0';
+        iframe.style.height = '100%';
         iframe.style.borderRadius = '0';
-        resizeMask.style.top = '56px';
-        resizeMask.style.height = 'calc(100% - 56px)';
+        resizeMask.style.top = '0';
+        resizeMask.style.height = '100%';
         resizeMask.style.borderRadius = '0';
     }
 
@@ -1208,6 +1273,18 @@ async function handleIframeMessage(event) {
                 fileCount = 0;
             }
             const config = buildRuntimeConfig();
+            let identityContent = DEFAULT_IDENTITY_CONTENT;
+            try {
+                await ensureUserFile(config.workspaceFileName || DEFAULT_WORKSPACE_FILE, '');
+            } catch {
+                // Ignore auto-create failures so the assistant can still start.
+            }
+            try {
+                const identityFile = await ensureUserFile(DEFAULT_IDENTITY_FILE, DEFAULT_IDENTITY_CONTENT);
+                identityContent = String(identityFile.content || '').trim() || DEFAULT_IDENTITY_CONTENT;
+            } catch {
+                identityContent = DEFAULT_IDENTITY_CONTENT;
+            }
             postToIframe(iframe, {
                 type: 'xb-assistant:config',
                 payload: {
@@ -1216,6 +1293,7 @@ async function handleIframeMessage(event) {
                         moduleId: MODULE_ID,
                         extensionPath: extensionFolderPath,
                         indexedFileCount: fileCount,
+                        identityContent,
                     },
                 },
             });
@@ -1226,6 +1304,7 @@ async function handleIframeMessage(event) {
             break;
         case 'xb-assistant:save-config': {
             const patch = payload && typeof payload === 'object' ? payload : {};
+            const requestId = String(patch.requestId || '');
             const current = getAssistantSettings();
             const next = normalizeAssistantSettings({
                 ...current,
@@ -1244,6 +1323,7 @@ async function handleIframeMessage(event) {
                 postToIframe(iframe, {
                     type: CONFIG_SAVED,
                     payload: {
+                        requestId,
                         config: buildRuntimeConfig(),
                     },
                 });
@@ -1251,6 +1331,7 @@ async function handleIframeMessage(event) {
                 postToIframe(iframe, {
                     type: CONFIG_SAVE_ERROR,
                     payload: {
+                        requestId,
                         error: result.error || '保存失败',
                         config: buildRuntimeConfig(),
                     },
@@ -1265,7 +1346,20 @@ async function handleIframeMessage(event) {
             const controller = new AbortController();
             activeToolControllers.set(requestId, controller);
             try {
-                const result = await executeToolCall(toolName, args, { signal: controller.signal });
+                let result = await executeToolCall(toolName, args, { signal: controller.signal });
+                if (toolName === TOOL_NAMES.WRITE_IDENTITY) {
+                    const identityFile = await readIdentityNote({}, { signal: controller.signal });
+                    result = {
+                        ...result,
+                        hotUpdated: true,
+                    };
+                    postToIframe(iframe, {
+                        type: 'xb-assistant:identity-updated',
+                        payload: {
+                            identityContent: String(identityFile.content || '').trim() || DEFAULT_IDENTITY_CONTENT,
+                        },
+                    });
+                }
                 postToIframe(iframe, {
                     type: TOOL_RESULT,
                     payload: { requestId, name: toolName, result },

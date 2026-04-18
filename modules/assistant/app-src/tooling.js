@@ -4,6 +4,8 @@ export const TOOL_NAMES = {
     GREP: 'Grep',
     READ: 'Read',
     RUN_SLASH_COMMAND: 'RunSlashCommand',
+    READ_IDENTITY: 'ReadIdentity',
+    WRITE_IDENTITY: 'WriteIdentity',
     READ_WORKLOG: 'ReadWorklog',
     WRITE_WORKLOG: 'WriteWorklog',
 };
@@ -134,9 +136,36 @@ export const TOOL_DEFINITIONS = [
             parameters: {
                 type: 'object',
                 properties: {
-                    command: { type: 'string', description: '要执行的斜杠命令文本，例如 /api、/model、/char-get field=name、/char-create name=\"Alice\"。' },
+                    command: { type: 'string', description: '要执行的斜杠命令文本，例如 /api、/model、/char-get field=name、/char-create name="Alice"。' },
                 },
                 required: ['command'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: TOOL_NAMES.READ_IDENTITY,
+            description: '读取酒馆 user/files/LittleWhiteBox_Assistant_Identity.md 这份固定身份设定文件；如果文件还不存在，也会返回不存在状态。',
+            parameters: {
+                type: 'object',
+                properties: {},
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: TOOL_NAMES.WRITE_IDENTITY,
+            description: '将身份设定写入酒馆 user/files/LittleWhiteBox_Assistant_Identity.md。写入成功后，当前已打开的小白助手会立即使用新身份继续后续回合。',
+            parameters: {
+                type: 'object',
+                properties: {
+                    content: { type: 'string', description: '完整身份文档内容。' },
+                },
+                required: ['content'],
                 additionalProperties: false,
             },
         },
@@ -201,6 +230,10 @@ export function describeToolCall(name, args = {}) {
             return `读取文件 ${args.path || ''}${args.startLine ? `:${args.startLine}` : ''}${args.endLine ? `-${args.endLine}` : ''}`.trim();
         case TOOL_NAMES.RUN_SLASH_COMMAND:
             return `执行斜杠命令 ${args.command || ''}`.trim();
+        case TOOL_NAMES.READ_IDENTITY:
+            return '读取身份设定';
+        case TOOL_NAMES.WRITE_IDENTITY:
+            return '写入身份设定';
         case TOOL_NAMES.READ_WORKLOG:
             return '读取工作记录';
         case TOOL_NAMES.WRITE_WORKLOG:
@@ -397,6 +430,25 @@ export function formatToolResultDisplay(message) {
         return {
             summary: lines.filter(Boolean).join('\n'),
             details,
+        };
+    }
+
+    if (message.toolName === TOOL_NAMES.WRITE_IDENTITY) {
+        return {
+            summary: [
+                `身份设定已写入 ${parsed.name || 'LittleWhiteBox_Assistant_Identity.md'}`.trim(),
+                parsed.hotUpdated ? '当前会话身份已同步刷新。' : '',
+            ].filter(Boolean).join('\n'),
+            details: '',
+        };
+    }
+
+    if (message.toolName === TOOL_NAMES.READ_IDENTITY) {
+        return {
+            summary: parsed.exists
+                ? `已读取身份设定：${parsed.name || 'LittleWhiteBox_Assistant_Identity.md'}`
+                : `身份设定还不存在：${parsed.name || 'LittleWhiteBox_Assistant_Identity.md'}`,
+            details: parsed.exists ? String(parsed.content || '') : '',
         };
     }
 

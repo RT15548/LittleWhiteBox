@@ -45,6 +45,8 @@ const ACCEPTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'ima
 const TOAST_DURATION_MS = 2600;
 const TOAST_DURATION_MIN_MS = 1800;
 const TOAST_DURATION_MAX_MS = 4200;
+const CONFIG_SAVE_TIMEOUT_MS = 3000;
+const CONFIG_SAVE_RESULT_MS = 1800;
 const TOOL_MODE_OPTIONS = [
     { value: 'native', label: '原生 Tool Calling' },
     { value: 'tagged-json', label: 'Tagged JSON 兼容模式' },
@@ -81,12 +83,20 @@ const state = {
     pullStateByProvider: {},
     draftAttachments: [],
     sidebarCollapsed: true,
+    configFormSyncPending: true,
+    configSave: {
+        status: 'idle',
+        requestId: '',
+        error: '',
+    },
 };
 
 const pendingToolCalls = new Map();
 const pendingApprovals = new Map();
 let toastTimer = null;
 let parsedAssistantUA = null;
+let configSaveTimeout = null;
+let configSaveResetTimer = null;
 
 function post(type, payload = {}) {
     parent.postMessage({ source: SOURCE, type, payload }, window.location.origin);
@@ -207,6 +217,76 @@ function showToast(text) {
     render();
 }
 
+function clearConfigSaveTimers() {
+    if (configSaveTimeout) {
+        clearTimeout(configSaveTimeout);
+        configSaveTimeout = null;
+    }
+    if (configSaveResetTimer) {
+        clearTimeout(configSaveResetTimer);
+        configSaveResetTimer = null;
+    }
+}
+
+function scheduleConfigSaveReset(delay = CONFIG_SAVE_RESULT_MS) {
+    if (configSaveResetTimer) {
+        clearTimeout(configSaveResetTimer);
+    }
+    configSaveResetTimer = setTimeout(() => {
+        configSaveResetTimer = null;
+        state.configSave = {
+            status: 'idle',
+            requestId: '',
+            error: '',
+        };
+        render();
+    }, delay);
+}
+
+function beginConfigSave(requestId) {
+    clearConfigSaveTimers();
+    state.configSave = {
+        status: 'saving',
+        requestId,
+        error: '',
+    };
+    configSaveTimeout = setTimeout(() => {
+        configSaveTimeout = null;
+        if (state.configSave.requestId !== requestId || state.configSave.status !== 'saving') {
+            return;
+        }
+        state.configSave = {
+            status: 'error',
+            requestId,
+            error: '保存超时，请重试',
+        };
+        render();
+        scheduleConfigSaveReset();
+    }, CONFIG_SAVE_TIMEOUT_MS);
+    render();
+}
+
+function completeConfigSave(requestId, { ok, error = '' } = {}) {
+    if (requestId && state.configSave.requestId && state.configSave.requestId !== requestId) {
+        return;
+    }
+    if (configSaveTimeout) {
+        clearTimeout(configSaveTimeout);
+        configSaveTimeout = null;
+    }
+    state.configSave = {
+        status: ok ? 'success' : 'error',
+        requestId: requestId || state.configSave.requestId || '',
+        error: ok ? '' : String(error || '保存失败'),
+    };
+    render();
+    scheduleConfigSaveReset();
+}
+
+function requestConfigFormSync() {
+    state.configFormSyncPending = true;
+}
+
 function isAbortError(error) {
     const message = String(error?.message || error || '').toLowerCase();
     return error?.name === 'AbortError'
@@ -280,6 +360,9 @@ const settingsPanel = createSettingsPanel({
     post,
     render,
     showToast,
+    beginConfigSave,
+    requestConfigFormSync,
+    createRequestId,
     describeError,
     getPullState,
     setPullState,
@@ -341,6 +424,11 @@ function createAdapter() {
     }
 }
 
+function getInjectedSystemPrompt() {
+    const identityContent = String(state.runtime?.identityContent || '').trim();
+    return [SYSTEM_PROMPT, identityContent].filter(Boolean).join('\n\n');
+}
+
 const runtime = createAssistantRuntime({
     state,
     pendingToolCalls,
@@ -365,6 +453,7 @@ const runtime = createAssistantRuntime({
     isAbortError,
     createAdapter,
     getActiveProviderConfig,
+    getSystemPrompt: getInjectedSystemPrompt,
     SYSTEM_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
     HISTORY_SUMMARY_PREFIX,
@@ -400,6 +489,7 @@ sessionStore = createSessionStore({
 
 function applyConfig(config) {
     state.config = normalizeAssistantConfig(config || {});
+    requestConfigFormSync();
     render();
 }
 
@@ -493,6 +583,7 @@ function buildAppMarkup(root) {
                     </section>
                 </div>
             </aside>
+            <div class="xb-assistant-mobile-backdrop" id="xb-assistant-mobile-backdrop" ${state.sidebarCollapsed ? 'hidden' : ''}></div>
             <main class="xb-assistant-main">
                 <section class="xb-assistant-toolbar">
                     <div class="xb-assistant-toolbar-cluster">
@@ -500,6 +591,8 @@ function buildAppMarkup(root) {
                         <div class="xb-assistant-context-meter" id="xb-assistant-context-meter" title="当前实际送模上下文 / 最大上下文"></div>
                         <button id="xb-assistant-clear" type="button" class="secondary ghost">清空对话</button>
                     </div>
+                    <button id="xb-assistant-mobile-settings" type="button" class="secondary ghost xb-assistant-mobile-settings">设置</button>
+                    <button id="xb-assistant-mobile-close" type="button" class="secondary ghost xb-assistant-mobile-close">关闭</button>
                 </section>
                 <section class="xb-assistant-chat-wrap">
                     <section class="xb-assistant-chat" id="xb-assistant-chat"></section>
@@ -539,14 +632,16 @@ function injectStyles() {
             color: #142033;
             overflow-x: hidden;
         }
-        #${ROOT_ID} { width: 100%; height: 100%; overflow: hidden; }
+        #${ROOT_ID} { width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; }
         .xb-assistant-shell {
+            position: relative;
             display: grid;
             grid-template-columns: 340px minmax(0, 1fr);
             height: 100%;
             width: 100%;
             max-width: 100%;
             overflow: hidden;
+            box-sizing: border-box;
             transition: grid-template-columns 0.22s ease;
         }
         .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
@@ -559,7 +654,13 @@ function injectStyles() {
             border-right: 1px solid rgba(20, 32, 51, 0.08);
             backdrop-filter: blur(14px);
             overflow: hidden;
+            box-sizing: border-box;
             transition: padding 0.22s ease;
+        }
+        .xb-assistant-mobile-settings,
+        .xb-assistant-mobile-close,
+        .xb-assistant-mobile-backdrop {
+            display: none;
         }
         .xb-assistant-sidebar-header {
             display: flex;
@@ -716,6 +817,8 @@ function injectStyles() {
             flex-wrap: wrap;
             gap: 8px;
             align-items: center;
+            flex: 1 1 auto;
+            min-width: 0;
         }
         .xb-assistant-actions button,
         .xb-assistant-toolbar button,
@@ -733,6 +836,35 @@ function injectStyles() {
             letter-spacing: 0.01em;
             box-shadow: 0 10px 24px rgba(27, 55, 88, 0.12);
             transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, color 0.16s ease;
+        }
+        .xb-assistant-save-button.is-saving,
+        .xb-assistant-save-button.is-success,
+        .xb-assistant-save-button.is-error {
+            pointer-events: none;
+        }
+        .xb-assistant-save-button.is-saving {
+            opacity: 0.86;
+        }
+        .xb-assistant-save-button.is-success {
+            background: #3fb950;
+            color: #fff;
+            box-shadow: 0 14px 28px rgba(63, 185, 80, 0.22);
+        }
+        .xb-assistant-save-button.is-error {
+            background: #f85149;
+            color: #fff;
+            box-shadow: 0 14px 28px rgba(248, 81, 73, 0.22);
+        }
+        .xb-assistant-save-button .xb-assistant-save-spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            margin-right: 8px;
+            border-radius: 999px;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            vertical-align: -2px;
+            animation: xb-assistant-spin 0.85s linear infinite;
         }
         .xb-assistant-actions button:hover,
         .xb-assistant-toolbar button:hover,
@@ -775,9 +907,12 @@ function injectStyles() {
             grid-template-rows: auto minmax(0, 1fr) auto;
             padding: 20px;
             gap: 16px;
+            min-height: 0;
+            height: 100%;
             min-width: 0;
             max-width: 100%;
             overflow: hidden;
+            box-sizing: border-box;
         }
         .xb-assistant-status {
             display: inline-flex;
@@ -810,7 +945,10 @@ function injectStyles() {
         }
         .xb-assistant-chat-wrap {
             position: relative;
+            display: flex;
             min-height: 0;
+            height: 100%;
+            overflow: hidden;
         }
         .xb-assistant-status.busy::before {
             content: '';
@@ -825,6 +963,9 @@ function injectStyles() {
             vertical-align: middle;
         }
         .xb-assistant-chat {
+            flex: 1 1 auto;
+            height: 100%;
+            min-height: 0;
             overflow: auto;
             overflow-x: hidden;
             padding: 4px;
@@ -1179,6 +1320,7 @@ function injectStyles() {
             width: 100%;
             max-width: 100%;
             box-sizing: border-box;
+            min-height: 0;
             overflow: hidden;
         }
         .xb-assistant-compose-main {
@@ -1212,21 +1354,35 @@ function injectStyles() {
             70% { box-shadow: 0 0 0 8px rgba(201, 107, 51, 0); }
             100% { box-shadow: 0 0 0 0 rgba(201, 107, 51, 0); }
         }
+        @keyframes xb-assistant-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
         @media (max-width: 900px) {
-            .xb-assistant-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); height: 100%; }
+            .xb-assistant-shell {
+                grid-template-columns: minmax(0, 1fr);
+                grid-template-rows: minmax(0, 1fr);
+                height: 100%;
+            }
             .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 1fr; }
             .xb-assistant-sidebar {
-                padding: 12px 14px;
+                position: absolute;
+                inset: 12px;
+                z-index: 30;
+                padding: 16px;
                 grid-template-rows: auto minmax(0, 1fr);
-                border-right: none;
-                border-bottom: 1px solid rgba(20, 32, 51, 0.08);
-                max-height: min(46vh, 420px);
+                border: 1px solid rgba(20, 32, 51, 0.08);
+                border-radius: 24px;
+                box-shadow: 0 24px 60px rgba(17, 31, 51, 0.16);
+                max-height: none;
                 overflow: hidden;
+                transition: opacity 0.2s ease, transform 0.2s ease;
             }
             .xb-assistant-sidebar.is-collapsed {
-                padding: 12px 14px;
-                overflow: hidden;
-                max-height: none;
+                padding: 16px;
+                opacity: 0;
+                transform: translateY(10px);
+                pointer-events: none;
             }
             .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-content {
                 opacity: 0;
@@ -1237,11 +1393,30 @@ function injectStyles() {
                 display: none;
             }
             .xb-assistant-sidebar-toggle {
-                min-width: 108px;
+                min-width: 116px;
                 padding: 8px 14px;
                 justify-content: space-between;
                 background: linear-gradient(135deg, rgba(27, 55, 88, 0.92), rgba(40, 87, 134, 0.92));
                 font-size: 14px;
+            }
+            .xb-assistant-mobile-backdrop {
+                display: block;
+                position: absolute;
+                inset: 0;
+                z-index: 20;
+                background: rgba(15, 23, 35, 0.24);
+                backdrop-filter: blur(4px);
+            }
+            .xb-assistant-mobile-backdrop[hidden] {
+                display: none;
+            }
+            .xb-assistant-mobile-settings {
+                display: inline-flex;
+                flex: 0 0 auto;
+            }
+            .xb-assistant-mobile-close {
+                display: inline-flex;
+                flex: 0 0 auto;
             }
             .xb-assistant-sidebar-content {
                 padding-right: 2px;
@@ -1250,15 +1425,53 @@ function injectStyles() {
                 display: inline-flex;
                 align-items: center;
             }
-            .xb-assistant-main { padding: 14px; min-height: 0; height: 100%; }
-            .xb-assistant-compose { grid-template-columns: 1fr; }
+            .xb-assistant-main {
+                padding: 12px;
+                min-height: 0;
+                height: 100%;
+                gap: 12px;
+            }
+            .xb-assistant-compose {
+                grid-template-columns: 1fr;
+                padding: 12px;
+                padding-bottom: calc(12px + env(safe-area-inset-bottom));
+            }
             .xb-assistant-compose-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .xb-assistant-toolbar,
-            .xb-assistant-toolbar-cluster { align-items: stretch; }
+            .xb-assistant-toolbar {
+                display: grid;
+                grid-template-columns: repeat(5, minmax(0, 1fr));
+                align-items: stretch;
+                gap: 8px;
+            }
+            .xb-assistant-toolbar-cluster {
+                display: contents;
+            }
             .xb-assistant-inline-input { grid-template-columns: 1fr; }
-            .xb-assistant-status { justify-content: center; }
+            .xb-assistant-status,
+            .xb-assistant-context-meter,
+            .xb-assistant-toolbar button {
+                display: flex;
+                align-items: center;
+                min-width: 0;
+                justify-content: center;
+                padding-inline: 8px;
+                font-size: 12px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
             .xb-assistant-chat { padding-inline: 0; min-height: 0; }
             .xb-assistant-bubble { width: 100%; }
+            .xb-assistant-empty {
+                width: 100%;
+                padding: 18px;
+                box-sizing: border-box;
+            }
+            .xb-assistant-scroll-helpers {
+                right: 6px;
+                top: 14%;
+                bottom: calc(14% + env(safe-area-inset-bottom));
+            }
             .xb-assistant-scroll-btn {
                 width: 28px;
                 height: 28px;
@@ -1267,6 +1480,12 @@ function injectStyles() {
             .xb-assistant-actions {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .xb-assistant-compose textarea {
+                min-height: 88px;
+                max-height: min(220px, 32vh);
+                resize: none;
+                overflow-y: auto;
             }
         }
     `;
@@ -1283,7 +1502,10 @@ function render() {
         bindEvents(root);
     }
 
-    syncConfigToForm(root);
+    if (state.configFormSyncPending) {
+        syncConfigToForm(root);
+        state.configFormSyncPending = false;
+    }
     updateContextStats(toProviderMessages(getActiveContextMessages()));
     const chat = root.querySelector('#xb-assistant-chat');
     renderMessages(chat);
@@ -1305,9 +1527,31 @@ function render() {
 
     const clearButton = root.querySelector('#xb-assistant-clear');
     clearButton.disabled = state.isBusy || !state.messages.length;
+    clearButton.textContent = window.matchMedia('(max-width: 900px)').matches ? '清空' : '清空对话';
 
     const deletePresetButton = root.querySelector('#xb-assistant-delete-preset');
     deletePresetButton.disabled = state.isBusy || (state.config?.presetNames || []).length <= 1;
+
+    const saveButton = root.querySelector('#xb-assistant-save');
+    const saveState = state.configSave.status;
+    saveButton.classList.add('xb-assistant-save-button');
+    saveButton.classList.toggle('is-saving', saveState === 'saving');
+    saveButton.classList.toggle('is-success', saveState === 'success');
+    saveButton.classList.toggle('is-error', saveState === 'error');
+    saveButton.disabled = state.isBusy || saveState === 'saving';
+    if (saveState === 'saving') {
+        saveButton.innerHTML = '<span class="xb-assistant-save-spinner" aria-hidden="true"></span>保存中...';
+        saveButton.title = '正在保存配置';
+    } else if (saveState === 'success') {
+        saveButton.textContent = '已保存';
+        saveButton.title = '配置已保存';
+    } else if (saveState === 'error') {
+        saveButton.textContent = '保存失败';
+        saveButton.title = state.configSave.error || '保存失败';
+    } else {
+        saveButton.textContent = '保存配置';
+        saveButton.title = '保存配置';
+    }
 
     const pullButton = root.querySelector('#xb-assistant-pull-models');
     pullButton.disabled = state.isBusy;
@@ -1331,11 +1575,17 @@ function render() {
     const sidebar = root.querySelector('.xb-assistant-sidebar');
     const sidebarToggle = root.querySelector('#xb-assistant-sidebar-toggle');
     const sidebarContent = root.querySelector('.xb-assistant-sidebar-content');
+    const mobileSettingsButton = root.querySelector('#xb-assistant-mobile-settings');
+    const mobileCloseButton = root.querySelector('#xb-assistant-mobile-close');
+    const mobileBackdrop = root.querySelector('#xb-assistant-mobile-backdrop');
+    const isMobile = window.matchMedia('(max-width: 900px)').matches;
     shell?.classList.toggle('sidebar-collapsed', !!state.sidebarCollapsed);
     sidebar?.classList.toggle('is-collapsed', !!state.sidebarCollapsed);
     sidebarContent?.toggleAttribute('hidden', !!state.sidebarCollapsed);
+    mobileBackdrop?.toggleAttribute('hidden', !isMobile || !!state.sidebarCollapsed);
+    mobileSettingsButton?.toggleAttribute('hidden', !isMobile);
+    mobileCloseButton?.toggleAttribute('hidden', !isMobile);
     if (sidebarToggle) {
-        const isMobile = window.matchMedia('(max-width: 900px)').matches;
         sidebarToggle.setAttribute('aria-expanded', state.sidebarCollapsed ? 'false' : 'true');
         sidebarToggle.setAttribute('aria-label', state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置');
         sidebarToggle.title = state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置';
@@ -1351,6 +1601,15 @@ function render() {
                 ? (state.sidebarCollapsed ? '▼' : '▲')
                 : (state.sidebarCollapsed ? '⚙' : '‹');
         }
+    }
+    if (mobileSettingsButton) {
+        mobileSettingsButton.textContent = state.sidebarCollapsed ? '设置' : '关闭设置';
+        mobileSettingsButton.setAttribute('aria-expanded', state.sidebarCollapsed ? 'false' : 'true');
+        mobileSettingsButton.title = state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置';
+    }
+    if (mobileCloseButton) {
+        mobileCloseButton.textContent = '关闭';
+        mobileCloseButton.title = '关闭小白助手';
     }
 
     const draftGallery = root.querySelector('#xb-assistant-draft-gallery');
@@ -1376,6 +1635,23 @@ function bindEvents(root) {
 
     root.querySelector('#xb-assistant-sidebar-toggle')?.addEventListener('click', () => {
         state.sidebarCollapsed = !state.sidebarCollapsed;
+        persistSession();
+        render();
+    });
+
+    root.querySelector('#xb-assistant-mobile-settings')?.addEventListener('click', () => {
+        state.sidebarCollapsed = !state.sidebarCollapsed;
+        persistSession();
+        render();
+    });
+
+    root.querySelector('#xb-assistant-mobile-close')?.addEventListener('click', () => {
+        post('xb-assistant:close');
+    });
+
+    root.querySelector('#xb-assistant-mobile-backdrop')?.addEventListener('click', () => {
+        if (state.sidebarCollapsed) return;
+        state.sidebarCollapsed = true;
         persistSession();
         render();
     });
@@ -1558,12 +1834,23 @@ window.addEventListener('message', (event) => {
 
     if (data.type === 'xb-assistant:config-saved') {
         applyConfig(data.payload?.config || {});
+        completeConfigSave(data.payload?.requestId || '', { ok: true });
         showToast('配置已保存');
+        return;
+    }
+
+    if (data.type === 'xb-assistant:identity-updated') {
+        state.runtime = {
+            ...(state.runtime || {}),
+            identityContent: String(data.payload?.identityContent || '').trim(),
+        };
+        showToast('身份设定已更新');
         return;
     }
 
     if (data.type === 'xb-assistant:config-save-error') {
         applyConfig(data.payload?.config || {});
+        completeConfigSave(data.payload?.requestId || '', { ok: false, error: data.payload?.error || '网络异常' });
         showToast(`保存失败：${data.payload?.error || '网络异常'}`);
         return;
     }

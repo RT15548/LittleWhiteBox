@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-17T10:19:19.382Z",
+  "generatedAt": "2026-04-18T03:09:59.094Z",
   "version": 1,
   "files": [
     {
@@ -1048,6 +1048,12 @@
     },
     {
       "source": "sillytavern-public",
+      "publicPath": "css/user.css",
+      "relativePath": "css/user.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
       "publicPath": "css/welcome.css",
       "relativePath": "css/welcome.css",
       "extension": ".css"
@@ -1057,6 +1063,30 @@
       "publicPath": "css/world-info.css",
       "relativePath": "css/world-info.css",
       "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "error/forbidden-by-whitelist.html",
+      "relativePath": "error/forbidden-by-whitelist.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "error/host-not-allowed.html",
+      "relativePath": "error/host-not-allowed.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "error/unauthorized.html",
+      "relativePath": "error/unauthorized.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "error/url-not-found.html",
+      "relativePath": "error/url-not-found.html",
+      "extension": ".html"
     },
     {
       "source": "sillytavern-public",

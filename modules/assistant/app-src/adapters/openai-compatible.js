@@ -1,16 +1,5 @@
 import OpenAI from 'openai';
 
-function logOutgoingRequest(label, payload) {
-    const targetConsole = globalThis.top?.console || console;
-    try {
-        targetConsole.groupCollapsed(label);
-        targetConsole.log(JSON.parse(JSON.stringify(payload)));
-        targetConsole.groupEnd();
-    } catch {
-        targetConsole.log(label, payload);
-    }
-}
-
 function safeParseArguments(text) {
     try {
         return JSON.parse(text || '{}');
@@ -276,7 +265,6 @@ export class OpenAICompatibleAdapter {
                 display: 'summarized',
             };
         }
-        logOutgoingRequest('[LittleWhiteBox Assistant] OpenAI-Compatible outgoing request', body);
         if (typeof task.onStreamProgress === 'function') {
             const stream = await this.client.chat.completions.create({
                 ...body,

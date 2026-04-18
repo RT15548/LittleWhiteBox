@@ -27,6 +27,7 @@ export function createAssistantRuntime(deps) {
         isAbortError,
         createAdapter,
         getActiveProviderConfig,
+        getSystemPrompt,
         SYSTEM_PROMPT,
         SUMMARY_SYSTEM_PROMPT,
         HISTORY_SUMMARY_PREFIX,
@@ -45,6 +46,11 @@ export function createAssistantRuntime(deps) {
     let latestResolvedContextStatsSignature = '';
     let latestResolvedContextTokens = 0;
     let contextStatsRequestSerial = 0;
+
+    function resolveSystemPrompt() {
+        const prompt = typeof getSystemPrompt === 'function' ? getSystemPrompt() : SYSTEM_PROMPT;
+        return String(prompt || SYSTEM_PROMPT).trim() || SYSTEM_PROMPT;
+    }
 
     function resetCompactionState() {
         state.historySummary = '';
@@ -166,13 +172,17 @@ export function createAssistantRuntime(deps) {
     function clearHistoricalThoughts() {
         let changed = false;
         state.messages = state.messages.map((message) => {
-            if (message?.role !== 'assistant' || !Array.isArray(message.thoughts) || !message.thoughts.length) {
+            if (message?.role !== 'assistant') {
                 return message;
             }
+            const hasThoughts = Array.isArray(message.thoughts) && message.thoughts.length;
+            const hasProviderPayload = !!message.providerPayload;
+            if (!hasThoughts && !hasProviderPayload) return message;
             changed = true;
             return {
                 ...message,
                 thoughts: [],
+                providerPayload: undefined,
             };
         });
         return changed;
@@ -451,6 +461,9 @@ export function createAssistantRuntime(deps) {
         if (typeof patch.content === 'string') {
             message.content = patch.content;
         }
+        if (patch.providerPayload && typeof patch.providerPayload === 'object') {
+            message.providerPayload = patch.providerPayload;
+        }
         if (Array.isArray(patch.thoughts)) {
             message.thoughts = filterThoughtsForCurrentTurn(patch.thoughts, message);
         }
@@ -502,7 +515,7 @@ export function createAssistantRuntime(deps) {
     }
 
     function toProviderMessages(baseMessages = state.messages) {
-        const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+        const messages = [{ role: 'system', content: resolveSystemPrompt() }];
         const summaryMessage = buildHistorySummarySystemMessage();
         const lightBrakeMessage = buildRepeatedToolErrorSystemMessage();
         if (summaryMessage) messages.push(summaryMessage);
@@ -512,6 +525,7 @@ export function createAssistantRuntime(deps) {
                 messages.push({
                     role: 'assistant',
                     content: message.content || '',
+                    providerPayload: message.providerPayload,
                     tool_calls: message.toolCalls.map((toolCall) => ({
                         id: toolCall.id,
                         type: 'function',
@@ -535,6 +549,7 @@ export function createAssistantRuntime(deps) {
 
             messages.push({
                 role: message.role,
+                providerPayload: message.providerPayload,
                 content: message.role === 'user'
                     ? buildUserContentParts(message)
                     : message.content,
@@ -798,6 +813,7 @@ export function createAssistantRuntime(deps) {
     async function runAssistantLoop(run) {
         const adapter = createAdapter();
         let rounds = 0;
+        let pendingToolResponses = null;
 
         while (rounds < MAX_TOOL_ROUNDS) {
             if (run.controller.signal.aborted) {
@@ -810,7 +826,6 @@ export function createAssistantRuntime(deps) {
             render();
 
             const providerConfig = getActiveProviderConfig();
-            const requestMessages = await ensureContextBudget(adapter, run.controller.signal);
             let streamingAssistantMessage = null;
             const handleStreamProgress = (snapshot = {}) => {
                 const hasText = typeof snapshot.text === 'string';
@@ -828,9 +843,8 @@ export function createAssistantRuntime(deps) {
 
             let result;
             try {
-                result = await adapter.chat({
-                    systemPrompt: SYSTEM_PROMPT,
-                    messages: requestMessages,
+                const requestTask = {
+                    systemPrompt: resolveSystemPrompt(),
                     tools: TOOL_DEFINITIONS,
                     toolChoice: 'auto',
                     temperature: providerConfig.temperature,
@@ -841,7 +855,15 @@ export function createAssistantRuntime(deps) {
                     },
                     signal: run.controller.signal,
                     onStreamProgress: handleStreamProgress,
-                });
+                };
+
+                if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && adapter?.supportsSessionToolLoop) {
+                    requestTask.toolResponses = pendingToolResponses;
+                } else {
+                    requestTask.messages = await ensureContextBudget(adapter, run.controller.signal);
+                }
+
+                result = await adapter.chat(requestTask);
             } catch (error) {
                 if (streamingAssistantMessage) {
                     finalizeStreamingAssistantMessage(streamingAssistantMessage);
@@ -850,11 +872,13 @@ export function createAssistantRuntime(deps) {
             }
 
             if (Array.isArray(result.toolCalls) && result.toolCalls.length) {
+                pendingToolResponses = null;
                 if (streamingAssistantMessage) {
                     finalizeStreamingAssistantMessage(streamingAssistantMessage, {
                         content: result.text || '',
                         thoughts: result.thoughts,
                         toolCalls: result.toolCalls,
+                        providerPayload: result.providerPayload,
                     });
                 } else {
                     pushMessage({
@@ -862,10 +886,12 @@ export function createAssistantRuntime(deps) {
                         content: result.text || '',
                         toolCalls: result.toolCalls,
                         thoughts: result.thoughts,
+                        providerPayload: result.providerPayload,
                     });
                 }
                 render();
 
+                const toolResponses = [];
                 for (const toolCall of result.toolCalls) {
                     if (run.controller.signal.aborted) {
                         throw new Error('assistant_aborted');
@@ -922,21 +948,32 @@ export function createAssistantRuntime(deps) {
                         toolName: toolCall.name,
                         content: JSON.stringify(toolResult, null, 2),
                     });
+                    toolResponses.push({
+                        id: toolCall.id,
+                        name: toolCall.name,
+                        response: toolResult,
+                    });
                     render();
+                }
+                if (adapter?.supportsSessionToolLoop) {
+                    pendingToolResponses = toolResponses;
                 }
                 continue;
             }
 
+            pendingToolResponses = null;
             if (streamingAssistantMessage) {
                 finalizeStreamingAssistantMessage(streamingAssistantMessage, {
                     content: result.text || '没有拿到有效回复。',
                     thoughts: result.thoughts,
+                    providerPayload: result.providerPayload,
                 });
             } else {
                 pushMessage({
                     role: 'assistant',
                     content: result.text || '没有拿到有效回复。',
                     thoughts: result.thoughts,
+                    providerPayload: result.providerPayload,
                 });
             }
             state.progressLabel = '';

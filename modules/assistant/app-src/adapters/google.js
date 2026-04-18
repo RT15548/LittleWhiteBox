@@ -1,16 +1,5 @@
 import { FunctionCallingConfigMode, GoogleGenAI, ThinkingLevel } from '@google/genai';
 
-function logOutgoingRequest(label, payload) {
-    const targetConsole = globalThis.top?.console || console;
-    try {
-        targetConsole.groupCollapsed(label);
-        targetConsole.log(JSON.parse(JSON.stringify(payload)));
-        targetConsole.groupEnd();
-    } catch {
-        targetConsole.log(label, payload);
-    }
-}
-
 function parseArguments(text) {
     try {
         return JSON.parse(text || '{}');
@@ -61,6 +50,14 @@ function buildFallbackUserContent() {
     };
 }
 
+function extractVisibleText(response) {
+    const parts = response?.candidates?.[0]?.content?.parts || [];
+    return parts
+        .filter((part) => !part?.thought && typeof part?.text === 'string' && part.text)
+        .map((part) => part.text)
+        .join('\n');
+}
+
 function mapThinkingLevel(effort) {
     switch (effort) {
         case 'high':
@@ -93,6 +90,20 @@ function resolveSystemInstruction(task) {
 
     if (!parts.length) return undefined;
     return [...new Set(parts)].join('\n\n');
+}
+
+function buildToolResponseMessage(toolResponses = []) {
+    return {
+        role: 'user',
+        parts: toolResponses
+            .filter((item) => item && item.name)
+            .map((item) => ({
+                functionResponse: {
+                    name: item.name,
+                    response: item.response || {},
+                },
+            })),
+    };
 }
 
 function buildConversation(messages) {
@@ -199,6 +210,8 @@ function mergeStreamText(previous, incoming) {
 export class GoogleAdapter {
     constructor(config) {
         this.config = config;
+        this.supportsSessionToolLoop = true;
+        this.activeChat = null;
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
             httpOptions: {
@@ -208,7 +221,7 @@ export class GoogleAdapter {
         });
     }
 
-    async chat(task) {
+    createChat(task) {
         const conversation = buildConversation(task.messages);
         const tools = Array.isArray(task.tools) ? task.tools : [];
         const systemInstruction = resolveSystemInstruction(task);
@@ -247,13 +260,16 @@ export class GoogleAdapter {
             history: conversation.history,
             config,
         };
-        logOutgoingRequest('[LittleWhiteBox Assistant] Google AI outgoing create payload', createPayload);
         const chat = this.client.chats.create(createPayload);
-
-        const sendPayload = {
-            message: conversation.latestMessage,
+        return {
+            chat,
+            sendPayload: {
+                message: conversation.latestMessage,
+            },
         };
-        logOutgoingRequest('[LittleWhiteBox Assistant] Google AI outgoing send payload', sendPayload);
+    }
+
+    async sendThroughChat(chat, sendPayload, task) {
         let response;
         let thoughts;
         let text;
@@ -268,11 +284,6 @@ export class GoogleAdapter {
 
             for await (const chunk of stream) {
                 lastChunk = chunk;
-                const chunkText = typeof chunk.text === 'string'
-                    ? chunk.text
-                    : (chunk.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').filter(Boolean).join('\n');
-                streamedText = mergeStreamText(streamedText, chunkText);
-
                 extractThoughts(chunk).forEach((item, index) => {
                     const key = `${item.label}:${index}`;
                     thoughtMap.set(key, mergeStreamText(thoughtMap.get(key) || '', item.text));
@@ -284,6 +295,13 @@ export class GoogleAdapter {
                     arguments: JSON.stringify(item.args || {}),
                 })).filter((item) => item.name);
                 finalFunctionCalls = streamedToolCalls;
+
+                if (streamedToolCalls.length) {
+                    streamedText = '';
+                } else {
+                    const chunkText = extractVisibleText(chunk);
+                    streamedText = mergeStreamText(streamedText, chunkText);
+                }
 
                 emitStreamProgress(task, {
                     text: streamedText,
@@ -303,14 +321,15 @@ export class GoogleAdapter {
                     label: `思考块 ${index + 1}`,
                     text: value,
                 }));
-            text = streamedText;
+            text = finalFunctionCalls.length ? '' : streamedText;
         } else {
             response = await chat.sendMessage(sendPayload);
             thoughts = extractThoughts(response);
-            text = typeof response.text === 'string'
-                ? response.text
-                : (response.candidates?.[0]?.content?.parts || []).map((part) => part.text || '').filter(Boolean).join('\n');
+            text = response.functionCalls?.length
+                ? ''
+                : extractVisibleText(response);
         }
+
         const toolCalls = (response.functionCalls || []).map((item, index) => ({
             id: item.id || `google-tool-${index + 1}`,
             name: item.name || '',
@@ -321,12 +340,28 @@ export class GoogleAdapter {
             : finalFunctionCalls;
 
         return {
-            text,
+            text: normalizedToolCalls.length ? '' : text,
             toolCalls: normalizedToolCalls,
             thoughts,
             finishReason: response.candidates?.[0]?.finishReason || 'STOP',
             model: response.modelVersion || this.config.model,
             provider: 'google',
         };
+    }
+
+    async chat(task) {
+        if (Array.isArray(task.toolResponses) && task.toolResponses.length) {
+            if (!this.activeChat) {
+                throw new Error('google_chat_session_missing');
+            }
+            const sendPayload = {
+                message: buildToolResponseMessage(task.toolResponses),
+            };
+            return await this.sendThroughChat(this.activeChat, sendPayload, task);
+        }
+
+        const created = this.createChat(task);
+        this.activeChat = created.chat;
+        return await this.sendThroughChat(this.activeChat, created.sendPayload, task);
     }
 }

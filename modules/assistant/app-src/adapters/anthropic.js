@@ -1,16 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-function logOutgoingRequest(label, payload) {
-    const targetConsole = globalThis.top?.console || console;
-    try {
-        targetConsole.groupCollapsed(label);
-        targetConsole.log(JSON.parse(JSON.stringify(payload)));
-        targetConsole.groupEnd();
-    } catch {
-        targetConsole.log(label, payload);
-    }
-}
-
 function parseArguments(text) {
     try {
         return JSON.parse(text || '{}');
@@ -28,6 +17,15 @@ function parseDataUrl(dataUrl = '') {
         mediaType: match[1],
         data: match[2],
     };
+}
+
+function cloneJson(value) {
+    if (value === undefined) return undefined;
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch {
+        return undefined;
+    }
 }
 
 function buildMessageContent(content) {
@@ -59,18 +57,6 @@ function buildMessageContent(content) {
     return parts.length ? parts : [{ type: 'text', text: '' }];
 }
 
-function mapThinkingBudget(effort) {
-    switch (effort) {
-        case 'high':
-            return 4096;
-        case 'medium':
-            return 2048;
-        case 'low':
-        default:
-            return 1024;
-    }
-}
-
 function resolveSystemPrompt(task) {
     const parts = [
         String(task.systemPrompt || '').trim(),
@@ -81,6 +67,19 @@ function resolveSystemPrompt(task) {
 
     if (!parts.length) return '';
     return [...new Set(parts)].join('\n\n');
+}
+
+function normalizeAnthropicContent(message) {
+    const content = message?.providerPayload?.anthropicContent;
+    return Array.isArray(content) && content.length
+        ? cloneJson(content) || null
+        : null;
+}
+
+function buildProviderPayload(response) {
+    return Array.isArray(response?.content) && response.content.length
+        ? { anthropicContent: cloneJson(response.content) || [] }
+        : undefined;
 }
 
 function buildAnthropicMessages(messages) {
@@ -97,6 +96,17 @@ function buildAnthropicMessages(messages) {
 
     for (const message of messages) {
         if (message.role === 'system') continue;
+
+        if (message.role === 'assistant') {
+            const preservedContent = normalizeAnthropicContent(message);
+            if (preservedContent) {
+                filtered.push({
+                    role: 'assistant',
+                    content: preservedContent,
+                });
+                continue;
+            }
+        }
 
         if (message.role === 'tool') {
             filtered.push({
@@ -175,12 +185,10 @@ export class AnthropicAdapter {
         }
         if (task.reasoning?.enabled) {
             body.thinking = {
-                type: 'enabled',
-                budget_tokens: mapThinkingBudget(task.reasoning.effort),
+                type: 'adaptive',
                 display: 'summarized',
             };
         }
-        logOutgoingRequest('[LittleWhiteBox Assistant] Anthropic outgoing request', body);
         let response;
 
         if (typeof task.onStreamProgress === 'function') {
@@ -249,6 +257,7 @@ export class AnthropicAdapter {
             finishReason: response.stop_reason || 'stop',
             model: response.model || this.config.model,
             provider: 'anthropic',
+            providerPayload: buildProviderPayload(response),
         };
     }
 }
