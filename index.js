@@ -282,8 +282,7 @@ function toggleSettingsControls(enabled) {
         'xiaobaix_max_rendered', 'xiaobaix_story_outline_enabled', 'xiaobaix_story_summary_enabled',
         'xiaobaix_novel_draw_enabled', 'xiaobaix_novel_draw_open_settings',
         'xiaobaix_tts_enabled', 'xiaobaix_tts_open_settings',
-        'xiaobaix_ena_planner_enabled', 'xiaobaix_ena_planner_open_settings',
-        'xiaobaix_assistant_open_settings'
+        'xiaobaix_ena_planner_enabled', 'xiaobaix_ena_planner_open_settings'
     ];
     controls.forEach(id => {
         $(`#${id}`).prop('disabled', !enabled).closest('.flex-container').toggleClass('disabled-control', !enabled);
