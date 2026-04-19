@@ -10,6 +10,244 @@ import { clearEventVectors, deleteEventVectorsByIds } from "../vector/storage/ch
 const MODULE_ID = 'summaryStore';
 const FACTS_LIMIT_PER_SUBJECT = 10;
 
+function isPlainObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeStringArray(value) {
+    if (!Array.isArray(value)) {
+        return { value: [], changed: value != null };
+    }
+
+    const next = [];
+    let changed = false;
+    for (const item of value) {
+        let text = '';
+        if (typeof item === 'string') {
+            text = item.trim();
+        } else if (isPlainObject(item)) {
+            // Old data may store names/ids as lightweight objects; only accept explicit text-like fields.
+            text = String(item.name || item.text || item.id || '').trim();
+            changed = true;
+        } else if (item != null) {
+            changed = true;
+        }
+        if (!text) {
+            if (item != null) changed = true;
+            continue;
+        }
+        next.push(text);
+        if (typeof item !== 'string' || item !== text) {
+            changed = true;
+        }
+    }
+
+    if (!changed && next.length !== value.length) {
+        changed = true;
+    }
+
+    return { value: changed ? next : value, changed };
+}
+
+function normalizeSummaryHistory(history) {
+    if (!Array.isArray(history)) {
+        return { value: [], changed: history != null };
+    }
+
+    const next = [];
+    let changed = false;
+    for (const item of history) {
+        const endMesId = Number(item?.endMesId);
+        if (!Number.isFinite(endMesId)) {
+            changed = true;
+            continue;
+        }
+        const normalized = { endMesId: Math.trunc(endMesId) };
+        next.push(normalized);
+        if (!isPlainObject(item) || item.endMesId !== normalized.endMesId) {
+            changed = true;
+        }
+    }
+
+    if (!changed && next.length !== history.length) {
+        changed = true;
+    }
+
+    return { value: changed ? next : history, changed };
+}
+
+function normalizeSummaryJson(json) {
+    if (json == null) {
+        return { value: null, changed: false };
+    }
+
+    if (!isPlainObject(json)) {
+        return {
+            value: {
+                keywords: [],
+                events: [],
+                characters: { main: [] },
+                arcs: [],
+                facts: [],
+            },
+            changed: true,
+        };
+    }
+
+    let changed = false;
+    const next = json;
+
+    const normalizedKeywords = Array.isArray(next.keywords)
+        ? next.keywords.filter(isPlainObject)
+        : [];
+    if (!Array.isArray(next.keywords) || normalizedKeywords.length !== next.keywords.length) {
+        next.keywords = normalizedKeywords;
+        changed = true;
+    }
+
+    if (!Array.isArray(next.events)) {
+        next.events = [];
+        changed = true;
+    } else {
+        const events = [];
+        for (const event of next.events) {
+            if (!isPlainObject(event)) {
+                changed = true;
+                continue;
+            }
+
+            let normalizedEvent = event;
+
+            const participants = normalizeStringArray(event.participants);
+            if (participants.changed) {
+                normalizedEvent = normalizedEvent === event ? { ...event } : normalizedEvent;
+                normalizedEvent.participants = participants.value;
+                changed = true;
+            }
+
+            const causedBy = normalizeStringArray(event.causedBy);
+            if (causedBy.changed) {
+                normalizedEvent = normalizedEvent === event ? { ...event } : normalizedEvent;
+                normalizedEvent.causedBy = causedBy.value;
+                changed = true;
+            }
+
+            events.push(normalizedEvent);
+        }
+
+        if (events.length !== next.events.length) {
+            changed = true;
+        }
+        if (changed) {
+            next.events = events;
+        }
+    }
+
+    if (!isPlainObject(next.characters)) {
+        next.characters = { main: [] };
+        changed = true;
+    } else if (!Array.isArray(next.characters.main)) {
+        next.characters.main = [];
+        changed = true;
+    } else {
+        const main = next.characters.main.filter(item => typeof item === 'string' || isPlainObject(item));
+        if (main.length !== next.characters.main.length) {
+            next.characters.main = main;
+            changed = true;
+        }
+    }
+
+    if (!Array.isArray(next.arcs)) {
+        next.arcs = [];
+        changed = true;
+    } else {
+        const arcs = [];
+        for (const arc of next.arcs) {
+            if (!isPlainObject(arc)) {
+                changed = true;
+                continue;
+            }
+
+            const moments = Array.isArray(arc.moments)
+                ? arc.moments.filter(item => typeof item === 'string' || isPlainObject(item))
+                : [];
+
+            if (!Array.isArray(arc.moments) || moments.length !== arc.moments.length) {
+                arcs.push({ ...arc, moments });
+                changed = true;
+                continue;
+            }
+
+            arcs.push(arc);
+        }
+
+        if (arcs.length !== next.arcs.length) {
+            changed = true;
+        }
+        if (changed) {
+            next.arcs = arcs;
+        }
+    }
+
+    if (!Array.isArray(next.facts)) {
+        const hasOldData = next.world?.length || next.characters?.relationships?.length;
+        if (hasOldData) {
+            next.facts = migrateToFacts(next);
+            delete next.world;
+            delete next.characters.relationships;
+        } else {
+            next.facts = [];
+        }
+        changed = true;
+    } else {
+        const facts = next.facts.filter(isPlainObject);
+        if (facts.length !== next.facts.length) {
+            next.facts = facts;
+            changed = true;
+        }
+    }
+
+    return { value: next, changed };
+}
+
+function normalizeSummaryStore(store) {
+    if (!store || !isPlainObject(store)) {
+        return false;
+    }
+
+    let changed = false;
+
+    if (store.lastSummarizedMesId != null) {
+        const lastSummarizedMesId = Number(store.lastSummarizedMesId);
+        if (!Number.isFinite(lastSummarizedMesId)) {
+            if (store.lastSummarizedMesId !== -1) {
+                store.lastSummarizedMesId = -1;
+                changed = true;
+            }
+        } else {
+            const normalizedMesId = Math.trunc(lastSummarizedMesId);
+            if (store.lastSummarizedMesId !== normalizedMesId) {
+                store.lastSummarizedMesId = normalizedMesId;
+                changed = true;
+            }
+        }
+    }
+
+    const history = normalizeSummaryHistory(store.summaryHistory);
+    if (history.changed) {
+        store.summaryHistory = history.value;
+        changed = true;
+    }
+
+    const json = normalizeSummaryJson(store.json);
+    if (json.changed) {
+        store.json = json.value;
+        changed = true;
+    }
+
+    return changed;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 基础存取
 // ═══════════════════════════════════════════════════════════════════════════
@@ -23,20 +261,10 @@ export function getSummaryStore() {
 
     const store = chat_metadata.extensions[EXT_ID].storySummary;
 
-    // ★ 自动迁移旧数据
-    if (store.json && !store.json.facts) {
-        const hasOldData = store.json.world?.length || store.json.characters?.relationships?.length;
-        if (hasOldData) {
-            store.json.facts = migrateToFacts(store.json);
-            // 删除旧字段
-            delete store.json.world;
-            if (store.json.characters) {
-                delete store.json.characters.relationships;
-            }
-            store.updatedAt = Date.now();
-            saveSummaryStore();
-            xbLog.info(MODULE_ID, `自动迁移完成: ${store.json.facts.length} 条 facts`);
-        }
+    if (normalizeSummaryStore(store)) {
+        store.updatedAt = Date.now();
+        saveSummaryStore();
+        xbLog.info(MODULE_ID, '已自动修正总结存储中的旧结构或异常字段');
     }
 
     return store;
