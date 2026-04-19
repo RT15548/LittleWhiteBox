@@ -53,6 +53,7 @@ let floorObserver = null;
 let floatingEl = null;
 let floatingDragState = null;
 let floatingState = FloatState.IDLE;
+let floatingMessageId = null;
 let floatingResult = { success: 0, total: 0, error: null, startTime: 0 };
 let floatingAutoResetTimer = null;
 let floatingCooldownRafId = null;
@@ -1083,6 +1084,7 @@ function setFloatingState(state, data = {}) {
 
     switch (state) {
         case FloatState.IDLE:
+            floatingMessageId = null;
             floatingResult = { success: 0, total: 0, error: null, startTime: 0 };
             break;
         case FloatState.QUEUED:
@@ -1247,6 +1249,8 @@ async function handleFloatingDrawClick() {
         return;
     }
 
+    floatingMessageId = messageId;
+
     try {
         await generateAndInsertImages({
             messageId,
@@ -1283,7 +1287,7 @@ async function handleFloatingDrawClick() {
 async function handleFloatingAbort() {
     try {
         const { abortGeneration } = await import('./novel-draw.js');
-        const messageId = findLastAIMessageId();
+        const messageId = floatingMessageId;
         if (messageId >= 0 && abortGeneration(messageId)) {
             setFloatingState(FloatState.IDLE);
             toastr?.info?.('已中止');
