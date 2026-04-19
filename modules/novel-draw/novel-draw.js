@@ -173,7 +173,10 @@ let moduleInitialized = false;
 let touchState = null;
 let settingsCache = null;
 let settingsLoaded = false;
-let generationAbortController = null;
+let generationJobs = new Map();
+let imageRequestQueue = [];
+let activeImageRequest = null;
+let imageRequestSeq = 0;
 let messageObserver = null;
 let ensureNovelDrawPanelRef = null;
 let overlayResizeHandler = null;
@@ -642,18 +645,108 @@ function insertPreviewIntoRenderedMessage({ messageId, slotId, html, anchor = ''
 // 中止控制
 // ═══════════════════════════════════════════════════════════════════════════
 
-function abortGeneration() {
-    if (generationAbortController) {
-        generationAbortController.abort();
-        // controller 由 generateAndInsertImages 的 finally 块清除
-        // autoBusy 由 autoGenerateForLastAI 的 finally 块清除
+function abortGeneration(messageId = null) {
+    if (messageId !== null && messageId !== undefined) {
+        const job = generationJobs.get(String(messageId));
+        if (!job) return false;
+        job.controller.abort();
         return true;
     }
-    return false;
+
+    let aborted = false;
+    generationJobs.forEach((job) => {
+        job.controller.abort();
+        aborted = true;
+    });
+    return aborted;
 }
 
 function isGenerating() {
-    return autoBusy || generationAbortController !== null;
+    return autoBusy || generationJobs.size > 0;
+}
+
+function hasGenerationJob(messageId) {
+    return generationJobs.has(String(messageId));
+}
+
+function createGenerationJob(messageId) {
+    const key = String(messageId);
+    if (generationJobs.has(key)) {
+        throw new NovelDrawError('该楼层已有任务进行中', ErrorType.UNKNOWN);
+    }
+
+    const job = {
+        key,
+        messageId,
+        controller: new AbortController(),
+        createdAt: Date.now(),
+    };
+    generationJobs.set(key, job);
+    return job;
+}
+
+function releaseGenerationJob(job) {
+    if (job && generationJobs.get(job.key) === job) {
+        generationJobs.delete(job.key);
+    }
+}
+
+function notifyQueuedImageRequests() {
+    imageRequestQueue.forEach((item, index) => {
+        const ahead = (activeImageRequest ? 1 : 0) + index;
+        if (ahead > 0) {
+            item.onQueued?.({ ahead, position: ahead + 1 });
+        }
+    });
+}
+
+function pumpImageRequestQueue() {
+    if (activeImageRequest || imageRequestQueue.length === 0) return;
+
+    const item = imageRequestQueue.shift();
+    activeImageRequest = item;
+    notifyQueuedImageRequests();
+
+    Promise.resolve()
+        .then(async () => {
+            if (item.signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+            item.onStart?.();
+            return await item.run();
+        })
+        .then(item.resolve)
+        .catch(item.reject)
+        .finally(() => {
+            if (activeImageRequest === item) {
+                activeImageRequest = null;
+            }
+            notifyQueuedImageRequests();
+            pumpImageRequestQueue();
+        });
+}
+
+function enqueueImageRequest(run, { signal, onQueued, onStart } = {}) {
+    return new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(new NovelDrawError('已取消', ErrorType.UNKNOWN));
+            return;
+        }
+
+        const item = { id: ++imageRequestSeq, run, signal, onQueued, onStart, resolve, reject };
+
+        signal?.addEventListener('abort', () => {
+            if (activeImageRequest === item) return;
+            const idx = imageRequestQueue.indexOf(item);
+            if (idx >= 0) {
+                imageRequestQueue.splice(idx, 1);
+                notifyQueuedImageRequests();
+                reject(new NovelDrawError('已取消', ErrorType.UNKNOWN));
+            }
+        }, { once: true });
+
+        imageRequestQueue.push(item);
+        notifyQueuedImageRequests();
+        pumpImageRequestQueue();
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1330,56 +1423,62 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
     };
 }
 
-async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, signal }) {
-    const settings = getSettings();
-    if (!settings.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
+async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, signal, onQueueStateChange }) {
+    return await enqueueImageRequest(async () => {
+        const settings = getSettings();
+        if (!settings.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
 
-    const finalParams = { ...params };
+        const finalParams = { ...params };
 
-    if (settings.overrideSize && settings.overrideSize !== 'default') {
-        const { SIZE_OPTIONS } = await import('./floating-panel.js');
-        const sizeOpt = SIZE_OPTIONS.find(o => o.value === settings.overrideSize);
-        if (sizeOpt && sizeOpt.width && sizeOpt.height) {
-            finalParams.width = sizeOpt.width;
-            finalParams.height = sizeOpt.height;
+        if (settings.overrideSize && settings.overrideSize !== 'default') {
+            const { SIZE_OPTIONS } = await import('./floating-panel.js');
+            const sizeOpt = SIZE_OPTIONS.find(o => o.value === settings.overrideSize);
+            if (sizeOpt && sizeOpt.width && sizeOpt.height) {
+                finalParams.width = sizeOpt.width;
+                finalParams.height = sizeOpt.height;
+            }
         }
-    }
 
-    const controller = new AbortController();
-    const timeout = (settings.timeout > 0) ? settings.timeout : DEFAULT_SETTINGS.timeout;
-    const tid = setTimeout(() => controller.abort(), timeout);
+        const controller = new AbortController();
+        const timeout = (settings.timeout > 0) ? settings.timeout : DEFAULT_SETTINGS.timeout;
+        const tid = setTimeout(() => controller.abort(), timeout);
 
-    if (signal) {
-        signal.addEventListener('abort', () => controller.abort(), { once: true });
-    }
+        if (signal) {
+            signal.addEventListener('abort', () => controller.abort(), { once: true });
+        }
 
-    const t0 = Date.now();
+        const t0 = Date.now();
 
-    try {
-        if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+        try {
+            if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
 
-        const res = await fetch(NOVELAI_IMAGE_API, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.apiKey}` },
-            signal: controller.signal,
-            body: JSON.stringify(buildNovelAIRequestBody({
-                scene,
-                characterPrompts,
-                negativePrompt,
-                params: finalParams
-            })),
-        });
-        if (!res.ok) throw parseApiError(res.status, await res.text().catch(() => ''));
-        const buffer = await res.arrayBuffer();
-        const base64 = await extractImageFromZip(buffer);
-        console.log(`[NovelDraw] 完成 ${Date.now() - t0}ms`);
-        return base64;
-    } catch (e) {
-        if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
-        throw handleFetchError(e);
-    } finally {
-        clearTimeout(tid);
-    }
+            const res = await fetch(NOVELAI_IMAGE_API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.apiKey}` },
+                signal: controller.signal,
+                body: JSON.stringify(buildNovelAIRequestBody({
+                    scene,
+                    characterPrompts,
+                    negativePrompt,
+                    params: finalParams
+                })),
+            });
+            if (!res.ok) throw parseApiError(res.status, await res.text().catch(() => ''));
+            const buffer = await res.arrayBuffer();
+            const base64 = await extractImageFromZip(buffer);
+            console.log(`[NovelDraw] 完成 ${Date.now() - t0}ms`);
+            return base64;
+        } catch (e) {
+            if (signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
+            throw handleFetchError(e);
+        } finally {
+            clearTimeout(tid);
+        }
+    }, {
+        signal,
+        onQueued: (data) => onQueueStateChange?.('queued', data),
+        onStart: () => onQueueStateChange?.('start'),
+    });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2500,19 +2599,19 @@ async function handleMessageModified(data) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function generateAndInsertImages({ messageId, onStateChange, skipLock = false }) {
-    await loadSettings();
-    const ctx = getContext();
-    const message = ctx.chat?.[messageId];
-    if (!message) throw new NovelDrawError('消息不存在', ErrorType.PARSE);
-
-    if (!skipLock && isGenerating()) {
-        throw new NovelDrawError('已有任务进行中', ErrorType.UNKNOWN);
+    if (skipLock) {
+        // 兼容旧调用：当前改为 message 级去重 + 图片请求队列，不再使用全局生成锁
     }
 
-    generationAbortController = new AbortController();
-    const signal = generationAbortController.signal;
+    const job = createGenerationJob(messageId);
 
     try {
+        await loadSettings();
+        const ctx = getContext();
+        const message = ctx.chat?.[messageId];
+        if (!message) throw new NovelDrawError('消息不存在', ErrorType.PARSE);
+
+        const signal = job.controller.signal;
         const settings = getSettings();
         const preset = getActiveParamsPreset();
 
@@ -2668,7 +2767,15 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     characterPrompts,
                     negativePrompt: preset.negativePrefix || '',
                     params: preset.params || {},
-                    signal
+                    signal,
+                    onQueueStateChange: (queueState, queueData) => {
+                        if (queueState === 'queued') {
+                            onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
+                        }
+                        if (queueState === 'start') {
+                            onStateChange?.('progress', { current: i + 1, total: tasks.length });
+                        }
+                    }
                 });
                 const imgId = generateImgId();
                 await storePreview({
@@ -2852,7 +2959,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         return { success: successCount, total: tasks.length, results };
 
     } finally {
-        generationAbortController = null;
+        releaseGenerationJob(job);
     }
 }
 
@@ -2864,11 +2971,6 @@ async function autoGenerateForLastAI() {
     const s = getSettings();
     if (!isModuleEnabled() || s.mode !== 'auto') return;
 
-    if (isGenerating()) {
-        console.log('[NovelDraw] 自动模式：已有任务进行中，跳过');
-        return;
-    }
-    
     const ctx = getContext();
     const chat = ctx.chat || [];
     const lastIdx = chat.length - 1;
@@ -2882,6 +2984,11 @@ async function autoGenerateForLastAI() {
     
     lastMessage.extra ||= {};
     if (lastMessage.extra.xb_novel_auto_done) return;
+
+    if (autoBusy || hasGenerationJob(lastIdx)) {
+        console.log('[NovelDraw] 自动模式：当前楼层已有任务进行中，跳过');
+        return;
+    }
     
     autoBusy = true;
     
@@ -2911,6 +3018,9 @@ async function autoGenerateForLastAI() {
             skipLock: true,
             onStateChange: (state, data) => {
                 switch (state) {
+                    case 'queued':
+                        updateState(FloatState.QUEUED, data);
+                        break;
                     case 'llm': 
                         updateState(FloatState.LLM); 
                         break;
@@ -3648,6 +3758,7 @@ async function handleFrameMessage(event) {
                     messageId,
                     onStateChange: (state, d) => {
                         if (state === 'progress') postStatus('loading', `${d.current}/${d.total}`);
+                        if (state === 'queued') postStatus('loading', d.ahead > 0 ? `排队中·前方 ${d.ahead}` : '排队中');
                     }
                 });
                 postStatus('success', `完成! ${result.success} 张`);
@@ -3827,6 +3938,11 @@ export async function cleanupNovelDraw() {
     destroyCloudPresets();
     overlayCreated = false;
     frameReady = false;
+
+    abortGeneration();
+    generationJobs.clear();
+    imageRequestQueue = [];
+    activeImageRequest = null;
 
     if (messageObserver) {
         messageObserver.disconnect();
