@@ -10,7 +10,6 @@ import {
     saveSettings,
     findLastAIMessageId,
     classifyError,
-    isGenerating,
 } from './novel-draw.js';
 import { registerToToolbar, removeFromToolbar } from '../../widgets/message-toolbar.js';
 
@@ -23,6 +22,7 @@ const AUTO_RESET_DELAY = 8000;
 
 const FloatState = {
     IDLE: 'idle',
+    QUEUED: 'queued',
     LLM: 'llm',
     GEN: 'gen',
     COOLDOWN: 'cooldown',
@@ -654,6 +654,13 @@ function setFloorState(messageId, state, data = {}) {
         case FloatState.IDLE:
             panelData.result = { success: 0, total: 0, error: null, startTime: 0 };
             break;
+        case FloatState.QUEUED:
+            el.classList.add('working');
+            if (!panelData.result.startTime) panelData.result.startTime = Date.now();
+            if (statusIcon) { statusIcon.textContent = '⌛'; statusIcon.className = 'nd-status-icon'; }
+            if (statusText) statusText.textContent = data.ahead > 0 ? `排队${data.ahead}` : '排队';
+            panelData.result.total = data.total || panelData.result.total || 0;
+            break;
         case FloatState.LLM:
             el.classList.add('working');
             panelData.result.startTime = Date.now();
@@ -755,16 +762,12 @@ async function handleFloorDrawClick(messageId) {
     const panelData = panelMap.get(messageId);
     if (!panelData || panelData.state !== FloatState.IDLE) return;
 
-    if (isGenerating()) {
-        toastr?.info?.('已有任务进行中，请等待完成');
-        return;
-    }
-
     try {
         await generateAndInsertImages({
             messageId,
             onStateChange: (state, data) => {
                 switch (state) {
+                    case 'queued': setFloorState(messageId, FloatState.QUEUED, data); break;
                     case 'llm': setFloorState(messageId, FloatState.LLM); break;
                     case 'gen': setFloorState(messageId, FloatState.GEN, data); break;
                     case 'progress': setFloorState(messageId, FloatState.GEN, data); break;
@@ -783,9 +786,9 @@ async function handleFloorDrawClick(messageId) {
         });
     } catch (e) {
         console.error('[NovelDraw]', e);
-        if (e.message === '已取消' || e.message?.includes('已有任务进行中')) {
+        if (e.message === '已取消' || e.message?.includes('已有任务进行中') || e.message?.includes('该楼层已有任务进行中')) {
             setFloorState(messageId, FloatState.IDLE);
-            if (e.message?.includes('已有任务进行中')) toastr?.info?.(e.message);
+            if (e.message?.includes('任务进行中')) toastr?.info?.(e.message);
         } else {
             setFloorState(messageId, FloatState.ERROR, { error: classifyError(e) });
         }
@@ -795,7 +798,7 @@ async function handleFloorDrawClick(messageId) {
 async function handleFloorAbort(messageId) {
     try {
         const { abortGeneration } = await import('./novel-draw.js');
-        if (abortGeneration()) {
+        if (abortGeneration(messageId)) {
             setFloorState(messageId, FloatState.IDLE);
             toastr?.info?.('已中止');
         }
@@ -825,7 +828,7 @@ function bindFloorPanelEvents(panelData) {
     el.querySelector('.nd-layer-active')?.addEventListener('click', (e) => {
         e.stopPropagation();
         const state = panelData.state;
-        if ([FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(state)) {
+        if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(state)) {
             handleFloorAbort(messageId);
         } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(state)) {
             updateFloorDetailPopup(messageId);
@@ -1082,6 +1085,13 @@ function setFloatingState(state, data = {}) {
         case FloatState.IDLE:
             floatingResult = { success: 0, total: 0, error: null, startTime: 0 };
             break;
+        case FloatState.QUEUED:
+            floatingEl.classList.add('working');
+            if (!floatingResult.startTime) floatingResult.startTime = Date.now();
+            statusIcon.textContent = '⌛';
+            statusIcon.className = 'nd-status-icon';
+            statusText.textContent = data.ahead > 0 ? `排队${data.ahead}` : '排队';
+            break;
         case FloatState.LLM:
             floatingEl.classList.add('working');
             floatingResult.startTime = Date.now();
@@ -1219,7 +1229,7 @@ function routeFloatingClick(target) {
         }
         floatingEl.classList.toggle('expanded');
     } else if (target.closest('.nd-layer-active')) {
-        if ([FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(floatingState)) {
+        if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(floatingState)) {
             handleFloatingAbort();
         } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(floatingState)) {
             updateFloatingDetailPopup();
@@ -1237,16 +1247,12 @@ async function handleFloatingDrawClick() {
         return;
     }
 
-    if (isGenerating()) {
-        toastr?.info?.('已有任务进行中，请等待完成');
-        return;
-    }
-
     try {
         await generateAndInsertImages({
             messageId,
             onStateChange: (state, data) => {
                 switch (state) {
+                    case 'queued': setFloatingState(FloatState.QUEUED, data); break;
                     case 'llm': setFloatingState(FloatState.LLM); break;
                     case 'gen': setFloatingState(FloatState.GEN, data); break;
                     case 'progress': setFloatingState(FloatState.GEN, data); break;
@@ -1265,9 +1271,9 @@ async function handleFloatingDrawClick() {
         });
     } catch (e) {
         console.error('[NovelDraw]', e);
-        if (e.message === '已取消' || e.message?.includes('已有任务进行中')) {
+        if (e.message === '已取消' || e.message?.includes('已有任务进行中') || e.message?.includes('该楼层已有任务进行中')) {
             setFloatingState(FloatState.IDLE);
-            if (e.message?.includes('已有任务进行中')) toastr?.info?.(e.message);
+            if (e.message?.includes('任务进行中')) toastr?.info?.(e.message);
         } else {
             setFloatingState(FloatState.ERROR, { error: classifyError(e) });
         }
@@ -1277,7 +1283,8 @@ async function handleFloatingDrawClick() {
 async function handleFloatingAbort() {
     try {
         const { abortGeneration } = await import('./novel-draw.js');
-        if (abortGeneration()) {
+        const messageId = findLastAIMessageId();
+        if (messageId >= 0 && abortGeneration(messageId)) {
             setFloatingState(FloatState.IDLE);
             toastr?.info?.('已中止');
         }
