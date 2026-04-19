@@ -1,5 +1,6 @@
 export const DEFAULT_PROVIDER = 'openai-compatible';
 export const DEFAULT_PRESET_NAME = '默认';
+export const DEFAULT_PERMISSION_MODE = 'default';
 
 export const DEFAULT_MODEL_CONFIGS = {
     'openai-responses': {
@@ -37,7 +38,12 @@ export function buildDefaultPreset() {
     return {
         provider: DEFAULT_PROVIDER,
         modelConfigs: cloneDefaultModelConfigs(),
+        permissionMode: DEFAULT_PERMISSION_MODE,
     };
+}
+
+export function normalizePermissionMode(value) {
+    return value === 'full' ? 'full' : DEFAULT_PERMISSION_MODE;
 }
 
 export function normalizePresetName(value) {
@@ -69,6 +75,7 @@ function buildPresetSource(input = {}, legacyPresetName) {
             [legacyPresetName]: {
                 provider: input.provider || DEFAULT_PROVIDER,
                 modelConfigs: input.modelConfigs,
+                permissionMode: input.permissionMode,
             },
         };
     }
@@ -85,6 +92,7 @@ function normalizePresets(input = {}, legacyPresetName) {
         presets[name] = {
             provider: normalizeProvider(rawPreset.provider),
             modelConfigs: normalizeModelConfigs(rawPreset.modelConfigs || {}),
+            permissionMode: normalizePermissionMode(rawPreset.permissionMode),
         };
     });
 
@@ -133,5 +141,6 @@ export function normalizeAssistantConfig(config = {}) {
         presets,
         provider: currentPreset.provider,
         modelConfigs: currentPreset.modelConfigs,
+        permissionMode: normalizePermissionMode(currentPreset.permissionMode),
     };
 }

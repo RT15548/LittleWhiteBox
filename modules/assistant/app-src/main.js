@@ -12,6 +12,7 @@ import {
     DEFAULT_PRESET_NAME,
     buildDefaultPreset,
     cloneDefaultModelConfigs,
+    normalizePermissionMode,
     normalizeAssistantConfig,
     normalizePresetName,
 } from '../shared/config.js';
@@ -28,6 +29,7 @@ import {
     HISTORY_SUMMARY_PREFIX,
     SUMMARY_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
+    buildPermissionModePrompt,
 } from './prompts/system-prompt.js';
 
 const SOURCE = 'xb-assistant-app';
@@ -61,6 +63,10 @@ const PROVIDER_OPTIONS = [
     { value: 'anthropic', label: 'Anthropic' },
     { value: 'google', label: 'Google AI' },
 ];
+const PERMISSION_MODE_OPTIONS = [
+    { value: 'default', label: '默认权限' },
+    { value: 'full', label: '完全权限' },
+];
 const state = {
     config: null,
     configDraft: null,
@@ -85,6 +91,7 @@ const state = {
     draftAttachments: [],
     sidebarCollapsed: true,
     configFormSyncPending: true,
+    editingMessageIndex: -1,
     configSave: {
         status: 'idle',
         requestId: '',
@@ -363,6 +370,7 @@ const settingsPanel = createSettingsPanel({
     setProviderModels,
     getProviderModels,
     getProviderLabel,
+    normalizePermissionMode,
     normalizeReasoningEffort,
     normalizeAssistantConfig,
     normalizePresetName,
@@ -371,6 +379,7 @@ const settingsPanel = createSettingsPanel({
     defaultPresetName: DEFAULT_PRESET_NAME,
     requestTimeoutMs: REQUEST_TIMEOUT_MS,
     toolModeOptions: TOOL_MODE_OPTIONS,
+    permissionModeOptions: PERMISSION_MODE_OPTIONS,
     reasoningEffortOptions: REASONING_EFFORT_OPTIONS,
 });
 
@@ -396,6 +405,7 @@ const {
     scrollChatToTop,
     updateChatScrollButtonsVisibility,
     handleAssistantChatScroll,
+    copyText,
 } = chatUi;
 
 function createAdapter() {
@@ -420,7 +430,8 @@ function createAdapter() {
 function getInjectedSystemPrompt() {
     const identityContent = String(state.runtime?.identityContent || '').trim();
     const skillsPromptSummary = String(state.runtime?.skillsPromptSummary || '').trim();
-    return [SYSTEM_PROMPT, skillsPromptSummary, identityContent].filter(Boolean).join('\n\n');
+    const permissionPrompt = buildPermissionModePrompt(state.config?.permissionMode);
+    return [SYSTEM_PROMPT, permissionPrompt, skillsPromptSummary, identityContent].filter(Boolean).join('\n\n');
 }
 
 const runtime = createAssistantRuntime({
@@ -441,7 +452,7 @@ const runtime = createAssistantRuntime({
     normalizeThoughtBlocks,
     normalizeSlashCommand,
     normalizeSlashSkillTrigger,
-    shouldRequireSlashCommandApproval,
+    shouldRequireSlashCommandApproval: (command) => shouldRequireSlashCommandApproval(command, state.config?.permissionMode),
     buildSlashApprovalResult,
     isAbortError,
     createAdapter,
@@ -485,6 +496,84 @@ function applyConfig(config) {
     state.configDraft = null;
     requestConfigFormSync();
     render();
+}
+
+function createAssistantRun() {
+    return {
+        id: createRequestId('run'),
+        controller: new AbortController(),
+        toolRequestIds: new Set(),
+        cancelNotice: '',
+        lightBrakeMessage: '',
+        lastLightBrakeKey: '',
+        toolErrorStreakKey: '',
+        toolErrorStreakCount: 0,
+    };
+}
+
+async function executeAssistantRun(run) {
+    state.activeRun = run;
+    state.isBusy = true;
+    state.currentRound = 0;
+    state.progressLabel = '生成中';
+    state.autoScroll = true;
+    render();
+
+    try {
+        await runAssistantLoop(run);
+    } catch (error) {
+        if (isAbortError(error)) {
+            if (run.cancelNotice) {
+                pushMessage({
+                    role: 'assistant',
+                    content: run.cancelNotice,
+                });
+            }
+        } else {
+            pushMessage({
+                role: 'assistant',
+                content: describeError(error),
+            });
+        }
+    } finally {
+        if (state.activeRun?.id === run.id) {
+            state.activeRun = null;
+        }
+        state.isBusy = false;
+        state.currentRound = 0;
+        state.progressLabel = '';
+        render();
+    }
+}
+
+function getLastNonApprovalMessage(messages = []) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message?.approvalRequest) continue;
+        return message || null;
+    }
+    return null;
+}
+
+function isEditableAssistantTextMessage(message) {
+    return !!(
+        message
+        && message.role === 'assistant'
+        && !message.streaming
+        && !(Array.isArray(message.toolCalls) && message.toolCalls.length)
+        && String(message.content || '').trim()
+    );
+}
+
+function findTurnUserMessageIndex(endIndex) {
+    for (let index = endIndex; index >= 0; index -= 1) {
+        const message = state.messages[index];
+        if (message?.approvalRequest) continue;
+        if (message?.role === 'user') {
+            return index;
+        }
+    }
+    return -1;
 }
 
 function buildSanitizedHtmlFragment(html) {
@@ -556,6 +645,10 @@ function buildAppMarkup(root) {
                     <label id="xb-assistant-tool-mode-wrap">
                         <span>Tool 调用格式</span>
                         <select id="xb-assistant-tool-mode"></select>
+                    </label>
+                    <label>
+                        <span>斜杠命令权限</span>
+                        <select id="xb-assistant-permission-mode"></select>
                     </label>
                     <label class="xb-assistant-checkbox-row">
                         <span>思考模式</span>
@@ -1070,8 +1163,73 @@ function injectStyles() {
             background: transparent;
             border: 1px dashed rgba(27, 55, 88, 0.18);
         }
-        .xb-assistant-meta { margin-bottom: 6px; font-size: 12px; opacity: 0.78; }
+        .xb-assistant-meta-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+        .xb-assistant-meta {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 12px;
+            opacity: 0.78;
+        }
         .xb-assistant-bubble.is-tool-call .xb-assistant-meta { margin-bottom: 0; }
+        .xb-assistant-message-actions {
+            display: inline-flex;
+            flex: 0 0 auto;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 6px;
+        }
+        .xb-assistant-message-action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 0;
+            padding: 4px 9px;
+            border: 1px solid rgba(27, 55, 88, 0.12);
+            border-radius: 999px;
+            background: rgba(247, 250, 253, 0.96);
+            color: #304862;
+            font-size: 12px;
+            line-height: 1.1;
+            cursor: pointer;
+            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+        }
+        .xb-assistant-message-action:hover:not(:disabled) {
+            background: rgba(230, 238, 247, 0.98);
+            border-color: rgba(27, 55, 88, 0.22);
+            color: #203249;
+        }
+        .xb-assistant-message-action:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .xb-assistant-message-editor-wrap {
+            min-width: 0;
+        }
+        .xb-assistant-message-editor {
+            width: 100%;
+            min-height: 108px;
+            box-sizing: border-box;
+            resize: vertical;
+            padding: 12px 14px;
+            border: 1px solid rgba(27, 55, 88, 0.14);
+            border-radius: 14px;
+            background: rgba(252, 253, 255, 0.96);
+            color: #203249;
+            font: inherit;
+            line-height: 1.7;
+        }
+        .xb-assistant-message-editor:focus {
+            outline: none;
+            border-color: rgba(40, 87, 134, 0.48);
+            box-shadow: 0 0 0 3px rgba(40, 87, 134, 0.12);
+        }
         .xb-assistant-content {
             margin: 0;
             min-width: 0;
@@ -1784,19 +1942,105 @@ function bindEvents(root) {
         handleAssistantChatScroll(root);
     });
 
-    const handleAssistantPanelClick = (event) => {
+    const handleAssistantPanelClick = async (event) => {
         const approvalButton = event.target.closest('[data-approval-id][data-approval-decision]');
-        if (!approvalButton) return;
-        const approvalId = approvalButton.dataset.approvalId || '';
-        const decision = approvalButton.dataset.approvalDecision || '';
-        const entry = pendingApprovals.get(approvalId);
-        if (!entry) return;
-        if (decision === 'approve') {
-            entry.resolve(true);
-        } else {
-            entry.resolve(false);
+        if (approvalButton) {
+            const approvalId = approvalButton.dataset.approvalId || '';
+            const decision = approvalButton.dataset.approvalDecision || '';
+            const entry = pendingApprovals.get(approvalId);
+            if (!entry) return;
+            if (decision === 'approve') {
+                entry.resolve(true);
+            } else {
+                entry.resolve(false);
+            }
+            render();
+            return;
         }
-        render();
+
+        const actionButton = event.target.closest('[data-message-action][data-message-index]');
+        if (!actionButton) return;
+
+        const messageIndex = Number.parseInt(actionButton.dataset.messageIndex || '', 10);
+        const action = String(actionButton.dataset.messageAction || '').trim();
+        if (!Number.isInteger(messageIndex) || messageIndex < 0 || !action) return;
+        const message = state.messages[messageIndex];
+        if (!isEditableAssistantTextMessage(message)) return;
+
+        if (action === 'copy') {
+            const copied = await copyText(String(message.content || ''));
+            showToast(copied ? '已复制整条消息' : '复制失败');
+            return;
+        }
+
+        if (action === 'edit') {
+            if (state.isBusy) return;
+            state.editingMessageIndex = messageIndex;
+            render();
+            const textarea = root.querySelector(`.xb-assistant-bubble[data-message-index="${messageIndex}"] .xb-assistant-message-editor`);
+            textarea?.focus();
+            textarea?.setSelectionRange(textarea.value.length, textarea.value.length);
+            return;
+        }
+
+        if (action === 'cancel-edit') {
+            state.editingMessageIndex = -1;
+            render();
+            return;
+        }
+
+        if (action === 'save-edit') {
+            if (state.isBusy) return;
+            const textarea = root.querySelector(`.xb-assistant-bubble[data-message-index="${messageIndex}"] .xb-assistant-message-editor`);
+            const nextContent = String(textarea?.value || '').trim();
+            if (!nextContent) {
+                showToast('消息内容不能为空');
+                return;
+            }
+            state.messages[messageIndex] = {
+                ...message,
+                content: nextContent,
+            };
+            state.editingMessageIndex = -1;
+            await persistSession();
+            showToast('消息已更新');
+            render();
+            return;
+        }
+
+        if (action === 'delete') {
+            if (state.isBusy) return;
+            state.messages.splice(messageIndex, 1);
+            state.editingMessageIndex = -1;
+            await persistSession();
+            showToast('消息已删除');
+            render();
+            return;
+        }
+
+        if (action === 'reroll') {
+            if (state.isBusy) return;
+            const turnUserIndex = findTurnUserMessageIndex(messageIndex - 1);
+            if (turnUserIndex < 0) {
+                showToast('这条消息前没有可重跑的用户输入');
+                return;
+            }
+            const nextMessages = state.messages.slice(0, turnUserIndex + 1);
+            const latestMessage = getLastNonApprovalMessage(nextMessages);
+            if (!latestMessage || latestMessage.role !== 'user') {
+                showToast('这条消息前没有可重跑的用户输入');
+                return;
+            }
+
+            state.messages = nextMessages;
+            state.pendingApproval = null;
+            state.editingMessageIndex = -1;
+            await persistSession();
+            render();
+
+            const run = createAssistantRun();
+            await executeAssistantRun(run);
+        }
     };
 
     root.querySelector('#xb-assistant-chat').addEventListener('click', handleAssistantPanelClick);
@@ -1810,6 +2054,7 @@ function bindEvents(root) {
         state.historySummary = '';
         state.archivedTurnCount = 0;
         state.pendingApproval = null;
+        state.editingMessageIndex = -1;
         resetCompactionState();
         await clearSession();
         showToast('对话已清空');
@@ -1872,49 +2117,9 @@ function bindEvents(root) {
         resizeComposer();
         render();
 
-        const run = {
-            id: createRequestId('run'),
-            controller: new AbortController(),
-            toolRequestIds: new Set(),
-            cancelNotice: '',
-            lightBrakeMessage: '',
-            lastLightBrakeKey: '',
-            toolErrorStreakKey: '',
-            toolErrorStreakCount: 0,
-        };
-
-        state.activeRun = run;
-        state.isBusy = true;
-        state.currentRound = 0;
-        state.progressLabel = '生成中';
-        state.autoScroll = true;
-        render();
-
-        try {
-            await runAssistantLoop(run);
-        } catch (error) {
-            if (isAbortError(error)) {
-                if (run.cancelNotice) {
-                    pushMessage({
-                        role: 'assistant',
-                        content: run.cancelNotice,
-                    });
-                }
-            } else {
-                pushMessage({
-                    role: 'assistant',
-                    content: describeError(error),
-                });
-            }
-        } finally {
-            if (state.activeRun?.id === run.id) {
-                state.activeRun = null;
-            }
-            state.isBusy = false;
-            state.currentRound = 0;
-            state.progressLabel = '';
-            render();
-        }
+        state.editingMessageIndex = -1;
+        const run = createAssistantRun();
+        await executeAssistantRun(run);
     });
 
     input.addEventListener('input', resizeComposer);

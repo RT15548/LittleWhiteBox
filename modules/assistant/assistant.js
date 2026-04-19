@@ -9,6 +9,7 @@ import {
     DEFAULT_PRESET_NAME,
     buildDefaultPreset,
     cloneDefaultModelConfigs,
+    normalizePermissionMode,
     normalizeAssistantSettings,
     normalizePresetName,
 } from "./shared/config.js";
@@ -257,6 +258,7 @@ function buildRuntimeConfig() {
         provider: currentPreset.provider || 'openai-compatible',
         workspaceFileName: settings.workspaceFileName || DEFAULT_WORKSPACE_FILE,
         modelConfigs: currentPreset.modelConfigs || cloneDefaultModelConfigs(),
+        permissionMode: normalizePermissionMode(currentPreset.permissionMode),
         currentPresetName: settings.currentPresetName || DEFAULT_PRESET_NAME,
         presetNames: Object.keys(settings.presets || {}),
         presets: settings.presets || {},
@@ -364,6 +366,12 @@ function normalizeSkillFileName(input) {
 
 function safeJsonString(value) {
     return JSON.stringify(String(value ?? ''));
+}
+
+function getMissingGenerateSkillSaveFields(args = {}) {
+    const requiredRequestFields = ['triggers', 'slashTriggers'];
+
+    return requiredRequestFields.filter((field) => !Object.prototype.hasOwnProperty.call(args, field));
 }
 
 function normalizeSkillCatalogEntry(entry = {}) {
@@ -1714,6 +1722,11 @@ async function generateSkillTool(args = {}, options = {}) {
     await writeSkillsCatalogData(nextCatalog, options);
     deleteSkillProposalToken(approvalToken);
 
+    const missingFields = getMissingGenerateSkillSaveFields(args);
+    const missingFieldsNotice = missingFields.length
+        ? `本次未传关键字段：${missingFields.join('、')}。必须继续调用 UpdateSkill 补齐。`
+        : '';
+
     return {
         ok: true,
         action: 'save',
@@ -1723,6 +1736,14 @@ async function generateSkillTool(args = {}, options = {}) {
         enabled,
         updatedAt: now,
         note: '技能正文和 Skills.json 已写入，当前会话技能目录会立即刷新。',
+        ...(missingFields.length
+            ? {
+                missingFields,
+                followUpRequired: true,
+                followUpTool: TOOL_NAMES.UPDATE_SKILL,
+                warning: missingFieldsNotice,
+            }
+            : {}),
     };
 }
 

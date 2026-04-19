@@ -259,6 +259,7 @@ export function createSettingsPanel(deps) {
         setProviderModels,
         getProviderModels,
         getProviderLabel,
+        normalizePermissionMode,
         normalizeReasoningEffort,
         normalizeAssistantConfig,
         normalizePresetName,
@@ -268,6 +269,7 @@ export function createSettingsPanel(deps) {
         defaultPresetName,
         requestTimeoutMs,
         toolModeOptions,
+        permissionModeOptions,
         reasoningEffortOptions,
     } = deps;
 
@@ -287,6 +289,7 @@ export function createSettingsPanel(deps) {
             reasoningEnabled: Boolean(providerConfig.reasoningEnabled),
             reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
             toolMode: providerConfig.toolMode || 'native',
+            permissionMode: normalizePermissionMode(sourcePreset.permissionMode),
         };
     }
 
@@ -312,6 +315,7 @@ export function createSettingsPanel(deps) {
             reasoningEnabled: root.querySelector('#xb-assistant-reasoning-enabled')?.checked || false,
             reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value),
             toolMode: (root.querySelector('#xb-assistant-tool-mode')?.value || draft.toolMode || 'native'),
+            permissionMode: normalizePermissionMode(root.querySelector('#xb-assistant-permission-mode')?.value || draft.permissionMode),
         };
     }
 
@@ -368,6 +372,7 @@ export function createSettingsPanel(deps) {
         const reasoningEnabledInput = root.querySelector('#xb-assistant-reasoning-enabled');
         const reasoningEffortWrap = root.querySelector('#xb-assistant-reasoning-effort-wrap');
         const reasoningEffortSelect = root.querySelector('#xb-assistant-reasoning-effort');
+        const permissionModeSelect = root.querySelector('#xb-assistant-permission-mode');
         const pulledSelect = root.querySelector('#xb-assistant-model-pulled');
         const presetSelect = root.querySelector('#xb-assistant-preset-select');
         const presetNameInput = root.querySelector('#xb-assistant-preset-name');
@@ -385,6 +390,8 @@ export function createSettingsPanel(deps) {
         toolModeWrap.style.display = provider === 'openai-compatible' ? '' : 'none';
         refillSelect(toolModeSelect, toolModeOptions);
         toolModeSelect.value = draft.toolMode || 'native';
+        refillSelect(permissionModeSelect, permissionModeOptions);
+        permissionModeSelect.value = normalizePermissionMode(draft.permissionMode);
         refillSelect(reasoningEffortSelect, reasoningEffortOptions);
         reasoningEnabledInput.checked = Boolean(draft.reasoningEnabled);
         reasoningEffortSelect.value = normalizeReasoningEffort(draft.reasoningEffort);
@@ -406,6 +413,7 @@ export function createSettingsPanel(deps) {
         const nextPreset = {
             ...currentPreset,
             provider: draft.provider,
+            permissionMode: normalizePermissionMode(draft.permissionMode),
             modelConfigs: {
                 ...(currentPreset.modelConfigs || cloneDefaultModelConfigs()),
                 [draft.provider]: {
@@ -532,6 +540,10 @@ export function createSettingsPanel(deps) {
         });
 
         root.querySelector('#xb-assistant-tool-mode').addEventListener('change', () => {
+            syncConfigDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-permission-mode').addEventListener('change', () => {
             syncConfigDraft(root);
         });
 

@@ -246,7 +246,7 @@ export function createChatUi(deps) {
                     ? '已拒绝，本次不会执行这条命令。'
                     : approvalRequest.status === 'cancelled'
                         ? '本轮请求已终止，这条命令未执行。'
-                        : '这条命令会直接作用于你当前打开的真实酒馆实例；点“是”后才会真正执行。');
+                        : '当前权限模式要求先确认；点“是”后才会真正执行这条斜杠命令。');
 
         panel.append(title, command, note);
 
@@ -275,17 +275,27 @@ export function createChatUi(deps) {
         return panel;
     }
 
-    function buildMessageBubble(message) {
+    function buildMessageBubble(message, messageIndex = -1) {
         const bubble = document.createElement('div');
         bubble.className = `xb-assistant-bubble role-${message.role}`;
+        if (Number.isInteger(messageIndex) && messageIndex >= 0) {
+            bubble.dataset.messageIndex = String(messageIndex);
+        }
         const assistantContentText = String(message.content || '').trim();
         const isAssistantToolCall = message.role === 'assistant'
             && Array.isArray(message.toolCalls)
             && message.toolCalls.length > 0;
         const isMetaOnlyToolCall = isAssistantToolCall && !assistantContentText;
+        const canShowAssistantActions = message.role === 'assistant'
+            && !isAssistantToolCall
+            && !!assistantContentText;
+        const isEditing = canShowAssistantActions && state.editingMessageIndex === messageIndex;
         if (isMetaOnlyToolCall) {
             bubble.classList.add('is-tool-call');
         }
+
+        const metaRow = document.createElement('div');
+        metaRow.className = 'xb-assistant-meta-row';
 
         const meta = document.createElement('div');
         meta.className = 'xb-assistant-meta';
@@ -296,13 +306,49 @@ export function createChatUi(deps) {
                     ? `小白助手 · 已发起 ${message.toolCalls.length} 个工具调用`
                     : `小白助手${message.streaming ? ' · 正在生成' : ''}${Array.isArray(message.thoughts) && message.thoughts.length ? ` · 含 ${message.thoughts.length} 段思考` : ''}`
                 : `工具结果${message.toolName ? ` · ${message.toolName}` : ''}`;
+        metaRow.appendChild(meta);
+
+        if (canShowAssistantActions) {
+            const actions = document.createElement('div');
+            actions.className = 'xb-assistant-message-actions';
+            const actionDefinitions = isEditing
+                ? [
+                    { action: 'save-edit', label: '✓', title: '保存这条消息的修改' },
+                    { action: 'cancel-edit', label: '✕', title: '取消本次修改' },
+                ]
+                : [
+                    { action: 'copy', label: '⧉', title: '复制整条消息' },
+                    { action: 'edit', label: '✎', title: '编辑这条消息' },
+                    { action: 'reroll', label: '↻', title: '从这里重新生成后续回复' },
+                    { action: 'delete', label: '🗑', title: '删除这条消息' },
+                ];
+
+            actionDefinitions.forEach((item) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'xb-assistant-message-action';
+                button.dataset.messageAction = item.action;
+                button.dataset.messageIndex = String(messageIndex);
+                button.textContent = item.label;
+                button.title = item.title;
+                button.setAttribute('aria-label', item.title);
+                if (state.isBusy && item.action !== 'cancel-edit') {
+                    button.disabled = true;
+                }
+                actions.appendChild(button);
+            });
+
+            metaRow.appendChild(actions);
+        }
+
+        bubble.appendChild(metaRow);
 
         if (message.role === 'tool') {
             const display = formatToolResultDisplay(message);
             const summary = document.createElement('pre');
             summary.className = 'xb-assistant-content tool-summary';
             summary.textContent = display.summary || '工具已返回结果。';
-            bubble.append(meta, summary);
+            bubble.append(summary);
 
             if (display.details) {
                 const details = document.createElement('details');
@@ -325,19 +371,7 @@ export function createChatUi(deps) {
             ? (message.streaming ? '思考中…' : '我先查一下相关代码。')
             : '';
         const bodyText = assistantContentText || String(fallbackContent || '').trim();
-        bubble.appendChild(meta);
-        if (bodyText) {
-            content.appendChild(buildSanitizedHtmlFragment(renderMarkdown(bodyText)));
-            bubble.appendChild(content);
-        }
-
-        if (Array.isArray(message.attachments) && message.attachments.length) {
-            const gallery = document.createElement('div');
-            gallery.className = 'xb-assistant-attachment-gallery';
-            renderAttachmentGallery(gallery, message.attachments, { compact: true });
-            bubble.appendChild(gallery);
-        }
-
+        let thoughtDetails = null;
         if (message.role === 'assistant' && Array.isArray(message.thoughts) && message.thoughts.length) {
             const details = document.createElement('details');
             details.className = 'xb-assistant-thought-details';
@@ -363,7 +397,34 @@ export function createChatUi(deps) {
                 details.appendChild(block);
             });
 
-            bubble.appendChild(details);
+            thoughtDetails = details;
+        }
+
+        if (isEditing) {
+            const editorWrap = document.createElement('div');
+            editorWrap.className = 'xb-assistant-message-editor-wrap';
+            const textarea = document.createElement('textarea');
+            textarea.className = 'xb-assistant-message-editor';
+            textarea.value = assistantContentText;
+            textarea.rows = Math.min(Math.max(assistantContentText.split('\n').length, 4), 14);
+            textarea.setAttribute('aria-label', '编辑助手消息');
+            editorWrap.appendChild(textarea);
+            bubble.appendChild(editorWrap);
+        } else if (bodyText) {
+            if (thoughtDetails) {
+                bubble.appendChild(thoughtDetails);
+            }
+            content.appendChild(buildSanitizedHtmlFragment(renderMarkdown(bodyText)));
+            bubble.appendChild(content);
+        } else if (thoughtDetails) {
+            bubble.appendChild(thoughtDetails);
+        }
+
+        if (Array.isArray(message.attachments) && message.attachments.length) {
+            const gallery = document.createElement('div');
+            gallery.className = 'xb-assistant-attachment-gallery';
+            renderAttachmentGallery(gallery, message.attachments, { compact: true });
+            bubble.appendChild(gallery);
         }
 
         return bubble;
@@ -397,7 +458,7 @@ export function createChatUi(deps) {
                 continue;
             }
 
-            const nextBubble = buildMessageBubble(message);
+            const nextBubble = buildMessageBubble(message, index);
             nextBubble.dataset.renderSignature = getRenderableMessageSignature(message);
             container.appendChild(nextBubble);
         }
@@ -484,5 +545,6 @@ export function createChatUi(deps) {
         scrollChatToTop,
         updateChatScrollButtonsVisibility,
         handleAssistantChatScroll,
+        copyText,
     };
 }

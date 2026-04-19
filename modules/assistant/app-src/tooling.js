@@ -21,11 +21,11 @@ export const TOOL_USAGE_GUIDANCE = [
     '- `Glob` 只按路径模式匹配文件，适合先缩小文件集合；它不检查文件内容对不对。',
     '- `Grep` 只搜索文件内容里的命中片段；命中片段不是全文，也不代表上下文完整。结果很多时可配合 `offset` 和 `limit` 分页继续看。',
     '- `Read` 返回的是带行号的文件内容；如果返回 `truncated: true`、`hasMoreAfter: true`、`charLimited: true` 或 `nextStartLine`，表示当前只拿到一段，不是全文。',
-    '- `RunSlashCommand` 执行的是用户当前真实酒馆实例中的斜杠命令，不是快照；查询类可以直接用，可能改动实例状态的命令要先明确说明并征得用户同意。',
+    '- `RunSlashCommand` 执行的是用户当前真实酒馆实例中的斜杠命令，不是快照；是否会先弹审批，由当前权限模式决定。',
     '- `ReadSkillsCatalog` 读取技能目录索引，只看有哪些 skill、摘要和触发词；不要把它当 skill 正文。',
     '- `ReadSkill` 读取某一个 skill 的完整正文；命中目录里某项后，再按需读取对应 skill，不要默认全读。',
-    '- `UpdateSkill` 更新已有 skill 的正文或元数据，并同步刷新 Skills.json；它不是新建工具。',
-    '- `GenerateSkill` 用于把刚完成的一次大流程、多次试错或值得复用的过程沉淀成 skill；先 `action: "propose"`，用户同意后再 `action: "save"`。',
+    '- `UpdateSkill` 更新已有 skill 的正文或元数据，并同步刷新 Skills.json；它不是新建工具，并且支持局部更新。',
+    '- `GenerateSkill` 用于把刚完成的一次大流程、多次试错或值得复用的过程沉淀成 skill；先 `action: "propose"`，用户同意后再 `action: "save"`；save 阶段请显式填写全部保存字段。',
     '- `DeleteSkill` 删除已有 skill，并同时从技能正文文件与 Skills.json 中移除该项。',
     '- 更新或删除 skill 属于持久化修改；只有在用户明确要求修改/删除该 skill 时才调用，不要自己擅自覆盖或清除。',
     '- 调用工具时，使用工具定义里的确切名字和参数名，不要自己改名或脑补额外字段。',
@@ -140,9 +140,9 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.RUN_SLASH_COMMAND,
             description: [
                 '执行 SillyTavern 斜杠命令（STscript）。',
-                '用途：查询用户当前真实酒馆实例里的 API、模型、角色、聊天、扩展状态，或在用户明确同意后执行角色创建等操作。',
+                '用途：读取或操作用户当前真实酒馆实例里的对象与状态，例如角色卡、世界书、聊天、预设、扩展、当前模型与接口等。',
                 '这不是读快照，而是直接作用于用户当前打开的实例。',
-                '调用前要先想清楚命令会不会改动实例状态；查询类命令可直接执行，创建/修改/删除/发送消息/切换状态类命令要先征得用户同意。',
+                '具体是否会先弹审批，由当前权限模式和运行时审批结果决定。',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -240,7 +240,7 @@ export const TOOL_DEFINITIONS = [
         type: 'function',
         function: {
             name: TOOL_NAMES.UPDATE_SKILL,
-            description: '更新已有 skill 的正文或元数据，并同步回写对应 skill 文件与 Skills.json。优先传 id；也可传 filename。未提供的字段会尽量保留原值。',
+            description: '更新已有 skill 的正文或元数据，并同步回写对应 skill 文件与 Skills.json。优先传 id；也可传 filename。支持局部更新，未提供的字段会保持原值不变。',
             parameters: {
                 type: 'object',
                 properties: {
@@ -273,6 +273,7 @@ export const TOOL_DEFINITIONS = [
             description: [
                 '将刚完成的一次大流程、多次试错或值得复用的过程沉淀成 skill。',
                 '必须先调用 `action: "propose"` 请求用户同意；只有拿到 approvalToken 后，才能调用 `action: "save"` 真正写入 skill 文件和 Skills.json。',
+                '`action: "save"` 时，请显式填写全部保存字段。',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -685,8 +686,17 @@ export function formatToolResultDisplay(message) {
                     `技能已保存：${parsed.title || parsed.id || ''}`.trim(),
                     parsed.filename ? `文件：${parsed.filename}` : '',
                     parsed.enabled === false ? '状态：已保存但未启用' : '状态：已启用',
+                    parsed.warning ? `提醒：${parsed.warning}` : '',
                 ].filter(Boolean).join('\n'),
-                details: parsed.note ? String(parsed.note) : '',
+                details: [
+                    parsed.note ? String(parsed.note) : '',
+                    Array.isArray(parsed.missingFields) && parsed.missingFields.length
+                        ? `missingFields: ${parsed.missingFields.join(', ')}`
+                        : '',
+                    parsed.followUpRequired && parsed.followUpTool
+                        ? `followUpTool: ${parsed.followUpTool}`
+                        : '',
+                ].filter(Boolean).join('\n\n'),
             };
         }
     }
