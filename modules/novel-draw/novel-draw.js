@@ -268,6 +268,97 @@ function ensureStyles() {
 
 function createPlaceholder(slotId) { return `[image:${slotId}]`; }
 
+function getNovelDrawSavedMap(message) {
+    const savedMap = message?.extra?.novelDrawSaved;
+    return savedMap && typeof savedMap === 'object' ? savedMap : null;
+}
+
+function getNovelDrawSavedEntry(message, slotId) {
+    if (!slotId) return null;
+    return getNovelDrawSavedMap(message)?.[slotId] || null;
+}
+
+function normalizeNovelDrawSavedEntry(slotId, data = {}) {
+    if (!slotId || !data?.savedUrl) return null;
+    return {
+        slotId,
+        imgId: data.imgId || '',
+        savedUrl: data.savedUrl,
+        tags: data.tags || '',
+        positive: data.positive || '',
+        anchor: data.anchor || '',
+        updatedAt: Date.now(),
+    };
+}
+
+async function persistChatSilently() {
+    const ctx = getContext();
+    if (!ctx?.saveChat) return;
+    await Promise.resolve(ctx.saveChat());
+}
+
+async function setNovelDrawSavedEntry(messageId, slotId, data) {
+    const ctx = getContext();
+    const message = ctx.chat?.[messageId];
+    const entry = normalizeNovelDrawSavedEntry(slotId, data);
+    if (!message || !entry) return false;
+
+    message.extra ||= {};
+    message.extra.novelDrawSaved ||= {};
+
+    const previous = message.extra.novelDrawSaved[slotId];
+    const unchanged = previous &&
+        previous.imgId === entry.imgId &&
+        previous.savedUrl === entry.savedUrl &&
+        previous.tags === entry.tags &&
+        previous.positive === entry.positive &&
+        previous.anchor === entry.anchor;
+    if (unchanged) return true;
+
+    message.extra.novelDrawSaved[slotId] = entry;
+    await persistChatSilently();
+    return true;
+}
+
+async function clearNovelDrawSavedEntry(messageId, slotId) {
+    const ctx = getContext();
+    const message = ctx.chat?.[messageId];
+    const savedMap = getNovelDrawSavedMap(message);
+    if (!message || !savedMap?.[slotId]) return false;
+
+    delete savedMap[slotId];
+    if (Object.keys(savedMap).length === 0 && message.extra) {
+        delete message.extra.novelDrawSaved;
+    }
+
+    await persistChatSilently();
+    return true;
+}
+
+async function syncNovelDrawSavedFromPreview(messageId, preview, overrides = {}) {
+    const slotId = overrides.slotId || preview?.slotId;
+    if (!slotId) return false;
+
+    return setNovelDrawSavedEntry(messageId, slotId, {
+        imgId: overrides.imgId || preview?.imgId,
+        savedUrl: overrides.savedUrl || preview?.savedUrl,
+        tags: overrides.tags ?? preview?.tags ?? '',
+        positive: overrides.positive ?? preview?.positive ?? '',
+        anchor: overrides.anchor ?? preview?.anchor ?? '',
+    });
+}
+
+async function syncNovelDrawSavedAfterDeletion(messageId, slotId, deletedImgId, remainingPreviews = []) {
+    const message = getContext().chat?.[messageId];
+    const currentSaved = getNovelDrawSavedEntry(message, slotId);
+    if (!currentSaved) return false;
+    if (deletedImgId && currentSaved.imgId && currentSaved.imgId !== deletedImgId) return false;
+
+    const replacement = remainingPreviews.find(item => item?.savedUrl);
+    if (replacement) return syncNovelDrawSavedFromPreview(messageId, replacement, { slotId });
+    return clearNovelDrawSavedEntry(messageId, slotId);
+}
+
 function extractSlotIds(mes) {
     const ids = new Set();
     if (!mes) return ids;
@@ -329,6 +420,261 @@ function isMessageBeingEdited(messageId) {
     const mesElement = document.querySelector(`.mes[mesid="${messageId}"]`);
     if (!mesElement) return false;
     return mesElement.querySelector('textarea.edit_textarea') !== null || mesElement.classList.contains('editing');
+}
+
+function getMesTextElement(messageId) {
+    if (!Number.isFinite(messageId)) return null;
+    return document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
+}
+
+function createNodeFromHtml(html) {
+    const template = document.createElement('template');
+    template.innerHTML = String(html || '').trim();
+    return template.content.firstElementChild || null;
+}
+
+function getTrimmedText(value) {
+    return String(value || '').replace(/\u200B/g, '').trim();
+}
+
+function findTopLevelFlowContainer(root, node) {
+    let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    while (current && current.parentElement && current.parentElement !== root) {
+        current = current.parentElement;
+    }
+    return current && current.parentElement === root ? current : null;
+}
+
+function insertAfterFlowContainer(target, node) {
+    if (!target?.parentElement || !node) return false;
+    let ref = target;
+    while (ref.nextElementSibling?.classList?.contains('xb-nd-img')) {
+        ref = ref.nextElementSibling;
+    }
+    ref.insertAdjacentElement('afterend', node);
+    return true;
+}
+
+function removeIfEmptyFlowContainer(container) {
+    if (!(container instanceof HTMLElement)) return;
+    if (!['P', 'DIV', 'BLOCKQUOTE', 'LI'].includes(container.tagName)) return;
+    if (container.querySelector('img, video, audio, canvas, iframe, .xb-nd-img')) return;
+    if (getTrimmedText(container.textContent).length > 0) return;
+    container.remove();
+}
+
+function replacePlaceholdersInDomBatch(root, replacements) {
+    if (!root || !Array.isArray(replacements) || replacements.length === 0) return new Set();
+
+    const pending = replacements.filter(item =>
+        item?.slotId &&
+        item?.html &&
+        !root.querySelector(`.xb-nd-img[data-slot-id="${item.slotId}"]`)
+    );
+    if (pending.length === 0) return new Set();
+
+    const placeholderMap = new Map(pending.map(item => [createPlaceholder(item.slotId), item]));
+    const placeholderRegex = new RegExp(
+        Array.from(placeholderMap.keys()).map(escapeRegexChars).join('|'),
+        'g'
+    );
+    const resolvedSlotIds = new Set();
+    const nodePlans = new Map();
+    const groupedByContainer = new Map();
+    const orderedContainers = [];
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            return node.parentElement?.closest('.xb-nd-img')
+                ? NodeFilter.FILTER_REJECT
+                : NodeFilter.FILTER_ACCEPT;
+        }
+    });
+
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+        const value = textNode.nodeValue || '';
+        placeholderRegex.lastIndex = 0;
+        let match;
+        while ((match = placeholderRegex.exec(value))) {
+            const placeholder = match[0];
+            const patch = placeholderMap.get(placeholder);
+            if (!patch || resolvedSlotIds.has(patch.slotId)) continue;
+
+            const container = findTopLevelFlowContainer(root, textNode) || root;
+            if (!groupedByContainer.has(container)) {
+                groupedByContainer.set(container, []);
+                orderedContainers.push(container);
+            }
+            groupedByContainer.get(container).push(patch);
+
+            if (!nodePlans.has(textNode)) {
+                nodePlans.set(textNode, { text: value, removals: [] });
+            }
+            nodePlans.get(textNode).removals.push({ start: match.index, end: match.index + placeholder.length });
+            resolvedSlotIds.add(patch.slotId);
+        }
+    }
+
+    nodePlans.forEach((plan, node) => {
+        let nextText = plan.text;
+        plan.removals
+            .sort((a, b) => b.start - a.start)
+            .forEach(removal => {
+                nextText = nextText.slice(0, removal.start) + nextText.slice(removal.end);
+            });
+
+        if (nextText) node.nodeValue = nextText;
+        else node.remove();
+    });
+
+    orderedContainers.forEach(container => {
+        const patches = groupedByContainer.get(container) || [];
+        let ref = container;
+        patches.forEach(patch => {
+            const node = createNodeFromHtml(patch.html);
+            if (!node) return;
+
+            if (container === root) {
+                root.appendChild(node);
+                ref = node;
+                return;
+            }
+
+            ref.insertAdjacentElement('afterend', node);
+            ref = node;
+        });
+
+        if (container !== root) removeIfEmptyFlowContainer(container);
+    });
+
+    return resolvedSlotIds;
+}
+
+function replacePlaceholderTextInDom(root, placeholder, html) {
+    if (!root || !placeholder) return false;
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            if (node.parentElement?.closest('.xb-nd-img')) return NodeFilter.FILTER_REJECT;
+            return node.nodeValue?.includes(placeholder) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+        }
+    });
+
+    const textNode = walker.nextNode();
+    if (!textNode) return false;
+
+    const replacementNode = createNodeFromHtml(html);
+    if (!replacementNode) return false;
+
+    const index = textNode.nodeValue.indexOf(placeholder);
+    if (index < 0) return false;
+
+    const beforeText = textNode.nodeValue.slice(0, index);
+    const afterText = textNode.nodeValue.slice(index + placeholder.length);
+    const topLevelContainer = findTopLevelFlowContainer(root, textNode);
+
+    textNode.nodeValue = beforeText;
+    if (afterText) {
+        textNode.parentNode?.insertBefore(document.createTextNode(afterText), textNode.nextSibling);
+    }
+    if (!beforeText) {
+        textNode.remove();
+    }
+
+    if (topLevelContainer) {
+        insertAfterFlowContainer(topLevelContainer, replacementNode);
+        removeIfEmptyFlowContainer(topLevelContainer);
+        return true;
+    }
+
+    root.appendChild(replacementNode);
+    return true;
+}
+
+function collectRenderedTextSegments(root) {
+    const segments = [];
+    let text = '';
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                const el = node;
+                if (el.classList?.contains('xb-nd-img')) return NodeFilter.FILTER_REJECT;
+                if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return NodeFilter.FILTER_REJECT;
+                if (el.tagName === 'BR') return NodeFilter.FILTER_ACCEPT;
+                return NodeFilter.FILTER_SKIP;
+            }
+            return node.parentElement?.closest('.xb-nd-img')
+                ? NodeFilter.FILTER_REJECT
+                : NodeFilter.FILTER_ACCEPT;
+        }
+    });
+
+    let node;
+    while ((node = walker.nextNode())) {
+        const chunk = node.nodeType === Node.TEXT_NODE ? node.nodeValue : '\n';
+        if (!chunk) continue;
+        const start = text.length;
+        text += chunk;
+        segments.push({ node, start, end: text.length, text: chunk });
+    }
+
+    return { text, segments };
+}
+
+function insertPreviewByAnchor(root, slotId, anchor, html) {
+    if (!root || !slotId || !anchor) return false;
+    if (root.querySelector(`.xb-nd-img[data-slot-id="${slotId}"]`)) return true;
+
+    const { text, segments } = collectRenderedTextSegments(root);
+    if (!text || !segments.length) return false;
+
+    let position = findAnchorPosition(text, anchor);
+    if (position < 0) return false;
+    position = findNearestSentenceEnd(text, position);
+
+    const segment = segments.find(item => item.end >= position) || segments[segments.length - 1];
+    const replacementNode = createNodeFromHtml(html);
+    if (!segment || !replacementNode) return false;
+
+    const topLevelContainer = findTopLevelFlowContainer(root, segment.node);
+    if (topLevelContainer) {
+        return insertAfterFlowContainer(topLevelContainer, replacementNode);
+    }
+
+    root.appendChild(replacementNode);
+    return true;
+}
+
+function insertPreviewBatchIntoRenderedMessage({ messageId, patches }) {
+    const mesTextEl = getMesTextElement(messageId);
+    if (!mesTextEl || !Array.isArray(patches) || patches.length === 0) return false;
+
+    const insertedSlotIds = replacePlaceholdersInDomBatch(mesTextEl, patches);
+    let inserted = insertedSlotIds.size > 0;
+
+    patches.forEach(patch => {
+        if (!patch?.slotId || !patch?.html || insertedSlotIds.has(patch.slotId)) return;
+        if (mesTextEl.querySelector(`.xb-nd-img[data-slot-id="${patch.slotId}"]`)) {
+            inserted = true;
+            return;
+        }
+
+        if (insertPreviewByAnchor(mesTextEl, patch.slotId, patch.anchor || '', patch.html)) {
+            inserted = true;
+        }
+    });
+
+    return inserted;
+}
+
+function insertPreviewIntoRenderedMessage({ messageId, slotId, html, anchor = '' }) {
+    return insertPreviewBatchIntoRenderedMessage({
+        messageId,
+        patches: [{ slotId, html, anchor }],
+    });
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -430,6 +776,7 @@ function normalizeSettings(saved) {
         appearance: char.appearance || char.tags || '',
         negativeTags: char.negativeTags || '',
         danbooruTag: char.danbooruTag || '',
+        outfits: normalizeCharacterOutfits(char.outfits || char.costumes || char.clothes || []),
     }));
 
     merged.autoLearnCharacters = !!merged.autoLearnCharacters;
@@ -677,6 +1024,32 @@ async function extractImageFromZip(zipData) {
 // 角色检测与标签组装
 // ═══════════════════════════════════════════════════════════════════════════
 
+function normalizeCharacterOutfits(outfits = []) {
+    return (Array.isArray(outfits) ? outfits : [])
+        .map(outfit => ({
+            name: String(outfit?.name || '').trim(),
+            tags: String(outfit?.tags || '').trim(),
+        }))
+        .filter(outfit => outfit.name || outfit.tags);
+}
+
+function buildCharacterOutfitReference(outfits = []) {
+    const normalized = normalizeCharacterOutfits(outfits);
+    if (!normalized.length) return '';
+
+    return normalized
+        .map(outfit => {
+            const label = outfit.name || '服装';
+            return outfit.tags ? `${label}tag ${outfit.tags}` : label;
+        })
+        .join('; ');
+}
+
+function buildKnownCharacterBasePrompt(character = {}) {
+    const naiTag = character.danbooruTag ? danbooruToNai(character.danbooruTag) : '';
+    return joinTags(naiTag, character.type, character.appearance, buildCharacterOutfitReference(character.outfits));
+}
+
 function detectPresentCharacters(messageText, characterTags) {
     if (!messageText || !characterTags?.length) return [];
     const text = messageText.toLowerCase();
@@ -698,6 +1071,7 @@ function detectPresentCharacters(messageText, characterTags) {
                 appearance: char.appearance || '',
                 danbooruTag: char.danbooruTag || '',
                 negativeTags: char.negativeTags || '',
+                outfits: normalizeCharacterOutfits(char.outfits),
             });
         }
     }
@@ -713,10 +1087,9 @@ function assembleCharacterPrompts(sceneChars, knownCharacters) {
         );
 
         if (known) {
-            const naiTag = known.danbooruTag ? danbooruToNai(known.danbooruTag) : '';
             const defaultCenter = { x: 0.5, y: 0.5 };
             return {
-                prompt: joinTags(naiTag, known.type, known.appearance, char.costume, char.action, char.interact),
+                prompt: joinTags(buildKnownCharacterBasePrompt(known), char.costume, char.action, char.interact),
                 uc: joinTags(known.negativeTags, char.uc),
                 center: gridToCoord(char.center) || defaultCenter
             };
@@ -801,6 +1174,7 @@ function autoLearnFromTasks(tasks, settings) {
                 appearance: char.appear || '',
                 negativeTags: '',
                 danbooruTag: char.danbooru || '',
+                outfits: [],
             };
             // 本地 DB 自动匹配 danbooruTag
             if (isDanbooruDBLoaded() && !newChar.danbooruTag) {
@@ -1232,7 +1606,7 @@ async function navigateToImage(container, targetIndex) {
     if (targetIndex < 0 || targetIndex >= historyCount || targetIndex === currentIndex) return;
 
     const previews = await getPreviewsBySlot(slotId);
-    const successPreviews = previews.filter(p => p.status !== 'failed' && p.base64);
+    const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
     if (targetIndex >= successPreviews.length) return;
 
     const targetPreview = successPreviews[targetIndex];
@@ -1256,6 +1630,10 @@ async function navigateToImage(container, targetIndex) {
     setImageState(container, targetPreview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
     updateNavControls(container, targetIndex, historyCount);
     await setSlotSelection(slotId, targetPreview.imgId);
+    if (targetPreview.savedUrl) {
+        const messageId = parseInt(container.dataset.mesid);
+        void syncNovelDrawSavedFromPreview(messageId, targetPreview, { slotId }).catch(() => {});
+    }
 
     imgEl.classList.remove(`sliding-${direction}`);
     imgEl.classList.add(`sliding-in-${direction === 'left' ? 'left' : 'right'}`);
@@ -1460,6 +1838,9 @@ async function handleImageClick(container) {
                 cont.dataset.currentIndex = '0';
                 cont.dataset.historyCount = String(historyCount);
             }
+            if (selected?.savedUrl) {
+                void syncNovelDrawSavedFromPreview(msgId, selected, { slotId: sid }).catch(() => {});
+            }
         },
         onSave: (imgId, url) => {
             const cont = document.querySelector(`.xb-nd-img[data-img-id="${imgId}"]`);
@@ -1467,6 +1848,11 @@ async function handleImageClick(container) {
                 cont.querySelector('img').src = url;
                 setImageState(cont, ImageState.SAVED);
             }
+            void getPreview(imgId)
+                .then(preview => preview && syncNovelDrawSavedFromPreview(messageId, preview, { savedUrl: url }))
+                .catch(e => {
+                    console.warn('[NovelDraw] 保存后的楼层持久化失败:', e);
+                });
         },
         onDelete: async (sid, deletedImgId, remainingPreviews) => {
             const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
@@ -1480,6 +1866,7 @@ async function handleImageClick(container) {
                 cont.dataset.historyCount = String(remainingPreviews.length);
                 updateNavControls(cont, 0, remainingPreviews.length);
             }
+            void syncNovelDrawSavedAfterDeletion(messageId, sid, deletedImgId, remainingPreviews).catch(() => {});
         },
         onBecameEmpty: (sid, msgId, lastImageInfo) => {
             const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
@@ -1495,6 +1882,7 @@ async function handleImageClick(container) {
             // Template-only UI markup built locally.
             // eslint-disable-next-line no-unsanitized/property
             cont.outerHTML = failedHtml;
+            void clearNovelDrawSavedEntry(msgId, sid).catch(() => {});
         },
     });
 }
@@ -1636,7 +2024,12 @@ async function saveEditedTags(container) {
             savedUrl: originalPreview.savedUrl,
             characterPrompts: newCharPrompts || originalPreview.characterPrompts,
             negativePrompt: originalPreview.negativePrompt,
+            anchor: originalPreview.anchor || '',
         });
+
+        if (originalPreview.savedUrl) {
+            await syncNovelDrawSavedFromPreview(messageId, { ...originalPreview, tags: newSceneTags, positive: newPositive }, { slotId: originalPreview.slotId || slotId });
+        }
 
         container.dataset.positive = escapeHtml(newPositive);
     }
@@ -1674,6 +2067,7 @@ async function refreshSingleImage(container) {
 
         let characterPrompts = null;
         let negativePrompt = preset.negativePrefix || '';
+        let anchor = '';
 
         if (currentImgId) {
             const existingPreview = await getPreview(currentImgId);
@@ -1683,6 +2077,7 @@ async function refreshSingleImage(container) {
             if (existingPreview?.negativePrompt) {
                 negativePrompt = existingPreview.negativePrompt;
             }
+            anchor = existingPreview?.anchor || '';
         }
 
         if (!characterPrompts) {
@@ -1690,7 +2085,7 @@ async function refreshSingleImage(container) {
             const message = ctx.chat?.[messageId];
             const presentCharacters = detectPresentCharacters(String(message?.mes || ''), settings.characterTags || []);
             characterPrompts = presentCharacters.map(c => ({
-                prompt: joinTags(c.type, c.appearance),
+                prompt: buildKnownCharacterBasePrompt(c),
                 uc: c.negativeTags || '',
                 center: { x: 0.5, y: 0.5 }
             }));
@@ -1715,6 +2110,7 @@ async function refreshSingleImage(container) {
             positive: scene,
             characterPrompts,
             negativePrompt,
+            anchor,
         });
         await setSlotSelection(slotId, newImgId);
 
@@ -1725,7 +2121,7 @@ async function refreshSingleImage(container) {
         setImageState(container, ImageState.PREVIEW);
 
         const previews = await getPreviewsBySlot(slotId);
-        const successPreviews = previews.filter(p => p.status !== 'failed' && p.base64);
+        const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
         container.dataset.historyCount = String(successPreviews.length);
         updateNavControls(container, 0, successPreviews.length);
 
@@ -1742,16 +2138,20 @@ async function saveSingleImage(container) {
     const slotId = container.dataset.slotId;
     const currentState = container.dataset.state;
     if (currentState !== ImageState.PREVIEW) return;
+    const messageId = parseInt(container.dataset.mesid);
     const preview = await getPreview(imgId);
     if (!preview?.base64) { alert('图片数据丢失，请刷新'); return; }
     setImageState(container, ImageState.SAVING);
     try {
         const charName = preview.characterName || getChatCharacterName();
         const url = await saveBase64AsFile(preview.base64, charName, `novel_${imgId}`, 'png');
+        preview.savedUrl = url;
         await updatePreviewSavedUrl(imgId, url);
         await setSlotSelection(slotId, imgId);
+        await syncNovelDrawSavedFromPreview(messageId, preview, { slotId, savedUrl: url });
         container.querySelector('img').src = url;
         setImageState(container, ImageState.SAVED);
+        container.dataset.imgId = preview.imgId;
         showToast(`已保存到: ${url}`, 'success', 5000);
     } catch (e) {
         console.error('[NovelDraw] 保存失败:', e);
@@ -1772,7 +2172,7 @@ async function deleteCurrentImage(container) {
     try {
         await deletePreview(imgId);
         const previews = await getPreviewsBySlot(slotId);
-        const successPreviews = previews.filter(p => p.status !== 'failed' && p.base64);
+        const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
 
         if (successPreviews.length > 0) {
             const latest = successPreviews[0];
@@ -1785,9 +2185,11 @@ async function deleteCurrentImage(container) {
             container.dataset.historyCount = String(successPreviews.length);
             setImageState(container, latest.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
             updateNavControls(container, 0, successPreviews.length);
+            await syncNovelDrawSavedAfterDeletion(messageId, slotId, imgId, successPreviews);
             showToast(`已删除（剩余 ${successPreviews.length} 张）`);
         } else {
             await clearSlotSelection(slotId);
+            await clearNovelDrawSavedEntry(messageId, slotId);
             const failedHtml = buildFailedPlaceholderHtml({
                 slotId,
                 messageId,
@@ -1835,7 +2237,7 @@ async function retryFailedImage(container) {
             const message = ctx.chat?.[messageId];
             const presentCharacters = detectPresentCharacters(String(message?.mes || ''), settings.characterTags || []);
             characterPrompts = presentCharacters.map(c => ({
-                prompt: joinTags(c.type, c.appearance),
+                prompt: buildKnownCharacterBasePrompt(c),
                 uc: c.negativeTags || '',
                 center: { x: 0.5, y: 0.5 }
             }));
@@ -1858,6 +2260,7 @@ async function retryFailedImage(container) {
             positive: scene,
             characterPrompts,
             negativePrompt,
+            anchor: latestFailed?.anchor || '',
         });
         await deleteFailedRecordsForSlot(slotId);
         await setSlotSelection(slotId, newImgId);
@@ -1886,6 +2289,7 @@ async function retryFailedImage(container) {
             tags: tags || '',
             positive: container.dataset.positive || '',
             errorType: errorType.code,
+            anchor: latestFailed?.anchor || '',
             errorMessage: errorType.desc
         });
         // Template-only UI markup built locally.
@@ -1920,10 +2324,12 @@ async function removePlaceholder(container) {
     if (!confirm('确定移除此占位符？')) return;
     await deleteFailedRecordsForSlot(slotId);
     await clearSlotSelection(slotId);
+    await clearNovelDrawSavedEntry(messageId, slotId);
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
     if (message) message.mes = message.mes.replace(createPlaceholder(slotId), '');
     container.remove();
+    await persistChatSilently();
     showToast('占位符已移除');
 }
 
@@ -1958,6 +2364,37 @@ function observeMessageForLazyRender(messageId) {
 // 预览渲染
 // ═══════════════════════════════════════════════════════════════════════════
 
+async function resolveRenderPreviewForSlot(message, messageId, slotId) {
+    const savedEntry = getNovelDrawSavedEntry(message, slotId);
+    if (savedEntry?.savedUrl) {
+        const previews = await getPreviewsBySlot(slotId).catch(() => []);
+        const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
+        const selectedIndex = successPreviews.findIndex(p => p.imgId === savedEntry.imgId);
+        const matchedPreview = selectedIndex >= 0 ? successPreviews[selectedIndex] : null;
+
+        return {
+            preview: {
+                ...matchedPreview,
+                slotId,
+                imgId: savedEntry.imgId || matchedPreview?.imgId || `saved-${slotId}`,
+                savedUrl: savedEntry.savedUrl,
+                tags: savedEntry.tags ?? matchedPreview?.tags ?? '',
+                positive: savedEntry.positive ?? matchedPreview?.positive ?? '',
+                anchor: savedEntry.anchor ?? matchedPreview?.anchor ?? '',
+                messageId,
+            },
+            historyCount: selectedIndex >= 0 ? successPreviews.length : 1,
+            currentIndex: selectedIndex >= 0 ? selectedIndex : 0,
+            hasData: true,
+            isFailed: false,
+            source: 'message-extra',
+        };
+    }
+
+    const displayData = await getDisplayPreviewForSlot(slotId);
+    return { ...displayData, currentIndex: 0, source: 'gallery-cache' };
+}
+
 async function renderPreviewsForMessage(messageId) {
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
@@ -1966,23 +2403,20 @@ async function renderPreviewsForMessage(messageId) {
     const slotIds = extractSlotIds(message.mes);
     if (slotIds.size === 0) return;
 
-    const $mesText = $(`#chat .mes[mesid="${messageId}"] .mes_text`);
-    if (!$mesText.length) return;
+    const mesTextEl = getMesTextElement(messageId);
+    if (!mesTextEl) return;
 
-    let html = $mesText.html();
-    let replaced = false;
+    const replacements = [];
 
     for (const slotId of slotIds) {
-        if (html.includes(`data-slot-id="${slotId}"`)) continue;
-
-        const placeholder = createPlaceholder(slotId);
-        const escapedPlaceholder = placeholder.replace(/[[\]]/g, '\\$&');
-        if (!new RegExp(escapedPlaceholder).test(html)) continue;
+        if (mesTextEl.querySelector(`.xb-nd-img[data-slot-id="${slotId}"]`)) continue;
 
         let replacementHtml;
+        let anchor = '';
 
         try {
-            const displayData = await getDisplayPreviewForSlot(slotId);
+            const displayData = await resolveRenderPreviewForSlot(message, messageId, slotId);
+            anchor = displayData.preview?.anchor || '';
 
             if (displayData.isFailed) {
                 replacementHtml = buildFailedPlaceholderHtml({
@@ -2004,7 +2438,7 @@ async function renderPreviewsForMessage(messageId) {
                     messageId,
                     state: displayData.preview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW,
                     historyCount: displayData.historyCount,
-                    currentIndex: 0
+                    currentIndex: displayData.currentIndex ?? 0
                 });
             } else {
                 replacementHtml = buildFailedPlaceholderHtml({
@@ -2028,12 +2462,38 @@ async function renderPreviewsForMessage(messageId) {
             });
         }
 
-        html = html.replace(new RegExp(escapedPlaceholder, 'g'), replacementHtml);
-        replaced = true;
+        replacements.push({ slotId, html: replacementHtml, anchor });
     }
 
-    if (replaced && !isMessageBeingEdited(messageId)) {
-        $mesText.html(html);
+    if (replacements.length === 0) return;
+
+    const insertedSlotIds = replacePlaceholdersInDomBatch(mesTextEl, replacements);
+    const pendingFallback = replacements.filter(item => !insertedSlotIds.has(item.slotId));
+    if (pendingFallback.length === 0) return;
+
+    let html = mesTextEl.innerHTML;
+    let fallbackReplaced = false;
+
+    for (const item of pendingFallback) {
+        const placeholder = createPlaceholder(item.slotId);
+        const escapedPlaceholder = placeholder.replace(/[[\]]/g, '\\$&');
+        if (!new RegExp(escapedPlaceholder).test(html)) continue;
+
+        html = html.replace(new RegExp(escapedPlaceholder, 'g'), item.html);
+        fallbackReplaced = true;
+    }
+
+    let anchorInserted = false;
+    if (!fallbackReplaced) {
+        pendingFallback.forEach(item => {
+            if (insertPreviewByAnchor(mesTextEl, item.slotId, item.anchor || '', item.html)) {
+                anchorInserted = true;
+            }
+        });
+    }
+
+    if (fallbackReplaced && !anchorInserted && !isMessageBeingEdited(messageId)) {
+        mesTextEl.innerHTML = html;
     }
 }
 
@@ -2207,6 +2667,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         const results = [];
         const { messageFormatting } = await import('../../../../../../script.js');
         let successCount = 0;
+        let requiresFinalDomSync = false;
 
         for (let i = 0; i < tasks.length; i++) {
             if (signal.aborted) {
@@ -2235,6 +2696,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             const scene = joinTags(preset.positivePrefix, task.scene);
             const characterPrompts = assembleCharacterPrompts(task.chars, settings.characterTags || []);
             const tagsForStore = task.scene;
+            let incrementalHtml = '';
 
             try {
                 const base64 = await generateNovelImage({
@@ -2253,10 +2715,22 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     tags: tagsForStore,
                     positive: scene,
                     characterPrompts,
-                    negativePrompt: preset.negativePrefix
+                    negativePrompt: preset.negativePrefix,
+                    anchor: task.anchor,
                 });
                 await setSlotSelection(slotId, imgId);
                 results.push({ slotId, imgId, tags: tagsForStore, success: true });
+                incrementalHtml = buildImageHtml({
+                    slotId,
+                    imgId,
+                    url: `data:image/png;base64,${base64}`,
+                    tags: tagsForStore,
+                    positive: scene,
+                    messageId,
+                    state: ImageState.PREVIEW,
+                    historyCount: 1,
+                    currentIndex: 0,
+                });
                 successCount++;
             } catch (e) {
                 if (signal.aborted) {
@@ -2274,8 +2748,17 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     errorMessage: errorType.desc,
                     characterPrompts,
                     negativePrompt: preset.negativePrefix,
+                    anchor: task.anchor,
                 });
                 results.push({ slotId, tags: tagsForStore, success: false, error: errorType });
+                incrementalHtml = buildFailedPlaceholderHtml({
+                    slotId,
+                    messageId,
+                    tags: tagsForStore,
+                    positive: scene,
+                    errorType: errorType.label,
+                    errorMessage: errorType.desc
+                });
             }
 
             if (signal.aborted) break;
@@ -2301,18 +2784,28 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 message.mes += (needNewline ? '\n' : '') + placeholder;
             }
 
-            if (signal.aborted) break;
 
             // ── 增量渲染：每张图完成后立即显示 ──
             try {
                 const incCtx = getContext();
                 const incMsg = incCtx.chat?.[messageId];
                 if (incCtx.chatId === initialChatId && incMsg === message && !isMessageBeingEdited(messageId)) {
-                    const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
-                    $(`[mesid="${messageId}"] .mes_text`).html(formatted);
-                    await renderPreviewsForMessage(messageId);
+                    const inserted = insertPreviewIntoRenderedMessage({
+                        messageId,
+                        slotId,
+                        html: incrementalHtml,
+                        anchor: task.anchor,
+                    });
+
+                    if (!inserted) {
+                        requiresFinalDomSync = true;
+                        const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
+                        $(`[mesid="${messageId}"] .mes_text`).html(formatted);
+                        await renderPreviewsForMessage(messageId);
+                    }
                 }
             } catch (e) {
+                requiresFinalDomSync = true;
                 console.warn('[NovelDraw] 增量渲染失败, 继续生成:', e);
             }
 
@@ -2339,13 +2832,15 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
             if (abortMsgValid && !isMessageBeingEdited(messageId)) {
                 try {
-                    const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
-                    $(`[mesid="${messageId}"] .mes_text`).html(formatted);
-                    await renderPreviewsForMessage(messageId);
+                    if (successCount === 0 || requiresFinalDomSync) {
+                        const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
+                        $(`[mesid="${messageId}"] .mes_text`).html(formatted);
+                        await renderPreviewsForMessage(messageId);
+                    }
                 } catch (e) {
                     console.warn('[NovelDraw] abort DOM 同步失败:', e);
                 }
-                abortCtx.saveChat?.().catch(() => {});
+                persistChatSilently().catch(() => {});
             }
 
             onStateChange?.('success', { success: successCount, total: tasks.length, aborted: true });
@@ -2357,7 +2852,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             finalCtx.chat?.[messageId] === message &&
             !isMessageBeingEdited(messageId);
 
-        if (shouldUpdateDom) {
+        if (shouldUpdateDom && requiresFinalDomSync) {
             const formatted = messageFormatting(
                 message.mes,
                 message.name,
@@ -2373,6 +2868,8 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 const { processMessageById } = await import('../iframe-renderer.js');
                 processMessageById(messageId, true);
             } catch {}
+        } else if (shouldUpdateDom) {
+            console.log('[NovelDraw] 已跳过最终 full rerender，仅后台保存正文与局部 DOM patch');
         }
 
         const resultColor = successCount === tasks.length ? '#3ecf8e' : '#f0b429';
@@ -2381,7 +2878,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         onStateChange?.('success', { success: successCount, total: tasks.length });
 
         if (shouldUpdateDom) {
-            getContext().saveChat?.().then(() => {
+            persistChatSilently().then(() => {
                 console.log('[NovelDraw] 聊天已保存');
             }).catch(e => {
                 console.warn('[NovelDraw] 保存聊天失败:', e);
@@ -3093,7 +3590,7 @@ async function handleFrameMessage(event) {
             const s = getSettings();
             const n = await clearExpiredCache(s.cacheDays || 3);
             sendInitData();
-            postStatus('success', `已清理 ${n} 张`);
+            postStatus('success', `已清理/瘦身 ${n} 条`);
             break;
         }
 
@@ -3129,7 +3626,9 @@ async function handleFrameMessage(event) {
                 }
                 const charName = preview.characterName || getChatCharacterName();
                 const url = await saveBase64AsFile(preview.base64, charName, `novel_${data.imgId}`, 'png');
+                preview.savedUrl = url;
                 await updatePreviewSavedUrl(data.imgId, url);
+                if (Number.isFinite(preview.messageId)) await syncNovelDrawSavedFromPreview(preview.messageId, preview, { savedUrl: url });
                 {
                     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
                     if (iframe) postToIframe(iframe, { type: 'GALLERY_IMAGE_SAVED', imgId: data.imgId, savedUrl: url }, 'LittleWhiteBox-NovelDraw');
