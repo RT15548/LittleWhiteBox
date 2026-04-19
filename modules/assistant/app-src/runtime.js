@@ -14,15 +14,14 @@ export function createAssistantRuntime(deps) {
         createRequestId,
         safeJsonParse,
         describeError,
-        describeToolCall,
         formatToolResultDisplay,
         buildTextWithAttachmentSummary,
         buildUserContentParts,
         normalizeAttachments,
         normalizeThoughtBlocks,
         normalizeSlashCommand,
+        normalizeSlashSkillTrigger,
         shouldRequireSlashCommandApproval,
-        setApprovalStatus,
         buildSlashApprovalResult,
         isAbortError,
         createAdapter,
@@ -846,10 +845,107 @@ export function createAssistantRuntime(deps) {
         }, options);
     }
 
+    function getLatestUserMessage(messages = state.messages) {
+        for (let index = (messages || []).length - 1; index >= 0; index -= 1) {
+            const message = messages[index];
+            if (message?.approvalRequest) continue;
+            if (message?.role === 'user') {
+                return message;
+            }
+        }
+        return null;
+    }
+
+    function buildEnabledSlashSkillMatches(slashTrigger) {
+        const normalizedTrigger = normalizeSlashSkillTrigger(slashTrigger);
+        if (!normalizedTrigger) {
+            return {
+                normalizedTrigger: '',
+                matches: [],
+            };
+        }
+
+        const skills = Array.isArray(state.runtime?.skillsCatalog?.skills)
+            ? state.runtime.skillsCatalog.skills
+            : [];
+        const matches = skills.filter((skill) => (
+            skill
+            && skill.enabled !== false
+            && Array.isArray(skill.slashTriggers)
+            && skill.slashTriggers.includes(normalizedTrigger)
+        ));
+
+        return {
+            normalizedTrigger,
+            matches,
+        };
+    }
+
+    async function maybeAutoReadSlashSkill(run) {
+        const latestUserMessage = getLatestUserMessage();
+        if (!latestUserMessage) return null;
+        const rawContent = String(latestUserMessage.content || '').trim();
+        if (!rawContent.startsWith('/')) return null;
+
+        const normalizedTrigger = normalizeSlashSkillTrigger(rawContent);
+        if (!normalizedTrigger) return null;
+
+        const { matches } = buildEnabledSlashSkillMatches(normalizedTrigger);
+        if (!matches.length) return null;
+
+        if (matches.length > 1) {
+            showToast(`命令 ${normalizedTrigger} 对应了多条已启用 skill，本轮已跳过自动读取。`);
+            return null;
+        }
+
+        const matchedSkill = matches[0];
+        const toolCallId = createRequestId('auto-read-skill');
+        pushMessage({
+            role: 'assistant',
+            content: '',
+            toolCalls: [{
+                id: toolCallId,
+                name: TOOL_NAMES.READ_SKILL,
+                arguments: JSON.stringify({ id: matchedSkill.id }),
+            }],
+        });
+        render();
+
+        state.progressLabel = '工具中';
+        render();
+
+        let toolResult;
+        try {
+            toolResult = await callHostTool(TOOL_NAMES.READ_SKILL, { id: matchedSkill.id }, {
+                runId: run.id,
+                signal: run.controller.signal,
+            });
+        } catch (error) {
+            toolResult = buildToolFailureResult(TOOL_NAMES.READ_SKILL, { id: matchedSkill.id }, error);
+        }
+
+        pushMessage({
+            role: 'tool',
+            toolCallId,
+            toolName: TOOL_NAMES.READ_SKILL,
+            content: JSON.stringify(toolResult, null, 2),
+        });
+        render();
+
+        if (toolResult?.ok === false) {
+            showToast(`自动读取 skill 失败：${toolResult.message || toolResult.error || matchedSkill.id}`);
+            return null;
+        }
+
+        return toolResult;
+    }
+
     async function runAssistantLoop(run) {
         const adapter = createAdapter();
         let rounds = 0;
         let pendingToolResponses = null;
+
+        await maybeAutoReadSlashSkill(run);
 
         while (rounds < MAX_TOOL_ROUNDS) {
             if (run.controller.signal.aborted) {

@@ -10,6 +10,7 @@ export function createChatUi(deps) {
 
     let chatScrollTicking = false;
     let chatScrollHideTimer = null;
+    const openToolBatchKeys = new Set();
 
     function escapeHtml(text) {
         return String(text || '')
@@ -143,6 +144,66 @@ export function createChatUi(deps) {
             })),
             streaming: Boolean(message.streaming),
         });
+    }
+
+    function isAssistantToolCallMessage(message) {
+        return message?.role === 'assistant'
+            && Array.isArray(message.toolCalls)
+            && message.toolCalls.length > 0;
+    }
+
+    function buildToolBatchKey(message, fallbackIndex = 0) {
+        const toolCallIds = Array.isArray(message?.toolCalls)
+            ? message.toolCalls
+                .map((toolCall) => String(toolCall?.id || '').trim())
+                .filter(Boolean)
+            : [];
+        if (toolCallIds.length) {
+            return `tool-batch:${toolCallIds.join('|')}`;
+        }
+        return `tool-batch:fallback:${fallbackIndex}:${getRenderableMessageSignature(message)}`;
+    }
+
+    function buildToolBatch(message, toolMessages, batchIndex) {
+        const details = document.createElement('details');
+        const batchKey = buildToolBatchKey(message, batchIndex);
+        details.className = 'xb-assistant-tool-batch';
+        details.dataset.toolBatchKey = batchKey;
+        if (openToolBatchKeys.has(batchKey)) {
+            details.open = true;
+        }
+        details.addEventListener('toggle', () => {
+            if (details.open) {
+                openToolBatchKeys.add(batchKey);
+            } else {
+                openToolBatchKeys.delete(batchKey);
+            }
+        });
+
+        const summary = document.createElement('summary');
+        summary.className = 'xb-assistant-tool-batch-summary';
+        summary.textContent = `小白助手 · 已发起 ${Array.isArray(message.toolCalls) ? message.toolCalls.length : 0} 个工具调用`;
+        details.appendChild(summary);
+
+        const body = document.createElement('div');
+        body.className = 'xb-assistant-tool-batch-body';
+
+        const assistantContentText = String(message.content || '').trim();
+        if (assistantContentText) {
+            const note = document.createElement('div');
+            note.className = 'xb-assistant-tool-batch-note xb-assistant-markdown';
+            note.appendChild(buildSanitizedHtmlFragment(renderMarkdown(assistantContentText)));
+            body.appendChild(note);
+        }
+
+        toolMessages.forEach((toolMessage) => {
+            const toolBubble = buildMessageBubble(toolMessage);
+            toolBubble.dataset.renderSignature = getRenderableMessageSignature(toolMessage);
+            body.appendChild(toolBubble);
+        });
+
+        details.appendChild(body);
+        return details;
     }
 
     function buildApprovalPanel(approvalRequest) {
@@ -319,12 +380,27 @@ export function createChatUi(deps) {
         }
 
         container.innerHTML = '';
+        for (let index = 0; index < state.messages.length; index += 1) {
+            const message = state.messages[index];
+            if (isAssistantToolCallMessage(message)) {
+                const toolMessages = [];
+                let nextIndex = index + 1;
+                while (nextIndex < state.messages.length && state.messages[nextIndex]?.role === 'tool') {
+                    toolMessages.push(state.messages[nextIndex]);
+                    nextIndex += 1;
+                }
 
-        state.messages.forEach((message) => {
+                const toolBatch = buildToolBatch(message, toolMessages, index);
+                toolBatch.dataset.renderSignature = getRenderableMessageSignature(message);
+                container.appendChild(toolBatch);
+                index = nextIndex - 1;
+                continue;
+            }
+
             const nextBubble = buildMessageBubble(message);
             nextBubble.dataset.renderSignature = getRenderableMessageSignature(message);
             container.appendChild(nextBubble);
-        });
+        }
 
         if (state.autoScroll) {
             container.scrollTop = container.scrollHeight;

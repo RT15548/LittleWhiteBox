@@ -5,7 +5,6 @@ import { GoogleAdapter } from './adapters/google.js';
 import {
     TOOL_DEFINITIONS,
     TOOL_NAMES,
-    describeToolCall,
     formatToolResultDisplay,
 } from './tooling.js';
 import { createAssistantRuntime } from './runtime.js';
@@ -18,6 +17,7 @@ import {
 } from '../shared/config.js';
 import {
     normalizeSlashCommand,
+    normalizeSlashSkillTrigger,
     shouldRequireSlashCommandApproval,
 } from './slash-command-policy.js';
 import { createSessionStore } from './session-store.js';
@@ -145,15 +145,6 @@ function isAssistantMobile() {
         return true;
     }
     return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
-}
-
-function setApprovalStatus(requestId, status) {
-    if (!state.pendingApproval || state.pendingApproval.id !== requestId) return;
-    state.pendingApproval = {
-        ...state.pendingApproval,
-        status,
-    };
-    render();
 }
 
 function buildSlashApprovalResult(command, approved) {
@@ -443,15 +434,14 @@ const runtime = createAssistantRuntime({
     createRequestId,
     safeJsonParse,
     describeError,
-    describeToolCall,
     formatToolResultDisplay,
     buildTextWithAttachmentSummary,
     buildUserContentParts,
     normalizeAttachments,
     normalizeThoughtBlocks,
     normalizeSlashCommand,
+    normalizeSlashSkillTrigger,
     shouldRequireSlashCommandApproval,
-    setApprovalStatus,
     buildSlashApprovalResult,
     isAbortError,
     createAdapter,
@@ -1055,8 +1045,8 @@ function injectStyles() {
         .xb-assistant-empty p { margin: 0; color: #4b5a70; line-height: 1.7; }
         .xb-assistant-empty p + p { margin-top: 8px; }
         .xb-assistant-bubble {
-            width: min(860px, 100%);
-            max-width: 100%;
+            width: calc(100% - 20px);
+            max-width: calc(100% - 20px);
             min-width: 0;
             box-sizing: border-box;
             border-radius: 18px;
@@ -1234,6 +1224,62 @@ function injectStyles() {
             margin-top: 10px;
             border-top: 1px dashed rgba(27, 55, 88, 0.12);
             padding-top: 10px;
+        }
+        .xb-assistant-tool-batch {
+            width: min(100%, calc(100% - 20px));
+            margin-left: 0;
+            margin-right: auto;
+            border-radius: 18px;
+            background: rgba(244, 248, 252, 0.96);
+            border: 1px solid rgba(27, 55, 88, 0.08);
+            box-shadow: 0 12px 28px rgba(17, 31, 51, 0.06);
+            padding: 10px 14px;
+            box-sizing: border-box;
+        }
+        .xb-assistant-tool-batch + .xb-assistant-tool-batch {
+            margin-top: 12px;
+        }
+        .xb-assistant-tool-batch-summary {
+            cursor: pointer;
+            color: #56677e;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            user-select: none;
+        }
+        .xb-assistant-tool-batch-summary::marker,
+        .xb-assistant-tool-batch-summary::-webkit-details-marker {
+            display: none;
+        }
+        .xb-assistant-tool-batch-summary::after {
+            content: '>';
+            color: #36567b;
+            font-size: 14px;
+            transition: transform 0.16s ease;
+            transform-origin: center;
+        }
+        .xb-assistant-tool-batch[open] .xb-assistant-tool-batch-summary::after {
+            transform: rotate(90deg);
+        }
+        .xb-assistant-tool-batch-body {
+            display: grid;
+            gap: 10px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed rgba(27, 55, 88, 0.12);
+        }
+        .xb-assistant-tool-batch-note {
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.84);
+            border: 1px solid rgba(27, 55, 88, 0.08);
+            line-height: 1.65;
+            color: #1e2f44;
         }
         .xb-assistant-approval {
             margin-top: 12px;

@@ -4,6 +4,7 @@ import { isTrustedIframeEvent, postToIframe } from "../../core/iframe-messaging.
 import { executeSlashCommand } from "../../core/slash-command.js";
 import { AssistantStorage } from "../../core/server-storage.js";
 import { TOOL_NAMES } from "./app-src/tooling.js";
+import { normalizeSlashSkillTrigger } from "./app-src/slash-command-policy.js";
 import {
     DEFAULT_PRESET_NAME,
     buildDefaultPreset,
@@ -383,12 +384,24 @@ function normalizeSkillCatalogEntry(entry = {}) {
                 return true;
             })
         : [];
+    const seenSlashTriggers = new Set();
+    const slashTriggers = Array.isArray(entry.slashTriggers)
+        ? entry.slashTriggers
+            .map((item) => normalizeSlashSkillTrigger(item))
+            .filter(Boolean)
+            .filter((item) => {
+                if (seenSlashTriggers.has(item)) return false;
+                seenSlashTriggers.add(item);
+                return true;
+            })
+        : [];
     return {
         id,
         title,
         summary: String(entry.summary || '').trim(),
         filename,
         triggers,
+        slashTriggers,
         enabled: entry.enabled !== false,
         updatedAt: String(entry.updatedAt || '').trim() || new Date().toISOString(),
     };
@@ -434,6 +447,7 @@ function buildSkillFileContent({
     title,
     summary,
     triggers,
+    slashTriggers,
     whenToUse,
     enabled,
     createdAt,
@@ -443,6 +457,9 @@ function buildSkillFileContent({
     const triggerLines = Array.isArray(triggers) && triggers.length
         ? triggers.map((item) => `  - ${safeJsonString(item)}`).join('\n')
         : '  - "skill"';
+    const slashTriggerLines = Array.isArray(slashTriggers) && slashTriggers.length
+        ? slashTriggers.map((item) => `  - ${safeJsonString(item)}`).join('\n')
+        : '';
     const normalizedBody = String(body || '').trim();
     return [
         '---',
@@ -451,6 +468,7 @@ function buildSkillFileContent({
         `summary: ${safeJsonString(summary)}`,
         'triggers:',
         triggerLines,
+        ...(slashTriggerLines ? ['slash_triggers:', slashTriggerLines] : []),
         `when_to_use: ${safeJsonString(whenToUse)}`,
         `enabled: ${enabled !== false ? 'true' : 'false'}`,
         `created_at: ${safeJsonString(createdAt)}`,
@@ -460,6 +478,73 @@ function buildSkillFileContent({
         normalizedBody,
         '',
     ].join('\n');
+}
+
+function parseStructuredSkillFile(content = '') {
+    const text = String(content || '');
+    const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+    if (!match) return null;
+
+    const frontmatter = match[1];
+    const body = String(match[2] || '').replace(/\s+$/, '');
+    const parsed = {
+        body,
+        triggers: [],
+        slashTriggers: [],
+    };
+
+    const lines = frontmatter.split(/\r?\n/);
+    let index = 0;
+    while (index < lines.length) {
+        const line = lines[index];
+        if (!line) {
+            index += 1;
+            continue;
+        }
+
+        if (line.startsWith('triggers:') || line.startsWith('slash_triggers:')) {
+            const targetKey = line.startsWith('slash_triggers:') ? 'slashTriggers' : 'triggers';
+            index += 1;
+            while (index < lines.length && /^\s*-\s+/.test(lines[index])) {
+                const triggerValue = lines[index].replace(/^\s*-\s+/, '').trim();
+                try {
+                    parsed[targetKey].push(JSON.parse(triggerValue));
+                } catch {
+                    parsed[targetKey].push(triggerValue.replace(/^"+|"+$/g, ''));
+                }
+                index += 1;
+            }
+            continue;
+        }
+
+        const separatorIndex = line.indexOf(':');
+        if (separatorIndex <= 0) {
+            index += 1;
+            continue;
+        }
+
+        const key = line.slice(0, separatorIndex).trim();
+        const rawValue = line.slice(separatorIndex + 1).trim();
+        if (!key) {
+            index += 1;
+            continue;
+        }
+
+        if (rawValue === 'true' || rawValue === 'false') {
+            parsed[key] = rawValue === 'true';
+        } else if (rawValue) {
+            try {
+                parsed[key] = JSON.parse(rawValue);
+            } catch {
+                parsed[key] = rawValue.replace(/^"+|"+$/g, '');
+            }
+        } else {
+            parsed[key] = '';
+        }
+        index += 1;
+    }
+
+    return parsed;
 }
 
 function validateSkillBody(content = '') {
@@ -1044,6 +1129,41 @@ async function writeUserFile(name, content, options = {}) {
     };
 }
 
+async function deleteUserFile(name, options = {}) {
+    const response = await fetch('/api/files/delete', {
+        method: 'POST',
+        signal: options.signal,
+        headers: {
+            ...getRequestHeaders(),
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            path: `user/files/${name}`,
+        }),
+    });
+
+    if (response.status === 404) {
+        return {
+            name,
+            deleted: false,
+            exists: false,
+            path: `user/files/${name}`,
+        };
+    }
+
+    if (!response.ok) {
+        const message = await response.text().catch(() => '');
+        throw new Error(`workspace_delete_failed:${response.status}:${message}`);
+    }
+
+    return {
+        name,
+        deleted: true,
+        exists: true,
+        path: `user/files/${name}`,
+    };
+}
+
 async function readUserFile(name, options = {}) {
     const response = await fetch(`/user/files/${encodeURIComponent(name)}`, {
         cache: 'no-cache',
@@ -1221,9 +1341,176 @@ async function readSkillTool(args = {}, options = {}) {
         summary: skill.summary,
         filename: skill.filename,
         triggers: skill.triggers,
+        slashTriggers: skill.slashTriggers,
         enabled: skill.enabled,
         updatedAt: skill.updatedAt,
         content: String(file.content || ''),
+    };
+}
+
+async function updateSkillTool(args = {}, options = {}) {
+    const byId = String(args.id || '').trim();
+    const byFilename = normalizeSkillFileName(args.filename || '');
+    if (!byId && !byFilename) {
+        return {
+            ok: false,
+            error: 'skill_identifier_required',
+            message: '必须提供 id 或 filename 其中之一。',
+        };
+    }
+
+    const catalogResult = await readSkillsCatalogData(options);
+    if (!catalogResult.ok) {
+        return {
+            ok: false,
+            error: catalogResult.error,
+            message: `Skills.json 解析失败：${catalogResult.message}`,
+        };
+    }
+
+    const skill = byId
+        ? catalogResult.catalog.skills.find((item) => item.id === byId)
+        : catalogResult.catalog.skills.find((item) => item.filename === byFilename);
+
+    if (!skill) {
+        return {
+            ok: false,
+            error: 'skill_not_found',
+            message: byId ? `目录里找不到 id 为 ${byId} 的 skill。` : `目录里找不到文件 ${byFilename} 对应的 skill。`,
+        };
+    }
+
+    const file = await readUserFile(skill.filename, options);
+    if (!file.exists) {
+        return {
+            ok: false,
+            error: 'skill_file_not_found',
+            message: `skill 文件不存在：${skill.filename}`,
+            id: skill.id,
+            filename: skill.filename,
+        };
+    }
+
+    const parsedFile = parseStructuredSkillFile(file.content || '');
+    if (!parsedFile) {
+        return {
+            ok: false,
+            error: 'skill_file_invalid',
+            message: `skill 文件格式无效，无法更新：${skill.filename}`,
+            id: skill.id,
+            filename: skill.filename,
+        };
+    }
+
+    const title = String(args.title || '').trim() || skill.title;
+    const summary = String(args.summary || '').trim() || skill.summary;
+    const whenToUse = String(args.when_to_use || '').trim() || String(parsedFile.when_to_use || '').trim();
+    const content = String(args.content || '').trim() || String(parsedFile.body || '').trim();
+    const enabled = typeof args.enabled === 'boolean' ? args.enabled : skill.enabled !== false;
+    const createdAt = String(parsedFile.created_at || '').trim() || new Date().toISOString();
+    const seenTriggers = new Set();
+    const rawTriggers = Array.isArray(args.triggers)
+        ? args.triggers
+        : (Array.isArray(parsedFile.triggers) && parsedFile.triggers.length ? parsedFile.triggers : skill.triggers);
+    const triggers = rawTriggers
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+        .filter((item) => {
+            const lowered = item.toLowerCase();
+            if (seenTriggers.has(lowered)) return false;
+            seenTriggers.add(lowered);
+            return true;
+        });
+    const seenSlashTriggers = new Set();
+    const rawSlashTriggers = Array.isArray(args.slashTriggers)
+        ? args.slashTriggers
+        : (Array.isArray(parsedFile.slashTriggers) && parsedFile.slashTriggers.length ? parsedFile.slashTriggers : skill.slashTriggers);
+    const slashTriggers = rawSlashTriggers
+        .map((item) => normalizeSlashSkillTrigger(item))
+        .filter(Boolean)
+        .filter((item) => {
+            if (seenSlashTriggers.has(item)) return false;
+            seenSlashTriggers.add(item);
+            return true;
+        });
+
+    if (!title) {
+        return {
+            ok: false,
+            error: 'skill_title_required',
+            message: '更新 skill 时 title 不能为空。',
+        };
+    }
+    if (!summary) {
+        return {
+            ok: false,
+            error: 'skill_summary_required',
+            message: '更新 skill 时 summary 不能为空。',
+        };
+    }
+    if (!whenToUse) {
+        return {
+            ok: false,
+            error: 'skill_when_to_use_required',
+            message: '更新 skill 时 when_to_use 不能为空。',
+        };
+    }
+    if (!content) {
+        return {
+            ok: false,
+            error: 'skill_content_required',
+            message: '更新 skill 时正文不能为空。',
+        };
+    }
+
+    const validation = validateSkillBody(content);
+    if (!validation.ok) {
+        return {
+            ok: false,
+            error: 'skill_sections_missing',
+            message: `skill 正文缺少必填章节：${validation.missing.join('、')}`,
+        };
+    }
+
+    const now = new Date().toISOString();
+    const fileContent = buildSkillFileContent({
+        id: skill.id,
+        title,
+        summary,
+        triggers,
+        slashTriggers,
+        whenToUse,
+        enabled,
+        createdAt,
+        updatedAt: now,
+        body: content,
+    });
+    await writeUserFile(skill.filename, fileContent, options);
+
+    const nextCatalog = normalizeSkillsCatalog({
+        ...catalogResult.catalog,
+        skills: catalogResult.catalog.skills.map((item) => item.id === skill.id
+            ? {
+                ...item,
+                title,
+                summary,
+                triggers,
+                slashTriggers,
+                enabled,
+                updatedAt: now,
+            }
+            : item),
+    });
+    await writeSkillsCatalogData(nextCatalog, options);
+
+    return {
+        ok: true,
+        id: skill.id,
+        title,
+        filename: skill.filename,
+        enabled,
+        updatedAt: now,
+        note: '技能正文和 Skills.json 已更新，当前会话技能目录会立即刷新。',
     };
 }
 
@@ -1335,6 +1622,17 @@ async function generateSkillTool(args = {}, options = {}) {
                 return true;
             })
         : [];
+    const seenSlashTriggers = new Set();
+    const slashTriggers = Array.isArray(args.slashTriggers)
+        ? args.slashTriggers
+            .map((item) => normalizeSlashSkillTrigger(item))
+            .filter(Boolean)
+            .filter((item) => {
+                if (seenSlashTriggers.has(item)) return false;
+                seenSlashTriggers.add(item);
+                return true;
+            })
+        : [];
 
     if (!title) {
         return {
@@ -1388,6 +1686,7 @@ async function generateSkillTool(args = {}, options = {}) {
         title,
         summary,
         triggers,
+        slashTriggers,
         whenToUse,
         enabled,
         createdAt: now,
@@ -1406,6 +1705,7 @@ async function generateSkillTool(args = {}, options = {}) {
                 summary,
                 filename: proposal.filename,
                 triggers,
+                slashTriggers,
                 enabled,
                 updatedAt: now,
             },
@@ -1423,6 +1723,57 @@ async function generateSkillTool(args = {}, options = {}) {
         enabled,
         updatedAt: now,
         note: '技能正文和 Skills.json 已写入，当前会话技能目录会立即刷新。',
+    };
+}
+
+async function deleteSkillTool(args = {}, options = {}) {
+    const byId = String(args.id || '').trim();
+    const byFilename = normalizeSkillFileName(args.filename || '');
+    if (!byId && !byFilename) {
+        return {
+            ok: false,
+            error: 'skill_identifier_required',
+            message: '必须提供 id 或 filename 其中之一。',
+        };
+    }
+
+    const catalogResult = await readSkillsCatalogData(options);
+    if (!catalogResult.ok) {
+        return {
+            ok: false,
+            error: catalogResult.error,
+            message: `Skills.json 解析失败：${catalogResult.message}`,
+        };
+    }
+
+    const skill = byId
+        ? catalogResult.catalog.skills.find((item) => item.id === byId)
+        : catalogResult.catalog.skills.find((item) => item.filename === byFilename);
+
+    if (!skill) {
+        return {
+            ok: false,
+            error: 'skill_not_found',
+            message: byId ? `目录里找不到 id 为 ${byId} 的 skill。` : `目录里找不到文件 ${byFilename} 对应的 skill。`,
+        };
+    }
+
+    const deleteResult = await deleteUserFile(skill.filename, options);
+    const nextCatalog = normalizeSkillsCatalog({
+        ...catalogResult.catalog,
+        skills: catalogResult.catalog.skills.filter((item) => item.id !== skill.id),
+    });
+    await writeSkillsCatalogData(nextCatalog, options);
+
+    return {
+        ok: true,
+        id: skill.id,
+        title: skill.title,
+        filename: skill.filename,
+        fileDeleted: deleteResult.deleted === true,
+        note: deleteResult.deleted === true
+            ? '技能正文文件和 Skills.json 已删除，当前会话技能目录会立即刷新。'
+            : '技能目录项已删除；原 skill 文件本就不存在，当前会话技能目录会立即刷新。',
     };
 }
 
@@ -1539,8 +1890,12 @@ async function executeToolCall(name, args, options = {}) {
             return await readSkillsCatalogTool(args, options);
         case TOOL_NAMES.READ_SKILL:
             return await readSkillTool(args, options);
+        case TOOL_NAMES.UPDATE_SKILL:
+            return await updateSkillTool(args, options);
         case TOOL_NAMES.GENERATE_SKILL:
             return await generateSkillTool(args, options);
+        case TOOL_NAMES.DELETE_SKILL:
+            return await deleteSkillTool(args, options);
         default:
             throw new Error(`unsupported_tool:${name}`);
     }
@@ -2335,7 +2690,9 @@ async function handleIframeMessage(event) {
                         },
                     });
                 }
-                if (toolName === TOOL_NAMES.GENERATE_SKILL && result?.ok && result.action === 'save') {
+                if ((toolName === TOOL_NAMES.GENERATE_SKILL && result?.ok && result.action === 'save')
+                    || (toolName === TOOL_NAMES.UPDATE_SKILL && result?.ok)
+                    || (toolName === TOOL_NAMES.DELETE_SKILL && result?.ok)) {
                     postToIframe(iframe, {
                         type: SKILLS_UPDATED,
                         payload: await readSkillsRuntimeData({ signal: controller.signal }),

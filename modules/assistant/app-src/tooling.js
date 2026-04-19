@@ -10,7 +10,9 @@ export const TOOL_NAMES = {
     WRITE_WORKLOG: 'WriteWorklog',
     READ_SKILLS_CATALOG: 'ReadSkillsCatalog',
     READ_SKILL: 'ReadSkill',
+    UPDATE_SKILL: 'UpdateSkill',
     GENERATE_SKILL: 'GenerateSkill',
+    DELETE_SKILL: 'DeleteSkill',
 };
 
 export const TOOL_USAGE_GUIDANCE = [
@@ -22,7 +24,10 @@ export const TOOL_USAGE_GUIDANCE = [
     '- `RunSlashCommand` 执行的是用户当前真实酒馆实例中的斜杠命令，不是快照；查询类可以直接用，可能改动实例状态的命令要先明确说明并征得用户同意。',
     '- `ReadSkillsCatalog` 读取技能目录索引，只看有哪些 skill、摘要和触发词；不要把它当 skill 正文。',
     '- `ReadSkill` 读取某一个 skill 的完整正文；命中目录里某项后，再按需读取对应 skill，不要默认全读。',
+    '- `UpdateSkill` 更新已有 skill 的正文或元数据，并同步刷新 Skills.json；它不是新建工具。',
     '- `GenerateSkill` 用于把刚完成的一次大流程、多次试错或值得复用的过程沉淀成 skill；先 `action: "propose"`，用户同意后再 `action: "save"`。',
+    '- `DeleteSkill` 删除已有 skill，并同时从技能正文文件与 Skills.json 中移除该项。',
+    '- 更新或删除 skill 属于持久化修改；只有在用户明确要求修改/删除该 skill 时才调用，不要自己擅自覆盖或清除。',
     '- 调用工具时，使用工具定义里的确切名字和参数名，不要自己改名或脑补额外字段。',
     '- 工具如果返回 `ok: false`、`error`、`raw`、`truncated`、`warning` 等字段，必须按字面理解并如实告诉用户，不要把失败、截断、空结果当成成功证据。',
     '- 如果工具返回的是原样 API / 代理错误文本，就直接基于该文本说明问题，不要擅自改写成别的原因。',
@@ -234,6 +239,36 @@ export const TOOL_DEFINITIONS = [
     {
         type: 'function',
         function: {
+            name: TOOL_NAMES.UPDATE_SKILL,
+            description: '更新已有 skill 的正文或元数据，并同步回写对应 skill 文件与 Skills.json。优先传 id；也可传 filename。未提供的字段会尽量保留原值。',
+            parameters: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: '技能 id，例如 skill-plugin-debugging。' },
+                    filename: { type: 'string', description: '技能文件名，例如 LittleWhiteBox_Assistant_Skill_plugin-debugging.md。' },
+                    title: { type: 'string', description: '可选的新标题。' },
+                    summary: { type: 'string', description: '可选的新一句话摘要。' },
+                    triggers: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: '可选的新触发关键词列表。',
+                    },
+                    slashTriggers: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: '可选的新 slash 触发命令列表，例如 /写插件。',
+                    },
+                    when_to_use: { type: 'string', description: '可选的新 when_to_use。' },
+                    content: { type: 'string', description: '可选的新 skill 正文（不含 frontmatter）。' },
+                    enabled: { type: 'boolean', description: '可选；是否启用该 skill。' },
+                },
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
             name: TOOL_NAMES.GENERATE_SKILL,
             description: [
                 '将刚完成的一次大流程、多次试错或值得复用的过程沉淀成 skill。',
@@ -258,11 +293,31 @@ export const TOOL_DEFINITIONS = [
                         items: { type: 'string' },
                         description: '触发关键词列表。仅 save 阶段需要。',
                     },
+                    slashTriggers: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'slash 触发命令列表，例如 /写插件。仅 save 阶段需要。',
+                    },
                     when_to_use: { type: 'string', description: '什么情况下适合使用这条 skill。仅 save 阶段需要。' },
                     content: { type: 'string', description: 'skill 正文 markdown，不含 frontmatter。仅 save 阶段需要。' },
                     enabled: { type: 'boolean', description: '保存后是否启用。仅 save 阶段需要。' },
                 },
                 required: ['action'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: TOOL_NAMES.DELETE_SKILL,
+            description: '删除已有 skill，并同时移除技能正文文件与 Skills.json 中的目录项。优先传 id；也可传 filename。',
+            parameters: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string', description: '技能 id，例如 skill-plugin-debugging。' },
+                    filename: { type: 'string', description: '技能文件名，例如 LittleWhiteBox_Assistant_Skill_plugin-debugging.md。' },
+                },
                 additionalProperties: false,
             },
         },
@@ -311,10 +366,14 @@ export function describeToolCall(name, args = {}) {
             return '读取技能目录';
         case TOOL_NAMES.READ_SKILL:
             return `读取技能 ${args.id || args.filename || ''}`.trim();
+        case TOOL_NAMES.UPDATE_SKILL:
+            return `更新技能 ${args.id || args.filename || args.title || ''}`.trim();
         case TOOL_NAMES.GENERATE_SKILL:
             return args.action === 'save'
                 ? `保存技能 ${args.title || args.id || ''}`.trim()
                 : `申请生成技能 ${args.title || ''}`.trim();
+        case TOOL_NAMES.DELETE_SKILL:
+            return `删除技能 ${args.id || args.filename || ''}`.trim();
         default:
             return `调用工具 ${name}`;
     }
@@ -572,8 +631,29 @@ export function formatToolResultDisplay(message) {
                 `已读取技能：${parsed.title || parsed.id || parsed.filename || ''}`.trim(),
                 parsed.filename ? `文件：${parsed.filename}` : '',
                 parsed.summary ? `摘要：${parsed.summary}` : '',
+                Array.isArray(parsed.slashTriggers) && parsed.slashTriggers.length ? `Slash：${parsed.slashTriggers.join(', ')}` : '',
             ].filter(Boolean).join('\n'),
             details: String(parsed.content || ''),
+        };
+    }
+
+    if (message.toolName === TOOL_NAMES.UPDATE_SKILL) {
+        if (parsed.ok === false && parsed.error) {
+            return {
+                summary: [
+                    `更新技能失败：${parsed.error}`,
+                    parsed.message ? `说明：${parsed.message}` : '',
+                ].filter(Boolean).join('\n'),
+                details: '',
+            };
+        }
+        return {
+            summary: [
+                `技能已更新：${parsed.title || parsed.id || parsed.filename || ''}`.trim(),
+                parsed.filename ? `文件：${parsed.filename}` : '',
+                parsed.enabled === false ? '状态：已保存但未启用' : '状态：已启用',
+            ].filter(Boolean).join('\n'),
+            details: parsed.note ? String(parsed.note) : '',
         };
     }
 
@@ -609,6 +689,26 @@ export function formatToolResultDisplay(message) {
                 details: parsed.note ? String(parsed.note) : '',
             };
         }
+    }
+
+    if (message.toolName === TOOL_NAMES.DELETE_SKILL) {
+        if (parsed.ok === false && parsed.error) {
+            return {
+                summary: [
+                    `删除技能失败：${parsed.error}`,
+                    parsed.message ? `说明：${parsed.message}` : '',
+                ].filter(Boolean).join('\n'),
+                details: '',
+            };
+        }
+        return {
+            summary: [
+                `技能已删除：${parsed.title || parsed.id || parsed.filename || ''}`.trim(),
+                parsed.filename ? `文件：${parsed.filename}` : '',
+                parsed.fileDeleted === false ? '正文文件原本不存在，已仅清理目录项' : '正文文件与目录项均已删除',
+            ].filter(Boolean).join('\n'),
+            details: parsed.note ? String(parsed.note) : '',
+        };
     }
 
     return {

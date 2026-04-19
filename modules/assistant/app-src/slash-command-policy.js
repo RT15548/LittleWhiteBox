@@ -52,6 +52,11 @@ export function getSlashCommandName(command) {
     return body.split(/\s+/)[0].toLowerCase();
 }
 
+export function normalizeSlashSkillTrigger(command) {
+    const name = getSlashCommandName(command);
+    return name ? `/${name}` : '';
+}
+
 export function getSlashCommandTail(command) {
     const normalized = normalizeSlashCommand(command);
     if (!normalized) return '';
