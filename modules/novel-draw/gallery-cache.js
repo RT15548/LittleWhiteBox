@@ -224,6 +224,7 @@ export async function storeFailedPlaceholder(opts) {
         errorMessage: opts.errorMessage,
         characterPrompts: opts.characterPrompts || null,
         negativePrompt: opts.negativePrompt || null,
+        anchor: opts.anchor || '',
     });
 }
 

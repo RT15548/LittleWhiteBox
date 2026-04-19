@@ -429,6 +429,8 @@ function getMesTextElement(messageId) {
 
 function createNodeFromHtml(html) {
     const template = document.createElement('template');
+    // Template-only UI markup built locally.
+    // eslint-disable-next-line no-unsanitized/property
     template.innerHTML = String(html || '').trim();
     return template.content.firstElementChild || null;
 }
@@ -549,47 +551,6 @@ function replacePlaceholdersInDomBatch(root, replacements) {
     });
 
     return resolvedSlotIds;
-}
-
-function replacePlaceholderTextInDom(root, placeholder, html) {
-    if (!root || !placeholder) return false;
-
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-        acceptNode(node) {
-            if (node.parentElement?.closest('.xb-nd-img')) return NodeFilter.FILTER_REJECT;
-            return node.nodeValue?.includes(placeholder) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-        }
-    });
-
-    const textNode = walker.nextNode();
-    if (!textNode) return false;
-
-    const replacementNode = createNodeFromHtml(html);
-    if (!replacementNode) return false;
-
-    const index = textNode.nodeValue.indexOf(placeholder);
-    if (index < 0) return false;
-
-    const beforeText = textNode.nodeValue.slice(0, index);
-    const afterText = textNode.nodeValue.slice(index + placeholder.length);
-    const topLevelContainer = findTopLevelFlowContainer(root, textNode);
-
-    textNode.nodeValue = beforeText;
-    if (afterText) {
-        textNode.parentNode?.insertBefore(document.createTextNode(afterText), textNode.nextSibling);
-    }
-    if (!beforeText) {
-        textNode.remove();
-    }
-
-    if (topLevelContainer) {
-        insertAfterFlowContainer(topLevelContainer, replacementNode);
-        removeIfEmptyFlowContainer(topLevelContainer);
-        return true;
-    }
-
-    root.appendChild(replacementNode);
-    return true;
 }
 
 function collectRenderedTextSegments(root) {
@@ -2213,6 +2174,7 @@ async function retryFailedImage(container) {
     const slotId = container.dataset.slotId;
     const messageId = parseInt(container.dataset.mesid);
     const tags = container.dataset.tags;
+    let latestFailed = null;
     if (!slotId) return;
 
     // Template-only UI markup.
@@ -2227,7 +2189,7 @@ async function retryFailedImage(container) {
 
         let characterPrompts = null;
         const failedPreviews = await getPreviewsBySlot(slotId);
-        const latestFailed = failedPreviews.find(p => p.status === 'failed');
+        latestFailed = failedPreviews.find(p => p.status === 'failed');
         if (latestFailed?.characterPrompts?.length) {
             characterPrompts = latestFailed.characterPrompts;
         }
@@ -2493,6 +2455,8 @@ async function renderPreviewsForMessage(messageId) {
     }
 
     if (fallbackReplaced && !anchorInserted && !isMessageBeingEdited(messageId)) {
+        // Template-only UI markup built locally.
+        // eslint-disable-next-line no-unsanitized/property
         mesTextEl.innerHTML = html;
     }
 }
