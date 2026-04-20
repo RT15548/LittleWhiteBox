@@ -98,6 +98,7 @@ images:
 ### 服装/配饰 (costume) — 每张图完整输出
 - 主要: 款式 + 颜色 + 细节（材质/形状/图案/装饰/开口）+ 穿着状态
 - 次要: 款式 + 颜色
+- 若已提供角色服装参考列表：从中选择最适合当前剧情的一套或其变体作为基础，再按画面状态补充/改写（如破损、掀起、滑落、湿透、解开），不要把多套服装直接拼接混合
 - 剧情变化须反映: 换装/脱衣/撕裂/湿透
 
 ### 动作 & 表情 (action)
@@ -247,7 +248,7 @@ uc 字段 = 只对该角色生效的负面 Tag：
 
 ## NOTED
 - anchor must be exact substring from source text
-- Known characters (已录入角色): output name + danbooru + costume + action + interact + uc + center only (禁止输出 type/appear，系统自动注入)
+- Known characters (已录入角色): output name + danbooru + costume + action + interact + uc + center only (禁止输出 type/appear，系统自动注入；若提供服装参考，只把你最终选定并按剧情调整后的当前服装写进 costume)
 - Unknown characters: always include ALL fields: type + appear + costume + action + interact + uc + center
 - Tags use spaces not underscores in output (pink hair, not pink_hair)
 - Output single valid YAML

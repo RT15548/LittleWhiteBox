@@ -43,7 +43,7 @@ images:
 ```
 ## NOTED：
 - anchor must be exact substring from source text
-- Known characters: output name + danbooru + costume + action + interact + uc + center only
+- Known characters: output name + danbooru + costume + action + interact + uc + center only; if outfit references are provided, choose the most suitable one or its scene-adjusted variant and write only the final current outfit into costume
 - Unknown characters: always include type + appear + costume + action + interact + uc + center. Additionally, fill in danbooru if the character is recognizable as an existing anime/game character
 - danbooru field: Use Danbooru character tag format with underscores, e.g. hatsune_miku, kafka_(honkai:_star_rail), rem_(re:zero). Leave "" for original characters. Always output this field for recognizable anime/game characters regardless of whether they are known or unknown
 - Interactions must be paired (source# ↔ target#)

@@ -98,6 +98,7 @@ const ErrorType = {
     NETWORK: { code: 'network', label: '网络', desc: '连接超时或网络不稳定' },
     AUTH: { code: 'auth', label: '认证', desc: 'API Key 无效或过期' },
     QUOTA: { code: 'quota', label: '额度', desc: 'Anlas 点数不足' },
+    BUSY: { code: 'busy', label: '繁忙', desc: '当前并发繁忙，请稍后重试' },
     PARSE: { code: 'parse', label: '解析', desc: '返回格式无法解析' },
     LLM: { code: 'llm', label: 'LLM', desc: '场景分析失败' },
     TIMEOUT: { code: 'timeout', label: '超时', desc: '请求超时' },
@@ -767,6 +768,7 @@ function classifyError(e) {
     const msg = (e?.message || '').toLowerCase();
     if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) return ErrorType.NETWORK;
     if (msg.includes('401') || msg.includes('key') || msg.includes('auth')) return ErrorType.AUTH;
+    if (msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit') || msg.includes('请求频繁') || msg.includes('busy')) return ErrorType.BUSY;
     if (msg.includes('402') || msg.includes('anlas') || msg.includes('quota')) return ErrorType.QUOTA;
     if (msg.includes('timeout') || msg.includes('abort')) return ErrorType.TIMEOUT;
     if (msg.includes('parse') || msg.includes('json')) return ErrorType.PARSE;
@@ -778,7 +780,7 @@ function parseApiError(status, text) {
     switch (status) {
         case 401: return new NovelDrawError('API Key 无效', ErrorType.AUTH);
         case 402: return new NovelDrawError('Anlas 不足', ErrorType.QUOTA);
-        case 429: return new NovelDrawError('请求频繁', ErrorType.QUOTA);
+        case 429: return new NovelDrawError('当前并发繁忙，请稍后重试', ErrorType.BUSY);
         case 500:
         case 502:
         case 503: return new NovelDrawError('服务不可用', ErrorType.NETWORK);
@@ -1087,21 +1089,9 @@ function normalizeCharacterOutfits(outfits = []) {
         .filter(outfit => outfit.name || outfit.tags);
 }
 
-function buildCharacterOutfitReference(outfits = []) {
-    const normalized = normalizeCharacterOutfits(outfits);
-    if (!normalized.length) return '';
-
-    return normalized
-        .map(outfit => {
-            const label = outfit.name || '服装';
-            return outfit.tags ? `${label}tag ${outfit.tags}` : label;
-        })
-        .join('; ');
-}
-
 function buildKnownCharacterBasePrompt(character = {}) {
     const naiTag = character.danbooruTag ? danbooruToNai(character.danbooruTag) : '';
-    return joinTags(naiTag, character.type, character.appearance, buildCharacterOutfitReference(character.outfits));
+    return joinTags(naiTag, character.type, character.appearance);
 }
 
 function detectPresentCharacters(messageText, characterTags) {
