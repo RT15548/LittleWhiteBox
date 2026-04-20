@@ -87,6 +87,8 @@ const SYSTEM_PROMPT = `你是场景摘要器。从一轮对话中提取1-2个场
 输出：
 {"anchors":[{"scene":"火山口上艾拉举起圣剑刺穿古龙的心脏，龙血溅满铠甲，古龙轰然倒地，艾拉跪倒在滚烫的岩石上痛哭，完成了她不得不做的弑杀","edges":[{"s":"艾拉","t":"古龙","r":"以圣剑刺穿心脏"}],"where":"火山口"}]}`;
 
+const JSON_PREFILL = '{"anchors":[';
+
 // ============================================================================
 // 睡眠工具
 // ============================================================================
@@ -225,6 +227,8 @@ async function extractAtomsForRoundWithRetry(userMessage, aiMessage, aiFloor, op
             const response = await callLLM([
                 { role: 'system', content: SYSTEM_PROMPT },
                 { role: 'user', content: input },
+                // Force the model to continue a JSON object instead of planning in a reasoning channel.
+                { role: 'assistant', content: JSON_PREFILL },
             ], {
                 temperature: 0.3,
                 max_tokens: 600,
