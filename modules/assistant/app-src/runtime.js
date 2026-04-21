@@ -68,6 +68,7 @@ export function createAssistantRuntime(deps) {
         createAdapter,
         getActiveProviderConfig,
         getSystemPrompt,
+        getEphemeralUserContextText,
         SYSTEM_PROMPT,
         SUMMARY_SYSTEM_PROMPT,
         HISTORY_SUMMARY_PREFIX,
@@ -560,12 +561,20 @@ export function createAssistantRuntime(deps) {
         render();
     }
 
-    function toProviderMessages(baseMessages = state.messages) {
+    function toProviderMessages(baseMessages = state.messages, options = {}) {
         const messages = [{ role: 'system', content: resolveSystemPrompt() }];
         const summaryMessage = buildHistorySummarySystemMessage();
         const lightBrakeMessage = buildRepeatedToolErrorSystemMessage();
         if (summaryMessage) messages.push(summaryMessage);
         if (lightBrakeMessage) messages.push(lightBrakeMessage);
+        const latestUserMessage = getLatestUserMessage(baseMessages);
+        const ephemeralUserContextText = Object.prototype.hasOwnProperty.call(options, 'userContextSnapshotText')
+            ? String(options.userContextSnapshotText || '').trim()
+            : (
+                typeof getEphemeralUserContextText === 'function'
+                    ? String(getEphemeralUserContextText() || '').trim()
+                    : ''
+            );
         for (const message of baseMessages) {
             if (message?.approvalRequest) {
                 continue;
@@ -600,7 +609,10 @@ export function createAssistantRuntime(deps) {
                 role: message.role,
                 providerPayload: message.providerPayload,
                 content: message.role === 'user'
-                    ? buildUserContentParts(message)
+                    ? buildUserContentParts({
+                        ...message,
+                        contextPrefix: message === latestUserMessage ? ephemeralUserContextText : '',
+                    })
                     : message.content,
             });
         }
@@ -682,10 +694,10 @@ export function createAssistantRuntime(deps) {
         }
     }
 
-    async function ensureContextBudget(adapter, signal) {
+    async function ensureContextBudget(adapter, signal, options = {}) {
         const preservedOptions = [DEFAULT_PRESERVED_TURNS, MIN_PRESERVED_TURNS];
         let contextMessages = getActiveContextMessages();
-        let providerMessages = toProviderMessages(contextMessages);
+        let providerMessages = toProviderMessages(contextMessages, options);
         await forceUpdateContextStats(providerMessages);
 
         if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
@@ -707,7 +719,7 @@ export function createAssistantRuntime(deps) {
             }
 
             contextMessages = getActiveContextMessages();
-            providerMessages = toProviderMessages(contextMessages);
+            providerMessages = toProviderMessages(contextMessages, options);
             await forceUpdateContextStats(providerMessages);
             if (state.contextStats.usedTokens <= SUMMARY_TRIGGER_TOKENS) {
                 showToast(`已压缩较早历史，当前上下文 ${buildContextMeterLabel()}`);
@@ -1005,6 +1017,9 @@ export function createAssistantRuntime(deps) {
         const adapter = createAdapter();
         let rounds = 0;
         let pendingToolResponses = null;
+        const providerMessageOptions = {
+            userContextSnapshotText: String(run?.userContextSnapshotText || '').trim(),
+        };
 
         await maybeAutoReadSlashSkill(run);
 
@@ -1053,7 +1068,7 @@ export function createAssistantRuntime(deps) {
                 if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && adapter?.supportsSessionToolLoop) {
                     requestTask.toolResponses = pendingToolResponses;
                 } else {
-                    requestTask.messages = await ensureContextBudget(adapter, run.controller.signal);
+                    requestTask.messages = await ensureContextBudget(adapter, run.controller.signal, providerMessageOptions);
                 }
 
                 result = await adapter.chat(requestTask);

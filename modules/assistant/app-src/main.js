@@ -23,9 +23,12 @@ import {
 } from './slash-command-policy.js';
 import { createSessionStore } from './session-store.js';
 import { createAttachmentsManager } from './attachments.js';
+import { renderAppChrome, renderContextHint } from './app-chrome.js';
+import { buildAppMarkup as buildAssistantAppMarkup } from './app-shell.js';
 import { createLocalSourcesManager } from './local-sources.js';
 import { createSettingsPanel } from './settings-panel.js';
 import { createChatUi } from './chat-ui.js';
+import { injectAssistantStyles } from './styles.js';
 import {
     HISTORY_SUMMARY_PREFIX,
     SUMMARY_SYSTEM_PROMPT,
@@ -87,11 +90,34 @@ const state = {
     activeRun: null,
     autoScroll: true,
     toast: '',
+    localImportProgress: {
+        active: false,
+        label: '',
+        detail: '',
+        percent: 0,
+    },
+    workspaceSelectionContext: {
+        filePath: '',
+        viewerMode: '',
+        lineStart: '',
+        lineEnd: '',
+        text: '',
+    },
+    externalEditorContext: null,
     modelOptionsByProvider: {},
     pullStateByProvider: {},
     draftAttachments: [],
     localSources: [],
     composeMenuOpen: false,
+    isWorkspaceOpen: false,
+    workspaceWidth: 520,
+    selectedSourceId: 'all',
+    selectedFilePath: '',
+    selectedTreePath: '',
+    fileSearchQuery: '',
+    showModifiedOnly: false,
+    viewerMode: 'current',
+    treeExpandedKeys: [],
     sidebarCollapsed: true,
     configFormSyncPending: true,
     editingMessageIndex: -1,
@@ -137,6 +163,15 @@ function clearSession() {
 
 function restoreSession() {
     return sessionStore?.restoreSession();
+}
+
+function renderWorkspaceOnly() {
+    const root = document.getElementById(ROOT_ID);
+    if (!root) return;
+    const workspacePanel = root.querySelector('#xb-assistant-workspace-panel');
+    if (!workspacePanel) return;
+    ensureWorkspaceSelection();
+    renderWorkspace(workspacePanel, { disabled: state.isBusy });
 }
 
 function getAssistantParsedUA() {
@@ -285,6 +320,17 @@ function showToast(text) {
     render();
 }
 
+function setLocalImportProgress(next = {}) {
+    const active = !!next.active;
+    state.localImportProgress = {
+        active,
+        label: active ? String(next.label || '').trim() : '',
+        detail: active ? String(next.detail || '').trim() : '',
+        percent: active ? Math.max(0, Math.min(100, Math.round(Number(next.percent) || 0))) : 0,
+    };
+    render();
+}
+
 function clearConfigSaveTimers() {
     if (configSaveTimeout) {
         clearTimeout(configSaveTimeout);
@@ -410,20 +456,26 @@ const localSourcesManager = createLocalSourcesManager({
     state,
     createRequestId,
     showToast,
+    setImportProgress: setLocalImportProgress,
     render,
+    renderWorkspaceOnly,
     persistSession,
+    onWorkspaceClosed: clearWorkspaceSelectionContext,
     post,
 });
 
 const {
     appendLocalSourceFiles,
     clearLocalSources,
-    removeLocalSource,
-    downloadLocalSource,
-    downloadAllLocalSources,
     applyExternalLocalSources,
-    renderLocalSourcesPanel,
-    summarizeLocalSources,
+    openWorkspace,
+    closeWorkspace,
+    toggleWorkspace,
+    selectWorkspaceFile,
+    setWorkspaceWidth,
+    renderWorkspace,
+    ensureWorkspaceSelection,
+    getWorkspaceSummary,
     syncHostLocalSources,
 } = localSourcesManager;
 
@@ -442,6 +494,8 @@ function describeError(error) {
     if (lowered === 'unsupported_text_file') return '目前只支持文本类源码文件。';
     if (lowered === 'local_source_not_found') return '目标源码源不存在，可能已经被移除。';
     if (lowered === 'local_file_not_found') return '目标 `local/` 文件不存在；可以先用 Write 新建。';
+    if (lowered === 'local_path_not_found') return '目标 `local/` 路径不存在。';
+    if (lowered === 'local_destination_exists') return '目标路径已经存在；请换一个路径，或显式允许覆盖。';
     if (lowered === 'edit_old_text_required') return 'Edit 需要提供明确的 oldText。';
     if (lowered === 'edit_not_found') return '没有在目标文件里找到要替换的 oldText。';
     if (lowered === 'edit_not_unique') return 'oldText 命中不唯一；请改得更精确，或显式要求全部替换。';
@@ -491,6 +545,9 @@ const chatUi = createChatUi({
     normalizeThoughtBlocks,
     normalizeAttachments,
     renderAttachmentGallery,
+    onLocalPathClick: (path) => {
+        return openWorkspace(path);
+    },
 });
 
 const {
@@ -529,6 +586,129 @@ function getInjectedSystemPrompt() {
     return [SYSTEM_PROMPT, permissionPrompt, skillsPromptSummary, identityContent].filter(Boolean).join('\n\n');
 }
 
+function trimContextSnippet(text, limit = 600) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return '';
+    if (normalized.length <= limit) return normalized;
+    return `${normalized.slice(0, limit)}...`;
+}
+
+function normalizeWorkspaceSelectionContext(next = {}) {
+    return {
+        filePath: String(next.filePath || '').trim(),
+        viewerMode: String(next.viewerMode || '').trim(),
+        lineStart: String(next.lineStart || '').trim(),
+        lineEnd: String(next.lineEnd || '').trim(),
+        text: trimContextSnippet(next.text || '', 600),
+    };
+}
+
+function clearWorkspaceSelectionContext() {
+    state.workspaceSelectionContext = normalizeWorkspaceSelectionContext();
+}
+
+function normalizeExternalEditorContext(payload = null) {
+    if (!payload || typeof payload !== 'object') return null;
+    const filePath = String(payload.filePath || payload.path || '').trim();
+    const note = String(payload.note || '').trim();
+    const selectionText = trimContextSnippet(payload.selectionText || payload.selectedText || '', 600);
+    const lineStart = String(payload.lineStart || payload.startLine || '').trim();
+    const lineEnd = String(payload.lineEnd || payload.endLine || '').trim();
+    const source = String(payload.source || 'external-editor').trim() || 'external-editor';
+    if (!filePath && !note && !selectionText) return null;
+    return {
+        source,
+        filePath,
+        note,
+        selectionText,
+        lineStart,
+        lineEnd,
+    };
+}
+
+function buildWorkspaceUserContextText() {
+    if (!state.isWorkspaceOpen) return '';
+    const selectedFilePath = String(state.selectedFilePath || '').trim();
+    const selectedTreePath = String(state.selectedTreePath || '').trim();
+    const selection = normalizeWorkspaceSelectionContext(state.workspaceSelectionContext);
+
+    if (!selectedFilePath && !selectedTreePath) return '';
+
+    const lines = ['[IDE background]'];
+    if (selectedTreePath && String(selectedTreePath).endsWith('/') && (!selectedFilePath || selectedTreePath !== selectedFilePath)) {
+        lines.push(`用户当前在工作区聚焦了目录：${selectedTreePath}`);
+        if (!selectedFilePath) {
+            lines.push('用户当前还没有在代码区锁定具体文件。');
+        } else {
+            lines.push(`代码区当前显示的是：${selectedFilePath}，但树上的当前焦点仍是这个目录。`);
+        }
+    } else if (selectedFilePath) {
+        lines.push(`用户当前打开了文件：${selectedFilePath}`);
+        if (state.viewerMode) {
+            lines.push(`当前查看模式：${String(state.viewerMode || '').trim()}`);
+        }
+    }
+
+    if (selection.text && selection.filePath && selection.filePath === selectedFilePath) {
+        if (selection.lineStart) {
+            lines.push(
+                selection.lineEnd && selection.lineEnd !== selection.lineStart
+                    ? `用户当前选中了 ${selection.filePath} 的第 ${selection.lineStart} 到 ${selection.lineEnd} 行：`
+                    : `用户当前选中了 ${selection.filePath} 的第 ${selection.lineStart} 行：`,
+            );
+        } else {
+            lines.push(`用户当前选中了 ${selection.filePath} 中的一段内容：`);
+        }
+        lines.push(selection.text);
+    }
+
+    lines.push('');
+    lines.push('这些信息可能与当前任务有关，也可能无关，请自然地了解即可。');
+
+    return lines.join('\n').trim();
+}
+
+function buildExternalEditorContextText() {
+    const context = normalizeExternalEditorContext(state.externalEditorContext);
+    if (!context) return '';
+
+    const lines = ['[IDE background]'];
+    if (context.filePath) {
+        lines.push(`用户当前打开了文件：${context.filePath}`);
+    }
+    if (context.lineStart) {
+        lines.push(
+            context.filePath
+                ? (
+                    context.lineEnd && context.lineEnd !== context.lineStart
+                        ? `用户当前选中了 ${context.filePath} 的第 ${context.lineStart} 到 ${context.lineEnd} 行：`
+                        : `用户当前选中了 ${context.filePath} 的第 ${context.lineStart} 行：`
+                )
+                : (
+                    context.lineEnd && context.lineEnd !== context.lineStart
+                        ? `用户当前选中了第 ${context.lineStart} 到 ${context.lineEnd} 行：`
+                        : `用户当前选中了第 ${context.lineStart} 行：`
+                ),
+        );
+    }
+    if (context.selectionText) {
+        lines.push(context.selectionText);
+    }
+    if (context.note) {
+        lines.push(context.note);
+    }
+    lines.push('');
+    lines.push('这些信息可能与当前任务有关，也可能无关，请自然地了解即可。');
+    return lines.join('\n').trim();
+}
+
+function getEphemeralUserContextText() {
+    return [
+        buildExternalEditorContextText(),
+        buildWorkspaceUserContextText(),
+    ].filter(Boolean).join('\n\n').trim();
+}
+
 const runtime = createAssistantRuntime({
     state,
     pendingToolCalls,
@@ -554,6 +734,7 @@ const runtime = createAssistantRuntime({
     createAdapter,
     getActiveProviderConfig,
     getSystemPrompt: getInjectedSystemPrompt,
+    getEphemeralUserContextText,
     SYSTEM_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
     HISTORY_SUMMARY_PREFIX,
@@ -599,6 +780,7 @@ function createAssistantRun() {
         id: createRequestId('run'),
         controller: new AbortController(),
         toolRequestIds: new Set(),
+        userContextSnapshotText: getEphemeralUserContextText(),
         cancelNotice: '',
         lightBrakeMessage: '',
         lastLightBrakeKey: '',
@@ -682,1416 +864,13 @@ function buildSanitizedHtmlFragment(html) {
     return fragment;
 }
 
-function buildAppMarkup(root) {
-    const markup = `
-        <div class="xb-assistant-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}">
-            <aside class="xb-assistant-sidebar ${state.sidebarCollapsed ? 'is-collapsed' : ''}">
-                <div class="xb-assistant-sidebar-header">
-                    <div class="xb-assistant-badge">API配置</div>
-                    <button id="xb-assistant-sidebar-toggle" type="button" class="xb-assistant-sidebar-toggle" aria-expanded="${state.sidebarCollapsed ? 'false' : 'true'}" aria-label="${state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置'}" title="${state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置'}">
-                        <span class="xb-assistant-sidebar-toggle-text"></span>
-                        <span class="xb-assistant-sidebar-toggle-icon"></span>
-                    </button>
-                </div>
-                <div class="xb-assistant-sidebar-content" ${state.sidebarCollapsed ? 'hidden' : ''}>
-                    <div class="xb-assistant-brand">
-                    </div>
-                    <section class="xb-assistant-config">
-                    <label>
-                        <span>已存预设</span>
-                        <select id="xb-assistant-preset-select"></select>
-                    </label>
-                    <label>
-                        <span>预设名称</span>
-                        <input id="xb-assistant-preset-name" type="text" placeholder="例如：OpenAI 测试号" />
-                    </label>
-                    <label>
-                        <span>Provider</span>
-                        <select id="xb-assistant-provider">
-                            <option value="openai-responses">OpenAI Responses</option>
-                            <option value="openai-compatible">OpenAI-compatible</option>
-                            <option value="anthropic">Anthropic</option>
-                            <option value="google">Google AI</option>
-                        </select>
-                    </label>
-                    <label>
-                        <span>Base URL</span>
-                        <input id="xb-assistant-base-url" type="text" />
-                    </label>
-                    <label>
-                        <span>API Key</span>
-                        <div class="xb-assistant-inline-input">
-                            <input id="xb-assistant-api-key" type="password" />
-                            <button id="xb-assistant-toggle-key" type="button" class="secondary ghost">显示</button>
-                        </div>
-                    </label>
-                    <label>
-                        <span>Model</span>
-                        <input id="xb-assistant-model" type="text" />
-                    </label>
-                    <div class="xb-assistant-inline-input xb-assistant-model-row">
-                        <label class="xb-assistant-grow">
-                            <span>已拉取模型</span>
-                            <select id="xb-assistant-model-pulled">
-                                <option value="">手动填写</option>
-                            </select>
-                        </label>
-                        <button id="xb-assistant-pull-models" type="button" class="secondary">拉取模型</button>
-                    </div>
-                    <label id="xb-assistant-tool-mode-wrap">
-                        <span>Tool 调用格式</span>
-                        <select id="xb-assistant-tool-mode"></select>
-                    </label>
-                    <label>
-                        <span>斜杠命令权限</span>
-                        <select id="xb-assistant-permission-mode"></select>
-                    </label>
-                    <label class="xb-assistant-checkbox-row">
-                        <span>思考模式</span>
-                        <span class="xb-assistant-checkbox-control">
-                            <input id="xb-assistant-reasoning-enabled" type="checkbox" />
-                            <span>开启</span>
-                        </span>
-                    </label>
-                    <label id="xb-assistant-reasoning-effort-wrap">
-                        <span>思考强度</span>
-                        <select id="xb-assistant-reasoning-effort"></select>
-                    </label>
-                    <div class="xb-assistant-actions">
-                        <button id="xb-assistant-save" type="button">保存配置</button>
-                        <button id="xb-assistant-delete-preset" type="button" class="secondary">删除配置</button>
-                    </div>
-                    <div class="xb-assistant-runtime" id="xb-assistant-runtime"></div>
-                    <div class="xb-assistant-toast xb-assistant-toast-inline" id="xb-assistant-toast" aria-live="polite"></div>
-                    </section>
-                </div>
-            </aside>
-            <div class="xb-assistant-mobile-backdrop" id="xb-assistant-mobile-backdrop" ${state.sidebarCollapsed ? 'hidden' : ''}></div>
-            <main class="xb-assistant-main">
-                <div class="xb-assistant-mobile-topbar">
-                    <section class="xb-assistant-toolbar">
-                        <div class="xb-assistant-toolbar-cluster">
-                            <div class="xb-assistant-status" id="xb-assistant-status"></div>
-                            <div class="xb-assistant-context-meter" id="xb-assistant-context-meter" title="当前实际送模上下文 / 最大上下文"></div>
-                            <button id="xb-assistant-clear" type="button" class="secondary ghost">清空对话</button>
-                        </div>
-                        <button id="xb-assistant-mobile-settings" type="button" class="secondary ghost xb-assistant-mobile-settings">设置</button>
-                    </section>
-                    <button id="xb-assistant-mobile-close" type="button" class="xb-assistant-mobile-close" hidden>关闭</button>
-                </div>
-                <section class="xb-assistant-chat-wrap">
-                    <section class="xb-assistant-chat" id="xb-assistant-chat"></section>
-                    <div class="xb-assistant-scroll-helpers" id="xb-assistant-scroll-helpers">
-                        <button id="xb-assistant-scroll-top" type="button" class="xb-assistant-scroll-btn" title="回到顶部" aria-label="回到顶部">▲</button>
-                        <button id="xb-assistant-scroll-bottom" type="button" class="xb-assistant-scroll-btn" title="回到底部" aria-label="回到底部">▼</button>
-                    </div>
-                </section>
-                <section class="xb-assistant-approval-slot" id="xb-assistant-approval-slot"></section>
-                <form class="xb-assistant-compose" id="xb-assistant-form">
-                    <div class="xb-assistant-compose-row">
-                        <div class="xb-assistant-compose-main">
-                            <textarea id="xb-assistant-input" placeholder=""></textarea>
-                        </div>
-                        <div class="xb-assistant-compose-actions">
-                            <div class="xb-assistant-compose-more" id="xb-assistant-compose-more">
-                                <button id="xb-assistant-compose-menu-toggle" type="button" class="secondary ghost xb-assistant-compose-menu-toggle" aria-expanded="false" aria-haspopup="true" title="更多操作">+</button>
-                                <div class="xb-assistant-compose-menu" id="xb-assistant-compose-menu" hidden>
-                                    <button id="xb-assistant-add-image" type="button" class="xb-assistant-compose-menu-item">
-                                        <span class="xb-assistant-compose-menu-icon" aria-hidden="true">📷</span>
-                                        <span class="xb-assistant-compose-menu-label">发送图片</span>
-                                    </button>
-                                    <button id="xb-assistant-add-local-files" type="button" class="xb-assistant-compose-menu-item">
-                                        <span class="xb-assistant-compose-menu-icon" aria-hidden="true">📄</span>
-                                        <span class="xb-assistant-compose-menu-label">选择文件</span>
-                                    </button>
-                                    <button id="xb-assistant-add-local-directory" type="button" class="xb-assistant-compose-menu-item">
-                                        <span class="xb-assistant-compose-menu-icon" aria-hidden="true">📁</span>
-                                        <span class="xb-assistant-compose-menu-label">选择文件夹</span>
-                                    </button>
-                                </div>
-                            </div>
-                            <button id="xb-assistant-send" type="submit">发送</button>
-                        </div>
-                    </div>
-                    <div class="xb-assistant-compose-extras">
-                        <div class="xb-assistant-local-sources" id="xb-assistant-local-sources" style="display:none;"></div>
-                        <div class="xb-assistant-attachment-gallery xb-assistant-draft-gallery" id="xb-assistant-draft-gallery" style="display:none;"></div>
-                        <input id="xb-assistant-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
-                        <input id="xb-assistant-local-file-input" type="file" multiple hidden />
-                        <input id="xb-assistant-local-directory-input" type="file" multiple webkitdirectory hidden />
-                    </div>
-                </form>
-            </main>
-        </div>
-    `;
-    root.replaceChildren(buildSanitizedHtmlFragment(markup));
-}
-
-function injectStyles() {
-    const style = document.createElement('style');
-    style.textContent = `
-        :root { color-scheme: light; font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif; }
-        html, body { height: 100%; width: 100%; overflow: hidden; }
-        body {
-            margin: 0;
-            background:
-                radial-gradient(circle at top left, rgba(255, 223, 178, 0.72), transparent 34%),
-                radial-gradient(circle at top right, rgba(154, 210, 255, 0.58), transparent 28%),
-                linear-gradient(180deg, #f6f8fb 0%, #eef3f8 100%);
-            color: #142033;
-            overflow-x: hidden;
-        }
-        #${ROOT_ID} { width: 100%; height: 100%; overflow: hidden; box-sizing: border-box; }
-        .xb-assistant-shell {
-            position: relative;
-            display: grid;
-            grid-template-columns: 340px minmax(0, 1fr);
-            height: 100%;
-            width: 100%;
-            max-width: 100%;
-            overflow: hidden;
-            box-sizing: border-box;
-            transition: grid-template-columns 0.22s ease;
-        }
-        .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
-        .xb-assistant-sidebar {
-            position: relative;
-            display: grid;
-            grid-template-rows: auto minmax(0, 1fr);
-            padding: 24px 20px;
-            background: rgba(255, 255, 255, 0.82);
-            border-right: 1px solid rgba(20, 32, 51, 0.08);
-            backdrop-filter: blur(14px);
-            overflow: hidden;
-            box-sizing: border-box;
-            transition: padding 0.22s ease;
-        }
-        .xb-assistant-mobile-settings,
-        .xb-assistant-mobile-close,
-        .xb-assistant-mobile-backdrop {
-            display: none;
-        }
-        .xb-assistant-sidebar-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-        .xb-assistant-sidebar.is-collapsed {
-            padding: 14px 10px;
-            overflow: hidden;
-        }
-        .xb-assistant-sidebar-toggle {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            min-height: 36px;
-            padding: 0 10px;
-            border: none;
-            border-radius: 12px;
-            background: rgba(20, 32, 51, 0.88);
-            color: #fff6e9;
-            cursor: pointer;
-            box-shadow: 0 10px 24px rgba(17, 31, 51, 0.12);
-            transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
-        }
-        .xb-assistant-sidebar-toggle:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 14px 28px rgba(17, 31, 51, 0.16);
-        }
-        .xb-assistant-sidebar-toggle-icon {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            line-height: 1;
-        }
-        .xb-assistant-sidebar-toggle-text {
-            display: none;
-            font-size: 13px;
-            font-weight: 600;
-            line-height: 1;
-        }
-        .xb-assistant-sidebar-content {
-            display: grid;
-            gap: 16px;
-            margin-top: 16px;
-            min-width: 0;
-            min-height: 0;
-            overflow: auto;
-            opacity: 1;
-            transition: opacity 0.18s ease;
-        }
-        .xb-assistant-sidebar-content[hidden] {
-            display: none !important;
-        }
-        .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-content {
-            opacity: 0;
-            pointer-events: none;
-        }
-        .xb-assistant-sidebar.is-collapsed .xb-assistant-brand,
-        .xb-assistant-sidebar.is-collapsed .xb-assistant-config {
-            display: none;
-        }
-        .xb-assistant-sidebar.is-collapsed .xb-assistant-badge {
-            display: none;
-        }
-        .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-header {
-            justify-content: center;
-        }
-        .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-toggle {
-            width: 36px;
-            min-width: 36px;
-            height: 36px;
-            padding: 0;
-        }
-        .xb-assistant-brand h1 { margin: 12px 0 8px; font-size: 30px; }
-        .xb-assistant-brand p { margin: 0 0 18px; color: #4b5a70; line-height: 1.55; }
-        .xb-assistant-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 6px 12px;
-            border-radius: 999px;
-            background: #142033;
-            color: #fff6e9;
-            font-size: 13px;
-            letter-spacing: 0.08em;
-        }
-        .xb-assistant-config { display: grid; gap: 12px; }
-        .xb-assistant-config label { display: grid; gap: 6px; font-size: 13px; color: #41526a; }
-        .xb-assistant-config input,
-        .xb-assistant-config select,
-        .xb-assistant-compose textarea {
-            width: 100%;
-            box-sizing: border-box;
-            border: 1px solid rgba(27, 55, 88, 0.14);
-            border-radius: 14px;
-            padding: 12px 14px;
-            font: inherit;
-            background: rgba(255, 255, 255, 0.9);
-        }
-        .xb-assistant-inline-input {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: 8px;
-            align-items: center;
-        }
-        .xb-assistant-grow { min-width: 0; }
-        .xb-assistant-model-row { align-items: end; }
-        .xb-assistant-checkbox-row {
-            grid-template-columns: minmax(0, 1fr) auto;
-            align-items: center;
-        }
-        .xb-assistant-checkbox-control {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            color: #1b3758;
-            font-size: 14px;
-        }
-        .xb-assistant-help {
-            margin-top: -2px;
-            padding: 10px 12px;
-            border-radius: 14px;
-            background: rgba(27, 55, 88, 0.05);
-            color: #52637a;
-            font-size: 12px;
-            line-height: 1.65;
-        }
-        .xb-assistant-help code {
-            padding: 0.08em 0.34em;
-            border-radius: 8px;
-            background: rgba(20, 32, 51, 0.08);
-            font-family: "Cascadia Code", "Consolas", monospace;
-        }
-        .xb-assistant-checkbox-control input {
-            width: 16px;
-            height: 16px;
-            accent-color: #1b3758;
-        }
-        .xb-assistant-actions,
-        .xb-assistant-toolbar {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            justify-content: flex-start;
-        }
-        .xb-assistant-actions {
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-        .xb-assistant-toolbar-cluster {
-            display: inline-flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
-            flex: 1 1 auto;
-            min-width: 0;
-        }
-        .xb-assistant-actions button,
-        .xb-assistant-toolbar button,
-        .xb-assistant-compose button {
-            border: none;
-            border-radius: 999px;
-            min-height: 40px;
-            padding: 0 16px;
-            background: #1b3758;
-            color: #fff;
-            cursor: pointer;
-            font: inherit;
-            font-size: 13px;
-            font-weight: 600;
-            letter-spacing: 0.01em;
-            box-shadow: 0 10px 24px rgba(27, 55, 88, 0.12);
-            transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, color 0.16s ease;
-        }
-        .xb-assistant-save-button.is-saving,
-        .xb-assistant-save-button.is-success,
-        .xb-assistant-save-button.is-error {
-            pointer-events: none;
-        }
-        .xb-assistant-save-button.is-saving {
-            opacity: 0.86;
-        }
-        .xb-assistant-save-button.is-success {
-            background: #3fb950;
-            color: #fff;
-            box-shadow: 0 14px 28px rgba(63, 185, 80, 0.22);
-        }
-        .xb-assistant-save-button.is-error {
-            background: #f85149;
-            color: #fff;
-            box-shadow: 0 14px 28px rgba(248, 81, 73, 0.22);
-        }
-        .xb-assistant-save-button .xb-assistant-save-spinner {
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-            margin-right: 8px;
-            border-radius: 999px;
-            border: 2px solid currentColor;
-            border-right-color: transparent;
-            vertical-align: -2px;
-            animation: xb-assistant-spin 0.85s linear infinite;
-        }
-        .xb-assistant-actions button:hover,
-        .xb-assistant-toolbar button:hover,
-        .xb-assistant-compose button:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 14px 28px rgba(27, 55, 88, 0.16);
-        }
-        .xb-assistant-actions button.secondary,
-        .xb-assistant-toolbar button.secondary,
-        .xb-assistant-compose button.secondary {
-            background: rgba(255, 255, 255, 0.9);
-            color: #1b3758;
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
-        }
-        .xb-assistant-actions button.ghost,
-        .xb-assistant-toolbar button.ghost,
-        .xb-assistant-compose button.ghost,
-        .xb-assistant-inline-input button.ghost {
-            padding-inline: 14px;
-            background: rgba(255, 255, 255, 0.74);
-            color: #1b3758;
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.1);
-        }
-        .xb-assistant-actions button:disabled,
-        .xb-assistant-toolbar button:disabled,
-        .xb-assistant-compose button:disabled {
-            opacity: 0.52;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-        .xb-assistant-runtime {
-            font-size: 12px;
-            color: #5a6a81;
-            min-height: 18px;
-            line-height: 1.6;
-        }
-        .xb-assistant-main {
-            display: grid;
-            grid-template-rows: auto minmax(0, 1fr) auto;
-            padding: 20px;
-            gap: 16px;
-            min-height: 0;
-            height: 100%;
-            min-width: 0;
-            max-width: 100%;
-            overflow: hidden;
-            box-sizing: border-box;
-        }
-        .xb-assistant-status {
-            display: inline-flex;
-            align-items: center;
-            min-height: 20px;
-            padding: 9px 14px;
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.84);
-            color: #41526a;
-            font-size: 12px;
-            font-weight: 600;
-            box-shadow: 0 10px 24px rgba(17, 31, 51, 0.06);
-        }
-        .xb-assistant-context-meter {
-            display: inline-flex;
-            align-items: center;
-            min-height: 20px;
-            padding: 9px 14px;
-            border-radius: 999px;
-            background: rgba(27, 55, 88, 0.09);
-            color: #1b3758;
-            font-size: 12px;
-            font-weight: 600;
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.08);
-        }
-        .xb-assistant-context-meter.summary-active {
-            background: rgba(201, 107, 51, 0.12);
-            color: #8d442b;
-            box-shadow: inset 0 0 0 1px rgba(201, 107, 51, 0.18);
-        }
-        .xb-assistant-chat-wrap {
-            position: relative;
-            display: flex;
-            min-height: 0;
-            min-width: 0;
-            height: 100%;
-            width: 100%;
-            max-width: 100%;
-            overflow: hidden;
-            box-sizing: border-box;
-        }
-        .xb-assistant-status.busy::before {
-            content: '';
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            margin-right: 8px;
-            border-radius: 999px;
-            background: #c96b33;
-            box-shadow: 0 0 0 rgba(201, 107, 51, 0.35);
-            animation: xb-assistant-pulse 1.2s ease infinite;
-            vertical-align: middle;
-        }
-        .xb-assistant-chat {
-            flex: 1 1 auto;
-            height: 100%;
-            min-height: 0;
-            overflow: auto;
-            overflow-x: hidden;
-            padding: 4px;
-            display: grid;
-            gap: 12px;
-            align-content: start;
-            justify-items: start;
-            grid-auto-rows: max-content;
-            width: 100%;
-            min-width: 0;
-            max-width: 100%;
-            overscroll-behavior: contain;
-        }
-        .xb-assistant-scroll-helpers {
-            position: absolute;
-            top: 12%;
-            right: 10px;
-            bottom: 12%;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.25s ease;
-        }
-        .xb-assistant-scroll-helpers.active {
-            opacity: 1;
-        }
-        .xb-assistant-scroll-btn {
-            width: 32px;
-            height: 32px;
-            border: 1px solid rgba(27, 55, 88, 0.14);
-            border-radius: 999px;
-            background: rgba(244, 248, 252, 0.92);
-            color: #1b3758;
-            cursor: pointer;
-            pointer-events: none;
-            opacity: 0;
-            transform: scale(0.8) translateX(8px);
-            transition: all 0.2s ease;
-            box-shadow: 0 10px 24px rgba(17, 31, 51, 0.08);
-            font: inherit;
-            font-size: 12px;
-            font-weight: 700;
-        }
-        .xb-assistant-scroll-btn.visible {
-            opacity: 1;
-            pointer-events: auto;
-            transform: scale(1) translateX(0);
-        }
-        .xb-assistant-scroll-btn:hover {
-            background: rgba(255, 255, 255, 0.98);
-            transform: scale(1.08) translateX(0);
-        }
-        .xb-assistant-scroll-btn:active {
-            transform: scale(0.96) translateX(0);
-        }
-        .xb-assistant-approval-slot {
-            display: grid;
-            gap: 12px;
-            margin-top: 10px;
-        }
-        .xb-assistant-approval-slot:empty {
-            display: none;
-        }
-        .xb-assistant-empty {
-            align-self: center;
-            justify-self: center;
-            max-width: 720px;
-            padding: 24px 28px;
-            border-radius: 24px;
-            background: rgba(255, 255, 255, 0.82);
-            box-shadow: 0 18px 48px rgba(17, 31, 51, 0.08);
-        }
-        .xb-assistant-empty h2 { margin: 0 0 10px; font-size: 24px; }
-        .xb-assistant-empty p { margin: 0; color: #4b5a70; line-height: 1.7; }
-        .xb-assistant-empty p + p { margin-top: 8px; }
-        .xb-assistant-bubble {
-            width: calc(100% - 20px);
-            max-width: calc(100% - 20px);
-            min-width: 0;
-            box-sizing: border-box;
-            border-radius: 18px;
-            padding: 14px 16px;
-            box-shadow: 0 12px 30px rgba(17, 31, 51, 0.07);
-            align-self: start;
-            overflow-wrap: anywhere;
-        }
-        .xb-assistant-bubble.role-user {
-            justify-self: end;
-            background: linear-gradient(135deg, #1b3758 0%, #285786 100%);
-            color: white;
-        }
-        .xb-assistant-bubble.role-assistant { background: rgba(255, 255, 255, 0.9); }
-        .xb-assistant-bubble.role-assistant.is-tool-call {
-            background: transparent;
-            border: none;
-            box-shadow: none;
-        }
-        .xb-assistant-bubble.role-tool {
-            background: transparent;
-            border: 1px dashed rgba(27, 55, 88, 0.18);
-        }
-        .xb-assistant-meta-row {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 6px;
-        }
-        .xb-assistant-meta {
-            flex: 1 1 auto;
-            min-width: 0;
-            font-size: 12px;
-            opacity: 0.78;
-        }
-        .xb-assistant-bubble.is-tool-call .xb-assistant-meta { margin-bottom: 0; }
-        .xb-assistant-message-actions {
-            display: inline-flex;
-            flex: 0 0 auto;
-            flex-wrap: wrap;
-            justify-content: flex-end;
-            gap: 6px;
-        }
-        .xb-assistant-message-action {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 0;
-            padding: 4px 9px;
-            border: 1px solid rgba(27, 55, 88, 0.12);
-            border-radius: 999px;
-            background: rgba(247, 250, 253, 0.96);
-            color: #304862;
-            font-size: 12px;
-            line-height: 1.1;
-            cursor: pointer;
-            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
-        }
-        .xb-assistant-message-action:hover:not(:disabled) {
-            background: rgba(230, 238, 247, 0.98);
-            border-color: rgba(27, 55, 88, 0.22);
-            color: #203249;
-        }
-        .xb-assistant-message-action:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .xb-assistant-message-editor-wrap {
-            min-width: 0;
-        }
-        .xb-assistant-message-editor {
-            width: 100%;
-            min-height: 108px;
-            box-sizing: border-box;
-            resize: vertical;
-            padding: 12px 14px;
-            border: 1px solid rgba(27, 55, 88, 0.14);
-            border-radius: 14px;
-            background: rgba(252, 253, 255, 0.96);
-            color: #203249;
-            font: inherit;
-            line-height: 1.7;
-        }
-        .xb-assistant-message-editor:focus {
-            outline: none;
-            border-color: rgba(40, 87, 134, 0.48);
-            box-shadow: 0 0 0 3px rgba(40, 87, 134, 0.12);
-        }
-        .xb-assistant-content {
-            margin: 0;
-            min-width: 0;
-            max-width: 100%;
-            box-sizing: border-box;
-            white-space: pre-wrap;
-            word-break: break-word;
-            font: inherit;
-        }
-        .xb-assistant-markdown {
-            min-width: 0;
-            max-width: 100%;
-            white-space: normal;
-            line-height: 1.7;
-            overflow-wrap: anywhere;
-        }
-        .xb-assistant-markdown > *:first-child { margin-top: 0; }
-        .xb-assistant-markdown > *:last-child { margin-bottom: 0; }
-        .xb-assistant-markdown p,
-        .xb-assistant-markdown ul,
-        .xb-assistant-markdown ol,
-        .xb-assistant-markdown pre,
-        .xb-assistant-markdown blockquote,
-        .xb-assistant-markdown table,
-        .xb-assistant-markdown h1,
-        .xb-assistant-markdown h2,
-        .xb-assistant-markdown h3,
-        .xb-assistant-markdown h4 {
-            margin: 0 0 0.8em;
-        }
-        .xb-assistant-markdown code {
-            padding: 0.12em 0.38em;
-            border-radius: 8px;
-            background: rgba(20, 32, 51, 0.08);
-            font-family: "Cascadia Code", "Consolas", monospace;
-            font-size: 0.95em;
-        }
-        .xb-assistant-markdown pre {
-            overflow-x: hidden;
-            overflow-y: visible;
-            min-width: 0;
-            max-width: 100%;
-            box-sizing: border-box;
-            padding: 12px 14px;
-            border-radius: 12px;
-            background: rgba(20, 32, 51, 0.06);
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            word-break: break-all;
-        }
-        .xb-assistant-codeblock {
-            position: relative;
-            min-width: 0;
-            max-width: 100%;
-        }
-        .xb-assistant-codeblock .xb-assistant-code-copy {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            width: 24px;
-            height: 24px;
-            border: none;
-            border-radius: 8px;
-            background: rgba(20, 32, 51, 0.14);
-            color: #36567b;
-            cursor: pointer;
-            font: 600 12px/1 "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            opacity: 0.8;
-        }
-        .xb-assistant-codeblock .xb-assistant-code-copy:hover {
-            background: rgba(20, 32, 51, 0.22);
-            opacity: 1;
-        }
-        .xb-assistant-codeblock pre {
-            padding-top: 34px;
-        }
-        .xb-assistant-markdown pre code {
-            padding: 0;
-            background: transparent;
-        }
-        .xb-assistant-markdown blockquote {
-            padding-left: 12px;
-            border-left: 3px solid rgba(27, 55, 88, 0.24);
-            color: #4b5a70;
-        }
-        .xb-assistant-markdown a {
-            color: #285786;
-            text-decoration: underline;
-        }
-        .xb-assistant-markdown ul,
-        .xb-assistant-markdown ol {
-            padding-left: 1.4em;
-        }
-        .xb-assistant-attachment-gallery {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 12px;
-        }
-        .xb-assistant-local-sources {
-            margin-top: 12px;
-            padding: 12px;
-            border-radius: 14px;
-            background: rgba(245, 248, 252, 0.92);
-            border: 1px solid rgba(27, 55, 88, 0.08);
-        }
-        .xb-assistant-local-sources-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .xb-assistant-local-sources-title {
-            color: #1f334d;
-            font-size: 13px;
-            font-weight: 700;
-        }
-        .xb-assistant-local-sources-actions {
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .xb-assistant-local-source-actions {
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 8px;
-            justify-content: flex-end;
-        }
-        .xb-assistant-local-sources-download,
-        .xb-assistant-local-sources-clear,
-        .xb-assistant-local-source-download,
-        .xb-assistant-local-source-remove {
-            border: none;
-            border-radius: 999px;
-            min-height: 30px;
-            padding: 0 12px;
-            background: rgba(20, 32, 51, 0.08);
-            color: #28496f;
-            cursor: pointer;
-            font: inherit;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .xb-assistant-local-sources-list {
-            display: grid;
-            gap: 8px;
-            margin-top: 10px;
-        }
-        .xb-assistant-local-source-card {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 10px 12px;
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.88);
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.08);
-        }
-        .xb-assistant-local-source-info {
-            min-width: 0;
-        }
-        .xb-assistant-local-source-name {
-            color: #1f334d;
-            font-size: 13px;
-            font-weight: 700;
-            word-break: break-word;
-        }
-        .xb-assistant-local-source-meta {
-            margin-top: 4px;
-            color: #596a81;
-            font-size: 12px;
-            word-break: break-all;
-        }
-        .xb-assistant-attachment-card {
-            position: relative;
-            width: 132px;
-            padding: 8px;
-            border-radius: 14px;
-            background: rgba(255, 255, 255, 0.9);
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
-        }
-        .xb-assistant-attachment-card.compact {
-            background: rgba(255, 255, 255, 0.18);
-            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
-        }
-        .xb-assistant-attachment-image,
-        .xb-assistant-attachment-placeholder {
-            width: 100%;
-            height: 90px;
-            border-radius: 10px;
-            object-fit: cover;
-            display: block;
-            background: rgba(20, 32, 51, 0.08);
-        }
-        .xb-assistant-attachment-placeholder {
-            display: grid;
-            place-items: center;
-            color: #41526a;
-            font-size: 13px;
-        }
-        .xb-assistant-attachment-name {
-            margin-top: 8px;
-            font-size: 12px;
-            line-height: 1.4;
-            word-break: break-word;
-        }
-        .xb-assistant-attachment-remove {
-            position: absolute;
-            top: 6px;
-            right: 6px;
-            width: 24px;
-            height: 24px;
-            border: none;
-            border-radius: 999px;
-            background: rgba(20, 32, 51, 0.72);
-            color: #fff;
-            cursor: pointer;
-            font: inherit;
-        }
-        .xb-assistant-tool-details {
-            margin-top: 10px;
-            border-top: 1px dashed rgba(27, 55, 88, 0.12);
-            padding-top: 10px;
-        }
-        .xb-assistant-tool-batch {
-            width: min(100%, calc(100% - 20px));
-            margin-left: 0;
-            margin-right: auto;
-            border-radius: 18px;
-            background: rgba(244, 248, 252, 0.96);
-            border: 1px solid rgba(27, 55, 88, 0.08);
-            box-shadow: 0 12px 28px rgba(17, 31, 51, 0.06);
-            padding: 10px 14px;
-            box-sizing: border-box;
-        }
-        .xb-assistant-tool-batch + .xb-assistant-tool-batch {
-            margin-top: 12px;
-        }
-        .xb-assistant-tool-batch-summary {
-            cursor: pointer;
-            color: #56677e;
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.02em;
-            list-style: none;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            user-select: none;
-        }
-        .xb-assistant-tool-batch-summary::marker,
-        .xb-assistant-tool-batch-summary::-webkit-details-marker {
-            display: none;
-        }
-        .xb-assistant-tool-batch-summary::after {
-            content: '>';
-            color: #36567b;
-            font-size: 14px;
-            transition: transform 0.16s ease;
-            transform-origin: center;
-        }
-        .xb-assistant-tool-batch[open] .xb-assistant-tool-batch-summary::after {
-            transform: rotate(90deg);
-        }
-        .xb-assistant-tool-batch-body {
-            display: grid;
-            gap: 10px;
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 1px dashed rgba(27, 55, 88, 0.12);
-        }
-        .xb-assistant-tool-batch-note {
-            padding: 12px 14px;
-            border-radius: 14px;
-            background: rgba(255, 255, 255, 0.84);
-            border: 1px solid rgba(27, 55, 88, 0.08);
-            line-height: 1.65;
-            color: #1e2f44;
-        }
-        .xb-assistant-approval {
-            margin-top: 12px;
-            padding: 14px;
-            border-radius: 14px;
-            background: rgba(244, 248, 252, 0.96);
-            border: 1px solid rgba(27, 55, 88, 0.12);
-        }
-        .xb-assistant-approval-title {
-            margin-bottom: 8px;
-            color: #1b3758;
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.02em;
-        }
-        .xb-assistant-approval-command {
-            margin-top: 0;
-            margin-bottom: 8px;
-            padding: 12px;
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.92);
-            border: 1px solid rgba(27, 55, 88, 0.1);
-        }
-        .xb-assistant-approval-note {
-            color: #4b5a70;
-            font-size: 13px;
-            line-height: 1.6;
-        }
-        .xb-assistant-approval-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 12px;
-            flex-wrap: wrap;
-        }
-        .xb-assistant-approval-button {
-            border: none;
-            border-radius: 999px;
-            min-height: 36px;
-            padding: 0 14px;
-            background: #1b3758;
-            color: #fff;
-            cursor: pointer;
-            font: inherit;
-            font-size: 13px;
-            font-weight: 600;
-        }
-        .xb-assistant-approval-button.secondary {
-            background: rgba(255, 255, 255, 0.92);
-            color: #1b3758;
-            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
-        }
-        .xb-assistant-thought-details {
-            margin-top: 10px;
-            border-top: 1px dashed rgba(27, 55, 88, 0.12);
-            padding-top: 10px;
-        }
-        .xb-assistant-tool-details summary {
-            cursor: pointer;
-            color: #36567b;
-            font-size: 13px;
-            list-style: none;
-        }
-        .xb-assistant-thought-details summary {
-            cursor: pointer;
-            color: #36567b;
-            font-size: 13px;
-            list-style: none;
-        }
-        .xb-assistant-tool-details summary::marker,
-        .xb-assistant-tool-details summary::-webkit-details-marker {
-            display: none;
-        }
-        .xb-assistant-thought-details summary::marker,
-        .xb-assistant-thought-details summary::-webkit-details-marker {
-            display: none;
-        }
-        .xb-assistant-tool-details summary::after {
-            content: '（默认折叠）';
-            margin-left: 6px;
-            color: #5a6a81;
-            font-size: 12px;
-        }
-        .xb-assistant-thought-details summary::after {
-            content: '（默认折叠）';
-            margin-left: 6px;
-            color: #5a6a81;
-            font-size: 12px;
-        }
-        .xb-assistant-tool-details[open] summary::after {
-            content: '（点击收起）';
-        }
-        .xb-assistant-thought-details[open] summary::after {
-            content: '（点击收起）';
-        }
-        .xb-assistant-content.tool-detail {
-            margin-top: 10px;
-            line-height: 1.6;
-            max-height: calc(1.6em * 3 + 24px);
-            overflow: hidden;
-            background: rgba(255, 255, 255, 0.72);
-            border-radius: 12px;
-            padding: 12px;
-        }
-        .xb-assistant-content.tool-summary {
-            max-height: calc(1.6em + 2px);
-            overflow: hidden;
-            white-space: nowrap;
-            text-overflow: ellipsis;
-        }
-        .xb-assistant-tool-details[open] .xb-assistant-content.tool-detail {
-            max-height: none;
-            overflow: auto;
-        }
-        .xb-assistant-thought-block + .xb-assistant-thought-block {
-            margin-top: 12px;
-        }
-        .xb-assistant-thought-label {
-            margin-top: 10px;
-            margin-bottom: 8px;
-            color: #5a6a81;
-            font-size: 12px;
-        }
-        .xb-assistant-thought-content {
-            margin-top: 0;
-            padding: 12px;
-            border-radius: 12px;
-            background: rgba(245, 247, 250, 0.96);
-            border: 1px solid rgba(27, 55, 88, 0.1);
-            line-height: 1.65;
-        }
-        .xb-assistant-compose {
-            display: grid;
-            gap: 12px;
-            background: rgba(255, 255, 255, 0.78);
-            border-radius: 22px;
-            padding: 14px;
-            box-shadow: 0 16px 40px rgba(17, 31, 51, 0.08);
-            width: 100%;
-            max-width: 100%;
-            box-sizing: border-box;
-            min-height: 0;
-            overflow: visible;
-        }
-        .xb-assistant-compose-row {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: 12px;
-            align-items: stretch;
-        }
-        .xb-assistant-compose-main {
-            min-width: 0;
-            max-width: 100%;
-            overflow: visible;
-        }
-        .xb-assistant-compose-extras {
-            display: grid;
-            gap: 0;
-            min-width: 0;
-        }
-        .xb-assistant-compose-actions {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            width: 36px;
-            overflow: visible;
-        }
-        .xb-assistant-compose-more {
-            position: relative;
-            flex: 0 0 auto;
-        }
-        .xb-assistant-compose-actions > button,
-        .xb-assistant-compose-menu-toggle {
-            width: 36px;
-            min-width: 36px;
-            height: 30px;
-            min-height: 30px;
-            padding: 0;
-            border-radius: 10px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            line-height: 1;
-            font-weight: 600;
-        }
-        .xb-assistant-compose-actions > button {
-            min-width: 36px;
-        }
-        #xb-assistant-send {
-            font-size: 16px;
-        }
-        .xb-assistant-compose-menu {
-            position: absolute;
-            right: 0;
-            bottom: calc(100% + 10px);
-            min-width: 168px;
-            max-width: min(240px, calc(100vw - 32px));
-            padding: 8px;
-            border-radius: 16px;
-            background: rgba(255, 255, 255, 0.98);
-            border: 1px solid rgba(20, 32, 51, 0.10);
-            box-shadow: 0 18px 36px rgba(17, 31, 51, 0.16);
-            backdrop-filter: blur(12px);
-            display: grid;
-            gap: 4px;
-            z-index: 15;
-        }
-        .xb-assistant-compose-menu[hidden] {
-            display: none;
-        }
-        .xb-assistant-compose-menu-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            width: 100%;
-            min-height: 40px;
-            padding: 0 12px;
-            border: none;
-            border-radius: 12px;
-            background: transparent;
-            color: #1f334d;
-            cursor: pointer;
-            font: inherit;
-            font-size: 13px;
-            font-weight: 600;
-            text-align: left;
-        }
-        .xb-assistant-compose-menu-item:hover:not(:disabled) {
-            background: rgba(40, 87, 134, 0.10);
-        }
-        .xb-assistant-compose-menu-item:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        .xb-assistant-compose-menu-icon {
-            flex: 0 0 auto;
-            font-size: 16px;
-            line-height: 1;
-        }
-        .xb-assistant-compose-menu-label {
-            min-width: 0;
-            white-space: nowrap;
-        }
-        .xb-assistant-compose textarea {
-            min-height: 66px;
-            resize: vertical;
-            max-width: 100%;
-            overflow-x: hidden;
-        }
-        .xb-assistant-compose button.is-busy { background: #8d442b; }
-        .xb-assistant-toast {
-            min-height: 22px;
-            color: #36567b;
-            font-size: 12px;
-            font-weight: 600;
-            opacity: 0;
-            transform: translateY(4px);
-            transition: opacity 0.18s ease, transform 0.18s ease;
-        }
-        .xb-assistant-toast.visible {
-            opacity: 1;
-            transform: translateY(0);
-        }
-        .xb-assistant-toast-inline {
-            padding: 4px 2px 0;
-        }
-        @keyframes xb-assistant-pulse {
-            0% { box-shadow: 0 0 0 0 rgba(201, 107, 51, 0.35); }
-            70% { box-shadow: 0 0 0 8px rgba(201, 107, 51, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(201, 107, 51, 0); }
-        }
-        @keyframes xb-assistant-spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-        @media (max-width: 900px) {
-            .xb-assistant-shell {
-                grid-template-columns: minmax(0, 1fr);
-                grid-template-rows: minmax(0, 1fr);
-                height: 100%;
-            }
-            .xb-assistant-shell.sidebar-collapsed { grid-template-columns: 1fr; }
-            .xb-assistant-sidebar {
-                position: absolute;
-                inset: 12px;
-                z-index: 30;
-                padding: 16px;
-                grid-template-rows: auto minmax(0, 1fr);
-                border: 1px solid rgba(20, 32, 51, 0.08);
-                border-radius: 24px;
-                box-shadow: 0 24px 60px rgba(17, 31, 51, 0.16);
-                max-height: none;
-                overflow: hidden;
-                transition: opacity 0.2s ease, transform 0.2s ease;
-            }
-            .xb-assistant-sidebar.is-collapsed {
-                padding: 16px;
-                opacity: 0;
-                transform: translateY(10px);
-                pointer-events: none;
-            }
-            .xb-assistant-sidebar.is-collapsed .xb-assistant-sidebar-content {
-                opacity: 0;
-                pointer-events: none;
-            }
-            .xb-assistant-sidebar.is-collapsed .xb-assistant-brand,
-            .xb-assistant-sidebar.is-collapsed .xb-assistant-config {
-                display: none;
-            }
-            .xb-assistant-sidebar-toggle {
-                min-width: 116px;
-                padding: 8px 14px;
-                justify-content: space-between;
-                background: linear-gradient(135deg, rgba(27, 55, 88, 0.92), rgba(40, 87, 134, 0.92));
-                font-size: 14px;
-            }
-            .xb-assistant-mobile-backdrop {
-                display: block;
-                position: absolute;
-                inset: 0;
-                z-index: 20;
-                background: rgba(15, 23, 35, 0.24);
-                backdrop-filter: blur(4px);
-            }
-            .xb-assistant-mobile-backdrop[hidden] {
-                display: none;
-            }
-            .xb-assistant-mobile-settings {
-                display: inline-flex;
-                flex: 0 0 auto;
-            }
-            .xb-assistant-sidebar-content {
-                padding-right: 2px;
-            }
-            .xb-assistant-sidebar-toggle-text {
-                display: inline-flex;
-                align-items: center;
-            }
-            .xb-assistant-mobile-topbar {
-                display: grid;
-                grid-template-columns: minmax(0, 1fr) auto;
-                align-items: stretch;
-                gap: 8px;
-            }
-            .xb-assistant-main {
-                padding: 12px;
-                min-height: 0;
-                height: 100%;
-                gap: 12px;
-            }
-            .xb-assistant-mobile-close {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                min-width: 56px;
-                min-height: 36px;
-                padding: 0 14px;
-                border: 1px solid rgba(20, 32, 51, 0.14);
-                border-radius: 999px;
-                background: rgba(255, 255, 255, 0.88);
-                color: #203249;
-                box-shadow: 0 8px 18px rgba(17, 31, 51, 0.10);
-                white-space: nowrap;
-            }
-            .xb-assistant-compose {
-                padding: 12px;
-                padding-bottom: calc(12px + env(safe-area-inset-bottom));
-            }
-            .xb-assistant-compose-row {
-                grid-template-columns: minmax(0, 1fr) auto;
-                align-items: stretch;
-            }
-            .xb-assistant-compose-actions {
-                justify-content: center;
-            }
-            .xb-assistant-compose-menu {
-                right: 0;
-                min-width: 180px;
-                max-width: min(240px, calc(100vw - 40px));
-            }
-            .xb-assistant-local-source-card {
-                align-items: flex-start;
-                flex-direction: column;
-            }
-            .xb-assistant-local-source-actions {
-                width: 100%;
-                justify-content: flex-end;
-            }
-            .xb-assistant-local-sources-actions {
-                width: 100%;
-            }
-            .xb-assistant-local-source-remove {
-                align-self: flex-end;
-            }
-            .xb-assistant-toolbar {
-                display: grid;
-                grid-template-columns: repeat(4, minmax(0, 1fr));
-                align-items: stretch;
-                gap: 8px;
-            }
-            .xb-assistant-toolbar-cluster {
-                display: contents;
-            }
-            .xb-assistant-inline-input { grid-template-columns: 1fr; }
-            .xb-assistant-status,
-            .xb-assistant-context-meter,
-            .xb-assistant-toolbar button {
-                display: flex;
-                align-items: center;
-                min-width: 0;
-                justify-content: center;
-                padding-inline: 8px;
-                font-size: 12px;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
-            .xb-assistant-chat { padding-inline: 0; min-height: 0; }
-            .xb-assistant-bubble { width: 100%; }
-            .xb-assistant-empty {
-                width: 100%;
-                padding: 18px;
-                box-sizing: border-box;
-            }
-            .xb-assistant-scroll-helpers {
-                right: 6px;
-                top: 14%;
-                bottom: calc(14% + env(safe-area-inset-bottom));
-            }
-            .xb-assistant-scroll-btn {
-                width: 28px;
-                height: 28px;
-                font-size: 11px;
-            }
-            .xb-assistant-actions {
-                display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-            .xb-assistant-compose textarea {
-                min-height: 60px;
-                max-height: min(200px, 32vh);
-                resize: none;
-                overflow-y: auto;
-            }
-        }
-    `;
-    document.head.appendChild(style);
-}
-
 function render() {
     const root = document.getElementById(ROOT_ID);
     if (!root) {
         return;
     }
     if (!root.firstChild) {
-        buildAppMarkup(root);
+        root.replaceChildren(buildSanitizedHtmlFragment(buildAssistantAppMarkup(state)));
         bindEvents(root);
     }
 
@@ -2100,6 +879,7 @@ function render() {
         state.configFormSyncPending = false;
     }
     updateContextStats(toProviderMessages(getActiveContextMessages()));
+    ensureWorkspaceSelection();
     const chat = root.querySelector('#xb-assistant-chat');
     const approvalSlot = root.querySelector('#xb-assistant-approval-slot');
     renderMessages(chat);
@@ -2108,163 +888,24 @@ function render() {
         scrollChatToBottom(chat);
     }
     updateChatScrollButtonsVisibility(root);
-
-    const sendButton = root.querySelector('#xb-assistant-send');
-    sendButton.disabled = false;
-    sendButton.classList.toggle('is-busy', state.isBusy);
-    sendButton.textContent = state.isBusy ? '■' : '➤';
-    sendButton.title = state.isBusy ? '终止' : '发送';
-    sendButton.setAttribute('aria-label', state.isBusy ? '终止' : '发送');
-
-    const composeMenuToggle = root.querySelector('#xb-assistant-compose-menu-toggle');
-    const composeMenu = root.querySelector('#xb-assistant-compose-menu');
-    if (state.isBusy && state.composeMenuOpen) {
-        state.composeMenuOpen = false;
-    }
-    composeMenuToggle.disabled = state.isBusy;
-    composeMenuToggle.setAttribute('aria-expanded', state.composeMenuOpen ? 'true' : 'false');
-    composeMenuToggle.title = state.composeMenuOpen ? '收起更多操作' : '展开更多操作';
-    composeMenuToggle.setAttribute('aria-label', state.composeMenuOpen ? '收起更多操作' : '展开更多操作');
-    composeMenu.toggleAttribute('hidden', !state.composeMenuOpen);
-
-    const addImageButton = root.querySelector('#xb-assistant-add-image');
-    addImageButton.disabled = state.isBusy || state.draftAttachments.length >= MAX_IMAGE_ATTACHMENTS;
-    const addImageLabel = addImageButton.querySelector('.xb-assistant-compose-menu-label');
-    addImageLabel.textContent = state.draftAttachments.length
-        ? `发送图片（${state.draftAttachments.length}/${MAX_IMAGE_ATTACHMENTS}）`
-        : '发送图片';
-
-    const localSourceSummary = summarizeLocalSources(state.localSources);
-    const addLocalFilesButton = root.querySelector('#xb-assistant-add-local-files');
-    addLocalFilesButton.disabled = state.isBusy;
-    const addLocalFilesLabel = addLocalFilesButton.querySelector('.xb-assistant-compose-menu-label');
-    addLocalFilesLabel.textContent = localSourceSummary.fileCount
-        ? `选择文件（${localSourceSummary.fileCount}）`
-        : '选择文件';
-
-    const addLocalDirectoryButton = root.querySelector('#xb-assistant-add-local-directory');
-    const directoryInput = root.querySelector('#xb-assistant-local-directory-input');
-    const supportsDirectoryImport = directoryInput && 'webkitdirectory' in directoryInput;
-    addLocalDirectoryButton.disabled = state.isBusy || !supportsDirectoryImport;
-    addLocalDirectoryButton.hidden = !supportsDirectoryImport;
-    addLocalDirectoryButton.title = supportsDirectoryImport ? '导入本地文件夹源码' : '当前环境不支持文件夹导入';
-
-    const clearButton = root.querySelector('#xb-assistant-clear');
-    clearButton.disabled = state.isBusy || !state.messages.length;
-    clearButton.textContent = window.matchMedia('(max-width: 900px)').matches ? '清空' : '清空对话';
-
-    const deletePresetButton = root.querySelector('#xb-assistant-delete-preset');
-    deletePresetButton.disabled = state.isBusy || (state.config?.presetNames || []).length <= 1;
-
-    const saveButton = root.querySelector('#xb-assistant-save');
-    const saveState = state.configSave.status;
-    saveButton.classList.add('xb-assistant-save-button');
-    saveButton.classList.toggle('is-saving', saveState === 'saving');
-    saveButton.classList.toggle('is-success', saveState === 'success');
-    saveButton.classList.toggle('is-error', saveState === 'error');
-    saveButton.disabled = state.isBusy || saveState === 'saving';
-    if (saveState === 'saving') {
-        saveButton.innerHTML = '<span class="xb-assistant-save-spinner" aria-hidden="true"></span>保存中...';
-        saveButton.title = '正在保存配置';
-    } else if (saveState === 'success') {
-        saveButton.textContent = '已保存';
-        saveButton.title = '配置已保存';
-    } else if (saveState === 'error') {
-        saveButton.textContent = '保存失败';
-        saveButton.title = state.configSave.error || '保存失败';
-    } else {
-        saveButton.textContent = '保存配置';
-        saveButton.title = '保存配置';
-    }
-
-    const pullButton = root.querySelector('#xb-assistant-pull-models');
-    pullButton.disabled = state.isBusy;
-
-    const status = root.querySelector('#xb-assistant-status');
-    status.textContent = state.progressLabel || '就绪';
-    status.classList.toggle('busy', state.isBusy);
-
-    const contextMeter = root.querySelector('#xb-assistant-context-meter');
-    contextMeter.textContent = buildContextMeterLabel();
-    contextMeter.classList.toggle('summary-active', !!state.contextStats.summaryActive);
-    const contextBudgetLabel = `${Math.round(MAX_CONTEXT_TOKENS / 1000)}k`;
-    contextMeter.title = state.contextStats.summaryActive
-        ? `当前实际送模上下文 / ${contextBudgetLabel}（已压缩较早历史）`
-        : `当前实际送模上下文 / ${contextBudgetLabel}`;
-
-    const toast = root.querySelector('#xb-assistant-toast');
-    toast.textContent = state.toast || '';
-    toast.classList.toggle('visible', !!state.toast);
-
-    const shell = root.querySelector('.xb-assistant-shell');
-    const sidebar = root.querySelector('.xb-assistant-sidebar');
-    const sidebarToggle = root.querySelector('#xb-assistant-sidebar-toggle');
-    const sidebarContent = root.querySelector('.xb-assistant-sidebar-content');
-    const mobileSettingsButton = root.querySelector('#xb-assistant-mobile-settings');
-    const mobileCloseButton = root.querySelector('#xb-assistant-mobile-close');
-    const mobileBackdrop = root.querySelector('#xb-assistant-mobile-backdrop');
-    const isMobile = window.matchMedia('(max-width: 900px)').matches;
-    shell?.classList.toggle('sidebar-collapsed', !!state.sidebarCollapsed);
-    sidebar?.classList.toggle('is-collapsed', !!state.sidebarCollapsed);
-    sidebarContent?.toggleAttribute('hidden', !!state.sidebarCollapsed);
-    mobileBackdrop?.toggleAttribute('hidden', !isMobile || !!state.sidebarCollapsed);
-    mobileSettingsButton?.toggleAttribute('hidden', !isMobile);
-    mobileCloseButton?.toggleAttribute('hidden', !isMobile);
-    if (sidebarToggle) {
-        sidebarToggle.setAttribute('aria-expanded', state.sidebarCollapsed ? 'false' : 'true');
-        sidebarToggle.setAttribute('aria-label', state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置');
-        sidebarToggle.title = state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置';
-        const text = sidebarToggle.querySelector('.xb-assistant-sidebar-toggle-text');
-        const icon = sidebarToggle.querySelector('.xb-assistant-sidebar-toggle-icon');
-        if (text) {
-            text.textContent = isMobile
-                ? (state.sidebarCollapsed ? '展开设置' : '收起设置')
-                : '';
-        }
-        if (icon) {
-            icon.textContent = isMobile
-                ? (state.sidebarCollapsed ? '▼' : '▲')
-                : (state.sidebarCollapsed ? '⚙' : '‹');
-        }
-    }
-    if (mobileSettingsButton) {
-        mobileSettingsButton.textContent = state.sidebarCollapsed ? '设置' : '关闭设置';
-        mobileSettingsButton.setAttribute('aria-expanded', state.sidebarCollapsed ? 'false' : 'true');
-        mobileSettingsButton.title = state.sidebarCollapsed ? '展开 API 配置' : '收起 API 配置';
-    }
-    if (mobileCloseButton) {
-        mobileCloseButton.textContent = '关闭';
-        mobileCloseButton.title = '关闭小白助手';
-    }
-
-    const draftGallery = root.querySelector('#xb-assistant-draft-gallery');
-    renderAttachmentGallery(draftGallery, state.draftAttachments, {
-        onRemove: (index) => {
+    renderAppChrome(root, state, {
+        maxImageAttachments: MAX_IMAGE_ATTACHMENTS,
+        maxContextTokens: MAX_CONTEXT_TOKENS,
+        buildContextMeterLabel,
+        getWorkspaceSummary,
+        renderAttachmentGallery,
+        renderWorkspace,
+        onRemoveDraftAttachment: (index) => {
             state.draftAttachments = state.draftAttachments.filter((_, itemIndex) => itemIndex !== index);
             render();
         },
-    });
-
-    const localSourcesPanel = root.querySelector('#xb-assistant-local-sources');
-    renderLocalSourcesPanel(localSourcesPanel, {
-        disabled: state.isBusy,
-        onDownload: (sourceId) => {
-            downloadLocalSource(sourceId);
+        onOpenWorkspace: () => {
+            openWorkspace(state.selectedFilePath);
         },
-        onDownloadAll: () => {
-            downloadAllLocalSources();
-        },
-        onRemove: (sourceId) => {
-            removeLocalSource(sourceId);
-        },
-        onClear: () => {
+        onClearLocalSources: () => {
             clearLocalSources();
         },
     });
-
-    const toggleKey = root.querySelector('#xb-assistant-toggle-key');
-    const apiKeyInput = root.querySelector('#xb-assistant-api-key');
-    toggleKey.textContent = apiKeyInput.type === 'password' ? '显示' : '隐藏';
 }
 
 function bindEvents(root) {
@@ -2272,6 +913,7 @@ function bindEvents(root) {
     const imageInput = root.querySelector('#xb-assistant-image-input');
     const localFileInput = root.querySelector('#xb-assistant-local-file-input');
     const localDirectoryInput = root.querySelector('#xb-assistant-local-directory-input');
+    const workspacePanel = root.querySelector('#xb-assistant-workspace-panel');
     const composeMenuRoot = root.querySelector('#xb-assistant-compose-more');
     const composeMenuToggle = root.querySelector('#xb-assistant-compose-menu-toggle');
     const closeComposeMenu = () => {
@@ -2279,9 +921,93 @@ function bindEvents(root) {
         state.composeMenuOpen = false;
         render();
     };
+    let workspaceResizeActive = false;
+    let workspaceResizeStartX = 0;
+    let workspaceResizeStartWidth = 0;
+    let workspaceResizeLastWidth = Number(state.workspaceWidth) || 520;
+    const selectionDocument = root.ownerDocument || document;
+    const refreshContextHint = () => {
+        renderContextHint(root, state);
+    };
+    const getClosestWorkspaceRow = (node) => {
+        let current = node;
+        while (current) {
+            if (current instanceof Element && current.classList.contains('xb-assistant-workspace-code-row')) {
+                return current;
+            }
+            current = current.parentNode;
+        }
+        return null;
+    };
+    const updateWorkspaceSelectionContextFromDom = () => {
+        const selection = selectionDocument.getSelection?.();
+        if (!selection || selection.rangeCount <= 0 || selection.isCollapsed) {
+            if (state.workspaceSelectionContext?.text) {
+                clearWorkspaceSelectionContext();
+                refreshContextHint();
+            }
+            return;
+        }
+        const selectedText = trimContextSnippet(selection.toString(), 600);
+        if (!selectedText || !workspacePanel?.contains(selection.anchorNode) || !workspacePanel.contains(selection.focusNode)) {
+            if (state.workspaceSelectionContext?.text) {
+                clearWorkspaceSelectionContext();
+                refreshContextHint();
+            }
+            return;
+        }
+        const anchorRow = getClosestWorkspaceRow(selection.anchorNode);
+        const focusRow = getClosestWorkspaceRow(selection.focusNode);
+        if (!anchorRow || !focusRow) {
+            if (state.workspaceSelectionContext?.text) {
+                clearWorkspaceSelectionContext();
+                refreshContextHint();
+            }
+            return;
+        }
+        const rawStart = Number(anchorRow.dataset.lineNumber || anchorRow.dataset.lineIndex || 0);
+        const rawEnd = Number(focusRow.dataset.lineNumber || focusRow.dataset.lineIndex || 0);
+        const startLine = Number.isFinite(rawStart) && rawStart > 0 ? Math.min(rawStart, rawEnd || rawStart) : '';
+        const endLine = Number.isFinite(rawEnd) && rawEnd > 0 ? Math.max(rawStart || rawEnd, rawEnd) : '';
+        const nextSelectionContext = normalizeWorkspaceSelectionContext({
+            filePath: state.selectedFilePath,
+            viewerMode: state.viewerMode,
+            lineStart: startLine,
+            lineEnd: endLine,
+            text: selectedText,
+        });
+        const prevSelectionContext = normalizeWorkspaceSelectionContext(state.workspaceSelectionContext);
+        if (JSON.stringify(prevSelectionContext) === JSON.stringify(nextSelectionContext)) {
+            return;
+        }
+        state.workspaceSelectionContext = nextSelectionContext;
+        refreshContextHint();
+    };
     const resizeComposer = () => {
         input.style.height = 'auto';
         input.style.height = `${Math.min(Math.max(input.scrollHeight, 60), 200)}px`;
+    };
+    const applyWorkspaceWidthPreview = (width) => {
+        const normalizedWidth = Math.max(360, Math.min(960, Math.round(Number(width) || 520)));
+        const mainBody = root.querySelector('.xb-assistant-main-body');
+        const workspaceShell = root.querySelector('#xb-assistant-workspace');
+        mainBody?.style.setProperty('--xb-assistant-workspace-width', `${normalizedWidth}px`);
+        workspaceShell?.style.setProperty('--xb-assistant-workspace-width', `${normalizedWidth}px`);
+        return normalizedWidth;
+    };
+    const stopWorkspaceResize = () => {
+        if (!workspaceResizeActive) return;
+        workspaceResizeActive = false;
+        document.body.style.cursor = '';
+        window.removeEventListener('mousemove', handleWorkspaceResizeMove);
+        window.removeEventListener('mouseup', stopWorkspaceResize);
+        setWorkspaceWidth(workspaceResizeLastWidth, { persist: true, render: false });
+    };
+    const handleWorkspaceResizeMove = (event) => {
+        if (!workspaceResizeActive) return;
+        const delta = workspaceResizeStartX - event.clientX;
+        workspaceResizeLastWidth = applyWorkspaceWidthPreview(workspaceResizeStartWidth + delta);
+        setWorkspaceWidth(workspaceResizeLastWidth, { persist: false, render: false });
     };
 
     root.querySelector('#xb-assistant-sidebar-toggle')?.addEventListener('click', () => {
@@ -2298,6 +1024,32 @@ function bindEvents(root) {
 
     root.querySelector('#xb-assistant-mobile-close')?.addEventListener('click', () => {
         post('xb-assistant:close');
+    });
+
+    root.querySelector('#xb-assistant-open-workspace')?.addEventListener('click', () => {
+        toggleWorkspace();
+    });
+
+    root.querySelector('#xb-assistant-clear-local-sources')?.addEventListener('click', () => {
+        if (!state.localSources.length) return;
+        clearLocalSources();
+    });
+
+    root.querySelector('#xb-assistant-workspace-backdrop')?.addEventListener('click', () => {
+        closeWorkspace();
+        clearWorkspaceSelectionContext();
+    });
+
+    root.querySelector('#xb-assistant-workspace-resizer')?.addEventListener('mousedown', (event) => {
+        if (window.matchMedia('(max-width: 900px)').matches) return;
+        workspaceResizeActive = true;
+        workspaceResizeStartX = event.clientX;
+        workspaceResizeStartWidth = Number(state.workspaceWidth) || 520;
+        workspaceResizeLastWidth = workspaceResizeStartWidth;
+        document.body.style.cursor = 'col-resize';
+        window.addEventListener('mousemove', handleWorkspaceResizeMove);
+        window.addEventListener('mouseup', stopWorkspaceResize);
+        event.preventDefault();
     });
 
     root.querySelector('#xb-assistant-mobile-backdrop')?.addEventListener('click', () => {
@@ -2543,6 +1295,7 @@ function bindEvents(root) {
     });
 
     input.addEventListener('input', resizeComposer);
+    selectionDocument.addEventListener('selectionchange', updateWorkspaceSelectionContextFromDom);
 
     input.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && state.composeMenuOpen) {
@@ -2605,6 +1358,12 @@ window.addEventListener('message', (event) => {
         return;
     }
 
+    if (data.type === 'xb-assistant:editor-context') {
+        state.externalEditorContext = normalizeExternalEditorContext(data.payload);
+        renderContextHint(document.getElementById(ROOT_ID), state);
+        return;
+    }
+
     if (data.type === 'xb-assistant:local-sources-updated') {
         void applyExternalLocalSources(data.payload?.localSources || []);
         return;
@@ -2633,7 +1392,7 @@ window.addEventListener('message', (event) => {
 
 async function bootstrap() {
     await restoreSession();
-    injectStyles();
+    injectAssistantStyles(ROOT_ID);
     render();
     syncHostLocalSources();
     post('xb-assistant:ready');
@@ -2641,7 +1400,7 @@ async function bootstrap() {
 
 bootstrap().catch((error) => {
     console.error('[Assistant] 启动失败:', error);
-    injectStyles();
+    injectAssistantStyles(ROOT_ID);
     render();
     syncHostLocalSources();
     post('xb-assistant:ready');

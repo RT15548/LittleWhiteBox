@@ -6,6 +6,7 @@ export function createChatUi(deps) {
         normalizeThoughtBlocks,
         normalizeAttachments,
         renderAttachmentGallery,
+        onLocalPathClick,
     } = deps;
 
     let chatScrollTicking = false;
@@ -111,6 +112,54 @@ export function createChatUi(deps) {
         });
     }
 
+    function enhanceLocalPathLinks(rootNode) {
+        if (!rootNode || typeof onLocalPathClick !== 'function') return;
+        const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            if (!node?.nodeValue || !String(node.nodeValue).includes('local/')) continue;
+            const parent = node.parentElement;
+            if (parent?.closest?.('button, a, textarea, input')) continue;
+            textNodes.push(node);
+        }
+
+        const pathRegex = /local\/[^\s`"'<>，。；：！？（）()\[\]{}]+/g;
+        textNodes.forEach((node) => {
+            const text = String(node.nodeValue || '');
+            let match = null;
+            let lastIndex = 0;
+            const fragment = document.createDocumentFragment();
+            let replaced = false;
+            pathRegex.lastIndex = 0;
+
+            while ((match = pathRegex.exec(text)) !== null) {
+                replaced = true;
+                if (match.index > lastIndex) {
+                    fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+                }
+                const matchedPath = match[0];
+
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'xb-assistant-local-path-link';
+                button.textContent = matchedPath;
+                button.addEventListener('click', () => {
+                    onLocalPathClick(matchedPath);
+                });
+                fragment.appendChild(button);
+                lastIndex = match.index + matchedPath.length;
+            }
+
+            if (!replaced) return;
+            if (lastIndex < text.length) {
+                fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+            }
+            node.parentNode?.replaceChild(fragment, node);
+        });
+    }
+
     function buildSanitizedHtmlFragment(html) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(`<body>${String(html || '')}</body>`, 'text/html');
@@ -119,7 +168,16 @@ export function createChatUi(deps) {
         while (doc.body.firstChild) {
             fragment.appendChild(doc.body.firstChild);
         }
+        enhanceLocalPathLinks(fragment);
         return fragment;
+    }
+
+    function buildInteractivePre(text, className = '') {
+        const pre = document.createElement('pre');
+        pre.className = className;
+        pre.textContent = String(text || '');
+        enhanceLocalPathLinks(pre);
+        return pre;
     }
 
     function getRenderableMessageSignature(message) {
@@ -384,9 +442,7 @@ export function createChatUi(deps) {
 
         if (message.role === 'tool') {
             const display = formatToolResultDisplay(message);
-            const summary = document.createElement('pre');
-            summary.className = 'xb-assistant-content tool-summary';
-            summary.textContent = display.summary || '工具已返回结果。';
+            const summary = buildInteractivePre(display.summary || '工具已返回结果。', 'xb-assistant-content tool-summary');
             bubble.append(summary);
 
             if (display.details) {
@@ -394,9 +450,7 @@ export function createChatUi(deps) {
                 details.className = 'xb-assistant-tool-details';
                 const summaryEl = document.createElement('summary');
                 summaryEl.textContent = message.toolName === toolNames.READ ? '展开文件内容' : '展开详细结果';
-                const detailPre = document.createElement('pre');
-                detailPre.className = 'xb-assistant-content tool-detail';
-                detailPre.textContent = display.details;
+                const detailPre = buildInteractivePre(display.details, 'xb-assistant-content tool-detail');
                 details.append(summaryEl, detailPre);
                 bubble.appendChild(details);
             }

@@ -9,6 +9,7 @@ import { SlashCommandParser } from "../../../../../slash-commands/SlashCommandPa
 import { extensionFolderPath } from "../../core/constants.js";
 import { isTrustedIframeEvent, postToIframe } from "../../core/iframe-messaging.js";
 import { AssistantStorage } from "../../core/server-storage.js";
+import { createAssistantHostWindow } from "./assistant-host-window.js";
 import { TOOL_NAMES } from "./app-src/tooling.js";
 import { normalizeSlashSkillTrigger } from "./app-src/slash-command-policy.js";
 import {
@@ -33,6 +34,7 @@ const CONFIG_SAVED = 'xb-assistant:config-saved';
 const CONFIG_SAVE_ERROR = 'xb-assistant:config-save-error';
 const SKILLS_UPDATED = 'xb-assistant:skills-updated';
 const LOCAL_SOURCES_UPDATED = 'xb-assistant:local-sources-updated';
+const EDITOR_CONTEXT_UPDATED = 'xb-assistant:editor-context';
 const WORKSPACE_PREFIX = 'LittleWhiteBox_Assistant_';
 const DEFAULT_WORKSPACE_FILE = `${WORKSPACE_PREFIX}Worklog.md`;
 const DEFAULT_IDENTITY_FILE = `${WORKSPACE_PREFIX}Identity.md`;
@@ -53,7 +55,7 @@ const MAX_READ_RANGE_LINES = 400;
 const SERVER_FILE_KEY = 'settings';
 const CONFIG_VERSION = 1;
 
-let overlay = null;
+let hostWindow = null;
 let manifestCache = null;
 let jsApiManifestCache = null;
 let jsApiRuntimeModulePromise = null;
@@ -63,144 +65,66 @@ const activeSkillProposalTokens = new Map();
 let settingsCache = null;
 let settingsLoaded = false;
 let localSourcesCache = [];
+let editorContextCache = null;
 
-function ensureMinimizedAssistantStyles() {
-    if (document.getElementById(MINIMIZED_STYLE_ID)) return;
-
-    const style = document.createElement('style');
-    style.id = MINIMIZED_STYLE_ID;
-    style.textContent = `
-        @keyframes xbAssistantGlowPulse {
-            0%, 100% { box-shadow: 0 4px 12px rgba(56, 189, 248, 0.30), inset 0 0 10px rgba(255, 255, 255, 0.10); }
-            50% { box-shadow: 0 4px 20px rgba(56, 189, 248, 0.58), 0 0 0 3px rgba(56, 189, 248, 0.18), inset 0 0 15px rgba(255, 255, 255, 0.18); }
-        }
-        @keyframes xbAssistantHoverFloat {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-3px); }
-        }
-        @keyframes xbAssistantFlamePulse {
-            0%, 100% { transform: scaleY(1); opacity: 0.6; }
-            50% { transform: scaleY(1.5); opacity: 1; }
-        }
-        @keyframes xbAssistantBlink {
-            0%, 94%, 100% { transform: scaleY(1); }
-            97% { transform: scaleY(0.1); }
-        }
-        @keyframes xbAssistantWaveFast {
-            0%, 100% { transform: rotate(0deg); }
-            25% { transform: rotate(-30deg); }
-            75% { transform: rotate(30deg); }
-        }
-        @keyframes xbAssistantZzzFloat {
-            0% { opacity: 0; transform: translate(0, 0) scale(0.5); }
-            40% { opacity: 1; transform: translate(2px, -3px) scale(1); }
-            80% { opacity: 0; transform: translate(4px, -6px) scale(1.2); }
-            100% { opacity: 0; transform: translate(4px, -6px) scale(1.2); }
-        }
-        .xb-assistant-minimized-icon {
-            width: 36px;
-            height: 36px;
-            border: 2px solid rgba(255, 255, 255, 0.86);
-            border-radius: 50%;
-            padding: 0;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #1e293b, #0f172a);
-            cursor: pointer;
-            overflow: visible;
-            box-sizing: border-box;
-            transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.24s ease, background 0.24s ease, box-shadow 0.24s ease;
-            animation: xbAssistantGlowPulse 3s ease-in-out infinite;
-            pointer-events: auto;
-        }
-        .xb-assistant-minimized-icon svg {
-            display: block;
-            overflow: visible;
-        }
-        .xb-assistant-minimized-icon.is-visible {
-            display: inline-flex;
-        }
-        .xb-assistant-minimized-icon .xb-bot-group { transform-origin: center; }
-        .xb-assistant-minimized-icon .xb-flame {
-            transform-origin: center top;
-            opacity: 0;
-        }
-        .xb-assistant-minimized-icon .xb-eyes-normal {
-            transform-origin: center;
-            animation: xbAssistantBlink 4s infinite;
-        }
-        .xb-assistant-minimized-icon .xb-eyes-happy {
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-        .xb-assistant-minimized-icon .xb-arm-left {
-            transform-origin: 7px 11px;
-            transition: transform 0.2s;
-        }
-        .xb-assistant-minimized-icon .xb-zz1 {
-            animation: xbAssistantZzzFloat 2.5s linear infinite;
-        }
-        .xb-assistant-minimized-icon .xb-zz2 {
-            animation: xbAssistantZzzFloat 2.5s linear infinite 1.25s;
-        }
-        .xb-assistant-minimized-icon .xb-antenna-bulb {
-            transition: fill 0.3s ease, filter 0.3s ease;
-        }
-        .xb-assistant-minimized-icon:hover {
-            transform: scale(1.12) rotate(-5deg);
-            border-color: #38bdf8;
-            background: linear-gradient(135deg, #1b3758, #1e40af);
-            box-shadow: 0 8px 25px rgba(56, 189, 248, 0.48);
-        }
-        .xb-assistant-minimized-icon:hover .xb-zz1,
-        .xb-assistant-minimized-icon:hover .xb-zz2 {
-            display: none;
-        }
-        .xb-assistant-minimized-icon:hover .xb-eyes-normal {
-            opacity: 0;
-            animation: none;
-        }
-        .xb-assistant-minimized-icon:hover .xb-eyes-happy {
-            opacity: 1;
-        }
-        .xb-assistant-minimized-icon:hover .xb-arm-left {
-            animation: xbAssistantWaveFast 0.5s ease-in-out infinite;
-        }
-        .xb-assistant-minimized-icon:hover .xb-antenna-bulb {
-            fill: #38bdf8;
-            filter: drop-shadow(0 0 2px #38bdf8);
-        }
-        .xb-assistant-minimized-icon:hover .xb-flame {
-            animation-duration: 0.3s;
-            transform: scaleY(2);
-            fill: #60a5fa;
-        }
-    `;
-    document.head.appendChild(style);
+function trimEditorContextText(text = '', limit = 1200) {
+    const normalized = String(text || '').trim();
+    if (!normalized) return '';
+    if (normalized.length <= limit) return normalized;
+    return `${normalized.slice(0, limit)}...`;
 }
 
-function isAssistantMobileDevice() {
-    const mobileTypes = ['mobile', 'tablet'];
-    try {
-        const platformType = globalThis.Bowser?.parse?.(navigator.userAgent)?.platform?.type;
-        if (mobileTypes.includes(platformType)) {
-            return true;
-        }
-    } catch {
-        // Fall back to pointer/screen heuristics below.
+function normalizeEditorContextPayload(payload = null) {
+    if (!payload || typeof payload !== 'object') return null;
+    const filePath = String(payload.filePath || payload.path || '').trim();
+    const note = String(payload.note || '').trim();
+    const selectionText = trimEditorContextText(payload.selectionText || payload.selectedText || '', 1200);
+    const lineStart = Number.isFinite(Number(payload.lineStart || payload.startLine))
+        ? Number(payload.lineStart || payload.startLine)
+        : '';
+    const lineEnd = Number.isFinite(Number(payload.lineEnd || payload.endLine))
+        ? Number(payload.lineEnd || payload.endLine)
+        : '';
+    const source = String(payload.source || 'external-editor').trim() || 'external-editor';
+    if (!filePath && !note && !selectionText) return null;
+    return {
+        source,
+        filePath,
+        note,
+        selectionText,
+        lineStart,
+        lineEnd,
+    };
+}
+
+function postEditorContextToIframe() {
+    const iframe = getAssistantHostWindow().getIframe();
+    if (!iframe) return false;
+    postToIframe(iframe, {
+        type: EDITOR_CONTEXT_UPDATED,
+        payload: editorContextCache,
+    });
+    return true;
+}
+
+function setAssistantEditorContext(payload = null) {
+    editorContextCache = normalizeEditorContextPayload(payload);
+    postEditorContextToIframe();
+    return editorContextCache;
+}
+
+function clearAssistantEditorContext() {
+    editorContextCache = null;
+    postEditorContextToIframe();
+}
+
+function handleAssistantEditorContextEvent(event) {
+    const detail = event?.detail;
+    if (!detail) {
+        clearAssistantEditorContext();
+        return;
     }
-    return window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 900px)').matches;
-}
-
-function getAssistantMobileTopOffset() {
-    const rawValue = getComputedStyle(document.documentElement).getPropertyValue('--topBarBlockSize').trim();
-    const parsedValue = Number.parseFloat(rawValue);
-    return Number.isFinite(parsedValue) ? Math.max(0, parsedValue) : 0;
-}
-
-function getAssistantMobileViewportHeight() {
-    return Math.max(240, window.innerHeight - getAssistantMobileTopOffset());
+    setAssistantEditorContext(detail);
 }
 
 async function persistAssistantSettings(settings, { silent = true } = {}) {
@@ -341,6 +265,8 @@ function normalizeLocalSourceFileEntry(file) {
     if (!file || typeof file !== 'object') return null;
     const publicPath = String(file.path || file.publicPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
     if (!publicPath.startsWith('local/') || publicPath.includes('..')) return null;
+    const content = typeof file.content === 'string' ? file.content : '';
+    const hasOriginalContent = Object.prototype.hasOwnProperty.call(file, 'originalContent');
     return {
         path: publicPath,
         publicPath,
@@ -348,7 +274,10 @@ function normalizeLocalSourceFileEntry(file) {
         source: 'session-local-source',
         extension: getPathExtension(publicPath),
         sizeBytes: Math.max(0, Number(file.sizeBytes) || 0),
-        content: typeof file.content === 'string' ? file.content : '',
+        content,
+        originalContent: hasOriginalContent
+            ? (file.originalContent === null ? null : typeof file.originalContent === 'string' ? file.originalContent : content)
+            : content,
         name: String(file.name || publicPath.split('/').pop() || '').trim(),
     };
 }
@@ -390,6 +319,25 @@ function findLocalSourceFileByPath(publicPath, localSources = localSourcesCache)
     return getLocalSourceFiles(localSources).find((entry) => entry.publicPath === normalizedPath) || null;
 }
 
+function normalizeLocalDirectoryPath(rawPath) {
+    const normalized = String(rawPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (!normalized.startsWith('local/') || normalized.includes('..')) return '';
+    const segments = normalized.split('/').filter(Boolean);
+    if (segments.length < 2) return '';
+    return `${normalized}/`;
+}
+
+function findLocalDirectoryByPath(publicPath, localSources = localSourcesCache) {
+    const normalizedDirectoryPath = normalizeLocalDirectoryPath(publicPath);
+    if (!normalizedDirectoryPath) return null;
+    const matchingFiles = getLocalSourceFiles(localSources).filter((entry) => entry.publicPath.startsWith(normalizedDirectoryPath));
+    if (!matchingFiles.length) return null;
+    return {
+        path: normalizedDirectoryPath,
+        files: matchingFiles,
+    };
+}
+
 function getWritableLocalPathError(rawPath) {
     const normalized = String(rawPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
     if (!normalized.startsWith('local/')) return 'local_path_required';
@@ -411,7 +359,30 @@ function getLocalSourceLabelFromPath(publicPath = '') {
     return segments[1] || '';
 }
 
-function buildLocalSourceFileEntry(publicPath, content = '') {
+function createLocalSourceSnapshot(sourceLabel, localSources = []) {
+    const normalizedLabel = String(sourceLabel || '').trim();
+    if (!normalizedLabel) {
+        throw new Error('local_source_not_found');
+    }
+    const existingIds = new Set(
+        normalizeLocalSourcesSnapshot(localSources).map((source) => String(source.sourceId || '').trim()).filter(Boolean),
+    );
+    const baseId = `local:${normalizedLabel}`;
+    let sourceId = baseId;
+    let suffix = 2;
+    while (existingIds.has(sourceId)) {
+        sourceId = `${baseId}:${suffix}`;
+        suffix += 1;
+    }
+    return {
+        sourceId,
+        label: normalizedLabel,
+        importedAt: Date.now(),
+        files: [],
+    };
+}
+
+function buildLocalSourceFileEntry(publicPath, content = '', options = {}) {
     const normalizedPath = normalizeWritableLocalPath(publicPath);
     if (!normalizedPath) {
         throw new Error(getWritableLocalPathError(publicPath));
@@ -419,6 +390,9 @@ function buildLocalSourceFileEntry(publicPath, content = '') {
     const segments = normalizedPath.split('/').filter(Boolean);
     const relativePath = segments.slice(2).join('/');
     const normalizedContent = String(content || '');
+    const originalContent = Object.prototype.hasOwnProperty.call(options, 'originalContent')
+        ? options.originalContent
+        : normalizedContent;
     return {
         path: normalizedPath,
         publicPath: normalizedPath,
@@ -427,6 +401,7 @@ function buildLocalSourceFileEntry(publicPath, content = '') {
         extension: getPathExtension(normalizedPath),
         sizeBytes: new TextEncoder().encode(normalizedContent).length,
         content: normalizedContent,
+        originalContent,
         name: segments[segments.length - 1] || relativePath || 'untitled.txt',
     };
 }
@@ -464,15 +439,32 @@ function upsertLocalSourceFile(localSources, publicPath, content) {
 
     let sourceFound = false;
     let fileExisted = false;
-    const nextFile = buildLocalSourceFileEntry(normalizedPath, content);
+    let existingFile = null;
     const nextSources = normalizedSources.map((source) => {
         if (source.label !== sourceLabel) return source;
         sourceFound = true;
         const nextFiles = source.files.map((file) => {
             if (file.publicPath !== normalizedPath) return file;
             fileExisted = true;
-            return nextFile;
+            existingFile = file;
+            return file;
         });
+        return {
+            ...source,
+            files: nextFiles,
+        };
+    });
+
+    const nextFile = buildLocalSourceFileEntry(normalizedPath, content, {
+        originalContent: fileExisted
+            ? (Object.prototype.hasOwnProperty.call(existingFile || {}, 'originalContent') ? existingFile.originalContent : existingFile?.content ?? content)
+            : null,
+    });
+    const finalizedSources = nextSources.map((source) => {
+        if (source.label !== sourceLabel) return source;
+        const nextFiles = source.files.map((file) => (
+            file.publicPath === normalizedPath ? nextFile : file
+        ));
         if (!fileExisted) {
             nextFiles.push(nextFile);
         }
@@ -483,15 +475,246 @@ function upsertLocalSourceFile(localSources, publicPath, content) {
         };
     });
 
-    if (!sourceFound) {
-        throw new Error('local_source_not_found');
+    const finalizedWithSource = sourceFound
+        ? finalizedSources
+        : [
+            ...finalizedSources,
+            createLocalSourceSnapshot(sourceLabel, normalizedSources),
+        ].sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-CN'));
+
+    return {
+        nextSources: finalizedWithSource.map((source) => {
+            if (source.label !== sourceLabel) return source;
+            const nextFiles = source.files.map((file) => (
+                file.publicPath === normalizedPath ? nextFile : file
+            ));
+            if (!nextFiles.some((file) => file.publicPath === normalizedPath)) {
+                nextFiles.push(nextFile);
+            }
+            nextFiles.sort((left, right) => String(left.publicPath || '').localeCompare(String(right.publicPath || ''), 'zh-CN'));
+            return {
+                ...source,
+                files: nextFiles,
+            };
+        }),
+        file: nextFile,
+        fileExisted,
+        sourceLabel,
+    };
+}
+
+function removeLocalSourceFile(localSources, publicPath) {
+    const normalizedPath = normalizeWritableLocalPath(publicPath);
+    if (!normalizedPath) {
+        throw new Error(getWritableLocalPathError(publicPath));
+    }
+
+    const normalizedSources = normalizeLocalSourcesSnapshot(localSources);
+    let removedFile = null;
+    const nextSources = normalizedSources
+        .map((source) => {
+            const nextFiles = source.files.filter((file) => {
+                if (file.publicPath !== normalizedPath) return true;
+                removedFile = file;
+                return false;
+            });
+            if (!nextFiles.length) return null;
+            return {
+                ...source,
+                files: nextFiles,
+            };
+        })
+        .filter(Boolean);
+
+    if (!removedFile) {
+        throw new Error('local_file_not_found');
     }
 
     return {
         nextSources,
-        file: nextFile,
-        fileExisted,
-        sourceLabel,
+        file: removedFile,
+    };
+}
+
+function removeLocalSourcePath(localSources, publicPath) {
+    const fileMatch = findLocalSourceFileByPath(publicPath, localSources);
+    if (fileMatch) {
+        const removal = removeLocalSourceFile(localSources, fileMatch.publicPath);
+        return {
+            mode: 'file',
+            nextSources: removal.nextSources,
+            removedFiles: [removal.file],
+        };
+    }
+
+    const directoryMatch = findLocalDirectoryByPath(publicPath, localSources);
+    if (!directoryMatch) {
+        throw new Error('local_file_not_found');
+    }
+
+    const removedPaths = new Set(directoryMatch.files.map((file) => file.publicPath));
+    return {
+        mode: 'directory',
+        removedFiles: directoryMatch.files.slice(),
+        nextSources: normalizeLocalSourcesSnapshot(localSources)
+            .map((source) => {
+                const nextFiles = source.files.filter((file) => !removedPaths.has(file.publicPath));
+                if (!nextFiles.length) return null;
+                return {
+                    ...source,
+                    files: nextFiles,
+                };
+            })
+            .filter(Boolean),
+    };
+}
+
+function moveLocalSourceFile(localSources, fromPath, toPath, options = {}) {
+    const normalizedFromPath = normalizeWritableLocalPath(fromPath);
+    if (!normalizedFromPath) {
+        throw new Error(getWritableLocalPathError(fromPath));
+    }
+    const normalizedToPath = normalizeWritableLocalPath(toPath);
+    if (!normalizedToPath) {
+        throw new Error(getWritableLocalPathError(toPath));
+    }
+
+    const normalizedSources = normalizeLocalSourcesSnapshot(localSources);
+    const sourceFile = findLocalSourceFileByPath(normalizedFromPath, normalizedSources);
+    if (!sourceFile) {
+        throw new Error('local_file_not_found');
+    }
+
+    const destinationFile = findLocalSourceFileByPath(normalizedToPath, normalizedSources);
+    if (destinationFile && normalizedToPath !== normalizedFromPath && !options.overwrite) {
+        throw new Error('local_destination_exists');
+    }
+
+    const sourceLabel = getLocalSourceLabelFromPath(normalizedFromPath);
+    const destinationLabel = getLocalSourceLabelFromPath(normalizedToPath);
+    let destinationSourceFound = false;
+    const intermediateSources = normalizedSources
+        .map((source) => {
+            const isSourceRoot = source.label === sourceLabel;
+            const isDestinationRoot = source.label === destinationLabel;
+            if (isDestinationRoot) {
+                destinationSourceFound = true;
+            }
+
+            let nextFiles = source.files;
+            if (isSourceRoot) {
+                nextFiles = nextFiles.filter((file) => file.publicPath !== normalizedFromPath);
+            }
+            if (isDestinationRoot && normalizedToPath !== normalizedFromPath) {
+                nextFiles = nextFiles.filter((file) => file.publicPath !== normalizedToPath);
+            }
+
+            if (!nextFiles.length && !isDestinationRoot) return null;
+            return {
+                ...source,
+                files: nextFiles,
+            };
+        })
+        .filter(Boolean);
+    const workingSources = destinationSourceFound
+        ? intermediateSources
+        : [...intermediateSources, createLocalSourceSnapshot(destinationLabel, intermediateSources)];
+
+    const movedFile = buildLocalSourceFileEntry(normalizedToPath, sourceFile.content, {
+        originalContent: sourceFile.originalContent,
+    });
+    const finalizedSources = workingSources.map((source) => {
+        if (source.label !== destinationLabel) return source;
+        return {
+            ...source,
+            files: [...source.files, movedFile]
+                .sort((left, right) => String(left.publicPath || '').localeCompare(String(right.publicPath || ''), 'zh-CN')),
+        };
+    });
+
+    return {
+        nextSources: finalizedSources,
+        fromFile: sourceFile,
+        file: movedFile,
+        overwritten: !!destinationFile && normalizedToPath !== normalizedFromPath,
+    };
+}
+
+function moveLocalSourcePath(localSources, fromPath, toPath, options = {}) {
+    const overwrite = !!options.overwrite;
+    const fileMatch = findLocalSourceFileByPath(fromPath, localSources);
+    if (fileMatch) {
+        const move = moveLocalSourceFile(localSources, fileMatch.publicPath, toPath, { overwrite });
+        return {
+            mode: 'file',
+            nextSources: move.nextSources,
+            movedFiles: [move.file],
+            overwritten: move.overwritten,
+            fromPath: move.fromFile.publicPath,
+            toPath: move.file.publicPath,
+        };
+    }
+
+    const directoryMatch = findLocalDirectoryByPath(fromPath, localSources);
+    const normalizedDestinationDirectory = normalizeLocalDirectoryPath(toPath);
+    if (!directoryMatch || !normalizedDestinationDirectory) {
+        throw new Error('local_file_not_found');
+    }
+
+    const targetMappings = directoryMatch.files.map((file) => ({
+        fromPath: file.publicPath,
+        toPath: `${normalizedDestinationDirectory}${file.publicPath.slice(directoryMatch.path.length)}`,
+    }));
+    const movedPathSet = new Set(targetMappings.map((item) => item.fromPath));
+    const destinationPathSet = new Set(targetMappings.map((item) => item.toPath));
+    const conflictingFiles = getLocalSourceFiles(localSources).filter((file) => (
+        destinationPathSet.has(file.publicPath) && !movedPathSet.has(file.publicPath)
+    ));
+    if (conflictingFiles.length && !overwrite) {
+        throw new Error('local_destination_exists');
+    }
+
+    const conflictPathSet = new Set(conflictingFiles.map((file) => file.publicPath));
+    let nextSources = normalizeLocalSourcesSnapshot(localSources)
+        .map((source) => {
+            const nextFiles = source.files.filter((file) => (
+                !movedPathSet.has(file.publicPath) && !(overwrite && conflictPathSet.has(file.publicPath))
+            ));
+            if (!nextFiles.length) return null;
+            return {
+                ...source,
+                files: nextFiles,
+            };
+        })
+        .filter(Boolean);
+
+    const movedFiles = [];
+    targetMappings.forEach((mapping) => {
+        const sourceFile = directoryMatch.files.find((file) => file.publicPath === mapping.fromPath);
+        const upsert = upsertLocalSourceFile(nextSources, mapping.toPath, sourceFile?.content ?? '');
+        const movedFile = {
+            ...upsert.file,
+            originalContent: sourceFile?.originalContent ?? upsert.file.originalContent,
+        };
+        nextSources = upsert.nextSources.map((source) => {
+            if (source.label !== getLocalSourceLabelFromPath(mapping.toPath)) return source;
+            return {
+                ...source,
+                files: source.files.map((file) => (
+                    file.publicPath === mapping.toPath ? movedFile : file
+                )),
+            };
+        });
+        movedFiles.push(movedFile);
+    });
+
+    return {
+        mode: 'directory',
+        nextSources,
+        movedFiles,
+        overwritten: conflictingFiles.length > 0,
+        fromPath: directoryMatch.path,
+        toPath: normalizedDestinationDirectory,
     };
 }
 
@@ -1370,6 +1593,57 @@ async function editLocalFile(args = {}, options = {}) {
         replaceAll,
         sizeBytes: update.file.sizeBytes,
         totalLines: nextContent === '' ? 0 : nextContent.split('\n').length,
+    };
+}
+
+async function deleteLocalFile(args = {}, options = {}) {
+    const rawPath = String(args.path || '').trim();
+    const targetFilePath = normalizeWritableLocalPath(rawPath);
+    const targetDirectoryPath = normalizeLocalDirectoryPath(rawPath);
+    if (!targetFilePath && !targetDirectoryPath) {
+        throw new Error(getWritableLocalPathError(args.path) || 'local_path_required');
+    }
+
+    const removal = removeLocalSourcePath(options.localSources, rawPath);
+    options.onLocalSourcesUpdated?.(removal.nextSources);
+
+    return {
+        ok: true,
+        path: removal.mode === 'directory'
+            ? targetDirectoryPath
+            : removal.removedFiles[0]?.publicPath || targetFilePath,
+        source: removal.removedFiles[0]?.source || 'session-local-source',
+        mode: removal.mode,
+        removedCount: removal.removedFiles.length,
+    };
+}
+
+async function moveLocalFile(args = {}, options = {}) {
+    const rawFromPath = String(args.fromPath || '').trim();
+    const rawToPath = String(args.toPath || '').trim();
+    const fromFilePath = normalizeWritableLocalPath(rawFromPath);
+    const fromDirectoryPath = normalizeLocalDirectoryPath(rawFromPath);
+    const toFilePath = normalizeWritableLocalPath(rawToPath);
+    const toDirectoryPath = normalizeLocalDirectoryPath(rawToPath);
+    if (!fromFilePath && !fromDirectoryPath) {
+        throw new Error(getWritableLocalPathError(args.fromPath) || 'local_path_required');
+    }
+    if (!(fromFilePath ? toFilePath : toDirectoryPath)) {
+        throw new Error(getWritableLocalPathError(args.toPath) || 'local_path_required');
+    }
+
+    const overwrite = !!args.overwrite;
+    const move = moveLocalSourcePath(options.localSources, rawFromPath, rawToPath, { overwrite });
+    options.onLocalSourcesUpdated?.(move.nextSources);
+
+    return {
+        ok: true,
+        fromPath: move.fromPath,
+        toPath: move.toPath,
+        source: move.movedFiles[0]?.source || 'session-local-source',
+        overwritten: move.overwritten,
+        mode: move.mode,
+        movedCount: move.movedFiles.length,
     };
 }
 
@@ -2483,6 +2757,10 @@ async function executeToolCall(name, args, options = {}) {
             return await writeLocalFile(args, options);
         case TOOL_NAMES.EDIT:
             return await editLocalFile(args, options);
+        case TOOL_NAMES.DELETE:
+            return await deleteLocalFile(args, options);
+        case TOOL_NAMES.MOVE:
+            return await moveLocalFile(args, options);
         case TOOL_NAMES.RUN_SLASH_COMMAND:
             return await runSlashCommand(args, options);
         case TOOL_NAMES.RUN_JAVASCRIPT_API:
@@ -2510,698 +2788,20 @@ async function executeToolCall(name, args, options = {}) {
     }
 }
 
-function openAssistant() {
-    if (document.getElementById(OVERLAY_ID)) return;
-    ensureMinimizedAssistantStyles();
-
-    overlay = document.createElement('div');
-    overlay.id = OVERLAY_ID;
-    overlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: ${window.innerHeight}px;
-        padding: 0;
-        box-sizing: border-box;
-        z-index: 99999;
-        overflow: hidden;
-        pointer-events: none;
-    `;
-
-    const updateOverlayHeight = () => {
-        if (overlay && overlay.style.display !== 'none') {
-            if (isAssistantMobileDevice()) {
-                const topOffset = getAssistantMobileTopOffset();
-                const viewportHeight = getAssistantMobileViewportHeight();
-                overlay.style.top = `${topOffset}px`;
-                overlay.style.height = `${viewportHeight}px`;
-                shell.style.height = `${viewportHeight}px`;
-                shell.style.maxHeight = `${viewportHeight}px`;
-                shell.style.minHeight = `${viewportHeight}px`;
-            } else {
-                overlay.style.top = '0';
-                overlay.style.height = `${window.innerHeight}px`;
-                if (quickLayoutMode !== QUICK_LAYOUT_MODE.FREE) {
-                    applyQuickLayout(quickLayoutMode);
-                } else {
-                    applyShellBounds(shellMetrics.width || shell.getBoundingClientRect().width, shellMetrics.height || shell.getBoundingClientRect().height);
-                }
-            }
-        }
-    };
-
-    const shell = document.createElement('div');
-    shell.style.cssText = `
-        position: absolute;
-        width: min(1200px, calc(100vw - 200px));
-        height: min(800px, calc(100vh - 200px));
-        max-width: calc(100vw - 96px);
-        max-height: calc(100vh - 96px);
-        min-width: 320px;
-        min-height: 400px;
-        overflow: hidden;
-        border-radius: 22px;
-        box-shadow: 0 28px 80px rgba(6, 17, 32, 0.22);
-        border: 1px solid rgba(255, 255, 255, 0.55);
-        background: rgba(238, 243, 248, 0.96);
-        pointer-events: auto;
-    `;
-
-    const titleBar = document.createElement('div');
-    titleBar.setAttribute('aria-label', '拖动小白助手窗口');
-    titleBar.style.cssText = `
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 52px;
-        display: flex;
-        align-items: center;
-        padding: 0 16px 0 18px;
-        box-sizing: border-box;
-        background: linear-gradient(180deg, rgba(248, 250, 253, 0.96), rgba(238, 243, 248, 0.88));
-        border-bottom: 1px solid rgba(27, 55, 88, 0.12);
-        cursor: move;
-        user-select: none;
-        touch-action: none;
-        z-index: 2;
-    `;
-
-    const titleText = document.createElement('div');
-    titleText.textContent = '小白助手';
-    titleText.style.cssText = `
-        color: #142033;
-        font: 700 14px/1.2 "Microsoft YaHei", sans-serif;
-        letter-spacing: 0.02em;
-    `;
-    titleBar.appendChild(titleText);
-
-    const minimizedIcon = document.createElement('button');
-    minimizedIcon.type = 'button';
-    minimizedIcon.className = 'xb-assistant-minimized-icon';
-    minimizedIcon.setAttribute('aria-label', '恢复小白助手');
-    minimizedIcon.title = '唤醒小白助手';
-    minimizedIcon.innerHTML = `
-        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-            <g class="xb-bot-group">
-                <path class="xb-flame" d="M10 18 L12 23 L14 18 Z" fill="#38bdf8" />
-                <path d="M6.5 13 C6.5 17 8 19 12 19 C16 19 17.5 17 17.5 13 Z" fill="#94a3b8"/>
-                <path d="M6 12 C6 17 7.5 18 12 18 C16.5 18 18 17 18 12 Z" fill="#f8fafc"/>
-                <rect class="xb-arm-left" x="3" y="10" width="3.5" height="7" rx="1.75" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.5"/>
-                <rect x="17.5" y="10" width="3.5" height="7" rx="1.75" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.5"/>
-                <rect x="4" y="4" width="16" height="11" rx="3.5" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.5"/>
-                <rect x="5.5" y="5.5" width="13" height="7" rx="2" fill="#0f172a"/>
-                <g class="xb-eyes-normal">
-                    <circle cx="9" cy="9" r="1.5" fill="#38bdf8"/>
-                    <circle cx="15" cy="9" r="1.5" fill="#38bdf8"/>
-                </g>
-                <g class="xb-eyes-happy">
-                    <path d="M7.5 9.5 Q9 7 10.5 9.5" stroke="#38bdf8" stroke-width="1.2" stroke-linecap="round" fill="none"/>
-                    <path d="M13.5 9.5 Q15 7 16.5 9.5" stroke="#38bdf8" stroke-width="1.2" stroke-linecap="round" fill="none"/>
-                </g>
-                <line x1="12" y1="4" x2="12" y2="1.5" stroke="#94a3b8" stroke-width="1.2" stroke-linecap="round"/>
-                <circle class="xb-antenna-bulb" cx="12" cy="1" r="1.5" fill="#facc15"/>
-            </g>
-            <g class="xb-zzz-group">
-                <text x="17" y="5" font-family="Arial" font-size="4" font-weight="bold" fill="#94a3b8" class="xb-zz1">z</text>
-                <text x="19" y="3" font-family="Arial" font-size="5" font-weight="bold" fill="#cbd5e1" class="xb-zz2">Z</text>
-            </g>
-        </svg>
-    `;
-    titleBar.appendChild(minimizedIcon);
-
-    const titleActions = document.createElement('div');
-    titleActions.style.cssText = `
-        position: absolute;
-        top: 8px;
-        right: 14px;
-        z-index: 3;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    `;
-
-    const createTitleActionButton = (label, title) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = label;
-        button.setAttribute('aria-label', title);
-        button.title = title;
-        button.style.cssText = `
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 36px;
-            height: 36px;
-            padding: 0;
-            border: 1px solid rgba(20, 32, 51, 0.12);
-            border-radius: 999px;
-            background: rgba(255, 255, 255, 0.76);
-            color: #203249;
-            cursor: pointer;
-            font: 700 16px/1 "Segoe UI Symbol", "Noto Sans Symbols 2", "Microsoft YaHei", sans-serif;
-            box-shadow: 0 8px 18px rgba(17, 31, 51, 0.10);
-            transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
-        `;
-        button.addEventListener('mouseenter', () => {
-            if (button.getAttribute('data-active') === 'true') return;
-            button.style.transform = 'translateY(-1px)';
-            button.style.boxShadow = '0 12px 24px rgba(17, 31, 51, 0.14)';
+function getAssistantHostWindow() {
+    if (!hostWindow) {
+        hostWindow = createAssistantHostWindow({
+            overlayId: OVERLAY_ID,
+            minimizedStyleId: MINIMIZED_STYLE_ID,
+            htmlPath: HTML_PATH,
+            onCloseRequest: () => closeAssistant(),
         });
-        button.addEventListener('mouseleave', () => {
-            if (button.getAttribute('data-active') === 'true') return;
-            button.style.transform = '';
-            button.style.boxShadow = '0 8px 18px rgba(17, 31, 51, 0.10)';
-        });
-        return button;
-    };
-
-    const minimizeButton = createTitleActionButton('─', '最小化');
-    const sidebarLayoutButton = createTitleActionButton('⊟', '侧边栏布局');
-    const fullscreenButton = createTitleActionButton('⛶', '全屏布局');
-    const closeButton = document.createElement('button');
-    closeButton.type = 'button';
-    closeButton.textContent = '关闭';
-    closeButton.setAttribute('aria-label', '关闭小白助手');
-    closeButton.style.cssText = `
-        position: static;
-        border: none;
-        border-radius: 999px;
-        padding: 10px 14px;
-        background: rgba(20, 32, 51, 0.88);
-        color: #fff;
-        cursor: pointer;
-        font: 600 13px/1 "Microsoft YaHei", sans-serif;
-        box-shadow: 0 10px 24px rgba(6, 17, 32, 0.22);
-    `;
-    closeButton.addEventListener('click', () => closeAssistant());
-    titleActions.append(minimizeButton, sidebarLayoutButton, fullscreenButton, closeButton);
-
-    const resizeHint = document.createElement('div');
-    resizeHint.setAttribute('aria-hidden', 'true');
-    resizeHint.title = '可拖动右下角调整大小';
-    resizeHint.style.cssText = `
-        position: absolute;
-        right: 0;
-        bottom: 0;
-        width: 32px;
-        height: 32px;
-        z-index: 2;
-        border-radius: 0 0 22px 0;
-        cursor: nwse-resize;
-        touch-action: none;
-        background:
-            linear-gradient(135deg, transparent 46%, rgba(27, 55, 88, 0.18) 46%, rgba(27, 55, 88, 0.18) 56%, transparent 56%),
-            linear-gradient(135deg, transparent 62%, rgba(27, 55, 88, 0.28) 62%, rgba(27, 55, 88, 0.28) 72%, transparent 72%),
-            linear-gradient(135deg, transparent 78%, rgba(27, 55, 88, 0.42) 78%);
-    `;
-
-    const iframe = document.createElement('iframe');
-    iframe.src = HTML_PATH;
-    iframe.style.cssText = `
-        position: absolute;
-        top: 52px;
-        left: 0;
-        display: block;
-        width: 100%;
-        height: calc(100% - 52px);
-        border: none;
-        border-radius: 0 0 22px 22px;
-        background: #eef3f8;
-    `;
-
-    const resizeMask = document.createElement('div');
-    resizeMask.setAttribute('aria-hidden', 'true');
-    resizeMask.style.cssText = `
-        position: absolute;
-        top: 52px;
-        left: 0;
-        width: 100%;
-        height: calc(100% - 52px);
-        display: none;
-        pointer-events: none;
-        border-radius: 0 0 22px 22px;
-        background:
-            linear-gradient(180deg, rgba(248, 250, 253, 0.9), rgba(238, 243, 248, 0.9)),
-            repeating-linear-gradient(
-                -45deg,
-                rgba(27, 55, 88, 0.04) 0 12px,
-                rgba(27, 55, 88, 0.08) 12px 24px
-            );
-    `;
-
-    shell.append(titleBar, titleActions, resizeHint, iframe, resizeMask);
-    overlay.appendChild(shell);
-    document.body.appendChild(overlay);
-
-    let shellMetrics = {
-        width: 0,
-        height: 0,
-        left: 0,
-        top: 0,
-    };
-    const QUICK_LAYOUT_MODE = Object.freeze({
-        FREE: 'free',
-        MINIMIZED: 'minimized',
-        FULLSCREEN: 'fullscreen',
-        SIDEBAR: 'sidebar',
-    });
-    let quickLayoutMode = QUICK_LAYOUT_MODE.FREE;
-    let minimizedRestoreSnapshot = null;
-    let layoutFrame = 0;
-    let pendingLayout = null;
-
-    const clampShellPosition = (left, top, width = shellMetrics.width, height = shellMetrics.height) => {
-        const maxLeft = Math.max(0, window.innerWidth - width);
-        const maxTop = Math.max(0, window.innerHeight - height);
-        return {
-            left: Math.max(0, Math.min(left, maxLeft)),
-            top: Math.max(0, Math.min(top, maxTop)),
-        };
-    };
-
-    const flushShellLayout = () => {
-        layoutFrame = 0;
-        if (!pendingLayout) return;
-        const next = {
-            width: pendingLayout.width ?? shellMetrics.width,
-            height: pendingLayout.height ?? shellMetrics.height,
-            left: pendingLayout.left ?? shellMetrics.left,
-            top: pendingLayout.top ?? shellMetrics.top,
-        };
-        shellMetrics = next;
-        shell.style.width = `${next.width}px`;
-        shell.style.height = `${next.height}px`;
-        shell.style.left = `${next.left}px`;
-        shell.style.top = `${next.top}px`;
-        pendingLayout = null;
-    };
-
-    const scheduleShellLayout = (patch) => {
-        pendingLayout = {
-            ...(pendingLayout || {}),
-            ...patch,
-        };
-        if (!layoutFrame) {
-            layoutFrame = requestAnimationFrame(flushShellLayout);
-        }
-    };
-
-    const centerShell = () => {
-        const width = shell.getBoundingClientRect().width;
-        const height = shell.getBoundingClientRect().height;
-        const nextLeft = Math.max(0, Math.round((window.innerWidth - width) / 2));
-        const nextTop = Math.max(0, Math.round((window.innerHeight - height) / 2));
-        shellMetrics = {
-            width,
-            height,
-            left: nextLeft,
-            top: nextTop,
-        };
-        shell.style.left = `${nextLeft}px`;
-        shell.style.top = `${nextTop}px`;
-    };
-
-    const applyShellChrome = () => {
-        shell.style.background = 'rgba(238, 243, 248, 0.96)';
-        shell.style.overflow = 'hidden';
-        titleBar.style.height = '52px';
-        titleBar.style.padding = '0 16px 0 18px';
-        titleBar.style.justifyContent = 'flex-start';
-        titleBar.style.background = 'linear-gradient(180deg, rgba(248, 250, 253, 0.96), rgba(238, 243, 248, 0.88))';
-        titleBar.style.borderBottom = '1px solid rgba(27, 55, 88, 0.12)';
-        titleBar.style.cursor = 'move';
-        titleBar.style.pointerEvents = 'auto';
-        titleText.style.color = '#142033';
-        titleText.style.font = '700 14px/1.2 "Microsoft YaHei", sans-serif';
-        titleText.style.display = 'block';
-        iframe.style.display = 'block';
-        iframe.style.top = '52px';
-        iframe.style.height = 'calc(100% - 52px)';
-        titleActions.style.display = 'flex';
-        minimizedIcon.classList.remove('is-visible');
-        resizeHint.style.display = '';
-        resizeMask.style.top = '52px';
-        resizeMask.style.height = 'calc(100% - 52px)';
-        if (quickLayoutMode === QUICK_LAYOUT_MODE.FULLSCREEN) {
-            shell.style.borderRadius = '0';
-            shell.style.border = 'none';
-            shell.style.boxShadow = 'none';
-            iframe.style.borderRadius = '0';
-            resizeMask.style.borderRadius = '0';
-            resizeHint.style.borderRadius = '0';
-            return;
-        }
-        if (quickLayoutMode === QUICK_LAYOUT_MODE.MINIMIZED) {
-            shell.style.borderRadius = '0';
-            shell.style.border = 'none';
-            shell.style.boxShadow = 'none';
-            shell.style.background = 'transparent';
-            shell.style.overflow = 'visible';
-            titleBar.style.height = '100%';
-            titleBar.style.padding = '0';
-            titleBar.style.justifyContent = 'center';
-            titleBar.style.background = 'transparent';
-            titleBar.style.borderBottom = 'none';
-            titleBar.style.cursor = 'default';
-            titleBar.style.pointerEvents = 'none';
-            titleText.style.display = 'none';
-            iframe.style.display = 'none';
-            titleActions.style.display = 'none';
-            minimizedIcon.classList.add('is-visible');
-            resizeHint.style.display = 'none';
-            resizeMask.style.display = 'none';
-            return;
-        }
-        if (quickLayoutMode === QUICK_LAYOUT_MODE.SIDEBAR) {
-            shell.style.borderRadius = '0 22px 22px 0';
-            shell.style.border = '1px solid rgba(255, 255, 255, 0.55)';
-            shell.style.boxShadow = '0 28px 80px rgba(6, 17, 32, 0.22)';
-            iframe.style.borderRadius = '0 0 22px 0';
-            resizeMask.style.borderRadius = '0 0 22px 0';
-            resizeHint.style.borderRadius = '0 0 22px 0';
-            return;
-        }
-        shell.style.borderRadius = '22px';
-        shell.style.border = '1px solid rgba(255, 255, 255, 0.55)';
-        shell.style.boxShadow = '0 28px 80px rgba(6, 17, 32, 0.22)';
-        iframe.style.borderRadius = '0 0 22px 22px';
-        resizeMask.style.borderRadius = '0 0 22px 22px';
-        resizeHint.style.borderRadius = '0 0 22px 0';
-    };
-
-    const updateQuickLayoutButtons = () => {
-        const setButtonState = (button, active) => {
-            button.setAttribute('aria-pressed', active ? 'true' : 'false');
-            button.setAttribute('data-active', active ? 'true' : 'false');
-            button.style.background = active ? 'rgba(20, 32, 51, 0.88)' : 'rgba(255, 255, 255, 0.76)';
-            button.style.color = active ? '#fff' : '#203249';
-            button.style.boxShadow = active
-                ? '0 10px 24px rgba(6, 17, 32, 0.22)'
-                : '0 8px 18px rgba(17, 31, 51, 0.10)';
-            button.style.transform = '';
-        };
-        setButtonState(minimizeButton, quickLayoutMode === QUICK_LAYOUT_MODE.MINIMIZED);
-        setButtonState(fullscreenButton, quickLayoutMode === QUICK_LAYOUT_MODE.FULLSCREEN);
-        setButtonState(sidebarLayoutButton, quickLayoutMode === QUICK_LAYOUT_MODE.SIDEBAR);
-    };
-
-    const getShellSnapshot = (mode = quickLayoutMode) => {
-        const rect = shell.getBoundingClientRect();
-        return {
-            mode,
-            width: pendingLayout?.width ?? shellMetrics.width ?? rect.width,
-            height: pendingLayout?.height ?? shellMetrics.height ?? rect.height,
-            left: pendingLayout?.left ?? shellMetrics.left ?? rect.left,
-            top: pendingLayout?.top ?? shellMetrics.top ?? rect.top,
-        };
-    };
-
-    const getMinimizedLayout = () => {
-        const width = 36;
-        const height = 36;
-        const anchor = document.querySelector('.fa-solid.fa-bars.interactable');
-        const anchorRect = anchor?.getBoundingClientRect?.();
-        if (anchorRect) {
-            const left = Math.max(
-                8,
-                Math.min(
-                    Math.round(anchorRect.left + ((anchorRect.width - width) / 2)),
-                    window.innerWidth - width - 8,
-                ),
-            );
-            const top = Math.max(8, Math.round(anchorRect.top - height));
-            return { width, height, left, top };
-        }
-        return {
-            width,
-            height,
-            left: 12,
-            top: Math.max(8, window.innerHeight - height - 72),
-        };
-    };
-
-    const getSidebarLayoutWidth = () => {
-        const viewportWidth = window.innerWidth;
-        const chatRect = document.querySelector('#chat')?.getBoundingClientRect?.();
-        const chatLeft = Number.isFinite(chatRect?.left) ? chatRect.left : 0;
-        if (chatLeft > 320) {
-            return Math.min(viewportWidth, Math.round(chatLeft));
-        }
-        return Math.max(360, Math.round(viewportWidth * 0.42));
-    };
-
-    const applyQuickLayout = (mode) => {
-        quickLayoutMode = mode;
-        applyShellChrome();
-        updateQuickLayoutButtons();
-        if (mode === QUICK_LAYOUT_MODE.FULLSCREEN) {
-            applyShellBounds(window.innerWidth, window.innerHeight, { left: 0, top: 0 });
-            return;
-        }
-        if (mode === QUICK_LAYOUT_MODE.SIDEBAR) {
-            applyShellBounds(getSidebarLayoutWidth(), window.innerHeight, { left: 0, top: 0 });
-            return;
-        }
-        if (mode === QUICK_LAYOUT_MODE.MINIMIZED) {
-            const minimizedLayout = getMinimizedLayout();
-            applyShellBounds(minimizedLayout.width, minimizedLayout.height, minimizedLayout);
-        }
-    };
-
-    const exitQuickLayout = () => {
-        if (quickLayoutMode === QUICK_LAYOUT_MODE.FREE) return;
-        quickLayoutMode = QUICK_LAYOUT_MODE.FREE;
-        applyShellChrome();
-        updateQuickLayoutButtons();
-    };
-
-    const applyShellBounds = (width, height, position = null) => {
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-        const maxWidth = Math.max(320, viewportWidth);
-        const maxHeight = Math.max(240, viewportHeight);
-        const minWidth = quickLayoutMode === QUICK_LAYOUT_MODE.MINIMIZED ? 36 : 220;
-        const minHeight = quickLayoutMode === QUICK_LAYOUT_MODE.MINIMIZED ? 36 : 140;
-        const nextWidth = Math.max(minWidth, Math.min(width, maxWidth));
-        const nextHeight = Math.max(minHeight, Math.min(height, maxHeight));
-        shell.style.maxWidth = 'none';
-        shell.style.maxHeight = 'none';
-        shell.style.minWidth = '0';
-        shell.style.minHeight = '0';
-        const currentLeft = position?.left ?? pendingLayout?.left ?? shellMetrics.left;
-        const currentTop = position?.top ?? pendingLayout?.top ?? shellMetrics.top;
-        const clamped = clampShellPosition(currentLeft, currentTop, nextWidth, nextHeight);
-        scheduleShellLayout({
-            width: nextWidth,
-            height: nextHeight,
-            left: clamped.left,
-            top: clamped.top,
-        });
-    };
-
-    centerShell();
-    applyShellChrome();
-    updateQuickLayoutButtons();
-
-    let dragState = null;
-    let resizeState = null;
-    const setResizePreviewActive = (active) => {
-        iframe.style.visibility = active ? 'hidden' : '';
-        iframe.style.pointerEvents = active ? 'none' : '';
-        resizeMask.style.display = active ? 'block' : 'none';
-    };
-    const stopDrag = () => {
-        dragState = null;
-        document.body.style.userSelect = '';
-        document.body.style.cursor = '';
-        shell.style.willChange = '';  // 清除 will-change
-        window.removeEventListener('pointermove', onDragPointerMove);
-        window.removeEventListener('pointerup', stopDrag);
-        window.removeEventListener('pointercancel', stopDrag);
-    };
-    const onDragPointerMove = (event) => {
-        if (!dragState) return;
-        event.preventDefault();
-        const nextLeft = dragState.startLeft + (event.clientX - dragState.startX);
-        const nextTop = dragState.startTop + (event.clientY - dragState.startY);
-        const clamped = clampShellPosition(nextLeft, nextTop, shellMetrics.width, shellMetrics.height);
-        scheduleShellLayout({ left: clamped.left, top: clamped.top });
-    };
-    const stopResize = () => {
-        if (layoutFrame) {
-            cancelAnimationFrame(layoutFrame);
-            flushShellLayout();
-        }
-        resizeState = null;
-        document.body.style.userSelect = '';
-        document.body.style.cursor = '';
-        shell.style.willChange = '';  // 清除 will-change
-        setResizePreviewActive(false);
-        window.removeEventListener('pointermove', onPointerMove);
-        window.removeEventListener('pointerup', stopResize);
-        window.removeEventListener('pointercancel', stopResize);
-    };
-    const onPointerMove = (event) => {
-        if (!resizeState) return;
-        event.preventDefault();
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-        const deltaX = event.clientX - resizeState.startX;
-        const deltaY = event.clientY - resizeState.startY;
-        let nextWidth = resizeState.startWidth + deltaX;
-        let nextHeight = resizeState.startHeight + deltaY;
-        let nextLeft = resizeState.startLeft;
-        let nextTop = resizeState.startTop;
-
-        // 鼠标碰到右/下边缘后，继续利用左/上的空白把窗口放大到贴边，
-        // 避免桌面端“明明还能更大，但拖不下去”的观感。
-        if (deltaX > 0 && event.clientX >= (viewportWidth - 2)) {
-            const extraWidth = Math.min(
-                resizeState.startLeft,
-                Math.max(0, viewportWidth - nextWidth),
-            );
-            nextWidth += extraWidth;
-            nextLeft -= extraWidth;
-        }
-        if (deltaY > 0 && event.clientY >= (viewportHeight - 2)) {
-            const extraHeight = Math.min(
-                resizeState.startTop,
-                Math.max(0, viewportHeight - nextHeight),
-            );
-            nextHeight += extraHeight;
-            nextTop -= extraHeight;
-        }
-
-        applyShellBounds(nextWidth, nextHeight, {
-            left: nextLeft,
-            top: nextTop,
-        });
-    };
-    titleBar.addEventListener('pointerdown', (event) => {
-        if (isAssistantMobileDevice()) return;
-        if (event.target.closest('button')) return;
-        if (quickLayoutMode === QUICK_LAYOUT_MODE.MINIMIZED) return;
-        event.preventDefault();
-        exitQuickLayout();
-        const rect = shell.getBoundingClientRect();
-        dragState = {
-            startX: event.clientX,
-            startY: event.clientY,
-            startLeft: shellMetrics.left || rect.left,
-            startTop: shellMetrics.top || rect.top,
-        };
-        document.body.style.userSelect = 'none';
-        document.body.style.cursor = 'move';
-        shell.style.willChange = 'left, top';  // 提示浏览器优化
-        window.addEventListener('pointermove', onDragPointerMove);
-        window.addEventListener('pointerup', stopDrag);
-        window.addEventListener('pointercancel', stopDrag);
-    });
-    resizeHint.addEventListener('pointerdown', (event) => {
-        if (isAssistantMobileDevice()) return;
-        event.preventDefault();
-        event.stopPropagation();
-        exitQuickLayout();
-        resizeState = {
-            startX: event.clientX,
-            startY: event.clientY,
-            startWidth: shellMetrics.width || shell.getBoundingClientRect().width,
-            startHeight: shellMetrics.height || shell.getBoundingClientRect().height,
-            startLeft: shellMetrics.left || shell.getBoundingClientRect().left,
-            startTop: shellMetrics.top || shell.getBoundingClientRect().top,
-        };
-        document.body.style.userSelect = 'none';
-        document.body.style.cursor = 'nwse-resize';
-        shell.style.willChange = 'width, height, left, top';  // 提示浏览器优化
-        setResizePreviewActive(true);
-        window.addEventListener('pointermove', onPointerMove);
-        window.addEventListener('pointerup', stopResize);
-        window.addEventListener('pointercancel', stopResize);
-    });
-
-    minimizedIcon.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (quickLayoutMode !== QUICK_LAYOUT_MODE.MINIMIZED) return;
-        if (minimizedRestoreSnapshot?.mode && minimizedRestoreSnapshot.mode !== QUICK_LAYOUT_MODE.FREE) {
-            applyQuickLayout(minimizedRestoreSnapshot.mode);
-            return;
-        }
-        quickLayoutMode = QUICK_LAYOUT_MODE.FREE;
-        applyShellChrome();
-        updateQuickLayoutButtons();
-        applyShellBounds(
-            minimizedRestoreSnapshot?.width || 980,
-            minimizedRestoreSnapshot?.height || 720,
-            {
-                left: minimizedRestoreSnapshot?.left ?? Math.max(0, Math.round((window.innerWidth - 980) / 2)),
-                top: minimizedRestoreSnapshot?.top ?? Math.max(0, Math.round((window.innerHeight - 720) / 2)),
-            },
-        );
-    });
-
-    minimizeButton.addEventListener('click', () => {
-        if (isAssistantMobileDevice()) return;
-        minimizedRestoreSnapshot = getShellSnapshot(quickLayoutMode);
-        applyQuickLayout(QUICK_LAYOUT_MODE.MINIMIZED);
-    });
-    fullscreenButton.addEventListener('click', () => {
-        if (isAssistantMobileDevice()) return;
-        applyQuickLayout(QUICK_LAYOUT_MODE.FULLSCREEN);
-    });
-    sidebarLayoutButton.addEventListener('click', () => {
-        if (isAssistantMobileDevice()) return;
-        applyQuickLayout(QUICK_LAYOUT_MODE.SIDEBAR);
-    });
-
-    window.addEventListener('resize', updateOverlayHeight);
-    window.visualViewport?.addEventListener('resize', updateOverlayHeight);
-    overlay._cleanup = () => {
-        stopDrag();
-        stopResize();
-        if (layoutFrame) {
-            cancelAnimationFrame(layoutFrame);
-            layoutFrame = 0;
-            pendingLayout = null;
-        }
-        window.removeEventListener('resize', updateOverlayHeight);
-        window.visualViewport?.removeEventListener('resize', updateOverlayHeight);
-    };
-
-    if (isAssistantMobileDevice()) {
-        const topOffset = getAssistantMobileTopOffset();
-        const viewportHeight = getAssistantMobileViewportHeight();
-        overlay.style.padding = '0';
-        overlay.style.top = `${topOffset}px`;
-        overlay.style.height = `${viewportHeight}px`;
-        titleBar.style.height = '56px';
-        titleBar.style.padding = '0 16px';
-        titleBar.style.cursor = 'default';
-        titleBar.style.display = 'none';
-        titleActions.style.display = 'none';
-        shell.style.width = '100%';
-        shell.style.height = `${viewportHeight}px`;
-        shell.style.maxWidth = '100%';
-        shell.style.maxHeight = `${viewportHeight}px`;
-        shell.style.minWidth = '100%';
-        shell.style.minHeight = `${viewportHeight}px`;
-        shell.style.left = '0';
-        shell.style.top = '0';
-        shell.style.borderRadius = '0';
-        shell.style.border = 'none';
-        shell.style.boxShadow = 'none';
-        shell.style.background = 'rgba(238, 243, 248, 0.98)';
-        closeButton.style.display = 'none';
-        resizeHint.style.display = 'none';
-        iframe.style.top = '0';
-        iframe.style.height = '100%';
-        iframe.style.borderRadius = '0';
-        resizeMask.style.top = '0';
-        resizeMask.style.height = '100%';
-        resizeMask.style.borderRadius = '0';
     }
+    return hostWindow;
+}
+
+function openAssistant() {
+    if (!getAssistantHostWindow().open()) return;
 
     // Guarded inside handleIframeMessage via isTrustedIframeEvent.
     // eslint-disable-next-line no-restricted-syntax
@@ -3210,17 +2810,12 @@ function openAssistant() {
 
 function closeAssistant() {
     window.removeEventListener('message', handleIframeMessage);
-    const overlayEl = document.getElementById(OVERLAY_ID);
-    if (overlayEl) {
-        overlayEl._cleanup?.();
-        overlayEl.remove();
-    }
-    overlay = null;
+    getAssistantHostWindow().close();
     localSourcesCache = [];
 }
 
 async function handleIframeMessage(event) {
-    const iframe = overlay?.querySelector('iframe');
+    const iframe = getAssistantHostWindow().getIframe();
     if (!isTrustedIframeEvent(event, iframe)) return;
     if (!event.data?.type?.startsWith('xb-assistant:')) return;
 
@@ -3237,6 +2832,7 @@ async function handleIframeMessage(event) {
                     runtime: await buildAssistantRuntimePayload(),
                 },
             });
+            postEditorContextToIframe();
             break;
         }
         case 'xb-assistant:close':
@@ -3362,14 +2958,18 @@ async function handleIframeMessage(event) {
 
 export async function initAssistant() {
     await loadAssistantSettings();
+    document.addEventListener('xb-assistant:editor-context', handleAssistantEditorContextEvent);
     window.xiaobaixAssistant = {
         openSettings: openAssistant,
         closeSettings: closeAssistant,
         getSettings: () => ({ ...getAssistantSettings() }),
+        setEditorContext: (payload) => setAssistantEditorContext(payload),
+        clearEditorContext: () => clearAssistantEditorContext(),
     };
 }
 
 export function cleanupAssistant() {
+    document.removeEventListener('xb-assistant:editor-context', handleAssistantEditorContextEvent);
     closeAssistant();
     delete window.xiaobaixAssistant;
 }

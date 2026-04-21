@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-20T15:04:15.829Z",
+  "generatedAt": "2026-04-21T06:44:13.122Z",
   "version": 1,
   "files": [
     {
@@ -124,6 +124,18 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/app-chrome.js",
+      "relativePath": "modules/assistant/app-src/app-chrome.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/app-shell.js",
+      "relativePath": "modules/assistant/app-src/app-shell.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/attachments.js",
       "relativePath": "modules/assistant/app-src/attachments.js",
       "extension": ".js"
@@ -138,6 +150,24 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/local-sources.js",
       "relativePath": "modules/assistant/app-src/local-sources.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/local-workspace-diff.js",
+      "relativePath": "modules/assistant/app-src/local-workspace-diff.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/local-workspace-tree.js",
+      "relativePath": "modules/assistant/app-src/local-workspace-tree.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/local-workspace-ui.js",
+      "relativePath": "modules/assistant/app-src/local-workspace-ui.js",
       "extension": ".js"
     },
     {
@@ -184,15 +214,33 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/styles.js",
+      "relativePath": "modules/assistant/app-src/styles.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/tooling.js",
       "relativePath": "modules/assistant/app-src/tooling.js",
       "extension": ".js"
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/ARCHITECTURE.md",
+      "relativePath": "modules/assistant/ARCHITECTURE.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-file-manifest.json",
       "relativePath": "modules/assistant/assistant-file-manifest.json",
       "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-host-window.js",
+      "relativePath": "modules/assistant/assistant-host-window.js",
+      "extension": ".js"
     },
     {
       "source": "littlewhitebox",
@@ -247,6 +295,18 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/st-jsapi-manifest.json",
       "relativePath": "modules/assistant/st-jsapi-manifest.json",
       "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/jsapi-runtime.test.js",
+      "relativePath": "modules/assistant/tests/jsapi-runtime.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/local-workspace.test.js",
+      "relativePath": "modules/assistant/tests/local-workspace.test.js",
+      "extension": ".js"
     },
     {
       "source": "littlewhitebox",

@@ -46,8 +46,11 @@ export function createAttachmentsManager(deps) {
     function buildUserContentParts(message = {}) {
         const attachments = normalizeAttachments(message.attachments).filter((item) => item.dataUrl);
         const parts = [];
-        if (message.content?.trim()) {
-            parts.push({ type: 'text', text: message.content.trim() });
+        const contextPrefix = String(message.contextPrefix || '').trim();
+        const contentText = String(message.content || '').trim();
+        const finalText = [contextPrefix, contentText].filter(Boolean).join('\n\n');
+        if (finalText) {
+            parts.push({ type: 'text', text: finalText });
         }
         attachments.forEach((attachment) => {
             parts.push({

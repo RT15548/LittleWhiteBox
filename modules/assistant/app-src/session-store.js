@@ -93,6 +93,15 @@ export function createSessionStore(deps) {
             historySummary: String(state.historySummary || ''),
             sidebarCollapsed: state.sidebarCollapsed !== undefined ? !!state.sidebarCollapsed : true,
             localSources: normalizeLocalSources(state.localSources),
+            isWorkspaceOpen: !!state.isWorkspaceOpen,
+            workspaceWidth: Number.isFinite(Number(state.workspaceWidth)) ? Number(state.workspaceWidth) : 520,
+            selectedSourceId: String(state.selectedSourceId || 'all') || 'all',
+            selectedFilePath: String(state.selectedFilePath || ''),
+            selectedTreePath: String(state.selectedTreePath || ''),
+            fileSearchQuery: String(state.fileSearchQuery || ''),
+            showModifiedOnly: !!state.showModifiedOnly,
+            viewerMode: String(state.viewerMode || 'current'),
+            treeExpandedKeys: Array.isArray(state.treeExpandedKeys) ? state.treeExpandedKeys.map((item) => String(item || '')).filter(Boolean) : [],
             messages: activeMessages,
         };
     }
@@ -105,6 +114,15 @@ export function createSessionStore(deps) {
                 historySummary: snapshot.historySummary,
                 sidebarCollapsed: snapshot.sidebarCollapsed,
                 localSources: snapshot.localSources,
+                isWorkspaceOpen: snapshot.isWorkspaceOpen,
+                workspaceWidth: snapshot.workspaceWidth,
+                selectedSourceId: snapshot.selectedSourceId,
+                selectedFilePath: snapshot.selectedFilePath,
+                selectedTreePath: snapshot.selectedTreePath,
+                fileSearchQuery: snapshot.fileSearchQuery,
+                showModifiedOnly: snapshot.showModifiedOnly,
+                viewerMode: snapshot.viewerMode,
+                treeExpandedKeys: snapshot.treeExpandedKeys,
             });
             await messagesTable.where('sessionId').equals(SESSION_ID).delete();
             if (snapshot.messages.length) {
@@ -174,6 +192,15 @@ export function createSessionStore(deps) {
                 state.archivedTurnCount = 0;
                 state.sidebarCollapsed = true;
                 state.localSources = [];
+                state.isWorkspaceOpen = false;
+                state.workspaceWidth = 520;
+                state.selectedSourceId = 'all';
+                state.selectedFilePath = '';
+                state.selectedTreePath = '';
+                state.fileSearchQuery = '';
+                state.showModifiedOnly = false;
+                state.viewerMode = 'current';
+                state.treeExpandedKeys = [];
                 return;
             }
 
@@ -191,6 +218,17 @@ export function createSessionStore(deps) {
             state.archivedTurnCount = 0;
             state.sidebarCollapsed = session.sidebarCollapsed !== undefined ? !!session.sidebarCollapsed : true;
             state.localSources = normalizeLocalSources(session.localSources);
+            state.isWorkspaceOpen = !!session.isWorkspaceOpen;
+            state.workspaceWidth = Number.isFinite(Number(session.workspaceWidth)) ? Number(session.workspaceWidth) : 520;
+            state.selectedSourceId = String(session.selectedSourceId || 'all') || 'all';
+            state.selectedFilePath = String(session.selectedFilePath || '');
+            state.selectedTreePath = String(session.selectedTreePath || '');
+            state.fileSearchQuery = String(session.fileSearchQuery || '');
+            state.showModifiedOnly = !!session.showModifiedOnly;
+            state.viewerMode = String(session.viewerMode || 'current');
+            state.treeExpandedKeys = Array.isArray(session.treeExpandedKeys)
+                ? session.treeExpandedKeys.map((item) => String(item || '')).filter(Boolean)
+                : [];
         } catch (error) {
             console.error('[Assistant] 恢复会话失败:', error);
             state.messages = [];
@@ -198,6 +236,15 @@ export function createSessionStore(deps) {
             state.archivedTurnCount = 0;
             state.sidebarCollapsed = true;
             state.localSources = [];
+            state.isWorkspaceOpen = false;
+            state.workspaceWidth = 520;
+            state.selectedSourceId = 'all';
+            state.selectedFilePath = '';
+            state.selectedTreePath = '';
+            state.fileSearchQuery = '';
+            state.showModifiedOnly = false;
+            state.viewerMode = 'current';
+            state.treeExpandedKeys = [];
         }
     }
 

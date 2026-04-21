@@ -253,6 +253,10 @@ function resolvePublicApiPathFromNode(node, state) {
         return String(getDeclaredIdentifierMeta(current.name, state)?.originPath || '').trim();
     }
 
+    if (current.type === 'CallExpression') {
+        return resolveCallResultOriginPath(current, state);
+    }
+
     if (current.type !== 'MemberExpression') {
         return '';
     }
@@ -273,6 +277,15 @@ function resolvePublicApiPathFromNode(node, state) {
     }
 
     return `${basePath}.${propertySegment}`;
+}
+
+function resolveCallResultOriginPath(node, state) {
+    const calleePath = resolvePublicApiPathFromNode(node?.callee, state);
+    if (!calleePath) return '';
+    if (calleePath === 'st.extensions.getContext') {
+        return 'ctx';
+    }
+    return state.callablePaths.has(calleePath) ? calleePath : '';
 }
 
 function registerApiUsage(pathText, state, parent = null) {
