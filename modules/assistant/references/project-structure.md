@@ -75,17 +75,17 @@ LittleWhiteBox/
 ├── style.css                               # 全局样式
 ├── vite.assistant.config.mjs               # 助手模块 Vite 构建配置
 │
-├── scripts/
+├── scripts/                               # 构建与检查脚本
 │   ├── build-assistant-file-manifest.mjs   # 助手文件清单构建脚本
 │   └── check-garbled.js                    # 乱码检查脚本（lint 前置）
 │
-├── bridges/
+├── bridges/                               # 与酒馆运行时、上下文、世界书、iframe 的桥接层
 │   ├── call-generate-service.js            # 生成服务调用桥接
 │   ├── context-bridge.js                   # 上下文桥接
 │   ├── worldbook-bridge.js                 # 世界书桥接
 │   └── wrapper-iframe.js                   # iframe 包装桥接
 │
-├── core/
+├── core/                                  # 底层公共能力：常量、事件、存储、命令、路径、消息通信
 │   ├── constants.js                        # 常量与路径定义
 │   ├── debug-core.js                       # 调试日志与注册器
 │   ├── event-manager.js                    # 事件管理封装
@@ -95,19 +95,19 @@ LittleWhiteBox/
 │   ├── variable-path.js                    # 变量路径解析
 │   └── wrapper-inline.js                   # iframe 内联注入工具
 │
-├── docs/
+├── docs/                                  # 许可证与第三方声明
 │   ├── COPYRIGHT                            # 版权声明
 │   ├── LICENSE.md                           # 许可证
 │   └── NOTICE                               # 第三方说明
 │
-├── libs/
+├── libs/                                  # 项目直接带的第三方库与 wasm 依赖
 │   ├── dexie.mjs                           # IndexedDB 工具库
 │   ├── fflate.mjs                          # 压缩/解压工具
 │   ├── js-yaml.mjs                         # YAML 解析库
 │   ├── minisearch.mjs                      # 轻量检索库
 │   ├── pixi.min.js                         # Pixi 渲染库
 │   ├── tiny-segmenter.js                   # 轻量分词器
-│   └── jieba-wasm/
+│   └── jieba-wasm/                        # 中文分词 wasm 依赖包
 │       ├── jieba_rs_wasm.js                # jieba wasm JS 包装
 │       ├── jieba_rs_wasm.d.ts              # 类型声明
 │       ├── jieba_rs_wasm_bg.wasm           # wasm 二进制
@@ -116,7 +116,7 @@ LittleWhiteBox/
 │       ├── README.md                        # 上游说明
 │       └── package.json                     # 上游包信息
 │
-├── modules/
+├── modules/                               # LittleWhiteBox 各业务功能模块主目录
 │   ├── control-audio.js                    # 音频控制模块
 │   ├── iframe-renderer.js                  # iframe 渲染与挂载
 │   ├── immersive-mode.js                   # 沉浸模式
@@ -124,17 +124,17 @@ LittleWhiteBox/
 │   ├── openai-url-utils.js                 # OpenAI URL 工具
 │   ├── streaming-generation.js             # 流式生成能力
 │   │
-│   ├── debug-panel/
+│   ├── debug-panel/                       # 调试面板功能
 │   │   ├── debug-panel.html                # 调试面板 UI
 │   │   └── debug-panel.js                  # 调试面板逻辑
 │   │
-│   ├── ena-planner/
+│   ├── ena-planner/                       # ENA 剧情规划器；发送前增强与规划 UI 都在这里
 │   │   ├── ena-planner-presets.js          # 剧情规划预设
 │   │   ├── ena-planner.css                 # 剧情规划样式
 │   │   ├── ena-planner.html                # 剧情规划 UI
 │   │   └── ena-planner.js                  # 剧情规划主逻辑（发送前拦截，用户输入增强）
 │   │
-│   ├── fourth-wall/
+│   ├── fourth-wall/                       # 四次元壁功能：消息增强、图像、语音、提示词
 │   │   ├── fourth-wall.html                # 四次元壁 UI
 │   │   ├── fourth-wall.js                  # 四次元壁主逻辑
 │   │   ├── fw-image.js                     # 图像逻辑
@@ -143,7 +143,7 @@ LittleWhiteBox/
 │   │   ├── fw-voice.js                     # 语音常量/指南
 │   │   └── fw-voice-runtime.js             # 语音运行时（合成/播放互斥）
 │   │
-│   ├── novel-draw/
+│   ├── novel-draw/                        # 小说/楼层绘图能力主模块
 │   │   ├── TAG编写指南.md                  # TAG 指南
 │   │   ├── cloud-presets.js                # 云端预设
 │   │   ├── danbooru-local-db.js            # Danbooru 本地数据库
@@ -154,77 +154,77 @@ LittleWhiteBox/
 │   │   ├── novel-draw.html                 # 画图 UI
 │   │   ├── novel-draw.js                   # 画图主逻辑
 │   │   ├── worldbook-processor.js          # 世界书处理器
-│   │   ├── data/
+│   │   ├── data/                          # 画图功能本地数据资源
 │   │   │   └── danbooru-chars.dat          # Danbooru 角色数据
-│   │   └── prompts/
+│   │   └── prompts/                       # 画图相关提示词模板
 │   │       ├── output-format-legacy.md     # 旧版输出格式
 │   │       ├── output-format.md            # 输出格式
 │   │       ├── top-system-pov.md           # 顶层系统 POV
 │   │       └── top-system.md               # 顶层系统
 │   │
-│   ├── scheduled-tasks/
+│   ├── scheduled-tasks/                   # 定时任务与嵌入式任务功能
 │   │   ├── embedded-tasks.html             # 内嵌任务 UI
 │   │   ├── scheduled-tasks.html            # 定时任务 UI
 │   │   └── scheduled-tasks.js              # 定时任务逻辑
 │   │
-│   ├── story-outline/
+│   ├── story-outline/                     # 故事大纲生成功能
 │   │   ├── story-outline-prompt.js         # 大纲 Prompt
 │   │   ├── story-outline.html              # 大纲 UI
 │   │   └── story-outline.js                # 大纲逻辑
 │   │
-│   ├── story-summary/
+│   ├── story-summary/                     # 故事总结与向量记忆主模块
 │   │   ├── story-summary.css               # 样式
 │   │   ├── story-summary-a.css             # 额外样式（A版）
 │   │   ├── story-summary.html              # iframe UI
 │   │   ├── story-summary-ui.js             # UI 交互逻辑
 │   │   ├── story-summary.js                # 主逻辑（入口/注入/通信）
-│   │   ├── data/
+│   │   ├── data/                          # summary 本地配置、DB 与存储层
 │   │   │   ├── config.js                   # 配置存取
 │   │   │   ├── db.js                       # DB schema
 │   │   │   └── store.js                    # 总结数据存储
-│   │   ├── generate/
+│   │   ├── generate/                      # summary 生成链：调度、LLM、Prompt
 │   │   │   ├── generator.js                # 生成调度
 │   │   │   ├── llm.js                      # LLM 调用
 │   │   │   └── prompt.js                   # Prompt 注入/预算装配
-│   │   └── vector/
-│   │       ├── llm/
+│   │   └── vector/                        # 向量记忆系统：召回、存储、embedding、流水线
+│   │       ├── llm/                       # 向量链里的 LLM / embedding / 重排服务
 │   │       │   ├── atom-extraction.js      # L0 原子抽取
 │   │       │   ├── llm-service.js          # LLM 服务封装
 │   │       │   ├── reranker.js             # 重排器
 │   │       │   └── siliconflow.js          # embedding API 封装
-│   │       ├── pipeline/
+│   │       ├── pipeline/                  # 向量处理流水线与状态集成
 │   │       │   ├── chunk-builder.js        # chunk 构建
 │   │       │   └── state-integration.js    # state 集成
-│   │       ├── retrieval/
+│   │       ├── retrieval/                 # 检索与召回逻辑
 │   │       │   ├── diffusion.js            # 扩散召回
 │   │       │   ├── entity-lexicon.js       # 实体词典
 │   │       │   ├── lexical-index.js        # 词法索引
 │   │       │   ├── metrics.js              # 召回指标
 │   │       │   ├── query-builder.js        # 查询构造
 │   │       │   └── recall.js               # 召回引擎
-│   │       ├── storage/
+│   │       ├── storage/                   # 向量与状态存储
 │   │       │   ├── chunk-store.js          # chunk 向量存储
 │   │       │   ├── state-store.js          # state 向量存储
 │   │       │   └── vector-io.js            # 向量导入导出
-│   │       └── utils/
+│   │       └── utils/                     # 向量链公共工具：分词、过滤、worker、停用词
 │   │           ├── embedder.js             # embedding 入口
 │   │           ├── embedder.worker.js      # embedding worker
 │   │           ├── stopwords-base.js       # 停用词基类
 │   │           ├── stopwords-patch.js      # 停用词补丁
 │   │           ├── text-filter.js          # 文本过滤
 │   │           ├── tokenizer.js            # 分词器
-│   │           └── stopwords-data/
+│   │           └── stopwords-data/        # 多语言停用词数据
 │   │               ├── LICENSE.stopwords-iso.txt # 停用词数据许可
 │   │               ├── SOURCES.md          # 停用词数据来源
 │   │               ├── stopwords-iso.en.txt# 英文停用词
 │   │               ├── stopwords-iso.ja.txt# 日文停用词
 │   │               └── stopwords-iso.zh.txt# 中文停用词
 │   │
-│   ├── template-editor/
+│   ├── template-editor/                   # 模板编辑器
 │   │   ├── template-editor.html            # 模板编辑器 UI
 │   │   └── template-editor.js              # 模板编辑器逻辑
 │   │
-│   ├── tts/
+│   ├── tts/                               # 语音合成与播放相关功能
 │   │   ├── tts-api.js                      # TTS API 适配
 │   │   ├── tts-auth-provider.js            # 鉴权通道
 │   │   ├── tts-cache.js                    # 缓存
@@ -239,37 +239,49 @@ LittleWhiteBox/
 │   │   ├── 开通管理.png                     # 说明图
 │   │   └── 获取ID和KEY.png                  # 说明图
 │   │
-│   ├── variables/
+│   ├── variables/                         # 变量系统 2.0 主入口；命令、面板、事件与状态引擎都在这里
 │   │   ├── var-commands.js                 # 变量命令
 │   │   ├── varevent-editor.js              # 变量事件编辑器
 │   │   ├── variables-core.js               # 变量核心
 │   │   ├── variables-panel.js              # 变量面板
-│   │   └── state2/
+│   │   └── state2/                        # 变量 2.0 状态执行引擎：解析、语义、守卫、执行
 │   │       ├── executor.js                 # 执行器
 │   │       ├── guard.js                    # 守卫
 │   │       ├── index.js                    # 导出入口
 │   │       ├── parser.js                   # 解析器
 │   │       └── semantic.js                 # 语义处理
 │   │
-│   └── assistant/
+│   └── assistant/                         # 小白助手模块：Agent UI、运行时、工具系统、适配器、参考资料
 │       ├── assistant.js                    # 宿主桥接与工具侧逻辑
 │       ├── assistant-overlay.html          # 助手页面壳
 │       ├── assistant-file-manifest.json    # 文件清单（构建产物）
-│       ├── app-src/
-│       │   ├── main.js                     # 助手前端主逻辑
-│       │   └── adapters/
-│       │       ├── anthropic.js            # Anthropic 适配器
-│       │       ├── google.js               # Google AI 适配器
-│       │       ├── openai-compatible.js    # OpenAI-Compatible 适配器
-│       │       └── openai-responses.js     # OpenAI Responses 适配器
-│       ├── dist/
+│       ├── app-src/                       # 助手前端源码
+│       │   ├── attachments.js              # 附件规范化与消息附件辅助
+│       │   ├── chat-ui.js                  # 聊天气泡、工具批次、审批块等 UI 渲染
+│       │   ├── main.js                     # 助手前端装配入口：状态、渲染、runtime 组装
+│       │   ├── runtime.js                  # 主运行时：对话循环、工具调用、审批、上下文压缩
+│       │   ├── session-db.js               # IndexedDB schema
+│       │   ├── session-store.js            # 会话持久化与恢复
+│       │   ├── settings-panel.js           # 设置面板 UI 与配置同步
+│       │   ├── slash-command-policy.js     # slash 命令规范化与审批策略
+│       │   ├── tooling.js                  # 工具定义、schema 与使用规则
+│       │   ├── adapters/                  # 各模型 provider 适配层
+│       │   │   ├── anthropic.js            # Anthropic 适配器
+│       │   │   ├── google.js               # Google AI 适配器
+│       │   │   ├── openai-compatible.js    # OpenAI-Compatible 适配器
+│       │   │   └── openai-responses.js     # OpenAI Responses 适配器
+│       │   └── prompts/                   # 助手提示词模板
+│       │       └── system-prompt.js        # 系统提示词与权限模式提示拼装
+│       ├── dist/                          # 助手前端打包产物
 │       │   └── assistant-app.js            # 构建产物（Vite 打包）
-│       └── references/
+│       ├── shared/                        # 助手前后共享的配置与标准化逻辑
+│       │   └── config.js                   # 助手配置标准化、预设与默认值
+│       └── references/                    # 助手排查时优先读取的参考资料
 │           ├── project-structure.md        # 项目结构参考（本文档）
 │           ├── sillytavern-javascript-api-reference.md  # SillyTavern JS API 参考
 │           └── stscript-language-reference.md           # STscript 语言参考
 │
-└── widgets/
+└── widgets/                               # 通用消息区小挂件
     ├── button-collapse.js                  # 按钮折叠
     └── message-toolbar.js                  # 消息工具栏
 ```

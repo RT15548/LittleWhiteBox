@@ -4,12 +4,15 @@
     "type": "module",
     "scripts": {
         "build:assistant:manifest": "node scripts/build-assistant-file-manifest.mjs",
+        "build:assistant:jsapi-manifest": "node scripts/build-assistant-jsapi-manifest.mjs",
+        "build:assistant:jsapi-runtime": "node scripts/build-assistant-jsapi-runtime.mjs",
         "build:assistant:app": "vite build --config vite.assistant.config.mjs",
-        "build:assistant": "npm run build:assistant:manifest && npm run build:assistant:app",
+        "build:assistant": "npm run build:assistant:manifest && npm run build:assistant:jsapi-manifest && npm run build:assistant:jsapi-runtime && npm run build:assistant:app",
         "lint": "node scripts/check-garbled.js && eslint \"**/*.js\"",
         "lint:fix": "eslint \"**/*.js\" --fix"
     },
     "devDependencies": {
+        "acorn": "^8.16.0",
         "esbuild": "^0.28.0",
         "eslint": "^8.57.1",
         "eslint-plugin-jsdoc": "^48.10.0",

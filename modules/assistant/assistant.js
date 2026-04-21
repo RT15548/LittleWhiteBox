@@ -1,7 +1,13 @@
 import { getRequestHeaders } from "../../../../../../script.js";
+import * as scriptModule from "../../../../../../script.js";
+import { getContext } from "../../../../../extensions.js";
+import * as extensionsModule from "../../../../../extensions.js";
+import * as slashCommandsModule from "../../../../../slash-commands.js";
+import { SlashCommand } from "../../../../../slash-commands/SlashCommand.js";
+import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from "../../../../../slash-commands/SlashCommandArgument.js";
+import { SlashCommandParser } from "../../../../../slash-commands/SlashCommandParser.js";
 import { extensionFolderPath } from "../../core/constants.js";
 import { isTrustedIframeEvent, postToIframe } from "../../core/iframe-messaging.js";
-import { executeSlashCommand } from "../../core/slash-command.js";
 import { AssistantStorage } from "../../core/server-storage.js";
 import { TOOL_NAMES } from "./app-src/tooling.js";
 import { normalizeSlashSkillTrigger } from "./app-src/slash-command-policy.js";
@@ -13,17 +19,20 @@ import {
     normalizeAssistantSettings,
     normalizePresetName,
 } from "./shared/config.js";
+import { getPathExtension, isSupportedPublicTextPath } from "./shared/public-text-file-types.js";
 
 const MODULE_ID = 'assistant';
 const OVERLAY_ID = 'xiaobaix-assistant-overlay';
 const MINIMIZED_STYLE_ID = 'xiaobaix-assistant-minimized-style';
 const HTML_PATH = `${extensionFolderPath}/modules/assistant/assistant-overlay.html`;
 const MANIFEST_PATH = `${extensionFolderPath}/modules/assistant/assistant-file-manifest.json`;
+const JSAPI_MANIFEST_PATH = `${extensionFolderPath}/modules/assistant/st-jsapi-manifest.json`;
 const TOOL_RESULT = 'xb-assistant:tool-result';
 const TOOL_ERROR = 'xb-assistant:tool-error';
 const CONFIG_SAVED = 'xb-assistant:config-saved';
 const CONFIG_SAVE_ERROR = 'xb-assistant:config-save-error';
 const SKILLS_UPDATED = 'xb-assistant:skills-updated';
+const LOCAL_SOURCES_UPDATED = 'xb-assistant:local-sources-updated';
 const WORKSPACE_PREFIX = 'LittleWhiteBox_Assistant_';
 const DEFAULT_WORKSPACE_FILE = `${WORKSPACE_PREFIX}Worklog.md`;
 const DEFAULT_IDENTITY_FILE = `${WORKSPACE_PREFIX}Identity.md`;
@@ -38,6 +47,7 @@ const MAX_SKILL_PROMPT_ITEMS = 20;
 const MAX_CONTENT_CACHE_ENTRIES = 48;
 const MAX_READ_FILE_BYTES = 100 * 1024;
 const MAX_READ_RETURN_CHARS = 24_000;
+const MAX_JSAPI_RETURN_CHARS = 50 * 1024;
 const DEFAULT_AUTO_READ_LINES = 220;
 const MAX_READ_RANGE_LINES = 400;
 const SERVER_FILE_KEY = 'settings';
@@ -45,11 +55,14 @@ const CONFIG_VERSION = 1;
 
 let overlay = null;
 let manifestCache = null;
+let jsApiManifestCache = null;
+let jsApiRuntimeModulePromise = null;
 const contentCache = new Map();
 const activeToolControllers = new Map();
 const activeSkillProposalTokens = new Map();
 let settingsCache = null;
 let settingsLoaded = false;
+let localSourcesCache = [];
 
 function ensureMinimizedAssistantStyles() {
     if (document.getElementById(MINIMIZED_STYLE_ID)) return;
@@ -263,7 +276,9 @@ function buildRuntimeConfig() {
         presetNames: Object.keys(settings.presets || {}),
         presets: settings.presets || {},
         toolInfo: {
-            readableSources: ['littlewhitebox', 'sillytavern-public'],
+            readableSources: ['littlewhitebox', 'sillytavern-public', 'session-local-source'],
+            writableSources: ['session-local-source'],
+            writableTemporaryRoot: 'local/',
             writableWorkspacePrefix: WORKSPACE_PREFIX,
         },
     };
@@ -322,6 +337,164 @@ function setCachedContent(cacheKey, text) {
     }
 }
 
+function normalizeLocalSourceFileEntry(file) {
+    if (!file || typeof file !== 'object') return null;
+    const publicPath = String(file.path || file.publicPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!publicPath.startsWith('local/') || publicPath.includes('..')) return null;
+    return {
+        path: publicPath,
+        publicPath,
+        relativePath: String(file.relativePath || publicPath.split('/').slice(2).join('/') || publicPath.split('/').pop() || '').trim(),
+        source: 'session-local-source',
+        extension: getPathExtension(publicPath),
+        sizeBytes: Math.max(0, Number(file.sizeBytes) || 0),
+        content: typeof file.content === 'string' ? file.content : '',
+        name: String(file.name || publicPath.split('/').pop() || '').trim(),
+    };
+}
+
+function normalizeLocalSourcesSnapshot(localSources) {
+    if (!Array.isArray(localSources)) return [];
+    return localSources
+        .map((source) => {
+            if (!source || typeof source !== 'object') return null;
+            const sourceId = String(source.sourceId || '').trim();
+            if (!sourceId) return null;
+            const label = String(source.label || '').trim() || sourceId;
+            const files = Array.isArray(source.files)
+                ? source.files.map(normalizeLocalSourceFileEntry).filter(Boolean)
+                : [];
+            if (!files.length) return null;
+            return {
+                sourceId,
+                label,
+                importedAt: Number.isFinite(Number(source.importedAt)) ? Number(source.importedAt) : Date.now(),
+                files,
+            };
+        })
+        .filter(Boolean);
+}
+
+function getLocalSourceFiles(localSources = localSourcesCache) {
+    return normalizeLocalSourcesSnapshot(localSources).flatMap((source) => source.files);
+}
+
+function getAllIndexedFiles(manifest, localSources = localSourcesCache) {
+    const manifestFiles = Array.isArray(manifest?.files) ? manifest.files : [];
+    return [...manifestFiles, ...getLocalSourceFiles(localSources)];
+}
+
+function findLocalSourceFileByPath(publicPath, localSources = localSourcesCache) {
+    const normalizedPath = String(publicPath || '').trim();
+    if (!normalizedPath.startsWith('local/')) return null;
+    return getLocalSourceFiles(localSources).find((entry) => entry.publicPath === normalizedPath) || null;
+}
+
+function getWritableLocalPathError(rawPath) {
+    const normalized = String(rawPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!normalized.startsWith('local/')) return 'local_path_required';
+    if (normalized.includes('..') || normalized.endsWith('/')) return 'local_path_required';
+    if (!isSupportedPublicTextPath(normalized)) return 'unsupported_text_file';
+    const segments = normalized.split('/').filter(Boolean);
+    if (segments.length < 3) return 'local_path_required';
+    return '';
+}
+
+function normalizeWritableLocalPath(rawPath) {
+    const normalized = String(rawPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    if (getWritableLocalPathError(normalized)) return '';
+    return normalized;
+}
+
+function getLocalSourceLabelFromPath(publicPath = '') {
+    const segments = String(publicPath || '').trim().split('/').filter(Boolean);
+    return segments[1] || '';
+}
+
+function buildLocalSourceFileEntry(publicPath, content = '') {
+    const normalizedPath = normalizeWritableLocalPath(publicPath);
+    if (!normalizedPath) {
+        throw new Error(getWritableLocalPathError(publicPath));
+    }
+    const segments = normalizedPath.split('/').filter(Boolean);
+    const relativePath = segments.slice(2).join('/');
+    const normalizedContent = String(content || '');
+    return {
+        path: normalizedPath,
+        publicPath: normalizedPath,
+        relativePath,
+        source: 'session-local-source',
+        extension: getPathExtension(normalizedPath),
+        sizeBytes: new TextEncoder().encode(normalizedContent).length,
+        content: normalizedContent,
+        name: segments[segments.length - 1] || relativePath || 'untitled.txt',
+    };
+}
+
+function countOccurrences(text = '', needle = '') {
+    if (!needle) return 0;
+    let count = 0;
+    let searchIndex = 0;
+    while (searchIndex <= text.length) {
+        const foundIndex = text.indexOf(needle, searchIndex);
+        if (foundIndex === -1) break;
+        count += 1;
+        searchIndex = foundIndex + needle.length;
+    }
+    return count;
+}
+
+function replaceFirstOccurrence(text = '', oldText = '', newText = '') {
+    const foundIndex = text.indexOf(oldText);
+    if (foundIndex === -1) return text;
+    return `${text.slice(0, foundIndex)}${newText}${text.slice(foundIndex + oldText.length)}`;
+}
+
+function upsertLocalSourceFile(localSources, publicPath, content) {
+    const normalizedPath = normalizeWritableLocalPath(publicPath);
+    if (!normalizedPath) {
+        throw new Error(getWritableLocalPathError(publicPath));
+    }
+
+    const normalizedSources = normalizeLocalSourcesSnapshot(localSources);
+    const sourceLabel = getLocalSourceLabelFromPath(normalizedPath);
+    if (!sourceLabel) {
+        throw new Error('local_source_not_found');
+    }
+
+    let sourceFound = false;
+    let fileExisted = false;
+    const nextFile = buildLocalSourceFileEntry(normalizedPath, content);
+    const nextSources = normalizedSources.map((source) => {
+        if (source.label !== sourceLabel) return source;
+        sourceFound = true;
+        const nextFiles = source.files.map((file) => {
+            if (file.publicPath !== normalizedPath) return file;
+            fileExisted = true;
+            return nextFile;
+        });
+        if (!fileExisted) {
+            nextFiles.push(nextFile);
+        }
+        nextFiles.sort((left, right) => String(left.publicPath || '').localeCompare(String(right.publicPath || ''), 'zh-CN'));
+        return {
+            ...source,
+            files: nextFiles,
+        };
+    });
+
+    if (!sourceFound) {
+        throw new Error('local_source_not_found');
+    }
+
+    return {
+        nextSources,
+        file: nextFile,
+        fileExisted,
+        sourceLabel,
+    };
+}
+
 async function loadManifest(signal) {
     if (manifestCache) return manifestCache;
     const response = await fetch(MANIFEST_PATH, {
@@ -333,6 +506,119 @@ async function loadManifest(signal) {
     }
     manifestCache = await response.json();
     return manifestCache;
+}
+
+async function loadJsApiManifest(signal) {
+    if (jsApiManifestCache) return jsApiManifestCache;
+    const response = await fetch(JSAPI_MANIFEST_PATH, {
+        cache: 'no-cache',
+        signal,
+    });
+    if (!response.ok) {
+        throw new Error(`jsapi_manifest_load_failed:${response.status}`);
+    }
+    jsApiManifestCache = await response.json();
+    return jsApiManifestCache;
+}
+
+async function loadJsApiRuntimeModule() {
+    if (!jsApiRuntimeModulePromise) {
+        jsApiRuntimeModulePromise = import('./dist/jsapi-runtime.js');
+    }
+    return jsApiRuntimeModulePromise;
+}
+
+function createAllowedPathTree(paths = [], prefix = '') {
+    const root = { allowSelf: false, children: new Map() };
+    paths.forEach((item) => {
+        const pathText = String(item || '').trim();
+        if (!pathText.startsWith(prefix)) return;
+        const remainder = pathText.slice(prefix.length);
+        const segments = remainder.split('.').filter(Boolean);
+        if (!segments.length) return;
+
+        let current = root;
+        segments.forEach((segment, index) => {
+            if (!current.children.has(segment)) {
+                current.children.set(segment, { allowSelf: false, children: new Map() });
+            }
+            current = current.children.get(segment);
+            if (index === segments.length - 1) {
+                current.allowSelf = true;
+            }
+        });
+    });
+    return root;
+}
+
+function cloneDocumentedValue(sourceValue, treeNode) {
+    if (!treeNode) return undefined;
+    const hasChildren = treeNode.children.size > 0;
+
+    if (!hasChildren) {
+        return sourceValue;
+    }
+
+    const target = Object.create(null);
+    treeNode.children.forEach((childNode, key) => {
+        if (sourceValue == null || !(key in sourceValue)) return;
+        const clonedChild = cloneDocumentedValue(sourceValue[key], childNode);
+        if (clonedChild !== undefined) {
+            target[key] = clonedChild;
+        }
+    });
+    return Object.freeze(target);
+}
+
+function cloneDocumentedNamespace(sourceNamespace, tree, wrappers = {}) {
+    const target = Object.create(null);
+    tree.children.forEach((childNode, key) => {
+        if (sourceNamespace == null || !(key in sourceNamespace)) return;
+        const pathKey = key;
+        if (pathKey in wrappers) {
+            target[key] = wrappers[pathKey];
+            return;
+        }
+        const clonedChild = cloneDocumentedValue(sourceNamespace[key], childNode);
+        if (clonedChild !== undefined) {
+            target[key] = clonedChild;
+        }
+    });
+    return Object.freeze(target);
+}
+
+function buildDocumentedJsApiContext(rawContext, manifest = {}) {
+    const ctxTree = createAllowedPathTree(Array.isArray(manifest.allowedPaths) ? manifest.allowedPaths : [], 'ctx.');
+    return cloneDocumentedNamespace(rawContext, ctxTree);
+}
+
+function buildDocumentedJsApiNamespace(manifest = {}, documentedContext) {
+    const slashRuntimeNamespace = {
+        ...slashCommandsModule,
+        SlashCommandParser,
+        SlashCommand,
+        ARGUMENT_TYPE,
+        SlashCommandArgument,
+        SlashCommandNamedArgument,
+    };
+
+    return Object.freeze({
+        script: cloneDocumentedNamespace(
+            scriptModule,
+            createAllowedPathTree(Array.isArray(manifest.allowedPaths) ? manifest.allowedPaths : [], 'st.script.'),
+        ),
+        extensions: cloneDocumentedNamespace(
+            extensionsModule,
+            createAllowedPathTree(Array.isArray(manifest.allowedPaths) ? manifest.allowedPaths : [], 'st.extensions.'),
+            {
+                getContext: () => documentedContext,
+            },
+        ),
+        slash: cloneDocumentedNamespace(
+            slashRuntimeNamespace,
+            createAllowedPathTree(Array.isArray(manifest.allowedPaths) ? manifest.allowedPaths : [], 'st.slash.'),
+        ),
+    });
 }
 
 function normalizeWorkspaceName(input) {
@@ -603,6 +889,10 @@ function ensureNotAborted(signal) {
 async function readTextFile(publicPath, options = {}) {
     const cacheKey = String(publicPath || '').trim();
     if (!cacheKey) throw new Error('empty_path');
+    const localEntry = findLocalSourceFileByPath(cacheKey, options.localSources);
+    if (localEntry) {
+        return localEntry.content;
+    }
     const cached = getCachedContent(cacheKey);
     if (cached !== null) return cached;
 
@@ -616,6 +906,21 @@ async function readTextFile(publicPath, options = {}) {
     const text = await response.text();
     setCachedContent(cacheKey, text);
     return text;
+}
+
+function normalizeDirectReadablePublicPath(rawPath) {
+    const normalized = String(rawPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!normalized) return '';
+    if (normalized.includes('..')) return '';
+    if (normalized.includes('?') || normalized.includes('#')) return '';
+    if (normalized.startsWith('api/') || normalized.startsWith('user/')) return '';
+
+    if (!isSupportedPublicTextPath(normalized)) return '';
+    return normalized;
+}
+
+function pathExtension(pathText = '') {
+    return getPathExtension(pathText);
 }
 
 function escapeRegExp(text) {
@@ -784,7 +1089,7 @@ async function globFiles(args = {}, options = {}) {
     const pattern = String(args.pattern || '').trim();
     const matcher = compileGlobPattern(pattern);
     const limit = Math.max(1, Math.min(Number(args.limit) || 50, 100));
-    const files = Array.isArray(manifest.files) ? manifest.files : [];
+    const files = getAllIndexedFiles(manifest, options.localSources);
     const matched = files
         .filter((entry) => matchesGlob(entry.publicPath, entry.relativePath, matcher))
         .sort((a, b) => String(a.publicPath || '').localeCompare(String(b.publicPath || ''), 'zh-CN'));
@@ -807,7 +1112,7 @@ async function listDirectory(args = {}, options = {}) {
     const directoryPath = rawPath.endsWith('/') ? rawPath : `${rawPath}/`;
     const normalizedPrefix = directoryPath.toLowerCase();
     const limit = Math.max(1, Math.min(Number(args.limit) || 50, 100));
-    const files = Array.isArray(manifest.files) ? manifest.files : [];
+    const files = getAllIndexedFiles(manifest, options.localSources);
     const entryMap = new Map();
 
     files.forEach((entry) => {
@@ -904,7 +1209,17 @@ function sliceLinesWithBudget(lines, startLine, requestedEndLine, maxChars) {
 async function readFile(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
     const targetPath = String(args.path || '').trim();
-    const entry = (manifest.files || []).find((item) => item.publicPath === targetPath);
+    const directReadablePath = normalizeDirectReadablePublicPath(targetPath);
+    const indexedFiles = getAllIndexedFiles(manifest, options.localSources);
+    const entry = indexedFiles.find((item) => item.publicPath === targetPath)
+        || (directReadablePath
+            ? {
+                publicPath: directReadablePath,
+                relativePath: directReadablePath,
+                source: 'direct-public-path',
+                extension: pathExtension(directReadablePath),
+            }
+            : null);
     if (!entry) {
         throw new Error('file_not_indexed');
     }
@@ -986,6 +1301,78 @@ async function readFile(args = {}, options = {}) {
     };
 }
 
+async function writeLocalFile(args = {}, options = {}) {
+    const targetPath = normalizeWritableLocalPath(args.path);
+    if (!targetPath) {
+        throw new Error(getWritableLocalPathError(args.path));
+    }
+
+    const content = typeof args.content === 'string'
+        ? args.content
+        : String(args.content ?? '');
+    const existingEntry = findLocalSourceFileByPath(targetPath, options.localSources);
+    const update = upsertLocalSourceFile(options.localSources, targetPath, content);
+    options.onLocalSourcesUpdated?.(update.nextSources);
+
+    return {
+        ok: true,
+        path: update.file.publicPath,
+        source: update.file.source,
+        mode: existingEntry ? 'overwrite' : 'create',
+        created: !existingEntry,
+        overwritten: !!existingEntry,
+        sizeBytes: update.file.sizeBytes,
+        totalLines: content === '' ? 0 : content.split('\n').length,
+    };
+}
+
+async function editLocalFile(args = {}, options = {}) {
+    const targetPath = normalizeWritableLocalPath(args.path);
+    if (!targetPath) {
+        throw new Error(getWritableLocalPathError(args.path));
+    }
+
+    const existingEntry = findLocalSourceFileByPath(targetPath, options.localSources);
+    if (!existingEntry) {
+        throw new Error('local_file_not_found');
+    }
+
+    const oldText = typeof args.oldText === 'string'
+        ? args.oldText
+        : String(args.oldText ?? '');
+    if (!oldText) {
+        throw new Error('edit_old_text_required');
+    }
+
+    const newText = typeof args.newText === 'string'
+        ? args.newText
+        : String(args.newText ?? '');
+    const replaceAll = !!args.replaceAll;
+    const matchCount = countOccurrences(existingEntry.content, oldText);
+    if (matchCount <= 0) {
+        throw new Error('edit_not_found');
+    }
+    if (matchCount > 1 && !replaceAll) {
+        throw new Error('edit_not_unique');
+    }
+
+    const nextContent = replaceAll
+        ? existingEntry.content.split(oldText).join(newText)
+        : replaceFirstOccurrence(existingEntry.content, oldText, newText);
+    const update = upsertLocalSourceFile(options.localSources, targetPath, nextContent);
+    options.onLocalSourcesUpdated?.(update.nextSources);
+
+    return {
+        ok: true,
+        path: update.file.publicPath,
+        source: update.file.source,
+        replacedOccurrences: replaceAll ? matchCount : 1,
+        replaceAll,
+        sizeBytes: update.file.sizeBytes,
+        totalLines: nextContent === '' ? 0 : nextContent.split('\n').length,
+    };
+}
+
 async function grepFiles(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
     const pattern = String(args.pattern || '').trim();
@@ -999,7 +1386,7 @@ async function grepFiles(args = {}, options = {}) {
     const offset = Math.max(0, Math.trunc(Number(args.offset) || 0));
     const contextLines = Math.max(0, Math.min(Number(args.contextLines) || 0, 5));
     const glob = String(args.glob || '').trim();
-    const files = Array.isArray(manifest.files) ? manifest.files : [];
+    const files = getAllIndexedFiles(manifest, options.localSources);
     const fileMatcher = glob ? compileGlobPattern(glob) : null;
     const candidateFiles = fileMatcher
         ? files.filter((entry) => matchesGlob(entry.publicPath, entry.relativePath, fileMatcher))
@@ -1836,15 +2223,125 @@ async function readWorkspaceNote(_args = {}, options = {}) {
     return readUserFile(name, options);
 }
 
+function buildSlashExecutionState(overrides = {}) {
+    return {
+        interrupt: false,
+        isBreak: false,
+        isAborted: false,
+        isQuietlyAborted: false,
+        abortReason: '',
+        isError: false,
+        errorMessage: '',
+        ...overrides,
+    };
+}
+
+function normalizeSlashPipeValue(pipe) {
+    if (pipe === undefined) return '';
+    return pipe;
+}
+
+function buildJsApiExecutionState(overrides = {}) {
+    return {
+        isError: false,
+        errorCode: '',
+        errorMessage: '',
+        isAborted: false,
+        abortReason: '',
+        unavailableApis: [],
+        validationErrors: [],
+        ...overrides,
+    };
+}
+
+function buildJavaScriptApiToolResult({
+    code = '',
+    ok = false,
+    output = '',
+    execution = {},
+    note = '',
+    requestKind = 'unknown',
+    usedApis = [],
+    calledApis = [],
+    calledApiSemantics = {},
+    truncated = false,
+    charLimited = false,
+    limitReason = null,
+    outputFormat = '',
+    skipped = false,
+} = {}) {
+    return {
+        code: String(code || ''),
+        ok: ok === true,
+        output,
+        execution: buildJsApiExecutionState(execution),
+        note: String(note || ''),
+        requestKind: String(requestKind || 'unknown'),
+        usedApis: Array.isArray(usedApis) ? usedApis.map((item) => String(item || '')).filter(Boolean) : [],
+        calledApis: Array.isArray(calledApis) ? calledApis.map((item) => String(item || '')).filter(Boolean) : [],
+        calledApiSemantics: calledApiSemantics && typeof calledApiSemantics === 'object'
+            ? Object.fromEntries(
+                Object.entries(calledApiSemantics)
+                    .map(([key, value]) => [String(key || '').trim(), String(value || '').trim()])
+                    .filter(([key, value]) => key && value),
+            )
+            : {},
+        truncated: truncated === true,
+        charLimited: charLimited === true,
+        limitReason: limitReason ? String(limitReason) : null,
+        outputFormat: outputFormat ? String(outputFormat) : '',
+        ...(skipped ? { skipped: true } : {}),
+    };
+}
+
+function shapeJavaScriptApiOutputForTransport(output) {
+    if (output === undefined || output === '') {
+        return {
+            output: '',
+            truncated: false,
+            charLimited: false,
+            limitReason: null,
+            outputFormat: 'text',
+        };
+    }
+
+    const outputFormat = typeof output === 'string' ? 'text' : 'json';
+    const serializedOutput = typeof output === 'string'
+        ? output
+        : JSON.stringify(output, null, 2);
+
+    if (serializedOutput.length <= MAX_JSAPI_RETURN_CHARS) {
+        return {
+            output,
+            truncated: false,
+            charLimited: false,
+            limitReason: null,
+            outputFormat,
+        };
+    }
+
+    return {
+        output: serializedOutput.slice(0, MAX_JSAPI_RETURN_CHARS),
+        truncated: true,
+        charLimited: true,
+        limitReason: 'output_budget',
+        outputFormat,
+    };
+}
+
 async function runSlashCommand(args = {}, options = {}) {
     ensureNotAborted(options.signal);
 
     let command = String(args.command || '').trim();
     if (!command) {
         return {
-            ok: false,
             command: '',
-            error: 'slash_command_required',
+            ok: false,
+            pipe: '',
+            execution: buildSlashExecutionState({
+                isError: true,
+                errorMessage: 'slash_command_required',
+            }),
             note: '必须提供要执行的斜杠命令。',
         };
     }
@@ -1854,36 +2351,121 @@ async function runSlashCommand(args = {}, options = {}) {
     }
 
     try {
-        const result = await executeSlashCommand(command);
-        ensureNotAborted(options.signal);
-        const normalizedError = result && typeof result === 'object'
-            ? (result.ok === false
-                ? String(result.error || result.message || 'slash_command_failed')
-                : (result.error ? String(result.error) : ''))
-            : '';
-
-        if (normalizedError) {
-            return {
-                ok: false,
-                command,
-                error: normalizedError,
-                result,
-            };
+        const context = getContext();
+        if (typeof context.executeSlashCommandsWithOptions !== 'function') {
+            throw new Error('executeSlashCommandsWithOptions 函数不可用');
         }
 
+        const substitutedCommand = typeof context.substituteParams === 'function'
+            ? context.substituteParams(command)
+            : command;
+        command = String(substitutedCommand || command || '').trim() || command;
+
+        const result = await context.executeSlashCommandsWithOptions(command, {
+            handleParserErrors: false,
+            handleExecutionErrors: false,
+            source: 'littlewhitebox-assistant',
+        });
+        ensureNotAborted(options.signal);
+
+        const execution = buildSlashExecutionState(result && typeof result === 'object'
+            ? {
+                interrupt: result.interrupt === true,
+                isBreak: result.isBreak === true,
+                isAborted: result.isAborted === true,
+                isQuietlyAborted: result.isQuietlyAborted === true,
+                abortReason: String(result.abortReason || ''),
+                isError: result.isError === true,
+                errorMessage: String(result.errorMessage || ''),
+            }
+            : {});
+
         return {
-            ok: true,
             command,
-            result,
+            ok: execution.isError !== true && execution.isAborted !== true,
+            pipe: normalizeSlashPipeValue(result?.pipe),
+            execution,
+            note: '',
         };
     } catch (error) {
         ensureNotAborted(options.signal);
         return {
-            ok: false,
             command,
-            error: error instanceof Error ? error.message : String(error || 'unknown_error'),
-            raw: error instanceof Error ? (error.stack || error.message) : String(error || 'unknown_error'),
+            ok: false,
+            pipe: '',
+            execution: buildSlashExecutionState({
+                isError: true,
+                errorMessage: error instanceof Error ? error.message : String(error || 'unknown_error'),
+            }),
+            note: '',
         };
+    }
+}
+
+async function runJavaScriptApi(args = {}, options = {}) {
+    ensureNotAborted(options.signal);
+
+    const code = String(args.code || '').trim();
+    const purpose = String(args.purpose || '').trim();
+    const safety = String(args.safety || '').trim();
+    const expectedOutput = String(args.expectedOutput || '').trim();
+    const apiPaths = Array.isArray(args.apiPaths) ? args.apiPaths : [];
+
+    try {
+        const [manifest, runtimeModule] = await Promise.all([
+            loadJsApiManifest(options.signal),
+            loadJsApiRuntimeModule(),
+        ]);
+        ensureNotAborted(options.signal);
+
+        const rawContext = getContext();
+        const documentedContext = buildDocumentedJsApiContext(rawContext, manifest);
+        const st = buildDocumentedJsApiNamespace(manifest, documentedContext);
+        const result = await runtimeModule.runJavaScriptApi({
+            code,
+            purpose,
+            apiPaths,
+            safety,
+            expectedOutput,
+            manifest,
+            ctx: documentedContext,
+            st,
+        });
+        ensureNotAborted(options.signal);
+        const shapedOutput = shapeJavaScriptApiOutputForTransport(result?.output);
+        const shapedNote = shapedOutput.charLimited
+            ? [
+                String(result?.note || '').trim(),
+                '输出已截断：优先只读需要的字段，先用 Object.keys() 看结构，避免整对象 JSON.stringify。',
+            ].filter(Boolean).join(' ')
+            : result?.note;
+        return buildJavaScriptApiToolResult({
+            ...result,
+            ...shapedOutput,
+            note: shapedNote,
+        });
+    } catch (error) {
+        ensureNotAborted(options.signal);
+        return buildJavaScriptApiToolResult({
+            code,
+            ok: false,
+            output: '',
+            execution: {
+                isError: true,
+                errorCode: 'jsapi_runtime_unavailable',
+                errorMessage: error instanceof Error ? error.message : String(error || 'jsapi_runtime_unavailable'),
+                isAborted: false,
+                abortReason: '',
+                unavailableApis: [],
+                validationErrors: [],
+            },
+            requestKind: 'unknown',
+            usedApis: [],
+            calledApis: [],
+            note: [code, purpose, expectedOutput].every(Boolean)
+                ? ''
+                : '必须至少提供 code、purpose、expectedOutput；effect 请求还需要精确 apiPaths。',
+        });
     }
 }
 
@@ -1897,8 +2479,14 @@ async function executeToolCall(name, args, options = {}) {
             return await grepFiles(args, options);
         case TOOL_NAMES.READ:
             return await readFile(args, options);
+        case TOOL_NAMES.WRITE:
+            return await writeLocalFile(args, options);
+        case TOOL_NAMES.EDIT:
+            return await editLocalFile(args, options);
         case TOOL_NAMES.RUN_SLASH_COMMAND:
             return await runSlashCommand(args, options);
+        case TOOL_NAMES.RUN_JAVASCRIPT_API:
+            return await runJavaScriptApi(args, options);
         case TOOL_NAMES.READ_IDENTITY:
             return await readIdentityNote(args, options);
         case TOOL_NAMES.WRITE_IDENTITY:
@@ -2628,6 +3216,7 @@ function closeAssistant() {
         overlayEl.remove();
     }
     overlay = null;
+    localSourcesCache = [];
 }
 
 async function handleIframeMessage(event) {
@@ -2690,16 +3279,40 @@ async function handleIframeMessage(event) {
             }
             break;
         }
+        case 'xb-assistant:local-sources-sync':
+            localSourcesCache = normalizeLocalSourcesSnapshot(payload?.localSources);
+            break;
         case 'xb-assistant:tool-call': {
             const requestId = payload?.requestId || '';
             const toolName = payload?.name || '';
             const args = payload?.arguments || {};
+            const effectiveLocalSources = Array.isArray(payload?.localSources)
+                ? normalizeLocalSourcesSnapshot(payload.localSources)
+                : localSourcesCache;
+            if (Array.isArray(payload?.localSources)) {
+                localSourcesCache = effectiveLocalSources;
+            }
             const controller = new AbortController();
             activeToolControllers.set(requestId, controller);
             try {
-                let result = await executeToolCall(toolName, args, { signal: controller.signal });
+                let result = await executeToolCall(toolName, args, {
+                    signal: controller.signal,
+                    localSources: effectiveLocalSources,
+                    onLocalSourcesUpdated: (nextSources) => {
+                        localSourcesCache = normalizeLocalSourcesSnapshot(nextSources);
+                        postToIframe(iframe, {
+                            type: LOCAL_SOURCES_UPDATED,
+                            payload: {
+                                localSources: localSourcesCache,
+                            },
+                        });
+                    },
+                });
                 if (toolName === TOOL_NAMES.WRITE_IDENTITY) {
-                    const identityFile = await readIdentityNote({}, { signal: controller.signal });
+                    const identityFile = await readIdentityNote({}, {
+                        signal: controller.signal,
+                        localSources: effectiveLocalSources,
+                    });
                     result = {
                         ...result,
                         hotUpdated: true,

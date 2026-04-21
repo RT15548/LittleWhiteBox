@@ -1,9 +1,15 @@
+// ============================================================
+// 工具名称常量
+// ============================================================
 export const TOOL_NAMES = {
     LS: 'LS',
     GLOB: 'Glob',
     GREP: 'Grep',
     READ: 'Read',
+    WRITE: 'Write',
+    EDIT: 'Edit',
     RUN_SLASH_COMMAND: 'RunSlashCommand',
+    RUN_JAVASCRIPT_API: 'RunJavaScriptApi',
     READ_IDENTITY: 'ReadIdentity',
     WRITE_IDENTITY: 'WriteIdentity',
     READ_WORKLOG: 'ReadWorklog',
@@ -15,25 +21,77 @@ export const TOOL_NAMES = {
     DELETE_SKILL: 'DeleteSkill',
 };
 
-export const TOOL_USAGE_GUIDANCE = [
-    '工具使用规则：',
-    '- `LS` 只列目录的一级子项，适合看某层有哪些文件夹/文件，不能搜索文件内容。',
-    '- `Glob` 只按路径模式匹配文件，适合先缩小文件集合；它不检查文件内容对不对。',
-    '- `Grep` 只搜索文件内容里的命中片段；命中片段不是全文，也不代表上下文完整。结果很多时可配合 `offset` 和 `limit` 分页继续看。',
-    '- `Read` 返回的是带行号的文件内容；如果返回 `truncated: true`、`hasMoreAfter: true`、`charLimited: true` 或 `nextStartLine`，表示当前只拿到一段，不是全文。',
-    '- `RunSlashCommand` 执行的是用户当前真实酒馆实例中的斜杠命令，不是快照；是否会先弹审批，由当前权限模式决定。',
+// ============================================================
+// 通用规则（适用所有工具）
+// ============================================================
+const UNIVERSAL_RULES = [
+    '通用规则：',
+    '- 调用工具时，使用工具定义里的确切名字和参数名，不要自己改名或脑补额外字段。',
+    '- 工具如果返回 `ok: false`、`error`、`raw`、`truncated`、`warning` 等字段，必须按字面理解并如实告诉用户；如果结果只是上游返回的原始错误文本，也不要擅自改写成别的原因。不要把失败、截断、空结果当成成功证据。',
+    '- 当工具结果不足以支撑结论时，要继续查证，或明确说明当前还不能确认。',
+].join('\n');
+
+// ============================================================
+// 工具使用指导
+// ============================================================
+const STATIC_CODE_GUIDANCE = [
+    '静态代码查询工具：',
+    '- `LS` / `Glob` 默认依赖构建时生成的文件索引，用来发现目录、文件和路径范围；它们反映的是索引范围，不是用户当前实例的实时文件清单。',
+    '- 用户在当前会话里通过“选文件 / 选文件夹”导入的临时源码源，也会挂在 `local/` 下面；这些 `local/` 路径同样可以继续用 `LS` / `Glob` / `Grep` / `Read` 查看。',
+    '- `local/` 是当前会话临时源码源映射出来的虚拟工具根，不是实例磁盘上的真实目录；不要把 `LS local/` 的结果理解成在查物理文件夹。',
+    '- `Grep` 对已索引路径搜索到的正文内容，来自用户当前实例里该路径下的真实文件；对 `local/` 路径搜索到的正文内容，来自当前会话里导入的临时源码源。',
+    '- `Read` 优先读取索引范围内的文件；如果用户已经明确给出公开文本文件路径，也可以直接读取该路径下的真实文件内容；如果是用户刚导入的临时源码源，则读取 `local/...` 路径。',
+    '- 如果索引里有文件但 `Read` 失败，通常说明用户当前实例的版本、插件集合或目录结构与生成这份索引时的基线不一致；如果路径不在索引里但已知且明确，也可以尝试直接读取。',
+    '- `Grep` 只返回命中片段，不代表上下文完整；结果很多时可配合 `offset` 和 `limit` 分页继续看。',
+    '- `Read` 返回带行号的文件内容；如果返回 `truncated: true`、`hasMoreAfter: true`、`charLimited: true` 或 `nextStartLine`，表示当前只拿到一段，不是全文。',
+].join('\n');
+
+const LOCAL_SOURCE_EDIT_GUIDANCE = [
+    '会话内临时源码编辑工具：',
+    '- `Write` / `Edit` 只允许操作当前会话里用户导入的 `local/...` 路径，不能改公开快照路径，也不能改真实磁盘文件。',
+    '- `Write` 适合新建文件或整文件重写；如果目标文件已存在，会整文件覆盖。',
+    '- `Edit` 适合小范围精确修改；默认要求 `oldText` 唯一命中。若命中多处且确实要全部替换，再显式传 `replaceAll: true`。',
+    '- `Write` / `Edit` 改到的是当前会话内的临时源码源副本；这是给你分析、草改、生成补丁或整理版本用的，不会自动写回用户原始文件。',
+].join('\n');
+
+const DYNAMIC_INSTANCE_GUIDANCE = [
+    '动态实例操作工具：',
+    '- `RunSlashCommand` 执行的是用户当前真实酒馆实例中的斜杠命令，不是快照。它返回 `pipe` 作为主要输出内容，返回 `execution` 作为执行状态。',
+    '- `RunJavaScriptApi` 执行的是文档公开的 SillyTavern 前端 JS API，不是任意 JS。它返回 `output` 作为执行结果，返回 `execution` 作为校验、版本与执行状态；工具结果中的 `requestKind` 只是系统对这次请求性质的字段名。如果返回 `truncated: true`、`charLimited: true` 或 `limitReason`，表示输出结果也被预算截断了。',
+    '- `RunJavaScriptApi` 现在分三种请求性质：`inspect` 用于未知结构的只读探索，`read` 用于已知字段的精确读取，`effect` 用于有副作用的调用或写操作。',
+    '- 遇到未知结构时，先用探索性只读代码查键名、类型、长度和小样本；确认路径后，再收窄到单点读取。',
+    '- 允许的探索性只读写法包括：`typeof`、`Array.isArray`、`Object.keys/Object.values/Object.entries`、`JSON.stringify`、`Array.from`、`.length`，以及数组的 `map/filter/find/some/slice` 等只读方法。',
+    '- `apiPaths` 在 `inspect/read` 中可以不填，或只填容器级路径；只有 `effect` 才要求显式、精确填写。',
+    '- `for...in`、反射、构造器、全局对象、本地可调用值、危险属性和任意副作用调用仍然属于禁止或高风险写法，不要把它当可探索范围。',
+].join('\n');
+
+const SKILL_GUIDANCE = [
+    '技能管理工具：',
     '- `ReadSkillsCatalog` 读取技能目录索引，只看有哪些 skill、摘要和触发词；不要把它当 skill 正文。',
     '- `ReadSkill` 读取某一个 skill 的完整正文；命中目录里某项后，再按需读取对应 skill，不要默认全读。',
     '- `UpdateSkill` 更新已有 skill 的正文或元数据，并同步刷新 Skills.json；它不是新建工具，并且支持局部更新。',
     '- `GenerateSkill` 用于把刚完成的一次大流程、多次试错或值得复用的过程沉淀成 skill；先 `action: "propose"`，用户同意后再 `action: "save"`；save 阶段请显式填写全部保存字段。',
     '- `DeleteSkill` 删除已有 skill，并同时从技能正文文件与 Skills.json 中移除该项。',
     '- 更新或删除 skill 属于持久化修改；只有在用户明确要求修改/删除该 skill 时才调用，不要自己擅自覆盖或清除。',
-    '- 调用工具时，使用工具定义里的确切名字和参数名，不要自己改名或脑补额外字段。',
-    '- 工具如果返回 `ok: false`、`error`、`raw`、`truncated`、`warning` 等字段，必须按字面理解并如实告诉用户，不要把失败、截断、空结果当成成功证据。',
-    '- 如果工具返回的是原样 API / 代理错误文本，就直接基于该文本说明问题，不要擅自改写成别的原因。',
-    '- 当工具结果不足以支撑结论时，要继续查证，或明确说明当前还不能确认。',
+].join('\n');
+
+export const TOOL_USAGE_GUIDANCE = [
+    '工具使用指导：',
+    '',
+    STATIC_CODE_GUIDANCE,
+    '',
+    LOCAL_SOURCE_EDIT_GUIDANCE,
+    '',
+    DYNAMIC_INSTANCE_GUIDANCE,
+    '',
+    SKILL_GUIDANCE,
+    '',
+    UNIVERSAL_RULES,
 ];
 
+// ============================================================
+// 工具定义
+// ============================================================
 export const TOOL_DEFINITIONS = [
     {
         type: 'function',
@@ -42,6 +100,7 @@ export const TOOL_DEFINITIONS = [
             description: [
                 '列出某个目录下的一级子项。',
                 '用途：查看项目结构、确认某层有哪些目录/文件、数插件目录或模块目录。',
+                '也可查看当前会话里用户导入的临时源码源目录，例如 `local/`。',
                 '限制：只看一级子项，不读文件内容，不递归搜索。',
                 '当你想知道“这一层有什么”时优先用它。',
             ].join('\n'),
@@ -63,6 +122,7 @@ export const TOOL_DEFINITIONS = [
             description: [
                 '按 glob 模式匹配文件路径。',
                 '用途：先按路径模式缩小文件集合，例如 **/*.js、modules/assistant/**/*.js、story-summary/**/vector*.js。',
+                '也可以匹配当前会话里导入的临时源码源路径，例如 `local/**/*.js`。',
                 '限制：只匹配文件路径，不检查文件内容。',
                 '当你已经大致知道目录范围、想找某类文件时优先用它。',
             ].join('\n'),
@@ -84,6 +144,7 @@ export const TOOL_DEFINITIONS = [
             description: [
                 '在文件内容中按 grep/rg 风格搜索。',
                 '用途：搜索明确关键词、函数名、变量名、报错文本、配置项名或正则模式。',
+                '搜索范围同时包括已索引快照文件和当前会话里导入的 `local/` 临时源码源。',
                 '默认按正则表达式处理；可用 glob 限定文件范围。',
                 '输出模式：content 返回命中片段；files_with_matches 只返回命中文件；count 返回每个文件的命中次数。',
                 '结果很多时，用 offset 跳过前 N 个结果，再配合 limit 查看下一页。',
@@ -114,8 +175,9 @@ export const TOOL_DEFINITIONS = [
         function: {
             name: TOOL_NAMES.READ,
             description: [
-                '读取某个已索引公开文本文件。',
+                '读取某个公开文本文件。',
                 '用途：查看具体实现、配置、样式、注释和文档内容。',
+                '优先读取索引范围内的文件；如果你已经知道一个明确的公开文本文件路径，也可以直接读取该路径；用户导入的临时源码源请读取 `local/...` 路径。',
                 '默认会尽量读取整文件；文件过大时会自动返回首段，并给出 nextStartLine / nextEndLine 供继续读取。',
                 '可选 startLine / endLine 按行读取；当你已经知道大致位置时，优先定向读取需要的片段。',
                 '结果使用带行号的文本格式返回，便于直接引用具体行。',
@@ -137,12 +199,55 @@ export const TOOL_DEFINITIONS = [
     {
         type: 'function',
         function: {
+            name: TOOL_NAMES.WRITE,
+            description: [
+                '写入一个 `local/...` 文本文件。',
+                '用途：在当前会话的临时源码源里新建文件或整文件重写。',
+                '只允许写 `local/` 路径；不会写回用户磁盘原文件。',
+                '当你要生成完整新文件，或明确要用一份新正文覆盖旧正文时优先用它。',
+            ].join('\n'),
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: '目标 `local/...` 文件路径，例如 local/my-plugin/README.md。' },
+                    content: { type: 'string', description: '要写入的完整文本内容。' },
+                },
+                required: ['path', 'content'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: TOOL_NAMES.EDIT,
+            description: [
+                '对一个 `local/...` 文本文件做精确文本替换。',
+                '用途：对当前会话的临时源码源做小范围修改，而不是整文件重写。',
+                '只允许改 `local/` 路径；不会写回用户磁盘原文件。',
+                '默认要求 `oldText` 在文件中唯一命中；如果确实要全部替换，再显式传 `replaceAll: true`。',
+            ].join('\n'),
+            parameters: {
+                type: 'object',
+                properties: {
+                    path: { type: 'string', description: '目标 `local/...` 文件路径，例如 local/my-plugin/index.js。' },
+                    oldText: { type: 'string', description: '要查找并替换的原文本。' },
+                    newText: { type: 'string', description: '替换后的新文本。' },
+                    replaceAll: { type: 'boolean', description: '是否替换全部命中。默认 false。' },
+                },
+                required: ['path', 'oldText', 'newText'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
             name: TOOL_NAMES.RUN_SLASH_COMMAND,
             description: [
                 '执行 SillyTavern 斜杠命令（STscript）。',
                 '用途：读取或操作用户当前真实酒馆实例里的对象与状态，例如角色卡、世界书、聊天、预设、扩展、当前模型与接口等。',
                 '这不是读快照，而是直接作用于用户当前打开的实例。',
-                '具体是否会先弹审批，由当前权限模式和运行时审批结果决定。',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -150,6 +255,36 @@ export const TOOL_DEFINITIONS = [
                     command: { type: 'string', description: '要执行的斜杠命令文本，例如 /api、/model、/char-get field=name、/char-create name="Alice"。' },
                 },
                 required: ['command'],
+                additionalProperties: false,
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: TOOL_NAMES.RUN_JAVASCRIPT_API,
+            description: [
+                '执行文档公开的 SillyTavern 前端 JavaScript API。',
+                '用途：当 STscript / 斜杠命令做不到时，探索、读取或操作当前真实实例中的前端公开对象与状态，例如 chatMetadata、saveMetadata、公开模块导出等。',
+                '这不是任意 JS 执行器；只能使用已文档化公开 API。',
+                '代码里直接使用已注入的 `ctx` 和 `st`；`ctx` 来自 getContext()，`st` 只暴露公开的 script / extensions / slash 命名空间。支持简单对象解构、简单箭头回调、`if`、`for...of`、`try/catch` 和受控的探索性只读写法。',
+                '未知结构时，先做 `inspect` 式只读探索；已知字段后再做 `read`；只有副作用调用才进入 `effect`。',
+                '`apiPaths` 在只读探索和精确读取时可省略，或只填容器级路径；副作用请求才要求显式精确填写。`safety` 只是说明字段，不是安全边界本身。code 必须显式 return 最终结果。',
+            ].join('\n'),
+            parameters: {
+                type: 'object',
+                properties: {
+                    code: { type: 'string', description: '要执行的受限 JS 代码。直接使用 ctx / st，并显式 return 最终结果。' },
+                    purpose: { type: 'string', description: '这段代码要完成的目的。' },
+                    apiPaths: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: '可选的公开 API 路径声明。对 inspect/read 可不填，或只填容器级路径如 ctx.chatMetadata；对 effect 必须显式填写精确路径。',
+                    },
+                    safety: { type: 'string', description: '可选安全说明：只读，或会修改哪些对象/状态。主要用于说明和审批文案。' },
+                    expectedOutput: { type: 'string', description: '预期返回什么结果。' },
+                },
+                required: ['code', 'purpose', 'expectedOutput'],
                 additionalProperties: false,
             },
         },
@@ -333,6 +468,13 @@ function safeJsonParse(text, fallback = null) {
     }
 }
 
+function formatToolOutput(value) {
+    if (value === undefined || value === '') return '';
+    return typeof value === 'string'
+        ? value
+        : JSON.stringify(value, null, 2);
+}
+
 function formatPreviewList(items = [], formatter) {
     const previewItems = items.slice(0, 3);
     const lines = [];
@@ -353,8 +495,14 @@ export function describeToolCall(name, args = {}) {
             return `搜索内容 ${args.pattern || ''}`.trim();
         case TOOL_NAMES.READ:
             return `读取文件 ${args.path || ''}${args.startLine ? `:${args.startLine}` : ''}${args.endLine ? `-${args.endLine}` : ''}`.trim();
+        case TOOL_NAMES.WRITE:
+            return `写入文件 ${args.path || ''}`.trim();
+        case TOOL_NAMES.EDIT:
+            return `编辑文件 ${args.path || ''}`.trim();
         case TOOL_NAMES.RUN_SLASH_COMMAND:
             return `执行斜杠命令 ${args.command || ''}`.trim();
+        case TOOL_NAMES.RUN_JAVASCRIPT_API:
+            return `执行 JS API ${args.purpose || args.code || ''}`.trim();
         case TOOL_NAMES.READ_IDENTITY:
             return '读取身份设定';
         case TOOL_NAMES.WRITE_IDENTITY:
@@ -541,32 +689,133 @@ export function formatToolResultDisplay(message) {
         };
     }
 
+    if (message.toolName === TOOL_NAMES.WRITE) {
+        return {
+            summary: [
+                `已写入文件：${parsed.path || ''}`,
+                parsed.source ? `来源：${parsed.source}` : '',
+                parsed.mode === 'create' ? '模式：新建' : parsed.mode === 'overwrite' ? '模式：覆盖' : '',
+                Number.isFinite(parsed.totalLines) ? `总行数：${parsed.totalLines}` : '',
+                Number.isFinite(parsed.sizeBytes) ? `大小：${parsed.sizeBytes} bytes` : '',
+            ].filter(Boolean).join('\n'),
+            details: '',
+        };
+    }
+
+    if (message.toolName === TOOL_NAMES.EDIT) {
+        return {
+            summary: [
+                `已编辑文件：${parsed.path || ''}`,
+                parsed.source ? `来源：${parsed.source}` : '',
+                Number.isFinite(parsed.replacedOccurrences) ? `替换次数：${parsed.replacedOccurrences}` : '',
+                parsed.replaceAll ? '模式：全部替换' : '模式：精确替换',
+                Number.isFinite(parsed.totalLines) ? `总行数：${parsed.totalLines}` : '',
+                Number.isFinite(parsed.sizeBytes) ? `大小：${parsed.sizeBytes} bytes` : '',
+            ].filter(Boolean).join('\n'),
+            details: '',
+        };
+    }
+
     if (message.toolName === TOOL_NAMES.RUN_SLASH_COMMAND) {
+        const execution = parsed.execution && typeof parsed.execution === 'object'
+            ? parsed.execution
+            : {};
+        const status = parsed.skipped === true
+            ? '已跳过'
+            : execution.isAborted === true
+            ? '已中止'
+            : parsed.ok === false
+                ? '失败'
+                : '成功';
         const lines = [
             `已执行斜杠命令：${parsed.command || ''}`,
-            parsed.ok === false ? '状态：失败' : '状态：成功',
+            `状态：${status}`,
         ];
-        if (parsed.error) {
-            lines.push(`错误：${parsed.error}`);
+        if (execution.errorMessage) {
+            lines.push(`错误：${execution.errorMessage}`);
+        }
+        if (execution.abortReason) {
+            lines.push(`中止原因：${execution.abortReason}`);
         }
         if (parsed.note) {
             lines.push(`说明：${parsed.note}`);
         }
 
         let details = '';
-        if (parsed.result !== undefined) {
-            details = typeof parsed.result === 'string'
-                ? parsed.result
-                : JSON.stringify(parsed.result, null, 2);
-        } else if (parsed.raw) {
-            details = typeof parsed.raw === 'string'
-                ? parsed.raw
-                : JSON.stringify(parsed.raw, null, 2);
+        if (parsed.pipe !== undefined) {
+            details = typeof parsed.pipe === 'string'
+                ? parsed.pipe
+                : JSON.stringify(parsed.pipe, null, 2);
         }
 
         return {
             summary: lines.filter(Boolean).join('\n'),
             details,
+        };
+    }
+
+    if (message.toolName === TOOL_NAMES.RUN_JAVASCRIPT_API) {
+        const execution = parsed.execution && typeof parsed.execution === 'object'
+            ? parsed.execution
+            : {};
+        const status = parsed.skipped === true
+            ? '已跳过'
+            : execution.isAborted === true
+                ? '已中止'
+                : parsed.ok === false
+                    ? '失败'
+                    : '成功';
+        const requestKind = parsed.requestKind === 'inspect'
+            ? '探索只读'
+            : parsed.requestKind === 'read'
+            ? '精确只读'
+            : parsed.requestKind === 'effect'
+                ? '副作用'
+                : '未知';
+        const lines = [
+            `已执行 JS API：${parsed.code || ''}`,
+            `请求性质：${requestKind}`,
+            `状态：${status}`,
+        ];
+        if (execution.errorMessage) {
+            lines.push(`错误：${execution.errorMessage}`);
+        }
+        if (Array.isArray(parsed.calledApis) && parsed.calledApis.length) {
+            lines.push(`实际调用：${parsed.calledApis.join(', ')}`);
+        } else if (Array.isArray(parsed.usedApis) && parsed.usedApis.length) {
+            lines.push(`使用 API：${parsed.usedApis.join(', ')}`);
+        }
+        if (parsed.calledApiSemantics && typeof parsed.calledApiSemantics === 'object') {
+            const semanticEntries = Object.entries(parsed.calledApiSemantics)
+                .map(([apiPath, semantic]) => `${apiPath}(${semantic})`)
+                .filter(Boolean);
+            if (semanticEntries.length) {
+                lines.push(`判定依据：${semanticEntries.join(', ')}`);
+            }
+        }
+        if (Array.isArray(execution.unavailableApis) && execution.unavailableApis.length) {
+            lines.push(`不可用 API：${execution.unavailableApis.join(', ')}`);
+        }
+        if (Array.isArray(execution.validationErrors) && execution.validationErrors.length) {
+            lines.push(`校验：${execution.validationErrors.join('；')}`);
+        }
+        if (execution.abortReason) {
+            lines.push(`中止原因：${execution.abortReason}`);
+        }
+        if (parsed.charLimited) {
+            lines.push('当前结果还受输出预算限制；如需继续分析，请先缩小返回内容。');
+        } else if (parsed.truncated) {
+            lines.push('当前结果已截断。');
+        }
+        if (parsed.preflightWarning) {
+            lines.push(`预分析：${parsed.preflightWarning}`);
+        }
+        if (parsed.note) {
+            lines.push(`说明：${parsed.note}`);
+        }
+        return {
+            summary: lines.filter(Boolean).join('\n'),
+            details: formatToolOutput(parsed.output),
         };
     }
 

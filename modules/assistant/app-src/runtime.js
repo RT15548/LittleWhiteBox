@@ -1,6 +1,46 @@
+import { analyzeJavaScriptApiRequest } from '../runtime-src/jsapi-runtime.js';
+
 const TOKEN_ESTIMATE_BYTES_PER_TOKEN = 3.35;
 const OPENAI_TOKENIZER_PROVIDERS = new Set(['openai-compatible', 'openai-responses']);
 const textEncoder = new TextEncoder();
+const JSAPI_MANIFEST_URL = new URL('../st-jsapi-manifest.json', import.meta.url);
+let jsApiManifestPromise = null;
+
+function normalizeJsApiRequestKind(value) {
+    return ['inspect', 'read', 'effect', 'unknown'].includes(value) ? value : 'unknown';
+}
+
+function shouldRequireJsApiApproval(requestKind = 'unknown') {
+    return ['effect', 'unknown'].includes(normalizeJsApiRequestKind(requestKind));
+}
+
+function buildJsApiAnalysisFallback(error) {
+    const message = error instanceof Error ? error.message : String(error || 'jsapi_analysis_failed');
+    return {
+        requestKind: 'unknown',
+        usedApis: [],
+        calledApis: [],
+        validationErrors: [`jsapi_analysis_failed:${message}`],
+        analysisError: message,
+    };
+}
+
+async function loadJsApiManifest() {
+    if (!jsApiManifestPromise) {
+        jsApiManifestPromise = fetch(JSAPI_MANIFEST_URL, {
+            cache: 'no-cache',
+        }).then(async (response) => {
+            if (!response.ok) {
+                throw new Error(`jsapi_manifest_load_failed:${response.status}`);
+            }
+            return await response.json();
+        }).catch((error) => {
+            jsApiManifestPromise = null;
+            throw error;
+        });
+    }
+    return await jsApiManifestPromise;
+}
 
 export function createAssistantRuntime(deps) {
     const {
@@ -23,6 +63,7 @@ export function createAssistantRuntime(deps) {
         normalizeSlashSkillTrigger,
         shouldRequireSlashCommandApproval,
         buildSlashApprovalResult,
+        buildJsApiApprovalResult,
         isAbortError,
         createAdapter,
         getActiveProviderConfig,
@@ -750,6 +791,7 @@ export function createAssistantRuntime(deps) {
                 requestId,
                 name,
                 arguments: args,
+                localSources: Array.isArray(state.localSources) ? state.localSources : [],
             });
         });
     }
@@ -833,6 +875,25 @@ export function createAssistantRuntime(deps) {
         return requestApproval({
             kind: 'slash-command',
             command,
+        }, options);
+    }
+
+    function requestJsApiApproval(args = {}, analysis = {}, options = {}) {
+        return requestApproval({
+            kind: 'jsapi-run',
+            code: String(args.code || '').trim(),
+            purpose: String(args.purpose || '').trim(),
+            apiPaths: Array.isArray(args.apiPaths)
+                ? args.apiPaths.map((item) => String(item || '').trim()).filter(Boolean)
+                : [],
+            safety: String(args.safety || '').trim(),
+            expectedOutput: String(args.expectedOutput || '').trim(),
+            requestKind: normalizeJsApiRequestKind(analysis.requestKind),
+            usedApis: Array.isArray(analysis.usedApis) ? analysis.usedApis : [],
+            calledApis: Array.isArray(analysis.calledApis) ? analysis.calledApis : [],
+            calledApiSemantics: analysis.calledApiSemantics && typeof analysis.calledApiSemantics === 'object'
+                ? analysis.calledApiSemantics
+                : {},
         }, options);
     }
 
@@ -1032,9 +1093,11 @@ export function createAssistantRuntime(deps) {
                     const slashCommand = toolCall.name === TOOL_NAMES.RUN_SLASH_COMMAND
                         ? normalizeSlashCommand(parsedArguments.command)
                         : '';
+                    const isJsApiRun = toolCall.name === TOOL_NAMES.RUN_JAVASCRIPT_API;
+                    let jsApiAnalysis = null;
+                    let toolResult = null;
                     state.progressLabel = '工具中';
                     render();
-                    let toolResult = null;
                     try {
                         if (toolCall.name === TOOL_NAMES.RUN_SLASH_COMMAND && shouldRequireSlashCommandApproval(slashCommand)) {
                             state.progressLabel = '确认中';
@@ -1045,6 +1108,42 @@ export function createAssistantRuntime(deps) {
                             });
                             if (!approved) {
                                 toolResult = buildSlashApprovalResult(slashCommand, false);
+                            }
+                        }
+
+                        if (isJsApiRun && !toolResult) {
+                            try {
+                                const manifest = await loadJsApiManifest();
+                                jsApiAnalysis = analyzeJavaScriptApiRequest({
+                                    code: parsedArguments.code,
+                                    apiPaths: Array.isArray(parsedArguments.apiPaths) ? parsedArguments.apiPaths : [],
+                                    manifest,
+                                });
+                            } catch (error) {
+                                console.warn('[Assistant] JS API 请求预分析失败:', error);
+                                jsApiAnalysis = buildJsApiAnalysisFallback(error);
+                            }
+
+                            const jsApiNeedsApproval = !(
+                                jsApiAnalysis
+                                && Array.isArray(jsApiAnalysis.validationErrors)
+                                && jsApiAnalysis.validationErrors.length > 0
+                            ) && shouldRequireJsApiApproval(jsApiAnalysis?.requestKind || 'unknown');
+
+                            if (jsApiNeedsApproval) {
+                                state.progressLabel = '确认中';
+                                render();
+                                const approved = await requestJsApiApproval(parsedArguments, jsApiAnalysis || {}, {
+                                    runId: run.id,
+                                    signal: run.controller.signal,
+                                });
+                                if (!approved) {
+                                    toolResult = buildJsApiApprovalResult(
+                                        parsedArguments,
+                                        false,
+                                        jsApiAnalysis?.requestKind || 'unknown',
+                                    );
+                                }
                             }
                         }
 
@@ -1081,8 +1180,36 @@ export function createAssistantRuntime(deps) {
                             };
                         }
 
-                        if (toolResult?.ok === false && toolResult.error !== 'user_declined') {
-                            recordToolErrorForLightBrake(run, toolCall.name, toolResult.error || 'tool_failed');
+                        if (
+                            isJsApiRun
+                            && toolResult?.ok !== false
+                            && jsApiAnalysis
+                            && Array.isArray(jsApiAnalysis.validationErrors)
+                            && jsApiAnalysis.validationErrors.length === 0
+                            && shouldRequireJsApiApproval(jsApiAnalysis.requestKind || 'unknown')
+                        ) {
+                            toolResult = {
+                                ...toolResult,
+                                approval: buildJsApiApprovalResult(
+                                    parsedArguments,
+                                    true,
+                                    jsApiAnalysis?.requestKind || toolResult?.requestKind || 'unknown',
+                                ),
+                            };
+                        }
+
+                        if (isJsApiRun && jsApiAnalysis?.analysisError) {
+                            toolResult = {
+                                ...toolResult,
+                                preflightWarning: `JS API 请求预分析失败：${jsApiAnalysis.analysisError}`,
+                            };
+                        }
+
+                        if (toolResult?.ok === false && toolResult?.skipped !== true) {
+                            const slashExecutionError = toolResult?.execution && typeof toolResult.execution === 'object'
+                                ? String(toolResult.execution.errorMessage || toolResult.execution.abortReason || '').trim()
+                                : '';
+                            recordToolErrorForLightBrake(run, toolCall.name, slashExecutionError || toolResult.error || 'tool_failed');
                         } else {
                             resetToolErrorLightBrake(run);
                         }

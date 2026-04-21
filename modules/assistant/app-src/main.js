@@ -23,6 +23,7 @@ import {
 } from './slash-command-policy.js';
 import { createSessionStore } from './session-store.js';
 import { createAttachmentsManager } from './attachments.js';
+import { createLocalSourcesManager } from './local-sources.js';
 import { createSettingsPanel } from './settings-panel.js';
 import { createChatUi } from './chat-ui.js';
 import {
@@ -89,6 +90,8 @@ const state = {
     modelOptionsByProvider: {},
     pullStateByProvider: {},
     draftAttachments: [],
+    localSources: [],
+    composeMenuOpen: false,
     sidebarCollapsed: true,
     configFormSyncPending: true,
     editingMessageIndex: -1,
@@ -157,17 +160,81 @@ function isAssistantMobile() {
 function buildSlashApprovalResult(command, approved) {
     if (approved) {
         return {
-            ok: true,
             command,
+            ok: true,
+            pipe: '',
+            execution: {
+                interrupt: false,
+                isBreak: false,
+                isAborted: false,
+                isQuietlyAborted: false,
+                abortReason: '',
+                isError: false,
+                errorMessage: '',
+            },
             note: '用户已同意执行该斜杠命令。',
         };
     }
     return {
-        ok: false,
         command,
+        ok: false,
+        pipe: '',
+        execution: {
+            interrupt: false,
+            isBreak: false,
+            isAborted: false,
+            isQuietlyAborted: false,
+            abortReason: '',
+            isError: false,
+            errorMessage: '',
+        },
         skipped: true,
-        error: 'user_declined',
         note: '用户未同意执行该斜杠命令，本次已跳过。',
+    };
+}
+
+function buildJsApiApprovalResult(args = {}, approved, requestKind = 'unknown') {
+    const code = String(args.code || '').trim();
+    const normalizedRequestKind = ['inspect', 'read', 'effect', 'unknown'].includes(requestKind) ? requestKind : 'unknown';
+    const calledApiSemantics = args && typeof args.calledApiSemantics === 'object' && args.calledApiSemantics
+        ? args.calledApiSemantics
+        : {};
+    if (approved) {
+        return {
+            code,
+            ok: true,
+            output: '',
+            requestKind: normalizedRequestKind,
+            calledApiSemantics,
+            execution: {
+                isError: false,
+                errorCode: '',
+                errorMessage: '',
+                isAborted: false,
+                abortReason: '',
+                unavailableApis: [],
+                validationErrors: [],
+            },
+            note: '用户已同意执行该 JS API 请求。',
+        };
+    }
+    return {
+        code,
+        ok: false,
+        output: '',
+        requestKind: normalizedRequestKind,
+        calledApiSemantics,
+        execution: {
+            isError: false,
+            errorCode: '',
+            errorMessage: '',
+            isAborted: false,
+            abortReason: '',
+            unavailableApis: [],
+            validationErrors: [],
+        },
+        skipped: true,
+        note: '用户未同意执行该 JS API 请求，本次已跳过。',
     };
 }
 
@@ -339,6 +406,27 @@ const {
     renderAttachmentGallery,
 } = attachmentsManager;
 
+const localSourcesManager = createLocalSourcesManager({
+    state,
+    createRequestId,
+    showToast,
+    render,
+    persistSession,
+    post,
+});
+
+const {
+    appendLocalSourceFiles,
+    clearLocalSources,
+    removeLocalSource,
+    downloadLocalSource,
+    downloadAllLocalSources,
+    applyExternalLocalSources,
+    renderLocalSourcesPanel,
+    summarizeLocalSources,
+    syncHostLocalSources,
+} = localSourcesManager;
+
 function describeError(error) {
     const raw = String(error?.message || error || 'unknown_error');
     const lowered = raw.toLowerCase();
@@ -350,6 +438,13 @@ function describeError(error) {
     if (lowered.startsWith('manifest_load_failed:')) return '助手索引文件清单加载失败，请刷新页面后再试。';
     if (lowered.startsWith('file_read_failed:')) return '读取源码文件失败了，请换个文件再试，或刷新页面重试。';
     if (lowered === 'file_not_indexed') return '这个文件不在当前助手索引范围里。';
+    if (lowered === 'local_path_required') return '这个工具只能操作 `local/` 下的会话内临时源码文件。';
+    if (lowered === 'unsupported_text_file') return '目前只支持文本类源码文件。';
+    if (lowered === 'local_source_not_found') return '目标源码源不存在，可能已经被移除。';
+    if (lowered === 'local_file_not_found') return '目标 `local/` 文件不存在；可以先用 Write 新建。';
+    if (lowered === 'edit_old_text_required') return 'Edit 需要提供明确的 oldText。';
+    if (lowered === 'edit_not_found') return '没有在目标文件里找到要替换的 oldText。';
+    if (lowered === 'edit_not_unique') return 'oldText 命中不唯一；请改得更精确，或显式要求全部替换。';
     if (lowered === 'directory_path_required') return '还没有提供要查看的目录路径。';
     if (lowered === 'glob_pattern_required') return '还没有提供 glob 路径模式。';
     if (lowered === 'empty_query') return '搜索词是空的，换一个明确点的关键词就行。';
@@ -454,6 +549,7 @@ const runtime = createAssistantRuntime({
     normalizeSlashSkillTrigger,
     shouldRequireSlashCommandApproval: (command) => shouldRequireSlashCommandApproval(command, state.config?.permissionMode),
     buildSlashApprovalResult,
+    buildJsApiApprovalResult,
     isAbortError,
     createAdapter,
     getActiveProviderConfig,
@@ -692,14 +788,37 @@ function buildAppMarkup(root) {
                 </section>
                 <section class="xb-assistant-approval-slot" id="xb-assistant-approval-slot"></section>
                 <form class="xb-assistant-compose" id="xb-assistant-form">
-                    <div class="xb-assistant-compose-main">
-                        <textarea id="xb-assistant-input" placeholder=""></textarea>
-                        <input id="xb-assistant-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
-                        <div class="xb-assistant-attachment-gallery xb-assistant-draft-gallery" id="xb-assistant-draft-gallery" style="display:none;"></div>
+                    <div class="xb-assistant-compose-row">
+                        <div class="xb-assistant-compose-main">
+                            <textarea id="xb-assistant-input" placeholder=""></textarea>
+                        </div>
+                        <div class="xb-assistant-compose-actions">
+                            <div class="xb-assistant-compose-more" id="xb-assistant-compose-more">
+                                <button id="xb-assistant-compose-menu-toggle" type="button" class="secondary ghost xb-assistant-compose-menu-toggle" aria-expanded="false" aria-haspopup="true" title="更多操作">+</button>
+                                <div class="xb-assistant-compose-menu" id="xb-assistant-compose-menu" hidden>
+                                    <button id="xb-assistant-add-image" type="button" class="xb-assistant-compose-menu-item">
+                                        <span class="xb-assistant-compose-menu-icon" aria-hidden="true">📷</span>
+                                        <span class="xb-assistant-compose-menu-label">发送图片</span>
+                                    </button>
+                                    <button id="xb-assistant-add-local-files" type="button" class="xb-assistant-compose-menu-item">
+                                        <span class="xb-assistant-compose-menu-icon" aria-hidden="true">📄</span>
+                                        <span class="xb-assistant-compose-menu-label">选择文件</span>
+                                    </button>
+                                    <button id="xb-assistant-add-local-directory" type="button" class="xb-assistant-compose-menu-item">
+                                        <span class="xb-assistant-compose-menu-icon" aria-hidden="true">📁</span>
+                                        <span class="xb-assistant-compose-menu-label">选择文件夹</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <button id="xb-assistant-send" type="submit">发送</button>
+                        </div>
                     </div>
-                    <div class="xb-assistant-compose-actions">
-                        <button id="xb-assistant-add-image" type="button" class="secondary ghost">发图</button>
-                        <button id="xb-assistant-send" type="submit">发送</button>
+                    <div class="xb-assistant-compose-extras">
+                        <div class="xb-assistant-local-sources" id="xb-assistant-local-sources" style="display:none;"></div>
+                        <div class="xb-assistant-attachment-gallery xb-assistant-draft-gallery" id="xb-assistant-draft-gallery" style="display:none;"></div>
+                        <input id="xb-assistant-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+                        <input id="xb-assistant-local-file-input" type="file" multiple hidden />
+                        <input id="xb-assistant-local-directory-input" type="file" multiple webkitdirectory hidden />
                     </div>
                 </form>
             </main>
@@ -1332,6 +1451,83 @@ function injectStyles() {
             gap: 10px;
             margin-top: 12px;
         }
+        .xb-assistant-local-sources {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 14px;
+            background: rgba(245, 248, 252, 0.92);
+            border: 1px solid rgba(27, 55, 88, 0.08);
+        }
+        .xb-assistant-local-sources-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .xb-assistant-local-sources-title {
+            color: #1f334d;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .xb-assistant-local-sources-actions {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .xb-assistant-local-source-actions {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+        .xb-assistant-local-sources-download,
+        .xb-assistant-local-sources-clear,
+        .xb-assistant-local-source-download,
+        .xb-assistant-local-source-remove {
+            border: none;
+            border-radius: 999px;
+            min-height: 30px;
+            padding: 0 12px;
+            background: rgba(20, 32, 51, 0.08);
+            color: #28496f;
+            cursor: pointer;
+            font: inherit;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .xb-assistant-local-sources-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .xb-assistant-local-source-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.88);
+            box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.08);
+        }
+        .xb-assistant-local-source-info {
+            min-width: 0;
+        }
+        .xb-assistant-local-source-name {
+            color: #1f334d;
+            font-size: 13px;
+            font-weight: 700;
+            word-break: break-word;
+        }
+        .xb-assistant-local-source-meta {
+            margin-top: 4px;
+            color: #596a81;
+            font-size: 12px;
+            word-break: break-all;
+        }
         .xb-assistant-attachment-card {
             position: relative;
             width: 132px;
@@ -1570,9 +1766,7 @@ function injectStyles() {
         }
         .xb-assistant-compose {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
             gap: 12px;
-            align-items: end;
             background: rgba(255, 255, 255, 0.78);
             border-radius: 22px;
             padding: 14px;
@@ -1581,17 +1775,116 @@ function injectStyles() {
             max-width: 100%;
             box-sizing: border-box;
             min-height: 0;
-            overflow: hidden;
+            overflow: visible;
+        }
+        .xb-assistant-compose-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: stretch;
         }
         .xb-assistant-compose-main {
             min-width: 0;
             max-width: 100%;
+            overflow: visible;
+        }
+        .xb-assistant-compose-extras {
+            display: grid;
+            gap: 0;
+            min-width: 0;
         }
         .xb-assistant-compose-actions {
-            display: grid;
-            gap: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            width: 36px;
+            overflow: visible;
         }
-        .xb-assistant-compose textarea { min-height: 60px; resize: vertical; max-width: 100%; overflow-x: hidden; }
+        .xb-assistant-compose-more {
+            position: relative;
+            flex: 0 0 auto;
+        }
+        .xb-assistant-compose-actions > button,
+        .xb-assistant-compose-menu-toggle {
+            width: 36px;
+            min-width: 36px;
+            height: 30px;
+            min-height: 30px;
+            padding: 0;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            line-height: 1;
+            font-weight: 600;
+        }
+        .xb-assistant-compose-actions > button {
+            min-width: 36px;
+        }
+        #xb-assistant-send {
+            font-size: 16px;
+        }
+        .xb-assistant-compose-menu {
+            position: absolute;
+            right: 0;
+            bottom: calc(100% + 10px);
+            min-width: 168px;
+            max-width: min(240px, calc(100vw - 32px));
+            padding: 8px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(20, 32, 51, 0.10);
+            box-shadow: 0 18px 36px rgba(17, 31, 51, 0.16);
+            backdrop-filter: blur(12px);
+            display: grid;
+            gap: 4px;
+            z-index: 15;
+        }
+        .xb-assistant-compose-menu[hidden] {
+            display: none;
+        }
+        .xb-assistant-compose-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            min-height: 40px;
+            padding: 0 12px;
+            border: none;
+            border-radius: 12px;
+            background: transparent;
+            color: #1f334d;
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            text-align: left;
+        }
+        .xb-assistant-compose-menu-item:hover:not(:disabled) {
+            background: rgba(40, 87, 134, 0.10);
+        }
+        .xb-assistant-compose-menu-item:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .xb-assistant-compose-menu-icon {
+            flex: 0 0 auto;
+            font-size: 16px;
+            line-height: 1;
+        }
+        .xb-assistant-compose-menu-label {
+            min-width: 0;
+            white-space: nowrap;
+        }
+        .xb-assistant-compose textarea {
+            min-height: 66px;
+            resize: vertical;
+            max-width: 100%;
+            overflow-x: hidden;
+        }
         .xb-assistant-compose button.is-busy { background: #8d442b; }
         .xb-assistant-toast {
             min-height: 22px;
@@ -1708,11 +2001,35 @@ function injectStyles() {
                 white-space: nowrap;
             }
             .xb-assistant-compose {
-                grid-template-columns: 1fr;
                 padding: 12px;
                 padding-bottom: calc(12px + env(safe-area-inset-bottom));
             }
-            .xb-assistant-compose-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .xb-assistant-compose-row {
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: stretch;
+            }
+            .xb-assistant-compose-actions {
+                justify-content: center;
+            }
+            .xb-assistant-compose-menu {
+                right: 0;
+                min-width: 180px;
+                max-width: min(240px, calc(100vw - 40px));
+            }
+            .xb-assistant-local-source-card {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+            .xb-assistant-local-source-actions {
+                width: 100%;
+                justify-content: flex-end;
+            }
+            .xb-assistant-local-sources-actions {
+                width: 100%;
+            }
+            .xb-assistant-local-source-remove {
+                align-self: flex-end;
+            }
             .xb-assistant-toolbar {
                 display: grid;
                 grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1795,13 +2112,42 @@ function render() {
     const sendButton = root.querySelector('#xb-assistant-send');
     sendButton.disabled = false;
     sendButton.classList.toggle('is-busy', state.isBusy);
-    sendButton.textContent = state.isBusy ? '终止' : '发送';
+    sendButton.textContent = state.isBusy ? '■' : '➤';
+    sendButton.title = state.isBusy ? '终止' : '发送';
+    sendButton.setAttribute('aria-label', state.isBusy ? '终止' : '发送');
+
+    const composeMenuToggle = root.querySelector('#xb-assistant-compose-menu-toggle');
+    const composeMenu = root.querySelector('#xb-assistant-compose-menu');
+    if (state.isBusy && state.composeMenuOpen) {
+        state.composeMenuOpen = false;
+    }
+    composeMenuToggle.disabled = state.isBusy;
+    composeMenuToggle.setAttribute('aria-expanded', state.composeMenuOpen ? 'true' : 'false');
+    composeMenuToggle.title = state.composeMenuOpen ? '收起更多操作' : '展开更多操作';
+    composeMenuToggle.setAttribute('aria-label', state.composeMenuOpen ? '收起更多操作' : '展开更多操作');
+    composeMenu.toggleAttribute('hidden', !state.composeMenuOpen);
 
     const addImageButton = root.querySelector('#xb-assistant-add-image');
     addImageButton.disabled = state.isBusy || state.draftAttachments.length >= MAX_IMAGE_ATTACHMENTS;
-    addImageButton.textContent = state.draftAttachments.length
-        ? `发图（${state.draftAttachments.length}/${MAX_IMAGE_ATTACHMENTS}）`
-        : '发图';
+    const addImageLabel = addImageButton.querySelector('.xb-assistant-compose-menu-label');
+    addImageLabel.textContent = state.draftAttachments.length
+        ? `发送图片（${state.draftAttachments.length}/${MAX_IMAGE_ATTACHMENTS}）`
+        : '发送图片';
+
+    const localSourceSummary = summarizeLocalSources(state.localSources);
+    const addLocalFilesButton = root.querySelector('#xb-assistant-add-local-files');
+    addLocalFilesButton.disabled = state.isBusy;
+    const addLocalFilesLabel = addLocalFilesButton.querySelector('.xb-assistant-compose-menu-label');
+    addLocalFilesLabel.textContent = localSourceSummary.fileCount
+        ? `选择文件（${localSourceSummary.fileCount}）`
+        : '选择文件';
+
+    const addLocalDirectoryButton = root.querySelector('#xb-assistant-add-local-directory');
+    const directoryInput = root.querySelector('#xb-assistant-local-directory-input');
+    const supportsDirectoryImport = directoryInput && 'webkitdirectory' in directoryInput;
+    addLocalDirectoryButton.disabled = state.isBusy || !supportsDirectoryImport;
+    addLocalDirectoryButton.hidden = !supportsDirectoryImport;
+    addLocalDirectoryButton.title = supportsDirectoryImport ? '导入本地文件夹源码' : '当前环境不支持文件夹导入';
 
     const clearButton = root.querySelector('#xb-assistant-clear');
     clearButton.disabled = state.isBusy || !state.messages.length;
@@ -1899,6 +2245,23 @@ function render() {
         },
     });
 
+    const localSourcesPanel = root.querySelector('#xb-assistant-local-sources');
+    renderLocalSourcesPanel(localSourcesPanel, {
+        disabled: state.isBusy,
+        onDownload: (sourceId) => {
+            downloadLocalSource(sourceId);
+        },
+        onDownloadAll: () => {
+            downloadAllLocalSources();
+        },
+        onRemove: (sourceId) => {
+            removeLocalSource(sourceId);
+        },
+        onClear: () => {
+            clearLocalSources();
+        },
+    });
+
     const toggleKey = root.querySelector('#xb-assistant-toggle-key');
     const apiKeyInput = root.querySelector('#xb-assistant-api-key');
     toggleKey.textContent = apiKeyInput.type === 'password' ? '显示' : '隐藏';
@@ -1907,6 +2270,15 @@ function render() {
 function bindEvents(root) {
     const input = root.querySelector('#xb-assistant-input');
     const imageInput = root.querySelector('#xb-assistant-image-input');
+    const localFileInput = root.querySelector('#xb-assistant-local-file-input');
+    const localDirectoryInput = root.querySelector('#xb-assistant-local-directory-input');
+    const composeMenuRoot = root.querySelector('#xb-assistant-compose-more');
+    const composeMenuToggle = root.querySelector('#xb-assistant-compose-menu-toggle');
+    const closeComposeMenu = () => {
+        if (!state.composeMenuOpen) return;
+        state.composeMenuOpen = false;
+        render();
+    };
     const resizeComposer = () => {
         input.style.height = 'auto';
         input.style.height = `${Math.min(Math.max(input.scrollHeight, 60), 200)}px`;
@@ -2051,19 +2423,46 @@ function bindEvents(root) {
         if (state.isBusy) return;
         state.messages = [];
         state.draftAttachments = [];
+        state.localSources = [];
         state.historySummary = '';
         state.archivedTurnCount = 0;
         state.pendingApproval = null;
         state.editingMessageIndex = -1;
         resetCompactionState();
         await clearSession();
+        syncHostLocalSources();
         showToast('对话已清空');
         render();
     });
 
     root.querySelector('#xb-assistant-add-image').addEventListener('click', () => {
         if (state.isBusy || state.draftAttachments.length >= MAX_IMAGE_ATTACHMENTS) return;
+        closeComposeMenu();
         imageInput.click();
+    });
+
+    root.querySelector('#xb-assistant-add-local-files').addEventListener('click', () => {
+        if (state.isBusy) return;
+        closeComposeMenu();
+        localFileInput.click();
+    });
+
+    root.querySelector('#xb-assistant-add-local-directory').addEventListener('click', () => {
+        if (state.isBusy || !('webkitdirectory' in localDirectoryInput)) return;
+        closeComposeMenu();
+        localDirectoryInput.click();
+    });
+
+    composeMenuToggle.addEventListener('click', () => {
+        if (state.isBusy) return;
+        state.composeMenuOpen = !state.composeMenuOpen;
+        render();
+    });
+
+    root.addEventListener('click', (event) => {
+        if (!state.composeMenuOpen) return;
+        if (composeMenuRoot?.contains(event.target)) return;
+        closeComposeMenu();
     });
 
     root.querySelector('#xb-assistant-scroll-top').addEventListener('click', () => {
@@ -2082,6 +2481,26 @@ function bindEvents(root) {
         if (!files.length) return;
         try {
             await appendDraftImageFiles(files);
+        } finally {
+            event.currentTarget.value = '';
+        }
+    });
+
+    localFileInput.addEventListener('change', async (event) => {
+        const files = Array.from(event.currentTarget.files || []);
+        if (!files.length) return;
+        try {
+            await appendLocalSourceFiles(files, { mode: 'files' });
+        } finally {
+            event.currentTarget.value = '';
+        }
+    });
+
+    localDirectoryInput.addEventListener('change', async (event) => {
+        const files = Array.from(event.currentTarget.files || []);
+        if (!files.length) return;
+        try {
+            await appendLocalSourceFiles(files, { mode: 'directory' });
         } finally {
             event.currentTarget.value = '';
         }
@@ -2114,6 +2533,7 @@ function bindEvents(root) {
         pushMessage({ role: 'user', content: value, attachments });
         input.value = '';
         state.draftAttachments = [];
+        state.composeMenuOpen = false;
         resizeComposer();
         render();
 
@@ -2125,6 +2545,11 @@ function bindEvents(root) {
     input.addEventListener('input', resizeComposer);
 
     input.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && state.composeMenuOpen) {
+            event.preventDefault();
+            closeComposeMenu();
+            return;
+        }
         const sendOnEnter = !isAssistantMobile();
         if (!event.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && event.key === 'Enter' && sendOnEnter) {
             event.preventDefault();
@@ -2180,6 +2605,11 @@ window.addEventListener('message', (event) => {
         return;
     }
 
+    if (data.type === 'xb-assistant:local-sources-updated') {
+        void applyExternalLocalSources(data.payload?.localSources || []);
+        return;
+    }
+
     if (data.type === 'xb-assistant:config-save-error') {
         applyConfig(data.payload?.config || {});
         completeConfigSave(data.payload?.requestId || '', { ok: false, error: data.payload?.error || '网络异常' });
@@ -2205,6 +2635,7 @@ async function bootstrap() {
     await restoreSession();
     injectStyles();
     render();
+    syncHostLocalSources();
     post('xb-assistant:ready');
 }
 
@@ -2212,5 +2643,6 @@ bootstrap().catch((error) => {
     console.error('[Assistant] 启动失败:', error);
     injectStyles();
     render();
+    syncHostLocalSources();
     post('xb-assistant:ready');
 });

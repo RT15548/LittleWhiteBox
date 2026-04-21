@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-19T16:20:03.387Z",
+  "generatedAt": "2026-04-20T15:04:15.829Z",
   "version": 1,
   "files": [
     {
@@ -136,6 +136,12 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/local-sources.js",
+      "relativePath": "modules/assistant/app-src/local-sources.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/main.js",
       "relativePath": "modules/assistant/app-src/main.js",
       "extension": ".js"
@@ -220,9 +226,27 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/runtime-src/jsapi-runtime.js",
+      "relativePath": "modules/assistant/runtime-src/jsapi-runtime.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/config.js",
       "relativePath": "modules/assistant/shared/config.js",
       "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/public-text-file-types.js",
+      "relativePath": "modules/assistant/shared/public-text-file-types.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/st-jsapi-manifest.json",
+      "relativePath": "modules/assistant/st-jsapi-manifest.json",
+      "extension": ".json"
     },
     {
       "source": "littlewhitebox",
@@ -822,6 +846,18 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-assistant-file-manifest.mjs",
       "relativePath": "scripts/build-assistant-file-manifest.mjs",
+      "extension": ".mjs"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-assistant-jsapi-manifest.mjs",
+      "relativePath": "scripts/build-assistant-jsapi-manifest.mjs",
+      "extension": ".mjs"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-assistant-jsapi-runtime.mjs",
+      "relativePath": "scripts/build-assistant-jsapi-runtime.mjs",
       "extension": ".mjs"
     },
     {

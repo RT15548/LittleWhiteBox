@@ -1,4 +1,5 @@
 import db, { sessionsTable, messagesTable } from './session-db.js';
+import { normalizeLocalSources } from './local-sources.js';
 
 const SESSION_ID = 'default';
 let writeQueue = Promise.resolve();
@@ -91,6 +92,7 @@ export function createSessionStore(deps) {
         return {
             historySummary: String(state.historySummary || ''),
             sidebarCollapsed: state.sidebarCollapsed !== undefined ? !!state.sidebarCollapsed : true,
+            localSources: normalizeLocalSources(state.localSources),
             messages: activeMessages,
         };
     }
@@ -102,12 +104,27 @@ export function createSessionStore(deps) {
                 updatedAt: Date.now(),
                 historySummary: snapshot.historySummary,
                 sidebarCollapsed: snapshot.sidebarCollapsed,
+                localSources: snapshot.localSources,
             });
             await messagesTable.where('sessionId').equals(SESSION_ID).delete();
             if (snapshot.messages.length) {
                 await messagesTable.bulkPut(snapshot.messages);
             }
         });
+    }
+
+    function describeSessionStoreError(error) {
+        const message = String(error?.message || error || 'unknown_error').trim();
+        const lowered = message.toLowerCase();
+        if (
+            error?.name === 'QuotaExceededError'
+            || lowered.includes('quota')
+            || lowered.includes('insufficient space')
+            || lowered.includes('disk full')
+        ) {
+            return '浏览器存储空间不足';
+        }
+        return message || 'unknown_error';
     }
 
     function persistSession() {
@@ -117,8 +134,13 @@ export function createSessionStore(deps) {
             .then(async () => {
                 try {
                     await saveSnapshot(snapshot);
+                    return { ok: true };
                 } catch (error) {
                     console.error('[Assistant] 保存会话失败:', error);
+                    return {
+                        ok: false,
+                        error: describeSessionStoreError(error),
+                    };
                 }
             });
         return writeQueue;
@@ -131,8 +153,13 @@ export function createSessionStore(deps) {
                 try {
                     await messagesTable.where('sessionId').equals(SESSION_ID).delete();
                     await sessionsTable.delete(SESSION_ID);
+                    return { ok: true };
                 } catch (error) {
                     console.error('[Assistant] 清空会话失败:', error);
+                    return {
+                        ok: false,
+                        error: describeSessionStoreError(error),
+                    };
                 }
             });
         return writeQueue;
@@ -146,6 +173,7 @@ export function createSessionStore(deps) {
                 state.historySummary = '';
                 state.archivedTurnCount = 0;
                 state.sidebarCollapsed = true;
+                state.localSources = [];
                 return;
             }
 
@@ -162,12 +190,14 @@ export function createSessionStore(deps) {
             state.historySummary = String(session.historySummary || '');
             state.archivedTurnCount = 0;
             state.sidebarCollapsed = session.sidebarCollapsed !== undefined ? !!session.sidebarCollapsed : true;
+            state.localSources = normalizeLocalSources(session.localSources);
         } catch (error) {
             console.error('[Assistant] 恢复会话失败:', error);
             state.messages = [];
             state.historySummary = '';
             state.archivedTurnCount = 0;
             state.sidebarCollapsed = true;
+            state.localSources = [];
         }
     }
 

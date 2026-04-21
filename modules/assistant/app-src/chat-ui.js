@@ -211,6 +211,13 @@ export function createChatUi(deps) {
             return null;
         }
 
+        const formatJsApiRequestKind = (value) => {
+            if (value === 'inspect') return '探索只读';
+            if (value === 'read') return '精确只读';
+            if (value === 'effect') return '副作用';
+            return '未知';
+        };
+
         const panel = document.createElement('div');
         panel.className = 'xb-assistant-approval';
 
@@ -218,17 +225,37 @@ export function createChatUi(deps) {
         title.className = 'xb-assistant-approval-title';
         title.textContent = approvalRequest.kind === 'generate-skill'
             ? '待确认的技能沉淀'
-            : '待确认的斜杠命令';
+            : approvalRequest.kind === 'jsapi-run'
+                ? '待确认的 JS API 执行'
+                : '待确认的斜杠命令';
 
         const command = document.createElement('pre');
         command.className = 'xb-assistant-content xb-assistant-approval-command';
-        command.textContent = approvalRequest.kind === 'generate-skill'
-            ? [
+        if (approvalRequest.kind === 'generate-skill') {
+            command.textContent = [
                 approvalRequest.title ? `标题：${approvalRequest.title}` : '',
                 approvalRequest.reason ? `原因：${approvalRequest.reason}` : '',
                 approvalRequest.sourceSummary ? `过程摘要：${approvalRequest.sourceSummary}` : '',
-            ].filter(Boolean).join('\n\n')
-            : (approvalRequest.command || '');
+            ].filter(Boolean).join('\n\n');
+        } else if (approvalRequest.kind === 'jsapi-run') {
+            const semanticEntries = approvalRequest.calledApiSemantics && typeof approvalRequest.calledApiSemantics === 'object'
+                ? Object.entries(approvalRequest.calledApiSemantics)
+                    .map(([apiPath, semantic]) => `${apiPath}(${semantic})`)
+                    .filter(Boolean)
+                : [];
+            command.textContent = [
+                `请求性质：${formatJsApiRequestKind(approvalRequest.requestKind)}`,
+                approvalRequest.purpose ? `目的：${approvalRequest.purpose}` : '',
+                Array.isArray(approvalRequest.apiPaths) && approvalRequest.apiPaths.length ? `使用 API：${approvalRequest.apiPaths.join(', ')}` : '',
+                Array.isArray(approvalRequest.calledApis) && approvalRequest.calledApis.length ? `实际调用：${approvalRequest.calledApis.join(', ')}` : '',
+                semanticEntries.length ? `判定依据：${semanticEntries.join(', ')}` : '',
+                approvalRequest.safety ? `安全说明：${approvalRequest.safety}` : '',
+                approvalRequest.expectedOutput ? `预期输出：${approvalRequest.expectedOutput}` : '',
+                approvalRequest.code ? `代码：\n${approvalRequest.code}` : '',
+            ].filter(Boolean).join('\n\n');
+        } else {
+            command.textContent = approvalRequest.command || '';
+        }
 
         const note = document.createElement('div');
         note.className = 'xb-assistant-approval-note';
@@ -240,13 +267,23 @@ export function createChatUi(deps) {
                     : approvalRequest.status === 'cancelled'
                         ? '本轮请求已终止，这次 skill 沉淀未继续。'
                         : '这会把刚完成的过程沉淀成可复用 skill；点“是”后才会进入生成。')
-            : (approvalRequest.status === 'approved'
-                ? '已同意，命令已进入执行流程。'
-                : approvalRequest.status === 'declined'
-                    ? '已拒绝，本次不会执行这条命令。'
-                    : approvalRequest.status === 'cancelled'
-                        ? '本轮请求已终止，这条命令未执行。'
-                        : '当前权限模式要求先确认；点“是”后才会真正执行这条斜杠命令。');
+            : approvalRequest.kind === 'jsapi-run'
+                ? (approvalRequest.status === 'approved'
+                    ? '已同意，JS API 请求已进入执行流程。'
+                    : approvalRequest.status === 'declined'
+                        ? '已拒绝，本次不会执行这段 JS API 代码。'
+                        : approvalRequest.status === 'cancelled'
+                            ? '本轮请求已终止，这段 JS API 代码未执行。'
+                            : approvalRequest.requestKind === 'unknown'
+                                ? '这次请求的性质未能明确判断，按副作用请求处理；点“是”后才会执行。'
+                                : '这是副作用 JS API 请求；点“是”后才会真正执行。')
+                : (approvalRequest.status === 'approved'
+                    ? '已同意，命令已进入执行流程。'
+                    : approvalRequest.status === 'declined'
+                        ? '已拒绝，本次不会执行这条命令。'
+                        : approvalRequest.status === 'cancelled'
+                            ? '本轮请求已终止，这条命令未执行。'
+                            : '当前权限模式要求先确认；点“是”后才会真正执行这条斜杠命令。');
 
         panel.append(title, command, note);
 
@@ -259,7 +296,9 @@ export function createChatUi(deps) {
             approveButton.className = 'xb-assistant-approval-button';
             approveButton.dataset.approvalId = approvalRequest.id;
             approveButton.dataset.approvalDecision = 'approve';
-            approveButton.textContent = approvalRequest.kind === 'generate-skill' ? '是，生成' : '是，执行';
+            approveButton.textContent = approvalRequest.kind === 'generate-skill'
+                ? '是，生成'
+                : '是，执行';
 
             const declineButton = document.createElement('button');
             declineButton.type = 'button';
