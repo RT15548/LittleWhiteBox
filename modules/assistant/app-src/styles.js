@@ -190,9 +190,11 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-actions,
         .xb-assistant-toolbar {
             display: flex;
+            flex-wrap: wrap;
             gap: 10px;
             align-items: center;
             justify-content: flex-start;
+            min-width: 0;
         }
         .xb-assistant-actions {
             gap: 8px;
@@ -1534,13 +1536,22 @@ export function injectAssistantStyles(rootId) {
                 max-width: min(240px, calc(100vw - 40px));
             }
             .xb-assistant-toolbar {
-                display: grid;
-                grid-template-columns: repeat(5, minmax(0, 1fr));
-                align-items: stretch;
+                display: flex;
+                overflow-x: auto;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+                flex-wrap: nowrap;
+                align-items: center;
                 gap: 8px;
+                padding-bottom: 2px;
+            }
+            .xb-assistant-toolbar::-webkit-scrollbar {
+                display: none;
             }
             .xb-assistant-toolbar-cluster {
-                display: contents;
+                display: flex;
+                gap: 8px;
+                flex-wrap: nowrap;
             }
             .xb-assistant-inline-input { grid-template-columns: 1fr; }
             .xb-assistant-status,

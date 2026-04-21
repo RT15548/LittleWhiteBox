@@ -7492,7 +7492,7 @@ var Xv = class extends ot {
 }, Fo = (e) => {
   if (typeof globalThis.process < "u") return globalThis.process.env?.[e]?.trim() || void 0;
   if (typeof globalThis.Deno < "u") return globalThis.Deno.env?.get?.(e)?.trim() || void 0;
-}, sc, Ed, la, Zv, Jx = "\\n\\nHuman:", Hx = "\\n\\nAssistant:", je = class {
+}, sc, Ed, la, Zv, Jx = "\\n\\nHuman:", Hx = "\\n\\nAssistant:", et = class {
   constructor({ baseURL: e = Fo("ANTHROPIC_BASE_URL"), apiKey: t = Fo("ANTHROPIC_API_KEY") ?? null, authToken: n = Fo("ANTHROPIC_AUTH_TOKEN") ?? null, ...i } = {}) {
     sc.add(this), la.set(this, void 0);
     const r = {
@@ -7803,28 +7803,28 @@ new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
     });
   }
 };
-Ed = je, la = /* @__PURE__ */ new WeakMap(), sc = /* @__PURE__ */ new WeakSet(), Zv = function() {
+Ed = et, la = /* @__PURE__ */ new WeakMap(), sc = /* @__PURE__ */ new WeakSet(), Zv = function() {
   return this.baseURL !== "https://api.anthropic.com";
 };
-je.Anthropic = Ed;
-je.HUMAN_PROMPT = Jx;
-je.AI_PROMPT = Hx;
-je.DEFAULT_TIMEOUT = 6e5;
-je.AnthropicError = Ce;
-je.APIError = Yt;
-je.APIConnectionError = fl;
-je.APIConnectionTimeoutError = sv;
-je.APIUserAbortError = fn;
-je.NotFoundError = uv;
-je.ConflictError = cv;
-je.RateLimitError = fv;
-je.BadRequestError = ov;
-je.AuthenticationError = av;
-je.InternalServerError = hv;
-je.PermissionDeniedError = lv;
-je.UnprocessableEntityError = dv;
-je.toFile = Tx;
-var to = class extends je {
+et.Anthropic = Ed;
+et.HUMAN_PROMPT = Jx;
+et.AI_PROMPT = Hx;
+et.DEFAULT_TIMEOUT = 6e5;
+et.AnthropicError = Ce;
+et.APIError = Yt;
+et.APIConnectionError = fl;
+et.APIConnectionTimeoutError = sv;
+et.APIUserAbortError = fn;
+et.NotFoundError = uv;
+et.ConflictError = cv;
+et.RateLimitError = fv;
+et.BadRequestError = ov;
+et.AuthenticationError = av;
+et.InternalServerError = hv;
+et.PermissionDeniedError = lv;
+et.UnprocessableEntityError = dv;
+et.toFile = Tx;
+var to = class extends et {
   constructor() {
     super(...arguments), this.completions = new qv(this), this.messages = new Sd(this), this.models = new Xv(this), this.beta = new Sn(this);
   }
@@ -16992,7 +16992,7 @@ var BN = class {
     const t = this.createChat(e);
     return this.activeChat = t.chat, await this.sendThroughChat(this.activeChat, t.sendPayload, e);
   }
-}, Te = {
+}, Re = {
   LS: "LS",
   GLOB: "Glob",
   GREP: "Grep",
@@ -17016,7 +17016,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.LS,
+      name: Re.LS,
       description: [
         "List first-level entries in a directory.",
         "Returns only one level; does not recurse and does not read file contents.",
@@ -17043,7 +17043,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.GLOB,
+      name: Re.GLOB,
       description: [
         "Match file paths with a glob pattern.",
         "Matches paths only; does not inspect file contents.",
@@ -17070,7 +17070,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.GREP,
+      name: Re.GREP,
       description: [
         "Search file contents for keywords or regex patterns using live file contents from the current instance.",
         "Supports regex and literal search, and can be limited with a glob.",
@@ -17122,7 +17122,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.READ,
+      name: Re.READ,
       description: [
         "Read a text file using the current instance's live file contents.",
         "Supports indexed paths and `local/...` workspace paths.",
@@ -17153,7 +17153,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.WRITE,
+      name: Re.WRITE,
       description: [
         "Write a `local/` text file. Use for new files or whole-file rewrites.",
         "Can only write `local/` paths and never writes back to the user's original disk files.",
@@ -17180,7 +17180,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.EDIT,
+      name: Re.EDIT,
       description: [
         "Apply an exact text replacement to a `local/` text file.",
         "Can only edit `local/` paths and never writes back to the user's original disk files.",
@@ -17219,7 +17219,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.DELETE,
+      name: Re.DELETE,
       description: [
         "Delete a `local/` file or directory.",
         "Can only delete `local/` paths and never deletes the user's original disk files.",
@@ -17240,7 +17240,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.MOVE,
+      name: Re.MOVE,
       description: [
         "Move or rename a `local/` file or directory.",
         "Can only operate on `local/` paths and never moves the user's original disk files.",
@@ -17271,7 +17271,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.RUN_SLASH_COMMAND,
+      name: Re.RUN_SLASH_COMMAND,
       description: [
         "Execute a SillyTavern slash command (STscript).",
         "Use this for reading or operating on objects and state in the user's live SillyTavern instance, such as character cards, lorebooks, chat, presets, extensions, or current model settings.",
@@ -17292,7 +17292,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.RUN_JAVASCRIPT_API,
+      name: Re.RUN_JAVASCRIPT_API,
       description: [
         "Execute documented public SillyTavern frontend JavaScript APIs.",
         "Use this when STscript or slash commands do not provide the needed entry point and you need to inspect, read, or operate on public frontend objects and state such as chatMetadata, saveMetadata, or public extension exports.",
@@ -17342,7 +17342,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.READ_IDENTITY,
+      name: Re.READ_IDENTITY,
       description: "Read the fixed identity file at user/files/LittleWhiteBox_Assistant_Identity.md. If the file does not exist yet, the result will report that state.",
       parameters: {
         type: "object",
@@ -17354,7 +17354,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.WRITE_IDENTITY,
+      name: Re.WRITE_IDENTITY,
       description: "Write identity content to user/files/LittleWhiteBox_Assistant_Identity.md. After a successful write, the currently opened assistant session immediately continues with the new identity.",
       parameters: {
         type: "object",
@@ -17370,7 +17370,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.READ_WORKLOG,
+      name: Re.READ_WORKLOG,
       description: "Read the fixed worklog file at user/files/LittleWhiteBox_Assistant_Worklog.md. If the file does not exist yet, the result will report that state.",
       parameters: {
         type: "object",
@@ -17382,7 +17382,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.WRITE_WORKLOG,
+      name: Re.WRITE_WORKLOG,
       description: "Write investigation notes or worklog content into a worklog file under user/files. By default this writes to user/files/LittleWhiteBox_Assistant_Worklog.md; if name is omitted, the default worklog is used.",
       parameters: {
         type: "object",
@@ -17404,7 +17404,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.READ_SKILLS_CATALOG,
+      name: Re.READ_SKILLS_CATALOG,
       description: "Read the skill catalog index at user/files/LittleWhiteBox_Assistant_Skills.json and return registered skill metadata plus the injection-ready catalog summary.",
       parameters: {
         type: "object",
@@ -17416,7 +17416,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.READ_SKILL,
+      name: Re.READ_SKILL,
       description: "Read the full body of one skill. Prefer id; filename is also allowed. At least one of the two must be provided.",
       parameters: {
         type: "object",
@@ -17437,7 +17437,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.UPDATE_SKILL,
+      name: Re.UPDATE_SKILL,
       description: "Update the body or metadata of an existing skill and sync the changes back to the skill file and Skills.json. Prefer id; filename is also allowed. Partial updates are supported and omitted fields keep their current values.",
       parameters: {
         type: "object",
@@ -17488,7 +17488,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.GENERATE_SKILL,
+      name: Re.GENERATE_SKILL,
       description: [
         "Turn a just-finished large workflow, repeated trial-and-error process, or other reusable procedure into a skill.",
         'You must call `action: "propose"` first to ask for user approval; only after receiving approvalToken may you call `action: "save"` to actually write the skill file and Skills.json.',
@@ -17558,7 +17558,7 @@ var BN = class {
   {
     type: "function",
     function: {
-      name: Te.DELETE_SKILL,
+      name: Re.DELETE_SKILL,
       description: "Delete an existing skill and remove both the skill body file and the catalog entry from Skills.json. Prefer id; filename is also allowed.",
       parameters: {
         type: "object",
@@ -17610,7 +17610,7 @@ function t_(e) {
 `)
     };
   }
-  if (e.toolName === Te.GLOB) {
+  if (e.toolName === Re.GLOB) {
     const n = Array.isArray(t.items) ? t.items : [], i = [`glob“${t.pattern || ""}”命中 ${t.total || 0} 个文件，当前展示 ${n.length} 个。`];
     t.truncated && i.push("结果已截断，可以把模式或路径范围再收窄一点。"), n.length && (i.push(""), i.push(...Lm(n, (s) => `- ${s.publicPath}${s.source ? ` [${s.source}]` : ""}`)));
     const r = n.map((s) => `- ${s.publicPath}${s.source ? ` [${s.source}]` : ""}`);
@@ -17621,7 +17621,7 @@ function t_(e) {
 `)
     };
   }
-  if (e.toolName === Te.LS) {
+  if (e.toolName === Re.LS) {
     const n = Array.isArray(t.items) ? t.items : [], i = [`目录 ${t.directoryPath || ""} 下找到 ${t.total || 0} 个一级子项，当前展示 ${n.length} 个。`];
     t.truncated && i.push("结果已截断，可以把目录范围再收窄一点。"), n.length && (i.push(""), i.push(...Lm(n, (s) => `- ${s.publicPath}${s.type === "directory" ? " [目录]" : ""}`)));
     const r = n.map((s) => {
@@ -17635,7 +17635,7 @@ function t_(e) {
 `)
     };
   }
-  if (e.toolName === Te.GREP) {
+  if (e.toolName === Re.GREP) {
     const n = Array.isArray(t.items) ? t.items : [], i = t.outputMode || "files_with_matches", r = [`grep“${t.pattern || ""}”模式：${i}。当前展示 ${n.length} 个结果。`];
     t.glob && r.push(`glob 限定：${t.glob}`), Number(t.offset) > 0 && r.push(`偏移：已跳过前 ${t.offset} 个结果`), i === "content" && Number(t.contextLines) > 0 && r.push(`上下文：前后 ${t.contextLines} 行`), t.truncated ? (r.push(`结果仍有剩余；本次已扫描 ${t.scannedFiles || 0}/${t.candidateFiles || t.indexedFiles || 0} 个候选文件。`), r.push(`如需继续，可把 offset 设为 ${Number(t.nextOffset) || (Number(t.offset) || 0) + n.length}。`)) : Number(t.candidateFiles) > 0 && t.glob ? (r.push(`本次扫描 ${t.scannedFiles || 0}/${t.candidateFiles} 个候选文件。`), Number.isFinite(t.total) && r.push(`总命中文件数：${t.total}`)) : Number.isFinite(t.total) && r.push(`总命中文件数：${t.total}`);
     const s = [];
@@ -17657,7 +17657,7 @@ function t_(e) {
 `).trim()
     };
   }
-  if (e.toolName === Te.READ) {
+  if (e.toolName === Re.READ) {
     const n = [
       `已读取文件：${t.path || ""}`,
       t.source ? `来源：${t.source}` : "",
@@ -17670,7 +17670,7 @@ function t_(e) {
       details: String(t.content || "")
     };
   }
-  if (e.toolName === Te.WRITE) return {
+  if (e.toolName === Re.WRITE) return {
     summary: [
       `已写入文件：${t.path || ""}`,
       t.source ? `来源：${t.source}` : "",
@@ -17681,7 +17681,7 @@ function t_(e) {
 `),
     details: ""
   };
-  if (e.toolName === Te.EDIT) return {
+  if (e.toolName === Re.EDIT) return {
     summary: [
       `已编辑文件：${t.path || ""}`,
       t.source ? `来源：${t.source}` : "",
@@ -17693,7 +17693,7 @@ function t_(e) {
 `),
     details: ""
   };
-  if (e.toolName === Te.DELETE) return {
+  if (e.toolName === Re.DELETE) return {
     summary: [
       t.mode === "directory" ? `已删除目录：${t.path || ""}` : `已删除文件：${t.path || ""}`,
       t.source ? `来源：${t.source}` : "",
@@ -17702,7 +17702,7 @@ function t_(e) {
 `),
     details: ""
   };
-  if (e.toolName === Te.MOVE) return {
+  if (e.toolName === Re.MOVE) return {
     summary: [
       t.mode === "directory" ? `已移动目录：${t.fromPath || ""}` : `已移动文件：${t.fromPath || ""}`,
       t.toPath ? `目标：${t.toPath}` : "",
@@ -17713,7 +17713,7 @@ function t_(e) {
 `),
     details: ""
   };
-  if (e.toolName === Te.RUN_SLASH_COMMAND) {
+  if (e.toolName === Re.RUN_SLASH_COMMAND) {
     const n = t.execution && typeof t.execution == "object" ? t.execution : {}, i = t.skipped === !0 ? "已跳过" : n.isAborted === !0 ? "已中止" : t.ok === !1 ? "失败" : "成功", r = [`已执行斜杠命令：${t.command || ""}`, `状态：${i}`];
     n.errorMessage && r.push(`错误：${n.errorMessage}`), n.abortReason && r.push(`中止原因：${n.abortReason}`), t.note && r.push(`说明：${t.note}`);
     let s = "";
@@ -17723,7 +17723,7 @@ function t_(e) {
       details: s
     };
   }
-  if (e.toolName === Te.RUN_JAVASCRIPT_API) {
+  if (e.toolName === Re.RUN_JAVASCRIPT_API) {
     const n = t.execution && typeof t.execution == "object" ? t.execution : {}, i = t.skipped === !0 ? "已跳过" : n.isAborted === !0 ? "已中止" : t.ok === !1 ? "失败" : "成功", r = t.requestKind === "inspect" ? "探索只读" : t.requestKind === "read" ? "精确只读" : t.requestKind === "effect" ? "副作用" : "未知", s = [
       `已执行 JS API：${t.code || ""}`,
       `请求性质：${r}`,
@@ -17739,24 +17739,24 @@ function t_(e) {
       details: WN(t.output)
     };
   }
-  if (e.toolName === Te.WRITE_IDENTITY) return {
+  if (e.toolName === Re.WRITE_IDENTITY) return {
     summary: [`身份设定已写入 ${t.name || "LittleWhiteBox_Assistant_Identity.md"}`.trim(), t.hotUpdated ? "当前会话身份已同步刷新。" : ""].filter(Boolean).join(`
 `),
     details: ""
   };
-  if (e.toolName === Te.READ_IDENTITY) return {
+  if (e.toolName === Re.READ_IDENTITY) return {
     summary: t.exists ? `已读取身份设定：${t.name || "LittleWhiteBox_Assistant_Identity.md"}` : `身份设定还不存在：${t.name || "LittleWhiteBox_Assistant_Identity.md"}`,
     details: t.exists ? String(t.content || "") : ""
   };
-  if (e.toolName === Te.WRITE_WORKLOG) return {
+  if (e.toolName === Re.WRITE_WORKLOG) return {
     summary: `工作记录已写入 ${t.name || ""}`.trim(),
     details: ""
   };
-  if (e.toolName === Te.READ_WORKLOG) return {
+  if (e.toolName === Re.READ_WORKLOG) return {
     summary: t.exists ? `已读取工作记录：${t.name || "LittleWhiteBox_Assistant_Worklog.md"}` : `工作记录还不存在：${t.name || "LittleWhiteBox_Assistant_Worklog.md"}`,
     details: t.exists ? String(t.content || "") : ""
   };
-  if (e.toolName === Te.READ_SKILLS_CATALOG) return {
+  if (e.toolName === Re.READ_SKILLS_CATALOG) return {
     summary: [
       `已读取技能目录：${t.name || "LittleWhiteBox_Assistant_Skills.json"}`,
       `总技能数：${Number(t.total) || 0}`,
@@ -17765,7 +17765,7 @@ function t_(e) {
 `),
     details: String(t.content || t.summaryText || "")
   };
-  if (e.toolName === Te.READ_SKILL)
+  if (e.toolName === Re.READ_SKILL)
     return t.ok === !1 && t.error ? {
       summary: [`读取技能失败：${t.error}`, t.message ? `说明：${t.message}` : ""].filter(Boolean).join(`
 `),
@@ -17780,7 +17780,7 @@ function t_(e) {
 `),
       details: String(t.content || "")
     };
-  if (e.toolName === Te.UPDATE_SKILL)
+  if (e.toolName === Re.UPDATE_SKILL)
     return t.ok === !1 && t.error ? {
       summary: [`更新技能失败：${t.error}`, t.message ? `说明：${t.message}` : ""].filter(Boolean).join(`
 `),
@@ -17794,7 +17794,7 @@ function t_(e) {
 `),
       details: t.note ? String(t.note) : ""
     };
-  if (e.toolName === Te.GENERATE_SKILL) {
+  if (e.toolName === Re.GENERATE_SKILL) {
     if (t.ok === !1 && t.error) return {
       summary: [`技能处理失败：${t.error}`, t.message ? `说明：${t.message}` : ""].filter(Boolean).join(`
 `),
@@ -17827,7 +17827,7 @@ function t_(e) {
 `)
     };
   }
-  return e.toolName === Te.DELETE_SKILL ? t.ok === !1 && t.error ? {
+  return e.toolName === Re.DELETE_SKILL ? t.ok === !1 && t.error ? {
     summary: [`删除技能失败：${t.error}`, t.message ? `说明：${t.message}` : ""].filter(Boolean).join(`
 `),
     details: ""
@@ -18818,70 +18818,70 @@ function In(e, t) {
 function ai(e, t) {
   return e < 48 ? e === 36 : e < 58 ? !0 : e < 65 ? !1 : e < 91 ? !0 : e < 97 ? e === 95 : e < 123 ? !0 : e <= 65535 ? e >= 170 && KN.test(String.fromCharCode(e)) : t === !1 ? !1 : Ic(e, n_) || Ic(e, JN);
 }
-var De = function(t, n) {
+var Fe = function(t, n) {
   n === void 0 && (n = {}), this.label = t, this.keyword = n.keyword, this.beforeExpr = !!n.beforeExpr, this.startsExpr = !!n.startsExpr, this.isLoop = !!n.isLoop, this.isAssign = !!n.isAssign, this.prefix = !!n.prefix, this.postfix = !!n.postfix, this.binop = n.binop || null, this.updateContext = null;
 };
 function Xt(e, t) {
-  return new De(e, {
+  return new Fe(e, {
     beforeExpr: !0,
     binop: t
   });
 }
 var Zt = { beforeExpr: !0 }, Tt = { startsExpr: !0 }, Dd = {};
 function Me(e, t) {
-  return t === void 0 && (t = {}), t.keyword = e, Dd[e] = new De(e, t);
+  return t === void 0 && (t = {}), t.keyword = e, Dd[e] = new Fe(e, t);
 }
 var b = {
-  num: new De("num", Tt),
-  regexp: new De("regexp", Tt),
-  string: new De("string", Tt),
-  name: new De("name", Tt),
-  privateId: new De("privateId", Tt),
-  eof: new De("eof"),
-  bracketL: new De("[", {
+  num: new Fe("num", Tt),
+  regexp: new Fe("regexp", Tt),
+  string: new Fe("string", Tt),
+  name: new Fe("name", Tt),
+  privateId: new Fe("privateId", Tt),
+  eof: new Fe("eof"),
+  bracketL: new Fe("[", {
     beforeExpr: !0,
     startsExpr: !0
   }),
-  bracketR: new De("]"),
-  braceL: new De("{", {
+  bracketR: new Fe("]"),
+  braceL: new Fe("{", {
     beforeExpr: !0,
     startsExpr: !0
   }),
-  braceR: new De("}"),
-  parenL: new De("(", {
+  braceR: new Fe("}"),
+  parenL: new Fe("(", {
     beforeExpr: !0,
     startsExpr: !0
   }),
-  parenR: new De(")"),
-  comma: new De(",", Zt),
-  semi: new De(";", Zt),
-  colon: new De(":", Zt),
-  dot: new De("."),
-  question: new De("?", Zt),
-  questionDot: new De("?."),
-  arrow: new De("=>", Zt),
-  template: new De("template"),
-  invalidTemplate: new De("invalidTemplate"),
-  ellipsis: new De("...", Zt),
-  backQuote: new De("`", Tt),
-  dollarBraceL: new De("${", {
+  parenR: new Fe(")"),
+  comma: new Fe(",", Zt),
+  semi: new Fe(";", Zt),
+  colon: new Fe(":", Zt),
+  dot: new Fe("."),
+  question: new Fe("?", Zt),
+  questionDot: new Fe("?."),
+  arrow: new Fe("=>", Zt),
+  template: new Fe("template"),
+  invalidTemplate: new Fe("invalidTemplate"),
+  ellipsis: new Fe("...", Zt),
+  backQuote: new Fe("`", Tt),
+  dollarBraceL: new Fe("${", {
     beforeExpr: !0,
     startsExpr: !0
   }),
-  eq: new De("=", {
+  eq: new Fe("=", {
     beforeExpr: !0,
     isAssign: !0
   }),
-  assign: new De("_=", {
+  assign: new Fe("_=", {
     beforeExpr: !0,
     isAssign: !0
   }),
-  incDec: new De("++/--", {
+  incDec: new Fe("++/--", {
     prefix: !0,
     postfix: !0,
     startsExpr: !0
   }),
-  prefix: new De("!/~", {
+  prefix: new Fe("!/~", {
     beforeExpr: !0,
     prefix: !0,
     startsExpr: !0
@@ -18894,7 +18894,7 @@ var b = {
   equality: Xt("==/!=/===/!==", 6),
   relational: Xt("</>/<=/>=", 7),
   bitShift: Xt("<</>>/>>>", 8),
-  plusMin: new De("+/-", {
+  plusMin: new Fe("+/-", {
     beforeExpr: !0,
     binop: 9,
     prefix: !0,
@@ -18903,7 +18903,7 @@ var b = {
   modulo: Xt("%", 10),
   star: Xt("*", 10),
   slash: Xt("/", 10),
-  starstar: new De("**", { beforeExpr: !0 }),
+  starstar: new Fe("**", { beforeExpr: !0 }),
   coalesce: Xt("??", 1),
   _break: Me("break"),
   _case: Me("case", Zt),
@@ -21475,7 +21475,7 @@ st.acorn = {
   SourceLocation: vl,
   getLineInfo: l_,
   Node: wl,
-  TokenType: De,
+  TokenType: Fe,
   tokTypes: b,
   keywordTypes: Dd,
   TokContext: on,
@@ -22055,7 +22055,7 @@ function t1({ code: e = "", apiPaths: t = [], manifest: n = {} } = {}) {
     validationErrors: Array.isArray(i.validationErrors) ? i.validationErrors : []
   };
 }
-var n1 = 3.35, i1 = /* @__PURE__ */ new Set(["openai-compatible", "openai-responses"]), r1 = new TextEncoder(), s1 = new URL("data:application/json;base64,ewogICJnZW5lcmF0ZWRBdCI6ICIyMDI2LTA0LTIxVDExOjE0OjEyLjQ2N1oiLAogICJ2ZXJzaW9uIjogMSwKICAibmFtZXNwYWNlcyI6IHsKICAgICJjdHgiOiBbCiAgICAgICJjdHguYWNjb3VudFN0b3JhZ2UiLAogICAgICAiY3R4LmFkZExvY2FsZURhdGEiLAogICAgICAiY3R4LmFkZE9uZU1lc3NhZ2UiLAogICAgICAiY3R4LmNhbGxHZW5lcmljUG9wdXAiLAogICAgICAiY3R4LmNhblBlcmZvcm1Ub29sQ2FsbHMiLAogICAgICAiY3R4LmNoYXJhY3RlcklkIiwKICAgICAgImN0eC5jaGFyYWN0ZXJzIiwKICAgICAgImN0eC5jaGF0IiwKICAgICAgImN0eC5DaGF0Q29tcGxldGlvblNlcnZpY2UiLAogICAgICAiY3R4LmNoYXRDb21wbGV0aW9uU2V0dGluZ3MiLAogICAgICAiY3R4LmNoYXRJZCIsCiAgICAgICJjdHguY2hhdE1ldGFkYXRhIiwKICAgICAgImN0eC5jbGVhckNoYXQiLAogICAgICAiY3R4LkNPTk5FQ1RfQVBJX01BUCIsCiAgICAgICJjdHguQ29ubmVjdGlvbk1hbmFnZXJSZXF1ZXN0U2VydmljZSIsCiAgICAgICJjdHguY29udmVydENoYXJhY3RlckJvb2siLAogICAgICAiY3R4LmNyZWF0ZUNoYXJhY3RlckRhdGEiLAogICAgICAiY3R4LmRlbGV0ZUxhc3RNZXNzYWdlIiwKICAgICAgImN0eC5kZWxldGVNZXNzYWdlIiwKICAgICAgImN0eC5ldmVudFNvdXJjZSIsCiAgICAgICJjdHguZXZlbnRUeXBlcyIsCiAgICAgICJjdHguZXh0ZW5zaW9uUHJvbXB0cyIsCiAgICAgICJjdHguZXh0ZW5zaW9uU2V0dGluZ3MiLAogICAgICAiY3R4LmdlbmVyYXRlIiwKICAgICAgImN0eC5nZW5lcmF0ZVF1aWV0UHJvbXB0IiwKICAgICAgImN0eC5nZW5lcmF0ZVJhdyIsCiAgICAgICJjdHguZ2VuZXJhdGVSYXdEYXRhIiwKICAgICAgImN0eC5nZXRDaGFyYWN0ZXJDYXJkRmllbGRzIiwKICAgICAgImN0eC5nZXRDaGFyYWN0ZXJzIiwKICAgICAgImN0eC5nZXRDaGFyYWN0ZXJTb3VyY2UiLAogICAgICAiY3R4LmdldEN1cnJlbnRDaGF0SWQiLAogICAgICAiY3R4LmdldEN1cnJlbnRMb2NhbGUiLAogICAgICAiY3R4LmdldE9uZUNoYXJhY3RlciIsCiAgICAgICJjdHguZ2V0UHJlc2V0TWFuYWdlciIsCiAgICAgICJjdHguZ2V0VGV4dEdlblNlcnZlciIsCiAgICAgICJjdHguZ2V0VGV4dFRva2VucyIsCiAgICAgICJjdHguZ2V0VGh1bWJuYWlsVXJsIiwKICAgICAgImN0eC5nZXRUb2tlbkNvdW50QXN5bmMiLAogICAgICAiY3R4LmdldFRva2VuaXplck1vZGVsIiwKICAgICAgImN0eC5nZXRXb3JsZEluZm9Qcm9tcHQiLAogICAgICAiY3R4Lmdyb3VwSWQiLAogICAgICAiY3R4Lmdyb3VwcyIsCiAgICAgICJjdHguaW1wb3J0RnJvbUV4dGVybmFsVXJsIiwKICAgICAgImN0eC5pc01vYmlsZSIsCiAgICAgICJjdHguaXNUb29sQ2FsbGluZ1N1cHBvcnRlZCIsCiAgICAgICJjdHgubG9hZGVyIiwKICAgICAgImN0eC5sb2FkV29ybGRJbmZvIiwKICAgICAgImN0eC5tYWNyb3MiLAogICAgICAiY3R4Lm1haW5BcGkiLAogICAgICAiY3R4Lm1heENvbnRleHQiLAogICAgICAiY3R4Lm1lbnVUeXBlIiwKICAgICAgImN0eC5tZXNzYWdlRm9ybWF0dGluZyIsCiAgICAgICJjdHgub25saW5lU3RhdHVzIiwKICAgICAgImN0eC5vcGVuQ2hhcmFjdGVyQ2hhdCIsCiAgICAgICJjdHgub3Blbkdyb3VwQ2hhdCIsCiAgICAgICJjdHgub3BlblRoaXJkUGFydHlFeHRlbnNpb25NZW51IiwKICAgICAgImN0eC5Qb3B1cCIsCiAgICAgICJjdHguUE9QVVBfUkVTVUxUIiwKICAgICAgImN0eC5QT1BVUF9UWVBFIiwKICAgICAgImN0eC5wb3dlclVzZXJTZXR0aW5ncyIsCiAgICAgICJjdHgucHJpbnRNZXNzYWdlcyIsCiAgICAgICJjdHgucmVnaXN0ZXJGdW5jdGlvblRvb2wiLAogICAgICAiY3R4LnJlbG9hZEN1cnJlbnRDaGF0IiwKICAgICAgImN0eC5yZWxvYWRXb3JsZEluZm9FZGl0b3IiLAogICAgICAiY3R4LnJlbmFtZUNoYXQiLAogICAgICAiY3R4LnJlbmRlckV4dGVuc2lvblRlbXBsYXRlQXN5bmMiLAogICAgICAiY3R4LnNhdmVDaGF0IiwKICAgICAgImN0eC5zYXZlTWV0YWRhdGEiLAogICAgICAiY3R4LnNhdmVNZXRhZGF0YURlYm91bmNlZCIsCiAgICAgICJjdHguc2F2ZVNldHRpbmdzRGVib3VuY2VkIiwKICAgICAgImN0eC5zYXZlV29ybGRJbmZvIiwKICAgICAgImN0eC5zZWxlY3RDaGFyYWN0ZXJCeUlkIiwKICAgICAgImN0eC5zZW5kR2VuZXJhdGlvblJlcXVlc3QiLAogICAgICAiY3R4LnNlbmRTdHJlYW1pbmdSZXF1ZXN0IiwKICAgICAgImN0eC5zZXRFeHRlbnNpb25Qcm9tcHQiLAogICAgICAiY3R4LnNob3VsZFNlbmRPbkVudGVyIiwKICAgICAgImN0eC5zdG9wR2VuZXJhdGlvbiIsCiAgICAgICJjdHguc3dpcGUiLAogICAgICAiY3R4LnN3aXBlLmhpZGUiLAogICAgICAiY3R4LnN3aXBlLmlzQWxsb3dlZCIsCiAgICAgICJjdHguc3dpcGUubGVmdCIsCiAgICAgICJjdHguc3dpcGUucmVmcmVzaCIsCiAgICAgICJjdHguc3dpcGUucmlnaHQiLAogICAgICAiY3R4LnN3aXBlLnNob3ciLAogICAgICAiY3R4LnN3aXBlLnN0YXRlIiwKICAgICAgImN0eC5zd2lwZS50byIsCiAgICAgICJjdHguc3ltYm9scy5pZ25vcmUiLAogICAgICAiY3R4LnQiLAogICAgICAiY3R4LnRhZ01hcCIsCiAgICAgICJjdHgudGFncyIsCiAgICAgICJjdHguVGV4dENvbXBsZXRpb25TZXJ2aWNlIiwKICAgICAgImN0eC50ZXh0Q29tcGxldGlvblNldHRpbmdzIiwKICAgICAgImN0eC50b2tlbml6ZXJzIiwKICAgICAgImN0eC5Ub29sTWFuYWdlciIsCiAgICAgICJjdHgudHJhbnNsYXRlIiwKICAgICAgImN0eC51bnJlZ2lzdGVyRnVuY3Rpb25Ub29sIiwKICAgICAgImN0eC51cGRhdGVXb3JsZEluZm9MaXN0IiwKICAgICAgImN0eC52YXJpYWJsZXMiLAogICAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuYWRkIiwKICAgICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmRlYyIsCiAgICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5kZWwiLAogICAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuZ2V0IiwKICAgICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmhhcyIsCiAgICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5pbmMiLAogICAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuc2V0IiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuYWRkIiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuZGVjIiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuZGVsIiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuZ2V0IiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuaGFzIiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuaW5jIiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuc2V0IgogICAgXSwKICAgICJzdCI6IHsKICAgICAgInNjcmlwdCI6IFsKICAgICAgICAic3Quc2NyaXB0LkFOSU1BVElPTl9EVVJBVElPTl9ERUZBVUxUIiwKICAgICAgICAic3Quc2NyaXB0LmNoYXJhY3RlcnMiLAogICAgICAgICJzdC5zY3JpcHQuY2hhdCIsCiAgICAgICAgInN0LnNjcmlwdC5jaGF0X21ldGFkYXRhIiwKICAgICAgICAic3Quc2NyaXB0LmNvbW1lbnRfYXZhdGFyIiwKICAgICAgICAic3Quc2NyaXB0LmRlZmF1bHRfYXZhdGFyIiwKICAgICAgICAic3Quc2NyaXB0LmRlZmF1bHRfdXNlcl9hdmF0YXIiLAogICAgICAgICJzdC5zY3JpcHQuZXZlbnRfdHlwZXMiLAogICAgICAgICJzdC5zY3JpcHQuZXZlbnRTb3VyY2UiLAogICAgICAgICJzdC5zY3JpcHQuZ2VuZXJhdGlvbl9zdGFydGVkIiwKICAgICAgICAic3Quc2NyaXB0LmdldEN1cnJlbnRDaGF0SWQiLAogICAgICAgICJzdC5zY3JpcHQuZ2V0UmVxdWVzdEhlYWRlcnMiLAogICAgICAgICJzdC5zY3JpcHQuaXNfc2VuZF9wcmVzcyIsCiAgICAgICAgInN0LnNjcmlwdC5tYWluX2FwaSIsCiAgICAgICAgInN0LnNjcmlwdC5tYXhfY29udGV4dCIsCiAgICAgICAgInN0LnNjcmlwdC5NQVhfSU5KRUNUSU9OX0RFUFRIIiwKICAgICAgICAic3Quc2NyaXB0Lm5hbWUxIiwKICAgICAgICAic3Quc2NyaXB0Lm5hbWUyIiwKICAgICAgICAic3Quc2NyaXB0Lm5ldXRyYWxDaGFyYWN0ZXJOYW1lIiwKICAgICAgICAic3Quc2NyaXB0Lm9ubGluZV9zdGF0dXMiLAogICAgICAgICJzdC5zY3JpcHQucmVsb2FkTWFya2Rvd25Qcm9jZXNzb3IiLAogICAgICAgICJzdC5zY3JpcHQuc2F2ZUNoYXJhY3RlckRlYm91bmNlZCIsCiAgICAgICAgInN0LnNjcmlwdC5zYXZlU2V0dGluZ3NEZWJvdW5jZWQiLAogICAgICAgICJzdC5zY3JpcHQuc2V0dGluZ3MiLAogICAgICAgICJzdC5zY3JpcHQuc3lzdGVtX2F2YXRhciIsCiAgICAgICAgInN0LnNjcmlwdC5zeXN0ZW1Vc2VyTmFtZSIsCiAgICAgICAgInN0LnNjcmlwdC50aGlzX2NoaWQiCiAgICAgIF0sCiAgICAgICJleHRlbnNpb25zIjogWwogICAgICAgICJzdC5leHRlbnNpb25zLmNhbmNlbERlYm91bmNlZE1ldGFkYXRhU2F2ZSIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMuZXh0ZW5zaW9uX3NldHRpbmdzIiwKICAgICAgICAic3QuZXh0ZW5zaW9ucy5leHRlbnNpb25OYW1lcyIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMuZXh0ZW5zaW9uVHlwZXMiLAogICAgICAgICJzdC5leHRlbnNpb25zLmdldEFwaVVybCIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMuZ2V0Q29udGV4dCIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMubW9kdWxlcyIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMuTW9kdWxlV29ya2VyV3JhcHBlciIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGUiLAogICAgICAgICJzdC5leHRlbnNpb25zLnJlbmRlckV4dGVuc2lvblRlbXBsYXRlQXN5bmMiLAogICAgICAgICJzdC5leHRlbnNpb25zLnJ1bkdlbmVyYXRpb25JbnRlcmNlcHRvcnMiLAogICAgICAgICJzdC5leHRlbnNpb25zLnNhdmVNZXRhZGF0YURlYm91bmNlZCIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMud3JpdGVFeHRlbnNpb25GaWVsZCIKICAgICAgXSwKICAgICAgInNsYXNoIjogWwogICAgICAgICJzdC5zbGFzaC5BUkdVTUVOVF9UWVBFIiwKICAgICAgICAic3Quc2xhc2guQ09OTkVDVF9BUElfTUFQIiwKICAgICAgICAic3Quc2xhc2guZXhlY3V0ZVNsYXNoQ29tbWFuZHMiLAogICAgICAgICJzdC5zbGFzaC5leGVjdXRlU2xhc2hDb21tYW5kc1dpdGhPcHRpb25zIiwKICAgICAgICAic3Quc2xhc2guZ2V0U2xhc2hDb21tYW5kc0hlbHAiLAogICAgICAgICJzdC5zbGFzaC5yZWdpc3RlclNsYXNoQ29tbWFuZCIsCiAgICAgICAgInN0LnNsYXNoLlNsYXNoQ29tbWFuZCIsCiAgICAgICAgInN0LnNsYXNoLlNsYXNoQ29tbWFuZEFyZ3VtZW50IiwKICAgICAgICAic3Quc2xhc2guU2xhc2hDb21tYW5kTmFtZWRBcmd1bWVudCIsCiAgICAgICAgInN0LnNsYXNoLlNsYXNoQ29tbWFuZFBhcnNlciIKICAgICAgXQogICAgfQogIH0sCiAgImNhbGxhYmxlUGF0aHMiOiBbCiAgICAiY3R4LmFkZExvY2FsZURhdGEiLAogICAgImN0eC5hZGRPbmVNZXNzYWdlIiwKICAgICJjdHguY2FsbEdlbmVyaWNQb3B1cCIsCiAgICAiY3R4LmNhblBlcmZvcm1Ub29sQ2FsbHMiLAogICAgImN0eC5jbGVhckNoYXQiLAogICAgImN0eC5jb252ZXJ0Q2hhcmFjdGVyQm9vayIsCiAgICAiY3R4LmNyZWF0ZUNoYXJhY3RlckRhdGEiLAogICAgImN0eC5kZWxldGVMYXN0TWVzc2FnZSIsCiAgICAiY3R4LmRlbGV0ZU1lc3NhZ2UiLAogICAgImN0eC5nZW5lcmF0ZSIsCiAgICAiY3R4LmdlbmVyYXRlUXVpZXRQcm9tcHQiLAogICAgImN0eC5nZW5lcmF0ZVJhdyIsCiAgICAiY3R4LmdlbmVyYXRlUmF3RGF0YSIsCiAgICAiY3R4LmdldENoYXJhY3RlckNhcmRGaWVsZHMiLAogICAgImN0eC5nZXRDaGFyYWN0ZXJzIiwKICAgICJjdHguZ2V0Q2hhcmFjdGVyU291cmNlIiwKICAgICJjdHguZ2V0Q3VycmVudENoYXRJZCIsCiAgICAiY3R4LmdldEN1cnJlbnRMb2NhbGUiLAogICAgImN0eC5nZXRPbmVDaGFyYWN0ZXIiLAogICAgImN0eC5nZXRQcmVzZXRNYW5hZ2VyIiwKICAgICJjdHguZ2V0VGV4dEdlblNlcnZlciIsCiAgICAiY3R4LmdldFRleHRUb2tlbnMiLAogICAgImN0eC5nZXRUaHVtYm5haWxVcmwiLAogICAgImN0eC5nZXRUb2tlbkNvdW50QXN5bmMiLAogICAgImN0eC5nZXRUb2tlbml6ZXJNb2RlbCIsCiAgICAiY3R4LmdldFdvcmxkSW5mb1Byb21wdCIsCiAgICAiY3R4LmltcG9ydEZyb21FeHRlcm5hbFVybCIsCiAgICAiY3R4LmlzVG9vbENhbGxpbmdTdXBwb3J0ZWQiLAogICAgImN0eC5sb2FkV29ybGRJbmZvIiwKICAgICJjdHgub3BlbkNoYXJhY3RlckNoYXQiLAogICAgImN0eC5vcGVuR3JvdXBDaGF0IiwKICAgICJjdHgub3BlblRoaXJkUGFydHlFeHRlbnNpb25NZW51IiwKICAgICJjdHgucHJpbnRNZXNzYWdlcyIsCiAgICAiY3R4LnJlZ2lzdGVyRnVuY3Rpb25Ub29sIiwKICAgICJjdHgucmVsb2FkQ3VycmVudENoYXQiLAogICAgImN0eC5yZWxvYWRXb3JsZEluZm9FZGl0b3IiLAogICAgImN0eC5yZW5hbWVDaGF0IiwKICAgICJjdHgucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGVBc3luYyIsCiAgICAiY3R4LnNhdmVDaGF0IiwKICAgICJjdHguc2F2ZU1ldGFkYXRhIiwKICAgICJjdHguc2F2ZU1ldGFkYXRhRGVib3VuY2VkIiwKICAgICJjdHguc2F2ZVNldHRpbmdzRGVib3VuY2VkIiwKICAgICJjdHguc2F2ZVdvcmxkSW5mbyIsCiAgICAiY3R4LnNlbGVjdENoYXJhY3RlckJ5SWQiLAogICAgImN0eC5zZW5kR2VuZXJhdGlvblJlcXVlc3QiLAogICAgImN0eC5zZW5kU3RyZWFtaW5nUmVxdWVzdCIsCiAgICAiY3R4LnNldEV4dGVuc2lvblByb21wdCIsCiAgICAiY3R4LnN0b3BHZW5lcmF0aW9uIiwKICAgICJjdHguc3dpcGUuaGlkZSIsCiAgICAiY3R4LnN3aXBlLmlzQWxsb3dlZCIsCiAgICAiY3R4LnN3aXBlLmxlZnQiLAogICAgImN0eC5zd2lwZS5yZWZyZXNoIiwKICAgICJjdHguc3dpcGUucmlnaHQiLAogICAgImN0eC5zd2lwZS5zaG93IiwKICAgICJjdHguc3dpcGUuc3RhdGUiLAogICAgImN0eC5zd2lwZS50byIsCiAgICAiY3R4LnQiLAogICAgImN0eC50cmFuc2xhdGUiLAogICAgImN0eC51bnJlZ2lzdGVyRnVuY3Rpb25Ub29sIiwKICAgICJjdHgudXBkYXRlV29ybGRJbmZvTGlzdCIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuYWRkIiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5kZWMiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmRlbCIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuZ2V0IiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5oYXMiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmluYyIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuc2V0IiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLmFkZCIsCiAgICAiY3R4LnZhcmlhYmxlcy5sb2NhbC5kZWMiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuZGVsIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLmdldCIsCiAgICAiY3R4LnZhcmlhYmxlcy5sb2NhbC5oYXMiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuaW5jIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLnNldCIsCiAgICAic3QuZXh0ZW5zaW9ucy5jYW5jZWxEZWJvdW5jZWRNZXRhZGF0YVNhdmUiLAogICAgInN0LmV4dGVuc2lvbnMuZ2V0QXBpVXJsIiwKICAgICJzdC5leHRlbnNpb25zLmdldENvbnRleHQiLAogICAgInN0LmV4dGVuc2lvbnMucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGUiLAogICAgInN0LmV4dGVuc2lvbnMucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGVBc3luYyIsCiAgICAic3QuZXh0ZW5zaW9ucy5ydW5HZW5lcmF0aW9uSW50ZXJjZXB0b3JzIiwKICAgICJzdC5leHRlbnNpb25zLnNhdmVNZXRhZGF0YURlYm91bmNlZCIsCiAgICAic3QuZXh0ZW5zaW9ucy53cml0ZUV4dGVuc2lvbkZpZWxkIiwKICAgICJzdC5zY3JpcHQuZ2V0Q3VycmVudENoYXRJZCIsCiAgICAic3Quc2NyaXB0LmdldFJlcXVlc3RIZWFkZXJzIiwKICAgICJzdC5zY3JpcHQucmVsb2FkTWFya2Rvd25Qcm9jZXNzb3IiLAogICAgInN0LnNjcmlwdC5zYXZlQ2hhcmFjdGVyRGVib3VuY2VkIiwKICAgICJzdC5zY3JpcHQuc2F2ZVNldHRpbmdzRGVib3VuY2VkIiwKICAgICJzdC5zbGFzaC5leGVjdXRlU2xhc2hDb21tYW5kcyIsCiAgICAic3Quc2xhc2guZXhlY3V0ZVNsYXNoQ29tbWFuZHNXaXRoT3B0aW9ucyIsCiAgICAic3Quc2xhc2guZ2V0U2xhc2hDb21tYW5kc0hlbHAiLAogICAgInN0LnNsYXNoLnJlZ2lzdGVyU2xhc2hDb21tYW5kIgogIF0sCiAgImFwaVNlbWFudGljcyI6IHsKICAgICJjdHguYWRkTG9jYWxlRGF0YSI6ICJ3cml0ZSIsCiAgICAiY3R4LmFkZE9uZU1lc3NhZ2UiOiAid3JpdGUiLAogICAgImN0eC5jYWxsR2VuZXJpY1BvcHVwIjogInVpIiwKICAgICJjdHguY2FuUGVyZm9ybVRvb2xDYWxscyI6ICJyZWFkIiwKICAgICJjdHguY2xlYXJDaGF0IjogIndyaXRlIiwKICAgICJjdHguY29udmVydENoYXJhY3RlckJvb2siOiAiZXhlYyIsCiAgICAiY3R4LmNyZWF0ZUNoYXJhY3RlckRhdGEiOiAiZXhlYyIsCiAgICAiY3R4LmRlbGV0ZUxhc3RNZXNzYWdlIjogIndyaXRlIiwKICAgICJjdHguZGVsZXRlTWVzc2FnZSI6ICJ3cml0ZSIsCiAgICAiY3R4LmdlbmVyYXRlIjogIm5ldHdvcmsiLAogICAgImN0eC5nZW5lcmF0ZVF1aWV0UHJvbXB0IjogIm5ldHdvcmsiLAogICAgImN0eC5nZW5lcmF0ZVJhdyI6ICJuZXR3b3JrIiwKICAgICJjdHguZ2VuZXJhdGVSYXdEYXRhIjogIm5ldHdvcmsiLAogICAgImN0eC5nZXRDaGFyYWN0ZXJDYXJkRmllbGRzIjogInJlYWQiLAogICAgImN0eC5nZXRDaGFyYWN0ZXJzIjogInJlYWQiLAogICAgImN0eC5nZXRDaGFyYWN0ZXJTb3VyY2UiOiAicmVhZCIsCiAgICAiY3R4LmdldEN1cnJlbnRDaGF0SWQiOiAicmVhZCIsCiAgICAiY3R4LmdldEN1cnJlbnRMb2NhbGUiOiAicmVhZCIsCiAgICAiY3R4LmdldE9uZUNoYXJhY3RlciI6ICJyZWFkIiwKICAgICJjdHguZ2V0UHJlc2V0TWFuYWdlciI6ICJyZWFkIiwKICAgICJjdHguZ2V0VGV4dEdlblNlcnZlciI6ICJyZWFkIiwKICAgICJjdHguZ2V0VGV4dFRva2VucyI6ICJyZWFkIiwKICAgICJjdHguZ2V0VGh1bWJuYWlsVXJsIjogInJlYWQiLAogICAgImN0eC5nZXRUb2tlbkNvdW50QXN5bmMiOiAicmVhZCIsCiAgICAiY3R4LmdldFRva2VuaXplck1vZGVsIjogInJlYWQiLAogICAgImN0eC5nZXRXb3JsZEluZm9Qcm9tcHQiOiAicmVhZCIsCiAgICAiY3R4LmltcG9ydEZyb21FeHRlcm5hbFVybCI6ICJuZXR3b3JrIiwKICAgICJjdHguaXNUb29sQ2FsbGluZ1N1cHBvcnRlZCI6ICJyZWFkIiwKICAgICJjdHgubG9hZFdvcmxkSW5mbyI6ICJyZWFkIiwKICAgICJjdHgub3BlbkNoYXJhY3RlckNoYXQiOiAidWkiLAogICAgImN0eC5vcGVuR3JvdXBDaGF0IjogInVpIiwKICAgICJjdHgub3BlblRoaXJkUGFydHlFeHRlbnNpb25NZW51IjogInVpIiwKICAgICJjdHgucHJpbnRNZXNzYWdlcyI6ICJ1aSIsCiAgICAiY3R4LnJlZ2lzdGVyRnVuY3Rpb25Ub29sIjogIndyaXRlIiwKICAgICJjdHgucmVsb2FkQ3VycmVudENoYXQiOiAidWkiLAogICAgImN0eC5yZWxvYWRXb3JsZEluZm9FZGl0b3IiOiAidWkiLAogICAgImN0eC5yZW5hbWVDaGF0IjogIndyaXRlIiwKICAgICJjdHgucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGVBc3luYyI6ICJyZWFkIiwKICAgICJjdHguc2F2ZUNoYXQiOiAid3JpdGUiLAogICAgImN0eC5zYXZlTWV0YWRhdGEiOiAid3JpdGUiLAogICAgImN0eC5zYXZlTWV0YWRhdGFEZWJvdW5jZWQiOiAid3JpdGUiLAogICAgImN0eC5zYXZlU2V0dGluZ3NEZWJvdW5jZWQiOiAid3JpdGUiLAogICAgImN0eC5zYXZlV29ybGRJbmZvIjogIndyaXRlIiwKICAgICJjdHguc2VsZWN0Q2hhcmFjdGVyQnlJZCI6ICJ1aSIsCiAgICAiY3R4LnNlbmRHZW5lcmF0aW9uUmVxdWVzdCI6ICJuZXR3b3JrIiwKICAgICJjdHguc2VuZFN0cmVhbWluZ1JlcXVlc3QiOiAibmV0d29yayIsCiAgICAiY3R4LnNldEV4dGVuc2lvblByb21wdCI6ICJ3cml0ZSIsCiAgICAiY3R4LnN0b3BHZW5lcmF0aW9uIjogImV4ZWMiLAogICAgImN0eC5zd2lwZS5oaWRlIjogInVpIiwKICAgICJjdHguc3dpcGUuaXNBbGxvd2VkIjogInJlYWQiLAogICAgImN0eC5zd2lwZS5sZWZ0IjogInVpIiwKICAgICJjdHguc3dpcGUucmVmcmVzaCI6ICJ1aSIsCiAgICAiY3R4LnN3aXBlLnJpZ2h0IjogInVpIiwKICAgICJjdHguc3dpcGUuc2hvdyI6ICJ1aSIsCiAgICAiY3R4LnN3aXBlLnN0YXRlIjogInJlYWQiLAogICAgImN0eC5zd2lwZS50byI6ICJ1aSIsCiAgICAiY3R4LnQiOiAicmVhZCIsCiAgICAiY3R4LnRyYW5zbGF0ZSI6ICJyZWFkIiwKICAgICJjdHgudW5yZWdpc3RlckZ1bmN0aW9uVG9vbCI6ICJ3cml0ZSIsCiAgICAiY3R4LnVwZGF0ZVdvcmxkSW5mb0xpc3QiOiAidWkiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmFkZCI6ICJ3cml0ZSIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuZGVjIjogIndyaXRlIiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5kZWwiOiAid3JpdGUiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmdldCI6ICJyZWFkIiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5oYXMiOiAicmVhZCIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuaW5jIjogIndyaXRlIiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5zZXQiOiAid3JpdGUiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuYWRkIjogIndyaXRlIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLmRlYyI6ICJ3cml0ZSIsCiAgICAiY3R4LnZhcmlhYmxlcy5sb2NhbC5kZWwiOiAid3JpdGUiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuZ2V0IjogInJlYWQiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuaGFzIjogInJlYWQiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuaW5jIjogIndyaXRlIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLnNldCI6ICJ3cml0ZSIsCiAgICAic3QuZXh0ZW5zaW9ucy5jYW5jZWxEZWJvdW5jZWRNZXRhZGF0YVNhdmUiOiAid3JpdGUiLAogICAgInN0LmV4dGVuc2lvbnMuZ2V0QXBpVXJsIjogInJlYWQiLAogICAgInN0LmV4dGVuc2lvbnMuZ2V0Q29udGV4dCI6ICJyZWFkIiwKICAgICJzdC5leHRlbnNpb25zLnJlbmRlckV4dGVuc2lvblRlbXBsYXRlIjogInJlYWQiLAogICAgInN0LmV4dGVuc2lvbnMucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGVBc3luYyI6ICJyZWFkIiwKICAgICJzdC5leHRlbnNpb25zLnJ1bkdlbmVyYXRpb25JbnRlcmNlcHRvcnMiOiAiZXhlYyIsCiAgICAic3QuZXh0ZW5zaW9ucy5zYXZlTWV0YWRhdGFEZWJvdW5jZWQiOiAid3JpdGUiLAogICAgInN0LmV4dGVuc2lvbnMud3JpdGVFeHRlbnNpb25GaWVsZCI6ICJ3cml0ZSIsCiAgICAic3Quc2NyaXB0LmdldEN1cnJlbnRDaGF0SWQiOiAicmVhZCIsCiAgICAic3Quc2NyaXB0LmdldFJlcXVlc3RIZWFkZXJzIjogInJlYWQiLAogICAgInN0LnNjcmlwdC5yZWxvYWRNYXJrZG93blByb2Nlc3NvciI6ICJ1aSIsCiAgICAic3Quc2NyaXB0LnNhdmVDaGFyYWN0ZXJEZWJvdW5jZWQiOiAid3JpdGUiLAogICAgInN0LnNjcmlwdC5zYXZlU2V0dGluZ3NEZWJvdW5jZWQiOiAid3JpdGUiLAogICAgInN0LnNsYXNoLmV4ZWN1dGVTbGFzaENvbW1hbmRzIjogImV4ZWMiLAogICAgInN0LnNsYXNoLmV4ZWN1dGVTbGFzaENvbW1hbmRzV2l0aE9wdGlvbnMiOiAiZXhlYyIsCiAgICAic3Quc2xhc2guZ2V0U2xhc2hDb21tYW5kc0hlbHAiOiAicmVhZCIsCiAgICAic3Quc2xhc2gucmVnaXN0ZXJTbGFzaENvbW1hbmQiOiAiZXhlYyIKICB9LAogICJhbGxvd2VkUGF0aHMiOiBbCiAgICAiY3R4LmFjY291bnRTdG9yYWdlIiwKICAgICJjdHguYWRkTG9jYWxlRGF0YSIsCiAgICAiY3R4LmFkZE9uZU1lc3NhZ2UiLAogICAgImN0eC5jYWxsR2VuZXJpY1BvcHVwIiwKICAgICJjdHguY2FuUGVyZm9ybVRvb2xDYWxscyIsCiAgICAiY3R4LmNoYXJhY3RlcklkIiwKICAgICJjdHguY2hhcmFjdGVycyIsCiAgICAiY3R4LmNoYXQiLAogICAgImN0eC5DaGF0Q29tcGxldGlvblNlcnZpY2UiLAogICAgImN0eC5jaGF0Q29tcGxldGlvblNldHRpbmdzIiwKICAgICJjdHguY2hhdElkIiwKICAgICJjdHguY2hhdE1ldGFkYXRhIiwKICAgICJjdHguY2xlYXJDaGF0IiwKICAgICJjdHguQ09OTkVDVF9BUElfTUFQIiwKICAgICJjdHguQ29ubmVjdGlvbk1hbmFnZXJSZXF1ZXN0U2VydmljZSIsCiAgICAiY3R4LmNvbnZlcnRDaGFyYWN0ZXJCb29rIiwKICAgICJjdHguY3JlYXRlQ2hhcmFjdGVyRGF0YSIsCiAgICAiY3R4LmRlbGV0ZUxhc3RNZXNzYWdlIiwKICAgICJjdHguZGVsZXRlTWVzc2FnZSIsCiAgICAiY3R4LmV2ZW50U291cmNlIiwKICAgICJjdHguZXZlbnRUeXBlcyIsCiAgICAiY3R4LmV4dGVuc2lvblByb21wdHMiLAogICAgImN0eC5leHRlbnNpb25TZXR0aW5ncyIsCiAgICAiY3R4LmdlbmVyYXRlIiwKICAgICJjdHguZ2VuZXJhdGVRdWlldFByb21wdCIsCiAgICAiY3R4LmdlbmVyYXRlUmF3IiwKICAgICJjdHguZ2VuZXJhdGVSYXdEYXRhIiwKICAgICJjdHguZ2V0Q2hhcmFjdGVyQ2FyZEZpZWxkcyIsCiAgICAiY3R4LmdldENoYXJhY3RlcnMiLAogICAgImN0eC5nZXRDaGFyYWN0ZXJTb3VyY2UiLAogICAgImN0eC5nZXRDdXJyZW50Q2hhdElkIiwKICAgICJjdHguZ2V0Q3VycmVudExvY2FsZSIsCiAgICAiY3R4LmdldE9uZUNoYXJhY3RlciIsCiAgICAiY3R4LmdldFByZXNldE1hbmFnZXIiLAogICAgImN0eC5nZXRUZXh0R2VuU2VydmVyIiwKICAgICJjdHguZ2V0VGV4dFRva2VucyIsCiAgICAiY3R4LmdldFRodW1ibmFpbFVybCIsCiAgICAiY3R4LmdldFRva2VuQ291bnRBc3luYyIsCiAgICAiY3R4LmdldFRva2VuaXplck1vZGVsIiwKICAgICJjdHguZ2V0V29ybGRJbmZvUHJvbXB0IiwKICAgICJjdHguZ3JvdXBJZCIsCiAgICAiY3R4Lmdyb3VwcyIsCiAgICAiY3R4LmltcG9ydEZyb21FeHRlcm5hbFVybCIsCiAgICAiY3R4LmlzTW9iaWxlIiwKICAgICJjdHguaXNUb29sQ2FsbGluZ1N1cHBvcnRlZCIsCiAgICAiY3R4LmxvYWRlciIsCiAgICAiY3R4LmxvYWRXb3JsZEluZm8iLAogICAgImN0eC5tYWNyb3MiLAogICAgImN0eC5tYWluQXBpIiwKICAgICJjdHgubWF4Q29udGV4dCIsCiAgICAiY3R4Lm1lbnVUeXBlIiwKICAgICJjdHgubWVzc2FnZUZvcm1hdHRpbmciLAogICAgImN0eC5vbmxpbmVTdGF0dXMiLAogICAgImN0eC5vcGVuQ2hhcmFjdGVyQ2hhdCIsCiAgICAiY3R4Lm9wZW5Hcm91cENoYXQiLAogICAgImN0eC5vcGVuVGhpcmRQYXJ0eUV4dGVuc2lvbk1lbnUiLAogICAgImN0eC5Qb3B1cCIsCiAgICAiY3R4LlBPUFVQX1JFU1VMVCIsCiAgICAiY3R4LlBPUFVQX1RZUEUiLAogICAgImN0eC5wb3dlclVzZXJTZXR0aW5ncyIsCiAgICAiY3R4LnByaW50TWVzc2FnZXMiLAogICAgImN0eC5yZWdpc3RlckZ1bmN0aW9uVG9vbCIsCiAgICAiY3R4LnJlbG9hZEN1cnJlbnRDaGF0IiwKICAgICJjdHgucmVsb2FkV29ybGRJbmZvRWRpdG9yIiwKICAgICJjdHgucmVuYW1lQ2hhdCIsCiAgICAiY3R4LnJlbmRlckV4dGVuc2lvblRlbXBsYXRlQXN5bmMiLAogICAgImN0eC5zYXZlQ2hhdCIsCiAgICAiY3R4LnNhdmVNZXRhZGF0YSIsCiAgICAiY3R4LnNhdmVNZXRhZGF0YURlYm91bmNlZCIsCiAgICAiY3R4LnNhdmVTZXR0aW5nc0RlYm91bmNlZCIsCiAgICAiY3R4LnNhdmVXb3JsZEluZm8iLAogICAgImN0eC5zZWxlY3RDaGFyYWN0ZXJCeUlkIiwKICAgICJjdHguc2VuZEdlbmVyYXRpb25SZXF1ZXN0IiwKICAgICJjdHguc2VuZFN0cmVhbWluZ1JlcXVlc3QiLAogICAgImN0eC5zZXRFeHRlbnNpb25Qcm9tcHQiLAogICAgImN0eC5zaG91bGRTZW5kT25FbnRlciIsCiAgICAiY3R4LnN0b3BHZW5lcmF0aW9uIiwKICAgICJjdHguc3dpcGUiLAogICAgImN0eC5zd2lwZS5oaWRlIiwKICAgICJjdHguc3dpcGUuaXNBbGxvd2VkIiwKICAgICJjdHguc3dpcGUubGVmdCIsCiAgICAiY3R4LnN3aXBlLnJlZnJlc2giLAogICAgImN0eC5zd2lwZS5yaWdodCIsCiAgICAiY3R4LnN3aXBlLnNob3ciLAogICAgImN0eC5zd2lwZS5zdGF0ZSIsCiAgICAiY3R4LnN3aXBlLnRvIiwKICAgICJjdHguc3ltYm9scy5pZ25vcmUiLAogICAgImN0eC50IiwKICAgICJjdHgudGFnTWFwIiwKICAgICJjdHgudGFncyIsCiAgICAiY3R4LlRleHRDb21wbGV0aW9uU2VydmljZSIsCiAgICAiY3R4LnRleHRDb21wbGV0aW9uU2V0dGluZ3MiLAogICAgImN0eC50b2tlbml6ZXJzIiwKICAgICJjdHguVG9vbE1hbmFnZXIiLAogICAgImN0eC50cmFuc2xhdGUiLAogICAgImN0eC51bnJlZ2lzdGVyRnVuY3Rpb25Ub29sIiwKICAgICJjdHgudXBkYXRlV29ybGRJbmZvTGlzdCIsCiAgICAiY3R4LnZhcmlhYmxlcyIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuYWRkIiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5kZWMiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmRlbCIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuZ2V0IiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5oYXMiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmluYyIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuc2V0IiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLmFkZCIsCiAgICAiY3R4LnZhcmlhYmxlcy5sb2NhbC5kZWMiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuZGVsIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLmdldCIsCiAgICAiY3R4LnZhcmlhYmxlcy5sb2NhbC5oYXMiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuaW5jIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLnNldCIsCiAgICAic3QuZXh0ZW5zaW9ucy5jYW5jZWxEZWJvdW5jZWRNZXRhZGF0YVNhdmUiLAogICAgInN0LmV4dGVuc2lvbnMuZXh0ZW5zaW9uX3NldHRpbmdzIiwKICAgICJzdC5leHRlbnNpb25zLmV4dGVuc2lvbk5hbWVzIiwKICAgICJzdC5leHRlbnNpb25zLmV4dGVuc2lvblR5cGVzIiwKICAgICJzdC5leHRlbnNpb25zLmdldEFwaVVybCIsCiAgICAic3QuZXh0ZW5zaW9ucy5nZXRDb250ZXh0IiwKICAgICJzdC5leHRlbnNpb25zLm1vZHVsZXMiLAogICAgInN0LmV4dGVuc2lvbnMuTW9kdWxlV29ya2VyV3JhcHBlciIsCiAgICAic3QuZXh0ZW5zaW9ucy5yZW5kZXJFeHRlbnNpb25UZW1wbGF0ZSIsCiAgICAic3QuZXh0ZW5zaW9ucy5yZW5kZXJFeHRlbnNpb25UZW1wbGF0ZUFzeW5jIiwKICAgICJzdC5leHRlbnNpb25zLnJ1bkdlbmVyYXRpb25JbnRlcmNlcHRvcnMiLAogICAgInN0LmV4dGVuc2lvbnMuc2F2ZU1ldGFkYXRhRGVib3VuY2VkIiwKICAgICJzdC5leHRlbnNpb25zLndyaXRlRXh0ZW5zaW9uRmllbGQiLAogICAgInN0LnNjcmlwdC5BTklNQVRJT05fRFVSQVRJT05fREVGQVVMVCIsCiAgICAic3Quc2NyaXB0LmNoYXJhY3RlcnMiLAogICAgInN0LnNjcmlwdC5jaGF0IiwKICAgICJzdC5zY3JpcHQuY2hhdF9tZXRhZGF0YSIsCiAgICAic3Quc2NyaXB0LmNvbW1lbnRfYXZhdGFyIiwKICAgICJzdC5zY3JpcHQuZGVmYXVsdF9hdmF0YXIiLAogICAgInN0LnNjcmlwdC5kZWZhdWx0X3VzZXJfYXZhdGFyIiwKICAgICJzdC5zY3JpcHQuZXZlbnRfdHlwZXMiLAogICAgInN0LnNjcmlwdC5ldmVudFNvdXJjZSIsCiAgICAic3Quc2NyaXB0LmdlbmVyYXRpb25fc3RhcnRlZCIsCiAgICAic3Quc2NyaXB0LmdldEN1cnJlbnRDaGF0SWQiLAogICAgInN0LnNjcmlwdC5nZXRSZXF1ZXN0SGVhZGVycyIsCiAgICAic3Quc2NyaXB0LmlzX3NlbmRfcHJlc3MiLAogICAgInN0LnNjcmlwdC5tYWluX2FwaSIsCiAgICAic3Quc2NyaXB0Lm1heF9jb250ZXh0IiwKICAgICJzdC5zY3JpcHQuTUFYX0lOSkVDVElPTl9ERVBUSCIsCiAgICAic3Quc2NyaXB0Lm5hbWUxIiwKICAgICJzdC5zY3JpcHQubmFtZTIiLAogICAgInN0LnNjcmlwdC5uZXV0cmFsQ2hhcmFjdGVyTmFtZSIsCiAgICAic3Quc2NyaXB0Lm9ubGluZV9zdGF0dXMiLAogICAgInN0LnNjcmlwdC5yZWxvYWRNYXJrZG93blByb2Nlc3NvciIsCiAgICAic3Quc2NyaXB0LnNhdmVDaGFyYWN0ZXJEZWJvdW5jZWQiLAogICAgInN0LnNjcmlwdC5zYXZlU2V0dGluZ3NEZWJvdW5jZWQiLAogICAgInN0LnNjcmlwdC5zZXR0aW5ncyIsCiAgICAic3Quc2NyaXB0LnN5c3RlbV9hdmF0YXIiLAogICAgInN0LnNjcmlwdC5zeXN0ZW1Vc2VyTmFtZSIsCiAgICAic3Quc2NyaXB0LnRoaXNfY2hpZCIsCiAgICAic3Quc2xhc2guQVJHVU1FTlRfVFlQRSIsCiAgICAic3Quc2xhc2guQ09OTkVDVF9BUElfTUFQIiwKICAgICJzdC5zbGFzaC5leGVjdXRlU2xhc2hDb21tYW5kcyIsCiAgICAic3Quc2xhc2guZXhlY3V0ZVNsYXNoQ29tbWFuZHNXaXRoT3B0aW9ucyIsCiAgICAic3Quc2xhc2guZ2V0U2xhc2hDb21tYW5kc0hlbHAiLAogICAgInN0LnNsYXNoLnJlZ2lzdGVyU2xhc2hDb21tYW5kIiwKICAgICJzdC5zbGFzaC5TbGFzaENvbW1hbmQiLAogICAgInN0LnNsYXNoLlNsYXNoQ29tbWFuZEFyZ3VtZW50IiwKICAgICJzdC5zbGFzaC5TbGFzaENvbW1hbmROYW1lZEFyZ3VtZW50IiwKICAgICJzdC5zbGFzaC5TbGFzaENvbW1hbmRQYXJzZXIiCiAgXQp9Cg==", "" + import.meta.url), Bo = null;
+var n1 = 3.35, i1 = /* @__PURE__ */ new Set(["openai-compatible", "openai-responses"]), r1 = new TextEncoder(), s1 = new URL("data:application/json;base64,ewogICJnZW5lcmF0ZWRBdCI6ICIyMDI2LTA0LTIxVDExOjU1OjQwLjc2MFoiLAogICJ2ZXJzaW9uIjogMSwKICAibmFtZXNwYWNlcyI6IHsKICAgICJjdHgiOiBbCiAgICAgICJjdHguYWNjb3VudFN0b3JhZ2UiLAogICAgICAiY3R4LmFkZExvY2FsZURhdGEiLAogICAgICAiY3R4LmFkZE9uZU1lc3NhZ2UiLAogICAgICAiY3R4LmNhbGxHZW5lcmljUG9wdXAiLAogICAgICAiY3R4LmNhblBlcmZvcm1Ub29sQ2FsbHMiLAogICAgICAiY3R4LmNoYXJhY3RlcklkIiwKICAgICAgImN0eC5jaGFyYWN0ZXJzIiwKICAgICAgImN0eC5jaGF0IiwKICAgICAgImN0eC5DaGF0Q29tcGxldGlvblNlcnZpY2UiLAogICAgICAiY3R4LmNoYXRDb21wbGV0aW9uU2V0dGluZ3MiLAogICAgICAiY3R4LmNoYXRJZCIsCiAgICAgICJjdHguY2hhdE1ldGFkYXRhIiwKICAgICAgImN0eC5jbGVhckNoYXQiLAogICAgICAiY3R4LkNPTk5FQ1RfQVBJX01BUCIsCiAgICAgICJjdHguQ29ubmVjdGlvbk1hbmFnZXJSZXF1ZXN0U2VydmljZSIsCiAgICAgICJjdHguY29udmVydENoYXJhY3RlckJvb2siLAogICAgICAiY3R4LmNyZWF0ZUNoYXJhY3RlckRhdGEiLAogICAgICAiY3R4LmRlbGV0ZUxhc3RNZXNzYWdlIiwKICAgICAgImN0eC5kZWxldGVNZXNzYWdlIiwKICAgICAgImN0eC5ldmVudFNvdXJjZSIsCiAgICAgICJjdHguZXZlbnRUeXBlcyIsCiAgICAgICJjdHguZXh0ZW5zaW9uUHJvbXB0cyIsCiAgICAgICJjdHguZXh0ZW5zaW9uU2V0dGluZ3MiLAogICAgICAiY3R4LmdlbmVyYXRlIiwKICAgICAgImN0eC5nZW5lcmF0ZVF1aWV0UHJvbXB0IiwKICAgICAgImN0eC5nZW5lcmF0ZVJhdyIsCiAgICAgICJjdHguZ2VuZXJhdGVSYXdEYXRhIiwKICAgICAgImN0eC5nZXRDaGFyYWN0ZXJDYXJkRmllbGRzIiwKICAgICAgImN0eC5nZXRDaGFyYWN0ZXJzIiwKICAgICAgImN0eC5nZXRDaGFyYWN0ZXJTb3VyY2UiLAogICAgICAiY3R4LmdldEN1cnJlbnRDaGF0SWQiLAogICAgICAiY3R4LmdldEN1cnJlbnRMb2NhbGUiLAogICAgICAiY3R4LmdldE9uZUNoYXJhY3RlciIsCiAgICAgICJjdHguZ2V0UHJlc2V0TWFuYWdlciIsCiAgICAgICJjdHguZ2V0VGV4dEdlblNlcnZlciIsCiAgICAgICJjdHguZ2V0VGV4dFRva2VucyIsCiAgICAgICJjdHguZ2V0VGh1bWJuYWlsVXJsIiwKICAgICAgImN0eC5nZXRUb2tlbkNvdW50QXN5bmMiLAogICAgICAiY3R4LmdldFRva2VuaXplck1vZGVsIiwKICAgICAgImN0eC5nZXRXb3JsZEluZm9Qcm9tcHQiLAogICAgICAiY3R4Lmdyb3VwSWQiLAogICAgICAiY3R4Lmdyb3VwcyIsCiAgICAgICJjdHguaW1wb3J0RnJvbUV4dGVybmFsVXJsIiwKICAgICAgImN0eC5pc01vYmlsZSIsCiAgICAgICJjdHguaXNUb29sQ2FsbGluZ1N1cHBvcnRlZCIsCiAgICAgICJjdHgubG9hZGVyIiwKICAgICAgImN0eC5sb2FkV29ybGRJbmZvIiwKICAgICAgImN0eC5tYWNyb3MiLAogICAgICAiY3R4Lm1haW5BcGkiLAogICAgICAiY3R4Lm1heENvbnRleHQiLAogICAgICAiY3R4Lm1lbnVUeXBlIiwKICAgICAgImN0eC5tZXNzYWdlRm9ybWF0dGluZyIsCiAgICAgICJjdHgub25saW5lU3RhdHVzIiwKICAgICAgImN0eC5vcGVuQ2hhcmFjdGVyQ2hhdCIsCiAgICAgICJjdHgub3Blbkdyb3VwQ2hhdCIsCiAgICAgICJjdHgub3BlblRoaXJkUGFydHlFeHRlbnNpb25NZW51IiwKICAgICAgImN0eC5Qb3B1cCIsCiAgICAgICJjdHguUE9QVVBfUkVTVUxUIiwKICAgICAgImN0eC5QT1BVUF9UWVBFIiwKICAgICAgImN0eC5wb3dlclVzZXJTZXR0aW5ncyIsCiAgICAgICJjdHgucHJpbnRNZXNzYWdlcyIsCiAgICAgICJjdHgucmVnaXN0ZXJGdW5jdGlvblRvb2wiLAogICAgICAiY3R4LnJlbG9hZEN1cnJlbnRDaGF0IiwKICAgICAgImN0eC5yZWxvYWRXb3JsZEluZm9FZGl0b3IiLAogICAgICAiY3R4LnJlbmFtZUNoYXQiLAogICAgICAiY3R4LnJlbmRlckV4dGVuc2lvblRlbXBsYXRlQXN5bmMiLAogICAgICAiY3R4LnNhdmVDaGF0IiwKICAgICAgImN0eC5zYXZlTWV0YWRhdGEiLAogICAgICAiY3R4LnNhdmVNZXRhZGF0YURlYm91bmNlZCIsCiAgICAgICJjdHguc2F2ZVNldHRpbmdzRGVib3VuY2VkIiwKICAgICAgImN0eC5zYXZlV29ybGRJbmZvIiwKICAgICAgImN0eC5zZWxlY3RDaGFyYWN0ZXJCeUlkIiwKICAgICAgImN0eC5zZW5kR2VuZXJhdGlvblJlcXVlc3QiLAogICAgICAiY3R4LnNlbmRTdHJlYW1pbmdSZXF1ZXN0IiwKICAgICAgImN0eC5zZXRFeHRlbnNpb25Qcm9tcHQiLAogICAgICAiY3R4LnNob3VsZFNlbmRPbkVudGVyIiwKICAgICAgImN0eC5zdG9wR2VuZXJhdGlvbiIsCiAgICAgICJjdHguc3dpcGUiLAogICAgICAiY3R4LnN3aXBlLmhpZGUiLAogICAgICAiY3R4LnN3aXBlLmlzQWxsb3dlZCIsCiAgICAgICJjdHguc3dpcGUubGVmdCIsCiAgICAgICJjdHguc3dpcGUucmVmcmVzaCIsCiAgICAgICJjdHguc3dpcGUucmlnaHQiLAogICAgICAiY3R4LnN3aXBlLnNob3ciLAogICAgICAiY3R4LnN3aXBlLnN0YXRlIiwKICAgICAgImN0eC5zd2lwZS50byIsCiAgICAgICJjdHguc3ltYm9scy5pZ25vcmUiLAogICAgICAiY3R4LnQiLAogICAgICAiY3R4LnRhZ01hcCIsCiAgICAgICJjdHgudGFncyIsCiAgICAgICJjdHguVGV4dENvbXBsZXRpb25TZXJ2aWNlIiwKICAgICAgImN0eC50ZXh0Q29tcGxldGlvblNldHRpbmdzIiwKICAgICAgImN0eC50b2tlbml6ZXJzIiwKICAgICAgImN0eC5Ub29sTWFuYWdlciIsCiAgICAgICJjdHgudHJhbnNsYXRlIiwKICAgICAgImN0eC51bnJlZ2lzdGVyRnVuY3Rpb25Ub29sIiwKICAgICAgImN0eC51cGRhdGVXb3JsZEluZm9MaXN0IiwKICAgICAgImN0eC52YXJpYWJsZXMiLAogICAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuYWRkIiwKICAgICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmRlYyIsCiAgICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5kZWwiLAogICAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuZ2V0IiwKICAgICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmhhcyIsCiAgICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5pbmMiLAogICAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuc2V0IiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuYWRkIiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuZGVjIiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuZGVsIiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuZ2V0IiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuaGFzIiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuaW5jIiwKICAgICAgImN0eC52YXJpYWJsZXMubG9jYWwuc2V0IgogICAgXSwKICAgICJzdCI6IHsKICAgICAgInNjcmlwdCI6IFsKICAgICAgICAic3Quc2NyaXB0LkFOSU1BVElPTl9EVVJBVElPTl9ERUZBVUxUIiwKICAgICAgICAic3Quc2NyaXB0LmNoYXJhY3RlcnMiLAogICAgICAgICJzdC5zY3JpcHQuY2hhdCIsCiAgICAgICAgInN0LnNjcmlwdC5jaGF0X21ldGFkYXRhIiwKICAgICAgICAic3Quc2NyaXB0LmNvbW1lbnRfYXZhdGFyIiwKICAgICAgICAic3Quc2NyaXB0LmRlZmF1bHRfYXZhdGFyIiwKICAgICAgICAic3Quc2NyaXB0LmRlZmF1bHRfdXNlcl9hdmF0YXIiLAogICAgICAgICJzdC5zY3JpcHQuZXZlbnRfdHlwZXMiLAogICAgICAgICJzdC5zY3JpcHQuZXZlbnRTb3VyY2UiLAogICAgICAgICJzdC5zY3JpcHQuZ2VuZXJhdGlvbl9zdGFydGVkIiwKICAgICAgICAic3Quc2NyaXB0LmdldEN1cnJlbnRDaGF0SWQiLAogICAgICAgICJzdC5zY3JpcHQuZ2V0UmVxdWVzdEhlYWRlcnMiLAogICAgICAgICJzdC5zY3JpcHQuaXNfc2VuZF9wcmVzcyIsCiAgICAgICAgInN0LnNjcmlwdC5tYWluX2FwaSIsCiAgICAgICAgInN0LnNjcmlwdC5tYXhfY29udGV4dCIsCiAgICAgICAgInN0LnNjcmlwdC5NQVhfSU5KRUNUSU9OX0RFUFRIIiwKICAgICAgICAic3Quc2NyaXB0Lm5hbWUxIiwKICAgICAgICAic3Quc2NyaXB0Lm5hbWUyIiwKICAgICAgICAic3Quc2NyaXB0Lm5ldXRyYWxDaGFyYWN0ZXJOYW1lIiwKICAgICAgICAic3Quc2NyaXB0Lm9ubGluZV9zdGF0dXMiLAogICAgICAgICJzdC5zY3JpcHQucmVsb2FkTWFya2Rvd25Qcm9jZXNzb3IiLAogICAgICAgICJzdC5zY3JpcHQuc2F2ZUNoYXJhY3RlckRlYm91bmNlZCIsCiAgICAgICAgInN0LnNjcmlwdC5zYXZlU2V0dGluZ3NEZWJvdW5jZWQiLAogICAgICAgICJzdC5zY3JpcHQuc2V0dGluZ3MiLAogICAgICAgICJzdC5zY3JpcHQuc3lzdGVtX2F2YXRhciIsCiAgICAgICAgInN0LnNjcmlwdC5zeXN0ZW1Vc2VyTmFtZSIsCiAgICAgICAgInN0LnNjcmlwdC50aGlzX2NoaWQiCiAgICAgIF0sCiAgICAgICJleHRlbnNpb25zIjogWwogICAgICAgICJzdC5leHRlbnNpb25zLmNhbmNlbERlYm91bmNlZE1ldGFkYXRhU2F2ZSIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMuZXh0ZW5zaW9uX3NldHRpbmdzIiwKICAgICAgICAic3QuZXh0ZW5zaW9ucy5leHRlbnNpb25OYW1lcyIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMuZXh0ZW5zaW9uVHlwZXMiLAogICAgICAgICJzdC5leHRlbnNpb25zLmdldEFwaVVybCIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMuZ2V0Q29udGV4dCIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMubW9kdWxlcyIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMuTW9kdWxlV29ya2VyV3JhcHBlciIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGUiLAogICAgICAgICJzdC5leHRlbnNpb25zLnJlbmRlckV4dGVuc2lvblRlbXBsYXRlQXN5bmMiLAogICAgICAgICJzdC5leHRlbnNpb25zLnJ1bkdlbmVyYXRpb25JbnRlcmNlcHRvcnMiLAogICAgICAgICJzdC5leHRlbnNpb25zLnNhdmVNZXRhZGF0YURlYm91bmNlZCIsCiAgICAgICAgInN0LmV4dGVuc2lvbnMud3JpdGVFeHRlbnNpb25GaWVsZCIKICAgICAgXSwKICAgICAgInNsYXNoIjogWwogICAgICAgICJzdC5zbGFzaC5BUkdVTUVOVF9UWVBFIiwKICAgICAgICAic3Quc2xhc2guQ09OTkVDVF9BUElfTUFQIiwKICAgICAgICAic3Quc2xhc2guZXhlY3V0ZVNsYXNoQ29tbWFuZHMiLAogICAgICAgICJzdC5zbGFzaC5leGVjdXRlU2xhc2hDb21tYW5kc1dpdGhPcHRpb25zIiwKICAgICAgICAic3Quc2xhc2guZ2V0U2xhc2hDb21tYW5kc0hlbHAiLAogICAgICAgICJzdC5zbGFzaC5yZWdpc3RlclNsYXNoQ29tbWFuZCIsCiAgICAgICAgInN0LnNsYXNoLlNsYXNoQ29tbWFuZCIsCiAgICAgICAgInN0LnNsYXNoLlNsYXNoQ29tbWFuZEFyZ3VtZW50IiwKICAgICAgICAic3Quc2xhc2guU2xhc2hDb21tYW5kTmFtZWRBcmd1bWVudCIsCiAgICAgICAgInN0LnNsYXNoLlNsYXNoQ29tbWFuZFBhcnNlciIKICAgICAgXQogICAgfQogIH0sCiAgImNhbGxhYmxlUGF0aHMiOiBbCiAgICAiY3R4LmFkZExvY2FsZURhdGEiLAogICAgImN0eC5hZGRPbmVNZXNzYWdlIiwKICAgICJjdHguY2FsbEdlbmVyaWNQb3B1cCIsCiAgICAiY3R4LmNhblBlcmZvcm1Ub29sQ2FsbHMiLAogICAgImN0eC5jbGVhckNoYXQiLAogICAgImN0eC5jb252ZXJ0Q2hhcmFjdGVyQm9vayIsCiAgICAiY3R4LmNyZWF0ZUNoYXJhY3RlckRhdGEiLAogICAgImN0eC5kZWxldGVMYXN0TWVzc2FnZSIsCiAgICAiY3R4LmRlbGV0ZU1lc3NhZ2UiLAogICAgImN0eC5nZW5lcmF0ZSIsCiAgICAiY3R4LmdlbmVyYXRlUXVpZXRQcm9tcHQiLAogICAgImN0eC5nZW5lcmF0ZVJhdyIsCiAgICAiY3R4LmdlbmVyYXRlUmF3RGF0YSIsCiAgICAiY3R4LmdldENoYXJhY3RlckNhcmRGaWVsZHMiLAogICAgImN0eC5nZXRDaGFyYWN0ZXJzIiwKICAgICJjdHguZ2V0Q2hhcmFjdGVyU291cmNlIiwKICAgICJjdHguZ2V0Q3VycmVudENoYXRJZCIsCiAgICAiY3R4LmdldEN1cnJlbnRMb2NhbGUiLAogICAgImN0eC5nZXRPbmVDaGFyYWN0ZXIiLAogICAgImN0eC5nZXRQcmVzZXRNYW5hZ2VyIiwKICAgICJjdHguZ2V0VGV4dEdlblNlcnZlciIsCiAgICAiY3R4LmdldFRleHRUb2tlbnMiLAogICAgImN0eC5nZXRUaHVtYm5haWxVcmwiLAogICAgImN0eC5nZXRUb2tlbkNvdW50QXN5bmMiLAogICAgImN0eC5nZXRUb2tlbml6ZXJNb2RlbCIsCiAgICAiY3R4LmdldFdvcmxkSW5mb1Byb21wdCIsCiAgICAiY3R4LmltcG9ydEZyb21FeHRlcm5hbFVybCIsCiAgICAiY3R4LmlzVG9vbENhbGxpbmdTdXBwb3J0ZWQiLAogICAgImN0eC5sb2FkV29ybGRJbmZvIiwKICAgICJjdHgub3BlbkNoYXJhY3RlckNoYXQiLAogICAgImN0eC5vcGVuR3JvdXBDaGF0IiwKICAgICJjdHgub3BlblRoaXJkUGFydHlFeHRlbnNpb25NZW51IiwKICAgICJjdHgucHJpbnRNZXNzYWdlcyIsCiAgICAiY3R4LnJlZ2lzdGVyRnVuY3Rpb25Ub29sIiwKICAgICJjdHgucmVsb2FkQ3VycmVudENoYXQiLAogICAgImN0eC5yZWxvYWRXb3JsZEluZm9FZGl0b3IiLAogICAgImN0eC5yZW5hbWVDaGF0IiwKICAgICJjdHgucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGVBc3luYyIsCiAgICAiY3R4LnNhdmVDaGF0IiwKICAgICJjdHguc2F2ZU1ldGFkYXRhIiwKICAgICJjdHguc2F2ZU1ldGFkYXRhRGVib3VuY2VkIiwKICAgICJjdHguc2F2ZVNldHRpbmdzRGVib3VuY2VkIiwKICAgICJjdHguc2F2ZVdvcmxkSW5mbyIsCiAgICAiY3R4LnNlbGVjdENoYXJhY3RlckJ5SWQiLAogICAgImN0eC5zZW5kR2VuZXJhdGlvblJlcXVlc3QiLAogICAgImN0eC5zZW5kU3RyZWFtaW5nUmVxdWVzdCIsCiAgICAiY3R4LnNldEV4dGVuc2lvblByb21wdCIsCiAgICAiY3R4LnN0b3BHZW5lcmF0aW9uIiwKICAgICJjdHguc3dpcGUuaGlkZSIsCiAgICAiY3R4LnN3aXBlLmlzQWxsb3dlZCIsCiAgICAiY3R4LnN3aXBlLmxlZnQiLAogICAgImN0eC5zd2lwZS5yZWZyZXNoIiwKICAgICJjdHguc3dpcGUucmlnaHQiLAogICAgImN0eC5zd2lwZS5zaG93IiwKICAgICJjdHguc3dpcGUuc3RhdGUiLAogICAgImN0eC5zd2lwZS50byIsCiAgICAiY3R4LnQiLAogICAgImN0eC50cmFuc2xhdGUiLAogICAgImN0eC51bnJlZ2lzdGVyRnVuY3Rpb25Ub29sIiwKICAgICJjdHgudXBkYXRlV29ybGRJbmZvTGlzdCIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuYWRkIiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5kZWMiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmRlbCIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuZ2V0IiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5oYXMiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmluYyIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuc2V0IiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLmFkZCIsCiAgICAiY3R4LnZhcmlhYmxlcy5sb2NhbC5kZWMiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuZGVsIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLmdldCIsCiAgICAiY3R4LnZhcmlhYmxlcy5sb2NhbC5oYXMiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuaW5jIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLnNldCIsCiAgICAic3QuZXh0ZW5zaW9ucy5jYW5jZWxEZWJvdW5jZWRNZXRhZGF0YVNhdmUiLAogICAgInN0LmV4dGVuc2lvbnMuZ2V0QXBpVXJsIiwKICAgICJzdC5leHRlbnNpb25zLmdldENvbnRleHQiLAogICAgInN0LmV4dGVuc2lvbnMucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGUiLAogICAgInN0LmV4dGVuc2lvbnMucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGVBc3luYyIsCiAgICAic3QuZXh0ZW5zaW9ucy5ydW5HZW5lcmF0aW9uSW50ZXJjZXB0b3JzIiwKICAgICJzdC5leHRlbnNpb25zLnNhdmVNZXRhZGF0YURlYm91bmNlZCIsCiAgICAic3QuZXh0ZW5zaW9ucy53cml0ZUV4dGVuc2lvbkZpZWxkIiwKICAgICJzdC5zY3JpcHQuZ2V0Q3VycmVudENoYXRJZCIsCiAgICAic3Quc2NyaXB0LmdldFJlcXVlc3RIZWFkZXJzIiwKICAgICJzdC5zY3JpcHQucmVsb2FkTWFya2Rvd25Qcm9jZXNzb3IiLAogICAgInN0LnNjcmlwdC5zYXZlQ2hhcmFjdGVyRGVib3VuY2VkIiwKICAgICJzdC5zY3JpcHQuc2F2ZVNldHRpbmdzRGVib3VuY2VkIiwKICAgICJzdC5zbGFzaC5leGVjdXRlU2xhc2hDb21tYW5kcyIsCiAgICAic3Quc2xhc2guZXhlY3V0ZVNsYXNoQ29tbWFuZHNXaXRoT3B0aW9ucyIsCiAgICAic3Quc2xhc2guZ2V0U2xhc2hDb21tYW5kc0hlbHAiLAogICAgInN0LnNsYXNoLnJlZ2lzdGVyU2xhc2hDb21tYW5kIgogIF0sCiAgImFwaVNlbWFudGljcyI6IHsKICAgICJjdHguYWRkTG9jYWxlRGF0YSI6ICJ3cml0ZSIsCiAgICAiY3R4LmFkZE9uZU1lc3NhZ2UiOiAid3JpdGUiLAogICAgImN0eC5jYWxsR2VuZXJpY1BvcHVwIjogInVpIiwKICAgICJjdHguY2FuUGVyZm9ybVRvb2xDYWxscyI6ICJyZWFkIiwKICAgICJjdHguY2xlYXJDaGF0IjogIndyaXRlIiwKICAgICJjdHguY29udmVydENoYXJhY3RlckJvb2siOiAiZXhlYyIsCiAgICAiY3R4LmNyZWF0ZUNoYXJhY3RlckRhdGEiOiAiZXhlYyIsCiAgICAiY3R4LmRlbGV0ZUxhc3RNZXNzYWdlIjogIndyaXRlIiwKICAgICJjdHguZGVsZXRlTWVzc2FnZSI6ICJ3cml0ZSIsCiAgICAiY3R4LmdlbmVyYXRlIjogIm5ldHdvcmsiLAogICAgImN0eC5nZW5lcmF0ZVF1aWV0UHJvbXB0IjogIm5ldHdvcmsiLAogICAgImN0eC5nZW5lcmF0ZVJhdyI6ICJuZXR3b3JrIiwKICAgICJjdHguZ2VuZXJhdGVSYXdEYXRhIjogIm5ldHdvcmsiLAogICAgImN0eC5nZXRDaGFyYWN0ZXJDYXJkRmllbGRzIjogInJlYWQiLAogICAgImN0eC5nZXRDaGFyYWN0ZXJzIjogInJlYWQiLAogICAgImN0eC5nZXRDaGFyYWN0ZXJTb3VyY2UiOiAicmVhZCIsCiAgICAiY3R4LmdldEN1cnJlbnRDaGF0SWQiOiAicmVhZCIsCiAgICAiY3R4LmdldEN1cnJlbnRMb2NhbGUiOiAicmVhZCIsCiAgICAiY3R4LmdldE9uZUNoYXJhY3RlciI6ICJyZWFkIiwKICAgICJjdHguZ2V0UHJlc2V0TWFuYWdlciI6ICJyZWFkIiwKICAgICJjdHguZ2V0VGV4dEdlblNlcnZlciI6ICJyZWFkIiwKICAgICJjdHguZ2V0VGV4dFRva2VucyI6ICJyZWFkIiwKICAgICJjdHguZ2V0VGh1bWJuYWlsVXJsIjogInJlYWQiLAogICAgImN0eC5nZXRUb2tlbkNvdW50QXN5bmMiOiAicmVhZCIsCiAgICAiY3R4LmdldFRva2VuaXplck1vZGVsIjogInJlYWQiLAogICAgImN0eC5nZXRXb3JsZEluZm9Qcm9tcHQiOiAicmVhZCIsCiAgICAiY3R4LmltcG9ydEZyb21FeHRlcm5hbFVybCI6ICJuZXR3b3JrIiwKICAgICJjdHguaXNUb29sQ2FsbGluZ1N1cHBvcnRlZCI6ICJyZWFkIiwKICAgICJjdHgubG9hZFdvcmxkSW5mbyI6ICJyZWFkIiwKICAgICJjdHgub3BlbkNoYXJhY3RlckNoYXQiOiAidWkiLAogICAgImN0eC5vcGVuR3JvdXBDaGF0IjogInVpIiwKICAgICJjdHgub3BlblRoaXJkUGFydHlFeHRlbnNpb25NZW51IjogInVpIiwKICAgICJjdHgucHJpbnRNZXNzYWdlcyI6ICJ1aSIsCiAgICAiY3R4LnJlZ2lzdGVyRnVuY3Rpb25Ub29sIjogIndyaXRlIiwKICAgICJjdHgucmVsb2FkQ3VycmVudENoYXQiOiAidWkiLAogICAgImN0eC5yZWxvYWRXb3JsZEluZm9FZGl0b3IiOiAidWkiLAogICAgImN0eC5yZW5hbWVDaGF0IjogIndyaXRlIiwKICAgICJjdHgucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGVBc3luYyI6ICJyZWFkIiwKICAgICJjdHguc2F2ZUNoYXQiOiAid3JpdGUiLAogICAgImN0eC5zYXZlTWV0YWRhdGEiOiAid3JpdGUiLAogICAgImN0eC5zYXZlTWV0YWRhdGFEZWJvdW5jZWQiOiAid3JpdGUiLAogICAgImN0eC5zYXZlU2V0dGluZ3NEZWJvdW5jZWQiOiAid3JpdGUiLAogICAgImN0eC5zYXZlV29ybGRJbmZvIjogIndyaXRlIiwKICAgICJjdHguc2VsZWN0Q2hhcmFjdGVyQnlJZCI6ICJ1aSIsCiAgICAiY3R4LnNlbmRHZW5lcmF0aW9uUmVxdWVzdCI6ICJuZXR3b3JrIiwKICAgICJjdHguc2VuZFN0cmVhbWluZ1JlcXVlc3QiOiAibmV0d29yayIsCiAgICAiY3R4LnNldEV4dGVuc2lvblByb21wdCI6ICJ3cml0ZSIsCiAgICAiY3R4LnN0b3BHZW5lcmF0aW9uIjogImV4ZWMiLAogICAgImN0eC5zd2lwZS5oaWRlIjogInVpIiwKICAgICJjdHguc3dpcGUuaXNBbGxvd2VkIjogInJlYWQiLAogICAgImN0eC5zd2lwZS5sZWZ0IjogInVpIiwKICAgICJjdHguc3dpcGUucmVmcmVzaCI6ICJ1aSIsCiAgICAiY3R4LnN3aXBlLnJpZ2h0IjogInVpIiwKICAgICJjdHguc3dpcGUuc2hvdyI6ICJ1aSIsCiAgICAiY3R4LnN3aXBlLnN0YXRlIjogInJlYWQiLAogICAgImN0eC5zd2lwZS50byI6ICJ1aSIsCiAgICAiY3R4LnQiOiAicmVhZCIsCiAgICAiY3R4LnRyYW5zbGF0ZSI6ICJyZWFkIiwKICAgICJjdHgudW5yZWdpc3RlckZ1bmN0aW9uVG9vbCI6ICJ3cml0ZSIsCiAgICAiY3R4LnVwZGF0ZVdvcmxkSW5mb0xpc3QiOiAidWkiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmFkZCI6ICJ3cml0ZSIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuZGVjIjogIndyaXRlIiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5kZWwiOiAid3JpdGUiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmdldCI6ICJyZWFkIiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5oYXMiOiAicmVhZCIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuaW5jIjogIndyaXRlIiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5zZXQiOiAid3JpdGUiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuYWRkIjogIndyaXRlIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLmRlYyI6ICJ3cml0ZSIsCiAgICAiY3R4LnZhcmlhYmxlcy5sb2NhbC5kZWwiOiAid3JpdGUiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuZ2V0IjogInJlYWQiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuaGFzIjogInJlYWQiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuaW5jIjogIndyaXRlIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLnNldCI6ICJ3cml0ZSIsCiAgICAic3QuZXh0ZW5zaW9ucy5jYW5jZWxEZWJvdW5jZWRNZXRhZGF0YVNhdmUiOiAid3JpdGUiLAogICAgInN0LmV4dGVuc2lvbnMuZ2V0QXBpVXJsIjogInJlYWQiLAogICAgInN0LmV4dGVuc2lvbnMuZ2V0Q29udGV4dCI6ICJyZWFkIiwKICAgICJzdC5leHRlbnNpb25zLnJlbmRlckV4dGVuc2lvblRlbXBsYXRlIjogInJlYWQiLAogICAgInN0LmV4dGVuc2lvbnMucmVuZGVyRXh0ZW5zaW9uVGVtcGxhdGVBc3luYyI6ICJyZWFkIiwKICAgICJzdC5leHRlbnNpb25zLnJ1bkdlbmVyYXRpb25JbnRlcmNlcHRvcnMiOiAiZXhlYyIsCiAgICAic3QuZXh0ZW5zaW9ucy5zYXZlTWV0YWRhdGFEZWJvdW5jZWQiOiAid3JpdGUiLAogICAgInN0LmV4dGVuc2lvbnMud3JpdGVFeHRlbnNpb25GaWVsZCI6ICJ3cml0ZSIsCiAgICAic3Quc2NyaXB0LmdldEN1cnJlbnRDaGF0SWQiOiAicmVhZCIsCiAgICAic3Quc2NyaXB0LmdldFJlcXVlc3RIZWFkZXJzIjogInJlYWQiLAogICAgInN0LnNjcmlwdC5yZWxvYWRNYXJrZG93blByb2Nlc3NvciI6ICJ1aSIsCiAgICAic3Quc2NyaXB0LnNhdmVDaGFyYWN0ZXJEZWJvdW5jZWQiOiAid3JpdGUiLAogICAgInN0LnNjcmlwdC5zYXZlU2V0dGluZ3NEZWJvdW5jZWQiOiAid3JpdGUiLAogICAgInN0LnNsYXNoLmV4ZWN1dGVTbGFzaENvbW1hbmRzIjogImV4ZWMiLAogICAgInN0LnNsYXNoLmV4ZWN1dGVTbGFzaENvbW1hbmRzV2l0aE9wdGlvbnMiOiAiZXhlYyIsCiAgICAic3Quc2xhc2guZ2V0U2xhc2hDb21tYW5kc0hlbHAiOiAicmVhZCIsCiAgICAic3Quc2xhc2gucmVnaXN0ZXJTbGFzaENvbW1hbmQiOiAiZXhlYyIKICB9LAogICJhbGxvd2VkUGF0aHMiOiBbCiAgICAiY3R4LmFjY291bnRTdG9yYWdlIiwKICAgICJjdHguYWRkTG9jYWxlRGF0YSIsCiAgICAiY3R4LmFkZE9uZU1lc3NhZ2UiLAogICAgImN0eC5jYWxsR2VuZXJpY1BvcHVwIiwKICAgICJjdHguY2FuUGVyZm9ybVRvb2xDYWxscyIsCiAgICAiY3R4LmNoYXJhY3RlcklkIiwKICAgICJjdHguY2hhcmFjdGVycyIsCiAgICAiY3R4LmNoYXQiLAogICAgImN0eC5DaGF0Q29tcGxldGlvblNlcnZpY2UiLAogICAgImN0eC5jaGF0Q29tcGxldGlvblNldHRpbmdzIiwKICAgICJjdHguY2hhdElkIiwKICAgICJjdHguY2hhdE1ldGFkYXRhIiwKICAgICJjdHguY2xlYXJDaGF0IiwKICAgICJjdHguQ09OTkVDVF9BUElfTUFQIiwKICAgICJjdHguQ29ubmVjdGlvbk1hbmFnZXJSZXF1ZXN0U2VydmljZSIsCiAgICAiY3R4LmNvbnZlcnRDaGFyYWN0ZXJCb29rIiwKICAgICJjdHguY3JlYXRlQ2hhcmFjdGVyRGF0YSIsCiAgICAiY3R4LmRlbGV0ZUxhc3RNZXNzYWdlIiwKICAgICJjdHguZGVsZXRlTWVzc2FnZSIsCiAgICAiY3R4LmV2ZW50U291cmNlIiwKICAgICJjdHguZXZlbnRUeXBlcyIsCiAgICAiY3R4LmV4dGVuc2lvblByb21wdHMiLAogICAgImN0eC5leHRlbnNpb25TZXR0aW5ncyIsCiAgICAiY3R4LmdlbmVyYXRlIiwKICAgICJjdHguZ2VuZXJhdGVRdWlldFByb21wdCIsCiAgICAiY3R4LmdlbmVyYXRlUmF3IiwKICAgICJjdHguZ2VuZXJhdGVSYXdEYXRhIiwKICAgICJjdHguZ2V0Q2hhcmFjdGVyQ2FyZEZpZWxkcyIsCiAgICAiY3R4LmdldENoYXJhY3RlcnMiLAogICAgImN0eC5nZXRDaGFyYWN0ZXJTb3VyY2UiLAogICAgImN0eC5nZXRDdXJyZW50Q2hhdElkIiwKICAgICJjdHguZ2V0Q3VycmVudExvY2FsZSIsCiAgICAiY3R4LmdldE9uZUNoYXJhY3RlciIsCiAgICAiY3R4LmdldFByZXNldE1hbmFnZXIiLAogICAgImN0eC5nZXRUZXh0R2VuU2VydmVyIiwKICAgICJjdHguZ2V0VGV4dFRva2VucyIsCiAgICAiY3R4LmdldFRodW1ibmFpbFVybCIsCiAgICAiY3R4LmdldFRva2VuQ291bnRBc3luYyIsCiAgICAiY3R4LmdldFRva2VuaXplck1vZGVsIiwKICAgICJjdHguZ2V0V29ybGRJbmZvUHJvbXB0IiwKICAgICJjdHguZ3JvdXBJZCIsCiAgICAiY3R4Lmdyb3VwcyIsCiAgICAiY3R4LmltcG9ydEZyb21FeHRlcm5hbFVybCIsCiAgICAiY3R4LmlzTW9iaWxlIiwKICAgICJjdHguaXNUb29sQ2FsbGluZ1N1cHBvcnRlZCIsCiAgICAiY3R4LmxvYWRlciIsCiAgICAiY3R4LmxvYWRXb3JsZEluZm8iLAogICAgImN0eC5tYWNyb3MiLAogICAgImN0eC5tYWluQXBpIiwKICAgICJjdHgubWF4Q29udGV4dCIsCiAgICAiY3R4Lm1lbnVUeXBlIiwKICAgICJjdHgubWVzc2FnZUZvcm1hdHRpbmciLAogICAgImN0eC5vbmxpbmVTdGF0dXMiLAogICAgImN0eC5vcGVuQ2hhcmFjdGVyQ2hhdCIsCiAgICAiY3R4Lm9wZW5Hcm91cENoYXQiLAogICAgImN0eC5vcGVuVGhpcmRQYXJ0eUV4dGVuc2lvbk1lbnUiLAogICAgImN0eC5Qb3B1cCIsCiAgICAiY3R4LlBPUFVQX1JFU1VMVCIsCiAgICAiY3R4LlBPUFVQX1RZUEUiLAogICAgImN0eC5wb3dlclVzZXJTZXR0aW5ncyIsCiAgICAiY3R4LnByaW50TWVzc2FnZXMiLAogICAgImN0eC5yZWdpc3RlckZ1bmN0aW9uVG9vbCIsCiAgICAiY3R4LnJlbG9hZEN1cnJlbnRDaGF0IiwKICAgICJjdHgucmVsb2FkV29ybGRJbmZvRWRpdG9yIiwKICAgICJjdHgucmVuYW1lQ2hhdCIsCiAgICAiY3R4LnJlbmRlckV4dGVuc2lvblRlbXBsYXRlQXN5bmMiLAogICAgImN0eC5zYXZlQ2hhdCIsCiAgICAiY3R4LnNhdmVNZXRhZGF0YSIsCiAgICAiY3R4LnNhdmVNZXRhZGF0YURlYm91bmNlZCIsCiAgICAiY3R4LnNhdmVTZXR0aW5nc0RlYm91bmNlZCIsCiAgICAiY3R4LnNhdmVXb3JsZEluZm8iLAogICAgImN0eC5zZWxlY3RDaGFyYWN0ZXJCeUlkIiwKICAgICJjdHguc2VuZEdlbmVyYXRpb25SZXF1ZXN0IiwKICAgICJjdHguc2VuZFN0cmVhbWluZ1JlcXVlc3QiLAogICAgImN0eC5zZXRFeHRlbnNpb25Qcm9tcHQiLAogICAgImN0eC5zaG91bGRTZW5kT25FbnRlciIsCiAgICAiY3R4LnN0b3BHZW5lcmF0aW9uIiwKICAgICJjdHguc3dpcGUiLAogICAgImN0eC5zd2lwZS5oaWRlIiwKICAgICJjdHguc3dpcGUuaXNBbGxvd2VkIiwKICAgICJjdHguc3dpcGUubGVmdCIsCiAgICAiY3R4LnN3aXBlLnJlZnJlc2giLAogICAgImN0eC5zd2lwZS5yaWdodCIsCiAgICAiY3R4LnN3aXBlLnNob3ciLAogICAgImN0eC5zd2lwZS5zdGF0ZSIsCiAgICAiY3R4LnN3aXBlLnRvIiwKICAgICJjdHguc3ltYm9scy5pZ25vcmUiLAogICAgImN0eC50IiwKICAgICJjdHgudGFnTWFwIiwKICAgICJjdHgudGFncyIsCiAgICAiY3R4LlRleHRDb21wbGV0aW9uU2VydmljZSIsCiAgICAiY3R4LnRleHRDb21wbGV0aW9uU2V0dGluZ3MiLAogICAgImN0eC50b2tlbml6ZXJzIiwKICAgICJjdHguVG9vbE1hbmFnZXIiLAogICAgImN0eC50cmFuc2xhdGUiLAogICAgImN0eC51bnJlZ2lzdGVyRnVuY3Rpb25Ub29sIiwKICAgICJjdHgudXBkYXRlV29ybGRJbmZvTGlzdCIsCiAgICAiY3R4LnZhcmlhYmxlcyIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuYWRkIiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5kZWMiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmRlbCIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuZ2V0IiwKICAgICJjdHgudmFyaWFibGVzLmdsb2JhbC5oYXMiLAogICAgImN0eC52YXJpYWJsZXMuZ2xvYmFsLmluYyIsCiAgICAiY3R4LnZhcmlhYmxlcy5nbG9iYWwuc2V0IiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLmFkZCIsCiAgICAiY3R4LnZhcmlhYmxlcy5sb2NhbC5kZWMiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuZGVsIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLmdldCIsCiAgICAiY3R4LnZhcmlhYmxlcy5sb2NhbC5oYXMiLAogICAgImN0eC52YXJpYWJsZXMubG9jYWwuaW5jIiwKICAgICJjdHgudmFyaWFibGVzLmxvY2FsLnNldCIsCiAgICAic3QuZXh0ZW5zaW9ucy5jYW5jZWxEZWJvdW5jZWRNZXRhZGF0YVNhdmUiLAogICAgInN0LmV4dGVuc2lvbnMuZXh0ZW5zaW9uX3NldHRpbmdzIiwKICAgICJzdC5leHRlbnNpb25zLmV4dGVuc2lvbk5hbWVzIiwKICAgICJzdC5leHRlbnNpb25zLmV4dGVuc2lvblR5cGVzIiwKICAgICJzdC5leHRlbnNpb25zLmdldEFwaVVybCIsCiAgICAic3QuZXh0ZW5zaW9ucy5nZXRDb250ZXh0IiwKICAgICJzdC5leHRlbnNpb25zLm1vZHVsZXMiLAogICAgInN0LmV4dGVuc2lvbnMuTW9kdWxlV29ya2VyV3JhcHBlciIsCiAgICAic3QuZXh0ZW5zaW9ucy5yZW5kZXJFeHRlbnNpb25UZW1wbGF0ZSIsCiAgICAic3QuZXh0ZW5zaW9ucy5yZW5kZXJFeHRlbnNpb25UZW1wbGF0ZUFzeW5jIiwKICAgICJzdC5leHRlbnNpb25zLnJ1bkdlbmVyYXRpb25JbnRlcmNlcHRvcnMiLAogICAgInN0LmV4dGVuc2lvbnMuc2F2ZU1ldGFkYXRhRGVib3VuY2VkIiwKICAgICJzdC5leHRlbnNpb25zLndyaXRlRXh0ZW5zaW9uRmllbGQiLAogICAgInN0LnNjcmlwdC5BTklNQVRJT05fRFVSQVRJT05fREVGQVVMVCIsCiAgICAic3Quc2NyaXB0LmNoYXJhY3RlcnMiLAogICAgInN0LnNjcmlwdC5jaGF0IiwKICAgICJzdC5zY3JpcHQuY2hhdF9tZXRhZGF0YSIsCiAgICAic3Quc2NyaXB0LmNvbW1lbnRfYXZhdGFyIiwKICAgICJzdC5zY3JpcHQuZGVmYXVsdF9hdmF0YXIiLAogICAgInN0LnNjcmlwdC5kZWZhdWx0X3VzZXJfYXZhdGFyIiwKICAgICJzdC5zY3JpcHQuZXZlbnRfdHlwZXMiLAogICAgInN0LnNjcmlwdC5ldmVudFNvdXJjZSIsCiAgICAic3Quc2NyaXB0LmdlbmVyYXRpb25fc3RhcnRlZCIsCiAgICAic3Quc2NyaXB0LmdldEN1cnJlbnRDaGF0SWQiLAogICAgInN0LnNjcmlwdC5nZXRSZXF1ZXN0SGVhZGVycyIsCiAgICAic3Quc2NyaXB0LmlzX3NlbmRfcHJlc3MiLAogICAgInN0LnNjcmlwdC5tYWluX2FwaSIsCiAgICAic3Quc2NyaXB0Lm1heF9jb250ZXh0IiwKICAgICJzdC5zY3JpcHQuTUFYX0lOSkVDVElPTl9ERVBUSCIsCiAgICAic3Quc2NyaXB0Lm5hbWUxIiwKICAgICJzdC5zY3JpcHQubmFtZTIiLAogICAgInN0LnNjcmlwdC5uZXV0cmFsQ2hhcmFjdGVyTmFtZSIsCiAgICAic3Quc2NyaXB0Lm9ubGluZV9zdGF0dXMiLAogICAgInN0LnNjcmlwdC5yZWxvYWRNYXJrZG93blByb2Nlc3NvciIsCiAgICAic3Quc2NyaXB0LnNhdmVDaGFyYWN0ZXJEZWJvdW5jZWQiLAogICAgInN0LnNjcmlwdC5zYXZlU2V0dGluZ3NEZWJvdW5jZWQiLAogICAgInN0LnNjcmlwdC5zZXR0aW5ncyIsCiAgICAic3Quc2NyaXB0LnN5c3RlbV9hdmF0YXIiLAogICAgInN0LnNjcmlwdC5zeXN0ZW1Vc2VyTmFtZSIsCiAgICAic3Quc2NyaXB0LnRoaXNfY2hpZCIsCiAgICAic3Quc2xhc2guQVJHVU1FTlRfVFlQRSIsCiAgICAic3Quc2xhc2guQ09OTkVDVF9BUElfTUFQIiwKICAgICJzdC5zbGFzaC5leGVjdXRlU2xhc2hDb21tYW5kcyIsCiAgICAic3Quc2xhc2guZXhlY3V0ZVNsYXNoQ29tbWFuZHNXaXRoT3B0aW9ucyIsCiAgICAic3Quc2xhc2guZ2V0U2xhc2hDb21tYW5kc0hlbHAiLAogICAgInN0LnNsYXNoLnJlZ2lzdGVyU2xhc2hDb21tYW5kIiwKICAgICJzdC5zbGFzaC5TbGFzaENvbW1hbmQiLAogICAgInN0LnNsYXNoLlNsYXNoQ29tbWFuZEFyZ3VtZW50IiwKICAgICJzdC5zbGFzaC5TbGFzaENvbW1hbmROYW1lZEFyZ3VtZW50IiwKICAgICJzdC5zbGFzaC5TbGFzaENvbW1hbmRQYXJzZXIiCiAgXQp9Cg==", "" + import.meta.url), Bo = null;
 function O_(e) {
   return [
     "inspect",
@@ -22087,7 +22087,7 @@ async function a1() {
 }
 function l1(e) {
   const { state: t, pendingToolCalls: n, pendingApprovals: i, persistSession: r, render: s, showToast: o, post: l, createRequestId: u, safeJsonParse: d, describeError: f, formatToolResultDisplay: h, buildTextWithAttachmentSummary: p, buildUserContentParts: m, normalizeAttachments: g, normalizeThoughtBlocks: y, normalizeSlashCommand: v, normalizeSlashSkillTrigger: _, shouldRequireSlashCommandApproval: C, buildSlashApprovalResult: I, buildJsApiApprovalResult: x, isAbortError: E, createAdapter: w, getActiveProviderConfig: T, getSystemPrompt: A, getEphemeralUserContextText: S, SYSTEM_PROMPT: P, SUMMARY_SYSTEM_PROMPT: H, HISTORY_SUMMARY_PREFIX: G, MAX_CONTEXT_TOKENS: J, SUMMARY_TRIGGER_TOKENS: K, DEFAULT_PRESERVED_TURNS: O, MIN_PRESERVED_TURNS: me, MAX_TOOL_ROUNDS: R, REQUEST_TIMEOUT_MS: $, TOOL_DEFINITIONS: B, TOOL_NAMES: k } = e;
-  let U = !1, Q = 0, ee = "", j = "", X = 0, Re = 0;
+  let U = !1, Q = 0, ee = "", j = "", X = 0, ke = 0;
   function Y() {
     const N = typeof A == "function" ? A() : P;
     return String(N || P).trim() || P;
@@ -22123,7 +22123,7 @@ ${t.historySummary.trim()}`
     const V = String(N || "").replace(/\s+/g, " ").trim();
     return V.length <= M ? V : `${V.slice(0, M)}…`;
   }
-  function ke(N) {
+  function Te(N) {
     if (N?.approvalRequest) return "";
     if (N.role === "tool") return Z(h(N).summary || N.content || "", 1400);
     if (N.role === "assistant" && Array.isArray(N.toolCalls) && N.toolCalls.length) {
@@ -22133,7 +22133,7 @@ ${t.historySummary.trim()}`
     }
     return Z(p(N.content || "", N.attachments), 1600);
   }
-  function Fe(N = t.messages) {
+  function De(N = t.messages) {
     const M = [];
     let V = [];
     return (N || []).filter((z) => !z?.approvalRequest).forEach((z) => {
@@ -22144,12 +22144,12 @@ ${t.historySummary.trim()}`
       V.push(z);
     }), V.length && M.push(V), M.filter((z) => z.length);
   }
-  function et(N, M = "") {
+  function je(N, M = "") {
     const V = [];
     return M?.trim() && (V.push("已有历史摘要:"), V.push(M.trim()), V.push("")), N.forEach((z, ve) => {
       V.push(`第 ${ve + 1} 段历史:`), z.forEach((Se) => {
         const Ee = Se.role === "user" ? "用户" : Se.role === "assistant" ? "助手" : `工具${Se.toolName ? `(${Se.toolName})` : ""}`;
-        V.push(`${Ee}: ${ke(Se) || "[空]"}`);
+        V.push(`${Ee}: ${Te(Se) || "[空]"}`);
       }), V.push("");
     }), V.join(`
 `).trim();
@@ -22157,7 +22157,7 @@ ${t.historySummary.trim()}`
   function Lt(N, M = "") {
     const V = [];
     return M?.trim() && V.push(M.trim()), N.forEach((z, ve) => {
-      const Se = z.map((Ee) => `${Ee.role === "user" ? "用户" : Ee.role === "assistant" ? "助手" : `工具${Ee.toolName ? `(${Ee.toolName})` : ""}`}: ${ke(Ee) || "[空]"}`).join(`
+      const Se = z.map((Ee) => `${Ee.role === "user" ? "用户" : Ee.role === "assistant" ? "助手" : `工具${Ee.toolName ? `(${Ee.toolName})` : ""}`}: ${Te(Ee) || "[空]"}`).join(`
 `);
       V.push(`补充历史 ${ve + 1}:
 ${Se}`);
@@ -22178,7 +22178,7 @@ ${Se}`);
     }), N;
   }
   function $e() {
-    const N = Fe();
+    const N = De();
     return N.length ? N[N.length - 1] : [];
   }
   function tt(N = [], M = null) {
@@ -22305,12 +22305,12 @@ ${JSON.stringify(M)}` : ""
       budgetTokens: J,
       summaryActive: z
     }, j === V) return;
-    const Se = ++Re;
+    const Se = ++ke;
     Ki({
       messages: N,
       tools: M
     }).then((Ee) => {
-      if (Se !== Re || ee !== V || !Number.isFinite(Ee)) return;
+      if (Se !== ke || ee !== V || !Number.isFinite(Ee)) return;
       j = V, X = Ee;
       const Ie = t.contextStats.usedTokens !== Ee || t.contextStats.summaryActive !== z || t.contextStats.budgetTokens !== J;
       t.contextStats = {
@@ -22424,11 +22424,11 @@ ${JSON.stringify(M)}` : ""
     return V;
   }
   function Wl() {
-    const N = Fe(), M = Math.min(t.archivedTurnCount, N.length);
+    const N = De(), M = Math.min(t.archivedTurnCount, N.length);
     return N.slice(M).flat();
   }
   function ow() {
-    const N = Fe(), M = Math.min(t.archivedTurnCount, N.length);
+    const N = De(), M = Math.min(t.archivedTurnCount, N.length);
     return M <= 0 ? !1 : (t.messages = N.slice(M).flat(), t.archivedTurnCount = 0, !0);
   }
   function Nf(N, M, V) {
@@ -22452,7 +22452,7 @@ ${JSON.stringify(M)}` : ""
   }
   async function lw(N, M, V) {
     if (!M.length) return;
-    const z = et(M, t.historySummary), ve = Lt(M, t.historySummary), Se = T();
+    const z = je(M, t.historySummary), ve = Lt(M, t.historySummary), Se = T();
     try {
       const Ee = await N.chat({
         systemPrompt: H,
@@ -22476,7 +22476,7 @@ ${JSON.stringify(M)}` : ""
     let ve = Wl(), Se = Gl(ve, V);
     if (await ho(Se), t.contextStats.usedTokens <= K) return Se;
     for (const Ee of z) {
-      const Ie = Fe(), Ne = Math.max(t.archivedTurnCount, Ie.length - Math.min(Ee, Ie.length));
+      const Ie = De(), Ne = Math.max(t.archivedTurnCount, Ie.length - Math.min(Ee, Ie.length));
       if (Ne > t.archivedTurnCount && (await lw(N, Ie.slice(t.archivedTurnCount, Ne), M), t.archivedTurnCount = Ne, ow(), r()), ve = Wl(), Se = Gl(ve, V), await ho(Se), t.contextStats.usedTokens <= K)
         return o(`已压缩较早历史，当前上下文 ${le()}`), s(), Se;
     }
@@ -25162,8 +25162,8 @@ function pM(e, t, n) {
             });
           }, O.start = function(U) {
             var Q = new Promise(function(j, X) {
-              j = He(j), J.onerror = Cn(X), O.fail = X, O.stop = function(Re) {
-                O.stop = O.continue = O.continuePrimaryKey = O.advance = k, j(Re);
+              j = He(j), J.onerror = Cn(X), O.fail = X, O.stop = function(ke) {
+                O.stop = O.continue = O.continuePrimaryKey = O.advance = k, j(ke);
               };
             }), ee = function() {
               if (J.result) try {
@@ -27342,8 +27342,8 @@ var IC = function(e) {
     if (X > 255) {
       var j = X >> 18 & 31;
       is(t, f, me[j + 257]), f += R[j + 257], j > 7 && (Ln(t, f, X >> 23 & 31), f += gf[j]);
-      var Re = X & 31;
-      is(t, f, $[Re]), f += B[Re], Re > 3 && (is(t, f, X >> 5 & 8191), f += yf[Re]);
+      var ke = X & 31;
+      is(t, f, $[ke]), f += B[ke], ke > 3 && (is(t, f, X >> 5 & 8191), f += yf[ke]);
     } else is(t, f, me[X]), f += R[X];
   }
   return is(t, f, me[256]), f + R[256];
@@ -27379,7 +27379,7 @@ var IC = function(e) {
               for (var X = 0; X < j && e[S + X] == e[S + X - U]; ++X) ;
               if (X > $) {
                 if ($ = X, B = U, X > Q) break;
-                for (var Re = Math.min(U, X - 2), Y = 0, R = 0; R < Re; ++R) {
+                for (var ke = Math.min(U, X - 2), Y = 0, R = 0; R < ke; ++R) {
                   var q = S - U + R & 32767, se = q - y[q] & 32767;
                   se > Y && (Y = se, O = q);
                 }
@@ -27806,8 +27806,8 @@ function gL(e, t = {}) {
   j.type = "button", j.className = "xb-assistant-workspace-viewer-button", j.textContent = "新建文件", j.addEventListener("click", () => E(U)), ee.appendChild(j);
   const X = document.createElement("button");
   X.type = "button", X.className = "xb-assistant-workspace-viewer-button", X.textContent = Q ? "重命名目录" : "重命名", X.disabled = !U, X.addEventListener("click", () => w(U)), ee.appendChild(X);
-  const Re = document.createElement("button");
-  if (Re.type = "button", Re.className = "xb-assistant-workspace-viewer-button", Re.textContent = Q ? "删除目录" : "删除", Re.disabled = !U, Re.addEventListener("click", () => T(U)), ee.appendChild(Re), S.appendChild(ee), r.nodes.length) PC(k, r.nodes, {
+  const ke = document.createElement("button");
+  if (ke.type = "button", ke.className = "xb-assistant-workspace-viewer-button", ke.textContent = Q ? "删除目录" : "删除", ke.disabled = !U, ke.addEventListener("click", () => T(U)), ee.appendChild(ke), S.appendChild(ee), r.nodes.length) PC(k, r.nodes, {
     selectedFilePath: o.selectedFilePath || "",
     selectedTreePath: o.selectedTreePath || "",
     expandedKeys: new Set(o.treeExpandedKeys || []),
@@ -27856,13 +27856,13 @@ function gL(e, t = {}) {
     tt.type = "button", tt.className = `xb-assistant-workspace-mode-button${o.viewerMode === $e.key ? " is-active" : ""}`, tt.textContent = $e.label, tt.disabled = !$e.enabled, tt.addEventListener("click", () => C($e.key)), le.appendChild(tt);
   });
   const Z = document.createElement("button");
-  Z.type = "button", Z.className = "xb-assistant-workspace-viewer-button", Z.textContent = "下载当前文件", Z.addEventListener("click", () => I(s.file.path)), le.appendChild(Z);
-  const ke = document.createElement("button");
-  ke.type = "button", ke.className = "xb-assistant-workspace-viewer-button", ke.textContent = "恢复原始内容", ke.disabled = !d(s.file), ke.addEventListener("click", () => x(s.file.path)), le.appendChild(ke);
-  const Fe = document.createElement("button");
-  Fe.type = "button", Fe.className = "xb-assistant-workspace-viewer-button", Fe.textContent = "重命名", Fe.addEventListener("click", () => w(s.file.path)), le.appendChild(Fe);
-  const et = document.createElement("button");
-  et.type = "button", et.className = "xb-assistant-workspace-viewer-button", et.textContent = "删除", et.addEventListener("click", () => T(s.file.path)), le.appendChild(et), q.appendChild(le), Y.appendChild(q);
+  Z.type = "button", Z.className = "xb-assistant-workspace-viewer-button is-icon", Z.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>', Z.title = "下载当前文件", Z.addEventListener("click", () => I(s.file.path)), le.appendChild(Z);
+  const Te = document.createElement("button");
+  Te.type = "button", Te.className = "xb-assistant-workspace-viewer-button is-icon", Te.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>', Te.title = "恢复原始内容", Te.disabled = !d(s.file), Te.addEventListener("click", () => x(s.file.path)), le.appendChild(Te);
+  const De = document.createElement("button");
+  De.type = "button", De.className = "xb-assistant-workspace-viewer-button is-icon", De.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>', De.title = "重命名", De.addEventListener("click", () => w(s.file.path)), le.appendChild(De);
+  const je = document.createElement("button");
+  je.type = "button", je.className = "xb-assistant-workspace-viewer-button is-icon", je.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>', je.title = "删除", je.addEventListener("click", () => T(s.file.path)), le.appendChild(je), q.appendChild(le), Y.appendChild(q);
   const Lt = document.createElement("div");
   Lt.className = "xb-assistant-workspace-code-wrap";
   const gn = document.createElement("div");
@@ -28263,15 +28263,15 @@ function ML(e) {
     if (!se.length) return !1;
     try {
       const ie = TL(se, q.mode === "directory" ? "directory" : "files"), ae = new Set(We(t.localSources).map((Dt) => Dt.label)), le = [];
-      let Z = 0, ke = 0, Fe = 0;
-      const et = se.length;
+      let Z = 0, Te = 0, De = 0;
+      const je = se.length;
       let Lt = 0, gn = 0, $e = -1;
       const tt = (Dt = "") => {
-        const Tn = Date.now(), yn = et > 0 ? Math.max(0, Math.min(100, Math.round(Lt / et * 100))) : 0;
+        const Tn = Date.now(), yn = je > 0 ? Math.max(0, Math.min(100, Math.round(Lt / je * 100))) : 0;
         (Dt || yn !== $e || Tn - gn >= yL) && (gn = Tn, $e = yn, r?.({
           active: !0,
           label: q.mode === "directory" ? "正在导入文件夹源码" : "正在导入源码文件",
-          detail: et > 0 ? `${Lt}/${et}${Dt ? ` · ${Dt}` : ""}` : Dt || "",
+          detail: je > 0 ? `${Lt}/${je}${Dt ? ` · ${Dt}` : ""}` : Dt || "",
           percent: yn
         }));
       };
@@ -28281,21 +28281,21 @@ function ML(e) {
         for (const Ft of Dt.files) {
           const Ul = Dt.mode === "directory" ? yt(Ft.webkitRelativePath || Ft.name || "") : yt(Ft.name || ""), Rn = Dt.mode === "directory" && yt(Ul.split("/").slice(1).join("/")) || yt(Ft.name || "") || yt(Ft.name || "");
           if (!kC(Rn)) {
-            ke += 1, Lt += 1, tt();
+            Te += 1, Lt += 1, tt();
             continue;
           }
           if (mi.has(Rn)) {
-            Fe += 1, Lt += 1, tt();
+            De += 1, Lt += 1, tt();
             continue;
           }
           mi.add(Rn);
           const $l = await EL(Ft, { onProgress: (fo, Ki) => {
             if (!Ki) return;
-            const ho = Math.max(0, Math.min(100, Math.round(fo / Ki * 100))), Bl = et > 0 ? Math.max(0, Math.min(100, Math.round((Lt + fo / Ki) / et * 100))) : 0;
+            const ho = Math.max(0, Math.min(100, Math.round(fo / Ki * 100))), Bl = je > 0 ? Math.max(0, Math.min(100, Math.round((Lt + fo / Ki) / je * 100))) : 0;
             r?.({
               active: !0,
               label: q.mode === "directory" ? "正在导入文件夹源码" : "正在导入源码文件",
-              detail: `${Lt}/${et} · ${Ft.name || Rn} ${ho}%`,
+              detail: `${Lt}/${je} · ${Ft.name || Rn} ${ho}%`,
               percent: Bl
             });
           } });
@@ -28317,13 +28317,13 @@ function ML(e) {
       return le.length ? (tt("写入会话"), await I([...We(t.localSources), ...le], pg({
         importedSources: le.length,
         importedFiles: Z,
-        rejectedFiles: ke,
-        duplicateFiles: Fe
+        rejectedFiles: Te,
+        duplicateFiles: De
       }))) : (i?.(pg({
         importedSources: 0,
         importedFiles: 0,
-        rejectedFiles: ke,
-        duplicateFiles: Fe
+        rejectedFiles: Te,
+        duplicateFiles: De
       })), !1);
     } catch (ie) {
       return i?.(`源码导入失败：${String(ie?.message || ie || "unknown_error")}`), !1;
@@ -28386,12 +28386,12 @@ function ML(e) {
     if (q) ie = `${q.split("/").slice(0, -1).join("/")}/new-file.txt`;
     else if (se) ie = `${se}new-file.txt`;
     else if (t.selectedSourceId && t.selectedSourceId !== "all") {
-      const ke = We(t.localSources).find((Fe) => Fe.sourceId === t.selectedSourceId);
-      ke && (ie = `local/${ke.label}/new-file.txt`);
+      const Te = We(t.localSources).find((De) => De.sourceId === t.selectedSourceId);
+      Te && (ie = `local/${Te.label}/new-file.txt`);
     }
     if (!ie) {
-      const ke = We(t.localSources)[0];
-      ke && (ie = `local/${ke.label}/new-file.txt`);
+      const Te = We(t.localSources)[0];
+      Te && (ie = `local/${Te.label}/new-file.txt`);
     }
     ie || (ie = "local/new-source/new-file.txt");
     const ae = window.prompt("输入要新建的 local 文件路径", ie);
@@ -28420,16 +28420,16 @@ function ML(e) {
       return i?.(`请输入有效的 local/${q ? "... 文件" : "... 目录"}路径`), !1;
     if (le === ie) return !1;
     try {
-      const Z = PL(t.localSources, ie, le, { overwrite: !1 }), ke = Z.mode === "directory" ? `已移动目录，共 ${Z.movedFiles.length} 个文件` : `已重命名 ${Z.movedFiles[0]?.name || le}`;
-      return await I(Z.nextSources, ke) ? (Z.mode === "directory" ? B(le) : y(Z.movedFiles[0]?.path || le, {
+      const Z = PL(t.localSources, ie, le, { overwrite: !1 }), Te = Z.mode === "directory" ? `已移动目录，共 ${Z.movedFiles.length} 个文件` : `已重命名 ${Z.movedFiles[0]?.name || le}`;
+      return await I(Z.nextSources, Te) ? (Z.mode === "directory" ? B(le) : y(Z.movedFiles[0]?.path || le, {
         preserveSourceFilter: !1,
         preserveSearch: !1,
         preserveModifiedOnly: !1,
         preserveViewerMode: !1
       }), s?.(), !0) : !1;
     } catch (Z) {
-      const ke = String(Z?.message || Z || "unknown_error");
-      return ke === "local_destination_exists" ? (i?.("目标路径已存在，请换一个路径"), !1) : (i?.(`重命名失败：${ke}`), !1);
+      const Te = String(Z?.message || Z || "unknown_error");
+      return Te === "local_destination_exists" ? (i?.("目标路径已存在，请换一个路径"), !1) : (i?.(`重命名失败：${Te}`), !1);
     }
   }
   async function K(Y = "") {
@@ -28499,7 +28499,7 @@ function ML(e) {
     const q = new Set(Array.isArray(t.treeExpandedKeys) ? t.treeExpandedKeys : []);
     q.has(Y) ? q.delete(Y) : q.add(Y), t.treeExpandedKeys = Array.from(q), p(), o?.();
   }
-  function Re(Y, q = {}) {
+  function ke(Y, q = {}) {
     _();
     const se = We(t.localSources), ie = ku(se), ae = fg(se, {
       selectedSourceId: t.selectedSourceId,
@@ -28592,7 +28592,7 @@ function ML(e) {
     selectWorkspaceFile: y,
     selectWorkspaceNode: B,
     setWorkspaceWidth: k,
-    renderWorkspace: Re,
+    renderWorkspace: ke,
     ensureWorkspaceSelection: _,
     getWorkspaceSummary: m,
     openFirstModifiedFile: $,
@@ -28989,17 +28989,17 @@ function BL(e, t, n = {}) {
       ae.className = "xb-assistant-import-progress-title", ae.textContent = X.label || "正在导入", ie.appendChild(ae);
       const le = document.createElement("span");
       if (le.className = "xb-assistant-import-progress-percent", le.textContent = `${Math.max(0, Math.min(100, Math.round(Number(X.percent) || 0)))}%`, ie.appendChild(le), j.appendChild(ie), X.detail) {
-        const Fe = document.createElement("div");
-        Fe.className = "xb-assistant-import-progress-detail", Fe.textContent = X.detail, j.appendChild(Fe);
+        const De = document.createElement("div");
+        De.className = "xb-assistant-import-progress-detail", De.textContent = X.detail, j.appendChild(De);
       }
       const Z = document.createElement("div");
       Z.className = "xb-assistant-import-progress-bar";
-      const ke = document.createElement("div");
-      ke.className = "xb-assistant-import-progress-fill", ke.style.width = `${Math.max(0, Math.min(100, Math.round(Number(X.percent) || 0)))}%`, Z.appendChild(ke), j.appendChild(Z);
+      const Te = document.createElement("div");
+      Te.className = "xb-assistant-import-progress-fill", Te.style.width = `${Math.max(0, Math.min(100, Math.round(Number(X.percent) || 0)))}%`, Z.appendChild(Te), j.appendChild(Z);
     } else j.replaceChildren();
   u(e.querySelector("#xb-assistant-workspace-panel"), { disabled: t.isBusy });
-  const Re = e.querySelector("#xb-assistant-workspace"), Y = e.querySelector("#xb-assistant-workspace-backdrop"), q = e.querySelector(".xb-assistant-main-body");
-  q?.classList.toggle("workspace-open", !!t.isWorkspaceOpen), q?.style.setProperty("--xb-assistant-workspace-width", `${t.workspaceWidth || 520}px`), Re?.classList.toggle("is-open", !!t.isWorkspaceOpen), Re?.setAttribute("aria-hidden", t.isWorkspaceOpen ? "false" : "true"), Re?.style.setProperty("--xb-assistant-workspace-width", `${t.workspaceWidth || 520}px`), Y?.classList.toggle("is-open", !!t.isWorkspaceOpen && ee), Y?.toggleAttribute("hidden", !(t.isWorkspaceOpen && ee));
+  const ke = e.querySelector("#xb-assistant-workspace"), Y = e.querySelector("#xb-assistant-workspace-backdrop"), q = e.querySelector(".xb-assistant-main-body");
+  q?.classList.toggle("workspace-open", !!t.isWorkspaceOpen), q?.style.setProperty("--xb-assistant-workspace-width", `${t.workspaceWidth || 520}px`), ke?.classList.toggle("is-open", !!t.isWorkspaceOpen), ke?.setAttribute("aria-hidden", t.isWorkspaceOpen ? "false" : "true"), ke?.style.setProperty("--xb-assistant-workspace-width", `${t.workspaceWidth || 520}px`), Y?.classList.toggle("is-open", !!t.isWorkspaceOpen && ee), Y?.toggleAttribute("hidden", !(t.isWorkspaceOpen && ee));
   const se = e.querySelector("#xb-assistant-toggle-key");
   se.textContent = e.querySelector("#xb-assistant-api-key").type === "password" ? "显示" : "隐藏";
 }
@@ -29416,16 +29416,16 @@ function QL(e) {
   }
   function me(k) {
     if (!t.config) return;
-    const U = P(), Q = U.provider || "openai-compatible", ee = h(Q), j = k.querySelector("#xb-assistant-tool-mode-wrap"), X = k.querySelector("#xb-assistant-tool-mode"), Re = k.querySelector("#xb-assistant-reasoning-enabled"), Y = k.querySelector("#xb-assistant-reasoning-effort-wrap"), q = k.querySelector("#xb-assistant-reasoning-effort"), se = k.querySelector("#xb-assistant-permission-mode"), ie = k.querySelector("#xb-assistant-model-pulled"), ae = k.querySelector("#xb-assistant-preset-select"), le = k.querySelector("#xb-assistant-preset-name");
-    os(ae, (t.config.presetNames || []).map((Fe) => ({
-      value: Fe,
-      label: Fe
-    }))), ae.value = U.currentPresetName || t.config.currentPresetName || x, le.value = U.presetDraftName || U.currentPresetName || x, k.querySelector("#xb-assistant-provider").value = Q, k.querySelector("#xb-assistant-base-url").value = U.baseUrl || "", k.querySelector("#xb-assistant-model").value = U.model || "", k.querySelector("#xb-assistant-api-key").value = U.apiKey || "", j.style.display = Q === "openai-compatible" ? "" : "none", os(X, w), X.value = U.toolMode || "native", os(se, T), se.value = m(U.permissionMode), os(q, A), Re.checked = !!U.reasoningEnabled, q.value = g(U.reasoningEffort), Y.style.display = Re.checked ? "" : "none", os(ie, ee.map((Fe) => ({
-      value: Fe,
-      label: Fe
+    const U = P(), Q = U.provider || "openai-compatible", ee = h(Q), j = k.querySelector("#xb-assistant-tool-mode-wrap"), X = k.querySelector("#xb-assistant-tool-mode"), ke = k.querySelector("#xb-assistant-reasoning-enabled"), Y = k.querySelector("#xb-assistant-reasoning-effort-wrap"), q = k.querySelector("#xb-assistant-reasoning-effort"), se = k.querySelector("#xb-assistant-permission-mode"), ie = k.querySelector("#xb-assistant-model-pulled"), ae = k.querySelector("#xb-assistant-preset-select"), le = k.querySelector("#xb-assistant-preset-name");
+    os(ae, (t.config.presetNames || []).map((De) => ({
+      value: De,
+      label: De
+    }))), ae.value = U.currentPresetName || t.config.currentPresetName || x, le.value = U.presetDraftName || U.currentPresetName || x, k.querySelector("#xb-assistant-provider").value = Q, k.querySelector("#xb-assistant-base-url").value = U.baseUrl || "", k.querySelector("#xb-assistant-model").value = U.model || "", k.querySelector("#xb-assistant-api-key").value = U.apiKey || "", j.style.display = Q === "openai-compatible" ? "" : "none", os(X, w), X.value = U.toolMode || "native", os(se, T), se.value = m(U.permissionMode), os(q, A), ke.checked = !!U.reasoningEnabled, q.value = g(U.reasoningEffort), Y.style.display = ke.checked ? "" : "none", os(ie, ee.map((De) => ({
+      value: De,
+      label: De
     })), "手动填写");
-    const Z = k.querySelector("#xb-assistant-runtime"), ke = u(Q);
-    Z.textContent = t.runtime ? `预设「${U.currentPresetName || x}」 · ${p(Q)} · 已索引 ${t.runtime.indexedFileCount || 0} 个前端源码文件${ke.message ? ` · ${ke.message}` : ""}` : ke.message || "";
+    const Z = k.querySelector("#xb-assistant-runtime"), Te = u(Q);
+    Z.textContent = t.runtime ? `预设「${U.currentPresetName || x}」 · ${p(Q)} · 已索引 ${t.runtime.indexedFileCount || 0} 个前端源码文件${Te.message ? ` · ${Te.message}` : ""}` : Te.message || "";
   }
   function R(k) {
     const U = G(k), Q = v(U.presetDraftName), ee = v(U.currentPresetName || t.config?.currentPresetName || x), j = (t.config?.presets || {})[ee] || _(), X = {
@@ -29439,14 +29439,14 @@ function QL(e) {
           ...J(U)
         }
       }
-    }, Re = {
+    }, ke = {
       ...t.config?.presets || {},
       [Q]: X
     };
     t.config = y({
       ...t.config,
       currentPresetName: Q,
-      presets: Re
+      presets: ke
     }), t.configDraft = S(Q, X), o();
     const Y = I("save-config");
     s(Y), n("xb-assistant:save-config", {
@@ -29619,15 +29619,15 @@ function jL(e) {
       const Q = String(U.nodeValue || "");
       let ee = null, j = 0;
       const X = document.createDocumentFragment();
-      let Re = !1;
+      let ke = !1;
       for (k.lastIndex = 0; (ee = k.exec(Q)) !== null; ) {
-        Re = !0, ee.index > j && X.appendChild(document.createTextNode(Q.slice(j, ee.index)));
+        ke = !0, ee.index > j && X.appendChild(document.createTextNode(Q.slice(j, ee.index)));
         const Y = ee[0], q = document.createElement("button");
         q.type = "button", q.className = "xb-assistant-local-path-link", q.textContent = Y, q.addEventListener("click", () => {
           l(Y);
         }), X.appendChild(q), j = ee.index + Y.length;
       }
-      Re && (j < Q.length && X.appendChild(document.createTextNode(Q.slice(j))), U.parentNode?.replaceChild(X, U));
+      ke && (j < Q.length && X.appendChild(document.createTextNode(Q.slice(j))), U.parentNode?.replaceChild(X, U));
     });
   }
   function v(R) {
@@ -29684,8 +29684,8 @@ function jL(e) {
       X.className = "xb-assistant-tool-batch-note xb-assistant-markdown", X.appendChild(v(p(j))), ee.appendChild(X);
     }
     return $.forEach((X) => {
-      const Re = T(X);
-      Re.dataset.renderSignature = C(X), ee.appendChild(Re);
+      const ke = T(X);
+      ke.dataset.renderSignature = C(X), ee.appendChild(ke);
     }), k.appendChild(ee), k;
   }
   function w(R) {
@@ -29736,8 +29736,8 @@ ${R.code}` : ""
     Q && B.classList.add("is-tool-call");
     const X = document.createElement("div");
     X.className = "xb-assistant-meta-row";
-    const Re = document.createElement("div");
-    if (Re.className = "xb-assistant-meta", Re.textContent = R.role === "user" ? "你" : R.role === "assistant" ? Array.isArray(R.toolCalls) && R.toolCalls.length ? `小白助手 · 已发起 ${R.toolCalls.length} 个工具调用` : `小白助手${R.streaming ? " · 正在生成" : ""}${Array.isArray(R.thoughts) && R.thoughts.length ? ` · 含 ${R.thoughts.length} 段思考` : ""}` : `工具结果${R.toolName ? ` · ${R.toolName}` : ""}`, X.appendChild(Re), ee) {
+    const ke = document.createElement("div");
+    if (ke.className = "xb-assistant-meta", ke.textContent = R.role === "user" ? "你" : R.role === "assistant" ? Array.isArray(R.toolCalls) && R.toolCalls.length ? `小白助手 · 已发起 ${R.toolCalls.length} 个工具调用` : `小白助手${R.streaming ? " · 正在生成" : ""}${Array.isArray(R.thoughts) && R.thoughts.length ? ` · 含 ${R.thoughts.length} 段思考` : ""}` : `工具结果${R.toolName ? ` · ${R.toolName}` : ""}`, X.appendChild(ke), ee) {
       const ae = document.createElement("div");
       ae.className = "xb-assistant-message-actions", (j ? [{
         action: "save-edit",
@@ -29778,10 +29778,10 @@ ${R.code}` : ""
       if (B.append(le), ae.details) {
         const Z = document.createElement("details");
         Z.className = "xb-assistant-tool-details";
-        const ke = document.createElement("summary");
-        ke.textContent = R.toolName === n.READ ? "展开文件内容" : "展开详细结果";
-        const Fe = _(ae.details, "xb-assistant-content tool-detail");
-        Z.append(ke, Fe), B.appendChild(Z);
+        const Te = document.createElement("summary");
+        Te.textContent = R.toolName === n.READ ? "展开文件内容" : "展开详细结果";
+        const De = _(ae.details, "xb-assistant-content tool-detail");
+        Z.append(Te, De), B.appendChild(Z);
       }
       return B;
     }
@@ -29794,12 +29794,12 @@ ${R.code}` : ""
       ae.className = "xb-assistant-thought-details";
       const le = document.createElement("summary");
       le.textContent = R.thoughts.length > 1 ? `展开思考块（${R.thoughts.length} 段）` : "展开思考块", ae.appendChild(le), R.thoughts.forEach((Z) => {
-        const ke = document.createElement("div");
-        ke.className = "xb-assistant-thought-block";
-        const Fe = document.createElement("div");
-        Fe.className = "xb-assistant-thought-label", Fe.textContent = Z.label;
-        const et = document.createElement("pre");
-        et.className = "xb-assistant-content xb-assistant-thought-content", et.textContent = Z.text, ke.append(Fe, et), ae.appendChild(ke);
+        const Te = document.createElement("div");
+        Te.className = "xb-assistant-thought-block";
+        const De = document.createElement("div");
+        De.className = "xb-assistant-thought-label", De.textContent = Z.label;
+        const je = document.createElement("pre");
+        je.className = "xb-assistant-content xb-assistant-thought-content", je.textContent = Z.text, Te.append(De, je), ae.appendChild(Te);
       }), ie = ae;
     }
     if (j) {
@@ -30080,9 +30080,11 @@ function FC(e) {
         .xb-assistant-actions,
         .xb-assistant-toolbar {
             display: flex;
+            flex-wrap: wrap;
             gap: 10px;
             align-items: center;
             justify-content: flex-start;
+            min-width: 0;
         }
         .xb-assistant-actions {
             gap: 8px;
@@ -31424,13 +31426,22 @@ function FC(e) {
                 max-width: min(240px, calc(100vw - 40px));
             }
             .xb-assistant-toolbar {
-                display: grid;
-                grid-template-columns: repeat(5, minmax(0, 1fr));
-                align-items: stretch;
+                display: flex;
+                overflow-x: auto;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+                flex-wrap: nowrap;
+                align-items: center;
                 gap: 8px;
+                padding-bottom: 2px;
+            }
+            .xb-assistant-toolbar::-webkit-scrollbar {
+                display: none;
             }
             .xb-assistant-toolbar-cluster {
-                display: contents;
+                display: flex;
+                gap: 8px;
+                flex-wrap: nowrap;
             }
             .xb-assistant-inline-input { grid-template-columns: 1fr; }
             .xb-assistant-status,
@@ -32040,7 +32051,7 @@ var { getActiveProviderConfig: zC, syncConfigToForm: Y2, bindSettingsPanelEvents
   reasoningEffortOptions: $C
 }), { renderMessages: z2, renderApprovalPanel: X2, scrollChatToBottom: XC, scrollChatToTop: Z2, updateChatScrollButtonsVisibility: ZC, handleAssistantChatScroll: Q2, copyText: j2 } = jL({
   state: F,
-  toolNames: Te,
+  toolNames: Re,
   formatToolResultDisplay: t_,
   normalizeThoughtBlocks: xf,
   normalizeAttachments: Vl,
@@ -32156,7 +32167,7 @@ var { resetCompactionState: rD, buildContextMeterLabel: sD, updateContextStats: 
   MAX_TOOL_ROUNDS: d2,
   REQUEST_TIMEOUT_MS: UC,
   TOOL_DEFINITIONS: ON,
-  TOOL_NAMES: Te
+  TOOL_NAMES: Re
 });
 Fl = VL({
   state: F,
