@@ -1,3 +1,5 @@
+const DESKTOP_CHROME_HEIGHT = 36;
+
 export function createAssistantHostWindow(options) {
     const {
         overlayId,
@@ -207,7 +209,7 @@ export function createAssistantHostWindow(options) {
             top: 0;
             left: 0;
             right: 0;
-            height: 28px;
+            height: ${DESKTOP_CHROME_HEIGHT}px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -270,7 +272,7 @@ export function createAssistantHostWindow(options) {
         const titleActions = document.createElement('div');
         titleActions.style.cssText = `
             position: absolute;
-            top: 10px;
+            top: 4px;
             right: 14px;
             z-index: 10000;
             display: flex;
@@ -342,13 +344,13 @@ export function createAssistantHostWindow(options) {
         iframe.src = htmlPath;
         iframe.style.cssText = `
             position: absolute;
-            top: 0;
+            top: ${DESKTOP_CHROME_HEIGHT}px;
             left: 0;
             display: block;
             width: 100%;
-            height: 100%;
+            height: calc(100% - ${DESKTOP_CHROME_HEIGHT}px);
             border: none;
-            border-radius: 22px;
+            border-radius: 0 0 22px 22px;
             background: transparent;
         `;
 
@@ -356,13 +358,13 @@ export function createAssistantHostWindow(options) {
         resizeMask.setAttribute('aria-hidden', 'true');
         resizeMask.style.cssText = `
             position: absolute;
-            top: 0;
+            top: ${DESKTOP_CHROME_HEIGHT}px;
             left: 0;
             width: 100%;
-            height: 100%;
+            height: calc(100% - ${DESKTOP_CHROME_HEIGHT}px);
             display: none;
             pointer-events: none;
-            border-radius: 22px;
+            border-radius: 0 0 22px 22px;
             background:
                 linear-gradient(180deg, rgba(248, 250, 253, 0.9), rgba(238, 243, 248, 0.9)),
                 repeating-linear-gradient(
@@ -501,7 +503,7 @@ function createWindowInteractionController(options) {
     const applyShellChrome = () => {
         shell.style.background = 'rgba(238, 243, 248, 0.96)';
         shell.style.overflow = 'hidden';
-        titleBar.style.height = '28px';
+        titleBar.style.height = `${DESKTOP_CHROME_HEIGHT}px`;
         titleBar.style.padding = '0';
         titleBar.style.justifyContent = 'center';
         titleBar.style.background = 'transparent';
@@ -510,13 +512,14 @@ function createWindowInteractionController(options) {
         titleBar.style.pointerEvents = 'auto';
         dragPill.style.display = '';
         iframe.style.display = 'block';
-        iframe.style.top = '0';
-        iframe.style.height = '100%';
+        iframe.style.top = `${DESKTOP_CHROME_HEIGHT}px`;
+        iframe.style.height = `calc(100% - ${DESKTOP_CHROME_HEIGHT}px)`;
         titleActions.style.display = 'flex';
+        titleActions.style.top = '4px';
         minimizedIcon.classList.remove('is-visible');
         resizeHint.style.display = '';
-        resizeMask.style.top = '0';
-        resizeMask.style.height = '100%';
+        resizeMask.style.top = `${DESKTOP_CHROME_HEIGHT}px`;
+        resizeMask.style.height = `calc(100% - ${DESKTOP_CHROME_HEIGHT}px)`;
         if (quickLayoutMode === QUICK_LAYOUT_MODE.FULLSCREEN) {
             shell.style.borderRadius = '0';
             shell.style.border = 'none';
@@ -551,16 +554,16 @@ function createWindowInteractionController(options) {
             shell.style.borderRadius = '0 22px 22px 0';
             shell.style.border = '1px solid rgba(255, 255, 255, 0.55)';
             shell.style.boxShadow = '0 28px 80px rgba(6, 17, 32, 0.22)';
-            iframe.style.borderRadius = '0 22px 22px 0';
-            resizeMask.style.borderRadius = '0 22px 22px 0';
+            iframe.style.borderRadius = '0 0 22px 0';
+            resizeMask.style.borderRadius = '0 0 22px 0';
             resizeHint.style.borderRadius = '0 0 22px 0';
             return;
         }
         shell.style.borderRadius = '22px';
         shell.style.border = '1px solid rgba(255, 255, 255, 0.55)';
         shell.style.boxShadow = '0 28px 80px rgba(6, 17, 32, 0.22)';
-        iframe.style.borderRadius = '22px';
-        resizeMask.style.borderRadius = '22px';
+        iframe.style.borderRadius = '0 0 22px 22px';
+        resizeMask.style.borderRadius = '0 0 22px 22px';
         resizeHint.style.borderRadius = '0 0 22px 0';
     };
 

@@ -1606,6 +1606,11 @@ export function injectAssistantStyles(rootId) {
                 border-radius: 22px;
                 box-shadow: 0 20px 48px rgba(17, 31, 51, 0.16);
             }
+            .xb-assistant-workspace-header-button.is-icon {
+                min-width: 44px;
+                min-height: 44px;
+                font-size: 20px;
+            }
             .xb-assistant-workspace-resizer {
                 display: none;
             }
