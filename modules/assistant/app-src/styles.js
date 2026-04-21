@@ -392,6 +392,7 @@ export function injectAssistantStyles(rootId) {
             box-shadow: 0 20px 40px rgba(17, 31, 51, 0.08);
             backdrop-filter: blur(14px);
             overflow: hidden;
+            user-select: none;
         }
         .xb-assistant-workspace-backdrop {
             display: none;
@@ -421,7 +422,7 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-workspace-viewer-actions {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             flex-wrap: wrap;
             justify-content: flex-end;
         }
@@ -429,24 +430,38 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-workspace-viewer-button,
         .xb-assistant-workspace-mode-button {
             border: none;
-            border-radius: 999px;
-            min-height: 30px;
-            padding: 0 12px;
-            background: rgba(20, 32, 51, 0.08);
-            color: #28496f;
+            border-radius: 6px;
+            min-height: 24px;
+            padding: 0 10px;
+            background: transparent;
+            color: #4a5c75;
             cursor: pointer;
             font: inherit;
             font-size: 12px;
             font-weight: 600;
+            transition: all 0.15s ease;
+        }
+        .xb-assistant-workspace-header-button:hover,
+        .xb-assistant-workspace-viewer-button:hover,
+        .xb-assistant-workspace-mode-button:hover {
+            background: rgba(27, 55, 88, 0.06);
+            color: #17304d;
+        }
+        .xb-assistant-workspace-header-button.is-icon {
+            min-width: 24px;
+            padding: 0;
+            font-size: 16px;
+            line-height: 1;
         }
         .xb-assistant-workspace-mode-button.is-active {
-            background: #1b3758;
-            color: #fff;
+            background: rgba(27, 55, 88, 0.1);
+            color: #17304d;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
         .xb-assistant-workspace-body {
             display: grid;
             grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-            height: calc(100% - 61px);
+            height: 100%;
             min-height: 0;
         }
         .xb-assistant-workspace-nav {
@@ -462,6 +477,22 @@ export function injectAssistantStyles(rootId) {
             gap: 10px;
             padding: 14px;
             border-bottom: 1px solid rgba(27, 55, 88, 0.08);
+        }
+        .xb-assistant-workspace-nav-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .xb-assistant-workspace-nav-title {
+            min-width: 0;
+            color: #1b3758;
+            font-size: 14px;
+        }
+        .xb-assistant-workspace-nav-header-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
         }
         .xb-assistant-workspace-select,
         .xb-assistant-workspace-search {
@@ -555,8 +586,11 @@ export function injectAssistantStyles(rootId) {
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            padding: 14px 16px;
+            padding: 8px 12px;
             border-bottom: 1px solid rgba(27, 55, 88, 0.08);
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            z-index: 10;
         }
         .xb-assistant-workspace-viewer-info {
             display: grid;
@@ -615,6 +649,7 @@ export function injectAssistantStyles(rootId) {
             padding: 0 14px 0 0;
             white-space: pre;
             color: #1c314d;
+            user-select: text;
         }
         .xb-assistant-workspace-code-marker.add,
         .xb-assistant-workspace-code-row .xb-assistant-workspace-code-marker.add {
@@ -1572,7 +1607,7 @@ export function injectAssistantStyles(rootId) {
             }
             .xb-assistant-workspace-body {
                 grid-template-columns: minmax(0, 1fr);
-                height: calc(100% - 61px);
+                height: 100%;
             }
             .xb-assistant-workspace-nav {
                 max-height: 42%;
@@ -1593,4 +1628,3 @@ export function injectAssistantStyles(rootId) {
     `;
     document.head.appendChild(style);
 }
-

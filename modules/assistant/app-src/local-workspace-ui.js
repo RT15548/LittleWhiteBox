@@ -140,40 +140,6 @@ export function renderWorkspace(container, options = {}) {
         return;
     }
 
-    const header = document.createElement('div');
-    header.className = 'xb-assistant-workspace-header';
-
-    const headerInfo = document.createElement('div');
-    headerInfo.className = 'xb-assistant-workspace-header-info';
-    const headerTitle = document.createElement('strong');
-    headerTitle.textContent = '文件工作区';
-    const headerSummary = document.createElement('span');
-    headerSummary.textContent = `${summary.sourceCount} 个源码源 · ${summary.fileCount} 个文件 · 已改 ${summary.modifiedFileCount} 个`;
-    headerInfo.appendChild(headerTitle);
-    headerInfo.appendChild(headerSummary);
-    header.appendChild(headerInfo);
-
-    const headerActions = document.createElement('div');
-    headerActions.className = 'xb-assistant-workspace-header-actions';
-
-    const downloadAllButton = document.createElement('button');
-    downloadAllButton.type = 'button';
-    downloadAllButton.className = 'xb-assistant-workspace-header-button';
-    downloadAllButton.textContent = '下载全部';
-    downloadAllButton.disabled = !!disabled;
-    downloadAllButton.addEventListener('click', () => onDownloadAll());
-    headerActions.appendChild(downloadAllButton);
-
-    const closeButton = document.createElement('button');
-    closeButton.type = 'button';
-    closeButton.className = 'xb-assistant-workspace-header-button';
-    closeButton.textContent = '关闭';
-    closeButton.addEventListener('click', () => onCloseWorkspace());
-    headerActions.appendChild(closeButton);
-
-    header.appendChild(headerActions);
-    container.appendChild(header);
-
     const body = document.createElement('div');
     body.className = 'xb-assistant-workspace-body';
 
@@ -182,6 +148,31 @@ export function renderWorkspace(container, options = {}) {
 
     const filters = document.createElement('div');
     filters.className = 'xb-assistant-workspace-filters';
+
+    const navHeader = document.createElement('div');
+    navHeader.className = 'xb-assistant-workspace-nav-header';
+    const navTitle = document.createElement('strong');
+    navTitle.className = 'xb-assistant-workspace-nav-title';
+    navTitle.textContent = '文件工作区';
+    const navActions = document.createElement('div');
+    navActions.className = 'xb-assistant-workspace-nav-header-actions';
+    const downloadAllButton = document.createElement('button');
+    downloadAllButton.type = 'button';
+    downloadAllButton.className = 'xb-assistant-workspace-header-button';
+    downloadAllButton.textContent = '下载全部';
+    downloadAllButton.disabled = !!disabled;
+    downloadAllButton.addEventListener('click', () => onDownloadAll());
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'xb-assistant-workspace-header-button is-icon';
+    closeButton.textContent = '×';
+    closeButton.setAttribute('aria-label', '关闭工作区');
+    closeButton.title = '关闭工作区';
+    closeButton.addEventListener('click', () => onCloseWorkspace());
+    navHeader.appendChild(navTitle);
+    navActions.append(downloadAllButton, closeButton);
+    navHeader.appendChild(navActions);
+    filters.appendChild(navHeader);
 
     const sourceSelect = document.createElement('select');
     sourceSelect.className = 'xb-assistant-workspace-select';

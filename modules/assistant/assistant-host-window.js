@@ -207,33 +207,38 @@ export function createAssistantHostWindow(options) {
             top: 0;
             left: 0;
             right: 0;
-            height: 52px;
+            height: 28px;
             display: flex;
             align-items: center;
-            padding: 0 16px 0 18px;
+            justify-content: center;
             box-sizing: border-box;
-            background: linear-gradient(180deg, rgba(248, 250, 253, 0.96), rgba(238, 243, 248, 0.88));
-            border-bottom: 1px solid rgba(27, 55, 88, 0.12);
+            background: transparent;
             cursor: move;
             user-select: none;
             touch-action: none;
-            z-index: 2;
+            z-index: 9999;
         `;
 
-        const titleText = document.createElement('div');
-        titleText.textContent = '小白助手';
-        titleText.style.cssText = `
-            color: #142033;
-            font: 700 14px/1.2 "Microsoft YaHei", sans-serif;
-            letter-spacing: 0.02em;
+        // Subtle drag indicator pill
+        const dragPill = document.createElement('div');
+        dragPill.style.cssText = `
+            width: 48px;
+            height: 4px;
+            border-radius: 999px;
+            background: rgba(20, 32, 51, 0.15);
+            margin-top: 4px;
+            transition: background 0.2s ease;
         `;
-        titleBar.appendChild(titleText);
+        titleBar.addEventListener('mouseenter', () => dragPill.style.background = 'rgba(20, 32, 51, 0.25)');
+        titleBar.addEventListener('mouseleave', () => dragPill.style.background = 'rgba(20, 32, 51, 0.15)');
+        titleBar.appendChild(dragPill);
 
         const minimizedIcon = document.createElement('button');
         minimizedIcon.type = 'button';
         minimizedIcon.className = 'xb-assistant-minimized-icon';
         minimizedIcon.setAttribute('aria-label', '恢复小白助手');
         minimizedIcon.title = '唤醒小白助手';
+        minimizedIcon.style.cssText = 'position: absolute; inset: 0; margin: auto; z-index: 10001;';
         minimizedIcon.innerHTML = `
             <svg width="23" height="23" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
                 <g class="xb-bot-group">
@@ -261,20 +266,19 @@ export function createAssistantHostWindow(options) {
                 </g>
             </svg>
         `;
-        titleBar.appendChild(minimizedIcon);
 
         const titleActions = document.createElement('div');
         titleActions.style.cssText = `
             position: absolute;
-            top: 8px;
+            top: 10px;
             right: 14px;
-            z-index: 3;
+            z-index: 10000;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         `;
 
-        const createTitleActionButton = (label, title) => {
+        const createTitleActionButton = (label, title, isClose = false) => {
             const button = document.createElement('button');
             button.type = 'button';
             button.textContent = label;
@@ -284,27 +288,25 @@ export function createAssistantHostWindow(options) {
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                width: 36px;
-                height: 36px;
+                width: 28px;
+                height: 28px;
                 padding: 0;
-                border: 1px solid rgba(20, 32, 51, 0.12);
+                border: none;
                 border-radius: 999px;
-                background: rgba(255, 255, 255, 0.76);
-                color: #203249;
+                background: ${isClose ? 'rgba(20, 32, 51, 0.75)' : 'rgba(20, 32, 51, 0.08)'};
+                color: ${isClose ? '#fff' : '#203249'};
                 cursor: pointer;
-                font: 700 16px/1 "Segoe UI Symbol", "Noto Sans Symbols 2", "Microsoft YaHei", sans-serif;
-                box-shadow: 0 8px 18px rgba(17, 31, 51, 0.10);
-                transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+                font: 700 12px/1 "Segoe UI Symbol", "Noto Sans Symbols 2", "Microsoft YaHei", sans-serif;
+                backdrop-filter: blur(8px);
+                transition: all 0.16s ease;
             `;
             button.addEventListener('mouseenter', () => {
-                if (button.getAttribute('data-active') === 'true') return;
-                button.style.transform = 'translateY(-1px)';
-                button.style.boxShadow = '0 12px 24px rgba(17, 31, 51, 0.14)';
+                button.style.background = isClose ? 'rgba(20, 32, 51, 0.95)' : 'rgba(20, 32, 51, 0.15)';
+                button.style.transform = 'scale(1.05)';
             });
             button.addEventListener('mouseleave', () => {
-                if (button.getAttribute('data-active') === 'true') return;
-                button.style.transform = '';
-                button.style.boxShadow = '0 8px 18px rgba(17, 31, 51, 0.10)';
+                button.style.background = isClose ? 'rgba(20, 32, 51, 0.75)' : 'rgba(20, 32, 51, 0.08)';
+                button.style.transform = 'scale(1)';
             });
             return button;
         };
@@ -312,21 +314,8 @@ export function createAssistantHostWindow(options) {
         const minimizeButton = createTitleActionButton('─', '最小化');
         const sidebarLayoutButton = createTitleActionButton('⊟', '侧边栏布局');
         const fullscreenButton = createTitleActionButton('⛶', '全屏布局');
-        const closeButton = document.createElement('button');
-        closeButton.type = 'button';
-        closeButton.textContent = '关闭';
-        closeButton.setAttribute('aria-label', '关闭小白助手');
-        closeButton.style.cssText = `
-            position: static;
-            border: none;
-            border-radius: 999px;
-            padding: 10px 14px;
-            background: rgba(20, 32, 51, 0.88);
-            color: #fff;
-            cursor: pointer;
-            font: 600 13px/1 "Microsoft YaHei", sans-serif;
-            box-shadow: 0 10px 24px rgba(6, 17, 32, 0.22);
-        `;
+        const closeButton = createTitleActionButton('✕', '关闭小白助手', true);
+        closeButton.style.font = '600 14px/1 "Microsoft YaHei", sans-serif';
         closeButton.addEventListener('click', () => onCloseRequest?.());
         titleActions.append(minimizeButton, sidebarLayoutButton, fullscreenButton, closeButton);
 
@@ -353,27 +342,27 @@ export function createAssistantHostWindow(options) {
         iframe.src = htmlPath;
         iframe.style.cssText = `
             position: absolute;
-            top: 52px;
+            top: 0;
             left: 0;
             display: block;
             width: 100%;
-            height: calc(100% - 52px);
+            height: 100%;
             border: none;
-            border-radius: 0 0 22px 22px;
-            background: #eef3f8;
+            border-radius: 22px;
+            background: transparent;
         `;
 
         const resizeMask = document.createElement('div');
         resizeMask.setAttribute('aria-hidden', 'true');
         resizeMask.style.cssText = `
             position: absolute;
-            top: 52px;
+            top: 0;
             left: 0;
             width: 100%;
-            height: calc(100% - 52px);
+            height: 100%;
             display: none;
             pointer-events: none;
-            border-radius: 0 0 22px 22px;
+            border-radius: 22px;
             background:
                 linear-gradient(180deg, rgba(248, 250, 253, 0.9), rgba(238, 243, 248, 0.9)),
                 repeating-linear-gradient(
@@ -383,7 +372,7 @@ export function createAssistantHostWindow(options) {
                 );
         `;
 
-        shell.append(titleBar, titleActions, resizeHint, iframe, resizeMask);
+        shell.append(titleBar, titleActions, minimizedIcon, resizeHint, iframe, resizeMask);
         overlay.appendChild(shell);
         document.body.appendChild(overlay);
 
@@ -391,7 +380,7 @@ export function createAssistantHostWindow(options) {
             overlay,
             shell,
             titleBar,
-            titleText,
+            dragPill,
             titleActions,
             minimizedIcon,
             minimizeButton,
@@ -424,7 +413,7 @@ function createWindowInteractionController(options) {
         overlay,
         shell,
         titleBar,
-        titleText,
+        dragPill,
         titleActions,
         minimizedIcon,
         minimizeButton,
@@ -512,24 +501,22 @@ function createWindowInteractionController(options) {
     const applyShellChrome = () => {
         shell.style.background = 'rgba(238, 243, 248, 0.96)';
         shell.style.overflow = 'hidden';
-        titleBar.style.height = '52px';
-        titleBar.style.padding = '0 16px 0 18px';
-        titleBar.style.justifyContent = 'flex-start';
-        titleBar.style.background = 'linear-gradient(180deg, rgba(248, 250, 253, 0.96), rgba(238, 243, 248, 0.88))';
-        titleBar.style.borderBottom = '1px solid rgba(27, 55, 88, 0.12)';
+        titleBar.style.height = '28px';
+        titleBar.style.padding = '0';
+        titleBar.style.justifyContent = 'center';
+        titleBar.style.background = 'transparent';
+        titleBar.style.borderBottom = 'none';
         titleBar.style.cursor = 'move';
         titleBar.style.pointerEvents = 'auto';
-        titleText.style.color = '#142033';
-        titleText.style.font = '700 14px/1.2 "Microsoft YaHei", sans-serif';
-        titleText.style.display = 'block';
+        dragPill.style.display = '';
         iframe.style.display = 'block';
-        iframe.style.top = '52px';
-        iframe.style.height = 'calc(100% - 52px)';
+        iframe.style.top = '0';
+        iframe.style.height = '100%';
         titleActions.style.display = 'flex';
         minimizedIcon.classList.remove('is-visible');
         resizeHint.style.display = '';
-        resizeMask.style.top = '52px';
-        resizeMask.style.height = 'calc(100% - 52px)';
+        resizeMask.style.top = '0';
+        resizeMask.style.height = '100%';
         if (quickLayoutMode === QUICK_LAYOUT_MODE.FULLSCREEN) {
             shell.style.borderRadius = '0';
             shell.style.border = 'none';
@@ -552,7 +539,7 @@ function createWindowInteractionController(options) {
             titleBar.style.borderBottom = 'none';
             titleBar.style.cursor = 'default';
             titleBar.style.pointerEvents = 'none';
-            titleText.style.display = 'none';
+            dragPill.style.display = 'none';
             iframe.style.display = 'none';
             titleActions.style.display = 'none';
             minimizedIcon.classList.add('is-visible');
@@ -564,16 +551,16 @@ function createWindowInteractionController(options) {
             shell.style.borderRadius = '0 22px 22px 0';
             shell.style.border = '1px solid rgba(255, 255, 255, 0.55)';
             shell.style.boxShadow = '0 28px 80px rgba(6, 17, 32, 0.22)';
-            iframe.style.borderRadius = '0 0 22px 0';
-            resizeMask.style.borderRadius = '0 0 22px 0';
+            iframe.style.borderRadius = '0 22px 22px 0';
+            resizeMask.style.borderRadius = '0 22px 22px 0';
             resizeHint.style.borderRadius = '0 0 22px 0';
             return;
         }
         shell.style.borderRadius = '22px';
         shell.style.border = '1px solid rgba(255, 255, 255, 0.55)';
         shell.style.boxShadow = '0 28px 80px rgba(6, 17, 32, 0.22)';
-        iframe.style.borderRadius = '0 0 22px 22px';
-        resizeMask.style.borderRadius = '0 0 22px 22px';
+        iframe.style.borderRadius = '22px';
+        resizeMask.style.borderRadius = '22px';
         resizeHint.style.borderRadius = '0 0 22px 0';
     };
 
