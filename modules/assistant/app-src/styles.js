@@ -448,10 +448,14 @@ export function injectAssistantStyles(rootId) {
             color: #17304d;
         }
         .xb-assistant-workspace-header-button.is-icon {
-            min-width: 24px;
+            min-width: 28px;
+            min-height: 28px;
             padding: 0;
-            font-size: 16px;
+            font-size: 18px;
             line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
         .xb-assistant-workspace-mode-button.is-active {
             background: rgba(27, 55, 88, 0.1);
