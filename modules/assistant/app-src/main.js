@@ -171,7 +171,10 @@ function renderWorkspaceOnly() {
     const workspacePanel = root.querySelector('#xb-assistant-workspace-panel');
     if (!workspacePanel) return;
     ensureWorkspaceSelection();
-    renderWorkspace(workspacePanel, { disabled: state.isBusy });
+    renderWorkspace(workspacePanel, {
+        disabled: state.isBusy,
+        onEditorSelectionChange: handleWorkspaceEditorSelectionChange,
+    });
 }
 
 function getAssistantParsedUA() {
@@ -487,11 +490,11 @@ function describeError(error) {
     if (lowered === 'tool_timeout') return '工具调用超时了（180 秒），可以重试，或把问题收窄一点。';
     if (lowered.startsWith('workspace_write_failed:')) return '工作区写入失败，请检查酒馆文件权限或稍后重试。';
     if (lowered.startsWith('manifest_load_failed:')) return '助手索引文件清单加载失败，请刷新页面后再试。';
-    if (lowered.startsWith('file_read_failed:')) return '读取源码文件失败了，请换个文件再试，或刷新页面重试。';
+    if (lowered.startsWith('file_read_failed:')) return '读取工作区文件失败了，请换个文件再试，或刷新页面重试。';
     if (lowered === 'file_not_indexed') return '这个文件不在当前助手索引范围里。';
-    if (lowered === 'local_path_required') return '这个工具只能操作 `local/` 下的会话内临时源码文件。';
-    if (lowered === 'unsupported_text_file') return '目前只支持文本类源码文件。';
-    if (lowered === 'local_source_not_found') return '目标源码源不存在，可能已经被移除。';
+    if (lowered === 'local_path_required') return '这个工具只能操作 `local/` 下的会话内临时工作区文件。';
+    if (lowered === 'unsupported_text_file') return '目前只支持文本类工作区文件。';
+    if (lowered === 'local_source_not_found') return '目标工作区根不存在，可能已经被移除。';
     if (lowered === 'local_file_not_found') return '目标 `local/` 文件不存在；可以先用 Write 新建。';
     if (lowered === 'local_path_not_found') return '目标 `local/` 路径不存在。';
     if (lowered === 'local_destination_exists') return '目标路径已经存在；请换一个路径，或显式允许覆盖。';
@@ -604,6 +607,61 @@ function normalizeWorkspaceSelectionContext(next = {}) {
 
 function clearWorkspaceSelectionContext() {
     state.workspaceSelectionContext = normalizeWorkspaceSelectionContext();
+}
+
+function resolveTextareaSelectionLines(value = '', selectionStart = 0, selectionEnd = 0) {
+    const text = String(value || '');
+    const start = Math.max(0, Math.min(text.length, Number(selectionStart) || 0));
+    const end = Math.max(0, Math.min(text.length, Number(selectionEnd) || 0));
+    const lower = Math.min(start, end);
+    const upper = Math.max(start, end);
+    const lineStart = text.slice(0, lower).split('\n').length;
+    const lineEnd = text.slice(0, upper).split('\n').length;
+    return {
+        lineStart: String(lineStart || ''),
+        lineEnd: String(lineEnd || ''),
+    };
+}
+
+function handleWorkspaceEditorSelectionChange(payload = {}) {
+    const filePath = String(payload.filePath || '').trim();
+    const root = document.getElementById(ROOT_ID);
+    if (!filePath || filePath !== String(state.selectedFilePath || '').trim()) return;
+    const selectionStart = Math.max(0, Number(payload.selectionStart) || 0);
+    const selectionEnd = Math.max(0, Number(payload.selectionEnd) || 0);
+    if (selectionStart === selectionEnd) {
+        if (state.workspaceSelectionContext?.text) {
+            clearWorkspaceSelectionContext();
+            renderContextHint(root, state);
+            return;
+        }
+        return;
+    }
+    const value = String(payload.value || '');
+    const lower = Math.min(selectionStart, selectionEnd);
+    const upper = Math.max(selectionStart, selectionEnd);
+    const selectedText = trimContextSnippet(value.slice(lower, upper), 600);
+    if (!selectedText) {
+        if (state.workspaceSelectionContext?.text) {
+            clearWorkspaceSelectionContext();
+            renderContextHint(root, state);
+        }
+        return;
+    }
+    const lines = resolveTextareaSelectionLines(value, selectionStart, selectionEnd);
+    const nextSelectionContext = normalizeWorkspaceSelectionContext({
+        filePath,
+        viewerMode: 'current',
+        lineStart: lines.lineStart,
+        lineEnd: lines.lineEnd,
+        text: selectedText,
+    });
+    const prevSelectionContext = normalizeWorkspaceSelectionContext(state.workspaceSelectionContext);
+    if (JSON.stringify(prevSelectionContext) === JSON.stringify(nextSelectionContext)) {
+        return;
+    }
+    state.workspaceSelectionContext = nextSelectionContext;
+    renderContextHint(root, state);
 }
 
 function normalizeExternalEditorContext(payload = null) {
@@ -928,6 +986,12 @@ function bindEvents(root) {
     const refreshContextHint = () => {
         renderContextHint(root, state);
     };
+    const isSelectionInsideWorkspace = (selection) => !!(
+        selection
+        && workspacePanel
+        && workspacePanel.contains(selection.anchorNode)
+        && workspacePanel.contains(selection.focusNode)
+    );
     const getClosestWorkspaceRow = (node) => {
         let current = node;
         while (current) {
@@ -940,15 +1004,22 @@ function bindEvents(root) {
     };
     const updateWorkspaceSelectionContextFromDom = () => {
         const selection = selectionDocument.getSelection?.();
-        if (!selection || selection.rangeCount <= 0 || selection.isCollapsed) {
-            if (state.workspaceSelectionContext?.text) {
+        if (!selection || selection.rangeCount <= 0) {
+            return;
+        }
+        const selectionInsideWorkspace = isSelectionInsideWorkspace(selection);
+        if (selection.isCollapsed) {
+            if (selectionInsideWorkspace && state.workspaceSelectionContext?.text) {
                 clearWorkspaceSelectionContext();
                 refreshContextHint();
             }
             return;
         }
+        if (!selectionInsideWorkspace) {
+            return;
+        }
         const selectedText = trimContextSnippet(selection.toString(), 600);
-        if (!selectedText || !workspacePanel?.contains(selection.anchorNode) || !workspacePanel.contains(selection.focusNode)) {
+        if (!selectedText) {
             if (state.workspaceSelectionContext?.text) {
                 clearWorkspaceSelectionContext();
                 refreshContextHint();
@@ -986,8 +1057,23 @@ function bindEvents(root) {
         input.style.height = 'auto';
         input.style.height = `${Math.min(Math.max(input.scrollHeight, 60), 200)}px`;
     };
+    const resolveWorkspaceWidth = (width) => {
+        const minWorkspaceWidth = 360;
+        const minConversationWidth = 120;
+        const layoutGap = 16;
+        const requestedWidth = Math.round(Number(width) || 520);
+        const mainBody = root.querySelector('.xb-assistant-main-body');
+        if (!mainBody) {
+            return Math.max(minWorkspaceWidth, Math.min(960, requestedWidth));
+        }
+        const maxWorkspaceWidth = Math.max(
+            minWorkspaceWidth,
+            Math.round(mainBody.clientWidth - minConversationWidth - layoutGap),
+        );
+        return Math.max(minWorkspaceWidth, Math.min(maxWorkspaceWidth, requestedWidth));
+    };
     const applyWorkspaceWidthPreview = (width) => {
-        const normalizedWidth = Math.max(360, Math.min(960, Math.round(Number(width) || 520)));
+        const normalizedWidth = resolveWorkspaceWidth(width);
         const mainBody = root.querySelector('.xb-assistant-main-body');
         const workspaceShell = root.querySelector('#xb-assistant-workspace');
         mainBody?.style.setProperty('--xb-assistant-workspace-width', `${normalizedWidth}px`);
@@ -1043,7 +1129,9 @@ function bindEvents(root) {
         if (window.matchMedia('(max-width: 900px)').matches) return;
         workspaceResizeActive = true;
         workspaceResizeStartX = event.clientX;
-        workspaceResizeStartWidth = Number(state.workspaceWidth) || 520;
+        const workspaceShell = root.querySelector('#xb-assistant-workspace');
+        const currentWidth = Math.round(workspaceShell?.getBoundingClientRect?.().width || 0);
+        workspaceResizeStartWidth = currentWidth || Number(state.workspaceWidth) || 520;
         workspaceResizeLastWidth = workspaceResizeStartWidth;
         document.body.style.cursor = 'col-resize';
         window.addEventListener('mousemove', handleWorkspaceResizeMove);

@@ -158,7 +158,7 @@ test('local sources manager exposes workspace summary and opens first modified f
     assert.equal(state.isWorkspaceOpen, true);
     assert.equal(state.selectedFilePath, 'local/alpha/src/b.js');
     assert.equal(state.selectedTreePath, 'local/alpha/src/b.js');
-    assert.equal(state.selectedSourceId, 'source-a');
+    assert.equal(state.selectedSourceId, 'all');
     assert.equal(state.viewerMode, 'diff');
     assert.equal(renderCalls, 1);
     assert.equal(persistCalls, 1);
@@ -190,7 +190,7 @@ test('local sources manager opens directory paths inside workspace', () => {
     const opened = manager.openWorkspace('local/alpha/src/');
     assert.equal(opened, true);
     assert.equal(state.isWorkspaceOpen, true);
-    assert.equal(state.selectedSourceId, 'source-a');
+    assert.equal(state.selectedSourceId, 'all');
     assert.equal(state.selectedFilePath, '');
     assert.equal(state.selectedTreePath, 'local/alpha/src/');
     assert(state.treeExpandedKeys.includes('source:source-a'));
@@ -234,6 +234,180 @@ test('local sources manager can create a new file from workspace actions', async
     assert.equal(createdFile.originalContent, null);
     assert.equal(state.selectedFilePath, 'local/alpha/src/new-file.txt');
     assert.equal(state.viewerMode, 'diff');
+});
+
+test('local sources manager can create a new file directly under local root', async () => {
+    const state = {
+        localSources: [],
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: '',
+        selectedTreePath: '',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: () => {},
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        post: () => {},
+    });
+
+    await withMockWindow({
+        prompt: () => 'local/workspace_test.txt',
+    }, async () => {
+        const created = await manager.createLocalFileAt('local/');
+        assert.equal(created, true);
+    });
+
+    assert.equal(state.localSources.length, 1);
+    assert.equal(state.localSources[0].rootPath, 'local/');
+    assert.equal(state.localSources[0].files[0].path, 'local/workspace_test.txt');
+    assert.equal(state.localSources[0].files[0].relativePath, 'workspace_test.txt');
+    assert.equal(state.selectedFilePath, 'local/workspace_test.txt');
+    assert.equal(state.viewerMode, 'diff');
+});
+
+test('local sources manager can update workspace file content directly', () => {
+    const state = {
+        localSources: createSources(),
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: 'local/alpha/src/a.js',
+        selectedTreePath: 'local/alpha/src/a.js',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: () => {},
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        post: () => {},
+    });
+
+    const updated = manager.updateLocalFileContent('local/alpha/src/a.js', 'console.log("edited")\n', { flush: true, render: false });
+    assert.equal(updated, true);
+
+    const alphaSource = state.localSources.find((source) => source.label === 'alpha');
+    const file = alphaSource?.files.find((item) => item.path === 'local/alpha/src/a.js');
+    assert(file);
+    assert.equal(file.content, 'console.log("edited")\n');
+    assert.equal(file.originalContent, 'console.log(1);');
+});
+
+test('local sources manager reports persist failures for direct editor changes', async () => {
+    const toasts = [];
+    const state = {
+        localSources: createSources(),
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: 'local/alpha/src/a.js',
+        selectedTreePath: 'local/alpha/src/a.js',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: (message) => {
+            toasts.push(String(message || ''));
+        },
+        render: () => {},
+        persistSession: async () => ({ ok: false, error: 'save_failed' }),
+        post: () => {},
+    });
+
+    const updated = manager.updateLocalFileContent('local/alpha/src/a.js', 'console.log("edited")\n', { flush: true, render: false });
+    assert.equal(updated, true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(toasts.length, 1);
+    assert.match(toasts[0], /save_failed/);
+});
+
+test('local sources manager can create an empty directory inside workspace', async () => {
+    const state = {
+        localSources: createSources(),
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: '',
+        selectedTreePath: 'local/alpha/',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: () => {},
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        post: () => {},
+    });
+
+    await withMockWindow({
+        prompt: () => 'local/alpha/docs/api/',
+    }, async () => {
+        const created = await manager.createLocalDirectoryAt('local/alpha/');
+        assert.equal(created, true);
+    });
+
+    const alphaSource = state.localSources.find((source) => source.label === 'alpha');
+    assert(alphaSource);
+    assert(alphaSource.directories.includes('docs'));
+    assert(alphaSource.directories.includes('docs/api'));
+    assert.equal(state.selectedTreePath, 'local/alpha/docs/api/');
+    assert.equal(state.selectedSourceId, 'all');
+});
+
+test('local sources manager can open the local root directory', () => {
+    const state = {
+        localSources: createSources(),
+        isWorkspaceOpen: false,
+        selectedSourceId: 'all',
+        selectedFilePath: '',
+        selectedTreePath: '',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    }
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: () => {},
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        post: () => {},
+    });
+
+    const opened = manager.openWorkspace('local/');
+    assert.equal(opened, true);
+    assert.equal(state.isWorkspaceOpen, true);
+    assert.equal(state.selectedTreePath, 'local/');
+    assert.equal(state.selectedFilePath, '');
+    assert(state.treeExpandedKeys.includes('source:source-a'));
+    assert(state.treeExpandedKeys.includes('source:source-b'));
 });
 
 test('local sources manager can rename a directory from workspace actions', async () => {
@@ -334,7 +508,11 @@ test('buildWorkspaceTree supports source filter, search and modifiedOnly', () =>
         modifiedOnly: false,
         isModifiedFile,
     });
-    assert.deepEqual(sourceFiltered.nodes.map((node) => node.label), ['src', 'README.md']);
+    assert.deepEqual(sourceFiltered.nodes.map((node) => node.label), ['alpha']);
+    assert.deepEqual(
+        sourceFiltered.nodes[0].children.map((node) => `${node.type}:${node.label}`),
+        ['dir:src', 'file:README.md'],
+    );
 
     const searched = buildWorkspaceTree(sources, {
         selectedSourceId: 'all',

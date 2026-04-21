@@ -4,6 +4,7 @@ export function collectContextHintItems(state = {}) {
     const contextItems = [];
     const selectedFilePath = String(state.selectedFilePath || '').trim();
     const selectedTreePath = String(state.selectedTreePath || '').trim();
+    const formatIdeHint = (text) => `[IDE] ${text}`;
 
     if (externalEditorContext && (externalEditorContext.filePath || externalEditorContext.note || externalEditorContext.selectionText)) {
         const parts = [];
@@ -22,7 +23,7 @@ export function collectContextHintItems(state = {}) {
         if (externalEditorContext.selectionText) {
             parts.push('含选中文本');
         }
-        contextItems.push(parts.join(' · '));
+        contextItems.push(formatIdeHint(parts.join(' · ')));
     }
 
     if (state.isWorkspaceOpen) {
@@ -31,7 +32,7 @@ export function collectContextHintItems(state = {}) {
             if (!selectedFilePath) {
                 parts.push('未锁定具体文件');
             }
-            contextItems.push(parts.join(' · '));
+            contextItems.push(formatIdeHint(parts.join(' · ')));
         } else if (selectedFilePath) {
             const parts = [`工作区文件：${selectedFilePath}`];
             if (workspaceSelection.text && workspaceSelection.filePath === selectedFilePath) {
@@ -45,7 +46,7 @@ export function collectContextHintItems(state = {}) {
                     parts.push('含选中文本');
                 }
             }
-            contextItems.push(parts.join(' · '));
+            contextItems.push(formatIdeHint(parts.join(' · ')));
         }
     }
 
@@ -71,6 +72,24 @@ export function renderContextHint(root, state) {
         pill.textContent = item;
         contextHint.appendChild(pill);
     });
+}
+
+function resolveWorkspaceWidth(mainBody, requestedWidth) {
+    const numericWidth = Number(requestedWidth);
+    const desiredWidth = Number.isFinite(numericWidth) ? Math.round(numericWidth) : 520;
+    const minWorkspaceWidth = 360;
+    const minConversationWidth = 120;
+    const layoutGap = 16;
+
+    if (!mainBody) {
+        return Math.max(minWorkspaceWidth, Math.min(960, desiredWidth));
+    }
+
+    const maxWorkspaceWidth = Math.max(
+        minWorkspaceWidth,
+        Math.round(mainBody.clientWidth - minConversationWidth - layoutGap),
+    );
+    return Math.max(minWorkspaceWidth, Math.min(maxWorkspaceWidth, desiredWidth));
 }
 
 export function renderAppChrome(root, state, options = {}) {
@@ -132,23 +151,12 @@ export function renderAppChrome(root, state, options = {}) {
 
     const workspaceButton = root.querySelector('#xb-assistant-open-workspace');
     if (workspaceButton) {
-        workspaceButton.disabled = !localSourceSummary.fileCount;
+        workspaceButton.disabled = false;
         workspaceButton.textContent = localSourceSummary.modifiedFileCount
-            ? `文件 ${localSourceSummary.modifiedFileCount}`
-            : '文件';
-        workspaceButton.title = localSourceSummary.fileCount
-            ? (state.isWorkspaceOpen ? '关闭文件工作区' : '打开文件工作区')
-            : '还没有导入 local 文件';
+            ? `工作区 ${localSourceSummary.modifiedFileCount}`
+            : '工作区';
+        workspaceButton.title = state.isWorkspaceOpen ? '关闭工作区' : '打开工作区';
         workspaceButton.classList.toggle('is-active', !!state.isWorkspaceOpen);
-    }
-
-    const clearLocalSourcesButton = root.querySelector('#xb-assistant-clear-local-sources');
-    if (clearLocalSourcesButton) {
-        clearLocalSourcesButton.hidden = !localSourceSummary.fileCount;
-        clearLocalSourcesButton.disabled = state.isBusy || !localSourceSummary.fileCount;
-        clearLocalSourcesButton.title = localSourceSummary.fileCount
-            ? `清空当前已导入的 ${localSourceSummary.fileCount} 个源码文件`
-            : '还没有导入源码';
     }
 
     const deletePresetButton = root.querySelector('#xb-assistant-delete-preset');
@@ -291,11 +299,12 @@ export function renderAppChrome(root, state, options = {}) {
     const workspaceShell = root.querySelector('#xb-assistant-workspace');
     const workspaceBackdrop = root.querySelector('#xb-assistant-workspace-backdrop');
     const mainBody = root.querySelector('.xb-assistant-main-body');
+    const workspaceWidth = resolveWorkspaceWidth(mainBody, state.workspaceWidth);
     mainBody?.classList.toggle('workspace-open', !!state.isWorkspaceOpen);
-    mainBody?.style.setProperty('--xb-assistant-workspace-width', `${state.workspaceWidth || 520}px`);
+    mainBody?.style.setProperty('--xb-assistant-workspace-width', `${workspaceWidth}px`);
     workspaceShell?.classList.toggle('is-open', !!state.isWorkspaceOpen);
     workspaceShell?.setAttribute('aria-hidden', state.isWorkspaceOpen ? 'false' : 'true');
-    workspaceShell?.style.setProperty('--xb-assistant-workspace-width', `${state.workspaceWidth || 520}px`);
+    workspaceShell?.style.setProperty('--xb-assistant-workspace-width', `${workspaceWidth}px`);
     workspaceBackdrop?.classList.toggle('is-open', !!state.isWorkspaceOpen && isMobile);
     workspaceBackdrop?.toggleAttribute('hidden', !(state.isWorkspaceOpen && isMobile));
 

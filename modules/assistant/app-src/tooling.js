@@ -124,12 +124,12 @@ export const TOOL_DEFINITIONS = [
             description: [
                 'Write a `local/` text file. Use for new files or whole-file rewrites.',
                 'Can only write `local/` paths and never writes back to the user\'s original disk files.',
-                'Can directly create a new `local/<root>/...` file path.',
+                'Can directly create a new `local/...` file path, including `local/file.txt` or `local/<root>/file.txt`.',
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
-                    path: { type: 'string', description: 'Target `local/...` file path, for example local/my-plugin/README.md.' },
+                    path: { type: 'string', description: 'Target `local/...` file path, for example local/README.md or local/my-plugin/README.md.' },
                     content: { type: 'string', description: 'Full text content to write.' },
                 },
                 required: ['path', 'content'],

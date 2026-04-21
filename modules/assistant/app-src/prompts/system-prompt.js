@@ -123,7 +123,7 @@ const TOOL_GUIDELINES = [
     '## Editing the `local/` Workspace',
     ' - Treat `local/` as the writable workspace for the current session: you may read, search, write, move, and delete there freely.',
     ' - Changes affect only the session copy and never write back to the user\'s original disk files.',
-    ' - You may create a new `local/<root>/...` path directly; the same-named source root does not need to be imported first.',
+    ' - You may create a new `local/...` path directly, including `local/file.txt` or `local/<root>/file.txt`.',
     ' - Inspect first with LS/Glob/Grep/Read, then modify with Write/Edit/Move/Delete as needed.',
     '',
     '## Using Skills',

@@ -90,8 +90,7 @@ export function buildAppMarkup(state) {
                                 <div class="xb-assistant-status" id="xb-assistant-status"></div>
                                 <div class="xb-assistant-context-meter" id="xb-assistant-context-meter" title="当前实际送模上下文 / 最大上下文"></div>
                                 <button id="xb-assistant-clear" type="button" class="secondary ghost">清空对话</button>
-                                <button id="xb-assistant-open-workspace" type="button" class="secondary ghost">文件</button>
-                                <button id="xb-assistant-clear-local-sources" type="button" class="secondary ghost" hidden>清空源码区</button>
+                                <button id="xb-assistant-open-workspace" type="button" class="secondary ghost">工作区</button>
                             </div>
                         <button id="xb-assistant-mobile-settings" type="button" class="secondary ghost xb-assistant-mobile-settings">设置</button>
                     </section>

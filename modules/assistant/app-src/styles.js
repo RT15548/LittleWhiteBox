@@ -316,7 +316,7 @@ export function injectAssistantStyles(rootId) {
             transition: grid-template-columns 0.2s ease;
         }
         .xb-assistant-main-body.workspace-open {
-            grid-template-columns: minmax(0, 1fr) minmax(360px, var(--xb-assistant-workspace-width, 520px));
+            grid-template-columns: minmax(0, 1fr) var(--xb-assistant-workspace-width, 520px);
         }
         .xb-assistant-conversation {
             display: grid;
@@ -472,7 +472,7 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-workspace-nav {
             display: grid;
-            grid-template-rows: auto minmax(0, 1fr);
+            grid-template-rows: auto auto minmax(0, 1fr);
             min-width: 0;
             min-height: 0;
             border-right: 1px solid rgba(27, 55, 88, 0.08);
@@ -510,6 +510,18 @@ export function injectAssistantStyles(rootId) {
             font: inherit;
             background: rgba(255, 255, 255, 0.92);
         }
+        .xb-assistant-workspace-scope {
+            display: inline-flex;
+            align-items: center;
+            min-height: 36px;
+            padding: 0 12px;
+            border: 1px solid rgba(27, 55, 88, 0.14);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.92);
+            color: #1b3758;
+            font-size: 12px;
+            font-weight: 700;
+        }
         .xb-assistant-workspace-modified-toggle {
             display: inline-flex;
             align-items: center;
@@ -517,6 +529,36 @@ export function injectAssistantStyles(rootId) {
             color: #41526a;
             font-size: 12px;
             font-weight: 600;
+        }
+        .xb-assistant-workspace-tree-actions {
+            display: grid;
+            gap: 10px;
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(27, 55, 88, 0.08);
+            background: rgba(242, 246, 250, 0.9);
+        }
+        .xb-assistant-workspace-tree-actions-context {
+            display: grid;
+            gap: 4px;
+            min-width: 0;
+        }
+        .xb-assistant-workspace-tree-actions-title {
+            color: #1b3758;
+            font-size: 12px;
+        }
+        .xb-assistant-workspace-tree-actions-path {
+            min-width: 0;
+            color: #5a6b82;
+            font-size: 11px;
+            line-height: 1.5;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .xb-assistant-workspace-tree-actions-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
         }
         .xb-assistant-workspace-tree {
             min-height: 0;
@@ -630,6 +672,18 @@ export function injectAssistantStyles(rootId) {
             font-family: "Cascadia Code", "Consolas", monospace;
             font-size: 12px;
             line-height: 1.6;
+        }
+        .xb-assistant-workspace-editor {
+            width: 100%;
+            min-width: max-content;
+            min-height: 100%;
+            background: transparent;
+        }
+        .xb-assistant-workspace-editor .cm-editor {
+            min-height: 100%;
+        }
+        .xb-assistant-workspace-editor .cm-scroller {
+            min-height: 100%;
         }
         .xb-assistant-workspace-code-row {
             display: grid;
@@ -1247,7 +1301,7 @@ export function injectAssistantStyles(rootId) {
             flex: 0 0 auto;
         }
         .xb-assistant-compose-actions > button,
-        .xb-assistant-compose-menu-toggle {
+        .xb-assistant-compose .xb-assistant-compose-menu-toggle {
             width: 36px;
             min-width: 36px;
             height: 30px;

@@ -25,15 +25,47 @@ function normalizeLocalSourcePath(pathText = '') {
     return String(pathText || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
+function isLocalRootPath(pathText = '') {
+    return normalizeLocalSourcePath(pathText).replace(/\/+$/, '') === 'local';
+}
+
 function getLocalSourceLabelFromPath(pathText = '') {
     return normalizeLocalSourcePath(pathText).split('/').filter(Boolean)[1] || '';
+}
+
+function getLocalSourceRootPathFromPath(pathText = '') {
+    const normalized = normalizeLocalSourcePath(pathText).replace(/\/+$/, '');
+    if (!normalized.startsWith(LOCAL_SOURCE_PREFIX) || normalized.includes('..')) return '';
+    const segments = normalized.split('/').filter(Boolean);
+    if (segments.length < 2) return '';
+    if (segments.length === 2) return LOCAL_SOURCE_PREFIX;
+    return `${LOCAL_SOURCE_PREFIX}${segments[1]}/`;
+}
+
+function getRelativeLocalFilePath(pathText = '') {
+    const normalized = normalizeLocalSourcePath(pathText);
+    const rootPath = getLocalSourceRootPathFromPath(normalized);
+    if (!rootPath || !normalized.startsWith(rootPath)) return '';
+    return normalized.slice(rootPath.length);
+}
+
+function normalizeLocalSourceRootPath(rootPath = '', fallbackLabel = 'source') {
+    const normalized = normalizeLocalSourcePath(rootPath).replace(/\/+$/, '');
+    if (normalized === 'local') return LOCAL_SOURCE_PREFIX;
+    if (normalized.startsWith(LOCAL_SOURCE_PREFIX) && !normalized.includes('..')) {
+        const segments = normalized.split('/').filter(Boolean);
+        if (segments.length >= 2) {
+            return `${normalized}/`;
+        }
+    }
+    return `${LOCAL_SOURCE_PREFIX}${sanitizeLabel(fallbackLabel, 'source')}/`;
 }
 
 function normalizeWritableLocalFilePath(pathText = '') {
     const normalized = normalizeLocalSourcePath(pathText);
     if (!normalized.startsWith(LOCAL_SOURCE_PREFIX) || normalized.includes('..') || normalized.endsWith('/')) return '';
     const segments = normalized.split('/').filter(Boolean);
-    if (segments.length < 3) return '';
+    if (segments.length < 2) return '';
     if (!isSupportedPublicTextPath(normalized)) return '';
     return normalized;
 }
@@ -41,6 +73,7 @@ function normalizeWritableLocalFilePath(pathText = '') {
 function normalizeLocalDirectoryPath(pathText = '') {
     const normalized = normalizeLocalSourcePath(pathText).replace(/\/+$/, '');
     if (!normalized.startsWith(LOCAL_SOURCE_PREFIX) || normalized.includes('..')) return '';
+    if (normalized === 'local') return LOCAL_SOURCE_PREFIX;
     const segments = normalized.split('/').filter(Boolean);
     if (segments.length < 2) return '';
     return `${normalized}/`;
@@ -79,7 +112,7 @@ function buildLocalFileRecordFromPath(publicPath, content = '', options = {}) {
         throw new Error('local_path_required');
     }
     const segments = normalizedPath.split('/').filter(Boolean);
-    const relativePath = segments.slice(2).join('/');
+    const relativePath = getRelativeLocalFilePath(normalizedPath);
     const fileName = segments[segments.length - 1] || 'untitled.txt';
     const normalizedContent = typeof content === 'string' ? content : String(content ?? '');
     return {
@@ -95,21 +128,29 @@ function buildLocalFileRecordFromPath(publicPath, content = '', options = {}) {
     };
 }
 
-function createLocalSourceRecord({ sourceId, label, importedAt, files }) {
+function createLocalSourceRecord({ sourceId, label, rootPath, importedAt, files, directories }) {
+    const normalizedLabel = String(label || '').trim() || 'source';
+    const normalizedFiles = Array.isArray(files) ? files : [];
     return {
         sourceId: String(sourceId || '').trim(),
-        label: sanitizeLabel(label, 'source'),
+        label: normalizedLabel,
+        rootPath: normalizeLocalSourceRootPath(rootPath, normalizedLabel),
         importedAt: Number.isFinite(Number(importedAt)) ? Number(importedAt) : Date.now(),
-        files: Array.isArray(files) ? files : [],
+        files: normalizedFiles,
+        directories: Array.from(new Set([
+            ...(Array.isArray(directories) ? directories.map(normalizeLocalSourceDirectory).filter(Boolean) : []),
+            ...collectImplicitDirectoryPaths(normalizedFiles),
+        ])).sort((left, right) => left.localeCompare(right, 'zh-CN')),
     };
 }
 
-function createEphemeralLocalSourceRecord(label, localSources = []) {
-    const normalizedLabel = sanitizeLabel(label, 'source');
+function createEphemeralLocalSourceRecord(label, localSources = [], rootPath = '') {
+    const normalizedLabel = String(label || '').trim() || 'source';
     const existingIds = new Set(
         normalizeLocalSources(localSources).map((source) => String(source.sourceId || '').trim()).filter(Boolean),
     );
-    const baseId = `local:${normalizedLabel}`;
+    const desiredRootPath = normalizeLocalSourceRootPath(rootPath, normalizedLabel);
+    const baseId = desiredRootPath === LOCAL_SOURCE_PREFIX ? 'local:root' : `local:${sanitizeLabel(normalizedLabel, 'source')}`;
     let nextId = baseId;
     let suffix = 2;
     while (existingIds.has(nextId)) {
@@ -119,6 +160,7 @@ function createEphemeralLocalSourceRecord(label, localSources = []) {
     return createLocalSourceRecord({
         sourceId: nextId,
         label: normalizedLabel,
+        rootPath: desiredRootPath,
         importedAt: Date.now(),
         files: [],
     });
@@ -127,12 +169,12 @@ function createEphemeralLocalSourceRecord(label, localSources = []) {
 function summarizeImportResult({ importedSources, importedFiles, rejectedFiles, duplicateFiles }) {
     if (!importedSources && !importedFiles) {
         if (rejectedFiles) {
-            return '只支持导入文本源码文件';
+            return '只支持导入文本文件到工作区';
         }
         return '没有可导入的文件';
     }
 
-    const parts = [`已导入 ${importedSources} 个源码源，${importedFiles} 个文件`];
+    const parts = [`已导入 ${importedSources} 个工作区根，${importedFiles} 个文件`];
     if (rejectedFiles) parts.push(`忽略 ${rejectedFiles} 个非文本文件`);
     if (duplicateFiles) parts.push(`跳过 ${duplicateFiles} 个重复路径`);
     return parts.join('，');
@@ -166,6 +208,9 @@ function formatLocalSourceDownloadName(sourceLabel, extension = '') {
 
 function buildLocalSourceZip(source) {
     const entries = {};
+    collectSourceDirectoryPaths(source).forEach((directoryPath) => {
+        entries[`${directoryPath}/`] = new Uint8Array();
+    });
     source.files.forEach((file) => {
         entries[file.relativePath || file.name || 'untitled.txt'] = strToU8(typeof file.content === 'string' ? file.content : '');
     });
@@ -245,6 +290,42 @@ function groupSelectedFiles(files = [], mode = 'files') {
     }];
 }
 
+function normalizeLocalSourceDirectory(directoryPath = '') {
+    const normalized = normalizeLocalSourcePath(directoryPath).replace(/^\/+|\/+$/g, '');
+    if (!normalized || normalized.includes('..')) return '';
+    return normalized;
+}
+
+function collectImplicitDirectoryPaths(files = []) {
+    const paths = new Set();
+    files.forEach((file) => {
+        const segments = String(file?.relativePath || '').split('/').filter(Boolean).slice(0, -1);
+        segments.forEach((_, index) => {
+            paths.add(segments.slice(0, index + 1).join('/'));
+        });
+    });
+    return Array.from(paths).sort((left, right) => left.localeCompare(right, 'zh-CN'));
+}
+
+function collectSourceDirectoryPaths(source = {}) {
+    const explicitDirectories = Array.isArray(source.directories)
+        ? source.directories.map(normalizeLocalSourceDirectory).filter(Boolean)
+        : [];
+    return Array.from(new Set([
+        ...explicitDirectories,
+        ...collectImplicitDirectoryPaths(source.files || []),
+    ])).sort((left, right) => left.localeCompare(right, 'zh-CN'));
+}
+
+function buildDirectoryAncestors(relativeDirectoryPath = '') {
+    const segments = normalizeLocalSourceDirectory(relativeDirectoryPath).split('/').filter(Boolean);
+    const results = [];
+    segments.forEach((_, index) => {
+        results.push(segments.slice(0, index + 1).join('/'));
+    });
+    return results;
+}
+
 function normalizeLocalSourceFile(file) {
     if (!file || typeof file !== 'object') return null;
     const path = normalizeLocalSourcePath(file.path || '');
@@ -304,16 +385,27 @@ function findLocalFileByPath(localSources = [], targetPath = '') {
 
 function findLocalDirectoryByPath(localSources = [], targetPath = '') {
     const normalizedTargetPath = normalizeLocalSourcePath(targetPath).replace(/\/+$/, '');
+    if (normalizedTargetPath === 'local' || normalizedTargetPath === 'local/') {
+        return {
+            source: null,
+            directoryPath: LOCAL_SOURCE_PREFIX,
+            relativeDirectoryPath: '',
+            files: flattenLocalSourceFiles(localSources),
+            directories: normalizeLocalSources(localSources).map((source) => String(source.rootPath || '')).filter(Boolean),
+        };
+    }
     if (!normalizedTargetPath.startsWith(LOCAL_SOURCE_PREFIX)) return null;
 
     for (const source of normalizeLocalSources(localSources)) {
-        const sourceRoot = `${LOCAL_SOURCE_PREFIX}${source.label}`;
+        const sourceRoot = String(source.rootPath || `${LOCAL_SOURCE_PREFIX}${source.label}/`).replace(/\/+$/, '');
+        const sourceDirectories = collectSourceDirectoryPaths(source);
         if (normalizedTargetPath === sourceRoot) {
             return {
                 source,
                 directoryPath: `${sourceRoot}/`,
                 relativeDirectoryPath: '',
                 files: source.files.slice(),
+                directories: sourceDirectories,
             };
         }
 
@@ -323,13 +415,17 @@ function findLocalDirectoryByPath(localSources = [], targetPath = '') {
         const relativeDirectoryPath = normalizedTargetPath.slice(sourcePrefix.length).replace(/\/+$/, '');
         const directoryPrefix = relativeDirectoryPath ? `${sourcePrefix}${relativeDirectoryPath}/` : sourcePrefix;
         const files = source.files.filter((file) => file.path.startsWith(directoryPrefix));
-        if (!files.length) continue;
+        const directoryExists = sourceDirectories.includes(relativeDirectoryPath);
+        if (!files.length && !directoryExists) continue;
 
         return {
             source,
             directoryPath: `${normalizedTargetPath}/`,
             relativeDirectoryPath,
             files,
+            directories: sourceDirectories.filter((directory) => (
+                directory === relativeDirectoryPath || directory.startsWith(`${relativeDirectoryPath}/`)
+            )),
         };
     }
 
@@ -354,12 +450,13 @@ function upsertLocalFileInSources(localSources = [], targetPath = '', content = 
     }
 
     const normalizedSources = normalizeLocalSources(localSources);
-    const sourceLabel = getLocalSourceLabelFromPath(normalizedTargetPath);
+    const sourceRootPath = getLocalSourceRootPathFromPath(normalizedTargetPath);
+    const sourceLabel = sourceRootPath === LOCAL_SOURCE_PREFIX ? 'local' : getLocalSourceLabelFromPath(normalizedTargetPath);
     let fileExisted = false;
     let existingFile = null;
     let sourceFound = false;
     const nextSources = normalizedSources.map((source) => {
-        if (source.label !== sourceLabel) return source;
+        if (String(source.rootPath || '') !== sourceRootPath) return source;
         sourceFound = true;
         return {
             ...source,
@@ -384,12 +481,12 @@ function upsertLocalFileInSources(localSources = [], targetPath = '', content = 
         ? nextSources
         : [
             ...nextSources,
-            createEphemeralLocalSourceRecord(sourceLabel, normalizedSources),
+            createEphemeralLocalSourceRecord(sourceLabel, normalizedSources, sourceRootPath),
         ].sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-CN'));
 
     return {
         nextSources: sourcesWithTarget.map((source) => {
-            if (source.label !== sourceLabel) return source;
+            if (String(source.rootPath || '') !== sourceRootPath) return source;
             const nextFiles = source.files
                 .filter((file) => file.path !== normalizedTargetPath)
                 .concat(nextFile)
@@ -404,6 +501,44 @@ function upsertLocalFileInSources(localSources = [], targetPath = '', content = 
     };
 }
 
+function upsertLocalDirectoryInSources(localSources = [], targetPath = '') {
+    const normalizedDirectoryPath = normalizeLocalDirectoryPath(targetPath);
+    if (!normalizedDirectoryPath) {
+        throw new Error('local_path_required');
+    }
+    if (normalizedDirectoryPath === LOCAL_SOURCE_PREFIX) {
+        return {
+            nextSources: normalizeLocalSources(localSources),
+            directoryPath: normalizedDirectoryPath,
+        };
+    }
+
+    const normalizedSources = normalizeLocalSources(localSources);
+    const normalizedTarget = normalizeLocalSourcePath(normalizedDirectoryPath).replace(/\/+$/, '');
+    const segments = normalizedTarget.split('/').filter(Boolean);
+    const sourceRootPath = `${LOCAL_SOURCE_PREFIX}${segments[1]}/`;
+    const sourceLabel = segments[1] || 'local';
+    const relativeDirectoryPath = segments.slice(2).join('/');
+
+    const ensuredSources = normalizedSources.some((source) => String(source.rootPath || '') === sourceRootPath)
+        ? normalizedSources
+        : [
+            ...normalizedSources,
+            createEphemeralLocalSourceRecord(sourceLabel, normalizedSources, sourceRootPath),
+        ].sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-CN'));
+
+    return {
+        nextSources: ensuredSources.map((source) => {
+            if (String(source.rootPath || '') !== sourceRootPath) return source;
+            return createLocalSourceRecord({
+                ...source,
+                directories: [...collectSourceDirectoryPaths(source), ...buildDirectoryAncestors(relativeDirectoryPath)],
+            });
+        }),
+        directoryPath: normalizedDirectoryPath,
+    };
+}
+
 function removeLocalPathFromSources(localSources = [], targetPath = '') {
     const fileMatch = findLocalFileByPath(localSources, targetPath);
     if (fileMatch) {
@@ -413,14 +548,12 @@ function removeLocalPathFromSources(localSources = [], targetPath = '') {
             nextSources: normalizeLocalSources(localSources)
                 .map((source) => {
                     if (source.sourceId !== fileMatch.source.sourceId) return source;
-                    const nextFiles = source.files.filter((file) => file.path !== fileMatch.file.path);
-                    if (!nextFiles.length) return null;
-                    return {
+                    return createLocalSourceRecord({
                         ...source,
-                        files: nextFiles,
-                    };
+                        files: source.files.filter((file) => file.path !== fileMatch.file.path),
+                    });
                 })
-                .filter(Boolean),
+                .filter((source) => source && (source.files.length || source.directories.length)),
         };
     }
 
@@ -429,20 +562,32 @@ function removeLocalPathFromSources(localSources = [], targetPath = '') {
         throw new Error('local_path_not_found');
     }
 
+    if (directoryMatch.directoryPath === LOCAL_SOURCE_PREFIX) {
+        return {
+            mode: 'directory',
+            removedFiles: directoryMatch.files.slice(),
+            nextSources: [],
+        };
+    }
+
     const removedPaths = new Set(directoryMatch.files.map((file) => file.path));
     return {
         mode: 'directory',
         removedFiles: directoryMatch.files.slice(),
         nextSources: normalizeLocalSources(localSources)
             .map((source) => {
-                const nextFiles = source.files.filter((file) => !removedPaths.has(file.path));
-                if (!nextFiles.length) return null;
-                return {
+                if (directoryMatch.source?.sourceId !== source.sourceId) return source;
+                const relativeDirectoryPath = directoryMatch.relativeDirectoryPath;
+                const nextDirectories = collectSourceDirectoryPaths(source).filter((directory) => (
+                    directory !== relativeDirectoryPath && !directory.startsWith(`${relativeDirectoryPath}/`)
+                ));
+                return createLocalSourceRecord({
                     ...source,
-                    files: nextFiles,
-                };
+                    files: source.files.filter((file) => !removedPaths.has(file.path)),
+                    directories: nextDirectories,
+                });
             })
-            .filter(Boolean),
+            .filter((source) => source && (source.files.length || source.directories.length)),
     };
 }
 
@@ -452,6 +597,7 @@ function moveLocalPathInSources(localSources = [], fromPath = '', toPath = '', o
     const fromFileMatch = findLocalFileByPath(normalizedSources, fromPath);
 
     let movedFiles = [];
+    let movedDirectories = [];
     let targetMappings = [];
     let mode = 'file';
 
@@ -474,6 +620,12 @@ function moveLocalPathInSources(localSources = [], fromPath = '', toPath = '', o
         }
         mode = 'directory';
         movedFiles = fromDirectoryMatch.files.slice();
+        movedDirectories = [
+            fromDirectoryMatch.directoryPath,
+            ...(fromDirectoryMatch.directories || [])
+                .filter((directory) => directory !== fromDirectoryMatch.relativeDirectoryPath)
+                .map((directory) => `${fromDirectoryMatch.source.rootPath}${directory}/`),
+        ];
         targetMappings = movedFiles.map((file) => ({
             fromPath: file.path,
             toPath: `${normalizedToDirectoryPath}${file.path.slice(normalizedFromDirectoryPath.length)}`,
@@ -496,16 +648,32 @@ function moveLocalPathInSources(localSources = [], fromPath = '', toPath = '', o
             const nextFiles = source.files.filter((file) => (
                 !movedPathSet.has(file.path) && !(overwrite && conflictPathSet.has(file.path))
             ));
-            if (!nextFiles.length) return null;
-            return {
+            const nextDirectories = mode === 'directory'
+                ? collectSourceDirectoryPaths(source).filter((directory) => {
+                    const directoryPath = `${source.rootPath}${directory}/`;
+                    return !movedDirectories.includes(directoryPath);
+                })
+                : collectSourceDirectoryPaths(source);
+            return createLocalSourceRecord({
                 ...source,
                 files: nextFiles,
-            };
+                directories: nextDirectories,
+            });
         })
-        .filter(Boolean);
+        .filter((source) => source && (source.files.length || source.directories.length));
 
     let nextSources = remainingSources;
     const movedEntries = [];
+    if (mode === 'directory') {
+        const normalizedFromDirectoryPath = normalizeLocalDirectoryPath(fromPath);
+        const normalizedToDirectoryPath = normalizeLocalDirectoryPath(toPath);
+        movedDirectories.forEach((directoryPath) => {
+            const suffix = directoryPath.slice(normalizedFromDirectoryPath.length);
+            const nextDirectoryPath = `${normalizedToDirectoryPath}${suffix}`;
+            const upsert = upsertLocalDirectoryInSources(nextSources, nextDirectoryPath);
+            nextSources = upsert.nextSources;
+        });
+    }
     movedFiles.forEach((file) => {
         const nextPath = mappingByFromPath.get(file.path);
         const upsert = upsertLocalFileInSources(nextSources, nextPath, file.content, {
@@ -536,15 +704,16 @@ export function normalizeLocalSources(localSources) {
             const files = Array.isArray(source.files)
                 ? source.files.map(normalizeLocalSourceFile).filter(Boolean)
                 : [];
-            if (!files.length) return null;
             return createLocalSourceRecord({
                 sourceId,
                 label: source.label,
+                rootPath: source.rootPath,
                 importedAt: source.importedAt,
                 files,
+                directories: source.directories,
             });
         })
-        .filter(Boolean);
+        .filter((source) => source && (source.files.length || source.directories.length || source.rootPath));
 }
 
 export function flattenLocalSourceFiles(localSources = []) {
@@ -581,6 +750,50 @@ export function createLocalSourcesManager(deps) {
         post,
     } = deps;
     let workspaceUiPersistTimer = 0;
+    let workspaceContentFlushTimer = 0;
+    let workspaceContentPersistError = '';
+
+    async function persistWorkspaceContentChanges() {
+        try {
+            syncHostLocalSources();
+            const persistResult = await persistSession?.();
+            if (persistResult && persistResult.ok === false) {
+                const errorText = String(persistResult.error || 'unknown_error');
+                if (workspaceContentPersistError !== errorText) {
+                    showToast?.(`工作区已更新，但会话保存失败，刷新后可能丢失：${errorText}`);
+                }
+                workspaceContentPersistError = errorText;
+                return false;
+            }
+            workspaceContentPersistError = '';
+            return true;
+        } catch (error) {
+            const errorText = String(error?.message || error || 'unknown_error');
+            if (workspaceContentPersistError !== errorText) {
+                showToast?.(`工作区已更新，但会话保存失败，刷新后可能丢失：${errorText}`);
+            }
+            workspaceContentPersistError = errorText;
+            return false;
+        }
+    }
+
+    function flushWorkspaceContentChanges() {
+        if (workspaceContentFlushTimer) {
+            clearTimeout(workspaceContentFlushTimer);
+            workspaceContentFlushTimer = 0;
+        }
+        void persistWorkspaceContentChanges();
+    }
+
+    function scheduleWorkspaceContentFlush() {
+        if (workspaceContentFlushTimer) {
+            clearTimeout(workspaceContentFlushTimer);
+        }
+        workspaceContentFlushTimer = window.setTimeout(() => {
+            workspaceContentFlushTimer = 0;
+            void persistWorkspaceContentChanges();
+        }, 220);
+    }
 
     function persistWorkspaceUiStateImmediately() {
         if (workspaceUiPersistTimer) {
@@ -610,12 +823,22 @@ export function createLocalSourcesManager(deps) {
         )) || null;
     }
 
+    function getCurrentWorkspaceDirectoryPath() {
+        const selectedTreeDirectory = normalizeLocalDirectoryPath(state.selectedTreePath);
+        if (selectedTreeDirectory) return selectedTreeDirectory;
+        const selectedFile = normalizeWritableLocalFilePath(state.selectedFilePath);
+        if (selectedFile) {
+            return `${selectedFile.split('/').slice(0, -1).join('/')}/`;
+        }
+        return LOCAL_SOURCE_PREFIX;
+    }
+
     function selectWorkspaceFile(targetPath, options = {}) {
         const match = findLocalFileByPath(state.localSources, targetPath);
         if (!match) return false;
 
         state.isWorkspaceOpen = true;
-        state.selectedSourceId = options.preserveSourceFilter ? (state.selectedSourceId || 'all') : match.source.sourceId;
+        state.selectedSourceId = 'all';
         state.selectedFilePath = match.file.path;
         state.selectedTreePath = match.file.path;
         if (!options.preserveSearch) {
@@ -644,40 +867,39 @@ export function createLocalSourcesManager(deps) {
         if (!match) return false;
 
         state.isWorkspaceOpen = true;
-        state.selectedSourceId = match.source.sourceId;
+        state.selectedSourceId = 'all';
         state.selectedTreePath = match.directoryPath;
         state.selectedFilePath = '';
         state.fileSearchQuery = '';
         state.showModifiedOnly = false;
         state.viewerMode = 'current';
-        state.treeExpandedKeys = Array.from(
-            buildExpandedKeysForWorkspaceTarget(match.source.sourceId, match.relativeDirectoryPath),
-        );
+        state.treeExpandedKeys = match.source
+            ? Array.from(buildExpandedKeysForWorkspaceTarget(match.source.sourceId, match.relativeDirectoryPath))
+            : Array.from(collectDirectoryExpansionKeys(buildWorkspaceTree(normalizeLocalSources(state.localSources), {
+                selectedSourceId: 'all',
+                searchQuery: '',
+                modifiedOnly: false,
+                isModifiedFile: isLocalSourceFileModified,
+            }).nodes));
         persistWorkspaceUiStateImmediately();
         return true;
     }
 
     function ensureWorkspaceSelection() {
-        const summary = getWorkspaceSummary();
-        if (!summary.fileCount) {
-            state.isWorkspaceOpen = false;
+        const normalizedSources = normalizeLocalSources(state.localSources);
+        if (!normalizedSources.length) {
             state.selectedSourceId = 'all';
             state.selectedFilePath = '';
-            state.selectedTreePath = '';
-            state.fileSearchQuery = '';
-            state.showModifiedOnly = false;
+            state.selectedTreePath = LOCAL_SOURCE_PREFIX;
             state.viewerMode = 'current';
             state.treeExpandedKeys = [];
             return;
         }
 
-        if (!['all', ...normalizeLocalSources(state.localSources).map((source) => source.sourceId)].includes(state.selectedSourceId || 'all')) {
-            state.selectedSourceId = 'all';
-        }
+        state.selectedSourceId = 'all';
 
-        const normalizedSources = normalizeLocalSources(state.localSources);
         const workspaceTree = buildWorkspaceTree(normalizedSources, {
-            selectedSourceId: state.selectedSourceId,
+            selectedSourceId: 'all',
             searchQuery: state.fileSearchQuery,
             modifiedOnly: state.showModifiedOnly,
             isModifiedFile: isLocalSourceFileModified,
@@ -699,7 +921,7 @@ export function createLocalSourcesManager(deps) {
         }
 
         if (!workspaceTree.visibleNodePaths.includes(state.selectedTreePath)) {
-            state.selectedTreePath = state.selectedFilePath || workspaceTree.visibleNodePaths[0] || '';
+            state.selectedTreePath = state.selectedFilePath || workspaceTree.visibleNodePaths[0] || LOCAL_SOURCE_PREFIX;
         }
 
         if (!['current', 'original', 'diff'].includes(state.viewerMode)) {
@@ -735,7 +957,7 @@ export function createLocalSourcesManager(deps) {
         render?.();
         const persistResult = await persistSession?.();
         if (persistResult && persistResult.ok === false) {
-            showToast?.(`源码源已更新，但会话保存失败，刷新后可能丢失：${persistResult.error || 'unknown_error'}`);
+            showToast?.(`工作区已更新，但会话保存失败，刷新后可能丢失：${persistResult.error || 'unknown_error'}`);
             return false;
         }
         if (toastText) {
@@ -773,7 +995,7 @@ export function createLocalSourcesManager(deps) {
                     lastPercent = percent;
                     setImportProgress?.({
                         active: true,
-                        label: options.mode === 'directory' ? '正在导入文件夹源码' : '正在导入源码文件',
+                        label: options.mode === 'directory' ? '正在导入文件夹到工作区' : '正在导入文件到工作区',
                         detail: totalFiles > 0
                             ? `${processedFiles}/${totalFiles}${suffix ? ` · ${suffix}` : ''}`
                             : (suffix || ''),
@@ -821,7 +1043,7 @@ export function createLocalSourcesManager(deps) {
                                 : 0;
                             setImportProgress?.({
                                 active: true,
-                                label: options.mode === 'directory' ? '正在导入文件夹源码' : '正在导入源码文件',
+                                label: options.mode === 'directory' ? '正在导入文件夹到工作区' : '正在导入文件到工作区',
                                 detail: `${processedFiles}/${totalFiles} · ${file.name || candidatePath} ${filePercent}%`,
                                 percent: overallPercent,
                             });
@@ -872,7 +1094,7 @@ export function createLocalSourcesManager(deps) {
             );
             return result;
         } catch (error) {
-            showToast?.(`源码导入失败：${String(error?.message || error || 'unknown_error')}`);
+            showToast?.(`导入到工作区失败：${String(error?.message || error || 'unknown_error')}`);
             return false;
         } finally {
             setImportProgress?.({ active: false });
@@ -884,7 +1106,7 @@ export function createLocalSourcesManager(deps) {
         if (!normalizedId) return;
         await commitLocalSources(
             normalizeLocalSources(state.localSources).filter((source) => source.sourceId !== normalizedId),
-            '已移除源码源',
+            '已移除工作区根',
         );
     }
 
@@ -894,7 +1116,7 @@ export function createLocalSourcesManager(deps) {
 
         const source = normalizeLocalSources(state.localSources).find((item) => item.sourceId === normalizedId);
         if (!source || !Array.isArray(source.files) || !source.files.length) {
-            showToast?.('没有可下载的源码源');
+            showToast?.('没有可下载的工作区内容');
             return false;
         }
 
@@ -919,12 +1141,15 @@ export function createLocalSourcesManager(deps) {
     function downloadAllLocalSources() {
         const normalizedSources = normalizeLocalSources(state.localSources);
         if (!normalizedSources.length) {
-            showToast?.('没有可下载的源码源');
+            showToast?.('没有可下载的工作区内容');
             return false;
         }
 
         const entries = {};
         normalizedSources.forEach((source) => {
+            collectSourceDirectoryPaths(source).forEach((directoryPath) => {
+                entries[`${sanitizeLabel(source.label, 'source')}/${directoryPath}/`] = new Uint8Array();
+            });
             source.files.forEach((file) => {
                 const relativePath = file.relativePath || file.name || 'untitled.txt';
                 entries[`${sanitizeLabel(source.label, 'source')}/${relativePath}`] = strToU8(
@@ -957,7 +1182,30 @@ export function createLocalSourcesManager(deps) {
 
     async function clearLocalSources() {
         if (!normalizeLocalSources(state.localSources).length) return;
-        await commitLocalSources([], '已清空源码源');
+        await commitLocalSources([], '已清空工作区');
+    }
+
+    function updateLocalFileContent(targetPath, content, options = {}) {
+        const match = findLocalFileByPath(state.localSources, targetPath);
+        if (!match) return false;
+        const nextContent = typeof content === 'string' ? content : String(content ?? '');
+        if (nextContent === String(match.file.content || '')) return true;
+
+        const upsert = upsertLocalFileInSources(state.localSources, targetPath, nextContent, {
+            originalContent: match.file.originalContent,
+        });
+        state.localSources = normalizeLocalSources(upsert.nextSources);
+        ensureWorkspaceSelection();
+
+        if (options.flush) {
+            flushWorkspaceContentChanges();
+        } else {
+            scheduleWorkspaceContentFlush();
+        }
+        if (options.render) {
+            render?.();
+        }
+        return true;
     }
 
     async function restoreLocalFile(targetPath) {
@@ -1000,21 +1248,9 @@ export function createLocalSourcesManager(deps) {
             defaultPath = `${normalizedTargetFile.split('/').slice(0, -1).join('/')}/new-file.txt`;
         } else if (normalizedTargetDirectory) {
             defaultPath = `${normalizedTargetDirectory}new-file.txt`;
-        } else if (state.selectedSourceId && state.selectedSourceId !== 'all') {
-            const selectedSource = normalizeLocalSources(state.localSources).find((source) => source.sourceId === state.selectedSourceId);
-            if (selectedSource) {
-                defaultPath = `local/${selectedSource.label}/new-file.txt`;
-            }
-        }
-
-        if (!defaultPath) {
-            const firstSource = normalizeLocalSources(state.localSources)[0];
-            if (firstSource) {
-                defaultPath = `local/${firstSource.label}/new-file.txt`;
-            }
         }
         if (!defaultPath) {
-            defaultPath = 'local/new-source/new-file.txt';
+            defaultPath = `${getCurrentWorkspaceDirectoryPath()}new-file.txt`;
         }
 
         const enteredPath = window.prompt('输入要新建的 local 文件路径', defaultPath);
@@ -1043,6 +1279,32 @@ export function createLocalSourcesManager(deps) {
             preserveModifiedOnly: false,
             preserveViewerMode: false,
         });
+        render?.();
+        return true;
+    }
+
+    async function createLocalDirectoryAt(targetPath = '') {
+        const normalizedTargetDirectory = normalizeLocalDirectoryPath(targetPath);
+        const defaultPath = normalizedTargetDirectory
+            ? `${normalizedTargetDirectory}new-folder/`
+            : `${getCurrentWorkspaceDirectoryPath()}new-folder/`;
+        const enteredPath = window.prompt('输入要新建的 local 目录路径', defaultPath);
+        if (enteredPath === null) return false;
+
+        const normalizedPath = normalizeLocalDirectoryPath(enteredPath);
+        if (!normalizedPath) {
+            showToast?.('请输入有效的 `local/.../` 目录路径');
+            return false;
+        }
+        if (findLocalDirectoryByPath(state.localSources, normalizedPath) || findLocalFileByPath(state.localSources, normalizedPath)) {
+            showToast?.('目标目录已存在，请换一个路径');
+            return false;
+        }
+
+        const upsert = upsertLocalDirectoryInSources(state.localSources, normalizedPath);
+        const committed = await commitLocalSources(upsert.nextSources, `已新建目录 ${normalizedPath}`);
+        if (!committed) return false;
+        selectWorkspaceNode(normalizedPath);
         render?.();
         return true;
     }
@@ -1132,7 +1394,9 @@ export function createLocalSourcesManager(deps) {
 
     function openWorkspace(targetPath = '') {
         if (targetPath) {
-            const opened = selectWorkspaceFile(targetPath) || selectWorkspaceDirectory(targetPath);
+            const opened = (isLocalRootPath(targetPath) && selectWorkspaceDirectory(LOCAL_SOURCE_PREFIX))
+                || selectWorkspaceFile(targetPath)
+                || selectWorkspaceDirectory(targetPath);
             if (!opened) {
                 showToast?.(`没有找到 ${targetPath}`);
                 return false;
@@ -1173,6 +1437,22 @@ export function createLocalSourcesManager(deps) {
     function selectWorkspaceNode(targetPath) {
         const normalizedTargetPath = normalizeLocalSourcePath(targetPath);
         if (!normalizedTargetPath) return false;
+        if (isLocalRootPath(normalizedTargetPath)) {
+            state.isWorkspaceOpen = true;
+            state.selectedSourceId = 'all';
+            state.selectedTreePath = LOCAL_SOURCE_PREFIX;
+            state.selectedFilePath = '';
+            state.viewerMode = 'current';
+            state.treeExpandedKeys = Array.from(collectDirectoryExpansionKeys(buildWorkspaceTree(normalizeLocalSources(state.localSources), {
+                selectedSourceId: 'all',
+                searchQuery: state.fileSearchQuery,
+                modifiedOnly: state.showModifiedOnly,
+                isModifiedFile: isLocalSourceFileModified,
+            }).nodes));
+            persistWorkspaceUiState();
+            renderWorkspaceOnly?.();
+            return true;
+        }
 
         const fileMatch = findLocalFileByPath(state.localSources, normalizedTargetPath);
         if (fileMatch) {
@@ -1191,7 +1471,7 @@ export function createLocalSourcesManager(deps) {
         if (!dirMatch) return false;
 
         state.isWorkspaceOpen = true;
-        state.selectedSourceId = dirMatch.source.sourceId;
+        state.selectedSourceId = 'all';
         state.selectedTreePath = dirMatch.directoryPath;
         state.selectedFilePath = '';
         state.viewerMode = 'current';
@@ -1210,13 +1490,6 @@ export function createLocalSourcesManager(deps) {
         if (shouldRender) {
             render?.();
         }
-    }
-
-    function setSelectedSourceId(sourceId) {
-        state.selectedSourceId = sourceId || 'all';
-        ensureWorkspaceSelection();
-        persistWorkspaceUiState();
-        renderWorkspaceOnly?.();
     }
 
     function setWorkspaceSearchQuery(value) {
@@ -1258,7 +1531,7 @@ export function createLocalSourcesManager(deps) {
         const normalizedSources = normalizeLocalSources(state.localSources);
         const summary = summarizeLocalSources(normalizedSources);
         const workspaceTree = buildWorkspaceTree(normalizedSources, {
-            selectedSourceId: state.selectedSourceId,
+            selectedSourceId: 'all',
             searchQuery: state.fileSearchQuery,
             modifiedOnly: state.showModifiedOnly,
             isModifiedFile: isLocalSourceFileModified,
@@ -1271,7 +1544,7 @@ export function createLocalSourcesManager(deps) {
             workspaceTree,
             selectedMatch,
             workspaceState: {
-                selectedSourceId: state.selectedSourceId,
+                selectedSourceId: 'all',
                 selectedFilePath: state.selectedFilePath,
                 selectedTreePath: state.selectedTreePath,
                 fileSearchQuery: state.fileSearchQuery,
@@ -1284,11 +1557,11 @@ export function createLocalSourcesManager(deps) {
             onDownloadAll: () => {
                 downloadAllLocalSources();
             },
+            onClearAll: () => {
+                void clearLocalSources();
+            },
             onCloseWorkspace: () => {
                 closeWorkspace();
-            },
-            onSelectSource: (sourceId) => {
-                setSelectedSourceId(sourceId);
             },
             onSearchChange: (value) => {
                 setWorkspaceSearchQuery(value);
@@ -1319,8 +1592,14 @@ export function createLocalSourcesManager(deps) {
             onRestoreFile: (targetPath) => {
                 void restoreLocalFile(targetPath);
             },
+            onUpdateFileContent: (targetPath, content, nextOptions = {}) => {
+                return updateLocalFileContent(targetPath, content, nextOptions);
+            },
             onCreateFile: (targetPath) => {
                 void createLocalFileAt(targetPath);
+            },
+            onCreateDirectory: (targetPath) => {
+                void createLocalDirectoryAt(targetPath);
             },
             onRenamePath: (targetPath) => {
                 void renameLocalPath(targetPath);
@@ -1340,7 +1619,9 @@ export function createLocalSourcesManager(deps) {
         downloadLocalFile,
         downloadAllLocalSources,
         restoreLocalFile,
+        updateLocalFileContent,
         createLocalFileAt,
+        createLocalDirectoryAt,
         renameLocalPath,
         deleteLocalPath,
         clearLocalSources,

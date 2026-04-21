@@ -13,29 +13,24 @@ export function buildWorkspaceTree(localSources = [], options = {}) {
     const visibleNodePaths = [];
 
     visibleSources.forEach((source) => {
+        const rootPath = String(source.rootPath || `local/${source.label}/`);
         const root = {
             key: `source:${source.sourceId}`,
             type: 'dir',
             label: source.label,
             sourceId: source.sourceId,
-            path: `local/${source.label}/`,
+            path: rootPath,
             children: [],
             modified: false,
         };
         visibleNodePaths.push(root.path);
         const dirIndex = new Map([[root.key, root]]);
 
-        source.files.forEach((file) => {
-            const modified = isModifiedFile(file);
-            if (modifiedOnly && !modified) return;
-            const searchText = `${source.label}/${file.relativePath}`.toLowerCase();
-            if (searchQuery && !searchText.includes(searchQuery)) return;
-
-            const segments = file.relativePath.split('/').filter(Boolean);
+        const ensureDirectoryNode = (relativeDirectoryPath) => {
+            const segments = String(relativeDirectoryPath || '').split('/').filter(Boolean);
             let parent = root;
             let parentKey = root.key;
-
-            segments.slice(0, -1).forEach((segment, index) => {
+            segments.forEach((segment, index) => {
                 const nextKey = `${parentKey}/dir:${segments.slice(0, index + 1).join('/')}`;
                 if (!dirIndex.has(nextKey)) {
                     const nextNode = {
@@ -43,7 +38,7 @@ export function buildWorkspaceTree(localSources = [], options = {}) {
                         type: 'dir',
                         label: segment,
                         sourceId: source.sourceId,
-                        path: `local/${source.label}/${segments.slice(0, index + 1).join('/')}/`,
+                        path: `${rootPath}${segments.slice(0, index + 1).join('/')}/`,
                         children: [],
                         modified: false,
                     };
@@ -54,6 +49,24 @@ export function buildWorkspaceTree(localSources = [], options = {}) {
                 parent = dirIndex.get(nextKey);
                 parentKey = nextKey;
             });
+            return parent;
+        };
+
+        (Array.isArray(source.directories) ? source.directories : []).forEach((directoryPath) => {
+            const normalizedDirectoryPath = String(directoryPath || '').trim();
+            if (!normalizedDirectoryPath) return;
+            if (searchQuery && !`${source.label}/${normalizedDirectoryPath}`.toLowerCase().includes(searchQuery)) return;
+            ensureDirectoryNode(normalizedDirectoryPath);
+        });
+
+        source.files.forEach((file) => {
+            const modified = isModifiedFile(file);
+            if (modifiedOnly && !modified) return;
+            const searchText = `${source.label}/${file.relativePath}`.toLowerCase();
+            if (searchQuery && !searchText.includes(searchQuery)) return;
+
+            const segments = file.relativePath.split('/').filter(Boolean);
+            const parent = ensureDirectoryNode(segments.slice(0, -1).join('/'));
 
             parent.children.push({
                 key: `file:${file.path}`,
@@ -87,12 +100,7 @@ export function buildWorkspaceTree(localSources = [], options = {}) {
         };
 
         root.modified = markModifiedDirs(root);
-        if (!root.children.length) return;
-        if (selectedSourceId === 'all') {
-            rootNodes.push(root);
-            return;
-        }
-        rootNodes.push(...root.children);
+        rootNodes.push(root);
     });
 
     return {
