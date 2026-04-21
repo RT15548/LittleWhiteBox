@@ -1,5 +1,5 @@
 import { zipSync, strToU8 } from '../../../libs/fflate.mjs';
-import { getPathExtension, isSupportedPublicTextPath } from '../shared/public-text-file-types.js';
+import { isSupportedPublicTextPath } from '../shared/public-text-file-types.js';
 import { buildWorkspaceTree, collectDirectoryExpansionKeys } from './local-workspace-tree.js';
 import {
     renderWorkspace as renderWorkspaceUi,

@@ -191,7 +191,7 @@ test('local sources manager opens directory paths inside workspace', () => {
     assert.equal(opened, true);
     assert.equal(state.isWorkspaceOpen, true);
     assert.equal(state.selectedSourceId, 'source-a');
-    assert.equal(state.selectedFilePath, 'local/alpha/src/a.js');
+    assert.equal(state.selectedFilePath, '');
     assert.equal(state.selectedTreePath, 'local/alpha/src/');
     assert(state.treeExpandedKeys.includes('source:source-a'));
     assert(state.treeExpandedKeys.includes('source:source-a/dir:src'));

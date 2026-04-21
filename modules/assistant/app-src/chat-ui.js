@@ -125,7 +125,7 @@ export function createChatUi(deps) {
             textNodes.push(node);
         }
 
-        const pathRegex = /local\/[^\s`"'<>，。；：！？（）()\[\]{}]+/g;
+        const pathRegex = /local\/[^\s`"'<>，。；：！？（）()[\]{}]+/g;
         textNodes.forEach((node) => {
             const text = String(node.nodeValue || '');
             let match = null;

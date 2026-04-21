@@ -1,14 +1,5 @@
 import { buildCodeRows, buildDiffRows } from './local-workspace-diff.js';
 
-function escapeHtml(text) {
-    return String(text || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
 function renderCodeRows(container, rows = [], options = {}) {
     container.replaceChildren();
     const mode = options.mode || 'current';
@@ -154,7 +145,12 @@ export function renderWorkspace(container, options = {}) {
 
     const headerInfo = document.createElement('div');
     headerInfo.className = 'xb-assistant-workspace-header-info';
-    headerInfo.innerHTML = `<strong>文件工作区</strong><span>${summary.sourceCount} 个源码源 · ${summary.fileCount} 个文件 · 已改 ${summary.modifiedFileCount} 个</span>`;
+    const headerTitle = document.createElement('strong');
+    headerTitle.textContent = '文件工作区';
+    const headerSummary = document.createElement('span');
+    headerSummary.textContent = `${summary.sourceCount} 个源码源 · ${summary.fileCount} 个文件 · 已改 ${summary.modifiedFileCount} 个`;
+    headerInfo.appendChild(headerTitle);
+    headerInfo.appendChild(headerSummary);
     header.appendChild(headerInfo);
 
     const headerActions = document.createElement('div');
@@ -288,10 +284,12 @@ export function renderWorkspace(container, options = {}) {
 
     const viewerInfo = document.createElement('div');
     viewerInfo.className = 'xb-assistant-workspace-viewer-info';
-    viewerInfo.innerHTML = `
-        <strong>${escapeHtml(selectedMatch.file.path)}</strong>
-        <span>${escapeHtml(selectedMatch.source.label)} · ${isModifiedFile(selectedMatch.file) ? '已修改' : '未修改'}</span>
-    `;
+    const viewerPath = document.createElement('strong');
+    viewerPath.textContent = selectedMatch.file.path;
+    const viewerMeta = document.createElement('span');
+    viewerMeta.textContent = `${selectedMatch.source.label} · ${isModifiedFile(selectedMatch.file) ? '已修改' : '未修改'}`;
+    viewerInfo.appendChild(viewerPath);
+    viewerInfo.appendChild(viewerMeta);
     viewerHeader.appendChild(viewerInfo);
 
     const viewerActions = document.createElement('div');

@@ -976,7 +976,6 @@ export async function runJavaScriptApi({
 } = {}) {
     const normalizedCode = String(code || '').trim();
     const normalizedPurpose = String(purpose || '').trim();
-    const normalizedSafety = String(safety || '').trim();
     const normalizedExpectedOutput = String(expectedOutput || '').trim();
     const declaredApiPaths = normalizeDeclaredApiPaths(apiPaths);
     const missingFields = [];

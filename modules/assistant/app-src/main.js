@@ -471,7 +471,6 @@ const {
     openWorkspace,
     closeWorkspace,
     toggleWorkspace,
-    selectWorkspaceFile,
     setWorkspaceWidth,
     renderWorkspace,
     ensureWorkspaceSelection,

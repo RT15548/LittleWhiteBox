@@ -84,8 +84,6 @@ export function renderAppChrome(root, state, options = {}) {
         renderAttachmentGallery = () => {},
         renderWorkspace = () => {},
         onRemoveDraftAttachment = () => {},
-        onOpenWorkspace = () => {},
-        onClearLocalSources = () => {},
     } = options;
 
     const sendButton = root.querySelector('#xb-assistant-send');
