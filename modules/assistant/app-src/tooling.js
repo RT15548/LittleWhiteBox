@@ -240,7 +240,7 @@ export const TOOL_DEFINITIONS = [
             parameters: {
                 type: 'object',
                 properties: {
-                    code: { type: 'string', description: 'Restricted JS code to execute. Use ctx / st directly and explicitly return the final result.' },
+                    code: { type: 'string', description: 'Execute JavaScript carefully and safely. Code must explicitly return the final result.' },
                     purpose: { type: 'string', description: 'What this code is intended to do.' },
                     apiPaths: {
                         type: 'array',
@@ -969,7 +969,11 @@ export function formatToolResultDisplay(message) {
             return {
                 summary: [
                     `技能已保存：${parsed.title || parsed.id || ''}`.trim(),
+                    parsed.summary ? `摘要：${parsed.summary}` : '',
                     parsed.filename ? `文件：${parsed.filename}` : '',
+                    Array.isArray(parsed.triggers) && parsed.triggers.length ? `触发词：${parsed.triggers.join(', ')}` : '',
+                    Array.isArray(parsed.slashTriggers) && parsed.slashTriggers.length ? `Slash：${parsed.slashTriggers.join(', ')}` : '',
+                    parsed.when_to_use ? `适用时机：${parsed.when_to_use}` : '',
                     parsed.enabled === false ? '状态：已保存但未启用' : '状态：已启用',
                     parsed.warning ? `提醒：${parsed.warning}` : '',
                 ].filter(Boolean).join('\n'),

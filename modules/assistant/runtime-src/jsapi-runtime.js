@@ -102,6 +102,7 @@ const MAX_OUTPUT_DEPTH = 3;
 const MAX_OUTPUT_ARRAY_ITEMS = 40;
 const MAX_OUTPUT_OBJECT_KEYS = 40;
 const MAX_OUTPUT_STRING_LENGTH = 4_000;
+const EXPERIMENTAL_FULL_JSAPI = true;
 
 function buildExecutionState(overrides = {}) {
     return {
@@ -784,6 +785,333 @@ function buildCalledApiSemantics(calledApis = [], manifest = {}) {
     );
 }
 
+function createExperimentalAnalysisState(manifest, declaredApiPaths) {
+    return {
+        manifest,
+        callablePaths: getCallablePaths(manifest),
+        scopes: [new Map()],
+        usedApis: new Set(),
+        calledApis: new Set(),
+        validationErrors: [],
+        hasExplicitReturn: false,
+        hasWriteSyntax: false,
+        hasInspectSyntax: false,
+        declaredApiPaths,
+    };
+}
+
+function addExperimentalBinding(name, state, originPath = '') {
+    if (!name) return;
+    currentScope(state).set(name, {
+        originPath: String(originPath || '').trim(),
+    });
+}
+
+function getExperimentalBinding(name, state) {
+    for (let index = state.scopes.length - 1; index >= 0; index -= 1) {
+        if (state.scopes[index].has(name)) {
+            return state.scopes[index].get(name) || {};
+        }
+    }
+    return null;
+}
+
+function withExperimentalScope(state, callback) {
+    pushScope(state);
+    try {
+        callback();
+    } finally {
+        popScope(state);
+    }
+}
+
+function normalizeExperimentalApiPath(pathText = '') {
+    const normalized = String(pathText || '').trim();
+    if (!normalized) return '';
+    if (normalized === 'getContext') return 'st.extensions.getContext';
+    return normalized;
+}
+
+function resolveExperimentalOriginPath(node, state) {
+    const current = unwrapChain(node);
+    if (!current) return '';
+
+    if (current.type === 'Identifier') {
+        if (current.name === 'ctx' || current.name === 'st') return current.name;
+        if (current.name === 'getContext') return 'st.extensions.getContext';
+        return String(getExperimentalBinding(current.name, state)?.originPath || '').trim();
+    }
+
+    if (current.type === 'MemberExpression') {
+        const propertySegment = current.computed
+            ? getStaticPropertySegment(current.property)
+            : current.property?.type === 'Identifier'
+                ? current.property.name
+                : null;
+        if (!propertySegment) return '';
+        const objectPath = resolveExperimentalOriginPath(current.object, state);
+        return objectPath ? `${objectPath}.${propertySegment}` : '';
+    }
+
+    if (current.type === 'CallExpression') {
+        const calleePath = normalizeExperimentalApiPath(resolveExperimentalOriginPath(current.callee, state));
+        if (calleePath === 'st.extensions.getContext') return 'ctx';
+        return calleePath;
+    }
+
+    return '';
+}
+
+function bindExperimentalPattern(pattern, originPath, state) {
+    if (!pattern) return;
+
+    if (pattern.type === 'Identifier') {
+        addExperimentalBinding(pattern.name, state, originPath);
+        return;
+    }
+
+    if (pattern.type === 'ObjectPattern') {
+        pattern.properties.forEach((property) => {
+            if (!property) return;
+            if (property.type === 'RestElement') {
+                bindExperimentalPattern(property.argument, '', state);
+                return;
+            }
+            const keyName = property.key?.type === 'Identifier'
+                ? property.key.name
+                : property.key?.type === 'Literal'
+                    ? String(property.key.value)
+                    : '';
+            const nextOrigin = originPath && keyName ? `${originPath}.${keyName}` : '';
+            bindExperimentalPattern(property.value, nextOrigin, state);
+        });
+        return;
+    }
+
+    if (pattern.type === 'ArrayPattern') {
+        pattern.elements.forEach((element) => bindExperimentalPattern(element, '', state));
+        return;
+    }
+
+    if (pattern.type === 'AssignmentPattern') {
+        bindExperimentalPattern(pattern.left, originPath, state);
+        return;
+    }
+
+    if (pattern.type === 'RestElement') {
+        bindExperimentalPattern(pattern.argument, '', state);
+    }
+}
+
+function maybeRegisterExperimentalApiUsage(pathText, state, { called = false, inspect = false } = {}) {
+    const normalized = normalizeExperimentalApiPath(pathText);
+    if (!normalized || (!normalized.startsWith('ctx') && !normalized.startsWith('st'))) {
+        return;
+    }
+    state.usedApis.add(normalized);
+    if (called) {
+        state.calledApis.add(normalized);
+    }
+    if (inspect) {
+        state.hasInspectSyntax = true;
+    }
+}
+
+function isExperimentalStateMutationTarget(node, state) {
+    const targetPath = normalizeExperimentalApiPath(resolveExperimentalOriginPath(node, state));
+    return targetPath.startsWith('ctx') || targetPath.startsWith('st');
+}
+
+function extractStaticMemberPath(node) {
+    const segments = extractStaticMemberSegments(node);
+    return Array.isArray(segments) && segments.length ? segments.join('.') : '';
+}
+
+function traverseExperimentalNode(node, state) {
+    const current = unwrapChain(node);
+    if (!current || typeof current !== 'object') return;
+
+    switch (current.type) {
+        case 'Program':
+            current.body.forEach((child) => traverseExperimentalNode(child, state));
+            return;
+        case 'BlockStatement':
+            withExperimentalScope(state, () => {
+                current.body.forEach((child) => traverseExperimentalNode(child, state));
+            });
+            return;
+        case 'FunctionDeclaration':
+        case 'FunctionExpression':
+        case 'ArrowFunctionExpression':
+            withExperimentalScope(state, () => {
+                if (current.type === 'FunctionDeclaration' && current.id?.type === 'Identifier') {
+                    addExperimentalBinding(current.id.name, state, '');
+                }
+                current.params.forEach((param) => bindExperimentalPattern(param, '', state));
+                traverseExperimentalNode(current.body, state);
+            });
+            return;
+        case 'VariableDeclaration':
+            current.declarations.forEach((declaration) => traverseExperimentalNode(declaration, state));
+            return;
+        case 'VariableDeclarator':
+            traverseExperimentalNode(current.init, state);
+            bindExperimentalPattern(current.id, resolveExperimentalOriginPath(current.init, state), state);
+            return;
+        case 'ReturnStatement':
+            state.hasExplicitReturn = true;
+            traverseExperimentalNode(current.argument, state);
+            return;
+        case 'ExpressionStatement':
+            traverseExperimentalNode(current.expression, state);
+            return;
+        case 'AssignmentExpression':
+            if (isExperimentalStateMutationTarget(current.left, state)) {
+                state.hasWriteSyntax = true;
+            }
+            traverseExperimentalNode(current.left, state);
+            traverseExperimentalNode(current.right, state);
+            bindExperimentalPattern(current.left, resolveExperimentalOriginPath(current.right, state), state);
+            return;
+        case 'UpdateExpression':
+        case 'UnaryExpression':
+            if (current.type === 'UpdateExpression' && isExperimentalStateMutationTarget(current.argument, state)) {
+                state.hasWriteSyntax = true;
+            }
+            if (current.operator === 'typeof') {
+                state.hasInspectSyntax = true;
+            }
+            traverseExperimentalNode(current.argument, state);
+            return;
+        case 'CallExpression': {
+            const calleePath = normalizeExperimentalApiPath(resolveExperimentalOriginPath(current.callee, state));
+            const staticCalleePath = extractStaticMemberPath(current.callee);
+            if (calleePath) {
+                maybeRegisterExperimentalApiUsage(calleePath, state, { called: true });
+            } else if (INSPECT_GLOBAL_MEMBER_CALLS.has(staticCalleePath)) {
+                state.hasInspectSyntax = true;
+            }
+            traverseExperimentalNode(current.callee, state);
+            current.arguments.forEach((argument) => traverseExperimentalNode(argument, state));
+            return;
+        }
+        case 'Identifier':
+        case 'MemberExpression': {
+            const originPath = resolveExperimentalOriginPath(current, state);
+            if (originPath) {
+                maybeRegisterExperimentalApiUsage(originPath, state);
+            }
+            if (current.type === 'MemberExpression') {
+                traverseExperimentalNode(current.object, state);
+                if (current.computed) {
+                    traverseExperimentalNode(current.property, state);
+                }
+            }
+            return;
+        }
+        case 'TryStatement':
+            traverseExperimentalNode(current.block, state);
+            if (current.handler) {
+                withExperimentalScope(state, () => {
+                    bindExperimentalPattern(current.handler.param, '', state);
+                    traverseExperimentalNode(current.handler.body, state);
+                });
+            }
+            traverseExperimentalNode(current.finalizer, state);
+            return;
+        case 'ForStatement':
+        case 'ForInStatement':
+        case 'ForOfStatement':
+        case 'WhileStatement':
+        case 'DoWhileStatement':
+            traverseExperimentalNode(current.init || current.left, state);
+            traverseExperimentalNode(current.test || current.right, state);
+            traverseExperimentalNode(current.update, state);
+            traverseExperimentalNode(current.body, state);
+            return;
+        default:
+            Object.keys(current).forEach((key) => {
+                if (key === 'type' || key === 'start' || key === 'end') return;
+                const value = current[key];
+                if (Array.isArray(value)) {
+                    value.forEach((item) => {
+                        if (item && typeof item === 'object') {
+                            traverseExperimentalNode(item, state);
+                        }
+                    });
+                    return;
+                }
+                if (value && typeof value === 'object') {
+                    traverseExperimentalNode(value, state);
+                }
+            });
+    }
+}
+
+function determineExperimentalRequestKind(state, manifest = {}) {
+    if (state.hasWriteSyntax) {
+        return JSAPI_REQUEST_KINDS.EFFECT;
+    }
+
+    let hasUnknownSemantic = false;
+    let hasEffectSemantic = false;
+
+    Array.from(state.calledApis).forEach((apiPath) => {
+        const semantic = getApiSemantic(apiPath, manifest);
+        if (!semantic) {
+            hasUnknownSemantic = true;
+            return;
+        }
+        if (EFFECT_API_SEMANTICS.has(semantic)) {
+            hasEffectSemantic = true;
+        }
+    });
+
+    if (hasEffectSemantic) return JSAPI_REQUEST_KINDS.EFFECT;
+    if (hasUnknownSemantic && state.calledApis.size) return JSAPI_REQUEST_KINDS.UNKNOWN;
+    if (state.hasInspectSyntax) return JSAPI_REQUEST_KINDS.INSPECT;
+    if (state.usedApis.size || state.calledApis.size) return JSAPI_REQUEST_KINDS.READ;
+    return JSAPI_REQUEST_KINDS.UNKNOWN;
+}
+
+function parseAndAnalyzeExperimentalCode(code, manifest, declaredApiPaths) {
+    const state = createExperimentalAnalysisState(manifest, declaredApiPaths);
+    let ast = null;
+
+    try {
+        ast = parse(`async function __xb__(ctx, st, getContext) {\n${code}\n}`, {
+            ecmaVersion: 'latest',
+            sourceType: 'script',
+        });
+    } catch (error) {
+        return {
+            usedApis: [],
+            calledApis: [],
+            hasWriteSyntax: false,
+            hasInspectSyntax: false,
+            requestKind: JSAPI_REQUEST_KINDS.UNKNOWN,
+            validationErrors: [`JS 语法解析失败：${error instanceof Error ? error.message : String(error || 'parse_error')}`],
+        };
+    }
+
+    const fnNode = ast.body.find((node) => node.type === 'FunctionDeclaration');
+    const statements = Array.isArray(fnNode?.body?.body) ? fnNode.body.body : [];
+    statements.forEach((statement) => traverseExperimentalNode(statement, state));
+
+    if (!state.hasExplicitReturn) {
+        state.validationErrors.push('code 必须显式 return 最终结果。');
+    }
+
+    return {
+        usedApis: Array.from(state.usedApis).sort((a, b) => a.localeCompare(b, 'en')),
+        calledApis: Array.from(state.calledApis).sort((a, b) => a.localeCompare(b, 'en')),
+        hasWriteSyntax: state.hasWriteSyntax === true,
+        hasInspectSyntax: state.hasInspectSyntax === true,
+        requestKind: determineExperimentalRequestKind(state, manifest),
+        validationErrors: Array.from(new Set(state.validationErrors)),
+    };
+}
+
 function parseAndValidateCode(code, manifest, declaredApiPaths) {
     const state = createValidationContext(manifest, declaredApiPaths);
     let ast = null;
@@ -841,7 +1169,9 @@ export function analyzeJavaScriptApiRequest({
 } = {}) {
     const normalizedCode = String(code || '').trim();
     const declaredApiPaths = normalizeDeclaredApiPaths(apiPaths);
-    const validation = parseAndValidateCode(normalizedCode, manifest, declaredApiPaths);
+    const validation = EXPERIMENTAL_FULL_JSAPI
+        ? parseAndAnalyzeExperimentalCode(normalizedCode, manifest, declaredApiPaths)
+        : parseAndValidateCode(normalizedCode, manifest, declaredApiPaths);
     return {
         requestKind: normalizeJsApiRequestKind(validation.requestKind),
         usedApis: Array.isArray(validation.usedApis) ? validation.usedApis : [],
@@ -960,7 +1290,12 @@ function normalizeExecutionOutput(value, limits = getOutputNormalizationLimits()
 
 async function executeValidatedCode(code, ctx, st) {
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-    const runner = new AsyncFunction('ctx', 'st', 'JSON', 'Math', 'Object', 'Array', `"use strict";\n${code}`);
+    const runner = EXPERIMENTAL_FULL_JSAPI
+        ? new AsyncFunction('ctx', 'st', 'getContext', `"use strict";\n${code}`)
+        : new AsyncFunction('ctx', 'st', 'JSON', 'Math', 'Object', 'Array', `"use strict";\n${code}`);
+    if (EXPERIMENTAL_FULL_JSAPI) {
+        return await runner(ctx, st, () => ctx);
+    }
     return await runner(ctx, st, JSON, Math, Object, Array);
 }
 
@@ -1008,7 +1343,7 @@ export async function runJavaScriptApi({
         apiPaths: declaredApiPaths,
         manifest,
     });
-    if (validation.requestKind === JSAPI_REQUEST_KINDS.EFFECT && !declaredApiPaths.length) {
+    if (!EXPERIMENTAL_FULL_JSAPI && validation.requestKind === JSAPI_REQUEST_KINDS.EFFECT && !declaredApiPaths.length) {
         return buildResult({
             code: normalizedCode,
             ok: false,
@@ -1037,7 +1372,9 @@ export async function runJavaScriptApi({
                 errorMessage: 'jsapi_validation_failed',
                 validationErrors: validation.validationErrors,
             }),
-            note: '代码未通过 JSAPI 受限语法或 API 边界校验。',
+            note: EXPERIMENTAL_FULL_JSAPI
+                ? '代码未通过实验版 JS 执行前校验。'
+                : '代码未通过 JSAPI 受限语法或 API 边界校验。',
             requestKind: validation.requestKind,
             usedApis: validation.usedApis,
             calledApis: validation.calledApis,
@@ -1045,7 +1382,9 @@ export async function runJavaScriptApi({
         });
     }
 
-    const unavailableApis = validation.usedApis.filter((item) => !apiPathExists(item, ctx, st));
+    const unavailableApis = EXPERIMENTAL_FULL_JSAPI
+        ? []
+        : validation.usedApis.filter((item) => !apiPathExists(item, ctx, st));
     if (unavailableApis.length) {
         return buildResult({
             code: normalizedCode,
@@ -1066,7 +1405,11 @@ export async function runJavaScriptApi({
     }
 
     try {
-        const result = await executeValidatedCode(normalizedCode, shallowFreeze(ctx), shallowFreeze(st));
+        const result = await executeValidatedCode(
+            normalizedCode,
+            EXPERIMENTAL_FULL_JSAPI ? ctx : shallowFreeze(ctx),
+            EXPERIMENTAL_FULL_JSAPI ? st : shallowFreeze(st),
+        );
         const outputLimits = getOutputNormalizationLimits(validation.requestKind);
         return buildResult({
             code: normalizedCode,

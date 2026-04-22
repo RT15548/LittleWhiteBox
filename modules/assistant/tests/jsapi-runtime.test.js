@@ -77,3 +77,24 @@ return c.variables.local.add('lwbtestadd', '测试');
     assert.deepEqual(calls, [['lwbtestadd', '测试']]);
     assert.deepEqual(result.calledApis, ['ctx.variables.local.add', 'st.extensions.getContext']);
 });
+
+test('experimental JSAPI analysis allows normal loop syntax for read-style code', () => {
+    const analysis = analyzeJavaScriptApiRequest({
+        code: `
+const ids = [];
+for (let index = 0; index < ctx.chat.length; index += 1) {
+    ids.push(ctx.chat[index]?.name || '');
+}
+return ids;
+        `,
+        manifest: {
+            allowedPaths: ['ctx', 'ctx.chat'],
+            callablePaths: [],
+            apiSemantics: {},
+        },
+    });
+
+    assert.deepEqual(analysis.validationErrors, []);
+    assert.equal(analysis.requestKind, 'read');
+    assert(analysis.usedApis.includes('ctx.chat'));
+});
