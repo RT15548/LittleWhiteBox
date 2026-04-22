@@ -9,13 +9,14 @@ import { postToIframe, isTrustedIframeEvent } from '../../core/iframe-messaging.
 import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.js';
 import { getDefaultApiPrefix, joinApiUrl, resolveApiBaseUrl } from '../openai-url-utils.js';
 import { formatOutlinePrompt } from '../story-outline/story-outline.js';
+import { shouldSendOnEnter } from '../../../../../../scripts/RossAscends-mods.js';
 import jsyaml from '../../libs/js-yaml.mjs';
 
 const EXT_NAME = 'ena-planner';
 const OVERLAY_ID = 'xiaobaix-ena-planner-overlay';
 const HTML_PATH = `${extensionFolderPath}/modules/ena-planner/ena-planner.html`;
 const VECTOR_RECALL_TIMEOUT_MS = 15000;
-const PLANNER_REQUEST_TIMEOUT_MS = 90000;
+const PLANNER_REQUEST_TIMEOUT_MS = 180000;
 
 /**
  * -------------------------
@@ -1315,7 +1316,7 @@ function installSendInterceptors() {
     sendKeydownHandler = (e) => {
         const ta = getSendTextarea();
         if (!ta || e.target !== ta) return;
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter' && !e.shiftKey && shouldSendOnEnter()) {
             if (!shouldInterceptNow()) return;
             e.preventDefault();
             e.stopImmediatePropagation();

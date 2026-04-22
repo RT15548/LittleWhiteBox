@@ -34,6 +34,7 @@ export const TOOL_DEFINITIONS = [
             description: [
                 'List files and directories inside a directory path.',
                 'Returns first-level entries only; does not recurse and does not read file contents.',
+                'Best for directory-level discovery and structural narrowing by path.',
                 'Works for indexed directories and `local/` workspace directories.',
             ].join('\n'),
             parameters: {
@@ -55,6 +56,7 @@ export const TOOL_DEFINITIONS = [
             description: [
                 'Fast file pattern matching tool for indexed files and `local/` workspace files.',
                 'Matches file paths only; does not inspect file contents.',
+                'Best for file discovery and path-level narrowing when you know a directory, extension, or naming pattern.',
                 'Supports a path scope so you can search inside one directory instead of the full workspace.',
             ].join('\n'),
             parameters: {
@@ -74,7 +76,9 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.GREP,
             description: [
                 'Fast content search tool for indexed files and `local/` workspace files.',
+                'It first uses indexed paths plus `local/` files as the candidate set, then searches the current live contents of those candidate files.',
                 'Uses regex search by default and returns matching files with line-level match details.',
+                'Best for content-level narrowing by keyword, symbol name, error text, or regex before reading files.',
                 'Supports both directory scope and file-pattern filtering so you can narrow searches before reading files.',
             ].join('\n'),
             parameters: {
@@ -105,6 +109,7 @@ export const TOOL_DEFINITIONS = [
             description: [
                 'Read a text file or directory using the current instance\'s live contents.',
                 'Supports indexed paths and `local/...` workspace paths.',
+                'For some explicit public file paths, direct live reads may still work even if the path is not in the index.',
                 'Returns numbered lines for files and plain entry names for directories; large reads include continuation hints.',
             ].join('\n'),
             parameters: {
@@ -146,7 +151,7 @@ export const TOOL_DEFINITIONS = [
             description: [
                 'Apply a structured patch to `local/` text files.',
                 'Use this for targeted edits, multi-file changes, adds, deletes, and renames inside the workspace.',
-                'Patch format uses Codex-style headers such as `*** Begin Patch`, `*** Update File: local/example.js`, `@@`, and `*** End Patch`.',
+                'Patch format uses structured headers such as `*** Begin Patch`, `*** Update File: local/example.js`, `@@`, and `*** End Patch`.',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -801,7 +806,7 @@ export function formatToolResultDisplay(message) {
             : parsed.requestKind === 'read'
                 ? '精确只读'
                 : parsed.requestKind === 'effect'
-                    ? '副作用'
+                    ? '执行操作'
                     : '未知';
         const lines = [
             `已执行 JS API：${parsed.code || ''}`,

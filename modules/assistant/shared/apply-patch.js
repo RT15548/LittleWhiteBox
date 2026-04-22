@@ -101,7 +101,7 @@ function parseUpdateFile(lines, startIndex) {
         });
     }
 
-    if (!hunks.length) createParseError(`update-file ${path} has no hunks`);
+    if (!hunks.length && !moveTo) createParseError(`update-file ${path} has no hunks`);
 
     return {
         operation: {

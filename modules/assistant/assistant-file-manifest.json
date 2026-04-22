@@ -1,13 +1,7 @@
 {
-  "generatedAt": "2026-04-22T06:26:44.889Z",
+  "generatedAt": "2026-04-22T09:03:05.015Z",
   "version": 1,
   "files": [
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/README.md",
-      "relativePath": "README.md",
-      "extension": ".md"
-    },
     {
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/bridges/call-generate-service.js",
@@ -103,12 +97,6 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/manifest.json",
       "relativePath": "manifest.json",
       "extension": ".json"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/ARCHITECTURE.md",
-      "relativePath": "modules/assistant/ARCHITECTURE.md",
-      "extension": ".md"
     },
     {
       "source": "littlewhitebox",
@@ -235,6 +223,12 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/tooling.js",
       "relativePath": "modules/assistant/app-src/tooling.js",
       "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/ARCHITECTURE.md",
+      "relativePath": "modules/assistant/ARCHITECTURE.md",
+      "extension": ".md"
     },
     {
       "source": "littlewhitebox",
@@ -436,12 +430,6 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/TAG编写指南.md",
-      "relativePath": "modules/novel-draw/TAG编写指南.md",
-      "extension": ".md"
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/cloud-presets.js",
       "relativePath": "modules/novel-draw/cloud-presets.js",
       "extension": ".js"
@@ -510,6 +498,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/prompts/top-system.md",
       "relativePath": "modules/novel-draw/prompts/top-system.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/TAG编写指南.md",
+      "relativePath": "modules/novel-draw/TAG编写指南.md",
       "extension": ".md"
     },
     {
@@ -919,6 +913,12 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/package.json",
       "relativePath": "package.json",
       "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/README.md",
+      "relativePath": "README.md",
+      "extension": ".md"
     },
     {
       "source": "littlewhitebox",
@@ -1426,24 +1426,6 @@
     },
     {
       "source": "sillytavern-public",
-      "publicPath": "scripts/BulkEditOverlay.js",
-      "relativePath": "scripts/BulkEditOverlay.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/PromptManager.js",
-      "relativePath": "scripts/PromptManager.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/RossAscends-mods.js",
-      "relativePath": "scripts/RossAscends-mods.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
       "publicPath": "scripts/a11y.js",
       "relativePath": "scripts/a11y.js",
       "extension": ".js"
@@ -1560,6 +1542,12 @@
       "source": "sillytavern-public",
       "publicPath": "scripts/bulk-edit.js",
       "relativePath": "scripts/bulk-edit.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/BulkEditOverlay.js",
+      "relativePath": "scripts/BulkEditOverlay.js",
       "extension": ".js"
     },
     {
@@ -2008,12 +1996,6 @@
     },
     {
       "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/quick-reply/src/ui/SettingsUi.js",
-      "relativePath": "scripts/extensions/quick-reply/src/ui/SettingsUi.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
       "publicPath": "scripts/extensions/quick-reply/src/ui/ctx/ContextMenu.js",
       "relativePath": "scripts/extensions/quick-reply/src/ui/ctx/ContextMenu.js",
       "extension": ".js"
@@ -2034,6 +2016,12 @@
       "source": "sillytavern-public",
       "publicPath": "scripts/extensions/quick-reply/src/ui/ctx/SubMenu.js",
       "relativePath": "scripts/extensions/quick-reply/src/ui/ctx/SubMenu.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/ui/SettingsUi.js",
+      "relativePath": "scripts/extensions/quick-reply/src/ui/SettingsUi.js",
       "extension": ".js"
     },
     {
@@ -2154,312 +2142,6 @@
       "source": "sillytavern-public",
       "publicPath": "scripts/extensions/stable-diffusion/style.css",
       "relativePath": "scripts/extensions/stable-diffusion/style.css",
-      "extension": ".css"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/LICENSE.txt",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/LICENSE.txt",
-      "extension": ".txt"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/README.md",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/README.md",
-      "extension": ".md"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/customIndependentFont.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/customIndependentFont.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/index.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/index.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/manifest.json",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/manifest.json",
-      "extension": ".json"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwChatFontImporter.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwChatFontImporter.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwCore.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwCore.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwFonts.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwFonts.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwLocaleData.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwLocaleData.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwSettingsUi.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwSettingsUi.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwState.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwState.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwUiDisplaySettingsTab.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwUiDisplaySettingsTab.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwUiFontSettingsTab.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwUiFontSettingsTab.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwUiHelpTab.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwUiHelpTab.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwUiImportTab.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwUiImportTab.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwUiTabs.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwUiTabs.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/nytwUtils.js",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/nytwUtils.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/settings.html",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/settings.html",
-      "extension": ".html"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/Ny-font-manager/style.css",
-      "relativePath": "scripts/extensions/third-party/Ny-font-manager/style.css",
-      "extension": ".css"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/RegexGlobalScriptsCollapser/README.md",
-      "relativePath": "scripts/extensions/third-party/RegexGlobalScriptsCollapser/README.md",
-      "extension": ".md"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/RegexGlobalScriptsCollapser/index.js",
-      "relativePath": "scripts/extensions/third-party/RegexGlobalScriptsCollapser/index.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/RegexGlobalScriptsCollapser/manifest.json",
-      "relativePath": "scripts/extensions/third-party/RegexGlobalScriptsCollapser/manifest.json",
-      "extension": ".json"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/RegexGlobalScriptsCollapser/style.css",
-      "relativePath": "scripts/extensions/third-party/RegexGlobalScriptsCollapser/style.css",
-      "extension": ".css"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/SillyTavern-ApiHub/README.md",
-      "relativePath": "scripts/extensions/third-party/SillyTavern-ApiHub/README.md",
-      "extension": ".md"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/SillyTavern-ApiHub/index.js",
-      "relativePath": "scripts/extensions/third-party/SillyTavern-ApiHub/index.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/SillyTavern-ApiHub/manifest.json",
-      "relativePath": "scripts/extensions/third-party/SillyTavern-ApiHub/manifest.json",
-      "extension": ".json"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/SillyTavern-ApiHub/settings.html",
-      "relativePath": "scripts/extensions/third-party/SillyTavern-ApiHub/settings.html",
-      "extension": ".html"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/SillyTavern-ApiHub/style.css",
-      "relativePath": "scripts/extensions/third-party/SillyTavern-ApiHub/style.css",
-      "extension": ".css"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/SillyTavern-ApiHub/url-utils.js",
-      "relativePath": "scripts/extensions/third-party/SillyTavern-ApiHub/url-utils.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/README.md",
-      "relativePath": "scripts/extensions/third-party/cocktail/README.md",
-      "extension": ".md"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/core/panel.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/core/panel.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/core/subpanels.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/core/subpanels.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/index.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/index.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/manifest.json",
-      "relativePath": "scripts/extensions/third-party/cocktail/manifest.json",
-      "extension": ".json"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/modules/auto-update-checker.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/modules/auto-update-checker.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/modules/chat-render-optimizer.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/modules/chat-render-optimizer.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/modules/chat-saving-unblocker.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/modules/chat-saving-unblocker.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/modules/html-render-cache.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/modules/html-render-cache.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/modules/preset-panel-optimizer.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/modules/preset-panel-optimizer.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/modules/regex-drag-optimizer.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/modules/regex-drag-optimizer.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/modules/regex-refresh-optimizer.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/modules/regex-refresh-optimizer.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/modules/startup-optimizer.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/modules/startup-optimizer.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/modules/ui-animation-optimizer.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/modules/ui-animation-optimizer.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/modules/worldinfo-drag-optimizer.js",
-      "relativePath": "scripts/extensions/third-party/cocktail/modules/worldinfo-drag-optimizer.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/cocktail/style.css",
-      "relativePath": "scripts/extensions/third-party/cocktail/style.css",
-      "extension": ".css"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/noass/README.md",
-      "relativePath": "scripts/extensions/third-party/noass/README.md",
-      "extension": ".md"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/noass/index.js",
-      "relativePath": "scripts/extensions/third-party/noass/index.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/noass/manifest.json",
-      "relativePath": "scripts/extensions/third-party/noass/manifest.json",
-      "extension": ".json"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/noass/new_set_popup.html",
-      "relativePath": "scripts/extensions/third-party/noass/new_set_popup.html",
-      "extension": ".html"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/noass/settings.html",
-      "relativePath": "scripts/extensions/third-party/noass/settings.html",
-      "extension": ".html"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/third-party/noass/styles.css",
-      "relativePath": "scripts/extensions/third-party/noass/styles.css",
       "extension": ".css"
     },
     {
@@ -2650,15 +2332,15 @@
     },
     {
       "source": "sillytavern-public",
-      "publicPath": "scripts/extensions/tts/lib/README.md",
-      "relativePath": "scripts/extensions/tts/lib/README.md",
-      "extension": ".md"
-    },
-    {
-      "source": "sillytavern-public",
       "publicPath": "scripts/extensions/tts/lib/pcm-processor.js",
       "relativePath": "scripts/extensions/tts/lib/pcm-processor.js",
       "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/lib/README.md",
+      "relativePath": "scripts/extensions/tts/lib/README.md",
+      "extension": ".md"
     },
     {
       "source": "sillytavern-public",
@@ -3034,6 +2716,12 @@
     },
     {
       "source": "sillytavern-public",
+      "publicPath": "scripts/PromptManager.js",
+      "relativePath": "scripts/PromptManager.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
       "publicPath": "scripts/reasoning.js",
       "relativePath": "scripts/reasoning.js",
       "extension": ".js"
@@ -3042,6 +2730,12 @@
       "source": "sillytavern-public",
       "publicPath": "scripts/request-compression.js",
       "relativePath": "scripts/request-compression.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/RossAscends-mods.js",
+      "relativePath": "scripts/RossAscends-mods.js",
       "extension": ".js"
     },
     {
@@ -3472,12 +3166,6 @@
     },
     {
       "source": "sillytavern-public",
-      "publicPath": "scripts/templates/macros.html",
-      "relativePath": "scripts/templates/macros.html",
-      "extension": ".html"
-    },
-    {
-      "source": "sillytavern-public",
       "publicPath": "scripts/templates/masterExport.html",
       "relativePath": "scripts/templates/masterExport.html",
       "extension": ".html"
@@ -3694,8 +3382,20 @@
     },
     {
       "source": "sillytavern-public",
+      "publicPath": "scripts/util/showdown-patch.js",
+      "relativePath": "scripts/util/showdown-patch.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
       "publicPath": "scripts/util/SimpleMutex.js",
       "relativePath": "scripts/util/SimpleMutex.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/util/stream-fadein.js",
+      "relativePath": "scripts/util/stream-fadein.js",
       "extension": ".js"
     },
     {
@@ -3708,18 +3408,6 @@
       "source": "sillytavern-public",
       "publicPath": "scripts/util/ThemeGenerator.js",
       "relativePath": "scripts/util/ThemeGenerator.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/util/showdown-patch.js",
-      "relativePath": "scripts/util/showdown-patch.js",
-      "extension": ".js"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "scripts/util/stream-fadein.js",
-      "relativePath": "scripts/util/stream-fadein.js",
       "extension": ".js"
     },
     {

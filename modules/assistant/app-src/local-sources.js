@@ -1,9 +1,6 @@
 import { zipSync, strToU8 } from '../../../libs/fflate.mjs';
 import { isSupportedPublicTextPath } from '../shared/public-text-file-types.js';
 import { buildWorkspaceTree, collectDirectoryExpansionKeys } from './local-workspace-tree.js';
-import {
-    renderWorkspace as renderWorkspaceUi,
-} from './local-workspace-ui.js';
 
 const LOCAL_SOURCE_PREFIX = 'local/';
 const LOCAL_SOURCE_FILE_KIND = 'session-local-source';
@@ -199,6 +196,17 @@ function summarizeImportResult({ importedSources, importedFiles, rejectedFiles, 
     return parts.join('，');
 }
 
+function resolveImportedWorkspaceTarget(importedSources = []) {
+    const normalizedSources = normalizeLocalSources(importedSources);
+    if (!normalizedSources.length) return '';
+    const firstSource = normalizedSources[0];
+    if (!firstSource) return '';
+    if (normalizedSources.length === 1 && Array.isArray(firstSource.files) && firstSource.files.length === 1) {
+        return String(firstSource.files[0]?.path || '').trim();
+    }
+    return String(firstSource.rootPath || firstSource.files?.[0]?.path || LOCAL_SOURCE_PREFIX).trim();
+}
+
 function waitForNextFrame() {
     return new Promise((resolve) => {
         if (typeof requestAnimationFrame === 'function') {
@@ -234,6 +242,19 @@ function buildLocalSourceZip(source) {
         entries[file.relativePath || file.name || 'untitled.txt'] = strToU8(typeof file.content === 'string' ? file.content : '');
     });
     return zipSync(entries, { level: 1 });
+}
+
+export function buildLocalSourcesArchiveEntries(localSources = []) {
+    const entries = {};
+    normalizeLocalSources(localSources).forEach((source) => {
+        collectSourceDirectoryPaths(source).forEach((directoryPath) => {
+            entries[`${String(source.rootPath || LOCAL_SOURCE_PREFIX)}${directoryPath}/`] = new Uint8Array();
+        });
+        source.files.forEach((file) => {
+            entries[file.path] = strToU8(typeof file.content === 'string' ? file.content : '');
+        });
+    });
+    return entries;
 }
 
 async function readFileAsText(file, options = {}) {
@@ -768,6 +789,7 @@ export function createLocalSourcesManager(deps) {
         onWorkspaceClosed,
         onWorkspaceSelectionChanged,
         post,
+        renderWorkspaceUi = () => {},
     } = deps;
     let workspaceUiPersistTimer = 0;
     let workspaceContentFlushTimer = 0;
@@ -1132,6 +1154,10 @@ export function createLocalSourcesManager(deps) {
                     duplicateFiles,
                 }),
             );
+            const autoOpenTarget = resolveImportedWorkspaceTarget(importedSources);
+            if (autoOpenTarget) {
+                openWorkspace(autoOpenTarget);
+            }
             return result;
         } catch (error) {
             showToast?.(`导入到工作区失败：${String(error?.message || error || 'unknown_error')}`);
@@ -1185,22 +1211,10 @@ export function createLocalSourcesManager(deps) {
             return false;
         }
 
-        const entries = {};
-        normalizedSources.forEach((source) => {
-            collectSourceDirectoryPaths(source).forEach((directoryPath) => {
-                entries[`${sanitizeLabel(source.label, 'source')}/${directoryPath}/`] = new Uint8Array();
-            });
-            source.files.forEach((file) => {
-                const relativePath = file.relativePath || file.name || 'untitled.txt';
-                entries[`${sanitizeLabel(source.label, 'source')}/${relativePath}`] = strToU8(
-                    typeof file.content === 'string' ? file.content : '',
-                );
-            });
-        });
-
+        const entries = buildLocalSourcesArchiveEntries(normalizedSources);
         const zipBytes = zipSync(entries, { level: 1 });
         const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        const zipName = `local-sources-${stamp}.zip`;
+        const zipName = `local-workspace-${stamp}.zip`;
         downloadBlob(new Blob([zipBytes], { type: 'application/zip' }), zipName);
         showToast?.(`已下载 ${zipName}`);
         return true;

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { buildDiffRows } from '../app-src/local-workspace-diff.js';
 import { buildWorkspaceTree, collectDirectoryExpansionKeys } from '../app-src/local-workspace-tree.js';
 import {
+    buildLocalSourcesArchiveEntries,
     createLocalSourcesManager,
     normalizeLocalSources,
     summarizeLocalSources,
@@ -350,6 +351,52 @@ test('buildWorkspaceTree flattens local root children into the visible root', ()
     assert.equal(tree.nodes[0].type, 'dir');
     assert.equal(tree.nodes[1].type, 'file');
     assert.equal(tree.nodes[2].type, 'file');
+});
+
+test('buildLocalSourcesArchiveEntries preserves real workspace paths in zip entries', () => {
+    const sources = normalizeLocalSources([
+        {
+            sourceId: 'root',
+            label: 'local',
+            rootPath: 'local/',
+            directories: ['docs'],
+            files: [
+                {
+                    path: 'local/a.txt',
+                    relativePath: 'a.txt',
+                    name: 'a.txt',
+                    content: 'A',
+                    originalContent: 'A',
+                },
+            ],
+        },
+        {
+            sourceId: 'alpha',
+            label: 'alpha',
+            rootPath: 'local/alpha/',
+            directories: ['src'],
+            files: [
+                {
+                    path: 'local/alpha/src/index.js',
+                    relativePath: 'src/index.js',
+                    name: 'index.js',
+                    content: 'export default 1;',
+                    originalContent: 'export default 1;',
+                },
+            ],
+        },
+    ]);
+
+    const entries = buildLocalSourcesArchiveEntries(sources);
+    assert.deepEqual(
+        Object.keys(entries).sort(),
+        [
+            'local/a.txt',
+            'local/alpha/src/',
+            'local/alpha/src/index.js',
+            'local/docs/',
+        ],
+    );
 });
 
 test('local sources manager can update workspace file content directly', () => {

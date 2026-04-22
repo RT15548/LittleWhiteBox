@@ -272,7 +272,7 @@ export function createChatUi(deps) {
         const formatJsApiRequestKind = (value) => {
             if (value === 'inspect') return '探索只读';
             if (value === 'read') return '精确只读';
-            if (value === 'effect') return '副作用';
+            if (value === 'effect') return '执行操作';
             return '未知';
         };
 
@@ -333,8 +333,8 @@ export function createChatUi(deps) {
                         : approvalRequest.status === 'cancelled'
                             ? '本轮请求已终止，这段 JS API 代码未执行。'
                             : approvalRequest.requestKind === 'unknown'
-                                ? '这次请求的性质未能明确判断，按副作用请求处理；点“是”后才会执行。'
-                                : '这是副作用 JS API 请求；点“是”后才会真正执行。')
+                                ? '这次请求的性质未能明确判断，按执行操作请求处理；点“是”后才会执行。'
+                                : '这是执行操作 JS API 请求；点“是”后才会真正执行。')
                 : (approvalRequest.status === 'approved'
                     ? '已同意，命令已进入执行流程。'
                     : approvalRequest.status === 'declined'

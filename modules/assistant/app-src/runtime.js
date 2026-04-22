@@ -712,7 +712,15 @@ export function createAssistantRuntime(deps) {
             );
             if (desiredArchivedTurnCount > state.archivedTurnCount) {
                 const turnsToArchive = turns.slice(state.archivedTurnCount, desiredArchivedTurnCount);
-                await summarizeArchivedTurns(adapter, turnsToArchive, signal);
+                const previousProgressLabel = state.progressLabel;
+                state.progressLabel = '总结中';
+                render();
+                try {
+                    await summarizeArchivedTurns(adapter, turnsToArchive, signal);
+                } finally {
+                    state.progressLabel = previousProgressLabel || '生成中';
+                    render();
+                }
                 state.archivedTurnCount = desiredArchivedTurnCount;
                 pruneArchivedTurnsFromState();
                 persistSession();

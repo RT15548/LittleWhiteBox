@@ -26,6 +26,7 @@ import { createAttachmentsManager } from './attachments.js';
 import { renderAppChrome, renderContextHint } from './app-chrome.js';
 import { buildAppMarkup as buildAssistantAppMarkup } from './app-shell.js';
 import { createLocalSourcesManager } from './local-sources.js';
+import { renderWorkspace as renderWorkspaceUi } from './local-workspace-ui.js';
 import { createSettingsPanel } from './settings-panel.js';
 import { createChatUi } from './chat-ui.js';
 import { injectAssistantStyles } from './styles.js';
@@ -470,6 +471,7 @@ const localSourcesManager = createLocalSourcesManager({
         renderContextHint(document.getElementById(ROOT_ID), state);
     },
     post,
+    renderWorkspaceUi,
 });
 
 const {
@@ -589,7 +591,23 @@ function getInjectedSystemPrompt() {
     const identityContent = String(state.runtime?.identityContent || '').trim();
     const skillsPromptSummary = String(state.runtime?.skillsPromptSummary || '').trim();
     const permissionPrompt = buildPermissionModePrompt(state.config?.permissionMode);
-    return [SYSTEM_PROMPT, permissionPrompt, skillsPromptSummary, identityContent].filter(Boolean).join('\n\n');
+    const sections = [SYSTEM_PROMPT];
+    if (permissionPrompt) {
+        sections.push(permissionPrompt);
+    }
+    if (skillsPromptSummary) {
+        sections.push([
+            '# Injected Skills Summary',
+            skillsPromptSummary,
+        ].join('\n'));
+    }
+    if (identityContent) {
+        sections.push([
+            '# Injected Identity Memory',
+            identityContent,
+        ].join('\n'));
+    }
+    return sections.filter(Boolean).join('\n\n');
 }
 
 function trimContextSnippet(text, limit = 600) {

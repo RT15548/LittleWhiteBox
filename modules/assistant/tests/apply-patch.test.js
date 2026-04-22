@@ -26,6 +26,21 @@ test('parseApplyPatch parses add, update, move and delete operations', () => {
     assert.equal(parsed.operations[2].type, 'delete');
 });
 
+test('parseApplyPatch allows rename-only update operations', () => {
+    const patch = [
+        '*** Begin Patch',
+        '*** Update File: local/demo/app.js',
+        '*** Move to: local/demo/main.js',
+        '*** End Patch',
+    ].join('\n');
+
+    const parsed = parseApplyPatch(patch);
+    assert.equal(parsed.operations.length, 1);
+    assert.equal(parsed.operations[0].type, 'update');
+    assert.equal(parsed.operations[0].moveTo, 'local/demo/main.js');
+    assert.deepEqual(parsed.operations[0].hunks, []);
+});
+
 test('applyPatchUpdateToText applies multiple hunks in sequence', () => {
     const original = [
         'export function one() {',

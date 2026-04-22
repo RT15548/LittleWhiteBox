@@ -388,6 +388,7 @@ function findLocalSourceFileByPath(publicPath, localSources = localSourcesCache)
 function normalizeLocalDirectoryPath(rawPath) {
     const normalized = String(rawPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
     if (!normalized.startsWith('local/') || normalized.includes('..')) return '';
+    if (normalized === 'local') return 'local/';
     const segments = normalized.split('/').filter(Boolean);
     if (segments.length < 2) return '';
     return `${normalized}/`;
@@ -397,6 +398,14 @@ function findLocalDirectoryByPath(publicPath, localSources = localSourcesCache) 
     const normalizedDirectoryPath = normalizeLocalDirectoryPath(publicPath);
     if (!normalizedDirectoryPath) return null;
     const normalizedSources = normalizeLocalSourcesSnapshot(localSources);
+    if (normalizedDirectoryPath === 'local/') {
+        return {
+            path: 'local/',
+            files: getLocalSourceFiles(localSources),
+            directories: normalizedSources.map((source) => String(source.rootPath || '')).filter(Boolean),
+            source: null,
+        };
+    }
     for (const source of normalizedSources) {
         const sourceRootPath = String(source.rootPath || '');
         if (!normalizedDirectoryPath.startsWith(sourceRootPath)) continue;
@@ -1434,6 +1443,19 @@ function buildDirectoryItems(files, directoryPath, localSources = localSourcesCa
     return Array.from(entryMap.values()).sort((a, b) => a.publicPath.localeCompare(b.publicPath, 'zh-CN'));
 }
 
+function directoryExistsAtPath(directoryPath, files, localSources = localSourcesCache) {
+    const normalizedDirectoryPath = normalizeIndexedDirectoryPath(directoryPath);
+    if (!normalizedDirectoryPath) return false;
+    if (normalizedDirectoryPath === 'local/') return true;
+    if (files.some((entry) => String(entry.publicPath || '').startsWith(normalizedDirectoryPath))) {
+        return true;
+    }
+    if (normalizedDirectoryPath.startsWith('local/')) {
+        return !!findLocalDirectoryByPath(normalizedDirectoryPath, localSources);
+    }
+    return false;
+}
+
 function truncateReadLine(line = '') {
     const text = String(line ?? '');
     if (text.length <= MAX_READ_LINE_CHARS) return text;
@@ -1540,8 +1562,18 @@ async function listDirectory(args = {}, options = {}) {
     const offset = Math.max(1, Math.trunc(Number(args.offset) || 1));
     const limit = Math.max(1, Math.min(Number(args.limit) || 100, 300));
     const files = getAllIndexedFiles(manifest, options.localSources);
+    const directoryExists = directoryExistsAtPath(directoryPath, files, options.localSources);
     const items = buildDirectoryItems(files, directoryPath, options.localSources);
-    if (items.length > 0 && offset > items.length) {
+    if (!items.length && !directoryExists) {
+        return {
+            ok: false,
+            error: 'directory_not_found',
+            path: directoryPath,
+            message: `找不到目录：${directoryPath}`,
+            suggestions: findPathSuggestions(directoryPath, files),
+        };
+    }
+    if ((items.length ? offset > items.length : offset > 1)) {
         return {
             ok: false,
             error: 'list_offset_out_of_range',
@@ -1634,6 +1666,7 @@ async function readFile(args = {}, options = {}) {
     const indexedFiles = getAllIndexedFiles(manifest, options.localSources);
     const directoryPath = normalizeIndexedDirectoryPath(targetPath);
     const directoryItems = buildDirectoryItems(indexedFiles, directoryPath || targetPath, options.localSources);
+    const directoryExists = directoryExistsAtPath(directoryPath || targetPath, indexedFiles, options.localSources);
     const requestedOffset = Math.max(1, Math.trunc(Number(args.offset ?? args.startLine) || 1));
     const requestedLimit = resolveReadLimit(args.limit);
     const entry = indexedFiles.find((item) => item.publicPath === targetPath)
@@ -1645,17 +1678,17 @@ async function readFile(args = {}, options = {}) {
                 extension: pathExtension(directReadablePath),
             }
             : null);
-    if (!entry && directoryItems.length) {
-        if (requestedOffset > directoryItems.length) {
+    if (!entry && directoryExists) {
+        if ((directoryItems.length ? requestedOffset > directoryItems.length : requestedOffset > 1)) {
             return buildReadErrorResult('read_offset_out_of_range', directoryPath || normalizeIndexedDirectoryPath(targetPath), {
                 message: `offset ${requestedOffset} 超出目录范围；当前目录共有 ${directoryItems.length} 项。`,
                 entryCount: directoryItems.length,
                 offset: requestedOffset,
             });
         }
-        const startEntry = Math.min(requestedOffset, directoryItems.length || 1);
-        const endEntry = Math.min(directoryItems.length, startEntry + requestedLimit - 1);
-        const items = directoryItems.slice(startEntry - 1, endEntry);
+        const startEntry = directoryItems.length ? Math.min(requestedOffset, directoryItems.length) : 0;
+        const endEntry = directoryItems.length ? Math.min(directoryItems.length, startEntry + requestedLimit - 1) : 0;
+        const items = directoryItems.slice(startEntry > 0 ? (startEntry - 1) : 0, endEntry);
         return {
             path: directoryPath || normalizeIndexedDirectoryPath(targetPath),
             entryType: 'directory',
@@ -1828,9 +1861,6 @@ async function applyLocalPatch(args = {}, options = {}) {
             throw new Error('local_file_not_found');
         }
 
-        const applied = applyPatchUpdateToText(existingEntry.content, operation.hunks, { path: sourcePath });
-        hunksApplied += applied.hunksApplied;
-
         let targetPath = sourcePath;
         if (operation.moveTo) {
             targetPath = normalizeWritableLocalPath(operation.moveTo);
@@ -1844,6 +1874,17 @@ async function applyLocalPatch(args = {}, options = {}) {
                 changes.push({ action: 'move', path: move.file.publicPath, fromPath: move.fromFile.publicPath, toPath: move.file.publicPath });
             }
         }
+
+        if (!operation.hunks.length) {
+            return;
+        }
+
+        const currentEntry = findLocalSourceFileByPath(targetPath, nextSources);
+        if (!currentEntry) {
+            throw new Error('local_file_not_found');
+        }
+        const applied = applyPatchUpdateToText(currentEntry.content, operation.hunks, { path: targetPath });
+        hunksApplied += applied.hunksApplied;
 
         const update = upsertLocalSourceFile(nextSources, targetPath, applied.content);
         nextSources = update.nextSources;
