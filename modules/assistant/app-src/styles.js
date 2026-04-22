@@ -510,18 +510,6 @@ export function injectAssistantStyles(rootId) {
             font: inherit;
             background: rgba(255, 255, 255, 0.92);
         }
-        .xb-assistant-workspace-scope {
-            display: inline-flex;
-            align-items: center;
-            min-height: 36px;
-            padding: 0 12px;
-            border: 1px solid rgba(27, 55, 88, 0.14);
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.92);
-            color: #1b3758;
-            font-size: 12px;
-            font-weight: 700;
-        }
         .xb-assistant-workspace-modified-toggle {
             display: inline-flex;
             align-items: center;
@@ -640,23 +628,40 @@ export function injectAssistantStyles(rootId) {
             backdrop-filter: blur(10px);
             z-index: 10;
         }
+        .xb-assistant-workspace-mobile-back {
+            display: none;
+            background: transparent;
+            border: none;
+            color: #1b3758;
+            cursor: pointer;
+            padding: 0;
+            margin-right: 8px;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+        }
         .xb-assistant-workspace-viewer-info {
+            display: flex;
+            align-items: center;
+            min-width: 0;
+        }
+        .xb-assistant-workspace-viewer-info-text {
             display: grid;
             gap: 4px;
             min-width: 0;
         }
-        .xb-assistant-workspace-viewer-info strong,
-        .xb-assistant-workspace-viewer-info span {
+        .xb-assistant-workspace-viewer-info-text strong,
+        .xb-assistant-workspace-viewer-info-text span {
             min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .xb-assistant-workspace-viewer-info strong {
+        .xb-assistant-workspace-viewer-info-text strong {
             color: #17304d;
             font-size: 13px;
         }
-        .xb-assistant-workspace-viewer-info span {
+        .xb-assistant-workspace-viewer-info-text span {
             color: #5e6f84;
             font-size: 12px;
         }
@@ -1563,14 +1568,16 @@ export function injectAssistantStyles(rootId) {
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                min-width: 56px;
-                min-height: 36px;
+                min-width: 0;
+                min-height: 40px;
                 padding: 0 14px;
-                border: 1px solid rgba(20, 32, 51, 0.14);
+                border: none;
                 border-radius: 999px;
-                background: rgba(255, 255, 255, 0.88);
-                color: #203249;
-                box-shadow: 0 8px 18px rgba(17, 31, 51, 0.10);
+                background: rgba(255, 255, 255, 0.74);
+                color: #1b3758;
+                font-size: 13px;
+                font-weight: 600;
+                box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.1);
                 white-space: nowrap;
             }
             .xb-assistant-compose {
@@ -1640,36 +1647,36 @@ export function injectAssistantStyles(rootId) {
             }
             .xb-assistant-workspace-backdrop {
                 display: block;
-                position: absolute;
+                position: fixed;
                 inset: 0;
                 background: rgba(15, 23, 35, 0.24);
                 backdrop-filter: blur(3px);
                 opacity: 0;
                 pointer-events: none;
                 transition: opacity 0.18s ease;
-                z-index: 10;
+                z-index: 40;
             }
             .xb-assistant-workspace-backdrop.is-open {
                 opacity: 1;
                 pointer-events: auto;
             }
             .xb-assistant-workspace {
-                position: absolute;
+                position: fixed;
                 top: 0;
                 right: 0;
                 bottom: 0;
-                width: min(100%, 620px);
-                z-index: 12;
-                transform: translateX(calc(100% + 16px));
-                transition: transform 0.2s ease;
+                width: 100%;
+                z-index: 41;
+                transform: translateX(100%);
+                transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             }
             .xb-assistant-workspace.is-open {
                 display: block;
                 transform: translateX(0);
             }
             .xb-assistant-workspace-panel {
-                border-radius: 22px;
-                box-shadow: 0 20px 48px rgba(17, 31, 51, 0.16);
+                border-radius: 0;
+                box-shadow: none;
             }
             .xb-assistant-workspace-header-button.is-icon {
                 min-width: 44px;
@@ -1681,12 +1688,45 @@ export function injectAssistantStyles(rootId) {
             }
             .xb-assistant-workspace-body {
                 grid-template-columns: minmax(0, 1fr);
+                grid-template-rows: minmax(0, 1fr);
+                height: 100%;
+                overflow: hidden;
+            }
+            .xb-assistant-workspace-nav,
+            .xb-assistant-workspace-viewer {
+                grid-column: 1 / 2;
+                grid-row: 1 / 2;
+                background: rgba(255, 255, 255, 0.98);
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+                max-height: none;
                 height: 100%;
             }
             .xb-assistant-workspace-nav {
-                max-height: 42%;
+                z-index: 2;
+                opacity: 1;
+                transform: translateX(0);
+                pointer-events: auto;
                 border-right: none;
-                border-bottom: 1px solid rgba(27, 55, 88, 0.08);
+                border-bottom: none;
+            }
+            .xb-assistant-workspace-viewer {
+                z-index: 3;
+                opacity: 0;
+                transform: translateX(50px);
+                pointer-events: none;
+            }
+            .xb-assistant-workspace-body.is-viewing .xb-assistant-workspace-nav {
+                opacity: 0;
+                transform: translateX(-50px);
+                pointer-events: none;
+            }
+            .xb-assistant-workspace-body.is-viewing .xb-assistant-workspace-viewer {
+                opacity: 1;
+                transform: translateX(0);
+                pointer-events: auto;
+            }
+            .xb-assistant-workspace-mobile-back {
+                display: inline-flex;
             }
             .xb-assistant-actions {
                 display: grid;

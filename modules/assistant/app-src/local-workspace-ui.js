@@ -349,11 +349,6 @@ export function renderWorkspace(container, options = {}) {
     navHeader.appendChild(navActions);
     filters.appendChild(navHeader);
 
-    const treeScope = document.createElement('div');
-    treeScope.className = 'xb-assistant-workspace-scope';
-    treeScope.textContent = '全部工作区根';
-    filters.appendChild(treeScope);
-
     const searchInput = document.createElement('input');
     searchInput.type = 'search';
     searchInput.className = 'xb-assistant-workspace-search';
@@ -470,12 +465,26 @@ export function renderWorkspace(container, options = {}) {
 
     const viewerInfo = document.createElement('div');
     viewerInfo.className = 'xb-assistant-workspace-viewer-info';
+
+    const mobileBackButton = document.createElement('button');
+    mobileBackButton.type = 'button';
+    mobileBackButton.className = 'xb-assistant-workspace-mobile-back is-icon';
+    mobileBackButton.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>';
+    mobileBackButton.title = '返回文件树';
+    mobileBackButton.addEventListener('click', () => {
+        body.classList.remove('is-viewing');
+    });
+    viewerInfo.appendChild(mobileBackButton);
+
     const viewerPath = document.createElement('strong');
     viewerPath.textContent = selectedMatch.file.path;
     const viewerMeta = document.createElement('span');
     viewerMeta.textContent = `${selectedMatch.source.label} · ${isModifiedFile(selectedMatch.file) ? '已修改' : '未修改'}`;
-    viewerInfo.appendChild(viewerPath);
-    viewerInfo.appendChild(viewerMeta);
+    const viewerInfoText = document.createElement('div');
+    viewerInfoText.className = 'xb-assistant-workspace-viewer-info-text';
+    viewerInfoText.appendChild(viewerPath);
+    viewerInfoText.appendChild(viewerMeta);
+    viewerInfo.appendChild(viewerInfoText);
     viewerHeader.appendChild(viewerInfo);
 
     const viewerActions = document.createElement('div');
