@@ -101,6 +101,7 @@ export function createSessionStore(deps) {
             fileSearchQuery: String(state.fileSearchQuery || ''),
             showModifiedOnly: !!state.showModifiedOnly,
             viewerMode: String(state.viewerMode || 'current'),
+            mobileWorkspacePane: String(state.mobileWorkspacePane || 'tree') === 'viewer' ? 'viewer' : 'tree',
             treeExpandedKeys: Array.isArray(state.treeExpandedKeys) ? state.treeExpandedKeys.map((item) => String(item || '')).filter(Boolean) : [],
             messages: activeMessages,
         };
@@ -122,6 +123,7 @@ export function createSessionStore(deps) {
                 fileSearchQuery: snapshot.fileSearchQuery,
                 showModifiedOnly: snapshot.showModifiedOnly,
                 viewerMode: snapshot.viewerMode,
+                mobileWorkspacePane: snapshot.mobileWorkspacePane,
                 treeExpandedKeys: snapshot.treeExpandedKeys,
             });
             await messagesTable.where('sessionId').equals(SESSION_ID).delete();
@@ -200,6 +202,7 @@ export function createSessionStore(deps) {
                 state.fileSearchQuery = '';
                 state.showModifiedOnly = false;
                 state.viewerMode = 'current';
+                state.mobileWorkspacePane = 'tree';
                 state.treeExpandedKeys = [];
                 return;
             }
@@ -226,6 +229,7 @@ export function createSessionStore(deps) {
             state.fileSearchQuery = String(session.fileSearchQuery || '');
             state.showModifiedOnly = !!session.showModifiedOnly;
             state.viewerMode = String(session.viewerMode || 'current');
+            state.mobileWorkspacePane = String(session.mobileWorkspacePane || 'tree') === 'viewer' ? 'viewer' : 'tree';
             state.treeExpandedKeys = Array.isArray(session.treeExpandedKeys)
                 ? session.treeExpandedKeys.map((item) => String(item || '')).filter(Boolean)
                 : [];
@@ -244,6 +248,7 @@ export function createSessionStore(deps) {
             state.fileSearchQuery = '';
             state.showModifiedOnly = false;
             state.viewerMode = 'current';
+            state.mobileWorkspacePane = 'tree';
             state.treeExpandedKeys = [];
         }
     }

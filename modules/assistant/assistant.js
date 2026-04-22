@@ -12,6 +12,7 @@ import { AssistantStorage } from "../../core/server-storage.js";
 import { createAssistantHostWindow } from "./assistant-host-window.js";
 import { TOOL_NAMES } from "./app-src/tooling.js";
 import { normalizeSlashSkillTrigger } from "./app-src/slash-command-policy.js";
+import { applyPatchUpdateToText, parseApplyPatch } from "./shared/apply-patch.js";
 import {
     DEFAULT_PRESET_NAME,
     buildDefaultPreset,
@@ -48,10 +49,13 @@ const EMPTY_SKILLS_CATALOG = Object.freeze({
 const MAX_SKILL_PROMPT_ITEMS = 20;
 const MAX_CONTENT_CACHE_ENTRIES = 48;
 const MAX_READ_FILE_BYTES = 100 * 1024;
-const MAX_READ_RETURN_CHARS = 24_000;
+const MAX_READ_RETURN_CHARS = 50 * 1024;
 const MAX_JSAPI_RETURN_CHARS = 50 * 1024;
-const DEFAULT_AUTO_READ_LINES = 220;
-const MAX_READ_RANGE_LINES = 400;
+const DEFAULT_AUTO_READ_LINES = 2000;
+const MAX_READ_RANGE_LINES = 2000;
+const MAX_READ_LINE_CHARS = 2000;
+const READ_LINE_TRUNCATION_SUFFIX = `... (line truncated to ${MAX_READ_LINE_CHARS} chars)`;
+const MAX_PATH_SUGGESTIONS = 3;
 const SERVER_FILE_KEY = 'settings';
 const CONFIG_VERSION = 1;
 
@@ -267,10 +271,11 @@ function normalizeLocalSourceFileEntry(file) {
     if (!publicPath.startsWith('local/') || publicPath.includes('..')) return null;
     const content = typeof file.content === 'string' ? file.content : '';
     const hasOriginalContent = Object.prototype.hasOwnProperty.call(file, 'originalContent');
+    const rootPath = normalizeLocalSourceRootPath(file.rootPath, file.label || publicPath.split('/')[1] || 'local');
     return {
         path: publicPath,
         publicPath,
-        relativePath: String(file.relativePath || publicPath.split('/').slice(2).join('/') || publicPath.split('/').pop() || '').trim(),
+        relativePath: String(file.relativePath || getRelativeLocalFilePath(publicPath) || publicPath.split('/').pop() || '').trim(),
         source: 'session-local-source',
         extension: getPathExtension(publicPath),
         sizeBytes: Math.max(0, Number(file.sizeBytes) || 0),
@@ -279,7 +284,64 @@ function normalizeLocalSourceFileEntry(file) {
             ? (file.originalContent === null ? null : typeof file.originalContent === 'string' ? file.originalContent : content)
             : content,
         name: String(file.name || publicPath.split('/').pop() || '').trim(),
+        rootPath,
     };
+}
+
+function normalizeLocalSourceRootPath(rootPath = '', fallbackLabel = 'source') {
+    const normalized = String(rootPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (normalized === 'local') return 'local/';
+    if (normalized.startsWith('local/') && !normalized.includes('..')) {
+        const segments = normalized.split('/').filter(Boolean);
+        if (segments.length >= 2) {
+            return `${normalized}/`;
+        }
+    }
+    const label = String(fallbackLabel || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') || 'source';
+    return `local/${label}/`;
+}
+
+function normalizeLocalSourceDirectory(directoryPath = '') {
+    const normalized = String(directoryPath || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    if (!normalized || normalized.includes('..')) return '';
+    return normalized;
+}
+
+function collectImplicitLocalDirectoryPaths(files = []) {
+    const paths = new Set();
+    files.forEach((file) => {
+        const segments = String(file?.relativePath || '').split('/').filter(Boolean).slice(0, -1);
+        segments.forEach((_, index) => {
+            paths.add(segments.slice(0, index + 1).join('/'));
+        });
+    });
+    return Array.from(paths).sort((left, right) => left.localeCompare(right, 'zh-CN'));
+}
+
+function collectLocalSourceDirectories(source = {}) {
+    const explicitDirectories = Array.isArray(source.directories)
+        ? source.directories.map(normalizeLocalSourceDirectory).filter(Boolean)
+        : [];
+    return Array.from(new Set([
+        ...explicitDirectories,
+        ...collectImplicitLocalDirectoryPaths(source.files || []),
+    ])).sort((left, right) => left.localeCompare(right, 'zh-CN'));
+}
+
+function getLocalSourceRootPathFromPath(publicPath = '') {
+    const normalized = String(publicPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (!normalized.startsWith('local/') || normalized.includes('..')) return '';
+    const segments = normalized.split('/').filter(Boolean);
+    if (segments.length < 2) return '';
+    if (segments.length === 2) return 'local/';
+    return `local/${segments[1]}/`;
+}
+
+function getRelativeLocalFilePath(publicPath = '') {
+    const normalized = String(publicPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    const rootPath = getLocalSourceRootPathFromPath(normalized);
+    if (!rootPath || !normalized.startsWith(rootPath)) return '';
+    return normalized.slice(rootPath.length);
 }
 
 function normalizeLocalSourcesSnapshot(localSources) {
@@ -290,15 +352,19 @@ function normalizeLocalSourcesSnapshot(localSources) {
             const sourceId = String(source.sourceId || '').trim();
             if (!sourceId) return null;
             const label = String(source.label || '').trim() || sourceId;
+            const rootPath = normalizeLocalSourceRootPath(source.rootPath, label);
             const files = Array.isArray(source.files)
-                ? source.files.map(normalizeLocalSourceFileEntry).filter(Boolean)
+                ? source.files.map((file) => normalizeLocalSourceFileEntry({ ...file, rootPath })).filter(Boolean)
                 : [];
-            if (!files.length) return null;
+            const directories = collectLocalSourceDirectories({ ...source, files });
+            if (!files.length && !directories.length && !rootPath) return null;
             return {
                 sourceId,
                 label,
+                rootPath,
                 importedAt: Number.isFinite(Number(source.importedAt)) ? Number(source.importedAt) : Date.now(),
                 files,
+                directories,
             };
         })
         .filter(Boolean);
@@ -330,12 +396,26 @@ function normalizeLocalDirectoryPath(rawPath) {
 function findLocalDirectoryByPath(publicPath, localSources = localSourcesCache) {
     const normalizedDirectoryPath = normalizeLocalDirectoryPath(publicPath);
     if (!normalizedDirectoryPath) return null;
-    const matchingFiles = getLocalSourceFiles(localSources).filter((entry) => entry.publicPath.startsWith(normalizedDirectoryPath));
-    if (!matchingFiles.length) return null;
-    return {
-        path: normalizedDirectoryPath,
-        files: matchingFiles,
-    };
+    const normalizedSources = normalizeLocalSourcesSnapshot(localSources);
+    for (const source of normalizedSources) {
+        const sourceRootPath = String(source.rootPath || '');
+        if (!normalizedDirectoryPath.startsWith(sourceRootPath)) continue;
+        const relativeDirectoryPath = normalizedDirectoryPath.slice(sourceRootPath.length).replace(/\/+$/, '');
+        const matchingFiles = source.files.filter((entry) => entry.publicPath.startsWith(normalizedDirectoryPath));
+        const matchingDirectories = source.directories.filter((directory) => (
+            directory === relativeDirectoryPath || directory.startsWith(`${relativeDirectoryPath}/`)
+        ));
+        if (!matchingFiles.length && relativeDirectoryPath && !matchingDirectories.length && !source.directories.includes(relativeDirectoryPath)) {
+            continue;
+        }
+        return {
+            path: normalizedDirectoryPath,
+            files: matchingFiles,
+            directories: matchingDirectories,
+            source,
+        };
+    }
+    return null;
 }
 
 function getWritableLocalPathError(rawPath) {
@@ -344,7 +424,7 @@ function getWritableLocalPathError(rawPath) {
     if (normalized.includes('..') || normalized.endsWith('/')) return 'local_path_required';
     if (!isSupportedPublicTextPath(normalized)) return 'unsupported_text_file';
     const segments = normalized.split('/').filter(Boolean);
-    if (segments.length < 3) return 'local_path_required';
+    if (segments.length < 2) return 'local_path_required';
     return '';
 }
 
@@ -359,15 +439,18 @@ function getLocalSourceLabelFromPath(publicPath = '') {
     return segments[1] || '';
 }
 
-function createLocalSourceSnapshot(sourceLabel, localSources = []) {
+function createLocalSourceSnapshot(sourceLabel, localSources = [], rootPath = '') {
     const normalizedLabel = String(sourceLabel || '').trim();
-    if (!normalizedLabel) {
+    const normalizedRootPath = normalizeLocalSourceRootPath(rootPath, normalizedLabel || 'local');
+    const fallbackLabel = normalizedRootPath === 'local/' ? 'local' : normalizedRootPath.split('/').filter(Boolean)[1] || 'source';
+    const finalizedLabel = normalizedLabel || fallbackLabel;
+    if (!finalizedLabel) {
         throw new Error('local_source_not_found');
     }
     const existingIds = new Set(
         normalizeLocalSourcesSnapshot(localSources).map((source) => String(source.sourceId || '').trim()).filter(Boolean),
     );
-    const baseId = `local:${normalizedLabel}`;
+    const baseId = normalizedRootPath === 'local/' ? 'local:root' : `local:${finalizedLabel}`;
     let sourceId = baseId;
     let suffix = 2;
     while (existingIds.has(sourceId)) {
@@ -376,9 +459,11 @@ function createLocalSourceSnapshot(sourceLabel, localSources = []) {
     }
     return {
         sourceId,
-        label: normalizedLabel,
+        label: finalizedLabel,
+        rootPath: normalizedRootPath,
         importedAt: Date.now(),
         files: [],
+        directories: [],
     };
 }
 
@@ -388,7 +473,8 @@ function buildLocalSourceFileEntry(publicPath, content = '', options = {}) {
         throw new Error(getWritableLocalPathError(publicPath));
     }
     const segments = normalizedPath.split('/').filter(Boolean);
-    const relativePath = segments.slice(2).join('/');
+    const rootPath = getLocalSourceRootPathFromPath(normalizedPath);
+    const relativePath = getRelativeLocalFilePath(normalizedPath);
     const normalizedContent = String(content || '');
     const originalContent = Object.prototype.hasOwnProperty.call(options, 'originalContent')
         ? options.originalContent
@@ -403,26 +489,8 @@ function buildLocalSourceFileEntry(publicPath, content = '', options = {}) {
         content: normalizedContent,
         originalContent,
         name: segments[segments.length - 1] || relativePath || 'untitled.txt',
+        rootPath,
     };
-}
-
-function countOccurrences(text = '', needle = '') {
-    if (!needle) return 0;
-    let count = 0;
-    let searchIndex = 0;
-    while (searchIndex <= text.length) {
-        const foundIndex = text.indexOf(needle, searchIndex);
-        if (foundIndex === -1) break;
-        count += 1;
-        searchIndex = foundIndex + needle.length;
-    }
-    return count;
-}
-
-function replaceFirstOccurrence(text = '', oldText = '', newText = '') {
-    const foundIndex = text.indexOf(oldText);
-    if (foundIndex === -1) return text;
-    return `${text.slice(0, foundIndex)}${newText}${text.slice(foundIndex + oldText.length)}`;
 }
 
 function upsertLocalSourceFile(localSources, publicPath, content) {
@@ -432,8 +500,9 @@ function upsertLocalSourceFile(localSources, publicPath, content) {
     }
 
     const normalizedSources = normalizeLocalSourcesSnapshot(localSources);
-    const sourceLabel = getLocalSourceLabelFromPath(normalizedPath);
-    if (!sourceLabel) {
+    const sourceRootPath = getLocalSourceRootPathFromPath(normalizedPath);
+    const sourceLabel = sourceRootPath === 'local/' ? 'local' : getLocalSourceLabelFromPath(normalizedPath);
+    if (!sourceRootPath) {
         throw new Error('local_source_not_found');
     }
 
@@ -441,7 +510,7 @@ function upsertLocalSourceFile(localSources, publicPath, content) {
     let fileExisted = false;
     let existingFile = null;
     const nextSources = normalizedSources.map((source) => {
-        if (source.label !== sourceLabel) return source;
+        if (source.rootPath !== sourceRootPath) return source;
         sourceFound = true;
         const nextFiles = source.files.map((file) => {
             if (file.publicPath !== normalizedPath) return file;
@@ -461,7 +530,7 @@ function upsertLocalSourceFile(localSources, publicPath, content) {
             : null,
     });
     const finalizedSources = nextSources.map((source) => {
-        if (source.label !== sourceLabel) return source;
+        if (source.rootPath !== sourceRootPath) return source;
         const nextFiles = source.files.map((file) => (
             file.publicPath === normalizedPath ? nextFile : file
         ));
@@ -479,12 +548,12 @@ function upsertLocalSourceFile(localSources, publicPath, content) {
         ? finalizedSources
         : [
             ...finalizedSources,
-            createLocalSourceSnapshot(sourceLabel, normalizedSources),
+            createLocalSourceSnapshot(sourceLabel, normalizedSources, sourceRootPath),
         ].sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-CN'));
 
     return {
         nextSources: finalizedWithSource.map((source) => {
-            if (source.label !== sourceLabel) return source;
+            if (source.rootPath !== sourceRootPath) return source;
             const nextFiles = source.files.map((file) => (
                 file.publicPath === normalizedPath ? nextFile : file
             ));
@@ -590,13 +659,14 @@ function moveLocalSourceFile(localSources, fromPath, toPath, options = {}) {
         throw new Error('local_destination_exists');
     }
 
-    const sourceLabel = getLocalSourceLabelFromPath(normalizedFromPath);
-    const destinationLabel = getLocalSourceLabelFromPath(normalizedToPath);
+    const sourceRootPath = getLocalSourceRootPathFromPath(normalizedFromPath);
+    const destinationRootPath = getLocalSourceRootPathFromPath(normalizedToPath);
+    const destinationLabel = destinationRootPath === 'local/' ? 'local' : getLocalSourceLabelFromPath(normalizedToPath);
     let destinationSourceFound = false;
     const intermediateSources = normalizedSources
         .map((source) => {
-            const isSourceRoot = source.label === sourceLabel;
-            const isDestinationRoot = source.label === destinationLabel;
+            const isSourceRoot = source.rootPath === sourceRootPath;
+            const isDestinationRoot = source.rootPath === destinationRootPath;
             if (isDestinationRoot) {
                 destinationSourceFound = true;
             }
@@ -618,13 +688,13 @@ function moveLocalSourceFile(localSources, fromPath, toPath, options = {}) {
         .filter(Boolean);
     const workingSources = destinationSourceFound
         ? intermediateSources
-        : [...intermediateSources, createLocalSourceSnapshot(destinationLabel, intermediateSources)];
+        : [...intermediateSources, createLocalSourceSnapshot(destinationLabel, intermediateSources, destinationRootPath)];
 
     const movedFile = buildLocalSourceFileEntry(normalizedToPath, sourceFile.content, {
         originalContent: sourceFile.originalContent,
     });
     const finalizedSources = workingSources.map((source) => {
-        if (source.label !== destinationLabel) return source;
+        if (source.rootPath !== destinationRootPath) return source;
         return {
             ...source,
             files: [...source.files, movedFile]
@@ -696,8 +766,9 @@ function moveLocalSourcePath(localSources, fromPath, toPath, options = {}) {
             ...upsert.file,
             originalContent: sourceFile?.originalContent ?? upsert.file.originalContent,
         };
+        const destinationRootPath = getLocalSourceRootPathFromPath(mapping.toPath);
         nextSources = upsert.nextSources.map((source) => {
-            if (source.label !== getLocalSourceLabelFromPath(mapping.toPath)) return source;
+            if (source.rootPath !== destinationRootPath) return source;
             return {
                 ...source,
                 files: source.files.map((file) => (
@@ -1307,18 +1378,151 @@ function matchesGlob(publicPath, relativePath, matcher) {
     return false;
 }
 
+function normalizeIndexedDirectoryPath(rawPath = '') {
+    const normalized = String(rawPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!normalized) return '';
+    return normalized.endsWith('/') ? normalized : `${normalized}/`;
+}
+
+function scopeIndexedFilesByDirectory(files, rawPath = '') {
+    const directoryPath = normalizeIndexedDirectoryPath(rawPath);
+    if (!directoryPath) return files;
+    return files.filter((entry) => String(entry.publicPath || '').startsWith(directoryPath));
+}
+
+function buildDirectoryItems(files, directoryPath, localSources = localSourcesCache) {
+    const normalizedPrefix = directoryPath.toLowerCase();
+    const entryMap = new Map();
+
+    const registerChild = (publicPath, source, type, descendantIncrement = 0) => {
+        const normalizedPath = String(publicPath || '').toLowerCase();
+        if (!normalizedPath.startsWith(normalizedPrefix)) return;
+
+        const remainder = String(publicPath || '').slice(directoryPath.length);
+        if (!remainder) return;
+
+        const slashIndex = remainder.indexOf('/');
+        const childName = slashIndex === -1 ? remainder : remainder.slice(0, slashIndex);
+        const isDirectory = type === 'directory' || slashIndex !== -1;
+        const childPath = isDirectory ? `${directoryPath}${childName}/` : `${directoryPath}${childName}`;
+        const existing = entryMap.get(childPath);
+
+        if (existing) {
+            existing.descendantFileCount += descendantIncrement;
+            if (isDirectory) existing.type = 'directory';
+            return;
+        }
+
+        entryMap.set(childPath, {
+            publicPath: childPath,
+            source,
+            type: isDirectory ? 'directory' : 'file',
+            descendantFileCount: descendantIncrement,
+        });
+    };
+
+    files.forEach((entry) => {
+        registerChild(entry.publicPath, entry.source, 'file', 1);
+    });
+
+    normalizeLocalSourcesSnapshot(localSources).forEach((source) => {
+        source.directories.forEach((directory) => {
+            registerChild(`${source.rootPath}${directory}/`, 'session-local-source', 'directory', 0);
+        });
+    });
+
+    return Array.from(entryMap.values()).sort((a, b) => a.publicPath.localeCompare(b.publicPath, 'zh-CN'));
+}
+
+function truncateReadLine(line = '') {
+    const text = String(line ?? '');
+    if (text.length <= MAX_READ_LINE_CHARS) return text;
+    return `${text.slice(0, MAX_READ_LINE_CHARS)}${READ_LINE_TRUNCATION_SUFFIX}`;
+}
+
+function truncateSearchLine(line = '') {
+    return truncateReadLine(line);
+}
+
+function rankPathSuggestion(entry, targetPath = '') {
+    const target = String(targetPath || '').toLowerCase();
+    const publicPath = String(entry?.publicPath || '').toLowerCase();
+    const relativePath = String(entry?.relativePath || '').toLowerCase();
+    const basename = publicPath.split('/').pop() || '';
+    const targetBasename = target.split('/').pop() || '';
+    if (!target) return 0;
+    if (publicPath === target) return 100;
+    if (relativePath === target) return 95;
+    if (basename && basename === targetBasename) return 90;
+    if (publicPath.endsWith(`/${target}`) || relativePath.endsWith(`/${target}`)) return 80;
+    if (publicPath.includes(target) || relativePath.includes(target)) return 70;
+    if (target.includes(basename) && basename) return 60;
+    if (targetBasename && basename.includes(targetBasename)) return 50;
+    return 0;
+}
+
+function findPathSuggestions(targetPath = '', indexedFiles = [], limit = MAX_PATH_SUGGESTIONS) {
+    const ranked = indexedFiles
+        .map((entry) => ({ entry, score: rankPathSuggestion(entry, targetPath) }))
+        .filter((item) => item.score > 0)
+        .sort((left, right) => right.score - left.score || String(left.entry.publicPath || '').localeCompare(String(right.entry.publicPath || ''), 'zh-CN'));
+    const seen = new Set();
+    const suggestions = [];
+    ranked.forEach((item) => {
+        const publicPath = String(item.entry.publicPath || '').trim();
+        if (!publicPath || seen.has(publicPath) || suggestions.length >= limit) return;
+        seen.add(publicPath);
+        suggestions.push(publicPath);
+    });
+    return suggestions;
+}
+
+function buildPathSuggestionMessage(suggestions = [], noun = '路径') {
+    if (!Array.isArray(suggestions) || !suggestions.length) return '';
+    return `可尝试这些${noun}：${suggestions.join('、')}`;
+}
+
+function buildReadErrorResult(error, targetPath, extras = {}) {
+    const suggestions = Array.isArray(extras.suggestions) ? extras.suggestions : [];
+    return {
+        ok: false,
+        error,
+        path: targetPath,
+        message: String(extras.message || '').trim() || error,
+        suggestion: String(extras.suggestion || '').trim() || buildPathSuggestionMessage(suggestions),
+        suggestions,
+        ...(Number.isFinite(extras.lineCount) ? { lineCount: extras.lineCount } : {}),
+        ...(Number.isFinite(extras.entryCount) ? { entryCount: extras.entryCount } : {}),
+        ...(Number.isFinite(extras.offset) ? { offset: extras.offset } : {}),
+    };
+}
+
+function buildReadDirectoryContent(items = []) {
+    return items.map((item) => item.type === 'directory'
+        ? `${item.publicPath.split('/').slice(-2, -1)[0]}/`
+        : item.publicPath.split('/').pop() || '').join('\n');
+}
+
+function resolveReadLimit(value, fallback = DEFAULT_AUTO_READ_LINES) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.max(1, Math.min(Math.trunc(numeric), DEFAULT_AUTO_READ_LINES));
+}
+
 async function globFiles(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
     const pattern = String(args.pattern || '').trim();
     const matcher = compileGlobPattern(pattern);
-    const limit = Math.max(1, Math.min(Number(args.limit) || 50, 100));
+    const searchPath = String(args.path || '').trim();
+    const limit = Math.max(1, Math.min(Number(args.limit) || 100, 100));
     const files = getAllIndexedFiles(manifest, options.localSources);
-    const matched = files
+    const matched = scopeIndexedFilesByDirectory(files, searchPath)
         .filter((entry) => matchesGlob(entry.publicPath, entry.relativePath, matcher))
         .sort((a, b) => String(a.publicPath || '').localeCompare(String(b.publicPath || ''), 'zh-CN'));
 
     return {
         pattern,
+        searchPath: searchPath || '',
         total: matched.length,
         items: matched.slice(0, limit),
         truncated: matched.length > limit,
@@ -1333,45 +1537,36 @@ async function listDirectory(args = {}, options = {}) {
     }
 
     const directoryPath = rawPath.endsWith('/') ? rawPath : `${rawPath}/`;
-    const normalizedPrefix = directoryPath.toLowerCase();
-    const limit = Math.max(1, Math.min(Number(args.limit) || 50, 100));
+    const offset = Math.max(1, Math.trunc(Number(args.offset) || 1));
+    const limit = Math.max(1, Math.min(Number(args.limit) || 100, 300));
     const files = getAllIndexedFiles(manifest, options.localSources);
-    const entryMap = new Map();
+    const items = buildDirectoryItems(files, directoryPath, options.localSources);
+    if (items.length > 0 && offset > items.length) {
+        return {
+            ok: false,
+            error: 'list_offset_out_of_range',
+            path: directoryPath,
+            message: `offset ${offset} 超出目录范围；当前目录共有 ${items.length} 项。`,
+            entryCount: items.length,
+            offset,
+        };
+    }
 
-    files.forEach((entry) => {
-        const publicPath = String(entry.publicPath || '');
-        const normalizedPath = publicPath.toLowerCase();
-        if (!normalizedPath.startsWith(normalizedPrefix)) return;
-
-        const remainder = publicPath.slice(directoryPath.length);
-        if (!remainder) return;
-
-        const slashIndex = remainder.indexOf('/');
-        const childName = slashIndex === -1 ? remainder : remainder.slice(0, slashIndex);
-        const isDirectory = slashIndex !== -1;
-        const childPath = isDirectory ? `${directoryPath}${childName}/` : `${directoryPath}${childName}`;
-        const existing = entryMap.get(childPath);
-
-        if (existing) {
-            existing.descendantFileCount += 1;
-            if (isDirectory) existing.type = 'directory';
-            return;
-        }
-
-        entryMap.set(childPath, {
-            publicPath: childPath,
-            source: entry.source,
-            type: isDirectory ? 'directory' : 'file',
-            descendantFileCount: 1,
-        });
-    });
-
-    const items = Array.from(entryMap.values()).sort((a, b) => a.publicPath.localeCompare(b.publicPath, 'zh-CN'));
+    const startEntry = items.length ? offset : 0;
+    const endEntry = items.length ? Math.min(items.length, startEntry + limit - 1) : 0;
+    const pagedItems = items.slice(Math.max(0, offset - 1), Math.max(0, endEntry));
     return {
         directoryPath,
         total: items.length,
-        items: items.slice(0, limit),
-        truncated: items.length > limit,
+        offset,
+        limit,
+        startEntry,
+        endEntry,
+        items: pagedItems,
+        returned: pagedItems.length,
+        hasMoreAfter: endEntry < items.length,
+        nextOffset: endEntry < items.length ? endEntry + 1 : null,
+        truncated: endEntry < items.length,
     };
 }
 
@@ -1383,7 +1578,7 @@ function clampLineNumber(value, fallback, totalLines) {
 
 function formatLineNumberedContent(lines, startLine, totalLines) {
     const width = String(Math.max(totalLines, startLine)).length;
-    return lines.map((line, index) => `${String(startLine + index).padStart(width, ' ')}\t${line}`);
+    return lines.map((line, index) => `${String(startLine + index).padStart(width, ' ')}\t${truncateReadLine(line)}`);
 }
 
 function sliceLinesWithBudget(lines, startLine, requestedEndLine, maxChars) {
@@ -1431,9 +1626,16 @@ function sliceLinesWithBudget(lines, startLine, requestedEndLine, maxChars) {
 
 async function readFile(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
-    const targetPath = String(args.path || '').trim();
+    const targetPath = String(args.filePath || args.path || '').trim();
+    if (!targetPath) {
+        throw new Error('file_not_indexed');
+    }
     const directReadablePath = normalizeDirectReadablePublicPath(targetPath);
     const indexedFiles = getAllIndexedFiles(manifest, options.localSources);
+    const directoryPath = normalizeIndexedDirectoryPath(targetPath);
+    const directoryItems = buildDirectoryItems(indexedFiles, directoryPath || targetPath, options.localSources);
+    const requestedOffset = Math.max(1, Math.trunc(Number(args.offset ?? args.startLine) || 1));
+    const requestedLimit = resolveReadLimit(args.limit);
     const entry = indexedFiles.find((item) => item.publicPath === targetPath)
         || (directReadablePath
             ? {
@@ -1443,14 +1645,47 @@ async function readFile(args = {}, options = {}) {
                 extension: pathExtension(directReadablePath),
             }
             : null);
+    if (!entry && directoryItems.length) {
+        if (requestedOffset > directoryItems.length) {
+            return buildReadErrorResult('read_offset_out_of_range', directoryPath || normalizeIndexedDirectoryPath(targetPath), {
+                message: `offset ${requestedOffset} 超出目录范围；当前目录共有 ${directoryItems.length} 项。`,
+                entryCount: directoryItems.length,
+                offset: requestedOffset,
+            });
+        }
+        const startEntry = Math.min(requestedOffset, directoryItems.length || 1);
+        const endEntry = Math.min(directoryItems.length, startEntry + requestedLimit - 1);
+        const items = directoryItems.slice(startEntry - 1, endEntry);
+        return {
+            path: directoryPath || normalizeIndexedDirectoryPath(targetPath),
+            entryType: 'directory',
+            totalEntries: directoryItems.length,
+            startEntry,
+            endEntry,
+            returnedEntries: items.length,
+            hasMoreAfter: endEntry < directoryItems.length,
+            nextOffset: endEntry < directoryItems.length ? endEntry + 1 : null,
+            truncated: endEntry < directoryItems.length,
+            contentFormat: 'directory_entries',
+            content: buildReadDirectoryContent(items),
+        };
+    }
     if (!entry) {
-        throw new Error('file_not_indexed');
+        const suggestions = findPathSuggestions(targetPath, indexedFiles);
+        return buildReadErrorResult('file_not_found', targetPath, {
+            message: `找不到路径：${targetPath}`,
+            suggestions,
+        });
     }
     const content = await readTextFile(entry.publicPath, options);
     const lines = content === '' ? [] : content.split('\n');
     const totalLines = lines.length;
     const sizeBytes = new TextEncoder().encode(content).length;
-    const hasRange = Number.isFinite(Number(args.startLine)) || Number.isFinite(Number(args.endLine));
+    const requestedEndAlias = Number(args.endLine);
+    const hasExplicitRange = Number.isFinite(Number(args.offset))
+        || Number.isFinite(Number(args.limit))
+        || Number.isFinite(Number(args.startLine))
+        || Number.isFinite(requestedEndAlias);
 
     if (totalLines === 0) {
         return {
@@ -1463,8 +1698,7 @@ async function readFile(args = {}, options = {}) {
         returnedLines: 0,
         hasMoreBefore: false,
         hasMoreAfter: false,
-        nextStartLine: null,
-        nextEndLine: null,
+        nextOffset: null,
         truncated: false,
         autoChunked: false,
         charLimited: false,
@@ -1474,28 +1708,24 @@ async function readFile(args = {}, options = {}) {
     };
 }
 
-    const startLine = clampLineNumber(args.startLine, 1, totalLines);
-    let requestedEndLine;
-    let autoChunked = false;
-
-    if (hasRange) {
-        requestedEndLine = clampLineNumber(
-            args.endLine,
-            Math.min(totalLines, startLine + DEFAULT_AUTO_READ_LINES - 1),
-            totalLines,
-        );
-    } else if (sizeBytes > MAX_READ_FILE_BYTES || content.length > MAX_READ_RETURN_CHARS) {
-        requestedEndLine = Math.min(totalLines, startLine + DEFAULT_AUTO_READ_LINES - 1);
-        autoChunked = true;
-    } else {
-        requestedEndLine = totalLines;
+    if (requestedOffset > totalLines) {
+        return buildReadErrorResult('read_offset_out_of_range', entry.publicPath, {
+            message: `offset ${requestedOffset} 超出文件范围；当前文件共有 ${totalLines} 行。`,
+            lineCount: totalLines,
+            offset: requestedOffset,
+        });
     }
 
-    requestedEndLine = Math.min(requestedEndLine, startLine + MAX_READ_RANGE_LINES - 1, totalLines);
+    const startLine = clampLineNumber(args.offset ?? args.startLine, 1, totalLines);
+    const explicitLimit = resolveReadLimit(args.limit);
+    const requestedEndLine = Number.isFinite(requestedEndAlias)
+        ? clampLineNumber(requestedEndAlias, Math.min(totalLines, startLine + explicitLimit - 1), totalLines)
+        : Math.min(totalLines, startLine + explicitLimit - 1, startLine + MAX_READ_RANGE_LINES - 1);
     const slice = sliceLinesWithBudget(lines, startLine, requestedEndLine, MAX_READ_RETURN_CHARS);
     const endLine = slice.endLine || requestedEndLine;
     const hasMoreBefore = startLine > 1;
     const hasMoreAfter = endLine < totalLines;
+    const autoChunked = !hasExplicitRange && (sizeBytes > MAX_READ_FILE_BYTES || totalLines > DEFAULT_AUTO_READ_LINES || slice.charLimited);
 
     return {
         path: entry.publicPath,
@@ -1507,8 +1737,7 @@ async function readFile(args = {}, options = {}) {
         returnedLines: endLine >= startLine ? (endLine - startLine + 1) : 0,
         hasMoreBefore,
         hasMoreAfter,
-        nextStartLine: hasMoreAfter ? endLine + 1 : null,
-        nextEndLine: hasMoreAfter ? Math.min(totalLines, endLine + DEFAULT_AUTO_READ_LINES) : null,
+        nextOffset: hasMoreAfter ? endLine + 1 : null,
         truncated: hasMoreBefore || hasMoreAfter || slice.charLimited || autoChunked,
         autoChunked,
         charLimited: slice.charLimited,
@@ -1549,50 +1778,95 @@ async function writeLocalFile(args = {}, options = {}) {
     };
 }
 
-async function editLocalFile(args = {}, options = {}) {
-    const targetPath = normalizeWritableLocalPath(args.path);
-    if (!targetPath) {
-        throw new Error(getWritableLocalPathError(args.path));
-    }
+async function applyLocalPatch(args = {}, options = {}) {
+    const patchText = typeof args.patchText === 'string'
+        ? args.patchText
+        : String(args.patchText ?? args.input ?? '');
+    const parsed = parseApplyPatch(patchText);
+    let nextSources = normalizeLocalSourcesSnapshot(options.localSources);
+    const changes = [];
+    let hunksApplied = 0;
+    let addedCount = 0;
+    let updatedCount = 0;
+    let deletedCount = 0;
+    let movedCount = 0;
 
-    const existingEntry = findLocalSourceFileByPath(targetPath, options.localSources);
-    if (!existingEntry) {
-        throw new Error('local_file_not_found');
-    }
+    parsed.operations.forEach((operation) => {
+        if (operation.type === 'add') {
+            const targetPath = normalizeWritableLocalPath(operation.path);
+            if (!targetPath) {
+                throw new Error(getWritableLocalPathError(operation.path));
+            }
+            if (findLocalSourceFileByPath(targetPath, nextSources)) {
+                throw new Error('local_destination_exists');
+            }
+            const update = upsertLocalSourceFile(nextSources, targetPath, operation.content);
+            nextSources = update.nextSources;
+            changes.push({ action: 'add', path: update.file.publicPath });
+            addedCount += 1;
+            return;
+        }
 
-    const oldText = typeof args.oldText === 'string'
-        ? args.oldText
-        : String(args.oldText ?? '');
-    if (!oldText) {
-        throw new Error('edit_old_text_required');
-    }
+        if (operation.type === 'delete') {
+            const targetPath = normalizeWritableLocalPath(operation.path);
+            if (!targetPath) {
+                throw new Error(getWritableLocalPathError(operation.path));
+            }
+            const removal = removeLocalSourceFile(nextSources, targetPath);
+            nextSources = removal.nextSources;
+            changes.push({ action: 'delete', path: removal.file.publicPath });
+            deletedCount += 1;
+            return;
+        }
 
-    const newText = typeof args.newText === 'string'
-        ? args.newText
-        : String(args.newText ?? '');
-    const replaceAll = !!args.replaceAll;
-    const matchCount = countOccurrences(existingEntry.content, oldText);
-    if (matchCount <= 0) {
-        throw new Error('edit_not_found');
-    }
-    if (matchCount > 1 && !replaceAll) {
-        throw new Error('edit_not_unique');
-    }
+        const sourcePath = normalizeWritableLocalPath(operation.path);
+        if (!sourcePath) {
+            throw new Error(getWritableLocalPathError(operation.path));
+        }
+        const existingEntry = findLocalSourceFileByPath(sourcePath, nextSources);
+        if (!existingEntry) {
+            throw new Error('local_file_not_found');
+        }
 
-    const nextContent = replaceAll
-        ? existingEntry.content.split(oldText).join(newText)
-        : replaceFirstOccurrence(existingEntry.content, oldText, newText);
-    const update = upsertLocalSourceFile(options.localSources, targetPath, nextContent);
-    options.onLocalSourcesUpdated?.(update.nextSources);
+        const applied = applyPatchUpdateToText(existingEntry.content, operation.hunks, { path: sourcePath });
+        hunksApplied += applied.hunksApplied;
 
+        let targetPath = sourcePath;
+        if (operation.moveTo) {
+            targetPath = normalizeWritableLocalPath(operation.moveTo);
+            if (!targetPath) {
+                throw new Error(getWritableLocalPathError(operation.moveTo));
+            }
+            if (targetPath !== sourcePath) {
+                const move = moveLocalSourceFile(nextSources, sourcePath, targetPath, { overwrite: false });
+                nextSources = move.nextSources;
+                movedCount += 1;
+                changes.push({ action: 'move', path: move.file.publicPath, fromPath: move.fromFile.publicPath, toPath: move.file.publicPath });
+            }
+        }
+
+        const update = upsertLocalSourceFile(nextSources, targetPath, applied.content);
+        nextSources = update.nextSources;
+        updatedCount += 1;
+        changes.push({
+            action: 'update',
+            path: update.file.publicPath,
+            fromPath: sourcePath !== update.file.publicPath ? sourcePath : '',
+            hunksApplied: applied.hunksApplied,
+        });
+    });
+
+    options.onLocalSourcesUpdated?.(nextSources);
+    const changedPathSet = new Set(changes.flatMap((change) => [change.path, change.fromPath, change.toPath]).filter(Boolean));
     return {
         ok: true,
-        path: update.file.publicPath,
-        source: update.file.source,
-        replacedOccurrences: replaceAll ? matchCount : 1,
-        replaceAll,
-        sizeBytes: update.file.sizeBytes,
-        totalLines: nextContent === '' ? 0 : nextContent.split('\n').length,
+        filesChanged: changedPathSet.size,
+        addedCount,
+        updatedCount,
+        deletedCount,
+        movedCount,
+        hunksApplied,
+        changes,
     };
 }
 
@@ -1655,16 +1929,18 @@ async function grepFiles(args = {}, options = {}) {
     const useRegex = 'useRegex' in args ? !!args.useRegex : true;
     const outputMode = ['content', 'files_with_matches', 'count'].includes(String(args.outputMode || ''))
         ? String(args.outputMode)
-        : 'files_with_matches';
-    const limit = Math.max(1, Math.min(Number(args.limit) || 10, 50));
+        : 'content';
+    const limit = Math.max(1, Math.min(Number(args.limit) || 100, 100));
     const offset = Math.max(0, Math.trunc(Number(args.offset) || 0));
     const contextLines = Math.max(0, Math.min(Number(args.contextLines) || 0, 5));
-    const glob = String(args.glob || '').trim();
+    const searchPath = String(args.path || '').trim();
+    const include = String(args.include || args.glob || '').trim();
     const files = getAllIndexedFiles(manifest, options.localSources);
-    const fileMatcher = glob ? compileGlobPattern(glob) : null;
+    const scopedFiles = scopeIndexedFilesByDirectory(files, searchPath);
+    const fileMatcher = include ? compileGlobPattern(include) : null;
     const candidateFiles = fileMatcher
-        ? files.filter((entry) => matchesGlob(entry.publicPath, entry.relativePath, fileMatcher))
-        : files;
+        ? scopedFiles.filter((entry) => matchesGlob(entry.publicPath, entry.relativePath, fileMatcher))
+        : scopedFiles;
 
     let regex = null;
     if (useRegex) {
@@ -1680,6 +1956,10 @@ async function grepFiles(args = {}, options = {}) {
     let scannedFiles = 0;
     let truncated = false;
     let matchedFiles = 0;
+    let totalMatches = 0;
+    let seenContentMatches = 0;
+    let skippedFiles = 0;
+    const skippedPaths = [];
     for (const entry of candidateFiles) {
         ensureNotAborted(options.signal);
         scannedFiles += 1;
@@ -1703,46 +1983,60 @@ async function grepFiles(args = {}, options = {}) {
                     .map((contextLine, contextIndex) => {
                         const num = contextStart + contextIndex + 1;
                         const prefix = num === lineNumber ? '>' : ' ';
-                        return `${prefix} ${num}: ${contextLine}`;
+                        return `${prefix} ${num}: ${truncateSearchLine(contextLine)}`;
                     })
                     .join('\n');
 
                 matches.push({
                     line: lineNumber,
-                    text: line.trim(),
+                    text: truncateSearchLine(line),
                     context: contextLines > 0 ? contextText : null,
                 });
             });
 
             if (!matches.length) continue;
             matchedFiles += 1;
-            if (matchedFiles <= offset) continue;
+            totalMatches += matches.length;
 
             if (outputMode === 'count') {
+                if (matchedFiles <= offset) continue;
                 results.push({
                     path: entry.publicPath,
                     source: entry.source,
                     matchCount: matches.length,
                 });
             } else if (outputMode === 'files_with_matches') {
+                if (matchedFiles <= offset) continue;
                 results.push({
                     path: entry.publicPath,
                     source: entry.source,
                     matchCount: matches.length,
                 });
             } else {
-                results.push({
-                    path: entry.publicPath,
-                    source: entry.source,
-                    matchCount: matches.length,
-                    matches: matches.slice(0, 10),
+                matches.forEach((match) => {
+                    seenContentMatches += 1;
+                    if (seenContentMatches <= offset) return;
+                    if (results.length >= limit) return;
+                    results.push({
+                        path: entry.publicPath,
+                        source: entry.source,
+                        line: match.line,
+                        text: match.text,
+                        context: match.context,
+                    });
                 });
             }
             if (results.length >= limit) {
-                truncated = matchedFiles < candidateFiles.length || scannedFiles < candidateFiles.length;
+                truncated = outputMode === 'content'
+                    ? totalMatches > offset + results.length || scannedFiles < candidateFiles.length
+                    : matchedFiles < candidateFiles.length || scannedFiles < candidateFiles.length;
                 break;
             }
         } catch {
+            skippedFiles += 1;
+            if (skippedPaths.length < MAX_PATH_SUGGESTIONS) {
+                skippedPaths.push(entry.publicPath);
+            }
             continue;
         }
     }
@@ -1751,16 +2045,21 @@ async function grepFiles(args = {}, options = {}) {
         pattern,
         useRegex,
         outputMode,
-        glob: glob || '',
+        glob: include || '',
+        include: include || '',
+        searchPath: searchPath || '',
         limit,
         offset,
         contextLines,
-        total: truncated ? null : matchedFiles,
+        total: outputMode === 'content' ? totalMatches : matchedFiles,
         returned: results.length,
         matchedFilesSeen: matchedFiles,
+        totalMatches,
         items: results,
         truncated,
         scannedFiles,
+        skippedFiles,
+        skippedPaths,
         candidateFiles: candidateFiles.length,
         indexedFiles: files.length,
         searchComplete: !truncated && scannedFiles >= candidateFiles.length,
@@ -2755,8 +3054,8 @@ async function executeToolCall(name, args, options = {}) {
             return await readFile(args, options);
         case TOOL_NAMES.WRITE:
             return await writeLocalFile(args, options);
-        case TOOL_NAMES.EDIT:
-            return await editLocalFile(args, options);
+        case TOOL_NAMES.APPLY_PATCH:
+            return await applyLocalPatch(args, options);
         case TOOL_NAMES.DELETE:
             return await deleteLocalFile(args, options);
         case TOOL_NAMES.MOVE:

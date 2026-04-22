@@ -164,6 +164,40 @@ test('local sources manager exposes workspace summary and opens first modified f
     assert.equal(persistCalls, 1);
 });
 
+test('local sources manager notifies workspace selection changes when switching files', () => {
+    const state = {
+        localSources: createSources(),
+        isWorkspaceOpen: false,
+        selectedSourceId: 'all',
+        selectedFilePath: '',
+        selectedTreePath: '',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+    let selectionChangeCalls = 0;
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: () => {},
+        render: () => {},
+        renderWorkspaceOnly: () => {},
+        persistSession: () => ({ ok: true }),
+        onWorkspaceSelectionChanged: () => {
+            selectionChangeCalls += 1;
+        },
+        post: () => {},
+    });
+
+    const opened = manager.openWorkspace('local/alpha/src/a.js');
+    assert.equal(opened, true);
+    assert.equal(selectionChangeCalls, 1);
+    assert.equal(state.selectedFilePath, 'local/alpha/src/a.js');
+});
+
 test('local sources manager opens directory paths inside workspace', () => {
     const state = {
         localSources: createSources(),
@@ -259,19 +293,63 @@ test('local sources manager can create a new file directly under local root', as
         post: () => {},
     });
 
+    let promptDefault = '';
     await withMockWindow({
-        prompt: () => 'local/workspace_test.txt',
+        prompt: (_message, defaultValue) => {
+            promptDefault = String(defaultValue || '');
+            return 'workspace_test.txt';
+        },
     }, async () => {
         const created = await manager.createLocalFileAt('local/');
         assert.equal(created, true);
     });
 
+    assert.equal(promptDefault, 'new-file.txt');
     assert.equal(state.localSources.length, 1);
     assert.equal(state.localSources[0].rootPath, 'local/');
     assert.equal(state.localSources[0].files[0].path, 'local/workspace_test.txt');
     assert.equal(state.localSources[0].files[0].relativePath, 'workspace_test.txt');
     assert.equal(state.selectedFilePath, 'local/workspace_test.txt');
     assert.equal(state.viewerMode, 'diff');
+});
+
+test('buildWorkspaceTree flattens local root children into the visible root', () => {
+    const sources = normalizeLocalSources([
+        {
+            sourceId: 'root',
+            label: 'local',
+            rootPath: 'local/',
+            files: [
+                {
+                    path: 'local/a.txt',
+                    relativePath: 'a.txt',
+                    name: 'a.txt',
+                    content: 'A',
+                    originalContent: 'A',
+                },
+                {
+                    path: 'local/new-file.txt',
+                    relativePath: 'new-file.txt',
+                    name: 'new-file.txt',
+                    content: 'B',
+                    originalContent: 'B',
+                },
+                {
+                    path: 'local/test/demo.txt',
+                    relativePath: 'test/demo.txt',
+                    name: 'demo.txt',
+                    content: 'C',
+                    originalContent: 'C',
+                },
+            ],
+        },
+    ]);
+
+    const tree = buildWorkspaceTree(sources, { isModifiedFile });
+    assert.deepEqual(tree.nodes.map((node) => node.label), ['test', 'a.txt', 'new-file.txt']);
+    assert.equal(tree.nodes[0].type, 'dir');
+    assert.equal(tree.nodes[1].type, 'file');
+    assert.equal(tree.nodes[2].type, 'file');
 });
 
 test('local sources manager can update workspace file content directly', () => {
@@ -408,6 +486,44 @@ test('local sources manager can open the local root directory', () => {
     assert.equal(state.selectedFilePath, '');
     assert(state.treeExpandedKeys.includes('source:source-a'));
     assert(state.treeExpandedKeys.includes('source:source-b'));
+});
+
+test('local sources manager tracks mobile workspace pane for file and tree navigation', () => {
+    const state = {
+        localSources: createSources(),
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: '',
+        selectedTreePath: 'local/',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        mobileWorkspacePane: 'tree',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: () => {},
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        post: () => {},
+    });
+
+    const openedFile = manager.openWorkspace('local/alpha/src/a.js');
+    assert.equal(openedFile, true);
+    assert.equal(state.mobileWorkspacePane, 'viewer');
+
+    const openedDir = manager.openWorkspace('local/alpha/');
+    assert.equal(openedDir, true);
+    assert.equal(state.mobileWorkspacePane, 'tree');
+
+    manager.setMobileWorkspacePane('viewer', { render: false, persist: false });
+    assert.equal(state.mobileWorkspacePane, 'viewer');
+    manager.setMobileWorkspacePane('tree', { render: false, persist: false });
+    assert.equal(state.mobileWorkspacePane, 'tree');
 });
 
 test('local sources manager can rename a directory from workspace actions', async () => {

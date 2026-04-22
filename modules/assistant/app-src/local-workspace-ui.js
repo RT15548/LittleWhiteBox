@@ -80,7 +80,7 @@ function mountWorkspaceEditor(container, options = {}) {
             onBlur: () => {},
         },
     } = options;
-    const reportSelection = (view) => {
+    const reportSelection = (view, options = {}) => {
         const selection = view.state.selection.main;
         callbacks.onSelectionChange({
             filePath: path,
@@ -90,6 +90,8 @@ function mountWorkspaceEditor(container, options = {}) {
             selectionEnd: selection.to,
             lineStart: view.state.doc.lineAt(selection.from).number,
             lineEnd: view.state.doc.lineAt(selection.to).number,
+            collapsed: selection.empty,
+            userInteracted: !!options.userInteracted,
         });
     };
     const view = new EditorView({
@@ -107,13 +109,13 @@ function mountWorkspaceEditor(container, options = {}) {
                         callbacks.onChange(update.state.doc.toString());
                     }
                     if (update.docChanged || update.selectionSet) {
-                        reportSelection(update.view);
+                        reportSelection(update.view, { userInteracted: true });
                     }
                 }),
                 EditorView.domEventHandlers({
                     blur: (event, viewInstance) => {
                         callbacks.onBlur(viewInstance.state.doc.toString());
-                        reportSelection(viewInstance);
+                        reportSelection(viewInstance, { userInteracted: true });
                         return false;
                     },
                 }),
@@ -121,7 +123,6 @@ function mountWorkspaceEditor(container, options = {}) {
         }),
         parent: container,
     });
-    reportSelection(view);
     return view;
 }
 
@@ -295,6 +296,7 @@ export function renderWorkspace(container, options = {}) {
         onSelectNode = () => {},
         onSelectFile = () => {},
         onSetViewerMode = () => {},
+        onShowTree = () => {},
         onDownloadFile = () => {},
         onRestoreFile = () => {},
         onUpdateFileContent = () => true,
@@ -311,6 +313,7 @@ export function renderWorkspace(container, options = {}) {
 
     const body = document.createElement('div');
     body.className = 'xb-assistant-workspace-body';
+    body.classList.toggle('is-viewing', workspaceState.mobileWorkspacePane === 'viewer');
 
     const nav = document.createElement('div');
     nav.className = 'xb-assistant-workspace-nav';
@@ -396,7 +399,7 @@ export function renderWorkspace(container, options = {}) {
     const newFileButton = document.createElement('button');
     newFileButton.type = 'button';
     newFileButton.className = 'xb-assistant-workspace-viewer-button';
-    newFileButton.textContent = '+文件';
+    newFileButton.textContent = '+📄';
     newFileButton.addEventListener('click', () => onCreateFile(currentDirectoryPath));
     treeActionsButtons.appendChild(newFileButton);
 
@@ -472,7 +475,7 @@ export function renderWorkspace(container, options = {}) {
     mobileBackButton.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>';
     mobileBackButton.title = '返回文件树';
     mobileBackButton.addEventListener('click', () => {
-        body.classList.remove('is-viewing');
+        onShowTree();
     });
     viewerInfo.appendChild(mobileBackButton);
 

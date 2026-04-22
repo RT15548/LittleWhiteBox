@@ -7,7 +7,7 @@ export const TOOL_NAMES = {
     GREP: 'Grep',
     READ: 'Read',
     WRITE: 'Write',
-    EDIT: 'Edit',
+    APPLY_PATCH: 'apply_patch',
     DELETE: 'Delete',
     MOVE: 'Move',
     RUN_SLASH_COMMAND: 'RunSlashCommand',
@@ -32,15 +32,16 @@ export const TOOL_DEFINITIONS = [
         function: {
             name: TOOL_NAMES.LS,
             description: [
-                'List first-level entries in a directory.',
-                'Returns only one level; does not recurse and does not read file contents.',
+                'List files and directories inside a directory path.',
+                'Returns first-level entries only; does not recurse and does not read file contents.',
                 'Works for indexed directories and `local/` workspace directories.',
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
                     path: { type: 'string', description: 'Public directory path, for example scripts/extensions/third-party/ or scripts/extensions/third-party/LittleWhiteBox/modules/.' },
-                    limit: { type: 'number', description: 'Maximum number of first-level entries to return. Default 50, max 100.' },
+                    offset: { type: 'number', description: 'Optional 1-based entry offset for paging. Default 1.' },
+                    limit: { type: 'number', description: 'Maximum number of first-level entries to return. Default 100, max 300.' },
                 },
                 required: ['path'],
                 additionalProperties: false,
@@ -52,15 +53,15 @@ export const TOOL_DEFINITIONS = [
         function: {
             name: TOOL_NAMES.GLOB,
             description: [
-                'Match file paths with a glob pattern.',
-                'Matches paths only; does not inspect file contents.',
-                'Supports indexed files and `local/` workspace paths.',
+                'Fast file pattern matching tool for indexed files and `local/` workspace files.',
+                'Matches file paths only; does not inspect file contents.',
+                'Supports a path scope so you can search inside one directory instead of the full workspace.',
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
                     pattern: { type: 'string', description: 'Glob path pattern, for example scripts/extensions/third-party/LittleWhiteBox/modules/**/*.js.' },
-                    limit: { type: 'number', description: 'Maximum number of files to return. Default 50, max 100.' },
+                    path: { type: 'string', description: 'Optional directory scope. If omitted, search the whole indexed workspace plus `local/`.' },
                 },
                 required: ['pattern'],
                 additionalProperties: false,
@@ -72,21 +73,22 @@ export const TOOL_DEFINITIONS = [
         function: {
             name: TOOL_NAMES.GREP,
             description: [
-                'Search file contents for keywords or regex patterns using live file contents from the current instance.',
-                'Supports regex and literal search, and can be limited with a glob.',
-                'Search scope includes indexed files and `local/` workspace files.',
+                'Fast content search tool for indexed files and `local/` workspace files.',
+                'Uses regex search by default and returns matching files with line-level match details.',
+                'Supports both directory scope and file-pattern filtering so you can narrow searches before reading files.',
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
                     pattern: { type: 'string', description: 'grep/rg-style search pattern. Treated as regex by default.' },
-                    glob: { type: 'string', description: 'Optional file path glob, for example **/*.js or modules/assistant/**/*.js.' },
+                    path: { type: 'string', description: 'Optional directory scope. If omitted, search the whole indexed workspace plus `local/`.' },
+                    include: { type: 'string', description: 'Optional file path glob filter, for example **/*.js or modules/assistant/**/*.js.' },
                     outputMode: {
                         type: 'string',
                         enum: ['content', 'files_with_matches', 'count'],
-                        description: 'Output mode. content returns matched lines and context; files_with_matches returns matching files only; count returns match counts per file. Default is files_with_matches.',
+                        description: 'Output mode. content returns matched lines and context; files_with_matches returns matching files only; count returns match counts per file. Default is content.',
                     },
-                    limit: { type: 'number', description: 'Maximum number of results to return. Default 10, max 50. Can be used with offset for paging.' },
+                    limit: { type: 'number', description: 'Maximum number of results to return. Default 100, max 100. Can be used with offset for paging.' },
                     offset: { type: 'number', description: 'Skip this many results before returning matches. Default 0.' },
                     contextLines: { type: 'number', description: 'How many context lines to show before and after each match. Default 0, max 5.' },
                     useRegex: { type: 'boolean', description: 'Whether to treat pattern as a regex. Default true; use false for literal search.' },
@@ -101,18 +103,18 @@ export const TOOL_DEFINITIONS = [
         function: {
             name: TOOL_NAMES.READ,
             description: [
-                'Read a text file using the current instance\'s live file contents.',
+                'Read a text file or directory using the current instance\'s live contents.',
                 'Supports indexed paths and `local/...` workspace paths.',
-                'Tries to read the whole file by default; large files are automatically chunked with continuation hints.',
+                'Returns numbered lines for files and plain entry names for directories; large reads include continuation hints.',
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
-                    path: { type: 'string', description: 'Public file path, for example scripts/extensions/third-party/LittleWhiteBox/index.js.' },
-                    startLine: { type: 'number', description: 'Optional start line number (1-based). Useful for chunked reads of large files.' },
-                    endLine: { type: 'number', description: 'Optional end line number. If omitted, a suitable range is chosen automatically.' },
+                    filePath: { type: 'string', description: 'Public file or directory path, for example scripts/extensions/third-party/LittleWhiteBox/index.js or local/.' },
+                    offset: { type: 'number', description: 'Optional line offset (1-based). Default 1.' },
+                    limit: { type: 'number', description: 'Optional maximum number of lines or directory entries to return. Default 2000.' },
                 },
-                required: ['path'],
+                required: ['filePath'],
                 additionalProperties: false,
             },
         },
@@ -140,21 +142,18 @@ export const TOOL_DEFINITIONS = [
     {
         type: 'function',
         function: {
-            name: TOOL_NAMES.EDIT,
+            name: TOOL_NAMES.APPLY_PATCH,
             description: [
-                'Apply an exact text replacement to a `local/` text file.',
-                'Can only edit `local/` paths and never writes back to the user\'s original disk files.',
-                'By default `oldText` must match exactly once; set `replaceAll: true` when all matches should be replaced.',
+                'Apply a structured patch to `local/` text files.',
+                'Use this for targeted edits, multi-file changes, adds, deletes, and renames inside the workspace.',
+                'Patch format uses Codex-style headers such as `*** Begin Patch`, `*** Update File: local/example.js`, `@@`, and `*** End Patch`.',
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
-                    path: { type: 'string', description: 'Target `local/...` file path, for example local/my-plugin/index.js.' },
-                    oldText: { type: 'string', description: 'Exact source text to find and replace.' },
-                    newText: { type: 'string', description: 'Replacement text.' },
-                    replaceAll: { type: 'boolean', description: 'Whether to replace all matches. Default false.' },
+                    patchText: { type: 'string', description: 'Full apply_patch body, including `*** Begin Patch` and `*** End Patch`.' },
                 },
-                required: ['path', 'oldText', 'newText'],
+                required: ['patchText'],
                 additionalProperties: false,
             },
         },
@@ -450,17 +449,17 @@ function formatPreviewList(items = [], formatter) {
 export function describeToolCall(name, args = {}) {
     switch (name) {
         case TOOL_NAMES.LS:
-            return `查看目录 ${args.path || ''}`.trim();
+            return `查看目录 ${args.path || ''}${args.offset ? `:${args.offset}` : ''}`.trim();
         case TOOL_NAMES.GLOB:
-            return `匹配文件 ${args.pattern || ''}`.trim();
+            return `匹配文件 ${args.pattern || ''}${args.path ? ` @ ${args.path}` : ''}`.trim();
         case TOOL_NAMES.GREP:
-            return `搜索内容 ${args.pattern || ''}`.trim();
+            return `搜索内容 ${args.pattern || ''}${args.path ? ` @ ${args.path}` : ''}`.trim();
         case TOOL_NAMES.READ:
-            return `读取文件 ${args.path || ''}${args.startLine ? `:${args.startLine}` : ''}${args.endLine ? `-${args.endLine}` : ''}`.trim();
+            return `读取文件 ${(args.filePath || args.path || '')}${args.offset ? `:${args.offset}` : args.startLine ? `:${args.startLine}` : ''}`.trim();
         case TOOL_NAMES.WRITE:
             return `写入文件 ${args.path || ''}`.trim();
-        case TOOL_NAMES.EDIT:
-            return `编辑文件 ${args.path || ''}`.trim();
+        case TOOL_NAMES.APPLY_PATCH:
+            return '应用补丁';
         case TOOL_NAMES.DELETE:
             return `删除文件 ${args.path || ''}`.trim();
         case TOOL_NAMES.MOVE:
@@ -517,6 +516,15 @@ export function formatToolResultDisplay(message) {
         if (Number.isFinite(parsed.lineCount) && parsed.lineCount >= 0) {
             detailLines.push(`行数：${parsed.lineCount}`);
         }
+        if (Number.isFinite(parsed.entryCount) && parsed.entryCount >= 0) {
+            detailLines.push(`目录项：${parsed.entryCount}`);
+        }
+        if (Number.isFinite(parsed.offset) && parsed.offset > 0) {
+            detailLines.push(`offset：${parsed.offset}`);
+        }
+        if (Array.isArray(parsed.suggestions) && parsed.suggestions.length) {
+            detailLines.push(`候选路径：${parsed.suggestions.join('、')}`);
+        }
         if (parsed.raw && parsed.raw !== parsed.error) {
             detailLines.push(`原始错误：${parsed.raw}`);
         }
@@ -529,6 +537,9 @@ export function formatToolResultDisplay(message) {
     if (message.toolName === TOOL_NAMES.GLOB) {
         const items = Array.isArray(parsed.items) ? parsed.items : [];
         const lines = [`glob“${parsed.pattern || ''}”命中 ${parsed.total || 0} 个文件，当前展示 ${items.length} 个。`];
+        if (parsed.searchPath) {
+            lines.push(`范围：${parsed.searchPath}`);
+        }
         if (parsed.truncated) {
             lines.push('结果已截断，可以把模式或路径范围再收窄一点。');
         }
@@ -546,8 +557,11 @@ export function formatToolResultDisplay(message) {
     if (message.toolName === TOOL_NAMES.LS) {
         const items = Array.isArray(parsed.items) ? parsed.items : [];
         const lines = [`目录 ${parsed.directoryPath || ''} 下找到 ${parsed.total || 0} 个一级子项，当前展示 ${items.length} 个。`];
+        if (Number(parsed.startEntry) > 0 || Number(parsed.endEntry) > 0) {
+            lines.push(`范围：第 ${parsed.startEntry || 0} 项到第 ${parsed.endEntry || 0} 项`);
+        }
         if (parsed.truncated) {
-            lines.push('结果已截断，可以把目录范围再收窄一点。');
+            lines.push(`还有更多结果；如需继续，可把 offset 设为 ${Number(parsed.nextOffset) || ((Number(parsed.offset) || 1) + items.length)}。`);
         }
         if (items.length) {
             lines.push('');
@@ -571,9 +585,15 @@ export function formatToolResultDisplay(message) {
 
     if (message.toolName === TOOL_NAMES.GREP) {
         const items = Array.isArray(parsed.items) ? parsed.items : [];
-        const outputMode = parsed.outputMode || 'files_with_matches';
+        const outputMode = parsed.outputMode || 'content';
         const lines = [`grep“${parsed.pattern || ''}”模式：${outputMode}。当前展示 ${items.length} 个结果。`];
-        if (parsed.glob) {
+        if (parsed.searchPath) {
+            lines.push(`范围：${parsed.searchPath}`);
+        }
+        if (parsed.include) {
+            lines.push(`include 限定：${parsed.include}`);
+        }
+        if (parsed.glob && !parsed.include) {
             lines.push(`glob 限定：${parsed.glob}`);
         }
         if (Number(parsed.offset) > 0) {
@@ -588,10 +608,16 @@ export function formatToolResultDisplay(message) {
         } else if (Number(parsed.candidateFiles) > 0 && parsed.glob) {
             lines.push(`本次扫描 ${parsed.scannedFiles || 0}/${parsed.candidateFiles} 个候选文件。`);
             if (Number.isFinite(parsed.total)) {
-                lines.push(`总命中文件数：${parsed.total}`);
+                lines.push(`总结果数：${parsed.total}`);
             }
         } else if (Number.isFinite(parsed.total)) {
-            lines.push(`总命中文件数：${parsed.total}`);
+            lines.push(`总结果数：${parsed.total}`);
+        }
+        if (Number(parsed.skippedFiles) > 0) {
+            lines.push(`有 ${parsed.skippedFiles} 个文件读取失败并已跳过。`);
+            if (Array.isArray(parsed.skippedPaths) && parsed.skippedPaths.length) {
+                lines.push(`跳过示例：${parsed.skippedPaths.join('、')}`);
+            }
         }
         const detailLines = [];
         if (items.length) {
@@ -604,20 +630,13 @@ export function formatToolResultDisplay(message) {
                     lines.push(`- ${item.path}${Number.isFinite(item.matchCount) ? `（${item.matchCount} 处）` : ''}`);
                     detailLines.push(item.path);
                 } else {
-                    const firstMatch = Array.isArray(item.matches) ? item.matches[0] : null;
-                    const lineInfo = firstMatch?.line ? `:${firstMatch.line}` : '';
-                    lines.push(`- ${item.path}${lineInfo}${item.matchCount ? `（${item.matchCount} 处）` : ''}`);
-
-                    if (Array.isArray(item.matches) && item.matches.length) {
-                        detailLines.push(item.path);
-                        item.matches.forEach((match, index) => {
-                            detailLines.push(`  [${index + 1}] 第 ${match.line || '?'} 行: ${match.text || ''}`);
-                            if (match.context) {
-                                detailLines.push(match.context);
-                            }
-                        });
-                        detailLines.push('');
+                    const lineInfo = item.line ? `:${item.line}` : '';
+                    lines.push(`- ${item.path}${lineInfo}`);
+                    detailLines.push(`${item.path}${lineInfo}: ${item.text || ''}`);
+                    if (item.context) {
+                        detailLines.push(item.context);
                     }
+                    detailLines.push('');
                 }
             });
         }
@@ -628,26 +647,39 @@ export function formatToolResultDisplay(message) {
     }
 
     if (message.toolName === TOOL_NAMES.READ) {
+        const isDirectory = parsed.entryType === 'directory' || parsed.contentFormat === 'directory_entries';
         const lines = [
-            `已读取文件：${parsed.path || ''}`,
+            `${isDirectory ? '已读取目录' : '已读取文件'}：${parsed.path || ''}`,
             parsed.source ? `来源：${parsed.source}` : '',
-            `范围：第 ${parsed.startLine || 1} 行到第 ${parsed.endLine || 0} 行 / 共 ${parsed.totalLines || 0} 行`,
-            parsed.contentFormat === 'numbered_lines' ? '格式：带行号内容' : '',
         ];
-        if (parsed.autoChunked) {
-            lines.push('文件较大，当前自动返回首段。');
-        }
-        if (parsed.charLimited) {
-            lines.push('当前结果还受输出预算限制，继续读取时请按 nextStartLine / nextEndLine 往后读。');
-        }
-        if (parsed.hasMoreBefore) {
-            lines.push('前面还有内容。');
-        }
-        if (parsed.hasMoreAfter) {
-            lines.push(`后面还有内容；如需继续，可从第 ${parsed.nextStartLine} 行读到第 ${parsed.nextEndLine} 行。`);
-        }
-        if (!parsed.hasMoreBefore && !parsed.hasMoreAfter) {
-            lines.push('当前已是完整读取结果。');
+        if (isDirectory) {
+            lines.push(`范围：第 ${parsed.startEntry || 1} 项到第 ${parsed.endEntry || 0} 项 / 共 ${parsed.totalEntries || 0} 项`);
+            lines.push('格式：目录项列表');
+            if (parsed.hasMoreAfter) {
+                lines.push(`后面还有内容；如需继续，可从第 ${parsed.nextOffset} 项继续读。`);
+            } else {
+                lines.push('当前已是完整读取结果。');
+            }
+        } else {
+            lines.push(`范围：第 ${parsed.startLine || 1} 行到第 ${parsed.endLine || 0} 行 / 共 ${parsed.totalLines || 0} 行`);
+            if (parsed.contentFormat === 'numbered_lines') {
+                lines.push('格式：带行号内容');
+            }
+            if (parsed.autoChunked) {
+                lines.push('文件较大，当前自动返回首段。');
+            }
+            if (parsed.charLimited) {
+                lines.push('当前结果还受输出预算限制，继续读取时请按 nextOffset 往后读。');
+            }
+            if (parsed.hasMoreBefore) {
+                lines.push('前面还有内容。');
+            }
+            if (parsed.hasMoreAfter) {
+                lines.push(`后面还有内容；如需继续，可从第 ${parsed.nextOffset} 行继续读。`);
+            }
+            if (!parsed.hasMoreBefore && !parsed.hasMoreAfter) {
+                lines.push('当前已是完整读取结果。');
+            }
         }
         return {
             summary: lines.filter(Boolean).join('\n'),
@@ -668,17 +700,26 @@ export function formatToolResultDisplay(message) {
         };
     }
 
-    if (message.toolName === TOOL_NAMES.EDIT) {
+    if (message.toolName === TOOL_NAMES.APPLY_PATCH) {
+        const changes = Array.isArray(parsed.changes) ? parsed.changes : [];
+        const lines = [
+            `补丁已应用：共处理 ${parsed.filesChanged || changes.length || 0} 项变更`,
+            Number.isFinite(parsed.hunksApplied) ? `hunk 数：${parsed.hunksApplied}` : '',
+            Number.isFinite(parsed.addedCount) && parsed.addedCount > 0 ? `新增：${parsed.addedCount}` : '',
+            Number.isFinite(parsed.updatedCount) && parsed.updatedCount > 0 ? `更新：${parsed.updatedCount}` : '',
+            Number.isFinite(parsed.deletedCount) && parsed.deletedCount > 0 ? `删除：${parsed.deletedCount}` : '',
+            Number.isFinite(parsed.movedCount) && parsed.movedCount > 0 ? `移动：${parsed.movedCount}` : '',
+        ].filter(Boolean);
+        const detailLines = changes.map((change) => {
+            if (change.action === 'move') {
+                return `- move ${change.fromPath || ''} -> ${change.toPath || change.path || ''}`;
+            }
+            const suffix = Number.isFinite(change.hunksApplied) ? ` (${change.hunksApplied} hunks)` : '';
+            return `- ${change.action} ${change.path || ''}${suffix}`;
+        });
         return {
-            summary: [
-                `已编辑文件：${parsed.path || ''}`,
-                parsed.source ? `来源：${parsed.source}` : '',
-                Number.isFinite(parsed.replacedOccurrences) ? `替换次数：${parsed.replacedOccurrences}` : '',
-                parsed.replaceAll ? '模式：全部替换' : '模式：精确替换',
-                Number.isFinite(parsed.totalLines) ? `总行数：${parsed.totalLines}` : '',
-                Number.isFinite(parsed.sizeBytes) ? `大小：${parsed.sizeBytes} bytes` : '',
-            ].filter(Boolean).join('\n'),
-            details: '',
+            summary: lines.join('\n'),
+            details: detailLines.join('\n'),
         };
     }
 

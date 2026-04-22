@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-22T00:31:45.080Z",
+  "generatedAt": "2026-04-22T06:26:44.889Z",
   "version": 1,
   "files": [
     {
@@ -286,6 +286,12 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/apply-patch.js",
+      "relativePath": "modules/assistant/shared/apply-patch.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/config.js",
       "relativePath": "modules/assistant/shared/config.js",
       "extension": ".js"
@@ -301,6 +307,18 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/st-jsapi-manifest.json",
       "relativePath": "modules/assistant/st-jsapi-manifest.json",
       "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/apply-patch.test.js",
+      "relativePath": "modules/assistant/tests/apply-patch.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/context-hint.test.js",
+      "relativePath": "modules/assistant/tests/context-hint.test.js",
+      "extension": ".js"
     },
     {
       "source": "littlewhitebox",

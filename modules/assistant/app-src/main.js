@@ -117,6 +117,7 @@ const state = {
     fileSearchQuery: '',
     showModifiedOnly: false,
     viewerMode: 'current',
+    mobileWorkspacePane: 'tree',
     treeExpandedKeys: [],
     sidebarCollapsed: true,
     configFormSyncPending: true,
@@ -464,6 +465,10 @@ const localSourcesManager = createLocalSourcesManager({
     renderWorkspaceOnly,
     persistSession,
     onWorkspaceClosed: clearWorkspaceSelectionContext,
+    onWorkspaceSelectionChanged: () => {
+        clearWorkspaceSelectionContext();
+        renderContextHint(document.getElementById(ROOT_ID), state);
+    },
     post,
 });
 
@@ -498,9 +503,8 @@ function describeError(error) {
     if (lowered === 'local_file_not_found') return '目标 `local/` 文件不存在；可以先用 Write 新建。';
     if (lowered === 'local_path_not_found') return '目标 `local/` 路径不存在。';
     if (lowered === 'local_destination_exists') return '目标路径已经存在；请换一个路径，或显式允许覆盖。';
-    if (lowered === 'edit_old_text_required') return 'Edit 需要提供明确的 oldText。';
-    if (lowered === 'edit_not_found') return '没有在目标文件里找到要替换的 oldText。';
-    if (lowered === 'edit_not_unique') return 'oldText 命中不唯一；请改得更精确，或显式要求全部替换。';
+    if (lowered.startsWith('apply_patch_parse_error:')) return 'apply_patch 补丁格式无效。';
+    if (lowered.startsWith('apply_patch_apply_error:')) return 'apply_patch 无法在目标文件中定位补丁上下文。';
     if (lowered === 'directory_path_required') return '还没有提供要查看的目录路径。';
     if (lowered === 'glob_pattern_required') return '还没有提供 glob 路径模式。';
     if (lowered === 'empty_query') return '搜索词是空的，换一个明确点的关键词就行。';
@@ -629,7 +633,26 @@ function handleWorkspaceEditorSelectionChange(payload = {}) {
     if (!filePath || filePath !== String(state.selectedFilePath || '').trim()) return;
     const selectionStart = Math.max(0, Number(payload.selectionStart) || 0);
     const selectionEnd = Math.max(0, Number(payload.selectionEnd) || 0);
-    if (selectionStart === selectionEnd) {
+    const lineStart = String(payload.lineStart || '').trim();
+    const lineEnd = String(payload.lineEnd || '').trim();
+    const isCollapsed = 'collapsed' in payload ? !!payload.collapsed : selectionStart === selectionEnd;
+    const userInteracted = !!payload.userInteracted;
+    if (isCollapsed) {
+        if (userInteracted && lineStart) {
+            const nextSelectionContext = normalizeWorkspaceSelectionContext({
+                filePath,
+                viewerMode: 'current',
+                lineStart,
+                lineEnd: lineEnd || lineStart,
+                text: '',
+            });
+            const prevSelectionContext = normalizeWorkspaceSelectionContext(state.workspaceSelectionContext);
+            if (JSON.stringify(prevSelectionContext) !== JSON.stringify(nextSelectionContext)) {
+                state.workspaceSelectionContext = nextSelectionContext;
+                renderContextHint(root, state);
+            }
+            return;
+        }
         if (state.workspaceSelectionContext?.text) {
             clearWorkspaceSelectionContext();
             renderContextHint(root, state);
@@ -706,17 +729,23 @@ function buildWorkspaceUserContextText() {
         }
     }
 
-    if (selection.text && selection.filePath && selection.filePath === selectedFilePath) {
+    if (selection.filePath && selection.filePath === selectedFilePath && (selection.text || selection.lineStart)) {
         if (selection.lineStart) {
             lines.push(
-                selection.lineEnd && selection.lineEnd !== selection.lineStart
-                    ? `用户当前选中了 ${selection.filePath} 的第 ${selection.lineStart} 到 ${selection.lineEnd} 行：`
-                    : `用户当前选中了 ${selection.filePath} 的第 ${selection.lineStart} 行：`,
+                selection.text
+                    ? (
+                        selection.lineEnd && selection.lineEnd !== selection.lineStart
+                            ? `用户当前选中了 ${selection.filePath} 的第 ${selection.lineStart} 到 ${selection.lineEnd} 行：`
+                            : `用户当前选中了 ${selection.filePath} 的第 ${selection.lineStart} 行：`
+                    )
+                    : `用户当前光标定位在 ${selection.filePath} 的第 ${selection.lineStart} 行。`,
             );
-        } else {
+        } else if (selection.text) {
             lines.push(`用户当前选中了 ${selection.filePath} 中的一段内容：`);
         }
-        lines.push(selection.text);
+        if (selection.text) {
+            lines.push(selection.text);
+        }
     }
 
     lines.push('');
@@ -1003,6 +1032,9 @@ function bindEvents(root) {
         return null;
     };
     const updateWorkspaceSelectionContextFromDom = () => {
+        if (state.viewerMode === 'current' && state.selectedFilePath) {
+            return;
+        }
         const selection = selectionDocument.getSelection?.();
         if (!selection || selection.rangeCount <= 0) {
             return;

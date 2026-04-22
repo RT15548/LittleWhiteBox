@@ -35,14 +35,14 @@ export function collectContextHintItems(state = {}) {
             contextItems.push(formatIdeHint(parts.join(' · ')));
         } else if (selectedFilePath) {
             const parts = [`工作区文件：${selectedFilePath}`];
-            if (workspaceSelection.text && workspaceSelection.filePath === selectedFilePath) {
+            if (workspaceSelection.filePath === selectedFilePath && (workspaceSelection.text || workspaceSelection.lineStart)) {
                 if (workspaceSelection.lineStart) {
                     parts.push(
                         workspaceSelection.lineEnd && workspaceSelection.lineEnd !== workspaceSelection.lineStart
                             ? `已选第 ${workspaceSelection.lineStart}-${workspaceSelection.lineEnd} 行`
                             : `已选第 ${workspaceSelection.lineStart} 行`,
                     );
-                } else {
+                } else if (workspaceSelection.text) {
                     parts.push('含选中文本');
                 }
             }

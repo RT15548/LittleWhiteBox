@@ -14,6 +14,7 @@ export function buildWorkspaceTree(localSources = [], options = {}) {
 
     visibleSources.forEach((source) => {
         const rootPath = String(source.rootPath || `local/${source.label}/`);
+        const isWorkspaceRootSource = rootPath === 'local/';
         const root = {
             key: `source:${source.sourceId}`,
             type: 'dir',
@@ -100,6 +101,10 @@ export function buildWorkspaceTree(localSources = [], options = {}) {
         };
 
         root.modified = markModifiedDirs(root);
+        if (isWorkspaceRootSource) {
+            rootNodes.push(...root.children);
+            return;
+        }
         rootNodes.push(root);
     });
 
