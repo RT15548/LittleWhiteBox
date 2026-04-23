@@ -3,423 +3,350 @@ import assert from 'node:assert/strict';
 
 import { applyPatchUpdateToText, parseApplyPatch } from '../shared/apply-patch.js';
 
-test('parseApplyPatch parses add, update, move and delete operations', () => {
-    const patch = [
+function parsePatchDocument(lines) {
+    return parseApplyPatch([
         '*** Begin Patch',
-        '*** Add File: local/demo/new.txt',
+        ...lines,
+        '*** End Patch',
+    ].join('\n'));
+}
+
+test('parseApplyPatch parses a mixed assistant workspace patch', () => {
+    const patch = parsePatchDocument([
+        '*** Add File: local/notes/summary.md',
         '+hello',
-        '*** Update File: local/demo/app.js',
-        '*** Move to: local/demo/main.js',
-        '@@ function run()',
+        '*** Update File: local/scripts/scene.js',
+        '*** Move to: local/scripts/scene-main.js',
+        '@@ function runScene() {',
         ' console.log("before")',
         '-return 1;',
         '+return 2;',
-        '*** Delete File: local/demo/old.txt',
-        '*** End Patch',
-    ].join('\n');
+        '*** Delete File: local/archive/old-scene.js',
+    ]);
 
-    const parsed = parseApplyPatch(patch);
-    assert.equal(parsed.operations.length, 3);
-    assert.equal(parsed.operations[0].type, 'add');
-    assert.equal(parsed.operations[1].type, 'update');
-    assert.equal(parsed.operations[1].moveTo, 'local/demo/main.js');
-    assert.equal(parsed.operations[2].type, 'delete');
+    assert.equal(patch.operations.length, 3);
+    assert.equal(patch.operations[0].type, 'add');
+    assert.equal(patch.operations[1].type, 'update');
+    assert.equal(patch.operations[1].moveTo, 'local/scripts/scene-main.js');
+    assert.equal(patch.operations[2].type, 'delete');
 });
 
-test('parseApplyPatch allows rename-only update operations', () => {
-    const patch = [
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '*** Move to: local/demo/main.js',
-        '*** End Patch',
-    ].join('\n');
+test('parseApplyPatch allows rename-only file moves', () => {
+    const patch = parsePatchDocument([
+        '*** Update File: local/styles/panel.css',
+        '*** Move to: local/styles/assistant-panel.css',
+    ]);
 
-    const parsed = parseApplyPatch(patch);
-    assert.equal(parsed.operations.length, 1);
-    assert.equal(parsed.operations[0].type, 'update');
-    assert.equal(parsed.operations[0].moveTo, 'local/demo/main.js');
-    assert.deepEqual(parsed.operations[0].hunks, []);
+    assert.equal(patch.operations.length, 1);
+    assert.equal(patch.operations[0].type, 'update');
+    assert.equal(patch.operations[0].moveTo, 'local/styles/assistant-panel.css');
+    assert.deepEqual(patch.operations[0].hunks, []);
 });
 
-test('parseApplyPatch preserves end-of-file markers on hunks', () => {
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@ tail marker',
+test('parseApplyPatch keeps end-of-file markers on update hunks', () => {
+    const patch = parsePatchDocument([
+        '*** Update File: local/notes/todo.md',
+        '@@ final marker',
         ' line one',
         '+line two',
         '*** End of File',
-        '*** End Patch',
-    ].join('\n'));
+    ]);
 
     assert.equal(patch.operations[0].hunks.length, 1);
     assert.equal(patch.operations[0].hunks[0].endOfFile, true);
-    assert.equal(patch.operations[0].hunks[0].header, 'tail marker');
+    assert.equal(patch.operations[0].hunks[0].header, 'final marker');
 });
 
-test('applyPatchUpdateToText applies multiple hunks in sequence', () => {
+test('applyPatchUpdateToText updates two assistant sections in one pass', () => {
     const original = [
-        'export function one() {',
-        '  return 1;',
+        'export function updateIdentity() {',
+        '  return "draft";',
         '}',
         '',
-        'export function two() {',
-        '  return 2;',
+        'export function updateMemory() {',
+        '  return "stale";',
         '}',
     ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@ export function one() {',
-        ' export function one() {',
-        '-  return 1;',
-        '+  return 10;',
+    const patch = parsePatchDocument([
+        '*** Update File: local/scripts/assistant-hooks.js',
+        '@@ export function updateIdentity() {',
+        ' export function updateIdentity() {',
+        '-  return "draft";',
+        '+  return "ready";',
         ' }',
-        '@@ export function two() {',
-        ' export function two() {',
-        '-  return 2;',
-        '+  return 20;',
+        '@@ export function updateMemory() {',
+        ' export function updateMemory() {',
+        '-  return "stale";',
+        '+  return "fresh";',
         ' }',
-        '*** End Patch',
-    ].join('\n'));
+    ]);
 
-    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' });
-    assert.equal(applied.hunksApplied, 2);
-    assert.match(applied.content, /return 10;/);
-    assert.match(applied.content, /return 20;/);
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/scripts/assistant-hooks.js' });
+    assert.match(applied.content, /return "ready";/);
+    assert.match(applied.content, /return "fresh";/);
 });
 
-test('applyPatchUpdateToText uses header to locate a unique nearby block match', () => {
+test('applyPatchUpdateToText uses an anchor line to isolate repeated content', () => {
     const original = [
-        'function alpha() {',
-        '  const value = 1;',
+        'function mountSidebar() {',
+        '  const title = "Workspace";',
         '}',
         '',
-        'function beta() {',
-        '  const value = 1;',
+        'function mountInspector() {',
+        '  const title = "Workspace";',
         '}',
     ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@ function beta() {',
-        '-  const value = 1;',
-        '+  const value = 2;',
-        '*** End Patch',
-    ].join('\n'));
+    const patch = parsePatchDocument([
+        '*** Update File: local/ui/panels.js',
+        '@@ function mountInspector() {',
+        '-  const title = "Workspace";',
+        '+  const title = "Inspector";',
+    ]);
 
-    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' });
-    assert.match(applied.content, /function alpha\(\) \{\n\s{2}const value = 1;/);
-    assert.match(applied.content, /function beta\(\) \{\n\s{2}const value = 2;/);
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/ui/panels.js' });
+    assert.match(applied.content, /mountSidebar\(\) \{\n\s{2}const title = "Workspace";/);
+    assert.match(applied.content, /mountInspector\(\) \{\n\s{2}const title = "Inspector";/);
 });
 
-test('applyPatchUpdateToText fails when header does not match the current file', () => {
+test('applyPatchUpdateToText tolerates trailing-space drift in source lines', () => {
     const original = [
-        'function alpha() {',
-        '  return 1;',
+        'const mobileCloseLabel = "Close";   ',
+        'const mobileOpenLabel = "Open";',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/ui/mobile.js',
+        '@@',
+        '-const mobileCloseLabel = "Close";',
+        '+const mobileCloseLabel = "Dismiss";',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/ui/mobile.js' });
+    assert.match(applied.content, /Dismiss/);
+});
+
+test('applyPatchUpdateToText tolerates outer whitespace drift when text body matches', () => {
+    const original = [
+        '    const workspaceWidth = 520;   ',
+        'const sidebarCollapsed = true;',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/state/layout.js',
+        '@@',
+        '-const workspaceWidth = 520;',
+        '+const workspaceWidth = 560;',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/state/layout.js' });
+    assert.match(applied.content, /560/);
+});
+
+test('applyPatchUpdateToText can align prose lines after punctuation folding', () => {
+    const original = [
+        'title:\u00A0“小白助手”…',
+        'subtitle: workspace — ready',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/notes/release.md',
+        '@@',
+        '-title: "小白助手"...',
+        '+title: "小白助手 v2"...',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/notes/release.md' });
+    assert.match(applied.content, /title: "小白助手 v2"\.\.\./);
+    assert.match(applied.content, /workspace — ready/);
+});
+
+test('applyPatchUpdateToText prefers the tightest successful comparison profile', () => {
+    const original = [
+        'const toolName = "RunSlashCommand";',
+        'const toolName = "RunSlashCommand";   ',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/config/tools.js',
+        '@@',
+        '-const toolName = "RunSlashCommand";',
+        '+const toolName = "RunJavaScriptApi";',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/config/tools.js' });
+    assert.equal(applied.content, [
+        'const toolName = "RunJavaScriptApi";',
+        'const toolName = "RunSlashCommand";   ',
+    ].join('\n'));
+});
+
+test('applyPatchUpdateToText keeps anchor lookup and block lookup on the same profile', () => {
+    const original = [
+        'function renderWorkspace() {   ',
+        '  const label = "Files";   ',
         '}',
     ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@ function beta() {',
-        '-  return 1;',
-        '+  return 2;',
-        '*** End Patch',
+    const patch = parsePatchDocument([
+        '*** Update File: local/ui/workspace.js',
+        '@@ function renderWorkspace() {',
+        '-  const label = "Files";',
+        '+  const label = "Workspace";',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/ui/workspace.js' });
+    assert.equal(applied.content, [
+        'function renderWorkspace() {   ',
+        '  const label = "Workspace";',
+        '}',
     ].join('\n'));
+});
+
+test('applyPatchUpdateToText keeps widening after an anchor-only hit', () => {
+    const original = [
+        'function updateToolbar() {',
+        '  const mode = "idle";   ',
+        '}',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/ui/toolbar.js',
+        '@@ function updateToolbar() {',
+        '-  const mode = "idle";',
+        '+  const mode = "busy";',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/ui/toolbar.js' });
+    assert.equal(applied.content, [
+        'function updateToolbar() {',
+        '  const mode = "busy";',
+        '}',
+    ].join('\n'));
+});
+
+test('applyPatchUpdateToText reports a missing anchor line with explicit diagnostics', () => {
+    const original = [
+        'function openWorkspace() {',
+        '  return true;',
+        '}',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/ui/workspace.js',
+        '@@ function openMemory() {',
+        '-  return true;',
+        '+  return false;',
+    ]);
 
     assert.throws(
-        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' }),
-        /apply_patch_apply_error:.*header did not match the current file.*matchMode=all.*failureStage=header_not_found.*headerMatchCount=0.*oldBlockMatchCount=0/,
+        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/ui/workspace.js' }),
+        /apply_patch_apply_error:.*header did not match the current file.*comparisonProfile=all_profiles.*failureKind=missing_header_anchor.*headerMatchCount=0.*oldBlockMatchCount=0/,
     );
 });
 
-test('applyPatchUpdateToText allows repeated headers when the old block is unique under one header', () => {
+test('applyPatchUpdateToText reports repeated anchored matches that stay ambiguous', () => {
     const original = [
-        'function wrapper() {',
-        '  const item = "a";',
+        'function syncPanel() {',
+        'const active = true;',
         '}',
-        'function wrapper() {',
-        '  const item = "b";',
-        '}',
+        'function syncPanel() {',
+        'const active = true;',
     ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@ function wrapper() {',
-        '-  const item = "b";',
-        '+  const item = "c";',
-        '*** End Patch',
-    ].join('\n'));
-
-    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' });
-    assert.match(applied.content, /const item = "a";/);
-    assert.match(applied.content, /const item = "c";/);
-});
-
-test('applyPatchUpdateToText fails when header matches multiple locations and block is still ambiguous', () => {
-    const original = [
-        'function wrapper() {',
-        'const value = 1;',
-        '}',
-        'function wrapper() {',
-        'const value = 1;',
-    ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@ function wrapper() {',
-        '-const value = 1;',
-        '+const value = 2;',
-        '*** End Patch',
-    ].join('\n'));
+    const patch = parsePatchDocument([
+        '*** Update File: local/ui/panels.js',
+        '@@ function syncPanel() {',
+        '-const active = true;',
+        '+const active = false;',
+    ]);
 
     assert.throws(
-        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' }),
-        /apply_patch_apply_error:.*matched multiple locations under header.*matchMode=exact.*failureStage=header_ambiguous.*headerMatchCount=2.*oldBlockMatchCount=2/,
+        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/ui/panels.js' }),
+        /apply_patch_apply_error:.*matched multiple locations under header.*comparisonProfile=verbatim.*failureKind=ambiguous_header_scoped_match.*headerMatchCount=2.*oldBlockMatchCount=2/,
     );
 });
 
-test('applyPatchUpdateToText fails when header matches but old block does not match under that header', () => {
+test('applyPatchUpdateToText reports anchored misses after trying broader profiles', () => {
     const original = [
-        'function target() {',
+        'function syncMemory() {',
         '  return 1;',
         '}',
         '',
-        'function target() {',
+        'function syncMemory() {',
         '  return 2;',
         '}',
     ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@ function target() {',
+    const patch = parsePatchDocument([
+        '*** Update File: local/state/memory.js',
+        '@@ function syncMemory() {',
         '-  return 3;',
         '+  return 4;',
-        '*** End Patch',
-    ].join('\n'));
+    ]);
 
     assert.throws(
-        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' }),
-        /apply_patch_apply_error:.*header matched but old block did not match under that header.*matchMode=trim.*failureStage=header_found_block_not_found.*headerMatchCount=2.*oldBlockMatchCount=0/,
+        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/state/memory.js' }),
+        /apply_patch_apply_error:.*header matched but old block did not match under that header.*comparisonProfile=edge_trimmed.*failureKind=header_anchor_without_block.*headerMatchCount=2.*oldBlockMatchCount=0/,
     );
 });
 
-test('applyPatchUpdateToText keeps old strict behavior without header when match is unique', () => {
+test('applyPatchUpdateToText reports repeated block matches when no anchor is given', () => {
     const original = [
-        'const one = 1;',
-        'const two = 2;',
+        'const status = "idle";',
+        'const status = "idle";',
     ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
+    const patch = parsePatchDocument([
+        '*** Update File: local/state/session.js',
         '@@',
-        '-const two = 2;',
-        '+const two = 20;',
-        '*** End Patch',
-    ].join('\n'));
-
-    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' });
-    assert.match(applied.content, /const two = 20;/);
-});
-
-test('applyPatchUpdateToText keeps strict multiple-match failure without header', () => {
-    const original = [
-        'const value = 1;',
-        'const value = 1;',
-    ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@',
-        '-const value = 1;',
-        '+const value = 2;',
-        '*** End Patch',
-    ].join('\n'));
+        '-const status = "idle";',
+        '+const status = "busy";',
+    ]);
 
     assert.throws(
-        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' }),
-        /apply_patch_apply_error:.*old block matched multiple locations.*usesHeader=no.*matchMode=exact.*failureStage=block_ambiguous.*oldBlockMatchCount=2/,
+        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/state/session.js' }),
+        /apply_patch_apply_error:.*old block matched multiple locations.*usesHeader=no.*comparisonProfile=verbatim.*failureKind=ambiguous_block_match.*oldBlockMatchCount=2/,
     );
 });
 
-test('applyPatchUpdateToText keeps strict not-found failure without header', () => {
+test('applyPatchUpdateToText reports missing block context when no anchor is given', () => {
     const original = [
-        'const one = 1;',
-        'const two = 2;',
+        'const currentPreset = "default";',
+        'const currentModel = "openai";',
     ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
+    const patch = parsePatchDocument([
+        '*** Update File: local/state/config.js',
         '@@',
-        '-const three = 3;',
-        '+const three = 30;',
-        '*** End Patch',
-    ].join('\n'));
+        '-const currentPreset = "missing";',
+        '+const currentPreset = "assistant";',
+    ]);
 
     assert.throws(
-        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' }),
-        /apply_patch_apply_error:.*old block did not match the current file.*usesHeader=no.*matchMode=all.*failureStage=block_not_found.*oldBlockMatchCount=0/,
+        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/state/config.js' }),
+        /apply_patch_apply_error:.*old block did not match the current file.*usesHeader=no.*comparisonProfile=all_profiles.*failureKind=missing_block_match.*oldBlockMatchCount=0/,
     );
 });
 
-test('applyPatchUpdateToText matches trailing whitespace differences in trim_end mode', () => {
+test('applyPatchUpdateToText does not treat plain ASCII mismatches as punctuation-fold candidates', () => {
     const original = [
-        'const alpha = 1;   ',
-        'const beta = 2;',
+        'const selectedSource = "all";',
+        'const selectedFile = "index.js";',
     ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
+    const patch = parsePatchDocument([
+        '*** Update File: local/state/selection.js',
         '@@',
-        '-const alpha = 1;',
-        '+const alpha = 10;',
-        '*** End Patch',
-    ].join('\n'));
-
-    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' });
-    assert.match(applied.content, /const alpha = 10;/);
-    assert.doesNotMatch(applied.content, /const alpha = 1;\s*$/m);
-});
-
-test('applyPatchUpdateToText matches leading and trailing whitespace differences in trim mode', () => {
-    const original = [
-        '    const alpha = 1;   ',
-        'const beta = 2;',
-    ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@',
-        '-const alpha = 1;',
-        '+const alpha = 10;',
-        '*** End Patch',
-    ].join('\n'));
-
-    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' });
-    assert.match(applied.content, /const alpha = 10;/);
-});
-
-test('applyPatchUpdateToText matches limited unicode punctuation differences in unicode_trim mode', () => {
-    const original = [
-        'title:\u00A0“hello”…',
-        'separator: a — b',
-    ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/doc.txt',
-        '@@',
-        '-title: "hello"...',
-        '+title: "hello world"...',
-        '*** End Patch',
-    ].join('\n'));
-
-    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/doc.txt' });
-    assert.match(applied.content, /title: "hello world"\.\.\./);
-    assert.match(applied.content, /separator: a — b/);
-});
-
-test('applyPatchUpdateToText prefers exact matches before looser modes', () => {
-    const original = [
-        'const alpha = 1;',
-        'const alpha = 1;   ',
-    ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@',
-        '-const alpha = 1;',
-        '+const alpha = 10;',
-        '*** End Patch',
-    ].join('\n'));
-
-    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' });
-    assert.equal(applied.content, [
-        'const alpha = 10;',
-        'const alpha = 1;   ',
-    ].join('\n'));
-});
-
-test('applyPatchUpdateToText uses the same tolerant mode for header and old block', () => {
-    const original = [
-        'function beta() {   ',
-        '  const value = 1;   ',
-        '}',
-    ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@ function beta() {',
-        '-  const value = 1;',
-        '+  const value = 2;',
-        '*** End Patch',
-    ].join('\n'));
-
-    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' });
-    assert.equal(applied.content, [
-        'function beta() {   ',
-        '  const value = 2;',
-        '}',
-    ].join('\n'));
-});
-
-test('applyPatchUpdateToText keeps trying wider modes when header matched but block needs trim_end', () => {
-    const original = [
-        'function beta() {',
-        '  const value = 1;   ',
-        '}',
-    ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@ function beta() {',
-        '-  const value = 1;',
-        '+  const value = 2;',
-        '*** End Patch',
-    ].join('\n'));
-
-    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' });
-    assert.equal(applied.content, [
-        'function beta() {',
-        '  const value = 2;',
-        '}',
-    ].join('\n'));
-});
-
-test('applyPatchUpdateToText does not use unicode_trim when only plain ascii lines are involved', () => {
-    const original = [
-        'const alpha = 1;',
-        'const beta = 2;',
-    ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@',
-        '-const gamma = 3;',
-        '+const gamma = 30;',
-        '*** End Patch',
-    ].join('\n'));
+        '-const selectedSource = "notes";',
+        '+const selectedSource = "memory";',
+    ]);
 
     assert.throws(
-        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' }),
-        /apply_patch_apply_error:.*old block did not match the current file.*matchMode=all.*failureStage=block_not_found/,
+        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/state/selection.js' }),
+        /apply_patch_apply_error:.*old block did not match the current file.*comparisonProfile=all_profiles.*failureKind=missing_block_match/,
     );
 });
 
-test('applyPatchUpdateToText still rejects insert-only hunks', () => {
+test('applyPatchUpdateToText still rejects insert-only hunks without match context', () => {
     const original = [
-        'const one = 1;',
+        'const workspaceRoot = "local/";',
     ].join('\n');
-    const patch = parseApplyPatch([
-        '*** Begin Patch',
-        '*** Update File: local/demo/app.js',
-        '@@ const one = 1;',
-        '+const two = 2;',
-        '*** End Patch',
-    ].join('\n'));
+    const patch = parsePatchDocument([
+        '*** Update File: local/state/workspace.js',
+        '@@ const workspaceRoot = "local/";',
+        '+const sourceFilter = "all";',
+    ]);
 
     assert.throws(
-        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo/app.js' }),
+        () => applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/state/workspace.js' }),
         /apply_patch_apply_error:.*has no match context/,
     );
 });

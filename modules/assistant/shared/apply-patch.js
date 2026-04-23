@@ -158,10 +158,15 @@ export function parseApplyPatch(patchText = '') {
     createParseError('missing *** End Patch footer');
 }
 
-const MATCH_MODES = ['exact', 'trim_end', 'trim', 'unicode_trim'];
-const UNICODE_NORMALIZATION_PATTERN = /[\u2018\u2019\u201A\u201B\u201C\u201D\u201E\u201F\u2010\u2011\u2012\u2013\u2014\u2015\u2026\u00A0]/;
+const LINE_ALIGNMENT_PROFILES = [
+    { key: 'verbatim' },
+    { key: 'rstrip_aware' },
+    { key: 'edge_trimmed' },
+    { key: 'punctuation_folded' },
+];
+const GLYPH_FOLDING_PATTERN = /[\u2018\u2019\u201A\u201B\u201C\u201D\u201E\u201F\u2010\u2011\u2012\u2013\u2014\u2015\u2026\u00A0]/;
 
-function normalizeUnicodePunctuation(value = '') {
+function foldPatchGlyphVariants(value = '') {
     return String(value ?? '')
         .replace(/[\u2018\u2019\u201A\u201B]/g, '\'')
         .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
@@ -170,84 +175,81 @@ function normalizeUnicodePunctuation(value = '') {
         .replace(/\u00A0/g, ' ');
 }
 
-function hasUnicodeNormalizationCandidate(value = '') {
-    return UNICODE_NORMALIZATION_PATTERN.test(String(value ?? ''));
+function hasGlyphFoldingCandidate(value = '') {
+    return GLYPH_FOLDING_PATTERN.test(String(value ?? ''));
 }
 
-function normalizeComparisonText(line = '', mode = 'exact') {
+function prepareLineForAlignment(line = '', profileKey = 'verbatim') {
     const text = String(line ?? '');
-    if (mode === 'trim_end') {
+    if (profileKey === 'rstrip_aware') {
         return text.trimEnd();
     }
-    if (mode === 'trim') {
+    if (profileKey === 'edge_trimmed' || profileKey === 'punctuation_folded') {
         return text.trim();
-    }
-    if (mode === 'unicode_trim') {
-        return normalizeUnicodePunctuation(text.trim());
     }
     return text;
 }
 
-function compareLineWithMode(leftLine = '', rightLine = '', mode = 'exact') {
-    if (mode !== 'unicode_trim') {
+function compareLineUnderProfile(leftLine = '', rightLine = '', profileKey = 'verbatim') {
+    if (profileKey !== 'punctuation_folded') {
         return {
-            equal: normalizeComparisonText(leftLine, mode) === normalizeComparisonText(rightLine, mode),
-            usedUnicodeNormalization: false,
+            equal: prepareLineForAlignment(leftLine, profileKey) === prepareLineForAlignment(rightLine, profileKey),
+            usedGlyphFolding: false,
         };
     }
 
-    const trimmedLeft = normalizeComparisonText(leftLine, 'trim');
-    const trimmedRight = normalizeComparisonText(rightLine, 'trim');
-    if (trimmedLeft === trimmedRight) {
-        return { equal: true, usedUnicodeNormalization: false };
+    const alignedLeft = prepareLineForAlignment(leftLine, 'edge_trimmed');
+    const alignedRight = prepareLineForAlignment(rightLine, 'edge_trimmed');
+    if (alignedLeft === alignedRight) {
+        return { equal: true, usedGlyphFolding: false };
     }
 
-    const canNormalize = hasUnicodeNormalizationCandidate(leftLine) || hasUnicodeNormalizationCandidate(rightLine);
-    if (!canNormalize) {
-        return { equal: false, usedUnicodeNormalization: false };
+    const canFoldGlyphs = hasGlyphFoldingCandidate(leftLine) || hasGlyphFoldingCandidate(rightLine);
+    if (!canFoldGlyphs) {
+        return { equal: false, usedGlyphFolding: false };
     }
 
     return {
-        equal: normalizeUnicodePunctuation(trimmedLeft) === normalizeUnicodePunctuation(trimmedRight),
-        usedUnicodeNormalization: true,
+        equal: foldPatchGlyphVariants(alignedLeft) === foldPatchGlyphVariants(alignedRight),
+        usedGlyphFolding: true,
     };
 }
 
-function blockMatchesAtWithMode(fileLines = [], targetLines = [], startIndex = 0, mode = 'exact') {
+function blockMatchesAtWithProfile(fileLines = [], targetLines = [], startIndex = 0, profileKey = 'verbatim') {
     if (startIndex < 0 || startIndex + targetLines.length > fileLines.length) return false;
-    let usedUnicodeNormalization = false;
+    let usedGlyphFolding = false;
     for (let index = 0; index < targetLines.length; index += 1) {
-        const comparison = compareLineWithMode(fileLines[startIndex + index], targetLines[index], mode);
+        const comparison = compareLineUnderProfile(fileLines[startIndex + index], targetLines[index], profileKey);
         if (!comparison.equal) {
             return false;
         }
-        usedUnicodeNormalization = usedUnicodeNormalization || comparison.usedUnicodeNormalization;
+        usedGlyphFolding = usedGlyphFolding || comparison.usedGlyphFolding;
     }
-    if (mode === 'unicode_trim') {
-        return usedUnicodeNormalization;
+    if (profileKey === 'punctuation_folded') {
+        return usedGlyphFolding;
     }
     return true;
 }
 
-function findMatchingLineIndexesWithMode(fileLines = [], targetLine = '', startIndex = 0, mode = 'exact') {
+function findAnchorLineIndexes(fileLines = [], targetLine = '', startIndex = 0, profileKey = 'verbatim') {
     const matches = [];
     for (let index = Math.max(0, startIndex); index < fileLines.length; index += 1) {
-        const comparison = compareLineWithMode(fileLines[index], targetLine, mode);
-        if (comparison.equal && (mode !== 'unicode_trim' || comparison.usedUnicodeNormalization)) {
+        const comparison = compareLineUnderProfile(fileLines[index], targetLine, profileKey);
+        if (comparison.equal && (profileKey !== 'punctuation_folded' || comparison.usedGlyphFolding)) {
             matches.push(index);
         }
     }
     return matches;
 }
 
-function findBlockMatchesFromWithMode(fileLines = [], targetLines = [], startIndex = 0, mode = 'exact') {
+function findContiguousBlockMatches(fileLines = [], targetLines = [], startIndex = 0, profileKey = 'verbatim') {
     if (!targetLines.length) return [];
     const matches = [];
     const maxStart = fileLines.length - targetLines.length;
     if (maxStart < 0) return matches;
 
     for (let index = Math.max(0, startIndex); index <= maxStart; index += 1) {
-        if (blockMatchesAtWithMode(fileLines, targetLines, index, mode)) {
+        if (blockMatchesAtWithProfile(fileLines, targetLines, index, profileKey)) {
             matches.push(index);
         }
     }
@@ -261,11 +263,11 @@ function buildHunkFailureMessage(hunkIndex, pathText, kind, details = {}) {
     if (Object.prototype.hasOwnProperty.call(details, 'usesHeader')) {
         extras.push(`usesHeader=${details.usesHeader ? 'yes' : 'no'}`);
     }
-    if (Object.prototype.hasOwnProperty.call(details, 'matchMode')) {
-        extras.push(`matchMode=${details.matchMode}`);
+    if (Object.prototype.hasOwnProperty.call(details, 'comparisonProfile')) {
+        extras.push(`comparisonProfile=${details.comparisonProfile}`);
     }
-    if (Object.prototype.hasOwnProperty.call(details, 'failureStage')) {
-        extras.push(`failureStage=${details.failureStage}`);
+    if (Object.prototype.hasOwnProperty.call(details, 'failureKind')) {
+        extras.push(`failureKind=${details.failureKind}`);
     }
     if (Object.prototype.hasOwnProperty.call(details, 'headerMatchCount')) {
         extras.push(`headerMatchCount=${details.headerMatchCount}`);
@@ -288,30 +290,30 @@ function resolveHunkMatch(fileLines, hunk, oldLines, preferredStart = 0, options
     let deferredHeaderFailure = null;
 
     if (!usesHeader) {
-        for (const matchMode of MATCH_MODES) {
-            const preferredMatches = findBlockMatchesFromWithMode(fileLines, oldLines, preferredStart, matchMode);
+        for (const profile of LINE_ALIGNMENT_PROFILES) {
+            const preferredMatches = findContiguousBlockMatches(fileLines, oldLines, preferredStart, profile.key);
             if (preferredMatches.length === 1) {
-                return { index: preferredMatches[0], matchMode };
+                return { index: preferredMatches[0], comparisonProfile: profile.key };
             }
             if (preferredMatches.length > 1) {
                 createApplyError(buildHunkFailureMessage(hunk.index, pathText, 'old block matched multiple locations', {
                     usesHeader: false,
-                    matchMode,
-                    failureStage: 'block_ambiguous',
+                    comparisonProfile: profile.key,
+                    failureKind: 'ambiguous_block_match',
                     oldBlockMatchCount: preferredMatches.length,
                 }));
             }
 
             if (preferredStart > 0) {
-                const allMatches = findBlockMatchesFromWithMode(fileLines, oldLines, 0, matchMode);
+                const allMatches = findContiguousBlockMatches(fileLines, oldLines, 0, profile.key);
                 if (allMatches.length === 1) {
-                    return { index: allMatches[0], matchMode };
+                    return { index: allMatches[0], comparisonProfile: profile.key };
                 }
                 if (allMatches.length > 1) {
                     createApplyError(buildHunkFailureMessage(hunk.index, pathText, 'old block matched multiple locations', {
                         usesHeader: false,
-                        matchMode,
-                        failureStage: 'block_ambiguous',
+                        comparisonProfile: profile.key,
+                        failureKind: 'ambiguous_block_match',
                         oldBlockMatchCount: allMatches.length,
                     }));
                 }
@@ -320,16 +322,16 @@ function resolveHunkMatch(fileLines, hunk, oldLines, preferredStart = 0, options
 
         createApplyError(buildHunkFailureMessage(hunk.index, pathText, 'old block did not match the current file', {
             usesHeader: false,
-            matchMode: 'all',
-            failureStage: 'block_not_found',
+            comparisonProfile: 'all_profiles',
+            failureKind: 'missing_block_match',
             oldBlockMatchCount: 0,
         }));
     }
 
-    for (const matchMode of MATCH_MODES) {
-        const preferredHeaderMatches = findMatchingLineIndexesWithMode(fileLines, headerText, preferredStart, matchMode);
+    for (const profile of LINE_ALIGNMENT_PROFILES) {
+        const preferredHeaderMatches = findAnchorLineIndexes(fileLines, headerText, preferredStart, profile.key);
         const allHeaderMatches = preferredStart > 0
-            ? findMatchingLineIndexesWithMode(fileLines, headerText, 0, matchMode)
+            ? findAnchorLineIndexes(fileLines, headerText, 0, profile.key)
             : preferredHeaderMatches;
         const headerMatches = preferredHeaderMatches.length ? preferredHeaderMatches : allHeaderMatches;
         const headerMatchCount = headerMatches.length;
@@ -341,20 +343,20 @@ function resolveHunkMatch(fileLines, hunk, oldLines, preferredStart = 0, options
         const matchedIndexes = new Set();
         let totalBlockMatches = 0;
         headerMatches.forEach((headerIndex) => {
-            const blockMatches = findBlockMatchesFromWithMode(fileLines, oldLines, Math.max(preferredStart, headerIndex), matchMode);
+            const blockMatches = findContiguousBlockMatches(fileLines, oldLines, Math.max(preferredStart, headerIndex), profile.key);
             totalBlockMatches += blockMatches.length;
             blockMatches.forEach((matchIndex) => matchedIndexes.add(matchIndex));
         });
 
         if (matchedIndexes.size === 1) {
-            return { index: Array.from(matchedIndexes)[0], matchMode };
+            return { index: Array.from(matchedIndexes)[0], comparisonProfile: profile.key };
         }
 
         if (!matchedIndexes.size) {
             deferredHeaderFailure = buildHunkFailureMessage(hunk.index, pathText, 'header matched but old block did not match under that header', {
                 usesHeader: true,
-                matchMode,
-                failureStage: 'header_found_block_not_found',
+                comparisonProfile: profile.key,
+                failureKind: 'header_anchor_without_block',
                 headerMatchCount,
                 oldBlockMatchCount: totalBlockMatches,
             });
@@ -363,8 +365,8 @@ function resolveHunkMatch(fileLines, hunk, oldLines, preferredStart = 0, options
 
         createApplyError(buildHunkFailureMessage(hunk.index, pathText, 'matched multiple locations under header', {
             usesHeader: true,
-            matchMode,
-            failureStage: 'header_ambiguous',
+            comparisonProfile: profile.key,
+            failureKind: 'ambiguous_header_scoped_match',
             headerMatchCount,
             oldBlockMatchCount: matchedIndexes.size,
         }));
@@ -376,8 +378,8 @@ function resolveHunkMatch(fileLines, hunk, oldLines, preferredStart = 0, options
 
     createApplyError(buildHunkFailureMessage(hunk.index, pathText, 'header did not match the current file', {
         usesHeader: true,
-        matchMode: 'all',
-        failureStage: 'header_not_found',
+        comparisonProfile: 'all_profiles',
+        failureKind: 'missing_header_anchor',
         headerMatchCount: 0,
         oldBlockMatchCount: 0,
     }));

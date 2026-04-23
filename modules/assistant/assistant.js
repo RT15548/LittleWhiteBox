@@ -13,6 +13,7 @@ import { createAssistantHostWindow } from "./assistant-host-window.js";
 import { TOOL_NAMES } from "./app-src/tooling.js";
 import { normalizeSlashSkillTrigger } from "./app-src/slash-command-policy.js";
 import { applyPatchUpdateToText, parseApplyPatch } from "./shared/apply-patch.js";
+import { buildPatchFailureResult, runPatchValidationAndApply } from "./shared/apply-patch-execution.js";
 import {
     DEFAULT_PRESET_NAME,
     buildDefaultPreset,
@@ -1957,100 +1958,46 @@ async function applyLocalPatch(args = {}, options = {}) {
     const patchText = typeof args.patchText === 'string'
         ? args.patchText
         : String(args.patchText ?? args.input ?? '');
-    const parsed = parseApplyPatch(patchText);
-    let nextSources = normalizeLocalSourcesSnapshot(options.localSources);
-    const changes = [];
-    let hunksApplied = 0;
-    let addedCount = 0;
-    let updatedCount = 0;
-    let deletedCount = 0;
-    let movedCount = 0;
+    let parsed = null;
+    try {
+        parsed = parseApplyPatch(patchText);
+    } catch (error) {
+        return buildPatchFailureResult(error);
+    }
 
-    parsed.operations.forEach((operation) => {
-        if (operation.type === 'add') {
-            const targetPath = normalizeWritableLocalPath(operation.path);
-            if (!targetPath) {
-                throw new Error(getWritableLocalPathError(operation.path));
-            }
-            if (findLocalSourceFileByPath(targetPath, nextSources)) {
-                throw new Error('local_destination_exists');
-            }
-            const update = upsertLocalSourceFile(nextSources, targetPath, operation.content);
-            nextSources = update.nextSources;
-            changes.push({ action: 'add', path: update.file.publicPath });
-            addedCount += 1;
-            return;
-        }
-
-        if (operation.type === 'delete') {
-            const targetPath = normalizeWritableLocalPath(operation.path);
-            if (!targetPath) {
-                throw new Error(getWritableLocalPathError(operation.path));
-            }
-            const removal = removeLocalSourceFile(nextSources, targetPath);
-            nextSources = removal.nextSources;
-            changes.push({ action: 'delete', path: removal.file.publicPath });
-            deletedCount += 1;
-            return;
-        }
-
-        const sourcePath = normalizeWritableLocalPath(operation.path);
-        if (!sourcePath) {
-            throw new Error(getWritableLocalPathError(operation.path));
-        }
-        const existingEntry = findLocalSourceFileByPath(sourcePath, nextSources);
-        if (!existingEntry) {
-            throw new Error('local_file_not_found');
-        }
-
-        let targetPath = sourcePath;
-        if (operation.moveTo) {
-            targetPath = normalizeWritableLocalPath(operation.moveTo);
-            if (!targetPath) {
-                throw new Error(getWritableLocalPathError(operation.moveTo));
-            }
-            if (targetPath !== sourcePath) {
-                const move = moveLocalSourceFile(nextSources, sourcePath, targetPath, { overwrite: false });
-                nextSources = move.nextSources;
-                movedCount += 1;
-                changes.push({ action: 'move', path: move.file.publicPath, fromPath: move.fromFile.publicPath, toPath: move.file.publicPath });
-            }
-        }
-
-        if (!operation.hunks.length) {
-            return;
-        }
-
-        const currentEntry = findLocalSourceFileByPath(targetPath, nextSources);
-        if (!currentEntry) {
-            throw new Error('local_file_not_found');
-        }
-        const applied = applyPatchUpdateToText(currentEntry.content, operation.hunks, { path: targetPath });
-        hunksApplied += applied.hunksApplied;
-
-        const update = upsertLocalSourceFile(nextSources, targetPath, applied.content);
-        nextSources = update.nextSources;
-        updatedCount += 1;
-        changes.push({
-            action: 'update',
-            path: update.file.publicPath,
-            fromPath: sourcePath !== update.file.publicPath ? sourcePath : '',
-            hunksApplied: applied.hunksApplied,
-        });
-    });
-
-    options.onLocalSourcesUpdated?.(nextSources);
-    const changedPathSet = new Set(changes.flatMap((change) => [change.path, change.fromPath, change.toPath]).filter(Boolean));
-    return {
-        ok: true,
-        filesChanged: changedPathSet.size,
-        addedCount,
-        updatedCount,
-        deletedCount,
-        movedCount,
-        hunksApplied,
-        changes,
-    };
+    try {
+        const result = runPatchValidationAndApply(
+            parsed,
+            normalizeLocalSourcesSnapshot(options.localSources),
+            {
+                cloneState: normalizeLocalSourcesSnapshot,
+                normalizePath: normalizeWritableLocalPath,
+                getPathError: getWritableLocalPathError,
+                findFile: findLocalSourceFileByPath,
+                addFile: (localSources, publicPath, content) => upsertLocalSourceFile(localSources, publicPath, content),
+                removeFile: removeLocalSourceFile,
+                moveFile: moveLocalSourceFile,
+                writeFile: (localSources, publicPath, content) => upsertLocalSourceFile(localSources, publicPath, content),
+                applyUpdate: applyPatchUpdateToText,
+            },
+        );
+        options.onLocalSourcesUpdated?.(result.nextState);
+        return {
+            ok: result.ok,
+            phase: result.phase,
+            summary: result.summary,
+            filesChanged: result.filesChanged,
+            addedCount: result.addedCount,
+            updatedCount: result.updatedCount,
+            deletedCount: result.deletedCount,
+            movedCount: result.movedCount,
+            hunksApplied: result.hunksApplied,
+            changes: result.changes,
+            validation: result.validation,
+        };
+    } catch (error) {
+        return buildPatchFailureResult(error);
+    }
 }
 
 async function deleteLocalFile(args = {}, options = {}) {

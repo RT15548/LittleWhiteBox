@@ -8,7 +8,7 @@
         "build:assistant:jsapi-runtime": "node scripts/build-assistant-jsapi-runtime.mjs",
         "build:assistant:app": "vite build --config vite.assistant.config.mjs",
         "build:assistant": "npm run build:assistant:manifest && npm run build:assistant:jsapi-manifest && npm run build:assistant:jsapi-runtime && npm run build:assistant:app",
-        "test:assistant:workspace": "node --test modules/assistant/tests/local-workspace.test.js modules/assistant/tests/apply-patch.test.js modules/assistant/tests/context-hint.test.js modules/assistant/tests/memory-files.test.js",
+        "test:assistant:workspace": "node --test modules/assistant/tests/local-workspace.test.js modules/assistant/tests/apply-patch.test.js modules/assistant/tests/apply-patch-execution.test.js modules/assistant/tests/context-hint.test.js modules/assistant/tests/memory-files.test.js",
         "lint": "node scripts/check-garbled.js && eslint \"**/*.js\"",
         "lint:fix": "eslint \"**/*.js\" --fix"
     },
