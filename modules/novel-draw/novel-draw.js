@@ -36,7 +36,7 @@ import {
     destroyCloudPresets
 } from './cloud-presets.js';
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
-import { getDefaultApiPrefix, getModelListCandidateUrls } from "../openai-url-utils.js";
+import { getDefaultApiPrefix, getModelListCandidateUrls } from "../../shared/common/openai-url-utils.js";
 import {
     loadLocalDanbooruDB, unloadLocalDanbooruDB,
     searchLocalDanbooru, isDanbooruDBLoaded,

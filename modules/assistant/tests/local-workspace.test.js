@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildDiffRows } from '../app-src/local-workspace-diff.js';
-import { buildWorkspaceTree, collectDirectoryExpansionKeys } from '../app-src/local-workspace-tree.js';
+import { buildDiffRows } from '../app-src/workspace/local-workspace-diff.js';
+import { buildWorkspaceTree, collectDirectoryExpansionKeys } from '../app-src/workspace/local-workspace-tree.js';
 import {
     buildLocalSourcesArchiveEntries,
     createLocalSourcesManager,
     normalizeLocalSources,
     summarizeLocalSources,
-} from '../app-src/local-sources.js';
+} from '../app-src/workspace/local-sources.js';
 
 function createSources() {
     return normalizeLocalSources([

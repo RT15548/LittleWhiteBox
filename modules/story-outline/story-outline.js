@@ -38,7 +38,7 @@ import {
     buildOverlayHtml, MOBILE_LAYOUT_STYLE, DESKTOP_LAYOUT_STYLE, getPromptConfigPayload, setPromptConfig
 } from "./story-outline-prompt.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
-import { getDefaultApiPrefix, getModelListCandidateUrls, resolveApiBaseUrl } from "../openai-url-utils.js";
+import { getDefaultApiPrefix, getModelListCandidateUrls, resolveApiBaseUrl } from "../../shared/common/openai-url-utils.js";
 
 const events = createModuleEvents('storyOutline');
 const IFRAME_PATH = `${extensionFolderPath}/modules/story-outline/story-outline.html`;

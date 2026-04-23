@@ -12,7 +12,7 @@ import {
     DEFAULT_SUMMARY_USER_CONFIRM_PROMPT,
     DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT,
 } from "../data/config.js";
-import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../openai-url-utils.js";
+import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../../shared/common/openai-url-utils.js";
 
 const PROVIDER_MAP = {
     openai: "openai",

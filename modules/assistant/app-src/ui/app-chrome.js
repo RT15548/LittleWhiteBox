@@ -1,9 +1,14 @@
+import { describeMemoryFile, findMemoryFileByPath } from '../memory/memory-files.js';
+
 export function collectContextHintItems(state = {}) {
     const workspaceSelection = state.workspaceSelectionContext || {};
     const externalEditorContext = state.externalEditorContext || null;
     const contextItems = [];
-    const selectedFilePath = String(state.selectedFilePath || '').trim();
-    const selectedTreePath = String(state.selectedTreePath || '').trim();
+    const isMemoryPanel = state.workspacePanelMode === 'memory';
+    const selectedFilePath = isMemoryPanel
+        ? String(state.selectedSkillFilePath || '').trim()
+        : String(state.selectedFilePath || '').trim();
+    const selectedTreePath = isMemoryPanel ? '' : String(state.selectedTreePath || '').trim();
     const formatIdeHint = (text) => `[IDE] ${text}`;
 
     if (externalEditorContext && (externalEditorContext.filePath || externalEditorContext.note || externalEditorContext.selectionText)) {
@@ -34,7 +39,11 @@ export function collectContextHintItems(state = {}) {
             }
             contextItems.push(formatIdeHint(parts.join(' · ')));
         } else if (selectedFilePath) {
-            const parts = [`工作区文件：${selectedFilePath}`];
+            const memoryFile = isMemoryPanel ? findMemoryFileByPath(state.skillFiles, selectedFilePath) : null;
+            const memoryDescriptor = isMemoryPanel ? describeMemoryFile(memoryFile, selectedFilePath) : null;
+            const parts = [isMemoryPanel
+                ? `记忆区${memoryDescriptor.kindLabel}：${memoryDescriptor.displayName}`
+                : `工作区文件：${selectedFilePath}`];
             if (workspaceSelection.filePath === selectedFilePath && (workspaceSelection.text || workspaceSelection.lineStart)) {
                 if (workspaceSelection.lineStart) {
                     parts.push(

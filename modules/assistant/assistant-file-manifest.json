@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-22T09:57:12.938Z",
+  "generatedAt": "2026-04-23T07:33:32.453Z",
   "version": 1,
   "files": [
     {
@@ -124,50 +124,14 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/app-chrome.js",
-      "relativePath": "modules/assistant/app-src/app-chrome.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/app-shell.js",
-      "relativePath": "modules/assistant/app-src/app-shell.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/attachments.js",
       "relativePath": "modules/assistant/app-src/attachments.js",
       "extension": ".js"
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/chat-ui.js",
-      "relativePath": "modules/assistant/app-src/chat-ui.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/local-sources.js",
-      "relativePath": "modules/assistant/app-src/local-sources.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/local-workspace-diff.js",
-      "relativePath": "modules/assistant/app-src/local-workspace-diff.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/local-workspace-tree.js",
-      "relativePath": "modules/assistant/app-src/local-workspace-tree.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/local-workspace-ui.js",
-      "relativePath": "modules/assistant/app-src/local-workspace-ui.js",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/context/ide-context.js",
+      "relativePath": "modules/assistant/app-src/context/ide-context.js",
       "extension": ".js"
     },
     {
@@ -178,8 +142,44 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/memory/memory-files.js",
+      "relativePath": "modules/assistant/app-src/memory/memory-files.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/prompts/system-prompt.js",
       "relativePath": "modules/assistant/app-src/prompts/system-prompt.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/approvals.js",
+      "relativePath": "modules/assistant/app-src/runtime/approvals.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/context-stats.js",
+      "relativePath": "modules/assistant/app-src/runtime/context-stats.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/history-compaction.js",
+      "relativePath": "modules/assistant/app-src/runtime/history-compaction.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/host-tool-requests.js",
+      "relativePath": "modules/assistant/app-src/runtime/host-tool-requests.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/streaming-messages.js",
+      "relativePath": "modules/assistant/app-src/runtime/streaming-messages.js",
       "extension": ".js"
     },
     {
@@ -190,26 +190,20 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/session-db.js",
-      "relativePath": "modules/assistant/app-src/session-db.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/session-store.js",
-      "relativePath": "modules/assistant/app-src/session-store.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/settings-panel.js",
-      "relativePath": "modules/assistant/app-src/settings-panel.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/slash-command-policy.js",
       "relativePath": "modules/assistant/app-src/slash-command-policy.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/state/session-db.js",
+      "relativePath": "modules/assistant/app-src/state/session-db.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/state/session-store.js",
+      "relativePath": "modules/assistant/app-src/state/session-store.js",
       "extension": ".js"
     },
     {
@@ -222,6 +216,54 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/tooling.js",
       "relativePath": "modules/assistant/app-src/tooling.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/ui/app-chrome.js",
+      "relativePath": "modules/assistant/app-src/ui/app-chrome.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/ui/app-shell.js",
+      "relativePath": "modules/assistant/app-src/ui/app-shell.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/ui/chat-ui.js",
+      "relativePath": "modules/assistant/app-src/ui/chat-ui.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/ui/settings-panel.js",
+      "relativePath": "modules/assistant/app-src/ui/settings-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/workspace/local-sources.js",
+      "relativePath": "modules/assistant/app-src/workspace/local-sources.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/workspace/local-workspace-diff.js",
+      "relativePath": "modules/assistant/app-src/workspace/local-workspace-diff.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/workspace/local-workspace-tree.js",
+      "relativePath": "modules/assistant/app-src/workspace/local-workspace-tree.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/workspace/local-workspace-ui.js",
+      "relativePath": "modules/assistant/app-src/workspace/local-workspace-ui.js",
       "extension": ".js"
     },
     {
@@ -268,8 +310,8 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-language-reference.md",
-      "relativePath": "modules/assistant/references/stscript-language-reference.md",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-reference.md",
+      "relativePath": "modules/assistant/references/stscript-reference.md",
       "extension": ".md"
     },
     {
@@ -324,6 +366,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/local-workspace.test.js",
       "relativePath": "modules/assistant/tests/local-workspace.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/memory-files.test.js",
+      "relativePath": "modules/assistant/tests/memory-files.test.js",
       "extension": ".js"
     },
     {
@@ -510,12 +558,6 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/worldbook-processor.js",
       "relativePath": "modules/novel-draw/worldbook-processor.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/openai-url-utils.js",
-      "relativePath": "modules/openai-url-utils.js",
       "extension": ".js"
     },
     {
@@ -949,6 +991,12 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/settings.html",
       "relativePath": "settings.html",
       "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/shared/common/openai-url-utils.js",
+      "relativePath": "shared/common/openai-url-utils.js",
+      "extension": ".js"
     },
     {
       "source": "littlewhitebox",

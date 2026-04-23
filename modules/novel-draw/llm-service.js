@@ -1,5 +1,5 @@
 import { extensionFolderPath } from "../../core/constants.js";
-import { getDefaultApiPrefix, resolveApiBaseUrl } from "../openai-url-utils.js";
+import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../shared/common/openai-url-utils.js";
 
 const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/novel-draw/TAG编写指南.md`;
 const PROMPTS_DIR = `${extensionFolderPath}/modules/novel-draw/prompts`;

@@ -5,7 +5,7 @@
 
 import { xbLog } from '../../../../core/debug-core.js';
 import { getVectorConfig } from '../../data/config.js';
-import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../openai-url-utils.js';
+import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../../shared/common/openai-url-utils.js';
 
 const MODULE_ID = 'reranker';
 const DEFAULT_RERANK_URL = 'https://api.siliconflow.cn/v1';

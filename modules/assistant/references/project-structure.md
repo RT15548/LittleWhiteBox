@@ -77,6 +77,8 @@ LittleWhiteBox/
 │
 ├── scripts/                               # 构建与检查脚本
 │   ├── build-assistant-file-manifest.mjs   # 助手文件清单构建脚本
+│   ├── build-assistant-jsapi-manifest.mjs  # 助手 JS API 清单构建脚本
+│   ├── build-assistant-jsapi-runtime.mjs   # 助手 JS API 运行时构建脚本
 │   └── check-garbled.js                    # 乱码检查脚本（lint 前置）
 │
 ├── bridges/                               # 与酒馆运行时、上下文、世界书、iframe 的桥接层
@@ -116,12 +118,15 @@ LittleWhiteBox/
 │       ├── README.md                        # 上游说明
 │       └── package.json                     # 上游包信息
 │
+├── shared/                                # 项目内跨模块共享逻辑
+│   └── common/                            # 通用共享工具
+│       └── openai-url-utils.js            # OpenAI-compatible URL 规范化与拼接
+│
 ├── modules/                               # LittleWhiteBox 各业务功能模块主目录
 │   ├── control-audio.js                    # 音频控制模块
 │   ├── iframe-renderer.js                  # iframe 渲染与挂载
 │   ├── immersive-mode.js                   # 沉浸模式
 │   ├── message-preview.js                  # 消息预览
-│   ├── openai-url-utils.js                 # OpenAI URL 工具
 │   ├── streaming-generation.js             # 流式生成能力
 │   │
 │   ├── debug-panel/                       # 调试面板功能
@@ -257,21 +262,41 @@ LittleWhiteBox/
 │       ├── assistant-file-manifest.json    # 文件清单（构建产物）
 │       ├── app-src/                       # 助手前端源码
 │       │   ├── attachments.js              # 附件规范化与消息附件辅助
-│       │   ├── chat-ui.js                  # 聊天气泡、工具批次、审批块等 UI 渲染
 │       │   ├── main.js                     # 助手前端装配入口：状态、渲染、runtime 组装
-│       │   ├── runtime.js                  # 主运行时：对话循环、工具调用、审批、上下文压缩
-│       │   ├── session-db.js               # IndexedDB schema
-│       │   ├── session-store.js            # 会话持久化与恢复
-│       │   ├── settings-panel.js           # 设置面板 UI 与配置同步
+│       │   ├── runtime.js                  # runtime 对外装配入口与主循环
 │       │   ├── slash-command-policy.js     # slash 命令规范化与审批策略
+│       │   ├── styles.js                   # 全局 iframe 样式
 │       │   ├── tooling.js                  # 工具定义、schema 与使用规则
 │       │   ├── adapters/                  # 各模型 provider 适配层
 │       │   │   ├── anthropic.js            # Anthropic 适配器
 │       │   │   ├── google.js               # Google AI 适配器
 │       │   │   ├── openai-compatible.js    # OpenAI-Compatible 适配器
 │       │   │   └── openai-responses.js     # OpenAI Responses 适配器
-│       │   └── prompts/                   # 助手提示词模板
-│       │       └── system-prompt.js        # 系统提示词与权限模式提示拼装
+│       │   ├── context/                   # IDE/外部编辑器/上下文注入相关
+│       │   │   └── ide-context.js          # IDE 背景文本与上下文构造
+│       │   ├── memory/                    # 记忆区文件建模与显示语义
+│       │   │   └── memory-files.js         # skill / identity / worklog 文件规范化
+│       │   ├── prompts/                   # 助手提示词模板
+│       │   │   └── system-prompt.js        # 系统提示词与权限模式提示拼装
+│       │   ├── runtime/                   # runtime 内部子模块
+│       │   │   ├── approvals.js            # 审批请求与审批面板 promise 链
+│       │   │   ├── context-stats.js        # token 估算与上下文统计
+│       │   │   ├── history-compaction.js   # 历史摘要与 context budget 压缩
+│       │   │   ├── host-tool-requests.js   # host tool 请求、超时、中止、失败整形
+│       │   │   └── streaming-messages.js   # 流式 assistant message 维护
+│       │   ├── state/                     # 会话持久化与状态存储
+│       │   │   ├── session-db.js           # IndexedDB schema
+│       │   │   └── session-store.js        # 会话持久化与恢复
+│       │   ├── ui/                        # 纯前端界面渲染层
+│       │   │   ├── app-chrome.js           # 顶层 chrome、toolbar、上下文提示
+│       │   │   ├── app-shell.js            # 顶层应用壳 markup
+│       │   │   ├── chat-ui.js              # 聊天气泡、工具批次、审批块等 UI
+│       │   │   └── settings-panel.js       # 设置面板 UI 与配置同步
+│       │   └── workspace/                 # 本地工作区树、diff、编辑器与导入管理
+│       │       ├── local-sources.js        # 工作区来源管理、导入与归档
+│       │       ├── local-workspace-diff.js # 文本 diff 视图辅助
+│       │       ├── local-workspace-tree.js # 工作区树构造与展开键
+│       │       └── local-workspace-ui.js   # 工作区树 + viewer + 编辑器 UI
 │       ├── dist/                          # 助手前端打包产物
 │       │   └── assistant-app.js            # 构建产物（Vite 打包）
 │       ├── shared/                        # 助手前后共享的配置与标准化逻辑
@@ -279,7 +304,7 @@ LittleWhiteBox/
 │       └── references/                    # 助手排查时优先读取的参考资料
 │           ├── project-structure.md        # 项目结构参考（本文档）
 │           ├── sillytavern-javascript-api-reference.md  # SillyTavern JS API 参考
-│           └── stscript-language-reference.md           # STscript 语言参考
+│           └── stscript-reference.md                   # STscript 统一参考（语法 + 命令）
 │
 └── widgets/                               # 通用消息区小挂件
     ├── button-collapse.js                  # 按钮折叠
@@ -289,5 +314,5 @@ LittleWhiteBox/
 ## 快速定位建议
 
 ### 参考资料
-- 问 STscript 语法：看 `modules/assistant/references/stscript-language-reference.md`
+- 问 STscript 语法、参数系统、转义规则、具体命令：看 `modules/assistant/references/stscript-reference.md`
 - 问 SillyTavern 前端 API：看 `modules/assistant/references/sillytavern-javascript-api-reference.md`

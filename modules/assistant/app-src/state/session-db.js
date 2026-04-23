@@ -1,4 +1,4 @@
-import Dexie from '../../../libs/dexie.mjs';
+import Dexie from '../../../../libs/dexie.mjs';
 
 const db = new Dexie('LittleWhiteBox_Assistant');
 

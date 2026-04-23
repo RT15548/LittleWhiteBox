@@ -8,6 +8,8 @@ import {
     formatToolResultDisplay,
 } from './tooling.js';
 import { createAssistantRuntime } from './runtime.js';
+import { buildWorkspaceUserContextTextForState } from './context/ide-context.js';
+import { normalizeMemoryFiles } from './memory/memory-files.js';
 import {
     DEFAULT_PRESET_NAME,
     buildDefaultPreset,
@@ -21,14 +23,15 @@ import {
     normalizeSlashSkillTrigger,
     shouldRequireSlashCommandApproval,
 } from './slash-command-policy.js';
-import { createSessionStore } from './session-store.js';
+import { createSessionStore } from './state/session-store.js';
 import { createAttachmentsManager } from './attachments.js';
-import { renderAppChrome, renderContextHint } from './app-chrome.js';
-import { buildAppMarkup as buildAssistantAppMarkup } from './app-shell.js';
-import { createLocalSourcesManager } from './local-sources.js';
-import { renderWorkspace as renderWorkspaceUi } from './local-workspace-ui.js';
-import { createSettingsPanel } from './settings-panel.js';
-import { createChatUi } from './chat-ui.js';
+import { renderAppChrome, renderContextHint } from './ui/app-chrome.js';
+import { buildAppMarkup as buildAssistantAppMarkup } from './ui/app-shell.js';
+import { createChatUi } from './ui/chat-ui.js';
+import { createSettingsPanel } from './ui/settings-panel.js';
+import { createLocalSourcesManager } from './workspace/local-sources.js';
+import { buildWorkspaceTree } from './workspace/local-workspace-tree.js';
+import { renderWorkspace as renderWorkspaceUi } from './workspace/local-workspace-ui.js';
 import { injectAssistantStyles } from './styles.js';
 import {
     HISTORY_SUMMARY_PREFIX,
@@ -112,14 +115,18 @@ const state = {
     composeMenuOpen: false,
     isWorkspaceOpen: false,
     workspaceWidth: 520,
+    workspacePanelMode: 'workspace',
     selectedSourceId: 'all',
     selectedFilePath: '',
     selectedTreePath: '',
+    skillFiles: [],
+    selectedSkillFilePath: '',
     fileSearchQuery: '',
     showModifiedOnly: false,
     viewerMode: 'current',
     mobileWorkspacePane: 'tree',
     treeExpandedKeys: [],
+    skillTreeExpandedKeys: [],
     sidebarCollapsed: true,
     configFormSyncPending: true,
     editingMessageIndex: -1,
@@ -136,6 +143,8 @@ let toastTimer = null;
 let parsedAssistantUA = null;
 let configSaveTimeout = null;
 let configSaveResetTimer = null;
+let suppressNextIdentityUpdatedToast = false;
+let suppressNextMemoryRefreshToast = false;
 
 function post(type, payload = {}) {
     parent.postMessage({ source: SOURCE, type, payload }, window.location.origin);
@@ -172,11 +181,518 @@ function renderWorkspaceOnly() {
     if (!root) return;
     const workspacePanel = root.querySelector('#xb-assistant-workspace-panel');
     if (!workspacePanel) return;
-    ensureWorkspaceSelection();
-    renderWorkspace(workspacePanel, {
+    if (state.workspacePanelMode === 'memory') {
+        ensureSkillSelection({ fallbackToFirst: false });
+    } else {
+        ensureWorkspaceSelection();
+    }
+    renderWorkspacePanel(workspacePanel, {
         disabled: state.isBusy,
         onEditorSelectionChange: handleWorkspaceEditorSelectionChange,
     });
+    renderContextHint(root, state);
+}
+
+function normalizeSkillFiles(skillFiles = []) {
+    return normalizeMemoryFiles(skillFiles);
+}
+
+function hasOriginalSnapshot(file) {
+    return !!file && typeof file.originalContent === 'string';
+}
+
+function isTrackedFileModified(file) {
+    if (!file) return false;
+    if (file.originalContent === null) {
+        return true;
+    }
+    if (typeof file.originalContent === 'string') {
+        return String(file.content || '') !== file.originalContent;
+    }
+    return false;
+}
+
+function buildSkillPanelSources(skillFiles = state.skillFiles) {
+    return [{
+        sourceId: 'assistant-memory',
+        label: '记忆区',
+        rootPath: 'memory/',
+        importedAt: Date.now(),
+        directories: ['skills', 'notes'],
+        files: normalizeSkillFiles(skillFiles),
+    }];
+}
+
+function summarizeSkillFiles(skillFiles = state.skillFiles) {
+    const normalized = normalizeSkillFiles(skillFiles);
+    const modifiedFileCount = normalized.filter((file) => isTrackedFileModified(file)).length;
+    return {
+        sourceCount: normalized.length ? 1 : 0,
+        fileCount: normalized.length,
+        modifiedFileCount,
+    };
+}
+
+function findTrackedFileByPath(sources = [], targetPath = '') {
+    const normalizedPath = String(targetPath || '').trim().replace(/\\/g, '/');
+    if (!normalizedPath) return null;
+    for (const source of Array.isArray(sources) ? sources : []) {
+        for (const file of Array.isArray(source.files) ? source.files : []) {
+            if (String(file.path || '').trim() === normalizedPath) {
+                return { source, file };
+            }
+        }
+    }
+    return null;
+}
+
+function ensureSkillSelection(options = {}) {
+    const normalizedSkillFiles = normalizeSkillFiles(state.skillFiles);
+    const shouldFallbackToFirst = options.fallbackToFirst !== false;
+    state.skillFiles = normalizedSkillFiles;
+    const selectedPath = String(state.selectedSkillFilePath || '').trim();
+    if (selectedPath && normalizedSkillFiles.some((file) => file.path === selectedPath)) {
+        return;
+    }
+    if (shouldFallbackToFirst) {
+        state.selectedSkillFilePath = normalizedSkillFiles[0]?.path || '';
+        return;
+    }
+    state.selectedSkillFilePath = '';
+    state.viewerMode = 'current';
+    state.mobileWorkspacePane = 'tree';
+}
+
+function setWorkspacePanelMode(mode = 'workspace', options = {}) {
+    const normalizedMode = mode === 'memory' || mode === 'skills' ? 'memory' : 'workspace';
+    if (state.workspacePanelMode === normalizedMode && options.render === false) {
+        return;
+    }
+    state.workspacePanelMode = normalizedMode;
+    if (normalizedMode === 'workspace') {
+        ensureWorkspaceSelection();
+    } else {
+        ensureSkillSelection();
+    }
+    if (options.persist !== false) {
+        persistSession();
+    }
+    if (options.render !== false) {
+        renderWorkspaceOnly();
+        renderContextHint(document.getElementById(ROOT_ID), state);
+    }
+}
+
+function selectSkillFile(targetPath = '', options = {}) {
+    const normalizedPath = String(targetPath || '').trim().replace(/\\/g, '/');
+    if (!normalizedPath) return false;
+    const normalizedSkillFiles = normalizeSkillFiles(state.skillFiles);
+    const selectedFile = normalizedSkillFiles.find((file) => file.path === normalizedPath);
+    if (!selectedFile) {
+        return false;
+    }
+    state.skillFiles = normalizedSkillFiles;
+    state.isWorkspaceOpen = true;
+    state.workspacePanelMode = 'memory';
+    state.selectedSkillFilePath = selectedFile.path;
+    state.viewerMode = 'current';
+    state.selectedTreePath = '';
+    state.mobileWorkspacePane = 'viewer';
+    if (options.persist !== false) {
+        persistSession();
+    }
+    return true;
+}
+
+function updateSkillFileContent(targetPath, content) {
+    const normalizedPath = String(targetPath || '').trim().replace(/\\/g, '/');
+    let changed = false;
+    state.skillFiles = normalizeSkillFiles(state.skillFiles).map((file) => {
+        if (file.path !== normalizedPath) return file;
+        changed = true;
+        return {
+            ...file,
+            content: String(content || ''),
+        };
+    });
+    if (changed) {
+        persistSession();
+    }
+    return changed;
+}
+
+function restoreSkillFile(targetPath = '') {
+    const normalizedPath = String(targetPath || '').trim().replace(/\\/g, '/');
+    let changed = false;
+    state.skillFiles = normalizeSkillFiles(state.skillFiles).map((file) => {
+        if (file.path !== normalizedPath) return file;
+        if (!hasOriginalSnapshot(file)) return file;
+        changed = true;
+        return {
+            ...file,
+            content: String(file.originalContent || ''),
+        };
+    });
+    if (changed) {
+        persistSession();
+        renderWorkspaceOnly();
+    }
+    return changed;
+}
+
+function downloadTextFile(content, filename) {
+    const blob = new Blob([String(content || '')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename || 'file.txt';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function downloadSkillFile(targetPath = '') {
+    const file = normalizeSkillFiles(state.skillFiles).find((item) => item.path === String(targetPath || '').trim());
+    if (!file) return false;
+    downloadTextFile(file.content || '', file.filename || file.name || 'memory.md');
+    return true;
+}
+
+function requestHostTool(name, args) {
+    const requestId = createRequestId('tool');
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let timer = null;
+
+        const cleanup = () => {
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+        };
+
+        const finishReject = (error) => {
+            if (settled) return;
+            settled = true;
+            pendingToolCalls.delete(requestId);
+            cleanup();
+            reject(error);
+        };
+
+        const finishResolve = (value) => {
+            if (settled) return;
+            settled = true;
+            pendingToolCalls.delete(requestId);
+            cleanup();
+            resolve(value);
+        };
+
+        timer = setTimeout(() => {
+            post('xb-assistant:tool-abort', { requestId });
+            finishReject(new Error('tool_timeout'));
+        }, REQUEST_TIMEOUT_MS);
+
+        pendingToolCalls.set(requestId, {
+            cleanup,
+            resolve: finishResolve,
+            reject: finishReject,
+        });
+
+        post('xb-assistant:tool-call', {
+            requestId,
+            name,
+            arguments: args,
+            localSources: Array.isArray(state.localSources) ? state.localSources : [],
+        });
+    });
+}
+
+async function saveSkillFile(targetPath = '') {
+    const normalizedPath = String(targetPath || '').trim().replace(/\\/g, '/');
+    const file = normalizeSkillFiles(state.skillFiles).find((item) => item.path === normalizedPath);
+    if (!file) return false;
+    try {
+        suppressNextMemoryRefreshToast = true;
+        suppressNextIdentityUpdatedToast = file.noteKind === 'identity';
+        const result = await requestHostTool(TOOL_NAMES.SAVE_SKILL_FILE, {
+            path: file.path,
+            filename: file.filename,
+            memorySection: file.memorySection,
+            noteKind: file.noteKind,
+            content: file.content,
+        });
+        if (!result?.ok) {
+            showToast(result?.message || result?.error || '记忆文件保存失败');
+            return false;
+        }
+        showToast(`记忆文件已保存：${result.title || result.id || file.filename}`);
+        return true;
+    } catch (error) {
+        showToast(describeError(error));
+        return false;
+    } finally {
+        suppressNextMemoryRefreshToast = false;
+        suppressNextIdentityUpdatedToast = false;
+    }
+}
+
+function getWorkspacePanelModes() {
+    return [
+        { key: 'workspace', label: '工作区' },
+        { key: 'memory', label: '记忆区' },
+    ];
+}
+
+function renderWorkspacePanel(container, options = {}) {
+    if (state.workspacePanelMode === 'memory') {
+        ensureSkillSelection({ fallbackToFirst: false });
+        const normalizedSkills = normalizeSkillFiles(state.skillFiles);
+        const skillSources = buildSkillPanelSources(normalizedSkills);
+        const summary = summarizeSkillFiles(normalizedSkills);
+        const rawWorkspaceTree = buildWorkspaceTree(skillSources, {
+            selectedSourceId: 'all',
+            searchQuery: state.fileSearchQuery,
+            modifiedOnly: state.showModifiedOnly,
+            isModifiedFile: isTrackedFileModified,
+        });
+        const workspaceTree = rawWorkspaceTree.nodes.length === 1
+            && rawWorkspaceTree.nodes[0]?.type === 'dir'
+            && rawWorkspaceTree.nodes[0]?.path === 'memory/'
+            ? {
+                ...rawWorkspaceTree,
+                nodes: rawWorkspaceTree.nodes[0].children || [],
+            }
+            : rawWorkspaceTree;
+        const selectedMatch = findTrackedFileByPath(skillSources, state.selectedSkillFilePath);
+        renderWorkspaceUi(container, {
+            ...options,
+            localSources: skillSources,
+            summary,
+            workspaceTree,
+            selectedMatch,
+            panelModes: getWorkspacePanelModes(),
+            activePanelMode: 'memory',
+            navTitle: '记忆区',
+            hideNavActions: true,
+            hideTreeActions: true,
+            emptyTreeText: summary.fileCount ? '当前筛选下没有记忆文件' : '还没有记忆文件',
+            emptyViewerTitle: '还没有选中记忆文件',
+            emptyViewerDescription: '从左侧记忆树里点一个文件，我会在这里显示并允许编辑正文。',
+            viewerMetaLabel: '记忆区',
+            workspaceState: {
+                selectedSourceId: 'all',
+                selectedFilePath: state.selectedSkillFilePath,
+                selectedTreePath: '',
+                fileSearchQuery: state.fileSearchQuery,
+                showModifiedOnly: state.showModifiedOnly,
+                viewerMode: state.viewerMode,
+                mobileWorkspacePane: state.mobileWorkspacePane,
+                treeExpandedKeys: state.skillTreeExpandedKeys,
+            },
+            isModifiedFile: isTrackedFileModified,
+            hasOriginalSnapshot,
+            onSelectPanelMode: (mode) => {
+                setWorkspacePanelMode(mode);
+            },
+            onCloseWorkspace: () => {
+                closeWorkspace();
+            },
+            onSearchChange: (value) => {
+                state.fileSearchQuery = String(value || '');
+                ensureSkillSelection();
+                persistSession();
+                renderWorkspaceOnly();
+            },
+            onToggleModifiedOnly: (value) => {
+                state.showModifiedOnly = !!value;
+                ensureSkillSelection();
+                persistSession();
+                renderWorkspaceOnly();
+            },
+            onToggleNode: (nodeKey) => {
+                const next = new Set(Array.isArray(state.skillTreeExpandedKeys) ? state.skillTreeExpandedKeys : []);
+                if (next.has(nodeKey)) next.delete(nodeKey);
+                else next.add(nodeKey);
+                state.skillTreeExpandedKeys = Array.from(next);
+                persistSession();
+                renderWorkspaceOnly();
+            },
+            onSelectFile: (targetPath) => {
+                selectSkillFile(targetPath);
+                renderWorkspaceOnly();
+            },
+            onSelectNode: () => {},
+            onSetViewerMode: (mode) => {
+                state.viewerMode = mode;
+                persistSession();
+                renderWorkspaceOnly();
+            },
+            onShowTree: () => {
+                setMobileWorkspacePane('tree', { render: true });
+            },
+            onDownloadFile: (targetPath) => {
+                downloadSkillFile(targetPath);
+            },
+            onRestoreFile: (targetPath) => {
+                restoreSkillFile(targetPath);
+            },
+            onUpdateFileContent: (targetPath, content) => updateSkillFileContent(targetPath, content),
+            onSaveFile: (targetPath) => {
+                void saveSkillFile(targetPath);
+            },
+            canSaveFile: (file) => isTrackedFileModified(file),
+            showDownloadButton: true,
+            showRestoreButton: true,
+            showRenameButton: false,
+            showDeleteButton: false,
+            showSaveButton: true,
+        });
+        return;
+    }
+
+    ensureWorkspaceSelection();
+    const normalizedSources = normalizeLocalSources(state.localSources);
+    const summary = summarizeLocalSources(normalizedSources);
+    const workspaceTree = buildWorkspaceTree(normalizedSources, {
+        selectedSourceId: 'all',
+        searchQuery: state.fileSearchQuery,
+        modifiedOnly: state.showModifiedOnly,
+        isModifiedFile: isTrackedFileModified,
+    });
+    const selectedMatch = findTrackedFileByPath(normalizedSources, state.selectedFilePath);
+    renderWorkspaceUi(container, {
+        ...options,
+        localSources: normalizedSources,
+        summary,
+        workspaceTree,
+        selectedMatch,
+        panelModes: getWorkspacePanelModes(),
+        activePanelMode: 'workspace',
+        navTitle: '文件工作区',
+        workspaceState: {
+            selectedSourceId: 'all',
+            selectedFilePath: state.selectedFilePath,
+            selectedTreePath: state.selectedTreePath,
+            fileSearchQuery: state.fileSearchQuery,
+            showModifiedOnly: state.showModifiedOnly,
+            viewerMode: state.viewerMode,
+            mobileWorkspacePane: state.mobileWorkspacePane,
+            treeExpandedKeys: state.treeExpandedKeys,
+        },
+        isModifiedFile: isTrackedFileModified,
+        hasOriginalSnapshot,
+        onSelectPanelMode: (mode) => {
+            setWorkspacePanelMode(mode);
+        },
+        onDownloadAll: () => {
+            downloadAllLocalSources();
+        },
+        onClearAll: () => {
+            void clearLocalSources();
+        },
+        onCloseWorkspace: () => {
+            closeWorkspace();
+        },
+        onSearchChange: (value) => {
+            state.fileSearchQuery = String(value || '');
+            ensureWorkspaceSelection();
+            persistSession();
+            renderWorkspaceOnly();
+        },
+        onToggleModifiedOnly: (value) => {
+            state.showModifiedOnly = !!value;
+            ensureWorkspaceSelection();
+            persistSession();
+            renderWorkspaceOnly();
+        },
+        onToggleNode: (nodeKey) => {
+            const next = new Set(Array.isArray(state.treeExpandedKeys) ? state.treeExpandedKeys : []);
+            if (next.has(nodeKey)) next.delete(nodeKey);
+            else next.add(nodeKey);
+            state.treeExpandedKeys = Array.from(next);
+            persistSession();
+            renderWorkspaceOnly();
+        },
+        onSelectFile: (targetPath) => {
+            selectWorkspaceFile(targetPath, {
+                preserveSourceFilter: true,
+                preserveSearch: true,
+                preserveModifiedOnly: true,
+            });
+            renderWorkspaceOnly();
+        },
+        onSelectNode: (targetPath) => {
+            selectWorkspaceNode(targetPath);
+        },
+        onSetViewerMode: (mode) => {
+            state.viewerMode = mode;
+            ensureWorkspaceSelection();
+            persistSession();
+            renderWorkspaceOnly();
+        },
+        onShowTree: () => {
+            setMobileWorkspacePane('tree', { render: true });
+        },
+        onDownloadFile: (targetPath) => {
+            downloadLocalFile(targetPath);
+        },
+        onRestoreFile: (targetPath) => {
+            void restoreLocalFile(targetPath);
+        },
+        onUpdateFileContent: (targetPath, content, nextOptions = {}) => updateLocalFileContent(targetPath, content, nextOptions),
+        onCreateFile: (targetPath) => {
+            void createLocalFileAt(targetPath);
+        },
+        onCreateDirectory: (targetPath) => {
+            void createLocalDirectoryAt(targetPath);
+        },
+        onRenamePath: (targetPath) => {
+            void renameLocalPath(targetPath);
+        },
+        onDeletePath: (targetPath) => {
+            void deleteLocalPath(targetPath);
+        },
+        showDownloadButton: true,
+        showRestoreButton: true,
+        showRenameButton: true,
+        showDeleteButton: true,
+        showSaveButton: false,
+    });
+}
+
+function openWorkspacePanelTarget(targetPath = '') {
+    const normalizedPath = String(targetPath || '').trim().replace(/\\/g, '/');
+    if (!normalizedPath) {
+        openWorkspace(state.selectedFilePath);
+        return true;
+    }
+    if (normalizedPath.startsWith('memory/') || normalizedPath.startsWith('skills/')) {
+        const opened = selectSkillFile(normalizedPath);
+        if (!opened) {
+            showToast(`没有找到 ${normalizedPath}`);
+            return false;
+        }
+        render();
+        return true;
+    }
+    return openWorkspace(normalizedPath);
+}
+
+function toggleWorkspacePanel() {
+    if (state.isWorkspaceOpen) {
+        closeWorkspace();
+        return;
+    }
+    if (state.workspacePanelMode === 'memory') {
+        ensureSkillSelection();
+        if (state.selectedSkillFilePath) {
+            selectSkillFile(state.selectedSkillFilePath, { persist: false });
+            render();
+            return;
+        }
+    }
+    openWorkspace(state.selectedFilePath);
 }
 
 function getAssistantParsedUA() {
@@ -475,17 +991,28 @@ const localSourcesManager = createLocalSourcesManager({
 });
 
 const {
+    normalizeLocalSources,
+    summarizeLocalSources,
     appendLocalSourceFiles,
     clearLocalSources,
     applyExternalLocalSources,
     openWorkspace,
     closeWorkspace,
-    toggleWorkspace,
     setWorkspaceWidth,
-    renderWorkspace,
     ensureWorkspaceSelection,
     getWorkspaceSummary,
     syncHostLocalSources,
+    selectWorkspaceFile,
+    selectWorkspaceNode,
+    setMobileWorkspacePane,
+    updateLocalFileContent,
+    downloadLocalFile,
+    downloadAllLocalSources,
+    restoreLocalFile,
+    createLocalFileAt,
+    createLocalDirectoryAt,
+    renameLocalPath,
+    deleteLocalPath,
 } = localSourcesManager;
 
 function describeError(error) {
@@ -554,7 +1081,7 @@ const chatUi = createChatUi({
     normalizeAttachments,
     renderAttachmentGallery,
     onLocalPathClick: (path) => {
-        return openWorkspace(path);
+        return openWorkspacePanelTarget(path);
     },
 });
 
@@ -648,7 +1175,10 @@ function resolveTextareaSelectionLines(value = '', selectionStart = 0, selection
 function handleWorkspaceEditorSelectionChange(payload = {}) {
     const filePath = String(payload.filePath || '').trim();
     const root = document.getElementById(ROOT_ID);
-    if (!filePath || filePath !== String(state.selectedFilePath || '').trim()) return;
+    const activeFilePath = state.workspacePanelMode === 'memory'
+        ? String(state.selectedSkillFilePath || '').trim()
+        : String(state.selectedFilePath || '').trim();
+    if (!filePath || filePath !== activeFilePath) return;
     const selectionStart = Math.max(0, Number(payload.selectionStart) || 0);
     const selectionEnd = Math.max(0, Number(payload.selectionEnd) || 0);
     const lineStart = String(payload.lineStart || '').trim();
@@ -726,50 +1256,7 @@ function normalizeExternalEditorContext(payload = null) {
 
 function buildWorkspaceUserContextText() {
     if (!state.isWorkspaceOpen) return '';
-    const selectedFilePath = String(state.selectedFilePath || '').trim();
-    const selectedTreePath = String(state.selectedTreePath || '').trim();
-    const selection = normalizeWorkspaceSelectionContext(state.workspaceSelectionContext);
-
-    if (!selectedFilePath && !selectedTreePath) return '';
-
-    const lines = ['[IDE background]'];
-    if (selectedTreePath && String(selectedTreePath).endsWith('/') && (!selectedFilePath || selectedTreePath !== selectedFilePath)) {
-        lines.push(`用户当前在工作区聚焦了目录：${selectedTreePath}`);
-        if (!selectedFilePath) {
-            lines.push('用户当前还没有在代码区锁定具体文件。');
-        } else {
-            lines.push(`代码区当前显示的是：${selectedFilePath}，但树上的当前焦点仍是这个目录。`);
-        }
-    } else if (selectedFilePath) {
-        lines.push(`用户当前打开了文件：${selectedFilePath}`);
-        if (state.viewerMode) {
-            lines.push(`当前查看模式：${String(state.viewerMode || '').trim()}`);
-        }
-    }
-
-    if (selection.filePath && selection.filePath === selectedFilePath && (selection.text || selection.lineStart)) {
-        if (selection.lineStart) {
-            lines.push(
-                selection.text
-                    ? (
-                        selection.lineEnd && selection.lineEnd !== selection.lineStart
-                            ? `用户当前选中了 ${selection.filePath} 的第 ${selection.lineStart} 到 ${selection.lineEnd} 行：`
-                            : `用户当前选中了 ${selection.filePath} 的第 ${selection.lineStart} 行：`
-                    )
-                    : `用户当前光标定位在 ${selection.filePath} 的第 ${selection.lineStart} 行。`,
-            );
-        } else if (selection.text) {
-            lines.push(`用户当前选中了 ${selection.filePath} 中的一段内容：`);
-        }
-        if (selection.text) {
-            lines.push(selection.text);
-        }
-    }
-
-    lines.push('');
-    lines.push('这些信息可能与当前任务有关，也可能无关，请自然地了解即可。');
-
-    return lines.join('\n').trim();
+    return buildWorkspaceUserContextTextForState(state);
 }
 
 function buildExternalEditorContextText() {
@@ -998,13 +1485,13 @@ function render() {
         buildContextMeterLabel,
         getWorkspaceSummary,
         renderAttachmentGallery,
-        renderWorkspace,
+        renderWorkspace: renderWorkspacePanel,
         onRemoveDraftAttachment: (index) => {
             state.draftAttachments = state.draftAttachments.filter((_, itemIndex) => itemIndex !== index);
             render();
         },
         onOpenWorkspace: () => {
-            openWorkspace(state.selectedFilePath);
+            toggleWorkspacePanel();
         },
         onClearLocalSources: () => {
             clearLocalSources();
@@ -1162,7 +1649,7 @@ function bindEvents(root) {
     });
 
     root.querySelector('#xb-assistant-open-workspace')?.addEventListener('click', () => {
-        toggleWorkspace();
+        toggleWorkspacePanel();
     });
 
     root.querySelector('#xb-assistant-clear-local-sources')?.addEventListener('click', () => {
@@ -1464,6 +1951,10 @@ window.addEventListener('message', (event) => {
     const data = event.data || {};
     if (data.type === 'xb-assistant:config') {
         state.runtime = data.payload?.runtime || null;
+        state.skillFiles = normalizeSkillFiles(data.payload?.runtime?.skillFiles || []);
+        if (state.workspacePanelMode === 'memory') {
+            ensureSkillSelection();
+        }
         applyConfig(data.payload?.config || {});
         return;
     }
@@ -1480,18 +1971,35 @@ window.addEventListener('message', (event) => {
             ...(state.runtime || {}),
             identityContent: String(data.payload?.identityContent || '').trim(),
         };
-        showToast('身份设定已更新');
+        if (suppressNextIdentityUpdatedToast) {
+            suppressNextIdentityUpdatedToast = false;
+        } else {
+            showToast('身份设定已更新');
+        }
         return;
     }
 
     if (data.type === 'xb-assistant:skills-updated') {
+        state.skillFiles = normalizeSkillFiles(data.payload?.skillFiles || []);
         state.runtime = {
             ...(state.runtime || {}),
             skillsCatalog: data.payload?.skillsCatalog || { version: 1, skills: [] },
             skillsPromptSummary: String(data.payload?.skillsPromptSummary || ''),
             skillsCatalogError: String(data.payload?.skillsCatalogError || ''),
+            skillFiles: state.skillFiles,
         };
-        showToast('技能目录已刷新');
+        const focusSkillPath = String(data.payload?.focusSkillPath || '').trim();
+        if (focusSkillPath && selectSkillFile(focusSkillPath, { persist: false })) {
+            render();
+        } else {
+            ensureSkillSelection({ fallbackToFirst: false });
+            renderWorkspaceOnly();
+        }
+        if (suppressNextMemoryRefreshToast) {
+            suppressNextMemoryRefreshToast = false;
+        } else {
+            showToast('记忆目录已刷新');
+        }
         return;
     }
 

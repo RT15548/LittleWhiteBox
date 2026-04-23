@@ -10,7 +10,7 @@ import { python } from '@codemirror/lang-python';
 import { yaml } from '@codemirror/lang-yaml';
 import { indentWithTab } from '@codemirror/commands';
 import { keymap } from '@codemirror/view';
-import { getPathExtension } from '../shared/public-text-file-types.js';
+import { getPathExtension } from '../../shared/public-text-file-types.js';
 import { buildCodeRows, buildDiffRows } from './local-workspace-diff.js';
 
 const workspaceEditorTheme = EditorView.theme({
@@ -284,12 +284,22 @@ export function renderWorkspace(container, options = {}) {
         workspaceTree = { nodes: [] },
         selectedMatch = null,
         workspaceState = {},
+        panelModes = [],
+        activePanelMode = 'workspace',
+        navTitle = '文件工作区',
+        hideNavActions = false,
+        hideTreeActions = false,
+        emptyTreeText = '',
+        emptyViewerTitle = '还没有选中文件',
+        emptyViewerDescription = '从左侧文件树里点一个文件，我会在这里显示当前内容、原始内容或 Diff。',
+        viewerMetaLabel = '',
         disabled = false,
         isModifiedFile = () => false,
         hasOriginalSnapshot = () => false,
         onDownloadAll = () => {},
         onClearAll = () => {},
         onCloseWorkspace = () => {},
+        onSelectPanelMode = () => {},
         onSearchChange = () => {},
         onToggleModifiedOnly = () => {},
         onToggleNode = () => {},
@@ -299,12 +309,19 @@ export function renderWorkspace(container, options = {}) {
         onShowTree = () => {},
         onDownloadFile = () => {},
         onRestoreFile = () => {},
+        onSaveFile = () => {},
         onUpdateFileContent = () => true,
+        canSaveFile = () => false,
         onEditorSelectionChange = () => {},
         onCreateFile = () => {},
         onCreateDirectory = () => {},
         onRenamePath = () => {},
         onDeletePath = () => {},
+        showDownloadButton = true,
+        showRestoreButton = true,
+        showRenameButton = true,
+        showDeleteButton = true,
+        showSaveButton = false,
     } = options;
 
     if (!container) return;
@@ -323,34 +340,51 @@ export function renderWorkspace(container, options = {}) {
 
     const navHeader = document.createElement('div');
     navHeader.className = 'xb-assistant-workspace-nav-header';
-    const navTitle = document.createElement('strong');
-    navTitle.className = 'xb-assistant-workspace-nav-title';
-    navTitle.textContent = '文件工作区';
+    const navTitleEl = document.createElement('strong');
+    navTitleEl.className = 'xb-assistant-workspace-nav-title';
+    navTitleEl.textContent = navTitle || '文件工作区';
     const navActions = document.createElement('div');
-        navActions.className = 'xb-assistant-workspace-nav-header-actions';
-    const clearAllButton = document.createElement('button');
-    clearAllButton.type = 'button';
-    clearAllButton.className = 'xb-assistant-workspace-header-button';
-    clearAllButton.textContent = '清空全部';
-    clearAllButton.disabled = !!disabled || !summary.fileCount;
-    clearAllButton.addEventListener('click', () => onClearAll());
-    const downloadAllButton = document.createElement('button');
-    downloadAllButton.type = 'button';
-    downloadAllButton.className = 'xb-assistant-workspace-header-button';
-    downloadAllButton.textContent = '下载全部';
-    downloadAllButton.disabled = !!disabled;
-    downloadAllButton.addEventListener('click', () => onDownloadAll());
+    navActions.className = 'xb-assistant-workspace-nav-header-actions';
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
     closeButton.className = 'xb-assistant-workspace-header-button is-icon';
     closeButton.textContent = '×';
-    closeButton.setAttribute('aria-label', '关闭工作区');
-    closeButton.title = '关闭工作区';
+    closeButton.setAttribute('aria-label', '关闭面板');
+    closeButton.title = '关闭面板';
     closeButton.addEventListener('click', () => onCloseWorkspace());
-    navHeader.appendChild(navTitle);
-    navActions.append(clearAllButton, downloadAllButton, closeButton);
+    navHeader.appendChild(navTitleEl);
+    if (!hideNavActions) {
+        const clearAllButton = document.createElement('button');
+        clearAllButton.type = 'button';
+        clearAllButton.className = 'xb-assistant-workspace-header-button';
+        clearAllButton.textContent = '清空全部';
+        clearAllButton.disabled = !!disabled || !summary.fileCount;
+        clearAllButton.addEventListener('click', () => onClearAll());
+        const downloadAllButton = document.createElement('button');
+        downloadAllButton.type = 'button';
+        downloadAllButton.className = 'xb-assistant-workspace-header-button';
+        downloadAllButton.textContent = '下载全部';
+        downloadAllButton.disabled = !!disabled;
+        downloadAllButton.addEventListener('click', () => onDownloadAll());
+        navActions.append(clearAllButton, downloadAllButton);
+    }
+    navActions.append(closeButton);
     navHeader.appendChild(navActions);
     filters.appendChild(navHeader);
+
+    if (Array.isArray(panelModes) && panelModes.length > 1) {
+        const panelTabs = document.createElement('div');
+        panelTabs.className = 'xb-assistant-workspace-nav-header-actions';
+        panelModes.forEach((item) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `xb-assistant-workspace-mode-button${activePanelMode === item.key ? ' is-active' : ''}`;
+            button.textContent = item.label;
+            button.addEventListener('click', () => onSelectPanelMode(item.key));
+            panelTabs.appendChild(button);
+        });
+        filters.appendChild(panelTabs);
+    }
 
     const searchInput = document.createElement('input');
     searchInput.type = 'search';
@@ -429,7 +463,9 @@ export function renderWorkspace(container, options = {}) {
     treeActionsButtons.appendChild(deletePathButton);
 
     treeActions.appendChild(treeActionsButtons);
-    nav.appendChild(treeActions);
+    if (!hideTreeActions) {
+        nav.appendChild(treeActions);
+    }
 
     if (workspaceTree.nodes.length) {
         renderWorkspaceTreeNodes(tree, workspaceTree.nodes, {
@@ -443,7 +479,7 @@ export function renderWorkspace(container, options = {}) {
     } else {
         const emptyTree = document.createElement('div');
         emptyTree.className = 'xb-assistant-workspace-tree-empty';
-        emptyTree.textContent = summary.fileCount ? '当前筛选下没有文件' : '工作区还是空的';
+        emptyTree.textContent = emptyTreeText || (summary.fileCount ? '当前筛选下没有文件' : '工作区还是空的');
         tree.appendChild(emptyTree);
     }
     nav.appendChild(tree);
@@ -456,7 +492,11 @@ export function renderWorkspace(container, options = {}) {
         destroyWorkspaceEditorCache(container);
         const emptyViewer = document.createElement('div');
         emptyViewer.className = 'xb-assistant-workspace-empty';
-        emptyViewer.innerHTML = '<strong>还没有选中文件</strong><span>从左侧文件树里点一个文件，我会在这里显示当前内容、原始内容或 Diff。</span>';
+        const emptyViewerTitleEl = document.createElement('strong');
+        emptyViewerTitleEl.textContent = emptyViewerTitle;
+        const emptyViewerDescriptionEl = document.createElement('span');
+        emptyViewerDescriptionEl.textContent = emptyViewerDescription;
+        emptyViewer.append(emptyViewerTitleEl, emptyViewerDescriptionEl);
         viewer.appendChild(emptyViewer);
         body.appendChild(viewer);
         container.appendChild(body);
@@ -482,7 +522,7 @@ export function renderWorkspace(container, options = {}) {
     const viewerPath = document.createElement('strong');
     viewerPath.textContent = selectedMatch.file.path;
     const viewerMeta = document.createElement('span');
-    viewerMeta.textContent = `${selectedMatch.source.label} · ${isModifiedFile(selectedMatch.file) ? '已修改' : '未修改'}`;
+    viewerMeta.textContent = `${viewerMetaLabel || selectedMatch.source.label} · ${isModifiedFile(selectedMatch.file) ? '已修改' : '未修改'}`;
     const viewerInfoText = document.createElement('div');
     viewerInfoText.className = 'xb-assistant-workspace-viewer-info-text';
     viewerInfoText.appendChild(viewerPath);
@@ -508,42 +548,60 @@ export function renderWorkspace(container, options = {}) {
         viewerActions.appendChild(button);
     });
 
-    const downloadButton = document.createElement('button');
-    downloadButton.type = 'button';
-    downloadButton.className = 'xb-assistant-workspace-viewer-button is-icon';
-    downloadButton.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
-    downloadButton.title = '下载当前文件';
-    downloadButton.setAttribute('aria-label', '下载当前文件');
-    downloadButton.addEventListener('click', () => onDownloadFile(selectedMatch.file.path));
-    viewerActions.appendChild(downloadButton);
+    if (showSaveButton) {
+        const saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.className = 'xb-assistant-workspace-viewer-button';
+        saveButton.textContent = '保存';
+        saveButton.disabled = !!disabled || !canSaveFile(selectedMatch.file);
+        saveButton.addEventListener('click', () => onSaveFile(selectedMatch.file.path));
+        viewerActions.appendChild(saveButton);
+    }
 
-    const restoreButton = document.createElement('button');
-    restoreButton.type = 'button';
-    restoreButton.className = 'xb-assistant-workspace-viewer-button is-icon';
-    restoreButton.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>';
-    restoreButton.title = '恢复原始内容';
-    restoreButton.setAttribute('aria-label', '恢复原始内容');
-    restoreButton.disabled = !hasOriginalSnapshot(selectedMatch.file);
-    restoreButton.addEventListener('click', () => onRestoreFile(selectedMatch.file.path));
-    viewerActions.appendChild(restoreButton);
+    if (showDownloadButton) {
+        const downloadButton = document.createElement('button');
+        downloadButton.type = 'button';
+        downloadButton.className = 'xb-assistant-workspace-viewer-button is-icon';
+        downloadButton.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
+        downloadButton.title = '下载当前文件';
+        downloadButton.setAttribute('aria-label', '下载当前文件');
+        downloadButton.addEventListener('click', () => onDownloadFile(selectedMatch.file.path));
+        viewerActions.appendChild(downloadButton);
+    }
 
-    const renameButton = document.createElement('button');
-    renameButton.type = 'button';
-    renameButton.className = 'xb-assistant-workspace-viewer-button is-icon';
-    renameButton.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
-    renameButton.title = '重命名';
-    renameButton.setAttribute('aria-label', '重命名');
-    renameButton.addEventListener('click', () => onRenamePath(selectedMatch.file.path));
-    viewerActions.appendChild(renameButton);
+    if (showRestoreButton) {
+        const restoreButton = document.createElement('button');
+        restoreButton.type = 'button';
+        restoreButton.className = 'xb-assistant-workspace-viewer-button is-icon';
+        restoreButton.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>';
+        restoreButton.title = '恢复原始内容';
+        restoreButton.setAttribute('aria-label', '恢复原始内容');
+        restoreButton.disabled = !hasOriginalSnapshot(selectedMatch.file);
+        restoreButton.addEventListener('click', () => onRestoreFile(selectedMatch.file.path));
+        viewerActions.appendChild(restoreButton);
+    }
 
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.className = 'xb-assistant-workspace-viewer-button is-icon';
-    deleteButton.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
-    deleteButton.title = '删除';
-    deleteButton.setAttribute('aria-label', '删除');
-    deleteButton.addEventListener('click', () => onDeletePath(selectedMatch.file.path));
-    viewerActions.appendChild(deleteButton);
+    if (showRenameButton) {
+        const renameButton = document.createElement('button');
+        renameButton.type = 'button';
+        renameButton.className = 'xb-assistant-workspace-viewer-button is-icon';
+        renameButton.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+        renameButton.title = '重命名';
+        renameButton.setAttribute('aria-label', '重命名');
+        renameButton.addEventListener('click', () => onRenamePath(selectedMatch.file.path));
+        viewerActions.appendChild(renameButton);
+    }
+
+    if (showDeleteButton) {
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'xb-assistant-workspace-viewer-button is-icon';
+        deleteButton.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+        deleteButton.title = '删除';
+        deleteButton.setAttribute('aria-label', '删除');
+        deleteButton.addEventListener('click', () => onDeletePath(selectedMatch.file.path));
+        viewerActions.appendChild(deleteButton);
+    }
 
     viewerHeader.appendChild(viewerActions);
     viewer.appendChild(viewerHeader);

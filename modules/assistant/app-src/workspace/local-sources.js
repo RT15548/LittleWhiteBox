@@ -1,5 +1,5 @@
-import { zipSync, strToU8 } from '../../../libs/fflate.mjs';
-import { isSupportedPublicTextPath } from '../shared/public-text-file-types.js';
+import { zipSync, strToU8 } from '../../../../libs/fflate.mjs';
+import { isSupportedPublicTextPath } from '../../shared/public-text-file-types.js';
 import { buildWorkspaceTree, collectDirectoryExpansionKeys } from './local-workspace-tree.js';
 
 const LOCAL_SOURCE_PREFIX = 'local/';

@@ -7,7 +7,7 @@ import { extensionFolderPath } from '../../core/constants.js';
 import { EnaPlannerStorage } from '../../core/server-storage.js';
 import { postToIframe, isTrustedIframeEvent } from '../../core/iframe-messaging.js';
 import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.js';
-import { getDefaultApiPrefix, joinApiUrl, resolveApiBaseUrl } from '../openai-url-utils.js';
+import { getDefaultApiPrefix, joinApiUrl, resolveApiBaseUrl } from '../../shared/common/openai-url-utils.js';
 import { formatOutlinePrompt } from '../story-outline/story-outline.js';
 import { shouldSendOnEnter } from '../../../../../../scripts/RossAscends-mods.js';
 import jsyaml from '../../libs/js-yaml.mjs';

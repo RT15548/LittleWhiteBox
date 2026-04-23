@@ -1,5 +1,5 @@
 import db, { sessionsTable, messagesTable } from './session-db.js';
-import { normalizeLocalSources } from './local-sources.js';
+import { normalizeLocalSources } from '../workspace/local-sources.js';
 
 const SESSION_ID = 'default';
 let writeQueue = Promise.resolve();
@@ -95,14 +95,17 @@ export function createSessionStore(deps) {
             localSources: normalizeLocalSources(state.localSources),
             isWorkspaceOpen: !!state.isWorkspaceOpen,
             workspaceWidth: Number.isFinite(Number(state.workspaceWidth)) ? Number(state.workspaceWidth) : 520,
+            workspacePanelMode: String(state.workspacePanelMode || 'workspace') === 'memory' ? 'memory' : 'workspace',
             selectedSourceId: String(state.selectedSourceId || 'all') || 'all',
             selectedFilePath: String(state.selectedFilePath || ''),
             selectedTreePath: String(state.selectedTreePath || ''),
+            selectedSkillFilePath: String(state.selectedSkillFilePath || ''),
             fileSearchQuery: String(state.fileSearchQuery || ''),
             showModifiedOnly: !!state.showModifiedOnly,
             viewerMode: String(state.viewerMode || 'current'),
             mobileWorkspacePane: String(state.mobileWorkspacePane || 'tree') === 'viewer' ? 'viewer' : 'tree',
             treeExpandedKeys: Array.isArray(state.treeExpandedKeys) ? state.treeExpandedKeys.map((item) => String(item || '')).filter(Boolean) : [],
+            skillTreeExpandedKeys: Array.isArray(state.skillTreeExpandedKeys) ? state.skillTreeExpandedKeys.map((item) => String(item || '')).filter(Boolean) : [],
             messages: activeMessages,
         };
     }
@@ -117,14 +120,17 @@ export function createSessionStore(deps) {
                 localSources: snapshot.localSources,
                 isWorkspaceOpen: snapshot.isWorkspaceOpen,
                 workspaceWidth: snapshot.workspaceWidth,
+                workspacePanelMode: snapshot.workspacePanelMode,
                 selectedSourceId: snapshot.selectedSourceId,
                 selectedFilePath: snapshot.selectedFilePath,
                 selectedTreePath: snapshot.selectedTreePath,
+                selectedSkillFilePath: snapshot.selectedSkillFilePath,
                 fileSearchQuery: snapshot.fileSearchQuery,
                 showModifiedOnly: snapshot.showModifiedOnly,
                 viewerMode: snapshot.viewerMode,
                 mobileWorkspacePane: snapshot.mobileWorkspacePane,
                 treeExpandedKeys: snapshot.treeExpandedKeys,
+                skillTreeExpandedKeys: snapshot.skillTreeExpandedKeys,
             });
             await messagesTable.where('sessionId').equals(SESSION_ID).delete();
             if (snapshot.messages.length) {
@@ -196,14 +202,17 @@ export function createSessionStore(deps) {
                 state.localSources = [];
                 state.isWorkspaceOpen = false;
                 state.workspaceWidth = 520;
+                state.workspacePanelMode = 'workspace';
                 state.selectedSourceId = 'all';
                 state.selectedFilePath = '';
                 state.selectedTreePath = '';
+                state.selectedSkillFilePath = '';
                 state.fileSearchQuery = '';
                 state.showModifiedOnly = false;
                 state.viewerMode = 'current';
                 state.mobileWorkspacePane = 'tree';
                 state.treeExpandedKeys = [];
+                state.skillTreeExpandedKeys = [];
                 return;
             }
 
@@ -223,15 +232,22 @@ export function createSessionStore(deps) {
             state.localSources = normalizeLocalSources(session.localSources);
             state.isWorkspaceOpen = !!session.isWorkspaceOpen;
             state.workspaceWidth = Number.isFinite(Number(session.workspaceWidth)) ? Number(session.workspaceWidth) : 520;
+            state.workspacePanelMode = ['memory', 'skills'].includes(String(session.workspacePanelMode || 'workspace'))
+                ? 'memory'
+                : 'workspace';
             state.selectedSourceId = String(session.selectedSourceId || 'all') || 'all';
             state.selectedFilePath = String(session.selectedFilePath || '');
             state.selectedTreePath = String(session.selectedTreePath || '');
+            state.selectedSkillFilePath = String(session.selectedSkillFilePath || '');
             state.fileSearchQuery = String(session.fileSearchQuery || '');
             state.showModifiedOnly = !!session.showModifiedOnly;
             state.viewerMode = String(session.viewerMode || 'current');
             state.mobileWorkspacePane = String(session.mobileWorkspacePane || 'tree') === 'viewer' ? 'viewer' : 'tree';
             state.treeExpandedKeys = Array.isArray(session.treeExpandedKeys)
                 ? session.treeExpandedKeys.map((item) => String(item || '')).filter(Boolean)
+                : [];
+            state.skillTreeExpandedKeys = Array.isArray(session.skillTreeExpandedKeys)
+                ? session.skillTreeExpandedKeys.map((item) => String(item || '')).filter(Boolean)
                 : [];
         } catch (error) {
             console.error('[Assistant] 恢复会话失败:', error);
@@ -242,14 +258,17 @@ export function createSessionStore(deps) {
             state.localSources = [];
             state.isWorkspaceOpen = false;
             state.workspaceWidth = 520;
+            state.workspacePanelMode = 'workspace';
             state.selectedSourceId = 'all';
             state.selectedFilePath = '';
             state.selectedTreePath = '';
+            state.selectedSkillFilePath = '';
             state.fileSearchQuery = '';
             state.showModifiedOnly = false;
             state.viewerMode = 'current';
             state.mobileWorkspacePane = 'tree';
             state.treeExpandedKeys = [];
+            state.skillTreeExpandedKeys = [];
         }
     }
 

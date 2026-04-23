@@ -1,1102 +1,2149 @@
-# SillyTavern JavaScript API 参考（第一部分：核心API与模块）
+# SillyTavern JavaScript API Reference
+> 从源代码自动提取 · 共 160 个 API
 
-> 版本基线：本文件按 SillyTavern `1.17.0` 前端源码整理。
-> 如果用户实际实例低于 `1.17.0`，或后续升级到更高版本，导出项、路径、事件、上下文字段和行为细节都可能变化；答疑时应先考虑版本差异。
+本文档用于回答一个具体问题：`getContext()` 暴露了哪些前端 API，它们大致是什么、能不能作为新代码入口。
 
+使用建议：
+- 优先看有明确函数签名的条目，再看变量/对象条目。
+- 遇到 `已废弃`、`兼容`、`别名`、`占位符` 时，默认不要把它当成新代码入口。
+- 遇到 `变量/对象` 条目时，先把它理解成运行时状态或命名空间，不要自动假设它是独立模块。
+- 如果一个条目同时存在新旧两种名字，优先使用命名更清晰、说明更完整、未标废弃的那一个。
+
+## APIs
+### `accountStorage`
+**源文件**: `scripts\util\AccountStorage.js:145`
+**文档**:
+```javascript
+/**
+ * Account storage instance.
+ */
+```
+**签名**:
+```javascript
+export const accountStorage = new AccountStorage();
+```
 ---
-
-## 1. 全局上下文 getContext()
-
-第三方前端扩展通常通过 `extensions.js` 获取上下文对象。
-
+### `chat`
+**源文件**: `script.js:410`
+**文档**:
 ```javascript
-import { getContext } from "../../../extensions.js";
-
-const context = getContext();
+/** @type {ChatMessage[]} */
 ```
-
-### 1.1 聊天数据
-
-| 属性/方法 | 类型 | 说明 |
-|----------|------|------|
-| `context.chat` | Array | 当前聊天消息数组（可修改） |
-| `context.chatId` | String | 当前聊天ID |
-| `context.chatMetadata` | Object | 聊天元数据 |
-| `context.getCurrentChatId()` | Function | 获取当前聊天ID |
-| `context.reloadCurrentChat()` | Function | 重新加载当前聊天 |
-| `context.renameChat()` | Function | 重命名当前聊天 |
-| `context.saveChat()` | Function | 保存当前聊天 |
-| `context.clearChat()` | Function | 清空当前聊天 |
-
-### 1.2 角色数据
-
-| 属性/方法 | 类型 | 说明 |
-|----------|------|------|
-| `context.characters` | Array | 所有角色列表 |
-| `context.characterId` | Number | 当前角色ID |
-| `context.getCharacters()` | Function | 获取角色列表 |
-| `context.getOneCharacter()` | Function | 获取单个角色 |
-| `context.getCharacterCardFields()` | Function | 获取角色卡字段定义 |
-| `context.getCharacterSource()` | Function | 获取角色来源信息 |
-| `context.selectCharacterById()` | Function | 切换到指定角色 |
-| `context.openCharacterChat()` | Function | 打开角色聊天 |
-
-### 1.3 群组数据
-
-| 属性/方法 | 类型 | 说明 |
-|----------|------|------|
-| `context.groups` | Array | 所有群组列表 |
-| `context.groupId` | String | 当前选中群组ID |
-| `context.openGroupChat()` | Function | 打开群组聊天 |
-
-### 1.4 设置与工具
-
-| 属性/方法 | 说明 |
-|----------|------|
-| `context.extensionSettings` | 扩展设置对象 |
-| `context.mainApi` | 当前主 API 类型 |
-| `context.onlineStatus` | 当前在线状态 |
-| `context.maxContext` | 当前最大上下文长度 |
-| `context.saveSettingsDebounced` | 防抖保存设置函数 |
-| `context.saveMetadata()` | 保存元数据 |
-| `context.saveMetadataDebounced` | 防抖保存聊天元数据 |
-| `context.eventSource` | 事件发射器 |
-| `context.eventTypes` | 事件枚举 |
-| `context.extensionPrompts` | 当前扩展提示集合 |
-| `context.setExtensionPrompt()` | 写入扩展提示 |
-| `context.addLocaleData(locale, data)` | 添加本地化数据 |
-| `context.renderExtensionTemplateAsync(name, templateId, data)` | 渲染扩展模板 |
-| `context.getTokenCountAsync(text)` | 获取文本token数量 |
-| `context.generateQuietPrompt(text)` | 静默生成（不显示在聊天中） |
-| `context.generateRaw(prompt)` | 原始文本生成 |
-| `context.generateRawData(prompt)` | 原始生成数据接口 |
-| `context.chatCompletionSettings` | OpenAI/Chat Completion 设置对象 |
-| `context.textCompletionSettings` | 文本补全设置对象 |
-| `context.powerUserSettings` | 高级用户设置对象 |
-| `context.variables` | 本地/全局变量API集合 |
-| `context.swipe` | swipe操作集合 |
-| `context.registerFunctionTool()` | 注册函数工具 |
-| `context.unregisterFunctionTool()` | 注销函数工具 |
-| `context.isToolCallingSupported()` | 检查当前设置/模型是否支持工具调用 |
-| `context.canPerformToolCalls()` | 检查当前生成类型下是否允许执行工具调用 |
-| `context.ToolManager` | ToolManager 类本体 |
-| `context.getThumbnailUrl()` | 生成缩略图 URL |
-| `context.importFromExternalUrl()` | 从外部 URL 导入资源 |
-| `context.loader` | 全局加载器控制对象 |
-| `context.macros` | 宏系统入口 |
-| `context.accountStorage` | 账号级存储封装 |
-| `context.addOneMessage()` | 直接追加消息到当前聊天 |
-| `context.deleteLastMessage()` | 删除最后一条消息 |
-| `context.deleteMessage()` | 删除指定消息 |
-| `context.generate()` | 触发标准生成流程 |
-| `context.sendGenerationRequest()` | 发送非流式生成请求 |
-| `context.sendStreamingRequest()` | 发送流式生成请求 |
-| `context.stopGeneration()` | 停止当前生成 |
-| `context.tokenizers` | 可用 tokenizer 集合 |
-| `context.getTextTokens()` | 获取 tokenizer 切分结果 |
-| `context.getTokenizerModel()` | 获取当前 tokenizer 关联模型 |
-| `context.callGenericPopup()` | 打开通用弹窗 |
-| `context.Popup` | Popup 类 |
-| `context.POPUP_TYPE` | 弹窗类型枚举 |
-| `context.POPUP_RESULT` | 弹窗结果枚举 |
-| `context.messageFormatting` | 消息格式化工具集合 |
-| `context.shouldSendOnEnter` | 当前回车发送策略 |
-| `context.isMobile` | 当前是否移动端 |
-| `context.t` | i18n 翻译函数 |
-| `context.translate` | 翻译辅助函数 |
-| `context.getCurrentLocale()` | 获取当前语言 |
-| `context.tags` | 标签列表 |
-| `context.tagMap` | 标签映射 |
-| `context.menuType` | 当前右键/菜单模式 |
-| `context.createCharacterData` | 创建角色卡数据结构 |
-| `context.loadWorldInfo()` | 加载世界书 |
-| `context.saveWorldInfo()` | 保存世界书 |
-| `context.reloadWorldInfoEditor()` | 重载世界书编辑器 |
-| `context.updateWorldInfoList()` | 刷新世界书列表 |
-| `context.convertCharacterBook()` | 角色卡 lorebook 转换 |
-| `context.getWorldInfoPrompt()` | 获取 WI 注入结果 |
-| `context.CONNECT_API_MAP` | API 名称到连接配置的映射 |
-| `context.getTextGenServer()` | 获取当前文本补全服务端 |
-| `context.getPresetManager()` | 获取 preset manager |
-| `context.printMessages()` | 重新打印消息列表 |
-| `context.ChatCompletionService` | 聊天补全请求服务类 |
-| `context.TextCompletionService` | 文本补全请求服务类 |
-| `context.ConnectionManagerRequestService` | 连接管理请求服务类 |
-| `context.openThirdPartyExtensionMenu()` | 打开第三方扩展菜单 |
-| `context.symbols.ignore` | 临时忽略消息的 Symbol 标记 |
-
-### 1.5 `context.variables`
-
-| 路径 | 说明 |
-|------|------|
-| `context.variables.local.get/set/del/add/inc/dec/has` | 当前聊天局部变量读写 |
-| `context.variables.global.get/set/del/add/inc/dec/has` | 全局变量读写 |
-
-### 1.6 `context.swipe`
-
-| 路径 | 说明 |
-|------|------|
-| `context.swipe.left()` | 切到上一条 swipe |
-| `context.swipe.right()` | 切到下一条 swipe |
-| `context.swipe.to(index)` | 切到指定 swipe |
-| `context.swipe.show()` | 显示 swipe 按钮 |
-| `context.swipe.hide()` | 隐藏 swipe 按钮 |
-| `context.swipe.refresh()` | 刷新 swipe 按钮状态 |
-| `context.swipe.isAllowed()` | 检查当前是否允许 swipe |
-| `context.swipe.state()` | 读取当前 swipe 状态对象 |
-
+**签名**:
+```javascript
+export let chat = [];
+```
 ---
-
-## 2. 主模块导出 (script.js)
-
+### `characters`
+**源文件**: `script.js:426`
+**文档**:
 ```javascript
-import { ... } from "../../../script.js";
+/** @type {Character[]} */
 ```
-
-### 2.1 事件系统
-
-| 导出 | 说明 |
-|------|------|
-| `eventSource` | 事件发射器实例 |
-| `event_types` | 事件类型枚举对象 |
-
-### 2.2 聊天与角色
-
-| 导出 | 类型 | 说明 |
-|------|------|------|
-| `characters` | Array | 角色列表 |
-| `this_chid` | Number | 当前角色ID |
-| `chat` | Array | 当前聊天消息数组 |
-| `chat_metadata` | Object | 聊天元数据 |
-| `name1` | String | 用户名 |
-| `name2` | String | 角色名 |
-
-### 2.3 系统状态
-
-| 导出 | 说明 |
-|------|------|
-| `settings` | 全局设置对象 |
-| `online_status` | 在线状态 |
-| `main_api` | 当前主API类型 |
-| `max_context` | 最大上下文长度 |
-| `is_send_press` | 是否正在发送 |
-| `generation_started` | 生成开始时间戳 |
-
-### 2.4 函数
-
-| 导出 | 说明 |
-|------|------|
-| `saveSettingsDebounced` | 防抖保存设置 |
-| `saveCharacterDebounced` | 防抖保存角色 |
-| `getRequestHeaders()` | 获取API请求头 |
-| `getCurrentChatId()` | 获取当前聊天ID |
-| `reloadMarkdownProcessor()` | 重载Markdown处理器 |
-
-### 2.5 常量
-
-| 导出 | 值 | 说明 |
-|------|-----|------|
-| `systemUserName` | `'SillyTavern System'` | 系统用户名 |
-| `neutralCharacterName` | `'Assistant'` | 中性角色名 |
-| `default_avatar` | `'img/ai4.png'` | 默认AI头像 |
-| `system_avatar` | `'img/five.png'` | 系统头像 |
-| `comment_avatar` | `'img/quill.png'` | 评论头像 |
-| `default_user_avatar` | `'img/user-default.png'` | 默认用户头像 |
-| `MAX_INJECTION_DEPTH` | `10000` | 最大注入深度 |
-| `ANIMATION_DURATION_DEFAULT` | `125` | 默认动画时长(ms) |
-
+**签名**:
+```javascript
+export let characters = [];
+```
 ---
-
-## 3. 扩展模块导出 (extensions.js)
-
+### `groups`
+**源文件**: `scripts\group-chats.js`
+**类型**: 变量/对象
+**说明**:
 ```javascript
-import { ... } from "../../../extensions.js";
+// 变量或对象，从 group-chats.js 导入
 ```
+**状态判断**: 这是当前已加载群组列表的数据数组，不是群组管理器类。
 
-| 导出 | 说明 |
-|------|------|
-| `getContext` | 获取上下文函数 |
-| `getApiUrl` | 获取API URL |
-| `extension_settings` | 扩展设置存储对象 |
-| `extensionNames` | 扩展名称列表 |
-| `extensionTypes` | 扩展类型映射 |
-| `modules` | 活动模块列表 |
-| `cancelDebouncedMetadataSave` | 取消防抖元数据保存 |
-| `saveMetadataDebounced` | 防抖保存元数据 |
-| `renderExtensionTemplate` | 同步渲染扩展模板 |
-| `renderExtensionTemplateAsync` | 异步渲染扩展模板 |
-| `runGenerationInterceptors` | 运行所有扩展生成拦截器 |
-| `ModuleWorkerWrapper` | `SimpleMutex` 的导出别名 |
-| `writeExtensionField` | 写入扩展字段到角色数据 |
-
+**使用建议**: 需要枚举、查找、判断群组状态时读取它；需要真正切换群组会话时看 `openGroupChat()`。
 ---
-
-## 4. 弹窗模块 (popup.js)
-
+### `name1`
+**源文件**: `script.js:407`
+**签名**:
 ```javascript
-import { POPUP_TYPE, POPUP_RESULT, Popup, callGenericPopup } from '../../../popup.js';
+export let name1 = default_user_name;
 ```
-
-### 4.1 弹窗类型
-
-| 常量 | 说明 |
-|------|------|
-| `POPUP_TYPE.TEXT` | 纯文本显示 |
-| `POPUP_TYPE.CONFIRM` | 确认对话框 |
-| `POPUP_TYPE.INPUT` | 输入对话框 |
-| `POPUP_TYPE.DISPLAY` | 信息展示 |
-
-### 4.2 弹窗结果
-
-| 常量 | 说明 |
-|------|------|
-| `POPUP_RESULT.AFFIRMATIVE` | 用户确认 |
-| `POPUP_RESULT.NEGATIVE` | 用户否定 |
-| `POPUP_RESULT.CANCELLED` | 用户取消 |
-| `POPUP_RESULT.INTERRUPTED` | 被中断 |
-
-### 4.3 调用方法
-
-```javascript
-// 确认框
-const result = await callGenericPopup('确认操作？', POPUP_TYPE.CONFIRM);
-
-// 输入框
-const input = await callGenericPopup('请输入：', POPUP_TYPE.INPUT);
-
-// 信息展示
-await callGenericPopup('<h3>标题</h3><p>内容</p>', POPUP_TYPE.DISPLAY);
-```
-
 ---
-
-## 5. 斜杠命令模块
-
+### `name2`
+**源文件**: `script.js:408`
+**签名**:
 ```javascript
-import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
-import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
-import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
+export let name2 = systemUserName;
 ```
-
-### 5.1 参数类型
-
-| 常量 | 说明 |
-|------|------|
-| `ARGUMENT_TYPE.STRING` | 字符串 |
-| `ARGUMENT_TYPE.NUMBER` | 数字 |
-| `ARGUMENT_TYPE.RANGE` | 范围 |
-| `ARGUMENT_TYPE.BOOLEAN` | 布尔值 |
-| `ARGUMENT_TYPE.LIST` | 列表/数组 |
-| `ARGUMENT_TYPE.DICTIONARY` | 对象/字典 |
-| `ARGUMENT_TYPE.VARIABLE_NAME` | 变量名 |
-| `ARGUMENT_TYPE.CLOSURE` | 闭包 |
-| `ARGUMENT_TYPE.SUBCOMMAND` | 子命令 |
-
-### 5.2 注册命令
-
-```javascript
-SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-    name: 'commandname',
-    aliases: ['alias1'],
-    callback: (namedArgs, unnamedArgs) => {
-        return '返回值';
-    },
-    returns: '返回值描述',
-    namedArgumentList: [
-        SlashCommandNamedArgument.fromProps({
-            name: 'param',
-            description: '参数描述',
-            typeList: [ARGUMENT_TYPE.STRING],
-            defaultValue: 'default',
-            isRequired: false,
-            enumList: ['option1', 'option2'],  // 可选枚举
-        }),
-    ],
-    unnamedArgumentList: [
-        SlashCommandArgument.fromProps({
-            description: '未命名参数描述',
-            typeList: [ARGUMENT_TYPE.STRING],
-            isRequired: true,
-        }),
-    ],
-    helpString: '命令帮助文本',
-}));
-```
-
-### 5.3 运行时辅助
-
-```javascript
-import {
-  executeSlashCommands,
-  executeSlashCommandsWithOptions,
-  getSlashCommandsHelp,
-  registerSlashCommand,
-  CONNECT_API_MAP,
-} from '../../../slash-commands.js';
-```
-
-| 导出 | 说明 |
-|------|------|
-| `executeSlashCommands()` | 执行 STscript 文本 |
-| `executeSlashCommandsWithOptions()` | 带选项执行 STscript |
-| `getSlashCommandsHelp()` | 获取斜杠命令帮助 HTML |
-| `registerSlashCommand()` | 旧式命令注册接口，兼容用 |
-| `CONNECT_API_MAP` | `/api` 使用的 API 名称映射表 |
-
 ---
-
-## 6. 工具函数模块 (utils.js)
-
+### `characterId`
+**源文件**: `script.js`
+**类型**: 变量/对象
+**说明**:
 ```javascript
-import { ... } from '../../../utils.js';
+// 变量或对象，从 script.js 导入
 ```
+**状态判断**: 这是当前选中角色 ID 的运行时别名，用来读状态，不是独立角色模块。
 
-### 6.1 时间与异步
-
-| 函数 | 说明 |
-|------|------|
-| `debounce(fn, delay)` | 创建防抖函数 |
-| `delay(ms)` | 延迟指定毫秒 `await delay(1000)` |
-| `waitUntilCondition(fn, timeout)` | 等待条件函数返回true |
-
-### 6.2 字符串处理
-
-| 函数 | 说明 |
-|------|------|
-| `trimToEndSentence(text)` | 裁剪到句尾 |
-| `escapeRegex(string)` | 转义正则特殊字符 |
-| `getCharaFilename(name)` | 获取角色文件名 |
-
-### 6.3 文件与数据
-
-| 函数 | 说明 |
-|------|------|
-| `download(data, filename, type)` | 下载文件 |
-| `getBase64Async(file)` | 异步获取文件Base64 |
-| `humanFileSize(bytes)` | 人性化文件大小显示 |
-| `isDataURL(str)` | 检查是否为Data URL |
-
-### 6.4 验证与判断
-
-| 函数 | 说明 |
-|------|------|
-| `isValidUrl(string)` | 验证URL格式 |
-| `isTrueBoolean(value)` | 检查真值布尔 |
-| `isElementInViewport(el)` | 检查元素是否在视口内 |
-
-### 6.5 UI操作
-
-| 函数 | 说明 |
-|------|------|
-| `flashHighlight(element)` | 闪烁高亮元素 |
-| `copyText(text)` | 复制文本到剪贴板 |
-| `resetScrollHeight(element)` | 重置滚动高度 |
-
+**使用建议**: 需要“当前角色是谁”时读取它；需要切换角色时看 `selectCharacterById()`，不要把它当可调用 API。
 ---
-
-## 7. 其他模块速查
-
-### 7.1 世界信息 (world-info.js)
-
-| 导出 | 说明 |
-|------|------|
-| `world_info` | 世界书数据对象 |
-| `selected_world_info` | 当前激活的世界书列表 |
-| `world_names` | 世界书名称列表 |
-| `getWorldInfoPrompt()` | 获取世界信息提示 |
-| `getWorldInfoSettings()` | 获取世界信息设置 |
-| `updateWorldInfoSettings()` | 合并更新世界信息设置 |
-| `setWorldInfoSettings()` | 设置世界信息设置 |
-| `convertCharacterBook()` | 将角色卡 lorebook 转成当前 WI 结构 |
-
-### 7.2 标签 (tags.js)
-
-| 导出 | 说明 |
-|------|------|
-| `tags` | 标签数组 |
-| `tag_map` | 标签映射 |
-| `filterByTagState()` | 按标签状态过滤 |
-| `getTagKeyForEntity()` | 获取实体标签键 |
-| `printTagList()` | 打印标签列表 |
-
-### 7.3 国际化 (i18n.js)
-
-| 导出 | 说明 |
-|------|------|
-| `t` | 翻译模板标签函数 |
-| `initLocales()` | 初始化语言环境 |
-
+### `groupId`
+**源文件**: `scripts\group-chats.js`
+**类型**: 变量/对象
+**说明**:
 ```javascript
-import { t } from '../../../i18n.js';
-const text = t`Settings`;  // 自动翻译
+// 变量或对象，从 group-chats.js 导入
 ```
+**状态判断**: 这是当前选中群组 ID 的运行时别名，用来读状态，不是独立群组模块。
 
-### 7.4 模板 (templates.js)
-
-| 导出 | 说明 |
-|------|------|
-| `renderTemplate(templateId, data)` | 同步渲染模板 |
-| `renderTemplateAsync(templateId, data)` | 异步渲染模板 |
-
-### 7.5 用户 (user.js)
-
-| 导出 | 说明 |
-|------|------|
-| `currentUser` | 当前用户对象 |
-| `accountsEnabled` | 是否启用多账号 |
-| `isAdmin()` | 是否为管理员 |
-| `setUserControls()` | 设置用户控制 |
-
-### 7.6 Token计算 (tokenizers.js)
-
-| 导出 | 说明 |
-|------|------|
-| `getTokenCount(text)` | 获取token数量 |
-| `getTokenCountAsync(text)` | 异步获取token数量 |
-| `getFriendlyTokenizerName()` | 获取tokenizer名称 |
-
-### 7.7 宏处理 (macros.js)
-
-| 导出 | 说明 |
-|------|------|
-| `MacrosParser` | 宏解析器类 |
-| `evaluateMacros(text)` | 解析文本中的宏 |
-| `getLastMessageId()` | 获取最后消息ID |
-
-### 7.8 人格 (personas.js)
-
-| 导出 | 说明 |
-|------|------|
-| `user_avatar` | 用户头像 |
-| `getUserAvatars()` | 获取用户头像列表 |
-| `setUserAvatar()` | 设置用户头像 |
-| `setPersonaDescription()` | 设置人格描述 |
-
-### 7.9 背景 (backgrounds.js)
-
-| 导出 | 说明 |
-|------|------|
-| `getBackgrounds()` | 获取背景列表 |
-| `background_settings` | 背景设置 |
-| `loadBackgroundSettings()` | 加载背景设置 |
-| `getBackgroundPath()` | 解析背景路径 |
-| `getActiveBackgroundTab()` | 获取当前背景页签 |
-
-### 7.10 高级用户设置 (power-user.js)
-
-| 导出 | 说明 |
-|------|------|
-| `power_user` | 高级用户设置对象 |
-| `loadPowerUserSettings()` | 加载高级设置 |
-| `getCustomStoppingStrings()` | 获取自定义停止字符串 |
-| `MAX_CONTEXT_DEFAULT` | 默认最大上下文 |
-| `MAX_RESPONSE_DEFAULT` | 默认最大响应 |
-
-### 7.11 OpenAI (openai.js)
-
-| 导出 | 说明 |
-|------|------|
-| `oai_settings` | OpenAI设置对象 |
-| `model_list` | 当前模型列表缓存 |
-| `promptManager` | Chat Completion PromptManager 实例 |
-| `chat_completion_sources` | 聊天完成源枚举 |
-| `custom_prompt_post_processing_types` | Prompt Post-Processing 枚举 |
-| `setupChatCompletionPromptManager()` | 初始化 prompt manager |
-| `sendOpenAIRequest()` | 发送OpenAI请求 |
-| `getChatCompletionModel()` | 获取当前模型 |
-| `prepareOpenAIMessages()` | 准备消息数组 |
-| `TokenHandler` | token 预算/统计处理类 |
-| `IdentifierNotFoundError` | Prompt / MessageCollection 标识查找失败异常 |
-| `Message` | 单条聊天消息类 |
-| `MessageCollection` | 消息集合类 |
-
-### 7.12 系统消息 (system-messages.js)
-
-| 导出 | 说明 |
-|------|------|
-| `system_messages` | 已初始化的系统消息对象表 |
-| `SAFETY_CHAT` | 安全聊天消息数组 |
-| `system_message_types` | 系统消息类型枚举 |
-
+**使用建议**: 需要“当前群组是谁”时读取它；需要切换群组时看 `openGroupChat()`，不要把它当可调用 API。
 ---
+### `chatId`
+**源文件**: `scripts\group-chats.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 group-chats.js 导入
+```
+**状态判断**: 这是当前聊天会话 ID 的运行时别名，来源可能是角色聊天，也可能是群组聊天。
 
-# SillyTavern JavaScript API 参考（第二部分：事件系统）
-
+**使用建议**: 需要当前会话标识时读取它；不要把它当成主动加载聊天的函数。
 ---
-
-## 8. 事件系统
-
-### 8.1 基本用法
-
+### `getCurrentChatId`
+**源文件**: `script.js:540`
+**签名**:
 ```javascript
-import { eventSource, event_types } from "../../../script.js";
-
-// 监听事件
-eventSource.on(event_types.MESSAGE_RECEIVED, handler);
-
-// 单次监听
-eventSource.once(event_types.APP_READY, handler);
-
-// 移除监听
-eventSource.off(event_types.MESSAGE_RECEIVED, handler);
-
-// 发送事件
-await eventSource.emit('event_name', data);
+export function getCurrentChatId()
 ```
-
-### 8.2 应用程序事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `APP_INITIALIZED` | `'app_initialized'` | 应用初始化逻辑完成 |
-| `APP_READY` | `'app_ready'` | 应用完全加载初始化后 |
-| `SETTINGS_LOADED` | `'settings_loaded'` | 用户设置加载完成 |
-| `SETTINGS_UPDATED` | `'settings_updated'` | 设置被修改保存 |
-| `SETTINGS_LOADED_BEFORE` | `'settings_loaded_before'` | 设置加载前 |
-| `SETTINGS_LOADED_AFTER` | `'settings_loaded_after'` | 设置加载后 |
-
-### 8.3 消息事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `MESSAGE_SENT` | `'message_sent'` | 用户发送消息后 |
-| `MESSAGE_RECEIVED` | `'message_received'` | 收到AI回复后 |
-| `MESSAGE_EDITED` | `'message_edited'` | 消息被编辑后 |
-| `MESSAGE_DELETED` | `'message_deleted'` | 消息被删除 |
-| `MESSAGE_UPDATED` | `'message_updated'` | 消息内容或元数据更新 |
-| `MESSAGE_SWIPED` | `'message_swiped'` | 用户滑动消息变体 |
-| `MESSAGE_FILE_EMBEDDED` | `'message_file_embedded'` | 文件嵌入消息 |
-| `MESSAGE_REASONING_EDITED` | `'message_reasoning_edited'` | 推理内容被编辑 |
-| `MESSAGE_REASONING_DELETED` | `'message_reasoning_deleted'` | 推理内容被删除 |
-| `MESSAGE_SWIPE_DELETED` | `'message_swipe_deleted'` | 某条 swipe 被删除 |
-| `MORE_MESSAGES_LOADED` | `'more_messages_loaded'` | 向上加载更多历史消息 |
-
-### 8.4 聊天事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `CHAT_CHANGED` | `'chat_id_changed'` | 切换聊天会话 |
-| `CHAT_LOADED` | `'chatLoaded'` | 聊天被载入到当前界面 |
-| `CHAT_CREATED` | `'chat_created'` | 新聊天被创建 |
-| `CHAT_DELETED` | `'chat_deleted'` | 聊天被删除 |
-
-### 8.5 角色事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `CHARACTER_EDITED` | `'character_edited'` | 角色信息被修改保存 |
-| `CHARACTER_DELETED` | `'characterDeleted'` | 角色被删除 |
-| `CHARACTER_DUPLICATED` | `'character_duplicated'` | 角色被复制 |
-| `CHARACTER_RENAMED` | `'character_renamed'` | 角色被重命名 |
-| `CHARACTER_RENAMED_IN_PAST_CHAT` | `'character_renamed_in_past_chat'` | 历史聊天中的角色名被同步替换 |
-| `CHARACTER_PAGE_LOADED` | `'character_page_loaded'` | 角色管理页面加载完成 |
-| `CHARACTER_MESSAGE_RENDERED` | `'character_message_rendered'` | 角色消息UI渲染完成 |
-| `CHARACTER_FIRST_MESSAGE_SELECTED` | `'character_first_message_selected'` | 首条消息被选中 |
-| `CHARACTER_EDITOR_OPENED` | `'character_editor_opened'` | 角色编辑器被打开 |
-
-### 8.6 生成事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `GENERATION_STARTED` | `'generation_started'` | AI开始生成 |
-| `GENERATION_STOPPED` | `'generation_stopped'` | 用户手动停止生成 |
-| `GENERATION_ENDED` | `'generation_ended'` | AI完成生成 |
-| `GENERATION_AFTER_COMMANDS` | `'GENERATION_AFTER_COMMANDS'` | 斜杠命令执行后开始生成 |
-| `STREAM_TOKEN_RECEIVED` | `'stream_token_received'` | 流式生成收到token |
-| `STREAM_REASONING_DONE` | `'stream_reasoning_done'` | 推理流输出结束 |
-| `GENERATE_BEFORE_COMBINE_PROMPTS` | `'generate_before_combine_prompts'` | 合并提示组件前 |
-| `GENERATE_AFTER_COMBINE_PROMPTS` | `'generate_after_combine_prompts'` | 合并提示组件后 |
-| `GENERATE_AFTER_DATA` | `'generate_after_data'` | 生成数据处理完成 |
-
-### 8.7 群组事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `GROUP_UPDATED` | `'group_updated'` | 群组信息被修改 |
-| `GROUP_CHAT_CREATED` | `'group_chat_created'` | 群组聊天被创建 |
-| `GROUP_CHAT_DELETED` | `'group_chat_deleted'` | 群组聊天被删除 |
-| `GROUP_MEMBER_DRAFTED` | `'group_member_drafted'` | 群组成员被选中发言 |
-| `GROUP_WRAPPER_STARTED` | `'group_wrapper_started'` | 群组包装流程开始 |
-| `GROUP_WRAPPER_FINISHED` | `'group_wrapper_finished'` | 群组包装流程结束 |
-
-### 8.8 扩展事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `EXTENSIONS_FIRST_LOAD` | `'extensions_first_load'` | 所有扩展首次加载完成 |
-| `EXTENSION_SETTINGS_LOADED` | `'extension_settings_loaded'` | 扩展设置加载完成 |
-| `EXTRAS_CONNECTED` | `'extras_connected'` | Extras服务连接成功 |
-
-### 8.9 世界信息事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `WORLDINFO_SETTINGS_UPDATED` | `'worldinfo_settings_updated'` | 世界信息设置被修改 |
-| `WORLDINFO_UPDATED` | `'worldinfo_updated'` | 世界信息条目变更 |
-| `WORLDINFO_FORCE_ACTIVATE` | `'worldinfo_force_activate'` | 世界信息被强制激活 |
-| `WORLD_INFO_ACTIVATED` | `'world_info_activated'` | 世界信息在生成中被激活 |
-
-### 8.10 UI事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `USER_MESSAGE_RENDERED` | `'user_message_rendered'` | 用户消息渲染完成 |
-| `MOVABLE_PANELS_RESET` | `'movable_panels_reset'` | 可移动面板位置重置 |
-| `FORCE_SET_BACKGROUND` | `'force_set_background'` | 背景被设置 |
-| `IMAGE_SWIPED` | `'image_swiped'` | 用户滑动查看图片 |
-
-### 8.11 API事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `CHATCOMPLETION_SOURCE_CHANGED` | `'chatcompletion_source_changed'` | 切换API源 |
-| `CHATCOMPLETION_MODEL_CHANGED` | `'chatcompletion_model_changed'` | 切换模型 |
-| `MAIN_API_CHANGED` | `'main_api_changed'` | 切换主 API 类型 |
-| `OAI_PRESET_CHANGED_BEFORE` | `'oai_preset_changed_before'` | OpenAI预设即将更改 |
-| `OAI_PRESET_CHANGED_AFTER` | `'oai_preset_changed_after'` | OpenAI预设更改完成 |
-| `OAI_PRESET_EXPORT_READY` | `'oai_preset_export_ready'` | OpenAI预设准备导出 |
-| `OAI_PRESET_IMPORT_READY` | `'oai_preset_import_ready'` | OpenAI预设导入完成 |
-| `TEXT_COMPLETION_SETTINGS_READY` | `'text_completion_settings_ready'` | 文本完成设置就绪 |
-| `CHAT_COMPLETION_SETTINGS_READY` | `'chat_completion_settings_ready'` | 聊天完成设置就绪 |
-| `CHAT_COMPLETION_PROMPT_READY` | `'chat_completion_prompt_ready'` | 聊天提示构建完成 |
-
-### 8.12 其他事件
-
-| 事件常量 | 实际值 | 触发时机 |
-|---------|--------|---------|
-| `IMPERSONATE_READY` | `'impersonate_ready'` | 用户模拟模式就绪 |
-| `FILE_ATTACHMENT_DELETED` | `'file_attachment_deleted'` | 文件附件被删除 |
-| `ONLINE_STATUS_CHANGED` | `'online_status_changed'` | 在线状态变化 |
-| `CONNECTION_PROFILE_LOADED` | `'connection_profile_loaded'` | 连接配置加载完成 |
-| `CONNECTION_PROFILE_CREATED` | `'connection_profile_created'` | 新建连接配置 |
-| `CONNECTION_PROFILE_DELETED` | `'connection_profile_deleted'` | 删除连接配置 |
-| `CONNECTION_PROFILE_UPDATED` | `'connection_profile_updated'` | 更新连接配置 |
-| `TOOL_CALLS_PERFORMED` | `'tool_calls_performed'` | 工具调用执行完成 |
-| `TOOL_CALLS_RENDERED` | `'tool_calls_rendered'` | 工具调用结果渲染完成 |
-| `OPEN_CHARACTER_LIBRARY` | `'open_character_library'` | 角色库界面被打开 |
-| `PRESET_CHANGED` | `'preset_changed'` | 预设切换或更新 |
-| `PRESET_DELETED` | `'preset_deleted'` | 预设被删除 |
-| `PRESET_RENAMED` | `'preset_renamed'` | 预设被重命名 |
-| `PRESET_RENAMED_BEFORE` | `'preset_renamed_before'` | 预设重命名前 |
-| `WORLDINFO_ENTRIES_LOADED` | `'worldinfo_entries_loaded'` | 世界书条目加载完成 |
-| `WORLDINFO_SCAN_DONE` | `'worldinfo_scan_done'` | 世界书扫描完成 |
-| `MEDIA_ATTACHMENT_DELETED` | `'media_attachment_deleted'` | 媒体附件被删除 |
-| `PERSONA_CHANGED` | `'persona_changed'` | 当前人格切换 |
-| `SECRET_WRITTEN` | `'secret_written'` | 密钥写入 |
-| `SECRET_DELETED` | `'secret_deleted'` | 密钥删除 |
-| `SECRET_ROTATED` | `'secret_rotated'` | 密钥轮换 |
-| `SECRET_EDITED` | `'secret_edited'` | 密钥编辑 |
-| `TTS_JOB_STARTED` | `'tts_job_started'` | TTS 任务开始 |
-| `TTS_AUDIO_READY` | `'tts_audio_ready'` | TTS 音频可播放 |
-| `TTS_JOB_COMPLETE` | `'tts_job_complete'` | TTS 任务完成 |
-
 ---
-
-## 9. 生成拦截器
-
-### 9.1 注册方式
-
-在 manifest.json 中声明：
-
-```json
-{
-    "generate_interceptor": "interceptorFunctionName"
-}
-```
-
-### 9.2 函数签名
-
+### `getRequestHeaders`
+**源文件**: `script.js:645`
+**签名**:
 ```javascript
-globalThis.interceptorFunctionName = async function(chat, contextSize, abort, type) {
-    // chat: Array - 聊天消息数组，可直接修改
-    // contextSize: Number - 当前上下文大小（token数）
-    // abort: Function - 调用 abort(stopOthers) 中止生成
-    // type: String - 生成类型
-};
+export function getRequestHeaders({ omitContentType = false } = {})
 ```
-
-### 9.3 生成类型 (type)
-
-| 值 | 说明 |
-|-----|------|
-| `'normal'` | 正常生成 |
-| `'quiet'` | 静默生成 |
-| `'regenerate'` | 重新生成 |
-| `'impersonate'` | 用户模拟 |
-| `'swipe'` | 滑动生成 |
-| `'continue'` | 继续生成 |
-
-### 9.4 消息对象结构
-
-```javascript
-{
-    is_user: Boolean,      // 是否为用户消息
-    is_system: Boolean,    // 是否为系统消息
-    name: String,          // 发送者名称
-    mes: String,           // 消息内容
-    send_date: Number,     // 发送时间戳
-    extra: Object          // 额外数据
-}
-```
-
 ---
-
-## 10. 工具调用 (Tool Calling)
-
+### `reloadCurrentChat`
+**源文件**: `script.js:1674`
+**签名**:
 ```javascript
-import { ToolManager } from '../../../tool-calling.js';
+export const reloadCurrentChat = reloadChatMutex.update.bind(reloadChatMutex);
 ```
-
-### 10.1 注册工具
-
-```javascript
-ToolManager.registerFunctionTool({
-    name: 'tool_name',
-    displayName: '工具名',
-    description: '工具描述',
-    parameters: {
-        type: 'object',
-        properties: {
-            param1: { type: 'string', description: '参数1' },
-            param2: { type: 'number', description: '参数2' }
-        },
-        required: ['param1']
-    },
-    action: async (parameters) => {
-        return { result: '处理结果' };
-    }
-});
-```
-
-### 10.2 工具管理方法
-
-| 方法 | 说明 |
-|------|------|
-| `ToolManager.registerFunctionTool(config)` | 注册函数工具 |
-| `ToolManager.unregisterFunctionTool(name)` | 注销函数工具 |
-| `ToolManager.invokeFunctionTool(name, params)` | 调用指定函数工具 |
-| `ToolManager.getDisplayName(name)` | 获取工具显示名 |
-| `ToolManager.isStealthTool(name)` | 检查工具是否为 stealth 模式 |
-| `ToolManager.isToolCallingSupported(settings, model)` | 判断模型是否支持工具调用 |
-| `ToolManager.canPerformToolCalls(type, settings, model)` | 判断当前生成类型是否允许执行工具 |
-| `ToolManager.hasToolCalls(data)` | 判断返回数据里是否含工具调用 |
-| `ToolManager.showToolCallError(errors)` | 统一显示工具调用错误 |
-| `ToolManager.tools` | 当前已注册工具列表 |
-| `ToolManager.RECURSE_LIMIT` | 工具递归调用上限，当前为 `5` |
-
 ---
-
-# SillyTavern JavaScript API 参考（第三部分：枚举常量与数据结构）
-
+### `renameChat`
+**源文件**: `script.js:10628`
+**文档**:
+```javascript
+/**
+ * Renames the currently selected chat.
+ * @param {string} oldFileName Old name of the chat (no JSONL extension)
+ * @param {string} newName New name for the chat (no JSONL extension)
+ */
+```
+**签名**:
+```javascript
+export async function renameChat(oldFileName, newName)
+```
 ---
-
-## 11. 系统消息类型
-
+### `saveSettingsDebounced`
+**源文件**: `script.js:469`
+**签名**:
 ```javascript
-import { system_message_types } from "../../../system-messages.js";
+export const saveSettingsDebounced = debounce((loopCounter = 0) => saveSettings(loopCounter), DEFAULT_SAVE_EDIT_TIMEOUT);
 ```
-
-| 常量 | 值 | 说明 |
-|------|-----|------|
-| `HELP` | `'help'` | 帮助消息 |
-| `WELCOME` | `'welcome'` | 欢迎消息 |
-| `EMPTY` | `'empty'` | 空消息 |
-| `GENERIC` | `'generic'` | 通用消息 |
-| `NARRATOR` | `'narrator'` | 旁白消息 |
-| `COMMENT` | `'comment'` | 评论消息 |
-| `SLASH_COMMANDS` | `'slash_commands'` | 斜杠命令消息 |
-| `FORMATTING` | `'formatting'` | 格式化消息 |
-| `HOTKEYS` | `'hotkeys'` | 热键消息 |
-| `MACROS` | `'macros'` | 宏消息 |
-| `WELCOME_PROMPT` | `'welcome_prompt'` | 欢迎提示 |
-| `ASSISTANT_NOTE` | `'assistant_note'` | 助手注释 |
-| `ASSISTANT_MESSAGE` | `'assistant_message'` | 助手系统消息 |
-
 ---
-
-## 12. 扩展提示类型
-
+### `onlineStatus`
+**源文件**: `script.js:600`
+**签名**:
 ```javascript
-import { extension_prompt_types, extension_prompt_roles } from "../../../script.js";
+export let online_status = 'no_connection';
 ```
+**状态判断**: 这是当前连接状态的运行时值，不是网络请求函数。
 
-### 12.1 提示类型
-
-| 常量 | 值 | 说明 |
-|------|-----|------|
-| `NONE` | `-1` | 无 |
-| `IN_PROMPT` | `0` | 在提示中 |
-| `IN_CHAT` | `1` | 在聊天中 |
-| `BEFORE_PROMPT` | `2` | 在提示前 |
-
-### 12.2 提示角色
-
-| 常量 | 值 | 说明 |
-|------|-----|------|
-| `SYSTEM` | `0` | 系统角色 |
-| `USER` | `1` | 用户角色 |
-| `ASSISTANT` | `2` | 助手角色 |
-
+**使用建议**: 只在需要判断“当前是否连通某后端”时读取它。
 ---
-
-## 13. 聊天完成源
-
+### `chatMetadata`
+**源文件**: `script.js:453`
+**文档**:
 ```javascript
-import { chat_completion_sources } from '../../../openai.js';
+/** @type {ChatMetadata} */
 ```
-
-| 常量 | 说明 |
-|------|------|
-| `OPENAI` | OpenAI API |
-| `CLAUDE` | Anthropic Claude |
-| `OPENROUTER` | OpenRouter |
-| `AI21` | AI21 Labs |
-| `MAKERSUITE` | Google MakerSuite |
-| `VERTEXAI` | Google Vertex AI |
-| `MISTRALAI` | Mistral AI |
-| `CUSTOM` | 自定义API |
-| `COHERE` | Cohere |
-| `PERPLEXITY` | Perplexity |
-| `GROQ` | Groq |
-| `ELECTRONHUB` | ElectronHub |
-| `CHUTES` | Chutes |
-| `NANOGPT` | NanoGPT |
-| `DEEPSEEK` | DeepSeek |
-| `AIMLAPI` | AIMLAPI |
-| `XAI` | xAI |
-| `POLLINATIONS` | Pollinations |
-| `MOONSHOT` | Moonshot |
-| `FIREWORKS` | Fireworks |
-| `COMETAPI` | CometAPI |
-| `AZURE_OPENAI` | Azure OpenAI |
-| `ZAI` | Z.ai |
-| `SILICONFLOW` | SiliconFlow |
-
+**签名**:
+```javascript
+export let chat_metadata = {};
+```
 ---
-
-## 14. 过滤器状态与类型
-
+### `saveMetadataDebounced`
+**源文件**: `scripts\extensions.js:76`
+**签名**:
 ```javascript
-import { FILTER_STATES, FILTER_TYPES } from '../../../filters.js';
+export function saveMetadataDebounced()
 ```
-
-### 14.1 过滤器状态
-
-| 常量 | 说明 |
-|------|------|
-| `SELECTED` | 选中状态 |
-| `EXCLUDED` | 排除状态 |
-| `UNDEFINED` | 未定义状态 |
-
-### 14.2 过滤器类型
-
-| 常量 | 说明 |
-|------|------|
-| `SEARCH` | 通用搜索过滤器 |
-| `GROUP` | 群组过滤器 |
-| `TAG` | 标签过滤器 |
-| `FOLDER` | 文件夹过滤器 |
-| `FAV` | 收藏过滤器 |
-| `WORLD_INFO_SEARCH` | 世界书搜索过滤器 |
-| `PERSONA_SEARCH` | 人格搜索过滤器 |
-
 ---
-
-## 15. 防抖超时预设
-
+### `streamingProcessor`
+**源文件**: `script.js:455`
+**文档**:
 ```javascript
-import { debounce_timeout } from "../../../constants.js";
+/** @type {StreamingProcessor} */
 ```
-
-| 常量 | 值 | 说明 |
-|------|-----|------|
-| `quick` | `100` | 快速 100ms |
-| `short` | `200` | 短 200ms |
-| `standard` | `300` | 标准 300ms |
-| `relaxed` | `1000` | 放松 1000ms |
-| `extended` | `5000` | 扩展 5000ms |
-
+**签名**:
+```javascript
+export let streamingProcessor = null;
+```
 ---
-
-## 16. 数据结构
-
-### 16.1 聊天消息对象
-
+### `eventSource`
+**源文件**: `script.js`
+**类型**: 变量/对象
+**说明**:
 ```javascript
-{
-    name: String,           // 发送者名称
-    is_user: Boolean,       // 是否为用户
-    is_system: Boolean,     // 是否为系统消息
-    send_date: Number,      // 发送时间戳
-    mes: String,            // 消息内容
-    swipe_id: Number,       // 当前滑动索引
-    swipes: Array,          // 滑动消息数组
-    swipe_info: Array,      // 滑动信息数组
-    extra: {
-        api: String,        // 使用的API
-        model: String,      // 使用的模型
-        token_count: Number // token数量
-    }
-}
+// 变量或对象，从 script.js 导入
 ```
+**状态判断**: 这是全局事件发射器实例，是很多前端状态变化的统一监听入口。
 
-### 16.2 角色对象
-
-```javascript
-{
-    name: String,              // 角色名称
-    avatar: String,            // 头像文件名
-    description: String,       // 角色描述
-    personality: String,       // 性格特征
-    first_mes: String,         // 首条消息
-    mes_example: String,       // 消息示例
-    scenario: String,          // 场景设定
-    creator_notes: String,     // 创作者笔记
-    system_prompt: String,     // 系统提示
-    post_history_instructions: String,  // 历史后指令
-    tags: Array,               // 标签
-    creator: String,           // 创作者
-    character_version: String, // 版本
-    extensions: Object,        // 扩展数据
-    data: {                    // V2卡片格式数据
-        // 与上述字段对应的 spec v2 格式
-    }
-}
-```
-
-### 16.3 群组对象
-
-```javascript
-{
-    id: String,                // 群组ID
-    name: String,              // 群组名称
-    members: Array,            // 成员角色名数组
-    avatar_url: String,        // 头像URL
-    allow_self_responses: Boolean,  // 允许自我回复
-    activation_strategy: Number,    // 激活策略
-    generation_mode: Number,        // 生成模式
-    disabled_members: Array,        // 禁用成员
-    chat_metadata: Object,          // 聊天元数据
-    past_metadata: Object,          // 历史元数据
-    fav: Boolean,                   // 是否收藏
-    chat_id: String,                // 当前聊天ID
-    chats: Array                    // 聊天列表
-}
-```
-
-### 16.4 世界信息条目
-
-```javascript
-{
-    uid: Number,               // 唯一ID
-    key: Array,                // 主关键词数组
-    keysecondary: Array,       // 次要关键词数组
-    content: String,           // 内容
-    comment: String,           // 备注/标题
-    constant: Boolean,         // 是否常量
-    disable: Boolean,          // 是否禁用
-    order: Number,             // 顺序
-    position: Number,          // 位置 (0-6)
-    depth: Number,             // 深度
-    selectiveLogic: Number,    // 选择逻辑 (0-3)
-    excludeRecursion: Boolean, // 排除递归
-    probability: Number,       // 触发概率 (0-100)
-    scanDepth: Number,         // 扫描深度
-    caseSensitive: Boolean,    // 区分大小写
-    matchWholeWords: Boolean,  // 匹配整词
-    role: Number               // 角色 (0-2，仅position=4时)
-}
-```
-
+**使用建议**: 监听事件时配合 `eventTypes` 使用；不要把它当普通配置对象。
 ---
-
-## 17. Toast 通知
-
+### `eventTypes`
+**源文件**: `script.js`
+**类型**: 变量/对象
+**说明**:
 ```javascript
-// 全局可用，无需导入
-toastr.info('信息内容', '标题');
-toastr.success('成功消息', '标题');
-toastr.warning('警告消息', '标题');
-toastr.error('错误消息', '标题');
-
-// 配置选项
-toastr.info('消息', '标题', {
-    timeOut: 3000,           // 显示时间(ms)
-    extendedTimeOut: 1000,   // 悬停延长时间
-    closeButton: true,       // 显示关闭按钮
-    progressBar: true        // 显示进度条
-});
+// 变量或对象，从 script.js 导入
 ```
+**状态判断**: 这是推荐使用的事件常量集合，对应 `eventSource` 的事件名。
 
+**使用建议**: 新代码监听事件时优先使用 `eventTypes`；`event_types` 只在兼容旧代码时识别。
 ---
-
-## 18. jQuery 扩展
-
-SillyTavern 环境中 jQuery 全局可用：
-
+### `addOneMessage`
+**源文件**: `script.js:2477`
+**文档**:
 ```javascript
-// 选择器
-$('#element-id')
-$('.class-name')
-
-// 获取/设置值
-$('#input').val()
-$('#input').val('新值')
-
-// 属性操作
-$('#checkbox').prop('checked')
-$('#checkbox').prop('checked', true)
-
-// 事件绑定
-$('#button').on('click', handler)
-$('#input').on('input', handler)
-$('#select').on('change', handler)
-
-// DOM操作
-$('#container').append(html)
-$('#container').prepend(html)
-$('#element').remove()
-$('#element').empty()
-
-// 显示/隐藏
-$('#element').show()
-$('#element').hide()
-$('#element').toggle()
-
-// AJAX
-$.get(url).then(data => { ... })
-$.post(url, data).then(response => { ... })
+/**
+ * Adds a single message to the chat.
+ * @param {ChatMessage} mes Message object
+ * @param {object} [options] Options
+ * @param {string} [options.type=undefined|'swipe'] Deprecated. Use updateMessageElement instead.
+ * @param {number} [options.insertAfter=null] Message ID to insert the new message after
+ * @param {boolean} [options.scroll=true] Whether to scroll to the new message
+ * @param {number} [options.insertBefore=null] Message ID to insert the new message before
+ * @param {number} [options.forceId=null] Force the message ID
+ * @param {boolean} [options.showSwipes=true] Whether to refresh the swipe buttons.
+ * @returns {JQuery<HTMLElement>} The newly added message element
+ */
 ```
-
+**签名**:
+```javascript
+export function addOneMessage(mes, { type = undefined, insertAfter = null, scroll = true, insertBefore = null, forceId = null, showSwipes = true } = {})
+```
 ---
+### `deleteLastMessage`
+**源文件**: `script.js:1603`
+**签名**:
+```javascript
+export async function deleteLastMessage()
+```
+---
+### `deleteMessage`
+**源文件**: `script.js:1616`
+**文档**:
+```javascript
+/**
+ * Deletes a message from the chat by its ID, optionally asking for confirmation.
+ * @param {number} id The ID of the message to delete.
+ * @param {number} [swipeDeletionIndex] Deletes the swipe with that index.
+ * @param {boolean} [askConfirmation=false] Whether to ask for confirmation before deleting.
+ */
+```
+**签名**:
+```javascript
+export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfirmation = false)
+```
+---
+### `generate`
+**源文件**: `script.js:4207`
+**文档**:
+```javascript
+/**
+ * MARK:Generate()
+ * Runs a generation using the current chat context.
+ * @param {string} type Generation type
+ * @param {GenerateOptions} options Generation options
+ * @param {boolean} dryRun Whether to actually generate a message or just assemble the prompt
+ * @returns {Promise<any>} Returns a promise that resolves when the text is done generating.
+ */
+```
+**签名**:
+```javascript
+export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false)
+```
+**状态判断**: 这里的上下文名是 `generate`，源码实际导出名是 `Generate`。这说明它是 `getContext()` 包装后的主生成入口，而不是文档损坏。
 
-## 附录：模块路径速查
+**使用建议**: 需要走酒馆标准生成流程时用它；如果只是静默生成、原始生成或更底层请求，优先看 `generateQuietPrompt`、`generateRaw`、`sendGenerationRequest`。
+---
+### `sendStreamingRequest`
+**源文件**: `script.js:6058`
+**文档**:
+```javascript
+/**
+ * Sends a streaming request to the API.
+ * @param {string} type Generation type
+ * @param {object} data Generation data
+ * @param {AdditionalRequestOptions} [options] Additional options for the generation request
+ * @returns {Promise<any>} Streaming generator
+ */
+```
+**签名**:
+```javascript
+export async function sendStreamingRequest(type, data, options = {})
+```
+---
+### `sendGenerationRequest`
+**源文件**: `script.js:6027`
+**文档**:
+```javascript
+/**
+ * Sends a non-streaming request to the API.
+ * @param {string} type Generation type
+ * @param {object} data Generation data
+ * @param {AdditionalRequestOptions} [options] Additional options for the generation request
+ * @returns {Promise<object>} Response data from the API
+ * @throws {Error|object}
+ */
+```
+**签名**:
+```javascript
+export async function sendGenerationRequest(type, data, options = {})
+```
+---
+### `stopGeneration`
+**源文件**: `script.js:5518`
+**文档**:
+```javascript
+/**
+ * Stops the generation and any streaming if it is currently running.
+ */
+```
+**签名**:
+```javascript
+export function stopGeneration()
+```
+---
+### `tokenizers`
+**源文件**: `scripts\tokenizers.js:16`
+**签名**:
+```javascript
+export const tokenizers = {
+```
+---
+### `getTextTokens`
+**源文件**: `scripts\tokenizers.js:1130`
+**文档**:
+```javascript
+/**
+ * Encodes a string to tokens using the server API.
+ * @param {number} tokenizerType Tokenizer type.
+ * @param {string} str String to tokenize.
+ * @returns {number[]} Array of token ids.
+ */
+```
+**签名**:
+```javascript
+export function getTextTokens(tokenizerType, str)
+```
+---
+### `getTokenCount`
+**源文件**: `scripts\tokenizers.js:499`
+**文档**:
+```javascript
+/**
+ * Gets the token count for a string using the current model tokenizer.
+ * @param {string} str String to tokenize
+ * @param {number | undefined} padding Optional padding tokens. Defaults to 0.
+ * @returns {number} Token count.
+ * @deprecated Use getTokenCountAsync instead.
+ */
+```
+**签名**:
+```javascript
+export function getTokenCount(str, padding = undefined)
+```
+---
+### `getTokenCountAsync`
+**源文件**: `scripts\tokenizers.js:443`
+**文档**:
+```javascript
+/**
+ * Gets the token count for a string using the current model tokenizer.
+ * @param {string} str String to tokenize
+ * @param {number | undefined} padding Optional padding tokens. Defaults to 0.
+ * @returns {Promise<number>} Token count.
+ */
+```
+**签名**:
+```javascript
+export async function getTokenCountAsync(str, padding = undefined)
+```
+---
+### `extensionPrompts`
+**源文件**: `script.js:625`
+**签名**:
+```javascript
+export let extension_prompts = {};
+```
+**状态判断**: 这是当前所有扩展 prompt 注入内容的聚合对象。
 
-| 模块 | 相对路径（从扩展目录） |
-|------|----------------------|
-| script.js | `../../../script.js` |
-| extensions.js | `../../../extensions.js` |
-| popup.js | `../../../popup.js` |
-| utils.js | `../../../utils.js` |
-| SlashCommandParser.js | `../../../slash-commands/SlashCommandParser.js` |
-| SlashCommand.js | `../../../slash-commands/SlashCommand.js` |
-| SlashCommandArgument.js | `../../../slash-commands/SlashCommandArgument.js` |
-| world-info.js | `../../../world-info.js` |
-| tags.js | `../../../tags.js` |
-| openai.js | `../../../openai.js` |
-| power-user.js | `../../../power-user.js` |
-| i18n.js | `../../../i18n.js` |
-| templates.js | `../../../templates.js` |
-| tool-calling.js | `../../../tool-calling.js` |
-| filters.js | `../../../filters.js` |
-| personas.js | `../../../personas.js` |
-| backgrounds.js | `../../../backgrounds.js` |
-| tokenizers.js | `../../../tokenizers.js` |
-| macros.js | `../../../macros.js` |
-| chats.js | `../../../chats.js` |
-| user.js | `../../../user.js` |
-| system-messages.js | `../../../system-messages.js` |
-| constants.js | `../../../constants.js` |
-| secrets.js | `../../../secrets.js` |
+**使用建议**: 需要查看当前有哪些扩展提示被挂进上下文时读取它；需要写入时看 `setExtensionPrompt()`。
+---
+### `setExtensionPrompt`
+**源文件**: `script.js:8821`
+**文档**:
+```javascript
+/**
+ * Sets a prompt injection to insert custom text into any outgoing prompt. For use in UI extensions.
+ * @param {string} key Prompt injection id.
+ * @param {string} value Prompt injection value.
+ * @param {number} position Insertion position. 0 is after story string, 1 is in-chat with custom depth.
+ * @param {number} depth Insertion depth. 0 represets the last message in context. Expected values up to MAX_INJECTION_DEPTH.
+ * @param {number} role Extension prompt role. Defaults to SYSTEM.
+ * @param {boolean} scan Should the prompt be included in the world info scan.
+ * @param {(function(): Promise<boolean>|boolean)} filter Filter function to determine if the prompt should be injected.
+ */
+```
+**签名**:
+```javascript
+export function setExtensionPrompt(key, value, position, depth, scan = false, role = extension_prompt_roles.SYSTEM, filter = null)
+```
+---
+### `updateChatMetadata`
+**源文件**: `script.js:8873`
+**文档**:
+```javascript
+/**
+ * Adds or updates the metadata for the currently active chat.
+ * @param {Object} newValues An object with collection of new values to be added into the metadata.
+ * @param {boolean} reset Should a metadata be reset by this call.
+ */
+```
+**签名**:
+```javascript
+export function updateChatMetadata(newValues, reset)
+```
+---
+### `saveChat`
+**源文件**: `script.js:9307`
+**签名**:
+```javascript
+export async function saveChatConditional()
+```
+**状态判断**: 这里的上下文名是 `saveChat`，自动提取到的源码签名是 `saveChatConditional()`，属于上下文包装名和源码名不一致。
 
+**使用建议**: 把它理解成“保存当前聊天”的上下文 API；看到签名名不一致时，不要误判为条目失效。
+---
+### `openCharacterChat`
+**源文件**: `script.js:7649`
+**签名**:
+```javascript
+export async function openCharacterChat(file_name)
+```
+---
+### `openGroupChat`
+**源文件**: `scripts\group-chats.js:2194`
+**文档**:
+```javascript
+/**
+ * Opens a specific group chat for the specified group by its ID.
+ * @param {string} groupId Group ID
+ * @param {string} chatId Chat ID
+ * @returns {Promise<void>}
+ */
+```
+**签名**:
+```javascript
+export async function openGroupChat(groupId, chatId)
+```
+---
+### `saveMetadata`
+**源文件**: `script.js:9303`
+**签名**:
+```javascript
+export async function saveMetadata()
+```
+---
+### `sendSystemMessage`
+**源文件**: `script.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 script.js 导入
+```
+**状态判断**: 这是系统消息辅助入口，用于往聊天里写入酒馆系统消息，而不是普通用户/角色消息。
+
+**使用建议**: 只有在确实要生成系统提示、帮助、通知类消息时再考虑它；常规聊天消息不要走这里。
+---
+### `activateSendButtons`
+**源文件**: `script.js:6976`
+**文档**:
+```javascript
+/**
+ * A function mainly used to switch 'generating' state - setting it to false and activating the buttons again
+ */
+```
+**签名**:
+```javascript
+export function activateSendButtons()
+```
+---
+### `deactivateSendButtons`
+**源文件**: `script.js:6990`
+**文档**:
+```javascript
+/**
+ * A function mainly used to switch 'generating' state - setting it to true and deactivating the buttons
+ */
+```
+**签名**:
+```javascript
+export function deactivateSendButtons()
+```
+---
+### `saveReply`
+**源文件**: `script.js:6543`
+**文档**:
+```javascript
+/**
+ * Saves a resulting message to the chat.
+ * @param {SaveReplyParams} params
+ * @returns {Promise<SaveReplyResult>} Promise when the message is saved
+ *
+ * @typedef {object} SaveReplyParams
+ * @property {string} type Type of generation
+ * @property {string} getMessage Generated message
+ * @property {boolean} [fromStreaming] If the message is from streaming
+ * @property {string} [title] Message tooltip
+ * @property {string[]} [swipes] Extra swipes
+ * @property {string} [reasoning] Message reasoning
+ * @property {string[]} [imageUrls] Links to images
+ * @property {string?} [reasoningSignature] Encrypted signature of the reasoning text
+ *
+ * @typedef {object} SaveReplyResult
+ * @property {string} type Type of generation
+ * @property {string} getMessage Generated message
+ */
+```
+**签名**:
+```javascript
+export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null })
+```
+---
+### `substituteParams`
+**源文件**: `script.js:2907`
+**文档**:
+```javascript
+/**
+ * Substitutes {{macros}} in a string using the new macro engine.
+ *
+ * This will replace all registered macros and dynamic additional macros as environment context.
+ *
+ * @param {string} content - The string to substitute parameters in.
+ * @param {Object} [options={}] - Options for the substitution.
+ * @param {string} [options.name1Override] - The name of the user. Uses global name1 if not provided.
+ * @param {string} [options.name2Override] - The name of the character. Uses global name2 if not provided.
+ * @param {string} [options.original] - The original message for {{original}} substitution.
+ * @param {string} [options.groupOverride] - The group members list for {{group}} substitution.
+ * @param {boolean} [options.replaceCharacterCard=true] - Whether to replace character card macros.
+ * @param {Record<string, import('./scripts/macros/engine/MacroEnv.types.js').DynamicMacroValue>} [options.dynamicMacros={}] - Additional environment variables as dynamic macros for substitution. Registered as macro functions.
+ * @param {(x: string) => string} [options.postProcessFn=(x) => x] - Post-processing function for each substituted macro.
+ * @returns {string} The string with substituted parameters.
+ */
+```
+**签名**:
+```javascript
+export function substituteParams(content, options = {})
+```
+---
+### `substituteParamsExtended`
+**源文件**: `script.js:2741`
+**文档**:
+```javascript
+/**
+ * @deprecated Function is not needed anymore, as the new signature of substituteParams is more flexible.
+ *
+ * Substitutes {{macro}} parameters in a string.
+ * @returns {string} The string with substituted parameters.
+ */
+```
+**签名**:
+```javascript
+export function substituteParamsExtended(content, additionalMacro = {}, postProcessFn = (x) => x)
+```
+**状态判断**: 这是旧签名兼容入口。看到旧扩展代码时要能认出来，但新代码不应继续从这里开始。
+
+**替代方案**: 直接使用 `substituteParams(content, options)`，把附加宏和后处理函数放进新参数对象里。
+---
+### `SlashCommandParser`
+**源文件**: `scripts\slash-commands\SlashCommandParser.js:43`
+**签名**:
+```javascript
+export class SlashCommandParser {
+```
+---
+### `SlashCommand`
+**源文件**: `scripts\slash-commands\SlashCommand.js:29`
+**签名**:
+```javascript
+export class SlashCommand {
+```
+---
+### `SlashCommandArgument`
+**源文件**: `scripts\slash-commands\SlashCommandArgument.js:22`
+**签名**:
+```javascript
+export class SlashCommandArgument {
+```
+---
+### `SlashCommandNamedArgument`
+**源文件**: `scripts\slash-commands\SlashCommandArgument.js:82`
+**签名**:
+```javascript
+export class SlashCommandNamedArgument extends SlashCommandArgument {
+```
+---
+### `SlashCommandEnumValue`
+**源文件**: `scripts\slash-commands\SlashCommandEnumValue.js:42`
+**签名**:
+```javascript
+export class SlashCommandEnumValue {
+```
+---
+### `ARGUMENT_TYPE`
+**源文件**: `scripts\slash-commands\SlashCommandArgument.js:10`
+**文档**:
+```javascript
+/**@enum {string}*/
+```
+**签名**:
+```javascript
+export const ARGUMENT_TYPE = {
+```
+---
+### `executeSlashCommandsWithOptions`
+**源文件**: `scripts\slash-commands.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 slash-commands.js 导入
+```
+**状态判断**: 这是当前推荐的 STscript / slash 命令执行入口，只是自动提取没有抓到它的具体函数签名。
+
+**使用建议**: 需要执行 STscript 或 slash 文本时优先使用它；它比 `executeSlashCommands` 更适合新代码。
+---
+### `registerSlashCommand`
+**源文件**: `scripts\slash-commands.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 slash-commands.js 导入
+```
+**状态判断**: 这是旧式斜杠命令注册入口，保留主要是为了兼容旧代码，不适合作为新命令系统的主入口。
+
+**使用建议**: 新扩展优先使用 `SlashCommandParser`、`SlashCommand`、`SlashCommandArgument`、`SlashCommandNamedArgument` 这一整套对象式注册方式。
+---
+### `executeSlashCommands`
+**源文件**: `scripts\slash-commands.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 slash-commands.js 导入
+```
+**状态判断**: 这是旧式执行入口。它还能帮助理解历史代码，但新代码应优先看带选项的版本。
+
+**替代方案**: 优先使用 `executeSlashCommandsWithOptions()`，这样更容易控制执行来源和行为。
+---
+### `timestampToMoment`
+**源文件**: `scripts\utils.js:1079`
+**文档**:
+```javascript
+/**
+ * Cached version of moment() to avoid re-parsing the same date strings.
+ * Important: Moment objects are mutable, so use clone() before modifying them!
+ * @param {MessageTimestamp} timestamp String or number representing a date.
+ * @returns {import('moment').Moment} Moment object
+ */
+```
+**签名**:
+```javascript
+export function timestampToMoment(timestamp)
+```
+---
+### `registerMacro`
+**源文件**: `scripts\macros.js:42`
+**文档**:
+```javascript
+/**
+ * @deprecated Use macros.registry.registerMacro (from scripts/macros/macro-system.js)
+ * or substituteParams({ dynamicMacros }) with the new macro engine.
+ */
+```
+**签名**:
+```javascript
+export class MacrosParser {
+```
+**状态判断**: 这是旧宏系统痕迹，不是推荐的新入口。这里之所以出现类签名，是因为自动提取命中了旧宏解析器定义。
+
+**使用建议**: 把它理解成“历史兼容区域”；新代码优先看 `macros` 命名空间，而不是继续围绕 `registerMacro` 设计。
+---
+### `unregisterMacro`
+**源文件**: `scripts\macros.js:42`
+**文档**:
+```javascript
+/**
+ * @deprecated Use macros.registry.registerMacro (from scripts/macros/macro-system.js)
+ * or substituteParams({ dynamicMacros }) with the new macro engine.
+ */
+```
+**签名**:
+```javascript
+export class MacrosParser {
+```
+**状态判断**: 和 `registerMacro` 一样，这是旧宏系统痕迹，不应作为新代码主入口。
+
+**使用建议**: 新代码优先沿 `macros` 命名空间查找注销能力，不要把这个类签名误判成真正的推荐调用方式。
+---
+### `registerFunctionTool`
+**源文件**: `scripts\tool-calling.js:241`
+**文档**:
+```javascript
+/**
+ * A class that manages the registration and invocation of tools.
+ */
+```
+**签名**:
+```javascript
+export class ToolManager {
+```
+---
+### `unregisterFunctionTool`
+**源文件**: `scripts\tool-calling.js:241`
+**文档**:
+```javascript
+/**
+ * A class that manages the registration and invocation of tools.
+ */
+```
+**签名**:
+```javascript
+export class ToolManager {
+```
+---
+### `isToolCallingSupported`
+**源文件**: `scripts\tool-calling.js:241`
+**文档**:
+```javascript
+/**
+ * A class that manages the registration and invocation of tools.
+ */
+```
+**签名**:
+```javascript
+export class ToolManager {
+```
+---
+### `canPerformToolCalls`
+**源文件**: `scripts\tool-calling.js:241`
+**文档**:
+```javascript
+/**
+ * A class that manages the registration and invocation of tools.
+ */
+```
+**签名**:
+```javascript
+export class ToolManager {
+```
+---
+### `ToolManager`
+**源文件**: `scripts\tool-calling.js:241`
+**文档**:
+```javascript
+/**
+ * A class that manages the registration and invocation of tools.
+ */
+```
+**签名**:
+```javascript
+export class ToolManager {
+```
+---
+### `registerDebugFunction`
+**源文件**: `scripts\power-user.js:1475`
+**文档**:
+```javascript
+/**
+ * Register a function to be executed when the debug menu is opened.
+ * @param {string} functionId Unique ID for the function.
+ * @param {string} name Name of the function.
+ * @param {string} description Description of the function.
+ * @param {function} func Function to be executed.
+ */
+```
+**签名**:
+```javascript
+export function registerDebugFunction(functionId, name, description, func)
+```
+---
+### `renderExtensionTemplate`
+**源文件**: `scripts\extensions.js:112`
+**文档**:
+```javascript
+/**
+ * Provides an ability for extensions to render HTML templates synchronously.
+ * Templates sanitation and localization is forced.
+ * @param {string} extensionName Extension name
+ * @param {string} templateId Template ID
+ * @param {object} templateData Additional data to pass to the template
+ * @returns {string} Rendered HTML
+ *
+ * @deprecated Use renderExtensionTemplateAsync instead.
+ */
+```
+**签名**:
+```javascript
+export function renderExtensionTemplate(extensionName, templateId, templateData = {}, sanitize = true, localize = true)
+```
+**状态判断**: 这是同步模板渲染入口，主要用于兼容旧扩展；新代码默认应优先看异步版。
+
+**替代方案**: 优先使用 `renderExtensionTemplateAsync()`，避免把同步渲染当默认路径。
+---
+### `renderExtensionTemplateAsync`
+**源文件**: `scripts\extensions.js:124`
+**文档**:
+```javascript
+/**
+ * Provides an ability for extensions to render HTML templates asynchronously.
+ * Templates sanitation and localization is forced.
+ * @param {string} extensionName Extension name
+ * @param {string} templateId Template ID
+ * @param {object} templateData Additional data to pass to the template
+ * @returns {Promise<string>} Rendered HTML
+ */
+```
+**签名**:
+```javascript
+export function renderExtensionTemplateAsync(extensionName, templateId, templateData = {}, sanitize = true, localize = true)
+```
+---
+### `registerDataBankScraper`
+**源文件**: `scripts\scrapers.js:30`
+**签名**:
+```javascript
+export class ScraperManager {
+```
+---
+### `callPopup`
+**源文件**: `script.js:8962`
+**文档**:
+```javascript
+/**
+ * Displays a blocking popup with a given text and type.
+ * @param {JQuery<HTMLElement>|string|Element} text - Text to display in the popup.
+ * @param {string} type
+ * @param {string} inputValue - Value to set the input to.
+ * @param {PopupOptions} options - Options for the popup.
+ * @typedef {{okButton?: string, rows?: number, wide?: boolean, wider?: boolean, large?: boolean, allowHorizontalScrolling?: boolean, allowVerticalScrolling?: boolean, cropAspect?: number }} PopupOptions - Options for the popup.
+ * @returns {Promise<any>} A promise that resolves when the popup is closed.
+ * @deprecated Use `callGenericPopup` instead.
+ */
+```
+**签名**:
+```javascript
+export function callPopup(text, type, inputValue = '', { okButton, rows, wide, wider, large, allowHorizontalScrolling, allowVerticalScrolling, cropAspect } = {})
+```
+**状态判断**: 这是旧弹窗入口。还能识别旧代码，但新代码不该再把字符串类型参数当默认方案。
+
+**替代方案**: 优先使用 `callGenericPopup()` 配合 `POPUP_TYPE`。
+---
+### `callGenericPopup`
+**源文件**: `scripts\popup.js:859`
+**文档**:
+```javascript
+/**
+ * Displays a blocking popup with a given content and type
+ *
+ * @param {JQuery<HTMLElement>|string|Element} content - Content or text to display in the popup
+ * @param {POPUP_TYPE} type
+ * @param {string} inputValue - Value to set the input to
+ * @param {PopupOptions} [popupOptions={}] - Options for the popup
+ * @returns {Promise<POPUP_RESULT|string|boolean?>} The value for this popup, which can either be the popup retult or the input value if chosen
+ */
+```
+**签名**:
+```javascript
+export function callGenericPopup(content, type, inputValue = '', popupOptions = {})
+```
+---
+### `showLoader`
+**源文件**: `scripts\loader.js:23`
+**文档**:
+```javascript
+/**
+ * Shows the loader overlay.
+ *
+ * @deprecated Use `showActionLoader()` from action-loader.js instead.
+ * This function now creates a blocking action loader with no toast.
+ * The new system supports stacking multiple loaders and provides better control.
+ *
+ * @example
+ * // New recommended approach:
+ * import { showActionLoader } from './action-loader.js';
+ * const handle = showActionLoader({ message: 'Loading...' });
+ * // ... do work ...
+ * handle.hide();
+ */
+```
+**签名**:
+```javascript
+export function showLoader()
+```
+**状态判断**: 这是旧加载器入口，保留主要用于兼容旧代码。它不能表达现代加载器那种 handle 语义。
+
+**替代方案**: 优先使用 `loader` 或 `showActionLoader()` 这一类新加载器接口。
+---
+### `hideLoader`
+**源文件**: `scripts\loader.js:51`
+**文档**:
+```javascript
+/**
+ * Hides the loader overlay.
+ *
+ * @deprecated Use `hideActionLoader()` or `handle.hide()` from action-loader.js instead.
+ * This function now hides the legacy loader created by showLoader().
+ *
+ * @example
+ * // New recommended approach:
+ * import { showActionLoader } from './action-loader.js';
+ * const handle = showActionLoader({ message: 'Loading...' });
+ * // ... do work ...
+ * await handle.hide();
+ *
+ * @returns {Promise<void>}
+ */
+```
+**签名**:
+```javascript
+export async function hideLoader()
+```
+**状态判断**: 这是旧加载器关闭入口，通常只在历史代码里和 `showLoader()` 成对出现。
+
+**替代方案**: 优先保存新加载器返回的 handle，并调用它自己的隐藏方法。
+---
+### `mainApi`
+**源文件**: `script.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 script.js 导入
+```
+**状态判断**: 这是当前主模型后端类型的运行时别名，用来读状态，不是“后端控制器”。
+
+**使用建议**: 只在需要根据当前后端分支处理逻辑时读取它；不要把它误认为一个可调用 API 模块。
+---
+### `extensionSettings`
+**源文件**: `scripts\extensions.js:128`
+**签名**:
+```javascript
+export const extension_settings = {
+```
+---
+### `ModuleWorkerWrapper`
+**源文件**: `scripts\extensions.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 extensions.js 导入
+```
+**状态判断**: 这是扩展侧 Worker 包装相关入口，偏底层执行环境，不是助手日常排查的高频入口。
+
+**使用建议**: 只有在扩展需要放进 Worker 隔离运行时才继续沿它查；普通扩展逻辑可先忽略。
+---
+### `getTokenizerModel`
+**源文件**: `scripts\tokenizers.js:569`
+**签名**:
+```javascript
+export function getTokenizerModel()
+```
+---
+### `generateQuietPrompt`
+**源文件**: `script.js:3005`
+**文档**:
+```javascript
+/**
+ * Background generation based on the provided prompt.
+ * @typedef {object} GenerateQuietPromptParams
+ * @prop {string} [quietPrompt] Instruction prompt for the AI
+ * @prop {boolean} [quietToLoud] Whether the message should be sent in a foreground (loud) or background (quiet) mode
+ * @prop {boolean} [skipWIAN] Whether to skip addition of World Info and Author's Note into the prompt
+ * @prop {string} [quietImage] Image to use for the quiet prompt
+ * @prop {string} [quietName] Name to use for the quiet prompt (defaults to "System:")
+ * @prop {number} [responseLength] Maximum response length. If unset, the global default value is used.
+ * @prop {number} [forceChId] Character ID to use for this generation run. Works in groups only.
+ * @prop {object} [jsonSchema] JSON schema to use for the structured generation. Usually requires a special instruction.
+ * @prop {boolean} [removeReasoning] Parses and removes the reasoning block according to reasoning format preferences
+ * @prop {boolean} [trimToSentence] Whether to trim the response to the last complete sentence
+ * @param {GenerateQuietPromptParams} params Parameters for the quiet prompt generation
+ * @returns {Promise<string>} Generated text. If using structured output, will contain a serialized JSON object.
+ */
+```
+**签名**:
+```javascript
+export async function generateQuietPrompt({ quietPrompt = '', quietToLoud = false, skipWIAN = false, quietImage = null, quietName = null, responseLength = null, forceChId = null, jsonSchema = null, removeReasoning = true, trimToSentence = false } = {})
+```
+---
+### `generateRaw`
+**源文件**: `script.js:4040`
+**文档**:
+```javascript
+/**
+ * Generates a message using the provided prompt.
+ * If the prompt is an array of chat-style messages and not using chat completion, it will be converted to a text prompt.
+ * @param {GenerateRawParams} params Parameters for generating a message
+ * @returns {Promise<string>} Generated output: a cleaned-up message string when `jsonSchema` is not provided, or an extracted JSON string conforming to `jsonSchema` when it is.
+ */
+```
+**签名**:
+```javascript
+export async function generateRaw({ prompt = '', api = null, instructOverride = false, quietToLoud = false, systemPrompt = '', responseLength = null, trimNames = true, prefill = '', jsonSchema = null } = {})
+```
+---
+### `generateRawData`
+**源文件**: `script.js:3918`
+**文档**:
+```javascript
+/**
+ * Generates a raw data object using the provided prompt.
+ * This used to be part of `generateRaw`, but separating it out allows extensions to access other data such as reasoning message.
+ * @param {GenerateRawParams} params Parameters for generating a message
+ * @returns {Promise<object | string>} Raw API response data, or a JSON string extracted from the response when `jsonSchema` is provided.
+ */
+```
+**签名**:
+```javascript
+export async function generateRawData({ prompt = '', api = null, instructOverride = false, quietToLoud = false, systemPrompt = '', responseLength = null, prefill = '', jsonSchema = null } = {})
+```
+---
+### `writeExtensionField`
+**源文件**: `scripts\extensions.js:1768`
+**文档**:
+```javascript
+/**
+ * Writes a field to the character's data extensions object.
+ * @param {number|string} characterId Index in the character array
+ * @param {string} key Field name
+ * @param {any} value Field value
+ * @returns {Promise<void>} When the field is written
+ */
+```
+**签名**:
+```javascript
+export async function writeExtensionField(characterId, key, value)
+```
+---
+### `getThumbnailUrl`
+**源文件**: `script.js:7453`
+**文档**:
+```javascript
+/**
+ * Gets the URL for a thumbnail of a specific type and file.
+ * @param {import('../src/endpoints/thumbnails.js').ThumbnailType} type The type of the thumbnail to get
+ * @param {string} file The file name or path for which to get the thumbnail URL
+ * @param {boolean} [t=false] Whether to add a cache-busting timestamp to the URL
+ * @returns {string} The URL for the thumbnail
+ */
+```
+**签名**:
+```javascript
+export function getThumbnailUrl(type, file, t = false)
+```
+---
+### `selectCharacterById`
+**源文件**: `script.js:871`
+**文档**:
+```javascript
+/**
+ * Switches the currently selected character to the one with the given ID. (character index, not the character key!)
+ *
+ * If the character ID doesn't exist, if the chat is being saved, or if a group is being generated, this function does nothing.
+ * If the character is different from the currently selected one, it will clear the chat and reset any selected character or group.
+ * @param {number} id The ID of the character to switch to.
+ * @param {object} [options] Options for the switch.
+ * @param {boolean} [options.switchMenu=true] Whether to switch the right menu to the character edit menu if the character is already selected.
+ * @returns {Promise<void>} A promise that resolves when the character is switched.
+ */
+```
+**签名**:
+```javascript
+export async function selectCharacterById(id, { switchMenu = true } = {})
+```
+---
+### `messageFormatting`
+**源文件**: `script.js:1751`
+**文档**:
+```javascript
+/**
+ * Formats the message text into an HTML string using Markdown and other formatting.
+ * @param {string} mes Message text
+ * @param {string} ch_name Character name
+ * @param {boolean} isSystem If the message was sent by the system
+ * @param {boolean} isUser If the message was sent by the user
+ * @param {number} messageId Message index in chat array
+ * @param {Partial<DOMPurify.Config>} [sanitizerOverrides] DOMPurify sanitizer option overrides
+ * @param {boolean} [isReasoning] If the message is reasoning output
+ * @returns {string} HTML string
+ */
+```
+**签名**:
+```javascript
+export function messageFormatting(mes, ch_name, isSystem, isUser, messageId, sanitizerOverrides = {}, isReasoning = false)
+```
+---
+### `shouldSendOnEnter`
+**源文件**: `scripts\RossAscends-mods.js:149`
+**签名**:
+```javascript
+export function shouldSendOnEnter()
+```
+---
+### `isMobile`
+**源文件**: `scripts\RossAscends-mods.js:143`
+**文档**:
+```javascript
+/**
+ * Checks if the device is a mobile device.
+ * @returns {boolean} - True if the device is a mobile device, false otherwise.
+ */
+```
+**签名**:
+```javascript
+export function isMobile()
+```
+---
+### `t`
+**源文件**: `scripts\i18n.js:81`
+**文档**:
+```javascript
+/**
+ * Translates a template string with named arguments
+ *
+ * Uses the template literal with all values replaced by index placeholder for translation key.
+ *
+ * @example
+ * ```js
+ * toastr.warning(t`Tag ${tagName} not found.`);
+ * ```
+ * Should be translated in the translation files as:
+ * ```
+ * Tag ${0} not found. -> Tag ${0} nicht gefunden.
+ * ```
+ *
+ * @param {TemplateStringsArray} strings - Template strings array
+ * @param  {...any} values - Values for placeholders in the template string
+ * @returns {string} Translated and formatted string
+ */
+```
+**签名**:
+```javascript
+export function t(strings, ...values)
+```
+---
+### `translate`
+**源文件**: `scripts\i18n.js:101`
+**文档**:
+```javascript
+/**
+ * Translates a given key or text
+ *
+ * If the translation is based on a key, that one is used to find a possible translation in the translation file.
+ * The original text still has to be provided, as that is the default value being returned if no translation is found.
+ *
+ * For in-code text translation on a format string, using the template literal `t` is preferred.
+ *
+ * @param {string} text - The text to translate
+ * @param {string?} key - The key to use for translation. If not provided, text is used as the key.
+ * @returns {string} - The translated text
+ */
+```
+**签名**:
+```javascript
+export function translate(text, key = null)
+```
+---
+### `getCurrentLocale`
+**源文件**: `scripts\i18n.js:15`
+**签名**:
+```javascript
+export const getCurrentLocale = () => localeFile;
+```
+---
+### `addLocaleData`
+**源文件**: `scripts\i18n.js:22`
+**文档**:
+```javascript
+/**
+ * Adds additional localization data to the current locale file.
+ * @param {string} localeId Locale ID (e.g. 'fr-fr' or 'zh-cn')
+ * @param {Record<string, string>} data Localization data to add
+ */
+```
+**签名**:
+```javascript
+export function addLocaleData(localeId, data)
+```
+---
+### `tags`
+**源文件**: `scripts\tags.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 tags.js 导入
+```
+**状态判断**: 这是当前标签列表数据，不是标签服务类。
+
+**使用建议**: 需要读取已有标签时看它；需要通过标签定位关系时结合 `tagMap`。
+---
+### `tagMap`
+**源文件**: `scripts\tags.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 tags.js 导入
+```
+**状态判断**: 这是标签映射结构，用于描述标签和对象之间的关联关系。
+
+**使用建议**: 需要查“某个对象挂了哪些标签”或“某个标签关联了哪些对象”时优先看它。
+---
+### `menuType`
+**源文件**: `script.js:564`
+**文档**:
+```javascript
+/**
+ * The type of the right menu that is currently open
+ * @type {MenuType}
+ */
+```
+**签名**:
+```javascript
+export let menu_type = '';
+```
+**状态判断**: 这是当前右侧菜单/面板类型的运行时状态值。
+
+**使用建议**: 需要判断当前 UI 处于哪个菜单上下文时读取它；不要把它当切换菜单的方法。
+---
+### `createCharacterData`
+**源文件**: `script.js:569`
+**签名**:
+```javascript
+export let create_save = {
+```
+**状态判断**: 这里的上下文名是 `createCharacterData`，但自动提取命中的是 `create_save` 数据结构，属于上下文包装名和源码名错位。
+
+**使用建议**: 把它理解成“角色创建相关数据结构/入口”，不要把当前签名字面量当成最终调用方式。
+---
+### `event_types`
+**源文件**: `script.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 script.js 导入
+```
+**状态判断**: 这是旧命名风格的事件常量入口，语义上对应 `eventTypes`。
+
+**使用建议**: 新代码优先使用 `eventTypes`；阅读旧扩展时再识别 `event_types`。
+---
+### `Popup`
+**源文件**: `scripts\popup.js:144`
+**签名**:
+```javascript
+export class Popup {
+```
+---
+### `POPUP_TYPE`
+**源文件**: `scripts\popup.js:9`
+**文档**:
+```javascript
+/** @enum {Number} */
+```
+**签名**:
+```javascript
+export const POPUP_TYPE = {
+```
+---
+### `POPUP_RESULT`
+**源文件**: `scripts\popup.js:24`
+**文档**:
+```javascript
+/** @enum {number?} */
+```
+**签名**:
+```javascript
+export const POPUP_RESULT = {
+```
+---
+### `chatCompletionSettings`
+**源文件**: `scripts\openai.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 openai.js 导入
+```
+**状态判断**: 这是聊天补全通道的当前设置对象，反映当前模型后端、参数和前端配置。
+
+**使用建议**: 需要读当前聊天补全配置时再看它；不要把它误认为请求发送器。
+---
+### `textCompletionSettings`
+**源文件**: `scripts\textgen-settings.js:143`
+**签名**:
+```javascript
+export const textgenerationwebui_settings = {
+```
+**状态判断**: 这里的上下文名是 `textCompletionSettings`，源码实际对象名是 `textgenerationwebui_settings`。它代表文本补全通道的当前设置对象。
+
+**使用建议**: 需要读文本补全后端和参数配置时再看它；不要把它误认为请求函数。
+---
+### `powerUserSettings`
+**源文件**: `scripts\power-user.js:125`
+**签名**:
+```javascript
+export const power_user = {
+```
+**状态判断**: 这里的上下文名是 `powerUserSettings`，源码实际对象名是 `power_user`。它代表高级用户设置集合。
+
+**使用建议**: 只有在处理 Power User 相关行为或格式化偏好时再读取它。
+---
+### `getCharacters`
+**源文件**: `script.js:1290`
+**签名**:
+```javascript
+export async function getCharacters()
+```
+---
+### `getOneCharacter`
+**源文件**: `script.js:1219`
+**签名**:
+```javascript
+export async function getOneCharacter(avatarUrl)
+```
+---
+### `getCharacterCardFields`
+**源文件**: `script.js:3397`
+**文档**:
+```javascript
+/**
+ * Returns the character card fields for the current character.
+ * @param {Object} [options={}]
+ * @param {number} [options.chid] Optional character index
+ * @returns {CharacterCardFields} Character card fields
+ */
+```
+**签名**:
+```javascript
+export function getCharacterCardFields({ chid = undefined } = {})
+```
+---
+### `getCharacterSource`
+**源文件**: `script.js:1243`
+**签名**:
+```javascript
+export function getCharacterSource(chId = this_chid)
+```
+---
+### `importFromExternalUrl`
+**源文件**: `scripts\utils.js:2861`
+**文档**:
+```javascript
+/**
+ * Imports content from an external URL.
+ * @param {string} url URL or UUID of the content to import.
+ * @param {Object} [options={}] Options object.
+ * @param {string|null} [options.preserveFileName=null] Optional file name to use for the imported content.
+ * @returns {Promise<void>} A promise that resolves when the import is complete.
+ */
+```
+**签名**:
+```javascript
+export async function importFromExternalUrl(url, { preserveFileName = null } = {})
+```
+---
+### `importTags`
+**源文件**: `scripts\tags.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 tags.js 导入
+```
+**状态判断**: 这是标签导入相关入口，属于标签系统的辅助能力，不是标签数据本身。
+
+**使用建议**: 如果问题是“标签有哪些”，优先看 `tags` 和 `tagMap`；如果问题是“怎么导入标签”，再关注它。
+---
+### `uuidv4`
+**源文件**: `scripts\utils.js:1862`
+**文档**:
+```javascript
+/**
+ * Returns a UUID v4 string.
+ * @returns {string} A UUID v4 string.
+ * @example
+ * uuidv4(); // '3e2fd9e1-0a7a-4f6d-9aaf-8a7a4babe7eb'
+ */
+```
+**签名**:
+```javascript
+export function uuidv4()
+```
+---
+### `humanizedDateTime`
+**源文件**: `scripts\RossAscends-mods.js:169`
+**文档**:
+```javascript
+/**
+ * Gets a humanized date time string from a given timestamp.
+ * @param {number} timestamp Timestamp in milliseconds
+ * @returns {string} Humanized date time string in the format `YYYY-MM-DD@HHhMMmSSsMSms`
+ */
+```
+**签名**:
+```javascript
+export function humanizedDateTime(timestamp = Date.now())
+```
+---
+### `updateMessageBlock`
+**源文件**: `script.js:1959`
+**文档**:
+```javascript
+/**
+ * Re-renders a message block with updated content.
+ * @param {number} messageId Message ID
+ * @param {object} message Message object
+ * @param {object} [options={}] Optional arguments
+ * @param {boolean} [options.rerenderMessage=true] Whether to re-render the message content (inside <c>.mes_text</c>)
+ */
+```
+**签名**:
+```javascript
+export function updateMessageBlock(messageId, message, { rerenderMessage = true } = {})
+```
+---
+### `appendMediaToMessage`
+**源文件**: `script.js:2142`
+**文档**:
+```javascript
+/**
+ * Appends image or file to the message element.
+ * @param {ChatMessage} mes Message object
+ * @param {JQuery<HTMLElement>} messageElement Message element
+ * @param {string} [scrollBehavior] Scroll behavior when adjusting scroll position
+ */
+```
+**签名**:
+```javascript
+export function appendMediaToMessage(mes, messageElement, scrollBehavior = SCROLL_BEHAVIOR.ADJUST)
+```
+---
+### `ensureMessageMediaIsArray`
+**源文件**: `script.js:1976`
+**文档**:
+```javascript
+/**
+ * Ensures that the message media properties are arrays, adding getters/setters for single media items.
+ * @param {ChatMessage} mes Message object
+ */
+```
+**签名**:
+```javascript
+export function ensureMessageMediaIsArray(mes)
+```
+---
+### `getMediaDisplay`
+**源文件**: `script.js:2115`
+**文档**:
+```javascript
+/**
+ * Gets the media display setting for a message.
+ * @param {ChatMessage} mes Message object
+ * @returns {MEDIA_DISPLAY} Media display setting
+ */
+```
+**签名**:
+```javascript
+export function getMediaDisplay(mes)
+```
+---
+### `getMediaIndex`
+**源文件**: `script.js:2125`
+**文档**:
+```javascript
+/**
+ * Gets the media index for a message.
+ * @param {ChatMessage} mes Message object
+ * @returns {number} Media index
+ */
+```
+**签名**:
+```javascript
+export function getMediaIndex(mes)
+```
+---
+### `scrollChatToBottom`
+**源文件**: `script.js:2699`
+**文档**:
+```javascript
+/**
+ * Scrolls the chat to the bottom if configured to do so.
+ * @param {object} [options] Options
+ * @param {boolean} [options.waitForFrame] If true, waits for the animation frame before scrolling
+ */
+```
+**签名**:
+```javascript
+export function scrollChatToBottom({ waitForFrame } = {})
+```
+---
+### `scrollOnMediaLoad`
+**源文件**: `script.js:1530`
+**签名**:
+```javascript
+export function scrollOnMediaLoad()
+```
+---
+### `macros`
+**源文件**: `scripts\macros\macro-system.js:44`
+**签名**:
+```javascript
+export const macros = {
+```
+---
+### `loader`
+**源文件**: `scripts\action-loader.js:283`
+**文档**:
+```javascript
+/**
+ * Action loader utility API.
+ * Provides a convenient interface for showing and managing loading indicators.
+ *
+ * Read the functions documentation for more details.
+ *
+ * @example
+ * // Basic usage
+ * const handle = loader.show({ message: 'Loading...' });
+ * await someOperation();
+ * handle.hide();
+ *
+ * @example
+ * // Non-blocking background task
+ * const handle = loader.show({ blocking: false, message: 'Processing...' });
+ *
+ * @example
+ * // Hide all active loaders
+ * loader.hide();
+ */
+```
+**签名**:
+```javascript
+export const loader = {
+```
+---
+### `loadWorldInfo`
+**源文件**: `scripts\world-info.js:2036`
+**文档**:
+```javascript
+/**
+ * Loads world info from the backend.
+ *
+ * This function will return from `worldInfoCache` if it has already been loaded before.
+ *
+ * @param {string} name - The name of the world to load
+ * @return {Promise<Object|null>} A promise that resolves to the loaded world information, or null if the request fails.
+ */
+```
+**签名**:
+```javascript
+export async function loadWorldInfo(name)
+```
+---
+### `saveWorldInfo`
+**源文件**: `scripts\world-info.js:4079`
+**文档**:
+```javascript
+/**
+ * Saves the world info
+ *
+ * This will also refresh the `worldInfoCache`.
+ * Note, for performance reasons the saved cache will not make a deep clone of the data.
+ * It is your responsibility to not modify the saved data object after calling this function, or there will be data inconsistencies.
+ * Call `loadWorldInfoData` or query directly from cache if you need the object again.
+ *
+ * @param {string} name - The name of the world info
+ * @param {any} data - The data to be saved
+ * @param {boolean} [immediately=false] - Whether to save immediately or use debouncing
+ * @return {Promise<void>} A promise that resolves when the world info is saved
+ */
+```
+**签名**:
+```javascript
+export async function saveWorldInfo(name, data, immediately = false)
+```
+---
+### `reloadWorldInfoEditor`
+**源文件**: `scripts\world-info.js:1040`
+**文档**:
+```javascript
+/**
+ * Reloads the editor with the specified world info file
+ * @param {string} file - The file to load in the editor
+ * @param {boolean} [loadIfNotSelected=false] - Indicates whether to load the file even if it's not currently selected
+ */
+```
+**签名**:
+```javascript
+export function reloadEditor(file, loadIfNotSelected = false)
+```
+---
+### `updateWorldInfoList`
+**源文件**: `scripts\world-info.js:2061`
+**签名**:
+```javascript
+export async function updateWorldInfoList()
+```
+---
+### `convertCharacterBook`
+**源文件**: `scripts\world-info.js:5480`
+**签名**:
+```javascript
+export function convertCharacterBook(characterBook)
+```
+---
+### `getWorldInfoPrompt`
+**源文件**: `scripts\world-info.js:892`
+**文档**:
+```javascript
+/**
+ * Gets the world info based on chat messages.
+ * @param {string[]} chat - The chat messages to scan, in reverse order.
+ * @param {number} maxContext - The maximum context size of the generation.
+ * @param {boolean} isDryRun - If true, the function will not emit any events.
+ * @param {WIGlobalScanData} globalScanData Chat independent context to be scanned
+ * @returns {Promise<WIPromptResult>} The world info string and depth.
+ */
+```
+**签名**:
+```javascript
+export async function getWorldInfoPrompt(chat, maxContext, isDryRun, globalScanData)
+```
+---
+### `CONNECT_API_MAP`
+**源文件**: `script.js`
+**类型**: 变量/对象
+**说明**:
+```javascript
+// 变量或对象，从 script.js 导入
+```
+**状态判断**: 这是 API 类型到连接配置的映射表，用于把当前主 API 类型对应到具体连接行为。
+
+**使用建议**: 只有在做按后端类型分支的兼容逻辑时再看它；一般问题先看 `mainApi` 就够了。
+---
+### `getTextGenServer`
+**源文件**: `scripts\textgen-settings.js:350`
+**文档**:
+```javascript
+/**
+ * Gets the API URL for the selected text generation type.
+ * @param {string} type If it's set, ignores active type
+ * @returns {string} API URL
+ */
+```
+**签名**:
+```javascript
+export function getTextGenServer(type = null)
+```
+---
+### `extractMessageFromData`
+**源文件**: `script.js:6187`
+**文档**:
+```javascript
+/**
+ * Extracts the message from the response data.
+ * @param {object} data Response data
+ * @param {string} activeApi If it's set, ignores active API
+ * @returns {string} Extracted message
+ */
+```
+**签名**:
+```javascript
+export function extractMessageFromData(data, activeApi = null)
+```
+---
+### `getPresetManager`
+**源文件**: `scripts\preset-manager.js:83`
+**文档**:
+```javascript
+/**
+ * Gets a preset manager by API id.
+ * @param {string} apiId API id
+ * @returns {PresetManager} Preset manager
+ */
+```
+**签名**:
+```javascript
+export function getPresetManager(apiId = '')
+```
+---
+### `getChatCompletionModel`
+**源文件**: `scripts\openai.js:1678`
+**文档**:
+```javascript
+/**
+ * Gets the API model for the selected chat completion source.
+ * @param {ChatCompletionSettings} settings Chat completion settings
+ * @returns {string} API model
+ */
+```
+**签名**:
+```javascript
+export function getChatCompletionModel(settings = null)
+```
+---
+### `printMessages`
+**源文件**: `script.js:1473`
+**签名**:
+```javascript
+export async function printMessages()
+```
+---
+### `clearChat`
+**源文件**: `script.js:1582`
+**文档**:
+```javascript
+/**
+ * Visually removes all chat message elements.
+ * @param {object} [options] Options
+ * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
+ */
+```
+**签名**:
+```javascript
+export async function clearChat({ clearData = false } = {})
+```
+---
+### `ChatCompletionService`
+**源文件**: `scripts\custom-request.js:420`
+**文档**:
+```javascript
+/**
+ * Creates & sends a chat completion request.
+ */
+```
+**签名**:
+```javascript
+export class ChatCompletionService {
+```
+---
+### `TextCompletionService`
+**源文件**: `scripts\custom-request.js:78`
+**文档**:
+```javascript
+/**
+ * Creates & sends a text completion request.
+ */
+```
+**签名**:
+```javascript
+export class TextCompletionService {
+```
+---
+### `ConnectionManagerRequestService`
+**源文件**: `scripts\extensions\shared.js:380`
+**文档**:
+```javascript
+/**
+ * It uses the profiles to send a generate request to the API.
+ */
+```
+**签名**:
+```javascript
+export class ConnectionManagerRequestService {
+```
+---
+### `updateReasoningUI`
+**源文件**: `scripts\reasoning.js:233`
+**文档**:
+```javascript
+/**
+ * Updates the Reasoning UI for a specific message
+ * @param {number|JQuery<HTMLElement>|HTMLElement} messageIdOrElement The message ID or the message element
+ * @param {Object} [options={}] - Optional arguments
+ * @param {boolean} [options.reset=false] - Whether to reset state, and not take the current mess properties (for example when swiping)
+ */
+```
+**签名**:
+```javascript
+export function updateReasoningUI(messageIdOrElement, { reset = false } = {})
+```
+---
+### `parseReasoningFromString`
+**源文件**: `scripts\reasoning.js:1382`
+**文档**:
+```javascript
+/**
+ * Parses reasoning from a string using the power user reasoning settings or optional template.
+ * @typedef {Object} ParsedReasoning
+ * @property {string} reasoning Reasoning block
+ * @property {string} content Message content
+ * @param {string} str Content of the message
+ * @param {Object} options Optional arguments
+ * @param {boolean} [options.strict=true] Whether the reasoning block **has** to be at the beginning of the provided string (excluding whitespaces), or can be anywhere in it
+ * @param {ReasoningTemplate} template Optional reasoning template to use instead of power_user.reasoning
+ * @returns {ParsedReasoning|null} Parsed reasoning block and message content
+ */
+```
+**签名**:
+```javascript
+export function parseReasoningFromString(str, { strict = true } = {}, template = null)
+```
+---
+### `getReasoningTemplateByName`
+**源文件**: `scripts\reasoning.js:1365`
+**文档**:
+```javascript
+/**
+ * Returns the reasoning template object from its name
+ * @param {string} name of the template
+ * @returns {ReasoningTemplate} the reasoning template object
+ * @throws {Error}
+ */
+```
+**签名**:
+```javascript
+export function getReasoningTemplateByName(name)
+```
+---
+### `unshallowCharacter`
+**源文件**: `script.js:7512`
+**文档**:
+```javascript
+/**
+ * Loads all the data of a shallow character.
+ * @param {string|undefined} characterId Array index
+ * @returns {Promise<void>} Promise that resolves when the character is unshallowed
+ */
+```
+**签名**:
+```javascript
+export async function unshallowCharacter(characterId)
+```
+---
+### `unshallowGroupMembers`
+**源文件**: `scripts\group-chats.js:1378`
+**文档**:
+```javascript
+/**
+ * Unshallows all definitions of group members.
+ * @param {string} groupId Id of the group
+ * @returns {Promise<void>} Promise that resolves when all group members are unshallowed
+ */
+```
+**签名**:
+```javascript
+export async function unshallowGroupMembers(groupId)
+```
+---
+### `openThirdPartyExtensionMenu`
+**源文件**: `scripts\extensions.js:1819`
+**文档**:
+```javascript
+/**
+ * Prompts the user to enter the Git URL of the extension to import.
+ * After obtaining the Git URL, makes a POST request to '/api/extensions/install' to import the extension.
+ * If the extension is imported successfully, a success message is displayed.
+ * If the extension import fails, an error message is displayed and the error is logged to the console.
+ * After successfully importing the extension, the extension settings are reloaded and a 'EXTENSION_SETTINGS_LOADED' event is emitted.
+ * @param {string} [suggestUrl] Suggested URL to install
+ * @returns {Promise<void>}
+ */
+```
+**签名**:
+```javascript
+export async function openThirdPartyExtensionMenu(suggestUrl = '')
+```
+---
+### `swipe.left`
+**源文件**: `script.js:10338`
+**文档**:
+```javascript
+/**
+ * @deprecated Use `swipe` instead.
+ * Handles the swipe to the left event.
+ * @param {SwipeEvent} [event] Event.
+ * @param {object} params Additional parameters.
+ * @param {import('./scripts/constants.js').SWIPE_SOURCE} [params.source]  The source of the swipe event.
+ * @param {boolean} [params.repeated] Is the swipe event repeated.
+ * @param {object} [params.message] The chat message to swipe.
+ */
+```
+**签名**:
+```javascript
+export async function swipe_left(event, { source, repeated, message } = {})
+```
+**状态判断**: 这是旧式方向型入口。它能用，但表达能力弱于更通用的 `swipe.to(...)`。
+
+**替代方案**: 新代码优先使用 `swipe.to(...)`；只有在明确就是“向左一步”语义时再考虑旧入口。
+---
+### `swipe.right`
+**源文件**: `script.js:10352`
+**签名**:
+```javascript
+export async function swipe_right(event = null, { source, repeated, message } = {})
+```
+---
+### `swipe.to`
+**源文件**: `script.js:9849`
+**文档**:
+```javascript
+/**
+ * Handles the swipe event.
+ * @param {SwipeEvent} event Event.
+ * @param {SWIPE_DIRECTION} direction The direction to swipe.
+ * @param {object} params Additional parameters.
+ * @param {import('./scripts/constants.js').SWIPE_SOURCE} [params.source]  The source of the swipe event.
+ * @param {boolean} [params.repeated] Is the swipe event repeated.
+ * @param {ChatMessage} [params.message=chat[chat.length - 1]] The chat message to swipe.
+ * @param {number} [params.forceMesId] The message id to swipe.
+ * @param {number} [params.forceSwipeId] The target swipe_id. When out of range, it will be looped or clamped.
+ * @param {number} [params.forceDuration] Overwrites the default swipe duration.
+ */
+```
+**签名**:
+```javascript
+export async function swipe(event, direction, { source, repeated, message = chat[chat.length - 1], forceMesId, forceSwipeId, forceDuration } = {})
+```
+---
+### `swipe.show`
+**源文件**: `script.js:9208`
+**文档**:
+```javascript
+/**
+ * This function is misleadingly named. It allows generation then refreshes the swipe buttons and counters.
+ */
+```
+**签名**:
+```javascript
+export function showSwipeButtons()
+```
+---
+### `swipe.hide`
+**源文件**: `script.js:9218`
+**文档**:
+```javascript
+/**
+ * This function is misleadingly named. It blocks generation then refreshes the swipe buttons and counters.
+ * @param {object} [options] Options
+ * @param {boolean} [options.hideCounters=false] Also hide the swipes counter.
+ */
+```
+**签名**:
+```javascript
+export function hideSwipeButtons({ hideCounters = false } = {})
+```
+---
+### `swipe.refresh`
+**源文件**: `script.js:9145`
+**文档**:
+```javascript
+/**
+ * Refreshes all swipe buttons and updates their swipe counters.
+ * This has been optimized for bulk updates by minimizing DOM queries.
+ * @param {boolean} updateCounters When true, the swipe counters will also be updated. Typically redundant because addOneMessage updates the counters.
+ * @param {boolean} fade By default, the chevrons fade in and out.
+ * @returns
+ */
+```
+**签名**:
+```javascript
+export function refreshSwipeButtons(updateCounters = false, fade = true)
+```
+---
+### `swipe.isAllowed`
+**源文件**: `script.js:9057`
+**文档**:
+```javascript
+/**
+ * Returns true if messages are generally swipeable.
+ * @returns {boolean}
+ */
+```
+**签名**:
+```javascript
+export function isSwipingAllowed()
+```
+---
+### `variables.get`
+**源文件**: `scripts\variables.js:22`
+**签名**:
+```javascript
+export function getLocalVariable(name, args = {})
+```
+---
+### `variables.set`
+**源文件**: `scripts\variables.js:48`
+**签名**:
+```javascript
+export function setLocalVariable(name, value, args = {})
+```
+---
+### `variables.del`
+**源文件**: `scripts\variables.js:592`
+**文档**:
+```javascript
+/**
+ * Deletes a local variable.
+ * @param {string} name Variable name to delete
+ * @returns {string} Empty string
+ */
+```
+**签名**:
+```javascript
+export function deleteLocalVariable(name)
+```
+---
+### `variables.add`
+**源文件**: `scripts\variables.js:136`
+**签名**:
+```javascript
+export function addLocalVariable(name, value)
+```
+---
+### `variables.inc`
+**源文件**: `scripts\variables.js:196`
+**签名**:
+```javascript
+export function incrementLocalVariable(name)
+```
+---
+### `variables.dec`
+**源文件**: `scripts\variables.js:204`
+**签名**:
+```javascript
+export function decrementLocalVariable(name)
+```
+---
+### `variables.has`
+**源文件**: `scripts\variables.js:422`
+**文档**:
+```javascript
+/**
+ * Checks if a local variable exists.
+ * @param {string} name Local variable name
+ * @returns {boolean} True if the local variable exists, false otherwise
+ */
+```
+**签名**:
+```javascript
+export function existsLocalVariable(name)
+```
+---
+### `global.get`
+**源文件**: `scripts\variables.js:83`
+**签名**:
+```javascript
+export function getGlobalVariable(name, args = {})
+```
+---
+### `global.set`
+**源文件**: `scripts\variables.js:105`
+**签名**:
+```javascript
+export function setGlobalVariable(name, value, args = {})
+```
+---
+### `global.del`
+**源文件**: `scripts\variables.js:608`
+**文档**:
+```javascript
+/**
+ * Deletes a global variable.
+ * @param {string} name Variable name to delete
+ * @returns {string} Empty string
+ */
+```
+**签名**:
+```javascript
+export function deleteGlobalVariable(name)
+```
+---
+### `global.add`
+**源文件**: `scripts\variables.js:166`
+**签名**:
+```javascript
+export function addGlobalVariable(name, value)
+```
+---
+### `global.inc`
+**源文件**: `scripts\variables.js:200`
+**签名**:
+```javascript
+export function incrementGlobalVariable(name)
+```
+---
+### `global.dec`
+**源文件**: `scripts\variables.js:208`
+**签名**:
+```javascript
+export function decrementGlobalVariable(name)
+```
+---
+### `global.has`
+**源文件**: `scripts\variables.js:431`
+**文档**:
+```javascript
+/**
+ * Checks if a global variable exists.
+ * @param {string} name Global variable name
+ * @returns {boolean} True if the global variable exists, false otherwise
+ */
+```
+**签名**:
+```javascript
+export function existsGlobalVariable(name)
+```
+---
+### `symbols.ignore`
+**源文件**: `scripts\constants.js:25`
+**文档**:
+```javascript
+/**
+ * Used as an ephemeral key in message extra metadata.
+ * When set, the message will be excluded from generation
+ * prompts without affecting the number of chat messages,
+ * which is needed to preserve world info timed effects.
+ */
+```
+**签名**:
+```javascript
+export const IGNORE_SYMBOL = Symbol.for('ignore');
+```
+---
+### `maxContext`
+**源文件**: `scripts\st-context.js:130`
+**类型**: 变量
+**说明**:
+```javascript
+// 当前上下文窗口大小（从 max_context 转换为数字）
+maxContext: Number(max_context)
+```
+**状态判断**: 这是当前上下文窗口大小的数值化结果，用来读预算，不是配置入口。
+
+**使用建议**: 需要按当前上下文上限估算 token 或裁剪内容时读取它；不要把它当可写配置。
+---
+### `registerHelper`
+**源文件**: `scripts\st-context.js:174`
+**类型**: 函数（已废弃）
+**说明**:
+```javascript
+// 空函数占位符，用于向后兼容
+// Handlebars for extensions are no longer supported.
+registerHelper: () => { }
+```
+**状态判断**: 这是兼容旧代码保留的空入口，调用不会带来有效能力。
+
+**使用建议**: 默认忽略，不要在新代码、助手方案或故障排查时把它当成可用模板扩展机制。
 ---

@@ -41,7 +41,11 @@ const DEFAULT_WORKSPACE_FILE = `${WORKSPACE_PREFIX}Worklog.md`;
 const DEFAULT_IDENTITY_FILE = `${WORKSPACE_PREFIX}Identity.md`;
 const DEFAULT_SKILLS_FILE = `${WORKSPACE_PREFIX}Skills.json`;
 const SKILL_FILE_PREFIX = `${WORKSPACE_PREFIX}Skill_`;
+const MEMORY_WORKSPACE_PREFIX = 'memory/';
+const MEMORY_SKILLS_PREFIX = `${MEMORY_WORKSPACE_PREFIX}skills/`;
+const MEMORY_NOTES_PREFIX = `${MEMORY_WORKSPACE_PREFIX}notes/`;
 const DEFAULT_IDENTITY_CONTENT = '你默认叫“小白助手”，这里是你的身份设定，用于保持长期工作习惯和创作风格，请尽快引导用户设定你的身份';
+const DEFAULT_WORKLOG_CONTENT = '这里是你的工作记录，用于记录长期结论、经验、待办和用户特别交代的事项。';
 const EMPTY_SKILLS_CATALOG = Object.freeze({
     version: 1,
     skills: [],
@@ -230,7 +234,7 @@ async function buildAssistantRuntimePayload(signal) {
     }
 
     try {
-        await ensureUserFile(getAssistantSettings().workspaceFileName || DEFAULT_WORKSPACE_FILE, '', { signal });
+        await ensureUserFile(getAssistantSettings().workspaceFileName || DEFAULT_WORKSPACE_FILE, DEFAULT_WORKLOG_CONTENT, { signal });
     } catch {
         // Ignore auto-create failures so the assistant can still start.
     }
@@ -1037,6 +1041,46 @@ function buildSkillsPromptSummary(catalog = EMPTY_SKILLS_CATALOG) {
         lines.push(`- 其余 ${enabledSkills.length - visibleSkills.length} 条技能未注入；如需查看，请调用 ReadSkillsCatalog。`);
     }
     return lines.join('\n');
+}
+
+function buildSkillWorkspacePath(filename = '') {
+    const normalized = normalizeSkillFileName(filename);
+    if (!normalized) return '';
+    return `${MEMORY_SKILLS_PREFIX}${normalized}`;
+}
+
+function normalizeSkillWorkspacePath(pathText = '') {
+    const normalized = String(pathText || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    if (normalized.startsWith(MEMORY_SKILLS_PREFIX)) {
+        return buildSkillWorkspacePath(normalized.slice(MEMORY_SKILLS_PREFIX.length));
+    }
+    if (normalized.startsWith('skills/')) {
+        return buildSkillWorkspacePath(normalized.slice('skills/'.length));
+    }
+    return '';
+}
+
+function getFilenameFromSkillWorkspacePath(pathText = '') {
+    const normalized = normalizeSkillWorkspacePath(pathText);
+    if (!normalized) return '';
+    return normalizeSkillFileName(normalized.slice(MEMORY_SKILLS_PREFIX.length));
+}
+
+function getMemoryNoteDisplayName(kind = '', options = {}) {
+    if (kind === 'identity') return 'Identity.md';
+    if (kind === 'worklog') {
+        const configuredName = normalizeWorkspaceName(options.workspaceFileName || getAssistantSettings().workspaceFileName || DEFAULT_WORKSPACE_FILE);
+        return configuredName.startsWith(WORKSPACE_PREFIX)
+            ? configuredName.slice(WORKSPACE_PREFIX.length)
+            : configuredName;
+    }
+    return '';
+}
+
+function buildMemoryNoteWorkspacePath(kind = '', options = {}) {
+    const displayName = getMemoryNoteDisplayName(kind, options);
+    if (!displayName) return '';
+    return `${MEMORY_NOTES_PREFIX}${displayName}`;
 }
 
 function buildSkillFileContent({
@@ -2523,6 +2567,96 @@ async function updateSkillTool(args = {}, options = {}) {
     };
 }
 
+async function saveSkillWorkspaceFile(args = {}, options = {}) {
+    const memorySection = String(args.memorySection || '').trim();
+    const noteKind = String(args.noteKind || '').trim();
+    if (memorySection === 'notes' || noteKind) {
+        const content = String(args.content || '');
+        if (noteKind === 'identity') {
+            const result = await writeIdentityNote({ content }, options);
+            return {
+                ...result,
+                ok: result?.ok !== false,
+                path: buildMemoryNoteWorkspacePath('identity', options),
+                filename: getMemoryNoteDisplayName('identity', options),
+                title: '身份设定',
+                noteKind: 'identity',
+            };
+        }
+        if (noteKind === 'worklog') {
+            const result = await writeWorkspaceNote({ content }, options);
+            return {
+                ...result,
+                ok: result?.ok !== false,
+                path: buildMemoryNoteWorkspacePath('worklog', options),
+                filename: getMemoryNoteDisplayName('worklog', options),
+                title: '工作记录',
+                noteKind: 'worklog',
+            };
+        }
+        return {
+            ok: false,
+            error: 'memory_note_kind_required',
+            message: '记忆笔记保存失败：缺少 noteKind。',
+        };
+    }
+
+    const filename = normalizeSkillFileName(args.filename || getFilenameFromSkillWorkspacePath(args.path || ''));
+    if (!filename) {
+        return {
+            ok: false,
+            error: 'skill_identifier_required',
+            message: '必须提供技能文件名。',
+        };
+    }
+
+    const catalogResult = await readSkillsCatalogData(options);
+    if (!catalogResult.ok) {
+        return {
+            ok: false,
+            error: catalogResult.error,
+            message: `Skills.json 解析失败：${catalogResult.message}`,
+        };
+    }
+
+    const skill = catalogResult.catalog.skills.find((item) => item.filename === filename);
+    if (!skill) {
+        return {
+            ok: false,
+            error: 'skill_not_found',
+            message: `目录里找不到文件 ${filename} 对应的 skill。`,
+        };
+    }
+
+    const fullContent = String(args.content || '');
+    const parsedFile = parseStructuredSkillFile(fullContent);
+    if (!parsedFile) {
+        return {
+            ok: false,
+            error: 'skill_file_invalid',
+            message: `skill 文件格式无效，无法更新：${filename}`,
+            id: skill.id,
+            filename,
+        };
+    }
+
+    const result = await updateSkillTool({
+        id: skill.id,
+        filename,
+        title: String(parsedFile.title || '').trim(),
+        summary: String(parsedFile.summary || '').trim(),
+        triggers: Array.isArray(parsedFile.triggers) ? parsedFile.triggers : [],
+        slashTriggers: Array.isArray(parsedFile.slashTriggers) ? parsedFile.slashTriggers : [],
+        when_to_use: String(parsedFile.when_to_use || '').trim(),
+        enabled: typeof parsedFile.enabled === 'boolean' ? parsedFile.enabled : skill.enabled !== false,
+        content: String(parsedFile.body || ''),
+    }, options);
+    return {
+        ...result,
+        path: buildSkillWorkspacePath(filename),
+    };
+}
+
 async function generateSkillTool(args = {}, options = {}) {
     const action = String(args.action || '').trim();
     if (action !== 'propose' && action !== 'save') {
@@ -2810,12 +2944,102 @@ async function readSkillsRuntimeData(options = {}) {
             skillsCatalog: normalizeSkillsCatalog(EMPTY_SKILLS_CATALOG),
             skillsPromptSummary: '',
             skillsCatalogError: catalogResult.message,
+            skillFiles: [],
         };
     }
+
+    const skillFiles = [];
+    for (const skill of catalogResult.catalog.skills) {
+        const filename = normalizeSkillFileName(skill?.filename || '');
+        if (!filename) continue;
+        try {
+            const file = await readUserFile(filename, options);
+            if (!file.exists) continue;
+            const content = String(file.content || '');
+            skillFiles.push({
+                path: buildSkillWorkspacePath(filename),
+                relativePath: `skills/${filename}`,
+                name: filename,
+                filename,
+                id: skill.id,
+                title: skill.title,
+                summary: skill.summary,
+                triggers: Array.isArray(skill.triggers) ? skill.triggers : [],
+                slashTriggers: Array.isArray(skill.slashTriggers) ? skill.slashTriggers : [],
+                enabled: skill.enabled !== false,
+                updatedAt: skill.updatedAt,
+                content,
+                originalContent: content,
+                source: 'assistant-skill-file',
+                memorySection: 'skills',
+                noteKind: '',
+            });
+        } catch {
+            // Ignore individual skill file failures so the rest of the panel can still load.
+        }
+    }
+
+    const identityPath = buildMemoryNoteWorkspacePath('identity', options);
+    if (identityPath) {
+        try {
+            const identityFile = await ensureUserFile(DEFAULT_IDENTITY_FILE, DEFAULT_IDENTITY_CONTENT, options);
+            const content = String(identityFile.content || '').trim() || DEFAULT_IDENTITY_CONTENT;
+            skillFiles.push({
+                path: identityPath,
+                relativePath: `notes/${getMemoryNoteDisplayName('identity', options)}`,
+                name: getMemoryNoteDisplayName('identity', options),
+                filename: getMemoryNoteDisplayName('identity', options),
+                id: 'assistant-identity-note',
+                title: '身份设定',
+                summary: '助手长期身份、风格与协作方式。',
+                triggers: [],
+                slashTriggers: [],
+                enabled: true,
+                updatedAt: '',
+                content,
+                originalContent: content,
+                source: 'assistant-memory-file',
+                memorySection: 'notes',
+                noteKind: 'identity',
+            });
+        } catch {
+            // Ignore note loading failures so the rest of the panel can still load.
+        }
+    }
+
+    const worklogPath = buildMemoryNoteWorkspacePath('worklog', options);
+    if (worklogPath) {
+        try {
+            const worklogName = normalizeWorkspaceName(getAssistantSettings().workspaceFileName || DEFAULT_WORKSPACE_FILE);
+            const worklogFile = await ensureUserFile(worklogName, DEFAULT_WORKLOG_CONTENT, options);
+            skillFiles.push({
+                path: worklogPath,
+                relativePath: `notes/${getMemoryNoteDisplayName('worklog', options)}`,
+                name: getMemoryNoteDisplayName('worklog', options),
+                filename: getMemoryNoteDisplayName('worklog', options),
+                id: 'assistant-worklog-note',
+                title: '工作记录',
+                summary: '助手长期结论、偏好与过程记录。',
+                triggers: [],
+                slashTriggers: [],
+                enabled: true,
+                updatedAt: '',
+                content: String(worklogFile.content || ''),
+                originalContent: String(worklogFile.content || ''),
+                source: 'assistant-memory-file',
+                memorySection: 'notes',
+                noteKind: 'worklog',
+            });
+        } catch {
+            // Ignore note loading failures so the rest of the panel can still load.
+        }
+    }
+
     return {
         skillsCatalog: catalogResult.catalog,
         skillsPromptSummary: catalogResult.summaryText,
         skillsCatalogError: '',
+        skillFiles,
     };
 }
 
@@ -3123,6 +3347,8 @@ async function executeToolCall(name, args, options = {}) {
             return await readSkillTool(args, options);
         case TOOL_NAMES.UPDATE_SKILL:
             return await updateSkillTool(args, options);
+        case TOOL_NAMES.SAVE_SKILL_FILE:
+            return await saveSkillWorkspaceFile(args, options);
         case TOOL_NAMES.GENERATE_SKILL:
             return await generateSkillTool(args, options);
         case TOOL_NAMES.DELETE_SKILL:
@@ -3264,12 +3490,36 @@ async function handleIframeMessage(event) {
                         },
                     });
                 }
+                if (toolName === TOOL_NAMES.SAVE_SKILL_FILE && result?.ok && result.noteKind === 'identity') {
+                    postToIframe(iframe, {
+                        type: 'xb-assistant:identity-updated',
+                        payload: {
+                            identityContent: String(args.content || '').trim() || DEFAULT_IDENTITY_CONTENT,
+                        },
+                    });
+                }
                 if ((toolName === TOOL_NAMES.GENERATE_SKILL && result?.ok && result.action === 'save')
                     || (toolName === TOOL_NAMES.UPDATE_SKILL && result?.ok)
-                    || (toolName === TOOL_NAMES.DELETE_SKILL && result?.ok)) {
+                    || (toolName === TOOL_NAMES.DELETE_SKILL && result?.ok)
+                    || (toolName === TOOL_NAMES.WRITE_IDENTITY && result?.ok !== false)
+                    || (toolName === TOOL_NAMES.WRITE_WORKLOG && result?.ok !== false)
+                    || (toolName === TOOL_NAMES.SAVE_SKILL_FILE && result?.ok)) {
+                    const skillsRuntime = await readSkillsRuntimeData({ signal: controller.signal });
+                    const focusSkillPath = toolName === TOOL_NAMES.WRITE_IDENTITY
+                        ? buildMemoryNoteWorkspacePath('identity')
+                        : toolName === TOOL_NAMES.WRITE_WORKLOG
+                            ? buildMemoryNoteWorkspacePath('worklog')
+                            : result?.path
+                                ? String(result.path || '').trim()
+                                : result?.filename
+                                    ? buildSkillWorkspacePath(result.filename)
+                                    : '';
                     postToIframe(iframe, {
                         type: SKILLS_UPDATED,
-                        payload: await readSkillsRuntimeData({ signal: controller.signal }),
+                        payload: {
+                            ...skillsRuntime,
+                            focusSkillPath,
+                        },
                     });
                 }
                 postToIframe(iframe, {

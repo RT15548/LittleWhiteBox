@@ -19,6 +19,7 @@ export const TOOL_NAMES = {
     READ_SKILLS_CATALOG: 'ReadSkillsCatalog',
     READ_SKILL: 'ReadSkill',
     UPDATE_SKILL: 'UpdateSkill',
+    SAVE_SKILL_FILE: 'SaveSkillFile',
     GENERATE_SKILL: 'GenerateSkill',
     DELETE_SKILL: 'DeleteSkill',
 };

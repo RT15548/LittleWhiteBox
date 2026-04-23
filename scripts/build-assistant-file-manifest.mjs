@@ -10,6 +10,7 @@ const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.html', '.css', '.json'
 const EXCLUDED_DIR_NAMES = new Set(['.git', 'node_modules', 'dist', 'coverage']);
 const EXCLUDED_PUBLIC_SUBTREES = ['scripts/extensions/third-party/LittleWhiteBox'];
 const EXCLUDED_PATH_PARTS = [`${path.sep}libs${path.sep}`, `${path.sep}vendor${path.sep}`];
+const EXCLUDED_FILE_NAMES = new Set(['context-api-map.json', 'extract-output.txt', 'extract-output2.txt']);
 const MAX_FILE_SIZE = 200 * 1024;
 
 function toPosix(value) {
@@ -24,6 +25,7 @@ function shouldIncludeFile(fullPath, rootPath) {
     if (!TEXT_EXTENSIONS.has(extension)) return false;
     if (fileName.endsWith('.min.js')) return false;
     if (fileName === 'package-lock.json') return false;
+    if (EXCLUDED_FILE_NAMES.has(fileName)) return false;
     if (EXCLUDED_PATH_PARTS.some((part) => fullPath.includes(part))) return false;
 
     try {

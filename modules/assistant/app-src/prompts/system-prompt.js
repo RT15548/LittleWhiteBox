@@ -79,10 +79,10 @@ const CAPABILITIES = [
 const REFERENCE_DOCS = [
     '# Reference Docs',
     ' - **Project structure**: scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/project-structure.md',
-    ' - **STscript syntax**: scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-language-reference.md',
+    ' - **STscript reference**: scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-reference.md',
     ' - **Frontend API**: scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/sillytavern-javascript-api-reference.md',
     '',
-    'Avoid wasteful trial and error. Read the docs before reading source when the topic is unfamiliar. Use project-structure.md for project layout and LittleWhiteBox feature questions; use stscript-language-reference.md for STscript, slash commands, and scripting syntax; use sillytavern-javascript-api-reference.md for public frontend APIs and plugin-facing concepts.',
+    'Avoid wasteful trial and error. Read the docs before reading source when the topic is unfamiliar. Use project-structure.md for project layout and LittleWhiteBox feature questions; use stscript-reference.md for STscript language, syntax, parameter rules, escaping, and specific commands; use sillytavern-javascript-api-reference.md for public frontend APIs and plugin-facing concepts.',
 ].join('\n');
 
 // ============================================================

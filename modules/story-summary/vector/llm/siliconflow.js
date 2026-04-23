@@ -7,7 +7,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getVectorConfig } from '../../data/config.js';
-import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../openai-url-utils.js';
+import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../../shared/common/openai-url-utils.js';
 
 const BASE_URL = 'https://api.siliconflow.cn';
 const EMBEDDING_MODEL = 'BAAI/bge-m3';
