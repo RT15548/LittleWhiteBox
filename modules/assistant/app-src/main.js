@@ -14,6 +14,7 @@ import {
     DEFAULT_PRESET_NAME,
     buildDefaultPreset,
     cloneDefaultModelConfigs,
+    normalizeJsApiPermission,
     normalizePermissionMode,
     normalizeAssistantConfig,
     normalizePresetName,
@@ -74,6 +75,10 @@ const PROVIDER_OPTIONS = [
 const PERMISSION_MODE_OPTIONS = [
     { value: 'default', label: '默认权限' },
     { value: 'full', label: '完全权限' },
+];
+const JS_API_PERMISSION_OPTIONS = [
+    { value: 'deny', label: '禁止' },
+    { value: 'allow', label: '允许' },
 ];
 const state = {
     config: null,
@@ -1054,6 +1059,7 @@ const settingsPanel = createSettingsPanel({
     setProviderModels,
     getProviderModels,
     getProviderLabel,
+    normalizeJsApiPermission,
     normalizePermissionMode,
     normalizeReasoningEffort,
     normalizeAssistantConfig,
@@ -1063,6 +1069,7 @@ const settingsPanel = createSettingsPanel({
     defaultPresetName: DEFAULT_PRESET_NAME,
     requestTimeoutMs: REQUEST_TIMEOUT_MS,
     toolModeOptions: TOOL_MODE_OPTIONS,
+    jsApiPermissionOptions: JS_API_PERMISSION_OPTIONS,
     permissionModeOptions: PERMISSION_MODE_OPTIONS,
     reasoningEffortOptions: REASONING_EFFORT_OPTIONS,
 });
@@ -1072,6 +1079,17 @@ const {
     syncConfigToForm,
     bindSettingsPanelEvents,
 } = settingsPanel;
+
+function isJsApiPermissionEnabled() {
+    return normalizeJsApiPermission(state.config?.jsApiPermission) === 'allow';
+}
+
+function getEnabledToolDefinitions() {
+    if (isJsApiPermissionEnabled()) {
+        return TOOL_DEFINITIONS;
+    }
+    return TOOL_DEFINITIONS.filter((tool) => tool?.function?.name !== TOOL_NAMES.RUN_JAVASCRIPT_API);
+}
 
 const chatUi = createChatUi({
     state,
@@ -1117,7 +1135,7 @@ function createAdapter() {
 function getInjectedSystemPrompt() {
     const identityContent = String(state.runtime?.identityContent || '').trim();
     const skillsPromptSummary = String(state.runtime?.skillsPromptSummary || '').trim();
-    const permissionPrompt = buildPermissionModePrompt(state.config?.permissionMode);
+    const permissionPrompt = buildPermissionModePrompt(state.config?.permissionMode, state.config?.jsApiPermission);
     const sections = [SYSTEM_PROMPT];
     if (permissionPrompt) {
         sections.push(permissionPrompt);
@@ -1323,6 +1341,8 @@ const runtime = createAssistantRuntime({
     buildJsApiApprovalResult,
     isAbortError,
     createAdapter,
+    getToolDefinitions: getEnabledToolDefinitions,
+    isJsApiEnabled: isJsApiPermissionEnabled,
     getActiveProviderConfig,
     getSystemPrompt: getInjectedSystemPrompt,
     getEphemeralUserContextText,

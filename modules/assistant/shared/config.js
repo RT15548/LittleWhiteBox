@@ -1,6 +1,7 @@
 export const DEFAULT_PROVIDER = 'openai-compatible';
 export const DEFAULT_PRESET_NAME = '默认';
 export const DEFAULT_PERMISSION_MODE = 'default';
+export const DEFAULT_JSAPI_PERMISSION = 'deny';
 
 export const DEFAULT_MODEL_CONFIGS = {
     'openai-responses': {
@@ -44,6 +45,10 @@ export function buildDefaultPreset() {
 
 export function normalizePermissionMode(value) {
     return value === 'full' ? 'full' : DEFAULT_PERMISSION_MODE;
+}
+
+export function normalizeJsApiPermission(value) {
+    return value === 'allow' ? 'allow' : DEFAULT_JSAPI_PERMISSION;
 }
 
 export function normalizePresetName(value) {
@@ -120,6 +125,7 @@ export function normalizeAssistantSettings(saved = {}, options = {}) {
     return {
         enabled: !!saved.enabled,
         workspaceFileName: normalizeWorkspaceName(saved.workspaceFileName || defaultWorkspaceFileName),
+        jsApiPermission: normalizeJsApiPermission(saved.jsApiPermission),
         currentPresetName,
         presets,
         updatedAt: Number(saved.updatedAt) || 0,
@@ -135,6 +141,7 @@ export function normalizeAssistantConfig(config = {}) {
 
     return {
         workspaceFileName: String(config.workspaceFileName || ''),
+        jsApiPermission: normalizeJsApiPermission(config.jsApiPermission),
         currentPresetName,
         presetDraftName: normalizePresetName(config.presetDraftName || currentPresetName),
         presetNames: Object.keys(presets),

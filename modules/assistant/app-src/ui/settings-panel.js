@@ -259,6 +259,7 @@ export function createSettingsPanel(deps) {
         setProviderModels,
         getProviderModels,
         getProviderLabel,
+        normalizeJsApiPermission,
         normalizePermissionMode,
         normalizeReasoningEffort,
         normalizeAssistantConfig,
@@ -269,11 +270,12 @@ export function createSettingsPanel(deps) {
         defaultPresetName,
         requestTimeoutMs,
         toolModeOptions,
+        jsApiPermissionOptions,
         permissionModeOptions,
         reasoningEffortOptions,
     } = deps;
 
-    function buildDraftFromPreset(presetName, preset) {
+    function buildDraftFromPreset(presetName, preset, sourceConfig = state.config) {
         const normalizedPresetName = normalizePresetName(presetName || defaultPresetName);
         const sourcePreset = preset && typeof preset === 'object' ? preset : buildDefaultPreset();
         const provider = sourcePreset.provider || 'openai-compatible';
@@ -290,6 +292,7 @@ export function createSettingsPanel(deps) {
             reasoningEffort: normalizeReasoningEffort(providerConfig.reasoningEffort),
             toolMode: providerConfig.toolMode || 'native',
             permissionMode: normalizePermissionMode(sourcePreset.permissionMode),
+            jsApiPermission: normalizeJsApiPermission(sourceConfig?.jsApiPermission),
         };
     }
 
@@ -316,6 +319,7 @@ export function createSettingsPanel(deps) {
             reasoningEffort: normalizeReasoningEffort(root.querySelector('#xb-assistant-reasoning-effort')?.value),
             toolMode: (root.querySelector('#xb-assistant-tool-mode')?.value || draft.toolMode || 'native'),
             permissionMode: normalizePermissionMode(root.querySelector('#xb-assistant-permission-mode')?.value || draft.permissionMode),
+            jsApiPermission: normalizeJsApiPermission(root.querySelector('#xb-assistant-jsapi-permission')?.value || draft.jsApiPermission),
         };
     }
 
@@ -373,6 +377,7 @@ export function createSettingsPanel(deps) {
         const reasoningEffortWrap = root.querySelector('#xb-assistant-reasoning-effort-wrap');
         const reasoningEffortSelect = root.querySelector('#xb-assistant-reasoning-effort');
         const permissionModeSelect = root.querySelector('#xb-assistant-permission-mode');
+        const jsApiPermissionSelect = root.querySelector('#xb-assistant-jsapi-permission');
         const pulledSelect = root.querySelector('#xb-assistant-model-pulled');
         const presetSelect = root.querySelector('#xb-assistant-preset-select');
         const presetNameInput = root.querySelector('#xb-assistant-preset-name');
@@ -392,6 +397,8 @@ export function createSettingsPanel(deps) {
         toolModeSelect.value = draft.toolMode || 'native';
         refillSelect(permissionModeSelect, permissionModeOptions);
         permissionModeSelect.value = normalizePermissionMode(draft.permissionMode);
+        refillSelect(jsApiPermissionSelect, jsApiPermissionOptions);
+        jsApiPermissionSelect.value = normalizeJsApiPermission(draft.jsApiPermission);
         refillSelect(reasoningEffortSelect, reasoningEffortOptions);
         reasoningEnabledInput.checked = Boolean(draft.reasoningEnabled);
         reasoningEffortSelect.value = normalizeReasoningEffort(draft.reasoningEffort);
@@ -428,16 +435,18 @@ export function createSettingsPanel(deps) {
         };
         state.config = normalizeAssistantConfig({
             ...state.config,
+            jsApiPermission: normalizeJsApiPermission(draft.jsApiPermission),
             currentPresetName: nextPresetName,
             presets: nextPresets,
         });
-        state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset);
+        state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset, state.config);
         requestConfigFormSync();
         const requestId = createRequestId('save-config');
         beginConfigSave(requestId);
         post('xb-assistant:save-config', {
             requestId,
             workspaceFileName: state.config?.workspaceFileName || '',
+            jsApiPermission: normalizeJsApiPermission(state.config?.jsApiPermission),
             currentPresetName: state.config?.currentPresetName || defaultPresetName,
             presets: state.config?.presets || {},
         });
@@ -450,6 +459,7 @@ export function createSettingsPanel(deps) {
             return;
         }
 
+        const draft = syncConfigDraft(root);
         const currentPresetName = normalizePresetName(state.configDraft?.currentPresetName || state.config?.currentPresetName || defaultPresetName);
         const nextPresets = { ...(state.config?.presets || {}) };
         delete nextPresets[currentPresetName];
@@ -458,10 +468,11 @@ export function createSettingsPanel(deps) {
 
         state.config = normalizeAssistantConfig({
             ...state.config,
+            jsApiPermission: normalizeJsApiPermission(draft.jsApiPermission),
             currentPresetName: nextPresetName,
             presets: nextPresets,
         });
-        state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset);
+        state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset, state.config);
         requestConfigFormSync();
         const requestId = createRequestId('delete-preset');
         beginConfigSave(requestId);
@@ -469,6 +480,7 @@ export function createSettingsPanel(deps) {
         post('xb-assistant:save-config', {
             requestId,
             workspaceFileName: state.config?.workspaceFileName || '',
+            jsApiPermission: normalizeJsApiPermission(state.config?.jsApiPermission),
             currentPresetName: state.config?.currentPresetName || defaultPresetName,
             presets: state.config?.presets || {},
         });
@@ -491,11 +503,13 @@ export function createSettingsPanel(deps) {
         root.querySelector('#xb-assistant-preset-select').addEventListener('change', (event) => {
             const nextPresetName = normalizePresetName(event.currentTarget.value);
             const nextPreset = (state.config?.presets || {})[nextPresetName] || buildDefaultPreset();
+            const draft = syncConfigDraft(root);
             state.config = normalizeAssistantConfig({
                 ...state.config,
+                jsApiPermission: normalizeJsApiPermission(draft.jsApiPermission),
                 currentPresetName: nextPresetName,
             });
-            state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset);
+            state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset, state.config);
             requestConfigFormSync();
             render();
         });
@@ -544,6 +558,10 @@ export function createSettingsPanel(deps) {
         });
 
         root.querySelector('#xb-assistant-permission-mode').addEventListener('change', () => {
+            syncConfigDraft(root);
+        });
+
+        root.querySelector('#xb-assistant-jsapi-permission').addEventListener('change', () => {
             syncConfigDraft(root);
         });
 

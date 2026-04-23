@@ -17,6 +17,7 @@ import {
     DEFAULT_PRESET_NAME,
     buildDefaultPreset,
     cloneDefaultModelConfigs,
+    normalizeJsApiPermission,
     normalizePermissionMode,
     normalizeAssistantSettings,
     normalizePresetName,
@@ -74,6 +75,10 @@ let settingsCache = null;
 let settingsLoaded = false;
 let localSourcesCache = [];
 let editorContextCache = null;
+
+function uniqueSorted(items) {
+    return Array.from(new Set(Array.from(items || []).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'en'));
+}
 
 function trimEditorContextText(text = '', limit = 1200) {
     const normalized = String(text || '').trim();
@@ -202,6 +207,7 @@ function buildRuntimeConfig() {
         enabled: !!settings.enabled,
         provider: currentPreset.provider || 'openai-compatible',
         workspaceFileName: settings.workspaceFileName || DEFAULT_WORKSPACE_FILE,
+        jsApiPermission: normalizeJsApiPermission(settings.jsApiPermission),
         modelConfigs: currentPreset.modelConfigs || cloneDefaultModelConfigs(),
         permissionMode: normalizePermissionMode(currentPreset.permissionMode),
         currentPresetName: settings.currentPresetName || DEFAULT_PRESET_NAME,
@@ -870,9 +876,7 @@ function cloneDocumentedValue(sourceValue, treeNode) {
     treeNode.children.forEach((childNode, key) => {
         if (sourceValue == null || !(key in sourceValue)) return;
         const clonedChild = cloneDocumentedValue(sourceValue[key], childNode);
-        if (clonedChild !== undefined) {
-            target[key] = clonedChild;
-        }
+        target[key] = clonedChild;
     });
     return Object.freeze(target);
 }
@@ -887,9 +891,7 @@ function cloneDocumentedNamespace(sourceNamespace, tree, wrappers = {}) {
             return;
         }
         const clonedChild = cloneDocumentedValue(sourceNamespace[key], childNode);
-        if (clonedChild !== undefined) {
-            target[key] = clonedChild;
-        }
+        target[key] = clonedChild;
     });
     return Object.freeze(target);
 }
@@ -926,6 +928,102 @@ function buildDocumentedJsApiNamespace(manifest = {}, documentedContext) {
             createAllowedPathTree(Array.isArray(manifest.allowedPaths) ? manifest.allowedPaths : [], 'st.slash.'),
         ),
     });
+}
+
+function collectAvailableJsApiPaths(value, prefix, target, seen = new WeakSet()) {
+    if (!prefix || !target) return;
+    target.add(prefix);
+
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) {
+        return;
+    }
+    if (typeof value === 'object' || typeof value === 'function') {
+        if (seen.has(value)) return;
+        seen.add(value);
+    }
+
+    Object.keys(value).forEach((key) => {
+        if (!key) return;
+        collectAvailableJsApiPaths(value[key], `${prefix}.${key}`, target, seen);
+    });
+}
+
+function doesJsApiPathExist(pathText, ctx, st) {
+    const segments = String(pathText || '').split('.').filter(Boolean);
+    if (!segments.length) return false;
+
+    let current = null;
+    if (segments[0] === 'ctx') {
+        current = ctx;
+    } else if (segments[0] === 'st') {
+        current = st;
+    } else {
+        return false;
+    }
+
+    for (let index = 1; index < segments.length; index += 1) {
+        const segment = segments[index];
+        if (current == null || !(segment in current)) {
+            return false;
+        }
+        current = current[segment];
+    }
+
+    return true;
+}
+
+function buildRuntimeJsApiManifest(manifest = {}, documentedContext, st) {
+    const availablePaths = new Set();
+    collectAvailableJsApiPaths(documentedContext, 'ctx', availablePaths);
+    collectAvailableJsApiPaths(st, 'st', availablePaths);
+
+    const staticAllowedPaths = Array.isArray(manifest.allowedPaths) ? manifest.allowedPaths : [];
+    const runtimeAllowedPaths = uniqueSorted(staticAllowedPaths.filter((item) => availablePaths.has(item)));
+    const runtimeAllowedSet = new Set(runtimeAllowedPaths);
+    const runtimeCallablePaths = uniqueSorted(
+        (Array.isArray(manifest.callablePaths) ? manifest.callablePaths : [])
+            .filter((item) => runtimeAllowedSet.has(item) && doesJsApiPathExist(item, documentedContext, st)),
+    );
+    const runtimeCallableSet = new Set(runtimeCallablePaths);
+    const sourceSemantics = manifest && typeof manifest.apiSemantics === 'object' && manifest.apiSemantics
+        ? manifest.apiSemantics
+        : {};
+
+    return {
+        ...manifest,
+        allowedPaths: runtimeAllowedPaths,
+        callablePaths: runtimeCallablePaths,
+        apiSemantics: Object.fromEntries(
+            Object.entries(sourceSemantics)
+                .filter(([key, value]) => runtimeCallableSet.has(key) && value),
+        ),
+        namespaces: {
+            ctx: uniqueSorted(
+                ((manifest.namespaces && Array.isArray(manifest.namespaces.ctx)) ? manifest.namespaces.ctx : [])
+                    .filter((item) => runtimeAllowedSet.has(item)),
+            ),
+            st: {
+                script: uniqueSorted(
+                    (((manifest.namespaces || {}).st && Array.isArray(manifest.namespaces.st.script))
+                        ? manifest.namespaces.st.script
+                        : [])
+                        .filter((item) => runtimeAllowedSet.has(item)),
+                ),
+                extensions: uniqueSorted(
+                    (((manifest.namespaces || {}).st && Array.isArray(manifest.namespaces.st.extensions))
+                        ? manifest.namespaces.st.extensions
+                        : [])
+                        .filter((item) => runtimeAllowedSet.has(item)),
+                ),
+                slash: uniqueSorted(
+                    (((manifest.namespaces || {}).st && Array.isArray(manifest.namespaces.st.slash))
+                        ? manifest.namespaces.st.slash
+                        : [])
+                        .filter((item) => runtimeAllowedSet.has(item)),
+                ),
+            },
+        },
+    };
 }
 
 function normalizeWorkspaceName(input) {
@@ -3263,13 +3361,14 @@ async function runJavaScriptApi(args = {}, options = {}) {
         const rawContext = getContext();
         const documentedContext = buildDocumentedJsApiContext(rawContext, manifest);
         const st = buildDocumentedJsApiNamespace(manifest, documentedContext);
+        const runtimeManifest = buildRuntimeJsApiManifest(manifest, documentedContext, st);
         const result = await runtimeModule.runJavaScriptApi({
             code,
             purpose,
             apiPaths,
             safety,
             expectedOutput,
-            manifest,
+            manifest: runtimeManifest,
             ctx: documentedContext,
             st,
         });
@@ -3415,6 +3514,7 @@ async function handleIframeMessage(event) {
             const next = normalizeAssistantSettings({
                 ...current,
                 workspaceFileName: normalizeWorkspaceName(patch.workspaceFileName || current.workspaceFileName),
+                jsApiPermission: normalizeJsApiPermission(patch.jsApiPermission ?? current.jsApiPermission),
                 currentPresetName: normalizePresetName(patch.currentPresetName || current.currentPresetName),
                 presets: patch.presets && typeof patch.presets === 'object'
                     ? patch.presets

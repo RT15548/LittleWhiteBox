@@ -1382,9 +1382,7 @@ export async function runJavaScriptApi({
         });
     }
 
-    const unavailableApis = EXPERIMENTAL_FULL_JSAPI
-        ? []
-        : validation.usedApis.filter((item) => !apiPathExists(item, ctx, st));
+    const unavailableApis = validation.usedApis.filter((item) => !apiPathExists(item, ctx, st));
     if (unavailableApis.length) {
         return buildResult({
             code: normalizedCode,

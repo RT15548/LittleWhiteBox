@@ -98,3 +98,25 @@ return ids;
     assert.equal(analysis.requestKind, 'read');
     assert(analysis.usedApis.includes('ctx.chat'));
 });
+
+test('JSAPI execution rejects APIs missing on the current SillyTavern instance', async () => {
+    const result = await runJavaScriptApi({
+        code: `
+return typeof ctx.eventSource;
+        `,
+        purpose: 'check runtime availability',
+        expectedOutput: 'type string',
+        apiPaths: ['ctx.eventSource'],
+        manifest: {
+            allowedPaths: ['ctx', 'ctx.eventSource'],
+            callablePaths: [],
+            apiSemantics: {},
+        },
+        ctx: {},
+        st: {},
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.execution.errorCode, 'api_unavailable_on_current_version');
+    assert.deepEqual(result.execution.unavailableApis, ['ctx.eventSource']);
+});

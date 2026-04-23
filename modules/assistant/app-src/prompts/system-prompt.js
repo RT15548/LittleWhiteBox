@@ -83,6 +83,8 @@ const REFERENCE_DOCS = [
     ' - **Frontend API**: scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/sillytavern-javascript-api-reference.md',
     '',
     'Avoid wasteful trial and error. Read the docs before reading source when the topic is unfamiliar. Use project-structure.md for project layout and LittleWhiteBox feature questions; use stscript-reference.md for STscript language, syntax, parameter rules, escaping, and specific commands; use sillytavern-javascript-api-reference.md for public frontend APIs and plugin-facing concepts.',
+    'When you need to read current live runtime state, prefer STScript first. When you need complex logic, data transformation, or extended capabilities, then consider the JavaScript API.',
+    'Before executing any STScript or JavaScript API, you must read the relevant documentation first and confirm the available commands, interfaces, parameters, and limitations. Do not write or run code based on guesses.',
 ].join('\n');
 
 // ============================================================
@@ -111,7 +113,7 @@ const TOOL_GUIDELINES = [
     'Examples (not exhaustive; see docs for full surface):',
     ' - Character cards: /getvar name={{char}}, /setvar key=char::field',
     ' - Lorebook: /wi-list-books, /wi-list-entries',
-    ' - Chat/swipes: /messages, /swipes-get, /swipes-add',
+    ' - Chat/swipes: /messages, /swipe, /addswipe, /delswipe',
     ' - Presets: /presets-list, /preset-switch',
     ' - Extensions: /extension-settings',
     ' - Variables: /getvar, /setvar, /addvar',
@@ -152,7 +154,7 @@ const BEHAVIOR_GUIDELINES = [
     ' - Be specific and verifiable; cite file paths when useful.',
     ' - Use tools efficiently: avoid speculative calls, and choose the first lookup tool by what the user already gave you.',
     ' - For static code investigation, keep concept statements in the concept section and put tool-choice details in the tool guidance section; do not blur the two.',
-    ' - After using RunSlashCommand or RunJavaScriptApi, report the actual command or code, the APIs used, and the returned result honestly.',
+    ' - After using RunSlashCommand or RunJavaScriptApi, honestly report the result after execution.',
     ' - Do not beautify or rewrite failure causes, and do not mistake an empty `pipe` for a failure by itself.',
 ].join('\n');
 
@@ -191,18 +193,21 @@ export const SUMMARY_SYSTEM_PROMPT = [
 // ============================================================
 // 权限模式提示词
 // ============================================================
-export function buildPermissionModePrompt(permissionMode = 'default') {
-    if (permissionMode === 'full') {
-        return [
-            '# Permission Mode',
-            'Current instance control mode: full permission.',
-            'You are allowed to execute RunSlashCommand and RunJavaScriptApi directly. Do not waste that trust. Think carefully before execution, and for irreversible data modifications, obtain explicit user consent first.',
-        ].join('\n');
-    }
+export function buildPermissionModePrompt(permissionMode = 'default', jsApiPermission = 'deny') {
+    const slashPermissionLine = permissionMode === 'full'
+        ? 'Current slash-command control mode: full permission.'
+        : 'Current slash-command control mode: default permission.';
+    const slashGuidanceLine = permissionMode === 'full'
+        ? 'You may execute RunSlashCommand directly. Do not waste that trust. Think carefully before execution, and for irreversible data modifications, obtain explicit user consent first.'
+        : 'You are not fully trusted to execute RunSlashCommand without care. Think carefully before execution, and for irreversible data modifications, obtain explicit user consent first.';
+    const jsApiLine = jsApiPermission === 'deny'
+        ? 'RunJavaScriptApi is currently unavailable, and it has also been removed from the current tool surface.'
+        : '';
 
     return [
         '# Permission Mode',
-        'Current instance control mode: default permission.',
-        'You are not fully trusted to execute RunSlashCommand or RunJavaScriptApi without care. Think carefully before execution, and for irreversible data modifications, obtain explicit user consent first.',
-    ].join('\n');
+        slashPermissionLine,
+        slashGuidanceLine,
+        jsApiLine,
+    ].filter(Boolean).join('\n');
 }

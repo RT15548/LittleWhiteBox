@@ -68,6 +68,8 @@ export function createAssistantRuntime(deps) {
         buildJsApiApprovalResult,
         isAbortError,
         createAdapter,
+        getToolDefinitions,
+        isJsApiEnabled,
         getActiveProviderConfig,
         getSystemPrompt,
         getEphemeralUserContextText,
@@ -83,6 +85,29 @@ export function createAssistantRuntime(deps) {
         TOOL_DEFINITIONS,
         TOOL_NAMES,
     } = deps;
+
+    function resolveToolDefinitions() {
+        if (typeof getToolDefinitions === 'function') {
+            return getToolDefinitions();
+        }
+        return TOOL_DEFINITIONS;
+    }
+
+    function isJsApiToolEnabled() {
+        if (typeof isJsApiEnabled === 'function') {
+            return !!isJsApiEnabled();
+        }
+        return true;
+    }
+
+    function buildJsApiPermissionDeniedResult() {
+        return {
+            ok: false,
+            error: 'jsapi_permission_denied',
+            message: '用户在设置中关闭了 RunJavaScriptApi 权限。',
+        };
+    }
+
     function resolveSystemPrompt() {
         const prompt = typeof getSystemPrompt === 'function' ? getSystemPrompt() : SYSTEM_PROMPT;
         return String(prompt || SYSTEM_PROMPT).trim() || SYSTEM_PROMPT;
@@ -165,6 +190,7 @@ export function createAssistantRuntime(deps) {
         state,
         render,
         getActiveProviderConfig,
+        getToolDefinitions: resolveToolDefinitions,
         TOOL_DEFINITIONS,
         MAX_CONTEXT_TOKENS,
     });
@@ -449,7 +475,7 @@ export function createAssistantRuntime(deps) {
             try {
                 const requestTask = {
                     systemPrompt: resolveSystemPrompt(),
-                    tools: TOOL_DEFINITIONS,
+                    tools: resolveToolDefinitions(),
                     toolChoice: 'auto',
                     temperature: providerConfig.temperature,
                     maxTokens: providerConfig.maxTokens,
@@ -519,6 +545,12 @@ export function createAssistantRuntime(deps) {
                             });
                             if (!approved) {
                                 toolResult = buildSlashApprovalResult(slashCommand, false);
+                            }
+                        }
+
+                        if (isJsApiRun && !toolResult) {
+                            if (!isJsApiToolEnabled()) {
+                                toolResult = buildJsApiPermissionDeniedResult();
                             }
                         }
 

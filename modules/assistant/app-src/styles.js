@@ -1570,12 +1570,12 @@ export function injectAssistantStyles(rootId) {
                 justify-content: center;
                 min-width: 0;
                 min-height: 40px;
-                padding: 0 14px;
+                padding: 0 8px;
                 border: none;
                 border-radius: 999px;
                 background: rgba(255, 255, 255, 0.74);
                 color: #1b3758;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 600;
                 box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.1);
                 white-space: nowrap;

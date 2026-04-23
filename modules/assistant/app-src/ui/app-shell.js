@@ -62,6 +62,10 @@ export function buildAppMarkup(state) {
                         <span>斜杠命令权限</span>
                         <select id="xb-assistant-permission-mode"></select>
                     </label>
+                    <label>
+                        <span>JavaScript API 权限</span>
+                        <select id="xb-assistant-jsapi-permission"></select>
+                    </label>
                     <label class="xb-assistant-checkbox-row">
                         <span>思考模式</span>
                         <span class="xb-assistant-checkbox-control">

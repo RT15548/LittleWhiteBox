@@ -107,6 +107,7 @@ export function createContextStatsController(deps) {
         state,
         render,
         getActiveProviderConfig,
+        getToolDefinitions,
         TOOL_DEFINITIONS,
         MAX_CONTEXT_TOKENS,
     } = deps;
@@ -116,19 +117,29 @@ export function createContextStatsController(deps) {
     let latestResolvedContextTokens = 0;
     let contextStatsRequestSerial = 0;
 
-    function buildContextStatsSignature(messages = [], tools = TOOL_DEFINITIONS) {
+    function resolveToolDefinitions(tools = null) {
+        if (Array.isArray(tools)) return tools;
+        if (typeof getToolDefinitions === 'function') {
+            return getToolDefinitions();
+        }
+        return TOOL_DEFINITIONS;
+    }
+
+    function buildContextStatsSignature(messages = [], tools = null) {
         const providerConfig = getActiveProviderConfig();
+        const resolvedTools = resolveToolDefinitions(tools);
         return JSON.stringify({
             provider: String(providerConfig?.provider || ''),
             model: String(providerConfig?.model || ''),
-            messages: buildTokenCounterPayload(messages, tools),
+            messages: buildTokenCounterPayload(messages, resolvedTools),
         });
     }
 
-    async function resolveConversationTokens({ messages = [], tools = [] } = {}) {
+    async function resolveConversationTokens({ messages = [], tools = null } = {}) {
         const providerConfig = getActiveProviderConfig();
         const provider = String(providerConfig?.provider || '');
-        const payload = buildTokenCounterPayload(messages, tools);
+        const resolvedTools = resolveToolDefinitions(tools);
+        const payload = buildTokenCounterPayload(messages, resolvedTools);
         const flattenedText = JSON.stringify(payload);
 
         try {
@@ -139,21 +150,22 @@ export function createContextStatsController(deps) {
                 return await countTextTokensWithEndpoint('/api/tokenizers/claude/encode', flattenedText);
             }
         } catch {
-            return estimateConversationTokens({ messages, tools });
+            return estimateConversationTokens({ messages, tools: resolvedTools });
         }
 
-        return estimateConversationTokens({ messages, tools });
+        return estimateConversationTokens({ messages, tools: resolvedTools });
     }
 
-    async function forceUpdateContextStats(messages = [], tools = TOOL_DEFINITIONS) {
-        const signature = buildContextStatsSignature(messages, tools);
+    async function forceUpdateContextStats(messages = [], tools = null) {
+        const resolvedTools = resolveToolDefinitions(tools);
+        const signature = buildContextStatsSignature(messages, resolvedTools);
         const summaryActive = !!state.historySummary;
         let usedTokens = latestResolvedContextStatsSignature === signature
             ? latestResolvedContextTokens
-            : await resolveConversationTokens({ messages, tools });
+            : await resolveConversationTokens({ messages, tools: resolvedTools });
 
         if (!Number.isFinite(usedTokens)) {
-            usedTokens = estimateConversationTokens({ messages, tools });
+            usedTokens = estimateConversationTokens({ messages, tools: resolvedTools });
         }
 
         latestResolvedContextStatsSignature = signature;
@@ -175,12 +187,13 @@ export function createContextStatsController(deps) {
         return `${formatContextCount(stats.usedTokens)}/${formatContextCount(stats.budgetTokens)}`;
     }
 
-    function updateContextStats(messages = [], tools = TOOL_DEFINITIONS) {
-        const signature = buildContextStatsSignature(messages, tools);
+    function updateContextStats(messages = [], tools = null) {
+        const resolvedTools = resolveToolDefinitions(tools);
+        const signature = buildContextStatsSignature(messages, resolvedTools);
         const summaryActive = !!state.historySummary;
         const estimatedTokens = latestResolvedContextStatsSignature === signature
             ? latestResolvedContextTokens
-            : estimateConversationTokens({ messages, tools });
+            : estimateConversationTokens({ messages, tools: resolvedTools });
 
         latestContextStatsSignature = signature;
         state.contextStats = {
@@ -194,7 +207,7 @@ export function createContextStatsController(deps) {
         }
 
         const requestSerial = ++contextStatsRequestSerial;
-        resolveConversationTokens({ messages, tools }).then((usedTokens) => {
+        resolveConversationTokens({ messages, tools: resolvedTools }).then((usedTokens) => {
             if (requestSerial !== contextStatsRequestSerial) return;
             if (latestContextStatsSignature !== signature) return;
             if (!Number.isFinite(usedTokens)) return;

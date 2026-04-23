@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-23T07:33:32.453Z",
+  "generatedAt": "2026-04-23T09:49:14.222Z",
   "version": 1,
   "files": [
     {
@@ -352,8 +352,20 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/config.test.js",
+      "relativePath": "modules/assistant/tests/config.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/context-hint.test.js",
       "relativePath": "modules/assistant/tests/context-hint.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/jsapi-manifest.test.js",
+      "relativePath": "modules/assistant/tests/jsapi-manifest.test.js",
       "extension": ".js"
     },
     {
