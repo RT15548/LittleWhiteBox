@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-23T09:49:14.222Z",
+  "generatedAt": "2026-04-23T15:35:10.463Z",
   "version": 1,
   "files": [
     {
@@ -322,6 +322,12 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/apply-patch-execution.js",
+      "relativePath": "modules/assistant/shared/apply-patch-execution.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/apply-patch.js",
       "relativePath": "modules/assistant/shared/apply-patch.js",
       "extension": ".js"
@@ -343,6 +349,12 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/st-jsapi-manifest.json",
       "relativePath": "modules/assistant/st-jsapi-manifest.json",
       "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/apply-patch-execution.test.js",
+      "relativePath": "modules/assistant/tests/apply-patch-execution.test.js",
+      "extension": ".js"
     },
     {
       "source": "littlewhitebox",
