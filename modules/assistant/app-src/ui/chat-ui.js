@@ -408,13 +408,24 @@ export function createChatUi(deps) {
         if (canShowAssistantActions) {
             const actions = document.createElement('div');
             actions.className = 'xb-assistant-message-actions';
+            const getActionDefinition = (action, label, title) => {
+                const feedbackKey = `${action}:${messageIndex}`;
+                const feedbackState = state.messageActionFeedback?.[feedbackKey] || '';
+                if (feedbackState === 'success') {
+                    return { action, label: '✓', title: '已复制' };
+                }
+                if (feedbackState === 'error') {
+                    return { action, label: '!', title: '复制失败' };
+                }
+                return { action, label, title };
+            };
             const actionDefinitions = isEditing
                 ? [
                     { action: 'save-edit', label: '✓', title: '保存这条消息的修改' },
                     { action: 'cancel-edit', label: '✕', title: '取消本次修改' },
                 ]
                 : [
-                    { action: 'copy', label: '⧉', title: '复制整条消息' },
+                    getActionDefinition('copy', '⧉', '复制整条消息'),
                     { action: 'edit', label: '✎', title: '编辑这条消息' },
                     { action: 'reroll', label: '↻', title: '从这里重新生成后续回复' },
                     { action: 'delete', label: '🗑', title: '删除这条消息' },

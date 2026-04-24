@@ -1003,6 +1003,22 @@ export function injectAssistantStyles(rootId) {
             border-left: 3px solid rgba(27, 55, 88, 0.24);
             color: #4b5a70;
         }
+        .xb-assistant-markdown table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95em;
+        }
+        .xb-assistant-markdown th,
+        .xb-assistant-markdown td {
+            border: 1px solid rgba(27, 55, 88, 0.18);
+            padding: 6px 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+        .xb-assistant-markdown th {
+            background: rgba(20, 32, 51, 0.06);
+            font-weight: 600;
+        }
         .xb-assistant-markdown a {
             color: #285786;
             text-decoration: underline;

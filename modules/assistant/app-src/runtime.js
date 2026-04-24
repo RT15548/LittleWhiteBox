@@ -239,6 +239,7 @@ export function createAssistantRuntime(deps) {
         buildToolFailureResult,
         callHostTool,
         clearPendingToolCalls,
+        postHostToolCallWithoutResponse,
         recordToolErrorForLightBrake,
         resetToolErrorLightBrake,
     } = createHostToolRequestController({
@@ -248,6 +249,7 @@ export function createAssistantRuntime(deps) {
         createRequestId,
         REQUEST_TIMEOUT_MS,
         describeError,
+        flushBeforeToolCall: deps.flushPendingWorkspaceChanges,
     });
 
     function cancelActiveRun(notice = '本轮请求已终止。') {
@@ -719,5 +721,7 @@ export function createAssistantRuntime(deps) {
         toProviderMessages,
         getActiveContextMessages,
         runAssistantLoop,
+        callHostTool,
+        postHostToolCallWithoutResponse,
     };
 }

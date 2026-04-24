@@ -65,6 +65,16 @@ function buildChangedPathSet(changes = []) {
     );
 }
 
+function resolveMutationNextState(result = {}) {
+    if (Object.prototype.hasOwnProperty.call(result || {}, 'nextState')) {
+        return result.nextState;
+    }
+    if (Object.prototype.hasOwnProperty.call(result || {}, 'nextSources')) {
+        return result.nextSources;
+    }
+    throw new Error('patch_adapter_missing_next_state');
+}
+
 export function buildPatchFailureResult(error) {
     const rawError = error instanceof Error ? error.message : String(error || 'unknown_error');
     const validation = normalizeValidationState(error?.patchValidation);
@@ -142,7 +152,7 @@ export function simulatePatchExecution(parsedPatch, initialState, adapter = {}) 
                     throw new Error('local_destination_exists');
                 }
                 const addResult = addFile(nextState, targetPath, operation.content);
-                nextState = addResult.nextState;
+                nextState = resolveMutationNextState(addResult);
                 changes.push(normalizeChangeEntry({
                     action: 'add',
                     path: addResult.file?.publicPath || targetPath,
@@ -158,7 +168,7 @@ export function simulatePatchExecution(parsedPatch, initialState, adapter = {}) 
                     throw new Error(getPathError(operation.path) || 'local_path_required');
                 }
                 const removal = removeFile(nextState, targetPath);
-                nextState = removal.nextState;
+                nextState = resolveMutationNextState(removal);
                 changes.push(normalizeChangeEntry({
                     action: 'delete',
                     path: removal.file?.publicPath || targetPath,
@@ -185,7 +195,7 @@ export function simulatePatchExecution(parsedPatch, initialState, adapter = {}) 
                 }
                 if (targetPath !== sourcePath) {
                     const move = moveFile(nextState, sourcePath, targetPath, { overwrite: false });
-                    nextState = move.nextState;
+                    nextState = resolveMutationNextState(move);
                     movedCount += 1;
                     changes.push(normalizeChangeEntry({
                         action: 'move',
@@ -210,7 +220,7 @@ export function simulatePatchExecution(parsedPatch, initialState, adapter = {}) 
             validation.hunksValidated += operation.hunks.length;
 
             const update = writeFile(nextState, targetPath, applied.content);
-            nextState = update.nextState;
+            nextState = resolveMutationNextState(update);
             updatedCount += 1;
             changes.push(normalizeChangeEntry({
                 action: 'update',

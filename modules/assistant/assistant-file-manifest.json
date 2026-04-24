@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-23T15:35:10.463Z",
+  "generatedAt": "2026-04-24T08:00:57.142Z",
   "version": 1,
   "files": [
     {
@@ -340,8 +340,32 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/local-sources-tool-runtime.js",
+      "relativePath": "modules/assistant/shared/local-sources-tool-runtime.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/local-workspace-kernel.js",
+      "relativePath": "modules/assistant/shared/local-workspace-kernel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/public-text-file-types.js",
       "relativePath": "modules/assistant/shared/public-text-file-types.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/workspace-mutation-policy.js",
+      "relativePath": "modules/assistant/shared/workspace-mutation-policy.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/workspace-protocol.js",
+      "relativePath": "modules/assistant/shared/workspace-protocol.js",
       "extension": ".js"
     },
     {
@@ -376,6 +400,12 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/host-tool-requests.test.js",
+      "relativePath": "modules/assistant/tests/host-tool-requests.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/jsapi-manifest.test.js",
       "relativePath": "modules/assistant/tests/jsapi-manifest.test.js",
       "extension": ".js"
@@ -388,6 +418,12 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/local-sources-tool-runtime.test.js",
+      "relativePath": "modules/assistant/tests/local-sources-tool-runtime.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/local-workspace.test.js",
       "relativePath": "modules/assistant/tests/local-workspace.test.js",
       "extension": ".js"
@@ -396,6 +432,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/memory-files.test.js",
       "relativePath": "modules/assistant/tests/memory-files.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/tooling.test.js",
+      "relativePath": "modules/assistant/tests/tooling.test.js",
       "extension": ".js"
     },
     {

@@ -611,13 +611,17 @@ export function formatToolResultDisplay(message) {
         if (parsed.truncated) {
             lines.push(`结果仍有剩余；本次已扫描 ${parsed.scannedFiles || 0}/${parsed.candidateFiles || parsed.indexedFiles || 0} 个候选文件。`);
             lines.push(`如需继续，可把 offset 设为 ${Number(parsed.nextOffset) || ((Number(parsed.offset) || 0) + items.length)}。`);
+        } else if (parsed.searchComplete === false) {
+            if (Number.isFinite(parsed.matchesFound)) {
+                lines.push(`已找到 ${parsed.matchesFound} 条，搜索仍在继续。`);
+            }
         } else if (Number(parsed.candidateFiles) > 0 && parsed.glob) {
             lines.push(`本次扫描 ${parsed.scannedFiles || 0}/${parsed.candidateFiles} 个候选文件。`);
-            if (Number.isFinite(parsed.total)) {
-                lines.push(`总结果数：${parsed.total}`);
+            if (Number.isFinite(parsed.totalMatches)) {
+                lines.push(`总结果数：${parsed.totalMatches}`);
             }
-        } else if (Number.isFinite(parsed.total)) {
-            lines.push(`总结果数：${parsed.total}`);
+        } else if (Number.isFinite(parsed.totalMatches)) {
+            lines.push(`总结果数：${parsed.totalMatches}`);
         }
         if (Number(parsed.skippedFiles) > 0) {
             lines.push(`有 ${parsed.skippedFiles} 个文件读取失败并已跳过。`);

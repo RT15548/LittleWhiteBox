@@ -1,9 +1,34 @@
 import { zipSync, strToU8 } from '../../../../libs/fflate.mjs';
 import { isSupportedPublicTextPath } from '../../shared/public-text-file-types.js';
+import {
+    buildLocalFileRecord as kernelBuildLocalFileRecord,
+    collectSourceDirectoryPaths as kernelCollectSourceDirectoryPaths,
+    createLocalSourceRecord as kernelCreateLocalSourceRecord,
+    findLocalDirectoryByPath as kernelFindLocalDirectoryByPath,
+    findLocalFileByPath as kernelFindLocalFileByPath,
+    flattenLocalSourceFiles as kernelFlattenLocalSourceFiles,
+    formatWorkspacePromptPath as kernelFormatWorkspacePromptPath,
+    hasOriginalSnapshot as kernelHasOriginalSnapshot,
+    isLocalRootPath as kernelIsLocalRootPath,
+    isLocalSourceFileModified as kernelIsLocalSourceFileModified,
+    normalizeLocalDirectoryPath as kernelNormalizeLocalDirectoryPath,
+    normalizeLocalSourcePath as kernelNormalizeLocalSourcePath,
+    normalizeLocalSources as kernelNormalizeLocalSources,
+    normalizeWorkspacePromptDirectoryPath as kernelNormalizeWorkspacePromptDirectoryPath,
+    normalizeWorkspacePromptFilePath as kernelNormalizeWorkspacePromptFilePath,
+    normalizeWritableLocalFilePath as kernelNormalizeWritableLocalFilePath,
+    pickUniqueLocalSourceLabel as kernelPickUniqueLocalSourceLabel,
+    summarizeLocalSources as kernelSummarizeLocalSources,
+} from '../../shared/local-workspace-kernel.js';
+import {
+    INTERNAL_WORKSPACE_TOOL_NAMES,
+    WORKSPACE_KERNEL_VERSION,
+    WORKSPACE_SOURCES,
+} from '../../shared/workspace-protocol.js';
+import { TOOL_NAMES } from '../tooling.js';
 import { buildWorkspaceTree, collectDirectoryExpansionKeys } from './local-workspace-tree.js';
 
 const LOCAL_SOURCE_PREFIX = 'local/';
-const LOCAL_SOURCE_FILE_KIND = 'session-local-source';
 const IMPORT_PROGRESS_INTERVAL_MS = 220;
 const IMPORT_YIELD_EVERY_CHUNKS = 4;
 const IMPORT_CHUNK_BYTES = 256 * 1024;
@@ -19,167 +44,43 @@ function sanitizeLabel(value, fallback = 'source') {
 }
 
 function normalizeLocalSourcePath(pathText = '') {
-    return String(pathText || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    return kernelNormalizeLocalSourcePath(pathText);
 }
 
 function isLocalRootPath(pathText = '') {
-    return normalizeLocalSourcePath(pathText).replace(/\/+$/, '') === 'local';
-}
-
-function getLocalSourceLabelFromPath(pathText = '') {
-    return normalizeLocalSourcePath(pathText).split('/').filter(Boolean)[1] || '';
-}
-
-function getLocalSourceRootPathFromPath(pathText = '') {
-    const normalized = normalizeLocalSourcePath(pathText).replace(/\/+$/, '');
-    if (!normalized.startsWith(LOCAL_SOURCE_PREFIX) || normalized.includes('..')) return '';
-    const segments = normalized.split('/').filter(Boolean);
-    if (segments.length < 2) return '';
-    if (segments.length === 2) return LOCAL_SOURCE_PREFIX;
-    return `${LOCAL_SOURCE_PREFIX}${segments[1]}/`;
-}
-
-function getRelativeLocalFilePath(pathText = '') {
-    const normalized = normalizeLocalSourcePath(pathText);
-    const rootPath = getLocalSourceRootPathFromPath(normalized);
-    if (!rootPath || !normalized.startsWith(rootPath)) return '';
-    return normalized.slice(rootPath.length);
-}
-
-function normalizeLocalSourceRootPath(rootPath = '', fallbackLabel = 'source') {
-    const normalized = normalizeLocalSourcePath(rootPath).replace(/\/+$/, '');
-    if (normalized === 'local') return LOCAL_SOURCE_PREFIX;
-    if (normalized.startsWith(LOCAL_SOURCE_PREFIX) && !normalized.includes('..')) {
-        const segments = normalized.split('/').filter(Boolean);
-        if (segments.length >= 2) {
-            return `${normalized}/`;
-        }
-    }
-    return `${LOCAL_SOURCE_PREFIX}${sanitizeLabel(fallbackLabel, 'source')}/`;
+    return kernelIsLocalRootPath(pathText);
 }
 
 function normalizeWritableLocalFilePath(pathText = '') {
-    const normalized = normalizeLocalSourcePath(pathText);
-    if (!normalized.startsWith(LOCAL_SOURCE_PREFIX) || normalized.includes('..') || normalized.endsWith('/')) return '';
-    const segments = normalized.split('/').filter(Boolean);
-    if (segments.length < 2) return '';
-    if (!isSupportedPublicTextPath(normalized)) return '';
-    return normalized;
+    return kernelNormalizeWritableLocalFilePath(pathText);
 }
 
 function normalizeLocalDirectoryPath(pathText = '') {
-    const normalized = normalizeLocalSourcePath(pathText).replace(/\/+$/, '');
-    if (!normalized.startsWith(LOCAL_SOURCE_PREFIX) || normalized.includes('..')) return '';
-    if (normalized === 'local') return LOCAL_SOURCE_PREFIX;
-    const segments = normalized.split('/').filter(Boolean);
-    if (segments.length < 2) return '';
-    return `${normalized}/`;
+    return kernelNormalizeLocalDirectoryPath(pathText);
 }
 
 function formatWorkspacePromptPath(pathText = '') {
-    const normalized = normalizeLocalSourcePath(pathText);
-    if (!normalized.startsWith(LOCAL_SOURCE_PREFIX)) return normalized;
-    return normalized.slice(LOCAL_SOURCE_PREFIX.length);
+    return kernelFormatWorkspacePromptPath(pathText);
 }
 
 function normalizeWorkspacePromptFilePath(pathText = '') {
-    const normalized = normalizeLocalSourcePath(pathText);
-    if (!normalized) return '';
-    return normalizeWritableLocalFilePath(normalized.startsWith(LOCAL_SOURCE_PREFIX) ? normalized : `${LOCAL_SOURCE_PREFIX}${normalized}`);
+    return kernelNormalizeWorkspacePromptFilePath(pathText);
 }
 
 function normalizeWorkspacePromptDirectoryPath(pathText = '') {
-    const normalized = normalizeLocalSourcePath(pathText).replace(/\/+$/, '');
-    if (!normalized) return '';
-    const prefixed = normalized.startsWith(LOCAL_SOURCE_PREFIX) ? normalized : `${LOCAL_SOURCE_PREFIX}${normalized}`;
-    return normalizeLocalDirectoryPath(prefixed);
+    return kernelNormalizeWorkspacePromptDirectoryPath(pathText);
 }
 
 function pickUniqueLabel(desiredLabel, existingLabels = new Set()) {
-    const baseLabel = sanitizeLabel(desiredLabel, 'source');
-    let nextLabel = baseLabel;
-    let suffix = 2;
-    while (existingLabels.has(nextLabel)) {
-        nextLabel = `${baseLabel}-${suffix}`;
-        suffix += 1;
-    }
-    existingLabels.add(nextLabel);
-    return nextLabel;
+    return kernelPickUniqueLocalSourceLabel(desiredLabel, existingLabels);
 }
 
 function buildLocalFileRecord({ sourceLabel, fileName, relativePath, content, sizeBytes }) {
-    const normalizedName = String(fileName || '').trim() || 'untitled.txt';
-    const normalizedRelativePath = normalizeLocalSourcePath(relativePath || normalizedName) || normalizedName;
-    const normalizedContent = typeof content === 'string' ? content : '';
-    return {
-        path: `${LOCAL_SOURCE_PREFIX}${sourceLabel}/${normalizedRelativePath}`,
-        relativePath: normalizedRelativePath,
-        name: normalizedName,
-        sizeBytes: Math.max(0, Number(sizeBytes) || 0),
-        content: normalizedContent,
-        originalContent: normalizedContent,
-        source: LOCAL_SOURCE_FILE_KIND,
-    };
-}
-
-function buildLocalFileRecordFromPath(publicPath, content = '', options = {}) {
-    const normalizedPath = normalizeWritableLocalFilePath(publicPath);
-    if (!normalizedPath) {
-        throw new Error('local_path_required');
-    }
-    const segments = normalizedPath.split('/').filter(Boolean);
-    const relativePath = getRelativeLocalFilePath(normalizedPath);
-    const fileName = segments[segments.length - 1] || 'untitled.txt';
-    const normalizedContent = typeof content === 'string' ? content : String(content ?? '');
-    return {
-        path: normalizedPath,
-        relativePath,
-        name: fileName,
-        sizeBytes: new TextEncoder().encode(normalizedContent).length,
-        content: normalizedContent,
-        originalContent: Object.prototype.hasOwnProperty.call(options, 'originalContent')
-            ? options.originalContent
-            : normalizedContent,
-        source: LOCAL_SOURCE_FILE_KIND,
-    };
+    return kernelBuildLocalFileRecord({ sourceLabel, fileName, relativePath, content, sizeBytes });
 }
 
 function createLocalSourceRecord({ sourceId, label, rootPath, importedAt, files, directories }) {
-    const normalizedLabel = String(label || '').trim() || 'source';
-    const normalizedFiles = Array.isArray(files) ? files : [];
-    return {
-        sourceId: String(sourceId || '').trim(),
-        label: normalizedLabel,
-        rootPath: normalizeLocalSourceRootPath(rootPath, normalizedLabel),
-        importedAt: Number.isFinite(Number(importedAt)) ? Number(importedAt) : Date.now(),
-        files: normalizedFiles,
-        directories: Array.from(new Set([
-            ...(Array.isArray(directories) ? directories.map(normalizeLocalSourceDirectory).filter(Boolean) : []),
-            ...collectImplicitDirectoryPaths(normalizedFiles),
-        ])).sort((left, right) => left.localeCompare(right, 'zh-CN')),
-    };
-}
-
-function createEphemeralLocalSourceRecord(label, localSources = [], rootPath = '') {
-    const normalizedLabel = String(label || '').trim() || 'source';
-    const existingIds = new Set(
-        normalizeLocalSources(localSources).map((source) => String(source.sourceId || '').trim()).filter(Boolean),
-    );
-    const desiredRootPath = normalizeLocalSourceRootPath(rootPath, normalizedLabel);
-    const baseId = desiredRootPath === LOCAL_SOURCE_PREFIX ? 'local:root' : `local:${sanitizeLabel(normalizedLabel, 'source')}`;
-    let nextId = baseId;
-    let suffix = 2;
-    while (existingIds.has(nextId)) {
-        nextId = `${baseId}:${suffix}`;
-        suffix += 1;
-    }
-    return createLocalSourceRecord({
-        sourceId: nextId,
-        label: normalizedLabel,
-        rootPath: desiredRootPath,
-        importedAt: Date.now(),
-        files: [],
-    });
+    return kernelCreateLocalSourceRecord({ sourceId, label, rootPath, importedAt, files, directories });
 }
 
 function summarizeImportResult({ importedSources, importedFiles, rejectedFiles, duplicateFiles }) {
@@ -330,75 +231,16 @@ function groupSelectedFiles(files = [], mode = 'files') {
     }];
 }
 
-function normalizeLocalSourceDirectory(directoryPath = '') {
-    const normalized = normalizeLocalSourcePath(directoryPath).replace(/^\/+|\/+$/g, '');
-    if (!normalized || normalized.includes('..')) return '';
-    return normalized;
-}
-
-function collectImplicitDirectoryPaths(files = []) {
-    const paths = new Set();
-    files.forEach((file) => {
-        const segments = String(file?.relativePath || '').split('/').filter(Boolean).slice(0, -1);
-        segments.forEach((_, index) => {
-            paths.add(segments.slice(0, index + 1).join('/'));
-        });
-    });
-    return Array.from(paths).sort((left, right) => left.localeCompare(right, 'zh-CN'));
-}
-
 function collectSourceDirectoryPaths(source = {}) {
-    const explicitDirectories = Array.isArray(source.directories)
-        ? source.directories.map(normalizeLocalSourceDirectory).filter(Boolean)
-        : [];
-    return Array.from(new Set([
-        ...explicitDirectories,
-        ...collectImplicitDirectoryPaths(source.files || []),
-    ])).sort((left, right) => left.localeCompare(right, 'zh-CN'));
-}
-
-function buildDirectoryAncestors(relativeDirectoryPath = '') {
-    const segments = normalizeLocalSourceDirectory(relativeDirectoryPath).split('/').filter(Boolean);
-    const results = [];
-    segments.forEach((_, index) => {
-        results.push(segments.slice(0, index + 1).join('/'));
-    });
-    return results;
-}
-
-function normalizeLocalSourceFile(file) {
-    if (!file || typeof file !== 'object') return null;
-    const path = normalizeLocalSourcePath(file.path || '');
-    if (!path.startsWith(LOCAL_SOURCE_PREFIX) || path.includes('..')) return null;
-    const name = String(file.name || '').trim() || path.split('/').pop() || 'file';
-    const relativePath = normalizeLocalSourcePath(file.relativePath || name) || name;
-    const content = typeof file.content === 'string' ? file.content : '';
-    const hasOriginalContent = Object.prototype.hasOwnProperty.call(file, 'originalContent');
-    const originalContent = hasOriginalContent
-        ? (file.originalContent === null ? null : typeof file.originalContent === 'string' ? file.originalContent : content)
-        : content;
-    return {
-        path,
-        relativePath,
-        name,
-        sizeBytes: Math.max(0, Number(file.sizeBytes) || 0),
-        content,
-        originalContent,
-        source: LOCAL_SOURCE_FILE_KIND,
-    };
+    return kernelCollectSourceDirectoryPaths(source);
 }
 
 function hasOriginalSnapshot(file) {
-    return file && typeof file.originalContent === 'string';
+    return kernelHasOriginalSnapshot(file);
 }
 
 function isLocalSourceFileModified(file) {
-    if (!file) return false;
-    if (file.originalContent === null) return true;
-    if (typeof file.originalContent === 'string') {
-        return String(file.content || '') !== file.originalContent;
-    }
-    return false;
+    return kernelIsLocalSourceFileModified(file);
 }
 
 function normalizeWorkspaceWidth(value) {
@@ -408,68 +250,11 @@ function normalizeWorkspaceWidth(value) {
 }
 
 function findLocalFileByPath(localSources = [], targetPath = '') {
-    const normalizedPath = normalizeLocalSourcePath(targetPath);
-    if (!normalizedPath.startsWith(LOCAL_SOURCE_PREFIX)) return null;
-    for (const source of normalizeLocalSources(localSources)) {
-        for (const file of source.files) {
-            if (file.path === normalizedPath) {
-                return {
-                    source,
-                    file,
-                };
-            }
-        }
-    }
-    return null;
+    return kernelFindLocalFileByPath(localSources, targetPath);
 }
 
 function findLocalDirectoryByPath(localSources = [], targetPath = '') {
-    const normalizedTargetPath = normalizeLocalSourcePath(targetPath).replace(/\/+$/, '');
-    if (normalizedTargetPath === 'local' || normalizedTargetPath === 'local/') {
-        return {
-            source: null,
-            directoryPath: LOCAL_SOURCE_PREFIX,
-            relativeDirectoryPath: '',
-            files: flattenLocalSourceFiles(localSources),
-            directories: normalizeLocalSources(localSources).map((source) => String(source.rootPath || '')).filter(Boolean),
-        };
-    }
-    if (!normalizedTargetPath.startsWith(LOCAL_SOURCE_PREFIX)) return null;
-
-    for (const source of normalizeLocalSources(localSources)) {
-        const sourceRoot = String(source.rootPath || `${LOCAL_SOURCE_PREFIX}${source.label}/`).replace(/\/+$/, '');
-        const sourceDirectories = collectSourceDirectoryPaths(source);
-        if (normalizedTargetPath === sourceRoot) {
-            return {
-                source,
-                directoryPath: `${sourceRoot}/`,
-                relativeDirectoryPath: '',
-                files: source.files.slice(),
-                directories: sourceDirectories,
-            };
-        }
-
-        const sourcePrefix = `${sourceRoot}/`;
-        if (!normalizedTargetPath.startsWith(sourcePrefix)) continue;
-
-        const relativeDirectoryPath = normalizedTargetPath.slice(sourcePrefix.length).replace(/\/+$/, '');
-        const directoryPrefix = relativeDirectoryPath ? `${sourcePrefix}${relativeDirectoryPath}/` : sourcePrefix;
-        const files = source.files.filter((file) => file.path.startsWith(directoryPrefix));
-        const directoryExists = sourceDirectories.includes(relativeDirectoryPath);
-        if (!files.length && !directoryExists) continue;
-
-        return {
-            source,
-            directoryPath: `${normalizedTargetPath}/`,
-            relativeDirectoryPath,
-            files,
-            directories: sourceDirectories.filter((directory) => (
-                directory === relativeDirectoryPath || directory.startsWith(`${relativeDirectoryPath}/`)
-            )),
-        };
-    }
-
-    return null;
+    return kernelFindLocalDirectoryByPath(localSources, targetPath);
 }
 
 function buildExpandedKeysForWorkspaceTarget(sourceId, relativePath = '') {
@@ -483,298 +268,16 @@ function buildExpandedKeysForWorkspaceTarget(sourceId, relativePath = '') {
     return expandedKeys;
 }
 
-function upsertLocalFileInSources(localSources = [], targetPath = '', content = '', options = {}) {
-    const normalizedTargetPath = normalizeWritableLocalFilePath(targetPath);
-    if (!normalizedTargetPath) {
-        throw new Error('local_path_required');
-    }
-
-    const normalizedSources = normalizeLocalSources(localSources);
-    const sourceRootPath = getLocalSourceRootPathFromPath(normalizedTargetPath);
-    const sourceLabel = sourceRootPath === LOCAL_SOURCE_PREFIX ? 'local' : getLocalSourceLabelFromPath(normalizedTargetPath);
-    let fileExisted = false;
-    let existingFile = null;
-    let sourceFound = false;
-    const nextSources = normalizedSources.map((source) => {
-        if (String(source.rootPath || '') !== sourceRootPath) return source;
-        sourceFound = true;
-        return {
-            ...source,
-            files: source.files.map((file) => {
-                if (file.path !== normalizedTargetPath) return file;
-                fileExisted = true;
-                existingFile = file;
-                return file;
-            }),
-        };
-    });
-
-    const nextFile = buildLocalFileRecordFromPath(normalizedTargetPath, content, {
-        originalContent: Object.prototype.hasOwnProperty.call(options, 'originalContent')
-            ? options.originalContent
-            : fileExisted
-                ? existingFile?.originalContent ?? existingFile?.content ?? String(content ?? '')
-                : null,
-    });
-
-    const sourcesWithTarget = sourceFound
-        ? nextSources
-        : [
-            ...nextSources,
-            createEphemeralLocalSourceRecord(sourceLabel, normalizedSources, sourceRootPath),
-        ].sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-CN'));
-
-    return {
-        nextSources: sourcesWithTarget.map((source) => {
-            if (String(source.rootPath || '') !== sourceRootPath) return source;
-            const nextFiles = source.files
-                .filter((file) => file.path !== normalizedTargetPath)
-                .concat(nextFile)
-                .sort((left, right) => String(left.path || '').localeCompare(String(right.path || ''), 'zh-CN'));
-            return {
-                ...source,
-                files: nextFiles,
-            };
-        }),
-        file: nextFile,
-        fileExisted,
-    };
-}
-
-function upsertLocalDirectoryInSources(localSources = [], targetPath = '') {
-    const normalizedDirectoryPath = normalizeLocalDirectoryPath(targetPath);
-    if (!normalizedDirectoryPath) {
-        throw new Error('local_path_required');
-    }
-    if (normalizedDirectoryPath === LOCAL_SOURCE_PREFIX) {
-        return {
-            nextSources: normalizeLocalSources(localSources),
-            directoryPath: normalizedDirectoryPath,
-        };
-    }
-
-    const normalizedSources = normalizeLocalSources(localSources);
-    const normalizedTarget = normalizeLocalSourcePath(normalizedDirectoryPath).replace(/\/+$/, '');
-    const segments = normalizedTarget.split('/').filter(Boolean);
-    const sourceRootPath = `${LOCAL_SOURCE_PREFIX}${segments[1]}/`;
-    const sourceLabel = segments[1] || 'local';
-    const relativeDirectoryPath = segments.slice(2).join('/');
-
-    const ensuredSources = normalizedSources.some((source) => String(source.rootPath || '') === sourceRootPath)
-        ? normalizedSources
-        : [
-            ...normalizedSources,
-            createEphemeralLocalSourceRecord(sourceLabel, normalizedSources, sourceRootPath),
-        ].sort((left, right) => String(left.label || '').localeCompare(String(right.label || ''), 'zh-CN'));
-
-    return {
-        nextSources: ensuredSources.map((source) => {
-            if (String(source.rootPath || '') !== sourceRootPath) return source;
-            return createLocalSourceRecord({
-                ...source,
-                directories: [...collectSourceDirectoryPaths(source), ...buildDirectoryAncestors(relativeDirectoryPath)],
-            });
-        }),
-        directoryPath: normalizedDirectoryPath,
-    };
-}
-
-function removeLocalPathFromSources(localSources = [], targetPath = '') {
-    const fileMatch = findLocalFileByPath(localSources, targetPath);
-    if (fileMatch) {
-        return {
-            mode: 'file',
-            removedFiles: [fileMatch.file],
-            nextSources: normalizeLocalSources(localSources)
-                .map((source) => {
-                    if (source.sourceId !== fileMatch.source.sourceId) return source;
-                    return createLocalSourceRecord({
-                        ...source,
-                        files: source.files.filter((file) => file.path !== fileMatch.file.path),
-                    });
-                })
-                .filter((source) => source && (source.files.length || source.directories.length)),
-        };
-    }
-
-    const directoryMatch = findLocalDirectoryByPath(localSources, targetPath);
-    if (!directoryMatch) {
-        throw new Error('local_path_not_found');
-    }
-
-    if (directoryMatch.directoryPath === LOCAL_SOURCE_PREFIX) {
-        return {
-            mode: 'directory',
-            removedFiles: directoryMatch.files.slice(),
-            nextSources: [],
-        };
-    }
-
-    const removedPaths = new Set(directoryMatch.files.map((file) => file.path));
-    return {
-        mode: 'directory',
-        removedFiles: directoryMatch.files.slice(),
-        nextSources: normalizeLocalSources(localSources)
-            .map((source) => {
-                if (directoryMatch.source?.sourceId !== source.sourceId) return source;
-                const relativeDirectoryPath = directoryMatch.relativeDirectoryPath;
-                const nextDirectories = collectSourceDirectoryPaths(source).filter((directory) => (
-                    directory !== relativeDirectoryPath && !directory.startsWith(`${relativeDirectoryPath}/`)
-                ));
-                return createLocalSourceRecord({
-                    ...source,
-                    files: source.files.filter((file) => !removedPaths.has(file.path)),
-                    directories: nextDirectories,
-                });
-            })
-            .filter((source) => source && (source.files.length || source.directories.length)),
-    };
-}
-
-function moveLocalPathInSources(localSources = [], fromPath = '', toPath = '', options = {}) {
-    const normalizedSources = normalizeLocalSources(localSources);
-    const overwrite = !!options.overwrite;
-    const fromFileMatch = findLocalFileByPath(normalizedSources, fromPath);
-
-    let movedFiles = [];
-    let movedDirectories = [];
-    let targetMappings = [];
-    let mode = 'file';
-
-    if (fromFileMatch) {
-        const normalizedToFilePath = normalizeWritableLocalFilePath(toPath);
-        if (!normalizedToFilePath) {
-            throw new Error('local_path_required');
-        }
-        movedFiles = [fromFileMatch.file];
-        targetMappings = [{ fromPath: fromFileMatch.file.path, toPath: normalizedToFilePath }];
-    } else {
-        const fromDirectoryMatch = findLocalDirectoryByPath(normalizedSources, fromPath);
-        if (!fromDirectoryMatch) {
-            throw new Error('local_path_not_found');
-        }
-        const normalizedFromDirectoryPath = normalizeLocalDirectoryPath(fromPath);
-        const normalizedToDirectoryPath = normalizeLocalDirectoryPath(toPath);
-        if (!normalizedFromDirectoryPath || !normalizedToDirectoryPath) {
-            throw new Error('local_path_required');
-        }
-        mode = 'directory';
-        movedFiles = fromDirectoryMatch.files.slice();
-        movedDirectories = [
-            fromDirectoryMatch.directoryPath,
-            ...(fromDirectoryMatch.directories || [])
-                .filter((directory) => directory !== fromDirectoryMatch.relativeDirectoryPath)
-                .map((directory) => `${fromDirectoryMatch.source.rootPath}${directory}/`),
-        ];
-        targetMappings = movedFiles.map((file) => ({
-            fromPath: file.path,
-            toPath: `${normalizedToDirectoryPath}${file.path.slice(normalizedFromDirectoryPath.length)}`,
-        }));
-    }
-
-    const movedPathSet = new Set(movedFiles.map((file) => file.path));
-    const targetPathSet = new Set(targetMappings.map((item) => item.toPath));
-    const conflictingFiles = flattenLocalSourceFiles(normalizedSources).filter((file) => (
-        targetPathSet.has(file.path) && !movedPathSet.has(file.path)
-    ));
-    if (conflictingFiles.length && !overwrite) {
-        throw new Error('local_destination_exists');
-    }
-
-    const mappingByFromPath = new Map(targetMappings.map((item) => [item.fromPath, item.toPath]));
-    const conflictPathSet = new Set(conflictingFiles.map((file) => file.path));
-    const remainingSources = normalizedSources
-        .map((source) => {
-            const nextFiles = source.files.filter((file) => (
-                !movedPathSet.has(file.path) && !(overwrite && conflictPathSet.has(file.path))
-            ));
-            const nextDirectories = mode === 'directory'
-                ? collectSourceDirectoryPaths(source).filter((directory) => {
-                    const directoryPath = `${source.rootPath}${directory}/`;
-                    return !movedDirectories.includes(directoryPath);
-                })
-                : collectSourceDirectoryPaths(source);
-            return createLocalSourceRecord({
-                ...source,
-                files: nextFiles,
-                directories: nextDirectories,
-            });
-        })
-        .filter((source) => source && (source.files.length || source.directories.length));
-
-    let nextSources = remainingSources;
-    const movedEntries = [];
-    if (mode === 'directory') {
-        const normalizedFromDirectoryPath = normalizeLocalDirectoryPath(fromPath);
-        const normalizedToDirectoryPath = normalizeLocalDirectoryPath(toPath);
-        movedDirectories.forEach((directoryPath) => {
-            const suffix = directoryPath.slice(normalizedFromDirectoryPath.length);
-            const nextDirectoryPath = `${normalizedToDirectoryPath}${suffix}`;
-            const upsert = upsertLocalDirectoryInSources(nextSources, nextDirectoryPath);
-            nextSources = upsert.nextSources;
-        });
-    }
-    movedFiles.forEach((file) => {
-        const nextPath = mappingByFromPath.get(file.path);
-        const upsert = upsertLocalFileInSources(nextSources, nextPath, file.content, {
-            originalContent: file.originalContent,
-        });
-        nextSources = upsert.nextSources;
-        movedEntries.push(upsert.file);
-    });
-
-    return {
-        mode,
-        movedFiles: movedEntries,
-        nextSources,
-        overwritten: conflictingFiles.length > 0,
-        fromPath: targetMappings.length === 1 ? targetMappings[0].fromPath : fromPath,
-        toPath: targetMappings.length === 1 ? targetMappings[0].toPath : toPath,
-    };
-}
-
-
 export function normalizeLocalSources(localSources) {
-    if (!Array.isArray(localSources)) return [];
-    return localSources
-        .map((source) => {
-            if (!source || typeof source !== 'object') return null;
-            const sourceId = String(source.sourceId || '').trim();
-            if (!sourceId) return null;
-            const files = Array.isArray(source.files)
-                ? source.files.map(normalizeLocalSourceFile).filter(Boolean)
-                : [];
-            return createLocalSourceRecord({
-                sourceId,
-                label: source.label,
-                rootPath: source.rootPath,
-                importedAt: source.importedAt,
-                files,
-                directories: source.directories,
-            });
-        })
-        .filter((source) => source && (source.files.length || source.directories.length || source.rootPath));
+    return kernelNormalizeLocalSources(localSources);
 }
 
 export function flattenLocalSourceFiles(localSources = []) {
-    return normalizeLocalSources(localSources).flatMap((source) => (
-        source.files.map((file) => ({
-            ...file,
-            sourceId: source.sourceId,
-            sourceLabel: source.label,
-        }))
-    ));
+    return kernelFlattenLocalSourceFiles(localSources);
 }
 
 export function summarizeLocalSources(localSources = []) {
-    const normalizedSources = normalizeLocalSources(localSources);
-    return {
-        sourceCount: normalizedSources.length,
-        fileCount: normalizedSources.reduce((total, source) => total + source.files.length, 0),
-        modifiedFileCount: normalizedSources.reduce((total, source) => (
-            total + source.files.filter((file) => isLocalSourceFileModified(file)).length
-        ), 0),
-    };
+    return kernelSummarizeLocalSources(localSources);
 }
 
 export function createLocalSourcesManager(deps) {
@@ -788,53 +291,226 @@ export function createLocalSourcesManager(deps) {
         persistSession,
         onWorkspaceClosed,
         onWorkspaceSelectionChanged,
-        post,
+        callHostTool,
+        postHostToolCallWithoutResponse,
         renderWorkspaceUi = () => {},
     } = deps;
     let workspaceUiPersistTimer = 0;
-    let workspaceContentFlushTimer = 0;
-    let workspaceContentPersistError = '';
+    const pendingEditorWrites = new Map();
 
-    async function persistWorkspaceContentChanges() {
-        try {
-            syncHostLocalSources();
-            const persistResult = await persistSession?.();
-            if (persistResult && persistResult.ok === false) {
-                const errorText = String(persistResult.error || 'unknown_error');
-                if (workspaceContentPersistError !== errorText) {
-                    showToast?.(`工作区已更新，但会话保存失败，刷新后可能丢失：${errorText}`);
-                }
-                workspaceContentPersistError = errorText;
-                return false;
+    function getWorkspaceRuntimeMeta() {
+        const workspace = state.runtime?.workspace && typeof state.runtime.workspace === 'object'
+            ? state.runtime.workspace
+            : {};
+        return {
+            version: Number.isFinite(Number(workspace.version)) ? Number(workspace.version) : 0,
+            kernelVersion: String(workspace.kernelVersion || WORKSPACE_KERNEL_VERSION).trim() || WORKSPACE_KERNEL_VERSION,
+        };
+    }
+
+    function updateWorkspaceRuntimeMeta(payload = {}) {
+        state.runtime = {
+            ...(state.runtime || {}),
+            workspace: {
+                ...getWorkspaceRuntimeMeta(),
+                version: Number.isFinite(Number(payload.workspaceVersion))
+                    ? Number(payload.workspaceVersion)
+                    : getWorkspaceRuntimeMeta().version,
+                kernelVersion: String(payload.kernelVersion || getWorkspaceRuntimeMeta().kernelVersion || WORKSPACE_KERNEL_VERSION).trim() || WORKSPACE_KERNEL_VERSION,
+            },
+        };
+    }
+
+    function getDraftRecord(path = '') {
+        const draft = state.workspaceDrafts?.[path];
+        return draft && typeof draft === 'object' ? draft : null;
+    }
+
+    function setDraftRecord(path = '', patch = {}) {
+        const normalizedPath = String(path || '').trim();
+        if (!normalizedPath) return null;
+        state.workspaceDrafts = state.workspaceDrafts && typeof state.workspaceDrafts === 'object'
+            ? state.workspaceDrafts
+            : {};
+        const nextDraft = {
+            ...(getDraftRecord(normalizedPath) || {}),
+            ...patch,
+        };
+        state.workspaceDrafts[normalizedPath] = nextDraft;
+        return nextDraft;
+    }
+
+    function clearDraftRecord(path = '') {
+        const normalizedPath = String(path || '').trim();
+        if (!normalizedPath || !state.workspaceDrafts || typeof state.workspaceDrafts !== 'object') return;
+        delete state.workspaceDrafts[normalizedPath];
+    }
+
+    function discardPendingEditorWrite(path = '', options = {}) {
+        const normalizedPath = String(path || '').trim();
+        if (!normalizedPath) return null;
+        const entry = pendingEditorWrites.get(normalizedPath) || null;
+        if (entry?.timer) {
+            clearTimeout(entry.timer);
+            entry.timer = 0;
+        }
+        if (entry) {
+            entry.disposed = true;
+            pendingEditorWrites.delete(normalizedPath);
+        }
+        if (options.clearDraft !== false) {
+            clearDraftRecord(normalizedPath);
+        }
+        return entry;
+    }
+
+    function reconcileWorkspaceTransientState(nextSources = []) {
+        const normalizedSources = normalizeLocalSources(nextSources);
+        const livePaths = new Set(flattenLocalSourceFiles(normalizedSources).map((file) => String(file.path || '').trim()).filter(Boolean));
+
+        Object.keys(state.workspaceDrafts || {}).forEach((path) => {
+            const draft = getDraftRecord(path);
+            if (!draft) return;
+            const match = livePaths.has(path) ? findLocalFileByPath(normalizedSources, path) : null;
+            if (!match) {
+                discardPendingEditorWrite(path);
+                return;
             }
-            workspaceContentPersistError = '';
+            if (String(match.file.content || '') === String(draft.content || '')) {
+                clearDraftRecord(path);
+            }
+        });
+
+        Array.from(pendingEditorWrites.keys()).forEach((path) => {
+            if (!livePaths.has(path)) {
+                discardPendingEditorWrite(path, { clearDraft: false });
+            }
+        });
+    }
+
+    function primeWorkspaceSelection(targetPath = '', options = {}) {
+        const normalizedPath = normalizeLocalSourcePath(targetPath);
+        if (!normalizedPath) return false;
+        state.isWorkspaceOpen = true;
+        state.selectedSourceId = 'all';
+        if (normalizedPath.endsWith('/')) {
+            state.selectedTreePath = normalizeLocalDirectoryPath(normalizedPath) || LOCAL_SOURCE_PREFIX;
+            state.selectedFilePath = '';
+            state.mobileWorkspacePane = 'tree';
+            if (options.viewerMode) {
+                state.viewerMode = options.viewerMode;
+            } else {
+                state.viewerMode = 'current';
+            }
             return true;
-        } catch (error) {
-            const errorText = String(error?.message || error || 'unknown_error');
-            if (workspaceContentPersistError !== errorText) {
-                showToast?.(`工作区已更新，但会话保存失败，刷新后可能丢失：${errorText}`);
+        }
+
+        state.selectedFilePath = normalizeWritableLocalFilePath(normalizedPath) || normalizedPath;
+        state.selectedTreePath = state.selectedFilePath;
+        state.mobileWorkspacePane = 'viewer';
+        if (options.viewerMode) {
+            state.viewerMode = options.viewerMode;
+        }
+        return true;
+    }
+
+    function collectBeforeUnloadWorkspaceWrites() {
+        const writesByPath = new Map();
+        Array.from(pendingEditorWrites.values()).forEach((entry) => {
+            if (!entry || entry.disposed || !entry.path) return;
+            const draftContent = getDraftRecord(entry.path)?.content;
+            const queuedContent = entry.queuedContent;
+            const latestContent = draftContent ?? queuedContent ?? entry.inFlightContent;
+            if (latestContent === null || latestContent === undefined) return;
+            if (entry.inFlightPromise && queuedContent === null && draftContent === entry.inFlightContent) {
+                return;
             }
-            workspaceContentPersistError = errorText;
+            writesByPath.set(entry.path, {
+                path: entry.path,
+                content: String(latestContent),
+            });
+        });
+        return Array.from(writesByPath.values());
+    }
+
+    function postPendingWorkspaceWritesForUnload() {
+        const writes = collectBeforeUnloadWorkspaceWrites();
+        if (!writes.length || typeof postHostToolCallWithoutResponse !== 'function') return false;
+        postHostToolCallWithoutResponse(INTERNAL_WORKSPACE_TOOL_NAMES.BATCH_WRITE_FILES, {
+            files: writes,
+        }, {
+            workspaceMeta: {
+                source: WORKSPACE_SOURCES.EDITOR,
+                baseVersion: getWorkspaceRuntimeMeta().version,
+                path: writes[0]?.path || LOCAL_SOURCE_PREFIX,
+            },
+        });
+        return true;
+    }
+
+    async function callWorkspaceHostTool(toolName, args = {}, options = {}) {
+        if (typeof callHostTool !== 'function') {
+            throw new Error('workspace_host_tool_unavailable');
+        }
+        const path = typeof options.path === 'string'
+            ? options.path
+            : (typeof args?.path === 'string'
+                ? args.path
+                : (typeof args?.filePath === 'string'
+                    ? args.filePath
+                    : (typeof args?.fromPath === 'string' ? args.fromPath : '')));
+        const result = await callHostTool(toolName, args, {
+            workspaceMeta: {
+                source: options.source || WORKSPACE_SOURCES.UI_ACTION,
+                opId: createRequestId('workspace-op'),
+                baseVersion: Number.isFinite(Number(options.baseVersion))
+                    ? Number(options.baseVersion)
+                    : getWorkspaceRuntimeMeta().version,
+                path,
+            },
+        });
+        if (options.updateRuntimeMeta !== false && result && typeof result === 'object') {
+            updateWorkspaceRuntimeMeta(result);
+        }
+        return result;
+    }
+    async function flushPendingWorkspaceChanges() {
+        const writes = Array.from(pendingEditorWrites.values());
+        await Promise.all(writes.map(async (entry) => {
+            if (entry?.timer) {
+                clearTimeout(entry.timer);
+                entry.timer = 0;
+                await sendEditorWrite(entry.path);
+            }
+            if (entry?.inFlightPromise) {
+                await entry.inFlightPromise.catch(() => {});
+            }
+        }));
+        return Array.from(pendingEditorWrites.values()).every((entry) => (
+            entry?.disposed
+            || (
+                entry?.status !== 'error'
+                && !entry?.timer
+                && !entry?.inFlightPromise
+                && entry?.queuedContent === null
+            )
+        ));
+    }
+
+    async function applyAuthoritativeLocalSources(nextSources, toastText = '') {
+        const normalizedNextSources = normalizeLocalSources(nextSources);
+        state.localSources = normalizedNextSources;
+        ensureWorkspaceSelection();
+        render?.();
+        const persistResult = await persistSession?.();
+        if (persistResult && persistResult.ok === false) {
+            showToast?.(`工作区已更新，但会话保存失败，刷新后可能丢失：${persistResult.error || 'unknown_error'}`);
             return false;
         }
-    }
-
-    function flushWorkspaceContentChanges() {
-        if (workspaceContentFlushTimer) {
-            clearTimeout(workspaceContentFlushTimer);
-            workspaceContentFlushTimer = 0;
+        if (toastText) {
+            showToast?.(toastText);
         }
-        void persistWorkspaceContentChanges();
-    }
-
-    function scheduleWorkspaceContentFlush() {
-        if (workspaceContentFlushTimer) {
-            clearTimeout(workspaceContentFlushTimer);
-        }
-        workspaceContentFlushTimer = window.setTimeout(() => {
-            workspaceContentFlushTimer = 0;
-            void persistWorkspaceContentChanges();
-        }, 220);
+        return true;
     }
 
     function persistWorkspaceUiStateImmediately() {
@@ -1003,33 +679,11 @@ export function createLocalSourcesManager(deps) {
         }
     }
 
-    function syncHostLocalSources() {
-        post?.('xb-assistant:local-sources-sync', {
-            localSources: normalizeLocalSources(state.localSources),
-        });
-    }
-
-    async function commitLocalSources(nextSources, toastText = '', options = {}) {
-        const shouldSyncHost = options.syncHost !== false;
-        state.localSources = normalizeLocalSources(nextSources);
-        ensureWorkspaceSelection();
-        if (shouldSyncHost) {
-            syncHostLocalSources();
-        }
-        render?.();
-        const persistResult = await persistSession?.();
-        if (persistResult && persistResult.ok === false) {
-            showToast?.(`工作区已更新，但会话保存失败，刷新后可能丢失：${persistResult.error || 'unknown_error'}`);
-            return false;
-        }
-        if (toastText) {
-            showToast?.(toastText);
-        }
-        return true;
-    }
-
     async function applyExternalLocalSources(nextSources, toastText = '') {
-        return await commitLocalSources(nextSources, toastText, { syncHost: false });
+        console.info('[Assistant][LocalSources] host->iframe applyExternalLocalSources', summarizeLocalSources(nextSources));
+        const normalizedNextSources = normalizeLocalSources(nextSources);
+        reconcileWorkspaceTransientState(normalizedNextSources);
+        return await applyAuthoritativeLocalSources(normalizedNextSources, toastText);
     }
 
     async function appendLocalSourceFiles(files, options = {}) {
@@ -1144,21 +798,37 @@ export function createLocalSourcesManager(deps) {
                 return false;
             }
 
-            updateImportProgress('写入会话');
-            const result = await commitLocalSources(
-                [...normalizeLocalSources(state.localSources), ...importedSources],
-                summarizeImportResult({
-                    importedSources: importedSources.length,
-                    importedFiles,
-                    rejectedFiles,
-                    duplicateFiles,
-                }),
-            );
+            const summaryText = summarizeImportResult({
+                importedSources: importedSources.length,
+                importedFiles,
+                rejectedFiles,
+                duplicateFiles,
+            });
+
+            const files = importedSources.flatMap((source) => (
+                Array.isArray(source.files)
+                    ? source.files.map((file) => ({
+                        path: file.path,
+                        content: file.content,
+                    }))
+                    : []
+            ));
+            const result = await callWorkspaceHostTool(INTERNAL_WORKSPACE_TOOL_NAMES.BATCH_WRITE_FILES, {
+                files,
+            }, {
+                source: WORKSPACE_SOURCES.UI_ACTION,
+                path: resolveImportedWorkspaceTarget(importedSources) || LOCAL_SOURCE_PREFIX,
+            });
+            if (!result || result.ok === false) {
+                showToast?.(`导入到工作区失败：${String(result?.error || 'workspace_write_failed')}`);
+                return false;
+            }
+            showToast?.(summaryText);
             const autoOpenTarget = resolveImportedWorkspaceTarget(importedSources);
             if (autoOpenTarget) {
-                openWorkspace(autoOpenTarget);
+                primeWorkspaceSelection(autoOpenTarget);
             }
-            return result;
+            return true;
         } catch (error) {
             showToast?.(`导入到工作区失败：${String(error?.message || error || 'unknown_error')}`);
             return false;
@@ -1170,10 +840,19 @@ export function createLocalSourcesManager(deps) {
     async function removeLocalSource(sourceId) {
         const normalizedId = String(sourceId || '').trim();
         if (!normalizedId) return;
-        await commitLocalSources(
-            normalizeLocalSources(state.localSources).filter((source) => source.sourceId !== normalizedId),
-            '已移除工作区根',
-        );
+        const source = normalizeLocalSources(state.localSources).find((item) => item.sourceId === normalizedId);
+        if (!source?.rootPath) return;
+        const result = await callWorkspaceHostTool(TOOL_NAMES.DELETE, {
+            path: source.rootPath,
+        }, {
+            source: WORKSPACE_SOURCES.UI_ACTION,
+            path: source.rootPath,
+        });
+        if (!result || result.ok === false) {
+            showToast?.(`移除工作区根失败：${String(result?.error || 'unknown_error')}`);
+            return;
+        }
+        showToast?.('已移除工作区根');
     }
 
     function downloadLocalSource(sourceId) {
@@ -1235,26 +914,132 @@ export function createLocalSourcesManager(deps) {
     }
 
     async function clearLocalSources() {
-        if (!normalizeLocalSources(state.localSources).length) return;
-        await commitLocalSources([], '已清空工作区');
+        if (!normalizeLocalSources(state.localSources).length) return true;
+        const result = await callWorkspaceHostTool(TOOL_NAMES.DELETE, {
+            path: LOCAL_SOURCE_PREFIX,
+        }, {
+            source: WORKSPACE_SOURCES.UI_ACTION,
+            path: LOCAL_SOURCE_PREFIX,
+        });
+        if (!result || result.ok === false) {
+            showToast?.(`清空失败：${String(result?.error || 'unknown_error')}`);
+            return false;
+        }
+        return true;
+    }
+
+    async function resolveEditorStaleConflict(entry, staleResult) {
+        const confirmed = window.confirm('文件已被其他操作修改。\n确定：用当前编辑内容覆盖远端\n取消：丢弃当前改动并加载远端');
+        if (confirmed) {
+            entry.baseVersion = Number(staleResult?.workspaceVersion) || getWorkspaceRuntimeMeta().version;
+            entry.error = '';
+            entry.queuedContent = null;
+            await sendEditorWrite(entry.path);
+            return;
+        }
+        if (Array.isArray(staleResult?.currentSnapshot)) {
+            updateWorkspaceRuntimeMeta(staleResult);
+            await applyExternalLocalSources(staleResult.currentSnapshot);
+        }
+        discardPendingEditorWrite(entry.path);
+        showToast?.('已加载远端版本，当前改动已丢弃');
+    }
+
+    async function sendEditorWrite(targetPath) {
+        const normalizedPath = String(targetPath || '').trim();
+        const entry = pendingEditorWrites.get(normalizedPath);
+        if (!entry || entry.disposed || entry.inFlightPromise) return entry?.inFlightPromise || null;
+        const content = entry.queuedContent;
+        entry.queuedContent = null;
+        entry.inFlightContent = content;
+        entry.status = 'saving';
+        const writePromise = callWorkspaceHostTool(TOOL_NAMES.WRITE, {
+            path: normalizedPath,
+            content,
+        }, {
+            source: WORKSPACE_SOURCES.EDITOR,
+            baseVersion: entry.baseVersion,
+            path: normalizedPath,
+        }).then(async (result) => {
+            entry.inFlightPromise = null;
+            if (entry.disposed) {
+                return result;
+            }
+            if (!result || result.ok === false) {
+                if (result?.error === 'stale_workspace_version') {
+                    await resolveEditorStaleConflict(entry, result);
+                    return result;
+                }
+                entry.status = 'error';
+                entry.error = String(result?.error || 'workspace_write_failed');
+                showToast?.(`保存失败：${entry.error}`);
+                return result;
+            }
+
+            entry.baseVersion = Number(result.workspaceVersion) || getWorkspaceRuntimeMeta().version;
+            entry.status = 'idle';
+            entry.error = '';
+            if (entry.queuedContent !== null && entry.queuedContent !== entry.inFlightContent) {
+                await sendEditorWrite(normalizedPath);
+                return result;
+            }
+            if (entry.queuedContent === entry.inFlightContent) {
+                entry.queuedContent = null;
+            }
+            if (entry.queuedContent === null) {
+                clearDraftRecord(normalizedPath);
+                pendingEditorWrites.delete(normalizedPath);
+            }
+            return result;
+        }).catch((error) => {
+            entry.inFlightPromise = null;
+            if (entry.disposed) {
+                return null;
+            }
+            entry.status = 'error';
+            entry.error = String(error?.message || error || 'workspace_write_failed');
+            showToast?.(`保存失败：${entry.error}`);
+            return null;
+        });
+        entry.inFlightPromise = writePromise;
+        return writePromise;
     }
 
     function updateLocalFileContent(targetPath, content, options = {}) {
         const match = findLocalFileByPath(state.localSources, targetPath);
-        if (!match) return false;
+        const existingDraft = getDraftRecord(targetPath);
+        if (!match && !existingDraft) return false;
         const nextContent = typeof content === 'string' ? content : String(content ?? '');
-        if (nextContent === String(match.file.content || '')) return true;
-
-        const upsert = upsertLocalFileInSources(state.localSources, targetPath, nextContent, {
-            originalContent: match.file.originalContent,
+        const currentText = existingDraft?.content ?? String(match?.file?.content || '');
+        if (nextContent === currentText) return true;
+        const draft = setDraftRecord(targetPath, {
+            content: nextContent,
+            status: 'queued',
+            error: '',
         });
-        state.localSources = normalizeLocalSources(upsert.nextSources);
-        ensureWorkspaceSelection();
-
+        const entry = pendingEditorWrites.get(targetPath) || {
+            path: targetPath,
+            baseVersion: getWorkspaceRuntimeMeta().version,
+            inFlightPromise: null,
+            inFlightContent: null,
+            queuedContent: null,
+            timer: 0,
+            status: 'queued',
+            error: '',
+        };
+        entry.queuedContent = nextContent;
+        entry.status = draft?.status || 'queued';
+        entry.error = '';
+        if (entry.timer) {
+            clearTimeout(entry.timer);
+        }
+        entry.timer = window.setTimeout(() => {
+            entry.timer = 0;
+            void sendEditorWrite(targetPath);
+        }, 16);
+        pendingEditorWrites.set(targetPath, entry);
         if (options.flush) {
-            flushWorkspaceContentChanges();
-        } else {
-            scheduleWorkspaceContentFlush();
+            void flushPendingWorkspaceChanges();
         }
         if (options.render) {
             render?.();
@@ -1272,24 +1057,17 @@ export function createLocalSourcesManager(deps) {
             showToast?.('这个文件没有可恢复的原始快照');
             return false;
         }
-
-        const nextSources = normalizeLocalSources(state.localSources).map((source) => {
-            if (source.sourceId !== match.source.sourceId) return source;
-            return {
-                ...source,
-                files: source.files.map((file) => (
-                    file.path === match.file.path
-                        ? {
-                            ...file,
-                            content: match.file.originalContent,
-                            sizeBytes: new TextEncoder().encode(match.file.originalContent).length,
-                        }
-                        : file
-                )),
-            };
+        const result = await callWorkspaceHostTool(TOOL_NAMES.WRITE, {
+            path: match.file.path,
+            content: match.file.originalContent,
+        }, {
+            source: WORKSPACE_SOURCES.UI_ACTION,
+            path: match.file.path,
         });
-
-        await commitLocalSources(nextSources, `已恢复 ${match.file.name || match.file.relativePath}`);
+        if (!result || result.ok === false) {
+            showToast?.(`恢复失败：${String(result?.error || 'workspace_write_failed')}`);
+            return false;
+        }
         return true;
     }
 
@@ -1321,19 +1099,18 @@ export function createLocalSourcesManager(deps) {
             showToast?.('目标文件已存在，请改用重命名或编辑');
             return false;
         }
-
-        const upsert = upsertLocalFileInSources(state.localSources, normalizedPath, '', {
-            originalContent: null,
+        const result = await callWorkspaceHostTool(TOOL_NAMES.WRITE, {
+            path: normalizedPath,
+            content: '',
+        }, {
+            source: WORKSPACE_SOURCES.UI_ACTION,
+            path: normalizedPath,
         });
-        const committed = await commitLocalSources(upsert.nextSources, `已新建 ${upsert.file.relativePath || upsert.file.name}`);
-        if (!committed) return false;
-        selectWorkspaceFile(normalizedPath, {
-            preserveSourceFilter: false,
-            preserveSearch: false,
-            preserveModifiedOnly: false,
-            preserveViewerMode: false,
-        });
-        render?.();
+        if (!result || result.ok === false) {
+            showToast?.(`新建失败：${String(result?.error || 'workspace_write_failed')}`);
+            return false;
+        }
+        primeWorkspaceSelection(normalizedPath, { viewerMode: 'diff' });
         return true;
     }
 
@@ -1354,12 +1131,17 @@ export function createLocalSourcesManager(deps) {
             showToast?.('目标目录已存在，请换一个路径');
             return false;
         }
-
-        const upsert = upsertLocalDirectoryInSources(state.localSources, normalizedPath);
-        const committed = await commitLocalSources(upsert.nextSources, `已新建目录 ${normalizedPath}`);
-        if (!committed) return false;
-        selectWorkspaceNode(normalizedPath);
-        render?.();
+        const result = await callWorkspaceHostTool(INTERNAL_WORKSPACE_TOOL_NAMES.CREATE_DIRECTORY, {
+            path: normalizedPath,
+        }, {
+            source: WORKSPACE_SOURCES.UI_ACTION,
+            path: normalizedPath,
+        });
+        if (!result || result.ok === false) {
+            showToast?.(`新建目录失败：${String(result?.error || 'workspace_write_failed')}`);
+            return false;
+        }
+        primeWorkspaceSelection(normalizedPath);
         return true;
     }
 
@@ -1382,28 +1164,16 @@ export function createLocalSourcesManager(deps) {
             return false;
         }
         if (normalizedNextPath === currentPath) return false;
-
-        try {
-            const move = moveLocalPathInSources(state.localSources, currentPath, normalizedNextPath, { overwrite: false });
-            const toastText = move.mode === 'directory'
-                ? `已移动目录，共 ${move.movedFiles.length} 个文件`
-                : `已重命名 ${move.movedFiles[0]?.name || normalizedNextPath}`;
-            const committed = await commitLocalSources(move.nextSources, toastText);
-            if (!committed) return false;
-            if (move.mode === 'directory') {
-                selectWorkspaceNode(normalizedNextPath);
-            } else {
-                selectWorkspaceFile(move.movedFiles[0]?.path || normalizedNextPath, {
-                    preserveSourceFilter: false,
-                    preserveSearch: false,
-                    preserveModifiedOnly: false,
-                    preserveViewerMode: false,
-                });
-            }
-            render?.();
-            return true;
-        } catch (error) {
-            const message = String(error?.message || error || 'unknown_error');
+        const result = await callWorkspaceHostTool(TOOL_NAMES.MOVE, {
+            fromPath: currentPath,
+            toPath: normalizedNextPath,
+            overwrite: false,
+        }, {
+            source: WORKSPACE_SOURCES.UI_ACTION,
+            path: currentPath,
+        });
+        if (!result || result.ok === false) {
+            const message = String(result?.error || 'unknown_error');
             if (message === 'local_destination_exists') {
                 showToast?.('目标路径已存在，请换一个路径');
                 return false;
@@ -1411,6 +1181,8 @@ export function createLocalSourcesManager(deps) {
             showToast?.(`重命名失败：${message}`);
             return false;
         }
+        primeWorkspaceSelection(normalizedNextPath);
+        return true;
     }
 
     async function deleteLocalPath(targetPath = '') {
@@ -1428,22 +1200,17 @@ export function createLocalSourcesManager(deps) {
                 : `确定删除目录 ${currentPath} 及其下 ${directoryMatch.files.length} 个文件吗？`,
         );
         if (!confirmed) return false;
-
-        try {
-            const removal = removeLocalPathFromSources(state.localSources, currentPath);
-            const committed = await commitLocalSources(
-                removal.nextSources,
-                removal.mode === 'directory'
-                    ? `已删除目录，共 ${removal.removedFiles.length} 个文件`
-                    : `已删除 ${removal.removedFiles[0]?.name || currentPath}`,
-            );
-            if (!committed) return false;
-            render?.();
-            return true;
-        } catch (error) {
-            showToast?.(`删除失败：${String(error?.message || error || 'unknown_error')}`);
+        const result = await callWorkspaceHostTool(TOOL_NAMES.DELETE, {
+            path: currentPath,
+        }, {
+            source: WORKSPACE_SOURCES.UI_ACTION,
+            path: currentPath,
+        });
+        if (!result || result.ok === false) {
+            showToast?.(`删除失败：${String(result?.error || 'unknown_error')}`);
             return false;
         }
+        return true;
     }
 
     function openWorkspace(targetPath = '') {
@@ -1468,6 +1235,7 @@ export function createLocalSourcesManager(deps) {
 
     function closeWorkspace() {
         if (!state.isWorkspaceOpen) return;
+        void flushPendingWorkspaceChanges();
         state.isWorkspaceOpen = false;
         onWorkspaceClosed?.();
         persistWorkspaceUiStateImmediately();
@@ -1595,12 +1363,22 @@ export function createLocalSourcesManager(deps) {
             isModifiedFile: isLocalSourceFileModified,
         });
         const selectedMatch = findLocalFileByPath(state.localSources, state.selectedFilePath);
+        const selectedDraft = getDraftRecord(state.selectedFilePath);
+        const renderedSelectedMatch = selectedMatch && selectedDraft
+            ? {
+                ...selectedMatch,
+                file: {
+                    ...selectedMatch.file,
+                    content: String(selectedDraft.content || ''),
+                },
+            }
+            : selectedMatch;
         renderWorkspaceUi(container, {
             ...options,
             localSources: normalizedSources,
             summary,
             workspaceTree,
-            selectedMatch,
+            selectedMatch: renderedSelectedMatch,
             workspaceState: {
                 selectedSourceId: 'all',
                 selectedFilePath: state.selectedFilePath,
@@ -1610,6 +1388,8 @@ export function createLocalSourcesManager(deps) {
                 viewerMode: state.viewerMode,
                 mobileWorkspacePane: state.mobileWorkspacePane,
                 treeExpandedKeys: state.treeExpandedKeys,
+                workspaceVersion: getWorkspaceRuntimeMeta().version,
+                workspaceDrafts: state.workspaceDrafts,
             },
             isModifiedFile: isLocalSourceFileModified,
             hasOriginalSnapshot,
@@ -1699,6 +1479,7 @@ export function createLocalSourcesManager(deps) {
         ensureWorkspaceSelection,
         getWorkspaceSummary,
         openFirstModifiedFile,
-        syncHostLocalSources,
+        flushPendingWorkspaceChanges,
+        postPendingWorkspaceWritesForUnload,
     };
 }

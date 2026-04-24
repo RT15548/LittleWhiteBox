@@ -40,6 +40,10 @@ import {
     SYSTEM_PROMPT,
     buildPermissionModePrompt,
 } from './prompts/system-prompt.js';
+import {
+    WORKSPACE_KERNEL_VERSION,
+    WORKSPACE_MESSAGE_TYPES,
+} from '../shared/workspace-protocol.js';
 
 const SOURCE = 'xb-assistant-app';
 const ROOT_ID = 'xb-assistant-root';
@@ -84,6 +88,7 @@ const state = {
     config: null,
     configDraft: null,
     runtime: null,
+    workspaceDrafts: {},
     pendingApproval: null,
     messages: [],
     historySummary: '',
@@ -135,6 +140,7 @@ const state = {
     sidebarCollapsed: true,
     configFormSyncPending: true,
     editingMessageIndex: -1,
+    messageActionFeedback: {},
     configSave: {
         status: 'idle',
         requestId: '',
@@ -150,6 +156,12 @@ let configSaveTimeout = null;
 let configSaveResetTimer = null;
 let suppressNextIdentityUpdatedToast = false;
 let suppressNextMemoryRefreshToast = false;
+const messageActionFeedbackTimers = new Map();
+const workspaceToolBridge = {
+    callHostTool: null,
+    postHostToolCallWithoutResponse: null,
+};
+const WORKSPACE_KERNEL_RELOAD_KEY = 'xb-assistant-workspace-kernel-reload';
 
 function post(type, payload = {}) {
     parent.postMessage({ source: SOURCE, type, payload }, window.location.origin);
@@ -167,6 +179,45 @@ function safeJsonParse(text, fallback = {}) {
     }
 }
 
+function getWorkspaceRuntimeMeta(runtime = state.runtime) {
+    const workspace = runtime?.workspace && typeof runtime.workspace === 'object'
+        ? runtime.workspace
+        : {};
+    return {
+        version: Number.isFinite(Number(workspace.version)) ? Number(workspace.version) : 0,
+        kernelVersion: String(workspace.kernelVersion || '').trim(),
+    };
+}
+
+function reloadForWorkspaceKernelVersion(expectedVersion = '') {
+    const normalizedExpected = String(expectedVersion || '').trim();
+    if (!normalizedExpected) return;
+    const nextAttempt = Number(sessionStorage.getItem(WORKSPACE_KERNEL_RELOAD_KEY) || '0') + 1;
+    sessionStorage.setItem(WORKSPACE_KERNEL_RELOAD_KEY, String(nextAttempt));
+    if (nextAttempt > 2) {
+        showToast('工作区内核版本缓存不一致，请清除缓存后重试');
+        return;
+    }
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set('kernel', normalizedExpected);
+    nextUrl.searchParams.set('kernelReload', String(nextAttempt));
+    window.location.replace(nextUrl.toString());
+}
+
+function ensureWorkspaceKernelVersion(runtime = state.runtime) {
+    const workspace = runtime?.workspace && typeof runtime.workspace === 'object'
+        ? runtime.workspace
+        : null;
+    if (!workspace) return true;
+    const expectedVersion = String(workspace.kernelVersion || '').trim();
+    if (!expectedVersion || expectedVersion === WORKSPACE_KERNEL_VERSION) {
+        sessionStorage.removeItem(WORKSPACE_KERNEL_RELOAD_KEY);
+        return true;
+    }
+    reloadForWorkspaceKernelVersion(expectedVersion);
+    return false;
+}
+
 let sessionStore = null;
 
 function persistSession() {
@@ -179,6 +230,16 @@ function clearSession() {
 
 function restoreSession() {
     return sessionStore?.restoreSession();
+}
+
+async function closeAssistantAfterWorkspaceFlush() {
+    const ok = await flushPendingWorkspaceChanges();
+    if (!ok) {
+        showToast('工作区还有未保存修改，已取消关闭。');
+        return false;
+    }
+    post('xb-assistant:close');
+    return true;
 }
 
 function renderWorkspaceOnly() {
@@ -408,7 +469,6 @@ function requestHostTool(name, args) {
             requestId,
             name,
             arguments: args,
-            localSources: Array.isArray(state.localSources) ? state.localSources : [],
         });
     });
 }
@@ -992,6 +1052,8 @@ const localSourcesManager = createLocalSourcesManager({
         renderContextHint(document.getElementById(ROOT_ID), state);
     },
     post,
+    callHostTool: (...args) => workspaceToolBridge.callHostTool?.(...args),
+    postHostToolCallWithoutResponse: (...args) => workspaceToolBridge.postHostToolCallWithoutResponse?.(...args),
     renderWorkspaceUi,
 });
 
@@ -1006,7 +1068,8 @@ const {
     setWorkspaceWidth,
     ensureWorkspaceSelection,
     getWorkspaceSummary,
-    syncHostLocalSources,
+    flushPendingWorkspaceChanges,
+    postPendingWorkspaceWritesForUnload,
     selectWorkspaceFile,
     selectWorkspaceNode,
     setMobileWorkspacePane,
@@ -1023,6 +1086,7 @@ const {
 function describeError(error) {
     const raw = String(error?.message || error || 'unknown_error');
     const lowered = raw.toLowerCase();
+    const validationErrors = Array.isArray(error?.validation?.errors) ? error.validation.errors : [];
 
     if (error?.rawDisplay) return String(error.rawDisplay);
     if (isAbortError(error)) return '本轮请求已终止。';
@@ -1033,10 +1097,20 @@ function describeError(error) {
     if (lowered === 'file_not_indexed') return '这个文件不在当前助手索引范围里。';
     if (lowered === 'local_path_required') return '这个工具只能操作 `local/` 下的会话内临时工作区文件。';
     if (lowered === 'unsupported_text_file') return '目前只支持文本类工作区文件。';
-    if (lowered === 'local_source_not_found') return '目标工作区根不存在，可能已经被移除。';
+    if (lowered === 'local_source_not_found') return '源 `local/` 路径不存在，无法完成这次移动。';
     if (lowered === 'local_file_not_found') return '目标 `local/` 文件不存在；可以先用 Write 新建。';
+    if (lowered === 'directory_not_found') return '目标目录不存在。';
     if (lowered === 'local_path_not_found') return '目标 `local/` 路径不存在。';
+    if (lowered === 'local_parent_path_blocked') return '目标父路径已是文件，不能在文件下面创建或移动子项。';
+    if (lowered === 'local_source_equals_destination') return '源路径和目标路径相同，这次移动没有实际变化。';
     if (lowered === 'local_destination_exists') return '目标路径已经存在；请换一个路径，或显式允许覆盖。';
+    if (lowered === 'workspace_invariant_failed') {
+        const fileDirectoryConflict = validationErrors.find((entry) => String(entry || '').startsWith('file_directory_conflict:'));
+        if (fileDirectoryConflict) {
+            return '路径与现有文件/目录结构冲突：某个父路径已经是文件，不能再作为目录使用。';
+        }
+        return '工作区路径结构冲突，无法完成这次操作。';
+    }
     if (lowered.startsWith('apply_patch_parse_error:')) return 'apply_patch 补丁格式无效。';
     if (lowered.startsWith('apply_patch_apply_error:')) return 'apply_patch 无法在目标文件中定位补丁上下文。';
     if (lowered === 'directory_path_required') return '还没有提供要查看的目录路径。';
@@ -1346,6 +1420,7 @@ const runtime = createAssistantRuntime({
     getActiveProviderConfig,
     getSystemPrompt: getInjectedSystemPrompt,
     getEphemeralUserContextText,
+    flushPendingWorkspaceChanges,
     SYSTEM_PROMPT,
     SUMMARY_SYSTEM_PROMPT,
     HISTORY_SUMMARY_PREFIX,
@@ -1368,7 +1443,12 @@ const {
     toProviderMessages,
     getActiveContextMessages,
     runAssistantLoop,
+    callHostTool,
+    postHostToolCallWithoutResponse,
 } = runtime;
+
+workspaceToolBridge.callHostTool = callHostTool;
+workspaceToolBridge.postHostToolCallWithoutResponse = postHostToolCallWithoutResponse;
 
 sessionStore = createSessionStore({
     state,
@@ -1665,7 +1745,7 @@ function bindEvents(root) {
     });
 
     root.querySelector('#xb-assistant-mobile-close')?.addEventListener('click', () => {
-        post('xb-assistant:close');
+        void closeAssistantAfterWorkspaceFlush();
     });
 
     root.querySelector('#xb-assistant-open-workspace')?.addEventListener('click', () => {
@@ -1710,6 +1790,31 @@ function bindEvents(root) {
         handleAssistantChatScroll(root);
     });
 
+    const flashMessageActionButton = (messageIndex, action, copied) => {
+        if (!Number.isInteger(messageIndex) || messageIndex < 0 || !action) return;
+        const feedbackKey = `${action}:${messageIndex}`;
+        if (messageActionFeedbackTimers.has(feedbackKey)) {
+            clearTimeout(messageActionFeedbackTimers.get(feedbackKey));
+            messageActionFeedbackTimers.delete(feedbackKey);
+        }
+        state.messageActionFeedback = {
+            ...(state.messageActionFeedback || {}),
+            [feedbackKey]: copied ? 'success' : 'error',
+        };
+        render();
+        const timer = window.setTimeout(() => {
+            messageActionFeedbackTimers.delete(feedbackKey);
+            if (!state.messageActionFeedback || !Object.prototype.hasOwnProperty.call(state.messageActionFeedback, feedbackKey)) {
+                return;
+            }
+            const nextFeedback = { ...(state.messageActionFeedback || {}) };
+            delete nextFeedback[feedbackKey];
+            state.messageActionFeedback = nextFeedback;
+            render();
+        }, 1200);
+        messageActionFeedbackTimers.set(feedbackKey, timer);
+    };
+
     const handleAssistantPanelClick = async (event) => {
         const approvalButton = event.target.closest('[data-approval-id][data-approval-decision]');
         if (approvalButton) {
@@ -1737,6 +1842,7 @@ function bindEvents(root) {
 
         if (action === 'copy') {
             const copied = await copyText(String(message.content || ''));
+            flashMessageActionButton(messageIndex, action, copied);
             showToast(copied ? '已复制整条消息' : '复制失败');
             return;
         }
@@ -1817,16 +1923,18 @@ function bindEvents(root) {
 
     root.querySelector('#xb-assistant-clear').addEventListener('click', async () => {
         if (state.isBusy) return;
+        const cleared = await clearLocalSources();
+        if (!cleared) return;
         state.messages = [];
         state.draftAttachments = [];
         state.localSources = [];
+        state.workspaceDrafts = {};
         state.historySummary = '';
         state.archivedTurnCount = 0;
         state.pendingApproval = null;
         state.editingMessageIndex = -1;
         resetCompactionState();
         await clearSession();
-        syncHostLocalSources();
         showToast('对话已清空');
         render();
     });
@@ -1969,8 +2077,13 @@ window.addEventListener('message', (event) => {
         return;
     }
     const data = event.data || {};
+    if (data.type === 'xb-assistant:prepare-close') {
+        void closeAssistantAfterWorkspaceFlush();
+        return;
+    }
     if (data.type === 'xb-assistant:config') {
         state.runtime = data.payload?.runtime || null;
+        if (!ensureWorkspaceKernelVersion(state.runtime)) return;
         state.skillFiles = normalizeSkillFiles(data.payload?.runtime?.skillFiles || []);
         if (state.workspacePanelMode === 'memory') {
             ensureSkillSelection();
@@ -2029,7 +2142,18 @@ window.addEventListener('message', (event) => {
         return;
     }
 
-    if (data.type === 'xb-assistant:local-sources-updated') {
+    if (data.type === WORKSPACE_MESSAGE_TYPES.UPDATED) {
+        console.info('[Assistant][HostBridge] local-sources-updated:received', summarizeLocalSources(data.payload?.localSources || []));
+        state.runtime = {
+            ...(state.runtime || {}),
+            workspace: {
+                ...getWorkspaceRuntimeMeta(),
+                version: Number.isFinite(Number(data.payload?.workspaceVersion))
+                    ? Number(data.payload.workspaceVersion)
+                    : getWorkspaceRuntimeMeta().version,
+                kernelVersion: String(data.payload?.kernelVersion || getWorkspaceRuntimeMeta().kernelVersion || WORKSPACE_KERNEL_VERSION),
+            },
+        };
         void applyExternalLocalSources(data.payload?.localSources || []);
         return;
     }
@@ -2055,18 +2179,33 @@ window.addEventListener('message', (event) => {
     }
 });
 
+window.addEventListener('beforeunload', () => {
+    postPendingWorkspaceWritesForUnload();
+    void flushPendingWorkspaceChanges();
+});
+
 async function bootstrap() {
     await restoreSession();
     injectAssistantStyles(ROOT_ID);
     render();
-    syncHostLocalSources();
-    post('xb-assistant:ready');
+    post(WORKSPACE_MESSAGE_TYPES.HYDRATE, {
+        localSources: normalizeLocalSources(state.localSources),
+        kernelVersion: WORKSPACE_KERNEL_VERSION,
+    });
+    post('xb-assistant:ready', {
+        kernelVersion: WORKSPACE_KERNEL_VERSION,
+    });
 }
 
 bootstrap().catch((error) => {
     console.error('[Assistant] 启动失败:', error);
     injectAssistantStyles(ROOT_ID);
     render();
-    syncHostLocalSources();
-    post('xb-assistant:ready');
+    post(WORKSPACE_MESSAGE_TYPES.HYDRATE, {
+        localSources: normalizeLocalSources(state.localSources),
+        kernelVersion: WORKSPACE_KERNEL_VERSION,
+    });
+    post('xb-assistant:ready', {
+        kernelVersion: WORKSPACE_KERNEL_VERSION,
+    });
 });

@@ -273,6 +273,63 @@ test('runPatchValidationAndApply preserves move-only updates inside validate/app
     assert.equal(findFile(result.nextState, 'local/demo/app.js'), null);
 });
 
+test('runPatchValidationAndApply calls adapter findFile with state first and path second', () => {
+    const initialState = createState({
+        'local/demo/app.js': 'const value = 1;\n',
+    });
+    const parsed = patch([
+        '*** Update File: local/demo/app.js',
+        '@@',
+        '-const value = 1;',
+        '+const value = 2;',
+    ]);
+    const calls = [];
+    const adapter = {
+        ...createAdapter(),
+        findFile: (state, publicPath) => {
+            calls.push({
+                isArrayState: Array.isArray(state),
+                publicPath,
+            });
+            return findFile(state, publicPath);
+        },
+    };
+
+    const result = runPatchValidationAndApply(parsed, initialState, adapter);
+
+    assert.equal(result.ok, true);
+    assert.ok(calls.length >= 2);
+    assert.equal(calls[0]?.isArrayState, true);
+    assert.equal(calls[0]?.publicPath, 'local/demo/app.js');
+});
+
+test('runPatchValidationAndApply also accepts adapter mutations that return nextSources', () => {
+    const initialState = createState({
+        'local/demo/app.js': 'const value = 1;\n',
+    });
+    const parsed = patch([
+        '*** Update File: local/demo/app.js',
+        '@@',
+        '-const value = 1;',
+        '+const value = 2;',
+    ]);
+    const adapter = {
+        ...createAdapter(),
+        writeFile: (state, publicPath, content) => {
+            const result = writeFile(state, publicPath, content);
+            return {
+                nextSources: result.nextState,
+                file: result.file,
+            };
+        },
+    };
+
+    const result = runPatchValidationAndApply(parsed, initialState, adapter);
+
+    assert.equal(result.ok, true);
+    assert.equal(findFile(result.nextState, 'local/demo/app.js')?.content, 'const value = 2;\n');
+});
+
 test('buildPatchFailureResult produces a structured failed result', () => {
     const error = new Error('apply_patch_apply_error:hunk 1 for local/demo/app.js old block did not match the current file');
     error.patchValidation = {

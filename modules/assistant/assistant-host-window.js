@@ -318,7 +318,16 @@ export function createAssistantHostWindow(options) {
         const fullscreenButton = createTitleActionButton('⛶', '全屏布局');
         const closeButton = createTitleActionButton('✕', '关闭小白助手', true);
         closeButton.style.font = '600 14px/1 "Microsoft YaHei", sans-serif';
-        closeButton.addEventListener('click', () => onCloseRequest?.());
+        closeButton.addEventListener('click', () => {
+            if (iframe.contentWindow) {
+                iframe.contentWindow.postMessage({
+                    type: 'xb-assistant:prepare-close',
+                    payload: {},
+                }, window.location.origin);
+                return;
+            }
+            onCloseRequest?.();
+        });
         titleActions.append(minimizeButton, sidebarLayoutButton, fullscreenButton, closeButton);
 
         const resizeHint = document.createElement('div');

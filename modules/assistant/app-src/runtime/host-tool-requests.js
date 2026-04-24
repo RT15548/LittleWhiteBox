@@ -1,3 +1,9 @@
+import {
+    WORKSPACE_SOURCES,
+    buildWorkspaceOpMeta,
+    isWorkspaceMutationTool,
+} from '../../shared/workspace-protocol.js';
+
 export function createHostToolRequestController(deps) {
     const {
         state,
@@ -6,7 +12,26 @@ export function createHostToolRequestController(deps) {
         createRequestId,
         REQUEST_TIMEOUT_MS,
         describeError,
+        flushBeforeToolCall,
     } = deps;
+
+    function summarizeToolArguments(args = {}) {
+        if (!args || typeof args !== 'object') {
+            return {
+                kind: typeof args,
+            };
+        }
+        const summary = {
+            keys: Object.keys(args),
+        };
+        if (typeof args.path === 'string') {
+            summary.path = args.path;
+        }
+        if (typeof args.patchText === 'string') {
+            summary.patchLength = args.patchText.length;
+        }
+        return summary;
+    }
 
     function clearPendingToolCalls(runId, error) {
         for (const [requestId, entry] of pendingToolCalls.entries()) {
@@ -17,13 +42,47 @@ export function createHostToolRequestController(deps) {
         }
     }
 
-    function callHostTool(name, args, options = {}) {
+    function buildWorkspaceRequestMeta(name, args, options = {}) {
+        return buildWorkspaceOpMeta(options.workspaceMeta, {
+            source: isWorkspaceMutationTool(name) ? WORKSPACE_SOURCES.TOOL : WORKSPACE_SOURCES.HYDRATE,
+            baseVersion: Number(state.runtime?.workspace?.version) || 0,
+            path: typeof args?.path === 'string'
+                ? args.path
+                : (typeof args?.filePath === 'string'
+                    ? args.filePath
+                    : (typeof args?.fromPath === 'string' ? args.fromPath : '')),
+        });
+    }
+
+    function postHostToolCall(requestId, name, args, workspaceMeta) {
+        console.info('[Assistant][ToolCall] iframe->host', {
+            requestId,
+            toolName: String(name || ''),
+            args: summarizeToolArguments(args),
+        });
+        post('xb-assistant:tool-call', {
+            requestId,
+            name,
+            arguments: args,
+            workspaceMeta,
+        });
+    }
+
+    async function callHostTool(name, args, options = {}) {
+        if (typeof flushBeforeToolCall === 'function') {
+            await flushBeforeToolCall({
+                toolName: String(name || ''),
+                args,
+                runId: options.runId || '',
+            });
+        }
+        const workspaceMeta = buildWorkspaceRequestMeta(name, args, options);
         const requestId = createRequestId('tool');
         const run = state.activeRun;
         if (run && run.id === options.runId) {
             run.toolRequestIds.add(requestId);
         }
-        return new Promise((resolve, reject) => {
+        return await new Promise((resolve, reject) => {
             let settled = false;
             let timer = null;
             let abortHandler = null;
@@ -83,13 +142,15 @@ export function createHostToolRequestController(deps) {
                 options.signal.addEventListener('abort', abortHandler, { once: true });
             }
 
-            post('xb-assistant:tool-call', {
-                requestId,
-                name,
-                arguments: args,
-                localSources: Array.isArray(state.localSources) ? state.localSources : [],
-            });
+            postHostToolCall(requestId, name, args, workspaceMeta);
         });
+    }
+
+    function postHostToolCallWithoutResponse(name, args, options = {}) {
+        const workspaceMeta = buildWorkspaceRequestMeta(name, args, options);
+        const requestId = createRequestId('tool');
+        postHostToolCall(requestId, name, args, workspaceMeta);
+        return requestId;
     }
 
     function buildToolFailureResult(toolName, args, error) {
@@ -130,6 +191,7 @@ export function createHostToolRequestController(deps) {
     return {
         buildToolFailureResult,
         callHostTool,
+        postHostToolCallWithoutResponse,
         clearPendingToolCalls,
         recordToolErrorForLightBrake,
         resetToolErrorLightBrake,
