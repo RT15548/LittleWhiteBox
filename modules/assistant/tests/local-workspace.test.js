@@ -321,6 +321,55 @@ test('local sources manager can create a new file from workspace actions', async
     assert.equal(state.viewerMode, 'diff');
 });
 
+test('local sources manager creates a new file next to the selected file by default', async () => {
+    const state = {
+        localSources: createSources(),
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: 'local/alpha/src/a.js',
+        selectedTreePath: 'local/alpha/src/a.js',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+    ensureWorkspaceRuntime(state);
+    let promptDefault = '';
+    let manager = null;
+
+    manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: () => {},
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        callHostTool: async (name, args) => {
+            const nextSources = applyHostMutationToSources(state.localSources, name, args);
+            if (nextSources) {
+                await manager.applyExternalLocalSources(nextSources);
+            }
+            return {
+                ok: true,
+                workspaceVersion: state.runtime.workspace.version + 1,
+            };
+        },
+    });
+
+    await withMockWindow({
+        prompt: (_message, defaultValue) => {
+            promptDefault = String(defaultValue || '');
+            return 'local/alpha/src/created-next-to-file.txt';
+        },
+    }, async () => {
+        const created = await manager.createLocalFileAt('local/alpha/src/a.js');
+        assert.equal(created, true);
+    });
+
+    assert.equal(promptDefault, 'alpha/src/new-file.txt');
+    assert.equal(state.selectedFilePath, 'local/alpha/src/created-next-to-file.txt');
+});
+
 test('local sources manager can create a new file directly under local root', async () => {
     const state = {
         localSources: [],
@@ -553,6 +602,57 @@ test('local sources manager reports persist failures for authoritative editor up
     });
 });
 
+test('local sources manager skips full rerender for authoritative updates while the current editor is actively typing', async () => {
+    await withMockWindow({}, async () => {
+        let renderCalls = 0;
+        let persistCalls = 0;
+        const state = {
+            localSources: createSources(),
+            isWorkspaceOpen: true,
+            selectedSourceId: 'all',
+            selectedFilePath: 'local/alpha/src/a.js',
+            selectedTreePath: 'local/alpha/src/a.js',
+            fileSearchQuery: '',
+            showModifiedOnly: false,
+            viewerMode: 'current',
+            treeExpandedKeys: [],
+            workspaceWidth: 520,
+        };
+        ensureWorkspaceRuntime(state);
+
+        const manager = createLocalSourcesManager({
+            state,
+            createRequestId: () => 'req-test',
+            showToast: () => {},
+            render: () => {
+                renderCalls += 1;
+            },
+            persistSession: async () => {
+                persistCalls += 1;
+                return { ok: true };
+            },
+            callHostTool: async () => ({ ok: true }),
+        });
+
+        const updated = manager.updateLocalFileContent('local/alpha/src/a.js', 'console.log("ime safe")\n', { flush: false, render: false });
+        assert.equal(updated, true);
+
+        const nextSources = applyHostMutationToSources(state.localSources, 'Write', {
+            path: 'local/alpha/src/a.js',
+            content: 'console.log("ime safe")\n',
+        });
+        await manager.applyExternalLocalSources(nextSources);
+
+        assert.equal(renderCalls, 0);
+        assert.equal(persistCalls, 1);
+        const syncedFile = state.localSources
+            .flatMap((source) => source.files || [])
+            .find((file) => file.path === 'local/alpha/src/a.js');
+        assert(syncedFile);
+        assert.equal(syncedFile.content, 'console.log("ime safe")\n');
+    });
+});
+
 test('local sources manager flushes pending editor changes before closing workspace', async () => {
     await withMockWindow({}, async () => {
         let persistCalls = 0;
@@ -716,6 +816,150 @@ test('local sources manager can create an empty directory inside workspace', asy
     assert(alphaSource.directories.includes('docs/api'));
     assert.equal(state.selectedTreePath, 'local/alpha/docs/api/');
     assert.equal(state.selectedSourceId, 'all');
+});
+
+test('local sources manager creates a new directory next to the selected file by default', async () => {
+    const state = {
+        localSources: createSources(),
+        runtime: {
+            workspace: {
+                version: 5,
+                kernelVersion: '2026.04.24-v3',
+            },
+        },
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: 'local/alpha/src/a.js',
+        selectedTreePath: 'local/alpha/src/a.js',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+    let promptDefault = '';
+    let manager = null;
+
+    manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: () => {},
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        callHostTool: async (name, args) => {
+            const nextSources = applyHostMutationToSources(state.localSources, name, args);
+            if (nextSources) {
+                await manager.applyExternalLocalSources(nextSources);
+            }
+            return {
+                ok: true,
+                workspaceVersion: state.runtime.workspace.version + 1,
+            };
+        },
+    });
+
+    await withMockWindow({
+        prompt: (_message, defaultValue) => {
+            promptDefault = String(defaultValue || '');
+            return 'local/alpha/src/new-folder/';
+        },
+    }, async () => {
+        const created = await manager.createLocalDirectoryAt('local/alpha/src/a.js');
+        assert.equal(created, true);
+    });
+
+    assert.equal(promptDefault, 'alpha/src/new-folder/');
+    assert.equal(state.selectedTreePath, 'local/alpha/src/new-folder/');
+});
+
+test('local sources manager falls back to local directory apply when host create directory succeeds without an update push', async () => {
+    const state = {
+        localSources: createSources(),
+        runtime: {
+            workspace: {
+                version: 5,
+                kernelVersion: '2026.04.24-v3',
+            },
+        },
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: '',
+        selectedTreePath: 'local/alpha/',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: () => {},
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        callHostTool: async () => ({
+            ok: true,
+            workspaceVersion: state.runtime.workspace.version + 1,
+        }),
+    });
+
+    await withMockWindow({
+        prompt: () => 'local/alpha/docs/api/',
+    }, async () => {
+        const created = await manager.createLocalDirectoryAt('local/alpha/');
+        assert.equal(created, true);
+    });
+
+    const alphaSource = state.localSources.find((source) => source.label === 'alpha');
+    assert(alphaSource);
+    assert(alphaSource.directories.includes('docs'));
+    assert(alphaSource.directories.includes('docs/api'));
+    assert.equal(state.selectedTreePath, 'local/alpha/docs/api/');
+});
+
+test('local sources manager surfaces host create directory errors', async () => {
+    const toasts = [];
+    const state = {
+        localSources: createSources(),
+        runtime: {
+            workspace: {
+                version: 5,
+                kernelVersion: '2026.04.24-v3',
+            },
+        },
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: '',
+        selectedTreePath: 'local/alpha/',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: (message) => {
+            toasts.push(String(message || ''));
+        },
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        callHostTool: async () => {
+            throw new Error('workspace_create_directory_failed');
+        },
+    });
+
+    await withMockWindow({
+        prompt: () => 'local/alpha/docs/api/',
+    }, async () => {
+        const created = await manager.createLocalDirectoryAt('local/alpha/');
+        assert.equal(created, false);
+    });
+
+    assert.equal(toasts.includes('新建目录失败：workspace_create_directory_failed'), true);
 });
 
 test('local sources manager removes workspace root through host tool', async () => {
@@ -926,8 +1170,163 @@ test('local sources manager reports clear failure from host mutation', async () 
         callHostTool: async () => ({ ok: false, error: 'workspace_delete_failed' }),
     });
 
-    const cleared = await manager.clearLocalSources();
-    assert.equal(cleared, false);
+    await withMockWindow({
+        confirm: () => true,
+    }, async () => {
+        const cleared = await manager.clearLocalSources();
+        assert.equal(cleared, false);
+    });
+    assert.equal(state.localSources.length > 0, true);
+    assert.equal(toasts.includes('清空失败：workspace_delete_failed'), true);
+});
+
+test('clearLocalSources clears the workspace after confirmation and shows success feedback', async () => {
+    const toasts = [];
+    const state = {
+        localSources: createSources(),
+        runtime: {
+            workspace: {
+                version: 5,
+                kernelVersion: '2026.04.24-v3',
+            },
+        },
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: 'local/alpha/src/a.js',
+        selectedTreePath: 'local/alpha/src/a.js',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+    let manager = null;
+
+    manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: (message) => {
+            toasts.push(String(message || ''));
+        },
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        post: () => {},
+        callHostTool: async (name, args) => {
+            const nextSources = applyHostMutationToSources(state.localSources, name, args);
+            if (nextSources) {
+                await manager.applyExternalLocalSources(nextSources);
+            }
+            return {
+                ok: true,
+                workspaceVersion: state.runtime.workspace.version + 1,
+            };
+        },
+    });
+
+    await withMockWindow({
+        confirm: () => true,
+    }, async () => {
+        const cleared = await manager.clearLocalSources();
+        assert.equal(cleared, true);
+    });
+
+    assert.equal(state.localSources.length, 0);
+    assert.equal(state.selectedFilePath, '');
+    assert.equal(state.selectedTreePath, 'local/');
+    assert.equal(toasts.includes('已清空工作区'), true);
+});
+
+test('clearLocalSources falls back to an empty workspace when host delete succeeds without an update push', async () => {
+    const toasts = [];
+    const state = {
+        localSources: createSources(),
+        runtime: {
+            workspace: {
+                version: 5,
+                kernelVersion: '2026.04.24-v3',
+            },
+        },
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: 'local/alpha/src/a.js',
+        selectedTreePath: 'local/alpha/src/a.js',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: (message) => {
+            toasts.push(String(message || ''));
+        },
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        post: () => {},
+        callHostTool: async () => ({
+            ok: true,
+            workspaceVersion: state.runtime.workspace.version + 1,
+        }),
+    });
+
+    await withMockWindow({
+        confirm: () => true,
+    }, async () => {
+        const cleared = await manager.clearLocalSources();
+        assert.equal(cleared, true);
+    });
+
+    assert.equal(state.localSources.length, 0);
+    assert.equal(state.selectedFilePath, '');
+    assert.equal(state.selectedTreePath, 'local/');
+    assert.equal(toasts.includes('已清空工作区'), true);
+});
+
+test('clearLocalSources surfaces rejected host delete calls', async () => {
+    const toasts = [];
+    const state = {
+        localSources: createSources(),
+        runtime: {
+            workspace: {
+                version: 5,
+                kernelVersion: '2026.04.24-v3',
+            },
+        },
+        isWorkspaceOpen: true,
+        selectedSourceId: 'all',
+        selectedFilePath: 'local/alpha/src/a.js',
+        selectedTreePath: 'local/alpha/src/a.js',
+        fileSearchQuery: '',
+        showModifiedOnly: false,
+        viewerMode: 'current',
+        treeExpandedKeys: [],
+        workspaceWidth: 520,
+    };
+
+    const manager = createLocalSourcesManager({
+        state,
+        createRequestId: () => 'req-test',
+        showToast: (message) => {
+            toasts.push(String(message || ''));
+        },
+        render: () => {},
+        persistSession: () => ({ ok: true }),
+        post: () => {},
+        callHostTool: async () => {
+            throw new Error('workspace_delete_failed');
+        },
+    });
+
+    await withMockWindow({
+        confirm: () => true,
+    }, async () => {
+        const cleared = await manager.clearLocalSources();
+        assert.equal(cleared, false);
+    });
+
     assert.equal(state.localSources.length > 0, true);
     assert.equal(toasts.includes('清空失败：workspace_delete_failed'), true);
 });

@@ -16,6 +16,14 @@ import { applyPatchUpdateToText, parseApplyPatch } from "./shared/apply-patch.js
 import { buildPatchFailureResult, runPatchValidationAndApply } from "./shared/apply-patch-execution.js";
 import { createLocalSourcesToolRuntime } from "./shared/local-sources-tool-runtime.js";
 import {
+    LOOKUP_SCOPE_PROJECT,
+    LOOKUP_SCOPE_LOCAL,
+    assertLookupScopePath,
+    assertLookupScopePattern,
+    isLocalLookupTarget,
+    normalizeLookupScope,
+} from "./shared/lookup-scope.js";
+import {
     DEFAULT_PRESET_NAME,
     buildDefaultPreset,
     cloneDefaultModelConfigs,
@@ -327,9 +335,11 @@ function getLocalSourceFiles(localSources = localSourcesCache) {
     return kernelGetLocalSourceFiles(localSources).map(({ sourceId, sourceLabel, ...file }) => file);
 }
 
-function getAllIndexedFiles(manifest, localSources = localSourcesCache) {
-    const manifestFiles = Array.isArray(manifest?.files) ? manifest.files : [];
-    return [...manifestFiles, ...getLocalSourceFiles(localSources)];
+function getLookupIndexedFiles(manifest, localSources = localSourcesCache, scope = LOOKUP_SCOPE_PROJECT) {
+    if (scope === LOOKUP_SCOPE_LOCAL) {
+        return getLocalSourceFiles(localSources);
+    }
+    return Array.isArray(manifest?.files) ? manifest.files : [];
 }
 
 function findLocalSourceFileByPath(publicPath, localSources = localSourcesCache) {
@@ -1294,17 +1304,21 @@ function resolveReadLimit(value, fallback = DEFAULT_AUTO_READ_LINES) {
 
 async function globFiles(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
+    const scope = normalizeLookupScope(args.scope);
     const pattern = String(args.pattern || '').trim();
     const matcher = compileGlobPattern(pattern);
     const searchPath = String(args.path || '').trim();
     const limit = Math.max(1, Math.min(Number(args.limit) || 100, 100));
-    const files = getAllIndexedFiles(manifest, options.localSources);
+    assertLookupScopePattern(pattern, scope);
+    assertLookupScopePath(searchPath, scope);
+    const files = getLookupIndexedFiles(manifest, options.localSources, scope);
     const matched = scopeIndexedFilesByDirectory(files, searchPath)
         .filter((entry) => matchesGlob(entry.publicPath, entry.relativePath, matcher))
         .sort((a, b) => String(a.publicPath || '').localeCompare(String(b.publicPath || ''), 'zh-CN'));
 
     return {
         pattern,
+        scope,
         searchPath: searchPath || '',
         total: matched.length,
         items: matched.slice(0, limit),
@@ -1314,15 +1328,17 @@ async function globFiles(args = {}, options = {}) {
 
 async function listDirectory(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
+    const scope = normalizeLookupScope(args.scope);
     const rawPath = String(args.path || '').trim();
     if (!rawPath) {
         throw new Error('directory_path_required');
     }
+    assertLookupScopePath(rawPath, scope);
 
     const directoryPath = rawPath.endsWith('/') ? rawPath : `${rawPath}/`;
     const offset = Math.max(1, Math.trunc(Number(args.offset) || 1));
     const limit = Math.max(1, Math.min(Number(args.limit) || 100, 300));
-    const files = getAllIndexedFiles(manifest, options.localSources);
+    const files = getLookupIndexedFiles(manifest, options.localSources, scope);
     const directoryExists = directoryExistsAtPath(directoryPath, files, options.localSources);
     const items = buildDirectoryItems(files, directoryPath, options.localSources);
     if (!items.length && !directoryExists) {
@@ -1350,6 +1366,7 @@ async function listDirectory(args = {}, options = {}) {
     const pagedItems = items.slice(Math.max(0, offset - 1), Math.max(0, endEntry));
     return {
         directoryPath,
+        scope,
         total: items.length,
         offset,
         limit,
@@ -1419,12 +1436,14 @@ function sliceLinesWithBudget(lines, startLine, requestedEndLine, maxChars) {
 
 async function readFile(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
+    const scope = normalizeLookupScope(args.scope);
     const targetPath = String(args.filePath || args.path || '').trim();
     if (!targetPath) {
         throw new Error('file_not_indexed');
     }
+    assertLookupScopePath(targetPath, scope);
     const directReadablePath = normalizeDirectReadablePublicPath(targetPath);
-    const indexedFiles = getAllIndexedFiles(manifest, options.localSources);
+    const indexedFiles = getLookupIndexedFiles(manifest, options.localSources, scope);
     const directoryPath = normalizeIndexedDirectoryPath(targetPath);
     const directoryItems = buildDirectoryItems(indexedFiles, directoryPath || targetPath, options.localSources);
     const directoryExists = directoryExistsAtPath(directoryPath || targetPath, indexedFiles, options.localSources);
@@ -1452,6 +1471,7 @@ async function readFile(args = {}, options = {}) {
         const items = directoryItems.slice(startEntry > 0 ? (startEntry - 1) : 0, endEntry);
         return {
             path: directoryPath || normalizeIndexedDirectoryPath(targetPath),
+            scope,
             entryType: 'directory',
             totalEntries: directoryItems.length,
             startEntry,
@@ -1466,13 +1486,13 @@ async function readFile(args = {}, options = {}) {
     }
     if (!entry) {
         const suggestions = findPathSuggestions(targetPath, indexedFiles);
-        if (directoryPath && targetPath.startsWith('local/')) {
+        if (directoryPath && isLocalLookupTarget(targetPath)) {
             return buildReadErrorResult('directory_not_found', directoryPath, {
                 message: `找不到目录：${directoryPath}`,
                 suggestions,
             });
         }
-        if (targetPath.startsWith('local/')) {
+        if (isLocalLookupTarget(targetPath)) {
             return buildReadErrorResult('local_file_not_found', targetPath, {
                 message: `找不到工作区文件：${targetPath}`,
                 suggestions,
@@ -1496,6 +1516,7 @@ async function readFile(args = {}, options = {}) {
     if (totalLines === 0) {
         return {
             path: entry.publicPath,
+            scope,
             source: entry.source,
             sizeBytes,
             totalLines: 0,
@@ -1535,6 +1556,7 @@ async function readFile(args = {}, options = {}) {
 
     return {
         path: entry.publicPath,
+        scope,
         source: entry.source,
         sizeBytes,
         totalLines,
@@ -1701,6 +1723,19 @@ async function deleteLocalFile(args = {}, options = {}) {
         throw new Error(getWritableLocalPathError(args.path) || 'local_path_required');
     }
 
+    if (targetDirectoryPath === 'local/') {
+        const removedCount = kernelGetLocalSourceFiles(options.localSources).length;
+        ensureNotAborted(options.signal);
+        options.onLocalSourcesUpdated?.([]);
+        return {
+            ok: true,
+            path: targetDirectoryPath,
+            source: 'session-local-source',
+            mode: 'directory',
+            removedCount,
+        };
+    }
+
     const removal = removeLocalSourcePath(options.localSources, rawPath);
     ensureNotAborted(options.signal);
     options.onLocalSourcesUpdated?.(removal.nextSources);
@@ -1770,6 +1805,7 @@ async function moveLocalFile(args = {}, options = {}) {
 
 async function grepFiles(args = {}, options = {}) {
     const manifest = await loadManifest(options.signal);
+    const scope = normalizeLookupScope(args.scope);
     const pattern = String(args.pattern || '').trim();
     if (!pattern) throw new Error('empty_query');
 
@@ -1782,7 +1818,9 @@ async function grepFiles(args = {}, options = {}) {
     const contextLines = Math.max(0, Math.min(Number(args.contextLines) || 0, 5));
     const searchPath = String(args.path || '').trim();
     const include = String(args.include || args.glob || '').trim();
-    const files = getAllIndexedFiles(manifest, options.localSources);
+    assertLookupScopePath(searchPath, scope);
+    assertLookupScopePattern(include, scope);
+    const files = getLookupIndexedFiles(manifest, options.localSources, scope);
     const scopedFiles = scopeIndexedFilesByDirectory(files, searchPath);
     const fileMatcher = include ? compileGlobPattern(include) : null;
     const candidateFiles = fileMatcher
@@ -1893,6 +1931,7 @@ async function grepFiles(args = {}, options = {}) {
 
     return {
         pattern,
+        scope,
         useRegex,
         outputMode,
         glob: include || '',

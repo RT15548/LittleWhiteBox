@@ -326,6 +326,28 @@ export function renderWorkspace(container, options = {}) {
 
     if (!container) return;
     const shouldRenderEditor = !!selectedMatch && workspaceState.viewerMode === 'current';
+    const existingEditorCache = container.__xbWorkspaceEditorCache || null;
+    const shouldPreserveFocusedEditor = !!(
+        shouldRenderEditor
+        && existingEditorCache?.view
+        && existingEditorCache.path === selectedMatch?.file?.path
+        && existingEditorCache.disabled === !!disabled
+        && (existingEditorCache.view.hasFocus || existingEditorCache.view.composing)
+    );
+    if (shouldPreserveFocusedEditor) {
+        existingEditorCache.callbacks.onChange = onUpdateFileContent
+            ? (nextValue) => {
+                onUpdateFileContent(selectedMatch.file.path, nextValue, { render: false, flush: false });
+            }
+            : (() => {});
+        existingEditorCache.callbacks.onSelectionChange = onEditorSelectionChange || (() => {});
+        existingEditorCache.callbacks.onBlur = onUpdateFileContent
+            ? (nextValue) => {
+                onUpdateFileContent(selectedMatch.file.path, nextValue, { render: true, flush: true });
+            }
+            : (() => {});
+        return;
+    }
     container.replaceChildren();
 
     const body = document.createElement('div');
@@ -622,7 +644,7 @@ export function renderWorkspace(container, options = {}) {
             },
             onSelectionChange: onEditorSelectionChange,
             onBlur: (nextValue) => {
-                onUpdateFileContent(selectedMatch.file.path, nextValue, { render: true, flush: true });
+                onUpdateFileContent(selectedMatch.file.path, nextValue, { render: false, flush: true });
             },
         });
     } else {

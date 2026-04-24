@@ -19,6 +19,7 @@ import {
     normalizeWritableLocalFilePath as kernelNormalizeWritableLocalFilePath,
     pickUniqueLocalSourceLabel as kernelPickUniqueLocalSourceLabel,
     summarizeLocalSources as kernelSummarizeLocalSources,
+    upsertLocalSourceDirectory as kernelUpsertLocalSourceDirectory,
 } from '../../shared/local-workspace-kernel.js';
 import {
     INTERNAL_WORKSPACE_TOOL_NAMES,
@@ -255,6 +256,10 @@ function findLocalFileByPath(localSources = [], targetPath = '') {
 
 function findLocalDirectoryByPath(localSources = [], targetPath = '') {
     return kernelFindLocalDirectoryByPath(localSources, targetPath);
+}
+
+function upsertLocalDirectoryInSources(localSources = [], targetPath = '') {
+    return kernelUpsertLocalSourceDirectory(localSources, targetPath);
 }
 
 function buildExpandedKeysForWorkspaceTarget(sourceId, relativePath = '') {
@@ -497,11 +502,34 @@ export function createLocalSourcesManager(deps) {
         ));
     }
 
+    function shouldSkipAuthoritativeRender(nextSources = []) {
+        const selectedFilePath = normalizeWritableLocalFilePath(state.selectedFilePath);
+        if (!state.isWorkspaceOpen || state.viewerMode !== 'current' || !selectedFilePath) {
+            return false;
+        }
+        const pendingEntry = pendingEditorWrites.get(selectedFilePath);
+        if (!pendingEntry || pendingEntry.disposed) {
+            return false;
+        }
+        const nextMatch = findLocalFileByPath(nextSources, selectedFilePath);
+        if (!nextMatch?.file) {
+            return false;
+        }
+        const liveDraft = getDraftRecord(selectedFilePath);
+        const liveEditorContent = liveDraft?.content ?? pendingEntry.queuedContent ?? pendingEntry.inFlightContent;
+        if (liveEditorContent === null || liveEditorContent === undefined) {
+            return false;
+        }
+        return String(nextMatch.file.content || '') === String(liveEditorContent);
+    }
+
     async function applyAuthoritativeLocalSources(nextSources, toastText = '') {
         const normalizedNextSources = normalizeLocalSources(nextSources);
         state.localSources = normalizedNextSources;
         ensureWorkspaceSelection();
-        render?.();
+        if (!shouldSkipAuthoritativeRender(normalizedNextSources)) {
+            render?.();
+        }
         const persistResult = await persistSession?.();
         if (persistResult && persistResult.ok === false) {
             showToast?.(`工作区已更新，但会话保存失败，刷新后可能丢失：${persistResult.error || 'unknown_error'}`);
@@ -549,6 +577,26 @@ export function createLocalSourcesManager(deps) {
             return `${selectedFile.split('/').slice(0, -1).join('/')}/`;
         }
         return LOCAL_SOURCE_PREFIX;
+    }
+
+    function resolveCreateTargetDirectoryPath(targetPath = '') {
+        const fileMatch = findLocalFileByPath(state.localSources, targetPath);
+        if (fileMatch?.file?.path) {
+            return `${String(fileMatch.file.path || '').split('/').slice(0, -1).join('/')}/`;
+        }
+
+        const directoryMatch = findLocalDirectoryByPath(state.localSources, targetPath);
+        if (directoryMatch?.directoryPath) return directoryMatch.directoryPath;
+
+        const normalizedTargetFile = normalizeWritableLocalFilePath(targetPath);
+        if (normalizedTargetFile) {
+            return `${normalizedTargetFile.split('/').slice(0, -1).join('/')}/`;
+        }
+
+        const normalizedTargetDirectory = normalizeLocalDirectoryPath(targetPath);
+        if (normalizedTargetDirectory) return normalizedTargetDirectory;
+
+        return getCurrentWorkspaceDirectoryPath();
     }
 
     function setMobileWorkspacePane(pane, options = {}) {
@@ -915,16 +963,27 @@ export function createLocalSourcesManager(deps) {
 
     async function clearLocalSources() {
         if (!normalizeLocalSources(state.localSources).length) return true;
-        const result = await callWorkspaceHostTool(TOOL_NAMES.DELETE, {
-            path: LOCAL_SOURCE_PREFIX,
-        }, {
-            source: WORKSPACE_SOURCES.UI_ACTION,
-            path: LOCAL_SOURCE_PREFIX,
-        });
-        if (!result || result.ok === false) {
-            showToast?.(`清空失败：${String(result?.error || 'unknown_error')}`);
+        const confirmed = window.confirm('确定清空当前工作区中的全部文件和目录吗？');
+        if (!confirmed) return false;
+        try {
+            const result = await callWorkspaceHostTool(TOOL_NAMES.DELETE, {
+                path: LOCAL_SOURCE_PREFIX,
+            }, {
+                source: WORKSPACE_SOURCES.UI_ACTION,
+                path: LOCAL_SOURCE_PREFIX,
+            });
+            if (!result || result.ok === false) {
+                showToast?.(`清空失败：${String(result?.error || 'unknown_error')}`);
+                return false;
+            }
+            if (normalizeLocalSources(state.localSources).length) {
+                await applyExternalLocalSources([]);
+            }
+        } catch (error) {
+            showToast?.(`清空失败：${String(error?.message || error || 'unknown_error')}`);
             return false;
         }
+        showToast?.('已清空工作区');
         return true;
     }
 
@@ -1072,18 +1131,8 @@ export function createLocalSourcesManager(deps) {
     }
 
     async function createLocalFileAt(targetPath = '') {
-        const normalizedTargetFile = normalizeWritableLocalFilePath(targetPath);
-        const normalizedTargetDirectory = normalizeLocalDirectoryPath(targetPath);
-        let defaultPath = '';
-
-        if (normalizedTargetFile) {
-            defaultPath = `${normalizedTargetFile.split('/').slice(0, -1).join('/')}/new-file.txt`;
-        } else if (normalizedTargetDirectory) {
-            defaultPath = `${normalizedTargetDirectory}new-file.txt`;
-        }
-        if (!defaultPath) {
-            defaultPath = `${getCurrentWorkspaceDirectoryPath()}new-file.txt`;
-        }
+        const defaultDirectoryPath = resolveCreateTargetDirectoryPath(targetPath);
+        const defaultPath = `${defaultDirectoryPath}new-file.txt`;
 
         const enteredPath = window.prompt('输入要新建的工作区文件路径', formatWorkspacePromptPath(defaultPath));
         if (enteredPath === null) return false;
@@ -1115,10 +1164,8 @@ export function createLocalSourcesManager(deps) {
     }
 
     async function createLocalDirectoryAt(targetPath = '') {
-        const normalizedTargetDirectory = normalizeLocalDirectoryPath(targetPath);
-        const defaultPath = normalizedTargetDirectory
-            ? `${normalizedTargetDirectory}new-folder/`
-            : `${getCurrentWorkspaceDirectoryPath()}new-folder/`;
+        const defaultDirectoryPath = resolveCreateTargetDirectoryPath(targetPath);
+        const defaultPath = `${defaultDirectoryPath}new-folder/`;
         const enteredPath = window.prompt('输入要新建的工作区目录路径', formatWorkspacePromptPath(defaultPath));
         if (enteredPath === null) return false;
 
@@ -1131,14 +1178,23 @@ export function createLocalSourcesManager(deps) {
             showToast?.('目标目录已存在，请换一个路径');
             return false;
         }
-        const result = await callWorkspaceHostTool(INTERNAL_WORKSPACE_TOOL_NAMES.CREATE_DIRECTORY, {
-            path: normalizedPath,
-        }, {
-            source: WORKSPACE_SOURCES.UI_ACTION,
-            path: normalizedPath,
-        });
-        if (!result || result.ok === false) {
-            showToast?.(`新建目录失败：${String(result?.error || 'workspace_write_failed')}`);
+        try {
+            const result = await callWorkspaceHostTool(INTERNAL_WORKSPACE_TOOL_NAMES.CREATE_DIRECTORY, {
+                path: normalizedPath,
+            }, {
+                source: WORKSPACE_SOURCES.UI_ACTION,
+                path: normalizedPath,
+            });
+            if (!result || result.ok === false) {
+                showToast?.(`新建目录失败：${String(result?.error || 'workspace_write_failed')}`);
+                return false;
+            }
+            if (!findLocalDirectoryByPath(state.localSources, normalizedPath)) {
+                const upsert = upsertLocalDirectoryInSources(state.localSources, normalizedPath);
+                await applyExternalLocalSources(upsert.nextSources);
+            }
+        } catch (error) {
+            showToast?.(`新建目录失败：${String(error?.message || error || 'workspace_write_failed')}`);
             return false;
         }
         primeWorkspaceSelection(normalizedPath);

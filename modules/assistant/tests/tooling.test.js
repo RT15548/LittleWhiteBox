@@ -1,7 +1,48 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { formatToolResultDisplay, TOOL_NAMES } from '../app-src/tooling.js';
+import { formatToolResultDisplay, TOOL_DEFINITIONS, TOOL_NAMES } from '../app-src/tooling.js';
+import {
+    LOOKUP_SCOPE_LOCAL,
+    LOOKUP_SCOPE_PROJECT,
+    assertLookupScopePath,
+    assertLookupScopePattern,
+    isLocalLookupTarget,
+    normalizeLookupScope,
+} from '../shared/lookup-scope.js';
+
+test('lookup tools expose strict project/local scope parameters', () => {
+    const lookupTools = [TOOL_NAMES.LS, TOOL_NAMES.GLOB, TOOL_NAMES.GREP, TOOL_NAMES.READ];
+    lookupTools.forEach((toolName) => {
+        const definition = TOOL_DEFINITIONS.find((entry) => entry.function?.name === toolName);
+        assert(definition);
+        assert.deepEqual(definition.function.parameters.properties.scope.enum, ['project', 'local']);
+    });
+});
+
+test('lookup tool descriptions explain that local scope still uses local-prefixed paths', () => {
+    const lookupTools = [TOOL_NAMES.LS, TOOL_NAMES.GLOB, TOOL_NAMES.GREP, TOOL_NAMES.READ];
+    lookupTools.forEach((toolName) => {
+        const definition = TOOL_DEFINITIONS.find((entry) => entry.function?.name === toolName);
+        assert.match(String(definition?.function?.description || ''), /local\/\.\.\.|local\/"\s*is valid|local\/\.\.\. form|full `local\/\.\.\.` path/i);
+    });
+});
+
+test('lookup scope helpers enforce strict project vs local paths', () => {
+    assert.equal(normalizeLookupScope(''), LOOKUP_SCOPE_PROJECT);
+    assert.equal(normalizeLookupScope('LOCAL'), LOOKUP_SCOPE_LOCAL);
+    assert.equal(isLocalLookupTarget('local/demo.txt'), true);
+    assert.equal(isLocalLookupTarget('scripts/app.js'), false);
+
+    assert.doesNotThrow(() => assertLookupScopePath('local/demo.txt', LOOKUP_SCOPE_LOCAL));
+    assert.doesNotThrow(() => assertLookupScopePattern('local/**/*.js', LOOKUP_SCOPE_LOCAL));
+    assert.doesNotThrow(() => assertLookupScopePattern('**/*.js', LOOKUP_SCOPE_LOCAL));
+
+    assert.throws(() => assertLookupScopePath('local/demo.txt', LOOKUP_SCOPE_PROJECT), /workspace_scope_local_required/);
+    assert.throws(() => assertLookupScopePath('scripts/app.js', LOOKUP_SCOPE_LOCAL), /workspace_scope_local_only/);
+    assert.throws(() => assertLookupScopePattern('scripts/**/*.js', LOOKUP_SCOPE_LOCAL), /workspace_scope_local_only/);
+    assert.throws(() => normalizeLookupScope('all'), /invalid_lookup_scope/);
+});
 
 test('formatToolResultDisplay shows matchesFound while grep search is incomplete', () => {
     const display = formatToolResultDisplay({

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { parseApplyPatch } from '../shared/apply-patch.js';
 import { runPatchValidationAndApply } from '../shared/apply-patch-execution.js';
+import { normalizeLocalDirectoryPath } from '../shared/local-workspace-kernel.js';
 import { createLocalSourcesToolRuntime } from '../shared/local-sources-tool-runtime.js';
 import { INTERNAL_WORKSPACE_TOOL_NAMES } from '../shared/workspace-protocol.js';
 
@@ -175,6 +176,11 @@ test('local sources tool runtime applies explicit sync snapshots before later to
     const result = await runtime.execute('Read', { filePath: 'local/demo.txt' });
     assert.equal(result.ok, true);
     assert.equal(result.snapshotSize, 1);
+});
+
+test('normalizeLocalDirectoryPath accepts local workspace root', () => {
+    assert.equal(normalizeLocalDirectoryPath('local/'), 'local/');
+    assert.equal(normalizeLocalDirectoryPath('local'), 'local/');
 });
 
 test('local sources tool runtime serializes workspace mutation tools against the latest host snapshot', async () => {

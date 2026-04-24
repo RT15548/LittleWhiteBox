@@ -36,12 +36,14 @@ export const TOOL_DEFINITIONS = [
                 'List files and directories inside a directory path.',
                 'Returns first-level entries only; does not recurse and does not read file contents.',
                 'Best for directory-level discovery and structural narrowing by path.',
-                'Works for indexed directories and `local/` workspace directories.',
+                'Default scope is project source code only; `local/` workspace lookup requires `scope: "local"`.',
+                'When `scope: "local"` is used, keep writing the real path as `local/...`; for example `scope: "local"` + `path: "local/"` is valid.',
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
                     path: { type: 'string', description: 'Public directory path, for example scripts/extensions/third-party/ or scripts/extensions/third-party/LittleWhiteBox/modules/.' },
+                    scope: { type: 'string', enum: ['project', 'local'], description: 'Lookup scope. Default is project. Use local to list only the `local/` workspace tree.' },
                     offset: { type: 'number', description: 'Optional 1-based entry offset for paging. Default 1.' },
                     limit: { type: 'number', description: 'Maximum number of first-level entries to return. Default 100, max 300.' },
                 },
@@ -55,16 +57,19 @@ export const TOOL_DEFINITIONS = [
         function: {
             name: TOOL_NAMES.GLOB,
             description: [
-                'Fast file pattern matching tool for indexed files and `local/` workspace files.',
+                'Fast file pattern matching tool for project code and `local/` workspace files.',
                 'Matches file paths only; does not inspect file contents.',
+                'Default scope is project source code only; use `scope: "local"` to search only the session workspace.',
+                'When `scope: "local"` is used, workspace paths still use the normal `local/...` form.',
                 'Best for file discovery and path-level narrowing when you know a directory, extension, or naming pattern.',
-                'Supports a path scope so you can search inside one directory instead of the full workspace.',
+                'Supports a path scope so you can search inside one directory instead of the full selected scope.',
             ].join('\n'),
             parameters: {
                 type: 'object',
                 properties: {
                     pattern: { type: 'string', description: 'Glob path pattern, for example scripts/extensions/third-party/LittleWhiteBox/modules/**/*.js.' },
-                    path: { type: 'string', description: 'Optional directory scope. If omitted, search the whole indexed workspace plus `local/`.' },
+                    path: { type: 'string', description: 'Optional directory scope inside the selected lookup scope.' },
+                    scope: { type: 'string', enum: ['project', 'local'], description: 'Lookup scope. Default is project. Use local to search only `local/` files.' },
                 },
                 required: ['pattern'],
                 additionalProperties: false,
@@ -76,8 +81,9 @@ export const TOOL_DEFINITIONS = [
         function: {
             name: TOOL_NAMES.GREP,
             description: [
-                'Fast content search tool for indexed files and `local/` workspace files.',
-                'It first uses indexed paths plus `local/` files as the candidate set, then searches the current live contents of those candidate files.',
+                'Fast content search tool for project code and `local/` workspace files.',
+                'It first builds a candidate set from the selected scope, then searches the current live contents of those candidate files.',
+                'When `scope: "local"` is used, workspace paths still use the normal `local/...` form.',
                 'Uses regex search by default and returns matching files with line-level match details.',
                 'Best for content-level narrowing by keyword, symbol name, error text, or regex before reading files.',
                 'Supports both directory scope and file-pattern filtering so you can narrow searches before reading files.',
@@ -86,7 +92,8 @@ export const TOOL_DEFINITIONS = [
                 type: 'object',
                 properties: {
                     pattern: { type: 'string', description: 'grep/rg-style search pattern. Treated as regex by default.' },
-                    path: { type: 'string', description: 'Optional directory scope. If omitted, search the whole indexed workspace plus `local/`.' },
+                    path: { type: 'string', description: 'Optional directory scope inside the selected lookup scope.' },
+                    scope: { type: 'string', enum: ['project', 'local'], description: 'Lookup scope. Default is project. Use local to search only `local/` files.' },
                     include: { type: 'string', description: 'Optional file path glob filter, for example **/*.js or modules/assistant/**/*.js.' },
                     outputMode: {
                         type: 'string',
@@ -109,7 +116,8 @@ export const TOOL_DEFINITIONS = [
             name: TOOL_NAMES.READ,
             description: [
                 'Read a text file or directory using the current instance\'s live contents.',
-                'Supports indexed paths and `local/...` workspace paths.',
+                'Default scope is project source code only; use `scope: "local"` to read only `local/...` workspace paths.',
+                'When `scope: "local"` is used, `filePath` still needs the full `local/...` path.',
                 'For some explicit public file paths, direct live reads may still work even if the path is not in the index.',
                 'Returns numbered lines for files and plain entry names for directories; large reads include continuation hints.',
             ].join('\n'),
@@ -117,6 +125,7 @@ export const TOOL_DEFINITIONS = [
                 type: 'object',
                 properties: {
                     filePath: { type: 'string', description: 'Public file or directory path, for example scripts/extensions/third-party/LittleWhiteBox/index.js or local/.' },
+                    scope: { type: 'string', enum: ['project', 'local'], description: 'Lookup scope. Default is project. Use local to read only `local/` workspace files or directories.' },
                     offset: { type: 'number', description: 'Optional line offset (1-based). Default 1.' },
                     limit: { type: 'number', description: 'Optional maximum number of lines or directory entries to return. Default 2000.' },
                 },

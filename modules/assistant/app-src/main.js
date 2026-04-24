@@ -1096,6 +1096,9 @@ function describeError(error) {
     if (lowered.startsWith('file_read_failed:')) return '读取工作区文件失败了，请换个文件再试，或刷新页面重试。';
     if (lowered === 'file_not_indexed') return '这个文件不在当前助手索引范围里。';
     if (lowered === 'local_path_required') return '这个工具只能操作 `local/` 下的会话内临时工作区文件。';
+    if (lowered === 'workspace_scope_local_required') return '要读取或搜索 `local/` 工作区，请显式传 `scope: "local"`。';
+    if (lowered === 'workspace_scope_local_only') return '当前已切到 `local` 工作区作用域，因此这里只能读取或搜索 `local/` 路径。';
+    if (lowered === 'invalid_lookup_scope') return '`scope` 只支持 `project` 或 `local`。';
     if (lowered === 'unsupported_text_file') return '目前只支持文本类工作区文件。';
     if (lowered === 'local_source_not_found') return '源 `local/` 路径不存在，无法完成这次移动。';
     if (lowered === 'local_file_not_found') return '目标 `local/` 文件不存在；可以先用 Write 新建。';
@@ -1752,11 +1755,6 @@ function bindEvents(root) {
         toggleWorkspacePanel();
     });
 
-    root.querySelector('#xb-assistant-clear-local-sources')?.addEventListener('click', () => {
-        if (!state.localSources.length) return;
-        clearLocalSources();
-    });
-
     root.querySelector('#xb-assistant-workspace-backdrop')?.addEventListener('click', () => {
         closeWorkspace();
         clearWorkspaceSelectionContext();
@@ -1923,12 +1921,8 @@ function bindEvents(root) {
 
     root.querySelector('#xb-assistant-clear').addEventListener('click', async () => {
         if (state.isBusy) return;
-        const cleared = await clearLocalSources();
-        if (!cleared) return;
         state.messages = [];
         state.draftAttachments = [];
-        state.localSources = [];
-        state.workspaceDrafts = {};
         state.historySummary = '';
         state.archivedTurnCount = 0;
         state.pendingApproval = null;

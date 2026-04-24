@@ -75,10 +75,10 @@ export function normalizeWritableLocalFilePath(pathText = '') {
 
 export function normalizeLocalDirectoryPath(pathText = '') {
     const normalized = normalizeLocalSourcePath(pathText).replace(/\/+$/, '');
-    if (!normalized.startsWith(LOCAL_SOURCE_PREFIX) || normalized.includes('..')) return '';
     if (normalized === 'local') return LOCAL_SOURCE_PREFIX;
+    if (!normalized.startsWith(LOCAL_SOURCE_PREFIX) || normalized.includes('..')) return '';
     const segments = normalized.split('/').filter(Boolean);
-    if (segments.length < 2) return '';
+    if (segments.length < 1) return '';
     return `${normalized}/`;
 }
 
