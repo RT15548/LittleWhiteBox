@@ -1731,7 +1731,7 @@ function renderCharList() {
                             <button class="btn btn-sm" type="button" data-action="add-outfit" data-id="${c.id}"><i class="fa-solid fa-plus"></i> 添加服装</button>
                         </label>
                         <div class="char-outfit-editor-list">
-                            <div class="char-outfit-editor-empty"${outfits.length ? ' style="display:none;"' : ''}>未配置服装时可留空；添加后会在生图规划时作为服装参考发送给 AI。</div>
+                            <div class="char-outfit-editor-empty"${outfits.length ? ' style="display:none;"' : ''}>未配置服装时可留空；添加后会在生图规划时作为服装参考发送给 AI，由 AI 自行选择并按剧情改写当前服装 TAG。</div>
                             ${outfits.map((outfit, index) => renderOutfitEditorItem(outfit, index)).join('')}
                         </div>
                         <p class="form-hint">示例：常服 / white shirt, pleated skirt；礼服 / evening dress, lace gloves</p>
