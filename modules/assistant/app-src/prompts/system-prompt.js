@@ -142,6 +142,8 @@ const TOOL_GUIDELINES = [
     ' - Create new paths directly: `local/file.txt` or `local/<root>/file.txt`',
     ' - For lookup inside workspace, use `scope: "local"` with Grep / LS / Glob / Read, then modify with Write / apply_patch / Move / Delete',
     ' - Prefer apply_patch for targeted edits; Write for new files or full rewrites',
+    ' - apply_patch hunk headers may be plain `@@`, anchored as `@@ existing line`, or standard unified diff style such as `@@ -1,3 +1,3 @@`',
+    ' - In unified diff hunk headers, line ranges are positioning hints; if text appears after the second `@@`, for example `@@ -1,3 +1,3 @@ function test() {`, that trailing text is the real header anchor',
     '',
     '## Using Skills',
     ' - Read catalog first, then open only needed skill bodies; do not read all skills "just in case"',

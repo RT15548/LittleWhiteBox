@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-24T08:00:57.142Z",
+  "generatedAt": "2026-04-25T03:52:24.617Z",
   "version": 1,
   "files": [
     {
@@ -352,6 +352,12 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/lookup-scope.js",
+      "relativePath": "modules/assistant/shared/lookup-scope.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/public-text-file-types.js",
       "relativePath": "modules/assistant/shared/public-text-file-types.js",
       "extension": ".js"
@@ -400,6 +406,12 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/google-adapter.test.js",
+      "relativePath": "modules/assistant/tests/google-adapter.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/host-tool-requests.test.js",
       "relativePath": "modules/assistant/tests/host-tool-requests.test.js",
       "extension": ".js"
@@ -432,6 +444,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/memory-files.test.js",
       "relativePath": "modules/assistant/tests/memory-files.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/openai-compatible-adapter.test.js",
+      "relativePath": "modules/assistant/tests/openai-compatible-adapter.test.js",
       "extension": ".js"
     },
     {

@@ -328,6 +328,13 @@ export function createSettingsPanel(deps) {
         return state.configDraft;
     }
 
+    function resolveRuntimeMaxTokens(draft = ensureConfigDraft()) {
+        if (draft.provider === 'anthropic') {
+            return 32000;
+        }
+        return null;
+    }
+
     function buildProviderConfigFromDraft(draft = ensureConfigDraft()) {
         return {
             baseUrl: String(draft.baseUrl || ''),
@@ -350,7 +357,7 @@ export function createSettingsPanel(deps) {
             model: draft.model || '',
             apiKey: draft.apiKey || '',
             temperature: Number(draft.temperature ?? 0.2),
-            maxTokens: null,
+            maxTokens: resolveRuntimeMaxTokens(draft),
             timeoutMs: requestTimeoutMs,
             toolMode: draft.toolMode || 'native',
             reasoningEnabled: Boolean(draft.reasoningEnabled),

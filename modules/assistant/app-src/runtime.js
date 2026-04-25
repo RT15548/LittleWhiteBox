@@ -140,29 +140,48 @@ export function createAssistantRuntime(deps) {
         };
     }
 
+    function hasVisibleAssistantText(text) {
+        return typeof text === 'string' && text.trim().length > 0;
+    }
+
+    function dropStreamingAssistantMessage(message) {
+        if (!message) return;
+        const index = state.messages.indexOf(message);
+        if (index === -1) return;
+        state.messages.splice(index, 1);
+        persistSession();
+        render();
+    }
+
+    function extractGoogleProviderToolCalls(providerPayload) {
+        const parts = Array.isArray(providerPayload?.googleContent?.parts)
+            ? providerPayload.googleContent.parts
+            : [];
+        return parts
+            .filter((part) => part?.functionCall?.name)
+            .map((part, index) => ({
+                id: String(part.functionCall.id || `google-tool-${index + 1}`),
+                name: String(part.functionCall.name || ''),
+                arguments: JSON.stringify(part.functionCall.args || {}),
+            }))
+            .filter((toolCall) => toolCall.name);
+    }
+
+    function resolveResultToolCalls(result, providerConfig = {}) {
+        if (Array.isArray(result?.toolCalls) && result.toolCalls.length) {
+            return result.toolCalls;
+        }
+        const provider = String(result?.provider || providerConfig?.provider || '').toLowerCase();
+        if (provider !== 'google') {
+            return [];
+        }
+        return extractGoogleProviderToolCalls(result?.providerPayload);
+    }
+
     function trimForSummary(text, limit = 1800) {
         const normalized = String(text || '').replace(/\s+/g, ' ').trim();
         if (normalized.length <= limit) return normalized;
         return `${normalized.slice(0, limit)}…`;
-    }
-
-    function clearHistoricalThoughts() {
-        let changed = false;
-        state.messages = state.messages.map((message) => {
-            if (message?.role !== 'assistant') {
-                return message;
-            }
-            const hasThoughts = Array.isArray(message.thoughts) && message.thoughts.length;
-            const hasProviderPayload = !!message.providerPayload;
-            if (!hasThoughts && !hasProviderPayload) return message;
-            changed = true;
-            return {
-                ...message,
-                thoughts: [],
-                providerPayload: undefined,
-            };
-        });
-        return changed;
     }
 
     function getCurrentTurnMessages() {
@@ -196,9 +215,6 @@ export function createAssistantRuntime(deps) {
     });
 
     function pushMessage(message) {
-        if (message?.role === 'user') {
-            clearHistoricalThoughts();
-        }
         state.messages.push({
             ...message,
             attachments: normalizeAttachments(message.attachments),
@@ -267,8 +283,15 @@ export function createAssistantRuntime(deps) {
         const messages = [{ role: 'system', content: resolveSystemPrompt() }];
         const summaryMessage = buildHistorySummarySystemMessage();
         const lightBrakeMessage = buildRepeatedToolErrorSystemMessage();
+        const finalAnswerReminder = String(options.finalAnswerReminderText || '').trim();
         if (summaryMessage) messages.push(summaryMessage);
         if (lightBrakeMessage) messages.push(lightBrakeMessage);
+        if (finalAnswerReminder) {
+            messages.push({
+                role: 'system',
+                content: finalAnswerReminder,
+            });
+        }
         const latestUserMessage = getLatestUserMessage(baseMessages);
         const ephemeralUserContextText = Object.prototype.hasOwnProperty.call(options, 'userContextSnapshotText')
             ? String(options.userContextSnapshotText || '').trim()
@@ -441,8 +464,12 @@ export function createAssistantRuntime(deps) {
         const adapter = createAdapter();
         let rounds = 0;
         let pendingToolResponses = null;
+        let pendingFinalAnswerReminderText = '';
+        let sawToolExecution = false;
+        let finalAnswerReminderSent = false;
         const providerMessageOptions = {
             userContextSnapshotText: String(run?.userContextSnapshotText || '').trim(),
+            finalAnswerReminderText: '',
         };
 
         await maybeAutoReadSlashSkill(run);
@@ -491,32 +518,68 @@ export function createAssistantRuntime(deps) {
 
                 if (Array.isArray(pendingToolResponses) && pendingToolResponses.length && adapter?.supportsSessionToolLoop) {
                     requestTask.toolResponses = pendingToolResponses;
+                } else if (pendingFinalAnswerReminderText && adapter?.supportsSessionToolLoop) {
+                    requestTask.finalAnswerReminderText = pendingFinalAnswerReminderText;
+                    pendingFinalAnswerReminderText = '';
                 } else {
                     requestTask.messages = await ensureContextBudget(adapter, run.controller.signal, providerMessageOptions);
                 }
 
+                console.info('[Assistant][ModelRequest] round:start', {
+                    round: rounds,
+                    provider: String(providerConfig?.provider || ''),
+                    model: String(providerConfig?.model || ''),
+                    toolMode: String(providerConfig?.toolMode || ''),
+                    reasoningEnabled: !!providerConfig?.reasoningEnabled,
+                    reasoningEffort: String(providerConfig?.reasoningEffort || ''),
+                    usesSessionToolLoop: !!adapter?.supportsSessionToolLoop,
+                    usesToolResponses: Array.isArray(requestTask.toolResponses) && requestTask.toolResponses.length > 0,
+                    toolResponseCount: Array.isArray(requestTask.toolResponses) ? requestTask.toolResponses.length : 0,
+                    usesFinalAnswerReminder: !!requestTask.finalAnswerReminderText,
+                    messageCount: Array.isArray(requestTask.messages) ? requestTask.messages.length : 0,
+                });
                 result = await adapter.chat(requestTask);
+                console.info('[Assistant][ModelRequest] round:result', {
+                    round: rounds,
+                    provider: String(providerConfig?.provider || ''),
+                    finishReason: String(result?.finishReason || ''),
+                    textLength: typeof result?.text === 'string' ? result.text.length : 0,
+                    toolCallCount: Array.isArray(result?.toolCalls) ? result.toolCalls.length : 0,
+                    hasProviderPayload: !!(result?.providerPayload && typeof result.providerPayload === 'object'),
+                    providerPayloadKeys: result?.providerPayload && typeof result.providerPayload === 'object'
+                        ? Object.keys(result.providerPayload).sort()
+                        : [],
+                });
             } catch (error) {
+                console.error('[Assistant][ModelRequest] round:error', {
+                    round: rounds,
+                    provider: String(providerConfig?.provider || ''),
+                    model: String(providerConfig?.model || ''),
+                    message: error instanceof Error ? error.message : String(error || ''),
+                });
                 if (streamingAssistantMessage) {
                     finalizeStreamingAssistantMessage(streamingAssistantMessage);
                 }
                 throw error;
             }
 
-            if (Array.isArray(result.toolCalls) && result.toolCalls.length) {
+            const resolvedToolCalls = resolveResultToolCalls(result, providerConfig);
+
+            if (resolvedToolCalls.length) {
                 pendingToolResponses = null;
+                sawToolExecution = true;
                 if (streamingAssistantMessage) {
                     finalizeStreamingAssistantMessage(streamingAssistantMessage, {
                         content: result.text || '',
                         thoughts: result.thoughts,
-                        toolCalls: result.toolCalls,
+                        toolCalls: resolvedToolCalls,
                         providerPayload: result.providerPayload,
                     });
                 } else {
                     pushMessage({
                         role: 'assistant',
                         content: result.text || '',
-                        toolCalls: result.toolCalls,
+                        toolCalls: resolvedToolCalls,
                         thoughts: result.thoughts,
                         providerPayload: result.providerPayload,
                     });
@@ -524,7 +587,7 @@ export function createAssistantRuntime(deps) {
                 render();
 
                 const toolResponses = [];
-                for (const toolCall of result.toolCalls) {
+                for (const toolCall of resolvedToolCalls) {
                     if (run.controller.signal.aborted) {
                         throw new Error('assistant_aborted');
                     }
@@ -685,16 +748,31 @@ export function createAssistantRuntime(deps) {
             }
 
             pendingToolResponses = null;
+            if (!hasVisibleAssistantText(result.text) && sawToolExecution && !finalAnswerReminderSent) {
+                finalAnswerReminderSent = true;
+                const finalAnswerReminderText = '你已经拿到了本轮全部工具结果。现在不要再调用任何工具，直接用自然语言给出最终答复。';
+                if (adapter?.supportsSessionToolLoop) {
+                    pendingFinalAnswerReminderText = finalAnswerReminderText;
+                    providerMessageOptions.finalAnswerReminderText = '';
+                } else {
+                    providerMessageOptions.finalAnswerReminderText = finalAnswerReminderText;
+                }
+                dropStreamingAssistantMessage(streamingAssistantMessage);
+                continue;
+            }
+            const fallbackContent = sawToolExecution
+                ? '工具已执行完成，但模型没有生成最终答复。'
+                : '没有拿到有效回复。';
             if (streamingAssistantMessage) {
                 finalizeStreamingAssistantMessage(streamingAssistantMessage, {
-                    content: result.text || '没有拿到有效回复。',
+                    content: result.text || fallbackContent,
                     thoughts: result.thoughts,
                     providerPayload: result.providerPayload,
                 });
             } else {
                 pushMessage({
                     role: 'assistant',
-                    content: result.text || '没有拿到有效回复。',
+                    content: result.text || fallbackContent,
                     thoughts: result.thoughts,
                     providerPayload: result.providerPayload,
                 });

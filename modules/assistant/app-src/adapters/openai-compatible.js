@@ -17,6 +17,19 @@ function pushThought(thoughts, label, text) {
     });
 }
 
+function cloneJson(value) {
+    if (value === undefined) return undefined;
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch {
+        return undefined;
+    }
+}
+
+function isPlainObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function flattenTextContent(content) {
     if (typeof content === 'string') return content;
     if (!Array.isArray(content)) return '';
@@ -141,6 +154,209 @@ function extractTaggedToolCalls(content = '') {
     return results.filter((item) => item.name);
 }
 
+function normalizeOpenAICompatibleMessage(message) {
+    const preserved = message?.providerPayload?.openaiCompatibleMessage;
+    if (!preserved || typeof preserved !== 'object' || Array.isArray(preserved)) {
+        return null;
+    }
+    const cloned = cloneJson(preserved);
+    return cloned && typeof cloned === 'object' && !Array.isArray(cloned)
+        ? cloned
+        : null;
+}
+
+function getLastUserMessageIndex(messages = []) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index]?.role === 'user') {
+            return index;
+        }
+    }
+    return -1;
+}
+
+function hasReplayableToolCalls(message) {
+    if (Array.isArray(message?.tool_calls) && message.tool_calls.length > 0) {
+        return true;
+    }
+    const preserved = normalizeOpenAICompatibleMessage(message);
+    return Array.isArray(preserved?.tool_calls) && preserved.tool_calls.length > 0;
+}
+
+function shouldPreserveAssistantReplayMessage(message, index, lastUserIndex) {
+    if (message?.role !== 'assistant') return false;
+    if (index <= lastUserIndex) return false;
+    return hasReplayableToolCalls(message);
+}
+
+function shouldForceDeepSeekReasoningContent(model = '') {
+    return /deepseek/i.test(String(model || ''));
+}
+
+function ensureReasoningContentForToolCalls(message, model = '') {
+    if (!isPlainObject(message)) return message;
+    if (!shouldForceDeepSeekReasoningContent(model)) return message;
+    if (!Array.isArray(message.tool_calls) || !message.tool_calls.length) return message;
+    if (Object.prototype.hasOwnProperty.call(message, 'reasoning_content')) {
+        return message;
+    }
+    return {
+        ...message,
+        reasoning_content: '',
+    };
+}
+
+const APPENDABLE_STRING_FIELDS = new Set([
+    'content',
+    'refusal',
+    'arguments',
+    'reasoning_content',
+    'reasoning_text',
+    'thinking',
+    'text',
+]);
+
+function mergeToolCallArrays(existing = [], next = []) {
+    const merged = Array.isArray(existing)
+        ? existing.map((item) => cloneJson(item) || {})
+        : [];
+
+    (Array.isArray(next) ? next : []).forEach((item, index) => {
+        const normalizedItem = cloneJson(item) || {};
+        const targetIndex = Number.isInteger(Number(item?.index))
+            ? Number(item.index)
+            : index;
+        const current = merged[targetIndex];
+        merged[targetIndex] = isPlainObject(current)
+            ? mergeReplayValue(current, normalizedItem, 'tool_call')
+            : normalizedItem;
+    });
+
+    return merged.filter((item) => item !== undefined);
+}
+
+function mergeReplayValue(existing, next, fieldName = '') {
+    if (next === undefined) return existing;
+    if (existing === undefined) {
+        return cloneJson(next);
+    }
+    if (next === null && APPENDABLE_STRING_FIELDS.has(String(fieldName || ''))) {
+        return existing;
+    }
+    if (fieldName === 'tool_calls' && Array.isArray(existing) && Array.isArray(next)) {
+        return mergeToolCallArrays(existing, next);
+    }
+    if (typeof existing === 'string' && typeof next === 'string') {
+        if (APPENDABLE_STRING_FIELDS.has(String(fieldName || ''))) {
+            if (existing === next) return existing;
+            if (next.startsWith(existing)) return next;
+            if (existing.startsWith(next)) return existing;
+            return `${existing}${next}`;
+        }
+        return existing === next ? existing : cloneJson(next);
+    }
+    if (Array.isArray(existing) && Array.isArray(next)) {
+        return existing.concat(cloneJson(next) || []);
+    }
+    if (isPlainObject(existing) && isPlainObject(next)) {
+        const merged = { ...existing };
+        Object.entries(next).forEach(([key, value]) => {
+            merged[key] = mergeReplayValue(merged[key], value, key);
+        });
+        return merged;
+    }
+    return cloneJson(next);
+}
+
+function buildReplayableAssistantMessage(message = {}, choice = {}) {
+    const replayableMessage = isPlainObject(message)
+        ? (cloneJson(message) || {})
+        : {};
+    const choiceExtras = isPlainObject(choice)
+        ? (cloneJson(choice) || {})
+        : {};
+
+    delete choiceExtras.message;
+    delete choiceExtras.finish_reason;
+    delete choiceExtras.index;
+    delete choiceExtras.logprobs;
+    delete choiceExtras.delta;
+
+    Object.entries(choiceExtras).forEach(([key, value]) => {
+        replayableMessage[key] = mergeReplayValue(replayableMessage[key], value, key);
+    });
+
+    if (!replayableMessage.role) {
+        replayableMessage.role = 'assistant';
+    }
+
+    return replayableMessage;
+}
+
+function buildProviderPayload(message, choice = {}) {
+    const preserved = cloneJson(buildReplayableAssistantMessage(message, choice));
+    if (!preserved || typeof preserved !== 'object' || Array.isArray(preserved)) {
+        return undefined;
+    }
+    return {
+        openaiCompatibleMessage: preserved,
+    };
+}
+
+function mergeReplayMessages(existing = {}, next = {}) {
+    if (!isPlainObject(existing)) return cloneJson(next);
+    if (!isPlainObject(next)) return cloneJson(existing);
+    return mergeReplayValue(cloneJson(existing) || {}, next, '');
+}
+
+function buildNativeMessages(task, model = '') {
+    const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
+    const lastUserIndex = getLastUserMessageIndex(sourceMessages);
+    const normalizedMessages = sourceMessages.map((message, index) => {
+        if (shouldPreserveAssistantReplayMessage(message, index, lastUserIndex)) {
+            const preserved = normalizeOpenAICompatibleMessage(message);
+            if (preserved) {
+                return ensureReasoningContentForToolCalls(preserved, model);
+            }
+        }
+
+        const baseMessage = {
+            role: message.role,
+            content: message.content,
+        };
+
+        if (message.role === 'tool' && message.tool_call_id) {
+            baseMessage.tool_call_id = message.tool_call_id;
+        }
+
+        if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
+            baseMessage.tool_calls = message.tool_calls.map((toolCall) => ({
+                id: toolCall.id,
+                type: 'function',
+                function: {
+                    name: toolCall.function?.name || '',
+                    arguments: toolCall.function?.arguments || '{}',
+                },
+            }));
+        }
+
+        return ensureReasoningContentForToolCalls(baseMessage, model);
+    });
+
+    const assistantReplaySummaries = normalizedMessages
+        .map((message, index) => ({ message, index }))
+        .filter(({ message }) => message?.role === 'assistant')
+        .map(({ message, index }) => ({
+            index,
+            ...summarizeReplayMessageForDebug(message),
+        }));
+
+    if (assistantReplaySummaries.length) {
+        console.info('[Assistant][OpenAICompatible] request:assistant-replay', assistantReplaySummaries);
+    }
+
+    return normalizedMessages;
+}
+
 function buildTaggedProtocolPrompt(task) {
     const toolDescriptions = (task.tools || []).map((tool) => [
         `- ${tool.function.name}: ${tool.function.description || ''}`.trim(),
@@ -162,8 +378,18 @@ function buildTaggedProtocolPrompt(task) {
 function buildTaggedMessages(task) {
     const toolNameById = new Map();
     const messages = [];
+    const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
+    const lastUserIndex = getLastUserMessageIndex(sourceMessages);
 
-    for (const message of task.messages || []) {
+    sourceMessages.forEach((message, index) => {
+        if (shouldPreserveAssistantReplayMessage(message, index, lastUserIndex)) {
+            const preserved = normalizeOpenAICompatibleMessage(message);
+            if (preserved) {
+                messages.push(preserved);
+                return;
+            }
+        }
+
         if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
             const taggedBlocks = message.tool_calls.map((toolCall, index) => {
                 const toolName = toolCall.function?.name || '';
@@ -182,7 +408,7 @@ function buildTaggedMessages(task) {
                 role: 'assistant',
                 content: [message.content || '', taggedBlocks].filter(Boolean).join('\n\n'),
             });
-            continue;
+            return;
         }
 
         if (message.role === 'tool') {
@@ -198,14 +424,14 @@ function buildTaggedMessages(task) {
                     '</tool_result>',
                 ].join('\n'),
             });
-            continue;
+            return;
         }
 
         messages.push({
             role: message.role,
             content: message.content,
         });
-    }
+    });
 
     if (!messages.length || messages[0].role !== 'system') {
         messages.unshift({
@@ -233,6 +459,140 @@ function emitStreamProgress(task, payload) {
     });
 }
 
+function summarizeReplayMessageForDebug(message) {
+    const normalized = isPlainObject(message) ? message : {};
+    return {
+        role: normalized.role || '',
+        keys: Object.keys(normalized).sort(),
+        hasReasoningContent: typeof normalized.reasoning_content === 'string' && normalized.reasoning_content.length > 0,
+        hasReasoning: !!normalized.reasoning,
+        hasThinking: !!normalized.thinking,
+        toolCallCount: Array.isArray(normalized.tool_calls) ? normalized.tool_calls.length : 0,
+        contentPreview: typeof normalized.content === 'string'
+            ? normalized.content.slice(0, 120)
+            : '',
+    };
+}
+
+function appendStreamField(target, key, value) {
+    if (!target || !key || value === undefined) return;
+    target[key] = mergeReplayValue(target[key], value, key);
+}
+
+function appendStreamToolCalls(target, toolCalls = []) {
+    if (!Array.isArray(toolCalls) || !toolCalls.length) return;
+    if (!Array.isArray(target.tool_calls)) {
+        target.tool_calls = [];
+    }
+    toolCalls.forEach((toolCallDelta) => {
+        const index = Number(toolCallDelta?.index ?? 0);
+        const current = target.tool_calls[index] || {};
+        const nextToolCall = { ...current };
+
+        Object.entries(toolCallDelta || {}).forEach(([key, value]) => {
+            if (key === 'index') return;
+            if (key === 'function' && isPlainObject(value)) {
+                nextToolCall.function = isPlainObject(nextToolCall.function)
+                    ? { ...nextToolCall.function }
+                    : {};
+                Object.entries(value).forEach(([fnKey, fnValue]) => {
+                    nextToolCall.function[fnKey] = mergeReplayValue(nextToolCall.function[fnKey], fnValue, fnKey);
+                });
+                return;
+            }
+            nextToolCall[key] = mergeReplayValue(nextToolCall[key], value, key);
+        });
+
+        target.tool_calls[index] = nextToolCall;
+    });
+}
+
+function accumulateStreamedAssistantSnapshot(target, choice = {}) {
+    if (!target || !choice || typeof choice !== 'object') return;
+
+    Object.entries(choice).forEach(([key, value]) => {
+        if (key === 'delta' || key === 'finish_reason' || key === 'index' || key === 'logprobs') return;
+        appendStreamField(target, key, value);
+    });
+
+    const delta = isPlainObject(choice.delta) ? choice.delta : {};
+    Object.entries(delta).forEach(([key, value]) => {
+        if (key === 'tool_calls') {
+            appendStreamToolCalls(target, value);
+            return;
+        }
+        appendStreamField(target, key, value);
+    });
+}
+
+function applyToolCallDelta(snapshot, toolCallDelta = {}) {
+    const index = Number(toolCallDelta.index ?? 0);
+    const current = snapshot.toolCalls[index] || {
+        id: '',
+        type: 'function',
+        function: {
+            name: '',
+            arguments: '',
+        },
+    };
+    snapshot.toolCalls[index] = {
+        ...current,
+        id: toolCallDelta.id || current.id,
+        type: toolCallDelta.type || current.type,
+        function: {
+            name: toolCallDelta.function?.name || current.function?.name || '',
+            arguments: `${current.function?.arguments || ''}${toolCallDelta.function?.arguments || ''}`,
+        },
+    };
+}
+
+async function readSseEventsFromResponse(response, onEvent) {
+    const reader = response.body?.getReader?.();
+    if (!reader) {
+        throw new Error('openai_compatible_stream_missing_body');
+    }
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const boundaryPattern = /\r?\n\r?\n/;
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        while (true) {
+            const boundaryMatch = buffer.match(boundaryPattern);
+            if (!boundaryMatch || typeof boundaryMatch.index !== 'number') break;
+            const boundaryIndex = boundaryMatch.index;
+            const rawEvent = buffer.slice(0, boundaryIndex);
+            buffer = buffer.slice(boundaryIndex + boundaryMatch[0].length);
+            const data = rawEvent
+                .split(/\r?\n/)
+                .filter((line) => line.startsWith('data:'))
+                .map((line) => line.slice(5).trimStart())
+                .join('\n')
+                .trim();
+            if (!data || data === '[DONE]') {
+                continue;
+            }
+            onEvent(JSON.parse(data));
+        }
+    }
+
+    const trailing = buffer.trim();
+    if (trailing && trailing !== '[DONE]') {
+        const data = trailing
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trimStart())
+            .join('\n')
+            .trim();
+        if (data && data !== '[DONE]') {
+            onEvent(JSON.parse(data));
+        }
+    }
+}
+
 export class OpenAICompatibleAdapter {
     constructor(config) {
         this.config = config;
@@ -245,12 +605,107 @@ export class OpenAICompatibleAdapter {
         });
     }
 
+    async streamNativeChatCompletions(task, body) {
+        const url = `${String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${this.config.apiKey}`,
+            },
+            body: JSON.stringify({
+                ...body,
+                stream: true,
+            }),
+            signal: task.signal,
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '');
+            throw new Error(errorText || `openai_compatible_stream_http_${response.status}`);
+        }
+
+        const snapshot = {
+            content: '',
+            toolCalls: [],
+        };
+        const assistantSnapshot = {
+            role: 'assistant',
+        };
+        let lastFinishReason = 'stop';
+        let lastModel = this.config.model;
+
+        await readSseEventsFromResponse(response, (payload) => {
+            lastModel = payload?.model || lastModel;
+            const choice = payload?.choices?.[0];
+            const delta = choice?.delta || {};
+            accumulateStreamedAssistantSnapshot(assistantSnapshot, choice);
+            if (choice?.finish_reason) {
+                lastFinishReason = choice.finish_reason;
+            }
+            if (typeof delta.content === 'string') {
+                snapshot.content += delta.content;
+            }
+            if (Array.isArray(delta.tool_calls)) {
+                delta.tool_calls.forEach((toolCallDelta) => {
+                    applyToolCallDelta(snapshot, toolCallDelta);
+                });
+            }
+
+            const thinkTagged = extractThinkTaggedContent(snapshot.content);
+            const standardToolCalls = snapshot.toolCalls.filter((item) => item?.function?.name);
+            const cleanedText = standardToolCalls.length
+                ? thinkTagged.cleaned
+                : thinkTagged.cleaned
+                    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+                    .trim();
+            emitStreamProgress(task, {
+                text: cleanedText,
+                thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+            });
+        });
+
+        console.info('[Assistant][OpenAICompatible] stream:replay-payload', {
+            accumulated: summarizeReplayMessageForDebug(assistantSnapshot),
+            final: summarizeReplayMessageForDebug(assistantSnapshot),
+            merged: summarizeReplayMessageForDebug(assistantSnapshot),
+        });
+
+        const providerPayload = buildProviderPayload(assistantSnapshot);
+        const standardToolCalls = snapshot.toolCalls.map((item) => ({
+            id: item.id || `openai-tool-${Date.now()}`,
+            name: item.function?.name || '',
+            arguments: item.function?.arguments || '{}',
+        })).filter((item) => item.name);
+        const thinkTagged = extractThinkTaggedContent(snapshot.content);
+        const thoughts = extractThoughtsFromMessage(assistantSnapshot, {});
+        thinkTagged.thoughts.forEach((item) => thoughts.push(item));
+        const taggedToolCalls = standardToolCalls.length ? [] : extractTaggedToolCalls(thinkTagged.cleaned);
+        const toolCalls = [...standardToolCalls, ...taggedToolCalls];
+        const cleanedText = standardToolCalls.length
+            ? thinkTagged.cleaned
+            : thinkTagged.cleaned
+                .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+                .trim();
+
+        return {
+            text: cleanedText,
+            toolCalls,
+            thoughts,
+            finishReason: lastFinishReason,
+            model: lastModel,
+            provider: 'openai-compatible',
+            providerPayload,
+        };
+    }
+
     async chat(task) {
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
+        const shouldUseStreaming = typeof task.onStreamProgress === 'function';
         const body = {
             model: this.config.model,
-            messages: isTaggedMode ? buildTaggedMessages(task) : task.messages,
+            messages: isTaggedMode ? buildTaggedMessages(task) : buildNativeMessages(task, this.config.model),
             tools: isTaggedMode ? undefined : task.tools,
             tool_choice: isTaggedMode ? undefined : (task.toolChoice || 'auto'),
             ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
@@ -261,7 +716,10 @@ export class OpenAICompatibleAdapter {
         if (task.reasoning?.enabled) {
             body.reasoning_effort = task.reasoning.effort;
         }
-        if (typeof task.onStreamProgress === 'function') {
+        if (shouldUseStreaming) {
+            if (!isTaggedMode) {
+                return await this.streamNativeChatCompletions(task, body);
+            }
             const stream = await this.client.chat.completions.create({
                 ...body,
                 stream: true,
@@ -272,13 +730,18 @@ export class OpenAICompatibleAdapter {
                 content: '',
                 toolCalls: [],
             };
+            const assistantSnapshot = {
+                role: 'assistant',
+            };
             let lastFinishReason = 'stop';
             let lastModel = this.config.model;
+            let providerPayload;
 
             for await (const chunk of stream) {
                 lastModel = chunk.model || lastModel;
                 const choice = chunk.choices?.[0];
                 const delta = choice?.delta || {};
+                accumulateStreamedAssistantSnapshot(assistantSnapshot, choice);
                 if (choice?.finish_reason) {
                     lastFinishReason = choice.finish_reason;
                 }
@@ -287,24 +750,7 @@ export class OpenAICompatibleAdapter {
                 }
                 if (Array.isArray(delta.tool_calls)) {
                     delta.tool_calls.forEach((toolCallDelta) => {
-                        const index = Number(toolCallDelta.index ?? 0);
-                        const current = snapshot.toolCalls[index] || {
-                            id: '',
-                            type: 'function',
-                            function: {
-                                name: '',
-                                arguments: '',
-                            },
-                        };
-                        snapshot.toolCalls[index] = {
-                            ...current,
-                            id: toolCallDelta.id || current.id,
-                            type: toolCallDelta.type || current.type,
-                            function: {
-                                name: toolCallDelta.function?.name || current.function?.name || '',
-                                arguments: `${current.function?.arguments || ''}${toolCallDelta.function?.arguments || ''}`,
-                            },
-                        };
+                        applyToolCallDelta(snapshot, toolCallDelta);
                     });
                 }
 
@@ -317,15 +763,32 @@ export class OpenAICompatibleAdapter {
                         .trim();
                 emitStreamProgress(task, {
                     text: cleanedText,
-                    thoughts: thinkTagged.thoughts,
+                    thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
                 });
             }
+            const finalCompletion = typeof stream.finalChatCompletion === 'function'
+                ? await stream.finalChatCompletion()
+                : null;
+            const finalChoice = finalCompletion?.choices?.[0] || null;
+            const finalMessage = finalChoice?.message || assistantSnapshot;
+            const replayableFinalMessage = mergeReplayMessages(
+                assistantSnapshot,
+                buildReplayableAssistantMessage(finalMessage, finalChoice || {}),
+            );
+            console.info('[Assistant][OpenAICompatible] stream:replay-payload', {
+                accumulated: summarizeReplayMessageForDebug(assistantSnapshot),
+                final: summarizeReplayMessageForDebug(finalMessage),
+                merged: summarizeReplayMessageForDebug(replayableFinalMessage),
+            });
+            providerPayload = buildProviderPayload(replayableFinalMessage);
             const standardToolCalls = snapshot.toolCalls.map((item) => ({
                 id: item.id || `openai-tool-${Date.now()}`,
                 name: item.function?.name || '',
                 arguments: item.function?.arguments || '{}',
             })).filter((item) => item.name);
             const thinkTagged = extractThinkTaggedContent(snapshot.content);
+            const thoughts = extractThoughtsFromMessage(replayableFinalMessage, finalChoice || {});
+            thinkTagged.thoughts.forEach((item) => thoughts.push(item));
             const taggedToolCalls = standardToolCalls.length ? [] : extractTaggedToolCalls(thinkTagged.cleaned);
             const toolCalls = [...standardToolCalls, ...taggedToolCalls];
             const cleanedText = standardToolCalls.length
@@ -337,10 +800,11 @@ export class OpenAICompatibleAdapter {
             return {
                 text: cleanedText,
                 toolCalls,
-                thoughts: thinkTagged.thoughts,
+                thoughts,
                 finishReason: lastFinishReason,
                 model: lastModel,
                 provider: 'openai-compatible',
+                providerPayload,
             };
         }
 
@@ -366,6 +830,8 @@ export class OpenAICompatibleAdapter {
             : thinkTagged.cleaned
                 .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
                 .trim();
+        const replayableMessage = buildReplayableAssistantMessage(message, choice);
+        console.info('[Assistant][OpenAICompatible] nonstream:replay-payload', summarizeReplayMessageForDebug(replayableMessage));
 
         return {
             text: cleanedText,
@@ -374,6 +840,7 @@ export class OpenAICompatibleAdapter {
             finishReason: choice.finish_reason || 'stop',
             model: response.model || this.config.model,
             provider: 'openai-compatible',
+            providerPayload: buildProviderPayload(replayableMessage),
         };
     }
 }

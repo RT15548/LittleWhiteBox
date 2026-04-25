@@ -2,6 +2,28 @@ function normalizePatchText(value = '') {
     return String(value ?? '').replace(/\r\n?/g, '\n');
 }
 
+function splitTextForPatchApplication(normalizedText = '') {
+    const normalized = String(normalizedText ?? '');
+    if (normalized === '') {
+        return {
+            lines: [],
+            hadTerminalNewline: false,
+        };
+    }
+
+    const hadTerminalNewline = normalized.endsWith('\n');
+    const body = hadTerminalNewline ? normalized.slice(0, -1) : normalized;
+    return {
+        lines: body === '' ? [''] : body.split('\n'),
+        hadTerminalNewline,
+    };
+}
+
+function joinPatchedLines(lines = [], hadTerminalNewline = false) {
+    const content = Array.isArray(lines) ? lines.join('\n') : '';
+    return hadTerminalNewline ? `${content}\n` : content;
+}
+
 function isFileOperationHeader(line = '') {
     return line.startsWith('*** Add File: ')
         || line.startsWith('*** Delete File: ')
@@ -14,6 +36,34 @@ function createParseError(message) {
 
 function createApplyError(message) {
     throw new Error(`apply_patch_apply_error:${message}`);
+}
+
+function parseNonNegativeInteger(value) {
+    const parsed = Number.parseInt(String(value || ''), 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function parseHunkMarker(marker = '') {
+    if (!marker.startsWith('@@')) createParseError('expected hunk marker');
+    const body = marker.slice(2).trim();
+    if (!body) {
+        return { header: '' };
+    }
+
+    const unifiedMatch = body.match(/^-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s*@@(?:\s*(.*))?$/);
+    if (unifiedMatch) {
+        return {
+            header: String(unifiedMatch[5] || '').trim(),
+            oldStartLine: parseNonNegativeInteger(unifiedMatch[1]),
+            oldLineCount: unifiedMatch[2] === undefined ? 1 : Math.max(0, Number.parseInt(unifiedMatch[2], 10) || 0),
+            newStartLine: parseNonNegativeInteger(unifiedMatch[3]),
+            newLineCount: unifiedMatch[4] === undefined ? 1 : Math.max(0, Number.parseInt(unifiedMatch[4], 10) || 0),
+        };
+    }
+
+    return {
+        header: body,
+    };
 }
 
 function parseAddFile(lines, startIndex) {
@@ -72,7 +122,7 @@ function parseUpdateFile(lines, startIndex) {
     while (index < lines.length && !isFileOperationHeader(lines[index]) && lines[index] !== '*** End Patch') {
         const marker = lines[index];
         if (!marker.startsWith('@@')) createParseError(`expected hunk marker for ${path}`);
-        const headerText = marker === '@@' ? '' : marker.startsWith('@@ ') ? marker.slice(3) : marker.slice(2).trim();
+        const hunkMarker = parseHunkMarker(marker);
         index += 1;
 
         const hunkLines = [];
@@ -95,7 +145,11 @@ function parseUpdateFile(lines, startIndex) {
 
         if (!hunkLines.length) createParseError(`empty hunk for ${path}`);
         hunks.push({
-            header: headerText,
+            header: hunkMarker.header,
+            oldStartLine: hunkMarker.oldStartLine,
+            oldLineCount: hunkMarker.oldLineCount,
+            newStartLine: hunkMarker.newStartLine,
+            newLineCount: hunkMarker.newLineCount,
             lines: hunkLines,
             endOfFile,
         });
@@ -387,7 +441,10 @@ function resolveHunkMatch(fileLines, hunk, oldLines, preferredStart = 0, options
 
 export function applyPatchUpdateToText(originalText = '', hunks = [], options = {}) {
     const normalized = normalizePatchText(originalText);
-    const fileLines = normalized === '' ? [] : normalized.split('\n');
+    const {
+        lines: fileLines,
+        hadTerminalNewline,
+    } = splitTextForPatchApplication(normalized);
     let searchStart = 0;
 
     hunks.forEach((hunk, hunkIndex) => {
@@ -402,13 +459,16 @@ export function applyPatchUpdateToText(originalText = '', hunks = [], options = 
             createApplyError(`hunk ${hunkIndex + 1} for ${options.path || 'file'} has no match context`);
         }
 
-        const match = resolveHunkMatch(fileLines, { ...hunk, index: hunkIndex }, oldLines, searchStart, options);
+        const hunkStartHint = Number.isFinite(hunk.oldStartLine)
+            ? Math.max(searchStart, hunk.oldStartLine - 1)
+            : searchStart;
+        const match = resolveHunkMatch(fileLines, { ...hunk, index: hunkIndex }, oldLines, hunkStartHint, options);
         fileLines.splice(match.index, oldLines.length, ...newLines);
         searchStart = match.index + newLines.length;
     });
 
     return {
-        content: fileLines.join('\n'),
+        content: joinPatchedLines(fileLines, hadTerminalNewline),
         hunksApplied: hunks.length,
     };
 }

@@ -57,6 +57,40 @@ test('parseApplyPatch keeps end-of-file markers on update hunks', () => {
     assert.equal(patch.operations[0].hunks[0].header, 'final marker');
 });
 
+test('parseApplyPatch treats unified diff line ranges as hunk metadata, not text anchors', () => {
+    const patch = parsePatchDocument([
+        '*** Update File: local/scripts/demo.js',
+        '@@ -1,3 +1,3 @@',
+        ' function demo() {',
+        '-  return "old";',
+        '+  return "new";',
+        ' }',
+    ]);
+
+    const hunk = patch.operations[0].hunks[0];
+    assert.equal(hunk.header, '');
+    assert.equal(hunk.oldStartLine, 1);
+    assert.equal(hunk.oldLineCount, 3);
+    assert.equal(hunk.newStartLine, 1);
+    assert.equal(hunk.newLineCount, 3);
+});
+
+test('parseApplyPatch keeps unified diff section text as the optional hunk anchor', () => {
+    const patch = parsePatchDocument([
+        '*** Update File: local/scripts/demo.js',
+        '@@ -10,3 +10,3 @@ function demo() {',
+        ' function demo() {',
+        '-  return "old";',
+        '+  return "new";',
+        ' }',
+    ]);
+
+    const hunk = patch.operations[0].hunks[0];
+    assert.equal(hunk.header, 'function demo() {');
+    assert.equal(hunk.oldStartLine, 10);
+    assert.equal(hunk.newStartLine, 10);
+});
+
 test('applyPatchUpdateToText updates two assistant sections in one pass', () => {
     const original = [
         'export function updateIdentity() {',
@@ -84,6 +118,77 @@ test('applyPatchUpdateToText updates two assistant sections in one pass', () => 
     const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/scripts/assistant-hooks.js' });
     assert.match(applied.content, /return "ready";/);
     assert.match(applied.content, /return "fresh";/);
+});
+
+test('applyPatchUpdateToText accepts standard unified diff hunk ranges', () => {
+    const original = [
+        'function test() {',
+        '  console.log("old");',
+        '  return 1;',
+        '}',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/strict-patch-test.js',
+        '@@ -1,4 +1,4 @@',
+        ' function test() {',
+        '-  console.log("old");',
+        '+  console.log("new");',
+        '   return 1;',
+        ' }',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/strict-patch-test.js' });
+    assert.equal(applied.content, [
+        'function test() {',
+        '  console.log("new");',
+        '  return 1;',
+        '}',
+    ].join('\n'));
+});
+
+test('applyPatchUpdateToText uses unified diff line ranges to disambiguate repeated blocks', () => {
+    const original = [
+        'const status = "idle";',
+        'const status = "idle";',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/state/session.js',
+        '@@ -2,1 +2,1 @@',
+        '-const status = "idle";',
+        '+const status = "busy";',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/state/session.js' });
+    assert.equal(applied.content, [
+        'const status = "idle";',
+        'const status = "busy";',
+    ].join('\n'));
+});
+
+test('applyPatchUpdateToText keeps multi-hunk unified ranges moving forward after inserted duplicate context', () => {
+    const original = [
+        'A',
+        'target',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/demo.txt',
+        '@@ -1,1 +1,3 @@',
+        '-A',
+        '+A1',
+        '+target',
+        '+A2',
+        '@@ -2,1 +4,1 @@',
+        '-target',
+        '+done',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/demo.txt' });
+    assert.equal(applied.content, [
+        'A1',
+        'target',
+        'A2',
+        'done',
+    ].join('\n'));
 });
 
 test('applyPatchUpdateToText uses an anchor line to isolate repeated content', () => {
@@ -122,6 +227,52 @@ test('applyPatchUpdateToText tolerates trailing-space drift in source lines', ()
 
     const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/ui/mobile.js' });
     assert.match(applied.content, /Dismiss/);
+});
+
+test('applyPatchUpdateToText ignores a synthetic terminal newline when matching the final block', () => {
+    const original = [
+        '这是 x宝 的工作区文件写入测试。',
+        '时间戳：2026-04-24',
+        '测试内容：验证 Write → Read 工作区工具链是否正常。',
+        '',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/test-workspace.txt',
+        '@@ 测试内容：验证 Write → Read 工作区工具链是否正常。',
+        ' 测试内容：验证 Write → Read 工作区工具链是否正常。',
+        '+补一行：apply_patch 末尾换行兼容验证。',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/test-workspace.txt' });
+    assert.equal(applied.content, [
+        '这是 x宝 的工作区文件写入测试。',
+        '时间戳：2026-04-24',
+        '测试内容：验证 Write → Read 工作区工具链是否正常。',
+        '补一行：apply_patch 末尾换行兼容验证。',
+        '',
+    ].join('\n'));
+});
+
+test('applyPatchUpdateToText still keeps a real trailing blank content line significant', () => {
+    const original = [
+        'const workspaceReady = true;',
+        '',
+        '',
+    ].join('\n');
+    const patch = parsePatchDocument([
+        '*** Update File: local/state/workspace.js',
+        '@@',
+        '-const workspaceReady = true;',
+        '+const workspaceReady = false;',
+        ' ',
+    ]);
+
+    const applied = applyPatchUpdateToText(original, patch.operations[0].hunks, { path: 'local/state/workspace.js' });
+    assert.equal(applied.content, [
+        'const workspaceReady = false;',
+        '',
+        '',
+    ].join('\n'));
 });
 
 test('applyPatchUpdateToText tolerates outer whitespace drift when text body matches', () => {

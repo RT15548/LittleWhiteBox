@@ -162,6 +162,8 @@ export const TOOL_DEFINITIONS = [
                 'Apply a structured patch to `local/` text files.',
                 'Use this for targeted edits, multi-file changes, adds, deletes, and renames inside the workspace.',
                 'Patch format uses structured headers such as `*** Begin Patch`, `*** Update File: local/example.js`, `@@`, and `*** End Patch`.',
+                'Hunk headers support plain `@@`, anchored `@@ existing line`, and standard unified diff ranges like `@@ -1,3 +1,3 @@`.',
+                'For `@@ -1,3 +1,3 @@ existing line`, the range is a positioning hint and `existing line` is the header anchor.',
             ].join('\n'),
             parameters: {
                 type: 'object',

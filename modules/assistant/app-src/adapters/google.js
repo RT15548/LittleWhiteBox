@@ -8,6 +8,15 @@ function parseArguments(text) {
     }
 }
 
+function cloneJson(value) {
+    if (value === undefined) return undefined;
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch {
+        return undefined;
+    }
+}
+
 function buildTextPart(text) {
     return { text: String(text || '') };
 }
@@ -46,16 +55,161 @@ function buildMessageParts(content) {
 function buildFallbackUserContent() {
     return {
         role: 'user',
-        parts: [buildTextPart('继续。')],
+        parts: [buildTextPart('')],
     };
+}
+
+function normalizeGoogleContentValue(content, fallbackRole = 'model') {
+    if (!content?.parts?.length) return null;
+    const cloned = cloneJson(content);
+    if (!cloned) return null;
+    if (!cloned.role) {
+        cloned.role = fallbackRole;
+    }
+    return cloned;
+}
+
+function hasThoughtSignaturePart(content) {
+    return !!content?.parts?.some((part) => typeof part?.thoughtSignature === 'string' && part.thoughtSignature);
+}
+
+function hasFunctionCallPart(content) {
+    return !!content?.parts?.some((part) => part?.functionCall?.name);
+}
+
+function getFunctionCallPartKey(part, index) {
+    if (!part?.functionCall?.name) return '';
+    return [
+        String(part.functionCall.id || ''),
+        String(part.functionCall.name || ''),
+        JSON.stringify(part.functionCall.args || {}),
+        String(index),
+    ].join('\u0000');
+}
+
+function buildRepairedStreamedContent(contents = [], streamedText = '') {
+    const normalizedContents = contents
+        .map((content) => normalizeGoogleContentValue(content, 'model'))
+        .filter(Boolean);
+    if (!normalizedContents.length) return null;
+
+    const latestSignedContent = [...normalizedContents]
+        .reverse()
+        .find((content) => hasThoughtSignaturePart(content)) || null;
+    const latestFunctionCallContent = [...normalizedContents]
+        .reverse()
+        .find((content) => hasFunctionCallPart(content)) || null;
+    const baseContent = cloneJson(latestSignedContent || latestFunctionCallContent || normalizedContents[normalizedContents.length - 1]);
+    if (!baseContent?.parts?.length) {
+        return normalizedContents[normalizedContents.length - 1];
+    }
+
+    if (latestFunctionCallContent) {
+        const bestFunctionCallParts = new Map();
+        normalizedContents.forEach((content) => {
+            content.parts.forEach((part, index) => {
+                const key = getFunctionCallPartKey(part, index);
+                if (!key) return;
+                const currentBest = bestFunctionCallParts.get(key);
+                if (!currentBest || part.thoughtSignature || !currentBest.thoughtSignature) {
+                    bestFunctionCallParts.set(key, cloneJson(part));
+                }
+            });
+        });
+
+        const existingKeys = new Set();
+        baseContent.parts = baseContent.parts.map((part, index) => {
+            const key = getFunctionCallPartKey(part, index);
+            if (!key) return part;
+            existingKeys.add(key);
+            return bestFunctionCallParts.get(key) || part;
+        });
+
+        latestFunctionCallContent.parts.forEach((part, index) => {
+            const key = getFunctionCallPartKey(part, index);
+            if (!key || existingKeys.has(key)) return;
+            baseContent.parts.push(bestFunctionCallParts.get(key) || cloneJson(part));
+            existingKeys.add(key);
+        });
+    }
+
+    const nextText = String(streamedText || '');
+    const preservedNonVisibleParts = baseContent.parts.filter((part) => !(typeof part?.text === 'string' && !part?.thought));
+    baseContent.parts = nextText
+        ? [{ text: nextText }, ...preservedNonVisibleParts]
+        : preservedNonVisibleParts;
+
+    return baseContent.parts.length
+        ? baseContent
+        : normalizedContents[normalizedContents.length - 1];
 }
 
 function extractVisibleText(response) {
     const parts = response?.candidates?.[0]?.content?.parts || [];
-    return parts
+    const visibleText = parts
         .filter((part) => !part?.thought && typeof part?.text === 'string' && part.text)
         .map((part) => part.text)
         .join('\n');
+    if (visibleText || parts.length) {
+        return visibleText;
+    }
+    return typeof response?.text === 'string' && response.text
+        ? response.text
+        : '';
+}
+
+function extractFunctionCalls(response) {
+    const sdkFunctionCalls = Array.isArray(response?.functionCalls)
+        ? response.functionCalls
+        : [];
+    const contentFunctionCalls = (response?.candidates?.[0]?.content?.parts || [])
+        .map((item) => item?.functionCall || item)
+        .filter((item) => item && item.name);
+    const rawCalls = sdkFunctionCalls.length
+        ? sdkFunctionCalls
+        : contentFunctionCalls;
+    return rawCalls
+        .map((item, index) => ({
+            id: item.id || `google-tool-${index + 1}`,
+            name: item.name || '',
+            arguments: JSON.stringify(item.args || {}),
+        }))
+        .filter((item) => item.name);
+}
+
+function mergeFunctionCalls(existing = [], incoming = []) {
+    const merged = Array.isArray(existing) ? [...existing] : [];
+    (Array.isArray(incoming) ? incoming : []).forEach((item) => {
+        if (!item?.name) return;
+        const key = [
+            String(item.id || ''),
+            String(item.name || ''),
+            String(item.arguments || ''),
+        ].join('\u0000');
+        const exists = merged.some((current) => [
+            String(current.id || ''),
+            String(current.name || ''),
+            String(current.arguments || ''),
+        ].join('\u0000') === key);
+        if (!exists) {
+            merged.push(item);
+        }
+    });
+    return merged;
+}
+
+function buildToolResponseMessage(toolResponses = []) {
+    return {
+        role: 'user',
+        parts: toolResponses
+            .filter((item) => item && item.name)
+            .map((item) => ({
+                functionResponse: {
+                    name: item.name,
+                    response: item.response || {},
+                },
+            })),
+    };
 }
 
 function mapThinkingLevel(effort) {
@@ -92,18 +246,62 @@ function resolveSystemInstruction(task) {
     return [...new Set(parts)].join('\n\n');
 }
 
-function buildToolResponseMessage(toolResponses = []) {
+function normalizeGoogleContent(message) {
+    const content = message?.providerPayload?.googleContent;
+    return normalizeGoogleContentValue(content, 'model');
+}
+
+function normalizeGoogleContents(message) {
+    const contents = message?.providerPayload?.googleContents;
+    if (!Array.isArray(contents) || !contents.length) {
+        const legacyContent = normalizeGoogleContent(message);
+        return legacyContent ? [legacyContent] : [];
+    }
+    return contents
+        .map((content) => normalizeGoogleContentValue(content, 'model'))
+        .filter(Boolean);
+}
+
+function buildProviderPayloadFromContents(contents = []) {
+    const normalizedContents = (Array.isArray(contents) ? contents : [])
+        .map((content) => normalizeGoogleContentValue(content, 'model'))
+        .filter(Boolean);
+    if (!normalizedContents.length) return undefined;
     return {
-        role: 'user',
-        parts: toolResponses
-            .filter((item) => item && item.name)
-            .map((item) => ({
-                functionResponse: {
-                    name: item.name,
-                    response: item.response || {},
-                },
-            })),
+        googleContent: normalizedContents[normalizedContents.length - 1],
+        googleContents: normalizedContents,
     };
+}
+
+function buildProviderPayload(response) {
+    const content = response?.candidates?.[0]?.content;
+    return buildProviderPayloadFromContents(content ? [content] : []);
+}
+
+function buildProviderPayloadFromContent(content) {
+    return buildProviderPayloadFromContents(content ? [content] : []);
+}
+
+function getChatHistory(chat) {
+    try {
+        if (typeof chat?.getHistory === 'function') {
+            return chat.getHistory(false);
+        }
+    } catch {
+        return [];
+    }
+    return Array.isArray(chat?.history)
+        ? (cloneJson(chat.history) || [])
+        : [];
+}
+
+function getNewModelContentsFromHistory(chat, beforeLength = 0) {
+    const history = getChatHistory(chat);
+    return history
+        .slice(Math.max(0, beforeLength))
+        .filter((content) => content?.role === 'model')
+        .map((content) => normalizeGoogleContentValue(content, 'model'))
+        .filter(Boolean);
 }
 
 function buildConversation(messages) {
@@ -142,6 +340,14 @@ function buildConversation(messages) {
             });
             index = cursor - 1;
             continue;
+        }
+
+        if (message.role === 'assistant') {
+            const preservedContents = normalizeGoogleContents(message);
+            if (preservedContents.length) {
+                contents.push(...preservedContents);
+                continue;
+            }
         }
 
         if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
@@ -274,21 +480,29 @@ export class GoogleAdapter {
         let thoughts;
         let text;
         let finalFunctionCalls = [];
+        let streamedGoogleContent = null;
         const requestPayload = { ...sendPayload };
+        const shouldUseStreaming = typeof task.onStreamProgress === 'function';
+        const historyLengthBeforeSend = getChatHistory(chat).length;
         // Google SDK 的 sendMessage/sendMessageStream 一旦传 per-request config，
         // 就不会继承 chats.create() 时的 session config。
         // 这里不能只为了 abortSignal 再拼一个 config，否则会把
         // systemInstruction / tools / thinkingConfig 冲掉。
 
-        if (typeof task.onStreamProgress === 'function') {
+        if (shouldUseStreaming) {
             const stream = await chat.sendMessageStream(requestPayload);
             const thoughtMap = new Map();
             let streamedText = '';
             let streamedToolCalls = [];
             let lastChunk = null;
+            const streamedContents = [];
 
             for await (const chunk of stream) {
                 lastChunk = chunk;
+                const chunkContent = chunk?.candidates?.[0]?.content;
+                if (chunkContent?.parts?.length) {
+                    streamedContents.push(chunkContent);
+                }
                 extractThoughts(chunk).forEach((item, index) => {
                     const key = `${item.label}:${index}`;
                     thoughtMap.set(key, mergeStreamText(thoughtMap.get(key) || '', item.text));
@@ -299,14 +513,13 @@ export class GoogleAdapter {
                     name: item.name || '',
                     arguments: JSON.stringify(item.args || {}),
                 })).filter((item) => item.name);
-                finalFunctionCalls = streamedToolCalls;
+                finalFunctionCalls = mergeFunctionCalls(
+                    finalFunctionCalls,
+                    streamedToolCalls.length ? streamedToolCalls : extractFunctionCalls(chunk),
+                );
 
-                if (streamedToolCalls.length) {
-                    streamedText = '';
-                } else {
-                    const chunkText = extractVisibleText(chunk);
-                    streamedText = mergeStreamText(streamedText, chunkText);
-                }
+                const chunkText = extractVisibleText(chunk);
+                streamedText = mergeStreamText(streamedText, chunkText);
 
                 emitStreamProgress(task, {
                     text: streamedText,
@@ -320,37 +533,38 @@ export class GoogleAdapter {
             }
 
             response = lastChunk || { functionCalls: streamedToolCalls };
+            streamedGoogleContent = buildRepairedStreamedContent(streamedContents, streamedText)
+                || response?.candidates?.[0]?.content
+                || null;
             thoughts = Array.from(thoughtMap.values())
                 .filter(Boolean)
                 .map((value, index) => ({
                     label: `思考块 ${index + 1}`,
                     text: value,
                 }));
-            text = finalFunctionCalls.length ? '' : streamedText;
+            text = streamedText;
         } else {
             response = await chat.sendMessage(requestPayload);
             thoughts = extractThoughts(response);
-            text = response.functionCalls?.length
-                ? ''
-                : extractVisibleText(response);
+            text = extractVisibleText(response);
         }
 
-        const toolCalls = (response.functionCalls || []).map((item, index) => ({
-            id: item.id || `google-tool-${index + 1}`,
-            name: item.name || '',
-            arguments: JSON.stringify(item.args || {}),
-        })).filter((item) => item.name);
+        const toolCalls = extractFunctionCalls(response);
         const normalizedToolCalls = toolCalls.length
             ? toolCalls
             : finalFunctionCalls;
+        const historyModelContents = getNewModelContentsFromHistory(chat, historyLengthBeforeSend);
 
         return {
-            text: normalizedToolCalls.length ? '' : text,
+            text,
             toolCalls: normalizedToolCalls,
             thoughts,
             finishReason: response.candidates?.[0]?.finishReason || 'STOP',
             model: response.modelVersion || this.config.model,
             provider: 'google',
+            providerPayload: buildProviderPayloadFromContents(historyModelContents)
+                || buildProviderPayloadFromContent(streamedGoogleContent)
+                || buildProviderPayload(response),
         };
     }
 
@@ -359,10 +573,19 @@ export class GoogleAdapter {
             if (!this.activeChat) {
                 throw new Error('google_chat_session_missing');
             }
-            const sendPayload = {
+            return await this.sendThroughChat(this.activeChat, {
                 message: buildToolResponseMessage(task.toolResponses),
-            };
-            return await this.sendThroughChat(this.activeChat, sendPayload, task);
+            }, task);
+        }
+
+        const finalAnswerReminderText = String(task.finalAnswerReminderText || '').trim();
+        if (finalAnswerReminderText) {
+            if (!this.activeChat) {
+                throw new Error('google_chat_session_missing');
+            }
+            return await this.sendThroughChat(this.activeChat, {
+                message: [buildTextPart(finalAnswerReminderText)],
+            }, task);
         }
 
         const created = this.createChat(task);
