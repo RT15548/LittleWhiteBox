@@ -115,9 +115,19 @@ export function createMetrics() {
             rerankDocAvgLength: 0,
 
             // Stage 2: L1
+            l1PrefetchAiFloors: 0,
+            l1PrefetchWithContextFloors: 0,
+            l1PrefetchTrimmed: 0,
             l1Pulled: 0,
             l1Attached: 0,
             l1CosineTime: 0,
+            l1ChunkFetchTime: 0,
+            l1VectorFetchTime: 0,
+            l1DeserializeTime: 0,
+            l1ScoreTime: 0,
+            l1SortTime: 0,
+            l1VectorHits: 0,
+            l1MissingVectors: 0,
 
             // 装配
             contextPairsAdded: 0,
@@ -412,9 +422,19 @@ export function formatMetricsLog(metrics) {
     lines.push(`│   ├─ floors_selected: ${m.evidence.floorsSelected}`);
     lines.push(`│   └─ l0_atoms_collected: ${m.evidence.l0Collected}`);
     lines.push(`├─ Stage 2 (L1):`);
+    lines.push(`│   ├─ prefetched_ai_floors: ${m.evidence.l1PrefetchAiFloors}`);
+    lines.push(`│   ├─ prefetched_total_floors: ${m.evidence.l1PrefetchWithContextFloors}`);
+    if ((m.evidence.l1PrefetchTrimmed || 0) > 0) {
+        lines.push(`│   ├─ prefetch_trimmed: ${m.evidence.l1PrefetchTrimmed}`);
+    }
     lines.push(`│   ├─ pulled: ${m.evidence.l1Pulled}`);
+    lines.push(`│   ├─ vector_hits: ${m.evidence.l1VectorHits}`);
+    if ((m.evidence.l1MissingVectors || 0) > 0) {
+        lines.push(`│   ├─ missing_vectors: ${m.evidence.l1MissingVectors}`);
+    }
     lines.push(`│   ├─ attached: ${m.evidence.l1Attached}`);
-    lines.push(`│   └─ cosine_time: ${m.evidence.l1CosineTime}ms`);
+    lines.push(`│   ├─ cosine_time: ${m.evidence.l1CosineTime}ms`);
+    lines.push(`│   └─ breakdown: chunk_db=${m.evidence.l1ChunkFetchTime}ms, vector_db=${m.evidence.l1VectorFetchTime}ms, deserialize=${m.evidence.l1DeserializeTime}ms, score=${m.evidence.l1ScoreTime}ms, sort=${m.evidence.l1SortTime}ms`);
     lines.push(`├─ tokens: ${m.evidence.tokens}`);
     lines.push(`└─ assembly_time: ${m.evidence.assemblyTime}ms`);
     lines.push('');
@@ -485,6 +505,11 @@ export function formatMetricsLog(metrics) {
     lines.push(`├─ evidence_retrieval: ${m.timing.evidenceRetrieval}ms`);
     lines.push(`├─ floor_rerank: ${m.timing.evidenceRerank || 0}ms`);
     lines.push(`├─ l1_cosine: ${m.evidence.l1CosineTime}ms`);
+    lines.push(`│   ├─ l1_chunk_db: ${m.evidence.l1ChunkFetchTime}ms`);
+    lines.push(`│   ├─ l1_vector_db: ${m.evidence.l1VectorFetchTime}ms`);
+    lines.push(`│   ├─ l1_deserialize: ${m.evidence.l1DeserializeTime}ms`);
+    lines.push(`│   ├─ l1_score: ${m.evidence.l1ScoreTime}ms`);
+    lines.push(`│   └─ l1_sort: ${m.evidence.l1SortTime}ms`);
     lines.push(`├─ diffusion: ${m.timing.diffusion}ms`);
     lines.push(`├─ evidence_assembly: ${m.timing.evidenceAssembly}ms`);
     lines.push(`├─ formatting: ${m.timing.formatting}ms`);
@@ -690,7 +715,14 @@ export function detectIssues(metrics) {
     }
 
     if (m.evidence.l1CosineTime > 1000) {
-        issues.push(`Slow L1 cosine scoring (${m.evidence.l1CosineTime}ms) - too many chunks pulled`);
+        const dominantStage = [
+            ['chunk DB', m.evidence.l1ChunkFetchTime || 0],
+            ['vector DB', m.evidence.l1VectorFetchTime || 0],
+            ['deserialize', m.evidence.l1DeserializeTime || 0],
+            ['score', m.evidence.l1ScoreTime || 0],
+            ['sort', m.evidence.l1SortTime || 0],
+        ].sort((a, b) => b[1] - a[1])[0];
+        issues.push(`Slow L1 scoring (${m.evidence.l1CosineTime}ms) - dominant stage: ${dominantStage[0]} ${dominantStage[1]}ms`);
     }
 
     // ─────────────────────────────────────────────────────────────────

@@ -25,7 +25,7 @@
 // 阶段 9: Causation Trace
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { getAllEventVectors, getChunksByFloors, getMeta, getChunkVectorsByIds } from '../storage/chunk-store.js';
+import { bufferToFloat32, getAllEventVectors, getChunksByFloors, getMeta, getChunkVectorsByIds } from '../storage/chunk-store.js';
 import { getAllStateVectors, getStateAtoms } from '../storage/state-store.js';
 import { getEngineFingerprint, embed } from '../utils/embedder.js';
 import { xbLog } from '../../../../core/debug-core.js';
@@ -737,12 +737,19 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
     // ─────────────────────────────────────────────────────────────────
 
     const floorsToFetch = new Set();
-    for (const f of fusedFloors) {
+    const prefetchedFloorItems = fusedFloors;
+    for (const f of prefetchedFloorItems) {
         floorsToFetch.add(f.id);
         const userFloor = f.id - 1;
         if (userFloor >= 0 && chat?.[userFloor]?.is_user) {
             floorsToFetch.add(userFloor);
         }
+    }
+
+    if (metrics) {
+        metrics.evidence.l1PrefetchAiFloors = prefetchedFloorItems.length;
+        metrics.evidence.l1PrefetchWithContextFloors = floorsToFetch.size;
+        metrics.evidence.l1PrefetchTrimmed = Math.max(0, fusedFloors.length - prefetchedFloorItems.length);
     }
 
     const l1ScoredByFloor = await pullAndScoreL1(chatId, [...floorsToFetch], queryVector, chat);
@@ -929,38 +936,64 @@ async function pullAndScoreL1(chatId, floors, queryVector, chat) {
     const T0 = performance.now();
 
     const result = new Map();
+    result._stats = {
+        requestedFloors: floors?.length || 0,
+        chunkCount: 0,
+        vectorHits: 0,
+        missingVectors: 0,
+        chunkFetchTime: 0,
+        vectorFetchTime: 0,
+        deserializeTime: 0,
+        scoreTime: 0,
+        sortTime: 0,
+        totalTime: 0,
+    };
 
     if (!chatId || !floors?.length || !queryVector?.length) {
         result._cosineTime = 0;
+        result._stats.totalTime = 0;
         return result;
     }
 
     let dbChunks = [];
     try {
+        const TChunkFetch = performance.now();
         dbChunks = await getChunksByFloors(chatId, floors);
+        result._stats.chunkFetchTime = Math.round(performance.now() - TChunkFetch);
     } catch (e) {
         xbLog.warn(MODULE_ID, 'L1 chunks 拉取失败', e);
         result._cosineTime = Math.round(performance.now() - T0);
+        result._stats.totalTime = result._cosineTime;
         return result;
     }
 
     if (!dbChunks.length) {
         result._cosineTime = Math.round(performance.now() - T0);
+        result._stats.totalTime = result._cosineTime;
         return result;
     }
+    result._stats.chunkCount = dbChunks.length;
 
     const chunkIds = dbChunks.map(c => c.chunkId);
-    let chunkVectors = [];
+    let chunkVectorRecords = [];
     try {
-        chunkVectors = await getChunkVectorsByIds(chatId, chunkIds);
+        const TVectorFetch = performance.now();
+        chunkVectorRecords = await getChunkVectorsByIds(chatId, chunkIds, { decode: false });
+        result._stats.vectorFetchTime = Math.round(performance.now() - TVectorFetch);
     } catch (e) {
         xbLog.warn(MODULE_ID, 'L1 向量拉取失败', e);
         result._cosineTime = Math.round(performance.now() - T0);
+        result._stats.totalTime = result._cosineTime;
         return result;
     }
 
-    const vectorMap = new Map(chunkVectors.map(v => [v.chunkId, v.vector]));
+    const TDeserialize = performance.now();
+    const vectorMap = new Map(chunkVectorRecords.map(v => [v.chunkId, bufferToFloat32(v.vector)]));
+    result._stats.deserializeTime = Math.round(performance.now() - TDeserialize);
+    result._stats.vectorHits = vectorMap.size;
+    result._stats.missingVectors = Math.max(0, dbChunks.length - vectorMap.size);
 
+    const TScore = performance.now();
     for (const chunk of dbChunks) {
         const vec = vectorMap.get(chunk.chunkId);
         const cosineScore = vec?.length ? cosineSimilarity(queryVector, vec) : 0;
@@ -980,15 +1013,21 @@ async function pullAndScoreL1(chatId, floors, queryVector, chat) {
         }
         result.get(chunk.floor).push(scored);
     }
+    result._stats.scoreTime = Math.round(performance.now() - TScore);
 
+    const TSort = performance.now();
     for (const [, chunks] of result) {
         chunks.sort((a, b) => b._cosineScore - a._cosineScore);
     }
+    result._stats.sortTime = Math.round(performance.now() - TSort);
 
     result._cosineTime = Math.round(performance.now() - T0);
+    result._stats.totalTime = result._cosineTime;
 
     xbLog.info(MODULE_ID,
-        `L1 pull: ${floors.length} floors → ${dbChunks.length} chunks → scored (${result._cosineTime}ms)`
+        `L1 pull: ${floors.length} floors → ${dbChunks.length} chunks → vectors=${result._stats.vectorHits}/${dbChunks.length} `
+        + `(chunk_db=${result._stats.chunkFetchTime}ms, vector_db=${result._stats.vectorFetchTime}ms, `
+        + `deserialize=${result._stats.deserializeTime}ms, score=${result._stats.scoreTime}ms, sort=${result._stats.sortTime}ms, total=${result._cosineTime}ms)`
     );
 
     return result;
@@ -1025,6 +1064,15 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
     const merged = new Map();
     const prefetched = prefetchedL1ByFloor || new Map();
     let totalCosineTime = Number(prefetched._cosineTime || 0);
+    const aggregateStats = {
+        chunkFetchTime: Number(prefetched._stats?.chunkFetchTime || 0),
+        vectorFetchTime: Number(prefetched._stats?.vectorFetchTime || 0),
+        deserializeTime: Number(prefetched._stats?.deserializeTime || 0),
+        scoreTime: Number(prefetched._stats?.scoreTime || 0),
+        sortTime: Number(prefetched._stats?.sortTime || 0),
+        vectorHits: Number(prefetched._stats?.vectorHits || 0),
+        missingVectors: Number(prefetched._stats?.missingVectors || 0),
+    };
 
     for (const [floor, chunks] of prefetched) {
         if (!requiredFloors.has(floor)) continue;
@@ -1035,6 +1083,13 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
     if (missingFloors.length > 0) {
         const extra = await pullAndScoreL1(chatId, missingFloors, queryVector, chat);
         totalCosineTime += Number(extra._cosineTime || 0);
+        aggregateStats.chunkFetchTime += Number(extra._stats?.chunkFetchTime || 0);
+        aggregateStats.vectorFetchTime += Number(extra._stats?.vectorFetchTime || 0);
+        aggregateStats.deserializeTime += Number(extra._stats?.deserializeTime || 0);
+        aggregateStats.scoreTime += Number(extra._stats?.scoreTime || 0);
+        aggregateStats.sortTime += Number(extra._stats?.sortTime || 0);
+        aggregateStats.vectorHits += Number(extra._stats?.vectorHits || 0);
+        aggregateStats.missingVectors += Number(extra._stats?.missingVectors || 0);
         for (const [floor, chunks] of extra) {
             if (floor === '_cosineTime') continue;
             if (!requiredFloors.has(floor)) continue;
@@ -1074,6 +1129,13 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
         metrics.evidence.l1Pulled = totalPulled;
         metrics.evidence.l1Attached = totalAttached;
         metrics.evidence.l1CosineTime = totalCosineTime;
+        metrics.evidence.l1ChunkFetchTime = aggregateStats.chunkFetchTime;
+        metrics.evidence.l1VectorFetchTime = aggregateStats.vectorFetchTime;
+        metrics.evidence.l1DeserializeTime = aggregateStats.deserializeTime;
+        metrics.evidence.l1ScoreTime = aggregateStats.scoreTime;
+        metrics.evidence.l1SortTime = aggregateStats.sortTime;
+        metrics.evidence.l1VectorHits = aggregateStats.vectorHits;
+        metrics.evidence.l1MissingVectors = aggregateStats.missingVectors;
         metrics.evidence.contextPairsAdded = contextPairsAdded;
         metrics.timing.evidenceRetrieval += Math.round(performance.now() - T0);
     }
@@ -1539,7 +1601,8 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     console.log(`Fusion (floor, weighted): dense=${metrics.fusion.denseFloors} lex=${metrics.fusion.lexFloors} → cap=${metrics.fusion.afterCap} (${metrics.fusion.time}ms)`);
     console.log(`Fusion Guard: mustKeepTerms=${metrics.evidence.mustKeepTermsCount || 0} mustKeepFloors=[${(metrics.evidence.mustKeepFloors || []).join(', ')}]`);
     console.log(`Floor Rerank: ${metrics.evidence.beforeRerank || 0} → ${metrics.evidence.floorsSelected || 0} floors → L0=${metrics.evidence.l0Collected || 0} (${metrics.evidence.rerankTime || 0}ms)`);
-    console.log(`L1: ${metrics.evidence.l1Pulled || 0} pulled → ${metrics.evidence.l1Attached || 0} attached (${metrics.evidence.l1CosineTime || 0}ms)`);
+    console.log(`L1: prefetchedAI=${metrics.evidence.l1PrefetchAiFloors || 0} totalFloors=${metrics.evidence.l1PrefetchWithContextFloors || 0} trimmed=${metrics.evidence.l1PrefetchTrimmed || 0} | ${metrics.evidence.l1Pulled || 0} pulled → ${metrics.evidence.l1Attached || 0} attached (${metrics.evidence.l1CosineTime || 0}ms)`);
+    console.log(`L1 breakdown: chunkDB=${metrics.evidence.l1ChunkFetchTime || 0}ms vectorDB=${metrics.evidence.l1VectorFetchTime || 0}ms deserialize=${metrics.evidence.l1DeserializeTime || 0}ms score=${metrics.evidence.l1ScoreTime || 0}ms sort=${metrics.evidence.l1SortTime || 0}ms vectors=${metrics.evidence.l1VectorHits || 0} missing=${metrics.evidence.l1MissingVectors || 0}`);
     console.log(`Events: ${eventHits.length} hits (l0Linked=+${l0LinkedCount}), ${causalChain.length} causal`);
     console.log(`Diffusion: ${metrics.diffusion?.seedCount || 0} seeds → ${metrics.diffusion?.pprActivated || 0} activated → ${metrics.diffusion?.finalCount || 0} final (${metrics.diffusion?.time || 0}ms)`);
     console.groupEnd();

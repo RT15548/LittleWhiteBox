@@ -159,14 +159,22 @@ export async function getAllChunkVectors(chatId) {
     }));
 }
 
-export async function getChunkVectorsByIds(chatId, chunkIds) {
+export async function getChunkVectorsByIds(chatId, chunkIds, options = {}) {
     if (!chatId || !chunkIds?.length) return [];
-    
+    const { decode = true } = options;
+
     const records = await chunkVectorsTable
         .where('[chatId+chunkId]')
         .anyOf(chunkIds.map(id => [chatId, id]))
         .toArray();
-    
+
+    if (!decode) {
+        return records.map(r => ({
+            chunkId: r.chunkId,
+            vector: r.vector,
+        }));
+    }
+
     return records.map(r => ({
         chunkId: r.chunkId,
         vector: bufferToFloat32(r.vector),
