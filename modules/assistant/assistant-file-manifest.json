@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-26T06:28:56.554Z",
+  "generatedAt": "2026-04-26T08:40:17.610Z",
   "version": 1,
   "files": [
     {
@@ -120,6 +120,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/openai-responses.js",
       "relativePath": "modules/assistant/app-src/adapters/openai-responses.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/sillytavern-openai-compatible.js",
+      "relativePath": "modules/assistant/app-src/adapters/sillytavern-openai-compatible.js",
       "extension": ".js"
     },
     {
@@ -450,6 +456,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/openai-compatible-adapter.test.js",
       "relativePath": "modules/assistant/tests/openai-compatible-adapter.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
+      "relativePath": "modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
       "extension": ".js"
     },
     {
@@ -1152,6 +1164,18 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/shared/common/openai-url-utils.js",
       "relativePath": "shared/common/openai-url-utils.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/shared/host-llm/chat-completions/client.js",
+      "relativePath": "shared/host-llm/chat-completions/client.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/shared/host-llm/chat-completions/sse.js",
+      "relativePath": "shared/host-llm/chat-completions/sse.js",
       "extension": ".js"
     },
     {

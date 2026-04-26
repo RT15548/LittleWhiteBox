@@ -17,6 +17,13 @@ export const DEFAULT_MODEL_CONFIGS = {
         temperature: 0.2,
         toolMode: 'native',
     },
+    'sillytavern-openai-compatible': {
+        baseUrl: '',
+        model: 'gpt-4o-mini',
+        apiKey: '',
+        temperature: 0.2,
+        toolMode: 'native',
+    },
     anthropic: {
         baseUrl: 'https://api.anthropic.com/v1',
         model: 'claude-sonnet-4-0',

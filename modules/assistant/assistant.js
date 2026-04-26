@@ -3227,6 +3227,7 @@ async function handleIframeMessage(event) {
             postToIframe(iframe, {
                 type: 'xb-assistant:config',
                 payload: {
+                    hostRequestHeaders: getRequestHeaders(),
                     config,
                     runtime: {
                         ...runtimePayload,

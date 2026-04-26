@@ -11,7 +11,7 @@
         "test:story-summary:replay": "node scripts/story-summary-replay-runner.mjs",
         "test:story-summary:bootstrap": "node scripts/story-summary-replay-runner.mjs bootstrap",
         "test:story-summary:recall": "node scripts/story-summary-replay-runner.mjs recall-only",
-        "test:assistant:workspace": "node --test modules/assistant/tests/local-workspace.test.js modules/assistant/tests/apply-patch.test.js modules/assistant/tests/apply-patch-execution.test.js modules/assistant/tests/context-hint.test.js modules/assistant/tests/memory-files.test.js modules/assistant/tests/host-tool-requests.test.js modules/assistant/tests/local-sources-tool-runtime.test.js modules/assistant/tests/tooling.test.js modules/assistant/tests/google-adapter.test.js modules/assistant/tests/openai-compatible-adapter.test.js",
+        "test:assistant:workspace": "node --test modules/assistant/tests/local-workspace.test.js modules/assistant/tests/apply-patch.test.js modules/assistant/tests/apply-patch-execution.test.js modules/assistant/tests/context-hint.test.js modules/assistant/tests/memory-files.test.js modules/assistant/tests/host-tool-requests.test.js modules/assistant/tests/local-sources-tool-runtime.test.js modules/assistant/tests/tooling.test.js modules/assistant/tests/google-adapter.test.js modules/assistant/tests/openai-compatible-adapter.test.js modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
         "lint": "node scripts/check-garbled.js && eslint \"**/*.js\"",
         "lint:fix": "eslint \"**/*.js\" --fix"
     },

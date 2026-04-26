@@ -1,3 +1,5 @@
+import { fetchHostOpenAICompatibleModels } from '../../../../shared/host-llm/chat-completions/client.js';
+
 const MODEL_FILTERS = {
     chat: {
         exclude: [
@@ -183,6 +185,10 @@ async function pullModelsForProvider(providerConfig) {
     const baseUrl = normalizeBaseUrl(providerConfig.baseUrl || '');
     const apiKey = String(providerConfig.apiKey || '').trim();
 
+    if (provider === 'sillytavern-openai-compatible') {
+        return filterModels(await fetchHostOpenAICompatibleModels(providerConfig));
+    }
+
     if (!apiKey) {
         throw new Error('请先填写 API Key。');
     }
@@ -343,7 +349,7 @@ export function createSettingsPanel(deps) {
             temperature: Number(draft.temperature ?? 0.2),
             reasoningEnabled: Boolean(draft.reasoningEnabled),
             reasoningEffort: normalizeReasoningEffort(draft.reasoningEffort),
-            toolMode: draft.provider === 'openai-compatible'
+            toolMode: (draft.provider === 'openai-compatible' || draft.provider === 'sillytavern-openai-compatible')
                 ? (draft.toolMode || 'native')
                 : undefined,
         };
@@ -399,7 +405,7 @@ export function createSettingsPanel(deps) {
         root.querySelector('#xb-assistant-base-url').value = draft.baseUrl || '';
         root.querySelector('#xb-assistant-model').value = draft.model || '';
         root.querySelector('#xb-assistant-api-key').value = draft.apiKey || '';
-        toolModeWrap.style.display = provider === 'openai-compatible' ? '' : 'none';
+        toolModeWrap.style.display = (provider === 'openai-compatible' || provider === 'sillytavern-openai-compatible') ? '' : 'none';
         refillSelect(toolModeSelect, toolModeOptions);
         toolModeSelect.value = draft.toolMode || 'native';
         refillSelect(permissionModeSelect, permissionModeOptions);

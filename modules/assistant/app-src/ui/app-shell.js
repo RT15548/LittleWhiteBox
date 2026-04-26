@@ -26,6 +26,7 @@ export function buildAppMarkup(state) {
                         <select id="xb-assistant-provider">
                             <option value="openai-responses">OpenAI Responses</option>
                             <option value="openai-compatible">OpenAI-compatible</option>
+                            <option value="sillytavern-openai-compatible">SillyTavern OpenAI-compatible</option>
                             <option value="anthropic">Anthropic</option>
                             <option value="google">Google AI</option>
                         </select>

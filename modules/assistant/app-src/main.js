@@ -2,6 +2,7 @@ import { OpenAICompatibleAdapter } from './adapters/openai-compatible.js';
 import { OpenAIResponsesAdapter } from './adapters/openai-responses.js';
 import { AnthropicAdapter } from './adapters/anthropic.js';
 import { GoogleAdapter } from './adapters/google.js';
+import { SillyTavernOpenAICompatibleAdapter } from './adapters/sillytavern-openai-compatible.js';
 import {
     TOOL_DEFINITIONS,
     TOOL_NAMES,
@@ -30,6 +31,7 @@ import { renderAppChrome, renderContextHint } from './ui/app-chrome.js';
 import { buildAppMarkup as buildAssistantAppMarkup } from './ui/app-shell.js';
 import { createChatUi } from './ui/chat-ui.js';
 import { createSettingsPanel } from './ui/settings-panel.js';
+import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
 import { createLocalSourcesManager } from './workspace/local-sources.js';
 import { buildWorkspaceTree } from './workspace/local-workspace-tree.js';
 import { renderWorkspace as renderWorkspaceUi } from './workspace/local-workspace-ui.js';
@@ -73,6 +75,7 @@ const REASONING_EFFORT_OPTIONS = [
 const PROVIDER_OPTIONS = [
     { value: 'openai-responses', label: 'OpenAI Responses' },
     { value: 'openai-compatible', label: 'OpenAI-Compatible' },
+    { value: 'sillytavern-openai-compatible', label: 'SillyTavern OpenAI-Compatible' },
     { value: 'anthropic', label: 'Anthropic' },
     { value: 'google', label: 'Google AI' },
 ];
@@ -1192,11 +1195,13 @@ const {
 
 function createAdapter() {
     const providerConfig = getActiveProviderConfig();
-    if (!providerConfig.apiKey) {
+    if (!providerConfig.apiKey && providerConfig.provider !== 'sillytavern-openai-compatible') {
         throw new Error('请先在小白助手里填写当前提供商的 API Key。');
     }
 
     switch (providerConfig.provider) {
+        case 'sillytavern-openai-compatible':
+            return new SillyTavernOpenAICompatibleAdapter(providerConfig);
         case 'openai-responses':
             return new OpenAIResponsesAdapter(providerConfig);
         case 'anthropic':
@@ -2076,6 +2081,10 @@ window.addEventListener('message', (event) => {
         return;
     }
     if (data.type === 'xb-assistant:config') {
+        const hostRequestHeaders = data.payload?.hostRequestHeaders && typeof data.payload.hostRequestHeaders === 'object'
+            ? data.payload.hostRequestHeaders
+            : {};
+        setHostChatCompletionsRequestHeadersProvider(() => hostRequestHeaders);
         state.runtime = data.payload?.runtime || null;
         if (!ensureWorkspaceKernelVersion(state.runtime)) return;
         state.skillFiles = normalizeSkillFiles(data.payload?.runtime?.skillFiles || []);

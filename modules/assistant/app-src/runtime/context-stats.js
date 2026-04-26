@@ -1,5 +1,5 @@
 const TOKEN_ESTIMATE_BYTES_PER_TOKEN = 3.35;
-const OPENAI_TOKENIZER_PROVIDERS = new Set(['openai-compatible', 'openai-responses']);
+const OPENAI_TOKENIZER_PROVIDERS = new Set(['openai-compatible', 'openai-responses', 'sillytavern-openai-compatible']);
 const textEncoder = new TextEncoder();
 const CONTEXT_DEBUG_PREVIEW_CHARS = 140;
 const CONTEXT_DEBUG_TOP_ENTRY_COUNT = 6;

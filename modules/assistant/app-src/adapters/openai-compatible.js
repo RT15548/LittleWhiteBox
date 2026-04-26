@@ -30,7 +30,7 @@ function isPlainObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function flattenTextContent(content) {
+export function flattenTextContent(content) {
     if (typeof content === 'string') return content;
     if (!Array.isArray(content)) return '';
     return content
@@ -43,7 +43,7 @@ function flattenTextContent(content) {
         .join('\n');
 }
 
-function extractThinkTaggedContent(text = '') {
+export function extractThinkTaggedContent(text = '') {
     const thoughts = [];
     const cleaned = String(text || '').replace(/<think>([\s\S]*?)<\/think>/gi, (_, inner) => {
         pushThought(thoughts, '思考块', inner);
@@ -93,7 +93,7 @@ function collectThoughtsFromUnknown(thoughts, value, label) {
     }
 }
 
-function extractThoughtsFromMessage(message = {}, choice = {}) {
+export function extractThoughtsFromMessage(message = {}, choice = {}) {
     const thoughts = [];
 
     collectThoughtsFromUnknown(thoughts, message.reasoning_content, '推理文本');
@@ -123,7 +123,7 @@ function extractThoughtsFromMessage(message = {}, choice = {}) {
     return thoughts;
 }
 
-function extractTaggedToolCalls(content = '') {
+export function extractTaggedToolCalls(content = '') {
     const patterns = [
         /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g,
     ];
@@ -267,7 +267,7 @@ function mergeReplayValue(existing, next, fieldName = '') {
     return cloneJson(next);
 }
 
-function buildReplayableAssistantMessage(message = {}, choice = {}) {
+export function buildReplayableAssistantMessage(message = {}, choice = {}) {
     const replayableMessage = isPlainObject(message)
         ? (cloneJson(message) || {})
         : {};
@@ -292,7 +292,7 @@ function buildReplayableAssistantMessage(message = {}, choice = {}) {
     return replayableMessage;
 }
 
-function buildProviderPayload(message, choice = {}) {
+export function buildProviderPayload(message, choice = {}) {
     const preserved = cloneJson(buildReplayableAssistantMessage(message, choice));
     if (!preserved || typeof preserved !== 'object' || Array.isArray(preserved)) {
         return undefined;
@@ -302,13 +302,13 @@ function buildProviderPayload(message, choice = {}) {
     };
 }
 
-function mergeReplayMessages(existing = {}, next = {}) {
+export function mergeReplayMessages(existing = {}, next = {}) {
     if (!isPlainObject(existing)) return cloneJson(next);
     if (!isPlainObject(next)) return cloneJson(existing);
     return mergeReplayValue(cloneJson(existing) || {}, next, '');
 }
 
-function buildNativeMessages(task, model = '') {
+export function buildNativeMessages(task, model = '') {
     const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
     const lastUserIndex = getLastUserMessageIndex(sourceMessages);
     const normalizedMessages = sourceMessages.map((message, index) => {
@@ -375,7 +375,7 @@ function buildTaggedProtocolPrompt(task) {
     ].filter(Boolean).join('\n\n');
 }
 
-function buildTaggedMessages(task) {
+export function buildTaggedMessages(task) {
     const toolNameById = new Map();
     const messages = [];
     const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
@@ -459,7 +459,7 @@ function emitStreamProgress(task, payload) {
     });
 }
 
-function summarizeReplayMessageForDebug(message) {
+export function summarizeReplayMessageForDebug(message) {
     const normalized = isPlainObject(message) ? message : {};
     return {
         role: normalized.role || '',
@@ -507,7 +507,7 @@ function appendStreamToolCalls(target, toolCalls = []) {
     });
 }
 
-function accumulateStreamedAssistantSnapshot(target, choice = {}) {
+export function accumulateStreamedAssistantSnapshot(target, choice = {}) {
     if (!target || !choice || typeof choice !== 'object') return;
 
     Object.entries(choice).forEach(([key, value]) => {
@@ -525,7 +525,7 @@ function accumulateStreamedAssistantSnapshot(target, choice = {}) {
     });
 }
 
-function applyToolCallDelta(snapshot, toolCallDelta = {}) {
+export function applyToolCallDelta(snapshot, toolCallDelta = {}) {
     const index = Number(toolCallDelta.index ?? 0);
     const current = snapshot.toolCalls[index] || {
         id: '',
