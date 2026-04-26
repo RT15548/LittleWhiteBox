@@ -27,6 +27,7 @@ function getDefaultSettings() {
     return {
         enabled: true,
         skipIfPlotPresent: true,
+        mergeConsecutiveSystemMessages: false,
 
         // Chat history: tags to strip from AI responses (besides <think>)
         chatExcludeTags: ['行动选项', 'UpdateVariable', 'StatusPlaceHolderImpl'],
@@ -1092,6 +1093,23 @@ function getPromptBlocksByRole(role) {
     return (s.promptBlocks || []).filter(b => b?.role === role && String(b?.content ?? '').trim());
 }
 
+function mergeConsecutiveSystemMessages(messages) {
+    const merged = [];
+    for (const message of messages) {
+        const role = String(message?.role || '').trim();
+        const content = typeof message?.content === 'string' ? message.content : '';
+        if (!role) continue;
+
+        if (role === 'system' && merged.length > 0 && merged[merged.length - 1]?.role === 'system') {
+            merged[merged.length - 1].content = `${merged[merged.length - 1].content}\n\n${content}`;
+            continue;
+        }
+
+        merged.push({ ...message, role, content });
+    }
+    return merged;
+}
+
 async function buildPlannerMessages(rawUserInput) {
     const s = ensureSettings();
     const ctx = getContextSafe();
@@ -1207,7 +1225,9 @@ async function buildPlannerMessages(rawUserInput) {
         messages.push({ role: 'assistant', content });
     }
 
-    return { messages, meta: { charBlockRaw, worldbookRaw, recentChatRaw, vectorRaw, cachedSummaryLen: cachedSummary.length, plotsRaw } };
+    const finalMessages = s.mergeConsecutiveSystemMessages ? mergeConsecutiveSystemMessages(messages) : messages;
+
+    return { messages: finalMessages, meta: { charBlockRaw, worldbookRaw, recentChatRaw, vectorRaw, cachedSummaryLen: cachedSummary.length, plotsRaw } };
 }
 
 /**
