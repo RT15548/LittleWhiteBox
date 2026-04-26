@@ -186,10 +186,15 @@ function onSendKeydown(e) {
 let hideApplyTimer = null;
 const HIDE_APPLY_DEBOUNCE_MS = 250;
 let lexicalWarmupTimer = null;
-const LEXICAL_WARMUP_DEBOUNCE_MS = 500;
+let autoL0BackfillTimer = null;
+const autoSummaryTimers = new Map();
+const LEXICAL_WARMUP_DEBOUNCE_MS = 8000;
+const CHAT_CHANGE_LEXICAL_WARMUP_MS = 12000;
+const AFTER_SEND_LEXICAL_WARMUP_MS = 30000;
+const AUTO_SUMMARY_DELAY_MS = 8000;
+const AUTO_L0_BACKFILL_DELAY_MS = 15000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const yieldToBrowser = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // 向量提醒节流
 let lastVectorWarningAt = 0;
@@ -1550,6 +1555,38 @@ function scheduleLexicalWarmup(delayMs = LEXICAL_WARMUP_DEBOUNCE_MS) {
     }, delayMs);
 }
 
+function scheduleAutoSummary(reason, delayMs = AUTO_SUMMARY_DELAY_MS) {
+    const scheduledChatId = getContext().chatId || null;
+    const previous = autoSummaryTimers.get(reason);
+    if (previous) clearTimeout(previous);
+
+    const timer = setTimeout(() => {
+        autoSummaryTimers.delete(reason);
+        if (isChatStale(scheduledChatId)) return;
+        maybeAutoRunSummary(reason);
+    }, delayMs);
+    autoSummaryTimers.set(reason, timer);
+}
+
+function scheduleAutoL0Backfill(delayMs = AUTO_L0_BACKFILL_DELAY_MS) {
+    clearTimeout(autoL0BackfillTimer);
+    const scheduledChatId = getContext().chatId || null;
+    autoL0BackfillTimer = setTimeout(() => {
+        autoL0BackfillTimer = null;
+        if (isChatStale(scheduledChatId)) return;
+        maybeAutoExtractL0();
+    }, delayMs);
+}
+
+function clearDeferredBackgroundTasks() {
+    clearTimeout(lexicalWarmupTimer);
+    lexicalWarmupTimer = null;
+    clearTimeout(autoL0BackfillTimer);
+    autoL0BackfillTimer = null;
+    for (const timer of autoSummaryTimers.values()) clearTimeout(timer);
+    autoSummaryTimers.clear();
+}
+
 async function clearHideState() {
     cancelHideApplyTimer();
     // 暴力全量 unhide，确保立刻恢复
@@ -2076,6 +2113,7 @@ async function handleManualGenerate(mesId, config) {
 
 async function handleChatChanged() {
     if (!events) return;
+    clearDeferredBackgroundTasks();
     _lastBuiltPromptText = "";  // ← 加这一行，切聊天时清掉旧 summary
     const { chat } = getContext();
     activeChatId = getContext().chatId || null;
@@ -2104,7 +2142,7 @@ async function handleChatChanged() {
 
     // Full lexical index rebuild on chat change
     invalidateLexicalIndex();
-    warmupIndex();
+    scheduleLexicalWarmup(CHAT_CHANGE_LEXICAL_WARMUP_MS);
 
     // Embedding 连接预热（保持 TCP keep-alive，减少首次召回超时）
     warmupEmbeddingConnection();
@@ -2183,21 +2221,21 @@ async function handleMessageReceived(scheduledChatId) {
     await maybeAutoBuildChunks();
 
     applyHideStateDebounced();
-    setTimeout(() => maybeAutoRunSummary("after_ai"), 1000);
+    scheduleAutoSummary("after_ai");
 
     // Refresh entity lexicon after new message (new roles may appear)
     refreshEntityLexiconAndWarmup();
-    scheduleLexicalWarmup(100);
+    scheduleLexicalWarmup();
 
     // Auto backfill missing L0 (delay to avoid contention with current floor)
-    setTimeout(() => maybeAutoExtractL0(), 2000);
+    scheduleAutoL0Backfill();
 }
 
 function handleMessageSent(scheduledChatId) {
     if (isChatStale(scheduledChatId)) return;
     initButtonForLatestMessage();
-    scheduleLexicalWarmup(5000);
-    setTimeout(() => maybeAutoRunSummary("before_user"), 1000);
+    scheduleLexicalWarmup(AFTER_SEND_LEXICAL_WARMUP_MS);
+    scheduleAutoSummary("before_user");
 }
 
 async function handleMessageUpdated(scheduledChatId) {
@@ -2241,7 +2279,6 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     const T0 = performance.now();
     const timing = {
         tokenizer: 0,
-        preBuildYield: 0,
         boundary: 0,
         buildPrompt: 0,
         writePrompt: 0,
@@ -2252,7 +2289,7 @@ async function handleGenerationStarted(type, _params, isDryRun) {
             MODULE_ID,
             `Prompt inject timing: type=${type || 'unknown'} reason=${reason} total=${total}ms `
             + `tokenizer=${timing.tokenizer}ms boundary=${timing.boundary}ms `
-            + `preYield=${timing.preBuildYield}ms build=${timing.buildPrompt}ms write=${timing.writePrompt}ms`
+            + `build=${timing.buildPrompt}ms write=${timing.writePrompt}ms`
         );
     };
 
@@ -2316,10 +2353,6 @@ async function handleGenerationStarted(type, _params, isDryRun) {
         logTiming('invalid_depth');
         return;
     }
-
-    const T_PreBuildYield = performance.now();
-    await yieldToBrowser();
-    timing.preBuildYield = Math.round(performance.now() - T_PreBuildYield);
 
     // 构建注入文本
     let text = "";
@@ -2451,8 +2484,7 @@ function unregisterEvents() {
     events = null;
     activeChatId = null;
     cancelHideApplyTimer();
-    clearTimeout(lexicalWarmupTimer);
-    lexicalWarmupTimer = null;
+    clearDeferredBackgroundTasks();
 
     $(".xiaobaix-story-summary-btn").remove();
     hideOverlay();

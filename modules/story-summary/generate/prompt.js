@@ -33,27 +33,12 @@ const MODULE_ID = "summaryPrompt";
 
 let lastRecallFailAt = 0;
 const RECALL_FAIL_COOLDOWN_MS = 10_000;
-const PROMPT_YIELD_AFTER_MS = 16;
 
 function canNotifyRecallFail() {
     const now = Date.now();
     if (now - lastRecallFailAt < RECALL_FAIL_COOLDOWN_MS) return false;
     lastRecallFailAt = now;
     return true;
-}
-
-function yieldToBrowser() {
-    return new Promise(resolve => setTimeout(resolve, 0));
-}
-
-function createCooperativeYield(thresholdMs = PROMPT_YIELD_AFTER_MS) {
-    let lastYieldAt = performance.now();
-    return async () => {
-        const now = performance.now();
-        if (now - lastYieldAt < thresholdMs) return;
-        await yieldToBrowser();
-        lastYieldAt = performance.now();
-    };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -866,7 +851,6 @@ export function buildNonVectorPromptText() {
  */
 async function buildVectorPrompt(store, recallResult, causalById, focusCharacters, meta, metrics) {
     const T_Start = performance.now();
-    const maybeYield = createCooperativeYield();
 
     const data = store.json || {};
     const total = { used: 0, max: SHARED_POOL_MAX };
@@ -952,7 +936,6 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     } else if (metrics) {
         metrics.timing.constraintFilter = Math.round(performance.now() - T_Constraint_Start);
     }
-    await maybeYield();
 
     // ═══════════════════════════════════════════════════════════════════════
     // [Arcs] 人物弧光
@@ -985,7 +968,6 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
             injectionStats.arc.tokens = arcBudget.used;
         }
     }
-    await maybeYield();
 
     // ═══════════════════════════════════════════════════════════════════════
     // [Events] L2 Events → 直接命中 + 相似命中 + 因果链 + EvidenceGroup
@@ -1002,10 +984,6 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     const selectedRelated = [];
 
     for (let candidateRank = 0; candidateRank < candidates.length; candidateRank++) {
-        if (candidateRank > 0 && candidateRank % 8 === 0) {
-            await maybeYield();
-        }
-
         const e = candidates[candidateRank];
 
         if (total.used >= total.max) break;
@@ -1152,7 +1130,6 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         const numbered = renumberEventText(it.text, i + 1);
         return numbered;
     });
-    await maybeYield();
 
     eventDetails.directCount = selectedDirect.length;
     eventDetails.relatedCount = selectedRelated.length;
@@ -1217,7 +1194,6 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
         total.used += distantBudget.used;
         injectionStats.distantEvidence.tokens = distantBudget.used;
     }
-    await maybeYield();
 
     // ═══════════════════════════════════════════════════════════════════════
     // [Evidence - Recent] 近期证据（未总结范围，独立预算）
@@ -1266,7 +1242,6 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
             injectionStats.recentEvidence.tokens = recentBudget.used;
         }
     }
-    await maybeYield();
 
     // ═══════════════════════════════════════════════════════════════════════
     // 按注入顺序拼接 sections
