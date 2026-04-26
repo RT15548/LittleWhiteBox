@@ -172,29 +172,69 @@ function captureUserInput() {
 }
 
 function onSendPointerdown(e) {
+    markUserInteraction();
     if (e.target?.closest?.("#send_but")) {
         captureUserInput();
     }
 }
 
 function onSendKeydown(e) {
+    markUserInteraction();
     if (e.key === "Enter" && !e.shiftKey && e.target?.closest?.("#send_textarea")) {
         captureUserInput();
     }
+}
+
+function onDocumentFocusIn() {
+    markUserInteraction();
 }
 
 let hideApplyTimer = null;
 const HIDE_APPLY_DEBOUNCE_MS = 250;
 let lexicalWarmupTimer = null;
 let autoL0BackfillTimer = null;
+let vectorIntegrityTimer = null;
 const autoSummaryTimers = new Map();
 const LEXICAL_WARMUP_DEBOUNCE_MS = 8000;
 const CHAT_CHANGE_LEXICAL_WARMUP_MS = 12000;
 const AFTER_SEND_LEXICAL_WARMUP_MS = 30000;
 const AUTO_SUMMARY_DELAY_MS = 8000;
 const AUTO_L0_BACKFILL_DELAY_MS = 15000;
+const BACKGROUND_VISIBLE_GRACE_MS = 6000;
+const BACKGROUND_INTERACTION_GRACE_MS = 4000;
+const BACKGROUND_VIEWPORT_GRACE_MS = 4000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let lastForegroundAt = Date.now();
+let lastUserInteractionAt = 0;
+let lastViewportChangeAt = 0;
+
+function markUserInteraction() {
+    lastUserInteractionAt = Date.now();
+}
+
+function markViewportChange() {
+    lastViewportChangeAt = Date.now();
+}
+
+function getBackgroundQuietWaitMs() {
+    if (document.hidden) return BACKGROUND_VISIBLE_GRACE_MS;
+    const now = Date.now();
+    const visibleWait = Math.max(0, BACKGROUND_VISIBLE_GRACE_MS - (now - lastForegroundAt));
+    const interactionWait = Math.max(0, BACKGROUND_INTERACTION_GRACE_MS - (now - lastUserInteractionAt));
+    const viewportWait = Math.max(0, BACKGROUND_VIEWPORT_GRACE_MS - (now - lastViewportChangeAt));
+    return Math.max(visibleWait, interactionWait, viewportWait);
+}
+
+function handleVisibilityChangeForBackground() {
+    if (!document.hidden) {
+        lastForegroundAt = Date.now();
+    }
+}
+
+function handleViewportChangeForBackground() {
+    markViewportChange();
+}
 
 // 向量提醒节流
 let lastVectorWarningAt = 0;
@@ -1551,6 +1591,11 @@ function scheduleLexicalWarmup(delayMs = LEXICAL_WARMUP_DEBOUNCE_MS) {
     lexicalWarmupTimer = setTimeout(() => {
         lexicalWarmupTimer = null;
         if (isChatStale(scheduledChatId)) return;
+        const quietWait = getBackgroundQuietWaitMs();
+        if (quietWait > 0) {
+            scheduleLexicalWarmup(quietWait);
+            return;
+        }
         warmupIndex();
     }, delayMs);
 }
@@ -1563,6 +1608,11 @@ function scheduleAutoSummary(reason, delayMs = AUTO_SUMMARY_DELAY_MS) {
     const timer = setTimeout(() => {
         autoSummaryTimers.delete(reason);
         if (isChatStale(scheduledChatId)) return;
+        const quietWait = getBackgroundQuietWaitMs();
+        if (quietWait > 0) {
+            scheduleAutoSummary(reason, quietWait);
+            return;
+        }
         maybeAutoRunSummary(reason);
     }, delayMs);
     autoSummaryTimers.set(reason, timer);
@@ -1574,7 +1624,27 @@ function scheduleAutoL0Backfill(delayMs = AUTO_L0_BACKFILL_DELAY_MS) {
     autoL0BackfillTimer = setTimeout(() => {
         autoL0BackfillTimer = null;
         if (isChatStale(scheduledChatId)) return;
+        const quietWait = getBackgroundQuietWaitMs();
+        if (quietWait > 0) {
+            scheduleAutoL0Backfill(quietWait);
+            return;
+        }
         maybeAutoExtractL0();
+    }, delayMs);
+}
+
+function scheduleVectorIntegrityCheck(delayMs = 2000) {
+    clearTimeout(vectorIntegrityTimer);
+    const scheduledChatId = getContext().chatId || null;
+    vectorIntegrityTimer = setTimeout(() => {
+        vectorIntegrityTimer = null;
+        if (isChatStale(scheduledChatId)) return;
+        const quietWait = getBackgroundQuietWaitMs();
+        if (quietWait > 0) {
+            scheduleVectorIntegrityCheck(quietWait);
+            return;
+        }
+        checkVectorIntegrityAndWarn();
     }, delayMs);
 }
 
@@ -1583,6 +1653,8 @@ function clearDeferredBackgroundTasks() {
     lexicalWarmupTimer = null;
     clearTimeout(autoL0BackfillTimer);
     autoL0BackfillTimer = null;
+    clearTimeout(vectorIntegrityTimer);
+    vectorIntegrityTimer = null;
     for (const timer of autoSummaryTimers.values()) clearTimeout(timer);
     autoSummaryTimers.clear();
 }
@@ -2148,7 +2220,7 @@ async function handleChatChanged() {
     warmupEmbeddingConnection();
     warmupActiveVectorCache();
 
-    setTimeout(() => checkVectorIntegrityAndWarn(), 2000);
+    scheduleVectorIntegrityCheck();
 }
 
 async function handleMessageDeleted(scheduledChatId) {
@@ -2465,6 +2537,11 @@ function registerEvents() {
     // 用户输入捕获（原生捕获阶段）
     document.addEventListener("pointerdown", onSendPointerdown, true);
     document.addEventListener("keydown", onSendKeydown, true);
+    document.addEventListener("focusin", onDocumentFocusIn, true);
+    document.addEventListener("visibilitychange", handleVisibilityChangeForBackground);
+    window.addEventListener("resize", handleViewportChangeForBackground, { passive: true });
+    window.visualViewport?.addEventListener?.("resize", handleViewportChangeForBackground, { passive: true });
+    window.visualViewport?.addEventListener?.("scroll", handleViewportChangeForBackground, { passive: true });
 
     // 注入链路
     events.on(event_types.GENERATION_STARTED, handleGenerationStarted);
@@ -2493,6 +2570,11 @@ function unregisterEvents() {
 
     document.removeEventListener("pointerdown", onSendPointerdown, true);
     document.removeEventListener("keydown", onSendKeydown, true);
+    document.removeEventListener("focusin", onDocumentFocusIn, true);
+    document.removeEventListener("visibilitychange", handleVisibilityChangeForBackground);
+    window.removeEventListener("resize", handleViewportChangeForBackground);
+    window.visualViewport?.removeEventListener?.("resize", handleViewportChangeForBackground);
+    window.visualViewport?.removeEventListener?.("scroll", handleViewportChangeForBackground);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
