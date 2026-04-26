@@ -119,8 +119,12 @@ LittleWhiteBox/
 │       └── package.json                     # 上游包信息
 │
 ├── shared/                                # 项目内跨模块共享逻辑
-│   └── common/                            # 通用共享工具
-│       └── openai-url-utils.js            # OpenAI-compatible URL 规范化与拼接
+│   ├── common/                            # 通用共享工具
+│   │   └── openai-url-utils.js            # OpenAI-compatible URL 规范化与拼接
+│   └── host-llm/                          # 酒馆后端兼容层共享客户端
+│       └── chat-completions/              # `/api/backends/chat-completions/*` 封装
+│           ├── client.js                  # 请求封装与模型列表/生成接口
+│           └── sse.js                     # 流式 SSE 解析
 │
 ├── modules/                               # LittleWhiteBox 各业务功能模块主目录
 │   ├── control-audio.js                    # 音频控制模块
@@ -256,8 +260,9 @@ LittleWhiteBox/
 │   │       ├── parser.js                   # 解析器
 │   │       └── semantic.js                 # 语义处理
 │   │
-│   └── assistant/                         # 小白助手模块：Agent UI、运行时、工具系统、适配器、参考资料
-│       ├── assistant.js                    # 宿主桥接与工具侧逻辑
+│   └── assistant/                         # 小白助手模块：宿主壳 + iframe app + 运行时 + 工具系统
+│       ├── assistant.js                    # 宿主桥接、工具侧逻辑、模型通道与设置入口
+│       ├── assistant-host-window.js        # 宿主窗口壳：拖拽、最小化、全屏、移动端行为
 │       ├── assistant-overlay.html          # 助手页面壳
 │       ├── assistant-file-manifest.json    # 文件清单（构建产物）
 │       ├── app-src/                       # 助手前端源码
@@ -271,7 +276,8 @@ LittleWhiteBox/
 │       │   │   ├── anthropic.js            # Anthropic 适配器
 │       │   │   ├── google.js               # Google AI 适配器
 │       │   │   ├── openai-compatible.js    # OpenAI-Compatible 适配器
-│       │   │   └── openai-responses.js     # OpenAI Responses 适配器
+│       │   │   ├── openai-responses.js     # OpenAI Responses 适配器
+│       │   │   └── sillytavern-openai-compatible.js # 酒馆原生 OpenAI-Compatible 适配器
 │       │   ├── context/                   # IDE/外部编辑器/上下文注入相关
 │       │   │   └── ide-context.js          # IDE 背景文本与上下文构造
 │       │   ├── memory/                    # 记忆区文件建模与显示语义
@@ -299,7 +305,7 @@ LittleWhiteBox/
 │       │       └── local-workspace-ui.js   # 工作区树 + viewer + 编辑器 UI
 │       ├── dist/                          # 助手前端打包产物
 │       │   └── assistant-app.js            # 构建产物（Vite 打包）
-│       ├── shared/                        # 助手前后共享的配置与标准化逻辑
+│       ├── shared/                        # 助手模块内部共享配置与标准化逻辑
 │       │   └── config.js                   # 助手配置标准化、预设与默认值
 │       └── references/                    # 助手排查时优先读取的参考资料
 │           ├── project-structure.md        # 项目结构参考（本文档）
