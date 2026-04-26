@@ -548,6 +548,12 @@ All checks passed. Beginning incremental extraction...
     let localGenerating = false;
     let vectorGenerating = false;
     let anchorGenerating = false;
+    let cleanActionState = {
+        canRollback: false,
+        rollbackTargetSummarizedUpTo: 0,
+        rollbackWillClearAll: false,
+        summarizedUpTo: 0,
+    };
     let relationChart = null;
     let relationChartFullscreen = null;
     let currentEditSection = null;
@@ -566,6 +572,10 @@ All checks passed. Beginning incremental extraction...
 
     function postMsg(type, data = {}) {
         window.parent.postMessage({ source: 'LittleWhiteBox-StoryFrame', type, ...data }, PARENT_ORIGIN);
+    }
+
+    function isBusyLike() {
+        return !!(localGenerating || vectorGenerating || anchorGenerating);
     }
 
     function nextConfigSaveRequestId() {
@@ -1756,6 +1766,7 @@ All checks passed. Beginning incremental extraction...
             const msgEl = $('confirm-message');
             const inputWrap = $('confirm-input-wrap');
             const inputEl = $('confirm-input');
+            const actionList = $('confirm-action-list');
             const okBtn = $('confirm-ok');
             const cancelBtn = $('confirm-cancel');
             const closeBtn = $('confirm-close');
@@ -1764,7 +1775,9 @@ All checks passed. Beginning incremental extraction...
             titleEl.textContent = title;
             msgEl.textContent = message;
             inputWrap.classList.add('hidden');
+            actionList.classList.add('hidden');
             inputEl.value = '';
+            okBtn.classList.remove('hidden');
             okBtn.textContent = okText;
             cancelBtn.textContent = cancelText;
 
@@ -1793,6 +1806,7 @@ All checks passed. Beginning incremental extraction...
             const msgEl = $('confirm-message');
             const inputWrap = $('confirm-input-wrap');
             const inputEl = $('confirm-input');
+            const actionList = $('confirm-action-list');
             const okBtn = $('confirm-ok');
             const cancelBtn = $('confirm-cancel');
             const closeBtn = $('confirm-close');
@@ -1801,8 +1815,10 @@ All checks passed. Beginning incremental extraction...
             titleEl.textContent = title;
             msgEl.textContent = message;
             inputWrap.classList.remove('hidden');
+            actionList.classList.add('hidden');
             inputEl.placeholder = placeholder || '';
             inputEl.value = '';
+            okBtn.classList.remove('hidden');
             okBtn.textContent = okText;
             cancelBtn.textContent = cancelText;
 
@@ -1824,6 +1840,74 @@ All checks passed. Beginning incremental extraction...
 
             modal.classList.add('active');
             setTimeout(() => inputEl.focus(), 0);
+        });
+    }
+
+    function showCleanActionMenu() {
+        return new Promise(resolve => {
+            const modal = $('confirm-modal');
+            const titleEl = $('confirm-title');
+            const msgEl = $('confirm-message');
+            const inputWrap = $('confirm-input-wrap');
+            const inputEl = $('confirm-input');
+            const actionList = $('confirm-action-list');
+            const rollbackBtn = $('confirm-action-rollback');
+            const clearBtn = $('confirm-action-clear');
+            const rollbackDesc = $('confirm-action-rollback-desc');
+            const clearDesc = $('confirm-action-clear-desc');
+            const okBtn = $('confirm-ok');
+            const cancelBtn = $('confirm-cancel');
+            const closeBtn = $('confirm-close');
+            const backdrop = $('confirm-backdrop');
+            const busy = isBusyLike();
+
+            titleEl.textContent = '清理总结数据';
+            msgEl.textContent = '请选择要执行的清理操作。';
+            inputWrap.classList.add('hidden');
+            inputEl.value = '';
+            actionList.classList.remove('hidden');
+            okBtn.classList.add('hidden');
+            cancelBtn.textContent = '取消';
+
+            if (busy) {
+                rollbackBtn.disabled = true;
+                clearBtn.disabled = true;
+                rollbackDesc.textContent = '当前有任务运行中，暂时不能执行。';
+                clearDesc.textContent = '当前有任务运行中，暂时不能执行。';
+            } else {
+                rollbackBtn.disabled = !cleanActionState.canRollback;
+                clearBtn.disabled = false;
+                rollbackDesc.textContent = cleanActionState.canRollback
+                    ? (cleanActionState.rollbackWillClearAll
+                        ? '撤销最近一次总结，当前总结数据会被清空。聊天记录不会删除。'
+                        : `撤销最近一次总结，已总结楼层将回退到 ${cleanActionState.rollbackTargetSummarizedUpTo} 楼。聊天记录不会删除。`)
+                    : '当前没有可回退的总结快照。';
+                clearDesc.textContent = '删除本聊天的全部总结数据，聊天记录不会删除。';
+            }
+
+            const close = (result) => {
+                modal.classList.remove('active');
+                actionList.classList.add('hidden');
+                okBtn.classList.remove('hidden');
+                rollbackBtn.onclick = null;
+                clearBtn.onclick = null;
+                cancelBtn.onclick = null;
+                closeBtn.onclick = null;
+                backdrop.onclick = null;
+                resolve(result);
+            };
+
+            rollbackBtn.onclick = () => {
+                if (!rollbackBtn.disabled) close('rollback');
+            };
+            clearBtn.onclick = () => {
+                if (!clearBtn.disabled) close('clear');
+            };
+            cancelBtn.onclick = () => close(null);
+            closeBtn.onclick = () => close(null);
+            backdrop.onclick = () => close(null);
+
+            modal.classList.add('active');
         });
     }
 
@@ -2204,9 +2288,13 @@ All checks passed. Beginning incremental extraction...
                 if (d.stats) {
                     updateStats(d.stats);
                     $('summarized-count').textContent = d.stats.hiddenCount ?? 0;
+                    cleanActionState.summarizedUpTo = d.stats.summarizedUpTo ?? 0;
                 }
                 if (d.hideSummarized !== undefined) $('hide-summarized').checked = d.hideSummarized;
                 if (d.keepVisibleCount !== undefined) $('keep-visible-count').value = d.keepVisibleCount;
+                cleanActionState.canRollback = !!d.canRollback;
+                cleanActionState.rollbackTargetSummarizedUpTo = Number(d.rollbackTargetSummarizedUpTo || 0);
+                cleanActionState.rollbackWillClearAll = !!d.rollbackWillClearAll;
                 break;
 
             case 'SUMMARY_FULL_DATA':
@@ -2483,8 +2571,19 @@ All checks passed. Beginning incremental extraction...
 
         // Main actions
         $('btn-clear').onclick = async () => {
-            if (await showConfirm('清空数据', '确定要清空本聊天的所有总结、关键词及人物关系数据吗？此操作不可撤销。')) {
-                postMsg('REQUEST_CLEAR');
+            const action = await showCleanActionMenu();
+            if (action === 'rollback') {
+                const currentUpTo = cleanActionState.summarizedUpTo || 0;
+                const rollbackMessage = cleanActionState.rollbackWillClearAll
+                    ? '确定回退上一次总结吗？这会清空当前总结数据，但聊天记录不会删除。'
+                    : `确定回退上一次总结吗？将把已总结楼层从 ${currentUpTo} 回退到 ${cleanActionState.rollbackTargetSummarizedUpTo}。聊天记录不会删除。`;
+                if (await showConfirm('回退一次', rollbackMessage, '回退', '取消')) {
+                    postMsg('REQUEST_ROLLBACK_ONCE');
+                }
+            } else if (action === 'clear') {
+                if (await showConfirm('清空全部', '确定要清空本聊天的所有总结、关键词及人物关系数据吗？聊天记录不会删除。此操作不可撤销。', '清空', '取消')) {
+                    postMsg('REQUEST_CLEAR');
+                }
             }
         };
         $('btn-generate').onclick = () => {

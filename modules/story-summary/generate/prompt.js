@@ -1339,6 +1339,10 @@ async function buildVectorPrompt(store, recallResult, causalById, focusCharacter
     return { promptText, injectionStats, metrics };
 }
 
+export async function buildVectorPromptForReplay(store, recallResult, causalById, focusCharacters, meta, metrics) {
+    return await buildVectorPrompt(store, recallResult, causalById, focusCharacters, meta, metrics);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 向量模式：召回 + 注入
 // ─────────────────────────────────────────────────────────────────────────────

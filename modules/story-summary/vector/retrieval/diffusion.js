@@ -717,6 +717,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
 
     // ─── 1. Build atom index ─────────────────────────────────────────
 
+    const T_Index = performance.now();
     const atomById = new Map();
     const atomIds = [];
     const idToIdx = new Map();
@@ -729,6 +730,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
     }
 
     const N = allAtoms.length;
+    const indexTime = Math.round(performance.now() - T_Index);
 
     // Validate seeds against atom index
     const validSeeds = seeds.filter(s => idToIdx.has(s.atomId));
@@ -758,6 +760,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
             edgeDensity: graph.edgeDensity,
             reweightWhoUsed: graph.reweightWhoUsed,
             reweightWhereUsed: graph.reweightWhereUsed,
+            indexTime,
             time: graph.buildTime,
         });
         xbLog.info(MODULE_ID, 'No graph edges — skipping diffusion');
@@ -766,11 +769,15 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
 
     // ─── 3. Build seed vector ────────────────────────────────────────
 
+    const T_Seed = performance.now();
     const s = buildSeedVector(validSeeds, idToIdx, N);
+    const seedVectorTime = Math.round(performance.now() - T_Seed);
 
     // ─── 4. Column normalize ─────────────────────────────────────────
 
+    const T_Normalize = performance.now();
     const { columns, dangling } = columnNormalize(graph.neighbors, N);
+    const normalizeTime = Math.round(performance.now() - T_Normalize);
 
     // ─── 5. PPR Power Iteration ──────────────────────────────────────
 
@@ -786,14 +793,18 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
 
     // ─── 6. Post-verification ────────────────────────────────────────
 
+    const T_VectorMap = performance.now();
     const vectorMap = new Map();
     for (const sv of (stateVectors || [])) {
         vectorMap.set(sv.atomId, sv.vector);
     }
+    const vectorMapTime = Math.round(performance.now() - T_VectorMap);
 
+    const T_PostVerify = performance.now();
     const { diffused, gateStats } = postVerify(
         pi, atomIds, atomById, seedAtomIds, vectorMap, queryVector
     );
+    const postVerifyTime = Math.round(performance.now() - T_PostVerify);
 
     // ─── 7. Metrics ──────────────────────────────────────────────────
 
@@ -813,13 +824,19 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
         edgeDensity: graph.edgeDensity,
         reweightWhoUsed: graph.reweightWhoUsed,
         reweightWhereUsed: graph.reweightWhereUsed,
+        indexTime,
         buildTime: graph.buildTime,
+        seedVectorTime,
+        normalizeTime,
         iterations,
         convergenceError: finalError,
+        pprTime,
         pprActivated,
         cosineGatePassed: gateStats.passed,
         cosineGateFiltered: gateStats.filtered,
         cosineGateNoVector: gateStats.noVector,
+        vectorMapTime,
+        postVerifyTime,
         postGatePassRate: pprActivated > 0
             ? Math.round((gateStats.passed / pprActivated) * 100)
             : 0,
@@ -837,7 +854,8 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
         `${pprActivated} activated → ` +
         `gate(${gateStats.passed}\u2713/${gateStats.filtered}\u2717` +
         `${gateStats.noVector ? `/${gateStats.noVector}?` : ''}) → ` +
-        `${diffused.length} final (${totalTime}ms)`
+        `${diffused.length} final ` +
+        `(index=${indexTime}ms graph=${graph.buildTime}ms seed=${seedVectorTime}ms normalize=${normalizeTime}ms ppr=${pprTime}ms vectorMap=${vectorMapTime}ms post=${postVerifyTime}ms total=${totalTime}ms)`
     );
 
     return diffused;
@@ -890,6 +908,13 @@ function fillMetricsEmpty(metrics) {
         edgeDensity: 0,
         reweightWhoUsed: 0,
         reweightWhereUsed: 0,
+        indexTime: 0,
+        buildTime: 0,
+        seedVectorTime: 0,
+        normalizeTime: 0,
+        pprTime: 0,
+        vectorMapTime: 0,
+        postVerifyTime: 0,
         postGatePassRate: 0,
         time: 0,
     };
@@ -923,6 +948,13 @@ function fillMetrics(metrics, data) {
         edgeDensity: data.edgeDensity || 0,
         reweightWhoUsed: data.reweightWhoUsed || 0,
         reweightWhereUsed: data.reweightWhereUsed || 0,
+        indexTime: data.indexTime || 0,
+        buildTime: data.buildTime || 0,
+        seedVectorTime: data.seedVectorTime || 0,
+        normalizeTime: data.normalizeTime || 0,
+        pprTime: data.pprTime || 0,
+        vectorMapTime: data.vectorMapTime || 0,
+        postVerifyTime: data.postVerifyTime || 0,
         time: data.time || 0,
     };
 }

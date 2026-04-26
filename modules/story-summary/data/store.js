@@ -295,6 +295,24 @@ export function addSummarySnapshot(store, endMesId) {
     store.summaryHistory.push({ endMesId });
 }
 
+export function getRollbackOnceTargetEndMesId(store) {
+    const currentEndMesId = Number(store?.lastSummarizedMesId);
+    if (!Number.isFinite(currentEndMesId) || currentEndMesId < 0) {
+        return null;
+    }
+
+    const history = Array.isArray(store?.summaryHistory) ? store.summaryHistory : [];
+    for (let i = history.length - 1; i >= 0; i--) {
+        const candidate = Number(history[i]?.endMesId);
+        if (!Number.isFinite(candidate)) continue;
+        if (candidate < currentEndMesId) {
+            return Math.trunc(candidate);
+        }
+    }
+
+    return -1;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Fact 工具函数
 // ═══════════════════════════════════════════════════════════════════════════
@@ -638,11 +656,32 @@ export async function executeRollback(chatId, store, targetEndMesId, currentLeng
     xbLog.info(MODULE_ID, `回滚完成，目标楼层: ${targetEndMesId}`);
 }
 
+export async function rollbackSummaryOnce(chatId) {
+    const store = getSummaryStore();
+    if (!store) {
+        return { success: false, reason: 'store_unavailable', targetEndMesId: null, clearedAll: false };
+    }
+
+    const targetEndMesId = getRollbackOnceTargetEndMesId(store);
+    if (targetEndMesId == null) {
+        return { success: false, reason: 'rollback_unavailable', targetEndMesId: null, clearedAll: false };
+    }
+
+    await executeRollback(chatId, store, targetEndMesId);
+    return {
+        success: true,
+        targetEndMesId,
+        clearedAll: targetEndMesId < 0,
+    };
+}
+
 export async function clearSummaryData(chatId) {
     const store = getSummaryStore();
     if (store) {
         delete store.json;
         store.lastSummarizedMesId = -1;
+        store.summaryHistory = [];
+        store.hideSummarizedHistory = false;
         store.updatedAt = Date.now();
         saveSummaryStore();
     }

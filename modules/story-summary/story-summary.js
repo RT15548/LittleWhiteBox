@@ -35,7 +35,9 @@ import {
     saveSummaryStore,
     calcHideRange,
     rollbackSummaryIfNeeded,
+    rollbackSummaryOnce,
     clearSummaryData,
+    getRollbackOnceTargetEndMesId,
     extractRelationshipsFromFacts,
 } from "./data/store.js";
 
@@ -99,6 +101,7 @@ import {
 
 // vector io
 import { exportVectors, importVectors, backupToServer, restoreFromServer, fetchManifest, deleteServerBackup, isDeleteUnsupportedError, getBackupFilename } from "./vector/storage/vector-io.js";
+import { clearAllVectorCaches, clearVectorCache, getAllVectorCacheStats, retainVectorCacheOnly, warmVectorCache } from "./vector/storage/vector-cache.js";
 
 import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocumentsByFloor, addEventDocuments } from "./vector/retrieval/lexical-index.js";
 
@@ -730,6 +733,20 @@ function warmupEmbeddingConnection() {
     embed(['.'], vectorCfg, { timeout: 5000 }).catch(() => { });
 }
 
+function warmupActiveVectorCache() {
+    const vectorCfg = getVectorConfig();
+    const { chatId } = getContext();
+    retainVectorCacheOnly(chatId || null);
+    if (!vectorCfg?.enabled) {
+        if (chatId) clearAllVectorCaches();
+        return;
+    }
+    if (!chatId) return;
+    warmVectorCache(chatId).catch((error) => {
+        xbLog.warn(MODULE_ID, '向量热缓存预热失败', error);
+    });
+}
+
 async function autoVectorizeNewEvents(newEventIds) {
     if (!newEventIds?.length) return;
 
@@ -1010,6 +1027,7 @@ async function sendFrameBaseData(store, totalFloors) {
     const hiddenCount = (ui.hideSummarized && range) ? (range.end + 1) : 0;
 
     const lastSummarized = store?.lastSummarizedMesId ?? -1;
+    const rollbackTargetEndMesId = getRollbackOnceTargetEndMesId(store);
     postToFrame({
         type: "SUMMARY_BASE_DATA",
         stats: {
@@ -1021,6 +1039,9 @@ async function sendFrameBaseData(store, totalFloors) {
         },
         hideSummarized: ui.hideSummarized,
         keepVisibleCount: ui.keepVisibleCount,
+        canRollback: rollbackTargetEndMesId != null,
+        rollbackTargetSummarizedUpTo: rollbackTargetEndMesId == null ? 0 : rollbackTargetEndMesId + 1,
+        rollbackWillClearAll: rollbackTargetEndMesId != null && rollbackTargetEndMesId < 0,
     });
 }
 
@@ -1578,7 +1599,7 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
                     if (getSettings().storySummary?.enabled && getHideUiSettings().hideSummarized) {
                         applyHideStateDebounced();
                     }
-                    updateFrameStatsAfterSummary(endMesId, store.json || {});
+                    await updateFrameStatsAfterSummary(store);
 
                     await autoVectorizeNewEvents(newEventIds);
                 },
@@ -1598,23 +1619,10 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
     }
 }
 
-function updateFrameStatsAfterSummary(endMesId, merged) {
+async function updateFrameStatsAfterSummary(store) {
     const { chat } = getContext();
     const totalFloors = Array.isArray(chat) ? chat.length : 0;
-    const ui = getHideUiSettings();
-    const range = calcHideRange(endMesId, ui.keepVisibleCount);
-    const hiddenCount = ui.hideSummarized && range ? range.end + 1 : 0;
-
-    postToFrame({
-        type: "SUMMARY_BASE_DATA",
-        stats: {
-            totalFloors,
-            summarizedUpTo: endMesId + 1,
-            eventsCount: merged.events?.length || 0,
-            pendingFloors: totalFloors - endMesId - 1,
-            hiddenCount,
-        },
-    });
+    await sendFrameBaseData(store, totalFloors);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1851,12 +1859,52 @@ async function handleFrameMessage(event) {
             break;
 
         case "REQUEST_CLEAR": {
+            if (guard.isAnyRunning('summary', 'vector', 'anchor')) {
+                await executeSlashCommand("/echo severity=warning 当前有任务运行中，暂时不能清理总结数据");
+                break;
+            }
             const { chat, chatId } = getContext();
-            clearSummaryData(chatId);
-            postToFrame({
-                type: "SUMMARY_CLEARED",
-                payload: { totalFloors: Array.isArray(chat) ? chat.length : 0 },
-            });
+            await clearSummaryData(chatId);
+            const totalFloors = Array.isArray(chat) ? chat.length : 0;
+            const store = getSummaryStore();
+            await sendFrameBaseData(store, totalFloors);
+            sendFrameFullData(store, totalFloors);
+            await executeSlashCommand("/echo severity=info 剧情总结数据已清空");
+            break;
+        }
+
+        case "REQUEST_ROLLBACK_ONCE": {
+            if (guard.isAnyRunning('summary', 'vector', 'anchor')) {
+                await executeSlashCommand("/echo severity=warning 当前有任务运行中，暂时不能回退总结");
+                break;
+            }
+
+            const { chat, chatId } = getContext();
+            if (!chatId) break;
+
+            const currentStore = getSummaryStore();
+            const rollbackTargetEndMesId = getRollbackOnceTargetEndMesId(currentStore);
+            if (rollbackTargetEndMesId == null) {
+                await executeSlashCommand("/echo severity=info 当前没有可回退的总结快照");
+                break;
+            }
+
+            const result = await rollbackSummaryOnce(chatId);
+            const totalFloors = Array.isArray(chat) ? chat.length : 0;
+            const nextStore = getSummaryStore();
+            await sendFrameBaseData(nextStore, totalFloors);
+            sendFrameFullData(nextStore, totalFloors);
+
+            if (!result.success) {
+                await executeSlashCommand("/echo severity=error 回退总结失败，请稍后重试");
+                break;
+            }
+
+            if (result.clearedAll) {
+                await executeSlashCommand("/echo severity=info 已回退上一次总结，当前总结数据已清空");
+            } else {
+                await executeSlashCommand(`/echo severity=info 已回退上一次总结，已总结楼层退回到 ${result.targetEndMesId + 1} 楼`);
+            }
             break;
         }
 
@@ -1929,7 +1977,23 @@ async function handleFrameMessage(event) {
         case "SAVE_PANEL_CONFIG":
             if (data.config) {
                 try {
+                    const previousVectorConfig = getVectorConfig();
+                    const previousVectorFingerprint = previousVectorConfig?.enabled
+                        ? getEngineFingerprint(previousVectorConfig)
+                        : null;
                     const savedConfig = await saveSummaryPanelConfigVerified(data.config);
+                    const nextVectorConfig = savedConfig?.vector || {};
+                    const nextVectorFingerprint = nextVectorConfig?.enabled
+                        ? getEngineFingerprint(nextVectorConfig)
+                        : null;
+                    const vectorCacheInvalidated =
+                        !nextVectorConfig?.enabled ||
+                        previousVectorFingerprint !== nextVectorFingerprint;
+                    if (vectorCacheInvalidated) {
+                        clearAllVectorCaches();
+                    } else {
+                        warmupActiveVectorCache();
+                    }
                     postToFrame({
                         type: "PANEL_CONFIG_SAVE_RESULT",
                         success: true,
@@ -1985,7 +2049,7 @@ async function handleManualGenerate(mesId, config) {
                 }
 
                 applyHideStateDebounced();
-                updateFrameStatsAfterSummary(endMesId, store.json || {});
+                await updateFrameStatsAfterSummary(store);
 
                 await autoVectorizeNewEvents(newEventIds);
             },
@@ -2005,6 +2069,7 @@ async function handleChatChanged() {
     _lastBuiltPromptText = "";  // ← 加这一行，切聊天时清掉旧 summary
     const { chat } = getContext();
     activeChatId = getContext().chatId || null;
+    retainVectorCacheOnly(activeChatId);
     const newLength = Array.isArray(chat) ? chat.length : 0;
 
     await rollbackSummaryIfNeeded();
@@ -2033,6 +2098,7 @@ async function handleChatChanged() {
 
     // Embedding 连接预热（保持 TCP keep-alive，减少首次召回超时）
     warmupEmbeddingConnection();
+    warmupActiveVectorCache();
 
     setTimeout(() => checkVectorIntegrityAndWarn(), 2000);
 }
@@ -2259,18 +2325,37 @@ function registerEvents() {
     activeChatId = getContext().chatId || null;
 
     CacheRegistry.register(MODULE_ID, {
-        name: "待发送消息队列",
-        getSize: () => pendingFrameMessages.length,
+        name: "剧情总结运行缓存",
+        getSize: () => {
+            const vectorStats = getAllVectorCacheStats();
+            const vectorItems = vectorStats.reduce((sum, item) => (
+                sum
+                + Number(item.chunks || 0)
+                + Number(item.chunkVectors || 0)
+                + Number(item.eventVectors || 0)
+                + Number(item.stateVectors || 0)
+            ), 0);
+            return pendingFrameMessages.length + vectorItems;
+        },
         getBytes: () => {
             try {
-                return JSON.stringify(pendingFrameMessages || []).length * 2;
+                return JSON.stringify({
+                    pendingFrameMessages,
+                    vectorCaches: getAllVectorCacheStats(),
+                }).length * 2;
             } catch {
                 return 0;
             }
         },
+        getDetail: () => ({
+            activeChatId,
+            pendingFrameMessages: pendingFrameMessages.length,
+            vectorCaches: getAllVectorCacheStats(),
+        }),
         clear: () => {
             pendingFrameMessages = [];
             frameReady = false;
+            clearAllVectorCaches();
         },
     });
 
@@ -2307,6 +2392,7 @@ function registerEvents() {
 function unregisterEvents() {
     if (!events) return;
     CacheRegistry.unregister(MODULE_ID);
+    clearAllVectorCaches();
     events.cleanup();
     events = null;
     activeChatId = null;
@@ -2328,6 +2414,7 @@ function unregisterEvents() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleChatDeleted(chatId) {
+    clearVectorCache(chatId);
     try {
         const filename = getBackupFilename(chatId);
         await deleteServerBackup(filename, null);
@@ -2509,6 +2596,7 @@ $(document).on("xiaobaix:storySummary:toggle", async (_e, enabled) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 jQuery(() => {
+    window.registerModuleCleanup?.(MODULE_ID, unregisterEvents);
     if (!getSettings().storySummary?.enabled) return;
     (async () => {
         await loadConfigFromServer();

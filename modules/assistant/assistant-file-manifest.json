@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-25T04:18:57.949Z",
+  "generatedAt": "2026-04-26T04:29:57.365Z",
   "version": 1,
   "files": [
     {
@@ -832,6 +832,12 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/storage/vector-cache.js",
+      "relativePath": "modules/story-summary/vector/storage/vector-cache.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/storage/vector-io.js",
       "relativePath": "modules/story-summary/vector/storage/vector-io.js",
       "extension": ".js"
@@ -1069,6 +1075,72 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/check-garbled.js",
       "relativePath": "scripts/check-garbled.js",
       "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/entry.mjs",
+      "relativePath": "scripts/story-summary-replay/entry.mjs",
+      "extension": ".mjs"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/extensions.js",
+      "relativePath": "scripts/story-summary-replay/shims/extensions.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/script.js",
+      "relativePath": "scripts/story-summary-replay/shims/script.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/utils.js",
+      "relativePath": "scripts/story-summary-replay/shims/utils.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay-output/story-summary-replay-baseline.json",
+      "relativePath": "scripts/story-summary-replay-output/story-summary-replay-baseline.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay-output/story-summary-replay-report.json",
+      "relativePath": "scripts/story-summary-replay-output/story-summary-replay-report.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay-output/story-summary-replay-report.md",
+      "relativePath": "scripts/story-summary-replay-output/story-summary-replay-report.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay-runner.mjs",
+      "relativePath": "scripts/story-summary-replay-runner.mjs",
+      "extension": ".mjs"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay.config.example.json",
+      "relativePath": "scripts/story-summary-replay.config.example.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay.local.json",
+      "relativePath": "scripts/story-summary-replay.local.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay.samples/mock-sample.json",
+      "relativePath": "scripts/story-summary-replay.samples/mock-sample.json",
+      "extension": ".json"
     },
     {
       "source": "littlewhitebox",

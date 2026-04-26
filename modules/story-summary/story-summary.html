@@ -52,7 +52,7 @@
                     </svg>
                     <span>设置</span>
                 </button>
-                <button class="btn" id="btn-clear">清空</button>
+                <button class="btn" id="btn-clear">清理</button>
                 <button class="btn btn-p" id="btn-generate">总结</button>
             </div>
         </div>
@@ -1089,6 +1089,16 @@
             </div>
             <div class="modal-body">
                 <div id="confirm-message" style="margin: 10px 0; line-height: 1.6; color: var(--fg);">内容</div>
+                <div id="confirm-action-list" class="confirm-action-list hidden">
+                    <button class="confirm-action-item" id="confirm-action-rollback" type="button">
+                        <span class="confirm-action-title">回退一次</span>
+                        <span class="confirm-action-desc" id="confirm-action-rollback-desc">撤销最近一次总结，聊天记录不会删除。</span>
+                    </button>
+                    <button class="confirm-action-item danger" id="confirm-action-clear" type="button">
+                        <span class="confirm-action-title">清空全部</span>
+                        <span class="confirm-action-desc" id="confirm-action-clear-desc">删除本聊天的全部总结数据，聊天记录不会删除。</span>
+                    </button>
+                </div>
                 <div id="confirm-input-wrap" class="hidden" style="margin-top: 12px;">
                     <textarea class="editor-ta" id="confirm-input" style="min-height: 220px;" placeholder="在这里粘贴记忆包"></textarea>
                 </div>

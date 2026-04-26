@@ -8,6 +8,9 @@
         "build:assistant:jsapi-runtime": "node scripts/build-assistant-jsapi-runtime.mjs",
         "build:assistant:app": "vite build --config vite.assistant.config.mjs",
         "build:assistant": "npm run build:assistant:manifest && npm run build:assistant:jsapi-manifest && npm run build:assistant:jsapi-runtime && npm run build:assistant:app",
+        "test:story-summary:replay": "node scripts/story-summary-replay-runner.mjs",
+        "test:story-summary:bootstrap": "node scripts/story-summary-replay-runner.mjs bootstrap",
+        "test:story-summary:recall": "node scripts/story-summary-replay-runner.mjs recall-only",
         "test:assistant:workspace": "node --test modules/assistant/tests/local-workspace.test.js modules/assistant/tests/apply-patch.test.js modules/assistant/tests/apply-patch-execution.test.js modules/assistant/tests/context-hint.test.js modules/assistant/tests/memory-files.test.js modules/assistant/tests/host-tool-requests.test.js modules/assistant/tests/local-sources-tool-runtime.test.js modules/assistant/tests/tooling.test.js modules/assistant/tests/google-adapter.test.js modules/assistant/tests/openai-compatible-adapter.test.js",
         "lint": "node scripts/check-garbled.js && eslint \"**/*.js\"",
         "lint:fix": "eslint \"**/*.js\" --fix"
@@ -18,6 +21,7 @@
         "eslint": "^8.57.1",
         "eslint-plugin-jsdoc": "^48.10.0",
         "eslint-plugin-no-unsanitized": "^4.1.2",
+        "fake-indexeddb": "^6.2.4",
         "eslint-plugin-security": "^1.7.1",
         "vite": "^8.0.8"
     },

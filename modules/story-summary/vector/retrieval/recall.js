@@ -27,6 +27,14 @@
 
 import { bufferToFloat32, getAllEventVectors, getChunksByFloors, getMeta, getChunkVectorsByIds } from '../storage/chunk-store.js';
 import { getAllStateVectors, getStateAtoms } from '../storage/state-store.js';
+import {
+    getCachedChunksByFloors,
+    getCachedChunkVectorsByIds,
+    markCachedChunkFloorsLoaded,
+    markCachedChunkVectorIdsLoaded,
+    upsertCachedChunkVectors,
+    upsertCachedChunks,
+} from '../storage/vector-cache.js';
 import { getEngineFingerprint, embed } from '../utils/embedder.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { getContext } from '../../../../../../../extensions.js';
@@ -947,6 +955,12 @@ async function pullAndScoreL1(chatId, floors, queryVector, chat) {
         scoreTime: 0,
         sortTime: 0,
         totalTime: 0,
+        chunkCacheHits: 0,
+        chunkCacheMisses: 0,
+        vectorCacheHits: 0,
+        vectorCacheMisses: 0,
+        cacheFallbackDbTime: 0,
+        cacheWarm: false,
     };
 
     if (!chatId || !floors?.length || !queryVector?.length) {
@@ -958,8 +972,19 @@ async function pullAndScoreL1(chatId, floors, queryVector, chat) {
     let dbChunks = [];
     try {
         const TChunkFetch = performance.now();
-        dbChunks = await getChunksByFloors(chatId, floors);
+        const cached = getCachedChunksByFloors(chatId, floors);
+        let fetched = [];
+        if (cached.missingFloors.length > 0) {
+            const TChunkDb = performance.now();
+            fetched = await getChunksByFloors(chatId, cached.missingFloors);
+            result._stats.cacheFallbackDbTime += Math.round(performance.now() - TChunkDb);
+            upsertCachedChunks(chatId, fetched);
+            markCachedChunkFloorsLoaded(chatId, cached.missingFloors);
+        }
+        dbChunks = cached.records.concat(fetched);
         result._stats.chunkFetchTime = Math.round(performance.now() - TChunkFetch);
+        result._stats.chunkCacheHits = cached.hitCount;
+        result._stats.chunkCacheMisses = cached.missCount;
     } catch (e) {
         xbLog.warn(MODULE_ID, 'L1 chunks 拉取失败', e);
         result._cosineTime = Math.round(performance.now() - T0);
@@ -978,8 +1003,19 @@ async function pullAndScoreL1(chatId, floors, queryVector, chat) {
     let chunkVectorRecords = [];
     try {
         const TVectorFetch = performance.now();
-        chunkVectorRecords = await getChunkVectorsByIds(chatId, chunkIds, { decode: false });
+        const cached = getCachedChunkVectorsByIds(chatId, chunkIds);
+        let fetched = [];
+        if (cached.missingIds.length > 0) {
+            const TVectorDb = performance.now();
+            fetched = await getChunkVectorsByIds(chatId, cached.missingIds, { decode: false });
+            result._stats.cacheFallbackDbTime += Math.round(performance.now() - TVectorDb);
+            upsertCachedChunkVectors(chatId, fetched);
+            markCachedChunkVectorIdsLoaded(chatId, cached.missingIds);
+        }
+        chunkVectorRecords = cached.records.concat(fetched);
         result._stats.vectorFetchTime = Math.round(performance.now() - TVectorFetch);
+        result._stats.vectorCacheHits = cached.hitCount;
+        result._stats.vectorCacheMisses = cached.missCount;
     } catch (e) {
         xbLog.warn(MODULE_ID, 'L1 向量拉取失败', e);
         result._cosineTime = Math.round(performance.now() - T0);
@@ -1023,10 +1059,12 @@ async function pullAndScoreL1(chatId, floors, queryVector, chat) {
 
     result._cosineTime = Math.round(performance.now() - T0);
     result._stats.totalTime = result._cosineTime;
+    result._stats.cacheWarm = result._stats.chunkCacheMisses === 0 && result._stats.vectorCacheMisses === 0;
 
     xbLog.info(MODULE_ID,
         `L1 pull: ${floors.length} floors → ${dbChunks.length} chunks → vectors=${result._stats.vectorHits}/${dbChunks.length} `
         + `(chunk_db=${result._stats.chunkFetchTime}ms, vector_db=${result._stats.vectorFetchTime}ms, `
+        + `cache=${result._stats.chunkCacheHits}/${result._stats.chunkCacheMisses} floors ${result._stats.vectorCacheHits}/${result._stats.vectorCacheMisses} vectors, `
         + `deserialize=${result._stats.deserializeTime}ms, score=${result._stats.scoreTime}ms, sort=${result._stats.sortTime}ms, total=${result._cosineTime}ms)`
     );
 
@@ -1072,6 +1110,11 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
         sortTime: Number(prefetched._stats?.sortTime || 0),
         vectorHits: Number(prefetched._stats?.vectorHits || 0),
         missingVectors: Number(prefetched._stats?.missingVectors || 0),
+        chunkCacheHits: Number(prefetched._stats?.chunkCacheHits || 0),
+        chunkCacheMisses: Number(prefetched._stats?.chunkCacheMisses || 0),
+        vectorCacheHits: Number(prefetched._stats?.vectorCacheHits || 0),
+        vectorCacheMisses: Number(prefetched._stats?.vectorCacheMisses || 0),
+        cacheFallbackDbTime: Number(prefetched._stats?.cacheFallbackDbTime || 0),
     };
 
     for (const [floor, chunks] of prefetched) {
@@ -1090,6 +1133,11 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
         aggregateStats.sortTime += Number(extra._stats?.sortTime || 0);
         aggregateStats.vectorHits += Number(extra._stats?.vectorHits || 0);
         aggregateStats.missingVectors += Number(extra._stats?.missingVectors || 0);
+        aggregateStats.chunkCacheHits += Number(extra._stats?.chunkCacheHits || 0);
+        aggregateStats.chunkCacheMisses += Number(extra._stats?.chunkCacheMisses || 0);
+        aggregateStats.vectorCacheHits += Number(extra._stats?.vectorCacheHits || 0);
+        aggregateStats.vectorCacheMisses += Number(extra._stats?.vectorCacheMisses || 0);
+        aggregateStats.cacheFallbackDbTime += Number(extra._stats?.cacheFallbackDbTime || 0);
         for (const [floor, chunks] of extra) {
             if (floor === '_cosineTime') continue;
             if (!requiredFloors.has(floor)) continue;
@@ -1136,11 +1184,48 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
         metrics.evidence.l1SortTime = aggregateStats.sortTime;
         metrics.evidence.l1VectorHits = aggregateStats.vectorHits;
         metrics.evidence.l1MissingVectors = aggregateStats.missingVectors;
+        metrics.evidence.l1ChunkCacheHits = aggregateStats.chunkCacheHits;
+        metrics.evidence.l1ChunkCacheMisses = aggregateStats.chunkCacheMisses;
+        metrics.evidence.l1VectorCacheHits = aggregateStats.vectorCacheHits;
+        metrics.evidence.l1VectorCacheMisses = aggregateStats.vectorCacheMisses;
+        metrics.evidence.l1CacheFallbackDbTime = aggregateStats.cacheFallbackDbTime;
+        metrics.evidence.l1CacheWarm = aggregateStats.chunkCacheMisses === 0 && aggregateStats.vectorCacheMisses === 0;
         metrics.evidence.contextPairsAdded = contextPairsAdded;
         metrics.timing.evidenceRetrieval += Math.round(performance.now() - T0);
     }
 
     return l1ByFloor;
+}
+
+function finalizeRecallTiming(metrics, totalStart) {
+    if (!metrics?.timing) return;
+    const timing = metrics.timing;
+    timing.total = Math.round(performance.now() - totalStart);
+
+    const lexicalTotal = (metrics.lexical?.searchTime || 0) + (metrics.lexical?.indexReadyTime || 0);
+    const externalTotal =
+        (timing.round1Embed || 0) +
+        (timing.round2Embed || 0) +
+        (timing.evidenceRerank || 0);
+
+    const localKnownTotal =
+        (metrics.query?.buildTime || 0) +
+        (metrics.query?.refineTime || 0) +
+        (timing.round1AnchorSearch || 0) +
+        (timing.round1EventRetrieval || 0) +
+        (timing.anchorSearch || 0) +
+        (timing.eventRetrieval || 0) +
+        lexicalTotal +
+        (metrics.fusion?.time || 0) +
+        (timing.constraintFilter || 0) +
+        (timing.evidenceRetrieval || 0) +
+        (timing.diffusion || 0) +
+        (timing.evidenceAssembly || 0) +
+        (timing.formatting || 0);
+
+    timing.externalTotal = Math.round(externalTotal);
+    timing.localKnownTotal = Math.round(localKnownTotal);
+    timing.unattributed = Math.max(0, Math.round(timing.total - timing.externalTotal - timing.localKnownTotal));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1230,16 +1315,19 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
 
     let r1Vectors;
+    const T_R1_Embed_Start = performance.now();
     try {
         r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 10000 });
     } catch (e1) {
         xbLog.warn(MODULE_ID, 'Round 1 向量化失败，500ms 后重试', e1);
+        metrics.timing.round1EmbedRetryWait = 500;
         await new Promise(r => setTimeout(r, 500));
         try {
             r1Vectors = await embed(segmentTexts, vectorConfig, { timeout: 15000 });
         } catch (e2) {
             xbLog.error(MODULE_ID, 'Round 1 向量化重试仍失败', e2);
-            metrics.timing.total = Math.round(performance.now() - T0);
+            metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
+            finalizeRecallTiming(metrics, T0);
             return {
                 events: [], l0Selected: [], l1ByFloor: new Map(), causalChain: [],
                 focusEntities: focusTerms,
@@ -1252,9 +1340,10 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
             };
         }
     }
+    metrics.timing.round1Embed = Math.round(performance.now() - T_R1_Embed_Start);
 
     if (!r1Vectors?.length || r1Vectors.some(v => !v?.length)) {
-        metrics.timing.total = Math.round(performance.now() - T0);
+        finalizeRecallTiming(metrics, T0);
         return {
             events: [], l0Selected: [], l1ByFloor: new Map(), causalChain: [],
             focusEntities: focusTerms,
@@ -1291,10 +1380,12 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     const T_R1_Anchor_Start = performance.now();
     const { hits: anchorHits_v0 } = await recallAnchors(queryVector_v0, vectorConfig, null);
     const r1AnchorTime = Math.round(performance.now() - T_R1_Anchor_Start);
+    metrics.timing.round1AnchorSearch = r1AnchorTime;
 
     const T_R1_Event_Start = performance.now();
     const { events: eventHits_v0 } = await recallEvents(queryVector_v0, allEvents, vectorConfig, focusCharacters, null);
     const r1EventTime = Math.round(performance.now() - T_R1_Event_Start);
+    metrics.timing.round1EventRetrieval = r1EventTime;
 
     xbLog.info(MODULE_ID,
         `Round 1: anchors=${anchorHits_v0.length} events=${eventHits_v0.length} weights=[${r1Weights.map(w => w.toFixed(2)).join(',')}] (anchor=${r1AnchorTime}ms event=${r1EventTime}ms)`
@@ -1325,8 +1416,10 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     let queryVector_v1;
 
     if (bundle.hintsSegment) {
+        const T_R2_Embed_Start = performance.now();
         try {
             const [hintsVec] = await embed([bundle.hintsSegment.text], vectorConfig, { timeout: 10000 });
+            metrics.timing.round2Embed = Math.round(performance.now() - T_R2_Embed_Start);
 
             if (hintsVec?.length) {
                 const r2Weights = computeR2Weights(bundle.querySegments, bundle.hintsSegment);
@@ -1343,6 +1436,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
                 queryVector_v1 = queryVector_v0;
             }
         } catch (e) {
+            metrics.timing.round2Embed = Math.round(performance.now() - T_R2_Embed_Start);
             xbLog.warn(MODULE_ID, 'Round 2 hints 向量化失败，降级使用 Round 1 向量', e);
             queryVector_v1 = queryVector_v0;
         }
@@ -1585,13 +1679,14 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     // 完成
     // ═══════════════════════════════════════════════════════════════════
 
-    metrics.timing.total = Math.round(performance.now() - T0);
+    finalizeRecallTiming(metrics, T0);
     metrics.event.entityNames = focusCharacters;
     metrics.event.entitiesUsed = focusCharacters.length;
     metrics.event.focusTermsCount = focusTerms.length;
 
     console.group('%c[Recall v9]', 'color: #7c3aed; font-weight: bold');
     console.log(`Total: ${metrics.timing.total}ms`);
+    console.log(`Timing attribution: external=${metrics.timing.externalTotal || 0}ms localKnown=${metrics.timing.localKnownTotal || 0}ms unattributed=${metrics.timing.unattributed || 0}ms | r1Embed=${metrics.timing.round1Embed || 0}ms r2Embed=${metrics.timing.round2Embed || 0}ms rerank=${metrics.timing.evidenceRerank || 0}ms`);
     console.log(`Query Build: ${metrics.query.buildTime}ms | Refine: ${metrics.query.refineTime}ms`);
     console.log(`R1 weights: [${r1Weights.map(w => w.toFixed(2)).join(', ')}]`);
     console.log(`Focus terms: [${focusTerms.join(', ')}]`);
@@ -1602,9 +1697,9 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     console.log(`Fusion Guard: mustKeepTerms=${metrics.evidence.mustKeepTermsCount || 0} mustKeepFloors=[${(metrics.evidence.mustKeepFloors || []).join(', ')}]`);
     console.log(`Floor Rerank: ${metrics.evidence.beforeRerank || 0} → ${metrics.evidence.floorsSelected || 0} floors → L0=${metrics.evidence.l0Collected || 0} (${metrics.evidence.rerankTime || 0}ms)`);
     console.log(`L1: prefetchedAI=${metrics.evidence.l1PrefetchAiFloors || 0} totalFloors=${metrics.evidence.l1PrefetchWithContextFloors || 0} trimmed=${metrics.evidence.l1PrefetchTrimmed || 0} | ${metrics.evidence.l1Pulled || 0} pulled → ${metrics.evidence.l1Attached || 0} attached (${metrics.evidence.l1CosineTime || 0}ms)`);
-    console.log(`L1 breakdown: chunkDB=${metrics.evidence.l1ChunkFetchTime || 0}ms vectorDB=${metrics.evidence.l1VectorFetchTime || 0}ms deserialize=${metrics.evidence.l1DeserializeTime || 0}ms score=${metrics.evidence.l1ScoreTime || 0}ms sort=${metrics.evidence.l1SortTime || 0}ms vectors=${metrics.evidence.l1VectorHits || 0} missing=${metrics.evidence.l1MissingVectors || 0}`);
+    console.log(`L1 breakdown: chunkDB=${metrics.evidence.l1ChunkFetchTime || 0}ms vectorDB=${metrics.evidence.l1VectorFetchTime || 0}ms cacheWarm=${!!metrics.evidence.l1CacheWarm} chunkCache=${metrics.evidence.l1ChunkCacheHits || 0}/${metrics.evidence.l1ChunkCacheMisses || 0} vectorCache=${metrics.evidence.l1VectorCacheHits || 0}/${metrics.evidence.l1VectorCacheMisses || 0} deserialize=${metrics.evidence.l1DeserializeTime || 0}ms score=${metrics.evidence.l1ScoreTime || 0}ms sort=${metrics.evidence.l1SortTime || 0}ms vectors=${metrics.evidence.l1VectorHits || 0} missing=${metrics.evidence.l1MissingVectors || 0}`);
     console.log(`Events: ${eventHits.length} hits (l0Linked=+${l0LinkedCount}), ${causalChain.length} causal`);
-    console.log(`Diffusion: ${metrics.diffusion?.seedCount || 0} seeds → ${metrics.diffusion?.pprActivated || 0} activated → ${metrics.diffusion?.finalCount || 0} final (${metrics.diffusion?.time || 0}ms)`);
+    console.log(`Diffusion: ${metrics.diffusion?.seedCount || 0} seeds → ${metrics.diffusion?.pprActivated || 0} activated → ${metrics.diffusion?.finalCount || 0} final (${metrics.diffusion?.time || 0}ms | graph=${metrics.diffusion?.buildTime || 0}ms ppr=${metrics.diffusion?.pprTime || 0}ms post=${metrics.diffusion?.postVerifyTime || 0}ms)`);
     console.groupEnd();
 
     return {

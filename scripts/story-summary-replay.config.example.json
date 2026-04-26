@@ -1,0 +1,45 @@
+{
+  "samplePath": "scripts/story-summary-replay.samples/story-chat-export.json",
+  "outputPath": "scripts/story-summary-replay-output",
+  "snapshotPath": "scripts/story-summary-replay-output/story-summary-replay-snapshot.json",
+  "mode": "full",
+  "maxFloors": 500,
+  "summaryApi": {
+    "provider": "custom",
+    "url": "https://api.example.com/v1",
+    "key": "your-summary-api-key",
+    "model": "your-summary-model"
+  },
+  "vectorConfig": {
+    "enabled": true,
+    "l0Concurrency": 10,
+    "l0Api": {
+      "provider": "custom",
+      "url": "https://api.example.com/v1",
+      "key": "your-l0-api-key",
+      "model": "your-l0-model"
+    },
+    "embeddingApi": {
+      "provider": "custom",
+      "url": "https://api.example.com/v1",
+      "key": "your-embedding-api-key",
+      "model": "BAAI/bge-m3"
+    },
+    "rerankApi": {
+      "provider": "custom",
+      "url": "https://api.example.com/v1",
+      "key": "your-rerank-api-key",
+      "model": "BAAI/bge-reranker-v2-m3"
+    }
+  },
+  "recallCases": [
+    {
+      "label": "latest-context",
+      "excludeLastAi": false
+    }
+  ],
+  "compareWithBaseline": true,
+  "baselinePath": "scripts/story-summary-replay-output/story-summary-replay-baseline.json",
+  "writeBaselineOnMissing": true,
+  "verifyRollbackOnce": false
+}
