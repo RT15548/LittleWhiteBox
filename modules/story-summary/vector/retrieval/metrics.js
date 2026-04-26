@@ -172,6 +172,8 @@ export function createMetrics() {
             pprTime: 0,
             vectorMapTime: 0,
             postVerifyTime: 0,
+            yieldCount: 0,
+            yieldTime: 0,
             time: 0,
         },
 
@@ -493,6 +495,7 @@ export function formatMetricsLog(metrics) {
         lines.push(`├─ scores: min=${ds.min}, max=${ds.max}, mean=${ds.mean}`);
     }
     lines.push(`├─ breakdown: index=${m.diffusion.indexTime || 0}ms, graph=${m.diffusion.buildTime || 0}ms, seed=${m.diffusion.seedVectorTime || 0}ms, normalize=${m.diffusion.normalizeTime || 0}ms, ppr=${m.diffusion.pprTime || 0}ms, vector_map=${m.diffusion.vectorMapTime || 0}ms, post=${m.diffusion.postVerifyTime || 0}ms`);
+    lines.push(`├─ cooperative_yield: count=${m.diffusion.yieldCount || 0}, time=${m.diffusion.yieldTime || 0}ms`);
     lines.push(`└─ time: ${m.diffusion.time}ms`);
     lines.push('');
 
@@ -547,7 +550,8 @@ export function formatMetricsLog(metrics) {
     lines.push(`│   ├─ graph_build: ${m.diffusion.buildTime || 0}ms`);
     lines.push(`│   ├─ ppr: ${m.diffusion.pprTime || 0}ms`);
     lines.push(`│   ├─ post_verify: ${m.diffusion.postVerifyTime || 0}ms`);
-    lines.push(`│   └─ vector_map: ${m.diffusion.vectorMapTime || 0}ms`);
+    lines.push(`│   ├─ vector_map: ${m.diffusion.vectorMapTime || 0}ms`);
+    lines.push(`│   └─ yield: count=${m.diffusion.yieldCount || 0}, time=${m.diffusion.yieldTime || 0}ms`);
     lines.push(`├─ evidence_assembly: ${m.timing.evidenceAssembly}ms`);
     lines.push(`├─ formatting: ${m.timing.formatting}ms`);
     lines.push(`├─ external_total: ${m.timing.externalTotal || 0}ms (embed+rerank)`);

@@ -277,20 +277,22 @@ function mmrSelect(candidates, k, lambda, getVector, getScore) {
 // [Anchors] L0 StateAtoms 检索
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function recallAnchors(queryVector, vectorConfig, metrics) {
+async function recallAnchors(queryVector, vectorConfig, metrics, snapshot = null) {
     const { chatId } = getContext();
     if (!chatId || !queryVector?.length) {
         return { hits: [], floors: new Set(), stateVectors: [] };
     }
+    const canUseSnapshot = snapshot?.chatId === chatId;
 
-    const meta = await getMeta(chatId);
+    const meta = canUseSnapshot && snapshot?.meta ? snapshot.meta : await getMeta(chatId);
     const fp = getEngineFingerprint(vectorConfig);
     if (meta.fingerprint && meta.fingerprint !== fp) {
         xbLog.warn(MODULE_ID, 'Anchor fingerprint 不匹配');
         return { hits: [], floors: new Set(), stateVectors: [] };
     }
 
-    const stateVectors = await getAllStateVectors(chatId);
+    const stateVectors = canUseSnapshot && snapshot?.stateVectors ? snapshot.stateVectors : await getAllStateVectors(chatId);
+    if (canUseSnapshot && !snapshot.stateVectors) snapshot.stateVectors = stateVectors;
     if (!stateVectors.length) {
         return { hits: [], floors: new Set(), stateVectors: [] };
     }
@@ -333,21 +335,27 @@ async function recallAnchors(queryVector, vectorConfig, metrics) {
 // 返回 { events, vectorMap }
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacters, metrics) {
+async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacters, metrics, snapshot = null) {
     const { chatId } = getContext();
     if (!chatId || !queryVector?.length || !allEvents?.length) {
         return { events: [], vectorMap: new Map() };
     }
+    const canUseSnapshot = snapshot?.chatId === chatId;
 
-    const meta = await getMeta(chatId);
+    const meta = canUseSnapshot && snapshot?.meta ? snapshot.meta : await getMeta(chatId);
     const fp = getEngineFingerprint(vectorConfig);
     if (meta.fingerprint && meta.fingerprint !== fp) {
         xbLog.warn(MODULE_ID, 'Event fingerprint 不匹配');
         return { events: [], vectorMap: new Map() };
     }
 
-    const eventVectors = await getAllEventVectors(chatId);
-    const vectorMap = new Map(eventVectors.map(v => [v.eventId, v.vector]));
+    let vectorMap = canUseSnapshot ? snapshot?.eventVectorMap || null : null;
+    if (!vectorMap) {
+        const eventVectors = canUseSnapshot && snapshot?.eventVectors ? snapshot.eventVectors : await getAllEventVectors(chatId);
+        if (canUseSnapshot && !snapshot.eventVectors) snapshot.eventVectors = eventVectors;
+        vectorMap = new Map(eventVectors.map(v => [v.eventId, v.vector]));
+        if (canUseSnapshot) snapshot.eventVectorMap = vectorMap;
+    }
 
     if (!vectorMap.size) {
         return { events: [], vectorMap };
@@ -1234,7 +1242,7 @@ function finalizeRecallTiming(metrics, totalStart) {
 
 export async function recallMemory(allEvents, vectorConfig, options = {}) {
     const T0 = performance.now();
-    const { chat } = getContext();
+    const { chat, chatId } = getContext();
     const { pendingUserMessage = null, excludeLastAi = false } = options;
 
     const metrics = createMetrics();
@@ -1258,6 +1266,11 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
 
     metrics.anchor.needRecall = true;
+
+    const snapshot = { chatId, meta: null, stateVectors: null, eventVectors: null, eventVectorMap: null };
+    if (chatId) {
+        snapshot.meta = await getMeta(chatId);
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // 阶段 1: Query Build
@@ -1378,12 +1391,12 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
 
     const T_R1_Anchor_Start = performance.now();
-    const { hits: anchorHits_v0 } = await recallAnchors(queryVector_v0, vectorConfig, null);
+    const { hits: anchorHits_v0 } = await recallAnchors(queryVector_v0, vectorConfig, null, snapshot);
     const r1AnchorTime = Math.round(performance.now() - T_R1_Anchor_Start);
     metrics.timing.round1AnchorSearch = r1AnchorTime;
 
     const T_R1_Event_Start = performance.now();
-    const { events: eventHits_v0 } = await recallEvents(queryVector_v0, allEvents, vectorConfig, focusCharacters, null);
+    const { events: eventHits_v0 } = await recallEvents(queryVector_v0, allEvents, vectorConfig, focusCharacters, null, snapshot);
     const r1EventTime = Math.round(performance.now() - T_R1_Event_Start);
     metrics.timing.round1EventRetrieval = r1EventTime;
 
@@ -1445,11 +1458,11 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
 
     const T_R2_Anchor_Start = performance.now();
-    const { hits: anchorHits, floors: anchorFloors_dense, stateVectors: allStateVectors } = await recallAnchors(queryVector_v1, vectorConfig, metrics);
+    const { hits: anchorHits, floors: anchorFloors_dense, stateVectors: allStateVectors } = await recallAnchors(queryVector_v1, vectorConfig, metrics, snapshot);
     metrics.timing.anchorSearch = Math.round(performance.now() - T_R2_Anchor_Start);
 
     const T_R2_Event_Start = performance.now();
-    let { events: eventHits, vectorMap: eventVectorMap } = await recallEvents(queryVector_v1, allEvents, vectorConfig, focusCharacters, metrics);
+    let { events: eventHits, vectorMap: eventVectorMap } = await recallEvents(queryVector_v1, allEvents, vectorConfig, focusCharacters, metrics, snapshot);
     metrics.timing.eventRetrieval = Math.round(performance.now() - T_R2_Event_Start);
 
     xbLog.info(MODULE_ID,
@@ -1478,7 +1491,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         const index = await getLexicalIndex();
         indexReadyTime = Math.round(performance.now() - T_Index_Ready);
         if (index) {
-            lexicalResult = searchLexicalIndex(index, bundle.lexicalTerms);
+            lexicalResult = await searchLexicalIndex(index, bundle.lexicalTerms);
         }
     } catch (e) {
         xbLog.warn(MODULE_ID, 'Lexical 检索失败', e);
@@ -1575,7 +1588,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     // consumed by prompt.js through the same budget pipeline.
     // ═══════════════════════════════════════════════════════════════════
 
-    const diffused = diffuseFromSeeds(
+    const diffused = await diffuseFromSeeds(
         l0Selected,          // seeds (rerank-verified)
         getStateAtoms(),     // all L0 atoms
         allStateVectors,     // all L0 vectors (already read by recallAnchors)

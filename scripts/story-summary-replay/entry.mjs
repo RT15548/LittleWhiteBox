@@ -1020,7 +1020,7 @@ function renderMarkdownReport(report) {
         lines.push(`- external_total: ${recallCase.metrics?.timing?.externalTotal ?? 0}ms`);
         lines.push(`- local_known_total: ${recallCase.metrics?.timing?.localKnownTotal ?? 0}ms`);
         lines.push(`- unattributed: ${recallCase.metrics?.timing?.unattributed ?? 0}ms`);
-        lines.push(`- diffusion_breakdown: graph ${recallCase.metrics?.diffusion?.buildTime ?? 0}ms, ppr ${recallCase.metrics?.diffusion?.pprTime ?? 0}ms, post ${recallCase.metrics?.diffusion?.postVerifyTime ?? 0}ms, vector_map ${recallCase.metrics?.diffusion?.vectorMapTime ?? 0}ms`);
+        lines.push(`- diffusion_breakdown: graph ${recallCase.metrics?.diffusion?.buildTime ?? 0}ms, ppr ${recallCase.metrics?.diffusion?.pprTime ?? 0}ms, post ${recallCase.metrics?.diffusion?.postVerifyTime ?? 0}ms, vector_map ${recallCase.metrics?.diffusion?.vectorMapTime ?? 0}ms, yield ${recallCase.metrics?.diffusion?.yieldCount ?? 0}/${recallCase.metrics?.diffusion?.yieldTime ?? 0}ms`);
         lines.push(`- l1_attach_rate: ${recallCase.metrics?.quality?.l1AttachRate ?? 0}%`);
         lines.push(`- rerank_retention_rate: ${recallCase.metrics?.quality?.rerankRetentionRate ?? 0}%`);
         if (recallCase.pendingUserMessagePreview) {

@@ -1783,19 +1783,21 @@ All checks passed. Beginning incremental extraction...
 
             const close = (result) => {
                 modal.classList.remove('active');
+                postMsg('CONFIRM_CLOSED');
                 okBtn.onclick = null;
                 cancelBtn.onclick = null;
-                closeBtn.onclick = null;
+                if (closeBtn) closeBtn.onclick = null;
                 backdrop.onclick = null;
                 resolve(result);
             };
 
             okBtn.onclick = () => close(true);
             cancelBtn.onclick = () => close(false);
-            closeBtn.onclick = () => close(false);
+            if (closeBtn) closeBtn.onclick = () => close(false);
             backdrop.onclick = () => close(false);
 
             modal.classList.add('active');
+            postMsg('CONFIRM_OPENED');
         });
     }
 
@@ -1824,21 +1826,23 @@ All checks passed. Beginning incremental extraction...
 
             const close = (result) => {
                 modal.classList.remove('active');
+                postMsg('CONFIRM_CLOSED');
                 inputWrap.classList.add('hidden');
                 inputEl.value = '';
                 okBtn.onclick = null;
                 cancelBtn.onclick = null;
-                closeBtn.onclick = null;
+                if (closeBtn) closeBtn.onclick = null;
                 backdrop.onclick = null;
                 resolve(result);
             };
 
             okBtn.onclick = () => close(inputEl.value);
             cancelBtn.onclick = () => close(null);
-            closeBtn.onclick = () => close(null);
+            if (closeBtn) closeBtn.onclick = () => close(null);
             backdrop.onclick = () => close(null);
 
             modal.classList.add('active');
+            postMsg('CONFIRM_OPENED');
             setTimeout(() => inputEl.focus(), 0);
         });
     }
@@ -1867,7 +1871,7 @@ All checks passed. Beginning incremental extraction...
             inputEl.value = '';
             actionList.classList.remove('hidden');
             okBtn.classList.add('hidden');
-            cancelBtn.textContent = '取消';
+            cancelBtn.textContent = '退出';
 
             if (busy) {
                 rollbackBtn.disabled = true;
@@ -1887,12 +1891,13 @@ All checks passed. Beginning incremental extraction...
 
             const close = (result) => {
                 modal.classList.remove('active');
+                postMsg('CONFIRM_CLOSED');
                 actionList.classList.add('hidden');
                 okBtn.classList.remove('hidden');
                 rollbackBtn.onclick = null;
                 clearBtn.onclick = null;
                 cancelBtn.onclick = null;
-                closeBtn.onclick = null;
+                if (closeBtn) closeBtn.onclick = null;
                 backdrop.onclick = null;
                 resolve(result);
             };
@@ -1904,10 +1909,11 @@ All checks passed. Beginning incremental extraction...
                 if (!clearBtn.disabled) close('clear');
             };
             cancelBtn.onclick = () => close(null);
-            closeBtn.onclick = () => close(null);
+            if (closeBtn) closeBtn.onclick = () => close(null);
             backdrop.onclick = () => close(null);
 
             modal.classList.add('active');
+            postMsg('CONFIRM_OPENED');
         });
     }
 

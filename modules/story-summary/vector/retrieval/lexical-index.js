@@ -25,6 +25,7 @@ let lexicalDocCount = 0;
 const IDF_MIN = 1.0;
 const IDF_MAX = 4.0;
 const BUILD_BATCH_SIZE = 500;
+const SEARCH_YIELD_AFTER_MS = 12;
 
 function cleanSummary(summary) {
     return String(summary || '')
@@ -246,10 +247,11 @@ async function buildIndexAsync(docs) {
  *
  * @param {MiniSearch} index
  * @param {string[]} terms
- * @returns {LexicalSearchResult}
+ * @returns {Promise<LexicalSearchResult>}
  */
-export function searchLexicalIndex(index, terms) {
+export async function searchLexicalIndex(index, terms) {
     const T0 = performance.now();
+    let lastYieldAt = T0;
 
     const result = {
         atomIds: [],
@@ -282,6 +284,12 @@ export function searchLexicalIndex(index, terms) {
     const floorLexAgg = new Map(); // floor -> { score, terms:Set<string> }
 
     for (const term of queryTerms) {
+        const now = performance.now();
+        if (now - lastYieldAt >= SEARCH_YIELD_AFTER_MS) {
+            await yieldToMain();
+            lastYieldAt = performance.now();
+        }
+
         const idf = computeIdf(term);
         idfPairs.push({ term, idf });
 

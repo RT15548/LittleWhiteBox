@@ -125,6 +125,9 @@ export async function warmVectorCache(chatId) {
         return getVectorCacheStats(chatId);
     })().finally(() => {
         entry.warming = null;
+        if (!caches.has(chatId)) {
+            invalidationTokens.delete(chatId);
+        }
     });
 
     return entry.warming;
@@ -339,13 +342,16 @@ export function deleteCachedEventVectorsByIds(chatId, eventIds = []) {
 
 export function clearVectorCache(chatId, domain = 'all') {
     if (!chatId) return;
+    const entry = peekEntry(chatId);
     bumpInvalidationToken(chatId);
     if (domain === 'all') {
         caches.delete(chatId);
+        if (!entry?.warming) {
+            invalidationTokens.delete(chatId);
+        }
         return;
     }
 
-    const entry = peekEntry(chatId);
     if (!entry) return;
 
     if (domain === 'chunks') {

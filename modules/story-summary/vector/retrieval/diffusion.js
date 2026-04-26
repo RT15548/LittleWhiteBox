@@ -34,6 +34,8 @@ import { xbLog } from '../../../../core/debug-core.js';
 import { getContext } from '../../../../../../../extensions.js';
 
 const MODULE_ID = 'diffusion';
+const YIELD_AFTER_MS = 12;
+const YIELD_CHECK_INTERVAL = 32;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Configuration
@@ -97,6 +99,33 @@ function cosineSimilarity(a, b) {
         nB += b[i] * b[i];
     }
     return nA && nB ? dot / (Math.sqrt(nA) * Math.sqrt(nB)) : 0;
+}
+
+function yieldToBrowser() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function createCooperativeYield(thresholdMs = YIELD_AFTER_MS) {
+    let lastYieldAt = performance.now();
+    let yieldCount = 0;
+    let yieldTime = 0;
+
+    const maybeYield = async () => {
+        const now = performance.now();
+        if (now - lastYieldAt < thresholdMs) return;
+
+        const t = performance.now();
+        await yieldToBrowser();
+        yieldTime += performance.now() - t;
+        yieldCount++;
+        lastYieldAt = performance.now();
+    };
+
+    maybeYield.getStats = () => ({
+        yieldCount,
+        yieldTime: Math.round(yieldTime),
+    });
+    return maybeYield;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -210,12 +239,18 @@ function overlapCoefficient(a, b) {
  * @param {Set<string>} excludeEntities
  * @returns {object[]} feature objects with entities/interactionPairs/location
  */
-function extractAllFeatures(allAtoms, excludeEntities = new Set()) {
-    return allAtoms.map(atom => ({
-        entities: extractEntities(atom, excludeEntities),
-        interactionPairs: extractInteractionPairs(atom, excludeEntities),
-        location: extractLocation(atom),
-    }));
+async function extractAllFeatures(allAtoms, excludeEntities = new Set(), maybeYield = null) {
+    const features = [];
+    for (let i = 0; i < (allAtoms || []).length; i++) {
+        const atom = allAtoms[i];
+        features.push({
+            entities: extractEntities(atom, excludeEntities),
+            interactionPairs: extractInteractionPairs(atom, excludeEntities),
+            location: extractLocation(atom),
+        });
+        if (maybeYield && (i & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
+    }
+    return features;
 }
 
 /**
@@ -223,7 +258,7 @@ function extractAllFeatures(allAtoms, excludeEntities = new Set()) {
  * @param {object[]} features
  * @returns {{ whatIndex: Map, locationFreq: Map }}
  */
-function buildInvertedIndices(features) {
+async function buildInvertedIndices(features, maybeYield = null) {
     const whatIndex = new Map();
     const locationFreq = new Map();
 
@@ -234,6 +269,7 @@ function buildInvertedIndices(features) {
         }
         const loc = features[i].location;
         if (loc) locationFreq.set(loc, (locationFreq.get(loc) || 0) + 1);
+        if (maybeYield && (i & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
 
     return { whatIndex, locationFreq };
@@ -245,7 +281,8 @@ function buildInvertedIndices(features) {
  * @param {Set<number>} pairSet - packed pair collector
  * @param {number} N - total atom count (for pair packing)
  */
-function collectPairsFromIndex(index, pairSet, N) {
+async function collectPairsFromIndex(index, pairSet, N, maybeYield = null) {
+    let bucketIndex = 0;
     for (const indices of index.values()) {
         for (let a = 0; a < indices.length; a++) {
             for (let b = a + 1; b < indices.length; b++) {
@@ -253,7 +290,9 @@ function collectPairsFromIndex(index, pairSet, N) {
                 const hi = Math.max(indices[a], indices[b]);
                 pairSet.add(lo * N + hi);
             }
+            if (maybeYield && (a & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
         }
+        if (maybeYield && (bucketIndex++ & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
 }
 
@@ -265,19 +304,19 @@ function collectPairsFromIndex(index, pairSet, N) {
  * @param {Set<string>} excludeEntities
  * @returns {{ neighbors: object[][], edgeCount: number, channelStats: object, buildTime: number }}
  */
-function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set()) {
+async function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set(), maybeYield = null) {
     const N = allAtoms.length;
     const T0 = performance.now();
 
-    const features = extractAllFeatures(allAtoms, excludeEntities);
-    const { whatIndex, locationFreq } = buildInvertedIndices(features);
+    const features = await extractAllFeatures(allAtoms, excludeEntities, maybeYield);
+    const { whatIndex, locationFreq } = await buildInvertedIndices(features, maybeYield);
 
     // Candidate pairs: WHAT + R semantic
     const pairSetByWhat = new Set();
     const pairSetByRSem = new Set();
     const rSemByPair = new Map();
     const pairSet = new Set();
-    collectPairsFromIndex(whatIndex, pairSetByWhat, N);
+    await collectPairsFromIndex(whatIndex, pairSetByWhat, N, maybeYield);
 
     const rVectorByAtomId = new Map(
         (stateVectors || [])
@@ -318,6 +357,7 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set()) {
             rSemSimSum += sim;
             rSemSimCount++;
         }
+        if (maybeYield && (left & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
 
     for (let i = 0; i < N; i++) {
@@ -335,6 +375,7 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set()) {
             const prev = rSemByPair.get(packed) || 0;
             if (n.sim > prev) rSemByPair.set(packed, n.sim);
         }
+        if (maybeYield && (i & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
     for (const p of pairSetByWhat) pairSet.add(p);
     for (const p of pairSetByRSem) pairSet.add(p);
@@ -346,6 +387,7 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set()) {
     let reweightWhoUsed = 0;
     let reweightWhereUsed = 0;
 
+    let pairIndex = 0;
     for (const packed of pairSet) {
         const i = Math.floor(packed / N);
         const j = packed % N;
@@ -392,6 +434,7 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set()) {
             if (wWho > 0) reweightWhoUsed++;
             if (wWhere > 0) reweightWhereUsed++;
         }
+        if (maybeYield && (pairIndex++ & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
 
     const buildTime = Math.round(performance.now() - T0);
@@ -438,7 +481,7 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set()) {
  * @param {number} N - total node count
  * @returns {Float64Array} personalization vector (L1-normalized, sums to 1)
  */
-function buildSeedVector(seeds, idToIdx, N) {
+async function buildSeedVector(seeds, idToIdx, N, maybeYield = null) {
     const s = new Float64Array(N);
     let total = 0;
 
@@ -453,7 +496,10 @@ function buildSeedVector(seeds, idToIdx, N) {
 
     // L1 normalize to probability distribution
     if (total > 0) {
-        for (let i = 0; i < N; i++) s[i] /= total;
+        for (let i = 0; i < N; i++) {
+            s[i] /= total;
+            if (maybeYield && (i & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
+        }
     }
 
     return s;
@@ -475,7 +521,7 @@ function buildSeedVector(seeds, idToIdx, N) {
  * @param {number} N
  * @returns {{ columns: object[][], dangling: number[] }}
  */
-function columnNormalize(neighbors, N) {
+async function columnNormalize(neighbors, N, maybeYield = null) {
     const columns = Array.from({ length: N }, () => []);
     const dangling = [];
 
@@ -494,6 +540,8 @@ function columnNormalize(neighbors, N) {
         for (let e = 0; e < edges.length; e++) {
             col.push({ target: edges[e].target, prob: edges[e].weight / sum });
         }
+
+        if (maybeYield && (j & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
 
     return { columns, dangling };
@@ -524,7 +572,7 @@ function columnNormalize(neighbors, N) {
  * @param {number} N - node count
  * @returns {{ pi: Float64Array, iterations: number, finalError: number }}
  */
-function powerIteration(columns, s, dangling, N) {
+async function powerIteration(columns, s, dangling, N, maybeYield = null) {
     const alpha = CONFIG.ALPHA;
     const d = 1 - alpha;       // damping factor = prob of following edges
     const epsilon = CONFIG.EPSILON;
@@ -532,7 +580,10 @@ function powerIteration(columns, s, dangling, N) {
 
     // Initialize π to personalization vector
     let pi = new Float64Array(N);
-    for (let i = 0; i < N; i++) pi[i] = s[i];
+    for (let i = 0; i < N; i++) {
+        pi[i] = s[i];
+        if (maybeYield && (i & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
+    }
 
     let iterations = 0;
     let finalError = 0;
@@ -577,6 +628,7 @@ function powerIteration(columns, s, dangling, N) {
         finalError = l1;
 
         if (l1 < epsilon) break;
+        if (maybeYield) await maybeYield();
     }
 
     return { pi, iterations, finalError };
@@ -607,7 +659,7 @@ function powerIteration(columns, s, dangling, N) {
  * @param {Float32Array|number[]} queryVector - R2 weighted query vector
  * @returns {{ diffused: object[], gateStats: object }}
  */
-function postVerify(pi, atomIds, atomById, seedAtomIds, vectorMap, queryVector) {
+async function postVerify(pi, atomIds, atomById, seedAtomIds, vectorMap, queryVector, maybeYield = null) {
     const N = atomIds.length;
     const gateStats = { passed: 0, filtered: 0, noVector: 0 };
 
@@ -617,6 +669,7 @@ function postVerify(pi, atomIds, atomById, seedAtomIds, vectorMap, queryVector) 
         if (pi[i] > 0 && !seedAtomIds.has(atomIds[i])) {
             if (pi[i] > maxPPR) maxPPR = pi[i];
         }
+        if (maybeYield && (i & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
 
     if (maxPPR <= 0) {
@@ -669,6 +722,8 @@ function postVerify(pi, atomIds, atomById, seedAtomIds, vectorMap, queryVector) 
             pprNormalized: pprNorm,
             cosine: cos,
         });
+
+        if (maybeYield && (i & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
 
     // Sort by finalScore descending, cap at DIFFUSION_CAP
@@ -697,11 +752,12 @@ function postVerify(pi, atomIds, atomById, seedAtomIds, vectorMap, queryVector) 
  *   Each: { atomId, floor, vector: Float32Array, rVector?: Float32Array }
  * @param {Float32Array|number[]} queryVector - R2 weighted query vector
  * @param {object|null} metrics - metrics object (optional, mutated in-place)
- * @returns {object[]} Additional L0 atoms for l0Selected
+ * @returns {Promise<object[]>} Additional L0 atoms for l0Selected
  *   Each: { atomId, floor, atom, finalScore, pprScore, pprNormalized, cosine }
  */
-export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, metrics) {
+export async function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, metrics) {
     const T0 = performance.now();
+    const maybeYield = createCooperativeYield();
 
     // ─── Early exits ─────────────────────────────────────────────────
 
@@ -727,6 +783,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
         atomById.set(a.atomId, a);
         atomIds.push(a.atomId);
         idToIdx.set(a.atomId, i);
+        if ((i & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
 
     const N = allAtoms.length;
@@ -743,9 +800,10 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
 
     // ─── 2. Build graph ──────────────────────────────────────────────
 
-    const graph = buildGraph(allAtoms, stateVectors, excludeEntities);
+    const graph = await buildGraph(allAtoms, stateVectors, excludeEntities, maybeYield);
 
     if (graph.edgeCount === 0) {
+        const yieldStats = maybeYield.getStats();
         fillMetrics(metrics, {
             seedCount: validSeeds.length,
             graphNodes: N,
@@ -761,6 +819,8 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
             reweightWhoUsed: graph.reweightWhoUsed,
             reweightWhereUsed: graph.reweightWhereUsed,
             indexTime,
+            yieldCount: yieldStats.yieldCount,
+            yieldTime: yieldStats.yieldTime,
             time: graph.buildTime,
         });
         xbLog.info(MODULE_ID, 'No graph edges — skipping diffusion');
@@ -770,45 +830,49 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
     // ─── 3. Build seed vector ────────────────────────────────────────
 
     const T_Seed = performance.now();
-    const s = buildSeedVector(validSeeds, idToIdx, N);
+    const s = await buildSeedVector(validSeeds, idToIdx, N, maybeYield);
     const seedVectorTime = Math.round(performance.now() - T_Seed);
 
     // ─── 4. Column normalize ─────────────────────────────────────────
 
     const T_Normalize = performance.now();
-    const { columns, dangling } = columnNormalize(graph.neighbors, N);
+    const { columns, dangling } = await columnNormalize(graph.neighbors, N, maybeYield);
     const normalizeTime = Math.round(performance.now() - T_Normalize);
 
     // ─── 5. PPR Power Iteration ──────────────────────────────────────
 
     const T_PPR = performance.now();
-    const { pi, iterations, finalError } = powerIteration(columns, s, dangling, N);
+    const { pi, iterations, finalError } = await powerIteration(columns, s, dangling, N, maybeYield);
     const pprTime = Math.round(performance.now() - T_PPR);
 
     // Count activated non-seed nodes
     let pprActivated = 0;
     for (let i = 0; i < N; i++) {
         if (pi[i] > 0 && !seedAtomIds.has(atomIds[i])) pprActivated++;
+        if ((i & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
 
     // ─── 6. Post-verification ────────────────────────────────────────
 
     const T_VectorMap = performance.now();
     const vectorMap = new Map();
-    for (const sv of (stateVectors || [])) {
+    for (let i = 0; i < (stateVectors || []).length; i++) {
+        const sv = stateVectors[i];
         vectorMap.set(sv.atomId, sv.vector);
+        if ((i & (YIELD_CHECK_INTERVAL - 1)) === 0) await maybeYield();
     }
     const vectorMapTime = Math.round(performance.now() - T_VectorMap);
 
     const T_PostVerify = performance.now();
-    const { diffused, gateStats } = postVerify(
-        pi, atomIds, atomById, seedAtomIds, vectorMap, queryVector
+    const { diffused, gateStats } = await postVerify(
+        pi, atomIds, atomById, seedAtomIds, vectorMap, queryVector, maybeYield
     );
     const postVerifyTime = Math.round(performance.now() - T_PostVerify);
 
     // ─── 7. Metrics ──────────────────────────────────────────────────
 
     const totalTime = Math.round(performance.now() - T0);
+    const yieldStats = maybeYield.getStats();
 
     fillMetrics(metrics, {
         seedCount: validSeeds.length,
@@ -837,6 +901,8 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
         cosineGateNoVector: gateStats.noVector,
         vectorMapTime,
         postVerifyTime,
+        yieldCount: yieldStats.yieldCount,
+        yieldTime: yieldStats.yieldTime,
         postGatePassRate: pprActivated > 0
             ? Math.round((gateStats.passed / pprActivated) * 100)
             : 0,
@@ -855,7 +921,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
         `gate(${gateStats.passed}\u2713/${gateStats.filtered}\u2717` +
         `${gateStats.noVector ? `/${gateStats.noVector}?` : ''}) → ` +
         `${diffused.length} final ` +
-        `(index=${indexTime}ms graph=${graph.buildTime}ms seed=${seedVectorTime}ms normalize=${normalizeTime}ms ppr=${pprTime}ms vectorMap=${vectorMapTime}ms post=${postVerifyTime}ms total=${totalTime}ms)`
+        `(index=${indexTime}ms graph=${graph.buildTime}ms seed=${seedVectorTime}ms normalize=${normalizeTime}ms ppr=${pprTime}ms vectorMap=${vectorMapTime}ms post=${postVerifyTime}ms yield=${yieldStats.yieldCount}/${yieldStats.yieldTime}ms total=${totalTime}ms)`
     );
 
     return diffused;
@@ -915,6 +981,8 @@ function fillMetricsEmpty(metrics) {
         pprTime: 0,
         vectorMapTime: 0,
         postVerifyTime: 0,
+        yieldCount: 0,
+        yieldTime: 0,
         postGatePassRate: 0,
         time: 0,
     };
@@ -955,6 +1023,8 @@ function fillMetrics(metrics, data) {
         pprTime: data.pprTime || 0,
         vectorMapTime: data.vectorMapTime || 0,
         postVerifyTime: data.postVerifyTime || 0,
+        yieldCount: data.yieldCount || 0,
+        yieldTime: data.yieldTime || 0,
         time: data.time || 0,
     };
 }

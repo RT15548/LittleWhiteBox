@@ -189,6 +189,7 @@ let lexicalWarmupTimer = null;
 const LEXICAL_WARMUP_DEBOUNCE_MS = 500;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const yieldToBrowser = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // 向量提醒节流
 let lastVectorWarningAt = 0;
@@ -977,6 +978,13 @@ function initButtonsForAll() {
     });
 }
 
+function initButtonForLatestMessage() {
+    if (!getSettings().storySummary?.enabled) return;
+    const { chat } = getContext();
+    const mesId = Array.isArray(chat) ? chat.length - 1 : null;
+    if (mesId != null && mesId >= 0) addSummaryBtnToMessage(mesId);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 面板数据发送
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1650,12 +1658,14 @@ async function handleFrameMessage(event) {
         case "SETTINGS_OPENED":
         case "FULLSCREEN_OPENED":
         case "EDITOR_OPENED":
+        case "CONFIRM_OPENED":
             $(".xb-ss-close-btn").hide();
             break;
 
         case "SETTINGS_CLOSED":
         case "FULLSCREEN_CLOSED":
         case "EDITOR_CLOSED":
+        case "CONFIRM_CLOSED":
             $(".xb-ss-close-btn").show();
             break;
 
@@ -2185,8 +2195,8 @@ async function handleMessageReceived(scheduledChatId) {
 
 function handleMessageSent(scheduledChatId) {
     if (isChatStale(scheduledChatId)) return;
-    initButtonsForAll();
-    scheduleLexicalWarmup(0);
+    initButtonForLatestMessage();
+    scheduleLexicalWarmup(5000);
     setTimeout(() => maybeAutoRunSummary("before_user"), 1000);
 }
 
@@ -2228,6 +2238,24 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     if (isDryRun) return;
     if (!getSettings().storySummary?.enabled) return;
 
+    const T0 = performance.now();
+    const timing = {
+        tokenizer: 0,
+        preBuildYield: 0,
+        boundary: 0,
+        buildPrompt: 0,
+        writePrompt: 0,
+    };
+    const logTiming = (reason) => {
+        const total = Math.round(performance.now() - T0);
+        xbLog.info(
+            MODULE_ID,
+            `Prompt inject timing: type=${type || 'unknown'} reason=${reason} total=${total}ms `
+            + `tokenizer=${timing.tokenizer}ms boundary=${timing.boundary}ms `
+            + `preYield=${timing.preBuildYield}ms build=${timing.buildPrompt}ms write=${timing.writePrompt}ms`
+        );
+    };
+
     const excludeLastAi = type === "swipe" || type === "regenerate";
     const vectorCfg = getVectorConfig();
 
@@ -2235,10 +2263,13 @@ async function handleGenerationStarted(type, _params, isDryRun) {
 
     // ★ 最后一道关卡：向量启用时，同步等待分词器就绪
     if (vectorCfg?.enabled && !isTokenizerReady()) {
+        const T_Tokenizer = performance.now();
         try {
             await preloadTokenizer();
         } catch (e) {
             xbLog.warn(MODULE_ID, "生成前分词器预热失败，将使用降级分词", e);
+        } finally {
+            timing.tokenizer = Math.round(performance.now() - T_Tokenizer);
         }
     }
 
@@ -2253,7 +2284,10 @@ async function handleGenerationStarted(type, _params, isDryRun) {
 
     const { chat, chatId } = getContext();
     const chatLen = Array.isArray(chat) ? chat.length : 0;
-    if (chatLen === 0) return;
+    if (chatLen === 0) {
+        logTiming('empty_chat');
+        return;
+    }
 
     const store = getSummaryStore();
 
@@ -2261,6 +2295,7 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     // - 向量开：meta.lastChunkFloor（若无则回退 lastSummarizedMesId）
     // - 向量关：lastSummarizedMesId
     let boundary = -1;
+    const T_Boundary = performance.now();
     if (vectorCfg?.enabled) {
         const meta = chatId ? await getMeta(chatId) : null;
         boundary = meta?.lastChunkFloor ?? -1;
@@ -2268,15 +2303,27 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     } else {
         boundary = store?.lastSummarizedMesId ?? -1;
     }
-    if (boundary < 0) return;
+    timing.boundary = Math.round(performance.now() - T_Boundary);
+    if (boundary < 0) {
+        logTiming('no_boundary');
+        return;
+    }
 
     // 计算深度：倒序插入，从末尾往前数
     // 最小为 MIN_INJECTION_DEPTH，避免插入太靠近底部
     const depth = Math.max(MIN_INJECTION_DEPTH, chatLen - boundary - 1);
-    if (depth < 0) return;
+    if (depth < 0) {
+        logTiming('invalid_depth');
+        return;
+    }
+
+    const T_PreBuildYield = performance.now();
+    await yieldToBrowser();
+    timing.preBuildYield = Math.round(performance.now() - T_PreBuildYield);
 
     // 构建注入文本
     let text = "";
+    const T_BuildPrompt = performance.now();
     if (vectorCfg?.enabled) {
         const r = await buildVectorPromptText(excludeLastAi, {
             postToFrame,
@@ -2287,8 +2334,12 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     } else {
         text = buildNonVectorPromptText() || "";
     }
+    timing.buildPrompt = Math.round(performance.now() - T_BuildPrompt);
     _lastBuiltPromptText = text;
-    if (!text.trim()) return;
+    if (!text.trim()) {
+        logTiming('empty_prompt');
+        return;
+    }
 
     // 获取用户配置的 role
     const cfg = getSummaryPanelConfig();
@@ -2296,12 +2347,15 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     const role = ROLE_MAP[roleKey] || extension_prompt_roles.SYSTEM;
 
     // 写入 extension_prompts
+    const T_WritePrompt = performance.now();
     extension_prompts[EXT_PROMPT_KEY] = {
         value: text,
         position: extension_prompt_types.IN_CHAT,
         depth,
         role,
     };
+    timing.writePrompt = Math.round(performance.now() - T_WritePrompt);
+    logTiming('injected');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
