@@ -831,6 +831,16 @@ function buildSkillFileContent({
     ].join('\n');
 }
 
+function parseSkillFrontmatterListValue(rawValue = '') {
+    const value = String(rawValue ?? '').trim();
+    if (!value) return '';
+    try {
+        const parsed = JSON.parse(value);
+        if (typeof parsed === 'string') return parsed;
+    } catch {}
+    return value.replace(/^"([\s\S]*)"$/, '$1').replace(/^'([\s\S]*)'$/, '$1');
+}
+
 function parseStructuredSkillFile(content = '') {
     const text = String(content || '');
     const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
@@ -858,11 +868,7 @@ function parseStructuredSkillFile(content = '') {
             index += 1;
             while (index < lines.length && /^\s*-\s+/.test(lines[index])) {
                 const triggerValue = lines[index].replace(/^\s*-\s+/, '').trim();
-                try {
-                    parsed[targetKey].push(JSON.parse(triggerValue));
-                } catch {
-                    parsed[targetKey].push(triggerValue.replace(/^"+|"+$/g, ''));
-                }
+                parsed[targetKey].push(parseSkillFrontmatterListValue(triggerValue));
                 index += 1;
             }
             continue;
