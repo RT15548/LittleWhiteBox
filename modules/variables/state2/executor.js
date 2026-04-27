@@ -298,12 +298,80 @@ function getCheckpointStore() {
     return ext[CKPT_KEY];
 }
 
-function saveWalRecord(floor, signature, rules, ops) {
+function getRootFromPath(path) {
+    const segs = splitPath(path);
+    if (!segs.length) return null;
+    const root = String(segs[0] ?? '').trim();
+    return root || null;
+}
+
+function collectRootsFromRulesOps(rules = [], ops = []) {
+    const roots = new Set();
+    for (const item of rules || []) {
+        const root = getRootFromPath(item?.path);
+        if (root) roots.add(root);
+    }
+    for (const item of ops || []) {
+        const root = getRootFromPath(item?.path);
+        if (root) roots.add(root);
+    }
+    return roots;
+}
+
+function syncOwnedRootsFromLog() {
+    const log = getStateLog();
+    const roots = new Set();
+    for (const rec of Object.values(log.floors || {})) {
+        const hasStoredRoots = rec && Object.prototype.hasOwnProperty.call(rec, 'roots') && Array.isArray(rec.roots);
+        if (hasStoredRoots) {
+            const stored = rec.roots.map(String).filter(Boolean);
+            stored.forEach(root => roots.add(root));
+            continue;
+        }
+        collectRootsFromRulesOps(rec?.rules || [], rec?.ops || []).forEach(root => roots.add(root));
+    }
+    return roots;
+}
+
+function getEffectiveOwnedRoots() {
+    // The WAL is authoritative, so rollback follows edits/deletes/trims exactly.
+    return syncOwnedRootsFromLog();
+}
+
+function scopedMergeRootObject(current, restored, roots) {
+    const next = deepClone(current || {});
+    const source = restored || {};
+    for (const root of roots || []) {
+        if (Object.prototype.hasOwnProperty.call(source, root)) {
+            next[root] = deepClone(source[root]);
+        } else {
+            delete next[root];
+        }
+    }
+    return next;
+}
+
+function scopedMergeRules(currentRules, restoredRules, roots) {
+    const owned = roots || new Set();
+    const next = {};
+    for (const [path, rule] of Object.entries(currentRules || {})) {
+        const root = getRootFromPath(path);
+        if (!root || !owned.has(root)) next[path] = deepClone(rule);
+    }
+    for (const [path, rule] of Object.entries(restoredRules || {})) {
+        const root = getRootFromPath(path);
+        if (root && owned.has(root)) next[path] = deepClone(rule);
+    }
+    return next;
+}
+
+function saveWalRecord(floor, signature, rules, ops, roots = []) {
     const log = getStateLog();
     log.floors[String(floor)] = {
         signature: String(signature || ''),
         rules: Array.isArray(rules) ? deepClone(rules) : [],
         ops: Array.isArray(ops) ? deepClone(ops) : [],
+        roots: [...(roots || [])].map(String).filter(Boolean).sort(),
         ts: Date.now(),
     };
     getContext()?.saveMetadataDebounced?.();
@@ -459,14 +527,15 @@ export function applyStateForMessage(messageId, messageContent) {
     }
 
     if (blocks.length) {
-        // ✅ WAL：一次写入完整的 rules/ops
-        saveWalRecord(messageId, signature, mergedRules, mergedOps);
+        const floorRoots = new Set();
 
         // ✅ rules 一次性注册
         let rulesTouched = false;
         for (const { path, rule } of mergedRules) {
             if (path && rule && Object.keys(rule).length) {
                 setRule(normalizePath(path), rule);
+                const root = getRootFromPath(path);
+                if (root) floorRoots.add(root);
                 rulesTouched = true;
             }
         }
@@ -539,6 +608,9 @@ export function applyStateForMessage(messageId, messageContent) {
                 continue;
             }
 
+            const root = getRootFromPath(path);
+            if (root) floorRoots.add(root);
+
             const newValue = getVar(path);
 
             atoms.push({
@@ -557,6 +629,9 @@ export function applyStateForMessage(messageId, messageContent) {
 
             idx++;
         }
+
+        // ✅ WAL：一次写入完整 rules/ops/roots，避免留下无 roots 的中间记录
+        saveWalRecord(messageId, signature, mergedRules, mergedOps, floorRoots);
     }
 
     appliedMap[messageId] = signature;
@@ -586,11 +661,12 @@ export async function restoreStateV2ToFloor(targetFloor) {
     const ctx = getContext();
     const meta = ctx?.chatMetadata || {};
     const floor = Number(targetFloor);
+    const ownedRoots = getEffectiveOwnedRoots();
 
     if (!Number.isFinite(floor) || floor < 0) {
-        // floor < 0 => 清空
-        meta.variables = {};
-        meta.LWB_RULES_V2 = {};
+        // floor < 0 => only clear roots owned by State 2.0.
+        meta.variables = scopedMergeRootObject(meta.variables || {}, {}, ownedRoots);
+        meta.LWB_RULES_V2 = scopedMergeRules(meta.LWB_RULES_V2 || {}, {}, ownedRoots);
         ctx?.saveMetadataDebounced?.();
         return { ok: true, usedCheckpoint: null };
     }
@@ -608,11 +684,11 @@ export async function restoreStateV2ToFloor(targetFloor) {
     // 1) 恢复 checkpoint 或清空基线
     if (ck != null) {
         const snap = points[String(ck)];
-        meta.variables = deepClone(snap?.vars || {});
-        meta.LWB_RULES_V2 = deepClone(snap?.rules || {});
+        meta.variables = scopedMergeRootObject(meta.variables || {}, snap?.vars || {}, ownedRoots);
+        meta.LWB_RULES_V2 = scopedMergeRules(meta.LWB_RULES_V2 || {}, snap?.rules || {}, ownedRoots);
     } else {
-        meta.variables = {};
-        meta.LWB_RULES_V2 = {};
+        meta.variables = scopedMergeRootObject(meta.variables || {}, {}, ownedRoots);
+        meta.LWB_RULES_V2 = scopedMergeRules(meta.LWB_RULES_V2 || {}, {}, ownedRoots);
     }
 
     ctx?.saveMetadataDebounced?.();

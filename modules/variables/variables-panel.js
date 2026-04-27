@@ -201,7 +201,6 @@ class VariablesPanel {
 
   enable(){
     this.createContainer(); this.bindEvents();
-    ['character','global'].forEach(t=>this.normalizeStore(t));
     this.loadVariables(); this.installMessageButtons();
   }
   disable(){ this.cleanup(); }
@@ -448,8 +447,7 @@ class VariablesPanel {
       setTimeout(()=>{
         inf.find('.inline-name').val(path[path.length-1]);
         const ta=inf.find('.inline-value');
-        const fill=(val)=> Array.isArray(val)? (val.length===1 ? String(val[0]??'') : JSON.stringify(val,null,2)) : (val&&typeof val==='object'? JSON.stringify(val,null,2) : String(val??''));
-        ta.val(fill(v)); this.autoResizeTextarea(ta);
+        ta.val(this.valueToEditorText(v)); this.autoResizeTextarea(ta);
       },50);
     }else if(action==='addChild'){
       inf.find('.inline-name').attr('placeholder',`为 "${path.join('.')}" 添加子变量名称`);
@@ -478,7 +476,7 @@ class VariablesPanel {
       const value= typeof rawValue==='string'? rawValue.trim() : String(rawValue ?? '').trim();
       const type=form.data('type');
       if(!name) return form.find('.inline-name').focus(), toastr.error('请输入变量名称');
-      const val=this.processValue(value), {action,path}=this.state.formState;
+      const val=this.editorTextToValue(value), {action,path}=this.state.formState;
       this.withPreservedExpansion(type,()=>{
         if(action==='addChild') {
           this.setValueByPath(type,[...path,name],val);
@@ -487,8 +485,7 @@ class VariablesPanel {
           if(name!==old){
             this.deleteByPathSilently(type,path);
             if(path.length===1) {
-              const toSave=(typeof val==='object'&&val!==null)?JSON.stringify(val):val;
-              this.vt(type).setter(name,toSave);
+              this.vt(type).setter(name,val);
             } else {
               this.setValueByPath(type,[...path.slice(0,-1),name],val);
             }
@@ -496,8 +493,7 @@ class VariablesPanel {
             this.setValueByPath(type,path,val);
           }
         } else {
-          const toSave=(typeof val==='object'&&val!==null)?JSON.stringify(val):val;
-          this.vt(type).setter(name,toSave);
+          this.vt(type).setter(name,val);
         }
       });
       this.hideInlineForm(); toastr.success('变量已保存');
@@ -524,10 +520,9 @@ class VariablesPanel {
       const n= typeof rawN==='string' ? rawN.trim() : String(rawN ?? '').trim();
       const v= typeof rawV==='string' ? rawV.trim() : String(rawV ?? '').trim();
       if(!n) return toastr.error('请输入变量名称');
-      const val=this.processValue(v);
+      const val=this.editorTextToValue(v);
       this.withPreservedExpansion(t,()=> {
-        const toSave=(typeof val==='object'&&val!==null)?JSON.stringify(val):val;
-        this.vt(t).setter(n,toSave);
+        this.vt(t).setter(n,val);
       });
       this.hideAddForm(t); toastr.success('变量已保存');
     }catch(e){ toastr.error('JSON格式错误: '+e.message); }
@@ -538,20 +533,19 @@ class VariablesPanel {
 
   setValueByPath(t,p,v){
     if(p.length===1){
-      const toSave = (typeof v==='object' && v!==null) ? JSON.stringify(v) : v;
-      this.vt(t).setter(p[0], toSave);
+      this.vt(t).setter(p[0], v);
       return;
     }
     let root=this.parseValue(this.vt(t).getter(p[0])); if(typeof root!=='object'||root===null) root={};
     let cur=root; p.slice(1,-1).forEach(k=>{ if(typeof cur[k]!=='object'||cur[k]===null) cur[k]={}; cur=cur[k]; });
-    cur[p[p.length-1]]=v; this.vt(t).setter(p[0], JSON.stringify(root));
+    cur[p[p.length-1]]=v; this.vt(t).setter(p[0], root);
   }
 
   deleteByPathSilently(t,p){
-    if(p.length===1){ delete this.store(t)[p[0]]; return; }
+    if(p.length===1){ delete this.store(t)[p[0]]; this.vt(t).save?.(); return; }
     let root=this.parseValue(this.vt(t).getter(p[0])); if(typeof root!=='object'||root===null) return;
     let cur=root; p.slice(1,-1).forEach(k=>{ if(typeof cur[k]!=='object'||cur[k]===null) cur[k]={}; cur=cur[k]; });
-    delete cur[p[p.length-1]]; this.vt(t).setter(p[0], JSON.stringify(root));
+    delete cur[p[p.length-1]]; this.vt(t).setter(p[0], root);
   }
 
   formatPath(t,path){
@@ -569,7 +563,8 @@ class VariablesPanel {
   getItemPath(i){ const p=[]; let c=i; while(c.length&&c.hasClass('vm-item')){ const k=c.data('key'); if(k!==undefined) p.unshift(String(k)); if(!c.attr('data-level')) break; c=c.parent().closest('.vm-item'); } return p; }
 
   parseValue(v){ try{ return typeof v==='string'? JSON.parse(v) : v; }catch{ return v; } }
-  processValue(v){ if(typeof v!=='string') return v; const s=v.trim(); return (s.startsWith('{')||s.startsWith('['))? JSON.parse(s) : v; }
+  valueToEditorText(v){ return (v&&typeof v==='object') ? JSON.stringify(v,null,2) : String(v??''); }
+  editorTextToValue(v){ if(typeof v!=='string') return v; const s=v.trim(); return (s.startsWith('{')||s.startsWith('[')) ? JSON.parse(s) : v; }
 
   formatTopLevelValue(v){ const p=this.parseValue(v); if(typeof p==='object'&&p!==null){ const c=Array.isArray(p)? p.length : Object.keys(p).length; return `<span class="vm-object-count">[${c} items]</span>`; } return this.formatValue(p); }
   formatValue(v){ if(v==null) return `<span class="vm-null-value">${v}</span>`; const e=this.escape(String(v)); return `<span class="vm-formatted-value">${e.length>50? e.substring(0,50)+'...' : e}</span>`; }
@@ -594,8 +589,7 @@ class VariablesPanel {
         const txt=await file.text(), v=JSON.parse(txt);
         this.withPreservedExpansion(t,()=> {
           Object.entries(v).forEach(([k,val])=> {
-            const toSave=(typeof val==='object'&&val!==null)?JSON.stringify(val):val;
-            this.vt(t).setter(k,toSave);
+            this.vt(t).setter(k,val);
           });
         });
         toastr.success(`成功导入 ${Object.keys(v).length} 个变量`);
@@ -675,15 +669,6 @@ class VariablesPanel {
 
   removeMessageButtons(){ this.removeMessageButtonsListeners(); this.removeAllMessageButtons(); }
 
-  normalizeStore(t){
-    const s=this.store(t); let changed=0;
-    for(const[k,v] of Object.entries(s)){
-      if(typeof v==='object' && v!==null){
-        try{ s[k]=JSON.stringify(v); changed++; }catch{}
-      }
-    }
-    if(changed) this.vt(t).save?.();
-  }
 }
 
 let variablesPanelInstance=null;
