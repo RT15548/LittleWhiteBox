@@ -155,7 +155,18 @@ body.immersive-mode .mesAvatarWrapper {
 
 body.immersive-mode .swipe_left,
 body.immersive-mode .swipeRightBlock {
-    display: none !important;
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    min-width: 1px !important;
+    min-height: 1px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    clip-path: inset(50%) !important;
 }
 
 body.immersive-mode .mes {

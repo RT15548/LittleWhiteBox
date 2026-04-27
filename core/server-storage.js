@@ -71,6 +71,40 @@ class StorageFile {
         }
     }
 
+    async setAndSave(key, value, { silent = true } = {}) {
+        const data = await this.load();
+        const hadKey = Object.prototype.hasOwnProperty.call(data, key);
+        const previousValue = data[key];
+        const previousDirtyVersion = this._dirtyVersion;
+        const previousSavedVersion = this._savedVersion;
+        const previousPendingSave = this._pendingSave;
+
+        data[key] = value;
+        this._dirtyVersion++;
+
+        try {
+            return await this.saveNow({ silent });
+        } catch (err) {
+            if (hadKey) data[key] = previousValue;
+            else delete data[key];
+
+            this._dirtyVersion = previousDirtyVersion;
+            this._savedVersion = previousSavedVersion;
+            this._pendingSave = previousPendingSave;
+            this._retryCount = 0;
+
+            if (this._retryTimer) {
+                clearTimeout(this._retryTimer);
+                this._retryTimer = null;
+            }
+
+            if (!silent) {
+                throw err;
+            }
+            return false;
+        }
+    }
+
     /**
      * 立即保存
      * @param {Object} options
@@ -181,6 +215,7 @@ class StorageFile {
 export const TasksStorage = new StorageFile('LittleWhiteBox_Tasks.json');
 export const StoryOutlineStorage = new StorageFile('LittleWhiteBox_StoryOutline.json');
 export const NovelDrawStorage = new StorageFile('LittleWhiteBox_NovelDraw.json', { debounceMs: 800 });
+export const AssistantStorage = new StorageFile('LittleWhiteBox_Assistant.json', { debounceMs: 800 });
 export const TtsStorage = new StorageFile('LittleWhiteBox_TTS.json', { debounceMs: 800 });
 export const EnaPlannerStorage = new StorageFile('LittleWhiteBox_EnaPlanner.json', { debounceMs: 800 });
 export const CommonSettingStorage = new StorageFile('LittleWhiteBox_CommonSettings.json', { debounceMs: 1000 });

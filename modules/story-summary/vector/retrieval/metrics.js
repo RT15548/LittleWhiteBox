@@ -115,9 +115,25 @@ export function createMetrics() {
             rerankDocAvgLength: 0,
 
             // Stage 2: L1
+            l1PrefetchAiFloors: 0,
+            l1PrefetchWithContextFloors: 0,
+            l1PrefetchTrimmed: 0,
             l1Pulled: 0,
             l1Attached: 0,
             l1CosineTime: 0,
+            l1ChunkFetchTime: 0,
+            l1VectorFetchTime: 0,
+            l1DeserializeTime: 0,
+            l1ScoreTime: 0,
+            l1SortTime: 0,
+            l1VectorHits: 0,
+            l1MissingVectors: 0,
+            l1ChunkCacheHits: 0,
+            l1ChunkCacheMisses: 0,
+            l1VectorCacheHits: 0,
+            l1VectorCacheMisses: 0,
+            l1CacheWarm: false,
+            l1CacheFallbackDbTime: 0,
 
             // 装配
             contextPairsAdded: 0,
@@ -149,6 +165,13 @@ export function createMetrics() {
             finalCount: 0,
             scoreDistribution: { min: 0, max: 0, mean: 0 },
             byChannel: { what: 0, where: 0, rSem: 0, who: 0 },
+            indexTime: 0,
+            buildTime: 0,
+            seedVectorTime: 0,
+            normalizeTime: 0,
+            pprTime: 0,
+            vectorMapTime: 0,
+            postVerifyTime: 0,
             time: 0,
         },
 
@@ -174,6 +197,11 @@ export function createMetrics() {
 
         // Timing - 计时（仅包含实际写入的字段）
         timing: {
+            round1Embed: 0,
+            round1EmbedRetryWait: 0,
+            round1AnchorSearch: 0,
+            round1EventRetrieval: 0,
+            round2Embed: 0,
             anchorSearch: 0,
             constraintFilter: 0,
             eventRetrieval: 0,
@@ -182,6 +210,9 @@ export function createMetrics() {
             evidenceAssembly: 0,
             diffusion: 0,
             formatting: 0,
+            externalTotal: 0,
+            localKnownTotal: 0,
+            unattributed: 0,
             total: 0,
         },
 
@@ -412,9 +443,21 @@ export function formatMetricsLog(metrics) {
     lines.push(`│   ├─ floors_selected: ${m.evidence.floorsSelected}`);
     lines.push(`│   └─ l0_atoms_collected: ${m.evidence.l0Collected}`);
     lines.push(`├─ Stage 2 (L1):`);
+    lines.push(`│   ├─ prefetched_ai_floors: ${m.evidence.l1PrefetchAiFloors}`);
+    lines.push(`│   ├─ prefetched_total_floors: ${m.evidence.l1PrefetchWithContextFloors}`);
+    if ((m.evidence.l1PrefetchTrimmed || 0) > 0) {
+        lines.push(`│   ├─ prefetch_trimmed: ${m.evidence.l1PrefetchTrimmed}`);
+    }
     lines.push(`│   ├─ pulled: ${m.evidence.l1Pulled}`);
+    lines.push(`│   ├─ vector_hits: ${m.evidence.l1VectorHits}`);
+    if ((m.evidence.l1MissingVectors || 0) > 0) {
+        lines.push(`│   ├─ missing_vectors: ${m.evidence.l1MissingVectors}`);
+    }
     lines.push(`│   ├─ attached: ${m.evidence.l1Attached}`);
-    lines.push(`│   └─ cosine_time: ${m.evidence.l1CosineTime}ms`);
+    lines.push(`│   ├─ cosine_time: ${m.evidence.l1CosineTime}ms`);
+    lines.push(`│   ├─ cache: warm=${!!m.evidence.l1CacheWarm}, chunk=${m.evidence.l1ChunkCacheHits || 0}/${m.evidence.l1ChunkCacheMisses || 0}, vector=${m.evidence.l1VectorCacheHits || 0}/${m.evidence.l1VectorCacheMisses || 0}`);
+    lines.push(`│   ├─ fallback_db_time: ${m.evidence.l1CacheFallbackDbTime || 0}ms`);
+    lines.push(`│   └─ breakdown: chunk_db=${m.evidence.l1ChunkFetchTime}ms, vector_db=${m.evidence.l1VectorFetchTime}ms, deserialize=${m.evidence.l1DeserializeTime}ms, score=${m.evidence.l1ScoreTime}ms, sort=${m.evidence.l1SortTime}ms`);
     lines.push(`├─ tokens: ${m.evidence.tokens}`);
     lines.push(`└─ assembly_time: ${m.evidence.assemblyTime}ms`);
     lines.push('');
@@ -449,6 +492,7 @@ export function formatMetricsLog(metrics) {
         const ds = m.diffusion.scoreDistribution;
         lines.push(`├─ scores: min=${ds.min}, max=${ds.max}, mean=${ds.mean}`);
     }
+    lines.push(`├─ breakdown: index=${m.diffusion.indexTime || 0}ms, graph=${m.diffusion.buildTime || 0}ms, seed=${m.diffusion.seedVectorTime || 0}ms, normalize=${m.diffusion.normalizeTime || 0}ms, ppr=${m.diffusion.pprTime || 0}ms, vector_map=${m.diffusion.vectorMapTime || 0}ms, post=${m.diffusion.postVerifyTime || 0}ms`);
     lines.push(`└─ time: ${m.diffusion.time}ms`);
     lines.push('');
 
@@ -476,6 +520,13 @@ export function formatMetricsLog(metrics) {
     lines.push('[Timing] 计时');
     lines.push(`├─ query_build: ${m.query.buildTime}ms`);
     lines.push(`├─ query_refine: ${m.query.refineTime}ms`);
+    lines.push(`├─ round1_embed: ${m.timing.round1Embed || 0}ms`);
+    if ((m.timing.round1EmbedRetryWait || 0) > 0) {
+        lines.push(`│   └─ retry_wait: ${m.timing.round1EmbedRetryWait}ms`);
+    }
+    lines.push(`├─ round1_anchor_search: ${m.timing.round1AnchorSearch || 0}ms`);
+    lines.push(`├─ round1_event_retrieval: ${m.timing.round1EventRetrieval || 0}ms`);
+    lines.push(`├─ round2_embed: ${m.timing.round2Embed || 0}ms`);
     lines.push(`├─ anchor_search: ${m.timing.anchorSearch}ms`);
     const lexicalTotal = (m.lexical.searchTime || 0) + (m.lexical.indexReadyTime || 0);
     lines.push(`├─ lexical_search: ${lexicalTotal}ms (query=${m.lexical.searchTime || 0}ms, index_ready=${m.lexical.indexReadyTime || 0}ms)`);
@@ -485,9 +536,23 @@ export function formatMetricsLog(metrics) {
     lines.push(`├─ evidence_retrieval: ${m.timing.evidenceRetrieval}ms`);
     lines.push(`├─ floor_rerank: ${m.timing.evidenceRerank || 0}ms`);
     lines.push(`├─ l1_cosine: ${m.evidence.l1CosineTime}ms`);
+    lines.push(`│   ├─ l1_chunk_db: ${m.evidence.l1ChunkFetchTime}ms`);
+    lines.push(`│   ├─ l1_vector_db: ${m.evidence.l1VectorFetchTime}ms`);
+    lines.push(`│   ├─ l1_cache: warm=${!!m.evidence.l1CacheWarm}, chunk=${m.evidence.l1ChunkCacheHits || 0}/${m.evidence.l1ChunkCacheMisses || 0}, vector=${m.evidence.l1VectorCacheHits || 0}/${m.evidence.l1VectorCacheMisses || 0}`);
+    lines.push(`│   ├─ l1_cache_fallback_db: ${m.evidence.l1CacheFallbackDbTime || 0}ms`);
+    lines.push(`│   ├─ l1_deserialize: ${m.evidence.l1DeserializeTime}ms`);
+    lines.push(`│   ├─ l1_score: ${m.evidence.l1ScoreTime}ms`);
+    lines.push(`│   └─ l1_sort: ${m.evidence.l1SortTime}ms`);
     lines.push(`├─ diffusion: ${m.timing.diffusion}ms`);
+    lines.push(`│   ├─ graph_build: ${m.diffusion.buildTime || 0}ms`);
+    lines.push(`│   ├─ ppr: ${m.diffusion.pprTime || 0}ms`);
+    lines.push(`│   ├─ post_verify: ${m.diffusion.postVerifyTime || 0}ms`);
+    lines.push(`│   └─ vector_map: ${m.diffusion.vectorMapTime || 0}ms`);
     lines.push(`├─ evidence_assembly: ${m.timing.evidenceAssembly}ms`);
     lines.push(`├─ formatting: ${m.timing.formatting}ms`);
+    lines.push(`├─ external_total: ${m.timing.externalTotal || 0}ms (embed+rerank)`);
+    lines.push(`├─ local_known_total: ${m.timing.localKnownTotal || 0}ms`);
+    lines.push(`├─ unattributed: ${m.timing.unattributed || 0}ms`);
     lines.push(`└─ total: ${m.timing.total}ms`);
     lines.push('');
 
@@ -685,12 +750,31 @@ export function detectIssues(metrics) {
         issues.push(`Slow recall (${m.timing.total}ms) - consider optimization`);
     }
 
+    if ((m.timing.localKnownTotal || 0) > 1000) {
+        issues.push(`Local recall work spike (${m.timing.localKnownTotal}ms) - inspect lexical/L1/diffusion breakdown`);
+    }
+
+    if ((m.timing.externalTotal || 0) > 5000) {
+        issues.push(`External recall requests slow (${m.timing.externalTotal}ms) - inspect embed/rerank timings`);
+    }
+
+    if ((m.timing.unattributed || 0) > 500) {
+        issues.push(`Unattributed recall time high (${m.timing.unattributed}ms) - add more timing probes around new work`);
+    }
+
     if (m.query.buildTime > 100) {
         issues.push(`Slow query build (${m.query.buildTime}ms) - entity lexicon may be too large`);
     }
 
     if (m.evidence.l1CosineTime > 1000) {
-        issues.push(`Slow L1 cosine scoring (${m.evidence.l1CosineTime}ms) - too many chunks pulled`);
+        const dominantStage = [
+            ['chunk DB', m.evidence.l1ChunkFetchTime || 0],
+            ['vector DB', m.evidence.l1VectorFetchTime || 0],
+            ['deserialize', m.evidence.l1DeserializeTime || 0],
+            ['score', m.evidence.l1ScoreTime || 0],
+            ['sort', m.evidence.l1SortTime || 0],
+        ].sort((a, b) => b[1] - a[1])[0];
+        issues.push(`Slow L1 scoring (${m.evidence.l1CosineTime}ms) - dominant stage: ${dominantStage[0]} ${dominantStage[1]}ms`);
     }
 
     // ─────────────────────────────────────────────────────────────────

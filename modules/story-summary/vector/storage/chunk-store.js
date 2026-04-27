@@ -9,6 +9,18 @@ import {
     eventVectorsTable,
     CHUNK_MAX_TOKENS,
 } from '../../data/db.js';
+import {
+    clearVectorCache,
+    deleteCachedChunksAtFloor,
+    deleteCachedChunksFromFloor,
+    deleteCachedEventVectorsByIds,
+    getCachedEventVectors,
+    markCachedEventVectorsLoaded,
+    setCachedMeta,
+    upsertCachedChunkVectors,
+    upsertCachedChunks,
+    upsertCachedEventVectors,
+} from './vector-cache.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 工具函数
@@ -49,6 +61,7 @@ export async function getMeta(chatId) {
         };
         await metaTable.put(meta);
     }
+    setCachedMeta(chatId, meta);
     return meta;
 }
 
@@ -57,6 +70,7 @@ export async function updateMeta(chatId, updates) {
         ...updates,
         updatedAt: Date.now(),
     });
+    setCachedMeta(chatId, updates);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -76,6 +90,7 @@ export async function saveChunks(chatId, chunks) {
         createdAt: Date.now(),
     }));
     await chunksTable.bulkPut(records);
+    upsertCachedChunks(chatId, records);
 }
 
 export async function getAllChunks(chatId) {
@@ -111,6 +126,7 @@ export async function deleteChunksFromFloor(chatId, fromFloor) {
     for (const chunkId of chunkIds) {
         await chunkVectorsTable.delete([chatId, chunkId]);
     }
+    deleteCachedChunksFromFloor(chatId, fromFloor);
 }
 
 /**
@@ -129,11 +145,13 @@ export async function deleteChunksAtFloor(chatId, floor) {
     for (const chunkId of chunkIds) {
         await chunkVectorsTable.delete([chatId, chunkId]);
     }
+    deleteCachedChunksAtFloor(chatId, floor);
 }
 
 export async function clearAllChunks(chatId) {
     await chunksTable.where('chatId').equals(chatId).delete();
     await chunkVectorsTable.where('chatId').equals(chatId).delete();
+    clearVectorCache(chatId, 'chunks');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -149,6 +167,7 @@ export async function saveChunkVectors(chatId, items, fingerprint) {
         fingerprint,
     }));
     await chunkVectorsTable.bulkPut(records);
+    upsertCachedChunkVectors(chatId, records);
 }
 
 export async function getAllChunkVectors(chatId) {
@@ -159,14 +178,22 @@ export async function getAllChunkVectors(chatId) {
     }));
 }
 
-export async function getChunkVectorsByIds(chatId, chunkIds) {
+export async function getChunkVectorsByIds(chatId, chunkIds, options = {}) {
     if (!chatId || !chunkIds?.length) return [];
-    
+    const { decode = true } = options;
+
     const records = await chunkVectorsTable
         .where('[chatId+chunkId]')
         .anyOf(chunkIds.map(id => [chatId, id]))
         .toArray();
-    
+
+    if (!decode) {
+        return records.map(r => ({
+            chunkId: r.chunkId,
+            vector: r.vector,
+        }));
+    }
+
     return records.map(r => ({
         chunkId: r.chunkId,
         vector: bufferToFloat32(r.vector),
@@ -186,10 +213,16 @@ export async function saveEventVectors(chatId, items, fingerprint) {
         fingerprint,
     }));
     await eventVectorsTable.bulkPut(records);
+    upsertCachedEventVectors(chatId, records);
 }
 
 export async function getAllEventVectors(chatId) {
+    const cached = getCachedEventVectors(chatId);
+    if (cached) return cached;
+
     const records = await eventVectorsTable.where('chatId').equals(chatId).toArray();
+    upsertCachedEventVectors(chatId, records);
+    markCachedEventVectorsLoaded(chatId);
     return records.map(r => ({
         ...r,
         vector: bufferToFloat32(r.vector),
@@ -198,6 +231,7 @@ export async function getAllEventVectors(chatId) {
 
 export async function clearEventVectors(chatId) {
     await eventVectorsTable.where('chatId').equals(chatId).delete();
+    clearVectorCache(chatId, 'events');
 }
 
 /**
@@ -207,6 +241,7 @@ export async function deleteEventVectorsByIds(chatId, eventIds) {
     for (const eventId of eventIds) {
         await eventVectorsTable.delete([chatId, eventId]);
     }
+    deleteCachedEventVectorsByIds(chatId, eventIds);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -237,6 +272,7 @@ export async function clearChatData(chatId) {
         chunkVectorsTable.where('chatId').equals(chatId).delete(),
         eventVectorsTable.where('chatId').equals(chatId).delete(),
     ]);
+    clearVectorCache(chatId);
 }
 
 export async function ensureFingerprintMatch(chatId, newFingerprint) {
@@ -250,6 +286,7 @@ export async function ensureFingerprintMatch(chatId, newFingerprint) {
             fingerprint: newFingerprint,
             lastChunkFloor: -1,
         });
+        clearVectorCache(chatId);
         return false;
     }
     if (!meta.fingerprint) {

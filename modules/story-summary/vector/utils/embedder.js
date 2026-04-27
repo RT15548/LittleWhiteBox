@@ -1,34 +1,30 @@
+// ═══════════════════════════════════════════════════════════════════════════
 // Story Summary - Embedder
-// All embedding requests go through siliconflow.js.
+// ═══════════════════════════════════════════════════════════════════════════
 
-import { embed as sfEmbed, getApiKey } from '../llm/siliconflow.js';
+import { embed as sfEmbed } from '../llm/siliconflow.js';
+// ═══════════════════════════════════════════════════════════════════════════
+// 统一 embed 接口
+// ═══════════════════════════════════════════════════════════════════════════
 
-export const DEFAULT_VECTOR_MODEL = 'BAAI/bge-m3';
-export const QWEN_VECTOR_MODEL = 'Qwen/Qwen3-Embedding-8B';
-export const QWEN_VECTOR_DIMENSIONS = 4096;
-
-const MODEL_METADATA = {
-    [DEFAULT_VECTOR_MODEL]: {
-        fingerprint: 'siliconflow:bge-m3:1024',
-        dimensions: null,
-    },
-    [QWEN_VECTOR_MODEL]: {
-        fingerprint: 'siliconflow:qwen3-embedding-8b:4096',
-        dimensions: QWEN_VECTOR_DIMENSIONS,
-    },
-};
-
-function normalizeModel(model) {
-    return MODEL_METADATA[model] ? model : DEFAULT_VECTOR_MODEL;
+function looksLikeVectorConfig(value) {
+    if (!value || typeof value !== 'object') return false;
+    return 'embeddingApi' in value
+        || 'l0Api' in value
+        || 'rerankApi' in value
+        || 'enabled' in value
+        || 'engine' in value;
 }
 
-function normalizeConfig(config) {
-    const vectorCfg = config?.online ? config : { online: config || {} };
-    const model = normalizeModel(vectorCfg?.online?.model);
-    return {
-        model,
-        dimensions: MODEL_METADATA[model]?.dimensions ?? null,
-    };
+export async function embed(texts, configOrOptions, maybeOptions = {}) {
+    const hasVectorConfig = looksLikeVectorConfig(configOrOptions);
+    const vectorConfig = hasVectorConfig ? configOrOptions : null;
+    const options = hasVectorConfig ? maybeOptions : (configOrOptions || {});
+
+    return await sfEmbed(texts, {
+        ...options,
+        ...(vectorConfig?.embeddingApi ? { apiConfig: vectorConfig.embeddingApi } : {}),
+    });
 }
 
 export async function embed(texts, config, options = {}) {
@@ -37,12 +33,10 @@ export async function embed(texts, config, options = {}) {
 }
 
 export function getEngineFingerprint(config) {
-    const { model } = normalizeConfig(config);
-    return MODEL_METADATA[model].fingerprint;
-}
-
-export function getModelLabel(config) {
-    return normalizeConfig(config).model;
+    const api = config?.embeddingApi || {};
+    const provider = String(api.provider || 'siliconflow').toLowerCase();
+    const model = String(api.model || 'BAAI/bge-m3').trim() || 'BAAI/bge-m3';
+    return `${provider}:${model}:1024`;
 }
 
 export function getModelDimensions(config) {
@@ -66,28 +60,27 @@ export function cancelDownload() { }
 
 export async function deleteLocalModelCache() { }
 
-export async function testOnlineService(config) {
-    const key = getApiKey();
-    if (!key) {
-        throw new Error('请配置硅基 API Key');
+// ═══════════════════════════════════════════════════════════════════════════
+// 在线服务测试
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function testOnlineService(_provider, config = {}) {
+    if (!config?.key) {
+        throw new Error('请配置 Embedding API Key');
     }
 
     const { model, dimensions } = normalizeConfig(config);
 
     try {
-        const [vec] = await sfEmbed(['测试连接'], { model, dimensions });
-        return {
-            success: true,
-            model,
-            dims: vec?.length || getModelDimensions(config),
-        };
+        const [vec] = await sfEmbed(['测试连接'], { apiConfig: config });
+        return { success: true, dims: vec?.length || 0 };
     } catch (e) {
         throw new Error(`连接失败: ${e.message}`);
     }
 }
 
 export async function fetchOnlineModels() {
-    return [DEFAULT_VECTOR_MODEL, QWEN_VECTOR_MODEL];
+    return ['BAAI/bge-m3'];
 }
 
 export const DEFAULT_LOCAL_MODEL = 'bge-m3';
@@ -98,6 +91,6 @@ export const ONLINE_PROVIDERS = {
     siliconflow: {
         id: 'siliconflow',
         name: '硅基流动',
-        baseUrl: 'https://api.siliconflow.cn',
+        baseUrl: 'https://api.siliconflow.cn/v1',
     },
 };

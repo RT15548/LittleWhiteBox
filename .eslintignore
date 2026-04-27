@@ -1,3 +1,4 @@
 libs/**
 **/libs/**
 **/*.min.js
+modules/assistant/dist/**

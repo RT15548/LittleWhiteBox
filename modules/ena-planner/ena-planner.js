@@ -7,14 +7,16 @@ import { extensionFolderPath } from '../../core/constants.js';
 import { EnaPlannerStorage } from '../../core/server-storage.js';
 import { postToIframe, isTrustedIframeEvent } from '../../core/iframe-messaging.js';
 import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.js';
+import { getDefaultApiPrefix, joinApiUrl, resolveApiBaseUrl } from '../../shared/common/openai-url-utils.js';
 import { formatOutlinePrompt } from '../story-outline/story-outline.js';
+import { shouldSendOnEnter } from '../../../../../../scripts/RossAscends-mods.js';
 import jsyaml from '../../libs/js-yaml.mjs';
 
 const EXT_NAME = 'ena-planner';
 const OVERLAY_ID = 'xiaobaix-ena-planner-overlay';
 const HTML_PATH = `${extensionFolderPath}/modules/ena-planner/ena-planner.html`;
 const VECTOR_RECALL_TIMEOUT_MS = 15000;
-const PLANNER_REQUEST_TIMEOUT_MS = 90000;
+const PLANNER_REQUEST_TIMEOUT_MS = 180000;
 
 /**
  * -------------------------
@@ -25,6 +27,7 @@ function getDefaultSettings() {
     return {
         enabled: true,
         skipIfPlotPresent: true,
+        mergeConsecutiveSystemMessages: false,
 
         // Chat history: tags to strip from AI responses (besides <think>)
         chatExcludeTags: ['行动选项', 'UpdateVariable', 'StatusPlaceHolderImpl'],
@@ -211,8 +214,7 @@ function normalizeUrlBase(u) {
 }
 
 function getDefaultPrefixByChannel(channel) {
-    if (channel === 'gemini') return '/v1beta';
-    return '/v1';
+    return getDefaultApiPrefix(channel);
 }
 
 function buildApiPrefix() {
@@ -224,14 +226,8 @@ function buildApiPrefix() {
 function buildUrl(path) {
     const s = ensureSettings();
     const base = normalizeUrlBase(s.api.baseUrl);
-    const prefix = buildApiPrefix();
-    const p = prefix.startsWith('/') ? prefix : `/${prefix}`;
-    const finalPrefix = p.replace(/\/+$/g, '');
-    const finalPath = path.startsWith('/') ? path : `/${path}`;
-    const escapedPrefix = finalPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const hasSameSuffix = !!finalPrefix && new RegExp(`${escapedPrefix}$`, 'i').test(base);
-    const normalizedBase = hasSameSuffix ? base.slice(0, -finalPrefix.length) : base;
-    return `${normalizedBase}${finalPrefix}${finalPath}`;
+    const resolvedBase = resolveApiBaseUrl(base, buildApiPrefix());
+    return joinApiUrl(resolvedBase, path);
 }
 
 function setSendUIBusy(busy) {
@@ -1097,6 +1093,23 @@ function getPromptBlocksByRole(role) {
     return (s.promptBlocks || []).filter(b => b?.role === role && String(b?.content ?? '').trim());
 }
 
+function mergeConsecutiveSystemMessages(messages) {
+    const merged = [];
+    for (const message of messages) {
+        const role = String(message?.role || '').trim();
+        const content = typeof message?.content === 'string' ? message.content : '';
+        if (!role) continue;
+
+        if (role === 'system' && merged.length > 0 && merged[merged.length - 1]?.role === 'system') {
+            merged[merged.length - 1].content = `${merged[merged.length - 1].content}\n\n${content}`;
+            continue;
+        }
+
+        merged.push({ ...message, role, content });
+    }
+    return merged;
+}
+
 async function buildPlannerMessages(rawUserInput) {
     const s = ensureSettings();
     const ctx = getContextSafe();
@@ -1212,7 +1225,9 @@ async function buildPlannerMessages(rawUserInput) {
         messages.push({ role: 'assistant', content });
     }
 
-    return { messages, meta: { charBlockRaw, worldbookRaw, recentChatRaw, vectorRaw, cachedSummaryLen: cachedSummary.length, plotsRaw } };
+    const finalMessages = s.mergeConsecutiveSystemMessages ? mergeConsecutiveSystemMessages(messages) : messages;
+
+    return { messages: finalMessages, meta: { charBlockRaw, worldbookRaw, recentChatRaw, vectorRaw, cachedSummaryLen: cachedSummary.length, plotsRaw } };
 }
 
 /**
@@ -1321,7 +1336,7 @@ function installSendInterceptors() {
     sendKeydownHandler = (e) => {
         const ta = getSendTextarea();
         if (!ta || e.target !== ta) return;
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter' && !e.shiftKey && shouldSendOnEnter()) {
             if (!shouldInterceptNow()) return;
             e.preventDefault();
             e.stopImmediatePropagation();

@@ -60,9 +60,12 @@ class LoggerCore {
         this._mountGlobalHooks();
     }
 
-    disable() {
+    disable(options = {}) {
+        const shouldClear = options?.clear === true;
         this._enabled = false;
-        this.clear();
+        if (shouldClear) {
+            this.clear();
+        }
         this._unmountGlobalHooks();
     }
 
@@ -233,7 +236,7 @@ const logger = new LoggerCore();
 
 export const xbLog = {
     enable: () => logger.enable(),
-    disable: () => logger.disable(),
+    disable: (options) => logger.disable(options),
     isEnabled: () => logger.isEnabled(),
     setMaxSize: (n) => logger.setMaxSize(n),
     info: (moduleId, message) => logger.info(moduleId, message),
@@ -306,13 +309,19 @@ export const CacheRegistry = (() => {
 })();
 
 export function enableDebugMode() {
-    xbLog.enable();
     try { EventCenter.enableDebug?.(); } catch {}
 }
 
 export function disableDebugMode() {
-    xbLog.disable();
     try { EventCenter.disableDebug?.(); } catch {}
+}
+
+export function enablePersistentDebugLogging() {
+    xbLog.enable();
+}
+
+export function disablePersistentDebugLogging(options = {}) {
+    xbLog.disable(options);
 }
 
 if (typeof window !== "undefined") {

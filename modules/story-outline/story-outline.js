@@ -38,6 +38,7 @@ import {
     buildOverlayHtml, MOBILE_LAYOUT_STYLE, DESKTOP_LAYOUT_STYLE, getPromptConfigPayload, setPromptConfig
 } from "./story-outline-prompt.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
+import { getDefaultApiPrefix, getModelListCandidateUrls, resolveApiBaseUrl } from "../../shared/common/openai-url-utils.js";
 
 const events = createModuleEvents('storyOutline');
 const IFRAME_PATH = `${extensionFolderPath}/modules/story-outline/story-outline.html`;
@@ -293,6 +294,9 @@ function createStreamingWaiter(sessionId, timeoutMs = 180000) {
 async function callLLM(promptOrMsgs, useRaw = false) {
     const { apiUrl, apiKey, model } = getGlobalSettings();
     const useStream = !!getCommSettings()?.stream;
+    const resolvedApiUrl = apiUrl?.trim()
+        ? resolveApiBaseUrl(apiUrl.trim(), getDefaultApiPrefix('openai'))
+        : '';
 
     const normalize = r => {
         if (r == null) return '';
@@ -310,7 +314,7 @@ async function callLLM(promptOrMsgs, useRaw = false) {
 
     const baseOpts = { lock: 'on' };
     if (!useStream) baseOpts.nonstream = 'true';
-    if (apiUrl?.trim()) Object.assign(baseOpts, { api: 'openai', apiurl: apiUrl.trim(), ...(apiKey && { apipassword: apiKey }), ...(model && { model }) });
+    if (resolvedApiUrl) Object.assign(baseOpts, { api: 'openai', apiurl: resolvedApiUrl, ...(apiKey && { apipassword: apiKey }), ...(model && { model }) });
 
     if (!useStream) {
         const opts = { ...baseOpts };
@@ -738,10 +742,22 @@ async function handleFetchModels({ apiUrl, apiKey }) {
             if (!models.length) throw new Error('无法从酒馆获取模型列表');
         } else {
             const h = { 'Content-Type': 'application/json', ...(apiKey && { Authorization: `Bearer ${apiKey}` }) };
-            const r = await fetch(apiUrl.replace(/\/$/, '') + '/models', { headers: h });
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const j = await r.json();
-            models = (j.data || j || []).map(m => m.id || m.name || m).filter(m => typeof m === 'string');
+            let lastStatus = '';
+            for (const url of getModelListCandidateUrls(apiUrl, getDefaultApiPrefix('openai'))) {
+                try {
+                    const r = await fetch(url, { headers: h });
+                    if (!r.ok) {
+                        lastStatus = `HTTP ${r.status}`;
+                        continue;
+                    }
+                    const j = await r.json();
+                    models = (j.data || j || []).map(m => m.id || m.name || m).filter(m => typeof m === 'string');
+                } catch {
+                    continue;
+                }
+                if (models.length) break;
+            }
+            if (!models.length) throw new Error(lastStatus || '未获取到模型列表');
         }
         postFrame({ type: "FETCH_MODELS_RESULT", models });
     } catch (e) { postFrame({ type: "FETCH_MODELS_RESULT", error: e.message }); }
@@ -751,7 +767,19 @@ async function handleTestConn({ apiUrl, apiKey, model }) {
     try {
         if (!apiUrl) { for (const ep of ['/api/backends/chat-completions/status', '/api/openai/models', '/api/backends/chat-completions/models']) { try { if ((await fetch(ep, { headers: { 'Content-Type': 'application/json' } })).ok) { postFrame({ type: "TEST_CONN_RESULT", success: true, message: `连接成功${model ? ` (模型: ${model})` : ''}` }); return; } } catch { } } throw new Error('无法连接到酒馆API'); }
         const h = { 'Content-Type': 'application/json', ...(apiKey && { Authorization: `Bearer ${apiKey}` }) };
-        if (!(await fetch(apiUrl.replace(/\/$/, '') + '/models', { headers: h })).ok) throw new Error('连接失败');
+        let connected = false;
+        for (const url of getModelListCandidateUrls(apiUrl, getDefaultApiPrefix('openai'))) {
+            try {
+                const r = await fetch(url, { headers: h });
+                if (!r.ok) continue;
+                await r.json();
+                connected = true;
+                break;
+            } catch {
+                continue;
+            }
+        }
+        if (!connected) throw new Error('连接失败');
         postFrame({ type: "TEST_CONN_RESULT", success: true, message: `连接成功${model ? ` (模型: ${model})` : ''}` });
     } catch (e) { postFrame({ type: "TEST_CONN_RESULT", success: false, message: `连接失败: ${e.message}` }); }
 }

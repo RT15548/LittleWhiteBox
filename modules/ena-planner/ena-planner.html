@@ -74,8 +74,15 @@
                 <option value="false">否</option>
               </select>
             </div>
+            <div class="form-group">
+              <label class="form-label">合并连续 system</label>
+              <select id="ep_merge_system_msgs" class="input">
+                <option value="false">关闭</option>
+                <option value="true">开启</option>
+              </select>
+            </div>
           </div>
-          <p class="form-hint">输入中已有 &lt;plot&gt; 标签时跳过自动规划。</p>
+          <p class="form-hint">输入中已有 &lt;plot&gt; 标签时跳过自动规划。开启“合并连续 system”后，会把相邻的 system 消息折叠为一条，不跨过 user / assistant。</p>
         </section>
 
         <section class="card">
@@ -107,7 +114,7 @@
             <div class="form-group">
               <label class="form-label">路径前缀</label>
               <select id="ep_prefix_mode" class="input">
-                <option value="auto">自动 (如 /v1)</option>
+                <option value="auto">自动（仅裸地址时补默认前缀）</option>
                 <option value="custom">自定义</option>
               </select>
             </div>
@@ -115,6 +122,7 @@
           <div class="form-group">
             <label class="form-label">API 地址</label>
             <input id="ep_api_base" type="text" class="input" placeholder="https://api.openai.com">
+            <div style="margin-top:6px;font-size:12px;color:var(--muted, #9aa4b2);line-height:1.5;">可直接填写完整前缀，如 <code>/v1</code>、<code>/v3</code>、<code>/v1beta</code>；若只填裸地址，自动模式会按渠道补默认前缀。</div>
           </div>
           <div class="form-group hidden" id="ep_custom_prefix_group">
             <label class="form-label">自定义前缀</label>
@@ -681,6 +689,7 @@
 
       $('ep_enabled').value = String(toBool(cfg.enabled, true));
       $('ep_skip_plot').value = String(toBool(cfg.skipIfPlotPresent, true));
+      $('ep_merge_system_msgs').value = String(toBool(cfg.mergeConsecutiveSystemMessages, false));
 
       const api = cfg.api || {};
       $('ep_api_channel').value = api.channel || 'openai';
@@ -720,6 +729,7 @@
 
       p.enabled = toBool($('ep_enabled').value, true);
       p.skipIfPlotPresent = toBool($('ep_skip_plot').value, true);
+      p.mergeConsecutiveSystemMessages = toBool($('ep_merge_system_msgs').value, false);
 
       p.api = {
         channel: $('ep_api_channel').value,

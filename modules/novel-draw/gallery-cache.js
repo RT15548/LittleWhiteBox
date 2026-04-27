@@ -178,7 +178,7 @@ export async function clearSlotSelection(slotId) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function storePreview(opts) {
-    const { imgId, slotId, messageId, base64 = null, tags, positive, savedUrl = null, status = 'success', errorType = null, errorMessage = null, characterPrompts = null, negativePrompt = null } = opts;
+    const { imgId, slotId, messageId, base64 = null, tags, positive, savedUrl = null, status = 'success', errorType = null, errorMessage = null, characterPrompts = null, negativePrompt = null, anchor = '' } = opts;
     const database = await openDB();
     const ctx = getContext();
     
@@ -200,6 +200,7 @@ export async function storePreview(opts) {
                 errorMessage,
                 characterPrompts,
                 negativePrompt,
+                anchor,
                 timestamp: Date.now()
             });
             tx.oncomplete = () => { invalidateCache(slotId); resolve(); };
@@ -223,6 +224,7 @@ export async function storeFailedPlaceholder(opts) {
         errorMessage: opts.errorMessage,
         characterPrompts: opts.characterPrompts || null,
         negativePrompt: opts.negativePrompt || null,
+        anchor: opts.anchor || '',
     });
 }
 
@@ -291,8 +293,8 @@ export async function getDisplayPreviewForSlot(slotId) {
     const previews = await getPreviewsBySlot(slotId);
     if (!previews.length) return { preview: null, historyCount: 0, hasData: false, isFailed: false };
     
-    const successPreviews = previews.filter(p => p.status !== 'failed' && p.base64);
-    const failedPreviews = previews.filter(p => p.status === 'failed' || !p.base64);
+    const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
+    const failedPreviews = previews.filter(p => p.status === 'failed' || (!p.base64 && !p.savedUrl));
     
     if (successPreviews.length === 0) {
         const latestFailed = failedPreviews[0];
@@ -345,7 +347,7 @@ export async function deletePreview(imgId) {
 
 export async function deleteFailedRecordsForSlot(slotId) {
     const previews = await getPreviewsBySlot(slotId);
-    const failedRecords = previews.filter(p => p.status === 'failed' || !p.base64);
+    const failedRecords = previews.filter(p => p.status === 'failed' || (!p.base64 && !p.savedUrl));
     for (const record of failedRecords) {
         await deletePreview(record.imgId);
     }
@@ -357,6 +359,7 @@ export async function updatePreviewSavedUrl(imgId, savedUrl) {
     if (!preview) return;
     
     preview.savedUrl = savedUrl;
+    preview.base64 = null;
     
     return new Promise((resolve, reject) => {
         try {
@@ -383,7 +386,7 @@ export async function getCacheStats() {
                 const cursor = e.target.result;
                 if (cursor) { 
                     totalSize += (cursor.value.base64?.length || 0) * 0.75;
-                    if (cursor.value.status === 'failed' || !cursor.value.base64) {
+                    if (cursor.value.status === 'failed' || (!cursor.value.base64 && !cursor.value.savedUrl)) {
                         failedCount++;
                     } else {
                         successCount++;
@@ -407,7 +410,7 @@ export async function getCacheStats() {
 export async function clearExpiredCache(cacheDays = 3) {
     const cutoff = Date.now() - cacheDays * 24 * 60 * 60 * 1000;
     const database = await openDB();
-    let deleted = 0;
+    let cleaned = 0;
     
     return new Promise((resolve) => {
         try {
@@ -418,15 +421,26 @@ export async function clearExpiredCache(cacheDays = 3) {
                 if (cursor) { 
                     const record = cursor.value;
                     const isExpiredUnsaved = record.timestamp < cutoff && !record.savedUrl;
-                    const isFailed = record.status === 'failed' || !record.base64;
+                    const isFailed = record.status === 'failed' || (!record.base64 && !record.savedUrl);
+                    const shouldTrimSavedBase64 = !!record.savedUrl && !!record.base64;
+
                     if (isExpiredUnsaved || (isFailed && record.timestamp < cutoff)) { 
                         cursor.delete(); 
-                        deleted++; 
-                    } 
+                        cleaned++; 
+                        cursor.continue(); 
+                        return;
+                    }
+
+                    if (shouldTrimSavedBase64) {
+                        record.base64 = null;
+                        cursor.update(record);
+                        cleaned++;
+                    }
+
                     cursor.continue(); 
                 }
             };
-            tx.oncomplete = () => { invalidateCache(); resolve(deleted); };
+            tx.oncomplete = () => { invalidateCache(); resolve(cleaned); };
         } catch {
             resolve(0);
         }
@@ -466,7 +480,7 @@ export async function getGallerySummary() {
                 const summary = {};
                 
                 for (const item of results) {
-                    if (item.status === 'failed' || !item.base64) continue;
+                    if (item.status === 'failed' || (!item.base64 && !item.savedUrl)) continue;
                     
                     const charName = item.characterName || 'Unknown';
                     if (!summary[charName]) {
@@ -515,7 +529,7 @@ export async function getCharacterPreviews(charName) {
                 
                 for (const item of results) {
                     if ((item.characterName || 'Unknown') !== charName) continue;
-                    if (item.status === 'failed' || !item.base64) continue;
+                    if (item.status === 'failed' || (!item.base64 && !item.savedUrl)) continue;
                     
                     const slotId = item.slotId || item.imgId;
                     if (!slots[slotId]) slots[slotId] = [];
@@ -572,7 +586,7 @@ export async function openGallery(slotId, messageId, callbacks = {}) {
     createGalleryOverlay();
     
     const previews = await getPreviewsBySlot(slotId);
-    const validPreviews = previews.filter(p => p.status !== 'failed' && p.base64);
+    const validPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
     
     if (!validPreviews.length) {
         showToast('没有找到图片历史', 'error');

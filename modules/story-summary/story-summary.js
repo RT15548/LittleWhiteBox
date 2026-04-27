@@ -19,16 +19,25 @@ import { extensionFolderPath } from "../../core/constants.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { createModuleEvents } from "../../core/event-manager.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
-import { CommonSettingStorage } from "../../core/server-storage.js";
 
 // config/store
-import { getSettings, getSummaryPanelConfig, getVectorConfig, saveVectorConfig, saveSummaryPanelConfig } from "./data/config.js";
+import {
+    getSettings,
+    getSummaryPanelConfig,
+    getVectorConfig,
+    saveVectorConfig,
+    saveSummaryPanelConfig,
+    saveSummaryPanelConfigVerified,
+    loadConfigFromServer,
+} from "./data/config.js";
 import {
     getSummaryStore,
     saveSummaryStore,
     calcHideRange,
     rollbackSummaryIfNeeded,
+    rollbackSummaryOnce,
     clearSummaryData,
+    getRollbackOnceTargetEndMesId,
     extractRelationshipsFromFacts,
 } from "./data/store.js";
 
@@ -43,6 +52,8 @@ import { runSummaryGeneration } from "./generate/generator.js";
 
 // vector service
 import { embed, getEngineFingerprint, testOnlineService } from "./vector/utils/embedder.js";
+import { testL0Service } from "./vector/llm/llm-service.js";
+import { testRerankService } from "./vector/llm/reranker.js";
 
 // tokenizer
 import { preload as preloadTokenizer, injectEntities, isReady as isTokenizerReady } from "./vector/utils/tokenizer.js";
@@ -90,6 +101,7 @@ import {
 
 // vector io
 import { exportVectors, importVectors, backupToServer, restoreFromServer, fetchManifest, deleteServerBackup, isDeleteUnsupportedError, getBackupFilename } from "./vector/storage/vector-io.js";
+import { clearAllVectorCaches, clearVectorCache, getAllVectorCacheStats, retainVectorCacheOnly, warmVectorCache } from "./vector/storage/vector-cache.js";
 
 import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocumentsByFloor, addEventDocuments } from "./vector/retrieval/lexical-index.js";
 
@@ -98,7 +110,6 @@ import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocume
 // ═══════════════════════════════════════════════════════════════════════════
 
 const MODULE_ID = "storySummary";
-const SUMMARY_CONFIG_KEY = "storySummaryPanelConfig";
 const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.html`;
 const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
@@ -161,23 +172,69 @@ function captureUserInput() {
 }
 
 function onSendPointerdown(e) {
+    markUserInteraction();
     if (e.target?.closest?.("#send_but")) {
         captureUserInput();
     }
 }
 
 function onSendKeydown(e) {
+    markUserInteraction();
     if (e.key === "Enter" && !e.shiftKey && e.target?.closest?.("#send_textarea")) {
         captureUserInput();
     }
 }
 
+function onDocumentFocusIn() {
+    markUserInteraction();
+}
+
 let hideApplyTimer = null;
 const HIDE_APPLY_DEBOUNCE_MS = 250;
 let lexicalWarmupTimer = null;
-const LEXICAL_WARMUP_DEBOUNCE_MS = 500;
+let autoL0BackfillTimer = null;
+let vectorIntegrityTimer = null;
+const autoSummaryTimers = new Map();
+const LEXICAL_WARMUP_DEBOUNCE_MS = 8000;
+const CHAT_CHANGE_LEXICAL_WARMUP_MS = 12000;
+const AFTER_SEND_LEXICAL_WARMUP_MS = 30000;
+const AUTO_SUMMARY_DELAY_MS = 8000;
+const AUTO_L0_BACKFILL_DELAY_MS = 15000;
+const BACKGROUND_VISIBLE_GRACE_MS = 6000;
+const BACKGROUND_INTERACTION_GRACE_MS = 4000;
+const BACKGROUND_VIEWPORT_GRACE_MS = 4000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let lastForegroundAt = Date.now();
+let lastUserInteractionAt = 0;
+let lastViewportChangeAt = 0;
+
+function markUserInteraction() {
+    lastUserInteractionAt = Date.now();
+}
+
+function markViewportChange() {
+    lastViewportChangeAt = Date.now();
+}
+
+function getBackgroundQuietWaitMs() {
+    if (document.hidden) return BACKGROUND_VISIBLE_GRACE_MS;
+    const now = Date.now();
+    const visibleWait = Math.max(0, BACKGROUND_VISIBLE_GRACE_MS - (now - lastForegroundAt));
+    const interactionWait = Math.max(0, BACKGROUND_INTERACTION_GRACE_MS - (now - lastUserInteractionAt));
+    const viewportWait = Math.max(0, BACKGROUND_VIEWPORT_GRACE_MS - (now - lastViewportChangeAt));
+    return Math.max(visibleWait, interactionWait, viewportWait);
+}
+
+function handleVisibilityChangeForBackground() {
+    if (!document.hidden) {
+        lastForegroundAt = Date.now();
+    }
+}
+
+function handleViewportChangeForBackground() {
+    markViewportChange();
+}
 
 // 向量提醒节流
 let lastVectorWarningAt = 0;
@@ -356,8 +413,8 @@ async function handleAnchorGenerate() {
             return;
         }
 
-        if (!vectorCfg.online?.key) {
-            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 API Key" });
+        if (!vectorCfg.l0Api?.key) {
+            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 L0 API Key" });
             return;
         }
 
@@ -366,9 +423,16 @@ async function handleAnchorGenerate() {
 
         postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: 0, total: 1, message: "分析中..." });
 
-        await incrementalExtractAtoms(chatId, chat, (message, current, total) => {
+        const l0Result = await incrementalExtractAtoms(chatId, chat, (message, current, total) => {
             postToFrame({ type: "ANCHOR_GEN_PROGRESS", current, total, message });
         });
+
+        if (l0Result?.cancelled) {
+            await sendAnchorStatsToFrame();
+            await sendVectorStatsToFrame();
+            xbLog.info(MODULE_ID, "记忆锚点生成已取消");
+            return;
+        }
 
         // Self-heal: if chunks are empty but boundary looks "already built",
         // reset boundary so incremental L1 rebuild can start from floor 0.
@@ -421,17 +485,23 @@ function handleAnchorCancel() {
     postToFrame({ type: "ANCHOR_GEN_PROGRESS", current: -1, total: 0 });
 }
 
-async function handleTestOnlineService(config) {
+async function handleTestOnlineService(provider, config, target = "embedding") {
     try {
-        postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "downloading", message: "连接中..." });
-        const result = await testOnlineService(config);
+        postToFrame({ type: "VECTOR_ONLINE_STATUS", target, status: "downloading", message: "连接中..." });
+        let result;
+        if (target === "l0") result = await testL0Service(config);
+        else if (target === "rerank") result = await testRerankService(config);
+        else result = await testOnlineService(provider, config);
         postToFrame({
             type: "VECTOR_ONLINE_STATUS",
+            target,
             status: "success",
-            message: `连接成功 (${result.model}, ${result.dims}维)`,
+            message: target === "embedding"
+                ? `连接成功 (${result.dims}维)`
+                : (result.message || "连接成功"),
         });
     } catch (e) {
-        postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: e.message });
+        postToFrame({ type: "VECTOR_ONLINE_STATUS", target, status: "error", message: e.message });
     }
 }
 
@@ -448,8 +518,8 @@ async function handleGenerateVectors(vectorCfg) {
         const { chatId, chat } = getContext();
         if (!chatId || !chat?.length) return;
 
-        if (!vectorCfg.online?.key) {
-            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 API Key" });
+        if (!vectorCfg.embeddingApi?.key) {
+            postToFrame({ type: "VECTOR_ONLINE_STATUS", status: "error", message: "请配置 Embedding API Key" });
             return;
         }
 
@@ -676,7 +746,8 @@ async function maybeAutoExtractL0() {
     if (!release) return;
 
     try {
-        await incrementalExtractAtoms(chatId, chat, null, { maxFloors: 20 });
+        const l0Result = await incrementalExtractAtoms(chatId, chat, null, { maxFloors: 20 });
+        if (l0Result?.cancelled) return;
 
         // 为新提取的 L0 楼层构建 L1 chunks
         const chunkResult = await buildIncrementalChunks({ vectorConfig: vectorCfg });
@@ -706,6 +777,20 @@ function warmupEmbeddingConnection() {
     const vectorCfg = getVectorConfig();
     if (!vectorCfg?.enabled) return;
     embed(['.'], vectorCfg, { timeout: 5000 }).catch(() => { });
+}
+
+function warmupActiveVectorCache() {
+    const vectorCfg = getVectorConfig();
+    const { chatId } = getContext();
+    retainVectorCacheOnly(chatId || null);
+    if (!vectorCfg?.enabled) {
+        if (chatId) clearAllVectorCaches();
+        return;
+    }
+    if (!chatId) return;
+    warmVectorCache(chatId).catch((error) => {
+        xbLog.warn(MODULE_ID, '向量热缓存预热失败', error);
+    });
 }
 
 async function autoVectorizeNewEvents(newEventIds) {
@@ -938,16 +1023,21 @@ function initButtonsForAll() {
     });
 }
 
+function initButtonForLatestMessage() {
+    if (!getSettings().storySummary?.enabled) return;
+    const { chat } = getContext();
+    const mesId = Array.isArray(chat) ? chat.length - 1 : null;
+    if (mesId != null && mesId >= 0) addSummaryBtnToMessage(mesId);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 面板数据发送
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function sendSavedConfigToFrame() {
     try {
-        const savedConfig = await CommonSettingStorage.get(SUMMARY_CONFIG_KEY, null);
-        if (savedConfig) {
-            postToFrame({ type: "LOAD_PANEL_CONFIG", config: savedConfig });
-        }
+        const savedConfig = await loadConfigFromServer();
+        postToFrame({ type: "LOAD_PANEL_CONFIG", config: savedConfig });
     } catch (e) {
         xbLog.warn(MODULE_ID, "加载面板配置失败", e);
     }
@@ -990,6 +1080,7 @@ async function sendFrameBaseData(store, totalFloors) {
     const hiddenCount = (ui.hideSummarized && range) ? (range.end + 1) : 0;
 
     const lastSummarized = store?.lastSummarizedMesId ?? -1;
+    const rollbackTargetEndMesId = getRollbackOnceTargetEndMesId(store);
     postToFrame({
         type: "SUMMARY_BASE_DATA",
         stats: {
@@ -1001,6 +1092,9 @@ async function sendFrameBaseData(store, totalFloors) {
         },
         hideSummarized: ui.hideSummarized,
         keepVisibleCount: ui.keepVisibleCount,
+        canRollback: rollbackTargetEndMesId != null,
+        rollbackTargetSummarizedUpTo: rollbackTargetEndMesId == null ? 0 : rollbackTargetEndMesId + 1,
+        rollbackWillClearAll: rollbackTargetEndMesId != null && rollbackTargetEndMesId < 0,
     });
 }
 
@@ -1028,6 +1122,270 @@ function buildFramePayload(store) {
         arcs: json.arcs || [],
         facts,
         lastSummarizedMesId: store?.lastSummarizedMesId ?? -1,
+    };
+}
+
+async function copyTextToClipboard(text) {
+    const value = String(text ?? "");
+    if (!value) {
+        throw new Error("没有可复制的内容");
+    }
+
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return;
+    }
+
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand?.("copy");
+    ta.remove();
+    if (!ok) {
+        throw new Error("浏览器不支持自动复制");
+    }
+}
+
+function stripFloorMarker(summary) {
+    return String(summary || "")
+        .replace(/\s*\(#\d+(?:-\d+)?\)\s*$/, "")
+        .trim();
+}
+
+function normalizeInternalFact(item) {
+    const fact = item && typeof item === "object" ? item : {};
+    const base = {
+        id: String(fact?.id || "").trim(),
+        s: String(fact?.s ?? "").trim(),
+        p: String(fact?.p ?? "").trim(),
+        o: String(fact?.o ?? "").trim(),
+    };
+
+    const stateValue = fact?._isState ?? fact?.isState;
+    if (stateValue != null) {
+        base._isState = !!stateValue;
+    }
+
+    const trendValue = String(fact?.trend ?? "").trim();
+    if (trendValue) {
+        base.trend = trendValue;
+    }
+
+    return base;
+}
+
+function normalizePortableFact(item) {
+    const fact = item && typeof item === "object" ? item : {};
+    const base = {
+        id: String(fact?.id || "").trim(),
+        s: String(fact?.人物名字 ?? "").trim(),
+        p: String(fact?.种类 ?? "").trim(),
+        o: String(fact?.描述 ?? "").trim(),
+    };
+
+    const stateValue = fact?._isState ?? fact?.isState ?? fact?.核心事实;
+    if (stateValue != null) {
+        base._isState = !!stateValue;
+    }
+
+    const trendValue = String(fact?.trend ?? fact?.趋势 ?? "").trim();
+    if (trendValue) {
+        base.trend = trendValue;
+    }
+
+    return base;
+}
+
+function serializePortableFact(fact) {
+    const out = {
+        人物名字: String(fact?.s || "").trim(),
+        种类: String(fact?.p || "").trim(),
+        描述: String(fact?.o || "").trim(),
+    };
+
+    if (fact?._isState != null) {
+        out.核心事实 = !!fact._isState;
+    }
+
+    if (fact?.trend) {
+        out.趋势 = String(fact.trend).trim();
+    }
+
+    return out;
+}
+
+function cloneSummaryJsonForPortability(json) {
+    const src = json && typeof json === "object" ? json : {};
+    const characters = src.characters && typeof src.characters === "object" ? src.characters : {};
+    return {
+        keywords: Array.isArray(src.keywords)
+            ? src.keywords.map((item) => ({
+                text: String(item?.text || "").trim(),
+                weight: String(item?.weight || "").trim(),
+            })).filter((item) => item.text)
+            : [],
+        events: Array.isArray(src.events)
+            ? src.events.map((item) => ({
+                id: String(item?.id || "").trim(),
+                title: String(item?.title || "").trim(),
+                timeLabel: String(item?.timeLabel || "").trim(),
+                summary: stripFloorMarker(item?.summary),
+                participants: Array.isArray(item?.participants)
+                    ? item.participants.map((name) => String(name || "").trim()).filter(Boolean)
+                    : [],
+                type: String(item?.type || "").trim(),
+                weight: String(item?.weight || "").trim(),
+                causedBy: Array.isArray(item?.causedBy)
+                    ? item.causedBy.map((id) => String(id || "").trim()).filter(Boolean)
+                    : [],
+            })).filter((item) => item.id || item.title || item.summary)
+            : [],
+        characters: {
+            main: Array.isArray(characters.main)
+                ? characters.main
+                    .map((item) => typeof item === "string"
+                        ? { name: String(item).trim() }
+                        : { name: String(item?.name || "").trim() })
+                    .filter((item) => item.name)
+                : (Array.isArray(characters)
+                    ? characters
+                        .map((item) => typeof item === "string"
+                            ? { name: String(item).trim() }
+                            : { name: String(item?.name || "").trim() })
+                        .filter((item) => item.name)
+                    : []),
+        },
+        arcs: Array.isArray(src.arcs)
+            ? src.arcs.map((item) => ({
+                name: String(item?.name || "").trim(),
+                trajectory: String(item?.trajectory || "").trim(),
+                progress: Number.isFinite(Number(item?.progress)) ? Number(item.progress) : 0,
+                moments: Array.isArray(item?.moments)
+                    ? item.moments
+                        .map((moment) => typeof moment === "string"
+                            ? { text: String(moment).trim() }
+                            : { text: String(moment?.text || "").trim() })
+                        .filter((moment) => moment.text)
+                    : [],
+            })).filter((item) => item.name)
+            : [],
+        facts: Array.isArray(src.facts)
+            ? src.facts.map(normalizeInternalFact).filter((item) => item.s && item.p && item.o)
+            : [],
+    };
+}
+
+function extractSummaryImportJson(raw) {
+    if (!raw || typeof raw !== "object") {
+        throw new Error("文件内容不是有效 JSON 对象");
+    }
+
+    const candidate =
+        (raw.type === "LittleWhiteBoxStorySummaryMemory" && raw.data && typeof raw.data === "object" ? raw.data : null) ||
+        (raw.storySummary?.json && typeof raw.storySummary.json === "object" ? raw.storySummary.json : null) ||
+        (raw.json && typeof raw.json === "object" ? raw.json : null) ||
+        raw;
+
+    const hasSummaryShape =
+        Array.isArray(candidate.keywords) ||
+        Array.isArray(candidate.events) ||
+        Array.isArray(candidate.arcs) ||
+        Array.isArray(candidate.facts) ||
+        (candidate.characters && typeof candidate.characters === "object");
+
+    if (!hasSummaryShape) {
+        throw new Error("未识别到可导入的总结数据");
+    }
+
+    const json = cloneSummaryJsonForPortability(candidate);
+    json.facts = Array.isArray(candidate.facts)
+        ? candidate.facts.map(normalizePortableFact).filter((item) => item.s && item.p && item.o)
+        : [];
+    return json;
+}
+
+function buildSummaryExportPackage(store) {
+    const json = cloneSummaryJsonForPortability(store?.json || {});
+    const data = {
+        ...json,
+        facts: json.facts.map(serializePortableFact),
+    };
+    return {
+        type: "LittleWhiteBoxStorySummaryMemory",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        data,
+        counts: {
+            keywords: json.keywords.length,
+            events: json.events.length,
+            characters: json.characters.main.length,
+            arcs: json.arcs.length,
+            facts: json.facts.length,
+        },
+    };
+}
+
+async function importSummaryMemoryPackage(rawText) {
+    if (!String(rawText || "").trim()) {
+        throw new Error("记忆包内容为空");
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(String(rawText));
+    } catch {
+        throw new Error("JSON 解析失败");
+    }
+
+    const importedJson = extractSummaryImportJson(parsed);
+    const { chatId, chat } = getContext();
+    if (!chatId) {
+        throw new Error("当前没有打开聊天");
+    }
+
+    await clearAllAtomsAndVectors(chatId);
+    await clearAllChunks(chatId);
+    await clearEventVectors(chatId);
+    await clearStateVectors(chatId);
+    await updateMeta(chatId, { lastChunkFloor: -1, fingerprint: null });
+
+    invalidateLexicalIndex();
+
+    const store = getSummaryStore();
+    if (!store) {
+        throw new Error("无法读取当前聊天的总结存储");
+    }
+
+    store.json = importedJson;
+    store.lastSummarizedMesId = -1;
+    store.summaryHistory = [];
+    store.updatedAt = Date.now();
+    saveSummaryStore();
+
+    _lastBuiltPromptText = "";
+
+    refreshEntityLexiconAndWarmup();
+    scheduleLexicalWarmup();
+
+    await clearHideState();
+    const totalFloors = Array.isArray(chat) ? chat.length : 0;
+    await sendFrameBaseData(store, totalFloors);
+    sendFrameFullData(store, totalFloors);
+    await sendAnchorStatsToFrame();
+    await sendVectorStatsToFrame();
+
+    return {
+        counts: {
+            keywords: importedJson.keywords.length,
+            events: importedJson.events.length,
+            characters: importedJson.characters.main.length,
+            arcs: importedJson.arcs.length,
+            facts: importedJson.facts.length,
+        },
     };
 }
 
@@ -1195,6 +1553,7 @@ async function getHideBoundaryFloor(store) {
 }
 
 async function applyHideState() {
+    if (!getSettings().storySummary?.enabled) return;
     const store = getSummaryStore();
     const ui = getHideUiSettings();
     if (!ui.hideSummarized) return;
@@ -1211,9 +1570,17 @@ async function applyHideState() {
     await executeSlashCommand(`/hide ${range.start}-${range.end}`);
 }
 
-function applyHideStateDebounced() {
+function cancelHideApplyTimer() {
     clearTimeout(hideApplyTimer);
+    hideApplyTimer = null;
+}
+
+function applyHideStateDebounced() {
+    cancelHideApplyTimer();
     hideApplyTimer = setTimeout(() => {
+        hideApplyTimer = null;
+        if (!getSettings().storySummary?.enabled) return;
+        if (!getHideUiSettings().hideSummarized) return;
         applyHideState().catch((e) => xbLog.warn(MODULE_ID, "applyHideState failed", e));
     }, HIDE_APPLY_DEBOUNCE_MS);
 }
@@ -1224,11 +1591,76 @@ function scheduleLexicalWarmup(delayMs = LEXICAL_WARMUP_DEBOUNCE_MS) {
     lexicalWarmupTimer = setTimeout(() => {
         lexicalWarmupTimer = null;
         if (isChatStale(scheduledChatId)) return;
+        const quietWait = getBackgroundQuietWaitMs();
+        if (quietWait > 0) {
+            scheduleLexicalWarmup(quietWait);
+            return;
+        }
         warmupIndex();
     }, delayMs);
 }
 
+function scheduleAutoSummary(reason, delayMs = AUTO_SUMMARY_DELAY_MS) {
+    const scheduledChatId = getContext().chatId || null;
+    const previous = autoSummaryTimers.get(reason);
+    if (previous) clearTimeout(previous);
+
+    const timer = setTimeout(() => {
+        autoSummaryTimers.delete(reason);
+        if (isChatStale(scheduledChatId)) return;
+        const quietWait = getBackgroundQuietWaitMs();
+        if (quietWait > 0) {
+            scheduleAutoSummary(reason, quietWait);
+            return;
+        }
+        maybeAutoRunSummary(reason);
+    }, delayMs);
+    autoSummaryTimers.set(reason, timer);
+}
+
+function scheduleAutoL0Backfill(delayMs = AUTO_L0_BACKFILL_DELAY_MS) {
+    clearTimeout(autoL0BackfillTimer);
+    const scheduledChatId = getContext().chatId || null;
+    autoL0BackfillTimer = setTimeout(() => {
+        autoL0BackfillTimer = null;
+        if (isChatStale(scheduledChatId)) return;
+        const quietWait = getBackgroundQuietWaitMs();
+        if (quietWait > 0) {
+            scheduleAutoL0Backfill(quietWait);
+            return;
+        }
+        maybeAutoExtractL0();
+    }, delayMs);
+}
+
+function scheduleVectorIntegrityCheck(delayMs = 2000) {
+    clearTimeout(vectorIntegrityTimer);
+    const scheduledChatId = getContext().chatId || null;
+    vectorIntegrityTimer = setTimeout(() => {
+        vectorIntegrityTimer = null;
+        if (isChatStale(scheduledChatId)) return;
+        const quietWait = getBackgroundQuietWaitMs();
+        if (quietWait > 0) {
+            scheduleVectorIntegrityCheck(quietWait);
+            return;
+        }
+        checkVectorIntegrityAndWarn();
+    }, delayMs);
+}
+
+function clearDeferredBackgroundTasks() {
+    clearTimeout(lexicalWarmupTimer);
+    lexicalWarmupTimer = null;
+    clearTimeout(autoL0BackfillTimer);
+    autoL0BackfillTimer = null;
+    clearTimeout(vectorIntegrityTimer);
+    vectorIntegrityTimer = null;
+    for (const timer of autoSummaryTimers.values()) clearTimeout(timer);
+    autoSummaryTimers.clear();
+}
+
 async function clearHideState() {
+    cancelHideApplyTimer();
     // 暴力全量 unhide，确保立刻恢复
     await unhideAllMessages();
 }
@@ -1281,8 +1713,10 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
                         addEventDocuments(allEvents.filter(e => idSet.has(e.id)));
                     }
 
-                    applyHideStateDebounced();
-                    updateFrameStatsAfterSummary(endMesId, store.json || {});
+                    if (getSettings().storySummary?.enabled && getHideUiSettings().hideSummarized) {
+                        applyHideStateDebounced();
+                    }
+                    await updateFrameStatsAfterSummary(store);
 
                     await autoVectorizeNewEvents(newEventIds);
                 },
@@ -1302,23 +1736,10 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
     }
 }
 
-function updateFrameStatsAfterSummary(endMesId, merged) {
+async function updateFrameStatsAfterSummary(store) {
     const { chat } = getContext();
     const totalFloors = Array.isArray(chat) ? chat.length : 0;
-    const ui = getHideUiSettings();
-    const range = calcHideRange(endMesId, ui.keepVisibleCount);
-    const hiddenCount = ui.hideSummarized && range ? range.end + 1 : 0;
-
-    postToFrame({
-        type: "SUMMARY_BASE_DATA",
-        stats: {
-            totalFloors,
-            summarizedUpTo: endMesId + 1,
-            eventsCount: merged.events?.length || 0,
-            pendingFloors: totalFloors - endMesId - 1,
-            hiddenCount,
-        },
-    });
+    await sendFrameBaseData(store, totalFloors);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1346,12 +1767,14 @@ async function handleFrameMessage(event) {
         case "SETTINGS_OPENED":
         case "FULLSCREEN_OPENED":
         case "EDITOR_OPENED":
+        case "CONFIRM_OPENED":
             $(".xb-ss-close-btn").hide();
             break;
 
         case "SETTINGS_CLOSED":
         case "FULLSCREEN_CLOSED":
         case "EDITOR_CLOSED":
+        case "CONFIRM_CLOSED":
             $(".xb-ss-close-btn").show();
             break;
 
@@ -1369,7 +1792,7 @@ async function handleFrameMessage(event) {
             break;
 
         case "VECTOR_TEST_ONLINE":
-            handleTestOnlineService(data.config);
+            handleTestOnlineService(data.provider, data.config, data.target || "embedding");
             break;
 
         case "VECTOR_GENERATE":
@@ -1422,6 +1845,43 @@ async function handleFrameMessage(event) {
                     });
                 } catch (e) {
                     postToFrame({ type: "VECTOR_EXPORT_RESULT", success: false, error: e.message });
+                }
+            })();
+            break;
+
+        case "SUMMARY_COPY":
+            (async () => {
+                try {
+                    const store = getSummaryStore();
+                    const payload = buildSummaryExportPackage(store);
+                    await copyTextToClipboard(JSON.stringify(payload, null, 2));
+                    postToFrame({
+                        type: "SUMMARY_COPY_RESULT",
+                        success: true,
+                        events: payload.counts.events,
+                        facts: payload.counts.facts,
+                    });
+                } catch (e) {
+                    postToFrame({ type: "SUMMARY_COPY_RESULT", success: false, error: e.message });
+                }
+            })();
+            break;
+
+        case "SUMMARY_IMPORT_TEXT":
+            if (guard.isAnyRunning('summary', 'vector', 'anchor')) {
+                postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: "请等待当前总结/向量任务结束" });
+                break;
+            }
+            (async () => {
+                try {
+                    const result = await importSummaryMemoryPackage(data.text || "");
+                    postToFrame({
+                        type: "SUMMARY_IMPORT_RESULT",
+                        success: true,
+                        counts: result.counts,
+                    });
+                } catch (e) {
+                    postToFrame({ type: "SUMMARY_IMPORT_RESULT", success: false, error: e.message });
                 }
             })();
             break;
@@ -1518,12 +1978,52 @@ async function handleFrameMessage(event) {
             break;
 
         case "REQUEST_CLEAR": {
+            if (guard.isAnyRunning('summary', 'vector', 'anchor')) {
+                await executeSlashCommand("/echo severity=warning 当前有任务运行中，暂时不能清理总结数据");
+                break;
+            }
             const { chat, chatId } = getContext();
-            clearSummaryData(chatId);
-            postToFrame({
-                type: "SUMMARY_CLEARED",
-                payload: { totalFloors: Array.isArray(chat) ? chat.length : 0 },
-            });
+            await clearSummaryData(chatId);
+            const totalFloors = Array.isArray(chat) ? chat.length : 0;
+            const store = getSummaryStore();
+            await sendFrameBaseData(store, totalFloors);
+            sendFrameFullData(store, totalFloors);
+            await executeSlashCommand("/echo severity=info 剧情总结数据已清空");
+            break;
+        }
+
+        case "REQUEST_ROLLBACK_ONCE": {
+            if (guard.isAnyRunning('summary', 'vector', 'anchor')) {
+                await executeSlashCommand("/echo severity=warning 当前有任务运行中，暂时不能回退总结");
+                break;
+            }
+
+            const { chat, chatId } = getContext();
+            if (!chatId) break;
+
+            const currentStore = getSummaryStore();
+            const rollbackTargetEndMesId = getRollbackOnceTargetEndMesId(currentStore);
+            if (rollbackTargetEndMesId == null) {
+                await executeSlashCommand("/echo severity=info 当前没有可回退的总结快照");
+                break;
+            }
+
+            const result = await rollbackSummaryOnce(chatId);
+            const totalFloors = Array.isArray(chat) ? chat.length : 0;
+            const nextStore = getSummaryStore();
+            await sendFrameBaseData(nextStore, totalFloors);
+            sendFrameFullData(nextStore, totalFloors);
+
+            if (!result.success) {
+                await executeSlashCommand("/echo severity=error 回退总结失败，请稍后重试");
+                break;
+            }
+
+            if (result.clearedAll) {
+                await executeSlashCommand("/echo severity=info 已回退上一次总结，当前总结数据已清空");
+            } else {
+                await executeSlashCommand(`/echo severity=info 已回退上一次总结，已总结楼层退回到 ${result.targetEndMesId + 1} 楼`);
+            }
             break;
         }
 
@@ -1595,7 +2095,40 @@ async function handleFrameMessage(event) {
 
         case "SAVE_PANEL_CONFIG":
             if (data.config) {
-                CommonSettingStorage.set(SUMMARY_CONFIG_KEY, data.config);
+                try {
+                    const previousVectorConfig = getVectorConfig();
+                    const previousVectorFingerprint = previousVectorConfig?.enabled
+                        ? getEngineFingerprint(previousVectorConfig)
+                        : null;
+                    const savedConfig = await saveSummaryPanelConfigVerified(data.config);
+                    const nextVectorConfig = savedConfig?.vector || {};
+                    const nextVectorFingerprint = nextVectorConfig?.enabled
+                        ? getEngineFingerprint(nextVectorConfig)
+                        : null;
+                    const vectorCacheInvalidated =
+                        !nextVectorConfig?.enabled ||
+                        previousVectorFingerprint !== nextVectorFingerprint;
+                    if (vectorCacheInvalidated) {
+                        clearAllVectorCaches();
+                    } else {
+                        warmupActiveVectorCache();
+                    }
+                    postToFrame({
+                        type: "PANEL_CONFIG_SAVE_RESULT",
+                        success: true,
+                        requestId: data.requestId || "",
+                        config: savedConfig,
+                    });
+                    sendVectorConfigToFrame();
+                } catch (e) {
+                    xbLog.error(MODULE_ID, "保存面板配置失败", e);
+                    postToFrame({
+                        type: "PANEL_CONFIG_SAVE_RESULT",
+                        success: false,
+                        requestId: data.requestId || "",
+                        error: e?.message || "保存失败",
+                    });
+                }
             }
             break;
 
@@ -1635,7 +2168,7 @@ async function handleManualGenerate(mesId, config) {
                 }
 
                 applyHideStateDebounced();
-                updateFrameStatsAfterSummary(endMesId, store.json || {});
+                await updateFrameStatsAfterSummary(store);
 
                 await autoVectorizeNewEvents(newEventIds);
             },
@@ -1652,9 +2185,11 @@ async function handleManualGenerate(mesId, config) {
 
 async function handleChatChanged() {
     if (!events) return;
+    clearDeferredBackgroundTasks();
     _lastBuiltPromptText = "";  // ← 加这一行，切聊天时清掉旧 summary
     const { chat } = getContext();
     activeChatId = getContext().chatId || null;
+    retainVectorCacheOnly(activeChatId);
     const newLength = Array.isArray(chat) ? chat.length : 0;
 
     await rollbackSummaryIfNeeded();
@@ -1679,12 +2214,13 @@ async function handleChatChanged() {
 
     // Full lexical index rebuild on chat change
     invalidateLexicalIndex();
-    warmupIndex();
+    scheduleLexicalWarmup(CHAT_CHANGE_LEXICAL_WARMUP_MS);
 
     // Embedding 连接预热（保持 TCP keep-alive，减少首次召回超时）
     warmupEmbeddingConnection();
+    warmupActiveVectorCache();
 
-    setTimeout(() => checkVectorIntegrityAndWarn(), 2000);
+    scheduleVectorIntegrityCheck();
 }
 
 async function handleMessageDeleted(scheduledChatId) {
@@ -1757,21 +2293,21 @@ async function handleMessageReceived(scheduledChatId) {
     await maybeAutoBuildChunks();
 
     applyHideStateDebounced();
-    setTimeout(() => maybeAutoRunSummary("after_ai"), 1000);
+    scheduleAutoSummary("after_ai");
 
     // Refresh entity lexicon after new message (new roles may appear)
     refreshEntityLexiconAndWarmup();
-    scheduleLexicalWarmup(100);
+    scheduleLexicalWarmup();
 
     // Auto backfill missing L0 (delay to avoid contention with current floor)
-    setTimeout(() => maybeAutoExtractL0(), 2000);
+    scheduleAutoL0Backfill();
 }
 
 function handleMessageSent(scheduledChatId) {
     if (isChatStale(scheduledChatId)) return;
-    initButtonsForAll();
-    scheduleLexicalWarmup(0);
-    setTimeout(() => maybeAutoRunSummary("before_user"), 1000);
+    initButtonForLatestMessage();
+    scheduleLexicalWarmup(AFTER_SEND_LEXICAL_WARMUP_MS);
+    scheduleAutoSummary("before_user");
 }
 
 async function handleMessageUpdated(scheduledChatId) {
@@ -1812,6 +2348,23 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     if (isDryRun) return;
     if (!getSettings().storySummary?.enabled) return;
 
+    const T0 = performance.now();
+    const timing = {
+        tokenizer: 0,
+        boundary: 0,
+        buildPrompt: 0,
+        writePrompt: 0,
+    };
+    const logTiming = (reason) => {
+        const total = Math.round(performance.now() - T0);
+        xbLog.info(
+            MODULE_ID,
+            `Prompt inject timing: type=${type || 'unknown'} reason=${reason} total=${total}ms `
+            + `tokenizer=${timing.tokenizer}ms boundary=${timing.boundary}ms `
+            + `build=${timing.buildPrompt}ms write=${timing.writePrompt}ms`
+        );
+    };
+
     const excludeLastAi = type === "swipe" || type === "regenerate";
     const vectorCfg = getVectorConfig();
 
@@ -1819,10 +2372,13 @@ async function handleGenerationStarted(type, _params, isDryRun) {
 
     // ★ 最后一道关卡：向量启用时，同步等待分词器就绪
     if (vectorCfg?.enabled && !isTokenizerReady()) {
+        const T_Tokenizer = performance.now();
         try {
             await preloadTokenizer();
         } catch (e) {
             xbLog.warn(MODULE_ID, "生成前分词器预热失败，将使用降级分词", e);
+        } finally {
+            timing.tokenizer = Math.round(performance.now() - T_Tokenizer);
         }
     }
 
@@ -1837,7 +2393,10 @@ async function handleGenerationStarted(type, _params, isDryRun) {
 
     const { chat, chatId } = getContext();
     const chatLen = Array.isArray(chat) ? chat.length : 0;
-    if (chatLen === 0) return;
+    if (chatLen === 0) {
+        logTiming('empty_chat');
+        return;
+    }
 
     const store = getSummaryStore();
 
@@ -1845,6 +2404,7 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     // - 向量开：meta.lastChunkFloor（若无则回退 lastSummarizedMesId）
     // - 向量关：lastSummarizedMesId
     let boundary = -1;
+    const T_Boundary = performance.now();
     if (vectorCfg?.enabled) {
         const meta = chatId ? await getMeta(chatId) : null;
         boundary = meta?.lastChunkFloor ?? -1;
@@ -1852,15 +2412,23 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     } else {
         boundary = store?.lastSummarizedMesId ?? -1;
     }
-    if (boundary < 0) return;
+    timing.boundary = Math.round(performance.now() - T_Boundary);
+    if (boundary < 0) {
+        logTiming('no_boundary');
+        return;
+    }
 
     // 计算深度：倒序插入，从末尾往前数
     // 最小为 MIN_INJECTION_DEPTH，避免插入太靠近底部
     const depth = Math.max(MIN_INJECTION_DEPTH, chatLen - boundary - 1);
-    if (depth < 0) return;
+    if (depth < 0) {
+        logTiming('invalid_depth');
+        return;
+    }
 
     // 构建注入文本
     let text = "";
+    const T_BuildPrompt = performance.now();
     if (vectorCfg?.enabled) {
         const r = await buildVectorPromptText(excludeLastAi, {
             postToFrame,
@@ -1871,8 +2439,12 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     } else {
         text = buildNonVectorPromptText() || "";
     }
+    timing.buildPrompt = Math.round(performance.now() - T_BuildPrompt);
     _lastBuiltPromptText = text;
-    if (!text.trim()) return;
+    if (!text.trim()) {
+        logTiming('empty_prompt');
+        return;
+    }
 
     // 获取用户配置的 role
     const cfg = getSummaryPanelConfig();
@@ -1880,12 +2452,15 @@ async function handleGenerationStarted(type, _params, isDryRun) {
     const role = ROLE_MAP[roleKey] || extension_prompt_roles.SYSTEM;
 
     // 写入 extension_prompts
+    const T_WritePrompt = performance.now();
     extension_prompts[EXT_PROMPT_KEY] = {
         value: text,
         position: extension_prompt_types.IN_CHAT,
         depth,
         role,
     };
+    timing.writePrompt = Math.round(performance.now() - T_WritePrompt);
+    logTiming('injected');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1909,18 +2484,37 @@ function registerEvents() {
     activeChatId = getContext().chatId || null;
 
     CacheRegistry.register(MODULE_ID, {
-        name: "待发送消息队列",
-        getSize: () => pendingFrameMessages.length,
+        name: "剧情总结运行缓存",
+        getSize: () => {
+            const vectorStats = getAllVectorCacheStats();
+            const vectorItems = vectorStats.reduce((sum, item) => (
+                sum
+                + Number(item.chunks || 0)
+                + Number(item.chunkVectors || 0)
+                + Number(item.eventVectors || 0)
+                + Number(item.stateVectors || 0)
+            ), 0);
+            return pendingFrameMessages.length + vectorItems;
+        },
         getBytes: () => {
             try {
-                return JSON.stringify(pendingFrameMessages || []).length * 2;
+                return JSON.stringify({
+                    pendingFrameMessages,
+                    vectorCaches: getAllVectorCacheStats(),
+                }).length * 2;
             } catch {
                 return 0;
             }
         },
+        getDetail: () => ({
+            activeChatId,
+            pendingFrameMessages: pendingFrameMessages.length,
+            vectorCaches: getAllVectorCacheStats(),
+        }),
         clear: () => {
             pendingFrameMessages = [];
             frameReady = false;
+            clearAllVectorCaches();
         },
     });
 
@@ -1943,6 +2537,11 @@ function registerEvents() {
     // 用户输入捕获（原生捕获阶段）
     document.addEventListener("pointerdown", onSendPointerdown, true);
     document.addEventListener("keydown", onSendKeydown, true);
+    document.addEventListener("focusin", onDocumentFocusIn, true);
+    document.addEventListener("visibilitychange", handleVisibilityChangeForBackground);
+    window.addEventListener("resize", handleViewportChangeForBackground, { passive: true });
+    window.visualViewport?.addEventListener?.("resize", handleViewportChangeForBackground, { passive: true });
+    window.visualViewport?.addEventListener?.("scroll", handleViewportChangeForBackground, { passive: true });
 
     // 注入链路
     events.on(event_types.GENERATION_STARTED, handleGenerationStarted);
@@ -1957,11 +2556,12 @@ function registerEvents() {
 function unregisterEvents() {
     if (!events) return;
     CacheRegistry.unregister(MODULE_ID);
+    clearAllVectorCaches();
     events.cleanup();
     events = null;
     activeChatId = null;
-    clearTimeout(lexicalWarmupTimer);
-    lexicalWarmupTimer = null;
+    cancelHideApplyTimer();
+    clearDeferredBackgroundTasks();
 
     $(".xiaobaix-story-summary-btn").remove();
     hideOverlay();
@@ -1970,6 +2570,11 @@ function unregisterEvents() {
 
     document.removeEventListener("pointerdown", onSendPointerdown, true);
     document.removeEventListener("keydown", onSendKeydown, true);
+    document.removeEventListener("focusin", onDocumentFocusIn, true);
+    document.removeEventListener("visibilitychange", handleVisibilityChangeForBackground);
+    window.removeEventListener("resize", handleViewportChangeForBackground);
+    window.visualViewport?.removeEventListener?.("resize", handleViewportChangeForBackground);
+    window.visualViewport?.removeEventListener?.("scroll", handleViewportChangeForBackground);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1977,6 +2582,7 @@ function unregisterEvents() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleChatDeleted(chatId) {
+    clearVectorCache(chatId);
     try {
         const filename = getBackupFilename(chatId);
         await deleteServerBackup(filename, null);
@@ -2139,11 +2745,16 @@ function showBackupManagerModal(initialFiles) {
 // Toggle 监听
 // ═══════════════════════════════════════════════════════════════════════════
 
-$(document).on("xiaobaix:storySummary:toggle", (_e, enabled) => {
+$(document).on("xiaobaix:storySummary:toggle", async (_e, enabled) => {
     if (enabled) {
         registerEvents();
         initButtonsForAll();
     } else {
+        try {
+            await clearHideState();
+        } catch (e) {
+            xbLog.warn(MODULE_ID, "clearHideState failed on toggle off", e);
+        }
         unregisterEvents();
     }
 });
@@ -2153,9 +2764,17 @@ $(document).on("xiaobaix:storySummary:toggle", (_e, enabled) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 jQuery(() => {
+    window.registerModuleCleanup?.(MODULE_ID, unregisterEvents);
     if (!getSettings().storySummary?.enabled) return;
-    registerEvents();
-    initStateIntegration();
-
-    maybePreloadTokenizer();
+    (async () => {
+        await loadConfigFromServer();
+        registerEvents();
+        initStateIntegration();
+        maybePreloadTokenizer();
+    })().catch((e) => {
+        xbLog.warn(MODULE_ID, "初始化前加载服务端配置失败，继续使用本地缓存", e);
+        registerEvents();
+        initStateIntegration();
+        maybePreloadTokenizer();
+    });
 });

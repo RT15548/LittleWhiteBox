@@ -1,0 +1,3678 @@
+{
+  "generatedAt": "2026-04-26T08:40:17.610Z",
+  "version": 1,
+  "files": [
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/bridges/call-generate-service.js",
+      "relativePath": "bridges/call-generate-service.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/bridges/context-bridge.js",
+      "relativePath": "bridges/context-bridge.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/bridges/worldbook-bridge.js",
+      "relativePath": "bridges/worldbook-bridge.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/bridges/wrapper-iframe.js",
+      "relativePath": "bridges/wrapper-iframe.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/constants.js",
+      "relativePath": "core/constants.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/debug-core.js",
+      "relativePath": "core/debug-core.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/event-manager.js",
+      "relativePath": "core/event-manager.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/iframe-messaging.js",
+      "relativePath": "core/iframe-messaging.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/server-storage.js",
+      "relativePath": "core/server-storage.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/slash-command.js",
+      "relativePath": "core/slash-command.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/variable-path.js",
+      "relativePath": "core/variable-path.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/wrapper-inline.js",
+      "relativePath": "core/wrapper-inline.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/docs/LICENSE.md",
+      "relativePath": "docs/LICENSE.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/index.js",
+      "relativePath": "index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/jsconfig.json",
+      "relativePath": "jsconfig.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/manifest.json",
+      "relativePath": "manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/anthropic.js",
+      "relativePath": "modules/assistant/app-src/adapters/anthropic.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/google.js",
+      "relativePath": "modules/assistant/app-src/adapters/google.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/openai-compatible.js",
+      "relativePath": "modules/assistant/app-src/adapters/openai-compatible.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/openai-responses.js",
+      "relativePath": "modules/assistant/app-src/adapters/openai-responses.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/adapters/sillytavern-openai-compatible.js",
+      "relativePath": "modules/assistant/app-src/adapters/sillytavern-openai-compatible.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/attachments.js",
+      "relativePath": "modules/assistant/app-src/attachments.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/context/ide-context.js",
+      "relativePath": "modules/assistant/app-src/context/ide-context.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/main.js",
+      "relativePath": "modules/assistant/app-src/main.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/memory/memory-files.js",
+      "relativePath": "modules/assistant/app-src/memory/memory-files.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/prompts/system-prompt.js",
+      "relativePath": "modules/assistant/app-src/prompts/system-prompt.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/approvals.js",
+      "relativePath": "modules/assistant/app-src/runtime/approvals.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/context-stats.js",
+      "relativePath": "modules/assistant/app-src/runtime/context-stats.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/history-compaction.js",
+      "relativePath": "modules/assistant/app-src/runtime/history-compaction.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/host-tool-requests.js",
+      "relativePath": "modules/assistant/app-src/runtime/host-tool-requests.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime/streaming-messages.js",
+      "relativePath": "modules/assistant/app-src/runtime/streaming-messages.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/runtime.js",
+      "relativePath": "modules/assistant/app-src/runtime.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/slash-command-policy.js",
+      "relativePath": "modules/assistant/app-src/slash-command-policy.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/state/session-db.js",
+      "relativePath": "modules/assistant/app-src/state/session-db.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/state/session-store.js",
+      "relativePath": "modules/assistant/app-src/state/session-store.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/styles.js",
+      "relativePath": "modules/assistant/app-src/styles.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/tooling.js",
+      "relativePath": "modules/assistant/app-src/tooling.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/ui/app-chrome.js",
+      "relativePath": "modules/assistant/app-src/ui/app-chrome.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/ui/app-shell.js",
+      "relativePath": "modules/assistant/app-src/ui/app-shell.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/ui/chat-ui.js",
+      "relativePath": "modules/assistant/app-src/ui/chat-ui.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/ui/settings-panel.js",
+      "relativePath": "modules/assistant/app-src/ui/settings-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/workspace/local-sources.js",
+      "relativePath": "modules/assistant/app-src/workspace/local-sources.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/workspace/local-workspace-diff.js",
+      "relativePath": "modules/assistant/app-src/workspace/local-workspace-diff.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/workspace/local-workspace-tree.js",
+      "relativePath": "modules/assistant/app-src/workspace/local-workspace-tree.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/app-src/workspace/local-workspace-ui.js",
+      "relativePath": "modules/assistant/app-src/workspace/local-workspace-ui.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/ARCHITECTURE.md",
+      "relativePath": "modules/assistant/ARCHITECTURE.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-file-manifest.json",
+      "relativePath": "modules/assistant/assistant-file-manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-host-window.js",
+      "relativePath": "modules/assistant/assistant-host-window.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant-overlay.html",
+      "relativePath": "modules/assistant/assistant-overlay.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/assistant.js",
+      "relativePath": "modules/assistant/assistant.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/project-structure.md",
+      "relativePath": "modules/assistant/references/project-structure.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/sillytavern-javascript-api-reference.md",
+      "relativePath": "modules/assistant/references/sillytavern-javascript-api-reference.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-reference.md",
+      "relativePath": "modules/assistant/references/stscript-reference.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/runtime-src/jsapi-runtime.js",
+      "relativePath": "modules/assistant/runtime-src/jsapi-runtime.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/apply-patch-execution.js",
+      "relativePath": "modules/assistant/shared/apply-patch-execution.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/apply-patch.js",
+      "relativePath": "modules/assistant/shared/apply-patch.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/config.js",
+      "relativePath": "modules/assistant/shared/config.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/local-sources-tool-runtime.js",
+      "relativePath": "modules/assistant/shared/local-sources-tool-runtime.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/local-workspace-kernel.js",
+      "relativePath": "modules/assistant/shared/local-workspace-kernel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/lookup-scope.js",
+      "relativePath": "modules/assistant/shared/lookup-scope.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/public-text-file-types.js",
+      "relativePath": "modules/assistant/shared/public-text-file-types.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/workspace-mutation-policy.js",
+      "relativePath": "modules/assistant/shared/workspace-mutation-policy.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/shared/workspace-protocol.js",
+      "relativePath": "modules/assistant/shared/workspace-protocol.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/st-jsapi-manifest.json",
+      "relativePath": "modules/assistant/st-jsapi-manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/apply-patch-execution.test.js",
+      "relativePath": "modules/assistant/tests/apply-patch-execution.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/apply-patch.test.js",
+      "relativePath": "modules/assistant/tests/apply-patch.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/config.test.js",
+      "relativePath": "modules/assistant/tests/config.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/context-hint.test.js",
+      "relativePath": "modules/assistant/tests/context-hint.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/google-adapter.test.js",
+      "relativePath": "modules/assistant/tests/google-adapter.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/host-tool-requests.test.js",
+      "relativePath": "modules/assistant/tests/host-tool-requests.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/jsapi-manifest.test.js",
+      "relativePath": "modules/assistant/tests/jsapi-manifest.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/jsapi-runtime.test.js",
+      "relativePath": "modules/assistant/tests/jsapi-runtime.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/local-sources-tool-runtime.test.js",
+      "relativePath": "modules/assistant/tests/local-sources-tool-runtime.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/local-workspace.test.js",
+      "relativePath": "modules/assistant/tests/local-workspace.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/memory-files.test.js",
+      "relativePath": "modules/assistant/tests/memory-files.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/openai-compatible-adapter.test.js",
+      "relativePath": "modules/assistant/tests/openai-compatible-adapter.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
+      "relativePath": "modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/assistant/tests/tooling.test.js",
+      "relativePath": "modules/assistant/tests/tooling.test.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/control-audio.js",
+      "relativePath": "modules/control-audio.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/debug-panel/debug-panel.html",
+      "relativePath": "modules/debug-panel/debug-panel.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/debug-panel/debug-panel.js",
+      "relativePath": "modules/debug-panel/debug-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/ena-planner/ena-planner-presets.js",
+      "relativePath": "modules/ena-planner/ena-planner-presets.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/ena-planner/ena-planner.css",
+      "relativePath": "modules/ena-planner/ena-planner.css",
+      "extension": ".css"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/ena-planner/ena-planner.html",
+      "relativePath": "modules/ena-planner/ena-planner.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/ena-planner/ena-planner.js",
+      "relativePath": "modules/ena-planner/ena-planner.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/fourth-wall/fourth-wall.html",
+      "relativePath": "modules/fourth-wall/fourth-wall.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/fourth-wall/fourth-wall.js",
+      "relativePath": "modules/fourth-wall/fourth-wall.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/fourth-wall/fw-image.js",
+      "relativePath": "modules/fourth-wall/fw-image.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/fourth-wall/fw-message-enhancer.js",
+      "relativePath": "modules/fourth-wall/fw-message-enhancer.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/fourth-wall/fw-prompt.js",
+      "relativePath": "modules/fourth-wall/fw-prompt.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/fourth-wall/fw-voice-runtime.js",
+      "relativePath": "modules/fourth-wall/fw-voice-runtime.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/fourth-wall/fw-voice.js",
+      "relativePath": "modules/fourth-wall/fw-voice.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/iframe-renderer.js",
+      "relativePath": "modules/iframe-renderer.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/immersive-mode.js",
+      "relativePath": "modules/immersive-mode.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/message-preview.js",
+      "relativePath": "modules/message-preview.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/cloud-presets.js",
+      "relativePath": "modules/novel-draw/cloud-presets.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/danbooru-local-db.js",
+      "relativePath": "modules/novel-draw/danbooru-local-db.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/floating-panel.js",
+      "relativePath": "modules/novel-draw/floating-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/gallery-cache.js",
+      "relativePath": "modules/novel-draw/gallery-cache.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/image-live-effect.js",
+      "relativePath": "modules/novel-draw/image-live-effect.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/llm-service.js",
+      "relativePath": "modules/novel-draw/llm-service.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/novel-draw.html",
+      "relativePath": "modules/novel-draw/novel-draw.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/novel-draw.js",
+      "relativePath": "modules/novel-draw/novel-draw.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/prompts/output-format-legacy.md",
+      "relativePath": "modules/novel-draw/prompts/output-format-legacy.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/prompts/output-format.md",
+      "relativePath": "modules/novel-draw/prompts/output-format.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/prompts/top-system-pov.md",
+      "relativePath": "modules/novel-draw/prompts/top-system-pov.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/prompts/top-system.md",
+      "relativePath": "modules/novel-draw/prompts/top-system.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/TAG编写指南.md",
+      "relativePath": "modules/novel-draw/TAG编写指南.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/worldbook-processor.js",
+      "relativePath": "modules/novel-draw/worldbook-processor.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/embedded-tasks.html",
+      "relativePath": "modules/scheduled-tasks/embedded-tasks.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/scheduled-tasks.html",
+      "relativePath": "modules/scheduled-tasks/scheduled-tasks.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/scheduled-tasks.js",
+      "relativePath": "modules/scheduled-tasks/scheduled-tasks.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-outline/story-outline-prompt.js",
+      "relativePath": "modules/story-outline/story-outline-prompt.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-outline/story-outline.html",
+      "relativePath": "modules/story-outline/story-outline.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-outline/story-outline.js",
+      "relativePath": "modules/story-outline/story-outline.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/data/config.js",
+      "relativePath": "modules/story-summary/data/config.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/data/db.js",
+      "relativePath": "modules/story-summary/data/db.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/data/store.js",
+      "relativePath": "modules/story-summary/data/store.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/generate/generator.js",
+      "relativePath": "modules/story-summary/generate/generator.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/generate/llm.js",
+      "relativePath": "modules/story-summary/generate/llm.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/generate/prompt.js",
+      "relativePath": "modules/story-summary/generate/prompt.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary-a.css",
+      "relativePath": "modules/story-summary/story-summary-a.css",
+      "extension": ".css"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary-ui.js",
+      "relativePath": "modules/story-summary/story-summary-ui.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary.css",
+      "relativePath": "modules/story-summary/story-summary.css",
+      "extension": ".css"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary.html",
+      "relativePath": "modules/story-summary/story-summary.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/story-summary.js",
+      "relativePath": "modules/story-summary/story-summary.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/llm/atom-extraction.js",
+      "relativePath": "modules/story-summary/vector/llm/atom-extraction.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/llm/llm-service.js",
+      "relativePath": "modules/story-summary/vector/llm/llm-service.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/llm/reranker.js",
+      "relativePath": "modules/story-summary/vector/llm/reranker.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/llm/siliconflow.js",
+      "relativePath": "modules/story-summary/vector/llm/siliconflow.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/pipeline/chunk-builder.js",
+      "relativePath": "modules/story-summary/vector/pipeline/chunk-builder.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/pipeline/state-integration.js",
+      "relativePath": "modules/story-summary/vector/pipeline/state-integration.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/retrieval/diffusion.js",
+      "relativePath": "modules/story-summary/vector/retrieval/diffusion.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/retrieval/entity-lexicon.js",
+      "relativePath": "modules/story-summary/vector/retrieval/entity-lexicon.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/retrieval/lexical-index.js",
+      "relativePath": "modules/story-summary/vector/retrieval/lexical-index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/retrieval/metrics.js",
+      "relativePath": "modules/story-summary/vector/retrieval/metrics.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/retrieval/query-builder.js",
+      "relativePath": "modules/story-summary/vector/retrieval/query-builder.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/retrieval/recall.js",
+      "relativePath": "modules/story-summary/vector/retrieval/recall.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/storage/chunk-store.js",
+      "relativePath": "modules/story-summary/vector/storage/chunk-store.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/storage/state-store.js",
+      "relativePath": "modules/story-summary/vector/storage/state-store.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/storage/vector-cache.js",
+      "relativePath": "modules/story-summary/vector/storage/vector-cache.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/storage/vector-io.js",
+      "relativePath": "modules/story-summary/vector/storage/vector-io.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/embedder.js",
+      "relativePath": "modules/story-summary/vector/utils/embedder.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/embedder.worker.js",
+      "relativePath": "modules/story-summary/vector/utils/embedder.worker.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/stopwords-base.js",
+      "relativePath": "modules/story-summary/vector/utils/stopwords-base.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/stopwords-data/LICENSE.stopwords-iso.txt",
+      "relativePath": "modules/story-summary/vector/utils/stopwords-data/LICENSE.stopwords-iso.txt",
+      "extension": ".txt"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/stopwords-data/SOURCES.md",
+      "relativePath": "modules/story-summary/vector/utils/stopwords-data/SOURCES.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/stopwords-data/stopwords-iso.en.txt",
+      "relativePath": "modules/story-summary/vector/utils/stopwords-data/stopwords-iso.en.txt",
+      "extension": ".txt"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/stopwords-data/stopwords-iso.ja.txt",
+      "relativePath": "modules/story-summary/vector/utils/stopwords-data/stopwords-iso.ja.txt",
+      "extension": ".txt"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/stopwords-data/stopwords-iso.zh.txt",
+      "relativePath": "modules/story-summary/vector/utils/stopwords-data/stopwords-iso.zh.txt",
+      "extension": ".txt"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/stopwords-patch.js",
+      "relativePath": "modules/story-summary/vector/utils/stopwords-patch.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/text-filter.js",
+      "relativePath": "modules/story-summary/vector/utils/text-filter.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/utils/tokenizer.js",
+      "relativePath": "modules/story-summary/vector/utils/tokenizer.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/streaming-generation.js",
+      "relativePath": "modules/streaming-generation.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/template-editor/template-editor.html",
+      "relativePath": "modules/template-editor/template-editor.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/template-editor/template-editor.js",
+      "relativePath": "modules/template-editor/template-editor.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tts/tts-api.js",
+      "relativePath": "modules/tts/tts-api.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tts/tts-auth-provider.js",
+      "relativePath": "modules/tts/tts-auth-provider.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tts/tts-cache.js",
+      "relativePath": "modules/tts/tts-cache.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tts/tts-free-provider.js",
+      "relativePath": "modules/tts/tts-free-provider.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tts/tts-overlay.html",
+      "relativePath": "modules/tts/tts-overlay.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tts/tts-panel.js",
+      "relativePath": "modules/tts/tts-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tts/tts-player.js",
+      "relativePath": "modules/tts/tts-player.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tts/tts-text.js",
+      "relativePath": "modules/tts/tts-text.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tts/tts-voices.js",
+      "relativePath": "modules/tts/tts-voices.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/tts/tts.js",
+      "relativePath": "modules/tts/tts.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/executor.js",
+      "relativePath": "modules/variables/state2/executor.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/guard.js",
+      "relativePath": "modules/variables/state2/guard.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/index.js",
+      "relativePath": "modules/variables/state2/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/parser.js",
+      "relativePath": "modules/variables/state2/parser.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/state2/semantic.js",
+      "relativePath": "modules/variables/state2/semantic.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/var-commands.js",
+      "relativePath": "modules/variables/var-commands.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/varevent-editor.js",
+      "relativePath": "modules/variables/varevent-editor.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/variables-core.js",
+      "relativePath": "modules/variables/variables-core.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/variables/variables-panel.js",
+      "relativePath": "modules/variables/variables-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/package.json",
+      "relativePath": "package.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/README.md",
+      "relativePath": "README.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-assistant-file-manifest.mjs",
+      "relativePath": "scripts/build-assistant-file-manifest.mjs",
+      "extension": ".mjs"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-assistant-jsapi-manifest.mjs",
+      "relativePath": "scripts/build-assistant-jsapi-manifest.mjs",
+      "extension": ".mjs"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/build-assistant-jsapi-runtime.mjs",
+      "relativePath": "scripts/build-assistant-jsapi-runtime.mjs",
+      "extension": ".mjs"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/check-garbled.js",
+      "relativePath": "scripts/check-garbled.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/entry.mjs",
+      "relativePath": "scripts/story-summary-replay/entry.mjs",
+      "extension": ".mjs"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/extensions.js",
+      "relativePath": "scripts/story-summary-replay/shims/extensions.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/script.js",
+      "relativePath": "scripts/story-summary-replay/shims/script.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay/shims/utils.js",
+      "relativePath": "scripts/story-summary-replay/shims/utils.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay-output/story-summary-replay-baseline.json",
+      "relativePath": "scripts/story-summary-replay-output/story-summary-replay-baseline.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay-output/story-summary-replay-report.json",
+      "relativePath": "scripts/story-summary-replay-output/story-summary-replay-report.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay-output/story-summary-replay-report.md",
+      "relativePath": "scripts/story-summary-replay-output/story-summary-replay-report.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay-runner.mjs",
+      "relativePath": "scripts/story-summary-replay-runner.mjs",
+      "extension": ".mjs"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay.config.example.json",
+      "relativePath": "scripts/story-summary-replay.config.example.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay.local.json",
+      "relativePath": "scripts/story-summary-replay.local.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay.samples/mock-sample.json",
+      "relativePath": "scripts/story-summary-replay.samples/mock-sample.json",
+      "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/settings.html",
+      "relativePath": "settings.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/shared/common/openai-url-utils.js",
+      "relativePath": "shared/common/openai-url-utils.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/shared/host-llm/chat-completions/client.js",
+      "relativePath": "shared/host-llm/chat-completions/client.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/shared/host-llm/chat-completions/sse.js",
+      "relativePath": "shared/host-llm/chat-completions/sse.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/style.css",
+      "relativePath": "style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/vite.assistant.config.mjs",
+      "relativePath": "vite.assistant.config.mjs",
+      "extension": ".mjs"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/widgets/button-collapse.js",
+      "relativePath": "widgets/button-collapse.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/widgets/message-toolbar.js",
+      "relativePath": "widgets/message-toolbar.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/accounts.css",
+      "relativePath": "css/accounts.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/animations.css",
+      "relativePath": "css/animations.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/backgrounds.css",
+      "relativePath": "css/backgrounds.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/brands.min.css",
+      "relativePath": "css/brands.min.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/bright.min.css",
+      "relativePath": "css/bright.min.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/character-group-overlay.css",
+      "relativePath": "css/character-group-overlay.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/chat-backups.css",
+      "relativePath": "css/chat-backups.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/cropper.min.css",
+      "relativePath": "css/cropper.min.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/data-maid.css",
+      "relativePath": "css/data-maid.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/extensions-panel.css",
+      "relativePath": "css/extensions-panel.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/file-form.css",
+      "relativePath": "css/file-form.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/fontawesome.min.css",
+      "relativePath": "css/fontawesome.min.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/group-avatars.css",
+      "relativePath": "css/group-avatars.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/jquery-ui.min.css",
+      "relativePath": "css/jquery-ui.min.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/loader.css",
+      "relativePath": "css/loader.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/login.css",
+      "relativePath": "css/login.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/logprobs.css",
+      "relativePath": "css/logprobs.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/macros.css",
+      "relativePath": "css/macros.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/mobile-styles.css",
+      "relativePath": "css/mobile-styles.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/popup-safari-fix.css",
+      "relativePath": "css/popup-safari-fix.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/popup.css",
+      "relativePath": "css/popup.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/promptmanager.css",
+      "relativePath": "css/promptmanager.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/rm-groups.css",
+      "relativePath": "css/rm-groups.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/scrollable-button.css",
+      "relativePath": "css/scrollable-button.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/secrets.css",
+      "relativePath": "css/secrets.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/select2-overrides.css",
+      "relativePath": "css/select2-overrides.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/select2.min.css",
+      "relativePath": "css/select2.min.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/solid.min.css",
+      "relativePath": "css/solid.min.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/st-tailwind.css",
+      "relativePath": "css/st-tailwind.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/tags.css",
+      "relativePath": "css/tags.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/toastr.min.css",
+      "relativePath": "css/toastr.min.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/toggle-dependent.css",
+      "relativePath": "css/toggle-dependent.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/user.css",
+      "relativePath": "css/user.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/welcome.css",
+      "relativePath": "css/welcome.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "css/world-info.css",
+      "relativePath": "css/world-info.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "error/forbidden-by-whitelist.html",
+      "relativePath": "error/forbidden-by-whitelist.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "error/host-not-allowed.html",
+      "relativePath": "error/host-not-allowed.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "error/unauthorized.html",
+      "relativePath": "error/unauthorized.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "error/url-not-found.html",
+      "relativePath": "error/url-not-found.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "jsconfig.json",
+      "relativePath": "jsconfig.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/dialog-polyfill.css",
+      "relativePath": "lib/dialog-polyfill.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/dialog-polyfill.esm.js",
+      "relativePath": "lib/dialog-polyfill.esm.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/eventemitter.js",
+      "relativePath": "lib/eventemitter.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/jquery.izoomify.js",
+      "relativePath": "lib/jquery.izoomify.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/pagination.js",
+      "relativePath": "lib/pagination.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/polyfill.js",
+      "relativePath": "lib/polyfill.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/select2-search-placeholder.js",
+      "relativePath": "lib/select2-search-placeholder.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/structured-clone/deserialize.js",
+      "relativePath": "lib/structured-clone/deserialize.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/structured-clone/index.js",
+      "relativePath": "lib/structured-clone/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/structured-clone/json.js",
+      "relativePath": "lib/structured-clone/json.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/structured-clone/monkey-patch.js",
+      "relativePath": "lib/structured-clone/monkey-patch.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/structured-clone/serialize.js",
+      "relativePath": "lib/structured-clone/serialize.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/structured-clone/types.js",
+      "relativePath": "lib/structured-clone/types.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/swiped-events.js",
+      "relativePath": "lib/swiped-events.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib/toolcool-color-picker.js",
+      "relativePath": "lib/toolcool-color-picker.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "lib.js",
+      "relativePath": "lib.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/ar-sa.json",
+      "relativePath": "locales/ar-sa.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/de-de.json",
+      "relativePath": "locales/de-de.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/en.json",
+      "relativePath": "locales/en.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/es-es.json",
+      "relativePath": "locales/es-es.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/fr-fr.json",
+      "relativePath": "locales/fr-fr.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/is-is.json",
+      "relativePath": "locales/is-is.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/it-it.json",
+      "relativePath": "locales/it-it.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/ja-jp.json",
+      "relativePath": "locales/ja-jp.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/ko-kr.json",
+      "relativePath": "locales/ko-kr.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/lang.json",
+      "relativePath": "locales/lang.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/nl-nl.json",
+      "relativePath": "locales/nl-nl.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/pt-pt.json",
+      "relativePath": "locales/pt-pt.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/th-th.json",
+      "relativePath": "locales/th-th.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/uk-ua.json",
+      "relativePath": "locales/uk-ua.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/vi-vn.json",
+      "relativePath": "locales/vi-vn.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "locales/zh-tw.json",
+      "relativePath": "locales/zh-tw.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "login.html",
+      "relativePath": "login.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "manifest.json",
+      "relativePath": "manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "robots.txt",
+      "relativePath": "robots.txt",
+      "extension": ".txt"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/a11y.js",
+      "relativePath": "scripts/a11y.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/action-loader-slashcommands.js",
+      "relativePath": "scripts/action-loader-slashcommands.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/action-loader.js",
+      "relativePath": "scripts/action-loader.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/audio-player.js",
+      "relativePath": "scripts/audio-player.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/authors-note.js",
+      "relativePath": "scripts/authors-note.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/AutoComplete.js",
+      "relativePath": "scripts/autocomplete/AutoComplete.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/AutoCompleteFuzzyScore.js",
+      "relativePath": "scripts/autocomplete/AutoCompleteFuzzyScore.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/AutoCompleteNameResult.js",
+      "relativePath": "scripts/autocomplete/AutoCompleteNameResult.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/AutoCompleteNameResultBase.js",
+      "relativePath": "scripts/autocomplete/AutoCompleteNameResultBase.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/AutoCompleteOption.js",
+      "relativePath": "scripts/autocomplete/AutoCompleteOption.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/AutoCompleteSecondaryNameResult.js",
+      "relativePath": "scripts/autocomplete/AutoCompleteSecondaryNameResult.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/BlankAutoCompleteOption.js",
+      "relativePath": "scripts/autocomplete/BlankAutoCompleteOption.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/EnhancedMacroAutoCompleteOption.js",
+      "relativePath": "scripts/autocomplete/EnhancedMacroAutoCompleteOption.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/MacroAutoComplete.js",
+      "relativePath": "scripts/autocomplete/MacroAutoComplete.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/MacroAutoCompleteHelper.js",
+      "relativePath": "scripts/autocomplete/MacroAutoCompleteHelper.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/autocomplete/MacroAutoCompleteOption.js",
+      "relativePath": "scripts/autocomplete/MacroAutoCompleteOption.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/backgrounds.js",
+      "relativePath": "scripts/backgrounds.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/bookmarks.js",
+      "relativePath": "scripts/bookmarks.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/browser-fixes.js",
+      "relativePath": "scripts/browser-fixes.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/bulk-edit.js",
+      "relativePath": "scripts/bulk-edit.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/BulkEditOverlay.js",
+      "relativePath": "scripts/BulkEditOverlay.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/cfg-scale.js",
+      "relativePath": "scripts/cfg-scale.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/char-data.js",
+      "relativePath": "scripts/char-data.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/chat-backups.js",
+      "relativePath": "scripts/chat-backups.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/chat-templates.js",
+      "relativePath": "scripts/chat-templates.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/chats.js",
+      "relativePath": "scripts/chats.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/constants.js",
+      "relativePath": "scripts/constants.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/custom-request.js",
+      "relativePath": "scripts/custom-request.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/data-maid.js",
+      "relativePath": "scripts/data-maid.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/dom-handlers.js",
+      "relativePath": "scripts/dom-handlers.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/dragdrop.js",
+      "relativePath": "scripts/dragdrop.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/dynamic-styles.js",
+      "relativePath": "scripts/dynamic-styles.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/events.js",
+      "relativePath": "scripts/events.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/assets/character.html",
+      "relativePath": "scripts/extensions/assets/character.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/assets/index.js",
+      "relativePath": "scripts/extensions/assets/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/assets/installation.html",
+      "relativePath": "scripts/extensions/assets/installation.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/assets/manifest.json",
+      "relativePath": "scripts/extensions/assets/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/assets/market.html",
+      "relativePath": "scripts/extensions/assets/market.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/assets/style.css",
+      "relativePath": "scripts/extensions/assets/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/assets/window.html",
+      "relativePath": "scripts/extensions/assets/window.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/attach-button.html",
+      "relativePath": "scripts/extensions/attachments/attach-button.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/fandom-scrape.html",
+      "relativePath": "scripts/extensions/attachments/fandom-scrape.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/files-dropped.html",
+      "relativePath": "scripts/extensions/attachments/files-dropped.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/index.js",
+      "relativePath": "scripts/extensions/attachments/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/manage-button.html",
+      "relativePath": "scripts/extensions/attachments/manage-button.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/manager.html",
+      "relativePath": "scripts/extensions/attachments/manager.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/manifest.json",
+      "relativePath": "scripts/extensions/attachments/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/mediawiki-scrape.html",
+      "relativePath": "scripts/extensions/attachments/mediawiki-scrape.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/move-attachment.html",
+      "relativePath": "scripts/extensions/attachments/move-attachment.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/notepad.html",
+      "relativePath": "scripts/extensions/attachments/notepad.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/style.css",
+      "relativePath": "scripts/extensions/attachments/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/web-scrape.html",
+      "relativePath": "scripts/extensions/attachments/web-scrape.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/attachments/youtube-scrape.html",
+      "relativePath": "scripts/extensions/attachments/youtube-scrape.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/caption/index.js",
+      "relativePath": "scripts/extensions/caption/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/caption/manifest.json",
+      "relativePath": "scripts/extensions/caption/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/caption/settings.html",
+      "relativePath": "scripts/extensions/caption/settings.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/caption/style.css",
+      "relativePath": "scripts/extensions/caption/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/connection-manager/edit.html",
+      "relativePath": "scripts/extensions/connection-manager/edit.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/connection-manager/index.js",
+      "relativePath": "scripts/extensions/connection-manager/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/connection-manager/manifest.json",
+      "relativePath": "scripts/extensions/connection-manager/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/connection-manager/profile.html",
+      "relativePath": "scripts/extensions/connection-manager/profile.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/connection-manager/settings.html",
+      "relativePath": "scripts/extensions/connection-manager/settings.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/connection-manager/style.css",
+      "relativePath": "scripts/extensions/connection-manager/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/connection-manager/view.html",
+      "relativePath": "scripts/extensions/connection-manager/view.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/expressions/add-custom-expression.html",
+      "relativePath": "scripts/extensions/expressions/add-custom-expression.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/expressions/index.js",
+      "relativePath": "scripts/extensions/expressions/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/expressions/list-item.html",
+      "relativePath": "scripts/extensions/expressions/list-item.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/expressions/manifest.json",
+      "relativePath": "scripts/extensions/expressions/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/expressions/remove-custom-expression.html",
+      "relativePath": "scripts/extensions/expressions/remove-custom-expression.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/expressions/settings.html",
+      "relativePath": "scripts/extensions/expressions/settings.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/expressions/style.css",
+      "relativePath": "scripts/extensions/expressions/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/expressions/templates/upload-expression.html",
+      "relativePath": "scripts/extensions/expressions/templates/upload-expression.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/gallery/index.i18n.html",
+      "relativePath": "scripts/extensions/gallery/index.i18n.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/gallery/index.js",
+      "relativePath": "scripts/extensions/gallery/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/gallery/manifest.json",
+      "relativePath": "scripts/extensions/gallery/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/gallery/nanogallery2.woff.min.css",
+      "relativePath": "scripts/extensions/gallery/nanogallery2.woff.min.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/gallery/style.css",
+      "relativePath": "scripts/extensions/gallery/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/memory/index.js",
+      "relativePath": "scripts/extensions/memory/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/memory/manifest.json",
+      "relativePath": "scripts/extensions/memory/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/memory/settings.html",
+      "relativePath": "scripts/extensions/memory/settings.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/memory/style.css",
+      "relativePath": "scripts/extensions/memory/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/api/QuickReplyApi.js",
+      "relativePath": "scripts/extensions/quick-reply/api/QuickReplyApi.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/html/qrEditor.html",
+      "relativePath": "scripts/extensions/quick-reply/html/qrEditor.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/html/settings.html",
+      "relativePath": "scripts/extensions/quick-reply/html/settings.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/index.js",
+      "relativePath": "scripts/extensions/quick-reply/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/manifest.json",
+      "relativePath": "scripts/extensions/quick-reply/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/AutoExecuteHandler.js",
+      "relativePath": "scripts/extensions/quick-reply/src/AutoExecuteHandler.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/QuickReply.js",
+      "relativePath": "scripts/extensions/quick-reply/src/QuickReply.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/QuickReplyConfig.js",
+      "relativePath": "scripts/extensions/quick-reply/src/QuickReplyConfig.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/QuickReplyContextLink.js",
+      "relativePath": "scripts/extensions/quick-reply/src/QuickReplyContextLink.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/QuickReplySet.js",
+      "relativePath": "scripts/extensions/quick-reply/src/QuickReplySet.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/QuickReplySetLink.js",
+      "relativePath": "scripts/extensions/quick-reply/src/QuickReplySetLink.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/QuickReplySettings.js",
+      "relativePath": "scripts/extensions/quick-reply/src/QuickReplySettings.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/SlashCommandHandler.js",
+      "relativePath": "scripts/extensions/quick-reply/src/SlashCommandHandler.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/ui/ButtonUi.js",
+      "relativePath": "scripts/extensions/quick-reply/src/ui/ButtonUi.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/ui/ctx/ContextMenu.js",
+      "relativePath": "scripts/extensions/quick-reply/src/ui/ctx/ContextMenu.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/ui/ctx/MenuHeader.js",
+      "relativePath": "scripts/extensions/quick-reply/src/ui/ctx/MenuHeader.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/ui/ctx/MenuItem.js",
+      "relativePath": "scripts/extensions/quick-reply/src/ui/ctx/MenuItem.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/ui/ctx/SubMenu.js",
+      "relativePath": "scripts/extensions/quick-reply/src/ui/ctx/SubMenu.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/src/ui/SettingsUi.js",
+      "relativePath": "scripts/extensions/quick-reply/src/ui/SettingsUi.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/quick-reply/style.css",
+      "relativePath": "scripts/extensions/quick-reply/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/debugger.css",
+      "relativePath": "scripts/extensions/regex/debugger.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/debugger.html",
+      "relativePath": "scripts/extensions/regex/debugger.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/dropdown.html",
+      "relativePath": "scripts/extensions/regex/dropdown.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/editor.html",
+      "relativePath": "scripts/extensions/regex/editor.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/embeddedScripts.html",
+      "relativePath": "scripts/extensions/regex/embeddedScripts.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/engine.js",
+      "relativePath": "scripts/extensions/regex/engine.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/importTarget.html",
+      "relativePath": "scripts/extensions/regex/importTarget.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/index.js",
+      "relativePath": "scripts/extensions/regex/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/manifest.json",
+      "relativePath": "scripts/extensions/regex/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/presetEmbeddedScripts.html",
+      "relativePath": "scripts/extensions/regex/presetEmbeddedScripts.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/scriptTemplate.html",
+      "relativePath": "scripts/extensions/regex/scriptTemplate.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/regex/style.css",
+      "relativePath": "scripts/extensions/regex/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/shared.js",
+      "relativePath": "scripts/extensions/shared.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/stable-diffusion/button.html",
+      "relativePath": "scripts/extensions/stable-diffusion/button.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/stable-diffusion/comfyWorkflowEditor.html",
+      "relativePath": "scripts/extensions/stable-diffusion/comfyWorkflowEditor.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/stable-diffusion/dropdown.html",
+      "relativePath": "scripts/extensions/stable-diffusion/dropdown.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/stable-diffusion/manifest.json",
+      "relativePath": "scripts/extensions/stable-diffusion/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/stable-diffusion/settings.html",
+      "relativePath": "scripts/extensions/stable-diffusion/settings.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/stable-diffusion/style.css",
+      "relativePath": "scripts/extensions/stable-diffusion/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/token-counter/index.js",
+      "relativePath": "scripts/extensions/token-counter/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/token-counter/manifest.json",
+      "relativePath": "scripts/extensions/token-counter/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/token-counter/style.css",
+      "relativePath": "scripts/extensions/token-counter/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/token-counter/window.html",
+      "relativePath": "scripts/extensions/token-counter/window.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/translate/buttons.html",
+      "relativePath": "scripts/extensions/translate/buttons.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/translate/deleteConfirmation.html",
+      "relativePath": "scripts/extensions/translate/deleteConfirmation.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/translate/index.html",
+      "relativePath": "scripts/extensions/translate/index.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/translate/index.js",
+      "relativePath": "scripts/extensions/translate/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/translate/manifest.json",
+      "relativePath": "scripts/extensions/translate/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/translate/style.css",
+      "relativePath": "scripts/extensions/translate/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/alltalk.js",
+      "relativePath": "scripts/extensions/tts/alltalk.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/azure.js",
+      "relativePath": "scripts/extensions/tts/azure.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/chatterbox.js",
+      "relativePath": "scripts/extensions/tts/chatterbox.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/chutes.js",
+      "relativePath": "scripts/extensions/tts/chutes.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/coqui.js",
+      "relativePath": "scripts/extensions/tts/coqui.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/coqui_api_models_settings.json",
+      "relativePath": "scripts/extensions/tts/coqui_api_models_settings.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/coqui_api_models_settings_full.json",
+      "relativePath": "scripts/extensions/tts/coqui_api_models_settings_full.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/cosyvoice.js",
+      "relativePath": "scripts/extensions/tts/cosyvoice.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/css/minimax-tts.css",
+      "relativePath": "scripts/extensions/tts/css/minimax-tts.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/css/openai-tts.css",
+      "relativePath": "scripts/extensions/tts/css/openai-tts.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/edge.js",
+      "relativePath": "scripts/extensions/tts/edge.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/electronhub.js",
+      "relativePath": "scripts/extensions/tts/electronhub.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/elevenlabs.js",
+      "relativePath": "scripts/extensions/tts/elevenlabs.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/google-native.js",
+      "relativePath": "scripts/extensions/tts/google-native.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/google-translate.js",
+      "relativePath": "scripts/extensions/tts/google-translate.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/gpt-sovits-adapter.js",
+      "relativePath": "scripts/extensions/tts/gpt-sovits-adapter.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/gpt-sovits-v2.js",
+      "relativePath": "scripts/extensions/tts/gpt-sovits-v2.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/gsvi.js",
+      "relativePath": "scripts/extensions/tts/gsvi.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/index.js",
+      "relativePath": "scripts/extensions/tts/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/kokoro-worker.js",
+      "relativePath": "scripts/extensions/tts/kokoro-worker.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/kokoro.js",
+      "relativePath": "scripts/extensions/tts/kokoro.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/lib/pcm-processor.js",
+      "relativePath": "scripts/extensions/tts/lib/pcm-processor.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/lib/README.md",
+      "relativePath": "scripts/extensions/tts/lib/README.md",
+      "extension": ".md"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/manifest.json",
+      "relativePath": "scripts/extensions/tts/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/minimax.js",
+      "relativePath": "scripts/extensions/tts/minimax.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/novel.js",
+      "relativePath": "scripts/extensions/tts/novel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/openai-compatible.js",
+      "relativePath": "scripts/extensions/tts/openai-compatible.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/openai.js",
+      "relativePath": "scripts/extensions/tts/openai.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/pollinations.js",
+      "relativePath": "scripts/extensions/tts/pollinations.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/readme.md",
+      "relativePath": "scripts/extensions/tts/readme.md",
+      "extension": ".md"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/sbvits2.js",
+      "relativePath": "scripts/extensions/tts/sbvits2.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/settings.html",
+      "relativePath": "scripts/extensions/tts/settings.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/silerotts.js",
+      "relativePath": "scripts/extensions/tts/silerotts.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/speecht5.js",
+      "relativePath": "scripts/extensions/tts/speecht5.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/style.css",
+      "relativePath": "scripts/extensions/tts/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/system.js",
+      "relativePath": "scripts/extensions/tts/system.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/tts-webui.js",
+      "relativePath": "scripts/extensions/tts/tts-webui.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/vits.js",
+      "relativePath": "scripts/extensions/tts/vits.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/volcengine.js",
+      "relativePath": "scripts/extensions/tts/volcengine.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/tts/xtts.js",
+      "relativePath": "scripts/extensions/tts/xtts.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/vectors/index.js",
+      "relativePath": "scripts/extensions/vectors/index.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/vectors/manifest.json",
+      "relativePath": "scripts/extensions/vectors/manifest.json",
+      "extension": ".json"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/vectors/settings.html",
+      "relativePath": "scripts/extensions/vectors/settings.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/vectors/style.css",
+      "relativePath": "scripts/extensions/vectors/style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions/vectors/webllm.js",
+      "relativePath": "scripts/extensions/vectors/webllm.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions-slashcommands.js",
+      "relativePath": "scripts/extensions-slashcommands.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/extensions.js",
+      "relativePath": "scripts/extensions.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/f-localStorage.js",
+      "relativePath": "scripts/f-localStorage.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/filters.js",
+      "relativePath": "scripts/filters.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/group-chats.js",
+      "relativePath": "scripts/group-chats.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/horde.js",
+      "relativePath": "scripts/horde.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/i18n.js",
+      "relativePath": "scripts/i18n.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/input-md-formatting.js",
+      "relativePath": "scripts/input-md-formatting.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/instruct-mode.js",
+      "relativePath": "scripts/instruct-mode.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/itemized-prompts.js",
+      "relativePath": "scripts/itemized-prompts.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/kai-settings.js",
+      "relativePath": "scripts/kai-settings.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/keyboard.js",
+      "relativePath": "scripts/keyboard.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/loader.js",
+      "relativePath": "scripts/loader.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/login.js",
+      "relativePath": "scripts/login.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/logit-bias.js",
+      "relativePath": "scripts/logit-bias.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/logprobs.js",
+      "relativePath": "scripts/logprobs.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/definitions/chat-macros.js",
+      "relativePath": "scripts/macros/definitions/chat-macros.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/definitions/core-macros.js",
+      "relativePath": "scripts/macros/definitions/core-macros.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/definitions/env-macros.js",
+      "relativePath": "scripts/macros/definitions/env-macros.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/definitions/instruct-macros.js",
+      "relativePath": "scripts/macros/definitions/instruct-macros.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/definitions/state-macros.js",
+      "relativePath": "scripts/macros/definitions/state-macros.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/definitions/time-macros.js",
+      "relativePath": "scripts/macros/definitions/time-macros.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/definitions/variable-macros.js",
+      "relativePath": "scripts/macros/definitions/variable-macros.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/engine/MacroBrowser.js",
+      "relativePath": "scripts/macros/engine/MacroBrowser.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/engine/MacroCstWalker.js",
+      "relativePath": "scripts/macros/engine/MacroCstWalker.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/engine/MacroDiagnostics.js",
+      "relativePath": "scripts/macros/engine/MacroDiagnostics.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/engine/MacroEngine.js",
+      "relativePath": "scripts/macros/engine/MacroEngine.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/engine/MacroEnv.types.js",
+      "relativePath": "scripts/macros/engine/MacroEnv.types.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/engine/MacroEnvBuilder.js",
+      "relativePath": "scripts/macros/engine/MacroEnvBuilder.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/engine/MacroFlags.js",
+      "relativePath": "scripts/macros/engine/MacroFlags.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/engine/MacroLexer.js",
+      "relativePath": "scripts/macros/engine/MacroLexer.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/engine/MacroParser.js",
+      "relativePath": "scripts/macros/engine/MacroParser.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/engine/MacroRegistry.js",
+      "relativePath": "scripts/macros/engine/MacroRegistry.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros/macro-system.js",
+      "relativePath": "scripts/macros/macro-system.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/macros.js",
+      "relativePath": "scripts/macros.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/nai-settings.js",
+      "relativePath": "scripts/nai-settings.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/personas.js",
+      "relativePath": "scripts/personas.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/popup.js",
+      "relativePath": "scripts/popup.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/power-user.js",
+      "relativePath": "scripts/power-user.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/preset-manager.js",
+      "relativePath": "scripts/preset-manager.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/PromptManager.js",
+      "relativePath": "scripts/PromptManager.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/reasoning.js",
+      "relativePath": "scripts/reasoning.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/request-compression.js",
+      "relativePath": "scripts/request-compression.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/RossAscends-mods.js",
+      "relativePath": "scripts/RossAscends-mods.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/samplerSelect.js",
+      "relativePath": "scripts/samplerSelect.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/scrapers.js",
+      "relativePath": "scripts/scrapers.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/secrets.js",
+      "relativePath": "scripts/secrets.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/server-history.js",
+      "relativePath": "scripts/server-history.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/setting-search.js",
+      "relativePath": "scripts/setting-search.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/showdown-exclusion.js",
+      "relativePath": "scripts/showdown-exclusion.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/showdown-underscore.js",
+      "relativePath": "scripts/showdown-underscore.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/AbstractEventTarget.js",
+      "relativePath": "scripts/slash-commands/AbstractEventTarget.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommand.js",
+      "relativePath": "scripts/slash-commands/SlashCommand.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandAbortController.js",
+      "relativePath": "scripts/slash-commands/SlashCommandAbortController.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandArgument.js",
+      "relativePath": "scripts/slash-commands/SlashCommandArgument.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandAutoCompleteNameResult.js",
+      "relativePath": "scripts/slash-commands/SlashCommandAutoCompleteNameResult.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandBreak.js",
+      "relativePath": "scripts/slash-commands/SlashCommandBreak.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandBreakController.js",
+      "relativePath": "scripts/slash-commands/SlashCommandBreakController.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandBreakPoint.js",
+      "relativePath": "scripts/slash-commands/SlashCommandBreakPoint.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandBrowser.js",
+      "relativePath": "scripts/slash-commands/SlashCommandBrowser.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandClosure.js",
+      "relativePath": "scripts/slash-commands/SlashCommandClosure.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandClosureResult.js",
+      "relativePath": "scripts/slash-commands/SlashCommandClosureResult.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandCommandAutoCompleteOption.js",
+      "relativePath": "scripts/slash-commands/SlashCommandCommandAutoCompleteOption.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandCommonEnumsProvider.js",
+      "relativePath": "scripts/slash-commands/SlashCommandCommonEnumsProvider.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandDebugController.js",
+      "relativePath": "scripts/slash-commands/SlashCommandDebugController.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandEnumAutoCompleteOption.js",
+      "relativePath": "scripts/slash-commands/SlashCommandEnumAutoCompleteOption.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandEnumValue.js",
+      "relativePath": "scripts/slash-commands/SlashCommandEnumValue.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandExecutionError.js",
+      "relativePath": "scripts/slash-commands/SlashCommandExecutionError.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandExecutor.js",
+      "relativePath": "scripts/slash-commands/SlashCommandExecutor.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandNamedArgumentAssignment.js",
+      "relativePath": "scripts/slash-commands/SlashCommandNamedArgumentAssignment.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandNamedArgumentAutoCompleteOption.js",
+      "relativePath": "scripts/slash-commands/SlashCommandNamedArgumentAutoCompleteOption.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandParser.js",
+      "relativePath": "scripts/slash-commands/SlashCommandParser.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandParserError.js",
+      "relativePath": "scripts/slash-commands/SlashCommandParserError.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandQuickReplyAutoCompleteOption.js",
+      "relativePath": "scripts/slash-commands/SlashCommandQuickReplyAutoCompleteOption.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandReturnHelper.js",
+      "relativePath": "scripts/slash-commands/SlashCommandReturnHelper.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandScope.js",
+      "relativePath": "scripts/slash-commands/SlashCommandScope.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandUnnamedArgumentAssignment.js",
+      "relativePath": "scripts/slash-commands/SlashCommandUnnamedArgumentAssignment.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/slash-commands/SlashCommandVariableAutoCompleteOption.js",
+      "relativePath": "scripts/slash-commands/SlashCommandVariableAutoCompleteOption.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/sse-stream.js",
+      "relativePath": "scripts/sse-stream.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/st-context.js",
+      "relativePath": "scripts/st-context.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/stats.js",
+      "relativePath": "scripts/stats.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/swipe-picker.js",
+      "relativePath": "scripts/swipe-picker.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/sysprompt.js",
+      "relativePath": "scripts/sysprompt.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/system-messages.js",
+      "relativePath": "scripts/system-messages.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/tags.js",
+      "relativePath": "scripts/tags.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/admin.html",
+      "relativePath": "scripts/templates/admin.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/assistantNote.html",
+      "relativePath": "scripts/templates/assistantNote.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/changeName.html",
+      "relativePath": "scripts/templates/changeName.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/changePassword.html",
+      "relativePath": "scripts/templates/changePassword.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/charTagImport.html",
+      "relativePath": "scripts/templates/charTagImport.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/charTagImport.i18n.html",
+      "relativePath": "scripts/templates/charTagImport.i18n.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/chatLorebook.html",
+      "relativePath": "scripts/templates/chatLorebook.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/chatRename.html",
+      "relativePath": "scripts/templates/chatRename.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/createCheckpoint.html",
+      "relativePath": "scripts/templates/createCheckpoint.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/customEndpointAdditionalParameters.html",
+      "relativePath": "scripts/templates/customEndpointAdditionalParameters.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/dataMaidCategory.html",
+      "relativePath": "scripts/templates/dataMaidCategory.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/dataMaidDialog.html",
+      "relativePath": "scripts/templates/dataMaidDialog.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/debug.html",
+      "relativePath": "scripts/templates/debug.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/deleteConfirm.html",
+      "relativePath": "scripts/templates/deleteConfirm.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/deleteTag.html",
+      "relativePath": "scripts/templates/deleteTag.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/deleteUser.html",
+      "relativePath": "scripts/templates/deleteUser.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/duplicateConfirm.html",
+      "relativePath": "scripts/templates/duplicateConfirm.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/emptyBlock.html",
+      "relativePath": "scripts/templates/emptyBlock.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/exportPreset.html",
+      "relativePath": "scripts/templates/exportPreset.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/forbidMedia.html",
+      "relativePath": "scripts/templates/forbidMedia.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/formatting.html",
+      "relativePath": "scripts/templates/formatting.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/globalStylesPopup.html",
+      "relativePath": "scripts/templates/globalStylesPopup.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/globalStylesPreference.html",
+      "relativePath": "scripts/templates/globalStylesPreference.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/help.html",
+      "relativePath": "scripts/templates/help.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/hiddenBlock.html",
+      "relativePath": "scripts/templates/hiddenBlock.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/hotkeys.html",
+      "relativePath": "scripts/templates/hotkeys.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/importCharacters.html",
+      "relativePath": "scripts/templates/importCharacters.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/installExtension.html",
+      "relativePath": "scripts/templates/installExtension.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/itemizationChat.html",
+      "relativePath": "scripts/templates/itemizationChat.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/itemizationText.html",
+      "relativePath": "scripts/templates/itemizationText.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/masterExport.html",
+      "relativePath": "scripts/templates/masterExport.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/masterImport.html",
+      "relativePath": "scripts/templates/masterImport.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/migrateInstructPrompt.html",
+      "relativePath": "scripts/templates/migrateInstructPrompt.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/newChatConfirm.html",
+      "relativePath": "scripts/templates/newChatConfirm.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/personaLorebook.html",
+      "relativePath": "scripts/templates/personaLorebook.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/promptManagerFooter.html",
+      "relativePath": "scripts/templates/promptManagerFooter.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/promptManagerHeader.html",
+      "relativePath": "scripts/templates/promptManagerHeader.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/promptManagerListHeader.html",
+      "relativePath": "scripts/templates/promptManagerListHeader.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/proxyConnectionWarning.html",
+      "relativePath": "scripts/templates/proxyConnectionWarning.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/quotaError.html",
+      "relativePath": "scripts/templates/quotaError.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/resetSettings.html",
+      "relativePath": "scripts/templates/resetSettings.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/samplerSelector.html",
+      "relativePath": "scripts/templates/samplerSelector.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/scenarioOverride.html",
+      "relativePath": "scripts/templates/scenarioOverride.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/secretKeyManager.html",
+      "relativePath": "scripts/templates/secretKeyManager.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/secretKeyManagerListItem.html",
+      "relativePath": "scripts/templates/secretKeyManagerListItem.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/snapshotsView.html",
+      "relativePath": "scripts/templates/snapshotsView.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/tabbyDownloader.html",
+      "relativePath": "scripts/templates/tabbyDownloader.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/tagManagement.html",
+      "relativePath": "scripts/templates/tagManagement.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/themeDelete.html",
+      "relativePath": "scripts/templates/themeDelete.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/themeImportWarning.html",
+      "relativePath": "scripts/templates/themeImportWarning.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/userProfile.html",
+      "relativePath": "scripts/templates/userProfile.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/userReset.html",
+      "relativePath": "scripts/templates/userReset.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/wandButton.html",
+      "relativePath": "scripts/templates/wandButton.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/wandMenu.html",
+      "relativePath": "scripts/templates/wandMenu.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/welcome.html",
+      "relativePath": "scripts/templates/welcome.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/welcomePanel.html",
+      "relativePath": "scripts/templates/welcomePanel.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/welcomePrompt.html",
+      "relativePath": "scripts/templates/welcomePrompt.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/worldInfoKeywordHeaders.html",
+      "relativePath": "scripts/templates/worldInfoKeywordHeaders.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates.js",
+      "relativePath": "scripts/templates.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/textgen-models.js",
+      "relativePath": "scripts/textgen-models.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/textgen-settings.js",
+      "relativePath": "scripts/textgen-settings.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/tokenizers.js",
+      "relativePath": "scripts/tokenizers.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/tool-calling.js",
+      "relativePath": "scripts/tool-calling.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/user.js",
+      "relativePath": "scripts/user.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/util/AbortReason.js",
+      "relativePath": "scripts/util/AbortReason.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/util/AccountStorage.js",
+      "relativePath": "scripts/util/AccountStorage.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/util/showdown-patch.js",
+      "relativePath": "scripts/util/showdown-patch.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/util/SimpleMutex.js",
+      "relativePath": "scripts/util/SimpleMutex.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/util/stream-fadein.js",
+      "relativePath": "scripts/util/stream-fadein.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/util/StructuredCloneMap.js",
+      "relativePath": "scripts/util/StructuredCloneMap.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/util/ThemeGenerator.js",
+      "relativePath": "scripts/util/ThemeGenerator.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/utils.js",
+      "relativePath": "scripts/utils.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/variables.js",
+      "relativePath": "scripts/variables.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/welcome-screen.js",
+      "relativePath": "scripts/welcome-screen.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "style.css",
+      "relativePath": "style.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "webfonts/NotoSans/stylesheet.css",
+      "relativePath": "webfonts/NotoSans/stylesheet.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "webfonts/NotoSansMono/stylesheet.css",
+      "relativePath": "webfonts/NotoSansMono/stylesheet.css",
+      "extension": ".css"
+    }
+  ]
+}

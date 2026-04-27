@@ -25,7 +25,11 @@
                         提供STscript(command)异步函数执行酒馆命令:
 
                         await STscript('/echo 你好世界！')">启用小白X</label>
-
+            <div class="littlewhitebox-top-actions">
+              <button id="xiaobaix_assistant_open_settings" class="menu_button menu_button_icon littlewhitebox-top-action-button" type="button" title="打开小白助手">
+                <span>小白助手</span>
+              </button>
+            </div>
           </div>
           <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
             <input type="checkbox" id="xiaobaix_render_enabled" />
@@ -206,10 +210,10 @@
             <input type="checkbox" id="xiaobaix_story_outline_enabled" />
             <label for="xiaobaix_story_outline_enabled" class="has-tooltip" data-tooltip="在X按钮区域添加地图图标，点击可打开可视化剧情地图编辑器">小白板</label>
           </div>
-          <div class="flex-container">
+          <div class="flex-container littlewhitebox-toggle-row">
             <input type="checkbox" id="xiaobaix_ena_planner_enabled" />
-            <label for="xiaobaix_ena_planner_enabled" class="has-tooltip" data-tooltip="发送前剧情规划，自动注入 plot/note">剧情规划</label>
-            <button id="xiaobaix_ena_planner_open_settings" class="menu_button menu_button_icon" type="button" style="margin-left:auto;" title="打开剧情规划设置">
+            <label for="xiaobaix_ena_planner_enabled" class="has-tooltip littlewhitebox-toggle-label" data-tooltip="发送前剧情规划，自动注入 plot/note">剧情规划</label>
+            <button id="xiaobaix_ena_planner_open_settings" class="menu_button menu_button_icon littlewhitebox-toggle-action" type="button" title="打开剧情规划设置">
               <i class="fa-solid fa-compass-drafting"></i>
               <small>规划设置</small>
             </button>
@@ -384,6 +388,51 @@
     border-bottom-color: var(--SmartThemeAccentColor, #e9e9e9);
     color: var(--SmartThemeBodyColor, #e9e9e9);
   }
+  .littlewhitebox-toggle-row {
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+  }
+  .littlewhitebox-toggle-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-top: 0;
+    display: inline-flex;
+    align-items: center;
+  }
+  .littlewhitebox-toggle-action {
+    margin-left: auto;
+    flex: 0 0 auto;
+  }
+  .littlewhitebox-toggle-action.disabled-action {
+    opacity: .5;
+    cursor: not-allowed;
+  }
+  .littlewhitebox-top-actions {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .littlewhitebox-top-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .littlewhitebox-top-action-button span,
+  .littlewhitebox-top-action-button small {
+    color: inherit;
+    font: inherit;
+    font-size: inherit;
+    line-height: inherit;
+  }
+  .littlewhitebox-top-action-button .dbg-light {
+    flex: 0 0 auto;
+  }
   .task-count {
     font-size: 0.85em;
     opacity: 0.7;
@@ -437,6 +486,23 @@
     color: #007bff;
     background-color: transparent;
     transform: scale(1)
+  }
+  @media (max-width: 700px) {
+    .littlewhitebox-top-actions {
+      width: auto;
+      margin-left: auto;
+      justify-content: flex-end;
+      padding-right: 0;
+      box-sizing: border-box;
+      flex-wrap: nowrap;
+    }
+    .littlewhitebox-toggle-row {
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .littlewhitebox-toggle-action {
+      margin-left: 0;
+    }
   }
 </style>
 

@@ -4,15 +4,39 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { xbLog } from '../../../../core/debug-core.js';
-import { getApiKey } from './siliconflow.js';
+import { getVectorConfig } from '../../data/config.js';
+import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../../shared/common/openai-url-utils.js';
 
 const MODULE_ID = 'reranker';
-const RERANK_URL = 'https://api.siliconflow.cn/v1/rerank';
+const DEFAULT_RERANK_URL = 'https://api.siliconflow.cn/v1';
 const RERANK_MODEL = 'BAAI/bge-reranker-v2-m3';
 const DEFAULT_TIMEOUT = 15000;
 const MAX_DOCUMENTS = 100;  // API 限制
 const RERANK_BATCH_SIZE = 20;
 const RERANK_MAX_CONCURRENCY = 5;
+let rerankKeyIndex = 0;
+
+function getRerankApiConfig() {
+    const cfg = getVectorConfig() || {};
+    return cfg.rerankApi || {
+        provider: 'siliconflow',
+        url: DEFAULT_RERANK_URL,
+        key: '',
+        model: RERANK_MODEL,
+    };
+}
+
+function getNextRerankKey(rawKey) {
+    const keys = String(rawKey || '')
+        .split(/[,;|\n]+/)
+        .map(k => k.trim())
+        .filter(Boolean);
+    if (!keys.length) return '';
+    if (keys.length === 1) return keys[0];
+    const idx = rerankKeyIndex % keys.length;
+    rerankKeyIndex = (rerankKeyIndex + 1) % keys.length;
+    return keys[idx];
+}
 
 /**
  * 对文档列表进行 Rerank 精排
@@ -37,7 +61,8 @@ export async function rerank(query, documents, options = {}) {
         return { results: [], failed: false };
     }
 
-    const key = getApiKey();
+    const apiCfg = getRerankApiConfig();
+    const key = getNextRerankKey(apiCfg.key);
     if (!key) {
         xbLog.warn(MODULE_ID, '未配置 API Key，跳过 rerank');
         return { results: documents.map((_, i) => ({ index: i, relevance_score: 0 })), failed: true };
@@ -72,14 +97,18 @@ export async function rerank(query, documents, options = {}) {
     try {
         const T0 = performance.now();
 
-        const response = await fetch(RERANK_URL, {
+        const baseUrl = resolveApiBaseUrl(
+            String(apiCfg.url || DEFAULT_RERANK_URL),
+            getDefaultApiPrefix(apiCfg.provider || 'siliconflow')
+        );
+        const response = await fetch(`${baseUrl}/rerank`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${key}`,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: RERANK_MODEL,
+                model: String(apiCfg.model || RERANK_MODEL),
                 // Zero-darkbox: do not silently truncate query.
                 query,
                 documents: validDocs,
@@ -248,19 +277,54 @@ export async function rerankChunks(query, chunks, options = {}) {
 /**
  * 测试 Rerank 服务连接
  */
-export async function testRerankService() {
-    const key = getApiKey();
-    if (!key) {
-        throw new Error('请配置硅基 API Key');
+export async function testRerankService(apiConfig = {}) {
+    const next = {
+        provider: String(apiConfig.provider || 'siliconflow').trim(),
+        url: String(apiConfig.url || DEFAULT_RERANK_URL).trim(),
+        key: String(apiConfig.key || '').trim(),
+        model: String(apiConfig.model || RERANK_MODEL).trim(),
+    };
+    if (!next.key) {
+        throw new Error('请配置 Rerank API Key');
     }
 
+    const key = getNextRerankKey(next.key);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     try {
-        const { results } = await rerank('测试查询', ['测试文档1', '测试文档2'], { topN: 2 });
-        return { 
-            success: true, 
-            message: `连接成功，返回 ${results.length} 个结果`,
+        const baseUrl = resolveApiBaseUrl(
+            String(next.url || DEFAULT_RERANK_URL),
+            getDefaultApiPrefix(next.provider || 'siliconflow')
+        );
+        const response = await fetch(`${baseUrl}/rerank`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${key}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: next.model,
+                query: '测试查询',
+                documents: ['测试文档1', '测试文档2'],
+                top_n: 2,
+                return_documents: false,
+            }),
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '');
+            throw new Error(`Rerank API ${response.status}: ${errorText.slice(0, 200)}`);
+        }
+        const data = await response.json();
+        const results = Array.isArray(data.results) ? data.results : [];
+        return {
+            success: true,
+            message: `连接成功：返回 ${results.length} 个结果`,
         };
     } catch (e) {
         throw new Error(`连接失败: ${e.message}`);
+    } finally {
+        clearTimeout(timeoutId);
     }
 }

@@ -3,6 +3,7 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 import { EXT_ID, extensionFolderPath } from "./core/constants.js";
 import { executeSlashCommand } from "./core/slash-command.js";
 import { EventCenter } from "./core/event-manager.js";
+import { enablePersistentDebugLogging, disablePersistentDebugLogging } from "./core/debug-core.js";
 import { initTasks } from "./modules/scheduled-tasks/scheduled-tasks.js";
 import { initMessagePreview, addHistoryButtonsDebounced } from "./modules/message-preview.js";
 import { initImmersiveMode } from "./modules/immersive-mode.js";
@@ -28,6 +29,7 @@ import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
 import { initTts, cleanupTts } from "./modules/tts/tts.js";
 import { initEnaPlanner, cleanupEnaPlanner } from "./modules/ena-planner/ena-planner.js";
+import { initAssistant, cleanupAssistant } from "./modules/assistant/assistant.js";
 
 extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     enabled: true,
@@ -46,6 +48,7 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     novelDraw: { enabled: false },
     tts: { enabled: false },
     enaPlanner: { enabled: false },
+    assistant: { enabled: false },
     useBlob: false,
     wrapperIframe: true,
     renderEnabled: true,
@@ -293,10 +296,31 @@ function toggleSettingsControls(enabled) {
     } else if (enabled) {
         document.getElementById(styleId)?.remove();
     }
+    syncFeatureActionButtons();
+}
+
+function syncFeatureActionButtons() {
+    const bindings = [
+        { toggleId: 'xiaobaix_ena_planner_enabled', buttonId: 'xiaobaix_ena_planner_open_settings' }
+    ];
+    bindings.forEach(({ toggleId, buttonId }) => {
+        const toggle = document.getElementById(toggleId);
+        const button = document.getElementById(buttonId);
+        if (!toggle || !button) return;
+        const enabled = isXiaobaixEnabled && !!toggle.checked;
+        button.disabled = !enabled;
+        button.classList.toggle('disabled-action', !enabled);
+    });
+    const assistantButton = document.getElementById('xiaobaix_assistant_open_settings');
+    if (assistantButton) {
+        assistantButton.disabled = !isXiaobaixEnabled;
+        assistantButton.classList.toggle('disabled-action', !isXiaobaixEnabled);
+    }
 }
 
 async function toggleAllFeatures(enabled) {
     if (enabled) {
+        enablePersistentDebugLogging();
         toggleSettingsControls(true);
         try { window.XB_applyPrevStates && window.XB_applyPrevStates(); } catch (e) { }
         saveSettingsDebounced();
@@ -310,6 +334,7 @@ async function toggleAllFeatures(enabled) {
             { condition: extension_settings[EXT_ID].immersive?.enabled, init: initImmersiveMode },
             { condition: extension_settings[EXT_ID].templateEditor?.enabled, init: initTemplateEditor },
             { condition: extension_settings[EXT_ID].fourthWall?.enabled, init: initFourthWall },
+            { condition: extension_settings[EXT_ID].audio?.enabled, init: initControlAudio },
             { condition: extension_settings[EXT_ID].variablesPanel?.enabled, init: initVariablesPanel },
             { condition: extension_settings[EXT_ID].variablesCore?.enabled, init: initVariablesCore },
             { condition: extension_settings[EXT_ID].novelDraw?.enabled, init: initNovelDraw },
@@ -336,6 +361,9 @@ async function toggleAllFeatures(enabled) {
             if (isXiaobaixEnabled && !document.getElementById('xb-worldbook'))
                 document.head.appendChild(Object.assign(document.createElement('script'), { id: 'xb-worldbook', type: 'module', src: `${extensionFolderPath}/bridges/worldbook-bridge.js` }));
         } catch (e) { }
+        if (extension_settings[EXT_ID].storySummary?.enabled) {
+            $(document).trigger('xiaobaix:storySummary:toggle', [true]);
+        }
         document.dispatchEvent(new CustomEvent('xiaobaixEnabledChanged', { detail: { enabled: true } }));
         $(document).trigger('xiaobaix:enabled:toggle', [true]);
     } else {
@@ -351,10 +379,15 @@ async function toggleAllFeatures(enabled) {
         try { cleanupNovelDraw(); } catch (e) { }
         try { cleanupTts(); } catch (e) { }
         try { cleanupEnaPlanner(); } catch (e) { }
+        try { cleanupAssistant(); } catch (e) { }
         try { clearBlobCaches(); } catch (e) { }
         toggleSettingsControls(false);
         try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById('xb-worldbook')?.remove(); } catch (e) { }
         try { window.cleanupCallGenerateHostBridge && window.cleanupCallGenerateHostBridge(); document.getElementById('xb-callgen')?.remove(); } catch (e) { }
+        if (extension_settings[EXT_ID].storySummary?.enabled) {
+            $(document).trigger('xiaobaix:storySummary:toggle', [false]);
+        }
+        disablePersistentDebugLogging({ clear: true });
         document.dispatchEvent(new CustomEvent('xiaobaixEnabledChanged', { detail: { enabled: false } }));
         $(document).trigger('xiaobaix:enabled:toggle', [false]);
     }
@@ -390,13 +423,14 @@ async function setupSettings() {
             { id: 'scheduled_tasks_enabled', key: 'tasks', init: initTasks },
             { id: 'xiaobaix_template_enabled', key: 'templateEditor', init: initTemplateEditor },
             { id: 'xiaobaix_fourth_wall_enabled', key: 'fourthWall', init: initFourthWall },
+            { id: 'xiaobaix_audio_enabled', key: 'audio', init: initControlAudio },
             { id: 'xiaobaix_variables_panel_enabled', key: 'variablesPanel', init: initVariablesPanel },
             { id: 'xiaobaix_variables_core_enabled', key: 'variablesCore', init: initVariablesCore },
             { id: 'xiaobaix_story_summary_enabled', key: 'storySummary' },
             { id: 'xiaobaix_story_outline_enabled', key: 'storyOutline' },
             { id: 'xiaobaix_novel_draw_enabled', key: 'novelDraw', init: initNovelDraw },
             { id: 'xiaobaix_tts_enabled', key: 'tts', init: initTts },
-            { id: 'xiaobaix_ena_planner_enabled', key: 'enaPlanner', init: initEnaPlanner }
+            { id: 'xiaobaix_ena_planner_enabled', key: 'enaPlanner', init: initEnaPlanner },
         ];
 
         moduleConfigs.forEach(({ id, key, init }) => {
@@ -430,8 +464,10 @@ async function setupSettings() {
                 if (key === 'storyOutline') {
                     $(document).trigger('xiaobaix:storyOutline:toggle', [enabled]);
                 }
+                syncFeatureActionButtons();
             });
         });
+        syncFeatureActionButtons();
 
         // variables mode selector
         $("#xiaobaix_variables_mode")
@@ -464,6 +500,18 @@ async function setupSettings() {
                 window.xiaobaixEnaPlanner.openSettings();
             } else {
                 toastr.warning('请先启用剧情规划模块');
+            }
+        });
+
+        $("#xiaobaix_assistant_open_settings").on("click", async function () {
+            if (!isXiaobaixEnabled) return;
+            if (!window.xiaobaixAssistant?.openSettings) {
+                await initAssistant();
+            }
+            if (window.xiaobaixAssistant?.openSettings) {
+                window.xiaobaixAssistant.openSettings();
+            } else {
+                toastr.warning('小白助手初始化失败');
             }
         });
 
@@ -560,14 +608,13 @@ function setupDebugButtonInSettings() {
         }
         const row = enableCheckbox.closest('.flex-container') || enableCheckbox.parentElement;
         if (!row) return;
+        const actionGroup = row.querySelector('.littlewhitebox-top-actions') || row;
 
         const btn = document.createElement('div');
         btn.id = 'xiaobaix-debug-btn';
-        btn.className = 'menu_button';
+        btn.className = 'menu_button littlewhitebox-top-action-button';
         btn.title = '切换调试监控';
         btn.tabIndex = 0;
-        btn.style.marginLeft = 'auto';
-        btn.style.whiteSpace = 'nowrap';
         btn.innerHTML = '<span class="dbg-light"></span><span>监控</span>';
 
         const onActivate = async () => {
@@ -581,7 +628,7 @@ function setupDebugButtonInSettings() {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onActivate(); }
         });
 
-        row.appendChild(btn);
+        actionGroup.appendChild(btn);
     } catch (e) { }
 }
 
@@ -630,6 +677,7 @@ jQuery(async () => {
         try { initControlAudio(); } catch (e) { }
 
         if (isXiaobaixEnabled) {
+            enablePersistentDebugLogging();
             initRenderer();
         }
 

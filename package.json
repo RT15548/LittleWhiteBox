@@ -3,13 +3,46 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "build:assistant:manifest": "node scripts/build-assistant-file-manifest.mjs",
+        "build:assistant:jsapi-manifest": "node scripts/build-assistant-jsapi-manifest.mjs",
+        "build:assistant:jsapi-runtime": "node scripts/build-assistant-jsapi-runtime.mjs",
+        "build:assistant:app": "vite build --config vite.assistant.config.mjs",
+        "build:assistant": "npm run build:assistant:manifest && npm run build:assistant:jsapi-manifest && npm run build:assistant:jsapi-runtime && npm run build:assistant:app",
+        "test:story-summary:replay": "node scripts/story-summary-replay-runner.mjs",
+        "test:story-summary:bootstrap": "node scripts/story-summary-replay-runner.mjs bootstrap",
+        "test:story-summary:recall": "node scripts/story-summary-replay-runner.mjs recall-only",
+        "test:assistant:workspace": "node --test modules/assistant/tests/local-workspace.test.js modules/assistant/tests/apply-patch.test.js modules/assistant/tests/apply-patch-execution.test.js modules/assistant/tests/context-hint.test.js modules/assistant/tests/memory-files.test.js modules/assistant/tests/host-tool-requests.test.js modules/assistant/tests/local-sources-tool-runtime.test.js modules/assistant/tests/tooling.test.js modules/assistant/tests/google-adapter.test.js modules/assistant/tests/openai-compatible-adapter.test.js modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
         "lint": "node scripts/check-garbled.js && eslint \"**/*.js\"",
         "lint:fix": "eslint \"**/*.js\" --fix"
     },
-  "devDependencies": {
-    "eslint": "^8.57.1",
-    "eslint-plugin-jsdoc": "^48.10.0",
-    "eslint-plugin-no-unsanitized": "^4.1.2",
-    "eslint-plugin-security": "^1.7.1"
-  }
+    "devDependencies": {
+        "acorn": "^8.16.0",
+        "esbuild": "^0.28.0",
+        "eslint": "^8.57.1",
+        "eslint-plugin-jsdoc": "^48.10.0",
+        "eslint-plugin-no-unsanitized": "^4.1.2",
+        "fake-indexeddb": "^6.2.4",
+        "eslint-plugin-security": "^1.7.1",
+        "vite": "^8.0.8"
+    },
+    "dependencies": {
+        "@anthropic-ai/sdk": "^0.89.0",
+        "@codemirror/autocomplete": "^6.20.1",
+        "@codemirror/commands": "^6.10.3",
+        "@codemirror/lang-css": "^6.3.1",
+        "@codemirror/lang-html": "^6.4.11",
+        "@codemirror/lang-javascript": "^6.2.5",
+        "@codemirror/lang-json": "^6.0.2",
+        "@codemirror/lang-markdown": "^6.5.0",
+        "@codemirror/lang-python": "^6.2.1",
+        "@codemirror/lang-yaml": "^6.1.3",
+        "@codemirror/language": "^6.12.3",
+        "@codemirror/search": "^6.7.0",
+        "@codemirror/state": "^6.6.0",
+        "@codemirror/view": "^6.41.1",
+        "@google/genai": "^1.50.1",
+        "codemirror": "^6.0.2",
+        "gpt-tokenizer": "^3.4.0",
+        "openai": "^6.34.0"
+    }
 }

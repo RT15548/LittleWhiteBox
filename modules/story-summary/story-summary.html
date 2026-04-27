@@ -52,7 +52,7 @@
                     </svg>
                     <span>设置</span>
                 </button>
-                <button class="btn" id="btn-clear">清空</button>
+                <button class="btn" id="btn-clear">清理</button>
                 <button class="btn btn-p" id="btn-generate">总结</button>
             </div>
         </div>
@@ -161,8 +161,9 @@
         <div class="modal-box settings-modal-box">
             <div class="modal-head">
                 <div class="settings-tabs">
-                    <div class="settings-tab active" data-tab="tab-summary">总结设置</div>
-                    <div class="settings-tab" data-tab="tab-vector">向量设置</div>
+                    <div class="settings-tab active" data-tab="tab-summary">总结</div>
+                    <div class="settings-tab" data-tab="tab-vector">向量</div>
+                    <div class="settings-tab" data-tab="tab-prompts">提示词</div>
                     <div class="settings-tab" data-tab="tab-debug">调试</div>
                     <div class="settings-tab" data-tab="tab-guide">说明</div>
                 </div>
@@ -211,7 +212,7 @@
                             <div class="settings-field full">
                                 <label>API URL</label>
                                 <input type="text" id="api-url" placeholder="https://api.openai.com 或代理地址">
-                                <div class="settings-hint">默认端点：OpenAI：/v1，Gemini：/v1beta，Claude：/v1</div>
+                                <div class="settings-hint">可直接填写完整前缀（如 /v1、/v3、/v1beta）；若只填裸地址，则按渠道补默认前缀：OpenAI/Claude：/v1，Gemini：/v1beta。</div>
                             </div>
                         </div>
                         <div class="settings-row hidden" id="api-key-row">
@@ -222,16 +223,17 @@
                         </div>
                         <div class="settings-row hidden" id="api-model-manual-row">
                             <div class="settings-field full">
-                                <label>模型</label>
-                                <input type="text" id="api-model-text" placeholder="如 gemini-1.5-pro、claude-3-haiku">
+                                <label>模型名</label>
+                                <input type="text" id="api-model-text" placeholder="可手动填写，如 cursor/google/gemini-3-flash">
                             </div>
                         </div>
                         <div class="settings-row hidden" id="api-model-select-row">
                             <div class="settings-field full">
-                                <label>可用模型</label>
+                                <label>已拉取模型</label>
                                 <select id="api-model-select">
-                                    <option value="">请先拉取模型列表</option>
+                                    <option value="">请选择</option>
                                 </select>
+                                <div class="settings-hint">选择后会回填到上面的模型名输入框。原生下拉更稳，不依赖额外样式。</div>
                             </div>
                         </div>
                         <div class="settings-btn-row hidden" id="api-connect-row"
@@ -243,6 +245,7 @@
                                 <span>流式</span>
                             </label>
                         </div>
+                        <div class="settings-hint hidden" id="api-connect-status"></div>
 
                         <!-- Collapsible Gen Params -->
                         <div class="settings-collapse">
@@ -383,6 +386,15 @@
                                 </div>
                             </div>
                         </div>
+
+                        <div class="settings-section" style="padding: 0; margin-top: 16px;">
+                            <div class="settings-section-title">导出与导入</div>
+                            <div class="settings-btn-row" style="margin-top: 8px;">
+                                <button class="btn btn-sm" id="btn-copy-summary" style="flex:1">复制记忆包</button>
+                                <button class="btn btn-sm" id="btn-import-summary" style="flex:1">粘贴导入记忆包</button>
+                            </div>
+                            <div class="settings-hint" id="summary-io-status">复制会把记忆包放进剪贴板；导入会覆盖当前聊天的总结资料，并自动清空向量与总结边界。</div>
+                        </div>
                     </div>
                 </div>
 
@@ -402,41 +414,180 @@
 
                         <div id="vector-config-area" class="hidden">
 
-                            <!-- Step 0: API Key -->
+                            <!-- Step 0: API Config -->
                             <div class="neo-card" style="margin-top: 24px;">
                                 <div class="neo-card-title">
                                     <span class="neo-badge">Step.0</span>
-                                    <span>填写 API Key</span>
+                                    <span>配置模型 API</span>
                                 </div>
                                 <div class="settings-row">
                                     <div class="settings-field full">
-                                        <label>Embedding 模型</label>
-                                        <select id="vector-model">
-                                            <option value="BAAI/bge-m3">BAAI/bge-m3</option>
-                                            <option value="Qwen/Qwen3-Embedding-8B">Qwen/Qwen3-Embedding-8B</option>
-                                        </select>
-                                        <div class="settings-hint">切换 embedding 模型后，需要重新生成向量。</div>
-                                    </div>
-                                </div>
-                                <div class="settings-row">
-                                    <div class="settings-field full">
-                                        <label>硅基流动 API Key</label>
-                                        <input type="password" id="vector-api-key" placeholder="sk-xxx">
-                                        <div class="settings-hint">
-                                            💡 <a href="https://siliconflow.cn" target="_blank">硅基流动</a>
-                                            内置使用的模型完全免费。建议实名认证以获得更高并发。
+                                        <div class="settings-hint" style="margin-bottom:12px;">
+                                            推荐给 L0 使用便宜或免费的高并发渠道。<br>
+                                            自定义渠道可直接填写完整前缀（如 <code>/v1</code>、<code>/v3</code>、<code>/v1beta</code>）；若只填裸地址，则按渠道补默认前缀。Embedding 会在最终前缀后拼 <code>/embeddings</code>，Rerank 会拼 <code>/rerank</code>。
                                         </div>
-                                    </div>
-                                </div>
-                                <div class="settings-row">
-                                    <div class="settings-field full">
-                                        <div class="engine-status-row" style="margin-top: 0;">
-                                            <div class="engine-status" id="online-api-status">
-                                                <span class="status-dot"></span>
-                                                <span class="status-text">未测试</span>
+                                        <details class="settings-collapse" id="l0-api-collapse" style="margin-bottom:12px;">
+                                            <summary class="settings-collapse-header">
+                                                <span>L0 锚点提取模型</span>
+                                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                                </svg>
+                                            </summary>
+                                            <div class="settings-collapse-content">
+                                                <label>L0 并发数</label>
+                                                <input type="number" id="vector-l0-concurrency" min="1" max="50" step="1" value="10">
+                                                <div class="settings-hint" style="margin-bottom:16px;">请视 API 情况自行调整。</div>
+                                                <div class="settings-row">
+                                                    <div class="settings-field">
+                                                        <label>渠道</label>
+                                                        <select id="l0-api-provider">
+                                                            <option value="siliconflow">硅基流动</option>
+                                                            <option value="openrouter">OpenRouter</option>
+                                                            <option value="custom">自定义</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="l0-api-url-row">
+                                                    <div class="settings-field full">
+                                                        <label>API URL</label>
+                                                        <input type="text" id="l0-api-url" placeholder="https://api.siliconflow.cn/v1">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="l0-api-key-row">
+                                                    <div class="settings-field full">
+                                                        <label>API KEY</label>
+                                                        <div style="display:flex; gap:8px; align-items:center;">
+                                                            <input type="password" id="l0-api-key" placeholder="sk-xxx" style="flex:1;">
+                                                            <button type="button" class="btn btn-sm" id="l0-api-key-toggle" style="flex:0 0 auto; min-width:64px;">显示</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="l0-api-model-manual-row">
+                                                    <div class="settings-field full">
+                                                        <label>模型名</label>
+                                                        <input type="text" id="l0-api-model-text" placeholder="可手动填写，如 Qwen/Qwen3-8B">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row hidden" id="l0-api-model-select-row">
+                                                    <div class="settings-field full">
+                                                        <label>已拉取模型</label>
+                                                        <select id="l0-api-model-select"><option value="">请选择</option></select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-btn-row" id="l0-api-connect-row" style="margin-bottom:8px;">
+                                                    <button class="btn btn-sm" id="l0-btn-connect" style="flex:1">拉取</button>
+                                                    <button class="btn btn-sm" id="l0-btn-test" style="flex:1">测试</button>
+                                                    <button class="btn btn-sm btn-p" id="l0-btn-save" style="flex:1">保存</button>
+                                                </div>
+                                                <div class="settings-hint" id="l0-api-connect-status" style="margin-bottom:16px;"></div>
                                             </div>
-                                            <button class="btn btn-sm" id="btn-test-vector-api">测试连接</button>
-                                        </div>
+                                        </details>
+
+                                        <details class="settings-collapse" id="embedding-api-collapse" style="margin-bottom:12px;">
+                                            <summary class="settings-collapse-header">
+                                                <span>Embedding 模型</span>
+                                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                                </svg>
+                                            </summary>
+                                            <div class="settings-collapse-content">
+                                                <div class="settings-row">
+                                                    <div class="settings-field">
+                                                        <label>渠道</label>
+                                                        <select id="embedding-api-provider">
+                                                            <option value="siliconflow">硅基流动</option>
+                                                            <option value="custom">自定义</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="embedding-api-url-row">
+                                                    <div class="settings-field full">
+                                                        <label>API URL</label>
+                                                        <input type="text" id="embedding-api-url" placeholder="https://api.siliconflow.cn/v1">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="embedding-api-key-row">
+                                                    <div class="settings-field full">
+                                                        <label>API KEY</label>
+                                                        <div style="display:flex; gap:8px; align-items:center;">
+                                                            <input type="password" id="embedding-api-key" placeholder="sk-xxx" style="flex:1;">
+                                                            <button type="button" class="btn btn-sm" id="embedding-api-key-toggle" style="flex:0 0 auto; min-width:64px;">显示</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="embedding-api-model-manual-row">
+                                                    <div class="settings-field full">
+                                                        <label>模型名</label>
+                                                        <input type="text" id="embedding-api-model-text" placeholder="如 BAAI/bge-m3">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row hidden" id="embedding-api-model-select-row">
+                                                    <div class="settings-field full">
+                                                        <label>已拉取模型</label>
+                                                        <select id="embedding-api-model-select"><option value="">请选择</option></select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-btn-row" id="embedding-api-connect-row" style="margin-bottom:8px;">
+                                                    <button class="btn btn-sm" id="embedding-btn-connect" style="flex:1">拉取</button>
+                                                    <button class="btn btn-sm" id="embedding-btn-test" style="flex:1">测试</button>
+                                                    <button class="btn btn-sm btn-p" id="embedding-btn-save" style="flex:1">保存</button>
+                                                </div>
+                                                <div class="settings-hint" id="embedding-api-connect-status" style="margin-bottom:16px;"></div>
+                                            </div>
+                                        </details>
+
+                                        <details class="settings-collapse" id="rerank-api-collapse">
+                                            <summary class="settings-collapse-header">
+                                                <span>Rerank 模型</span>
+                                                <svg class="collapse-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                                </svg>
+                                            </summary>
+                                            <div class="settings-collapse-content">
+                                                <div class="settings-row">
+                                                    <div class="settings-field">
+                                                        <label>渠道</label>
+                                                        <select id="rerank-api-provider">
+                                                            <option value="siliconflow">硅基流动</option>
+                                                            <option value="custom">自定义</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="rerank-api-url-row">
+                                                    <div class="settings-field full">
+                                                        <label>API URL</label>
+                                                        <input type="text" id="rerank-api-url" placeholder="https://api.siliconflow.cn/v1">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="rerank-api-key-row">
+                                                    <div class="settings-field full">
+                                                        <label>API KEY</label>
+                                                        <div style="display:flex; gap:8px; align-items:center;">
+                                                            <input type="password" id="rerank-api-key" placeholder="sk-xxx" style="flex:1;">
+                                                            <button type="button" class="btn btn-sm" id="rerank-api-key-toggle" style="flex:0 0 auto; min-width:64px;">显示</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row" id="rerank-api-model-manual-row">
+                                                    <div class="settings-field full">
+                                                        <label>模型名</label>
+                                                        <input type="text" id="rerank-api-model-text" placeholder="如 BAAI/bge-reranker-v2-m3">
+                                                    </div>
+                                                </div>
+                                                <div class="settings-row hidden" id="rerank-api-model-select-row">
+                                                    <div class="settings-field full">
+                                                        <label>已拉取模型</label>
+                                                        <select id="rerank-api-model-select"><option value="">请选择</option></select>
+                                                    </div>
+                                                </div>
+                                                <div class="settings-btn-row" id="rerank-api-connect-row" style="margin-bottom:8px;">
+                                                    <button class="btn btn-sm" id="rerank-btn-connect" style="flex:1">拉取</button>
+                                                    <button class="btn btn-sm" id="rerank-btn-test" style="flex:1">测试</button>
+                                                    <button class="btn btn-sm btn-p" id="rerank-btn-save" style="flex:1">保存</button>
+                                                </div>
+                                                <div class="settings-hint" id="rerank-api-connect-status"></div>
+                                            </div>
+                                        </details>
                                     </div>
                                 </div>
                             </div>
@@ -587,6 +738,75 @@
                                 </div>
                             </div>
 
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-pane" id="tab-prompts">
+                    <div class="settings-section">
+                        <div class="settings-btn-row" style="margin: 0 0 12px 0; align-items: center;">
+                            <div class="settings-section-title" style="margin: 0;">增量总结提示词</div>
+                            <button class="btn btn-sm" id="btn-reset-summary-prompts" style="margin-left:auto;">恢复默认</button>
+                        </div>
+                        <div class="settings-hint" style="margin-bottom: 12px;">这里展示的是一次完整增量总结的各段提示词。像 <code>{$nextEventId}</code>、<code>{$existingEventCount}</code> 这样的占位符会在运行时自动替换，不要删除。</div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-system-prompt" style="min-height: 300px;" placeholder="assistant"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-assistant-doc-prompt" style="min-height: 220px;" placeholder="assistant"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-assistant-ask-summary-prompt" style="min-height: 120px;" placeholder="user"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-assistant-ask-content-prompt" style="min-height: 160px;" placeholder="assistant"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <label>{插入聊天历史记录}</label>
+                                <textarea class="editor-ta" id="summary-meta-protocol-start-prompt" style="min-height: 120px;" placeholder="user"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-user-json-format-prompt" style="min-height: 320px;" placeholder="user"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-assistant-check-prompt" style="min-height: 180px;" placeholder="assistant"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-user-confirm-prompt" style="min-height: 100px;" placeholder="user"></textarea>
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="summary-assistant-prefill-prompt" style="min-height: 80px;" placeholder="assistant"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <div class="settings-btn-row" style="margin: 0 0 12px 0; align-items: center;">
+                            <div class="settings-section-title" style="margin: 0;">记忆注入提示词</div>
+                            <button class="btn btn-sm" id="btn-reset-memory-prompt-template" style="margin-left:auto;">恢复默认</button>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-field full">
+                                <textarea class="editor-ta" id="memory-prompt-template" style="min-height: 220px;" placeholder="聊天注入模板"></textarea>
+                                <div class="settings-hint">必须保留 <code>{$剧情记忆}</code> 这个占位符，运行时会替换成实际记忆内容。</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -860,18 +1080,25 @@
         <div class="modal-box confirm-modal-box">
             <div class="modal-head">
                 <h2 id="confirm-title">确认操作</h2>
-                <button class="modal-close" id="confirm-close">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                </button>
             </div>
             <div class="modal-body">
                 <div id="confirm-message" style="margin: 10px 0; line-height: 1.6; color: var(--fg);">内容</div>
+                <div id="confirm-action-list" class="confirm-action-list hidden">
+                    <button class="confirm-action-item" id="confirm-action-rollback" type="button">
+                        <span class="confirm-action-title">回退一次</span>
+                        <span class="confirm-action-desc" id="confirm-action-rollback-desc">撤销最近一次总结，聊天记录不会删除。</span>
+                    </button>
+                    <button class="confirm-action-item danger" id="confirm-action-clear" type="button">
+                        <span class="confirm-action-title">清空全部</span>
+                        <span class="confirm-action-desc" id="confirm-action-clear-desc">删除本聊天的全部总结数据，聊天记录不会删除。</span>
+                    </button>
+                </div>
+                <div id="confirm-input-wrap" class="hidden" style="margin-top: 12px;">
+                    <textarea class="editor-ta" id="confirm-input" style="min-height: 220px;" placeholder="在这里粘贴记忆包"></textarea>
+                </div>
             </div>
             <div class="modal-foot">
-                <button class="btn" id="confirm-cancel">取消</button>
+                <button class="btn" id="confirm-cancel">退出</button>
                 <button class="btn btn-del" id="confirm-ok">执行</button>
             </div>
         </div>

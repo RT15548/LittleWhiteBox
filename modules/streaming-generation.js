@@ -177,7 +177,9 @@ class StreamingGeneration {
                 const provider = String(opts.api || '').toLowerCase();
                 const reverseProxyConfigured = String(opts.apiurl || '').trim().length > 0;
                 const pwd = String(opts.apipassword || '').trim();
-                if (!reverseProxyConfigured && pwd) {
+                if (pwd && provider === 'custom') {
+                    await writeSecret(SECRET_KEYS.CUSTOM, pwd, 'xbgen-inline');
+                } else if (!reverseProxyConfigured && pwd) {
                     const providerToSecretKey = {
                         openai: SECRET_KEYS.OPENAI,
                         gemini: SECRET_KEYS.MAKERSUITE,
