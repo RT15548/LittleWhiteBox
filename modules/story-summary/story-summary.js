@@ -101,7 +101,7 @@ import {
 
 // vector io
 import { exportVectors, importVectors, backupToServer, restoreFromServer, fetchManifest, deleteServerBackup, isDeleteUnsupportedError, getBackupFilename } from "./vector/storage/vector-io.js";
-import { clearAllVectorCaches, clearVectorCache, getAllVectorCacheStats, retainVectorCacheOnly, warmVectorCache } from "./vector/storage/vector-cache.js";
+import { clearAllVectorCaches, clearVectorCache, getAllVectorCacheStats, retainVectorCacheOnly, waitForVectorCacheWarmup, warmVectorCache } from "./vector/storage/vector-cache.js";
 
 import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocumentsByFloor, addEventDocuments } from "./vector/retrieval/lexical-index.js";
 
@@ -128,6 +128,8 @@ let activeChatId = null;
 let vectorCancelled = false;
 let vectorAbortController = null;
 let _lastBuiltPromptText = "";
+let eventEditSyncToken = 0;
+let eventEditSyncQueue = Promise.resolve();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TaskGuard — 互斥任务管理（summary / vector / anchor）
@@ -195,11 +197,10 @@ let lexicalWarmupTimer = null;
 let autoL0BackfillTimer = null;
 let vectorIntegrityTimer = null;
 const autoSummaryTimers = new Map();
-const LEXICAL_WARMUP_DEBOUNCE_MS = 8000;
-const CHAT_CHANGE_LEXICAL_WARMUP_MS = 12000;
-const AFTER_SEND_LEXICAL_WARMUP_MS = 30000;
-const AUTO_SUMMARY_DELAY_MS = 8000;
-const AUTO_L0_BACKFILL_DELAY_MS = 15000;
+const LEXICAL_WARMUP_DEBOUNCE_MS = 3000;
+const CHAT_CHANGE_LEXICAL_WARMUP_MS = 3000;
+const AUTO_SUMMARY_DELAY_MS = 3000;
+const AUTO_L0_BACKFILL_DELAY_MS = 5000;
 const BACKGROUND_VISIBLE_GRACE_MS = 6000;
 const BACKGROUND_INTERACTION_GRACE_MS = 4000;
 const BACKGROUND_VIEWPORT_GRACE_MS = 4000;
@@ -793,6 +794,40 @@ function warmupActiveVectorCache() {
     });
 }
 
+async function rebuildActiveVectorCacheAfterSummary() {
+    const vectorCfg = getVectorConfig();
+    if (!vectorCfg?.enabled) return;
+
+    const { chatId } = getContext();
+    if (!chatId) return;
+
+    try {
+        postToFrame({ type: "SUMMARY_STATUS", statusText: "正在刷新记忆热缓存..." });
+        clearVectorCache(chatId);
+        warmVectorCache(chatId).catch((error) => {
+            xbLog.warn(MODULE_ID, "大总结后刷新向量热缓存失败", error);
+        });
+        const ready = await waitForVectorCacheWarmup(chatId);
+        if (!ready) {
+            xbLog.warn(MODULE_ID, "大总结后刷新向量热缓存超时，将在后台重试");
+        } else {
+            xbLog.info(MODULE_ID, "大总结后已刷新向量热缓存");
+        }
+        await sendVectorStatsToFrame();
+    } catch (error) {
+        xbLog.warn(MODULE_ID, "大总结后刷新向量热缓存失败", error);
+    }
+}
+
+function buildEventVectorText(event) {
+    return `${event?.title || ""} ${event?.summary || ""}`.trim();
+}
+
+function buildEventLexicalSignature(event) {
+    const participants = Array.isArray(event?.participants) ? event.participants.join(" ") : "";
+    return `${event?.title || ""} ${participants} ${event?.summary || ""}`.trim();
+}
+
 async function autoVectorizeNewEvents(newEventIds) {
     if (!newEventIds?.length) return;
 
@@ -810,7 +845,7 @@ async function autoVectorizeNewEvents(newEventIds) {
     if (!newEvents.length) return;
 
     const pairs = newEvents
-        .map((e) => ({ id: e.id, text: `${e.title || ""} ${e.summary || ""}`.trim() }))
+        .map((e) => ({ id: e.id, text: buildEventVectorText(e) }))
         .filter((p) => p.text);
 
     if (!pairs.length) return;
@@ -843,22 +878,98 @@ async function autoVectorizeNewEvents(newEventIds) {
 // L2 跟随编辑同步（用户编辑 events 时调用）
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function syncEventVectorsOnEdit(oldEvents, newEvents) {
-    const vectorCfg = getVectorConfig();
-    if (!vectorCfg?.enabled) return;
+function syncEventVectorsOnEdit(oldEvents, newEvents) {
+    const syncToken = ++eventEditSyncToken;
+    eventEditSyncQueue = eventEditSyncQueue
+        .catch(() => { })
+        .then(() => syncEventVectorsOnEditNow(oldEvents, newEvents, syncToken));
+    return eventEditSyncQueue;
+}
 
-    const { chatId } = getContext();
-    if (!chatId) return;
+function cancelPendingEventEditSync() {
+    eventEditSyncToken += 1;
+}
 
-    const oldIds = new Set((oldEvents || []).map((e) => e.id).filter(Boolean));
-    const newIds = new Set((newEvents || []).map((e) => e.id).filter(Boolean));
+async function syncEventVectorsOnEditNow(oldEvents, newEvents, syncToken) {
+    try {
+        const vectorCfg = getVectorConfig();
+        const { chatId } = getContext();
+        if (!chatId) return;
+        if (syncToken !== eventEditSyncToken || isChatStale(chatId)) return;
 
-    const deletedIds = [...oldIds].filter((id) => !newIds.has(id));
+        const oldList = Array.isArray(oldEvents) ? oldEvents : [];
+        const newList = Array.isArray(newEvents) ? newEvents : [];
+        const oldById = new Map(oldList.map((e) => [e?.id, e]).filter(([id]) => id));
+        const newById = new Map(newList.map((e) => [e?.id, e]).filter(([id]) => id));
+        const oldIds = new Set(oldById.keys());
+        const newIds = new Set(newById.keys());
 
-    if (deletedIds.length > 0) {
-        await deleteEventVectorsByIds(chatId, deletedIds);
-        xbLog.info(MODULE_ID, `L2 同步删除: ${deletedIds.length} 个事件向量`);
-        await sendVectorStatsToFrame();
+        const deletedIds = [...oldIds].filter((id) => !newIds.has(id));
+        const lexicalChangedEvents = newList.filter((event) => {
+            const oldEvent = oldById.get(event?.id);
+            if (!oldEvent) return true;
+            return buildEventLexicalSignature(oldEvent) !== buildEventLexicalSignature(event);
+        });
+        const vectorChangedEvents = newList.filter((event) => {
+            const oldEvent = oldById.get(event?.id);
+            if (!oldEvent) return true;
+            return buildEventVectorText(oldEvent) !== buildEventVectorText(event);
+        });
+        if (syncToken !== eventEditSyncToken || isChatStale(chatId)) return;
+
+        if (deletedIds.length > 0) {
+            invalidateLexicalIndex();
+            if (vectorCfg?.enabled) {
+                await deleteEventVectorsByIds(chatId, deletedIds);
+            }
+            xbLog.info(MODULE_ID, `L2 同步删除: ${deletedIds.length} 个事件向量`);
+        }
+
+        if (lexicalChangedEvents.some((event) => !buildEventLexicalSignature(event))) {
+            invalidateLexicalIndex();
+        } else if (lexicalChangedEvents.length > 0) {
+            addEventDocuments(lexicalChangedEvents);
+        }
+
+        if (vectorCfg?.enabled && vectorChangedEvents.length > 0) {
+            const fingerprint = getEngineFingerprint(vectorCfg);
+            const staleVectorIds = vectorChangedEvents
+                .filter((e) => e?.id && oldById.has(e.id))
+                .map((e) => e.id);
+            const pairs = vectorChangedEvents
+                .map((e) => ({ id: e.id, text: buildEventVectorText(e) }))
+                .filter((e) => e.id && e.text);
+            const batchSize = 20;
+
+            if (staleVectorIds.length > 0) {
+                if (syncToken !== eventEditSyncToken || isChatStale(chatId)) return;
+                await deleteEventVectorsByIds(chatId, staleVectorIds);
+            }
+
+            for (let i = 0; i < pairs.length; i += batchSize) {
+                if (syncToken !== eventEditSyncToken || isChatStale(chatId)) return;
+                const batch = pairs.slice(i, i + batchSize);
+                const vectors = await embed(batch.map((p) => p.text), vectorCfg);
+                if (syncToken !== eventEditSyncToken || isChatStale(chatId)) {
+                    return;
+                }
+                const items = batch.map((p, idx) => ({
+                    eventId: p.id,
+                    vector: vectors[idx],
+                }));
+                await saveEventVectorsToDb(chatId, items, fingerprint);
+            }
+        }
+
+        if (lexicalChangedEvents.length > 0 || vectorChangedEvents.length > 0) {
+            xbLog.info(MODULE_ID, `L2 同步刷新: ${lexicalChangedEvents.length} 个事件`);
+        }
+
+        if (deletedIds.length > 0 || lexicalChangedEvents.length > 0 || vectorChangedEvents.length > 0) {
+            await sendVectorStatsToFrame();
+        }
+    } catch (e) {
+        xbLog.error(MODULE_ID, "L2 编辑同步失败", e);
     }
 }
 
@@ -1719,6 +1830,7 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
                     await updateFrameStatsAfterSummary(store);
 
                     await autoVectorizeNewEvents(newEventIds);
+                    await rebuildActiveVectorCacheAfterSummary();
                 },
             });
 
@@ -1983,7 +2095,9 @@ async function handleFrameMessage(event) {
                 break;
             }
             const { chat, chatId } = getContext();
+            cancelPendingEventEditSync();
             await clearSummaryData(chatId);
+            invalidateLexicalIndex();
             const totalFloors = Array.isArray(chat) ? chat.length : 0;
             const store = getSummaryStore();
             await sendFrameBaseData(store, totalFloors);
@@ -2008,7 +2122,11 @@ async function handleFrameMessage(event) {
                 break;
             }
 
+            cancelPendingEventEditSync();
             const result = await rollbackSummaryOnce(chatId);
+            if (result.success) {
+                invalidateLexicalIndex();
+            }
             const totalFloors = Array.isArray(chat) ? chat.length : 0;
             const nextStore = getSummaryStore();
             await sendFrameBaseData(nextStore, totalFloors);
@@ -2054,7 +2172,7 @@ async function handleFrameMessage(event) {
             store.updatedAt = Date.now();
             saveSummaryStore();
 
-            // 同步 L2 向量（删除被移除的事件）
+            // 同步 L2 检索索引（事件新增、编辑、删除）
             if (data.section === "events" && oldEvents) {
                 syncEventVectorsOnEdit(oldEvents, data.data);
             }
@@ -2171,6 +2289,7 @@ async function handleManualGenerate(mesId, config) {
                 await updateFrameStatsAfterSummary(store);
 
                 await autoVectorizeNewEvents(newEventIds);
+                await rebuildActiveVectorCacheAfterSummary();
             },
         });
     } finally {
@@ -2306,7 +2425,6 @@ async function handleMessageReceived(scheduledChatId) {
 function handleMessageSent(scheduledChatId) {
     if (isChatStale(scheduledChatId)) return;
     initButtonForLatestMessage();
-    scheduleLexicalWarmup(AFTER_SEND_LEXICAL_WARMUP_MS);
     scheduleAutoSummary("before_user");
 }
 

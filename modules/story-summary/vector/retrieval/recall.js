@@ -34,6 +34,7 @@ import {
     markCachedChunkVectorIdsLoaded,
     upsertCachedChunkVectors,
     upsertCachedChunks,
+    waitForVectorCacheWarmup,
 } from '../storage/vector-cache.js';
 import { getEngineFingerprint, embed } from '../utils/embedder.js';
 import { xbLog } from '../../../../core/debug-core.js';
@@ -980,6 +981,10 @@ async function pullAndScoreL1(chatId, floors, queryVector, chat) {
     let dbChunks = [];
     try {
         const TChunkFetch = performance.now();
+        const warmupReady = await waitForVectorCacheWarmup(chatId);
+        if (!warmupReady) {
+            xbLog.warn(MODULE_ID, '等待向量热缓存超时，L1 将回退到 DB 读取');
+        }
         const cached = getCachedChunksByFloors(chatId, floors);
         let fetched = [];
         if (cached.missingFloors.length > 0) {
@@ -1697,23 +1702,25 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     metrics.event.entitiesUsed = focusCharacters.length;
     metrics.event.focusTermsCount = focusTerms.length;
 
-    console.group('%c[Recall v9]', 'color: #7c3aed; font-weight: bold');
-    console.log(`Total: ${metrics.timing.total}ms`);
-    console.log(`Timing attribution: external=${metrics.timing.externalTotal || 0}ms localKnown=${metrics.timing.localKnownTotal || 0}ms unattributed=${metrics.timing.unattributed || 0}ms | r1Embed=${metrics.timing.round1Embed || 0}ms r2Embed=${metrics.timing.round2Embed || 0}ms rerank=${metrics.timing.evidenceRerank || 0}ms`);
-    console.log(`Query Build: ${metrics.query.buildTime}ms | Refine: ${metrics.query.refineTime}ms`);
-    console.log(`R1 weights: [${r1Weights.map(w => w.toFixed(2)).join(', ')}]`);
-    console.log(`Focus terms: [${focusTerms.join(', ')}]`);
-    console.log(`Focus characters: [${focusCharacters.join(', ')}]`);
-    console.log(`Round 2 Anchors: ${anchorHits.length} hits → ${anchorFloors_dense.size} floors`);
-    console.log(`Lexical: chunks=${lexicalResult.chunkIds.length} events=${lexicalResult.eventIds.length} evtMerged=+${lexicalEventCount} evtFiltered=${lexicalEventFilteredByDense} floorFiltered=${metrics.lexical.floorFilteredByDense || 0} (idx=${indexReadyTime}ms search=${lexicalResult.searchTime || 0}ms total=${lexTime}ms)`);
-    console.log(`Fusion (floor, weighted): dense=${metrics.fusion.denseFloors} lex=${metrics.fusion.lexFloors} → cap=${metrics.fusion.afterCap} (${metrics.fusion.time}ms)`);
-    console.log(`Fusion Guard: mustKeepTerms=${metrics.evidence.mustKeepTermsCount || 0} mustKeepFloors=[${(metrics.evidence.mustKeepFloors || []).join(', ')}]`);
-    console.log(`Floor Rerank: ${metrics.evidence.beforeRerank || 0} → ${metrics.evidence.floorsSelected || 0} floors → L0=${metrics.evidence.l0Collected || 0} (${metrics.evidence.rerankTime || 0}ms)`);
-    console.log(`L1: prefetchedAI=${metrics.evidence.l1PrefetchAiFloors || 0} totalFloors=${metrics.evidence.l1PrefetchWithContextFloors || 0} trimmed=${metrics.evidence.l1PrefetchTrimmed || 0} | ${metrics.evidence.l1Pulled || 0} pulled → ${metrics.evidence.l1Attached || 0} attached (${metrics.evidence.l1CosineTime || 0}ms)`);
-    console.log(`L1 breakdown: chunkDB=${metrics.evidence.l1ChunkFetchTime || 0}ms vectorDB=${metrics.evidence.l1VectorFetchTime || 0}ms cacheWarm=${!!metrics.evidence.l1CacheWarm} chunkCache=${metrics.evidence.l1ChunkCacheHits || 0}/${metrics.evidence.l1ChunkCacheMisses || 0} vectorCache=${metrics.evidence.l1VectorCacheHits || 0}/${metrics.evidence.l1VectorCacheMisses || 0} deserialize=${metrics.evidence.l1DeserializeTime || 0}ms score=${metrics.evidence.l1ScoreTime || 0}ms sort=${metrics.evidence.l1SortTime || 0}ms vectors=${metrics.evidence.l1VectorHits || 0} missing=${metrics.evidence.l1MissingVectors || 0}`);
-    console.log(`Events: ${eventHits.length} hits (l0Linked=+${l0LinkedCount}), ${causalChain.length} causal`);
-    console.log(`Diffusion: ${metrics.diffusion?.seedCount || 0} seeds → ${metrics.diffusion?.pprActivated || 0} activated → ${metrics.diffusion?.finalCount || 0} final (${metrics.diffusion?.time || 0}ms | graph=${metrics.diffusion?.buildTime || 0}ms ppr=${metrics.diffusion?.pprTime || 0}ms post=${metrics.diffusion?.postVerifyTime || 0}ms)`);
-    console.groupEnd();
+    if (xbLog.isEnabled()) {
+        console.group('%c[Recall v9]', 'color: #7c3aed; font-weight: bold');
+        console.log(`Total: ${metrics.timing.total}ms`);
+        console.log(`Timing attribution: external=${metrics.timing.externalTotal || 0}ms localKnown=${metrics.timing.localKnownTotal || 0}ms unattributed=${metrics.timing.unattributed || 0}ms | r1Embed=${metrics.timing.round1Embed || 0}ms r2Embed=${metrics.timing.round2Embed || 0}ms rerank=${metrics.timing.evidenceRerank || 0}ms`);
+        console.log(`Query Build: ${metrics.query.buildTime}ms | Refine: ${metrics.query.refineTime}ms`);
+        console.log(`R1 weights: [${r1Weights.map(w => w.toFixed(2)).join(', ')}]`);
+        console.log(`Focus terms: [${focusTerms.join(', ')}]`);
+        console.log(`Focus characters: [${focusCharacters.join(', ')}]`);
+        console.log(`Round 2 Anchors: ${anchorHits.length} hits → ${anchorFloors_dense.size} floors`);
+        console.log(`Lexical: chunks=${lexicalResult.chunkIds.length} events=${lexicalResult.eventIds.length} evtMerged=+${lexicalEventCount} evtFiltered=${lexicalEventFilteredByDense} floorFiltered=${metrics.lexical.floorFilteredByDense || 0} (idx=${indexReadyTime}ms search=${lexicalResult.searchTime || 0}ms total=${lexTime}ms)`);
+        console.log(`Fusion (floor, weighted): dense=${metrics.fusion.denseFloors} lex=${metrics.fusion.lexFloors} → cap=${metrics.fusion.afterCap} (${metrics.fusion.time}ms)`);
+        console.log(`Fusion Guard: mustKeepTerms=${metrics.evidence.mustKeepTermsCount || 0} mustKeepFloors=[${(metrics.evidence.mustKeepFloors || []).join(', ')}]`);
+        console.log(`Floor Rerank: ${metrics.evidence.beforeRerank || 0} → ${metrics.evidence.floorsSelected || 0} floors → L0=${metrics.evidence.l0Collected || 0} (${metrics.evidence.rerankTime || 0}ms)`);
+        console.log(`L1: prefetchedAI=${metrics.evidence.l1PrefetchAiFloors || 0} totalFloors=${metrics.evidence.l1PrefetchWithContextFloors || 0} trimmed=${metrics.evidence.l1PrefetchTrimmed || 0} | ${metrics.evidence.l1Pulled || 0} pulled → ${metrics.evidence.l1Attached || 0} attached (${metrics.evidence.l1CosineTime || 0}ms)`);
+        console.log(`L1 breakdown: chunkDB=${metrics.evidence.l1ChunkFetchTime || 0}ms vectorDB=${metrics.evidence.l1VectorFetchTime || 0}ms cacheWarm=${!!metrics.evidence.l1CacheWarm} chunkCache=${metrics.evidence.l1ChunkCacheHits || 0}/${metrics.evidence.l1ChunkCacheMisses || 0} vectorCache=${metrics.evidence.l1VectorCacheHits || 0}/${metrics.evidence.l1VectorCacheMisses || 0} deserialize=${metrics.evidence.l1DeserializeTime || 0}ms score=${metrics.evidence.l1ScoreTime || 0}ms sort=${metrics.evidence.l1SortTime || 0}ms vectors=${metrics.evidence.l1VectorHits || 0} missing=${metrics.evidence.l1MissingVectors || 0}`);
+        console.log(`Events: ${eventHits.length} hits (l0Linked=+${l0LinkedCount}), ${causalChain.length} causal`);
+        console.log(`Diffusion: ${metrics.diffusion?.seedCount || 0} seeds → ${metrics.diffusion?.pprActivated || 0} activated → ${metrics.diffusion?.finalCount || 0} final (${metrics.diffusion?.time || 0}ms | graph=${metrics.diffusion?.buildTime || 0}ms ppr=${metrics.diffusion?.pprTime || 0}ms post=${metrics.diffusion?.postVerifyTime || 0}ms)`);
+        console.groupEnd();
+    }
 
     return {
         events: eventHits,

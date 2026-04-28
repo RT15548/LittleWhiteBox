@@ -496,6 +496,16 @@ export function migrateToFacts(json) {
     return facts;
 }
 
+function normalizeCharacterNameKey(name) {
+    return String(name || '').trim().toLowerCase();
+}
+
+function normalizeArcProgress(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(1, n));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 数据合并（L2 + L3）
 // ═══════════════════════════════════════════════════════════════════════════
@@ -525,30 +535,44 @@ export function mergeNewData(oldJson, parsed, endMesId) {
 
     // newCharacters
     const existingMain = new Set(
-        (merged.characters.main || []).map(m => typeof m === 'string' ? m : m.name)
+        (merged.characters.main || [])
+            .map(m => normalizeCharacterNameKey(typeof m === 'string' ? m : m.name))
+            .filter(Boolean)
     );
-    (parsed.newCharacters || []).forEach(name => {
-        if (!existingMain.has(name)) {
+    (parsed.newCharacters || []).forEach(rawName => {
+        const name = String(typeof rawName === 'string' ? rawName : rawName?.name || '').trim();
+        const key = normalizeCharacterNameKey(name);
+        if (!key) return;
+        if (!existingMain.has(key)) {
             merged.characters.main.push({ name, _addedAt: endMesId });
+            existingMain.add(key);
         }
     });
 
     // arcUpdates
-    const arcMap = new Map((merged.arcs || []).map(a => [a.name, a]));
+    const arcMap = new Map(
+        (merged.arcs || [])
+            .map(a => [normalizeCharacterNameKey(a.name), a])
+            .filter(([key]) => key)
+    );
     (parsed.arcUpdates || []).forEach(update => {
-        const existing = arcMap.get(update.name);
+        const name = String(update?.name || '').trim();
+        if (!name) return;
+        const key = normalizeCharacterNameKey(name);
+        const existing = arcMap.get(key);
+        const progress = normalizeArcProgress(update.progress);
         if (existing) {
             existing.trajectory = update.trajectory;
-            existing.progress = update.progress;
+            existing.progress = progress;
             if (update.newMoment) {
                 existing.moments = existing.moments || [];
                 existing.moments.push({ text: update.newMoment, _addedAt: endMesId });
             }
         } else {
-            arcMap.set(update.name, {
-                name: update.name,
+            arcMap.set(key, {
+                name,
                 trajectory: update.trajectory,
-                progress: update.progress,
+                progress,
                 moments: update.newMoment ? [{ text: update.newMoment, _addedAt: endMesId }] : [],
                 _addedAt: endMesId,
             });

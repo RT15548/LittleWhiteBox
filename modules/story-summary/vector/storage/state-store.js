@@ -14,7 +14,9 @@ import {
     deleteCachedStateVectorsFromFloor,
     getCachedStateVectors,
     markCachedStateVectorsLoaded,
+    markVectorCacheDirty,
     upsertCachedStateVectors,
+    waitForVectorCacheWarmup,
 } from './vector-cache.js';
 
 const MODULE_ID = 'state-store';
@@ -206,6 +208,7 @@ export function replaceStateAtoms(atoms) {
 export async function saveStateVectors(chatId, items, fingerprint) {
     if (!chatId || !items?.length) return;
 
+    markVectorCacheDirty(chatId);
     const records = items.map(item => ({
         chatId,
         atomId: item.atomId,
@@ -228,6 +231,7 @@ export async function saveStateVectors(chatId, items, fingerprint) {
 export async function getAllStateVectors(chatId) {
     if (!chatId) return [];
 
+    await waitForVectorCacheWarmup(chatId);
     const cached = getCachedStateVectors(chatId);
     if (cached) return cached;
 

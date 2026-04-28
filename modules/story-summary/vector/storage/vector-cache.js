@@ -37,6 +37,7 @@ function createEntry() {
         fingerprint: null,
         lastChunkFloor: -1,
         warming: null,
+        warmTimedOut: null,
         chunksByFloor: new Map(),
         chunkVectorsById: new Map(),
         eventVectorsById: new Map(),
@@ -53,6 +54,9 @@ function createEntry() {
 
 const caches = new Map();
 const invalidationTokens = new Map();
+const warmRetryTimers = new Map();
+const DEFAULT_WARM_WAIT_TIMEOUT_MS = 15000;
+const WARM_RETRY_DELAY_MS = 30000;
 
 function getEntry(chatId) {
     if (!chatId) return null;
@@ -74,6 +78,76 @@ function getInvalidationToken(chatId) {
     return invalidationTokens.get(chatId) || 0;
 }
 
+function setEntryMeta(entry, meta = {}) {
+    if (!entry || !meta) return;
+    if ('fingerprint' in meta) entry.fingerprint = meta.fingerprint ?? null;
+    if ('lastChunkFloor' in meta) entry.lastChunkFloor = meta.lastChunkFloor ?? -1;
+}
+
+function upsertEntryChunks(entry, chatId, chunks = [], options = {}) {
+    if (!entry || !chunks?.length) return;
+
+    for (const chunk of chunks) {
+        const floor = Number(chunk.floor);
+        if (!Number.isInteger(floor)) continue;
+        const record = { ...chunk, chatId };
+        const list = entry.chunksByFloor.get(floor) || [];
+        const next = list.filter((item) => item.chunkId !== record.chunkId);
+        next.push(record);
+        next.sort((a, b) => (a.chunkIdx ?? 0) - (b.chunkIdx ?? 0));
+        entry.chunksByFloor.set(floor, next);
+        if (options.markLoaded !== false) entry.loadedChunkFloors.add(floor);
+    }
+}
+
+function upsertEntryChunkVectors(entry, items = [], options = {}) {
+    if (!entry || !items?.length) return;
+
+    for (const item of items) {
+        if (!item?.chunkId) continue;
+        const raw = toArrayBuffer(item.vector);
+        if (!raw) continue;
+        entry.chunkVectorsById.set(item.chunkId, {
+            chunkId: item.chunkId,
+            vector: raw,
+            fingerprint: item.fingerprint,
+        });
+        if (options.markLoaded !== false) entry.loadedChunkVectorIds.add(item.chunkId);
+    }
+}
+
+function upsertEntryEventVectors(entry, items = []) {
+    if (!entry || !items?.length) return;
+
+    for (const item of items) {
+        if (!item?.eventId) continue;
+        const raw = toArrayBuffer(item.vector);
+        if (!raw) continue;
+        entry.eventVectorsById.set(item.eventId, {
+            eventId: item.eventId,
+            vector: raw,
+            fingerprint: item.fingerprint,
+        });
+    }
+}
+
+function upsertEntryStateVectors(entry, items = []) {
+    if (!entry || !items?.length) return;
+
+    for (const item of items) {
+        if (!item?.atomId) continue;
+        const raw = toArrayBuffer(item.vector);
+        if (!raw) continue;
+        entry.stateVectorsById.set(item.atomId, {
+            atomId: item.atomId,
+            floor: item.floor,
+            vector: raw,
+            rVector: toArrayBuffer(item.rVector),
+            fingerprint: item.fingerprint,
+        });
+    }
+}
+
 function bumpInvalidationToken(chatId) {
     if (!chatId) return 0;
     const next = getInvalidationToken(chatId) + 1;
@@ -83,11 +157,85 @@ function bumpInvalidationToken(chatId) {
     return next;
 }
 
+export function markVectorCacheDirty(chatId) {
+    return bumpInvalidationToken(chatId);
+}
+
+function isEntryFullyWarm(entry) {
+    return !!entry
+        && entry.loadedAllChunks
+        && entry.loadedAllChunkVectors
+        && entry.loadedAllEventVectors
+        && entry.loadedAllStateVectors;
+}
+
+function scheduleWarmRetry(chatId, sourcePromise = null) {
+    if (!chatId || warmRetryTimers.has(chatId)) return;
+    const entry = peekEntry(chatId);
+    if (!entry || isEntryFullyWarm(entry)) return;
+    if (entry.warming && entry.warming !== sourcePromise && entry.warmTimedOut !== entry.warming) return;
+    const timer = setTimeout(() => {
+        warmRetryTimers.delete(chatId);
+        const entry = peekEntry(chatId);
+        if (!entry || isEntryFullyWarm(entry)) return;
+        if (entry?.warming && entry.warmTimedOut === entry.warming) {
+            bumpInvalidationToken(chatId);
+            entry.warming = null;
+            entry.warmTimedOut = null;
+        }
+        warmVectorCache(chatId).catch(() => { });
+    }, WARM_RETRY_DELAY_MS);
+    warmRetryTimers.set(chatId, timer);
+}
+
+function clearWarmRetry(chatId) {
+    const retryTimer = warmRetryTimers.get(chatId);
+    if (!retryTimer) return;
+    clearTimeout(retryTimer);
+    warmRetryTimers.delete(chatId);
+}
+
+function waitWithTimeout(promise, timeoutMs) {
+    return new Promise((resolve) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            resolve(false);
+        }, timeoutMs);
+
+        promise
+            .then((result) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve(result?.ready !== false);
+            })
+            .catch(() => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve(false);
+            });
+    });
+}
+
+export async function waitForVectorCacheWarmup(chatId, timeoutMs = DEFAULT_WARM_WAIT_TIMEOUT_MS) {
+    const entry = peekEntry(chatId);
+    if (!entry?.warming) return true;
+    if (entry.warmTimedOut === entry.warming) return false;
+    const ready = await waitWithTimeout(entry.warming, timeoutMs);
+    if (!ready) {
+        entry.warmTimedOut = entry.warming;
+        scheduleWarmRetry(chatId);
+    }
+    return ready;
+}
+
 export function setCachedMeta(chatId, meta = {}) {
     const entry = getEntry(chatId);
     if (!entry) return;
-    if ('fingerprint' in meta) entry.fingerprint = meta.fingerprint ?? null;
-    if ('lastChunkFloor' in meta) entry.lastChunkFloor = meta.lastChunkFloor ?? -1;
+    setEntryMeta(entry, meta);
 }
 
 export async function warmVectorCache(chatId) {
@@ -95,20 +243,30 @@ export async function warmVectorCache(chatId) {
     if (!entry) return null;
     if (entry.warming) return entry.warming;
     const startedAtVersion = getInvalidationToken(chatId);
+    let warmingPromise = null;
+    entry.warmTimedOut = null;
 
-    entry.warming = (async () => {
-        const [meta, chunks, chunkVectors, eventVectors, stateVectors] = await Promise.all([
-            metaTable.get(chatId),
-            chunksTable.where('chatId').equals(chatId).toArray(),
-            chunkVectorsTable.where('chatId').equals(chatId).toArray(),
-            eventVectorsTable.where('chatId').equals(chatId).toArray(),
-            stateVectorsTable.where('chatId').equals(chatId).toArray(),
-        ]);
+    warmingPromise = (async () => {
+        let records;
+        try {
+            records = await Promise.all([
+                metaTable.get(chatId),
+                chunksTable.where('chatId').equals(chatId).toArray(),
+                chunkVectorsTable.where('chatId').equals(chatId).toArray(),
+                eventVectorsTable.where('chatId').equals(chatId).toArray(),
+                stateVectorsTable.where('chatId').equals(chatId).toArray(),
+            ]);
+        } catch (error) {
+            scheduleWarmRetry(chatId, warmingPromise);
+            throw error;
+        }
+        const [meta, chunks, chunkVectors, eventVectors, stateVectors] = records;
 
         // If DB-backed data changed while the warmup was reading, do not
         // repopulate the cache with an older snapshot.
         if (getInvalidationToken(chatId) !== startedAtVersion) {
-            return getVectorCacheStats(chatId);
+            scheduleWarmRetry(chatId, warmingPromise);
+            return { ready: false, stats: getVectorCacheStats(chatId) };
         }
 
         if (meta) setCachedMeta(chatId, meta);
@@ -121,16 +279,22 @@ export async function warmVectorCache(chatId) {
         entry.loadedAllChunkVectors = true;
         entry.loadedAllEventVectors = true;
         entry.loadedAllStateVectors = true;
+        clearWarmRetry(chatId);
 
-        return getVectorCacheStats(chatId);
+        return { ready: true, stats: getVectorCacheStats(chatId) };
     })().finally(() => {
-        entry.warming = null;
+        const currentEntry = peekEntry(chatId);
+        if (currentEntry?.warming === warmingPromise) {
+            currentEntry.warming = null;
+            currentEntry.warmTimedOut = null;
+        }
         if (!caches.has(chatId)) {
             invalidationTokens.delete(chatId);
         }
     });
 
-    return entry.warming;
+    entry.warming = warmingPromise;
+    return warmingPromise;
 }
 
 export function getCachedChunksByFloors(chatId, floors = []) {
@@ -206,70 +370,22 @@ export function getCachedStateVectors(chatId) {
 
 export function upsertCachedChunks(chatId, chunks = [], options = {}) {
     const entry = getEntry(chatId);
-    if (!entry || !chunks?.length) return;
-
-    for (const chunk of chunks) {
-        const floor = Number(chunk.floor);
-        if (!Number.isInteger(floor)) continue;
-        const record = { ...chunk, chatId };
-        const list = entry.chunksByFloor.get(floor) || [];
-        const next = list.filter((item) => item.chunkId !== record.chunkId);
-        next.push(record);
-        next.sort((a, b) => (a.chunkIdx ?? 0) - (b.chunkIdx ?? 0));
-        entry.chunksByFloor.set(floor, next);
-        if (options.markLoaded !== false) entry.loadedChunkFloors.add(floor);
-    }
+    upsertEntryChunks(entry, chatId, chunks, options);
 }
 
 export function upsertCachedChunkVectors(chatId, items = [], options = {}) {
     const entry = getEntry(chatId);
-    if (!entry || !items?.length) return;
-
-    for (const item of items) {
-        if (!item?.chunkId) continue;
-        const raw = toArrayBuffer(item.vector);
-        if (!raw) continue;
-        entry.chunkVectorsById.set(item.chunkId, {
-            chunkId: item.chunkId,
-            vector: raw,
-            fingerprint: item.fingerprint,
-        });
-        if (options.markLoaded !== false) entry.loadedChunkVectorIds.add(item.chunkId);
-    }
+    upsertEntryChunkVectors(entry, items, options);
 }
 
 export function upsertCachedEventVectors(chatId, items = []) {
     const entry = getEntry(chatId);
-    if (!entry || !items?.length) return;
-
-    for (const item of items) {
-        if (!item?.eventId) continue;
-        const raw = toArrayBuffer(item.vector);
-        if (!raw) continue;
-        entry.eventVectorsById.set(item.eventId, {
-            eventId: item.eventId,
-            vector: raw,
-            fingerprint: item.fingerprint,
-        });
-    }
+    upsertEntryEventVectors(entry, items);
 }
 
 export function upsertCachedStateVectors(chatId, items = []) {
     const entry = getEntry(chatId);
-    if (!entry || !items?.length) return;
-
-    for (const item of items) {
-        if (!item?.atomId) continue;
-        const raw = toArrayBuffer(item.vector);
-        if (!raw) continue;
-        entry.stateVectorsById.set(item.atomId, {
-            atomId: item.atomId,
-            floor: item.floor,
-            vector: raw,
-            rVector: toArrayBuffer(item.rVector),
-            fingerprint: item.fingerprint,
-        });
-    }
+    upsertEntryStateVectors(entry, items);
 }
 
 export function markCachedChunkFloorsLoaded(chatId, floors = []) {
@@ -346,6 +462,7 @@ export function clearVectorCache(chatId, domain = 'all') {
     bumpInvalidationToken(chatId);
     if (domain === 'all') {
         caches.delete(chatId);
+        clearWarmRetry(chatId);
         if (!entry?.warming) {
             invalidationTokens.delete(chatId);
         }
@@ -384,6 +501,10 @@ export function clearAllVectorCaches() {
     for (const key of [...caches.keys()]) {
         clearVectorCache(key);
     }
+    for (const timer of warmRetryTimers.values()) {
+        clearTimeout(timer);
+    }
+    warmRetryTimers.clear();
 }
 
 export function getVectorCacheStats(chatId) {

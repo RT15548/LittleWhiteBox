@@ -13,6 +13,7 @@ import {
     DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT,
 } from "../data/config.js";
 import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../../shared/common/openai-url-utils.js";
+import { xbLog } from "../../../core/debug-core.js";
 
 const PROVIDER_MAP = {
     openai: "openai",
@@ -229,9 +230,11 @@ export async function generateSummary(options) {
         rawOutput = await streamingMod.xbgenrawCommand(args, '');
     }
 
-    console.group('%c[Story-Summary] LLM输出', 'color: #7c3aed; font-weight: bold');
-    console.log(rawOutput);
-    console.groupEnd();
+    if (xbLog.isEnabled()) {
+        console.group('%c[Story-Summary] LLM输出', 'color: #7c3aed; font-weight: bold');
+        console.log(rawOutput);
+        console.groupEnd();
+    }
 
     return JSON_PREFILL + rawOutput;
 }

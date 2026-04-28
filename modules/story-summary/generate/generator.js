@@ -10,6 +10,13 @@ import { filterText } from "../vector/utils/text-filter.js";
 const MODULE_ID = 'summaryGenerator';
 const SUMMARY_SESSION_ID = 'xb9';
 const MAX_CAUSED_BY = 2;
+const FACT_PREDICATE_ALIASES = new Map([
+    ['当前位置', '位置'],
+    ['当前所在地', '位置'],
+    ['所在位置', '位置'],
+    ['所在地', '位置'],
+    ['当前状态', '状态'],
+]);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // factUpdates 清洗
@@ -21,6 +28,11 @@ function normalizeRelationPredicate(p) {
     return null;
 }
 
+function normalizeFactPredicate(p) {
+    const text = String(p || '').trim();
+    return FACT_PREDICATE_ALIASES.get(text) || text;
+}
+
 function sanitizeFacts(parsed) {
     if (!parsed) return;
 
@@ -29,7 +41,7 @@ function sanitizeFacts(parsed) {
 
     for (const item of updates) {
         const s = String(item?.s || '').trim();
-        const pRaw = String(item?.p || '').trim();
+        const pRaw = normalizeFactPredicate(item?.p);
 
         if (!s || !pRaw) continue;
 

@@ -312,6 +312,16 @@ export function getTemplateExtrasScript() {
 })();
 
 (function(){
+  function isBlockedExternalPageUrl(raw){
+    try{
+      var target=new URL(String(raw||'').trim(),window.location.href);
+      var protocol=String(target.protocol||'').toLowerCase();
+      return protocol==='javascript:'||protocol==='vbscript:';
+    }catch(_){
+      return false;
+    }
+  }
+
   function buildInjection(){
     var code='('+function(){
       var po;try{po=new URL(document.referrer).origin}catch(_){po='*'}
@@ -369,7 +379,8 @@ export function getTemplateExtrasScript() {
       try{var r=await fetch(url);if(r.ok)html=await r.text()}catch(_){}
       if(!html){try{var r2=await fetch('/cors/'+url);if(r2.ok)html=await r2.text()}catch(_){}}
       if(!html){
-        mount.innerHTML='<iframe src="'+url.replace(/"/g,'&quot;')+'" style="'+style+'"><\\/iframe>';
+        if(isBlockedExternalPageUrl(url))throw new Error('blocked url scheme');
+        mount.innerHTML='<iframe src="'+String(url).replace(/"/g,'&quot;')+'" style="'+style+'"><\\/iframe>';
         return;
       }
       var inj=buildInjection();

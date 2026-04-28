@@ -8,6 +8,7 @@
 
 import { getVectorConfig } from '../../data/config.js';
 import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../../../shared/common/openai-url-utils.js';
+import { xbLog } from '../../../../core/debug-core.js';
 
 const BASE_URL = 'https://api.siliconflow.cn';
 const EMBEDDING_MODEL = 'BAAI/bge-m3';
@@ -52,7 +53,9 @@ export function getApiKey(rawKey = null) {
     const key = keys[idx];
     _keyIndex = (_keyIndex + 1) % keys.length;
     const masked = key.length > 10 ? key.slice(0, 6) + '***' + key.slice(-4) : '***';
-    console.log(`[SiliconFlow] 使用 Key ${idx + 1}/${keys.length}: ${masked}`);
+    if (xbLog.isEnabled()) {
+        console.log(`[SiliconFlow] 使用 Key ${idx + 1}/${keys.length}: ${masked}`);
+    }
     return key;
 }
 

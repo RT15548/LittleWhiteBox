@@ -15,11 +15,13 @@ import {
     deleteCachedChunksFromFloor,
     deleteCachedEventVectorsByIds,
     getCachedEventVectors,
+    markVectorCacheDirty,
     markCachedEventVectorsLoaded,
     setCachedMeta,
     upsertCachedChunkVectors,
     upsertCachedChunks,
     upsertCachedEventVectors,
+    waitForVectorCacheWarmup,
 } from './vector-cache.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -66,6 +68,7 @@ export async function getMeta(chatId) {
 }
 
 export async function updateMeta(chatId, updates) {
+    markVectorCacheDirty(chatId);
     await metaTable.update(chatId, {
         ...updates,
         updatedAt: Date.now(),
@@ -78,6 +81,7 @@ export async function updateMeta(chatId, updates) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function saveChunks(chatId, chunks) {
+    markVectorCacheDirty(chatId);
     const records = chunks.map(chunk => ({
         chatId,
         chunkId: chunk.chunkId,
@@ -159,6 +163,7 @@ export async function clearAllChunks(chatId) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function saveChunkVectors(chatId, items, fingerprint) {
+    markVectorCacheDirty(chatId);
     const records = items.map(item => ({
         chatId,
         chunkId: item.chunkId,
@@ -205,6 +210,7 @@ export async function getChunkVectorsByIds(chatId, chunkIds, options = {}) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function saveEventVectors(chatId, items, fingerprint) {
+    markVectorCacheDirty(chatId);
     const records = items.map(item => ({
         chatId,
         eventId: item.eventId,
@@ -217,6 +223,7 @@ export async function saveEventVectors(chatId, items, fingerprint) {
 }
 
 export async function getAllEventVectors(chatId) {
+    await waitForVectorCacheWarmup(chatId);
     const cached = getCachedEventVectors(chatId);
     if (cached) return cached;
 
