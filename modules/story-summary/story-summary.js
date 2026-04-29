@@ -101,7 +101,13 @@ import {
 
 // vector io
 import { exportVectors, importVectors, backupToServer, restoreFromServer, fetchManifest, deleteServerBackup, isDeleteUnsupportedError, getBackupFilename } from "./vector/storage/vector-io.js";
-import { clearAllVectorCaches, clearVectorCache, getAllVectorCacheStats, retainVectorCacheOnly, waitForVectorCacheWarmup, warmVectorCache } from "./vector/storage/vector-cache.js";
+import {
+    clearRecallRuntime,
+    getRecallRuntimeStats,
+    refreshRecallRuntime,
+    retainRecallRuntimeOnly,
+    warmRecallRuntime,
+} from "./vector/runtime/runtime.js";
 
 import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocumentsByFloor, addEventDocuments } from "./vector/retrieval/lexical-index.js";
 
@@ -392,6 +398,7 @@ async function sendVectorStatsToFrame() {
             totalFloors: chunkStatus.totalFloors,
             totalMessages,
             stateVectors: stateVectorsCount,
+            recallRuntime: getRecallRuntimeStats(),
         },
         mismatch,
     });
@@ -783,14 +790,20 @@ function warmupEmbeddingConnection() {
 function warmupActiveVectorCache() {
     const vectorCfg = getVectorConfig();
     const { chatId } = getContext();
-    retainVectorCacheOnly(chatId || null);
+    retainRecallRuntimeOnly(chatId || null).catch((error) => {
+        xbLog.warn(MODULE_ID, '召回运行时清理非当前聊天缓存失败', error);
+    });
     if (!vectorCfg?.enabled) {
-        if (chatId) clearAllVectorCaches();
+        if (chatId) {
+            clearRecallRuntime().catch((error) => {
+                xbLog.warn(MODULE_ID, '召回运行时清理失败', error);
+            });
+        }
         return;
     }
     if (!chatId) return;
-    warmVectorCache(chatId).catch((error) => {
-        xbLog.warn(MODULE_ID, '向量热缓存预热失败', error);
+    warmRecallRuntime(chatId, { reason: 'active-chat-warmup' }).catch((error) => {
+        xbLog.warn(MODULE_ID, '召回运行时预热失败', error);
     });
 }
 
@@ -803,15 +816,14 @@ async function rebuildActiveVectorCacheAfterSummary() {
 
     try {
         postToFrame({ type: "SUMMARY_STATUS", statusText: "正在刷新记忆热缓存..." });
-        clearVectorCache(chatId);
-        warmVectorCache(chatId).catch((error) => {
-            xbLog.warn(MODULE_ID, "大总结后刷新向量热缓存失败", error);
-        });
-        const ready = await waitForVectorCacheWarmup(chatId);
-        if (!ready) {
-            xbLog.warn(MODULE_ID, "大总结后刷新向量热缓存超时，将在后台重试");
+        let result = await refreshRecallRuntime(chatId, { reason: 'after-summary' });
+        if (result?.stale) {
+            result = await refreshRecallRuntime(chatId, { reason: 'after-summary-retry' });
+        }
+        if (!result?.ready) {
+            xbLog.warn(MODULE_ID, "大总结后刷新召回运行时未完成，保留旧热缓存继续服务");
         } else {
-            xbLog.info(MODULE_ID, "大总结后已刷新向量热缓存");
+            xbLog.info(MODULE_ID, "大总结后已刷新召回运行时");
         }
         await sendVectorStatsToFrame();
     } catch (error) {
@@ -2227,7 +2239,7 @@ async function handleFrameMessage(event) {
                         !nextVectorConfig?.enabled ||
                         previousVectorFingerprint !== nextVectorFingerprint;
                     if (vectorCacheInvalidated) {
-                        clearAllVectorCaches();
+                        await clearRecallRuntime();
                     } else {
                         warmupActiveVectorCache();
                     }
@@ -2308,7 +2320,7 @@ async function handleChatChanged() {
     _lastBuiltPromptText = "";  // ← 加这一行，切聊天时清掉旧 summary
     const { chat } = getContext();
     activeChatId = getContext().chatId || null;
-    retainVectorCacheOnly(activeChatId);
+    await retainRecallRuntimeOnly(activeChatId);
     const newLength = Array.isArray(chat) ? chat.length : 0;
 
     await rollbackSummaryIfNeeded();
@@ -2604,7 +2616,7 @@ function registerEvents() {
     CacheRegistry.register(MODULE_ID, {
         name: "剧情总结运行缓存",
         getSize: () => {
-            const vectorStats = getAllVectorCacheStats();
+            const vectorStats = getRecallRuntimeStats();
             const vectorItems = vectorStats.reduce((sum, item) => (
                 sum
                 + Number(item.chunks || 0)
@@ -2618,7 +2630,7 @@ function registerEvents() {
             try {
                 return JSON.stringify({
                     pendingFrameMessages,
-                    vectorCaches: getAllVectorCacheStats(),
+                    recallRuntime: getRecallRuntimeStats(),
                 }).length * 2;
             } catch {
                 return 0;
@@ -2627,12 +2639,12 @@ function registerEvents() {
         getDetail: () => ({
             activeChatId,
             pendingFrameMessages: pendingFrameMessages.length,
-            vectorCaches: getAllVectorCacheStats(),
+            recallRuntime: getRecallRuntimeStats(),
         }),
         clear: () => {
             pendingFrameMessages = [];
             frameReady = false;
-            clearAllVectorCaches();
+            clearRecallRuntime().catch(() => {});
         },
     });
 
@@ -2674,7 +2686,7 @@ function registerEvents() {
 function unregisterEvents() {
     if (!events) return;
     CacheRegistry.unregister(MODULE_ID);
-    clearAllVectorCaches();
+    clearRecallRuntime().catch(() => {});
     events.cleanup();
     events = null;
     activeChatId = null;
@@ -2700,7 +2712,7 @@ function unregisterEvents() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleChatDeleted(chatId) {
-    clearVectorCache(chatId);
+    await clearRecallRuntime(chatId);
     try {
         const filename = getBackupFilename(chatId);
         await deleteServerBackup(filename, null);

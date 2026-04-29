@@ -964,6 +964,12 @@ All checks passed. Beginning incremental extraction...
         $('vector-atom-count').textContent = stats.stateVectors || 0;
         $('vector-chunk-count').textContent = stats.chunkCount || 0;
         $('vector-event-count').textContent = stats.eventVectors || 0;
+        const runtime = Array.isArray(stats.recallRuntime) ? stats.recallRuntime[0] : null;
+        const runtimeText = runtime
+            ? `${runtime.backend || 'unknown'} / ${runtime.status || (runtime.ready ? 'ready' : 'cold')}`
+            : 'cold';
+        const runtimeEl = $('vector-runtime-status');
+        if (runtimeEl) runtimeEl.textContent = runtimeText;
     }
 
     function showVectorMismatchWarning(show) {

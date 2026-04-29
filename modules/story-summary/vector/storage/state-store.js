@@ -10,14 +10,9 @@ import { stateVectorsTable } from '../../data/db.js';
 import { EXT_ID } from '../../../../core/constants.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import {
-    clearVectorCache,
-    deleteCachedStateVectorsFromFloor,
-    getCachedStateVectors,
-    markCachedStateVectorsLoaded,
-    markVectorCacheDirty,
-    upsertCachedStateVectors,
-    waitForVectorCacheWarmup,
-} from './vector-cache.js';
+    applyRecallRuntimeMutationBestEffort,
+    clearRecallRuntime,
+} from '../runtime/runtime.js';
 
 const MODULE_ID = 'state-store';
 
@@ -208,7 +203,6 @@ export function replaceStateAtoms(atoms) {
 export async function saveStateVectors(chatId, items, fingerprint) {
     if (!chatId || !items?.length) return;
 
-    markVectorCacheDirty(chatId);
     const records = items.map(item => ({
         chatId,
         atomId: item.atomId,
@@ -221,7 +215,10 @@ export async function saveStateVectors(chatId, items, fingerprint) {
     }));
 
     await stateVectorsTable.bulkPut(records);
-    upsertCachedStateVectors(chatId, records);
+    applyRecallRuntimeMutationBestEffort(chatId, {
+        type: 'upsertStateVectors',
+        items: records,
+    });
     xbLog.info(MODULE_ID, `存储 ${records.length} 个 StateVector`);
 }
 
@@ -231,13 +228,7 @@ export async function saveStateVectors(chatId, items, fingerprint) {
 export async function getAllStateVectors(chatId) {
     if (!chatId) return [];
 
-    await waitForVectorCacheWarmup(chatId);
-    const cached = getCachedStateVectors(chatId);
-    if (cached) return cached;
-
     const records = await stateVectorsTable.where('chatId').equals(chatId).toArray();
-    upsertCachedStateVectors(chatId, records);
-    markCachedStateVectorsLoaded(chatId);
     return records.map(r => ({
         ...r,
         vector: bufferToFloat32(r.vector),
@@ -257,7 +248,10 @@ export async function deleteStateVectorsFromFloor(chatId, floor) {
         .filter(v => v.floor >= floor)
         .delete();
 
-    deleteCachedStateVectorsFromFloor(chatId, floor);
+    applyRecallRuntimeMutationBestEffort(chatId, {
+        type: 'deleteStateVectorsFromFloor',
+        floor,
+    });
     if (deleted > 0) {
         xbLog.info(MODULE_ID, `删除 ${deleted} 个 StateVector (floor >= ${floor})`);
     }
@@ -270,7 +264,7 @@ export async function clearStateVectors(chatId) {
     if (!chatId) return;
 
     const deleted = await stateVectorsTable.where('chatId').equals(chatId).delete();
-    clearVectorCache(chatId, 'state');
+    await clearRecallRuntime(chatId, 'state');
     if (deleted > 0) {
         xbLog.info(MODULE_ID, `清空 ${deleted} 个 StateVector`);
     }

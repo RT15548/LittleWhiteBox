@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-26T08:40:17.610Z",
+  "generatedAt": "2026-04-29T03:41:14.438Z",
   "version": 1,
   "files": [
     {
@@ -832,6 +832,30 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/runtime/rpc.js",
+      "relativePath": "modules/story-summary/vector/runtime/rpc.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/runtime/runtime.js",
+      "relativePath": "modules/story-summary/vector/runtime/runtime.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/runtime/runtime.worker.js",
+      "relativePath": "modules/story-summary/vector/runtime/runtime.worker.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/runtime/scoring.js",
+      "relativePath": "modules/story-summary/vector/runtime/scoring.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/storage/chunk-store.js",
       "relativePath": "modules/story-summary/vector/storage/chunk-store.js",
       "extension": ".js"
@@ -840,12 +864,6 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/storage/state-store.js",
       "relativePath": "modules/story-summary/vector/storage/state-store.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/story-summary/vector/storage/vector-cache.js",
-      "relativePath": "modules/story-summary/vector/storage/vector-cache.js",
       "extension": ".js"
     },
     {
@@ -1153,6 +1171,12 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-replay.samples/mock-sample.json",
       "relativePath": "scripts/story-summary-replay.samples/mock-sample.json",
       "extension": ".json"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/scripts/story-summary-runtime-check.mjs",
+      "relativePath": "scripts/story-summary-runtime-check.mjs",
+      "extension": ".mjs"
     },
     {
       "source": "littlewhitebox",

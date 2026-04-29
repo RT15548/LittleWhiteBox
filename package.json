@@ -8,6 +8,7 @@
         "build:assistant:jsapi-runtime": "node scripts/build-assistant-jsapi-runtime.mjs",
         "build:assistant:app": "vite build --config vite.assistant.config.mjs",
         "build:assistant": "npm run build:assistant:manifest && npm run build:assistant:jsapi-manifest && npm run build:assistant:jsapi-runtime && npm run build:assistant:app",
+        "test:story-summary:runtime": "node scripts/story-summary-runtime-check.mjs",
         "test:story-summary:replay": "node scripts/story-summary-replay-runner.mjs",
         "test:story-summary:bootstrap": "node scripts/story-summary-replay-runner.mjs bootstrap",
         "test:story-summary:recall": "node scripts/story-summary-replay-runner.mjs recall-only",

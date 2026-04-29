@@ -58,6 +58,7 @@ export function createMetrics() {
             termSearches: 0,
             eventFilteredByDense: 0,
             floorFilteredByDense: 0,
+            eventCandidateVectorsMissing: 0,
         },
 
         // Fusion (W-RRF, floor-level) - 多路融合

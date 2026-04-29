@@ -6,7 +6,7 @@
 // - 召回层用语义名称：anchor/evidence/event/constraint
 //
 // v8 → v9 变更：
-// - recallEvents() 返回 { events, vectorMap }，暴露 event 向量映射
+// - recallEvents() 返回 { events, scoreMap }，event 向量只按候选临时取回给 MMR
 // - Lexical Event 合并前验 dense similarity ≥ 0.50（CONFIG.LEXICAL_EVENT_DENSE_MIN）
 // - Lexical Floor 进入融合前验 dense similarity ≥ 0.50（CONFIG.LEXICAL_FLOOR_DENSE_MIN）
 // - Entity Bypass 阈值 0.85 → 0.80（CONFIG.EVENT_ENTITY_BYPASS_SIM）
@@ -25,17 +25,15 @@
 // 阶段 9: Causation Trace
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { bufferToFloat32, getAllEventVectors, getChunksByFloors, getMeta, getChunkVectorsByIds } from '../storage/chunk-store.js';
-import { getAllStateVectors, getStateAtoms } from '../storage/state-store.js';
 import {
-    getCachedChunksByFloors,
-    getCachedChunkVectorsByIds,
-    markCachedChunkFloorsLoaded,
-    markCachedChunkVectorIdsLoaded,
-    upsertCachedChunkVectors,
-    upsertCachedChunks,
-    waitForVectorCacheWarmup,
-} from '../storage/vector-cache.js';
+    diffuseRecallRuntimeL0,
+    getRecallRuntimeEventVectorsByIds,
+    getRecallRuntimeMeta,
+    scoreRecallRuntimeAnchors,
+    scoreRecallRuntimeEvents,
+    scoreRecallRuntimeL1,
+} from '../runtime/runtime.js';
+import { getStateAtoms } from '../storage/state-store.js';
 import { getEngineFingerprint, embed } from '../utils/embedder.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { getContext } from '../../../../../../../extensions.js';
@@ -50,7 +48,6 @@ import {
 import { getLexicalIndex, searchLexicalIndex } from './lexical-index.js';
 import { rerankChunks } from '../llm/reranker.js';
 import { createMetrics, calcSimilarityStats } from './metrics.js';
-import { diffuseFromSeeds } from './diffusion.js';
 import { tokenizeForIndex } from '../utils/tokenizer.js';
 
 const MODULE_ID = 'recall';
@@ -281,36 +278,26 @@ function mmrSelect(candidates, k, lambda, getVector, getScore) {
 async function recallAnchors(queryVector, vectorConfig, metrics, snapshot = null) {
     const { chatId } = getContext();
     if (!chatId || !queryVector?.length) {
-        return { hits: [], floors: new Set(), stateVectors: [] };
+        return { hits: [], floors: new Set() };
     }
     const canUseSnapshot = snapshot?.chatId === chatId;
 
-    const meta = canUseSnapshot && snapshot?.meta ? snapshot.meta : await getMeta(chatId);
+    const meta = canUseSnapshot && snapshot?.meta ? snapshot.meta : await getRecallRuntimeMeta(chatId);
     const fp = getEngineFingerprint(vectorConfig);
-    if (meta.fingerprint && meta.fingerprint !== fp) {
+    if (meta?.fingerprint && meta.fingerprint !== fp) {
         xbLog.warn(MODULE_ID, 'Anchor fingerprint 不匹配');
-        return { hits: [], floors: new Set(), stateVectors: [] };
-    }
-
-    const stateVectors = canUseSnapshot && snapshot?.stateVectors ? snapshot.stateVectors : await getAllStateVectors(chatId);
-    if (canUseSnapshot && !snapshot.stateVectors) snapshot.stateVectors = stateVectors;
-    if (!stateVectors.length) {
-        return { hits: [], floors: new Set(), stateVectors: [] };
+        return { hits: [], floors: new Set() };
     }
 
     const atomsList = getStateAtoms();
     const atomMap = new Map(atomsList.map(a => [a.atomId, a]));
 
-    const scored = stateVectors
-        .map(sv => {
-            const atom = atomMap.get(sv.atomId);
+    const runtimeScores = await scoreRecallRuntimeAnchors(chatId, queryVector);
+    const scored = (runtimeScores?.scores || [])
+        .map(s => {
+            const atom = atomMap.get(s.atomId);
             if (!atom) return null;
-            return {
-                atomId: sv.atomId,
-                floor: sv.floor,
-                similarity: cosineSimilarity(queryVector, sv.vector),
-                atom,
-            };
+            return { ...s, atom };
         })
         .filter(Boolean)
         .filter(s => s.similarity >= CONFIG.ANCHOR_MIN_SIMILARITY)
@@ -328,45 +315,38 @@ async function recallAnchors(queryVector, vectorConfig, metrics, snapshot = null
         }));
     }
 
-    return { hits: scored, floors, stateVectors };
+    return { hits: scored, floors };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // [Events] L2 Events 检索
-// 返回 { events, vectorMap }
+// 返回 { events, scoreMap }；不回传整库 event vectors
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacters, metrics, snapshot = null) {
     const { chatId } = getContext();
     if (!chatId || !queryVector?.length || !allEvents?.length) {
-        return { events: [], vectorMap: new Map() };
+        return { events: [], scoreMap: new Map(), vectorMap: new Map() };
     }
     const canUseSnapshot = snapshot?.chatId === chatId;
 
-    const meta = canUseSnapshot && snapshot?.meta ? snapshot.meta : await getMeta(chatId);
+    const meta = canUseSnapshot && snapshot?.meta ? snapshot.meta : await getRecallRuntimeMeta(chatId);
     const fp = getEngineFingerprint(vectorConfig);
-    if (meta.fingerprint && meta.fingerprint !== fp) {
+    if (meta?.fingerprint && meta.fingerprint !== fp) {
         xbLog.warn(MODULE_ID, 'Event fingerprint 不匹配');
-        return { events: [], vectorMap: new Map() };
-    }
-
-    let vectorMap = canUseSnapshot ? snapshot?.eventVectorMap || null : null;
-    if (!vectorMap) {
-        const eventVectors = canUseSnapshot && snapshot?.eventVectors ? snapshot.eventVectors : await getAllEventVectors(chatId);
-        if (canUseSnapshot && !snapshot.eventVectors) snapshot.eventVectors = eventVectors;
-        vectorMap = new Map(eventVectors.map(v => [v.eventId, v.vector]));
-        if (canUseSnapshot) snapshot.eventVectorMap = vectorMap;
-    }
-
-    if (!vectorMap.size) {
-        return { events: [], vectorMap };
+        return { events: [], scoreMap: new Map(), vectorMap: new Map() };
     }
 
     const focusSet = new Set((focusCharacters || []).map(normalize));
 
+    const runtimeScores = await scoreRecallRuntimeEvents(chatId, queryVector);
+    const scoreMap = new Map((runtimeScores?.scores || []).map((item) => [item.eventId, item.similarity]));
+    if (!scoreMap.size) {
+        return { events: [], scoreMap, vectorMap: new Map() };
+    }
+
     const scored = allEvents.map(event => {
-        const v = vectorMap.get(event.id);
-        const baseSim = v ? cosineSimilarity(queryVector, v) : 0;
+        const baseSim = scoreMap.get(event.id) ?? 0;
 
         const participants = (event.participants || []).map(p => normalize(p));
         const hasEntityMatch = participants.some(p => focusSet.has(p));
@@ -376,7 +356,7 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
             event,
             similarity: baseSim,
             _hasEntityMatch: hasEntityMatch,
-            vector: v,
+            vector: null,
         };
     });
 
@@ -413,6 +393,19 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
         }
     }
 
+    const candidateEventIds = candidates.map(c => c._id).filter(Boolean);
+    const candidateVectors = await getRecallRuntimeEventVectorsByIds(chatId, candidateEventIds);
+    const vectorMap = new Map(candidateVectors.map(v => [v.eventId, v.vector]));
+    for (const candidate of candidates) {
+        candidate.vector = vectorMap.get(candidate._id) || null;
+    }
+    const missingCandidateVectors = Math.max(0, candidateEventIds.length - vectorMap.size);
+    if (metrics) {
+        metrics.lexical.eventCandidateVectorsMissing = missingCandidateVectors;
+    }
+    if (missingCandidateVectors > 0) {
+        xbLog.warn(MODULE_ID, `L2候选向量缺失 ${missingCandidateVectors}/${candidateEventIds.length}，MMR diversity 可能退化`);
+    }
     // MMR 选择
     const selected = mmrSelect(
         candidates,
@@ -443,7 +436,7 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
         metrics.event.similarityDistribution = calcSimilarityStats(results.map(r => r.similarity));
     }
 
-    return { events: results, vectorMap };
+    return { events: results, scoreMap, vectorMap };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -769,7 +762,7 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
         metrics.evidence.l1PrefetchTrimmed = Math.max(0, fusedFloors.length - prefetchedFloorItems.length);
     }
 
-    const l1ScoredByFloor = await pullAndScoreL1(chatId, [...floorsToFetch], queryVector, chat);
+    const l1ScoredByFloor = await pullAndScoreL1(chatId, [...floorsToFetch], queryVector);
 
     // ─────────────────────────────────────────────────────────────────
     // 6e. 构建 rerank documents（每个 floor: USER chunks + AI chunks）
@@ -949,135 +942,33 @@ async function locateAndPullEvidence(anchorHits, queryVector, rerankQuery, lexic
 // [L1] 拉取 + Cosine 打分
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function pullAndScoreL1(chatId, floors, queryVector, chat) {
+async function pullAndScoreL1(chatId, floors, queryVector) {
     const T0 = performance.now();
-
-    const result = new Map();
-    result._stats = {
-        requestedFloors: floors?.length || 0,
-        chunkCount: 0,
-        vectorHits: 0,
-        missingVectors: 0,
-        chunkFetchTime: 0,
-        vectorFetchTime: 0,
-        deserializeTime: 0,
-        scoreTime: 0,
-        sortTime: 0,
-        totalTime: 0,
-        chunkCacheHits: 0,
-        chunkCacheMisses: 0,
-        vectorCacheHits: 0,
-        vectorCacheMisses: 0,
-        cacheFallbackDbTime: 0,
-        cacheWarm: false,
-    };
-
     if (!chatId || !floors?.length || !queryVector?.length) {
+        const result = new Map();
         result._cosineTime = 0;
-        result._stats.totalTime = 0;
-        return result;
-    }
-
-    let dbChunks = [];
-    try {
-        const TChunkFetch = performance.now();
-        const warmupReady = await waitForVectorCacheWarmup(chatId);
-        if (!warmupReady) {
-            xbLog.warn(MODULE_ID, '等待向量热缓存超时，L1 将回退到 DB 读取');
-        }
-        const cached = getCachedChunksByFloors(chatId, floors);
-        let fetched = [];
-        if (cached.missingFloors.length > 0) {
-            const TChunkDb = performance.now();
-            fetched = await getChunksByFloors(chatId, cached.missingFloors);
-            result._stats.cacheFallbackDbTime += Math.round(performance.now() - TChunkDb);
-            upsertCachedChunks(chatId, fetched);
-            markCachedChunkFloorsLoaded(chatId, cached.missingFloors);
-        }
-        dbChunks = cached.records.concat(fetched);
-        result._stats.chunkFetchTime = Math.round(performance.now() - TChunkFetch);
-        result._stats.chunkCacheHits = cached.hitCount;
-        result._stats.chunkCacheMisses = cached.missCount;
-    } catch (e) {
-        xbLog.warn(MODULE_ID, 'L1 chunks 拉取失败', e);
-        result._cosineTime = Math.round(performance.now() - T0);
-        result._stats.totalTime = result._cosineTime;
-        return result;
-    }
-
-    if (!dbChunks.length) {
-        result._cosineTime = Math.round(performance.now() - T0);
-        result._stats.totalTime = result._cosineTime;
-        return result;
-    }
-    result._stats.chunkCount = dbChunks.length;
-
-    const chunkIds = dbChunks.map(c => c.chunkId);
-    let chunkVectorRecords = [];
-    try {
-        const TVectorFetch = performance.now();
-        const cached = getCachedChunkVectorsByIds(chatId, chunkIds);
-        let fetched = [];
-        if (cached.missingIds.length > 0) {
-            const TVectorDb = performance.now();
-            fetched = await getChunkVectorsByIds(chatId, cached.missingIds, { decode: false });
-            result._stats.cacheFallbackDbTime += Math.round(performance.now() - TVectorDb);
-            upsertCachedChunkVectors(chatId, fetched);
-            markCachedChunkVectorIdsLoaded(chatId, cached.missingIds);
-        }
-        chunkVectorRecords = cached.records.concat(fetched);
-        result._stats.vectorFetchTime = Math.round(performance.now() - TVectorFetch);
-        result._stats.vectorCacheHits = cached.hitCount;
-        result._stats.vectorCacheMisses = cached.missCount;
-    } catch (e) {
-        xbLog.warn(MODULE_ID, 'L1 向量拉取失败', e);
-        result._cosineTime = Math.round(performance.now() - T0);
-        result._stats.totalTime = result._cosineTime;
-        return result;
-    }
-
-    const TDeserialize = performance.now();
-    const vectorMap = new Map(chunkVectorRecords.map(v => [v.chunkId, bufferToFloat32(v.vector)]));
-    result._stats.deserializeTime = Math.round(performance.now() - TDeserialize);
-    result._stats.vectorHits = vectorMap.size;
-    result._stats.missingVectors = Math.max(0, dbChunks.length - vectorMap.size);
-
-    const TScore = performance.now();
-    for (const chunk of dbChunks) {
-        const vec = vectorMap.get(chunk.chunkId);
-        const cosineScore = vec?.length ? cosineSimilarity(queryVector, vec) : 0;
-
-        const scored = {
-            chunkId: chunk.chunkId,
-            floor: chunk.floor,
-            chunkIdx: chunk.chunkIdx,
-            speaker: chunk.speaker,
-            isUser: chunk.isUser,
-            text: chunk.text,
-            _cosineScore: cosineScore,
+        result._stats = {
+            requestedFloors: floors?.length || 0,
+            chunkCount: 0,
+            vectorHits: 0,
+            missingVectors: 0,
+            totalTime: 0,
+            cacheFallbackDbTime: 0,
+            cacheWarm: false,
         };
-
-        if (!result.has(chunk.floor)) {
-            result.set(chunk.floor, []);
-        }
-        result.get(chunk.floor).push(scored);
+        return result;
     }
-    result._stats.scoreTime = Math.round(performance.now() - TScore);
 
-    const TSort = performance.now();
-    for (const [, chunks] of result) {
-        chunks.sort((a, b) => b._cosineScore - a._cosineScore);
-    }
-    result._stats.sortTime = Math.round(performance.now() - TSort);
-
+    const result = await scoreRecallRuntimeL1(chatId, floors, queryVector);
     result._cosineTime = Math.round(performance.now() - T0);
+    result._stats ||= {};
     result._stats.totalTime = result._cosineTime;
-    result._stats.cacheWarm = result._stats.chunkCacheMisses === 0 && result._stats.vectorCacheMisses === 0;
+    result._stats.cacheWarm = result._stats.cacheFallbackDbTime === 0;
 
     xbLog.info(MODULE_ID,
-        `L1 pull: ${floors.length} floors → ${dbChunks.length} chunks → vectors=${result._stats.vectorHits}/${dbChunks.length} `
-        + `(chunk_db=${result._stats.chunkFetchTime}ms, vector_db=${result._stats.vectorFetchTime}ms, `
-        + `cache=${result._stats.chunkCacheHits}/${result._stats.chunkCacheMisses} floors ${result._stats.vectorCacheHits}/${result._stats.vectorCacheMisses} vectors, `
+        `L1 runtime: ${floors.length} floors → ${result._stats.chunkCount || 0} chunks → vectors=${result._stats.vectorHits || 0}/${result._stats.chunkCount || 0} `
+        + `(backend=${result._stats.backend || 'unknown'} owner=${result._stats.cacheOwner || 'unknown'} `
+        + `fallback_db=${result._stats.cacheFallbackDbTime || 0}ms, `
         + `deserialize=${result._stats.deserializeTime}ms, score=${result._stats.scoreTime}ms, sort=${result._stats.sortTime}ms, total=${result._cosineTime}ms)`
     );
 
@@ -1137,7 +1028,7 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
 
     const missingFloors = [...requiredFloors].filter(f => !merged.has(f));
     if (missingFloors.length > 0) {
-        const extra = await pullAndScoreL1(chatId, missingFloors, queryVector, chat);
+        const extra = await pullAndScoreL1(chatId, missingFloors, queryVector);
         totalCosineTime += Number(extra._cosineTime || 0);
         aggregateStats.chunkFetchTime += Number(extra._stats?.chunkFetchTime || 0);
         aggregateStats.vectorFetchTime += Number(extra._stats?.vectorFetchTime || 0);
@@ -1247,7 +1138,7 @@ function finalizeRecallTiming(metrics, totalStart) {
 
 export async function recallMemory(allEvents, vectorConfig, options = {}) {
     const T0 = performance.now();
-    const { chat, chatId } = getContext();
+    const { chat, chatId, name1 } = getContext();
     const { pendingUserMessage = null, excludeLastAi = false } = options;
 
     const metrics = createMetrics();
@@ -1272,9 +1163,9 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
 
     metrics.anchor.needRecall = true;
 
-    const snapshot = { chatId, meta: null, stateVectors: null, eventVectors: null, eventVectorMap: null };
+    const snapshot = { chatId, meta: null, stateVectors: null };
     if (chatId) {
-        snapshot.meta = await getMeta(chatId);
+        snapshot.meta = await getRecallRuntimeMeta(chatId);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1463,11 +1354,11 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     }
 
     const T_R2_Anchor_Start = performance.now();
-    const { hits: anchorHits, floors: anchorFloors_dense, stateVectors: allStateVectors } = await recallAnchors(queryVector_v1, vectorConfig, metrics, snapshot);
+    const { hits: anchorHits, floors: anchorFloors_dense } = await recallAnchors(queryVector_v1, vectorConfig, metrics, snapshot);
     metrics.timing.anchorSearch = Math.round(performance.now() - T_R2_Anchor_Start);
 
     const T_R2_Event_Start = performance.now();
-    let { events: eventHits, vectorMap: eventVectorMap } = await recallEvents(queryVector_v1, allEvents, vectorConfig, focusCharacters, metrics, snapshot);
+    let { events: eventHits, scoreMap: eventScoreMap } = await recallEvents(queryVector_v1, allEvents, vectorConfig, focusCharacters, metrics, snapshot);
     metrics.timing.eventRetrieval = Math.round(performance.now() - T_R2_Event_Start);
 
     xbLog.info(MODULE_ID,
@@ -1533,14 +1424,13 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         if (!ev) continue;
 
         // Dense gate: 验证 event 向量与 query 的语义相关性
-        const evVec = eventVectorMap.get(eid);
-        if (!evVec?.length) {
+        const sim = eventScoreMap.get(eid) ?? 0;
+        if (!sim) {
             // 无向量无法验证相关性，丢弃
             lexicalEventFilteredByDense++;
             continue;
         }
 
-        const sim = cosineSimilarity(queryVector_v1, evVec);
         if (sim < CONFIG.LEXICAL_EVENT_DENSE_MIN) {
             lexicalEventFilteredByDense++;
             continue;
@@ -1593,13 +1483,18 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     // consumed by prompt.js through the same budget pipeline.
     // ═══════════════════════════════════════════════════════════════════
 
-    const diffused = await diffuseFromSeeds(
+    const diffusionResult = await diffuseRecallRuntimeL0(
+        chatId,
         l0Selected,          // seeds (rerank-verified)
-        getStateAtoms(),     // all L0 atoms
-        allStateVectors,     // all L0 vectors (already read by recallAnchors)
+        getStateAtoms(),     // all L0 atoms; vectors stay in runtime
         queryVector_v1,      // R2 query vector (for cosine gate)
-        metrics,             // metrics collector
+        { name1 },
     );
+    const diffused = diffusionResult?.diffused || [];
+    metrics.diffusion = {
+        ...(metrics.diffusion || {}),
+        ...(diffusionResult?.metrics || {}),
+    };
 
     for (const da of diffused) {
         l0Selected.push({
@@ -1636,8 +1531,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         if (!hasOverlap) continue;
 
         // Dense similarity 门槛（与 Lexical Event 对齐）
-        const evVec = eventVectorMap.get(event.id);
-        const sim = evVec?.length ? cosineSimilarity(queryVector_v1, evVec) : 0;
+        const sim = eventScoreMap.get(event.id) ?? 0;
         if (sim < CONFIG.LEXICAL_EVENT_DENSE_MIN) continue;
 
         // 实体分类：与所有路径统一标准

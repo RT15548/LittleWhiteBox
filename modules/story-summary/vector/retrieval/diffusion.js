@@ -30,10 +30,8 @@
 //   github.com/networkx/networkx — algorithms/link_analysis/pagerank_alg.py
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { xbLog } from '../../../../core/debug-core.js';
-import { getContext } from '../../../../../../../extensions.js';
-
 const MODULE_ID = 'diffusion';
+const NOOP_LOGGER = { info() {} };
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Configuration
@@ -265,7 +263,7 @@ function collectPairsFromIndex(index, pairSet, N) {
  * @param {Set<string>} excludeEntities
  * @returns {{ neighbors: object[][], edgeCount: number, channelStats: object, buildTime: number }}
  */
-function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set()) {
+function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set(), logger = NOOP_LOGGER) {
     const N = allAtoms.length;
     const T0 = performance.now();
 
@@ -396,7 +394,7 @@ function buildGraph(allAtoms, stateVectors = [], excludeEntities = new Set()) {
 
     const buildTime = Math.round(performance.now() - T0);
 
-    xbLog.info(MODULE_ID,
+    logger.info(MODULE_ID,
         `Graph: ${N} nodes, ${edgeCount} edges ` +
         `(candidate_by_what=${pairSetByWhat.size} candidate_by_r_sem=${pairSetByRSem.size}) ` +
         `(what=${channelStats.what} r_sem=${channelStats.rSem} who=${channelStats.who} where=${channelStats.where}) ` +
@@ -700,8 +698,9 @@ function postVerify(pi, atomIds, atomById, seedAtomIds, vectorMap, queryVector) 
  * @returns {object[]} Additional L0 atoms for l0Selected
  *   Each: { atomId, floor, atom, finalScore, pprScore, pprNormalized, cosine }
  */
-export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, metrics) {
+export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, metrics, options = {}) {
     const T0 = performance.now();
+    const logger = options?.logger || NOOP_LOGGER;
 
     // ─── Early exits ─────────────────────────────────────────────────
 
@@ -711,7 +710,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
     }
 
     // Align with entity-lexicon hard rule: exclude name1 from graph features.
-    const { name1 } = getContext();
+    const { name1 } = options || {};
     const excludeEntities = new Set();
     if (name1) excludeEntities.add(normalize(name1));
 
@@ -743,7 +742,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
 
     // ─── 2. Build graph ──────────────────────────────────────────────
 
-    const graph = buildGraph(allAtoms, stateVectors, excludeEntities);
+    const graph = buildGraph(allAtoms, stateVectors, excludeEntities, logger);
 
     if (graph.edgeCount === 0) {
         fillMetrics(metrics, {
@@ -763,7 +762,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
             indexTime,
             time: graph.buildTime,
         });
-        xbLog.info(MODULE_ID, 'No graph edges — skipping diffusion');
+        logger.info(MODULE_ID, 'No graph edges - skipping diffusion');
         return [];
     }
 
@@ -847,7 +846,7 @@ export function diffuseFromSeeds(seeds, allAtoms, stateVectors, queryVector, met
         time: totalTime,
     });
 
-    xbLog.info(MODULE_ID,
+    logger.info(MODULE_ID,
         `Diffusion: ${validSeeds.length} seeds → ` +
         `graph(${N}n/${graph.edgeCount}e) → ` +
         `PPR(${iterations}it, ε=${finalError.toExponential(1)}, ${pprTime}ms) → ` +
