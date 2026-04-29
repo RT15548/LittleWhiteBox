@@ -9,6 +9,7 @@ import { updateMessageBlock } from "../../../../../../script.js";
 import { getLocalVariable, setLocalVariable } from "../../../../../variables.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
+import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
 import {
     normalizePath,
     lwbSplitPathWithBrackets,
@@ -65,6 +66,8 @@ let events = null;
 let initialized = false;
 let pendingSwipeApply = new Map();
 let suppressUpdatedOnce = new Set();
+let postReceiveApplyQueue = Promise.resolve();
+let afterAiGateDispose = null;
 
 CacheRegistry.register(MODULE_ID, {
     name: '变量系统缓存',
@@ -2419,6 +2422,55 @@ function getMsgIdStrict(payload) {
     return undefined;
 }
 
+function queuePostReceiveApply(messageId, options = {}) {
+    const shouldSnapshot = options?.snapshot === true;
+    postReceiveApplyQueue = postReceiveApplyQueue
+        .catch(() => {})
+        .then(async () => {
+            await applyVarsForMessage(messageId);
+            applyXbGetVarForMessage(messageId, true);
+            await executeQueuedVareventJsAfterTurn();
+            if (shouldSnapshot && getVariablesMode() !== '2.0') {
+                snapshotForMessageId(messageId);
+            }
+        })
+        .catch(() => {});
+    return postReceiveApplyQueue;
+}
+
+function notifyVariablesAfterAi(data, source) {
+    const ctx = getContext();
+    const chatId = String(ctx?.chatId || '');
+    const chat = ctx?.chat || [];
+    if (!chatId || !chat.length) return;
+
+    const messageId = source === 'generation_ended'
+        ? (chat.length - 1)
+        : getMsgIdLoose(data);
+    if (typeof messageId !== 'number' || messageId < 0) return;
+
+    const message = chat[messageId];
+    if (!message || message.is_user) return;
+
+    notifyAfterAiHint({
+        chatId,
+        messageId,
+        source,
+        kind: MODULE_ID,
+    });
+}
+
+function registerVariablesAfterAiGate() {
+    initAfterAiGate();
+    if (afterAiGateDispose) return;
+    afterAiGateDispose = registerAfterAiHandler(MODULE_ID, ({ chatId, messageId }) => {
+        if (String(getContext()?.chatId || '') !== String(chatId || '')) return;
+        const message = getContext()?.chat?.[messageId];
+        if (!message || message.is_user) return;
+        void queuePostReceiveApply(messageId, { snapshot: true });
+    });
+}
+
 function bindEvents() {
     pendingSwipeApply = new Map();
     let lastSwipedId;
@@ -2439,14 +2491,9 @@ function bindEvents() {
     });
 
     // message received
-    events?.on(event_types.MESSAGE_RECEIVED, async (data) => {
+    events?.on(event_types.MESSAGE_RECEIVED, (data) => {
         try {
-            const id = getMsgIdLoose(data);
-            if (typeof id === 'number') {
-                await applyVarsForMessage(id);
-                applyXbGetVarForMessage(id, true);
-                await executeQueuedVareventJsAfterTurn();
-            }
+            notifyVariablesAfterAi(data, 'message_received');
         } catch {}
     });
 
@@ -2463,14 +2510,15 @@ function bindEvents() {
     });
 
     // character message rendered
-    events?.on(event_types.CHARACTER_MESSAGE_RENDERED, async (data) => {
+    events?.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => {
         try {
-            const id = getMsgIdLoose(data);
-            if (typeof id === 'number') {
-                await applyVarsForMessage(id);
-                applyXbGetVarForMessage(id, true);
-                if (getVariablesMode() !== '2.0') snapshotForMessageId(id);
-            }
+            notifyVariablesAfterAi(data, 'character_message_rendered');
+        } catch {}
+    });
+
+    events?.on(event_types.GENERATION_ENDED, (data) => {
+        try {
+            notifyVariablesAfterAi(data, 'generation_ended');
         } catch {}
     });
 
@@ -2620,6 +2668,7 @@ export function initVariablesCore() {
     try { xbLog.info('variablesCore', '变量系统启动'); } catch {}
     if (initialized) return;
     initialized = true;
+    registerVariablesAfterAiGate();
 
     // init events
 
@@ -2682,6 +2731,8 @@ export function cleanupVariablesCore() {
     // cleanup events
     events?.cleanup();
     events = null;
+    afterAiGateDispose?.();
+    afterAiGateDispose = null;
 
     // uninstall API patch
     uninstallVariableApiPatch();

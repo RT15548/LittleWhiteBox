@@ -9,6 +9,7 @@ import { saveBase64AsFile } from "../../../../../utils.js";
 import { extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { NovelDrawStorage } from "../../core/server-storage.js";
+import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
 import {
     openDB, storePreview, getPreview, getPreviewsBySlot,
     getDisplayPreviewForSlot, storeFailedPlaceholder, deleteFailedRecordsForSlot,
@@ -181,6 +182,7 @@ let imageRequestSeq = 0;
 let messageObserver = null;
 let ensureNovelDrawPanelRef = null;
 let overlayResizeHandler = null;
+let afterAiGateDispose = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 样式
@@ -2571,6 +2573,28 @@ async function handleMessageRendered(data) {
     if (messageId !== undefined) await renderPreviewsForMessage(messageId);
 }
 
+function notifyNovelDrawAfterAi(data, source) {
+    const context = getContext();
+    const chatId = String(context?.chatId || '');
+    const chat = context?.chat || [];
+    if (!chatId || !chat.length) return;
+
+    const messageId = source === 'generation_ended'
+        ? (chat.length - 1)
+        : (typeof data === 'number' ? data : data?.messageId ?? data?.mesId);
+    if (!Number.isFinite(messageId) || messageId < 0) return;
+
+    const message = chat[messageId];
+    if (!message || message.is_user) return;
+
+    notifyAfterAiHint({
+        chatId,
+        messageId,
+        source,
+        kind: MODULE_KEY,
+    });
+}
+
 async function handleChatChanged() {
     await new Promise(r => setTimeout(r, 50));
     await renderAllPreviews();
@@ -3794,6 +3818,12 @@ export async function initNovelDraw() {
     await loadPromptTemplates();
     await loadSettings();
     moduleInitialized = true;
+    initAfterAiGate();
+    afterAiGateDispose?.();
+    afterAiGateDispose = registerAfterAiHandler(MODULE_KEY, ({ chatId, messageId }) => {
+        if (String(getContext()?.chatId || '') !== String(chatId || '')) return;
+        void renderPreviewsForMessage(messageId);
+    });
     ensureStyles();
 
     await loadTagGuide();
@@ -3850,13 +3880,16 @@ export async function initNovelDraw() {
         ensureNovelDrawPanelRef?.(messageEl, messageId);
     });
 
-    events.on(event_types.CHARACTER_MESSAGE_RENDERED, handleMessageRendered);
+    events.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => {
+        notifyNovelDrawAfterAi(data, 'character_message_rendered');
+    });
     events.on(event_types.USER_MESSAGE_RENDERED, handleMessageRendered);
     events.on(event_types.CHAT_CHANGED, handleChatChanged);
     events.on(event_types.MESSAGE_EDITED, handleMessageModified);
     events.on(event_types.MESSAGE_UPDATED, handleMessageModified);
     events.on(event_types.MESSAGE_SWIPED, handleMessageModified);
     events.on(event_types.GENERATION_ENDED, async () => {
+        notifyNovelDrawAfterAi(null, 'generation_ended');
         try {
             await autoGenerateForLastAI();
         } catch (e) {
@@ -3923,6 +3956,8 @@ export async function cleanupNovelDraw() {
     settingsCache = null;
     settingsLoaded = false;
     events.cleanup();
+    afterAiGateDispose?.();
+    afterAiGateDispose = null;
     hideOverlay();
     destroyGalleryCache();
     destroyCloudPresets();

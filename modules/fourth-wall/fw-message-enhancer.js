@@ -6,6 +6,8 @@ import { extension_settings } from "../../../../../extensions.js";
 import { EXT_ID } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog } from "../../core/debug-core.js";
+import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
+import { getContext } from "../../../../../extensions.js";
 
 import { generateImage, clearQueue } from "./fw-image.js";
 import { synthesizeAndPlay, stopCurrent as stopCurrentVoice } from "./fw-voice-runtime.js";
@@ -19,6 +21,7 @@ const CSS_INJECTED_KEY = 'xb-me-css-injected';
 
 let imageObserver = null;
 let novelDrawObserver = null;
+let afterAiGateDispose = null;
 
 // ════════════════════════════════════════════
 // Init & Cleanup
@@ -29,6 +32,16 @@ export async function initMessageEnhancer() {
     if (!settings?.fourthWall?.enabled) return;
 
     xbLog.info('messageEnhancer', 'init message enhancer');
+    initAfterAiGate();
+    afterAiGateDispose?.();
+    afterAiGateDispose = registerAfterAiHandler('messageEnhancer', ({ chatId, messageId }) => {
+        if (String(getContext()?.chatId || '') !== String(chatId || '')) return;
+        setTimeout(() => {
+            const mesText = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
+            if (mesText) enhanceMessageContent(mesText);
+            else processAllMessages();
+        }, 0);
+    });
 
     injectStyles();
     initImageObserver();
@@ -39,14 +52,14 @@ export async function initMessageEnhancer() {
         setTimeout(processAllMessages, 150);
     });
 
-    events.on(event_types.MESSAGE_RECEIVED, handleMessageChange);
+    events.on(event_types.MESSAGE_RECEIVED, (data) => notifyEnhancerAfterAi(data, 'message_received'));
     events.on(event_types.USER_MESSAGE_RENDERED, handleMessageChange);
     events.on(event_types.MESSAGE_EDITED, handleMessageChange);
     events.on(event_types.MESSAGE_UPDATED, handleMessageChange);
     events.on(event_types.MESSAGE_SWIPED, handleMessageChange);
 
     events.on(event_types.GENERATION_STOPPED, () => setTimeout(processAllMessages, 150));
-    events.on(event_types.GENERATION_ENDED, () => setTimeout(processAllMessages, 150));
+    events.on(event_types.GENERATION_ENDED, (data) => notifyEnhancerAfterAi(data, 'generation_ended'));
 
     processAllMessages();
 }
@@ -55,6 +68,8 @@ export function cleanupMessageEnhancer() {
     xbLog.info('messageEnhancer', 'cleanup message enhancer');
 
     events.cleanup();
+    afterAiGateDispose?.();
+    afterAiGateDispose = null;
     clearQueue();
 
     stopCurrentVoice();
@@ -68,6 +83,28 @@ export function cleanupMessageEnhancer() {
         novelDrawObserver.disconnect();
         novelDrawObserver = null;
     }
+}
+
+function notifyEnhancerAfterAi(data, source) {
+    const ctx = getContext();
+    const chatId = String(ctx?.chatId || '');
+    const chat = ctx?.chat || [];
+    if (!chatId || !chat.length) return;
+
+    const messageId = source === 'generation_ended'
+        ? (chat.length - 1)
+        : (typeof data === 'object' ? data?.messageId ?? data?.id ?? data?.index ?? data?.mesId : data);
+    if (!Number.isFinite(messageId) || messageId < 0) return;
+
+    const message = chat[messageId];
+    if (!message || message.is_user) return;
+
+    notifyAfterAiHint({
+        chatId,
+        messageId,
+        source,
+        kind: 'messageEnhancer',
+    });
 }
 
 // ════════════════════════════════════════════

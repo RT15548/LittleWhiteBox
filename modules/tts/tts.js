@@ -5,6 +5,7 @@ import { extension_settings, getContext } from "../../../../../extensions.js";
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents } from "../../core/event-manager.js";
 import { TtsStorage } from "../../core/server-storage.js";
+import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
 import { extractSpeakText, parseTtsSegments, DEFAULT_SKIP_TAGS, normalizeEmotion, splitTtsSegmentsForFree } from "./tts-text.js";
 import { TtsPlayer } from "./tts-player.js";
 import { synthesizeV3, FREE_DEFAULT_VOICE } from "./tts-api.js";
@@ -125,6 +126,7 @@ let overlay = null;
 let config = null;
 const messageStateMap = new Map();
 const cacheCounters = { hits: 0, misses: 0 };
+let afterAiGateDispose = null;
 
 const events = createModuleEvents(MODULE_ID);
 
@@ -869,33 +871,59 @@ function renderExistingMessageUIs() {
     });
 }
 
-async function onCharacterMessageRendered(data) {
+function prepareCharacterMessageUi(messageId) {
+    const context = getContext();
+    const chat = context.chat;
+    const message = chat?.[messageId];
+    if (!message || message.is_user) return false;
+
+    const messageEl = getMessageElement(messageId);
+    if (!messageEl) return false;
+
+    ensureTtsPanel(messageEl, messageId, handleMessagePlayClick);
+
+    const mesText = messageEl.querySelector('.mes_text');
+    if (mesText) {
+        enhanceTtsDirectives(mesText);
+        processedDirectives.add(mesText);
+    }
+
+    updateTtsPanel(messageId, ensureMessageState(messageId));
+    return true;
+}
+
+function notifyTtsAfterAi(data, source) {
+    const context = getContext();
+    const chatId = String(context?.chatId || '');
+    const chat = context?.chat || [];
+    if (!chatId || !chat.length) return;
+
+    const messageId = source === 'generation_ended'
+        ? (chat.length - 1)
+        : (typeof data === 'object' ? data?.messageId ?? data?.id ?? data?.index ?? data?.mesId : data);
+    if (!Number.isFinite(messageId) || messageId < 0) return;
+
+    const message = chat[messageId];
+    if (!message || message.is_user) return;
+
+    notifyAfterAiHint({
+        chatId,
+        messageId,
+        source,
+        kind: MODULE_ID,
+    });
+}
+
+function onCharacterMessageRendered(data) {
     if (!isModuleEnabled()) return;
-    
+
     try {
         const context = getContext();
         const chat = context.chat;
         const messageId = data.messageId ?? (chat.length - 1);
-        const message = chat[messageId];
-
-        if (!message || message.is_user) return;
-
-        const messageEl = getMessageElement(messageId);
-        if (!messageEl) return;
-
-        ensureTtsPanel(messageEl, messageId, handleMessagePlayClick);
-        
-        const mesText = messageEl.querySelector('.mes_text');
-        if (mesText) {
-            enhanceTtsDirectives(mesText);
-            processedDirectives.add(mesText);
-        }
-        
-        updateTtsPanel(messageId, ensureMessageState(messageId));
-
-        if (!config?.autoSpeak) return;
-        if (!isModuleEnabled()) return;
-        await speakMessage(messageId, { mode: 'auto' });
+        if (!Number.isFinite(messageId)) return;
+        if (!prepareCharacterMessageUi(messageId)) return;
+        notifyTtsAfterAi(data, 'character_message_rendered');
     } catch {}
 }
 
@@ -1200,6 +1228,14 @@ export async function initTts() {
     player = new TtsPlayer();
     initTtsPanelStyles();
     moduleInitialized = true;
+    initAfterAiGate();
+    afterAiGateDispose?.();
+    afterAiGateDispose = registerAfterAiHandler(MODULE_ID, ({ chatId, messageId }) => {
+        if (!isModuleEnabled()) return;
+        if (String(getContext()?.chatId || '') !== String(chatId || '')) return;
+        if (!config?.autoSpeak) return;
+        void speakMessage(messageId, { mode: 'auto' });
+    });
 
     setPanelConfigHandlers({
         getConfig: () => config,
@@ -1317,7 +1353,10 @@ export async function initTts() {
     events.on(event_types.MESSAGE_UPDATED, handleDirectiveEnhance);
     events.on(event_types.MESSAGE_SWIPED, handleDirectiveEnhance);
     events.on(event_types.GENERATION_STOPPED, onGenerationEnd);
-    events.on(event_types.GENERATION_ENDED, onGenerationEnd);
+    events.on(event_types.GENERATION_ENDED, (data) => {
+        notifyTtsAfterAi(data, 'generation_ended');
+        onGenerationEnd();
+    });
 
     renderExistingMessageUIs();
     setupNovelDrawObserver();
@@ -1479,6 +1518,8 @@ export function cleanupTts() {
     moduleInitialized = false;
     
     events.cleanup();
+    afterAiGateDispose?.();
+    afterAiGateDispose = null;
     clearAllFreeQueues();
     cleanupNovelDrawObserver();
     cleanupDirectiveObserver();

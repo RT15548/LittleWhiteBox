@@ -19,6 +19,7 @@ import { extensionFolderPath } from "../../core/constants.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { createModuleEvents } from "../../core/event-manager.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
+import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
 
 // config/store
 import {
@@ -130,6 +131,7 @@ let currentMesId = null;
 let pendingFrameMessages = [];
 /** @type {ReturnType<typeof createModuleEvents>|null} */
 let events = null;
+let afterAiGateDispose = null;
 let activeChatId = null;
 let vectorCancelled = false;
 let vectorAbortController = null;
@@ -802,9 +804,14 @@ function warmupActiveVectorCache() {
         return;
     }
     if (!chatId) return;
-    warmRecallRuntime(chatId, { reason: 'active-chat-warmup' }).catch((error) => {
-        xbLog.warn(MODULE_ID, '召回运行时预热失败', error);
-    });
+    warmRecallRuntime(chatId, { reason: 'active-chat-warmup' })
+        .catch((error) => {
+            xbLog.warn(MODULE_ID, '召回运行时预热失败', error);
+        })
+        .finally(() => {
+            if (activeChatId !== chatId) return;
+            sendVectorStatsToFrame().catch(() => { });
+        });
 }
 
 async function rebuildActiveVectorCacheAfterSummary() {
@@ -2399,11 +2406,14 @@ async function handleMessageSwiped(scheduledChatId) {
     await sendVectorStatsToFrame();
 }
 
-async function handleMessageReceived(scheduledChatId) {
+async function handleMessageReceived(scheduledChatId, targetMesId = null) {
     if (isChatStale(scheduledChatId)) return;
     const { chat, chatId } = getContext();
     const lastFloor = (chat?.length || 1) - 1;
-    const message = chat?.[lastFloor];
+    const floor = Number.isFinite(targetMesId) ? Number(targetMesId) : lastFloor;
+    if (floor < 0 || floor > lastFloor) return;
+    const message = chat?.[floor];
+    if (!message || message.is_user) return;
     const vectorConfig = getVectorConfig();
 
     initButtonsForAll();
@@ -2411,14 +2421,14 @@ async function handleMessageReceived(scheduledChatId) {
     // Skip L1 sync while full vector generation is running
     if (guard.isRunning('vector')) return;
 
-    const syncResult = await syncOnMessageReceived(chatId, lastFloor, message, vectorConfig, () => {
+    const syncResult = await syncOnMessageReceived(chatId, floor, message, vectorConfig, () => {
         sendAnchorStatsToFrame();
         sendVectorStatsToFrame();
     });
 
     // Incrementally update lexical index with built chunks (avoid re-read)
     if (syncResult?.chunks?.length) {
-        addDocumentsForFloor(lastFloor, syncResult.chunks);
+        addDocumentsForFloor(floor, syncResult.chunks);
     }
 
     await maybeAutoBuildChunks();
@@ -2597,9 +2607,9 @@ async function handleGenerationStarted(type, _params, isDryRun) {
 // 事件注册
 // ═══════════════════════════════════════════════════════════════════════════
 
-function scheduleWithChatGuard(fn, delay = 0) {
+function scheduleWithChatGuard(fn, delay = 0, ...args) {
     const scheduledChatId = getContext().chatId;
-    setTimeout(() => fn(scheduledChatId), delay);
+    setTimeout(() => fn(scheduledChatId, ...args), delay);
 }
 
 function isChatStale(scheduledChatId) {
@@ -2608,10 +2618,41 @@ function isChatStale(scheduledChatId) {
     return chatId !== scheduledChatId;
 }
 
+function notifyStorySummaryAfterAi(data, source) {
+    const { chatId, chat } = getContext();
+    if (!chatId || !Array.isArray(chat) || !chat.length) return;
+
+    const messageId = source === "generation_ended"
+        ? (chat.length - 1)
+        : (typeof data === "number" ? data : data?.messageId ?? data?.mesId ?? (chat.length - 1));
+    if (!Number.isFinite(messageId) || messageId < 0) return;
+
+    const message = chat[messageId];
+    if (!message || message.is_user) return;
+
+    notifyAfterAiHint({
+        chatId,
+        messageId,
+        source,
+        kind: MODULE_ID,
+    });
+}
+
+function registerAfterAiGateHandler() {
+    initAfterAiGate();
+    if (afterAiGateDispose) return;
+    afterAiGateDispose = registerAfterAiHandler(MODULE_ID, async ({ chatId, messageId }) => {
+        if (!getSettings().storySummary?.enabled) return;
+        if (activeChatId !== chatId) return;
+        scheduleWithChatGuard(handleMessageReceived, 0, messageId);
+    });
+}
+
 function registerEvents() {
     if (events) return;
     events = createModuleEvents(MODULE_ID);
     activeChatId = getContext().chatId || null;
+    registerAfterAiGateHandler();
 
     CacheRegistry.register(MODULE_ID, {
         name: "剧情总结运行缓存",
@@ -2655,14 +2696,17 @@ function registerEvents() {
         scheduleWithChatGuard(handleChatChanged, 80);
     });
     events.on(event_types.MESSAGE_DELETED, () => scheduleWithChatGuard(handleMessageDeleted, 50));
-    events.on(event_types.MESSAGE_RECEIVED, () => scheduleWithChatGuard(handleMessageReceived, 150));
+    events.on(event_types.MESSAGE_RECEIVED, (data) => notifyStorySummaryAfterAi(data, "message_received"));
     events.on(event_types.MESSAGE_SENT, () => scheduleWithChatGuard(handleMessageSent, 150));
     events.on(event_types.MESSAGE_SENT, handleMessageSentForRecall);
     events.on(event_types.MESSAGE_SWIPED, () => scheduleWithChatGuard(handleMessageSwiped, 100));
     events.on(event_types.MESSAGE_UPDATED, () => scheduleWithChatGuard(handleMessageUpdated, 100));
     events.on(event_types.MESSAGE_EDITED, () => scheduleWithChatGuard(handleMessageUpdated, 100));
     events.on(event_types.USER_MESSAGE_RENDERED, (data) => setTimeout(() => handleMessageRendered(data), 50));
-    events.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => setTimeout(() => handleMessageRendered(data), 50));
+    events.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => {
+        notifyStorySummaryAfterAi(data, "character_message_rendered");
+        setTimeout(() => handleMessageRendered(data), 50);
+    });
 
     // 用户输入捕获（原生捕获阶段）
     document.addEventListener("pointerdown", onSendPointerdown, true);
@@ -2676,7 +2720,10 @@ function registerEvents() {
     // 注入链路
     events.on(event_types.GENERATION_STARTED, handleGenerationStarted);
     events.on(event_types.GENERATION_STOPPED, clearExtensionPrompt);
-    events.on(event_types.GENERATION_ENDED, clearExtensionPrompt);
+    events.on(event_types.GENERATION_ENDED, (data) => {
+        notifyStorySummaryAfterAi(data, "generation_ended");
+        clearExtensionPrompt();
+    });
 
     // 聊天删除时清理对应的服务器向量备份
     events.on(event_types.CHAT_DELETED, handleChatDeleted);
@@ -2689,6 +2736,8 @@ function unregisterEvents() {
     clearRecallRuntime().catch(() => {});
     events.cleanup();
     events = null;
+    afterAiGateDispose?.();
+    afterAiGateDispose = null;
     activeChatId = null;
     cancelHideApplyTimer();
     clearDeferredBackgroundTasks();

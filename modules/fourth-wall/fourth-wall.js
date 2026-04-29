@@ -6,6 +6,7 @@ import { saveSettingsDebounced, chat_metadata, default_user_avatar, default_avat
 import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog } from "../../core/debug-core.js";
+import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
 
 import { handleCheckCache, handleGenerate, clearExpiredCache } from "./fw-image.js";
 import { synthesizeAndPlay, stopCurrent as stopCurrentVoice } from "./fw-voice-runtime.js";
@@ -46,6 +47,7 @@ let lastCommentaryTime = 0;
 let commentaryBubbleEl = null;
 let commentaryBubbleTimer = null;
 let currentVoiceRequestId = null;
+let commentaryAfterAiDispose = null;
 
 let visibilityHandler = null;
 let pendingPingId = null;
@@ -807,14 +809,55 @@ function hideCommentaryBubble() {
     }
 }
 
+function notifyCommentaryAfterAi(data, source) {
+    const ctx = getContext?.() || {};
+    const chatId = String(ctx?.chatId || '');
+    const chat = ctx?.chat || [];
+    if (!chatId || !chat.length) return;
+
+    const messageId = source === 'generation_ended'
+        ? (chat.length - 1)
+        : (typeof data === 'object' ? data?.messageId ?? data?.id ?? data?.index : data);
+    if (!Number.isFinite(messageId) || messageId < 0) return;
+
+    const message = chat[messageId];
+    if (!message || message.is_user) return;
+
+    notifyAfterAiHint({
+        chatId,
+        messageId,
+        source,
+        kind: 'fourthWallCommentary',
+    });
+}
+
+function handleCommentaryAfterAiMessageReceived(data) {
+    notifyCommentaryAfterAi(data, 'message_received');
+}
+
+function handleCommentaryAfterAiGenerationEnded(data) {
+    notifyCommentaryAfterAi(data, 'generation_ended');
+}
+
 function initCommentary() {
-    events.on(event_types.MESSAGE_RECEIVED, handleAIMessageForCommentary);
+    initAfterAiGate();
+    commentaryAfterAiDispose?.();
+    commentaryAfterAiDispose = registerAfterAiHandler('fourthWallCommentary', ({ chatId, messageId }) => {
+        const ctx = getContext?.() || {};
+        if (String(ctx?.chatId || '') !== String(chatId || '')) return;
+        void handleAIMessageForCommentary({ messageId });
+    });
+    events.on(event_types.MESSAGE_RECEIVED, handleCommentaryAfterAiMessageReceived);
+    events.on(event_types.GENERATION_ENDED, handleCommentaryAfterAiGenerationEnded);
     events.on(event_types.MESSAGE_EDITED, handleEditForCommentary);
 }
 
 function cleanupCommentary() {
-    events.off(event_types.MESSAGE_RECEIVED, handleAIMessageForCommentary);
+    events.off(event_types.MESSAGE_RECEIVED, handleCommentaryAfterAiMessageReceived);
+    events.off(event_types.GENERATION_ENDED, handleCommentaryAfterAiGenerationEnded);
     events.off(event_types.MESSAGE_EDITED, handleEditForCommentary);
+    commentaryAfterAiDispose?.();
+    commentaryAfterAiDispose = null;
     hideCommentaryBubble();
     lastCommentaryTime = 0;
 }
