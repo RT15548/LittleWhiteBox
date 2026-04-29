@@ -227,22 +227,18 @@ function captureUserInput() {
 }
 
 function onSendPointerdown(e) {
-    markUserInteraction();
     if (e.target?.closest?.("#send_but")) {
         captureUserInput();
     }
 }
 
 function onSendKeydown(e) {
-    markUserInteraction();
     if (e.key === "Enter" && !e.shiftKey && e.target?.closest?.("#send_textarea")) {
         captureUserInput();
     }
 }
 
-function onDocumentFocusIn() {
-    markUserInteraction();
-}
+function onDocumentFocusIn() {}
 
 let hideApplyTimer = null;
 const HIDE_APPLY_DEBOUNCE_MS = 250;
@@ -255,29 +251,14 @@ const CHAT_CHANGE_LEXICAL_WARMUP_MS = 3000;
 const AUTO_SUMMARY_DELAY_MS = 3000;
 const AUTO_L0_BACKFILL_DELAY_MS = 5000;
 const BACKGROUND_VISIBLE_GRACE_MS = 6000;
-const BACKGROUND_INTERACTION_GRACE_MS = 4000;
-const BACKGROUND_VIEWPORT_GRACE_MS = 4000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let lastForegroundAt = Date.now();
-let lastUserInteractionAt = 0;
-let lastViewportChangeAt = 0;
-
-function markUserInteraction() {
-    lastUserInteractionAt = Date.now();
-}
-
-function markViewportChange() {
-    lastViewportChangeAt = Date.now();
-}
 
 function getBackgroundQuietWaitMs() {
     if (document.hidden) return BACKGROUND_VISIBLE_GRACE_MS;
     const now = Date.now();
-    const visibleWait = Math.max(0, BACKGROUND_VISIBLE_GRACE_MS - (now - lastForegroundAt));
-    const interactionWait = Math.max(0, BACKGROUND_INTERACTION_GRACE_MS - (now - lastUserInteractionAt));
-    const viewportWait = Math.max(0, BACKGROUND_VIEWPORT_GRACE_MS - (now - lastViewportChangeAt));
-    return Math.max(visibleWait, interactionWait, viewportWait);
+    return Math.max(0, BACKGROUND_VISIBLE_GRACE_MS - (now - lastForegroundAt));
 }
 
 function handleVisibilityChangeForBackground() {
@@ -286,9 +267,7 @@ function handleVisibilityChangeForBackground() {
     }
 }
 
-function handleViewportChangeForBackground() {
-    markViewportChange();
-}
+function handleViewportChangeForBackground() {}
 
 // 向量提醒节流
 let lastVectorWarningAt = 0;

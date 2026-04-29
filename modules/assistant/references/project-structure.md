@@ -79,7 +79,11 @@ LittleWhiteBox/
 │   ├── build-assistant-file-manifest.mjs   # 助手文件清单构建脚本
 │   ├── build-assistant-jsapi-manifest.mjs  # 助手 JS API 清单构建脚本
 │   ├── build-assistant-jsapi-runtime.mjs   # 助手 JS API 运行时构建脚本
-│   └── check-garbled.js                    # 乱码检查脚本（lint 前置）
+│   ├── check-garbled.js                    # 乱码检查脚本（lint 前置）
+│   ├── story-summary-runtime-check.mjs     # summary runtime 验收脚本
+│   ├── story-summary-replay-runner.mjs     # summary 回放 / 召回对比脚本
+│   ├── story-summary-replay.config.example.json # 回放配置示例
+│   └── story-summary-replay/               # summary 回放所需入口、shim 与样本辅助
 │
 ├── bridges/                               # 与酒馆运行时、上下文、世界书、iframe 的桥接层
 │   ├── call-generate-service.js            # 生成服务调用桥接
@@ -88,6 +92,7 @@ LittleWhiteBox/
 │   └── wrapper-iframe.js                   # iframe 包装桥接
 │
 ├── core/                                  # 底层公共能力：常量、事件、存储、命令、路径、消息通信
+│   ├── after-ai-gate.js                    # AI 回复收尾 gate：等宿主 UI 真正结束后再放行业务后处理
 │   ├── constants.js                        # 常量与路径定义
 │   ├── debug-core.js                       # 调试日志与注册器
 │   ├── event-manager.js                    # 事件管理封装
@@ -215,6 +220,11 @@ LittleWhiteBox/
 │   │       │   ├── chunk-store.js          # chunk 向量存储
 │   │       │   ├── state-store.js          # state 向量存储
 │   │       │   └── vector-io.js            # 向量导入导出
+│   │       ├── runtime/                   # 召回运行时数据平面：worker / 主线程兜底 / RPC / 打分
+│   │       │   ├── rpc.js                  # worker RPC 封装
+│   │       │   ├── runtime.js              # Recall runtime 主入口与主线程兜底
+│   │       │   ├── runtime.worker.js       # Recall runtime worker 数据平面
+│   │       │   └── scoring.js              # L0/L1/L2 统一打分工具
 │   │       └── utils/                     # 向量链公共工具：分词、过滤、worker、停用词
 │   │           ├── embedder.js             # embedding 入口
 │   │           ├── embedder.worker.js      # embedding worker
@@ -261,10 +271,12 @@ LittleWhiteBox/
 │   │       └── semantic.js                 # 语义处理
 │   │
 │   └── assistant/                         # 小白助手模块：宿主壳 + iframe app + 运行时 + 工具系统
+│       ├── ARCHITECTURE.md                 # 助手架构约束与分层说明
 │       ├── assistant.js                    # 宿主桥接、工具侧逻辑、模型通道与设置入口
 │       ├── assistant-host-window.js        # 宿主窗口壳：拖拽、最小化、全屏、移动端行为
 │       ├── assistant-overlay.html          # 助手页面壳
 │       ├── assistant-file-manifest.json    # 文件清单（构建产物）
+│       ├── st-jsapi-manifest.json          # 助手 JS API 清单（构建产物）
 │       ├── app-src/                       # 助手前端源码
 │       │   ├── attachments.js              # 附件规范化与消息附件辅助
 │       │   ├── main.js                     # 助手前端装配入口：状态、渲染、runtime 组装
@@ -305,8 +317,12 @@ LittleWhiteBox/
 │       │       └── local-workspace-ui.js   # 工作区树 + viewer + 编辑器 UI
 │       ├── dist/                          # 助手前端打包产物
 │       │   └── assistant-app.js            # 构建产物（Vite 打包）
+│       ├── runtime-src/                   # 助手 JS API 运行时代码生成源
+│       │   └── jsapi-runtime.js            # JS API 分析 / 校验运行时源文件
 │       ├── shared/                        # 助手模块内部共享配置与标准化逻辑
 │       │   └── config.js                   # 助手配置标准化、预设与默认值
+│       ├── tests/                         # 助手模块测试
+│       │   └── *.test.js                   # workspace / tooling / adapter / jsapi 相关测试
 │       └── references/                    # 助手排查时优先读取的参考资料
 │           ├── project-structure.md        # 项目结构参考（本文档）
 │           ├── sillytavern-javascript-api-reference.md  # SillyTavern JS API 参考
