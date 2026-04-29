@@ -11,6 +11,7 @@ import {
     eventVectorsTable,
     stateVectorsTable,
 } from '../../data/db.js';
+import { xbLog } from '../../../../core/debug-core.js';
 import { createWorkerRpc } from './rpc.js';
 import {
     scoreAnchorsFromStateVectors,
@@ -23,6 +24,74 @@ import { diffuseFromSeeds } from '../retrieval/diffusion.js';
 
 const MODULE_ID = 'recall-runtime';
 const WORKER_TIMEOUT_MS = 30000;
+
+function safeRuntimeStringify(value) {
+    try {
+        return JSON.stringify(value);
+    } catch {
+        try {
+            return String(value);
+        } catch {
+            return '[unstringifiable]';
+        }
+    }
+}
+
+function compactStats(stats) {
+    if (!stats) return 'none';
+    const item = stats.stats || stats;
+    if (!item || typeof item !== 'object') return safeRuntimeStringify(item);
+    const fields = [
+        `chat=${item.chatId || '-'}`,
+        `backend=${item.backend || backendKind || '-'}`,
+        `owner=${item.owner || '-'}`,
+        `status=${item.status || '-'}`,
+        `ready=${item.ready ? 1 : 0}`,
+        `warming=${item.warming ? 1 : 0}`,
+        `meta=${item.meta ? 1 : 0}`,
+        `floors=${item.chunkFloors ?? '-'}`,
+        `chunks=${item.chunks ?? '-'}`,
+        `l1v=${item.chunkVectors ?? '-'}`,
+        `l2v=${item.eventVectors ?? '-'}`,
+        `l0v=${item.stateVectors ?? '-'}`,
+        `ver=${item.version ?? '-'}`,
+        `err=${item.lastError || '-'}`,
+    ];
+    return fields.join(' ');
+}
+
+function compactStatsList(statsList) {
+    if (!Array.isArray(statsList) || !statsList.length) return '[]';
+    return statsList.map((item) => `[${compactStats(item)}]`).join(' ');
+}
+
+function compactMutation(mutation = {}) {
+    if (!mutation || typeof mutation !== 'object') return 'unknown';
+    const details = [`type=${mutation.type || 'unknown'}`];
+    if (Number.isFinite(Number(mutation.floor))) details.push(`floor=${Number(mutation.floor)}`);
+    if (Array.isArray(mutation.items)) details.push(`items=${mutation.items.length}`);
+    if (Array.isArray(mutation.chunks)) details.push(`chunks=${mutation.chunks.length}`);
+    if (Array.isArray(mutation.eventIds)) details.push(`eventIds=${mutation.eventIds.length}`);
+    if (mutation.domain) details.push(`domain=${mutation.domain}`);
+    if (mutation.meta && typeof mutation.meta === 'object') details.push(`metaKeys=${Object.keys(mutation.meta).length}`);
+    return details.join(' ');
+}
+
+function logRuntimeInfo(message, extra = null) {
+    if (extra === null || extra === undefined || extra === '') {
+        xbLog.info(MODULE_ID, message);
+    } else {
+        xbLog.info(MODULE_ID, `${message} ${typeof extra === 'string' ? extra : safeRuntimeStringify(extra)}`);
+    }
+}
+
+function logRuntimeWarn(message, extra = null) {
+    if (extra === null || extra === undefined || extra === '') {
+        xbLog.warn(MODULE_ID, message);
+    } else {
+        xbLog.warn(MODULE_ID, `${message} ${typeof extra === 'string' ? extra : safeRuntimeStringify(extra)}`);
+    }
+}
 
 function createEmptyStats(overrides = {}) {
     return {
@@ -52,12 +121,14 @@ function canUseWorker() {
 }
 
 async function createWorkerBackend() {
+    logRuntimeInfo('init worker backend start');
     const worker = new Worker(new URL('./runtime.worker.js', import.meta.url), {
         type: 'module',
         name: 'lwb-recall-runtime',
     });
     const rpc = createWorkerRpc(worker);
     await rpc.call('ping', {}, { timeoutMs: 5000 });
+    logRuntimeInfo('init worker backend ready');
 
     return {
         kind: 'worker',
@@ -100,6 +171,7 @@ function createMainBackend() {
         if (!entry) {
             entry = createEntry(key);
             entries.set(key, entry);
+            logRuntimeInfo('main backend entry created', `chat=${key}`);
         }
         return entry;
     }
@@ -227,11 +299,16 @@ function createMainBackend() {
     async function refresh(chatId, reason = 'manual') {
         const entry = getEntry(chatId);
         if (!entry) return null;
-        if (entry.warming) return entry.warming;
+        if (entry.warming) {
+            logRuntimeInfo('main backend refresh join in-flight', `chat=${entry.chatId} reason=${reason} before=${compactStats(stats(entry))}`);
+            return entry.warming;
+        }
 
         const startedVersion = entry.version;
+        const before = stats(entry);
         entry.status = 'warming';
         entry.lastError = null;
+        logRuntimeInfo('main backend refresh start', `chat=${entry.chatId} reason=${reason} before=${compactStats(before)}`);
 
         entry.warming = (async () => {
             const [
@@ -250,7 +327,9 @@ function createMainBackend() {
 
             if (entry.version !== startedVersion) {
                 entry.status = entry.ready ? 'ready' : 'stale-refresh-skipped';
-                return { ready: false, stale: true, reason, stats: stats(entry) };
+                const staleResult = { ready: false, stale: true, reason, stats: stats(entry) };
+                logRuntimeWarn('main backend refresh stale', `chat=${entry.chatId} reason=${reason} startedVersion=${startedVersion} currentVersion=${entry.version} after=${compactStats(staleResult)}`);
+                return staleResult;
             }
 
             const next = createEntry(entry.chatId);
@@ -264,11 +343,14 @@ function createMainBackend() {
             next.status = 'ready';
             next.refreshedAt = Date.now();
             entries.set(entry.chatId, next);
-            return { ready: true, stale: false, reason, stats: stats(next) };
+            const success = { ready: true, stale: false, reason, stats: stats(next) };
+            logRuntimeInfo('main backend refresh success', `chat=${entry.chatId} reason=${reason} after=${compactStats(success)}`);
+            return success;
         })()
             .catch((error) => {
                 entry.status = 'refresh failed';
                 entry.lastError = error?.message || String(error);
+                logRuntimeWarn('main backend refresh failed', `chat=${entry.chatId} reason=${reason} after=${compactStats(stats(entry))}`);
                 throw error;
             })
             .finally(() => {
@@ -283,8 +365,10 @@ function createMainBackend() {
         const entry = getEntry(chatId);
         if (!entry) return null;
         if (entry.ready) return entry;
+        logRuntimeInfo('main backend ensureReady trigger refresh', `chat=${entry.chatId} status=${entry.status} ready=${entry.ready ? 1 : 0}`);
         const result = await refresh(chatId, 'ensure-ready');
         if (!result?.ready) {
+            logRuntimeWarn('main backend ensureReady retry', `chat=${entry.chatId} first=${compactStats(result)}`);
             await refresh(chatId, 'ensure-ready-retry');
         }
         return getEntry(chatId);
@@ -293,6 +377,7 @@ function createMainBackend() {
     function applyMutation(chatId, mutation = {}) {
         const entry = getEntry(chatId);
         if (!entry) return null;
+        const before = stats(entry);
         entry.version++;
 
         switch (mutation.type) {
@@ -326,11 +411,13 @@ function createMainBackend() {
             case 'clear':
                 clearDomain(entry, mutation.domain || 'all');
                 break;
-            default:
-                break;
+        default:
+            break;
         }
         if (entry.ready && entry.status !== 'warming') entry.status = 'ready';
-        return stats(entry);
+        const after = stats(entry);
+        logRuntimeInfo('main backend mutation applied', `chat=${entry.chatId} ${compactMutation(mutation)} before=${compactStats(before)} after=${compactStats(after)}`);
+        return after;
     }
 
     return {
@@ -432,17 +519,21 @@ async function getBackend() {
                 backend = await createWorkerBackend();
                 backendKind = 'worker';
                 lastError = null;
+                logRuntimeInfo('backend selected', 'worker');
                 return backend;
             } catch (error) {
                 lastError = error?.message || String(error);
                 console.warn(`[${MODULE_ID}] Worker 初始化失败，切换到 runtime 内部主线程兜底`, error);
+                logRuntimeWarn('worker backend init failed', lastError);
             }
         } else {
             lastError = 'Worker unavailable in this environment';
+            logRuntimeWarn('worker backend unavailable', lastError);
         }
 
         backend = createMainBackend();
         backendKind = 'main-fallback';
+        logRuntimeInfo('backend selected', 'main-fallback');
         return backend;
     })();
 
@@ -487,6 +578,7 @@ async function callRuntime(type, payload = {}, options = {}) {
 
 export async function warmRecallRuntime(chatId, options = {}) {
     if (!chatId) return null;
+    logRuntimeInfo('warm request', `chat=${chatId} reason=${options.reason || 'warm'}`);
     return await callRuntime('refresh', {
         chatId,
         reason: options.reason || 'warm',
@@ -495,6 +587,7 @@ export async function warmRecallRuntime(chatId, options = {}) {
 
 export async function refreshRecallRuntime(chatId, options = {}) {
     if (!chatId) return null;
+    logRuntimeInfo('refresh request', `chat=${chatId} reason=${options.reason || 'refresh'}`);
     return await callRuntime('refresh', {
         chatId,
         reason: options.reason || 'refresh',
@@ -503,6 +596,7 @@ export async function refreshRecallRuntime(chatId, options = {}) {
 
 export async function applyRecallRuntimeMutation(chatId, mutation = {}) {
     if (!chatId) return null;
+    logRuntimeInfo('mutation request', `chat=${chatId} ${compactMutation(mutation)}`);
     return await callRuntime('applyMutation', { chatId, mutation }, { timeoutMs: 10000 });
 }
 
@@ -516,8 +610,10 @@ export function applyRecallRuntimeMutationBestEffort(chatId, mutation = {}) {
 
 export function markRecallRuntimeDirty(chatId, reason = 'dirty') {
     if (!chatId || dirtyRefreshTimers.has(chatId)) return;
+    logRuntimeInfo('mark dirty scheduled', `chat=${chatId} reason=${reason}`);
     const timer = setTimeout(() => {
         dirtyRefreshTimers.delete(chatId);
+        logRuntimeInfo('mark dirty firing refresh', `chat=${chatId} reason=${reason}`);
         refreshRecallRuntime(chatId, { reason }).catch((error) => {
             lastError = error?.message || String(error);
             rememberStats(createEmptyStats({
@@ -534,6 +630,7 @@ export function markRecallRuntimeDirty(chatId, reason = 'dirty') {
 }
 
 export async function clearRecallRuntime(chatId = null, domain = 'all') {
+    logRuntimeInfo('clear request', `chat=${chatId || '*'} domain=${domain}`);
     if (chatId) {
         const timer = dirtyRefreshTimers.get(chatId);
         if (timer) clearTimeout(timer);
@@ -542,11 +639,16 @@ export async function clearRecallRuntime(chatId = null, domain = 'all') {
         for (const timer of dirtyRefreshTimers.values()) clearTimeout(timer);
         dirtyRefreshTimers.clear();
     }
-    return await callRuntime('clear', { chatId, domain }, { timeoutMs: 10000 });
+    const result = await callRuntime('clear', { chatId, domain }, { timeoutMs: 10000 });
+    logRuntimeInfo('clear result', compactStatsList(Array.isArray(result) ? result : lastStats));
+    return result;
 }
 
 export async function retainRecallRuntimeOnly(chatId) {
-    return await callRuntime('retainOnly', { chatId: chatId || null }, { timeoutMs: 10000 });
+    logRuntimeInfo('retainOnly request', `keep=${chatId || '*'}`);
+    const result = await callRuntime('retainOnly', { chatId: chatId || null }, { timeoutMs: 10000 });
+    logRuntimeInfo('retainOnly result', compactStatsList(Array.isArray(result) ? result : lastStats));
+    return result;
 }
 
 export async function getRecallRuntimeMeta(chatId) {

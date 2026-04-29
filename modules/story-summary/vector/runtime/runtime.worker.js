@@ -14,6 +14,60 @@ import {
 } from './scoring.js';
 import { diffuseFromSeeds } from '../retrieval/diffusion.js';
 
+const MODULE_ID = 'recall-runtime-worker';
+
+function safeWorkerStringify(value) {
+    try {
+        return JSON.stringify(value);
+    } catch {
+        try {
+            return String(value);
+        } catch {
+            return '[unstringifiable]';
+        }
+    }
+}
+
+function compactStats(stats) {
+    if (!stats) return 'none';
+    const item = stats.stats || stats;
+    if (!item || typeof item !== 'object') return safeWorkerStringify(item);
+    return [
+        `chat=${item.chatId || '-'}`,
+        `status=${item.status || '-'}`,
+        `ready=${item.ready ? 1 : 0}`,
+        `warming=${item.warming ? 1 : 0}`,
+        `meta=${item.meta ? 1 : 0}`,
+        `floors=${item.chunkFloors ?? '-'}`,
+        `chunks=${item.chunks ?? '-'}`,
+        `l1v=${item.chunkVectors ?? '-'}`,
+        `l2v=${item.eventVectors ?? '-'}`,
+        `l0v=${item.stateVectors ?? '-'}`,
+        `ver=${item.version ?? '-'}`,
+        `err=${item.lastError || '-'}`,
+    ].join(' ');
+}
+
+function compactMutation(mutation = {}) {
+    if (!mutation || typeof mutation !== 'object') return 'unknown';
+    const details = [`type=${mutation.type || 'unknown'}`];
+    if (Number.isFinite(Number(mutation.floor))) details.push(`floor=${Number(mutation.floor)}`);
+    if (Array.isArray(mutation.items)) details.push(`items=${mutation.items.length}`);
+    if (Array.isArray(mutation.chunks)) details.push(`chunks=${mutation.chunks.length}`);
+    if (Array.isArray(mutation.eventIds)) details.push(`eventIds=${mutation.eventIds.length}`);
+    if (mutation.domain) details.push(`domain=${mutation.domain}`);
+    if (mutation.meta && typeof mutation.meta === 'object') details.push(`metaKeys=${Object.keys(mutation.meta).length}`);
+    return details.join(' ');
+}
+
+function logInfo(message, extra = '') {
+    console.info(`[${MODULE_ID}] ${message}${extra ? ` ${extra}` : ''}`);
+}
+
+function logWarn(message, extra = '') {
+    console.warn(`[${MODULE_ID}] ${message}${extra ? ` ${extra}` : ''}`);
+}
+
 function createEntry(chatId) {
     return {
         chatId,
@@ -40,6 +94,7 @@ function getEntry(chatId) {
     if (!entry) {
         entry = createEntry(key);
         entries.set(key, entry);
+        logInfo('entry created', `chat=${key}`);
     }
     return entry;
 }
@@ -200,11 +255,16 @@ function entryStats(entry) {
 async function refresh(chatId, reason = 'manual') {
     const entry = getEntry(chatId);
     if (!entry) return null;
-    if (entry.warming) return entry.warming;
+    if (entry.warming) {
+        logInfo('refresh join in-flight', `chat=${entry.chatId} reason=${reason} before=${compactStats(entryStats(entry))}`);
+        return entry.warming;
+    }
 
     const startedVersion = entry.version;
+    const before = entryStats(entry);
     entry.status = 'warming';
     entry.lastError = null;
+    logInfo('refresh start', `chat=${entry.chatId} reason=${reason} before=${compactStats(before)}`);
 
     entry.warming = (async () => {
         const [
@@ -223,7 +283,9 @@ async function refresh(chatId, reason = 'manual') {
 
         if (entry.version !== startedVersion) {
             entry.status = entry.ready ? 'ready' : 'stale-refresh-skipped';
-            return { ready: false, stale: true, reason, stats: entryStats(entry) };
+            const stale = { ready: false, stale: true, reason, stats: entryStats(entry) };
+            logWarn('refresh stale', `chat=${entry.chatId} reason=${reason} startedVersion=${startedVersion} currentVersion=${entry.version} after=${compactStats(stale)}`);
+            return stale;
         }
 
         const next = createEntry(entry.chatId);
@@ -237,11 +299,14 @@ async function refresh(chatId, reason = 'manual') {
         next.status = 'ready';
         next.refreshedAt = Date.now();
         entries.set(entry.chatId, next);
-        return { ready: true, stale: false, reason, stats: entryStats(next) };
+        const success = { ready: true, stale: false, reason, stats: entryStats(next) };
+        logInfo('refresh success', `chat=${entry.chatId} reason=${reason} after=${compactStats(success)}`);
+        return success;
     })()
         .catch((error) => {
             entry.status = 'refresh failed';
             entry.lastError = error?.message || String(error);
+            logWarn('refresh failed', `chat=${entry.chatId} reason=${reason} after=${compactStats(entryStats(entry))}`);
             throw error;
         })
         .finally(() => {
@@ -256,8 +321,10 @@ async function ensureReady(chatId) {
     const entry = getEntry(chatId);
     if (!entry) return null;
     if (entry.ready) return entry;
+    logInfo('ensureReady trigger refresh', `chat=${entry.chatId} status=${entry.status} ready=${entry.ready ? 1 : 0}`);
     const result = await refresh(chatId, 'ensure-ready');
     if (!result?.ready) {
+        logWarn('ensureReady retry', `chat=${entry.chatId} first=${compactStats(result)}`);
         await refresh(chatId, 'ensure-ready-retry');
     }
     return getEntry(chatId);
@@ -266,6 +333,7 @@ async function ensureReady(chatId) {
 function applyMutation(chatId, mutation = {}) {
     const entry = getEntry(chatId);
     if (!entry) return null;
+    const before = entryStats(entry);
     entry.version++;
 
     switch (mutation.type) {
@@ -304,7 +372,9 @@ function applyMutation(chatId, mutation = {}) {
     }
 
     if (entry.ready && entry.status !== 'warming') entry.status = 'ready';
-    return entryStats(entry);
+    const after = entryStats(entry);
+    logInfo('mutation applied', `chat=${entry.chatId} ${compactMutation(mutation)} before=${compactStats(before)} after=${compactStats(after)}`);
+    return after;
 }
 
 async function scoreL1(chatId, floors = [], queryVector) {
@@ -343,6 +413,7 @@ async function handle(type, payload = {}) {
             return applyMutation(payload.chatId, payload.mutation);
         case 'retainOnly': {
             const keep = payload.chatId ? String(payload.chatId) : null;
+            logInfo('retainOnly request', `keep=${keep || '*'}`);
             for (const key of [...entries.keys()]) {
                 if (keep && key === keep) continue;
                 entries.delete(key);
@@ -350,11 +421,14 @@ async function handle(type, payload = {}) {
             return [...entries.values()].map(entryStats);
         }
         case 'clear': {
+            logInfo('clear request', `chat=${payload.chatId || '*'} domain=${payload.domain || 'all'}`);
             if (payload.chatId) {
                 const entry = getEntry(payload.chatId);
                 clearDomain(entry, payload.domain || 'all');
+                logInfo('clear result', compactStats(entryStats(entry)));
             } else {
                 entries.clear();
+                logInfo('clear result', 'all entries removed');
             }
             return [...entries.values()].map(entryStats);
         }

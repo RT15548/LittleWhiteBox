@@ -121,6 +121,32 @@ const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.h
 const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
 
+function compactRecallRuntimeStatsForLog(statsList = getRecallRuntimeStats()) {
+    if (!Array.isArray(statsList) || !statsList.length) return "[]";
+    return statsList.map((item) => {
+        const stats = item?.stats || item || {};
+        return [
+            `chat=${stats.chatId || "-"}`,
+            `backend=${stats.backend || "-"}`,
+            `owner=${stats.owner || "-"}`,
+            `status=${stats.status || "-"}`,
+            `ready=${stats.ready ? 1 : 0}`,
+            `warming=${stats.warming ? 1 : 0}`,
+            `chunks=${stats.chunks ?? "-"}`,
+            `l1v=${stats.chunkVectors ?? "-"}`,
+            `l2v=${stats.eventVectors ?? "-"}`,
+            `l0v=${stats.stateVectors ?? "-"}`,
+            `ver=${stats.version ?? "-"}`,
+            `err=${stats.lastError || "-"}`,
+        ].join(" ");
+    }).join(" | ");
+}
+
+function logRecallRuntimeCheckpoint(label, extra = "") {
+    const suffix = extra ? ` ${extra}` : "";
+    xbLog.info(MODULE_ID, `[RecallRuntime] ${label}${suffix} stats=${compactRecallRuntimeStatsForLog()}`);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态变量
 // ═══════════════════════════════════════════════════════════════════════════
@@ -792,11 +818,13 @@ function warmupEmbeddingConnection() {
 function warmupActiveVectorCache() {
     const vectorCfg = getVectorConfig();
     const { chatId } = getContext();
+    logRecallRuntimeCheckpoint("warmupActiveVectorCache:start", `chat=${chatId || "-"} enabled=${vectorCfg?.enabled ? 1 : 0}`);
     retainRecallRuntimeOnly(chatId || null).catch((error) => {
         xbLog.warn(MODULE_ID, '召回运行时清理非当前聊天缓存失败', error);
     });
     if (!vectorCfg?.enabled) {
         if (chatId) {
+            logRecallRuntimeCheckpoint("warmupActiveVectorCache:clear-disabled", `chat=${chatId}`);
             clearRecallRuntime().catch((error) => {
                 xbLog.warn(MODULE_ID, '召回运行时清理失败', error);
             });
@@ -805,6 +833,9 @@ function warmupActiveVectorCache() {
     }
     if (!chatId) return;
     warmRecallRuntime(chatId, { reason: 'active-chat-warmup' })
+        .then((result) => {
+            logRecallRuntimeCheckpoint("warmupActiveVectorCache:done", `chat=${chatId} ready=${result?.ready ? 1 : 0} stale=${result?.stale ? 1 : 0}`);
+        })
         .catch((error) => {
             xbLog.warn(MODULE_ID, '召回运行时预热失败', error);
         })
@@ -822,9 +853,11 @@ async function rebuildActiveVectorCacheAfterSummary() {
     if (!chatId) return;
 
     try {
+        logRecallRuntimeCheckpoint("afterSummaryRefresh:start", `chat=${chatId}`);
         postToFrame({ type: "SUMMARY_STATUS", statusText: "正在刷新记忆热缓存..." });
         let result = await refreshRecallRuntime(chatId, { reason: 'after-summary' });
         if (result?.stale) {
+            logRecallRuntimeCheckpoint("afterSummaryRefresh:retry", `chat=${chatId}`);
             result = await refreshRecallRuntime(chatId, { reason: 'after-summary-retry' });
         }
         if (!result?.ready) {
@@ -832,6 +865,7 @@ async function rebuildActiveVectorCacheAfterSummary() {
         } else {
             xbLog.info(MODULE_ID, "大总结后已刷新召回运行时");
         }
+        logRecallRuntimeCheckpoint("afterSummaryRefresh:done", `chat=${chatId} ready=${result?.ready ? 1 : 0} stale=${result?.stale ? 1 : 0}`);
         await sendVectorStatsToFrame();
     } catch (error) {
         xbLog.warn(MODULE_ID, "大总结后刷新向量热缓存失败", error);
@@ -2246,8 +2280,10 @@ async function handleFrameMessage(event) {
                         !nextVectorConfig?.enabled ||
                         previousVectorFingerprint !== nextVectorFingerprint;
                     if (vectorCacheInvalidated) {
+                        logRecallRuntimeCheckpoint("savePanelConfig:clear-runtime", `chat=${getContext().chatId || "-"} invalidated=1`);
                         await clearRecallRuntime();
                     } else {
+                        logRecallRuntimeCheckpoint("savePanelConfig:warm-runtime", `chat=${getContext().chatId || "-"} invalidated=0`);
                         warmupActiveVectorCache();
                     }
                     postToFrame({
@@ -2327,6 +2363,7 @@ async function handleChatChanged() {
     _lastBuiltPromptText = "";  // ← 加这一行，切聊天时清掉旧 summary
     const { chat } = getContext();
     activeChatId = getContext().chatId || null;
+    logRecallRuntimeCheckpoint("chatChanged:before-retain", `chat=${activeChatId || "-"} length=${Array.isArray(chat) ? chat.length : 0}`);
     await retainRecallRuntimeOnly(activeChatId);
     const newLength = Array.isArray(chat) ? chat.length : 0;
 
@@ -2357,6 +2394,7 @@ async function handleChatChanged() {
     // Embedding 连接预热（保持 TCP keep-alive，减少首次召回超时）
     warmupEmbeddingConnection();
     warmupActiveVectorCache();
+    logRecallRuntimeCheckpoint("chatChanged:after-warm-request", `chat=${activeChatId || "-"}`);
 
     scheduleVectorIntegrityCheck();
 }
@@ -2733,6 +2771,7 @@ function registerEvents() {
 function unregisterEvents() {
     if (!events) return;
     CacheRegistry.unregister(MODULE_ID);
+    logRecallRuntimeCheckpoint("unregisterEvents:clear-runtime");
     clearRecallRuntime().catch(() => {});
     events.cleanup();
     events = null;
@@ -2761,6 +2800,7 @@ function unregisterEvents() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleChatDeleted(chatId) {
+    logRecallRuntimeCheckpoint("chatDeleted:clear-runtime", `chat=${chatId || "-"}`);
     await clearRecallRuntime(chatId);
     try {
         const filename = getBackupFilename(chatId);
