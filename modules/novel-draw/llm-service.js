@@ -1,4 +1,5 @@
 import { extensionFolderPath } from "../../core/constants.js";
+import { xbLog } from "../../core/debug-core.js";
 import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../shared/common/openai-url-utils.js";
 
 const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/novel-draw/TAG编写指南.md`;
@@ -439,9 +440,9 @@ export async function generateScenePlan(options) {
         throw new LLMServiceError(`LLM 调用失败: ${e.message}`, 'CALL_FAILED');
     }
 
-    console.group('%c[LLM-Service] 场景分析输出', 'color: #d4a574; font-weight: bold');
-    console.log(rawOutput);
-    console.groupEnd();
+    if (xbLog.isEnabled()) {
+        xbLog.info("novelDrawLlm", `rawOutput(len=${rawOutput?.length || 0}): ${String(rawOutput || "").slice(0, 1200)}`);
+    }
 
     return rawOutput;
 }
@@ -675,6 +676,6 @@ export function parseImagePlan(aiOutput) {
         return normalizeImageTasks(yamlResult);
     }
 
-    console.error('[LLM-Service] 解析失败，原始输出:', text.slice(0, 500));
+    xbLog.error('novelDrawLlm', `[LLM-Service] 解析失败，原始输出: ${text.slice(0, 500)}`, null);
     throw new LLMServiceError('无法解析 LLM 输出', 'PARSE_ERROR', { sample: text.slice(0, 300) });
 }

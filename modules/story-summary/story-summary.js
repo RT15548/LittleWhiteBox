@@ -147,6 +147,25 @@ function logRecallRuntimeCheckpoint(label, extra = "") {
     xbLog.info(MODULE_ID, `[RecallRuntime] ${label}${suffix} stats=${compactRecallRuntimeStatsForLog()}`);
 }
 
+function getCurrentRecallRuntimeStat(chatId, statsList = getRecallRuntimeStats()) {
+    const list = Array.isArray(statsList) ? statsList : [];
+    const current = list.find((item) => String(item?.chatId || "") === String(chatId || ""));
+    if (current) return current;
+    return {
+        chatId: chatId || "",
+        backend: "uninitialized",
+        owner: "none",
+        ready: false,
+        warming: false,
+        status: "cold",
+        lastError: null,
+        chunks: 0,
+        chunkVectors: 0,
+        eventVectors: 0,
+        stateVectors: 0,
+    };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态变量
 // ═══════════════════════════════════════════════════════════════════════════
@@ -426,7 +445,7 @@ async function sendVectorStatsToFrame() {
             totalFloors: chunkStatus.totalFloors,
             totalMessages,
             stateVectors: stateVectorsCount,
-            recallRuntime: getRecallRuntimeStats(),
+            recallRuntime: getCurrentRecallRuntimeStat(chatId),
         },
         mismatch,
     });

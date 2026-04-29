@@ -231,9 +231,7 @@ export async function generateSummary(options) {
     }
 
     if (xbLog.isEnabled()) {
-        console.group('%c[Story-Summary] LLM输出', 'color: #7c3aed; font-weight: bold');
-        console.log(rawOutput);
-        console.groupEnd();
+        xbLog.info("storySummaryLlm", `LLM输出(len=${rawOutput?.length || 0}): ${String(rawOutput || "").slice(0, 1200)}`);
     }
 
     return JSON_PREFILL + rawOutput;

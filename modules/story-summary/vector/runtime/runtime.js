@@ -126,7 +126,16 @@ async function createWorkerBackend() {
         type: 'module',
         name: 'lwb-recall-runtime',
     });
-    const rpc = createWorkerRpc(worker);
+    const rpc = createWorkerRpc(worker, {
+        onLog(payload) {
+            const level = payload?.level === 'warn' ? 'warn' : (payload?.level === 'error' ? 'error' : 'info');
+            const moduleId = payload?.moduleId || MODULE_ID;
+            const message = payload?.message || '';
+            if (level === 'warn') xbLog.warn(moduleId, message);
+            else if (level === 'error') xbLog.error(moduleId, message, null);
+            else xbLog.info(moduleId, message);
+        },
+    });
     await rpc.call('ping', {}, { timeoutMs: 5000 });
     logRuntimeInfo('init worker backend ready');
 

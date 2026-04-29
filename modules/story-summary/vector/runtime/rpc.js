@@ -1,11 +1,16 @@
 // Story Summary - tiny Worker RPC helper
 
-export function createWorkerRpc(worker) {
+export function createWorkerRpc(worker, options = {}) {
     let nextId = 1;
     const pending = new Map();
+    const onLog = typeof options?.onLog === "function" ? options.onLog : null;
 
     worker.onmessage = (event) => {
         const data = event.data || {};
+        if (data.type === "__log") {
+            try { onLog?.(data.payload || {}); } catch {}
+            return;
+        }
         if (!data.id || !pending.has(data.id)) return;
 
         const item = pending.get(data.id);

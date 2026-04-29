@@ -61,11 +61,25 @@ function compactMutation(mutation = {}) {
 }
 
 function logInfo(message, extra = '') {
-    console.info(`[${MODULE_ID}] ${message}${extra ? ` ${extra}` : ''}`);
+    self.postMessage({
+        type: '__log',
+        payload: {
+            level: 'info',
+            moduleId: MODULE_ID,
+            message: `${message}${extra ? ` ${extra}` : ''}`,
+        },
+    });
 }
 
 function logWarn(message, extra = '') {
-    console.warn(`[${MODULE_ID}] ${message}${extra ? ` ${extra}` : ''}`);
+    self.postMessage({
+        type: '__log',
+        payload: {
+            level: 'warn',
+            moduleId: MODULE_ID,
+            message: `${message}${extra ? ` ${extra}` : ''}`,
+        },
+    });
 }
 
 function createEntry(chatId) {

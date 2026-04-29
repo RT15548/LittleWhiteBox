@@ -3,7 +3,6 @@ import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } fr
 import { EXT_ID, extensionFolderPath } from "./core/constants.js";
 import { executeSlashCommand } from "./core/slash-command.js";
 import { EventCenter } from "./core/event-manager.js";
-import { enablePersistentDebugLogging, disablePersistentDebugLogging } from "./core/debug-core.js";
 import { initTasks } from "./modules/scheduled-tasks/scheduled-tasks.js";
 import { initMessagePreview, addHistoryButtonsDebounced } from "./modules/message-preview.js";
 import { initImmersiveMode } from "./modules/immersive-mode.js";
@@ -320,7 +319,6 @@ function syncFeatureActionButtons() {
 
 async function toggleAllFeatures(enabled) {
     if (enabled) {
-        enablePersistentDebugLogging();
         toggleSettingsControls(true);
         try { window.XB_applyPrevStates && window.XB_applyPrevStates(); } catch (e) { }
         saveSettingsDebounced();
@@ -387,7 +385,6 @@ async function toggleAllFeatures(enabled) {
         if (extension_settings[EXT_ID].storySummary?.enabled) {
             $(document).trigger('xiaobaix:storySummary:toggle', [false]);
         }
-        disablePersistentDebugLogging({ clear: true });
         document.dispatchEvent(new CustomEvent('xiaobaixEnabledChanged', { detail: { enabled: false } }));
         $(document).trigger('xiaobaix:enabled:toggle', [false]);
     }
@@ -677,7 +674,6 @@ jQuery(async () => {
         try { initControlAudio(); } catch (e) { }
 
         if (isXiaobaixEnabled) {
-            enablePersistentDebugLogging();
             initRenderer();
         }
 

@@ -707,7 +707,8 @@ async function openDebugPanel() {
     isOpen = true;
     ensureStyle();
     bindMessageListener();
-    const { enableDebugMode } = await import("../../core/debug-core.js");
+    const { enableDebugMode, enablePersistentDebugLogging } = await import("../../core/debug-core.js");
+    enablePersistentDebugLogging();
     enableDebugMode();
     startPerfMonitor();
     createMiniButton();
@@ -725,7 +726,11 @@ async function closeDebugPanel() {
     stopPerfMonitor();
     frameReady = false;
     lastLogId = 0;
-    try { const { disableDebugMode } = await import("../../core/debug-core.js"); disableDebugMode(); } catch {}
+    try {
+        const { disableDebugMode, disablePersistentDebugLogging } = await import("../../core/debug-core.js");
+        disableDebugMode();
+        disablePersistentDebugLogging({ clear: true });
+    } catch {}
     removePanel();
     removeMiniButton();
     updateSettingsLight();
