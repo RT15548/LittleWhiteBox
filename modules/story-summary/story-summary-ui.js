@@ -492,6 +492,7 @@ All checks passed. Beginning incremental extraction...
         { start: '<thinking>', end: '</thinking>' },
         { start: '```', end: '```' },
     ];
+    const VALID_TRIGGER_TIMINGS = new Set(['after_ai', 'before_user']);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // State
@@ -626,6 +627,33 @@ All checks passed. Beginning incremental extraction...
     // Config Management
     // ═══════════════════════════════════════════════════════════════════════════
 
+    function normalizeTriggerTiming(value) {
+        return VALID_TRIGGER_TIMINGS.has(value) ? value : 'before_user';
+    }
+
+    function normalizeTriggerConfig() {
+        if (config.trigger.timing === 'manual') {
+            config.trigger.timing = 'before_user';
+            config.trigger.enabled = false;
+        } else {
+            config.trigger.timing = normalizeTriggerTiming(config.trigger.timing);
+        }
+    }
+
+    function syncAutoSummaryControls() {
+        const en = $('trigger-enabled');
+        const timing = $('trigger-timing');
+        const autoSummaryOptions = $('auto-summary-options');
+        if (!en || !timing) return;
+
+        timing.value = normalizeTriggerTiming(timing.value || config.trigger.timing);
+        en.disabled = false;
+        en.parentElement.style.opacity = '1';
+        if (autoSummaryOptions) {
+            autoSummaryOptions.classList.toggle('hidden', !en.checked);
+        }
+    }
+
     function loadConfig() {
         try {
             const s = localStorage.getItem('summary_panel_config');
@@ -641,10 +669,7 @@ All checks passed. Beginning incremental extraction...
                     ? p.textFilterRules
                     : (Array.isArray(p.vector?.textFilterRules) ? p.vector.textFilterRules : [...DEFAULT_FILTER_RULES]);
                 if (p.vector) config.vector = normalizeVectorConfigUI(p.vector);
-                if (config.trigger.timing === 'manual' && config.trigger.enabled) {
-                    config.trigger.enabled = false;
-                    saveConfig();
-                }
+                normalizeTriggerConfig();
             }
         } catch { }
     }
@@ -663,7 +688,7 @@ All checks passed. Beginning incremental extraction...
                 ? cfg.vector.textFilterRules
                 : (Array.isArray(config.textFilterRules) ? config.textFilterRules : [...DEFAULT_FILTER_RULES]));
         if (cfg.vector) config.vector = normalizeVectorConfigUI(cfg.vector);
-        if (config.trigger.timing === 'manual') config.trigger.enabled = false;
+        normalizeTriggerConfig();
         localStorage.setItem('summary_panel_config', JSON.stringify(config));
     }
 
@@ -1242,15 +1267,7 @@ All checks passed. Beginning incremental extraction...
         $('memory-prompt-template').value = config.prompts.memoryTemplate || '';
         $('api-connect-status').textContent = '';
 
-        const en = $('trigger-enabled');
-        if (config.trigger.timing === 'manual') {
-            en.checked = false;
-            en.disabled = true;
-            en.parentElement.style.opacity = '.5';
-        } else {
-            en.disabled = false;
-            en.parentElement.style.opacity = '1';
-        }
+        syncAutoSummaryControls();
 
         if (config.api.modelCache.length) {
             setSelectOptions($('api-model-select'), config.api.modelCache, '请选择');
@@ -1302,9 +1319,9 @@ All checks passed. Beginning incremental extraction...
             config.gen.frequency_penalty = pn('gen-frequency');
 
             const timing = $('trigger-timing').value;
-            config.trigger.timing = timing;
+            config.trigger.timing = normalizeTriggerTiming(timing);
             config.trigger.role = $('trigger-role').value || 'system';
-            config.trigger.enabled = timing === 'manual' ? false : $('trigger-enabled').checked;
+            config.trigger.enabled = $('trigger-enabled').checked;
             config.trigger.interval = Math.max(1, Math.min(30, parseInt($('trigger-interval').value) || 20));
             config.trigger.useStream = $('trigger-stream').checked;
             config.trigger.maxPerRun = parseInt($('trigger-max-per-run').value) || 100;
@@ -2564,16 +2581,8 @@ All checks passed. Beginning incremental extraction...
         };
 
         // Trigger timing
-        $('trigger-timing').onchange = e => {
-            const en = $('trigger-enabled');
-            if (e.target.value === 'manual') {
-                en.checked = false;
-                en.disabled = true;
-                en.parentElement.style.opacity = '.5';
-            } else {
-                en.disabled = false;
-                en.parentElement.style.opacity = '1';
-            }
+        $('trigger-timing').onchange = () => {
+            syncAutoSummaryControls();
         };
 
         // 总结间隔范围校验
@@ -2671,7 +2680,7 @@ All checks passed. Beginning incremental extraction...
         const autoSummaryOptions = $('auto-summary-options');
         if (triggerEnabled && autoSummaryOptions) {
             triggerEnabled.onchange = () => {
-                autoSummaryOptions.classList.toggle('hidden', !triggerEnabled.checked);
+                syncAutoSummaryControls();
             };
         }
 

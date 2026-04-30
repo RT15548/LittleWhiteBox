@@ -1839,7 +1839,6 @@ async function maybeAutoRunSummary(reason) {
     const cfgAll = getSummaryPanelConfig();
     const trig = cfgAll.trigger || {};
 
-    if (trig.timing === "manual") return;
     if (!trig.enabled) return;
     if (trig.timing === "after_ai" && reason !== "after_ai") return;
     if (trig.timing === "before_user" && reason !== "before_user") return;

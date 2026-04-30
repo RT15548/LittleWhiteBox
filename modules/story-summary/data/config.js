@@ -6,6 +6,7 @@ import { CommonSettingStorage } from "../../../core/server-storage.js";
 const MODULE_ID = "summaryConfig";
 const SUMMARY_CONFIG_KEY = "storySummaryPanelConfig";
 const SUMMARY_CONFIG_LOCAL_STORAGE_KEY = "summary_panel_config";
+const VALID_TRIGGER_TIMINGS = new Set(["after_ai", "before_user"]);
 let summaryPanelConfigCache = null;
 
 const DEFAULT_FILTER_RULES = [
@@ -436,7 +437,12 @@ function normalizeSummaryPanelConfig(rawConfig = null) {
         vector: normalizeVectorConfig(rawConfig.vector || null),
     };
 
-    if (result.trigger.timing === "manual") result.trigger.enabled = false;
+    if (result.trigger.timing === "manual") {
+        result.trigger.timing = defaults.trigger.timing;
+        result.trigger.enabled = false;
+    } else if (!VALID_TRIGGER_TIMINGS.has(result.trigger.timing)) {
+        result.trigger.timing = defaults.trigger.timing;
+    }
     if (result.trigger.useStream === undefined) result.trigger.useStream = true;
     result.ui.hideSummarized = !!result.ui.hideSummarized;
     result.ui.keepVisibleCount = clampKeepVisibleCount(result.ui.keepVisibleCount);
