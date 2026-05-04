@@ -449,6 +449,19 @@ h1 span {
     white-space: nowrap;
 }
 
+.vector-boundary-container {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 28px;
+    transition: opacity .2s ease, filter .2s ease;
+}
+
+.vector-boundary-container.is-disabled {
+    opacity: .4;
+    filter: grayscale(100%);
+}
+
 .info-dot {
     display: inline-flex;
     align-items: center;
@@ -464,6 +477,7 @@ h1 span {
     font-weight: 700;
     line-height: 1;
     cursor: help;
+    user-select: none;
 }
 
 .info-dot:hover {
@@ -2074,11 +2088,17 @@ h1 span {
         justify-content: center;
     }
 
+    .vector-boundary-container {
+        width: 100%;
+        justify-content: flex-start;
+        margin-left: 18px;
+    }
+
     .vector-boundary-label {
         width: auto;
         flex: 0 0 auto;
-        margin: 0 auto;
-        justify-content: center;
+        margin: 0;
+        justify-content: flex-start;
     }
 
     .btn-group {

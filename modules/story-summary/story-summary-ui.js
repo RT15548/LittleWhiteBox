@@ -654,26 +654,31 @@ All checks passed. Beginning incremental extraction...
         }
     }
 
-    function syncVectorBoundaryControl(vectorEnabled = config.vector?.enabled) {
+    function syncVectorBoundaryControl(vectorEnabled = config.vector?.enabled, hideEnabled = config.ui.hideSummarized) {
         const input = $('use-vector-boundary');
         const label = $('lbl-vector-boundary');
         const info = $('vector-boundary-info');
-        if (!input || !label) return;
+        const container = $('container-vector-boundary');
+        if (!input || !label || !container) return;
 
-        const enabled = !!vectorEnabled;
+        const enabled = !!vectorEnabled && !!hideEnabled;
         input.checked = config.ui.useVectorBoundary !== false;
         input.disabled = !enabled;
+        container.classList.toggle('is-disabled', !enabled);
         label.classList.toggle('is-disabled', !enabled);
 
-        const title = enabled
-            ? '开：按最新向量边界隐藏；关：仅按总结边界隐藏，缓存命中更稳'
-            : '需先启用向量功能';
+        const title = !vectorEnabled
+            ? '需先启用向量功能'
+            : !hideEnabled
+                ? '需先开启“隐藏已总结”'
+                : '开：按最新向量边界隐藏；关：仅按总结边界隐藏，缓存命中更稳';
         label.title = title;
         if (info) {
             info.title = title;
             info.onclick = e => {
                 e.preventDefault();
                 e.stopPropagation();
+                alert(title);
             };
         }
     }
@@ -715,7 +720,7 @@ All checks passed. Beginning incremental extraction...
                 : (Array.isArray(config.textFilterRules) ? config.textFilterRules : [...DEFAULT_FILTER_RULES]));
         if (cfg.vector) config.vector = normalizeVectorConfigUI(cfg.vector);
         normalizeTriggerConfig();
-        syncVectorBoundaryControl(config.vector?.enabled);
+        syncVectorBoundaryControl(config.vector?.enabled, config.ui.hideSummarized);
         localStorage.setItem('summary_panel_config', JSON.stringify(config));
     }
 
@@ -928,7 +933,7 @@ All checks passed. Beginning incremental extraction...
         if (!cfg) return;
         $('vector-enabled').checked = !!cfg.enabled;
         $('vector-config-area').classList.toggle('hidden', !cfg.enabled);
-        syncVectorBoundaryControl(cfg.enabled);
+        syncVectorBoundaryControl(cfg.enabled, config.ui.hideSummarized);
         $('vector-l0-concurrency').value = String(Math.max(1, Math.min(50, Number(cfg.l0Concurrency) || 10)));
         loadVectorApiConfig('l0', cfg.l0Api || {});
         loadVectorApiConfig('embedding', cfg.embeddingApi || {});
@@ -1122,9 +1127,9 @@ All checks passed. Beginning incremental extraction...
     function initVectorUI() {
         $('vector-enabled').onchange = e => {
             $('vector-config-area').classList.toggle('hidden', !e.target.checked);
-            syncVectorBoundaryControl(e.target.checked);
+            syncVectorBoundaryControl(e.target.checked, config.ui.hideSummarized);
         };
-        syncVectorBoundaryControl(config.vector?.enabled);
+        syncVectorBoundaryControl(config.vector?.enabled, config.ui.hideSummarized);
 
         ['l0', 'embedding', 'rerank'].forEach(prefix => {
             $(`${prefix}-api-key-toggle`).onclick = () => {
@@ -2351,10 +2356,13 @@ All checks passed. Beginning incremental extraction...
                     $('summarized-count').textContent = d.stats.hiddenCount ?? 0;
                     cleanActionState.summarizedUpTo = d.stats.summarizedUpTo ?? 0;
                 }
-                if (d.hideSummarized !== undefined) $('hide-summarized').checked = d.hideSummarized;
+                if (d.hideSummarized !== undefined) {
+                    $('hide-summarized').checked = d.hideSummarized;
+                    config.ui.hideSummarized = d.hideSummarized;
+                }
                 if (d.keepVisibleCount !== undefined) $('keep-visible-count').value = d.keepVisibleCount;
                 if (d.useVectorBoundary !== undefined) config.ui.useVectorBoundary = d.useVectorBoundary !== false;
-                syncVectorBoundaryControl(d.vectorEnabled);
+                syncVectorBoundaryControl(d.vectorEnabled, d.hideSummarized ?? config.ui.hideSummarized);
                 cleanActionState.canRollback = !!d.canRollback;
                 cleanActionState.rollbackTargetSummarizedUpTo = Number(d.rollbackTargetSummarizedUpTo || 0);
                 cleanActionState.rollbackWillClearAll = !!d.rollbackWillClearAll;
@@ -2655,7 +2663,11 @@ All checks passed. Beginning incremental extraction...
         };
 
         // Hide summarized
-        $('hide-summarized').onchange = e => postMsg('TOGGLE_HIDE_SUMMARIZED', { enabled: e.target.checked });
+        $('hide-summarized').onchange = e => {
+            config.ui.hideSummarized = e.target.checked;
+            syncVectorBoundaryControl(config.vector?.enabled, config.ui.hideSummarized);
+            postMsg('TOGGLE_HIDE_SUMMARIZED', { enabled: e.target.checked });
+        };
         $('use-vector-boundary').onchange = e => {
             config.ui.useVectorBoundary = e.target.checked;
             postMsg('TOGGLE_USE_VECTOR_BOUNDARY', { enabled: e.target.checked });
