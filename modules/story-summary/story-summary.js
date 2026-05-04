@@ -274,6 +274,7 @@ let lastVectorWarningAt = 0;
 const VECTOR_WARNING_COOLDOWN_MS = 120000; // 2分钟内不重复提醒
 let backupDeleteSupported = true;
 let backupDeleteUnsupportedReason = '';
+let backupManagerCleanup = null;
 
 const EXT_PROMPT_KEY = "LittleWhiteBox_StorySummary";
 const MIN_INJECTION_DEPTH = 2;
@@ -1143,6 +1144,7 @@ function showOverlay() {
 }
 
 function hideOverlay() {
+    removeBackupManagerModal();
     $("#xiaobaix-story-summary-overlay").hide();
 }
 
@@ -1936,6 +1938,10 @@ async function handleFrameMessage(event) {
             break;
 
         case "SETTINGS_CLOSED":
+            removeBackupManagerModal();
+            $(".xb-ss-close-btn").show();
+            break;
+
         case "FULLSCREEN_CLOSED":
         case "EDITOR_CLOSED":
         case "CONFIRM_CLOSED":
@@ -2822,8 +2828,14 @@ async function handleChatDeleted(chatId) {
 // 备份管理 Modal（渲染在父窗口，确保层级在 settings modal 之上）
 // ═══════════════════════════════════════════════════════════════════════════
 
-function showBackupManagerModal(initialFiles) {
+function removeBackupManagerModal() {
+    backupManagerCleanup?.();
+    backupManagerCleanup = null;
     document.getElementById('lwb-backup-manager-modal')?.remove();
+}
+
+function showBackupManagerModal(initialFiles) {
+    removeBackupManagerModal();
     const isNarrowViewport = window.matchMedia?.('(max-width: 640px)').matches || window.innerWidth <= 640;
 
     const overlay = document.createElement('div');
@@ -2834,6 +2846,25 @@ function showBackupManagerModal(initialFiles) {
         'box-sizing:border-box', `padding:${isNarrowViewport ? '10px' : '16px'}`,
         'overflow:hidden',
     ].join(';');
+
+    const viewport = window.visualViewport;
+    const syncOverlayToViewport = () => {
+        if (!viewport) return;
+        overlay.style.inset = 'auto';
+        overlay.style.left = `${viewport.offsetLeft}px`;
+        overlay.style.top = `${viewport.offsetTop}px`;
+        overlay.style.width = `${viewport.width}px`;
+        overlay.style.height = `${viewport.height}px`;
+    };
+    if (viewport) {
+        syncOverlayToViewport();
+        viewport.addEventListener('resize', syncOverlayToViewport);
+        viewport.addEventListener('scroll', syncOverlayToViewport);
+        backupManagerCleanup = () => {
+            viewport.removeEventListener('resize', syncOverlayToViewport);
+            viewport.removeEventListener('scroll', syncOverlayToViewport);
+        };
+    }
 
     const box = document.createElement('div');
     box.style.cssText = [
@@ -2870,7 +2901,7 @@ function showBackupManagerModal(initialFiles) {
     const btnClose = document.createElement('button');
     btnClose.className = 'btn btn-sm';
     btnClose.textContent = '✕';
-    btnClose.onclick = () => overlay.remove();
+    btnClose.onclick = removeBackupManagerModal;
 
     btnRow.append(btnRefresh, btnClose);
     header.append(title, btnRow);
@@ -2890,7 +2921,7 @@ function showBackupManagerModal(initialFiles) {
     document.body.appendChild(overlay);
 
     // Close on backdrop click
-    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', e => { if (e.target === overlay) removeBackupManagerModal(); });
 
     function setStatus(text, isError) {
         statusEl.textContent = text;
