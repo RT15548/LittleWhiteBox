@@ -42,6 +42,12 @@
                 <span>隐藏已总结 · <strong id="summarized-count">0</strong> 楼（保留<input type="number" id="keep-visible-count"
                         min="0" max="50" value="3">楼）</span>
             </label>
+            <label class="chk-label vector-boundary-label" id="lbl-vector-boundary" title="开：按最新向量边界隐藏；关：仅按总结边界隐藏，缓存命中更稳">
+                <input type="checkbox" id="use-vector-boundary" checked>
+                <span>向量边界</span>
+                <span class="info-dot" id="vector-boundary-info"
+                    title="开：按最新向量边界隐藏；关：仅按总结边界隐藏，缓存命中更稳">i</span>
+            </label>
             <span class="spacer"></span>
             <div class="btn-group">
                 <button class="btn btn-icon" id="btn-settings">

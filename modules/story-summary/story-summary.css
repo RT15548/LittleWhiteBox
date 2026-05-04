@@ -430,8 +430,45 @@ h1 span {
     cursor: pointer;
 }
 
+.chk-label.is-disabled,
+.chk-label:has(input:disabled) {
+    opacity: .48;
+    cursor: not-allowed;
+}
+
+.chk-label input:disabled {
+    cursor: not-allowed;
+}
+
 .chk-label strong {
     color: var(--hl);
+}
+
+.vector-boundary-label {
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.info-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    padding: 0;
+    border: 1px solid var(--bdr);
+    border-radius: 50%;
+    background: var(--bg2);
+    color: var(--txt3);
+    font-size: .6875rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: help;
+}
+
+.info-dot:hover {
+    border-color: var(--acc);
+    color: var(--txt);
 }
 
 #keep-visible-count {
@@ -2034,6 +2071,13 @@ h1 span {
 
     .chk-label {
         width: 100%;
+        justify-content: center;
+    }
+
+    .vector-boundary-label {
+        width: auto;
+        flex: 0 0 auto;
+        margin: 0 auto;
         justify-content: center;
     }
 

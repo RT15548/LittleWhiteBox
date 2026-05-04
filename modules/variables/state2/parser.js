@@ -482,6 +482,14 @@ export function parseInlineValue(raw) {
         return { op: 'set', value: t, warning: '+[] 解析失败' };
     }
 
+    if (t.startsWith('+{')) {
+        try {
+            const obj = JSON.parse(t.slice(1));
+            if (obj && typeof obj === 'object' && !Array.isArray(obj)) return { op: 'push', value: obj };
+        } catch {}
+        return { op: 'set', value: t, warning: '+{} 解析失败' };
+    }
+
     const popD = t.match(/^-"((?:[^"\\]|\\.)*)"\s*$/);
     if (popD) return { op: 'pop', value: unescapeString(popD[1]) };
     const popS = t.match(/^-'((?:[^'\\]|\\.)*)'\s*$/);
@@ -493,6 +501,14 @@ export function parseInlineValue(raw) {
             if (Array.isArray(arr)) return { op: 'pop', value: arr };
         } catch {}
         return { op: 'set', value: t, warning: '-[] 解析失败' };
+    }
+
+    if (t.startsWith('-{')) {
+        try {
+            const obj = JSON.parse(t.slice(1));
+            if (obj && typeof obj === 'object' && !Array.isArray(obj)) return { op: 'pop', value: obj };
+        } catch {}
+        return { op: 'set', value: t, warning: '-{} 解析失败' };
     }
 
     if (/^-?\d+(?:\.\d+)?$/.test(t)) return { op: 'set', value: Number(t) };

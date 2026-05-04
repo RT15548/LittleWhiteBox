@@ -383,6 +383,7 @@ function createDefaultSummaryPanelConfig() {
         ui: {
             hideSummarized: true,
             keepVisibleCount: 6,
+            useVectorBoundary: true,
         },
         textFilterRules: [...DEFAULT_FILTER_RULES],
         prompts: {
@@ -446,6 +447,7 @@ function normalizeSummaryPanelConfig(rawConfig = null) {
     if (result.trigger.useStream === undefined) result.trigger.useStream = true;
     result.ui.hideSummarized = !!result.ui.hideSummarized;
     result.ui.keepVisibleCount = clampKeepVisibleCount(result.ui.keepVisibleCount);
+    result.ui.useVectorBoundary = result.ui.useVectorBoundary !== false;
 
     return result;
 }

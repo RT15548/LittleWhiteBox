@@ -1,4 +1,4 @@
-import { extension_settings } from "../../../extensions.js";
+import { extension_settings, extensionTypes } from "../../../extensions.js";
 import { saveSettingsDebounced, eventSource, event_types, getRequestHeaders } from "../../../../script.js";
 import { EXT_ID, extensionFolderPath } from "./core/constants.js";
 import { executeSlashCommand } from "./core/slash-command.js";
@@ -118,13 +118,66 @@ async function checkLittleWhiteBoxUpdate() {
     }
 }
 
+async function detectLittleWhiteBoxGlobalFlag() {
+    const extensionKey = `third-party/${EXT_ID}`;
+
+    try {
+        const response = await fetch('/api/extensions/discover', {
+            method: 'GET',
+            headers: getRequestHeaders(),
+        });
+
+        if (response.ok) {
+            const extensions = await response.json();
+            const match = Array.isArray(extensions)
+                ? extensions.find(ext => ext?.name === extensionKey)
+                : null;
+
+            if (match?.type === 'global') return true;
+            if (match?.type === 'local') return false;
+        }
+    } catch {}
+
+    const cachedType = extensionTypes?.[extensionKey];
+    if (cachedType === 'global') return true;
+    if (cachedType === 'local') return false;
+
+    return null;
+}
+
+async function requestLittleWhiteBoxUpdate(globalFlag) {
+    return fetch('/api/extensions/update', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ extensionName: EXT_ID, global: globalFlag }),
+    });
+}
+
 async function updateLittleWhiteBoxExtension() {
     try {
-        const response = await fetch('/api/extensions/update', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({ extensionName: 'LittleWhiteBox', global: true }),
-        });
+        const detectedGlobal = await detectLittleWhiteBoxGlobalFlag();
+        const tryOrder = detectedGlobal === null ? [false, true] : [detectedGlobal, !detectedGlobal];
+        let response = null;
+
+        for (let i = 0; i < tryOrder.length; i++) {
+            const candidate = tryOrder[i];
+            response = await requestLittleWhiteBoxUpdate(candidate);
+
+            if (response.ok) break;
+
+            const text = await response.text();
+            const shouldRetry = i === 0 && (
+                response.status === 404
+                || response.status === 403
+                || /Directory does not exist|Forbidden|permission/i.test(text)
+            );
+
+            if (!shouldRetry) {
+                toastr.error(text || response.statusText, 'LittleWhiteBox update failed', { timeOut: 5000 });
+                return false;
+            }
+        }
+
         if (!response.ok) {
             const text = await response.text();
             toastr.error(text || response.statusText, 'LittleWhiteBox update failed', { timeOut: 5000 });

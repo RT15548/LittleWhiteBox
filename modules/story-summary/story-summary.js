@@ -1215,6 +1215,7 @@ function getHideUiSettings() {
     return {
         hideSummarized: !!ui.hideSummarized,
         keepVisibleCount,
+        useVectorBoundary: ui.useVectorBoundary !== false,
     };
 }
 
@@ -1224,6 +1225,7 @@ function setHideUiSettings(patch = {}) {
     const next = {
         ...cfg,
         ui: {
+            ...(cfg.ui || {}),
             hideSummarized: patch.hideSummarized !== undefined ? !!patch.hideSummarized : current.hideSummarized,
             keepVisibleCount: patch.keepVisibleCount !== undefined
                 ? (() => {
@@ -1231,6 +1233,9 @@ function setHideUiSettings(patch = {}) {
                     return Number.isFinite(parsedKeep) ? Math.max(0, Math.min(50, parsedKeep)) : 6;
                 })()
                 : current.keepVisibleCount,
+            useVectorBoundary: patch.useVectorBoundary !== undefined
+                ? !!patch.useVectorBoundary
+                : current.useVectorBoundary,
         },
     };
     saveSummaryPanelConfig(next);
@@ -1256,6 +1261,8 @@ async function sendFrameBaseData(store, totalFloors) {
         },
         hideSummarized: ui.hideSummarized,
         keepVisibleCount: ui.keepVisibleCount,
+        useVectorBoundary: ui.useVectorBoundary,
+        vectorEnabled: !!getVectorConfig()?.enabled,
         canRollback: rollbackTargetEndMesId != null,
         rollbackTargetSummarizedUpTo: rollbackTargetEndMesId == null ? 0 : rollbackTargetEndMesId + 1,
         rollbackWillClearAll: rollbackTargetEndMesId != null && rollbackTargetEndMesId < 0,
@@ -1693,7 +1700,7 @@ function openPanelForMessage(mesId) {
 // ═══════════════════════════════════════════════════════════════════════════
 // Hide/Unhide
 // - 非向量：boundary = lastSummarizedMesId
-// - 向量：boundary = meta.lastChunkFloor（若为 -1 则回退到 lastSummarizedMesId）
+// - 向量：boundary = meta.lastChunkFloor（若为 -1 或关闭向量边界隐藏，则回退到 lastSummarizedMesId）
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function getHideBoundaryFloor(store) {
@@ -1703,7 +1710,7 @@ async function getHideBoundaryFloor(store) {
     }
 
     const vectorCfg = getVectorConfig();
-    if (!vectorCfg?.enabled) {
+    if (!vectorCfg?.enabled || getHideUiSettings().useVectorBoundary === false) {
         return store?.lastSummarizedMesId ?? -1;
     }
 
@@ -2277,6 +2284,20 @@ async function handleFrameMessage(event) {
             break;
         }
 
+        case "TOGGLE_USE_VECTOR_BOUNDARY": {
+            setHideUiSettings({ useVectorBoundary: data.enabled !== false });
+
+            (async () => {
+                if (getHideUiSettings().hideSummarized) {
+                    await applyHideState({ reset: true });
+                }
+                const { chat } = getContext();
+                const store = getSummaryStore();
+                await sendFrameBaseData(store, Array.isArray(chat) ? chat.length : 0);
+            })();
+            break;
+        }
+
         case "SAVE_PANEL_CONFIG":
             if (data.config) {
                 try {
@@ -2289,6 +2310,7 @@ async function handleFrameMessage(event) {
                     const nextVectorFingerprint = nextVectorConfig?.enabled
                         ? getEngineFingerprint(nextVectorConfig)
                         : null;
+                    const vectorEnabledChanged = !!previousVectorConfig?.enabled !== !!nextVectorConfig?.enabled;
                     const vectorCacheInvalidated =
                         !nextVectorConfig?.enabled ||
                         previousVectorFingerprint !== nextVectorFingerprint;
@@ -2306,6 +2328,15 @@ async function handleFrameMessage(event) {
                         config: savedConfig,
                     });
                     sendVectorConfigToFrame();
+                    const hideUi = getHideUiSettings();
+                    if (hideUi.hideSummarized && hideUi.useVectorBoundary && vectorEnabledChanged) {
+                        await applyHideState({ reset: !!previousVectorConfig?.enabled });
+                    }
+                    {
+                        const { chat } = getContext();
+                        const store = getSummaryStore();
+                        await sendFrameBaseData(store, Array.isArray(chat) ? chat.length : 0);
+                    }
                 } catch (e) {
                     xbLog.error(MODULE_ID, "保存面板配置失败", e);
                     postToFrame({

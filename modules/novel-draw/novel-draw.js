@@ -257,13 +257,6 @@ function ensureStyles() {
 .xb-nd-edit-input:focus{border-color:rgba(212,165,116,0.5);outline:none}
 .xb-nd-edit-input.scene{border-color:rgba(212,165,116,0.3)}
 .xb-nd-edit-input.char{border-color:rgba(147,197,253,0.3)}
-.xb-nd-live-btn{position:absolute;bottom:10px;right:10px;z-index:5;padding:4px 8px;background:rgba(0,0,0,0.75);border:none;border-radius:12px;color:rgba(255,255,255,0.7);font-size:10px;font-weight:700;letter-spacing:0.5px;cursor:pointer;opacity:0.7;transition:all 0.2s;user-select:none}
-.xb-nd-live-btn:hover{opacity:1;background:rgba(0,0,0,0.85)}
-.xb-nd-live-btn.active{background:rgba(62,207,142,0.9);color:#fff;opacity:1;box-shadow:0 0 10px rgba(62,207,142,0.5)}
-.xb-nd-live-btn.loading{pointer-events:none;opacity:0.5}
-.xb-nd-img.mode-live .xb-nd-img-wrap>img{opacity:0!important;pointer-events:none}
-.xb-nd-live-canvas{border-radius:10px;overflow:hidden}
-.xb-nd-live-canvas canvas{display:block;border-radius:10px}
 `;
     document.head.appendChild(style);
 }
@@ -1557,8 +1550,6 @@ function buildImageHtml({ slotId, imgId, url, tags, positive, messageId, state =
         <span class="xb-nd-nav-text">${displayVersion} / ${historyCount}</span>
         <button class="xb-nd-nav-arrow" data-action="nav-next" title="${currentIndex === 0 ? '重新生成' : '下一版本'}">›</button>
     </div>`;
-    const liveBtn = `<button class="xb-nd-live-btn" data-action="toggle-live" title="Live Photo">LIVE</button>`;
-
     const menuBusy = isBusy ? ' busy' : '';
     const menuHtml = `<div class="xb-nd-menu-wrap${menuBusy}">
         <button class="xb-nd-menu-trigger" data-action="toggle-menu" title="操作">⋮</button>
@@ -1575,7 +1566,6 @@ ${indicator}
 <div class="xb-nd-img-wrap" data-total="${historyCount}">
     <img src="${escapeHtml(url)}" style="max-width:100%;width:auto;height:auto;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);${isBusy ? 'opacity:0.5;' : ''}" data-action="open-gallery" ${lazyAttr}>
     ${navPill}
-    ${liveBtn}
 </div>
 ${menuHtml}
 <div class="xb-nd-edit" style="display:none;position:absolute;bottom:8px;left:8px;right:8px;background:rgba(0,0,0,0.9);border-radius:10px;padding:10px;text-align:left;z-index:15;">
@@ -1645,12 +1635,6 @@ function setImageState(container, state) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function navigateToImage(container, targetIndex) {
-    try {
-        const { destroyLiveEffect } = await import('./image-live-effect.js');
-        destroyLiveEffect(container);
-        container.querySelector('.xb-nd-live-btn')?.classList.remove('active');
-    } catch {}
-
     const slotId = container.dataset.slotId;
     const historyCount = parseInt(container.dataset.historyCount) || 1;
     const currentIndex = parseInt(container.dataset.currentIndex) || 0;
@@ -1765,23 +1749,6 @@ function handleTouchEnd(e) {
 // 事件委托与图片操作
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function handleLiveToggle(container) {
-    const btn = container.querySelector('.xb-nd-live-btn');
-    if (!btn || btn.classList.contains('loading')) return;
-
-    btn.classList.add('loading');
-
-    try {
-        const { toggleLiveEffect } = await import('./image-live-effect.js');
-        const isActive = await toggleLiveEffect(container);
-        btn.classList.remove('loading');
-        btn.classList.toggle('active', isActive);
-    } catch (e) {
-        console.error('[NovelDraw] Live effect failed:', e);
-        btn.classList.remove('loading');
-    }
-}
-
 async function handleDelegatedClick(e) {
     const container = e.target.closest('.xb-nd-img');
     if (!container) {
@@ -1855,10 +1822,6 @@ async function handleDelegatedClick(e) {
             const i = parseInt(container.dataset.currentIndex) || 0;
             if (i > 0) await navigateToImage(container, i - 1);
             else await refreshSingleImage(container);
-            break;
-        }
-        case 'toggle-live': {
-            handleLiveToggle(container);
             break;
         }
     }
@@ -2103,12 +2066,6 @@ async function refreshSingleImage(container) {
     const currentImgId = container.dataset.imgId;
 
     if (!tags || currentState === ImageState.SAVING || currentState === ImageState.REFRESHING || !slotId) return;
-
-    try {
-        const { destroyLiveEffect } = await import('./image-live-effect.js');
-        destroyLiveEffect(container);
-        container.querySelector('.xb-nd-live-btn')?.classList.remove('active');
-    } catch {}
 
     toggleEditPanel(container, false);
     setImageState(container, ImageState.REFRESHING);
@@ -3992,11 +3949,6 @@ export async function cleanupNovelDraw() {
     try {
         const { destroyFloatingPanel } = await import('./floating-panel.js');
         destroyFloatingPanel();
-    } catch {}
-
-    try {
-        const { destroyAllLiveEffects } = await import('./image-live-effect.js');
-        destroyAllLiveEffects();
     } catch {}
 
     delete window.xiaobaixNovelDraw;
