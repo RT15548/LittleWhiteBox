@@ -26,13 +26,16 @@ let state = {
     messageEventsBound: false,
     globalStateHandler: null,
     scrollTicking: false,
-    scrollHideTimer: null
+    scrollHideTimer: null,
+    sendFocusGuardBound: false,
+    sendFocusGuardCleanup: null
 };
 
 let observer = null;
 let resizeObs = null;
 let resizeObservedEl = null;
 let recalcT = null;
+let sendCleanupTimer = null;
 
 const isGlobalEnabled = () => window.isXiaobaixEnabled ?? true;
 const getSettings = () => extension_settings[EXT_ID].immersive;
@@ -164,13 +167,13 @@ function bindMessageEvents() {
     const onUserMessage = () => {
         if (!state.isActive) return;
         updateMessageDisplay();
-        scrollToBottom();
+        scrollToBottom(true);
     };
     const onAIMessage = () => {
         if (!state.isActive) return;
         updateMessageDisplay();
         if (getSettings().autoJumpOnAI) {
-            scrollToBottom();
+            scrollToBottom(true);
         }
     };
     const onMessageChange = () => {
@@ -277,6 +280,7 @@ function enableImmersiveMode() {
     applyModeClasses();
     moveAvatarWrappers();
     bindMessageEvents();
+    bindSendFocusGuard();
     updateMessageDisplay();
     setupDOMObserver();
     setupScrollHelpers();
@@ -289,6 +293,7 @@ function disableImmersiveMode() {
     hideNavigationButtons();
     $('.swipe_left, .swipeRightBlock').show();
     unbindMessageEvents();
+    unbindSendFocusGuard();
     detachResizeObserver();
     destroyDOMObserver();
     removeScrollHelpers();
@@ -570,7 +575,26 @@ function updateSwipesCounter($targetMes) {
     $swipesCounter.html('1&ZeroWidthSpace;/&ZeroWidthSpace;1');
 }
 
-function scrollToBottom() {
+function scheduleScrollToBottom(delayMs = 0) {
+    window.setTimeout(() => {
+        const chatContainer = document.getElementById('chat');
+        if (!chatContainer) return;
+
+        requestAnimationFrame(() => {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            requestAnimationFrame(() => {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            });
+        });
+    }, delayMs);
+}
+
+function scrollToBottom(forceDelayed = false) {
+    if (forceDelayed) {
+        scheduleScrollToBottom(80);
+        return;
+    }
+
     const chatContainer = document.getElementById('chat');
     if (!chatContainer) return;
 
@@ -578,6 +602,58 @@ function scrollToBottom() {
     requestAnimationFrame(() => {
         chatContainer.scrollTop = chatContainer.scrollHeight;
     });
+}
+
+function scheduleStableScrollToBottom() {
+    [80, 260, 520].forEach(delay => scheduleScrollToBottom(delay));
+}
+
+function bindSendFocusGuard() {
+    if (!state.isActive || state.sendFocusGuardBound) return;
+
+    const sendControls = [
+        document.getElementById('send_but') || document.getElementById('send_button'),
+        document.getElementById('option_regenerate'),
+        document.getElementById('option_continue'),
+        document.getElementById('mes_continue'),
+        document.getElementById('mes_impersonate'),
+    ].filter(Boolean);
+
+    if (!document.getElementById('send_textarea') || !sendControls.length) {
+        window.setTimeout(() => {
+            if (state.isActive) bindSendFocusGuard();
+        }, 200);
+        return;
+    }
+
+    const runPostSendCleanup = () => {
+        if (!state.isActive) return;
+        const textarea = document.getElementById('send_textarea');
+        if (textarea && document.activeElement === textarea) {
+            textarea.blur();
+        }
+        scheduleStableScrollToBottom();
+    };
+
+    const onSendClick = () => {
+        clearTimeout(sendCleanupTimer);
+        sendCleanupTimer = window.setTimeout(runPostSendCleanup, 0);
+    };
+
+    sendControls.forEach(control => control.addEventListener('click', onSendClick, true));
+
+    state.sendFocusGuardBound = true;
+    state.sendFocusGuardCleanup = () => {
+        sendControls.forEach(control => control.removeEventListener('click', onSendClick, true));
+        clearTimeout(sendCleanupTimer);
+        sendCleanupTimer = null;
+        state.sendFocusGuardBound = false;
+        state.sendFocusGuardCleanup = null;
+    };
+}
+
+function unbindSendFocusGuard() {
+    state.sendFocusGuardCleanup?.();
 }
 
 function toggleDisplayMode() {
@@ -653,8 +729,11 @@ function cleanup() {
         messageEventsBound: false,
         globalStateHandler: null,
         scrollTicking: false,
-        scrollHideTimer: null
+        scrollHideTimer: null,
+        sendFocusGuardBound: false,
+        sendFocusGuardCleanup: null
     };
+    sendCleanupTimer = null;
 }
 
 function detachResizeObserver() {
