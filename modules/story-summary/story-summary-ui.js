@@ -671,7 +671,7 @@ All checks passed. Beginning incremental extraction...
             ? '需先启用向量功能'
             : !hideEnabled
                 ? '需先开启“隐藏已总结”'
-                : '开：按最新向量边界隐藏；关：仅按总结边界隐藏，缓存命中更稳';
+                : '开：按最新向量楼层作为隐藏计算锚点\n关：按最新的大总结楼层作为隐藏计算锚点\n提示：若您的第三方模型 API 支持 Context Caching（上下文缓存），关闭此项可提高缓存命中率；开启此项则影响命中，但语义和上下文更自然';
         label.title = title;
         if (info) {
             info.title = title;

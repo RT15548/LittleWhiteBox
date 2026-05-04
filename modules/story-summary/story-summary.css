@@ -2077,6 +2077,7 @@ h1 span {
         gap: 8px;
         padding: 10px 0;
         margin-bottom: 16px;
+        align-items: flex-start;
     }
 
     .spacer {
@@ -2085,13 +2086,13 @@ h1 span {
 
     .chk-label {
         width: 100%;
-        justify-content: center;
+        justify-content: flex-start;
     }
 
     .vector-boundary-container {
         width: 100%;
         justify-content: flex-start;
-        margin-left: 18px;
+        margin-left: 20px;
     }
 
     .vector-boundary-label {
