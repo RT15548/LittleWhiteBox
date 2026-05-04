@@ -1714,20 +1714,22 @@ async function getHideBoundaryFloor(store) {
     return store?.lastSummarizedMesId ?? -1;
 }
 
-async function applyHideState() {
+async function applyHideState({ reset = true } = {}) {
     if (!getSettings().storySummary?.enabled) return;
     const store = getSummaryStore();
     const ui = getHideUiSettings();
     if (!ui.hideSummarized) return;
-
-    // 先全量 unhide，杜绝历史残留
-    await unhideAllMessages();
 
     const boundary = await getHideBoundaryFloor(store);
     if (boundary < 0) return;
 
     const range = calcHideRange(boundary, ui.keepVisibleCount);
     if (!range) return;
+
+    if (reset) {
+        // 仅在隐藏范围可能缩小时清理历史残留；普通后台维护只补 hide，避免短暂全展开。
+        await unhideAllMessages();
+    }
 
     await executeSlashCommand(`/hide ${range.start}-${range.end}`);
 }
@@ -1737,13 +1739,13 @@ function cancelHideApplyTimer() {
     hideApplyTimer = null;
 }
 
-function applyHideStateDebounced() {
+function applyHideStateDebounced({ reset = false } = {}) {
     cancelHideApplyTimer();
     hideApplyTimer = setTimeout(() => {
         hideApplyTimer = null;
         if (!getSettings().storySummary?.enabled) return;
         if (!getHideUiSettings().hideSummarized) return;
-        applyHideState().catch((e) => xbLog.warn(MODULE_ID, "applyHideState failed", e));
+        applyHideState({ reset }).catch((e) => xbLog.warn(MODULE_ID, "applyHideState failed", e));
     }, HIDE_APPLY_DEBOUNCE_MS);
 }
 
@@ -2148,6 +2150,7 @@ async function handleFrameMessage(event) {
             cancelPendingEventEditSync();
             await clearSummaryData(chatId);
             invalidateLexicalIndex();
+            await clearHideState();
             const totalFloors = Array.isArray(chat) ? chat.length : 0;
             const store = getSummaryStore();
             await sendFrameBaseData(store, totalFloors);
@@ -2176,6 +2179,13 @@ async function handleFrameMessage(event) {
             const result = await rollbackSummaryOnce(chatId);
             if (result.success) {
                 invalidateLexicalIndex();
+                if (getHideUiSettings().hideSummarized) {
+                    if (result.clearedAll) {
+                        await clearHideState();
+                    } else {
+                        await applyHideState({ reset: true });
+                    }
+                }
             }
             const totalFloors = Array.isArray(chat) ? chat.length : 0;
             const nextStore = getSummaryStore();
@@ -2401,7 +2411,7 @@ async function handleMessageDeleted(scheduledChatId) {
     const { chat, chatId } = getContext();
     const newLength = chat?.length || 0;
 
-    await rollbackSummaryIfNeeded();
+    const didRollback = await rollbackSummaryIfNeeded();
     await syncOnMessageDeleted(chatId, newLength);
 
     // L0 同步：清理 floor >= newLength 的 atoms / index / vectors
@@ -2416,7 +2426,7 @@ async function handleMessageDeleted(scheduledChatId) {
     await sendAnchorStatsToFrame();
     await sendVectorStatsToFrame();
 
-    applyHideStateDebounced();
+    applyHideStateDebounced({ reset: didRollback });
 }
 
 async function handleMessageSwiped(scheduledChatId) {
@@ -2489,7 +2499,7 @@ async function handleMessageUpdated(scheduledChatId) {
     if (isChatStale(scheduledChatId)) return;
     await rollbackSummaryIfNeeded();
     initButtonsForAll();
-    applyHideStateDebounced();
+    applyHideStateDebounced({ reset: false });
 }
 
 function handleMessageRendered(data) {
@@ -2814,27 +2824,36 @@ async function handleChatDeleted(chatId) {
 
 function showBackupManagerModal(initialFiles) {
     document.getElementById('lwb-backup-manager-modal')?.remove();
+    const isNarrowViewport = window.matchMedia?.('(max-width: 640px)').matches || window.innerWidth <= 640;
 
     const overlay = document.createElement('div');
     overlay.id = 'lwb-backup-manager-modal';
     overlay.style.cssText = [
         'position:fixed', 'inset:0', 'background:rgba(0,0,0,.55)',
         'z-index:100000', 'display:flex', 'align-items:center', 'justify-content:center',
+        'box-sizing:border-box', `padding:${isNarrowViewport ? '10px' : '16px'}`,
+        'overflow:hidden',
     ].join(';');
 
     const box = document.createElement('div');
     box.style.cssText = [
         'background:#fff', 'color:#222', 'border-radius:8px',
-        'width:min(520px,92vw)', 'padding:18px',
-        'max-height:80vh', 'display:flex', 'flex-direction:column',
+        `width:${isNarrowViewport ? '100%' : 'min(520px,92vw)'}`,
+        `padding:${isNarrowViewport ? '12px' : '18px'}`,
+        `max-height:${isNarrowViewport ? 'calc(100dvh - 20px)' : '80vh'}`,
+        'box-sizing:border-box', 'display:flex', 'flex-direction:column',
+        'overflow:hidden',
         'box-shadow:0 8px 32px rgba(0,0,0,.35)', 'font-size:14px',
     ].join(';');
 
     // Header
     const header = document.createElement('div');
-    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px';
+    header.style.cssText = [
+        'display:flex', 'justify-content:space-between', 'align-items:center',
+        'gap:8px', 'margin-bottom:10px', 'flex-shrink:0',
+    ].join(';');
     const title = document.createElement('span');
-    title.style.cssText = 'font-weight:700;font-size:15px';
+    title.style.cssText = 'font-weight:700;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     title.textContent = '服务器向量备份';
     const badge = document.createElement('span');
     badge.id = 'lwb-backup-badge';
@@ -2859,12 +2878,12 @@ function showBackupManagerModal(initialFiles) {
     // List area
     const listEl = document.createElement('div');
     listEl.id = 'lwb-backup-list';
-    listEl.style.cssText = 'overflow-y:auto;flex:1;min-height:60px';
+    listEl.style.cssText = 'overflow-y:auto;overflow-x:hidden;flex:1;min-height:60px;-webkit-overflow-scrolling:touch';
 
     // Status bar
     const statusEl = document.createElement('div');
     statusEl.id = 'lwb-backup-status';
-    statusEl.style.cssText = 'margin-top:8px;font-size:0.82em;color:#666;min-height:1em';
+    statusEl.style.cssText = 'margin-top:8px;font-size:0.82em;color:#666;min-height:1em;flex-shrink:0;word-break:break-word';
 
     box.append(header, listEl, statusEl);
     overlay.appendChild(box);
@@ -2888,13 +2907,21 @@ function showBackupManagerModal(initialFiles) {
         listEl.replaceChildren();
         sorted.forEach(f => {
             const row = document.createElement('div');
-            row.style.cssText = [
-                'display:flex', 'gap:8px', 'align-items:center', 'padding:6px 2px',
-                'border-bottom:1px solid #e8e8e8', 'font-size:0.82em',
-            ].join(';');
+            row.style.cssText = isNarrowViewport
+                ? [
+                    'display:grid', 'grid-template-columns:1fr auto', 'gap:4px 8px',
+                    'align-items:center', 'padding:8px 2px',
+                    'border-bottom:1px solid #e8e8e8', 'font-size:0.82em',
+                ].join(';')
+                : [
+                    'display:flex', 'gap:8px', 'align-items:center', 'padding:6px 2px',
+                    'border-bottom:1px solid #e8e8e8', 'font-size:0.82em',
+                ].join(';');
 
             const label = document.createElement('span');
-            label.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333';
+            label.style.cssText = isNarrowViewport
+                ? 'grid-column:1 / -1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333'
+                : 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333';
             label.title = f.chatId || f.filename;
             label.textContent = f.chatId || f.filename;
 
@@ -2903,7 +2930,9 @@ function showBackupManagerModal(initialFiles) {
             size.textContent = f.size ? (f.size / 1024 / 1024).toFixed(2) + 'MB' : '?';
 
             const time = document.createElement('span');
-            time.style.cssText = 'white-space:nowrap;color:#888';
+            time.style.cssText = isNarrowViewport
+                ? 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#888'
+                : 'white-space:nowrap;color:#888';
             time.textContent = f.backupTime ? new Date(f.backupTime).toLocaleString() : '?';
 
             const btnDel = document.createElement('button');
