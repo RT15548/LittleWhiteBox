@@ -944,7 +944,7 @@ async function loadSettings() {
         if (!saved || saved.configVersion !== CONFIG_VERSION) {
             settingsCache.configVersion = CONFIG_VERSION;
             settingsCache.updatedAt = Date.now();
-            NovelDrawStorage.set(SERVER_FILE_KEY, settingsCache);
+            await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, settingsCache, { silent: true });
         }
     } catch (e) {
         console.error('[NovelDraw] 加载设置失败:', e);
@@ -985,6 +985,13 @@ function getSettings() {
     return settingsCache;
 }
 
+function cloneSettingsObject(obj) {
+    if (typeof structuredClone === 'function') {
+        return structuredClone(obj);
+    }
+    return JSON.parse(JSON.stringify(obj));
+}
+
 function saveSettings(s) {
     const next = normalizeSettings(s);
     next.updatedAt = Date.now();
@@ -993,24 +1000,57 @@ function saveSettings(s) {
     return next;
 }
 
-async function saveSettingsAndToast(s, okText = '已保存') {
-    console.log('[NovelDraw] saveSettingsAndToast:', okText, 'autoLearn=%s advMode=%s', s.autoLearnCharacters, s.advancedMode);
-    const next = saveSettings(s);
+async function persistSettings(s, okText = '已保存', { notify = true, silent = false } = {}) {
+    const next = normalizeSettings(s);
+    next.updatedAt = Date.now();
+    next.configVersion = CONFIG_VERSION;
+
+    console.log(
+        '[NovelDraw] persistSettings:',
+        okText,
+        'autoLearn=%s advMode=%s mode=%s preset=%s size=%s',
+        next.autoLearnCharacters,
+        next.advancedMode,
+        next.mode,
+        next.selectedParamsPresetId,
+        next.overrideSize,
+    );
 
     try {
-        const data = await NovelDrawStorage.load();
-        data[SERVER_FILE_KEY] = next;
-        NovelDrawStorage._dirtyVersion = (NovelDrawStorage._dirtyVersion || 0) + 1;
+        const ok = await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
+        if (ok !== false) {
+            settingsCache = next;
+            if (notify) {
+                postStatus('success', okText);
+            }
+            console.log('[NovelDraw] persistSettings: SUCCESS');
+            return true;
+        }
 
-        await NovelDrawStorage.saveNow({ silent: false });
-        console.log('[NovelDraw] saveSettingsAndToast: SUCCESS');
-        postStatus('success', okText);
-        return true;
+        if (notify) {
+            postStatus('error', '保存失败');
+        }
+        console.warn('[NovelDraw] persistSettings: FAILED without throw');
+        return false;
     } catch (e) {
-        console.error('[NovelDraw] saveSettingsAndToast: FAILED', e);
-        postStatus('error', `保存失败：${e?.message || '网络异常'}`);
+        console.error('[NovelDraw] persistSettings: FAILED', e);
+        if (notify) {
+            postStatus('error', `保存失败：${e?.message || '网络异常'}`);
+        }
         return false;
     }
+}
+
+async function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
+    const draft = cloneSettingsObject(getSettings());
+    if (typeof mutator === 'function') {
+        await mutator(draft);
+    }
+    return persistSettings(draft, okText, options);
+}
+
+async function saveSettingsAndToast(s, okText = '已保存') {
+    return persistSettings(s, okText);
 }
 
 function getActiveParamsPreset() {
@@ -2669,7 +2709,6 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             try {
                 // 先在副本上操作，保存成功后才写回内存状态
                 const tagsCopy = JSON.parse(JSON.stringify(settings.characterTags || []));
-                const originalBackup = JSON.parse(JSON.stringify(tagsCopy));
                 const settingsCopy = { ...settings, characterTags: tagsCopy };
                 const learnResult = autoLearnFromTasks(tasks, settingsCopy);
                 if (learnResult.newChars.length || learnResult.updatedChars.length) {
@@ -2677,14 +2716,10 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     if (learnResult.newChars.length) parts.push(`新角色: ${learnResult.newChars.join(', ')}`);
                     if (learnResult.updatedChars.length) parts.push(`更新: ${learnResult.updatedChars.join(', ')}`);
                     const msg = `已学习 ${parts.join(' | ')}`;
-                    // 保存副本，成功后才同步到内存
-                    settings.characterTags = settingsCopy.characterTags;
-                    saveSettingsAndToast(settings, msg)
-                        .then(() => { if (overlayCreated && frameReady) sendInitData(); })
+                    persistSettings(settingsCopy, msg)
+                        .then((ok) => { if (ok && overlayCreated && frameReady) sendInitData(); })
                         .catch(e => {
-                            // 保存失败：回滚内存状态（直接恢复完整副本）
-                            settings.characterTags = originalBackup;
-                            console.warn('[NovelDraw] 自动学习保存失败，已回滚:', e);
+                            console.warn('[NovelDraw] 自动学习保存失败:', e);
                         });
                 }
             } catch (e) {
@@ -3197,19 +3232,20 @@ async function handleFrameMessage(event) {
             break;
 
         case 'SAVE_MODE': {
-            const s = getSettings();
-            s.mode = data.mode || s.mode;
-            await saveSettingsAndToast(s, '已保存');
+            await updateSettingsPersistent((settings) => {
+                settings.mode = data.mode || settings.mode;
+            }, '已保存');
             import('./floating-panel.js').then(m => m.updateAutoModeUI?.());
             break;
         }
 
         case 'SAVE_BUTTON_MODE': {
-            const s = getSettings();
-            if (typeof data.showFloorButton === 'boolean') s.showFloorButton = data.showFloorButton;
-            if (typeof data.showFloatingButton === 'boolean') s.showFloatingButton = data.showFloatingButton;
-            const ok = await saveSettingsAndToast(s, '已保存');
+            const ok = await updateSettingsPersistent((settings) => {
+                if (typeof data.showFloorButton === 'boolean') settings.showFloorButton = data.showFloorButton;
+                if (typeof data.showFloatingButton === 'boolean') settings.showFloatingButton = data.showFloatingButton;
+            }, '已保存');
             if (ok) {
+                const s = getSettings();
                 try {
                     const fp = await import('./floating-panel.js');
                     fp.updateButtonVisibility?.(s.showFloorButton !== false, s.showFloatingButton === true);
@@ -3230,26 +3266,26 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_API_KEY': {
-            const s = getSettings();
-            s.apiKey = typeof data.apiKey === 'string' ? data.apiKey : s.apiKey;
-            await saveSettingsAndToast(s, '已保存');
+            await updateSettingsPersistent((settings) => {
+                settings.apiKey = typeof data.apiKey === 'string' ? data.apiKey : settings.apiKey;
+            }, '已保存');
             break;
         }
 
         case 'SAVE_TIMEOUT': {
-            const s = getSettings();
-            if (typeof data.timeout === 'number' && data.timeout > 0) s.timeout = data.timeout;
-            if (data.requestDelay?.min > 0 && data.requestDelay?.max > 0) s.requestDelay = data.requestDelay;
-            await saveSettingsAndToast(s, '已保存');
+            await updateSettingsPersistent((settings) => {
+                if (typeof data.timeout === 'number' && data.timeout > 0) settings.timeout = data.timeout;
+                if (data.requestDelay?.min > 0 && data.requestDelay?.max > 0) settings.requestDelay = data.requestDelay;
+            }, '已保存');
             break;
         }
 
         case 'SAVE_CACHE_DAYS': {
-            const s = getSettings();
-            if (typeof data.cacheDays === 'number' && data.cacheDays >= 1 && data.cacheDays <= 30) {
-                s.cacheDays = data.cacheDays;
-            }
-            await saveSettingsAndToast(s, '已保存');
+            await updateSettingsPersistent((settings) => {
+                if (typeof data.cacheDays === 'number' && data.cacheDays >= 1 && data.cacheDays <= 30) {
+                    settings.cacheDays = data.cacheDays;
+                }
+            }, '已保存');
             break;
         }
 
@@ -3265,12 +3301,12 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_PARAMS_PRESET': {
-            const s = getSettings();
-            if (data.selectedParamsPresetId) s.selectedParamsPresetId = data.selectedParamsPresetId;
-            if (Array.isArray(data.paramsPresets) && data.paramsPresets.length > 0) {
-                s.paramsPresets = data.paramsPresets;
-            }
-            const ok = await saveSettingsAndToast(s, '已保存');
+            const ok = await updateSettingsPersistent((settings) => {
+                if (data.selectedParamsPresetId) settings.selectedParamsPresetId = data.selectedParamsPresetId;
+                if (Array.isArray(data.paramsPresets) && data.paramsPresets.length > 0) {
+                    settings.paramsPresets = data.paramsPresets;
+                }
+            }, '已保存');
             if (ok) {
                 sendInitData();
                 try {
@@ -3282,15 +3318,15 @@ async function handleFrameMessage(event) {
         }
 
         case 'ADD_PARAMS_PRESET': {
-            const s = getSettings();
             const id = generateSlotId();
             const base = getActiveParamsPreset() || DEFAULT_PARAMS_PRESET;
-            const copy = JSON.parse(JSON.stringify(base));
-            copy.id = id;
-            copy.name = (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `配置-${s.paramsPresets.length + 1}`;
-            s.paramsPresets.push(copy);
-            s.selectedParamsPresetId = id;
-            const ok = await saveSettingsAndToast(s, '已创建');
+            const ok = await updateSettingsPersistent((settings) => {
+                const copy = cloneSettingsObject(base);
+                copy.id = id;
+                copy.name = (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `配置-${settings.paramsPresets.length + 1}`;
+                settings.paramsPresets.push(copy);
+                settings.selectedParamsPresetId = id;
+            }, '已创建');
             if (ok) {
                 sendInitData();
                 try {
@@ -3307,10 +3343,11 @@ async function handleFrameMessage(event) {
                 postStatus('error', '至少保留一个预设');
                 break;
             }
-            const idx = s.paramsPresets.findIndex(p => p.id === s.selectedParamsPresetId);
-            if (idx >= 0) s.paramsPresets.splice(idx, 1);
-            s.selectedParamsPresetId = s.paramsPresets[0]?.id || null;
-            const ok = await saveSettingsAndToast(s, '已删除');
+            const ok = await updateSettingsPersistent((settings) => {
+                const idx = settings.paramsPresets.findIndex(p => p.id === settings.selectedParamsPresetId);
+                if (idx >= 0) settings.paramsPresets.splice(idx, 1);
+                settings.selectedParamsPresetId = settings.paramsPresets[0]?.id || null;
+            }, '已删除');
             if (ok) {
                 sendInitData();
                 try {
@@ -3326,13 +3363,15 @@ async function handleFrameMessage(event) {
         // ═══════════════════════════════════════════════════════════════
         case 'OPEN_CLOUD_PRESETS': {
             openCloudPresetsModal(async (presetData) => {
-                const s = getSettings();
                 const newPreset = parsePresetData(presetData, generateSlotId);
-                s.paramsPresets.push(newPreset);
-                s.selectedParamsPresetId = newPreset.id;
-                await saveSettingsAndToast(s, `已导入: ${newPreset.name}`);
-                await notifySettingsUpdated();
-                sendInitData();
+                const ok = await updateSettingsPersistent((settings) => {
+                    settings.paramsPresets.push(newPreset);
+                    settings.selectedParamsPresetId = newPreset.id;
+                }, `已导入: ${newPreset.name}`);
+                if (ok) {
+                    await notifySettingsUpdated();
+                    sendInitData();
+                }
             });
             break;
         }
@@ -3352,16 +3391,16 @@ async function handleFrameMessage(event) {
         // ═══════════════════════════════════════════════════════════════
 
         case 'SAVE_LLM_API': {
-            const s = getSettings();
-            if (data.llmApi && typeof data.llmApi === 'object') {
-                const allowed = ['provider', 'url', 'key', 'model', 'modelCache'];
-                const clean = Object.fromEntries(allowed.filter(k => k in data.llmApi).map(k => [k, data.llmApi[k]]));
-                s.llmApi = { ...s.llmApi, ...clean };
-            }
-            if (typeof data.useStream === 'boolean') s.useStream = data.useStream;
-            if (typeof data.useWorldInfo === 'boolean') s.useWorldInfo = data.useWorldInfo;
-            if (typeof data.disablePrefill === 'boolean') s.disablePrefill = data.disablePrefill;
-            const ok = await saveSettingsAndToast(s, '已保存');
+            const ok = await updateSettingsPersistent((settings) => {
+                if (data.llmApi && typeof data.llmApi === 'object') {
+                    const allowed = ['provider', 'url', 'key', 'model', 'modelCache'];
+                    const clean = Object.fromEntries(allowed.filter(k => k in data.llmApi).map(k => [k, data.llmApi[k]]));
+                    settings.llmApi = { ...settings.llmApi, ...clean };
+                }
+                if (typeof data.useStream === 'boolean') settings.useStream = data.useStream;
+                if (typeof data.useWorldInfo === 'boolean') settings.useWorldInfo = data.useWorldInfo;
+                if (typeof data.disablePrefill === 'boolean') settings.disablePrefill = data.disablePrefill;
+            }, '已保存');
             if (ok) sendInitData();
             break;
         }
@@ -3371,33 +3410,35 @@ async function handleFrameMessage(event) {
         // ═══════════════════════════════════════════════════════════════
 
         case 'SAVE_ADVANCED_MODE': {
-            const s = getSettings();
-            s.advancedMode = !!data.advancedMode;
             // 仅持久化，不回传 INIT_DATA — iframe 已在本地完成 UI 切换
-            await saveSettingsAndToast(s, s.advancedMode ? '高级模式已开启' : '高级模式已关闭');
+            const nextAdvancedMode = !!data.advancedMode;
+            const ok = await updateSettingsPersistent((settings) => {
+                settings.advancedMode = nextAdvancedMode;
+            }, nextAdvancedMode ? '高级模式已开启' : '高级模式已关闭');
+            if (!ok) {
+                sendInitData();
+            }
             break;
         }
 
         case 'RESET_CUSTOM_PROMPT': {
-            const s = getSettings();
             const key = data.key;
             const ALLOWED_PROMPT_KEYS = ['topSystem', 'tagGuideContent', 'userJsonFormat'];
             if (key && ALLOWED_PROMPT_KEYS.includes(key)) {
-                // 使用 iframe 传来的当前选中 ID，避免本地切换后未保存导致定位错误
-                const presetId = data.selectedPromptPresetId || s.selectedPromptPresetId;
-                const active = s.promptPresets.find(p => p.id === presetId);
-                // 第一人称视角预设的 topSystem 默认值不同
-                const isPov = active?.name === '默认-第一人称视角';
-                const resetDefaults = {
-                    topSystem: isPov ? DEFAULT_PROMPT_CONFIG.topSystemPov : DEFAULT_PROMPT_CONFIG.topSystem,
-                    tagGuideContent: getLoadedTagGuide() || '',
-                    userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
-                };
-                const defaultVal = resetDefaults[key];
-                if (s.customPrompts) s.customPrompts[key] = defaultVal;
-                if (active) active[key] = defaultVal;
+                await updateSettingsPersistent((settings) => {
+                    const presetId = data.selectedPromptPresetId || settings.selectedPromptPresetId;
+                    const active = settings.promptPresets.find(p => p.id === presetId);
+                    const isPov = active?.name === '默认-第一人称视角';
+                    const resetDefaults = {
+                        topSystem: isPov ? DEFAULT_PROMPT_CONFIG.topSystemPov : DEFAULT_PROMPT_CONFIG.topSystem,
+                        tagGuideContent: getLoadedTagGuide() || '',
+                        userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
+                    };
+                    const defaultVal = resetDefaults[key];
+                    if (settings.customPrompts) settings.customPrompts[key] = defaultVal;
+                    if (active) active[key] = defaultVal;
+                }, '已恢复默认');
             }
-            await saveSettingsAndToast(s, '已恢复默认');
             sendInitData();
             break;
         }
@@ -3407,40 +3448,42 @@ async function handleFrameMessage(event) {
         // ═══════════════════════════════════════════════════════════════
 
         case 'SELECT_PROMPT_PRESET': {
-            const s = getSettings();
-            if (data.id && s.promptPresets.some(p => p.id === data.id)) {
-                s.selectedPromptPresetId = data.id;
-                // 同步 customPrompts 以保持兼容
-                const active = s.promptPresets.find(p => p.id === data.id);
-                if (active) {
-                    s.customPrompts = {
-                        topSystem: active.topSystem,
-                        tagGuideContent: active.tagGuideContent,
-                        userJsonFormat: active.userJsonFormat,
-                    };
-                }
+            if (data.id && getSettings().promptPresets.some(p => p.id === data.id)) {
                 // 仅持久化，不回传 INIT_DATA — iframe 已在 change handler 中完成 UI 更新
                 // 避免 sendInitData 的异步延迟导致下拉框 innerHTML 全量重建引起状态闪烁
-                await saveSettingsAndToast(s, '已切换预设');
+                const ok = await updateSettingsPersistent((settings) => {
+                    settings.selectedPromptPresetId = data.id;
+                    const active = settings.promptPresets.find(p => p.id === data.id);
+                    if (active) {
+                        settings.customPrompts = {
+                            topSystem: active.topSystem,
+                            tagGuideContent: active.tagGuideContent,
+                            userJsonFormat: active.userJsonFormat,
+                        };
+                    }
+                }, '已切换预设');
+                if (!ok) {
+                    sendInitData();
+                }
             }
             break;
         }
 
         case 'ADD_PROMPT_PRESET': {
-            const s = getSettings();
             const id = generateSlotId();
             const current = getActivePromptPreset();
-            const newPreset = {
-                id,
-                name: (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `提示词-${s.promptPresets.length + 1}`,
-                topSystem:       current?.topSystem       ?? DEFAULT_PROMPT_CONFIG.topSystem,
-                tagGuideContent: current?.tagGuideContent  ?? getLoadedTagGuide() ?? '',
-                userJsonFormat:  current?.userJsonFormat   ?? DEFAULT_PROMPT_CONFIG.userJsonFormat,
-            };
-            s.promptPresets.push(newPreset);
-            s.selectedPromptPresetId = id;
-            s.customPrompts = { topSystem: newPreset.topSystem, tagGuideContent: newPreset.tagGuideContent, userJsonFormat: newPreset.userJsonFormat };
-            const ok = await saveSettingsAndToast(s, '已创建');
+            const ok = await updateSettingsPersistent((settings) => {
+                const newPreset = {
+                    id,
+                    name: (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `提示词-${settings.promptPresets.length + 1}`,
+                    topSystem: current?.topSystem ?? DEFAULT_PROMPT_CONFIG.topSystem,
+                    tagGuideContent: current?.tagGuideContent ?? getLoadedTagGuide() ?? '',
+                    userJsonFormat: current?.userJsonFormat ?? DEFAULT_PROMPT_CONFIG.userJsonFormat,
+                };
+                settings.promptPresets.push(newPreset);
+                settings.selectedPromptPresetId = id;
+                settings.customPrompts = { topSystem: newPreset.topSystem, tagGuideContent: newPreset.tagGuideContent, userJsonFormat: newPreset.userJsonFormat };
+            }, '已创建');
             if (ok) sendInitData();
             break;
         }
@@ -3451,57 +3494,60 @@ async function handleFrameMessage(event) {
                 postStatus('error', '至少保留一个预设');
                 break;
             }
-            const idx = s.promptPresets.findIndex(p => p.id === s.selectedPromptPresetId);
-            if (idx >= 0) s.promptPresets.splice(idx, 1);
-            s.selectedPromptPresetId = s.promptPresets[0]?.id || null;
-            const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
-            if (active) {
-                s.customPrompts = { topSystem: active.topSystem, tagGuideContent: active.tagGuideContent, userJsonFormat: active.userJsonFormat };
-            }
-            const ok = await saveSettingsAndToast(s, '已删除');
+            const ok = await updateSettingsPersistent((settings) => {
+                const idx = settings.promptPresets.findIndex(p => p.id === settings.selectedPromptPresetId);
+                if (idx >= 0) settings.promptPresets.splice(idx, 1);
+                settings.selectedPromptPresetId = settings.promptPresets[0]?.id || null;
+                const active = settings.promptPresets.find(p => p.id === settings.selectedPromptPresetId);
+                if (active) {
+                    settings.customPrompts = { topSystem: active.topSystem, tagGuideContent: active.tagGuideContent, userJsonFormat: active.userJsonFormat };
+                }
+            }, '已删除');
             if (ok) sendInitData();
             break;
         }
 
         case 'RENAME_PROMPT_PRESET': {
-            const s = getSettings();
-            const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
+            const active = getSettings().promptPresets.find(p => p.id === getSettings().selectedPromptPresetId);
             if (active && typeof data.name === 'string' && data.name.trim()) {
-                active.name = data.name.trim();
-                await saveSettingsAndToast(s, '已重命名');
+                await updateSettingsPersistent((settings) => {
+                    const preset = settings.promptPresets.find(p => p.id === settings.selectedPromptPresetId);
+                    if (preset) preset.name = data.name.trim();
+                }, '已重命名');
                 sendInitData();
             }
             break;
         }
 
         case 'SAVE_PROMPT_PRESET': {
-            const s = getSettings();
-            // 同步 iframe 传来的选中 ID（确保保存到正确的预设）
-            if (data.selectedPromptPresetId && s.promptPresets.some(p => p.id === data.selectedPromptPresetId)) {
-                s.selectedPromptPresetId = data.selectedPromptPresetId;
-            }
-            const active = s.promptPresets.find(p => p.id === s.selectedPromptPresetId);
+            const active = getSettings().promptPresets.find(p => p.id === (data.selectedPromptPresetId || getSettings().selectedPromptPresetId));
             if (active && data.customPrompts && typeof data.customPrompts === 'object') {
-                const cp = data.customPrompts;
-                if ('topSystem' in cp) active.topSystem = cp.topSystem;
-                if ('tagGuideContent' in cp) active.tagGuideContent = cp.tagGuideContent;
-                if ('userJsonFormat' in cp) active.userJsonFormat = cp.userJsonFormat;
-                s.customPrompts = { topSystem: active.topSystem, tagGuideContent: active.tagGuideContent, userJsonFormat: active.userJsonFormat };
+                await updateSettingsPersistent((settings) => {
+                    if (data.selectedPromptPresetId && settings.promptPresets.some(p => p.id === data.selectedPromptPresetId)) {
+                        settings.selectedPromptPresetId = data.selectedPromptPresetId;
+                    }
+                    const current = settings.promptPresets.find(p => p.id === settings.selectedPromptPresetId);
+                    if (!current) return;
+                    const cp = data.customPrompts;
+                    if ('topSystem' in cp) current.topSystem = cp.topSystem;
+                    if ('tagGuideContent' in cp) current.tagGuideContent = cp.tagGuideContent;
+                    if ('userJsonFormat' in cp) current.userJsonFormat = cp.userJsonFormat;
+                    settings.customPrompts = { topSystem: current.topSystem, tagGuideContent: current.tagGuideContent, userJsonFormat: current.userJsonFormat };
+                }, '提示词预设已保存');
             }
-            await saveSettingsAndToast(s, '提示词预设已保存');
             sendInitData();
             break;
         }
 
         case 'SAVE_WORLDBOOK_CONFIG': {
-            const s = getSettings();
-            if (data.worldbooks && typeof data.worldbooks === 'object') {
-                const allowed = ['enabled', 'uploadedBooks', 'keywordFilterMode'];
-                const clean = Object.fromEntries(allowed.filter(k => k in data.worldbooks).map(k => [k, data.worldbooks[k]]));
-                s.worldbooks = { ...s.worldbooks, ...clean };
-                if (!Array.isArray(s.worldbooks.uploadedBooks)) s.worldbooks.uploadedBooks = [];
-            }
-            await saveSettingsAndToast(s, '世界书配置已保存');
+            await updateSettingsPersistent((settings) => {
+                if (data.worldbooks && typeof data.worldbooks === 'object') {
+                    const allowed = ['enabled', 'uploadedBooks', 'keywordFilterMode'];
+                    const clean = Object.fromEntries(allowed.filter(k => k in data.worldbooks).map(k => [k, data.worldbooks[k]]));
+                    settings.worldbooks = { ...settings.worldbooks, ...clean };
+                    if (!Array.isArray(settings.worldbooks.uploadedBooks)) settings.worldbooks.uploadedBooks = [];
+                }
+            }, '世界书配置已保存');
             sendInitData();
             break;
         }
@@ -3533,14 +3579,13 @@ async function handleFrameMessage(event) {
                 }
                 if (!models?.length) throw new Error('未获取到模型列表');
 
-                const s = getSettings();
-                s.llmApi.provider = apiCfg.provider;
-                s.llmApi.url = apiCfg.url;
-                s.llmApi.key = apiCfg.key;
-                s.llmApi.modelCache = [...new Set(models)];
-                if (!s.llmApi.model && models.length) s.llmApi.model = models[0];
-
-                const ok = await saveSettingsAndToast(s, `获取 ${models.length} 个模型`);
+                const ok = await updateSettingsPersistent((settings) => {
+                    settings.llmApi.provider = apiCfg.provider;
+                    settings.llmApi.url = apiCfg.url;
+                    settings.llmApi.key = apiCfg.key;
+                    settings.llmApi.modelCache = [...new Set(models)];
+                    if (!settings.llmApi.model && models.length) settings.llmApi.model = models[0];
+                }, `获取 ${models.length} 个模型`);
                 if (ok) sendInitData();
             } catch (e) {
                 postStatus('error', '连接失败：' + (e.message || '请检查配置'));
@@ -3549,41 +3594,49 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_CHARACTER_TAGS': {
-            const s = getSettings();
-            if (Array.isArray(data.characterTags)) s.characterTags = data.characterTags;
-            await saveSettingsAndToast(s, '角色标签已保存');
+            await updateSettingsPersistent((settings) => {
+                if (Array.isArray(data.characterTags)) settings.characterTags = data.characterTags;
+            }, '角色标签已保存');
             break;
         }
 
         case 'SAVE_AUTO_LEARN': {
             console.log('[NovelDraw] SAVE_AUTO_LEARN received:', data.autoLearnCharacters, data.autoLearnMode);
-            const s = getSettings();
-            s.autoLearnCharacters = !!data.autoLearnCharacters;
-            s.autoLearnMode = ['new_only', 'auto_update'].includes(data.autoLearnMode)
-                ? data.autoLearnMode : 'new_only';
-            await saveSettingsAndToast(s, s.autoLearnCharacters ? '自动学习已开启' : '自动学习已关闭');
+            const nextAutoLearnCharacters = !!data.autoLearnCharacters;
+            await updateSettingsPersistent((settings) => {
+                settings.autoLearnCharacters = nextAutoLearnCharacters;
+                settings.autoLearnMode = ['new_only', 'auto_update'].includes(data.autoLearnMode)
+                    ? data.autoLearnMode : 'new_only';
+            }, nextAutoLearnCharacters ? '自动学习已开启' : '自动学习已关闭');
             sendInitData();
             break;
         }
 
         case 'SAVE_DANBOORU_LOCAL_DB': {
-            const s = getSettings();
-            s.danbooruLocalDB = !!data.enabled;
-            if (s.danbooruLocalDB) {
+            const enabled = !!data.enabled;
+            if (enabled) {
                 try {
                     const datUrl = `${extensionFolderPath}/modules/novel-draw/data/danbooru-chars.dat`;
                     const db = await loadLocalDanbooruDB(datUrl);
                     if (!db) break; // 被并发 OFF toggle 取消
-                    await saveSettingsAndToast(s, `Danbooru 本地库已加载 (${db.length} 条)`);
+                    const ok = await updateSettingsPersistent((settings) => {
+                        settings.danbooruLocalDB = true;
+                    }, `Danbooru 本地库已加载 (${db.length} 条)`);
+                    if (!ok) {
+                        unloadLocalDanbooruDB();
+                    }
                 } catch (e) {
                     unloadLocalDanbooruDB();
-                    s.danbooruLocalDB = false;
-                    await saveSettingsAndToast(s, 'Danbooru 本地库加载失败');
+                    await updateSettingsPersistent((settings) => {
+                        settings.danbooruLocalDB = false;
+                    }, 'Danbooru 本地库加载失败');
                     console.warn('[NovelDraw] Failed to load local Danbooru DB:', e);
                 }
             } else {
                 unloadLocalDanbooruDB();
-                await saveSettingsAndToast(s, 'Danbooru 本地库已关闭');
+                await updateSettingsPersistent((settings) => {
+                    settings.danbooruLocalDB = false;
+                }, 'Danbooru 本地库已关闭');
             }
             sendInitData();
             break;
@@ -3607,9 +3660,9 @@ async function handleFrameMessage(event) {
             break;
 
         case 'SAVE_MESSAGE_FILTER_RULES': {
-            const s = getSettings();
-            s.messageFilterRules = Array.isArray(data.rules) ? data.rules : [];
-            await saveSettingsAndToast(s, '过滤规则已保存');
+            await updateSettingsPersistent((settings) => {
+                settings.messageFilterRules = Array.isArray(data.rules) ? data.rules : [];
+            }, '过滤规则已保存');
             break;
         }
 
@@ -3963,6 +4016,9 @@ export async function cleanupNovelDraw() {
 export {
     getSettings,
     saveSettings,
+    saveSettingsAndToast,
+    persistSettings,
+    updateSettingsPersistent,
     loadSettings,
     getActiveParamsPreset,
     isModuleEnabled,

@@ -7,7 +7,7 @@ import {
     openNovelDrawSettings,
     generateAndInsertImages,
     getSettings,
-    saveSettings,
+    updateSettingsPersistent,
     findLastAIMessageId,
     classifyError,
 } from './novel-draw.js';
@@ -837,25 +837,16 @@ function bindFloorPanelEvents(panelData) {
         }
     });
 
-    panelData.$cache.presetSelect?.addEventListener('change', (e) => {
-        const settings = getSettings();
-        settings.selectedParamsPresetId = e.target.value;
-        saveSettings(settings);
-        updateAllPresetSelects();
+    panelData.$cache.presetSelect?.addEventListener('change', async (e) => {
+        await setQuickPreset(e.target.value);
     });
 
-    panelData.$cache.sizeSelect?.addEventListener('change', (e) => {
-        const settings = getSettings();
-        settings.overrideSize = e.target.value;
-        saveSettings(settings);
-        updateAllSizeSelects();
+    panelData.$cache.sizeSelect?.addEventListener('change', async (e) => {
+        await setQuickSize(e.target.value);
     });
 
-    panelData.$cache.autoToggle?.addEventListener('click', () => {
-        const settings = getSettings();
-        settings.mode = settings.mode === 'auto' ? 'manual' : 'auto';
-        saveSettings(settings);
-        updateAutoModeUI();
+    panelData.$cache.autoToggle?.addEventListener('click', async () => {
+        await toggleQuickAutoMode();
     });
 
     el.querySelector('.nd-settings-btn')?.addEventListener('click', (e) => {
@@ -886,6 +877,40 @@ function refreshFloorSizeSelect(messageId) {
     const data = panelMap.get(messageId);
     const select = data?.$cache?.sizeSelect;
     fillSizeSelect(select);
+}
+
+async function persistQuickSetting(mutator, okText, afterSave) {
+    const ok = await updateSettingsPersistent(mutator, okText);
+    if (ok && typeof afterSave === 'function') {
+        afterSave();
+    }
+    return ok;
+}
+
+async function setQuickPreset(value) {
+    return persistQuickSetting(
+        (settings) => { settings.selectedParamsPresetId = value; },
+        '预设已切换',
+        updateAllPresetSelects,
+    );
+}
+
+async function setQuickSize(value) {
+    return persistQuickSetting(
+        (settings) => { settings.overrideSize = value; },
+        '尺寸已切换',
+        updateAllSizeSelects,
+    );
+}
+
+async function toggleQuickAutoMode() {
+    const current = getSettings();
+    const nextMode = current.mode === 'auto' ? 'manual' : 'auto';
+    return persistQuickSetting(
+        (settings) => { settings.mode = nextMode; },
+        nextMode === 'auto' ? '自动配图已开启' : '自动配图已关闭',
+        updateAutoModeUI,
+    );
 }
 
 function mountFloorPanel(messageEl, messageId) {
@@ -1423,25 +1448,16 @@ function createFloatingButton() {
         capsuleEl.addEventListener('pointercancel', onFloatingPointerUp, { passive: false });
     }
 
-    $floatingCache.presetSelect?.addEventListener('change', (e) => {
-        const settings = getSettings();
-        settings.selectedParamsPresetId = e.target.value;
-        saveSettings(settings);
-        updateAllPresetSelects();
+    $floatingCache.presetSelect?.addEventListener('change', async (e) => {
+        await setQuickPreset(e.target.value);
     });
 
-    $floatingCache.sizeSelect?.addEventListener('change', (e) => {
-        const settings = getSettings();
-        settings.overrideSize = e.target.value;
-        saveSettings(settings);
-        updateAllSizeSelects();
+    $floatingCache.sizeSelect?.addEventListener('change', async (e) => {
+        await setQuickSize(e.target.value);
     });
 
-    $floatingCache.autoToggle?.addEventListener('click', () => {
-        const settings = getSettings();
-        settings.mode = settings.mode === 'auto' ? 'manual' : 'auto';
-        saveSettings(settings);
-        updateAutoModeUI();
+    $floatingCache.autoToggle?.addEventListener('click', async () => {
+        await toggleQuickAutoMode();
     });
 
     floatingEl.querySelector('.nd-settings-btn')?.addEventListener('click', () => {
