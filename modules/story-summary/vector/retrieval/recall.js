@@ -26,7 +26,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import {
+    beginRecallRuntimeSession,
     diffuseRecallRuntimeL0,
+    endRecallRuntimeSession,
     getRecallRuntimeEventVectorsByIds,
     getRecallRuntimeMeta,
     scoreRecallRuntimeAnchors,
@@ -293,6 +295,9 @@ async function recallAnchors(queryVector, vectorConfig, metrics, snapshot = null
     const atomMap = new Map(atomsList.map(a => [a.atomId, a]));
 
     const runtimeScores = await scoreRecallRuntimeAnchors(chatId, queryVector);
+    if (metrics) {
+        metrics.timing.runtimeScoreAnchors = runtimeScores?.stats?.timings?.scoreAnchorsMs ?? null;
+    }
     const scored = (runtimeScores?.scores || [])
         .map(s => {
             const atom = atomMap.get(s.atomId);
@@ -340,6 +345,9 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
     const focusSet = new Set((focusCharacters || []).map(normalize));
 
     const runtimeScores = await scoreRecallRuntimeEvents(chatId, queryVector);
+    if (metrics) {
+        metrics.timing.runtimeScoreEvents = runtimeScores?.stats?.timings?.scoreEventsMs ?? null;
+    }
     const scoreMap = new Map((runtimeScores?.scores || []).map((item) => [item.eventId, item.similarity]));
     if (!scoreMap.size) {
         return { events: [], scoreMap, vectorMap: new Map() };
@@ -395,6 +403,9 @@ async function recallEvents(queryVector, allEvents, vectorConfig, focusCharacter
 
     const candidateEventIds = candidates.map(c => c._id).filter(Boolean);
     const candidateVectors = await getRecallRuntimeEventVectorsByIds(chatId, candidateEventIds);
+    if (metrics) {
+        metrics.timing.runtimeGetEventVectors = candidateVectors?._stats?.timings?.getEventVectorsByIdsMs ?? 0;
+    }
     const vectorMap = new Map(candidateVectors.map(v => [v.eventId, v.vector]));
     for (const candidate of candidates) {
         candidate.vector = vectorMap.get(candidate._id) || null;
@@ -964,6 +975,7 @@ async function pullAndScoreL1(chatId, floors, queryVector) {
     result._stats ||= {};
     result._stats.totalTime = result._cosineTime;
     result._stats.cacheWarm = result._stats.cacheFallbackDbTime === 0;
+    result._runtimeScoreL1Ms = result._stats.runtimeScoreL1Ms ?? result._stats.scoreTime ?? result._cosineTime;
 
     xbLog.info(MODULE_ID,
         `L1 runtime: ${floors.length} floors → ${result._stats.chunkCount || 0} chunks → vectors=${result._stats.vectorHits || 0}/${result._stats.chunkCount || 0} `
@@ -1019,6 +1031,7 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
         vectorCacheHits: Number(prefetched._stats?.vectorCacheHits || 0),
         vectorCacheMisses: Number(prefetched._stats?.vectorCacheMisses || 0),
         cacheFallbackDbTime: Number(prefetched._stats?.cacheFallbackDbTime || 0),
+        runtimeScoreL1Ms: Number(prefetched._runtimeScoreL1Ms || prefetched._stats?.runtimeScoreL1Ms || 0),
     };
 
     for (const [floor, chunks] of prefetched) {
@@ -1042,6 +1055,7 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
         aggregateStats.vectorCacheHits += Number(extra._stats?.vectorCacheHits || 0);
         aggregateStats.vectorCacheMisses += Number(extra._stats?.vectorCacheMisses || 0);
         aggregateStats.cacheFallbackDbTime += Number(extra._stats?.cacheFallbackDbTime || 0);
+        aggregateStats.runtimeScoreL1Ms += Number(extra._runtimeScoreL1Ms || extra._stats?.runtimeScoreL1Ms || 0);
         for (const [floor, chunks] of extra) {
             if (floor === '_cosineTime') continue;
             if (!requiredFloors.has(floor)) continue;
@@ -1094,6 +1108,7 @@ async function buildL1PairsForSelectedFloors(l0Selected, queryVector, prefetched
         metrics.evidence.l1VectorCacheMisses = aggregateStats.vectorCacheMisses;
         metrics.evidence.l1CacheFallbackDbTime = aggregateStats.cacheFallbackDbTime;
         metrics.evidence.l1CacheWarm = aggregateStats.chunkCacheMisses === 0 && aggregateStats.vectorCacheMisses === 0;
+        metrics.timing.runtimeScoreL1 = aggregateStats.runtimeScoreL1Ms;
         metrics.evidence.contextPairsAdded = contextPairsAdded;
         metrics.timing.evidenceRetrieval += Math.round(performance.now() - T0);
     }
@@ -1164,9 +1179,6 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
     metrics.anchor.needRecall = true;
 
     const snapshot = { chatId, meta: null, stateVectors: null };
-    if (chatId) {
-        snapshot.meta = await getRecallRuntimeMeta(chatId);
-    }
 
     // ═══════════════════════════════════════════════════════════════════
     // 阶段 1: Query Build
@@ -1286,6 +1298,17 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         };
     }
 
+    let runtimeLease = null;
+    const T_Runtime_Begin_Start = performance.now();
+    if (chatId) {
+        runtimeLease = await beginRecallRuntimeSession(chatId, { reason: 'recallMemory' });
+        snapshot.meta = await getRecallRuntimeMeta(chatId);
+        metrics.timing.runtimeLoadFromDB = runtimeLease?.stats?.timings?.loadFromDBMs ?? 0;
+        metrics.timing.runtimeBuildEntry = runtimeLease?.stats?.timings?.buildEntryMs ?? 0;
+    }
+    metrics.timing.runtimeBeginSession = Math.round(performance.now() - T_Runtime_Begin_Start);
+
+    try {
     const T_R1_Anchor_Start = performance.now();
     const { hits: anchorHits_v0 } = await recallAnchors(queryVector_v0, vectorConfig, null, snapshot);
     const r1AnchorTime = Math.round(performance.now() - T_R1_Anchor_Start);
@@ -1495,6 +1518,7 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         ...(metrics.diffusion || {}),
         ...(diffusionResult?.metrics || {}),
     };
+    metrics.timing.runtimeDiffuseL0 = metrics.diffusion?.time || metrics.timing.diffusion || 0;
 
     for (const da of diffused) {
         l0Selected.push({
@@ -1626,4 +1650,15 @@ export async function recallMemory(allEvents, vectorConfig, options = {}) {
         elapsed: metrics.timing.total,
         metrics,
     };
+    } finally {
+        if (runtimeLease) {
+            const T_Runtime_End_Start = performance.now();
+            try {
+                await endRecallRuntimeSession(runtimeLease);
+            } catch (error) {
+                xbLog.warn(MODULE_ID, 'Recall runtime session release failed', error);
+            }
+            metrics.timing.runtimeEndSession = Math.round(performance.now() - T_Runtime_End_Start);
+        }
+    }
 }

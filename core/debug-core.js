@@ -1,4 +1,13 @@
-﻿import { EventCenter } from "./event-manager.js";
+﻿let eventCenterPromise = null;
+
+async function getEventCenter() {
+    if (!eventCenterPromise) {
+        eventCenterPromise = import("./event-manager.js")
+            .then((module) => module.EventCenter)
+            .catch(() => null);
+    }
+    return await eventCenterPromise;
+}
 
 const DEFAULT_MAX_LOGS = 200;
 
@@ -380,11 +389,15 @@ export const CacheRegistry = (() => {
 })();
 
 export function enableDebugMode() {
-    try { EventCenter.enableDebug?.(); } catch {}
+    getEventCenter().then((EventCenter) => {
+        try { EventCenter?.enableDebug?.(); } catch {}
+    });
 }
 
 export function disableDebugMode() {
-    try { EventCenter.disableDebug?.(); } catch {}
+    getEventCenter().then((EventCenter) => {
+        try { EventCenter?.disableDebug?.(); } catch {}
+    });
 }
 
 export function enablePersistentDebugLogging() {

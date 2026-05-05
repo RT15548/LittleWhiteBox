@@ -833,7 +833,7 @@ function warmupActiveVectorCache() {
     if (!chatId) return;
     warmRecallRuntime(chatId, { reason: 'active-chat-warmup' })
         .then((result) => {
-            logRecallRuntimeCheckpoint("warmupActiveVectorCache:done", `chat=${chatId} ready=${result?.ready ? 1 : 0} stale=${result?.stale ? 1 : 0}`);
+            logRecallRuntimeCheckpoint("warmupActiveVectorCache:done", `chat=${chatId} skipped=${result?.skipped ? 1 : 0} status=${result?.stats?.status || '-'}`);
         })
         .catch((error) => {
             xbLog.warn(MODULE_ID, '召回运行时预热失败', error);
@@ -853,16 +853,18 @@ async function rebuildActiveVectorCacheAfterSummary() {
 
     try {
         logRecallRuntimeCheckpoint("afterSummaryRefresh:start", `chat=${chatId}`);
-        postToFrame({ type: "SUMMARY_STATUS", statusText: "正在刷新记忆热缓存..." });
+        postToFrame({ type: "SUMMARY_STATUS", statusText: "记忆数据已更新，下次召回时加载。" });
         let result = await refreshRecallRuntime(chatId, { reason: 'after-summary' });
         if (result?.stale) {
             logRecallRuntimeCheckpoint("afterSummaryRefresh:retry", `chat=${chatId}`);
             result = await refreshRecallRuntime(chatId, { reason: 'after-summary-retry' });
         }
-        if (!result?.ready) {
-            xbLog.warn(MODULE_ID, "大总结后刷新召回运行时未完成，保留旧热缓存继续服务");
+        if (result?.skipped) {
+            xbLog.info(MODULE_ID, "大总结后召回运行时已标记待加载");
+        } else if (!result?.ready) {
+            xbLog.warn(MODULE_ID, "大总结后召回运行时状态更新未完成");
         } else {
-            xbLog.info(MODULE_ID, "大总结后已刷新召回运行时");
+            xbLog.info(MODULE_ID, "大总结后召回运行时已更新状态");
         }
         logRecallRuntimeCheckpoint("afterSummaryRefresh:done", `chat=${chatId} ready=${result?.ready ? 1 : 0} stale=${result?.stale ? 1 : 0}`);
         await sendVectorStatsToFrame();

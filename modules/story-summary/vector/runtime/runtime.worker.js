@@ -16,6 +16,15 @@ import { diffuseFromSeeds } from '../retrieval/diffusion.js';
 
 const MODULE_ID = 'recall-runtime-worker';
 
+function createLeaseId() {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function normalizeChatId(chatId) {
+    const key = String(chatId || '');
+    return key || null;
+}
+
 function safeWorkerStringify(value) {
     try {
         return JSON.stringify(value);
@@ -96,10 +105,35 @@ function createEntry(chatId) {
         status: 'cold',
         lastError: null,
         refreshedAt: 0,
+        timings: {},
     };
 }
 
 const entries = new Map();
+const sessionsByChatId = new Map();
+
+function createIdleStats(chatId, overrides = {}) {
+    return {
+        backend: 'worker',
+        owner: 'worker',
+        chatId: String(chatId || ''),
+        ready: false,
+        warming: false,
+        status: 'session-cache idle',
+        lastError: null,
+        refreshedAt: 0,
+        version: 0,
+        meta: false,
+        chunkFloors: 0,
+        chunks: 0,
+        chunkVectors: 0,
+        eventVectors: 0,
+        stateVectors: 0,
+        activeSessions: 0,
+        timings: {},
+        ...overrides,
+    };
+}
 
 function getEntry(chatId) {
     const key = String(chatId || '');
@@ -263,6 +297,8 @@ function entryStats(entry) {
         chunkVectors: entry.chunkVectorsById.size,
         eventVectors: entry.eventVectorsById.size,
         stateVectors: entry.stateVectorsById.size,
+        activeSessions: sessionsByChatId.get(entry.chatId)?.leases?.size || 0,
+        timings: entry.timings || {},
     };
 }
 
@@ -281,6 +317,7 @@ async function refresh(chatId, reason = 'manual') {
     logInfo('refresh start', `chat=${entry.chatId} reason=${reason} before=${compactStats(before)}`);
 
     entry.warming = (async () => {
+        const loadStarted = performance.now();
         const [
             meta,
             chunks,
@@ -294,6 +331,7 @@ async function refresh(chatId, reason = 'manual') {
             eventVectorsTable.where('chatId').equals(entry.chatId).toArray(),
             stateVectorsTable.where('chatId').equals(entry.chatId).toArray(),
         ]);
+        const loadFromDBMs = Math.round(performance.now() - loadStarted);
 
         if (entry.version !== startedVersion) {
             entry.status = entry.ready ? 'ready' : 'stale-refresh-skipped';
@@ -304,14 +342,21 @@ async function refresh(chatId, reason = 'manual') {
 
         const next = createEntry(entry.chatId);
         next.version = entry.version;
+        const buildStarted = performance.now();
         next.meta = meta || null;
         upsertChunks(next, chunks);
         upsertChunkVectors(next, chunkVectors);
         upsertEventVectors(next, eventVectors);
         upsertStateVectors(next, stateVectors);
+        const buildEntryMs = Math.round(performance.now() - buildStarted);
         next.ready = true;
         next.status = 'ready';
         next.refreshedAt = Date.now();
+        next.timings = {
+            ...(next.timings || {}),
+            loadFromDBMs,
+            buildEntryMs,
+        };
         entries.set(entry.chatId, next);
         const success = { ready: true, stale: false, reason, stats: entryStats(next) };
         logInfo('refresh success', `chat=${entry.chatId} reason=${reason} after=${compactStats(success)}`);
@@ -344,9 +389,70 @@ async function ensureReady(chatId) {
     return getEntry(chatId);
 }
 
+async function beginSession(chatId, reason = 'recall') {
+    const key = normalizeChatId(chatId);
+    if (!key) return null;
+    const startedAt = performance.now();
+    const sessionStartedAt = Date.now();
+    const leaseId = createLeaseId();
+    let session = sessionsByChatId.get(key);
+    if (!session) {
+        session = { count: 0, leases: new Set(), startedAt: Date.now() };
+        sessionsByChatId.set(key, session);
+    }
+    session.count++;
+    session.leases.add(leaseId);
+    try {
+        const entry = await ensureReady(key);
+        if (entry) {
+            entry.timings = {
+                ...(entry.timings || {}),
+                beginSessionTotalMs: Math.round(performance.now() - startedAt),
+            };
+        }
+        logInfo('begin session', `chat=${key} lease=${leaseId} reason=${reason} active=${session.leases.size}`);
+        return { chatId: key, leaseId, ready: !!entry?.ready, startedAt: sessionStartedAt, stats: entryStats(entry) };
+    } catch (error) {
+        session.leases.delete(leaseId);
+        session.count = Math.max(0, session.count - 1);
+        if (!session.count || !session.leases.size) sessionsByChatId.delete(key);
+        throw error;
+    }
+}
+
+function endSession(lease = {}) {
+    const key = normalizeChatId(lease.chatId);
+    const leaseId = lease.leaseId;
+    if (!key || !leaseId) return createIdleStats(key, { endSessionClearMs: 0 });
+    const startedAt = performance.now();
+    const session = sessionsByChatId.get(key);
+    if (!session || !session.leases.has(leaseId)) {
+        logWarn('end session ignored', `chat=${key} lease=${leaseId}`);
+        return entries.has(key) ? entryStats(entries.get(key)) : createIdleStats(key, { endSessionClearMs: 0 });
+    }
+    session.leases.delete(leaseId);
+    session.count = Math.max(0, session.count - 1);
+    if (!session.count || !session.leases.size) {
+        sessionsByChatId.delete(key);
+        entries.delete(key);
+        const endSessionClearMs = Math.round(performance.now() - startedAt);
+        logInfo('end session cleared', `chat=${key} lease=${leaseId} clear=${endSessionClearMs}ms`);
+        return createIdleStats(key, { endSessionClearMs });
+    }
+    const entry = entries.get(key);
+    if (entry) {
+        entry.timings = {
+            ...(entry.timings || {}),
+            endSessionClearMs: Math.round(performance.now() - startedAt),
+        };
+    }
+    logInfo('end session retained', `chat=${key} lease=${leaseId} active=${session.leases.size}`);
+    return entry ? entryStats(entry) : createIdleStats(key);
+}
+
 function applyMutation(chatId, mutation = {}) {
-    const entry = getEntry(chatId);
-    if (!entry) return null;
+    const entry = entries.get(String(chatId || ''));
+    if (!entry) return createIdleStats(chatId);
     const before = entryStats(entry);
     entry.version++;
 
@@ -393,6 +499,7 @@ function applyMutation(chatId, mutation = {}) {
 
 async function scoreL1(chatId, floors = [], queryVector) {
     const entry = await ensureReady(chatId);
+    const startedAt = performance.now();
     const requestedFloors = (floors || []).map(Number).filter(Number.isInteger);
     const chunks = [];
     const chunkVectors = [];
@@ -414,6 +521,10 @@ async function scoreL1(chatId, floors = [], queryVector) {
     scored.stats.cacheWarm = true;
     scored.stats.backend = 'worker';
     scored.stats.cacheOwner = 'worker';
+    scored.stats.requestedL1Floors = requestedFloors.length;
+    const scoreL1Ms = Math.round(performance.now() - startedAt);
+    scored.stats.runtimeScoreL1Ms = scoreL1Ms;
+    if (entry) entry.timings = { ...(entry.timings || {}), scoreL1Ms };
     return scored;
 }
 
@@ -421,6 +532,10 @@ async function handle(type, payload = {}) {
     switch (type) {
         case 'ping':
             return { pong: true, backend: 'worker' };
+        case 'beginSession':
+            return await beginSession(payload.chatId, payload.reason);
+        case 'endSession':
+            return endSession(payload.lease);
         case 'refresh':
             return await refresh(payload.chatId, payload.reason);
         case 'applyMutation':
@@ -430,6 +545,7 @@ async function handle(type, payload = {}) {
             logInfo('retainOnly request', `keep=${keep || '*'}`);
             for (const key of [...entries.keys()]) {
                 if (keep && key === keep) continue;
+                if (sessionsByChatId.get(key)?.leases?.size) continue;
                 entries.delete(key);
             }
             return [...entries.values()].map(entryStats);
@@ -437,11 +553,17 @@ async function handle(type, payload = {}) {
         case 'clear': {
             logInfo('clear request', `chat=${payload.chatId || '*'} domain=${payload.domain || 'all'}`);
             if (payload.chatId) {
-                const entry = getEntry(payload.chatId);
-                clearDomain(entry, payload.domain || 'all');
-                logInfo('clear result', compactStats(entryStats(entry)));
+                const key = String(payload.chatId || '');
+                if (!sessionsByChatId.get(key)?.leases?.size) {
+                    const entry = getEntry(payload.chatId);
+                    clearDomain(entry, payload.domain || 'all');
+                    logInfo('clear result', compactStats(entryStats(entry)));
+                }
             } else {
-                entries.clear();
+                for (const key of [...entries.keys()]) {
+                    if (sessionsByChatId.get(key)?.leases?.size) continue;
+                    entries.delete(key);
+                }
                 logInfo('clear result', 'all entries removed');
             }
             return [...entries.values()].map(entryStats);
@@ -452,22 +574,31 @@ async function handle(type, payload = {}) {
         }
         case 'getEventVectorsByIds': {
             const entry = await ensureReady(payload.chatId);
-            return exportEventVectorsByIds(entry, payload.eventIds || []);
+            const startedAt = performance.now();
+            const records = exportEventVectorsByIds(entry, payload.eventIds || []);
+            const getEventVectorsByIdsMs = Math.round(performance.now() - startedAt);
+            if (entry) entry.timings = { ...(entry.timings || {}), getEventVectorsByIdsMs };
+            return { records, stats: entryStats(entry) };
         }
         case 'scoreAnchors': {
             const entry = await ensureReady(payload.chatId);
+            const startedAt = performance.now();
             const scores = scoreAnchorsFromStateVectors([...(entry?.stateVectorsById.values() || [])], payload.queryVector);
+            if (entry) entry.timings = { ...(entry.timings || {}), scoreAnchorsMs: Math.round(performance.now() - startedAt) };
             return { scores, stats: entryStats(entry) };
         }
         case 'scoreEvents': {
             const entry = await ensureReady(payload.chatId);
+            const startedAt = performance.now();
             const scores = scoreEventsFromEventVectors([...(entry?.eventVectorsById.values() || [])], payload.queryVector);
+            if (entry) entry.timings = { ...(entry.timings || {}), scoreEventsMs: Math.round(performance.now() - startedAt) };
             return { scores, stats: entryStats(entry) };
         }
         case 'scoreL1':
             return await scoreL1(payload.chatId, payload.floors, payload.queryVector);
         case 'diffuseL0': {
             const entry = await ensureReady(payload.chatId);
+            const startedAt = performance.now();
             const metrics = { diffusion: {} };
             const diffused = diffuseFromSeeds(
                 payload.seeds || [],
@@ -477,6 +608,7 @@ async function handle(type, payload = {}) {
                 metrics,
                 { name1: payload.name1 || '' }
             );
+            if (entry) entry.timings = { ...(entry.timings || {}), diffuseL0Ms: Math.round(performance.now() - startedAt) };
             return { diffused, metrics: metrics.diffusion || {} };
         }
         case 'stats':

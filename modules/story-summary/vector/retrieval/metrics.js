@@ -198,6 +198,15 @@ export function createMetrics() {
 
         // Timing - 计时（仅包含实际写入的字段）
         timing: {
+            runtimeBeginSession: 0,
+            runtimeLoadFromDB: 0,
+            runtimeBuildEntry: 0,
+            runtimeScoreAnchors: 0,
+            runtimeScoreEvents: 0,
+            runtimeGetEventVectors: 0,
+            runtimeScoreL1: 0,
+            runtimeDiffuseL0: 0,
+            runtimeEndSession: 0,
             round1Embed: 0,
             round1EmbedRetryWait: 0,
             round1AnchorSearch: 0,
@@ -528,12 +537,18 @@ export function formatMetricsLog(metrics) {
     lines.push(`├─ round1_anchor_search: ${m.timing.round1AnchorSearch || 0}ms`);
     lines.push(`├─ round1_event_retrieval: ${m.timing.round1EventRetrieval || 0}ms`);
     lines.push(`├─ round2_embed: ${m.timing.round2Embed || 0}ms`);
+    lines.push(`├─ runtime_begin_session: ${m.timing.runtimeBeginSession || 0}ms`);
+    lines.push(`│   ├─ runtime_load_db: ${m.timing.runtimeLoadFromDB || 0}ms`);
+    lines.push(`│   └─ runtime_build_entry: ${m.timing.runtimeBuildEntry || 0}ms`);
     lines.push(`├─ anchor_search: ${m.timing.anchorSearch}ms`);
+    lines.push(`│   └─ runtime_score_anchors: ${m.timing.runtimeScoreAnchors || 0}ms`);
     const lexicalTotal = (m.lexical.searchTime || 0) + (m.lexical.indexReadyTime || 0);
     lines.push(`├─ lexical_search: ${lexicalTotal}ms (query=${m.lexical.searchTime || 0}ms, index_ready=${m.lexical.indexReadyTime || 0}ms)`);
     lines.push(`├─ fusion: ${m.fusion.time}ms`);
     lines.push(`├─ constraint_filter: ${m.timing.constraintFilter}ms`);
     lines.push(`├─ event_retrieval: ${m.timing.eventRetrieval}ms`);
+    lines.push(`│   ├─ runtime_score_events: ${m.timing.runtimeScoreEvents || 0}ms`);
+    lines.push(`│   └─ runtime_get_event_vectors: ${m.timing.runtimeGetEventVectors || 0}ms`);
     lines.push(`├─ evidence_retrieval: ${m.timing.evidenceRetrieval}ms`);
     lines.push(`├─ floor_rerank: ${m.timing.evidenceRerank || 0}ms`);
     lines.push(`├─ l1_cosine: ${m.evidence.l1CosineTime}ms`);
@@ -543,17 +558,20 @@ export function formatMetricsLog(metrics) {
     lines.push(`│   ├─ l1_cache_fallback_db: ${m.evidence.l1CacheFallbackDbTime || 0}ms`);
     lines.push(`│   ├─ l1_deserialize: ${m.evidence.l1DeserializeTime}ms`);
     lines.push(`│   ├─ l1_score: ${m.evidence.l1ScoreTime}ms`);
-    lines.push(`│   └─ l1_sort: ${m.evidence.l1SortTime}ms`);
+    lines.push(`│   ├─ l1_sort: ${m.evidence.l1SortTime}ms`);
+    lines.push(`│   └─ runtime_score_l1: ${m.timing.runtimeScoreL1 || 0}ms`);
     lines.push(`├─ diffusion: ${m.timing.diffusion}ms`);
     lines.push(`│   ├─ graph_build: ${m.diffusion.buildTime || 0}ms`);
     lines.push(`│   ├─ ppr: ${m.diffusion.pprTime || 0}ms`);
     lines.push(`│   ├─ post_verify: ${m.diffusion.postVerifyTime || 0}ms`);
-    lines.push(`│   └─ vector_map: ${m.diffusion.vectorMapTime || 0}ms`);
+    lines.push(`│   ├─ vector_map: ${m.diffusion.vectorMapTime || 0}ms`);
+    lines.push(`│   └─ runtime_diffuse_l0: ${m.timing.runtimeDiffuseL0 || 0}ms`);
     lines.push(`├─ evidence_assembly: ${m.timing.evidenceAssembly}ms`);
     lines.push(`├─ formatting: ${m.timing.formatting}ms`);
     lines.push(`├─ external_total: ${m.timing.externalTotal || 0}ms (embed+rerank)`);
     lines.push(`├─ local_known_total: ${m.timing.localKnownTotal || 0}ms`);
     lines.push(`├─ unattributed: ${m.timing.unattributed || 0}ms`);
+    lines.push(`├─ runtime_end_session: ${m.timing.runtimeEndSession || 0}ms`);
     lines.push(`└─ total: ${m.timing.total}ms`);
     lines.push('');
 
