@@ -353,6 +353,27 @@ async function unhideAllMessages() {
     await executeSlashCommand(`/unhide 0-${last}`);
 }
 
+function applyHideRangeInMemory(range) {
+    const { chat } = getContext();
+    if (!Array.isArray(chat) || !range) return 0;
+
+    let changed = 0;
+    for (let messageId = range.start; messageId <= range.end; messageId++) {
+        const message = chat[messageId];
+        if (!message || message.is_system === true) continue;
+
+        message.is_system = true;
+        changed++;
+
+        const messageBlock = $(`.mes[mesid="${messageId}"]`);
+        if (messageBlock.length) {
+            messageBlock.attr("is_system", "true");
+        }
+    }
+
+    return changed;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 生成状态管理
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1740,9 +1761,14 @@ async function applyHideState({ reset = true } = {}) {
     if (reset) {
         // 仅在隐藏范围可能缩小时清理历史残留；普通后台维护只补 hide，避免短暂全展开。
         await unhideAllMessages();
+        await executeSlashCommand(`/hide ${range.start}-${range.end}`);
+        return;
     }
 
-    await executeSlashCommand(`/hide ${range.start}-${range.end}`);
+    const changed = applyHideRangeInMemory(range);
+    if (changed > 0) {
+        xbLog.info(MODULE_ID, `后台隐藏已同步到当前聊天状态：${range.start}-${range.end} changed=${changed}`);
+    }
 }
 
 function cancelHideApplyTimer() {
@@ -2419,7 +2445,7 @@ async function handleChatChanged() {
     const store = getSummaryStore();
 
     if (getHideUiSettings().hideSummarized) {
-        await applyHideState();
+        await applyHideState({ reset: false });
     }
 
     if (frameReady) {
