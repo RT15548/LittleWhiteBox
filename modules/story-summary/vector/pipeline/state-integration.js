@@ -5,7 +5,6 @@
 // ============================================================================
 
 import { getContext } from '../../../../../../../extensions.js';
-import { saveMetadataDebounced } from '../../../../../../../extensions.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import {
     saveStateAtoms,
@@ -19,6 +18,9 @@ import {
     setL0FloorStatus,
     clearL0Index,
     deleteL0IndexFromFloor,
+    beginL0MetadataBatch,
+    endL0MetadataBatch,
+    flushL0MetadataSave,
 } from '../storage/state-store.js';
 import { embed } from '../llm/siliconflow.js';
 import { extractAtomsForRound, cancelBatchExtraction, resetBatchExtractionCancel } from '../llm/atom-extraction.js';
@@ -126,7 +128,16 @@ function buildRAggregateText(atom) {
 }
 
 export async function incrementalExtractAtoms(chatId, chat, onProgress, options = {}) {
-    const { maxFloors = Infinity } = options;
+    beginL0MetadataBatch('incrementalExtractAtoms');
+    try {
+        return await incrementalExtractAtomsInner(chatId, chat, onProgress, options);
+    } finally {
+        endL0MetadataBatch('incrementalExtractAtoms');
+    }
+}
+
+async function incrementalExtractAtomsInner(chatId, chat, onProgress, options = {}) {
+    const { maxFloors = Infinity, preferredFloors = [] } = options;
     if (!chatId || !chat?.length) return { built: 0, cancelled: false };
 
     const vectorCfg = getVectorConfig();
@@ -138,15 +149,16 @@ export async function incrementalExtractAtoms(chatId, chat, onProgress, options 
     resetBatchExtractionCancel();
 
     const pendingPairs = [];
+    const queuedFloors = new Set();
 
-    for (let i = 0; i < chat.length; i++) {
+    const tryQueueFloor = (i) => {
         const msg = chat[i];
-        if (!msg || msg.is_user) continue;
+        if (!msg || msg.is_user || queuedFloors.has(i)) return;
 
         const st = getL0FloorStatus(i);
         // ★ 只跳过 ok 和 empty，fail 的可以重试
         if (st?.status === 'ok' || st?.status === 'empty') {
-            continue;
+            return;
         }
 
         const userMsg = (i > 0 && chat[i - 1]?.is_user) ? chat[i - 1] : null;
@@ -154,10 +166,21 @@ export async function incrementalExtractAtoms(chatId, chat, onProgress, options 
 
         if (!inputText) {
             setL0FloorStatus(i, { status: 'empty', reason: 'filtered_empty', atoms: 0 });
-            continue;
+            return;
         }
 
         pendingPairs.push({ userMsg, aiMsg: msg, aiFloor: i });
+        queuedFloors.add(i);
+    };
+
+    for (const rawFloor of preferredFloors) {
+        const floor = Number(rawFloor);
+        if (!Number.isFinite(floor) || floor < 0 || floor >= chat.length) continue;
+        tryQueueFloor(floor);
+    }
+
+    for (let i = 0; i < chat.length; i++) {
+        tryQueueFloor(i);
     }
 
     // 限制单次提取楼层数（自动触发时使用）
@@ -265,10 +288,6 @@ export async function incrementalExtractAtoms(chatId, chat, onProgress, options 
         xbLog.info(MODULE_ID, `L0 pool done completed=${completed}/${total} failed=${failed} peakActive=${peakActive} elapsedMs=${elapsed}`);
     }
 
-    try {
-        saveMetadataDebounced?.();
-    } catch { }
-
     // ★ Phase 2: 统一向量化所有新提取的 atoms
     if (allNewAtoms.length > 0 && !extractionCancelled) {
         onProgress?.(`向量化 L0: 0/${allNewAtoms.length}`, 0, allNewAtoms.length);
@@ -339,108 +358,29 @@ async function vectorizeAtoms(chatId, atoms, onProgress) {
     }
 }
 
+async function vectorizeAtomsSimple(chatId, atoms) {
+    await vectorizeAtoms(chatId, atoms);
+}
+
 // ============================================================================
 // 清空
 // ============================================================================
 
 export async function clearAllAtomsAndVectors(chatId) {
-    clearStateAtoms();
-    clearL0Index();
-    if (chatId) {
-        await clearStateVectors(chatId);
+    beginL0MetadataBatch('clearAllAtomsAndVectors');
+    try {
+        clearStateAtoms();
+        clearL0Index();
+        if (chatId) {
+            await clearStateVectors(chatId);
+        }
+    } finally {
+        endL0MetadataBatch('clearAllAtomsAndVectors');
     }
 
-    // ★ 立即保存
-    try {
-        saveMetadataDebounced?.();
-    } catch { }
+    flushL0MetadataSave('clearAllAtomsAndVectors');
 
     xbLog.info(MODULE_ID, '已清空所有记忆锚点');
-}
-
-// ============================================================================
-// 实时增量（AI 消息后触发）- 保持不变
-// ============================================================================
-
-let extractionQueue = [];
-let isProcessing = false;
-
-export async function extractAndStoreAtomsForRound(aiFloor, aiMessage, userMessage, onComplete) {
-    const { chatId } = getContext();
-    if (!chatId) return;
-
-    const vectorCfg = getVectorConfig();
-    if (!vectorCfg?.enabled) return;
-
-    extractionQueue.push({ aiFloor, aiMessage, userMessage, chatId, onComplete });
-    processQueue();
-}
-
-async function processQueue() {
-    if (isProcessing || extractionQueue.length === 0) return;
-    isProcessing = true;
-    resetBatchExtractionCancel();
-
-    while (extractionQueue.length > 0) {
-        const { aiFloor, aiMessage, userMessage, chatId, onComplete } = extractionQueue.shift();
-
-        try {
-            const atoms = await extractAtomsForRound(userMessage, aiMessage, aiFloor, { timeout: 60000 });
-
-            if (!atoms?.length) {
-                xbLog.info(MODULE_ID, `floor ${aiFloor}: 无有效 atoms`);
-                onComplete?.({ floor: aiFloor, atomCount: 0 });
-                continue;
-            }
-
-            atoms.forEach(a => a.chatId = chatId);
-            saveStateAtoms(atoms);
-
-            // 单楼实时处理：立即向量化
-            await vectorizeAtomsSimple(chatId, atoms);
-
-            xbLog.info(MODULE_ID, `floor ${aiFloor}: ${atoms.length} atoms 已存储`);
-            onComplete?.({ floor: aiFloor, atomCount: atoms.length });
-        } catch (e) {
-            xbLog.error(MODULE_ID, `floor ${aiFloor} 处理失败`, e);
-            onComplete?.({ floor: aiFloor, atomCount: 0, error: e });
-        }
-    }
-
-    isProcessing = false;
-}
-
-// 简单向量化（无进度回调，用于单楼实时处理）
-async function vectorizeAtomsSimple(chatId, atoms) {
-    if (!atoms?.length) return;
-
-    const vectorCfg = getVectorConfig();
-    if (!vectorCfg?.enabled) return;
-
-    const semanticTexts = atoms.map(a => a.semantic);
-    const rTexts = atoms.map(a => buildRAggregateText(a));
-    const fingerprint = getEngineFingerprint(vectorCfg);
-
-    try {
-        const vectors = await embed(semanticTexts.concat(rTexts), { timeout: 30000 });
-        const split = semanticTexts.length;
-        if (!Array.isArray(vectors) || vectors.length < split * 2) {
-            throw new Error(`embed length mismatch: expect>=${split * 2}, got=${vectors?.length || 0}`);
-        }
-        const semVectors = vectors.slice(0, split);
-        const rVectors = vectors.slice(split, split + split);
-
-        const items = atoms.map((a, i) => ({
-            atomId: a.atomId,
-            floor: a.floor,
-            vector: semVectors[i],
-            rVector: rVectors[i] || semVectors[i],
-        }));
-
-        await saveStateVectors(chatId, items, fingerprint);
-    } catch (e) {
-        xbLog.error(MODULE_ID, 'L0 向量化失败', e);
-    }
 }
 
 // ============================================================================
@@ -452,11 +392,16 @@ async function handleStateRollback(floor) {
 
     const { chatId } = getContext();
 
-    deleteStateAtomsFromFloor(floor);
-    deleteL0IndexFromFloor(floor);
+    beginL0MetadataBatch('stateRollback');
+    try {
+        deleteStateAtomsFromFloor(floor);
+        deleteL0IndexFromFloor(floor);
 
-    if (chatId) {
-        await deleteStateVectorsFromFloor(chatId, floor);
+        if (chatId) {
+            await deleteStateVectorsFromFloor(chatId, floor);
+        }
+    } finally {
+        endL0MetadataBatch('stateRollback');
     }
 }
 
@@ -472,11 +417,16 @@ export async function batchExtractAndStoreAtoms(chatId, chat, onProgress) {
 
     xbLog.info(MODULE_ID, `开始批量 L0 提取: ${chat.length} 条消息`);
 
-    clearStateAtoms();
-    clearL0Index();
-    await clearStateVectors(chatId);
+    beginL0MetadataBatch('batchExtractAndStoreAtoms');
+    try {
+        clearStateAtoms();
+        clearL0Index();
+        await clearStateVectors(chatId);
 
-    return await incrementalExtractAtoms(chatId, chat, onProgress);
+        return await incrementalExtractAtoms(chatId, chat, onProgress);
+    } finally {
+        endL0MetadataBatch('batchExtractAndStoreAtoms');
+    }
 }
 
 export async function rebuildStateVectors(chatId, vectorCfg) {

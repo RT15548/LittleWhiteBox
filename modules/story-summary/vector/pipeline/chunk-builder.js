@@ -19,12 +19,6 @@ import {
 import { embed, getEngineFingerprint } from '../utils/embedder.js';
 import { xbLog } from '../../../../core/debug-core.js';
 import { filterText } from '../utils/text-filter.js';
-import { extractAndStoreAtomsForRound } from './state-integration.js';
-import {
-    deleteStateAtomsFromFloor,
-    deleteStateVectorsFromFloor,
-    deleteL0IndexFromFloor,
-} from '../storage/state-store.js';
 
 const MODULE_ID = 'chunk-builder';
 
@@ -334,58 +328,4 @@ export async function syncOnMessageSwiped(chatId, lastFloor) {
     await updateMeta(chatId, { lastChunkFloor: lastFloor - 1 });
 
     xbLog.info(MODULE_ID, `swipe 同步：删除 floor ${lastFloor}`);
-}
-
-/**
- * 新消息后同步：删除 + 重建最后楼层
- */
-export async function syncOnMessageReceived(chatId, lastFloor, message, vectorConfig, onL0Complete) {
-    if (!chatId || lastFloor < 0 || !message) return { built: 0, chunks: [] };
-    if (!vectorConfig?.enabled) return { built: 0, chunks: [] };
-
-    // 删除该楼层旧的
-    await deleteChunksAtFloor(chatId, lastFloor);
-
-    // 重建
-    const chunks = chunkMessage(lastFloor, message);
-    if (chunks.length === 0) return { built: 0, chunks: [] };
-
-    await saveChunks(chatId, chunks);
-
-    // 向量化
-    const fingerprint = getEngineFingerprint(vectorConfig);
-    const texts = chunks.map(c => c.text);
-
-    let vectorized = false;
-    try {
-        const vectors = await embed(texts, vectorConfig);
-        const items = chunks.map((c, i) => ({ chunkId: c.chunkId, vector: vectors[i] }));
-        await saveChunkVectors(chatId, items, fingerprint);
-        await updateMeta(chatId, { lastChunkFloor: lastFloor });
-
-        vectorized = true;
-        xbLog.info(MODULE_ID, `消息同步：重建 floor ${lastFloor}，${chunks.length} 个 chunk`);
-    } catch (e) {
-        xbLog.error(MODULE_ID, `消息同步失败：floor ${lastFloor}`, e);
-    }
-    // L0 配对提取（仅 AI 消息触发）
-    if (!message.is_user) {
-        const { chat } = getContext();
-        const userFloor = lastFloor - 1;
-        const userMessage = (userFloor >= 0 && chat[userFloor]?.is_user) ? chat[userFloor] : null;
-
-        // L0 先删后建（与 L1 deleteChunksAtFloor 对称）
-        // regenerate / swipe 后新消息覆盖旧楼时，清理旧 atoms
-        deleteStateAtomsFromFloor(lastFloor);
-        deleteL0IndexFromFloor(lastFloor);
-        await deleteStateVectorsFromFloor(chatId, lastFloor);
-
-        try {
-            await extractAndStoreAtomsForRound(lastFloor, message, userMessage, onL0Complete);
-        } catch (e) {
-            xbLog.warn(MODULE_ID, `Atom 提取失败: floor ${lastFloor}`, e);
-        }
-    }
-
-    return { built: vectorized ? chunks.length : 0, chunks };
 }

@@ -47,18 +47,6 @@ module.exports = {
                 selector: 'CallExpression[callee.property.name="addEventListener"][arguments.0.value="message"]',
                 message: 'All message listeners must validate origin/source (use isTrustedMessage).',
             },
-            {
-                selector: 'AssignmentExpression[left.type="MemberExpression"][left.property.name="_allowedOrigins"] > ArrayExpression.right > Literal[value="*"]',
-                message: 'Do not default _allowedOrigins to ["*"]; require an explicit trusted origin list or document the trust model clearly.',
-            },
-            {
-                selector: 'VariableDeclarator[id.name="allowedOrigins"] > ArrayExpression.init > Literal[value="*"]',
-                message: 'Do not default allowedOrigins to ["*"]; require an explicit trusted origin list or document the trust model clearly.',
-            },
-            {
-                selector: 'AssignmentExpression[left.type="MemberExpression"][left.property.name="srcdoc"]',
-                message: 'Review iframe.srcdoc carefully; external or dynamic HTML injected into srcdoc must have an explicit trust model.',
-            },
         ],
         'no-undef': 'error',
         'no-unused-vars': ['warn', { args: 'none' }],

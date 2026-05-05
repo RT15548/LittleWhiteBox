@@ -4,8 +4,9 @@
 // StateVector 存 IndexedDB（可重建）
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { saveMetadataDebounced } from '../../../../../../../extensions.js';
+import { getContext, saveMetadataDebounced } from '../../../../../../../extensions.js';
 import { chat_metadata } from '../../../../../../../../script.js';
+import * as stScript from '../../../../../../../../script.js';
 import { stateVectorsTable } from '../../data/db.js';
 import { EXT_ID } from '../../../../core/constants.js';
 import { xbLog } from '../../../../core/debug-core.js';
@@ -15,6 +16,21 @@ import {
 } from '../runtime/runtime.js';
 
 const MODULE_ID = 'state-store';
+const L0_METADATA_FAST_RETRY_MS = 1000;
+const L0_METADATA_SLOW_RETRY_MS = 3000;
+const L0_METADATA_SLOW_AFTER_MS = 10000;
+const L0_METADATA_WAIT_LOG_MS = 15000;
+
+let l0MetadataBatchDepth = 0;
+let l0MetadataDirty = false;
+let l0MetadataDirtyChatId = null;
+let l0MetadataDirtySince = 0;
+let l0MetadataDirtyVersion = 0;
+let l0MetadataSaveInFlight = false;
+let l0MetadataRetryTimer = null;
+let l0MetadataRetryStartedAt = 0;
+let l0MetadataLastWaitLogAt = 0;
+const l0MetadataDirtySources = new Set();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 工具函数
@@ -48,6 +64,179 @@ function ensureL0Index() {
     return chat_metadata.extensions[EXT_ID].l0Index;
 }
 
+function getCurrentChatId() {
+    try {
+        return getContext()?.chatId || null;
+    } catch {
+        return null;
+    }
+}
+
+function clearL0MetadataRetryTimer() {
+    if (l0MetadataRetryTimer) {
+        clearTimeout(l0MetadataRetryTimer);
+        l0MetadataRetryTimer = null;
+    }
+}
+
+function scheduleL0MetadataFlush(delayMs = L0_METADATA_FAST_RETRY_MS) {
+    clearL0MetadataRetryTimer();
+    l0MetadataRetryTimer = setTimeout(() => {
+        l0MetadataRetryTimer = null;
+        flushL0MetadataSave('scheduled');
+    }, Math.max(0, delayMs));
+}
+
+function markL0MetadataDirty(source = 'unknown') {
+    const chatId = getCurrentChatId();
+    if (!chatId) {
+        xbLog.warn(MODULE_ID, `L0 metadata 已修改但当前 chatId 为空，source=${source}`);
+        return;
+    }
+
+    if (l0MetadataDirty && l0MetadataDirtyChatId && l0MetadataDirtyChatId !== chatId) {
+        xbLog.warn(MODULE_ID, `丢弃过期 L0 metadata dirty 标记: old=${l0MetadataDirtyChatId} new=${chatId}`);
+        l0MetadataDirtySources.clear();
+        l0MetadataDirtySince = 0;
+    }
+
+    l0MetadataDirty = true;
+    l0MetadataDirtyChatId = chatId;
+    if (!l0MetadataDirtySince) l0MetadataDirtySince = Date.now();
+    l0MetadataDirtyVersion++;
+    l0MetadataDirtySources.add(source);
+
+    if (l0MetadataBatchDepth <= 0 && !l0MetadataSaveInFlight) {
+        scheduleL0MetadataFlush(0);
+    }
+}
+
+export function beginL0MetadataBatch() {
+    l0MetadataBatchDepth++;
+}
+
+export function endL0MetadataBatch() {
+    l0MetadataBatchDepth = Math.max(0, l0MetadataBatchDepth - 1);
+    if (l0MetadataBatchDepth === 0 && l0MetadataDirty) {
+        scheduleL0MetadataFlush(0);
+    }
+}
+
+export function flushL0MetadataSave(reason = 'manual') {
+    if (!l0MetadataDirty) return false;
+    if (l0MetadataSaveInFlight) return false;
+
+    const currentChatId = getCurrentChatId();
+    if (!currentChatId || currentChatId !== l0MetadataDirtyChatId) {
+        xbLog.warn(MODULE_ID, `丢弃未落盘 L0 metadata：chat 已切换 dirty=${l0MetadataDirtyChatId || '-'} current=${currentChatId || '-'}`);
+        clearL0MetadataRetryTimer();
+        l0MetadataDirty = false;
+        l0MetadataDirtyChatId = null;
+        l0MetadataDirtySince = 0;
+        l0MetadataDirtyVersion++;
+        l0MetadataRetryStartedAt = 0;
+        l0MetadataLastWaitLogAt = 0;
+        l0MetadataDirtySources.clear();
+        return false;
+    }
+
+    if (stScript.isChatSaving) {
+        const now = Date.now();
+        if (!l0MetadataRetryStartedAt) l0MetadataRetryStartedAt = now;
+        const waitedMs = now - l0MetadataRetryStartedAt;
+        const retryMs = waitedMs >= L0_METADATA_SLOW_AFTER_MS ? L0_METADATA_SLOW_RETRY_MS : L0_METADATA_FAST_RETRY_MS;
+        if (now - l0MetadataLastWaitLogAt >= L0_METADATA_WAIT_LOG_MS) {
+            l0MetadataLastWaitLogAt = now;
+            const dirtyForMs = l0MetadataDirtySince ? now - l0MetadataDirtySince : waitedMs;
+            xbLog.info(MODULE_ID, `L0 metadata 等待酒馆保存空闲，暂缓落盘 waited=${Math.round(waitedMs / 1000)}s dirty=${Math.round(dirtyForMs / 1000)}s reason=${reason}`);
+        }
+        scheduleL0MetadataFlush(retryMs);
+        return false;
+    }
+
+    const sources = [...l0MetadataDirtySources].join(',');
+    const versionToSave = l0MetadataDirtyVersion;
+    clearL0MetadataRetryTimer();
+    l0MetadataSaveInFlight = true;
+
+    try {
+        const ctx = getContext?.();
+        if (typeof ctx?.saveMetadata === 'function') {
+            const attemptedChatId = currentChatId;
+            const saveStartedAt = Date.now();
+            let enteredHostSave = false;
+            const tracker = setInterval(() => {
+                if (stScript.isChatSaving) enteredHostSave = true;
+            }, 20);
+
+            Promise.resolve(ctx.saveMetadata())
+                .then(() => {
+                    if (!enteredHostSave) {
+                        const elapsedMs = Date.now() - saveStartedAt;
+                        if (elapsedMs < 200 && getCurrentChatId() === attemptedChatId && l0MetadataDirtyVersion === versionToSave) {
+                            l0MetadataDirty = false;
+                            l0MetadataDirtyChatId = null;
+                            l0MetadataDirtySince = 0;
+                            l0MetadataRetryStartedAt = 0;
+                            l0MetadataLastWaitLogAt = 0;
+                            l0MetadataDirtySources.clear();
+                            return;
+                        }
+                        xbLog.warn(MODULE_ID, `L0 metadata 保存未进入酒馆保存流程，继续等待重试 reason=${reason}`);
+                        if (getCurrentChatId() === attemptedChatId && l0MetadataDirtyVersion === versionToSave) {
+                            scheduleL0MetadataFlush(L0_METADATA_FAST_RETRY_MS);
+                        } else if (l0MetadataDirty) {
+                            scheduleL0MetadataFlush(0);
+                        }
+                        return;
+                    }
+
+                    if (getCurrentChatId() === attemptedChatId && l0MetadataDirtyVersion === versionToSave) {
+                        l0MetadataDirty = false;
+                        l0MetadataDirtyChatId = null;
+                        l0MetadataDirtySince = 0;
+                        l0MetadataRetryStartedAt = 0;
+                        l0MetadataLastWaitLogAt = 0;
+                        l0MetadataDirtySources.clear();
+                    } else if (l0MetadataDirty) {
+                        scheduleL0MetadataFlush(0);
+                    }
+                })
+                .catch(e => {
+                    xbLog.warn(MODULE_ID, `L0 metadata 保存失败: ${e?.message || e}`);
+                    if (getCurrentChatId() === attemptedChatId && l0MetadataDirtyVersion === versionToSave) {
+                        scheduleL0MetadataFlush(L0_METADATA_FAST_RETRY_MS);
+                    } else if (l0MetadataDirty) {
+                        scheduleL0MetadataFlush(0);
+                    }
+                })
+                .finally(() => {
+                    clearInterval(tracker);
+                    l0MetadataSaveInFlight = false;
+                    if (l0MetadataDirty && l0MetadataDirtyVersion !== versionToSave) {
+                        scheduleL0MetadataFlush(0);
+                    }
+                });
+        } else {
+            saveMetadataDebounced?.();
+            l0MetadataDirty = false;
+            l0MetadataDirtyChatId = null;
+            l0MetadataDirtySince = 0;
+            l0MetadataRetryStartedAt = 0;
+            l0MetadataLastWaitLogAt = 0;
+            l0MetadataDirtySources.clear();
+            l0MetadataSaveInFlight = false;
+        }
+        xbLog.info(MODULE_ID, `L0 metadata 保存已触发 reason=${reason} sources=${sources || '-'}`);
+        return true;
+    } catch (e) {
+        xbLog.warn(MODULE_ID, `L0 metadata 保存触发失败: ${e?.message || e}`);
+        l0MetadataSaveInFlight = false;
+        markL0MetadataDirty('save_throw');
+        return false;
+    }
+}
+
 export function getL0Index() {
     return ensureL0Index();
 }
@@ -64,13 +253,13 @@ export function setL0FloorStatus(floor, record) {
         floor,
         updatedAt: Date.now(),
     };
-    saveMetadataDebounced();
+    markL0MetadataDirty('setL0FloorStatus');
 }
 
 export function clearL0Index() {
     const idx = ensureL0Index();
     idx.byFloor = {};
-    saveMetadataDebounced();
+    markL0MetadataDirty('clearL0Index');
 }
 
 export function deleteL0IndexFromFloor(fromFloor) {
@@ -85,7 +274,7 @@ export function deleteL0IndexFromFloor(fromFloor) {
         }
     }
     if (deleted > 0) {
-        saveMetadataDebounced();
+        markL0MetadataDirty('deleteL0IndexFromFloor');
         xbLog.info(MODULE_ID, `删除 ${deleted} 条 L0Index (floor >= ${fromFloor})`);
     }
     return deleted;
@@ -123,7 +312,7 @@ export function saveStateAtoms(atoms) {
     }
 
     if (added > 0) {
-        saveMetadataDebounced();
+        markL0MetadataDirty('saveStateAtoms');
         xbLog.info(MODULE_ID, `存储 ${added} 个 StateAtom`);
     }
 }
@@ -140,7 +329,7 @@ export function deleteStateAtomsFromFloor(floor) {
 
     const deleted = before - filtered.length;
     if (deleted > 0) {
-        saveMetadataDebounced();
+        markL0MetadataDirty('deleteStateAtomsFromFloor');
         xbLog.info(MODULE_ID, `删除 ${deleted} 个 StateAtom (floor >= ${floor})`);
     }
 
@@ -157,7 +346,7 @@ export function clearStateAtoms() {
     chat_metadata.extensions[EXT_ID].stateAtoms = [];
 
     if (count > 0) {
-        saveMetadataDebounced();
+        markL0MetadataDirty('clearStateAtoms');
         xbLog.info(MODULE_ID, `清空 ${count} 个 StateAtom`);
     }
 }
@@ -189,7 +378,7 @@ export function getExtractedFloors() {
 export function replaceStateAtoms(atoms) {
     const next = Array.isArray(atoms) ? atoms : [];
     chat_metadata.extensions[EXT_ID].stateAtoms = next;
-    saveMetadataDebounced();
+    markL0MetadataDirty('replaceStateAtoms');
     xbLog.info(MODULE_ID, `替换 StateAtoms: ${next.length} 条`);
 }
 

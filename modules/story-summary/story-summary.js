@@ -80,7 +80,6 @@ import {
     chunkMessage,
     syncOnMessageDeleted,
     syncOnMessageSwiped,
-    syncOnMessageReceived,
 } from "./vector/pipeline/chunk-builder.js";
 import {
     incrementalExtractAtoms,
@@ -110,7 +109,7 @@ import {
     warmRecallRuntime,
 } from "./vector/runtime/runtime.js";
 
-import { invalidateLexicalIndex, warmupIndex, addDocumentsForFloor, removeDocumentsByFloor, addEventDocuments } from "./vector/retrieval/lexical-index.js";
+import { invalidateLexicalIndex, warmupIndex, removeDocumentsByFloor, addEventDocuments } from "./vector/retrieval/lexical-index.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -245,6 +244,7 @@ const HIDE_APPLY_DEBOUNCE_MS = 250;
 let lexicalWarmupTimer = null;
 let autoL0BackfillTimer = null;
 let vectorIntegrityTimer = null;
+const pendingVectorMaintenanceByChat = new Map();
 const autoSummaryTimers = new Map();
 const LEXICAL_WARMUP_DEBOUNCE_MS = 3000;
 const CHAT_CHANGE_LEXICAL_WARMUP_MS = 3000;
@@ -268,6 +268,27 @@ function handleVisibilityChangeForBackground() {
 }
 
 function handleViewportChangeForBackground() {}
+
+function isHostGenerating() {
+    return !!document.body?.dataset?.generating;
+}
+
+function rememberVectorMaintenance(chatId, floor = null, reason = 'unknown') {
+    if (!chatId) return;
+    let entry = pendingVectorMaintenanceByChat.get(chatId);
+    if (!entry) {
+        entry = { floors: new Set(), reasons: new Set(), updatedAt: 0 };
+        pendingVectorMaintenanceByChat.set(chatId, entry);
+    }
+    if (Number.isFinite(floor) && floor >= 0) entry.floors.add(Number(floor));
+    entry.reasons.add(reason);
+    entry.updatedAt = Date.now();
+}
+
+function clearVectorMaintenance(chatId = null) {
+    if (chatId) pendingVectorMaintenanceByChat.delete(chatId);
+    else pendingVectorMaintenanceByChat.clear();
+}
 
 // 向量提醒节流
 let lastVectorWarningAt = 0;
@@ -784,42 +805,85 @@ function refreshEntityLexiconAndWarmup() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// L0 自动补提取（每收到新消息后检查并补提取缺失楼层）
+// 延迟向量维护：AI 后只调度，5 秒后统一维护 L0/L1，避免影响宿主收尾。
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function maybeAutoExtractL0() {
+async function maybeRunDelayedVectorMaintenance(scheduledChatId = null) {
     const vectorCfg = getVectorConfig();
-    if (!vectorCfg?.enabled) return;
-    if (guard.isAnyRunning('anchor', 'vector')) return;
+    if (!vectorCfg?.enabled) {
+        clearVectorMaintenance(scheduledChatId);
+        return;
+    }
 
     const { chatId, chat } = getContext();
-    if (!chatId || !chat?.length) return;
+    const targetChatId = scheduledChatId || chatId;
+    if (!targetChatId || !chatId || targetChatId !== chatId || !chat?.length) return;
+
+    if (isHostGenerating() || guard.isAnyRunning('summary', 'anchor', 'vector')) {
+        scheduleAutoL0Backfill(AUTO_L0_BACKFILL_DELAY_MS, targetChatId);
+        return;
+    }
+
+    const pendingEntry = pendingVectorMaintenanceByChat.get(chatId);
 
     const stats = await getAnchorStats();
-    if (stats.pending <= 0) return;
+    const chunkStatus = await getChunkBuildStatus();
+    const hasL0Work = stats.pending > 0;
+    const hasL1Work = chunkStatus.pending > 0;
+
+    if (!hasL0Work && !hasL1Work) {
+        clearVectorMaintenance(chatId);
+        return;
+    }
+
+    if (!pendingEntry && hasL0Work) {
+        rememberVectorMaintenance(chatId, null, 'backfill');
+    }
 
     const release = guard.acquire('anchor');
-    if (!release) return;
+    if (!release) {
+        scheduleAutoL0Backfill(AUTO_L0_BACKFILL_DELAY_MS, chatId);
+        return;
+    }
 
     try {
-        const l0Result = await incrementalExtractAtoms(chatId, chat, null, { maxFloors: 20 });
-        if (l0Result?.cancelled) return;
+        const floorsText = pendingEntry?.floors?.size ? [...pendingEntry.floors].sort((a, b) => a - b).join(',') : '-';
+        xbLog.info(MODULE_ID, `延迟向量维护开始 chat=${chatId} floors=${floorsText} l0Pending=${stats.pending} l1Pending=${chunkStatus.pending}`);
 
-        // 为新提取的 L0 楼层构建 L1 chunks
-        const chunkResult = await buildIncrementalChunks({ vectorConfig: vectorCfg });
+        const chunkResult = hasL1Work
+            ? await buildIncrementalChunks({ vectorConfig: vectorCfg })
+            : { built: 0 };
 
-        // L1 rebuild only if new chunks were added
-        if (chunkResult.built > 0) {
+        let l0Result = null;
+        if (hasL0Work) {
+            if (isHostGenerating() || isChatStale(chatId)) {
+                if (chunkResult.built > 0) {
+                    invalidateLexicalIndex();
+                    scheduleLexicalWarmup();
+                }
+                scheduleAutoL0Backfill(AUTO_L0_BACKFILL_DELAY_MS, chatId);
+                return;
+            }
+            const preferredFloors = pendingEntry?.floors ? [...pendingEntry.floors] : [];
+            l0Result = await incrementalExtractAtoms(chatId, chat, null, {
+                maxFloors: 20,
+                preferredFloors,
+            });
+            if (l0Result?.cancelled) return;
+        }
+
+        if (chunkResult.built > 0 || l0Result?.built > 0) {
             invalidateLexicalIndex();
             scheduleLexicalWarmup();
         }
 
         await sendAnchorStatsToFrame();
         await sendVectorStatsToFrame();
+        clearVectorMaintenance(chatId);
 
-        xbLog.info(MODULE_ID, "自动 L0 补提取完成");
+        xbLog.info(MODULE_ID, `延迟向量维护完成 l0=${l0Result?.built || 0} l1=${chunkResult.built || 0}`);
     } catch (e) {
-        xbLog.error(MODULE_ID, "自动 L0 补提取失败", e);
+        xbLog.error(MODULE_ID, "延迟向量维护失败", e);
     } finally {
         release();
     }
@@ -1091,23 +1155,6 @@ async function checkVectorIntegrityAndWarn() {
     if (issues.length > 0) {
         lastVectorWarningAt = now;
         await executeSlashCommand(`/echo severity=warning 向量数据不完整：${issues.join('、')}。请打开剧情总结面板点击"生成向量"。`);
-    }
-}
-
-async function maybeAutoBuildChunks() {
-    const cfg = getVectorConfig();
-    if (!cfg?.enabled) return;
-
-    const { chat, chatId } = getContext();
-    if (!chatId || !chat?.length) return;
-
-    const status = await getChunkBuildStatus();
-    if (status.pending <= 0) return;
-
-    try {
-        await buildIncrementalChunks({ vectorConfig: cfg });
-    } catch (e) {
-        xbLog.error(MODULE_ID, "自动 L1 构建失败", e);
     }
 }
 
@@ -1819,18 +1866,18 @@ function scheduleAutoSummary(reason, delayMs = AUTO_SUMMARY_DELAY_MS) {
     autoSummaryTimers.set(reason, timer);
 }
 
-function scheduleAutoL0Backfill(delayMs = AUTO_L0_BACKFILL_DELAY_MS) {
+function scheduleAutoL0Backfill(delayMs = AUTO_L0_BACKFILL_DELAY_MS, chatIdOverride = null) {
     clearTimeout(autoL0BackfillTimer);
-    const scheduledChatId = getContext().chatId || null;
+    const scheduledChatId = chatIdOverride || getContext().chatId || null;
     autoL0BackfillTimer = setTimeout(() => {
         autoL0BackfillTimer = null;
         if (isChatStale(scheduledChatId)) return;
         const quietWait = getBackgroundQuietWaitMs();
         if (quietWait > 0) {
-            scheduleAutoL0Backfill(quietWait);
+            scheduleAutoL0Backfill(quietWait, scheduledChatId);
             return;
         }
-        maybeAutoExtractL0();
+        maybeRunDelayedVectorMaintenance(scheduledChatId);
     }, delayMs);
 }
 
@@ -1856,6 +1903,7 @@ function clearDeferredBackgroundTasks() {
     autoL0BackfillTimer = null;
     clearTimeout(vectorIntegrityTimer);
     vectorIntegrityTimer = null;
+    clearVectorMaintenance();
     for (const timer of autoSummaryTimers.values()) clearTimeout(timer);
     autoSummaryTimers.clear();
 }
@@ -2528,30 +2576,16 @@ async function handleMessageReceived(scheduledChatId, targetMesId = null) {
 
     initButtonsForAll();
 
-    // Skip L1 sync while full vector generation is running
-    if (guard.isRunning('vector')) return;
-
-    const syncResult = await syncOnMessageReceived(chatId, floor, message, vectorConfig, () => {
-        sendAnchorStatsToFrame();
-        sendVectorStatsToFrame();
-    });
-
-    // Incrementally update lexical index with built chunks (avoid re-read)
-    if (syncResult?.chunks?.length) {
-        addDocumentsForFloor(floor, syncResult.chunks);
-    }
-
-    await maybeAutoBuildChunks();
-
     applyHideStateDebounced();
     scheduleAutoSummary("after_ai");
 
     // Refresh entity lexicon after new message (new roles may appear)
     refreshEntityLexiconAndWarmup();
-    scheduleLexicalWarmup();
 
-    // Auto backfill missing L0 (delay to avoid contention with current floor)
-    scheduleAutoL0Backfill();
+    if (vectorConfig?.enabled) {
+        rememberVectorMaintenance(chatId, floor, 'after_ai');
+        scheduleAutoL0Backfill(AUTO_L0_BACKFILL_DELAY_MS, chatId);
+    }
 }
 
 function handleMessageSent(scheduledChatId) {

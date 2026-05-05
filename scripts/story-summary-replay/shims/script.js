@@ -1,4 +1,5 @@
 export let chat_metadata = {};
+export let isChatSaving = false;
 export const event_types = {};
 export const eventSource = {
     on() {},
