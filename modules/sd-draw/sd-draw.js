@@ -81,6 +81,8 @@ const DEFAULT_SD_DRAW_SETTINGS = {
 
 let moduleInitialized = false;
 let overlayElement = null;
+let overlayFrame = null;
+let frameReadyPromise = null;
 let pendingController = null;
 let resizeHandler = null;
 let eventsBound = false;
@@ -463,30 +465,35 @@ function ensureStyles() {
     style.textContent = `
 #xiaobaix-sd-draw-overlay{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:99999!important;display:none;overflow:hidden!important}
 #xiaobaix-sd-draw-overlay .sd-draw-backdrop{position:absolute;inset:0;background:#0d1117}
-#xiaobaix-sd-draw-overlay .sd-draw-wrap{position:absolute;z-index:1;top:0;left:0;right:0;bottom:0;overflow:hidden;color:var(--SmartThemeBodyColor,#eee)}
+#xiaobaix-sd-draw-overlay .sd-draw-frame-wrap{position:absolute;z-index:1}
+#xiaobaix-sd-draw-iframe{width:100%;height:100%;border:none;background:#0d1117}
+@media(min-width:769px){#xiaobaix-sd-draw-overlay .sd-draw-frame-wrap{top:12px;left:12px;right:12px;bottom:12px}#xiaobaix-sd-draw-iframe{border-radius:12px}}
+@media(max-width:768px){#xiaobaix-sd-draw-overlay .sd-draw-frame-wrap{top:0;left:0;right:0;bottom:0}#xiaobaix-sd-draw-iframe{border-radius:0}}
 `;
     document.head.appendChild(style);
 }
 
 async function createOverlay() {
-    if (overlayElement) return overlayElement;
+    if (overlayElement && frameReadyPromise) {
+        await frameReadyPromise;
+        return overlayElement;
+    }
     ensureStyles();
 
     overlayElement = document.createElement('div');
     overlayElement.id = 'xiaobaix-sd-draw-overlay';
     overlayElement.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:99999!important;display:none;overflow:hidden!important;`;
-    overlayElement.innerHTML = `
-        <div class="sd-draw-backdrop"></div>
-        <div class="sd-draw-wrap"></div>
-    `;
+    const backdrop = document.createElement('div');
+    backdrop.className = 'sd-draw-backdrop';
+    backdrop.addEventListener('click', hideSettings);
+    const frameWrap = document.createElement('div');
+    frameWrap.className = 'sd-draw-frame-wrap';
+    overlayFrame = document.createElement('iframe');
+    overlayFrame.id = 'xiaobaix-sd-draw-iframe';
+    overlayFrame.src = HTML_PATH;
+    frameWrap.appendChild(overlayFrame);
+    overlayElement.append(backdrop, frameWrap);
     document.body.appendChild(overlayElement);
-
-    const html = await fetch(HTML_PATH, { cache: 'no-cache' }).then(r => r.text());
-    // Packaged extension HTML, loaded from our own module directory.
-    // eslint-disable-next-line no-unsanitized/property
-    overlayElement.querySelector('.sd-draw-wrap').innerHTML = html;
-    bindOverlayEvents();
-    fillForm(getSettings());
 
     resizeHandler = () => {
         if (overlayElement?.style.display !== 'none') {
@@ -496,6 +503,19 @@ async function createOverlay() {
     window.addEventListener('resize', resizeHandler);
     window.visualViewport?.addEventListener('resize', resizeHandler);
 
+    frameReadyPromise = new Promise((resolve, reject) => {
+        overlayFrame?.addEventListener('load', () => {
+            eventsBound = false;
+            bindOverlayEvents();
+            fillForm(getSettings());
+            resolve(overlayElement);
+        }, { once: true });
+        overlayFrame?.addEventListener('error', () => {
+            reject(new Error('SD 设置页加载失败'));
+        }, { once: true });
+    });
+
+    await frameReadyPromise;
     return overlayElement;
 }
 
@@ -504,18 +524,33 @@ function syncOverlayHeight() {
     overlayElement.style.height = `${window.innerHeight}px`;
 }
 
+function getSettingsDocument() {
+    return overlayFrame?.contentDocument || document.getElementById('xiaobaix-sd-draw-iframe')?.contentDocument || null;
+}
+
+function getSettingsElement(id) {
+    return getSettingsDocument()?.getElementById(id) || null;
+}
+
+function querySettings(selector) {
+    return getSettingsDocument()?.querySelector(selector) || null;
+}
+
+function querySettingsAll(selector) {
+    return Array.from(getSettingsDocument()?.querySelectorAll(selector) || []);
+}
+
 function bindOverlayEvents() {
-    if (!overlayElement || eventsBound) return;
+    if (!overlayElement || eventsBound || !getSettingsDocument()) return;
     eventsBound = true;
-    overlayElement.querySelector('.sd-draw-backdrop')?.addEventListener('click', hideSettings);
-    overlayElement.querySelector('#sd-draw-close')?.addEventListener('click', hideSettings);
-    overlayElement.querySelectorAll('[data-sd-view]').forEach((button) => {
+    querySettings('#sd-draw-close')?.addEventListener('click', hideSettings);
+    querySettingsAll('[data-sd-view]').forEach((button) => {
         button.addEventListener('click', () => switchSettingsView(button.dataset.sdView || 'test'));
     });
-    overlayElement.querySelector('#sd-gallery-refresh')?.addEventListener('click', async () => {
+    querySettings('#sd-gallery-refresh')?.addEventListener('click', async () => {
         await renderGalleryManagement();
     });
-    overlayElement.querySelectorAll('[data-sd-mode]').forEach((button) => {
+    querySettingsAll('[data-sd-mode]').forEach((button) => {
         button.addEventListener('click', async () => {
             const nextMode = button.dataset.sdMode === 'auto' ? 'auto' : 'manual';
             const settings = saveSettings({ ...getSettings(), mode: nextMode });
@@ -526,7 +561,7 @@ function bindOverlayEvents() {
             } catch {}
         });
     });
-    overlayElement.querySelector('#sd-show-floor')?.addEventListener('change', async (event) => {
+    querySettings('#sd-show-floor')?.addEventListener('change', async (event) => {
         const checked = event.target.checked === true;
         const settings = saveSettings({ ...getSettings(), showFloorButton: checked });
         fillForm(settings);
@@ -535,7 +570,7 @@ function bindOverlayEvents() {
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
         } catch {}
     });
-    overlayElement.querySelector('#sd-show-floating')?.addEventListener('change', async (event) => {
+    querySettings('#sd-show-floating')?.addEventListener('change', async (event) => {
         const checked = event.target.checked === true;
         const settings = saveSettings({ ...getSettings(), showFloatingButton: checked });
         fillForm(settings);
@@ -544,30 +579,30 @@ function bindOverlayEvents() {
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
         } catch {}
     });
-    overlayElement.querySelector('#sd-draw-save')?.addEventListener('click', async () => {
+    querySettings('#sd-draw-save')?.addEventListener('click', async () => {
         const ok = await saveAllSettings({ notify: true });
         if (ok) fillForm(getSettings());
     });
-    overlayElement.querySelector('#sd-draw-test')?.addEventListener('click', async () => {
+    querySettings('#sd-draw-test')?.addEventListener('click', async () => {
         await saveAllSettings({ notify: false });
         await testConnection();
     });
-    overlayElement.querySelector('#sd-draw-refresh-options')?.addEventListener('click', async () => {
+    querySettings('#sd-draw-refresh-options')?.addEventListener('click', async () => {
         await saveAllSettings({ notify: false });
         await refreshSdOptions({ notify: true });
     });
-    overlayElement.querySelector('#sd-draw-test-generate')?.addEventListener('click', async () => {
+    querySettings('#sd-draw-test-generate')?.addEventListener('click', async () => {
         await saveAllSettings({ notify: false });
         await testGenerateFromSettingsPanel();
     });
-    overlayElement.querySelector('#sd-draw-size-preset')?.addEventListener('change', () => {
+    querySettings('#sd-draw-size-preset')?.addEventListener('change', () => {
         applySizePresetSelection();
     });
-    overlayElement.querySelector('#sd-draw-preset-select')?.addEventListener('change', () => {
+    querySettings('#sd-draw-preset-select')?.addEventListener('change', () => {
         const settings = saveSettings({ ...getSettings(), selectedPresetId: getValue('sd-draw-preset-select') });
         fillForm(settings);
     });
-    overlayElement.querySelector('#sd-draw-preset-add')?.addEventListener('click', () => {
+    querySettings('#sd-draw-preset-add')?.addEventListener('click', () => {
         const settings = getSettings();
         const preset = {
             ...readPresetFromForm(),
@@ -577,7 +612,7 @@ function bindOverlayEvents() {
         saveSettings({ ...settings, presets: [...settings.presets, preset], selectedPresetId: preset.id });
         fillForm(getSettings());
     });
-    overlayElement.querySelector('#sd-draw-preset-rename')?.addEventListener('click', () => {
+    querySettings('#sd-draw-preset-rename')?.addEventListener('click', () => {
         const settings = getSettings();
         const preset = getActivePreset(settings);
         const name = prompt('输入新名称：', preset.name || '预设');
@@ -588,7 +623,7 @@ function bindOverlayEvents() {
         });
         fillForm(getSettings());
     });
-    overlayElement.querySelector('#sd-draw-preset-delete')?.addEventListener('click', () => {
+    querySettings('#sd-draw-preset-delete')?.addEventListener('click', () => {
         const settings = getSettings();
         if (settings.presets.length <= 1) {
             toastr.warning('至少保留一个预设');
@@ -600,7 +635,7 @@ function bindOverlayEvents() {
         saveSettings({ ...settings, presets, selectedPresetId: presets[0]?.id });
         fillForm(getSettings());
     });
-    overlayElement.querySelector('#sd-draw-preset-save')?.addEventListener('click', () => {
+    querySettings('#sd-draw-preset-save')?.addEventListener('click', () => {
         const settings = getSettings();
         const preset = getActivePreset(settings);
         const nextPreset = { ...readPresetFromForm(), id: preset.id, name: preset.name };
@@ -613,19 +648,19 @@ function bindOverlayEvents() {
         fillForm(getSettings());
         toastr.success('预设已保存');
     });
-    overlayElement.querySelector('#sd-shared-char-add')?.addEventListener('click', () => {
+    querySettings('#sd-shared-char-add')?.addEventListener('click', () => {
         addCharacterTagDraft();
     });
-    overlayElement.querySelector('#sd-shared-open-novel-settings')?.addEventListener('click', async () => {
+    querySettings('#sd-shared-open-novel-settings')?.addEventListener('click', async () => {
         await saveAllSettings({ notify: false });
         await openNovelDrawSettings();
     });
-    overlayElement.querySelectorAll('[data-sd-save-shared]').forEach((button) => {
+    querySettingsAll('[data-sd-save-shared]').forEach((button) => {
         button.addEventListener('click', async () => {
             await saveAllSettings({ notify: true });
         });
     });
-    overlayElement.querySelector('#sd-shared-character-list')?.addEventListener('click', (event) => {
+    querySettings('#sd-shared-character-list')?.addEventListener('click', (event) => {
         const deleteButton = event.target.closest('[data-sd-char-delete]');
         if (!deleteButton) return;
         deleteCharacterTagDraft(deleteButton.dataset.sdCharDelete);
@@ -635,11 +670,11 @@ function bindOverlayEvents() {
 function fillForm(settings) {
     const preset = getActivePreset(settings);
     fillPresetSelect(settings);
-    const showFloor = document.getElementById('sd-show-floor');
-    const showFloating = document.getElementById('sd-show-floating');
+    const showFloor = getSettingsElement('sd-show-floor');
+    const showFloating = getSettingsElement('sd-show-floating');
     if (showFloor) showFloor.checked = settings.showFloorButton !== false;
     if (showFloating) showFloating.checked = settings.showFloatingButton !== false;
-    overlayElement?.querySelectorAll('[data-sd-mode]').forEach((button) => {
+    querySettingsAll('[data-sd-mode]').forEach((button) => {
         button.classList.toggle('active', button.dataset.sdMode === (settings.mode === 'auto' ? 'auto' : 'manual'));
     });
     setValue('sd-draw-host', settings.host);
@@ -714,8 +749,8 @@ function updateSizePresetSelection() {
     const width = getValue('sd-draw-width');
     const height = getValue('sd-draw-height');
     const value = `${width}x${height}`;
-    const select = document.getElementById('sd-draw-size-preset');
-    const customRow = document.getElementById('sd-draw-custom-size');
+    const select = getSettingsElement('sd-draw-size-preset');
+    const customRow = getSettingsElement('sd-draw-custom-size');
     if (!select || !customRow) return;
     const matched = SD_SIZE_PRESETS.find((item) => item.value === value);
     select.value = matched ? matched.value : 'custom';
@@ -724,7 +759,7 @@ function updateSizePresetSelection() {
 
 function applySizePresetSelection() {
     const value = getValue('sd-draw-size-preset');
-    const customRow = document.getElementById('sd-draw-custom-size');
+    const customRow = getSettingsElement('sd-draw-custom-size');
     if (!customRow) return;
     if (value === 'custom') {
         customRow.classList.remove('hidden');
@@ -739,7 +774,7 @@ function applySizePresetSelection() {
 }
 
 function fillPresetSelect(settings = getSettings()) {
-    const select = document.getElementById('sd-draw-preset-select');
+    const select = getSettingsElement('sd-draw-preset-select');
     if (!select) return;
     select.textContent = '';
     settings.presets.forEach(preset => {
@@ -753,10 +788,10 @@ function fillPresetSelect(settings = getSettings()) {
 
 function switchSettingsView(viewName = 'test') {
     const normalized = SD_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
-    overlayElement?.querySelectorAll('[data-sd-view]').forEach((button) => {
+    querySettingsAll('[data-sd-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.sdView === normalized);
     });
-    overlayElement?.querySelectorAll('[data-sd-view-panel]').forEach((panel) => {
+    querySettingsAll('[data-sd-view-panel]').forEach((panel) => {
         panel.classList.toggle('active', panel.dataset.sdViewPanel === normalized);
     });
     if (normalized === 'gallery') {
@@ -770,10 +805,10 @@ function formatBytes(bytes = 0) {
 }
 
 async function renderGalleryManagement() {
-    const container = document.getElementById('sd-gallery-container');
-    const empty = document.getElementById('sd-gallery-empty');
-    const countEl = document.getElementById('sd-gallery-count');
-    const sizeEl = document.getElementById('sd-gallery-size');
+    const container = getSettingsElement('sd-gallery-container');
+    const empty = getSettingsElement('sd-gallery-empty');
+    const countEl = getSettingsElement('sd-gallery-count');
+    const sizeEl = getSettingsElement('sd-gallery-size');
     if (!container || !empty || !countEl || !sizeEl) return;
 
     container.textContent = '加载中...';
@@ -855,7 +890,7 @@ async function renderGalleryManagement() {
 }
 
 function getNovelCharacterTagsFromForm() {
-    return Array.from(overlayElement?.querySelectorAll('.sd-char-card') || []).map((card, index) => ({
+    return querySettingsAll('.sd-char-card').map((card, index) => ({
         id: card.dataset.characterId || `sd-char-${Date.now()}-${index}`,
         name: String(card.querySelector('[data-sd-char-field="name"]')?.value || '').trim(),
         aliases: String(card.querySelector('[data-sd-char-field="aliases"]')?.value || '')
@@ -869,7 +904,7 @@ function getNovelCharacterTagsFromForm() {
 }
 
 function renderCharacterTagList(tags = []) {
-    const list = overlayElement?.querySelector('#sd-shared-character-list');
+    const list = querySettings('#sd-shared-character-list');
     if (!list) return;
     list.textContent = '';
     if (!tags.length) {
@@ -960,7 +995,7 @@ function fillSharedNovelForm() {
     setValue('sd-shared-llm-url', novelSettings.llmApi?.url || '');
     setValue('sd-shared-llm-key', novelSettings.llmApi?.key || '');
     setValue('sd-shared-llm-model', novelSettings.llmApi?.model || '');
-    const promptPresetNameEl = overlayElement?.querySelector('#sd-shared-prompt-preset-name');
+    const promptPresetNameEl = querySettings('#sd-shared-prompt-preset-name');
     if (promptPresetNameEl) {
         promptPresetNameEl.textContent = promptPreset?.name || '默认';
     }
@@ -1026,17 +1061,17 @@ function refreshSettingsSummary() {
     const settings = getSettings();
     const activePreset = getActivePreset(settings);
     const llmProvider = getValue('sd-shared-llm-provider').trim() || getNovelDrawSettings().llmApi?.provider || 'st';
-    const draftCharacterCards = overlayElement?.querySelectorAll('.sd-char-card')?.length ?? 0;
+    const draftCharacterCards = querySettingsAll('.sd-char-card').length;
     const characterCount = draftCharacterCards > 0
         ? draftCharacterCards
-        : (overlayElement?.querySelector('#sd-shared-character-list .sd-char-empty')
+        : (querySettings('#sd-shared-character-list .sd-char-empty')
             ? 0
             : (getNovelDrawSettings().characterTags?.length || 0));
-    const presetEl = overlayElement?.querySelector('#sd-draw-summary-preset');
-    const charEl = overlayElement?.querySelector('#sd-draw-summary-characters');
-    const charSideEl = overlayElement?.querySelector('#sd-draw-summary-characters-side');
-    const charResultEl = overlayElement?.querySelector('#sd-draw-character-result-count');
-    const llmEl = overlayElement?.querySelector('#sd-draw-summary-llm');
+    const presetEl = querySettings('#sd-draw-summary-preset');
+    const charEl = querySettings('#sd-draw-summary-characters');
+    const charSideEl = querySettings('#sd-draw-summary-characters-side');
+    const charResultEl = querySettings('#sd-draw-character-result-count');
+    const llmEl = querySettings('#sd-draw-summary-llm');
     if (presetEl) presetEl.textContent = activePreset?.name || '默认';
     if (charEl) charEl.textContent = String(characterCount);
     if (charSideEl) charSideEl.textContent = String(characterCount);
@@ -1046,16 +1081,16 @@ function refreshSettingsSummary() {
 
 
 function setValue(id, value) {
-    const el = document.getElementById(id);
+    const el = getSettingsElement(id);
     if (el) el.value = value ?? '';
 }
 
 function getValue(id) {
-    return document.getElementById(id)?.value ?? '';
+    return getSettingsElement(id)?.value ?? '';
 }
 
 function setSelectValue(id, value) {
-    const el = document.getElementById(id);
+    const el = getSettingsElement(id);
     if (!el) return;
     const normalized = String(value ?? '');
     if (normalized && !Array.from(el.options).some(opt => opt.value === normalized)) {
@@ -1068,7 +1103,7 @@ function setSelectValue(id, value) {
 }
 
 function populateSelect(id, options, { value, emptyLabel = '' } = {}) {
-    const select = document.getElementById(id);
+    const select = getSettingsElement(id);
     if (!select) return;
     const current = value ?? select.value;
     select.textContent = '';
@@ -1564,7 +1599,7 @@ function buildSharedGalleryCallbacks(slotId, messageId) {
                 errorType: 'deleted',
                 errorMessage: '图片已删除，点击重试可重新生成',
             }).catch(() => {});
-            if (document.getElementById('sd-gallery-container')) {
+            if (getSettingsElement('sd-gallery-container')) {
                 await renderGalleryManagement();
             }
         },
@@ -2131,7 +2166,7 @@ async function testGenerateFromSettingsPanel() {
         return false;
     }
 
-    const resultEl = document.getElementById('sd-draw-test-result');
+    const resultEl = getSettingsElement('sd-draw-test-result');
     if (resultEl) resultEl.textContent = '生成中...';
 
     abortPendingRequest();
@@ -2278,6 +2313,8 @@ export function cleanupSdDraw() {
 
     overlayElement?.remove();
     overlayElement = null;
+    overlayFrame = null;
+    frameReadyPromise = null;
     eventsBound = false;
     delete window.xiaobaixSdDraw;
     console.log('[SdDraw] 模块已清理');
