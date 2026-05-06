@@ -1039,6 +1039,30 @@ function populateSelect(id, options, { value, emptyLabel = '' } = {}) {
     setSelectValue(id, current);
 }
 
+function normalizeSdModelOptions(models = []) {
+    return (Array.isArray(models) ? models : []).map((model) => {
+        if (typeof model === 'string') {
+            return { value: model, label: model };
+        }
+        return {
+            value: String(model?.value || model?.title || model?.model_name || model?.name || ''),
+            label: String(model?.text || model?.label || model?.title || model?.model_name || model?.name || ''),
+        };
+    }).filter((item) => item.value);
+}
+
+function normalizeSdSamplerOptions(samplers = []) {
+    return (Array.isArray(samplers) ? samplers : []).map((sampler) => {
+        if (typeof sampler === 'string') {
+            return { value: sampler, label: sampler };
+        }
+        return {
+            value: String(sampler?.value || sampler?.name || sampler?.label || sampler?.text || ''),
+            label: String(sampler?.label || sampler?.text || sampler?.name || sampler?.value || ''),
+        };
+    }).filter((item) => item.value);
+}
+
 async function refreshSdOptions({ notify = false } = {}) {
     try {
         const [models, samplers] = await Promise.all([
@@ -1046,18 +1070,13 @@ async function refreshSdOptions({ notify = false } = {}) {
             fetchSdSamplers(),
         ]);
         const settings = getSettings();
-        populateSelect('sd-draw-model', models.map(model => ({
-            value: model.title || model.model_name || model.name || '',
-            label: model.title || model.model_name || model.name || '(unknown)',
-        })).filter(item => item.value), {
-            value: settings.selectedModel || '',
+        const activePreset = getActivePreset(settings);
+        populateSelect('sd-draw-model', normalizeSdModelOptions(models), {
+            value: activePreset.model || settings.selectedModel || '',
             emptyLabel: '使用 SD 当前模型',
         });
-        populateSelect('sd-draw-sampler', samplers.map(sampler => ({
-            value: sampler.name || '',
-            label: sampler.name || '(unknown)',
-        })).filter(item => item.value), {
-            value: getActivePreset(settings).sampler_name || '',
+        populateSelect('sd-draw-sampler', normalizeSdSamplerOptions(samplers), {
+            value: activePreset.sampler_name || settings.defaultParams?.sampler_name || '',
             emptyLabel: '使用 SD 当前采样器',
         });
         if (notify) toastr.success('SD 模型和采样器已刷新');
