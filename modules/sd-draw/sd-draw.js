@@ -96,6 +96,13 @@ const FIXED_SD_REQUEST_DELAY_MS = 1000;
 let activeSdImageRequest = null;
 let sdImageRequestQueue = [];
 let sdImageRequestSeq = 0;
+const SD_SIZE_PRESETS = [
+    { value: '832x1216', width: 832, height: 1216 },
+    { value: '1216x832', width: 1216, height: 832 },
+    { value: '1024x1024', width: 1024, height: 1024 },
+    { value: '768x1280', width: 768, height: 1280 },
+    { value: '1280x768', width: 1280, height: 768 },
+];
 
 function createDefaultPreset() {
     return {
@@ -456,7 +463,7 @@ function ensureStyles() {
     style.textContent = `
 #xiaobaix-sd-draw-overlay{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:99999!important;display:none;overflow:hidden!important}
 #xiaobaix-sd-draw-overlay .sd-draw-backdrop{position:absolute;inset:0;background:#0d1117}
-#xiaobaix-sd-draw-overlay .sd-draw-wrap{position:absolute;z-index:1;inset:0;width:100vw;height:100%;overflow:auto;color:var(--SmartThemeBodyColor,#eee)}
+#xiaobaix-sd-draw-overlay .sd-draw-wrap{position:absolute;z-index:1;top:0;left:0;right:0;bottom:0;overflow:hidden;color:var(--SmartThemeBodyColor,#eee)}
 `;
     document.head.appendChild(style);
 }
@@ -467,6 +474,7 @@ async function createOverlay() {
 
     overlayElement = document.createElement('div');
     overlayElement.id = 'xiaobaix-sd-draw-overlay';
+    overlayElement.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:99999!important;display:none;overflow:hidden!important;`;
     overlayElement.innerHTML = `
         <div class="sd-draw-backdrop"></div>
         <div class="sd-draw-wrap"></div>
@@ -493,8 +501,7 @@ async function createOverlay() {
 
 function syncOverlayHeight() {
     if (!overlayElement) return;
-    const height = window.visualViewport?.height || window.innerHeight;
-    overlayElement.style.height = `${height}px`;
+    overlayElement.style.height = `${window.innerHeight}px`;
 }
 
 function bindOverlayEvents() {
@@ -552,6 +559,9 @@ function bindOverlayEvents() {
     overlayElement.querySelector('#sd-draw-test-generate')?.addEventListener('click', async () => {
         await saveAllSettings({ notify: false });
         await testGenerateFromSettingsPanel();
+    });
+    overlayElement.querySelector('#sd-draw-size-preset')?.addEventListener('change', () => {
+        applySizePresetSelection();
     });
     overlayElement.querySelector('#sd-draw-preset-select')?.addEventListener('change', () => {
         const settings = saveSettings({ ...getSettings(), selectedPresetId: getValue('sd-draw-preset-select') });
@@ -624,7 +634,6 @@ function bindOverlayEvents() {
 
 function fillForm(settings) {
     const preset = getActivePreset(settings);
-    const params = getEffectiveParams(settings);
     fillPresetSelect(settings);
     const showFloor = document.getElementById('sd-show-floor');
     const showFloating = document.getElementById('sd-show-floating');
@@ -639,8 +648,9 @@ function fillForm(settings) {
     setValue('sd-draw-steps', preset.steps ?? '');
     setValue('sd-draw-cfg', preset.cfg_scale ?? '');
     setValue('sd-draw-seed', Number.isFinite(Number(preset.seed)) && Number(preset.seed) >= 0 ? preset.seed : '');
-    setValue('sd-draw-width', params.width);
-    setValue('sd-draw-height', params.height);
+    setValue('sd-draw-width', preset.width);
+    setValue('sd-draw-height', preset.height);
+    updateSizePresetSelection();
     setValue('sd-draw-positive-prefix', preset.positivePrefix);
     setValue('sd-draw-negative-prefix', preset.negativePrefix);
     setSelectValue('sd-draw-model', preset.model || '');
@@ -676,18 +686,56 @@ function readForm() {
 function readPresetFromForm() {
     const settings = getSettings();
     const current = getActivePreset(settings);
+    const sizePreset = getValue('sd-draw-size-preset');
+    let width = normalizeNumber(getValue('sd-draw-width'), 512, 64, 2048);
+    let height = normalizeNumber(getValue('sd-draw-height'), 512, 64, 2048);
+    if (sizePreset && sizePreset !== 'custom') {
+        const matched = SD_SIZE_PRESETS.find((item) => item.value === sizePreset);
+        if (matched) {
+            width = matched.width;
+            height = matched.height;
+        }
+    }
     return {
         ...current,
         model: getValue('sd-draw-model').trim(),
         sampler_name: getValue('sd-draw-sampler').trim(),
-        width: normalizeNumber(getValue('sd-draw-width'), 512, 64, 2048),
-        height: normalizeNumber(getValue('sd-draw-height'), 512, 64, 2048),
+        width,
+        height,
         steps: normalizeOptionalNumber(getValue('sd-draw-steps'), 1, 150),
         cfg_scale: normalizeOptionalNumber(getValue('sd-draw-cfg'), 1, 30),
         seed: getValue('sd-draw-seed') === '' ? -1 : Number(getValue('sd-draw-seed')),
         positivePrefix: getValue('sd-draw-positive-prefix'),
         negativePrefix: getValue('sd-draw-negative-prefix'),
     };
+}
+
+function updateSizePresetSelection() {
+    const width = getValue('sd-draw-width');
+    const height = getValue('sd-draw-height');
+    const value = `${width}x${height}`;
+    const select = document.getElementById('sd-draw-size-preset');
+    const customRow = document.getElementById('sd-draw-custom-size');
+    if (!select || !customRow) return;
+    const matched = SD_SIZE_PRESETS.find((item) => item.value === value);
+    select.value = matched ? matched.value : 'custom';
+    customRow.classList.toggle('hidden', select.value !== 'custom');
+}
+
+function applySizePresetSelection() {
+    const value = getValue('sd-draw-size-preset');
+    const customRow = document.getElementById('sd-draw-custom-size');
+    if (!customRow) return;
+    if (value === 'custom') {
+        customRow.classList.remove('hidden');
+        return;
+    }
+    const matched = SD_SIZE_PRESETS.find((item) => item.value === value);
+    if (matched) {
+        setValue('sd-draw-width', matched.width);
+        setValue('sd-draw-height', matched.height);
+    }
+    customRow.classList.add('hidden');
 }
 
 function fillPresetSelect(settings = getSettings()) {
