@@ -51,6 +51,7 @@ let commentaryAfterAiDispose = null;
 
 let visibilityHandler = null;
 let pendingPingId = null;
+let fullscreenChangeHandler = null;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Settings
@@ -206,7 +207,8 @@ function saveFWStore() {
 
 function postToFrame(payload) {
     const iframe = document.getElementById('xiaobaix-fourth-wall-iframe');
-    if (!iframe?.contentWindow || !frameReady) {
+    if (!iframe?.contentWindow) return;
+    if (!frameReady) {
         pendingFrameMessages.push(payload);
         return;
     }
@@ -890,13 +892,14 @@ function createOverlay() {
     // eslint-disable-next-line no-restricted-syntax
     window.addEventListener('message', handleFrameMessage);
 
-    document.addEventListener('fullscreenchange', () => {
+    fullscreenChangeHandler = () => {
         if (!document.fullscreenElement) {
             postToFrame({ type: 'FULLSCREEN_STATE', isFullscreen: false });
         } else {
             postToFrame({ type: 'FULLSCREEN_STATE', isFullscreen: true });
         }
-    });
+    };
+    document.addEventListener('fullscreenchange', fullscreenChangeHandler);
 }
 
 function showOverlay() {
@@ -920,7 +923,6 @@ function showOverlay() {
 }
 
 function hideOverlay() {
-    $('#xiaobaix-fourth-wall-overlay').hide();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
     stopVoiceAndNotify();
 
@@ -928,6 +930,26 @@ function hideOverlay() {
         document.removeEventListener('visibilitychange', visibilityHandler);
         visibilityHandler = null;
     }
+
+    if (fullscreenChangeHandler) {
+        document.removeEventListener('fullscreenchange', fullscreenChangeHandler);
+        fullscreenChangeHandler = null;
+    }
+
+    const overlay = document.getElementById('xiaobaix-fourth-wall-overlay');
+    if (overlay) {
+        const iframe = overlay.querySelector('#xiaobaix-fourth-wall-iframe');
+        if (iframe) {
+            try { iframe.src = 'about:blank'; } catch { }
+        }
+        overlay.remove();
+    }
+
+    window.removeEventListener('message', handleFrameMessage);
+    overlayCreated = false;
+    frameReady = false;
+    pendingFrameMessages = [];
+    currentLoadedChatId = null;
     pendingPingId = null;
 }
 

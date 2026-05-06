@@ -40,7 +40,10 @@ const state = {
     clear() {
         this.messageVariables.clear();
         this.caches.template.clear();
+        this.caches.regex.clear();
         this.caches.dom.clear();
+        this.variableHistory.clear();
+        this.pendingUpdates.clear();
     },
     getElement(selector, parent = document) {
         const key = `${parent === document ? 'doc' : 'el'}-${selector}`;

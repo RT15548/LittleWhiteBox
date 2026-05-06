@@ -3145,7 +3145,17 @@ function showOverlay() {
 
 function hideOverlay() {
     const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
-    if (overlay) overlay.style.display = 'none';
+    if (overlay) overlay.remove();
+    overlayCreated = false;
+    frameReady = false;
+
+    if (overlayResizeHandler) {
+        window.removeEventListener('resize', overlayResizeHandler);
+        window.visualViewport?.removeEventListener('resize', overlayResizeHandler);
+        overlayResizeHandler = null;
+    }
+
+    window.removeEventListener('message', handleFrameMessage);
 }
 
 async function sendInitData() {

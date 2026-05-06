@@ -609,7 +609,8 @@ const injectOutline = () => updatePromptContent();
 /** 发送消息到iframe */
 function postFrame(payload) {
     const iframe = document.getElementById("xiaobaix-story-outline-iframe");
-    if (!iframe?.contentWindow || !frameReady) { pendingMsgs.push(payload); return; }
+    if (!iframe?.contentWindow) return;
+    if (!frameReady) { pendingMsgs.push(payload); return; }
     postToIframe(iframe, payload, "LittleWhiteBox");
 }
 
@@ -1308,7 +1309,13 @@ function updateLayout() {
 }
 
 function showOverlay() { if (!overlayCreated) createOverlay(); frameReady = false; const f = document.getElementById("xiaobaix-story-outline-iframe"); if (f) f.src = IFRAME_PATH; updateLayout(); $("#xiaobaix-story-outline-overlay").show(); }
-function hideOverlay() { $("#xiaobaix-story-outline-overlay").hide(); }
+function hideOverlay() {
+    document.getElementById("xiaobaix-story-outline-overlay")?.remove();
+    overlayCreated = false;
+    frameReady = false;
+    pendingMsgs = [];
+    window.removeEventListener("message", handleMsg);
+}
 
 let lastIsMobile = isMobile();
 window.addEventListener('resize', () => { const nowIsMobile = isMobile(); if (nowIsMobile !== lastIsMobile) { lastIsMobile = nowIsMobile; updateLayout(); } });

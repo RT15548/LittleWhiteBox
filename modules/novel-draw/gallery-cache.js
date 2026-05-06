@@ -13,6 +13,7 @@ const DB_STORE = 'previews';
 const DB_SELECTIONS_STORE = 'selections';
 const DB_VERSION = 2;
 const CACHE_TTL = 5000;
+const PREVIEW_CACHE_LIMIT = 64;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -29,7 +30,22 @@ const previewCache = new Map();
 // 内存缓存
 // ═══════════════════════════════════════════════════════════════════════════
 
+function prunePreviewCache() {
+    const now = Date.now();
+    for (const [slotId, cached] of previewCache.entries()) {
+        if (!cached || now - cached.timestamp >= CACHE_TTL) {
+            previewCache.delete(slotId);
+        }
+    }
+    while (previewCache.size > PREVIEW_CACHE_LIMIT) {
+        const oldestKey = previewCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        previewCache.delete(oldestKey);
+    }
+}
+
 function getCachedPreviews(slotId) {
+    prunePreviewCache();
     const cached = previewCache.get(slotId);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         return cached.data;
@@ -38,7 +54,9 @@ function getCachedPreviews(slotId) {
 }
 
 function setCachedPreviews(slotId, data) {
+    prunePreviewCache();
     previewCache.set(slotId, { data, timestamp: Date.now() });
+    prunePreviewCache();
 }
 
 function invalidateCache(slotId) {

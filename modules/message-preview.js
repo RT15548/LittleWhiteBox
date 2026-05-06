@@ -629,6 +629,7 @@ function cleanup() {
   removeEvents(); restoreFetch(); disableSend(false);
   $(".mes_history_preview").remove(); $("#message_preview_btn").remove(); cleanupMemory();
   Object.assign(S, { resolve: null, reject: null, isPreview: false, isLong: false, interceptedIds: [], chatLenBefore: 0, sendBtnWasDisabled: false, pendingPurge: false });
+  if (S.cleanTimer) { clearInterval(S.cleanTimer); S.cleanTimer = null; }
   if (S.longPressTimer) { clearTimeout(S.longPressTimer); S.longPressTimer = null; }
   if (S.restoreLong) { try { S.restoreLong(); } catch { } S.restoreLong = null; }
   if (S.genEndedOff) { try { S.genEndedOff(); } catch { } S.genEndedOff = null; }

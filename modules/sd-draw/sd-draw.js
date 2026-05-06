@@ -1181,7 +1181,19 @@ export async function openSettings() {
 }
 
 function hideSettings() {
-    if (overlayElement) overlayElement.style.display = 'none';
+    abortPendingRequest();
+
+    if (resizeHandler) {
+        window.removeEventListener('resize', resizeHandler);
+        window.visualViewport?.removeEventListener('resize', resizeHandler);
+        resizeHandler = null;
+    }
+
+    overlayElement?.remove();
+    overlayElement = null;
+    overlayFrame = null;
+    frameReadyPromise = null;
+    eventsBound = false;
 }
 
 function abortPendingRequest() {

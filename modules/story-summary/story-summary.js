@@ -413,7 +413,8 @@ function notifySummaryState() {
 
 function postToFrame(payload) {
     const iframe = document.getElementById("xiaobaix-story-summary-iframe");
-    if (!iframe?.contentWindow || !frameReady) {
+    if (!iframe?.contentWindow) return;
+    if (!frameReady) {
         pendingFrameMessages.push(payload);
         return;
     }
@@ -1215,7 +1216,11 @@ function showOverlay() {
 
 function hideOverlay() {
     removeBackupManagerModal();
-    $("#xiaobaix-story-summary-overlay").hide();
+    document.getElementById("xiaobaix-story-summary-overlay")?.remove();
+    overlayCreated = false;
+    frameReady = false;
+    pendingFrameMessages = [];
+    window.removeEventListener(MESSAGE_EVENT, handleFrameMessage);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

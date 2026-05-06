@@ -8,15 +8,8 @@
 <title>SD Draw</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
-html, body { height: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-body {
-    margin: 0;
-    min-height: 100vh;
-    background: #0d1117;
-    color: #e6edf3;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-.xiaobaix-sd-settings {
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
     --bg-primary: #0d1117;
     --bg-secondary: #161b22;
     --bg-tertiary: #21262d;
@@ -31,262 +24,273 @@ body {
     --success: #3fb950;
     --danger: #f85149;
     --warning: #d29922;
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    min-height: 100vh;
+}
+html, body { height: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
     font-size: 14px;
     line-height: 1.5;
+    min-height: 100vh;
 }
-.xiaobaix-sd-settings * { box-sizing: border-box; }
-.xiaobaix-sd-settings .app-header {
+.app-container { display: flex; flex-direction: column; min-height: 100vh; }
+.app-body { display: flex; flex: 1; min-height: 0; }
+.app-main { flex: 1; padding: 24px; overflow-y: auto; }
+.mobile-nav {
+    display: none; position: fixed; bottom: 0; left: 0; right: 0;
+    height: 60px; background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 100;
+}
+.mobile-nav-inner { display: flex; height: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.mobile-nav-inner::-webkit-scrollbar { display: none; }
+.mobile-nav-item {
+    flex: 1; min-width: 60px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 4px;
+    color: var(--text-muted); font-size: 10px; cursor: pointer; padding: 8px 4px;
+}
+.mobile-nav-item i { font-size: 18px; }
+.mobile-nav-item.active { color: var(--accent); }
+.app-header {
     display: flex; align-items: center; gap: 12px;
     padding: 12px 20px; background: var(--bg-secondary);
     border-bottom: 1px solid var(--border); flex-wrap: wrap;
 }
-.xiaobaix-sd-settings .app-body { display: flex; flex: 1; min-height: 0; }
-.xiaobaix-sd-settings .app-sidebar {
+.app-sidebar {
     width: 200px; min-width: 200px; background: var(--bg-secondary);
     border-right: 1px solid var(--border); padding: 16px 8px;
     display: flex; flex-direction: column; gap: 4px;
 }
-.xiaobaix-sd-settings .app-main { flex: 1; min-height: 0; padding: 24px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-.xiaobaix-sd-settings .header-logo { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; white-space: nowrap; }
-.xiaobaix-sd-settings .header-logo i { color: var(--accent); }
-.xiaobaix-sd-settings .header-badge {
+.header-logo { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.header-logo i { color: var(--accent); }
+.header-badge {
     display: flex; align-items: center; gap: 6px; padding: 4px 10px;
     background: var(--bg-input); border: 1px solid var(--border);
-    border-radius: 12px; font-size: 11px; color: var(--success);
-    border-color: rgba(63, 185, 80, 0.3);
+    border-radius: 12px; font-size: 11px; color: var(--text-muted);
 }
-.xiaobaix-sd-settings .header-badge i { font-size: 6px; }
-.xiaobaix-sd-settings .header-spacer { flex: 1; min-width: 10px; }
-.xiaobaix-sd-settings .header-toggles { display: flex; gap: 6px; margin-right: 8px; }
-.xiaobaix-sd-settings .header-toggle {
+.header-badge.on { color: var(--success); border-color: rgba(63, 185, 80, 0.3); }
+.header-badge i { font-size: 6px; }
+.header-spacer { flex: 1; min-width: 10px; }
+.header-credit {
+    font-size: 11px; color: var(--text-muted); opacity: 0.5;
+    margin-left: 6px; letter-spacing: 0.02em; font-style: italic;
+    transition: opacity 0.2s; white-space: nowrap;
+}
+.header-credit:hover { opacity: 0.9; }
+.header-toggles { display: flex; gap: 6px; margin-right: 8px; }
+.header-toggle {
     display: flex; align-items: center; gap: 4px; padding: 4px 8px;
     background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px;
-    font-size: 11px; color: var(--text-secondary);
+    font-size: 11px; color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
 }
-.xiaobaix-sd-settings .header-toggle input { accent-color: var(--accent); }
-.xiaobaix-sd-settings .header-mode {
+.header-toggle input { accent-color: var(--accent); }
+.header-mode {
     display: flex; background: var(--bg-input);
     border: 1px solid var(--border); border-radius: 16px; padding: 2px;
 }
-.xiaobaix-sd-settings .header-mode button {
+.header-mode button {
     padding: 6px 14px; border: none; border-radius: 14px;
     background: transparent; color: var(--text-secondary);
     font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
-.xiaobaix-sd-settings .header-mode button.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
-.xiaobaix-sd-settings .header-close {
+.header-mode button.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.header-close {
     width: 36px; height: 36px; min-width: 36px;
     border: 1px solid var(--border); border-radius: 8px;
     background: transparent; color: var(--text-secondary);
     cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;
 }
-.xiaobaix-sd-settings .header-close:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
-.xiaobaix-sd-settings .nav-item {
+.header-close:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+.nav-item {
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
     border-radius: 8px; color: var(--text-secondary); cursor: pointer;
-    transition: all 0.15s; font-size: 13px; border: 0; background: transparent; text-align: left;
+    transition: all 0.15s; font-size: 13px;
 }
-.xiaobaix-sd-settings .nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
-.xiaobaix-sd-settings .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
-.xiaobaix-sd-settings .nav-item i { width: 18px; text-align: center; }
-.xiaobaix-sd-settings .nav-divider { height: 1px; background: var(--border); margin: 8px 0; }
-.xiaobaix-sd-settings .view { display: none; max-width: 800px; margin: 0 auto; }
-.xiaobaix-sd-settings .view.active { display: block; animation: viewIn 0.2s ease; }
-.xiaobaix-sd-settings .view.wide { max-width: 1200px; }
+.nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.nav-item i { width: 18px; text-align: center; }
+.nav-divider { height: 1px; background: var(--border); margin: 8px 0; }
+.view { display: none; max-width: 800px; margin: 0 auto; }
+.view.active { display: block; animation: viewIn 0.2s ease; }
+.view.wide { max-width: 1200px; }
 @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
-.xiaobaix-sd-settings .view-header { margin-bottom: 20px; }
-.xiaobaix-sd-settings .view-title { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
-.xiaobaix-sd-settings .view-desc { font-size: 13px; color: var(--text-secondary); margin: 0; }
-.xiaobaix-sd-settings .card {
+.view-header { margin-bottom: 20px; }
+.view-title { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+.view-desc { font-size: 13px; color: var(--text-secondary); margin: 0; }
+.card {
     background: var(--bg-secondary); border: 1px solid var(--border);
     border-radius: 12px; padding: 20px; margin-bottom: 16px;
 }
-.xiaobaix-sd-settings .card-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
-.xiaobaix-sd-settings .form-group { margin-bottom: 16px; }
-.xiaobaix-sd-settings .form-group:last-child { margin-bottom: 0; }
-.xiaobaix-sd-settings .form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
-.xiaobaix-sd-settings .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
-.xiaobaix-sd-settings .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-.xiaobaix-sd-settings .input {
+.card-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+.form-group { margin-bottom: 16px; }
+.form-group:last-child { margin-bottom: 0; }
+.form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
+.form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.input {
     width: 100%; padding: 10px 12px; background: var(--bg-input);
     border: 1px solid var(--border); border-radius: 8px;
     color: var(--text-primary); font-size: 13px; transition: border-color 0.15s;
 }
-.xiaobaix-sd-settings .input:focus { outline: none; border-color: var(--border-focus); }
-.xiaobaix-sd-settings .input::placeholder { color: var(--text-muted); }
-.xiaobaix-sd-settings textarea.input { min-height: 80px; resize: vertical; font-family: inherit; }
-.xiaobaix-sd-settings select.input { cursor: pointer; }
-.xiaobaix-sd-settings .input-row { display: flex; gap: 8px; }
-.xiaobaix-sd-settings .input-row .input { flex: 1; min-width: 0; }
-.xiaobaix-sd-settings .btn {
+.input:focus { outline: none; border-color: var(--border-focus); }
+.input::placeholder { color: var(--text-muted); }
+textarea.input { min-height: 80px; resize: vertical; font-family: inherit; }
+select.input { cursor: pointer; }
+.input-row { display: flex; gap: 8px; }
+.input-row .input { flex: 1; min-width: 0; }
+.btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
     padding: 10px 16px; min-height: 40px; border: 1px solid var(--border);
     border-radius: 8px; background: var(--bg-tertiary); color: var(--text-primary);
     font-size: 13px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
-.xiaobaix-sd-settings .btn:hover { background: rgba(255,255,255,0.08); }
-.xiaobaix-sd-settings .btn:active { transform: scale(0.98); }
-.xiaobaix-sd-settings .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.xiaobaix-sd-settings .btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 500; }
-.xiaobaix-sd-settings .btn-primary:hover { background: #e5b685; }
-.xiaobaix-sd-settings .btn-danger { color: var(--danger); border-color: rgba(248, 81, 73, 0.3); }
-.xiaobaix-sd-settings .btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
-.xiaobaix-sd-settings .btn-icon { width: 40px; padding: 0; }
-.xiaobaix-sd-settings .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
-.xiaobaix-sd-settings .btn-sm { padding: 6px 10px; min-height: 32px; font-size: 12px; }
-.xiaobaix-sd-settings .preset-bar {
+.btn:hover { background: rgba(255,255,255,0.08); }
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 500; }
+.btn-primary:hover { background: #e5b685; }
+.btn-danger { color: var(--danger); border-color: rgba(248, 81, 73, 0.3); }
+.btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
+.btn-icon { width: 40px; padding: 0; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-sm { padding: 6px 10px; min-height: 32px; font-size: 12px; }
+.preset-bar {
     display: flex; align-items: center; gap: 8px; padding: 12px 16px;
     background: var(--bg-tertiary); border: 1px solid var(--border);
     border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
 }
-.xiaobaix-sd-settings .preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
-.xiaobaix-sd-settings .tip-box {
+.preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
+.tip-box {
     display: flex; gap: 10px; padding: 14px; background: var(--accent-soft);
     border: 1px solid rgba(212,165,116,.25); border-radius: 10px;
     font-size: 12px; color: var(--text-secondary);
 }
-.xiaobaix-sd-settings .tip-box i { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
-.xiaobaix-sd-settings .status-text { font-size: 12px; color: var(--text-secondary); margin-top: 8px; min-height: 18px; }
-.xiaobaix-sd-settings .preview-box {
+.tip-box i { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
+.status-text { font-size: 12px; color: var(--text-secondary); margin-top: 8px; min-height: 18px; }
+.preview-box {
     display: none; margin-top: 16px; text-align: center;
     background: var(--bg-input); border-radius: 10px; padding: 16px;
 }
-.xiaobaix-sd-settings .preview-box:not(:empty) { display: block; }
-.xiaobaix-sd-settings .preview-box img { max-width: 100%; max-height: 400px; border-radius: 6px; }
-.xiaobaix-sd-settings .char-management-layout {
+.preview-box:not(:empty) { display: block; }
+.preview-box img { max-width: 100%; max-height: 400px; border-radius: 6px; }
+.char-management-layout {
     display: grid; grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
     gap: 16px; align-items: start;
 }
-.xiaobaix-sd-settings .char-management-sidebar {
+.char-management-sidebar {
     display: flex; flex-direction: column; gap: 16px;
     position: sticky; top: 0; align-self: start;
 }
-.xiaobaix-sd-settings .char-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.xiaobaix-sd-settings .char-summary-item {
+.char-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.char-summary-item {
     background: var(--bg-tertiary); border: 1px solid var(--border);
     border-radius: 10px; padding: 14px 12px;
 }
-.xiaobaix-sd-settings .char-summary-label { font-size: 11px; color: var(--text-secondary); }
-.xiaobaix-sd-settings .char-summary-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text-primary); }
-.xiaobaix-sd-settings .char-summary-value.accent { color: var(--accent); }
-.xiaobaix-sd-settings .char-list-card { min-height: 520px; }
-.xiaobaix-sd-settings .char-list-card-header {
+.char-summary-label { font-size: 11px; color: var(--text-secondary); }
+.char-summary-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text-primary); }
+.char-summary-value.accent { color: var(--accent); }
+.char-list-card { min-height: 520px; }
+.char-list-card-header {
     display: flex; align-items: flex-start; justify-content: space-between;
     gap: 12px; margin-bottom: 16px;
 }
-.xiaobaix-sd-settings .char-list-card-header .card-title { margin-bottom: 0; }
-.xiaobaix-sd-settings .char-list-count {
+.char-list-card-header .card-title { margin-bottom: 0; }
+.char-list-count {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 84px; padding: 8px 12px; border-radius: 999px;
     background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600;
 }
-.xiaobaix-sd-settings .char-list-body { display: flex; flex-direction: column; gap: 12px; }
-.xiaobaix-sd-settings .char-grid { display: flex; flex-direction: column; gap: 12px; }
-.xiaobaix-sd-settings .char-empty {
+.char-list-body { display: flex; flex-direction: column; gap: 12px; }
+.char-grid { display: flex; flex-direction: column; gap: 12px; }
+.char-empty {
     text-align: center; padding: 40px 20px; color: var(--text-muted);
     background: var(--bg-tertiary); border: 1px dashed var(--border); border-radius: 10px;
 }
-.xiaobaix-sd-settings .char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
-.xiaobaix-sd-settings .char-empty strong { color: var(--text-primary); display: block; margin-bottom: 6px; font-size: 14px; }
-.xiaobaix-sd-settings .sd-char-card {
+.char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
+.char-empty strong { color: var(--text-primary); display: block; margin-bottom: 6px; font-size: 14px; }
+.sd-char-card {
     background: var(--bg-tertiary); border: 1px solid var(--border);
     border-radius: 12px; padding: 14px; margin: 0;
 }
-.xiaobaix-sd-settings .sd-char-card-header {
+.sd-char-card-header {
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
 }
-.xiaobaix-sd-settings .sd-char-card-title {
+.sd-char-card-title {
     display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px;
 }
-.xiaobaix-sd-settings .gallery-grid { display: grid; gap: 14px; }
-.xiaobaix-sd-settings .gallery-char-card {
+.gallery-grid { display: grid; gap: 14px; }
+.gallery-char-card {
     padding: 14px; border-radius: 12px; border: 1px solid var(--border);
     background: var(--bg-tertiary);
 }
-.xiaobaix-sd-settings .gallery-char-head {
+.gallery-char-head {
     display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px;
 }
-.xiaobaix-sd-settings .gallery-char-name { font-weight: 600; }
-.xiaobaix-sd-settings .gallery-char-meta { font-size: 12px; color: var(--text-secondary); }
-.xiaobaix-sd-settings .gallery-slots {
+.gallery-char-name { font-weight: 600; }
+.gallery-char-meta { font-size: 12px; color: var(--text-secondary); }
+.gallery-slots {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px;
 }
-.xiaobaix-sd-settings .gallery-slot-btn {
+.gallery-slot-btn {
     border: 1px solid var(--border); border-radius: 10px; padding: 8px;
     background: rgba(255,255,255,0.03); color: var(--text-primary); cursor: pointer; text-align: left;
 }
-.xiaobaix-sd-settings .gallery-slot-btn:hover { border-color: var(--border-focus); background: rgba(255,255,255,0.06); }
-.xiaobaix-sd-settings .gallery-slot-thumb {
+.gallery-slot-btn:hover { border-color: var(--border-focus); background: rgba(255,255,255,0.06); }
+.gallery-slot-thumb {
     width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 8px; display: block; background: var(--bg-input); margin-bottom: 8px;
 }
-.xiaobaix-sd-settings .gallery-slot-title { font-size: 12px; font-weight: 600; }
-.xiaobaix-sd-settings .gallery-slot-sub { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
-.xiaobaix-sd-settings .gallery-empty {
+.gallery-slot-title { font-size: 12px; font-weight: 600; }
+.gallery-slot-sub { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+.gallery-empty {
     text-align: center; padding: 60px 20px; color: var(--text-muted);
 }
-.xiaobaix-sd-settings .gallery-empty i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; display: block; }
-.xiaobaix-sd-settings .gallery-empty p { font-size: 13px; margin-top: 8px; }
-.xiaobaix-sd-settings .mobile-nav {
-    display: none; position: fixed; bottom: 0; left: 0; right: 0;
-    height: calc(60px + env(safe-area-inset-bottom, 0px));
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 100000;
-}
-.xiaobaix-sd-settings .mobile-nav-inner { display: flex; height: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.xiaobaix-sd-settings .mobile-nav-inner::-webkit-scrollbar { display: none; }
-.xiaobaix-sd-settings .mobile-nav-item {
-    flex: 1; min-width: 60px; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 4px;
-    color: var(--text-muted); font-size: 10px; cursor: pointer; padding: 8px 4px;
-}
-.xiaobaix-sd-settings .mobile-nav-item i { font-size: 18px; }
-.xiaobaix-sd-settings .mobile-nav-item.active { color: var(--accent); }
+.gallery-empty i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; display: block; }
+.gallery-empty p { font-size: 13px; margin-top: 8px; }
 @media (max-width: 768px) {
-    .xiaobaix-sd-settings .app-sidebar { display: none; }
-    .xiaobaix-sd-settings .mobile-nav { display: block; }
-    .xiaobaix-sd-settings .app-body { padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
-    .xiaobaix-sd-settings .app-main { padding: 16px; padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
-    .xiaobaix-sd-settings .app-header { padding: 10px 12px; gap: 8px; }
-    .xiaobaix-sd-settings .header-logo span { display: none; }
-    .xiaobaix-sd-settings .header-badge { padding: 4px 8px; font-size: 10px; }
-    .xiaobaix-sd-settings .header-badge span { display: none; }
-    .xiaobaix-sd-settings .header-mode button { padding: 5px 10px; font-size: 11px; }
-    .xiaobaix-sd-settings .header-close { width: 32px; height: 32px; min-width: 32px; font-size: 14px; }
-    .xiaobaix-sd-settings .view-title { font-size: 18px; }
-    .xiaobaix-sd-settings .card { padding: 16px; }
-    .xiaobaix-sd-settings .form-row { grid-template-columns: 1fr; }
-    .xiaobaix-sd-settings .char-management-layout { grid-template-columns: 1fr; }
-    .xiaobaix-sd-settings .char-management-sidebar { position: static; }
-    .xiaobaix-sd-settings .preset-bar { padding: 10px 12px; }
-    .xiaobaix-sd-settings .preset-bar select { max-width: none; }
-    .xiaobaix-sd-settings .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+    .app-sidebar { display: none; }
+    .mobile-nav { display: block; }
+    .app-body { padding-bottom: 60px; }
+    .app-main { padding: 16px; padding-bottom: 76px; }
+    .app-header { padding: 10px 12px; gap: 8px; }
+    .header-logo span { display: none; }
+    .header-badge { padding: 4px 8px; font-size: 10px; }
+    .header-badge span { display: none; }
+    .header-mode button { padding: 5px 10px; font-size: 11px; }
+    .header-close { width: 32px; height: 32px; min-width: 32px; font-size: 14px; }
+    .header-credit { display: none; }
+    .view-title { font-size: 18px; }
+    .card { padding: 16px; }
+    .form-row { grid-template-columns: 1fr; }
+    .char-management-layout { grid-template-columns: 1fr; }
+    .char-management-sidebar { position: static; }
+    .preset-bar { padding: 10px 12px; }
+    .preset-bar select { max-width: none; }
+    .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
 }
 @media (max-width: 400px) {
-    .xiaobaix-sd-settings .app-header { padding: 8px 10px; }
-    .xiaobaix-sd-settings .header-mode button { padding: 4px 8px; font-size: 10px; }
-    .xiaobaix-sd-settings .mobile-nav-item { min-width: 48px; font-size: 9px; }
-    .xiaobaix-sd-settings .mobile-nav-item i { font-size: 16px; }
+    .app-header { padding: 8px 10px; }
+    .header-mode button { padding: 4px 8px; font-size: 10px; }
+    .mobile-nav-item { min-width: 48px; font-size: 9px; }
+    .mobile-nav-item i { font-size: 16px; }
 }
 @media (hover: none) and (pointer: coarse) {
-    .xiaobaix-sd-settings .btn { min-height: 44px; }
-    .xiaobaix-sd-settings .input { min-height: 44px; padding: 12px; }
-    .xiaobaix-sd-settings .nav-item { min-height: 44px; }
-    .xiaobaix-sd-settings .header-close { width: 44px; height: 44px; min-width: 44px; }
+    .app-sidebar { display: none; }
+    .mobile-nav { display: block; }
+    .app-body { padding-bottom: 60px; }
+    .app-main { padding: 16px; padding-bottom: 76px; }
+    .btn { min-height: 44px; }
+    .input { min-height: 44px; padding: 12px; }
+    .nav-item { min-height: 44px; }
+    .header-close { width: 44px; height: 44px; min-width: 44px; }
 }
 </style>
 </head>
 <body>
-<div class="xiaobaix-sd-settings app-container">
+<div class="app-container">
     <header class="app-header">
         <div class="header-logo"><i class="fa-solid fa-palette"></i><span>SD WebUI Draw</span></div>
-        <div class="header-badge"><i class="fa-solid fa-circle"></i><span>已启用</span></div>
+        <div class="header-badge on"><i class="fa-solid fa-circle"></i><span>已启用</span></div>
+        <span class="header-credit"></span>
         <div class="header-spacer"></div>
         <div class="header-toggles">
             <label class="header-toggle">
@@ -307,14 +311,14 @@ body {
 
     <div class="app-body">
         <nav class="app-sidebar">
-            <button class="nav-item active" type="button" data-sd-view="test"><i class="fa-solid fa-flask"></i>快速测试</button>
-            <button class="nav-item" type="button" data-sd-view="api"><i class="fa-solid fa-key"></i>API 配置</button>
+            <div class="nav-item active" data-sd-view="test"><i class="fa-solid fa-flask"></i>快速测试</div>
+            <div class="nav-item" data-sd-view="api"><i class="fa-solid fa-key"></i>API 配置</div>
             <div class="nav-divider"></div>
-            <button class="nav-item" type="button" data-sd-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</button>
-            <button class="nav-item" type="button" data-sd-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</button>
+            <div class="nav-item" data-sd-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</div>
+            <div class="nav-item" data-sd-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</div>
             <div class="nav-divider"></div>
-            <button class="nav-item" type="button" data-sd-view="characters"><i class="fa-solid fa-user-group"></i>角色标签</button>
-            <button class="nav-item" type="button" data-sd-view="gallery"><i class="fa-solid fa-images"></i>图片管理</button>
+            <div class="nav-item" data-sd-view="characters"><i class="fa-solid fa-user-group"></i>角色标签</div>
+            <div class="nav-item" data-sd-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
         </nav>
 
         <main class="app-main">
