@@ -456,7 +456,7 @@ function ensureStyles() {
     style.textContent = `
 #xiaobaix-sd-draw-overlay{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:99999!important;display:none;overflow:hidden!important}
 #xiaobaix-sd-draw-overlay .sd-draw-backdrop{position:absolute;inset:0;background:#0d1117}
-#xiaobaix-sd-draw-overlay .sd-draw-wrap{position:absolute;z-index:1;inset:0;width:100vw;height:100vh;overflow:auto;color:var(--SmartThemeBodyColor,#eee)}
+#xiaobaix-sd-draw-overlay .sd-draw-wrap{position:absolute;z-index:1;inset:0;width:100vw;height:100%;overflow:auto;color:var(--SmartThemeBodyColor,#eee)}
 `;
     document.head.appendChild(style);
 }
@@ -482,13 +482,19 @@ async function createOverlay() {
 
     resizeHandler = () => {
         if (overlayElement?.style.display !== 'none') {
-            overlayElement.style.height = `${window.innerHeight}px`;
+            syncOverlayHeight();
         }
     };
     window.addEventListener('resize', resizeHandler);
     window.visualViewport?.addEventListener('resize', resizeHandler);
 
     return overlayElement;
+}
+
+function syncOverlayHeight() {
+    if (!overlayElement) return;
+    const height = window.visualViewport?.height || window.innerHeight;
+    overlayElement.style.height = `${height}px`;
 }
 
 function bindOverlayEvents() {
@@ -1067,7 +1073,7 @@ export async function openSettings() {
     const overlay = await createOverlay();
     fillForm(getSettings());
     switchSettingsView('test');
-    overlay.style.height = `${window.innerHeight}px`;
+    syncOverlayHeight();
     overlay.style.display = 'block';
     void refreshSdOptions();
 }

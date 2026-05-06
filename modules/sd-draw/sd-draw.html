@@ -216,8 +216,10 @@
 .xiaobaix-sd-settings .gallery-empty i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; display: block; }
 .xiaobaix-sd-settings .gallery-empty p { font-size: 13px; margin-top: 8px; }
 .xiaobaix-sd-settings .mobile-nav {
-    display: none; position: sticky; bottom: 0; left: 0; right: 0; height: 56px;
-    background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 10;
+    display: none; position: fixed; bottom: 0; left: 0; right: 0;
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 100000;
 }
 .xiaobaix-sd-settings .mobile-nav-inner { display: flex; height: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .xiaobaix-sd-settings .mobile-nav-inner::-webkit-scrollbar { display: none; }
@@ -229,8 +231,9 @@
 .xiaobaix-sd-settings .mobile-nav-item.active { color: var(--accent); }
 @media (max-width: 768px) {
     .xiaobaix-sd-settings .app-header { padding: 10px 12px; }
+    .xiaobaix-sd-settings .app-body { padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)); }
     .xiaobaix-sd-settings .app-sidebar { display: none; }
-    .xiaobaix-sd-settings .app-main { padding: 16px; padding-bottom: 72px; }
+    .xiaobaix-sd-settings .app-main { padding: 16px; padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
     .xiaobaix-sd-settings .mobile-nav { display: block; }
     .xiaobaix-sd-settings .form-row { grid-template-columns: 1fr; }
     .xiaobaix-sd-settings .char-management-layout { grid-template-columns: 1fr; }
