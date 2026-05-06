@@ -490,7 +490,7 @@ async function createOverlay() {
     frameWrap.className = 'sd-draw-frame-wrap';
     overlayFrame = document.createElement('iframe');
     overlayFrame.id = 'xiaobaix-sd-draw-iframe';
-    overlayFrame.src = HTML_PATH;
+    overlayFrame.src = `${HTML_PATH}?v=${Date.now()}`;
     frameWrap.appendChild(overlayFrame);
     overlayElement.append(backdrop, frameWrap);
     document.body.appendChild(overlayElement);
