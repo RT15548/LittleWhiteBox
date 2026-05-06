@@ -1094,19 +1094,37 @@ export function injectAssistantStyles(rootId) {
             border-top: 1px dashed rgba(27, 55, 88, 0.12);
             padding-top: 10px;
         }
-        .xb-assistant-tool-batch {
+        .xb-assistant-tool-run {
             width: min(100%, calc(100% - 20px));
+            display: grid;
+            gap: 6px;
+            align-self: start;
+            justify-self: start;
+        }
+        .xb-assistant-tool-turn {
+            display: grid;
+            gap: 6px;
+            min-width: 0;
+        }
+        .xb-assistant-tool-preface {
+            width: 100%;
+            max-width: 100%;
+            padding: 12px 14px;
+            box-shadow: 0 8px 22px rgba(17, 31, 51, 0.05);
+        }
+        .xb-assistant-tool-batch {
+            width: 100%;
             margin-left: 0;
             margin-right: auto;
-            border-radius: 18px;
+            border-radius: 14px;
             background: rgba(244, 248, 252, 0.96);
             border: 1px solid rgba(27, 55, 88, 0.08);
-            box-shadow: 0 12px 28px rgba(17, 31, 51, 0.06);
-            padding: 10px 14px;
+            box-shadow: 0 8px 20px rgba(17, 31, 51, 0.045);
+            padding: 7px 11px;
             box-sizing: border-box;
         }
         .xb-assistant-tool-batch + .xb-assistant-tool-batch {
-            margin-top: 12px;
+            margin-top: 0;
         }
         .xb-assistant-tool-batch-summary {
             cursor: pointer;
@@ -1137,9 +1155,9 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-tool-batch-body {
             display: grid;
-            gap: 10px;
-            margin-top: 10px;
-            padding-top: 10px;
+            gap: 7px;
+            margin-top: 8px;
+            padding-top: 8px;
             border-top: 1px dashed rgba(27, 55, 88, 0.12);
         }
         .xb-assistant-tool-batch-note {

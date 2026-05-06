@@ -176,6 +176,11 @@ LittleWhiteBox/
 │   │       ├── top-system-pov.md           # 顶层系统 POV
 │   │       └── top-system.md               # 顶层系统
 │   │
+│   ├── sd-draw/                           # SD WebUI 画图 Provider 模块
+│   │   ├── floating-panel.js               # SD 楼层/悬浮画图面板
+│   │   ├── sd-draw.html                    # SD 设置面板 UI
+│   │   └── sd-draw.js                      # SD Provider 生命周期、设置和出图逻辑
+│   │
 │   ├── scheduled-tasks/                   # 定时任务与嵌入式任务功能
 │   │   ├── embedded-tasks.html             # 内嵌任务 UI
 │   │   ├── scheduled-tasks.html            # 定时任务 UI

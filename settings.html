@@ -109,13 +109,17 @@
             <input type="checkbox" id="xiaobaix_immersive_enabled" />
             <label for="xiaobaix_immersive_enabled" class="has-tooltip" data-tooltip="重构界面布局与细节优化">沉浸布局显示(边框窄化)</label>
           </div>
-          <div class="section-divider">Novel 画图
+          <div class="section-divider">AI 画图
             <hr class="sysHR" />
           </div>
-          <div class="flex-container">
-            <input type="checkbox" id="xiaobaix_novel_draw_enabled" />
-            <label for="xiaobaix_novel_draw_enabled" class="has-tooltip" data-tooltip="使用 NovelAI 为 AI 回复自动或手动生成配图，需在酒馆设置中配置 NovelAI Key">启用 Novel 画图</label>
-            <button id="xiaobaix_novel_draw_open_settings" class="menu_button menu_button_icon" type="button" style="margin-left:auto;" title="打开 Novel 画图详细设置">
+          <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
+            <label for="xiaobaix_draw_provider" class="has-tooltip" data-tooltip="选择小白X使用的画图后端。SD WebUI 地址由酒馆服务器访问，不读取酒馆自带画图设置。">画图后端</label>
+            <select id="xiaobaix_draw_provider" class="text_pole" style="width:auto;min-width:150px;">
+              <option value="disabled">关闭</option>
+              <option value="novelai">NovelAI</option>
+              <option value="sdwebui">SD WebUI</option>
+            </select>
+            <button id="xiaobaix_draw_open_settings" class="menu_button menu_button_icon" type="button" style="margin-left:auto;" title="打开画图详细设置">
               <i class="fa-solid fa-palette"></i>
               <small>画图设置</small>
             </button>
@@ -600,8 +604,21 @@
 	      renderEnabled: 'xiaobaix_render_enabled',
 	    };
 	    const DEFAULTS_ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary', 'recorded'];
-	    const DEFAULTS_OFF = ['preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw', 'tts', 'enaPlanner'];
-	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'audio', 'storySummary', 'storyOutline', 'novelDraw', 'tts', 'enaPlanner'];
+	    const DEFAULTS_OFF = ['preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'tts', 'enaPlanner'];
+	    const MODULE_KEYS = ['templateEditor', 'tasks', 'fourthWall', 'variablesCore', 'recorded', 'preview', 'scriptAssistant', 'immersive', 'variablesPanel', 'audio', 'storySummary', 'storyOutline', 'tts', 'enaPlanner'];
+	    const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui']);
+	    function normalizeDrawProvider(provider) {
+	      return DRAW_PROVIDER_VALUES.has(provider) ? provider : 'disabled';
+	    }
+	    function syncProviderEnabledFlags() {
+	      try {
+	        const settings = extension_settings[EXT_ID];
+	        settings.novelDraw ||= {};
+	        settings.sdDraw ||= {};
+	        settings.novelDraw.enabled = settings.drawProvider === 'novelai';
+	        settings.sdDraw.enabled = settings.drawProvider === 'sdwebui';
+	      } catch (e) { }
+	    }
 	    function setModuleEnabled(key, enabled) {
 	      try {
 	        if (!extension_settings[EXT_ID][key]) extension_settings[EXT_ID][key] = {};
@@ -611,8 +628,9 @@
       if (el) { el.checked = !!enabled; try { $(el).trigger('change'); } catch (e) { } }
     }
     function captureStates() {
-      const out = { modules: {}, useBlob: false, wrapperIframe: false, renderEnabled: true };
+      const out = { modules: {}, drawProvider: 'disabled', useBlob: false, wrapperIframe: false, renderEnabled: true };
       try { MODULE_KEYS.forEach(k => { out.modules[k] = !!(extension_settings[EXT_ID][k] && extension_settings[EXT_ID][k].enabled); }); } catch (e) { }
+      try { out.drawProvider = normalizeDrawProvider(extension_settings[EXT_ID].drawProvider); } catch (e) { }
       try { out.useBlob = !!extension_settings[EXT_ID].useBlob; } catch (e) { }
       try { out.wrapperIframe = !!extension_settings[EXT_ID].wrapperIframe; } catch (e) { }
       try { out.renderEnabled = extension_settings[EXT_ID].renderEnabled !== false; } catch (e) { }
@@ -621,6 +639,14 @@
     function applyStates(st) {
       if (!st) return;
       try { Object.keys(st.modules || {}).forEach(k => setModuleEnabled(k, !!st.modules[k])); } catch (e) { }
+      try {
+        const nextProvider = st.drawProvider === undefined
+          ? normalizeDrawProvider(extension_settings[EXT_ID].drawProvider)
+          : normalizeDrawProvider(st.drawProvider);
+        const el = $id('xiaobaix_draw_provider');
+        if (el) { el.value = nextProvider; if (window.isXiaobaixEnabled) try { $(el).trigger('change'); } catch (e) { } }
+        else { extension_settings[EXT_ID].drawProvider = nextProvider; syncProviderEnabledFlags(); }
+      } catch (e) { }
       try {
         extension_settings[EXT_ID].useBlob = !!st.useBlob;
         const el = $id('xiaobaix_use_blob'); if (el) { el.checked = !!st.useBlob; if (window.isXiaobaixEnabled) try { $(el).trigger('change'); } catch (e) { } }
@@ -638,6 +664,11 @@
     function applyResetDefaults() {
       DEFAULTS_ON.forEach(k => setModuleEnabled(k, true));
       DEFAULTS_OFF.forEach(k => setModuleEnabled(k, false));
+      try {
+        const dp = $id('xiaobaix_draw_provider');
+        if (dp) { dp.value = 'disabled'; try { $(dp).trigger('change'); } catch (e) { } }
+        else { extension_settings[EXT_ID].drawProvider = 'disabled'; syncProviderEnabledFlags(); }
+      } catch (e) { }
       try {
         extension_settings[EXT_ID].useBlob = false; const bl = $id(KEY_TO_CHECKBOX.useBlob);
         if (bl) { bl.checked = false; try { $(bl).trigger('change'); } catch (e) { } }

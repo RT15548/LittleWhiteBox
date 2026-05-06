@@ -24,6 +24,7 @@ import {
 import { initVarCommands, cleanupVarCommands } from "./modules/variables/var-commands.js";
 import { initVareventEditor, cleanupVareventEditor } from "./modules/variables/varevent-editor.js";
 import { initNovelDraw, cleanupNovelDraw } from "./modules/novel-draw/novel-draw.js";
+import { initSdDraw, cleanupSdDraw } from "./modules/sd-draw/sd-draw.js";
 import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
 import { initTts, cleanupTts } from "./modules/tts/tts.js";
@@ -44,7 +45,28 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     variablesMode: '1.0',
     storySummary: { enabled: true },
     storyOutline: { enabled: false },
+    drawProvider: 'disabled',
     novelDraw: { enabled: false },
+    sdDraw: {
+        enabled: false,
+        host: '',
+        auth: '',
+        timeout: 120000,
+        transport: 'st-proxy',
+        selectedPresetId: 'default',
+        presets: [],
+        defaultParams: {
+            steps: null,
+            cfg_scale: null,
+            sampler_name: '',
+            width: 512,
+            height: 512,
+            seed: -1,
+        },
+        selectedModel: '',
+        positivePrefix: '',
+        negativePrefix: '',
+    },
     tts: { enabled: false },
     enaPlanner: { enabled: false },
     assistant: { enabled: false },
@@ -56,6 +78,149 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
 
 const settings = extension_settings[EXT_ID];
 if (settings.dynamicPrompt && !settings.fourthWall) settings.fourthWall = settings.dynamicPrompt;
+
+const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui']);
+const DEFAULT_SD_DRAW_SETTINGS = {
+    enabled: false,
+    host: '',
+    auth: '',
+    timeout: 120000,
+    transport: 'st-proxy',
+    selectedPresetId: 'default',
+    presets: [],
+    defaultParams: {
+        steps: null,
+        cfg_scale: null,
+        sampler_name: '',
+        width: 512,
+        height: 512,
+        seed: -1,
+    },
+    selectedModel: '',
+    positivePrefix: '',
+    negativePrefix: '',
+};
+
+function normalizeDrawProvider(provider) {
+    return DRAW_PROVIDER_VALUES.has(provider) ? provider : 'disabled';
+}
+
+function ensureSdDrawSettings(targetSettings) {
+    const existing = targetSettings.sdDraw && typeof targetSettings.sdDraw === 'object' ? targetSettings.sdDraw : {};
+    targetSettings.sdDraw = {
+        ...DEFAULT_SD_DRAW_SETTINGS,
+        ...existing,
+        defaultParams: {
+            ...DEFAULT_SD_DRAW_SETTINGS.defaultParams,
+            ...(existing.defaultParams || {}),
+        },
+        transport: 'st-proxy',
+    };
+}
+
+function syncProviderEnabledFlags(targetSettings) {
+    targetSettings.novelDraw ||= {};
+    ensureSdDrawSettings(targetSettings);
+    targetSettings.novelDraw.enabled = targetSettings.drawProvider === 'novelai';
+    targetSettings.sdDraw.enabled = targetSettings.drawProvider === 'sdwebui';
+}
+
+function migrateDrawProviderSettings(targetSettings) {
+    let changed = false;
+    targetSettings.novelDraw ||= {};
+    ensureSdDrawSettings(targetSettings);
+
+    if (targetSettings.drawProvider === undefined) {
+        targetSettings.drawProvider = targetSettings.novelDraw?.enabled ? 'novelai' : 'disabled';
+        changed = true;
+    }
+
+    const normalized = normalizeDrawProvider(targetSettings.drawProvider);
+    if (targetSettings.drawProvider !== normalized) {
+        targetSettings.drawProvider = normalized;
+        changed = true;
+    }
+
+    const prevNovelEnabled = targetSettings.novelDraw.enabled;
+    const prevSdEnabled = targetSettings.sdDraw.enabled;
+    syncProviderEnabledFlags(targetSettings);
+
+    return changed
+        || prevNovelEnabled !== targetSettings.novelDraw.enabled
+        || prevSdEnabled !== targetSettings.sdDraw.enabled;
+}
+
+async function cleanupDrawProvider(provider = settings.drawProvider) {
+    const normalized = normalizeDrawProvider(provider);
+    if (normalized === 'novelai') {
+        try { await cleanupNovelDraw(); } catch (e) { }
+    } else if (normalized === 'sdwebui') {
+        try { await cleanupSdDraw(); } catch (e) { }
+    }
+}
+
+async function initActiveDrawProvider() {
+    migrateDrawProviderSettings(settings);
+    if (!isXiaobaixEnabled) return;
+    if (settings.drawProvider === 'novelai') {
+        await initNovelDraw();
+    } else if (settings.drawProvider === 'sdwebui') {
+        await initSdDraw();
+    }
+}
+
+function installDrawFacade() {
+    window.xiaobaixDraw = {
+        getProvider() {
+            return normalizeDrawProvider(settings.drawProvider);
+        },
+        isEnabled() {
+            return isXiaobaixEnabled && normalizeDrawProvider(settings.drawProvider) !== 'disabled';
+        },
+        async generateImage(input = {}) {
+            const provider = normalizeDrawProvider(settings.drawProvider);
+            const payload = typeof input === 'string' ? { prompt: input } : (input || {});
+            const prompt = payload.prompt || payload.tags || '';
+            const negativePrompt = payload.negativePrompt || payload.negative || '';
+
+            if (provider === 'novelai') {
+                const novelDraw = window.xiaobaixNovelDraw;
+                if (!novelDraw?.generateNovelImage) throw new Error('NovelAI 画图模块未初始化');
+                const novelSettings = novelDraw.getSettings?.();
+                const preset = novelSettings?.paramsPresets?.find(p => p.id === novelSettings.selectedParamsPresetId)
+                    || novelSettings?.paramsPresets?.[0];
+                if (!preset) throw new Error('无可用的 NovelAI 参数预设');
+                return novelDraw.generateNovelImage({
+                    scene: [preset.positivePrefix, prompt].filter(Boolean).join(', '),
+                    characterPrompts: [],
+                    negativePrompt: negativePrompt || preset.negativePrefix || '',
+                    params: preset.params || {},
+                    signal: payload.signal,
+                });
+            }
+
+            if (provider === 'sdwebui') {
+                const sdDraw = window.xiaobaixSdDraw;
+                if (!sdDraw?.generateSdImage) throw new Error('SD WebUI 画图模块未初始化');
+                const sdSettings = sdDraw.getSettings?.() || {};
+                const effective = sdDraw.getEffectiveParams?.(sdSettings, payload.params || {}) || {};
+                return sdDraw.generateSdImage({
+                    prompt: [effective.positivePrefix, prompt].filter(Boolean).join(', '),
+                    negativePrompt: [effective.negativePrefix, negativePrompt].filter(Boolean).join(', '),
+                    params: effective,
+                    signal: payload.signal,
+                });
+            }
+
+            throw new Error('未启用画图后端');
+        },
+    };
+}
+
+if (migrateDrawProviderSettings(settings)) {
+    saveSettingsDebounced();
+}
+installDrawFacade();
 
 const DEPRECATED_KEYS = [
     'characterUpdater',
@@ -332,7 +497,7 @@ function toggleSettingsControls(enabled) {
         'xiaobaix_audio_enabled', 'xiaobaix_variables_panel_enabled',
         'xiaobaix_use_blob', 'xiaobaix_variables_core_enabled', 'xiaobaix_variables_mode', 'Wrapperiframe', 'xiaobaix_render_enabled',
         'xiaobaix_max_rendered', 'xiaobaix_story_outline_enabled', 'xiaobaix_story_summary_enabled',
-        'xiaobaix_novel_draw_enabled', 'xiaobaix_novel_draw_open_settings',
+        'xiaobaix_draw_provider', 'xiaobaix_draw_open_settings',
         'xiaobaix_tts_enabled', 'xiaobaix_tts_open_settings',
         'xiaobaix_ena_planner_enabled', 'xiaobaix_ena_planner_open_settings'
     ];
@@ -368,6 +533,12 @@ function syncFeatureActionButtons() {
         assistantButton.disabled = !isXiaobaixEnabled;
         assistantButton.classList.toggle('disabled-action', !isXiaobaixEnabled);
     }
+
+    const drawButton = document.getElementById('xiaobaix_draw_open_settings');
+    if (drawButton) {
+        drawButton.disabled = !isXiaobaixEnabled;
+        drawButton.classList.toggle('disabled-action', !isXiaobaixEnabled);
+    }
 }
 
 async function toggleAllFeatures(enabled) {
@@ -388,7 +559,6 @@ async function toggleAllFeatures(enabled) {
             { condition: extension_settings[EXT_ID].audio?.enabled, init: initControlAudio },
             { condition: extension_settings[EXT_ID].variablesPanel?.enabled, init: initVariablesPanel },
             { condition: extension_settings[EXT_ID].variablesCore?.enabled, init: initVariablesCore },
-            { condition: extension_settings[EXT_ID].novelDraw?.enabled, init: initNovelDraw },
             { condition: extension_settings[EXT_ID].tts?.enabled, init: initTts },
             { condition: extension_settings[EXT_ID].enaPlanner?.enabled, init: initEnaPlanner },
             { condition: true, init: initStreamingGeneration },
@@ -397,6 +567,7 @@ async function toggleAllFeatures(enabled) {
         moduleInits.forEach(({ condition, init }) => {
             if (condition) init();
         });
+        await initActiveDrawProvider();
         if (extension_settings[EXT_ID].preview?.enabled || extension_settings[EXT_ID].recorded?.enabled) {
             setTimeout(initMessagePreview, 200);
         }
@@ -427,7 +598,7 @@ async function toggleAllFeatures(enabled) {
         try { cleanupVariablesCore(); } catch (e) { }
         try { cleanupVarCommands(); } catch (e) { }
         try { cleanupVareventEditor(); } catch (e) { }
-        try { cleanupNovelDraw(); } catch (e) { }
+        await cleanupDrawProvider(settings.drawProvider);
         try { cleanupTts(); } catch (e) { }
         try { cleanupEnaPlanner(); } catch (e) { }
         try { cleanupAssistant(); } catch (e) { }
@@ -478,7 +649,6 @@ async function setupSettings() {
             { id: 'xiaobaix_variables_core_enabled', key: 'variablesCore', init: initVariablesCore },
             { id: 'xiaobaix_story_summary_enabled', key: 'storySummary' },
             { id: 'xiaobaix_story_outline_enabled', key: 'storyOutline' },
-            { id: 'xiaobaix_novel_draw_enabled', key: 'novelDraw', init: initNovelDraw },
             { id: 'xiaobaix_tts_enabled', key: 'tts', init: initTts },
             { id: 'xiaobaix_ena_planner_enabled', key: 'enaPlanner', init: initEnaPlanner },
         ];
@@ -489,9 +659,6 @@ async function setupSettings() {
                 const enabled = $(this).prop('checked');
                 if (!enabled && key === 'fourthWall') {
                     try { fourthWallCleanup(); } catch (e) { }
-                }
-                if (!enabled && key === 'novelDraw') {
-                    try { cleanupNovelDraw(); } catch (e) { }
                 }
                 if (!enabled && key === 'tts') {
                     try { cleanupTts(); } catch (e) { }
@@ -517,6 +684,24 @@ async function setupSettings() {
                 syncFeatureActionButtons();
             });
         });
+
+        $("#xiaobaix_draw_provider")
+            .val(normalizeDrawProvider(settings.drawProvider))
+            .on("change", async function () {
+                if (!isXiaobaixEnabled) return;
+                const prev = normalizeDrawProvider(settings.drawProvider);
+                const next = normalizeDrawProvider(String($(this).val() || 'disabled'));
+                if (next !== $(this).val()) $(this).val(next);
+                if (prev === next) return;
+
+                await cleanupDrawProvider(prev);
+                settings.drawProvider = next;
+                syncProviderEnabledFlags(settings);
+                saveSettingsDebounced();
+
+                await initActiveDrawProvider();
+                syncFeatureActionButtons();
+            });
         syncFeatureActionButtons();
 
         // variables mode selector
@@ -528,10 +713,17 @@ async function setupSettings() {
                 toastr.info(`变量系统已切换为 ${settings.variablesMode}`);
             });
 
-        $("#xiaobaix_novel_draw_open_settings").on("click", function () {
+        $("#xiaobaix_draw_open_settings").on("click", function () {
             if (!isXiaobaixEnabled) return;
-            if (settings.novelDraw?.enabled && window.xiaobaixNovelDraw?.openSettings) {
+            const provider = normalizeDrawProvider(settings.drawProvider);
+            if (provider === 'novelai' && window.xiaobaixNovelDraw?.openSettings) {
                 window.xiaobaixNovelDraw.openSettings();
+            } else if (provider === 'sdwebui' && window.xiaobaixSdDraw?.openSettings) {
+                window.xiaobaixSdDraw.openSettings();
+            } else if (provider === 'disabled') {
+                toastr.warning('请先选择画图后端');
+            } else {
+                toastr.warning('画图模块还没有初始化完成');
             }
         });
 
@@ -613,7 +805,7 @@ async function setupSettings() {
                 try { shrinkRenderedWindowFull(); } catch (e) { }
             });
 
-        $(document).off('click.xbreset', '#xiaobaix_reset_btn').on('click.xbreset', '#xiaobaix_reset_btn', function (e) {
+        $(document).off('click.xbreset', '#xiaobaix_reset_btn').on('click.xbreset', '#xiaobaix_reset_btn', async function (e) {
             e.preventDefault();
             e.stopPropagation();
             const MAP = {
@@ -626,12 +818,11 @@ async function setupSettings() {
                 fourthWall: 'xiaobaix_fourth_wall_enabled',
                 variablesPanel: 'xiaobaix_variables_panel_enabled',
                 variablesCore: 'xiaobaix_variables_core_enabled',
-                novelDraw: 'xiaobaix_novel_draw_enabled',
                 tts: 'xiaobaix_tts_enabled',
                 enaPlanner: 'xiaobaix_ena_planner_enabled'
             };
             const ON = ['templateEditor', 'tasks', 'variablesCore', 'audio', 'storySummary', 'recorded'];
-            const OFF = ['preview', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'novelDraw', 'tts', 'enaPlanner'];
+            const OFF = ['preview', 'immersive', 'variablesPanel', 'fourthWall', 'storyOutline', 'tts', 'enaPlanner'];
             function setChecked(id, val) {
                 const el = document.getElementById(id);
                 if (el) {
@@ -641,6 +832,11 @@ async function setupSettings() {
             }
             ON.forEach(k => setChecked(MAP[k], true));
             OFF.forEach(k => setChecked(MAP[k], false));
+            await cleanupDrawProvider(settings.drawProvider);
+            settings.drawProvider = 'disabled';
+            syncProviderEnabledFlags(settings);
+            $('#xiaobaix_draw_provider').val('disabled');
+            syncFeatureActionButtons();
             setChecked('xiaobaix_use_blob', false);
             setChecked('Wrapperiframe', true);
             try { saveSettingsDebounced(); } catch (e) { }
@@ -763,13 +959,13 @@ jQuery(async () => {
                 { condition: settings.fourthWall?.enabled, init: initFourthWall },
                 { condition: settings.variablesPanel?.enabled, init: initVariablesPanel },
                 { condition: settings.variablesCore?.enabled, init: initVariablesCore },
-                { condition: settings.novelDraw?.enabled, init: initNovelDraw },
                 { condition: settings.tts?.enabled, init: initTts },
                 { condition: settings.enaPlanner?.enabled, init: initEnaPlanner },
                 { condition: true, init: initStreamingGeneration },
                 { condition: true, init: initButtonCollapse }
             ];
             moduleInits.forEach(({ condition, init }) => { if (condition) init(); });
+            await initActiveDrawProvider();
 
             if (settings.preview?.enabled || settings.recorded?.enabled) {
                 setTimeout(initMessagePreview, 1500);

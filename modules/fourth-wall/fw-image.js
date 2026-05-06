@@ -166,13 +166,19 @@ export async function clearExpiredCache() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 图片生成（内部函数，直接调用 NovelDraw）
+// 图片生成（内部函数，走小白X统一画图入口，旧版回退 NovelDraw）
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function doGenerateImage(tags) {
+    if (window.xiaobaixDraw?.generateImage) {
+        const base64 = await window.xiaobaixDraw.generateImage({ prompt: tags });
+        await saveToCache(tags, base64);
+        return base64;
+    }
+
     const novelDraw = window.xiaobaixNovelDraw;
     if (!novelDraw) {
-        throw new Error('NovelDraw 模块未启用');
+        throw new Error('画图模块未启用');
     }
     
     const settings = novelDraw.getSettings();

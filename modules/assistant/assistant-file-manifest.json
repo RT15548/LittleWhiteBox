@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-29T03:41:14.438Z",
+  "generatedAt": "2026-05-06T01:34:31.334Z",
   "version": 1,
   "files": [
     {
@@ -24,6 +24,12 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/bridges/wrapper-iframe.js",
       "relativePath": "bridges/wrapper-iframe.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/core/after-ai-gate.js",
+      "relativePath": "core/after-ai-gate.js",
       "extension": ".js"
     },
     {
@@ -598,12 +604,6 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/image-live-effect.js",
-      "relativePath": "modules/novel-draw/image-live-effect.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/llm-service.js",
       "relativePath": "modules/novel-draw/llm-service.js",
       "extension": ".js"
@@ -672,6 +672,24 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/scheduled-tasks.js",
       "relativePath": "modules/scheduled-tasks/scheduled-tasks.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/sd-draw/floating-panel.js",
+      "relativePath": "modules/sd-draw/floating-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/sd-draw/sd-draw.html",
+      "relativePath": "modules/sd-draw/sd-draw.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/sd-draw/sd-draw.js",
+      "relativePath": "modules/sd-draw/sd-draw.js",
       "extension": ".js"
     },
     {

@@ -1,0 +1,549 @@
+<style>
+.xiaobaix-sd-settings {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --bg-input: rgba(0, 0, 0, 0.25);
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #484f58;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-focus: rgba(212, 165, 116, 0.5);
+    --accent: #d4a574;
+    --accent-soft: rgba(212, 165, 116, 0.15);
+    --success: #3fb950;
+    --danger: #f85149;
+    --warning: #d29922;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.5;
+}
+.xiaobaix-sd-settings * { box-sizing: border-box; }
+.xiaobaix-sd-settings .app-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.xiaobaix-sd-settings .app-body { display: flex; flex: 1; min-height: 0; }
+.xiaobaix-sd-settings .app-sidebar {
+    width: 200px; min-width: 200px; background: var(--bg-secondary);
+    border-right: 1px solid var(--border); padding: 16px 8px;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.xiaobaix-sd-settings .app-main { flex: 1; padding: 24px; overflow-y: auto; }
+.xiaobaix-sd-settings .header-logo { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.xiaobaix-sd-settings .header-logo i { color: var(--accent); }
+.xiaobaix-sd-settings .header-badge {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 12px; font-size: 11px; color: var(--success);
+    border-color: rgba(63, 185, 80, 0.3);
+}
+.xiaobaix-sd-settings .header-badge i { font-size: 6px; }
+.xiaobaix-sd-settings .header-spacer { flex: 1; min-width: 10px; }
+.xiaobaix-sd-settings .header-toggles { display: flex; gap: 6px; margin-right: 8px; }
+.xiaobaix-sd-settings .header-toggle {
+    display: flex; align-items: center; gap: 4px; padding: 4px 8px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px;
+    font-size: 11px; color: var(--text-secondary);
+}
+.xiaobaix-sd-settings .header-toggle input { accent-color: var(--accent); }
+.xiaobaix-sd-settings .header-mode {
+    display: flex; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 16px; padding: 2px;
+}
+.xiaobaix-sd-settings .header-mode button {
+    padding: 6px 14px; border: none; border-radius: 14px;
+    background: transparent; color: var(--text-secondary);
+    font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.xiaobaix-sd-settings .header-mode button.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.xiaobaix-sd-settings .header-close {
+    width: 36px; height: 36px; min-width: 36px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--text-secondary);
+    cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.xiaobaix-sd-settings .header-close:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+.xiaobaix-sd-settings .nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    border-radius: 8px; color: var(--text-secondary); cursor: pointer;
+    transition: all 0.15s; font-size: 13px; border: 0; background: transparent; text-align: left;
+}
+.xiaobaix-sd-settings .nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+.xiaobaix-sd-settings .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.xiaobaix-sd-settings .nav-item i { width: 18px; text-align: center; }
+.xiaobaix-sd-settings .nav-divider { height: 1px; background: var(--border); margin: 8px 0; }
+.xiaobaix-sd-settings .view { display: none; max-width: 800px; margin: 0 auto; }
+.xiaobaix-sd-settings .view.active { display: block; animation: viewIn 0.2s ease; }
+.xiaobaix-sd-settings .view.wide { max-width: 1200px; }
+@keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
+.xiaobaix-sd-settings .view-header { margin-bottom: 20px; }
+.xiaobaix-sd-settings .view-title { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+.xiaobaix-sd-settings .view-desc { font-size: 13px; color: var(--text-secondary); margin: 0; }
+.xiaobaix-sd-settings .card {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+}
+.xiaobaix-sd-settings .card-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+.xiaobaix-sd-settings .form-group { margin-bottom: 16px; }
+.xiaobaix-sd-settings .form-group:last-child { margin-bottom: 0; }
+.xiaobaix-sd-settings .form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
+.xiaobaix-sd-settings .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.xiaobaix-sd-settings .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.xiaobaix-sd-settings .input {
+    width: 100%; padding: 10px 12px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-primary); font-size: 13px; transition: border-color 0.15s;
+}
+.xiaobaix-sd-settings .input:focus { outline: none; border-color: var(--border-focus); }
+.xiaobaix-sd-settings .input::placeholder { color: var(--text-muted); }
+.xiaobaix-sd-settings textarea.input { min-height: 80px; resize: vertical; font-family: inherit; }
+.xiaobaix-sd-settings select.input { cursor: pointer; }
+.xiaobaix-sd-settings .input-row { display: flex; gap: 8px; }
+.xiaobaix-sd-settings .input-row .input { flex: 1; min-width: 0; }
+.xiaobaix-sd-settings .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 10px 16px; min-height: 40px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--bg-tertiary); color: var(--text-primary);
+    font-size: 13px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.xiaobaix-sd-settings .btn:hover { background: rgba(255,255,255,0.08); }
+.xiaobaix-sd-settings .btn:active { transform: scale(0.98); }
+.xiaobaix-sd-settings .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.xiaobaix-sd-settings .btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 500; }
+.xiaobaix-sd-settings .btn-primary:hover { background: #e5b685; }
+.xiaobaix-sd-settings .btn-danger { color: var(--danger); border-color: rgba(248, 81, 73, 0.3); }
+.xiaobaix-sd-settings .btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
+.xiaobaix-sd-settings .btn-icon { width: 40px; padding: 0; }
+.xiaobaix-sd-settings .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.xiaobaix-sd-settings .btn-sm { padding: 6px 10px; min-height: 32px; font-size: 12px; }
+.xiaobaix-sd-settings .preset-bar {
+    display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.xiaobaix-sd-settings .preset-bar select { flex: 1; min-width: 120px; max-width: 260px; }
+.xiaobaix-sd-settings .tip-box {
+    display: flex; gap: 10px; padding: 14px; background: var(--accent-soft);
+    border: 1px solid rgba(212,165,116,.25); border-radius: 10px;
+    font-size: 12px; color: var(--text-secondary);
+}
+.xiaobaix-sd-settings .tip-box i { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
+.xiaobaix-sd-settings .status-text { font-size: 12px; color: var(--text-secondary); margin-top: 8px; min-height: 18px; }
+.xiaobaix-sd-settings .preview-box {
+    display: none; margin-top: 16px; text-align: center;
+    background: var(--bg-input); border-radius: 10px; padding: 16px;
+}
+.xiaobaix-sd-settings .preview-box:not(:empty) { display: block; }
+.xiaobaix-sd-settings .preview-box img { max-width: 100%; max-height: 400px; border-radius: 6px; }
+.xiaobaix-sd-settings .char-management-layout {
+    display: grid; grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+    gap: 16px; align-items: start;
+}
+.xiaobaix-sd-settings .char-management-sidebar {
+    display: flex; flex-direction: column; gap: 16px;
+    position: sticky; top: 0; align-self: start;
+}
+.xiaobaix-sd-settings .char-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.xiaobaix-sd-settings .char-summary-item {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 12px;
+}
+.xiaobaix-sd-settings .char-summary-label { font-size: 11px; color: var(--text-secondary); }
+.xiaobaix-sd-settings .char-summary-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text-primary); }
+.xiaobaix-sd-settings .char-summary-value.accent { color: var(--accent); }
+.xiaobaix-sd-settings .char-list-card { min-height: 520px; }
+.xiaobaix-sd-settings .char-list-card-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 12px; margin-bottom: 16px;
+}
+.xiaobaix-sd-settings .char-list-card-header .card-title { margin-bottom: 0; }
+.xiaobaix-sd-settings .char-list-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 84px; padding: 8px 12px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600;
+}
+.xiaobaix-sd-settings .char-list-body { display: flex; flex-direction: column; gap: 12px; }
+.xiaobaix-sd-settings .char-grid { display: flex; flex-direction: column; gap: 12px; }
+.xiaobaix-sd-settings .char-empty {
+    text-align: center; padding: 40px 20px; color: var(--text-muted);
+    background: var(--bg-tertiary); border: 1px dashed var(--border); border-radius: 10px;
+}
+.xiaobaix-sd-settings .char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
+.xiaobaix-sd-settings .char-empty strong { color: var(--text-primary); display: block; margin-bottom: 6px; font-size: 14px; }
+.xiaobaix-sd-settings .sd-char-card {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px; margin: 0;
+}
+.xiaobaix-sd-settings .sd-char-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.xiaobaix-sd-settings .sd-char-card-title {
+    display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px;
+}
+.xiaobaix-sd-settings .gallery-grid { display: grid; gap: 14px; }
+.xiaobaix-sd-settings .gallery-char-card {
+    padding: 14px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+}
+.xiaobaix-sd-settings .gallery-char-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px;
+}
+.xiaobaix-sd-settings .gallery-char-name { font-weight: 600; }
+.xiaobaix-sd-settings .gallery-char-meta { font-size: 12px; color: var(--text-secondary); }
+.xiaobaix-sd-settings .gallery-slots {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px;
+}
+.xiaobaix-sd-settings .gallery-slot-btn {
+    border: 1px solid var(--border); border-radius: 10px; padding: 8px;
+    background: rgba(255,255,255,0.03); color: var(--text-primary); cursor: pointer; text-align: left;
+}
+.xiaobaix-sd-settings .gallery-slot-btn:hover { border-color: var(--border-focus); background: rgba(255,255,255,0.06); }
+.xiaobaix-sd-settings .gallery-slot-thumb {
+    width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 8px; display: block; background: var(--bg-input); margin-bottom: 8px;
+}
+.xiaobaix-sd-settings .gallery-slot-title { font-size: 12px; font-weight: 600; }
+.xiaobaix-sd-settings .gallery-slot-sub { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+.xiaobaix-sd-settings .gallery-empty {
+    text-align: center; padding: 60px 20px; color: var(--text-muted);
+}
+.xiaobaix-sd-settings .gallery-empty i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; display: block; }
+.xiaobaix-sd-settings .gallery-empty p { font-size: 13px; margin-top: 8px; }
+.xiaobaix-sd-settings .mobile-nav {
+    display: none; position: sticky; bottom: 0; left: 0; right: 0; height: 56px;
+    background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 10;
+}
+.xiaobaix-sd-settings .mobile-nav-inner { display: flex; height: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.xiaobaix-sd-settings .mobile-nav-inner::-webkit-scrollbar { display: none; }
+.xiaobaix-sd-settings .mobile-nav-item {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    min-width: 64px; padding: 4px 8px; color: var(--text-secondary); font-size: 10px; cursor: pointer;
+}
+.xiaobaix-sd-settings .mobile-nav-item i { font-size: 18px; }
+.xiaobaix-sd-settings .mobile-nav-item.active { color: var(--accent); }
+@media (max-width: 768px) {
+    .xiaobaix-sd-settings .app-header { padding: 10px 12px; }
+    .xiaobaix-sd-settings .app-sidebar { display: none; }
+    .xiaobaix-sd-settings .app-main { padding: 16px; padding-bottom: 72px; }
+    .xiaobaix-sd-settings .mobile-nav { display: block; }
+    .xiaobaix-sd-settings .form-row { grid-template-columns: 1fr; }
+    .xiaobaix-sd-settings .char-management-layout { grid-template-columns: 1fr; }
+    .xiaobaix-sd-settings .char-management-sidebar { position: static; }
+}
+</style>
+
+<div class="xiaobaix-sd-settings app-container">
+    <header class="app-header">
+        <div class="header-logo"><i class="fa-solid fa-palette"></i><span>SD WebUI Draw</span></div>
+        <div class="header-badge"><i class="fa-solid fa-circle"></i><span>已启用</span></div>
+        <div class="header-spacer"></div>
+        <div class="header-toggles">
+            <label class="header-toggle">
+                <input type="checkbox" id="sd-show-floor">
+                <span>楼层</span>
+            </label>
+            <label class="header-toggle">
+                <input type="checkbox" id="sd-show-floating">
+                <span>悬浮</span>
+            </label>
+        </div>
+        <div class="header-mode">
+            <button type="button" data-sd-mode="manual" class="active">手动</button>
+            <button type="button" data-sd-mode="auto">自动</button>
+        </div>
+        <button id="sd-draw-close" class="header-close" type="button">✕</button>
+    </header>
+
+    <div class="app-body">
+        <nav class="app-sidebar">
+            <button class="nav-item active" type="button" data-sd-view="test"><i class="fa-solid fa-flask"></i>快速测试</button>
+            <button class="nav-item" type="button" data-sd-view="api"><i class="fa-solid fa-key"></i>API 配置</button>
+            <div class="nav-divider"></div>
+            <button class="nav-item" type="button" data-sd-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</button>
+            <button class="nav-item" type="button" data-sd-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</button>
+            <div class="nav-divider"></div>
+            <button class="nav-item" type="button" data-sd-view="characters"><i class="fa-solid fa-user-group"></i>角色标签</button>
+            <button class="nav-item" type="button" data-sd-view="gallery"><i class="fa-solid fa-images"></i>图片管理</button>
+        </nav>
+
+        <main class="app-main">
+            <section class="view active" data-sd-view-panel="test">
+                <div class="view-header">
+                    <h2 class="view-title">快速测试</h2>
+                    <p class="view-desc">验证 SD 连接和生成效果</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">测试 TAG</label>
+                        <div class="input-row">
+                            <input id="sd-draw-test-prompt" class="input" type="text" placeholder="1girl, smile, upper body, simple background">
+                            <button id="sd-draw-test-generate" class="btn btn-primary" type="button"><i class="fa-solid fa-play"></i> 生成</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">负向 TAG</label>
+                        <textarea id="sd-draw-test-negative" class="input" rows="2" placeholder="可选，测试时会和当前预设的负向固定一起使用"></textarea>
+                    </div>
+                    <div id="sd-draw-test-result" class="preview-box"></div>
+                </div>
+
+                <div class="tip-box">
+                    <i class="fa-solid fa-lightbulb"></i>
+                    <div>
+                        <div>消息楼层按钮的 🎨 为对应消息生成配图。</div>
+                        <div>SD 出图会复用小白X的场景分析、角色识别和图片占位符。</div>
+                        <div>模型、VAE、脚本等复杂设置仍建议在 SD WebUI 里维护。</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="view" data-sd-view-panel="api">
+                <div class="view-header">
+                    <h2 class="view-title">API 配置</h2>
+                    <p class="view-desc">SD WebUI 服务连接设置</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">SD WebUI 地址</label>
+                        <div class="input-row">
+                            <input id="sd-draw-host" class="input" type="text" placeholder="http://127.0.0.1:7860">
+                            <button id="sd-draw-test" class="btn"><i class="fa-solid fa-plug"></i> 测试连接</button>
+                        </div>
+                        <p class="form-hint">填写酒馆服务器能访问到的地址。酒馆在 VPS、SD 在本机时，需要内网穿透、组网或公网地址。</p>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">认证信息</label>
+                            <input id="sd-draw-auth" class="input" type="text" placeholder="可选，Basic Auth: user:pass">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">超时时间 (毫秒)</label>
+                            <input id="sd-draw-timeout" class="input" type="number" min="10000" step="1000">
+                        </div>
+                    </div>
+                    <div class="btn-group" style="margin-top:16px;">
+                        <button id="sd-draw-save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                        <button id="sd-draw-refresh-options" class="btn"><i class="fa-solid fa-rotate"></i> 拉取模型 / 采样器</button>
+                    </div>
+                    <div class="status-text">请求会通过 SillyTavern 后端代理转发，浏览器不会直接访问 SD WebUI。</div>
+                </div>
+            </section>
+
+            <section class="view" data-sd-view-panel="params">
+                <div class="view-header">
+                    <h2 class="view-title">绘图参数</h2>
+                    <p class="view-desc">模型与生成参数设置</p>
+                </div>
+
+                <div class="preset-bar">
+                    <select id="sd-draw-preset-select" class="input"></select>
+                    <div class="btn-group">
+                        <button id="sd-draw-preset-add" class="btn btn-icon" type="button" title="新建"><i class="fa-solid fa-plus"></i></button>
+                        <button id="sd-draw-preset-rename" class="btn btn-icon" type="button" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                        <button id="sd-draw-preset-save" class="btn btn-primary" type="button" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
+                        <button id="sd-draw-preset-delete" class="btn btn-danger btn-icon" type="button" title="删除"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">🌐 全局标签</div>
+                    <div class="form-group">
+                        <label class="form-label">正向固定</label>
+                        <textarea id="sd-draw-positive-prefix" class="input" rows="3" placeholder="masterpiece, best quality..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">负向固定</label>
+                        <textarea id="sd-draw-negative-prefix" class="input" rows="3" placeholder="lowres, bad anatomy..."></textarea>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">模型与采样</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">模型</label>
+                            <select id="sd-draw-model" class="input">
+                                <option value="">使用 SD 当前模型</option>
+                            </select>
+                            <p class="form-hint">留空时不覆盖 WebUI 当前模型</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">采样器</label>
+                            <select id="sd-draw-sampler" class="input">
+                                <option value="">使用 SD 当前采样器</option>
+                            </select>
+                            <p class="form-hint">留空时不覆盖 WebUI 当前采样器</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">尺寸与参数</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">尺寸</label>
+                            <div class="input-row">
+                                <input id="sd-draw-width" class="input" type="number" min="64" max="2048" step="8" placeholder="宽度">
+                                <input id="sd-draw-height" class="input" type="number" min="64" max="2048" step="8" placeholder="高度">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Steps / CFG / Seed</label>
+                            <div class="input-row">
+                                <input id="sd-draw-steps" class="input" type="number" min="1" max="150" step="1" placeholder="不覆盖">
+                                <input id="sd-draw-cfg" class="input" type="number" min="1" max="30" step="0.5" placeholder="不覆盖">
+                                <input id="sd-draw-seed" class="input" type="number" step="1" placeholder="-1">
+                            </div>
+                        </div>
+                    </div>
+                    <p class="form-hint">未填写的高级参数不会发送给 SD，适合继续沿用 WebUI 里调好的默认值。</p>
+                </div>
+            </section>
+
+            <section class="view" data-sd-view-panel="llm">
+                <div class="view-header">
+                    <h2 class="view-title">LLM 配置</h2>
+                    <p class="view-desc">场景分析所用的大语言模型渠道设置</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">渠道配置</div>
+                    <div class="form-group">
+                        <label class="form-label">LLM 渠道</label>
+                        <select id="sd-shared-llm-provider" class="input">
+                            <option value="st">酒馆主 API</option>
+                            <option value="openai">OpenAI 兼容</option>
+                            <option value="google">Google Gemini</option>
+                            <option value="claude">Claude</option>
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="cohere">Cohere</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">API URL</label>
+                        <input id="sd-shared-llm-url" type="text" class="input" placeholder="https://api.openai.com/v1">
+                        <p class="form-hint">使用酒馆主 API 时可以留空。这里与 NovelDraw 共用同一套场景分析配置。</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">API Key</label>
+                        <input id="sd-shared-llm-key" type="password" class="input" placeholder="sk-xxx...">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">模型</label>
+                        <input id="sd-shared-llm-model" type="text" class="input" placeholder="gemini-1.5-pro">
+                    </div>
+                    <div class="btn-group" style="margin-top:16px;">
+                        <button class="btn btn-primary" type="button" data-sd-save-shared><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                        <button id="sd-shared-open-novel-settings" class="btn"><i class="fa-solid fa-file-code"></i> 高级提示词设置</button>
+                    </div>
+                    <div class="status-text">当前提示词链预设：<span id="sd-shared-prompt-preset-name">默认</span></div>
+                </div>
+
+                <div class="tip-box">
+                    <i class="fa-solid fa-info-circle"></i>
+                    <div>SD 使用这套 LLM 配置来分析楼层画面。提示词模板、消息过滤和世界书等高级项仍与 NovelDraw 共用。</div>
+                </div>
+            </section>
+
+            <section class="view wide" data-sd-view-panel="characters">
+                <div class="view-header">
+                    <h2 class="view-title">角色标签</h2>
+                    <p class="view-desc">集中管理角色外貌标签。SD 与 NovelDraw 共用同一份角色库</p>
+                </div>
+
+                <div class="char-management-layout">
+                    <aside class="char-management-sidebar">
+                        <div class="card">
+                            <div class="card-title">📊 角色概览</div>
+                            <div class="char-summary-grid">
+                                <div class="char-summary-item">
+                                    <div class="char-summary-label">总角色数</div>
+                                    <div id="sd-draw-summary-characters-side" class="char-summary-value accent">0</div>
+                                </div>
+                                <div class="char-summary-item">
+                                    <div class="char-summary-label">当前预设</div>
+                                    <div id="sd-draw-summary-preset" class="char-summary-value">默认</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-title">🧰 批量操作</div>
+                            <div class="btn-group">
+                                <button id="sd-shared-char-add" class="btn btn-primary btn-sm" type="button"><i class="fa-solid fa-plus"></i> 添加角色</button>
+                                <button class="btn btn-sm" type="button" data-sd-save-shared><i class="fa-solid fa-floppy-disk"></i> 保存角色</button>
+                            </div>
+                            <p class="form-hint" style="margin-top:10px;">导入、导出、Danbooru 资源库等高级管理项，仍在 NovelDraw 完整角色页中处理。</p>
+                        </div>
+                    </aside>
+
+                    <section class="char-management-main">
+                        <div class="card char-list-card">
+                            <div class="char-list-card-header">
+                                <div>
+                                    <div class="card-title">👥 角色列表</div>
+                                    <p class="form-hint" style="margin-top:6px;">预设角色外貌，LLM 只需补充动作和互动标签</p>
+                                </div>
+                                <div id="sd-draw-character-result-count" class="char-list-count">0 / 0</div>
+                            </div>
+                            <div class="char-list-body">
+                                <div id="sd-shared-character-list" class="char-grid"></div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </section>
+
+            <section class="view wide" data-sd-view-panel="gallery">
+                <div class="view-header">
+                    <h2 class="view-title">图片管理</h2>
+                    <p class="view-desc">这里直接查看小白X共用图库。NovelDraw 和 SD WebUI 生成的图片都在同一份缓存里。</p>
+                </div>
+
+                <div class="card" style="margin-bottom:20px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+                        <div style="display:flex;gap:32px;">
+                            <div style="text-align:center;">
+                                <div style="font-size:28px;font-weight:700;color:var(--accent);" id="sd-gallery-count">0</div>
+                                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">图片数量</div>
+                            </div>
+                            <div style="text-align:center;">
+                                <div style="font-size:28px;font-weight:700;" id="sd-gallery-size">0 MB</div>
+                                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">占用空间</div>
+                            </div>
+                        </div>
+                        <div class="btn-group">
+                            <button id="sd-gallery-refresh" class="btn btn-sm"><i class="fa-solid fa-arrows-rotate"></i> 刷新</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="sd-gallery-container" class="gallery-grid"></div>
+                <div id="sd-gallery-empty" class="gallery-empty" style="display:none;">
+                    <i class="fa-solid fa-images"></i>
+                    <div>暂无图片</div>
+                    <p>楼层里生成的配图会出现在这里，点击缩略图可打开共享图库查看历史版本</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <nav class="mobile-nav">
+        <div class="mobile-nav-inner">
+            <div class="mobile-nav-item active" data-sd-view="test"><i class="fa-solid fa-flask"></i><span>测试</span></div>
+            <div class="mobile-nav-item" data-sd-view="api"><i class="fa-solid fa-key"></i><span>API</span></div>
+            <div class="mobile-nav-item" data-sd-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
+            <div class="mobile-nav-item" data-sd-view="llm"><i class="fa-solid fa-robot"></i><span>LLM</span></div>
+            <div class="mobile-nav-item" data-sd-view="characters"><i class="fa-solid fa-user-group"></i><span>角色</span></div>
+            <div class="mobile-nav-item" data-sd-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
+        </div>
+    </nav>
+</div>

@@ -125,6 +125,10 @@ const dirtyRefreshTimers = new Map();
 const dirtyChats = new Map();
 const activeSessionCounts = new Map();
 
+function hasBackendStarted() {
+    return !!backend || !!backendInitPromise;
+}
+
 function canUseWorker() {
     return typeof Worker !== 'undefined' && typeof URL !== 'undefined';
 }
@@ -728,6 +732,16 @@ function rememberStats(stats) {
     return stats;
 }
 
+function retainOnlyLastStats(chatId = null) {
+    const key = normalizeChatId(chatId);
+    if (!key) {
+        lastStats = [];
+        return [];
+    }
+    lastStats = lastStats.filter((item) => String(item?.chatId || '') === key);
+    return lastStats;
+}
+
 async function callRuntime(type, payload = {}, options = {}) {
     const current = await getBackend();
     try {
@@ -748,7 +762,6 @@ async function callRuntime(type, payload = {}, options = {}) {
 
 export async function warmRecallRuntime(chatId, options = {}) {
     if (!chatId) return null;
-    await getBackend();
     logRuntimeInfo('warm request', `chat=${chatId} reason=${options.reason || 'warm'}`);
     const stats = createSessionIdleStats(chatId, {
         backend: backendKind,
@@ -762,7 +775,6 @@ export async function warmRecallRuntime(chatId, options = {}) {
 
 export async function refreshRecallRuntime(chatId, options = {}) {
     if (!chatId) return null;
-    await getBackend();
     logRuntimeInfo('refresh request', `chat=${chatId} reason=${options.reason || 'refresh'}`);
     const reason = options.reason || 'refresh';
     markRecallRuntimeDirty(chatId, reason);
@@ -870,6 +882,17 @@ export async function clearRecallRuntime(chatId = null, domain = 'all') {
         dirtyRefreshTimers.clear();
         dirtyChats.clear();
     }
+    if (!hasBackendStarted()) {
+        if (chatId) {
+            const stats = createSessionIdleStats(chatId, { dirtyReason: null, dirtyAt: null });
+            rememberStats(stats);
+            logRuntimeInfo('clear skipped (backend idle)', compactStats(stats));
+            return [stats];
+        }
+        lastStats = [];
+        logRuntimeInfo('clear skipped (backend idle)', 'all');
+        return [];
+    }
     const result = await callRuntime('clear', { chatId, domain }, { timeoutMs: SHORT_TIMEOUT_MS });
     logRuntimeInfo('clear result', compactStatsList(Array.isArray(result) ? result : lastStats));
     return result;
@@ -877,6 +900,11 @@ export async function clearRecallRuntime(chatId = null, domain = 'all') {
 
 export async function retainRecallRuntimeOnly(chatId) {
     logRuntimeInfo('retainOnly request', `keep=${chatId || '*'}`);
+    if (!hasBackendStarted()) {
+        const result = retainOnlyLastStats(chatId || null);
+        logRuntimeInfo('retainOnly skipped (backend idle)', compactStatsList(result));
+        return result;
+    }
     const result = await callRuntime('retainOnly', { chatId: chatId || null }, { timeoutMs: SHORT_TIMEOUT_MS });
     logRuntimeInfo('retainOnly result', compactStatsList(Array.isArray(result) ? result : lastStats));
     return result;
@@ -945,6 +973,7 @@ export function getRecallRuntimeStats() {
 }
 
 export async function refreshRecallRuntimeStats() {
+    if (!hasBackendStarted()) return getRecallRuntimeStats();
     const stats = await callRuntime('stats', {}, { timeoutMs: SHORT_TIMEOUT_MS });
     return Array.isArray(stats) ? stats : getRecallRuntimeStats();
 }

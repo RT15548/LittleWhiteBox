@@ -1,0 +1,2213 @@
+// sd-draw.js
+
+import { extension_settings, getContext } from "../../../../../extensions.js";
+import { saveBase64AsFile } from "../../../../../utils.js";
+import { getRequestHeaders, saveSettingsDebounced } from "../../../../../../script.js";
+import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
+import { createModuleEvents, event_types } from "../../core/event-manager.js";
+import {
+    storePreview,
+    storeFailedPlaceholder,
+    setSlotSelection,
+    clearSlotSelection,
+    openDB,
+    openGallery,
+    getPreviewsBySlot,
+    getGallerySummary,
+    getCharacterPreviews,
+    deletePreview,
+    deleteFailedRecordsForSlot,
+    updatePreviewSavedUrl,
+} from "../novel-draw/gallery-cache.js";
+import {
+    loadPromptTemplates,
+    loadTagGuide,
+    generateScenePlan,
+    parseImagePlan,
+    LLMServiceError,
+} from "../novel-draw/llm-service.js";
+import { WorldbookProcessor } from "../novel-draw/worldbook-processor.js";
+import {
+    loadSettings as loadNovelDrawSettings,
+    getSettings as getNovelDrawSettings,
+    getActiveParamsPreset as getNovelDrawParamsPreset,
+    getActivePromptPreset as getNovelDrawPromptPreset,
+    updateSettingsPersistent as updateNovelDrawSettingsPersistent,
+    openNovelDrawSettings,
+    findLastAIMessageId,
+    createPlaceholder,
+    renderPreviewsForMessage,
+    buildImageHtml,
+    insertPreviewIntoRenderedMessage,
+    findAnchorPosition,
+    findNearestSentenceEnd,
+    detectPresentCharacters,
+    assembleCharacterPrompts,
+    applyMessageFilterRules,
+    DEFAULT_MESSAGE_FILTER_RULES,
+    joinTags,
+    ensureNovelDrawStyles,
+    classifyError,
+    ErrorType,
+} from "../novel-draw/novel-draw.js";
+
+const MODULE_KEY = 'sdDraw';
+const HTML_PATH = `${extensionFolderPath}/modules/sd-draw/sd-draw.html`;
+
+const DEFAULT_SD_DRAW_SETTINGS = {
+    enabled: false,
+    host: '',
+    auth: '',
+    timeout: 120000,
+    transport: 'st-proxy',
+    mode: 'manual',
+    overrideSize: 'default',
+    showFloorButton: true,
+    showFloatingButton: true,
+    selectedPresetId: 'default',
+    presets: [],
+    defaultParams: {
+        steps: null,
+        cfg_scale: null,
+        sampler_name: '',
+        width: 512,
+        height: 512,
+        seed: -1,
+    },
+    selectedModel: '',
+    positivePrefix: '',
+    negativePrefix: '',
+};
+
+let moduleInitialized = false;
+let overlayElement = null;
+let pendingController = null;
+let resizeHandler = null;
+let eventsBound = false;
+let ensureSdDrawPanelRef = null;
+let destroySdDrawPanelsRef = null;
+let imageDelegationBound = false;
+let autoBusy = false;
+const events = createModuleEvents(MODULE_KEY);
+const generationJobs = new Map();
+const SD_DRAW_VIEWS = ['test', 'api', 'params', 'llm', 'characters', 'gallery'];
+const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
+const FIXED_SD_REQUEST_DELAY_MS = 1000;
+let activeSdImageRequest = null;
+let sdImageRequestQueue = [];
+let sdImageRequestSeq = 0;
+
+function createDefaultPreset() {
+    return {
+        id: 'default',
+        name: '默认',
+        model: '',
+        sampler_name: '',
+        width: 512,
+        height: 512,
+        steps: null,
+        cfg_scale: null,
+        seed: -1,
+        positivePrefix: '',
+        negativePrefix: '',
+    };
+}
+
+function getRootSettings() {
+    extension_settings[EXT_ID] ||= {};
+    return extension_settings[EXT_ID];
+}
+
+function normalizeSettings(raw = {}) {
+    const presets = normalizePresets(raw.presets, raw);
+    const selectedPresetId = presets.some(p => p.id === raw.selectedPresetId)
+        ? raw.selectedPresetId
+        : presets[0]?.id || 'default';
+    return {
+        ...DEFAULT_SD_DRAW_SETTINGS,
+        ...raw,
+        enabled: raw.enabled === true,
+        transport: 'st-proxy',
+        mode: raw.mode === 'auto' ? 'auto' : 'manual',
+        overrideSize: String(raw.overrideSize || 'default'),
+        showFloorButton: raw.showFloorButton !== false,
+        showFloatingButton: raw.showFloatingButton !== false,
+        timeout: normalizeNumber(raw.timeout, DEFAULT_SD_DRAW_SETTINGS.timeout, 10000, 600000),
+        selectedPresetId,
+        presets,
+        defaultParams: {
+            ...DEFAULT_SD_DRAW_SETTINGS.defaultParams,
+            ...(raw.defaultParams || {}),
+            steps: normalizeOptionalNumber(raw.defaultParams?.steps, 1, 150),
+            cfg_scale: normalizeOptionalNumber(raw.defaultParams?.cfg_scale, 1, 30),
+            width: normalizeNumber(raw.defaultParams?.width, DEFAULT_SD_DRAW_SETTINGS.defaultParams.width, 64, 2048),
+            height: normalizeNumber(raw.defaultParams?.height, DEFAULT_SD_DRAW_SETTINGS.defaultParams.height, 64, 2048),
+            seed: Number.isFinite(Number(raw.defaultParams?.seed)) ? Number(raw.defaultParams.seed) : -1,
+            sampler_name: String(raw.defaultParams?.sampler_name || ''),
+        },
+    };
+}
+
+function normalizeNumber(value, fallback, min, max) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(max, Math.max(min, parsed));
+}
+
+function normalizeOptionalNumber(value, min, max) {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.min(max, Math.max(min, parsed));
+}
+
+function normalizePresets(rawPresets, rawSettings = {}) {
+    const source = Array.isArray(rawPresets) && rawPresets.length ? rawPresets : [{
+        ...createDefaultPreset(),
+        model: rawSettings.selectedModel || '',
+        sampler_name: rawSettings.defaultParams?.sampler_name || '',
+        width: rawSettings.defaultParams?.width ?? 512,
+        height: rawSettings.defaultParams?.height ?? 512,
+        steps: normalizeOptionalNumber(rawSettings.defaultParams?.steps, 1, 150),
+        cfg_scale: normalizeOptionalNumber(rawSettings.defaultParams?.cfg_scale, 1, 30),
+        seed: Number.isFinite(Number(rawSettings.defaultParams?.seed)) ? Number(rawSettings.defaultParams.seed) : -1,
+        positivePrefix: rawSettings.positivePrefix || '',
+        negativePrefix: rawSettings.negativePrefix || '',
+    }];
+
+    return source.map((preset, index) => ({
+        ...createDefaultPreset(),
+        ...preset,
+        id: String(preset.id || `preset-${Date.now()}-${index}`),
+        name: String(preset.name || `预设 ${index + 1}`),
+        model: String(preset.model ?? preset.selectedModel ?? ''),
+        sampler_name: String(preset.sampler_name ?? preset.sampler ?? ''),
+        width: normalizeNumber(preset.width, 512, 64, 2048),
+        height: normalizeNumber(preset.height, 512, 64, 2048),
+        steps: normalizeOptionalNumber(preset.steps, 1, 150),
+        cfg_scale: normalizeOptionalNumber(preset.cfg_scale, 1, 30),
+        seed: Number.isFinite(Number(preset.seed)) ? Number(preset.seed) : -1,
+        positivePrefix: String(preset.positivePrefix ?? ''),
+        negativePrefix: String(preset.negativePrefix ?? ''),
+    }));
+}
+
+export function getSettings() {
+    const root = getRootSettings();
+    root.sdDraw = normalizeSettings(root.sdDraw || {});
+    return root.sdDraw;
+}
+
+function saveSettings(nextSettings) {
+    const root = getRootSettings();
+    root.sdDraw = normalizeSettings(nextSettings);
+    root.sdDraw.enabled = root.drawProvider === 'sdwebui';
+    root.novelDraw ||= {};
+    root.novelDraw.enabled = root.drawProvider === 'novelai';
+    saveSettingsDebounced();
+    return root.sdDraw;
+}
+
+export function updateSettingsPersistent(mutator) {
+    const draft = JSON.parse(JSON.stringify(getSettings()));
+    if (typeof mutator === 'function') mutator(draft);
+    return saveSettings(draft);
+}
+
+function getActivePreset(settings = getSettings()) {
+    return settings.presets.find(p => p.id === settings.selectedPresetId) || settings.presets[0] || createDefaultPreset();
+}
+
+export function getEffectiveParams(settings = getSettings(), overrides = {}) {
+    const preset = getActivePreset(settings);
+    const overrideSize = String(overrides.overrideSize ?? settings.overrideSize ?? 'default');
+    let sizeOverride = null;
+    if (overrideSize && overrideSize !== 'default') {
+        const match = overrideSize.match(/^(\d+)x(\d+)$/i);
+        if (match) {
+            sizeOverride = {
+                width: normalizeNumber(match[1], preset.width ?? settings.defaultParams?.width ?? 512, 64, 2048),
+                height: normalizeNumber(match[2], preset.height ?? settings.defaultParams?.height ?? 512, 64, 2048),
+            };
+        }
+    }
+    return {
+        model: overrides.model ?? preset.model ?? settings.selectedModel ?? '',
+        sampler_name: overrides.sampler_name ?? preset.sampler_name ?? settings.defaultParams?.sampler_name ?? '',
+        width: overrides.width ?? sizeOverride?.width ?? preset.width ?? settings.defaultParams?.width,
+        height: overrides.height ?? sizeOverride?.height ?? preset.height ?? settings.defaultParams?.height,
+        steps: overrides.steps ?? preset.steps ?? settings.defaultParams?.steps,
+        cfg_scale: overrides.cfg_scale ?? preset.cfg_scale ?? settings.defaultParams?.cfg_scale,
+        seed: overrides.seed ?? preset.seed ?? settings.defaultParams?.seed,
+        positivePrefix: overrides.positivePrefix ?? preset.positivePrefix ?? settings.positivePrefix ?? '',
+        negativePrefix: overrides.negativePrefix ?? preset.negativePrefix ?? settings.negativePrefix ?? '',
+    };
+}
+
+function buildSdProxyBody(extra = {}) {
+    const settings = getSettings();
+    if (!settings.host) {
+        throw new Error('请先填写 SD WebUI 地址');
+    }
+    return {
+        url: settings.host,
+        auth: settings.auth || '',
+        ...extra,
+    };
+}
+
+function waitWithAbort(signal, durationMs) {
+    return new Promise((resolve) => {
+        if (!durationMs || durationMs <= 0) {
+            resolve();
+            return;
+        }
+
+        const timer = setTimeout(resolve, durationMs);
+        if (!signal) return;
+
+        signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            resolve();
+        }, { once: true });
+    });
+}
+
+function notifyQueuedSdImageRequests() {
+    sdImageRequestQueue.forEach((item, index) => {
+        const ahead = (activeSdImageRequest ? 1 : 0) + index;
+        if (ahead > 0) {
+            item.onQueued?.({ ahead, position: ahead + 1 });
+        }
+    });
+}
+
+function pumpSdImageRequestQueue() {
+    if (activeSdImageRequest || sdImageRequestQueue.length === 0) return;
+
+    const item = sdImageRequestQueue.shift();
+    activeSdImageRequest = item;
+    notifyQueuedSdImageRequests();
+
+    void (async () => {
+        let result;
+        let error = null;
+        try {
+            if (item.signal?.aborted) throw new Error('已取消');
+            item.onStart?.();
+            result = await item.run();
+        } catch (caught) {
+            error = caught;
+        } finally {
+            if (item.cooldownMs > 0) {
+                item.onCooldown?.({ duration: item.cooldownMs });
+                await waitWithAbort(item.signal, item.cooldownMs);
+            }
+            if (error) item.reject(error);
+            else item.resolve(result);
+            if (activeSdImageRequest === item) {
+                activeSdImageRequest = null;
+            }
+            notifyQueuedSdImageRequests();
+            pumpSdImageRequestQueue();
+        }
+    })();
+}
+
+function enqueueSdImageRequest(run, {
+    signal,
+    onQueued,
+    onStart,
+    onCooldown,
+    cooldownMs = FIXED_SD_REQUEST_DELAY_MS,
+} = {}) {
+    return new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(new Error('已取消'));
+            return;
+        }
+
+        const item = {
+            id: ++sdImageRequestSeq,
+            run,
+            signal,
+            onQueued,
+            onStart,
+            onCooldown,
+            cooldownMs,
+            resolve,
+            reject,
+        };
+
+        signal?.addEventListener('abort', () => {
+            if (activeSdImageRequest === item) return;
+            const idx = sdImageRequestQueue.indexOf(item);
+            if (idx >= 0) {
+                sdImageRequestQueue.splice(idx, 1);
+                notifyQueuedSdImageRequests();
+                reject(new Error('已取消'));
+            }
+        }, { once: true });
+
+        sdImageRequestQueue.push(item);
+        notifyQueuedSdImageRequests();
+        pumpSdImageRequestQueue();
+    });
+}
+
+async function fetchSdProxy(path, body = {}, { signal } = {}) {
+    const response = await fetch(`/api/sd/${path}`, {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify(buildSdProxyBody(body)),
+        signal,
+    });
+
+    if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw classifySdError(text || response.statusText || `HTTP ${response.status}`);
+    }
+
+    return response;
+}
+
+export async function fetchSdModels({ signal } = {}) {
+    const response = await fetchSdProxy('models', {}, { signal });
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+}
+
+export async function fetchSdSamplers({ signal } = {}) {
+    const response = await fetchSdProxy('samplers', {}, { signal });
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+}
+
+export async function generateSdImage({ prompt, negativePrompt = '', params = {}, signal } = {}) {
+    const settings = getSettings();
+    const effective = getEffectiveParams(settings, params);
+    const body = {
+        prompt: String(prompt || '').trim(),
+        negative_prompt: String(negativePrompt || '').trim(),
+    };
+
+    if (Number.isFinite(Number(effective.width))) body.width = normalizeNumber(effective.width, 512, 64, 2048);
+    if (Number.isFinite(Number(effective.height))) body.height = normalizeNumber(effective.height, 512, 64, 2048);
+    if (Number.isFinite(Number(effective.steps))) body.steps = normalizeNumber(effective.steps, 20, 1, 150);
+    if (Number.isFinite(Number(effective.cfg_scale))) body.cfg_scale = normalizeNumber(effective.cfg_scale, 7, 1, 30);
+    if (effective.sampler_name) body.sampler_name = String(effective.sampler_name);
+    if (Number.isFinite(Number(effective.seed)) && Number(effective.seed) >= 0) body.seed = Number(effective.seed);
+
+    const model = params.selectedModel ?? effective.model;
+    if (model) {
+        body.override_settings = { sd_model_checkpoint: model };
+    }
+
+    if (!body.prompt) {
+        throw new Error('Prompt 不能为空');
+    }
+
+    const response = await fetchSdProxy('generate', body, { signal });
+    const data = await response.json();
+    const firstImage = Array.isArray(data?.images) ? data.images[0] : null;
+    if (!firstImage) {
+        throw new Error('SD WebUI 没有返回图片');
+    }
+    return String(firstImage).replace(/^data:image\/\w+;base64,/, '');
+}
+
+async function generateSdImageQueued({
+    prompt,
+    negativePrompt = '',
+    params = {},
+    signal,
+    onQueueStateChange,
+    cooldownMs = FIXED_SD_REQUEST_DELAY_MS,
+} = {}) {
+    return enqueueSdImageRequest(
+        () => generateSdImage({ prompt, negativePrompt, params, signal }),
+        {
+            signal,
+            cooldownMs,
+            onQueued: (data) => onQueueStateChange?.('queued', data),
+            onStart: () => onQueueStateChange?.('start'),
+            onCooldown: (data) => onQueueStateChange?.('cooldown', data),
+        },
+    );
+}
+
+function classifySdError(message) {
+    const text = String(message || '');
+    const lower = text.toLowerCase();
+    if (lower.includes('outofmemory') || lower.includes('cuda out of memory') || lower.includes('cuda') && lower.includes('memory')) {
+        return new Error('显存不足');
+    }
+    if (lower.includes('timeout') || lower.includes('abort')) return new Error('生成超时');
+    if (lower.includes('401') || lower.includes('auth') || lower.includes('unauthorized')) return new Error('SD WebUI 认证失败');
+    if (lower.includes('model') && (lower.includes('not loaded') || lower.includes('not found'))) return new Error('请先加载模型');
+    if (lower.includes('failed to fetch') || lower.includes('econnrefused') || lower.includes('connect')) return new Error('无法连接 SD WebUI');
+    return new Error(text || 'SD WebUI 请求失败');
+}
+
+function ensureStyles() {
+    if (document.getElementById('xiaobaix-sd-draw-style')) return;
+    const style = document.createElement('style');
+    style.id = 'xiaobaix-sd-draw-style';
+    style.textContent = `
+#xiaobaix-sd-draw-overlay{position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;z-index:99999!important;display:none;overflow:hidden!important}
+#xiaobaix-sd-draw-overlay .sd-draw-backdrop{position:absolute;inset:0;background:#0d1117}
+#xiaobaix-sd-draw-overlay .sd-draw-wrap{position:absolute;z-index:1;inset:0;width:100vw;height:100vh;overflow:auto;color:var(--SmartThemeBodyColor,#eee)}
+`;
+    document.head.appendChild(style);
+}
+
+async function createOverlay() {
+    if (overlayElement) return overlayElement;
+    ensureStyles();
+
+    overlayElement = document.createElement('div');
+    overlayElement.id = 'xiaobaix-sd-draw-overlay';
+    overlayElement.innerHTML = `
+        <div class="sd-draw-backdrop"></div>
+        <div class="sd-draw-wrap"></div>
+    `;
+    document.body.appendChild(overlayElement);
+
+    const html = await fetch(HTML_PATH, { cache: 'no-cache' }).then(r => r.text());
+    // Packaged extension HTML, loaded from our own module directory.
+    // eslint-disable-next-line no-unsanitized/property
+    overlayElement.querySelector('.sd-draw-wrap').innerHTML = html;
+    bindOverlayEvents();
+    fillForm(getSettings());
+
+    resizeHandler = () => {
+        if (overlayElement?.style.display !== 'none') {
+            overlayElement.style.height = `${window.innerHeight}px`;
+        }
+    };
+    window.addEventListener('resize', resizeHandler);
+    window.visualViewport?.addEventListener('resize', resizeHandler);
+
+    return overlayElement;
+}
+
+function bindOverlayEvents() {
+    if (!overlayElement || eventsBound) return;
+    eventsBound = true;
+    overlayElement.querySelector('.sd-draw-backdrop')?.addEventListener('click', hideSettings);
+    overlayElement.querySelector('#sd-draw-close')?.addEventListener('click', hideSettings);
+    overlayElement.querySelectorAll('[data-sd-view]').forEach((button) => {
+        button.addEventListener('click', () => switchSettingsView(button.dataset.sdView || 'test'));
+    });
+    overlayElement.querySelector('#sd-gallery-refresh')?.addEventListener('click', async () => {
+        await renderGalleryManagement();
+    });
+    overlayElement.querySelectorAll('[data-sd-mode]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            const nextMode = button.dataset.sdMode === 'auto' ? 'auto' : 'manual';
+            const settings = saveSettings({ ...getSettings(), mode: nextMode });
+            fillForm(settings);
+            try {
+                const fp = await import('./floating-panel.js');
+                fp.updateAutoModeUI?.();
+            } catch {}
+        });
+    });
+    overlayElement.querySelector('#sd-show-floor')?.addEventListener('change', async (event) => {
+        const checked = event.target.checked === true;
+        const settings = saveSettings({ ...getSettings(), showFloorButton: checked });
+        fillForm(settings);
+        try {
+            const fp = await import('./floating-panel.js');
+            fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
+        } catch {}
+    });
+    overlayElement.querySelector('#sd-show-floating')?.addEventListener('change', async (event) => {
+        const checked = event.target.checked === true;
+        const settings = saveSettings({ ...getSettings(), showFloatingButton: checked });
+        fillForm(settings);
+        try {
+            const fp = await import('./floating-panel.js');
+            fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
+        } catch {}
+    });
+    overlayElement.querySelector('#sd-draw-save')?.addEventListener('click', async () => {
+        const ok = await saveAllSettings({ notify: true });
+        if (ok) fillForm(getSettings());
+    });
+    overlayElement.querySelector('#sd-draw-test')?.addEventListener('click', async () => {
+        await saveAllSettings({ notify: false });
+        await testConnection();
+    });
+    overlayElement.querySelector('#sd-draw-refresh-options')?.addEventListener('click', async () => {
+        await saveAllSettings({ notify: false });
+        await refreshSdOptions({ notify: true });
+    });
+    overlayElement.querySelector('#sd-draw-test-generate')?.addEventListener('click', async () => {
+        await saveAllSettings({ notify: false });
+        await testGenerateFromSettingsPanel();
+    });
+    overlayElement.querySelector('#sd-draw-preset-select')?.addEventListener('change', () => {
+        const settings = saveSettings({ ...getSettings(), selectedPresetId: getValue('sd-draw-preset-select') });
+        fillForm(settings);
+    });
+    overlayElement.querySelector('#sd-draw-preset-add')?.addEventListener('click', () => {
+        const settings = getSettings();
+        const preset = {
+            ...readPresetFromForm(),
+            id: `preset-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            name: prompt('输入预设名称：', '新预设') || '新预设',
+        };
+        saveSettings({ ...settings, presets: [...settings.presets, preset], selectedPresetId: preset.id });
+        fillForm(getSettings());
+    });
+    overlayElement.querySelector('#sd-draw-preset-rename')?.addEventListener('click', () => {
+        const settings = getSettings();
+        const preset = getActivePreset(settings);
+        const name = prompt('输入新名称：', preset.name || '预设');
+        if (!name) return;
+        saveSettings({
+            ...settings,
+            presets: settings.presets.map(item => item.id === preset.id ? { ...item, name } : item),
+        });
+        fillForm(getSettings());
+    });
+    overlayElement.querySelector('#sd-draw-preset-delete')?.addEventListener('click', () => {
+        const settings = getSettings();
+        if (settings.presets.length <= 1) {
+            toastr.warning('至少保留一个预设');
+            return;
+        }
+        const preset = getActivePreset(settings);
+        if (!confirm(`删除预设「${preset.name}」？`)) return;
+        const presets = settings.presets.filter(item => item.id !== preset.id);
+        saveSettings({ ...settings, presets, selectedPresetId: presets[0]?.id });
+        fillForm(getSettings());
+    });
+    overlayElement.querySelector('#sd-draw-preset-save')?.addEventListener('click', () => {
+        const settings = getSettings();
+        const preset = getActivePreset(settings);
+        const nextPreset = { ...readPresetFromForm(), id: preset.id, name: preset.name };
+        saveSettings({
+            ...settings,
+            ...readForm(),
+            presets: settings.presets.map(item => item.id === preset.id ? nextPreset : item),
+            selectedPresetId: preset.id,
+        });
+        fillForm(getSettings());
+        toastr.success('预设已保存');
+    });
+    overlayElement.querySelector('#sd-shared-char-add')?.addEventListener('click', () => {
+        addCharacterTagDraft();
+    });
+    overlayElement.querySelector('#sd-shared-open-novel-settings')?.addEventListener('click', async () => {
+        await saveAllSettings({ notify: false });
+        await openNovelDrawSettings();
+    });
+    overlayElement.querySelectorAll('[data-sd-save-shared]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            await saveAllSettings({ notify: true });
+        });
+    });
+    overlayElement.querySelector('#sd-shared-character-list')?.addEventListener('click', (event) => {
+        const deleteButton = event.target.closest('[data-sd-char-delete]');
+        if (!deleteButton) return;
+        deleteCharacterTagDraft(deleteButton.dataset.sdCharDelete);
+    });
+}
+
+function fillForm(settings) {
+    const preset = getActivePreset(settings);
+    const params = getEffectiveParams(settings);
+    fillPresetSelect(settings);
+    const showFloor = document.getElementById('sd-show-floor');
+    const showFloating = document.getElementById('sd-show-floating');
+    if (showFloor) showFloor.checked = settings.showFloorButton !== false;
+    if (showFloating) showFloating.checked = settings.showFloatingButton !== false;
+    overlayElement?.querySelectorAll('[data-sd-mode]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.sdMode === (settings.mode === 'auto' ? 'auto' : 'manual'));
+    });
+    setValue('sd-draw-host', settings.host);
+    setValue('sd-draw-auth', settings.auth);
+    setValue('sd-draw-timeout', settings.timeout);
+    setValue('sd-draw-steps', preset.steps ?? '');
+    setValue('sd-draw-cfg', preset.cfg_scale ?? '');
+    setValue('sd-draw-seed', Number.isFinite(Number(preset.seed)) && Number(preset.seed) >= 0 ? preset.seed : '');
+    setValue('sd-draw-width', params.width);
+    setValue('sd-draw-height', params.height);
+    setValue('sd-draw-positive-prefix', preset.positivePrefix);
+    setValue('sd-draw-negative-prefix', preset.negativePrefix);
+    setSelectValue('sd-draw-model', preset.model || '');
+    setSelectValue('sd-draw-sampler', preset.sampler_name || '');
+    fillSharedNovelForm();
+    refreshSettingsSummary();
+}
+
+function readForm() {
+    const current = getSettings();
+    const preset = readPresetFromForm();
+    return {
+        ...current,
+        host: getValue('sd-draw-host').trim(),
+        auth: getValue('sd-draw-auth').trim(),
+        timeout: normalizeNumber(getValue('sd-draw-timeout'), current.timeout, 10000, 600000),
+        defaultParams: {
+            ...(current.defaultParams || {}),
+            steps: preset.steps,
+            cfg_scale: preset.cfg_scale,
+            width: preset.width,
+            height: preset.height,
+            seed: preset.seed,
+            sampler_name: preset.sampler_name,
+        },
+        selectedModel: preset.model,
+        positivePrefix: preset.positivePrefix,
+        negativePrefix: preset.negativePrefix,
+        presets: current.presets.map(item => item.id === current.selectedPresetId ? { ...preset, id: item.id, name: item.name } : item),
+    };
+}
+
+function readPresetFromForm() {
+    const settings = getSettings();
+    const current = getActivePreset(settings);
+    return {
+        ...current,
+        model: getValue('sd-draw-model').trim(),
+        sampler_name: getValue('sd-draw-sampler').trim(),
+        width: normalizeNumber(getValue('sd-draw-width'), 512, 64, 2048),
+        height: normalizeNumber(getValue('sd-draw-height'), 512, 64, 2048),
+        steps: normalizeOptionalNumber(getValue('sd-draw-steps'), 1, 150),
+        cfg_scale: normalizeOptionalNumber(getValue('sd-draw-cfg'), 1, 30),
+        seed: getValue('sd-draw-seed') === '' ? -1 : Number(getValue('sd-draw-seed')),
+        positivePrefix: getValue('sd-draw-positive-prefix'),
+        negativePrefix: getValue('sd-draw-negative-prefix'),
+    };
+}
+
+function fillPresetSelect(settings = getSettings()) {
+    const select = document.getElementById('sd-draw-preset-select');
+    if (!select) return;
+    select.textContent = '';
+    settings.presets.forEach(preset => {
+        const option = document.createElement('option');
+        option.value = preset.id;
+        option.textContent = preset.name || preset.id;
+        select.appendChild(option);
+    });
+    select.value = settings.selectedPresetId;
+}
+
+function switchSettingsView(viewName = 'test') {
+    const normalized = SD_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
+    overlayElement?.querySelectorAll('[data-sd-view]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.sdView === normalized);
+    });
+    overlayElement?.querySelectorAll('[data-sd-view-panel]').forEach((panel) => {
+        panel.classList.toggle('active', panel.dataset.sdViewPanel === normalized);
+    });
+    if (normalized === 'gallery') {
+        void renderGalleryManagement();
+    }
+}
+
+function formatBytes(bytes = 0) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 MB';
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function renderGalleryManagement() {
+    const container = document.getElementById('sd-gallery-container');
+    const empty = document.getElementById('sd-gallery-empty');
+    const countEl = document.getElementById('sd-gallery-count');
+    const sizeEl = document.getElementById('sd-gallery-size');
+    if (!container || !empty || !countEl || !sizeEl) return;
+
+    container.textContent = '加载中...';
+    empty.style.display = 'none';
+
+    let summary = {};
+    try {
+        summary = await getGallerySummary();
+    } catch (error) {
+        console.warn('[SdDraw] getGallerySummary failed:', error);
+    }
+
+    const chars = Object.keys(summary);
+    const totalCount = chars.reduce((sum, charName) => sum + (summary[charName]?.count || 0), 0);
+    const totalSize = chars.reduce((sum, charName) => sum + (summary[charName]?.totalSize || 0), 0);
+    countEl.textContent = String(totalCount);
+    sizeEl.textContent = formatBytes(totalSize);
+
+    if (!chars.length) {
+        container.textContent = '';
+        empty.style.display = 'block';
+        return;
+    }
+
+    chars.sort((a, b) => (summary[b].latestTimestamp || 0) - (summary[a].latestTimestamp || 0));
+    container.replaceChildren();
+
+    for (const charName of chars) {
+        const charSummary = summary[charName];
+        const slots = await getCharacterPreviews(charName).catch(() => ({}));
+        const slotIds = Object.keys(slots).sort((a, b) => ((slots[b]?.[0]?.timestamp || 0) - (slots[a]?.[0]?.timestamp || 0)));
+
+        const card = document.createElement('div');
+        card.className = 'gallery-char-card';
+
+        const head = document.createElement('div');
+        head.className = 'gallery-char-head';
+        const title = document.createElement('div');
+        title.className = 'gallery-char-name';
+        title.textContent = charName;
+        const meta = document.createElement('div');
+        meta.className = 'gallery-char-meta';
+        meta.textContent = `${charSummary.count || 0} 张 · ${slotIds.length} 组 · ${formatBytes(charSummary.totalSize || 0)}`;
+        head.append(title, meta);
+
+        const grid = document.createElement('div');
+        grid.className = 'gallery-slots';
+
+        slotIds.slice(0, 8).forEach((slotId, index) => {
+            const latest = slots[slotId]?.[0];
+            if (!latest) return;
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'gallery-slot-btn';
+            button.addEventListener('click', async () => {
+                await openGallery(slotId, Number(latest.messageId || 0), buildSharedGalleryCallbacks(slotId, Number(latest.messageId || 0)));
+            });
+
+            const img = document.createElement('img');
+            img.className = 'gallery-slot-thumb';
+            img.src = latest.savedUrl || `data:image/png;base64,${latest.base64}`;
+            img.alt = '';
+
+            const label = document.createElement('div');
+            label.className = 'gallery-slot-title';
+            label.textContent = `图组 ${index + 1}`;
+
+            const sub = document.createElement('div');
+            sub.className = 'gallery-slot-sub';
+            sub.textContent = `${slots[slotId]?.length || 1} 个版本`;
+
+            button.append(img, label, sub);
+            grid.appendChild(button);
+        });
+
+        card.append(head, grid);
+        container.appendChild(card);
+    }
+}
+
+function getNovelCharacterTagsFromForm() {
+    return Array.from(overlayElement?.querySelectorAll('.sd-char-card') || []).map((card, index) => ({
+        id: card.dataset.characterId || `sd-char-${Date.now()}-${index}`,
+        name: String(card.querySelector('[data-sd-char-field="name"]')?.value || '').trim(),
+        aliases: String(card.querySelector('[data-sd-char-field="aliases"]')?.value || '')
+            .split(',')
+            .map(item => item.trim())
+            .filter(Boolean),
+        type: String(card.querySelector('[data-sd-char-field="type"]')?.value || 'girl').trim() || 'girl',
+        appearance: String(card.querySelector('[data-sd-char-field="appearance"]')?.value || '').trim(),
+        danbooruTag: String(card.querySelector('[data-sd-char-field="danbooruTag"]')?.value || '').trim(),
+    })).filter((item) => item.name || item.appearance || item.danbooruTag || item.aliases.length);
+}
+
+function renderCharacterTagList(tags = []) {
+    const list = overlayElement?.querySelector('#sd-shared-character-list');
+    if (!list) return;
+    list.textContent = '';
+    if (!tags.length) {
+        const empty = document.createElement('div');
+        empty.className = 'char-empty sd-char-empty';
+        const icon = document.createElement('i');
+        icon.className = 'fa-solid fa-user-plus';
+        const title = document.createElement('strong');
+        title.textContent = '暂无角色配置';
+        const desc = document.createElement('p');
+        desc.textContent = '点击左侧“添加角色”，开始建立你的共享角色标签库';
+        empty.append(icon, title, desc);
+        list.appendChild(empty);
+        return;
+    }
+
+    tags.forEach((tag, index) => {
+        const card = document.createElement('div');
+        card.className = 'sd-char-card';
+        card.dataset.characterId = String(tag.id || `sd-char-${index + 1}`);
+
+        const top = document.createElement('div');
+        top.className = 'sd-char-card-header';
+        const title = document.createElement('div');
+        title.className = 'sd-char-card-title';
+        const titleIcon = document.createElement('i');
+        titleIcon.className = 'fa-solid fa-user';
+        const titleText = document.createElement('span');
+        titleText.textContent = `角色 ${index + 1}`;
+        title.append(titleIcon, titleText);
+        const delButton = document.createElement('button');
+        delButton.className = 'btn btn-danger btn-sm';
+        delButton.type = 'button';
+        delButton.dataset.sdCharDelete = card.dataset.characterId;
+        const delIcon = document.createElement('i');
+        delIcon.className = 'fa-solid fa-trash';
+        const delText = document.createElement('span');
+        delText.textContent = '删除';
+        delButton.append(delIcon, delText);
+        top.append(title, delButton);
+
+        const grid = document.createElement('div');
+        grid.className = 'form-row';
+        grid.append(
+            createCharacterField('角色名', 'name', tag.name || '', '例如 芙蕾雅'),
+            createCharacterField('类型', 'type', tag.type || 'girl', '例如 girl / boy'),
+        );
+
+        card.append(
+            top,
+            grid,
+            createCharacterField('别名（逗号分隔）', 'aliases', (tag.aliases || []).join(', '), '例如 小芙, Freya'),
+            createCharacterField('外观标签', 'appearance', tag.appearance || '', '会拼进角色外观提示词', { multiline: true }),
+            createCharacterField('Danbooru Tag', 'danbooruTag', tag.danbooruTag || '', '可选，用于兼容原有角色提示逻辑'),
+        );
+        list.appendChild(card);
+    });
+}
+
+function createCharacterField(labelText, fieldName, value, placeholder, options = {}) {
+    const field = document.createElement('div');
+    field.className = 'form-group';
+
+    const label = document.createElement('label');
+    label.className = 'form-label';
+    label.textContent = labelText;
+    field.appendChild(label);
+
+    const input = document.createElement(options.multiline ? 'textarea' : 'input');
+    input.className = 'input';
+    input.dataset.sdCharField = fieldName;
+    input.placeholder = placeholder;
+    if (options.multiline) {
+        input.rows = 3;
+        input.textContent = String(value || '');
+    } else {
+        input.type = 'text';
+        input.value = String(value || '');
+    }
+    field.appendChild(input);
+    return field;
+}
+
+function fillSharedNovelForm() {
+    const novelSettings = getNovelDrawSettings();
+    const promptPreset = getNovelDrawPromptPreset?.();
+    setSelectValue('sd-shared-llm-provider', novelSettings.llmApi?.provider || 'st');
+    setValue('sd-shared-llm-url', novelSettings.llmApi?.url || '');
+    setValue('sd-shared-llm-key', novelSettings.llmApi?.key || '');
+    setValue('sd-shared-llm-model', novelSettings.llmApi?.model || '');
+    const promptPresetNameEl = overlayElement?.querySelector('#sd-shared-prompt-preset-name');
+    if (promptPresetNameEl) {
+        promptPresetNameEl.textContent = promptPreset?.name || '默认';
+    }
+    renderCharacterTagList(novelSettings.characterTags || []);
+}
+
+async function saveSharedNovelSettings({ notify = false } = {}) {
+    const llmApi = {
+        provider: getValue('sd-shared-llm-provider').trim() || 'st',
+        url: getValue('sd-shared-llm-url').trim(),
+        key: getValue('sd-shared-llm-key').trim(),
+        model: getValue('sd-shared-llm-model').trim(),
+    };
+    const characterTags = getNovelCharacterTagsFromForm();
+    return await updateNovelDrawSettingsPersistent((settings) => {
+        settings.llmApi = {
+            ...(settings.llmApi || {}),
+            ...llmApi,
+        };
+        settings.characterTags = characterTags;
+    }, '共享规划设置已保存', { notify, silent: !notify });
+}
+
+async function saveAllSettings({ notify = false } = {}) {
+    saveSettings(readForm());
+    const ok = await saveSharedNovelSettings({ notify: false });
+    try {
+        const fp = await import('./floating-panel.js');
+        const settings = getSettings();
+        fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
+        fp.updateAutoModeUI?.();
+    } catch {}
+    if (ok && notify) {
+        toastr.success('SD WebUI 与共享规划设置已保存');
+    } else if (!ok && notify) {
+        toastr.error('共享规划设置保存失败');
+    }
+    refreshSettingsSummary();
+    return ok;
+}
+
+function addCharacterTagDraft() {
+    const current = getNovelCharacterTagsFromForm();
+    current.push({
+        id: `sd-char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: '',
+        aliases: [],
+        type: 'girl',
+        appearance: '',
+        danbooruTag: '',
+    });
+    renderCharacterTagList(current);
+    refreshSettingsSummary();
+}
+
+function deleteCharacterTagDraft(characterId = '') {
+    const current = getNovelCharacterTagsFromForm().filter((item) => String(item.id || '') !== String(characterId || ''));
+    renderCharacterTagList(current);
+    refreshSettingsSummary();
+}
+
+function refreshSettingsSummary() {
+    const settings = getSettings();
+    const activePreset = getActivePreset(settings);
+    const llmProvider = getValue('sd-shared-llm-provider').trim() || getNovelDrawSettings().llmApi?.provider || 'st';
+    const draftCharacterCards = overlayElement?.querySelectorAll('.sd-char-card')?.length ?? 0;
+    const characterCount = draftCharacterCards > 0
+        ? draftCharacterCards
+        : (overlayElement?.querySelector('#sd-shared-character-list .sd-char-empty')
+            ? 0
+            : (getNovelDrawSettings().characterTags?.length || 0));
+    const presetEl = overlayElement?.querySelector('#sd-draw-summary-preset');
+    const charEl = overlayElement?.querySelector('#sd-draw-summary-characters');
+    const charSideEl = overlayElement?.querySelector('#sd-draw-summary-characters-side');
+    const charResultEl = overlayElement?.querySelector('#sd-draw-character-result-count');
+    const llmEl = overlayElement?.querySelector('#sd-draw-summary-llm');
+    if (presetEl) presetEl.textContent = activePreset?.name || '默认';
+    if (charEl) charEl.textContent = String(characterCount);
+    if (charSideEl) charSideEl.textContent = String(characterCount);
+    if (charResultEl) charResultEl.textContent = `${characterCount} / ${characterCount}`;
+    if (llmEl) llmEl.textContent = llmProvider === 'st' ? 'ST' : llmProvider;
+}
+
+
+function setValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value ?? '';
+}
+
+function getValue(id) {
+    return document.getElementById(id)?.value ?? '';
+}
+
+function setSelectValue(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const normalized = String(value ?? '');
+    if (normalized && !Array.from(el.options).some(opt => opt.value === normalized)) {
+        const option = document.createElement('option');
+        option.value = normalized;
+        option.textContent = normalized;
+        el.appendChild(option);
+    }
+    el.value = normalized;
+}
+
+function populateSelect(id, options, { value, emptyLabel = '' } = {}) {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const current = value ?? select.value;
+    select.textContent = '';
+    if (emptyLabel) {
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = emptyLabel;
+        select.appendChild(empty);
+    }
+    for (const item of options) {
+        const option = document.createElement('option');
+        option.value = item.value;
+        option.textContent = item.label;
+        select.appendChild(option);
+    }
+    setSelectValue(id, current);
+}
+
+async function refreshSdOptions({ notify = false } = {}) {
+    try {
+        const [models, samplers] = await Promise.all([
+            fetchSdModels(),
+            fetchSdSamplers(),
+        ]);
+        const settings = getSettings();
+        populateSelect('sd-draw-model', models.map(model => ({
+            value: model.title || model.model_name || model.name || '',
+            label: model.title || model.model_name || model.name || '(unknown)',
+        })).filter(item => item.value), {
+            value: settings.selectedModel || '',
+            emptyLabel: '使用 SD 当前模型',
+        });
+        populateSelect('sd-draw-sampler', samplers.map(sampler => ({
+            value: sampler.name || '',
+            label: sampler.name || '(unknown)',
+        })).filter(item => item.value), {
+            value: getActivePreset(settings).sampler_name || '',
+            emptyLabel: '使用 SD 当前采样器',
+        });
+        if (notify) toastr.success('SD 模型和采样器已刷新');
+        return true;
+    } catch (error) {
+        if (notify) toastr.error(error?.message || '刷新失败', 'SD WebUI');
+        return false;
+    }
+}
+
+export async function openSettings() {
+    await loadNovelDrawSettings();
+    const overlay = await createOverlay();
+    fillForm(getSettings());
+    switchSettingsView('test');
+    overlay.style.height = `${window.innerHeight}px`;
+    overlay.style.display = 'block';
+    void refreshSdOptions();
+}
+
+function hideSettings() {
+    if (overlayElement) overlayElement.style.display = 'none';
+}
+
+function abortPendingRequest() {
+    try { pendingController?.abort(); } catch {}
+    pendingController = null;
+}
+
+async function testConnection() {
+    const settings = getSettings();
+    if (!settings.host) {
+        toastr.warning('请先填写 SD WebUI 地址');
+        return false;
+    }
+
+    abortPendingRequest();
+    pendingController = new AbortController();
+    const timeoutId = setTimeout(() => pendingController?.abort(), settings.timeout);
+
+    try {
+        const response = await fetch('/api/sd/ping', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ url: settings.host, auth: settings.auth }),
+            signal: pendingController.signal,
+        });
+
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(text || response.statusText || `HTTP ${response.status}`);
+        }
+
+        toastr.success('SD WebUI 连接成功');
+        return true;
+    } catch (error) {
+        const message = error?.name === 'AbortError'
+            ? '连接超时，请检查地址是否能被酒馆服务器访问'
+            : (error?.message || '无法连接 SD WebUI');
+        toastr.error(message, 'SD WebUI 连接失败');
+        return false;
+    } finally {
+        clearTimeout(timeoutId);
+        pendingController = null;
+    }
+}
+
+function composePrompt(prefix, prompt) {
+    return joinTags(prefix || '', prompt || '');
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function generateSlotId() {
+    return `slot-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function generateImgId() {
+    return `sd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function createGenerationJob(messageId) {
+    const key = String(messageId);
+    if (generationJobs.has(key)) {
+        throw new Error('该楼层已有任务进行中');
+    }
+    const job = { controller: new AbortController(), messageId };
+    generationJobs.set(key, job);
+    return job;
+}
+
+export function abortGeneration(messageId = null) {
+    if (messageId !== null && messageId !== undefined) {
+        const job = generationJobs.get(String(messageId));
+        if (!job) return false;
+        job.controller.abort();
+        generationJobs.delete(String(messageId));
+        return true;
+    }
+    let aborted = false;
+    for (const job of generationJobs.values()) {
+        job.controller.abort();
+        aborted = true;
+    }
+    generationJobs.clear();
+    abortPendingRequest();
+    return aborted;
+}
+
+export function isGenerating(messageId = null) {
+    if (messageId !== null && messageId !== undefined) return generationJobs.has(String(messageId));
+    return generationJobs.size > 0;
+}
+
+async function autoGenerateForLastAI() {
+    const settings = getSettings();
+    if (!moduleInitialized || settings.mode !== 'auto') return;
+
+    const ctx = getContext();
+    const chat = ctx.chat || [];
+    const lastIdx = chat.length - 1;
+    if (lastIdx < 0) return;
+
+    const lastMessage = chat[lastIdx];
+    if (!lastMessage || lastMessage.is_user) return;
+
+    const content = String(lastMessage.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '').trim();
+    if (content.length < 50) return;
+
+    lastMessage.extra ||= {};
+    if (lastMessage.extra.xb_sd_auto_done) return;
+    if (autoBusy || isGenerating(lastIdx)) return;
+
+    autoBusy = true;
+
+    try {
+        const fp = await import('./floating-panel.js');
+        const floatingOn = settings.showFloatingButton !== false;
+        const floorOn = settings.showFloorButton !== false;
+        const useFloatingOnly = floatingOn && floorOn;
+
+        const updateState = (state, data = {}) => {
+            if (useFloatingOnly || (floatingOn && !floorOn)) {
+                fp.setFloatingState?.(state, data);
+            } else if (floorOn) {
+                fp.setStateForMessage?.(lastIdx, state, data);
+            }
+        };
+
+        if (floorOn && !useFloatingOnly) {
+            const messageEl = document.querySelector(`.mes[mesid="${lastIdx}"]`);
+            if (messageEl) {
+                fp.ensureSdDrawPanel?.(messageEl, lastIdx, { force: true });
+            }
+        }
+
+        await generateAndInsertImages({
+            messageId: lastIdx,
+            onStateChange: (state, data) => {
+                switch (state) {
+                    case 'queued': updateState(fp.FloatState?.QUEUED, data); break;
+                    case 'llm': updateState(fp.FloatState?.LLM); break;
+                    case 'gen':
+                    case 'progress': updateState(fp.FloatState?.GEN, data); break;
+                    case 'cooldown': updateState(fp.FloatState?.COOLDOWN, data); break;
+                    case 'success':
+                        updateState(
+                            (data.aborted && data.success === 0) ? fp.FloatState?.IDLE
+                                : (data.success < data.total) ? fp.FloatState?.PARTIAL
+                                    : fp.FloatState?.SUCCESS,
+                            data,
+                        );
+                        break;
+                }
+            },
+        });
+
+        lastMessage.extra.xb_sd_auto_done = true;
+    } catch (error) {
+        console.error('[SdDraw] 自动配图失败:', error);
+        try {
+            const fp = await import('./floating-panel.js');
+            const classified = classifyError(error);
+            const floatingOn = settings.showFloatingButton !== false;
+            const floorOn = settings.showFloorButton !== false;
+            const useFloatingOnly = floatingOn && floorOn;
+            if (useFloatingOnly || (floatingOn && !floorOn)) {
+                fp.setFloatingState?.(fp.FloatState?.ERROR, { error: classified });
+            } else if (floorOn) {
+                fp.setStateForMessage?.(lastIdx, fp.FloatState?.ERROR, { error: classified });
+            }
+        } catch {}
+    } finally {
+        autoBusy = false;
+    }
+}
+
+async function buildTasksFromMessage({ message, messageId, signal, promptOverride = '', negativePromptOverride = '' }) {
+    if (promptOverride.trim()) {
+        return [{
+            scene: promptOverride.trim(),
+            negative: negativePromptOverride.trim(),
+            chars: [],
+            anchor: '',
+        }];
+    }
+
+    await loadPromptTemplates();
+    await loadTagGuide();
+    await loadNovelDrawSettings();
+
+    const novelSettings = getNovelDrawSettings();
+    const rawText = String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '').trim();
+    const filterRules = novelSettings.messageFilterRules?.length
+        ? novelSettings.messageFilterRules
+        : DEFAULT_MESSAGE_FILTER_RULES;
+    const messageText = applyMessageFilterRules(rawText, filterRules);
+    if (!messageText) throw new Error('消息内容为空（可能被过滤规则清空）');
+
+    const presentCharacters = detectPresentCharacters(messageText, novelSettings.characterTags || []);
+    let worldbookEntries = null;
+    let customPrompts = null;
+
+    if (novelSettings.advancedMode) {
+        const activePromptPreset = getNovelDrawPromptPreset();
+        customPrompts = activePromptPreset ? {
+            topSystem: activePromptPreset.topSystem,
+            tagGuideContent: activePromptPreset.tagGuideContent,
+            userJsonFormat: activePromptPreset.userJsonFormat,
+        } : null;
+
+        if (novelSettings.worldbooks?.enabled && novelSettings.worldbooks.uploadedBooks?.length) {
+            const processor = new WorldbookProcessor();
+            const charNames = presentCharacters.map(c => c.name).join(' ');
+            const allEntries = novelSettings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
+            worldbookEntries = processor.processFromEntries({
+                entries: allEntries,
+                contextText: `${messageText} ${charNames}`,
+                keywordFilterMode: novelSettings.worldbooks.keywordFilterMode || 'auto',
+            });
+        }
+    }
+
+    let planRaw;
+    try {
+        const preset = getNovelDrawParamsPreset();
+        planRaw = await generateScenePlan({
+            messageText,
+            presentCharacters,
+            llmApi: novelSettings.llmApi,
+            useStream: novelSettings.useStream,
+            useWorldInfo: (novelSettings.advancedMode && novelSettings.worldbooks?.enabled) ? false : novelSettings.useWorldInfo,
+            customPrompts,
+            worldbookEntries,
+            timeout: novelSettings.timeout || 120000,
+            maxImages: preset.maxImages || 0,
+            maxCharactersPerImage: preset.maxCharactersPerImage || 0,
+            disablePrefill: !!novelSettings.disablePrefill,
+        });
+    } catch (error) {
+        if (signal.aborted) throw new Error('已取消');
+        if (error instanceof LLMServiceError) {
+            throw new Error(`场景分析失败: ${error.message}`);
+        }
+        throw error;
+    }
+
+    let tasks = parseImagePlan(planRaw);
+    if (!tasks.length) throw new Error('未解析到图片任务');
+
+    const preset = getNovelDrawParamsPreset();
+    const maxImg = preset.maxImages || 0;
+    const maxChar = preset.maxCharactersPerImage || 0;
+    if (maxImg > 0 && tasks.length > maxImg) tasks = tasks.slice(0, maxImg);
+    if (maxChar > 0) {
+        tasks = tasks.map(task => ({
+            ...task,
+            chars: Array.isArray(task.chars) ? task.chars.slice(0, maxChar) : [],
+        }));
+    }
+
+    console.log('[SdDraw] LLM plan ready for message %s: %d task(s)', messageId, tasks.length);
+    return tasks;
+}
+
+function buildPromptForTask(task, novelSettings, sdSettings, promptOverride = '', negativePromptOverride = '') {
+    if (promptOverride.trim()) {
+        return {
+            positive: composePrompt(sdSettings.positivePrefix, promptOverride),
+            negative: composePrompt(sdSettings.negativePrefix, negativePromptOverride || task.negative || ''),
+            characterPrompts: [],
+        };
+    }
+
+    const characterPrompts = assembleCharacterPrompts(task.chars || [], novelSettings.characterTags || []);
+    const charPositive = characterPrompts.map(item => item.prompt).filter(Boolean).join(', ');
+    const charNegative = characterPrompts.map(item => item.uc).filter(Boolean).join(', ');
+    return {
+        positive: joinTags(sdSettings.positivePrefix, task.scene, charPositive),
+        negative: joinTags(sdSettings.negativePrefix, negativePromptOverride, task.negative, charNegative),
+        characterPrompts,
+    };
+}
+
+async function persistChatSilently() {
+    const ctx = getContext();
+    if (ctx?.saveChat) await Promise.resolve(ctx.saveChat());
+}
+
+function setImageState(container, state) {
+    container.dataset.state = state;
+    const imgEl = container.querySelector('img');
+    const menuWrap = container.querySelector('.xb-nd-menu-wrap');
+    const isBusy = state === ImageState.SAVING || state === ImageState.REFRESHING;
+    if (imgEl) imgEl.style.opacity = isBusy ? '0.5' : '';
+    if (menuWrap) {
+        menuWrap.style.pointerEvents = isBusy ? 'none' : '';
+        menuWrap.style.opacity = isBusy ? '0.3' : '';
+    }
+    container.style.border = state === ImageState.PREVIEW ? '1px dashed rgba(255,152,0,0.35)' : 'none';
+    const dropdown = container.querySelector('.xb-nd-dropdown');
+    if (dropdown) {
+        const saveItem = dropdown.querySelector('[data-action="save-image"]');
+        if (state === ImageState.PREVIEW && !saveItem) {
+            dropdown.insertAdjacentHTML('afterbegin', '<button data-action="save-image" title="保存到服务器">💾</button>');
+        } else if (state !== ImageState.PREVIEW && saveItem) {
+            saveItem.remove();
+        }
+    }
+    container.querySelector('.xb-nd-indicator')?.remove();
+    if (state === ImageState.SAVING) container.insertAdjacentHTML('afterbegin', '<div class="xb-nd-indicator">💾 保存中...</div>');
+    else if (state === ImageState.REFRESHING) container.insertAdjacentHTML('afterbegin', '<div class="xb-nd-indicator">🔄 生成中...</div>');
+}
+
+function updateNavControls(container, currentIndex, total) {
+    const pill = container.querySelector('.xb-nd-nav-pill');
+    if (pill) {
+        pill.dataset.current = currentIndex;
+        pill.dataset.total = total;
+        const text = pill.querySelector('.xb-nd-nav-text');
+        if (text) text.textContent = `${total - currentIndex} / ${total}`;
+        const prevBtn = pill.querySelector('[data-action="nav-prev"]');
+        const nextBtn = pill.querySelector('[data-action="nav-next"]');
+        if (prevBtn) prevBtn.disabled = currentIndex >= total - 1;
+        if (nextBtn) {
+            nextBtn.disabled = false;
+            nextBtn.title = currentIndex === 0 ? '重新生成' : '下一版本';
+        }
+    }
+    const wrap = container.querySelector('.xb-nd-img-wrap');
+    if (wrap) wrap.dataset.total = total;
+}
+
+function syncContainerToPreview(container, preview, historyCount = 1, currentIndex = 0) {
+    const imgEl = container.querySelector('.xb-nd-img-wrap > img');
+    if (!imgEl || !preview) return;
+    imgEl.src = preview.savedUrl || `data:image/png;base64,${preview.base64}`;
+    container.dataset.imgId = preview.imgId;
+    container.dataset.tags = String(preview.tags || '');
+    container.dataset.positive = String(preview.positive || '');
+    container.dataset.currentIndex = String(currentIndex);
+    container.dataset.historyCount = String(historyCount);
+    setImageState(container, preview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
+    updateNavControls(container, currentIndex, historyCount);
+}
+
+async function navigateToImage(container, targetIndex) {
+    const slotId = container.dataset.slotId;
+    const historyCount = parseInt(container.dataset.historyCount) || 1;
+    const currentIndex = parseInt(container.dataset.currentIndex) || 0;
+    if (targetIndex < 0 || targetIndex >= historyCount || targetIndex === currentIndex) return;
+    const previews = await getPreviewsBySlot(slotId);
+    const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
+    if (targetIndex >= successPreviews.length) return;
+    const targetPreview = successPreviews[targetIndex];
+    const imgEl = container.querySelector('.xb-nd-img-wrap > img');
+    if (!imgEl || !targetPreview) return;
+    const direction = targetIndex > currentIndex ? 'left' : 'right';
+    imgEl.classList.add(`sliding-${direction}`);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    syncContainerToPreview(container, targetPreview, historyCount, targetIndex);
+    await setSlotSelection(slotId, targetPreview.imgId);
+    imgEl.classList.remove(`sliding-${direction}`);
+    imgEl.classList.add(`sliding-in-${direction === 'left' ? 'left' : 'right'}`);
+    await new Promise(resolve => setTimeout(resolve, 250));
+    imgEl.classList.remove('sliding-in-left', 'sliding-in-right');
+}
+
+function buildSharedGalleryCallbacks(slotId, messageId) {
+    return {
+        onUse: (sid, msgId, selected, historyCount) => {
+            const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
+            if (cont) {
+                syncContainerToPreview(cont, selected, historyCount, 0);
+            }
+        },
+        onSave: async (imgId, url) => {
+            const cont = document.querySelector(`.xb-nd-img[data-img-id="${imgId}"]`);
+            if (cont) {
+                const img = cont.querySelector('img');
+                if (img) img.src = url;
+                setImageState(cont, ImageState.SAVED);
+            }
+        },
+        onDelete: async (sid, deletedImgId, remainingPreviews) => {
+            const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
+            if (cont && cont.dataset.imgId === deletedImgId && remainingPreviews.length > 0) {
+                syncContainerToPreview(cont, remainingPreviews[0], remainingPreviews.length, 0);
+            }
+        },
+        onBecameEmpty: async (sid, msgId, lastImageInfo = {}) => {
+            const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
+            if (cont) {
+                // Template-only UI markup built locally.
+                // eslint-disable-next-line no-unsanitized/property
+                cont.outerHTML = buildFailedPlaceholderHtml({
+                    slotId: sid,
+                    messageId: msgId,
+                    tags: lastImageInfo.tags || '',
+                    positive: lastImageInfo.positive || '',
+                    errorType: '图片已删除',
+                    errorMessage: '点击重试可重新生成',
+                });
+            }
+            await storeFailedPlaceholder({
+                slotId: sid,
+                messageId: msgId,
+                tags: lastImageInfo.tags || '',
+                positive: lastImageInfo.positive || '',
+                errorType: 'deleted',
+                errorMessage: '图片已删除，点击重试可重新生成',
+            }).catch(() => {});
+            if (document.getElementById('sd-gallery-container')) {
+                await renderGalleryManagement();
+            }
+        },
+    };
+}
+
+function buildFailedPlaceholderHtml({ slotId, messageId, tags, positive, errorType, errorMessage }) {
+    const escapedTags = escapeHtml(tags || '');
+    const escapedPositive = escapeHtml(positive || '');
+    return `<div class="xb-nd-img" data-slot-id="${slotId}" data-tags="${escapedTags}" data-positive="${escapedPositive}" data-mesid="${messageId}" data-state="failed" style="margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border:1px dashed rgba(248,113,113,0.5);border-radius:14px;padding:20px;background:rgba(248,113,113,0.05);">
+<div class="xb-nd-failed-icon">⚠️</div>
+<div class="xb-nd-failed-title">${escapeHtml(errorType || '生成失败')}</div>
+<div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '点击重试')}</div>
+<div class="xb-nd-failed-btns">
+    <button class="xb-nd-retry-btn" data-action="retry-image">🔄 重新生成</button>
+    <button class="xb-nd-edit-btn" data-action="edit-tags">✏️ 编辑TAG</button>
+    <button class="xb-nd-remove-btn" data-action="remove-placeholder">🗑️ 移除</button>
+</div>
+<div class="xb-nd-edit" style="display:none;margin-top:12px;text-align:left;">
+    <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:6px;">编辑 TAG（场景描述）</div>
+    <textarea class="xb-nd-edit-input">${escapeHtml(tags || '')}</textarea>
+    <div style="display:flex;gap:6px;margin-top:8px;">
+        <button data-action="save-tags-retry" style="flex:1;padding:6px 12px;background:rgba(212,165,116,0.3);border:1px solid rgba(212,165,116,0.5);border-radius:6px;color:#fff;font-size:12px;cursor:pointer;">保存并重试</button>
+        <button data-action="cancel-edit" style="padding:6px 12px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;font-size:12px;cursor:pointer;">取消</button>
+    </div>
+</div>
+</div>`;
+}
+
+async function handleImageDelegatedClick(event) {
+    const container = event.target?.closest?.('.xb-nd-img');
+    if (!container) {
+        document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => w.classList.remove('open'));
+        return;
+    }
+
+    const action = event.target?.closest?.('[data-action]')?.dataset?.action;
+    if (!action) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    if (action === 'toggle-menu') {
+        const wrap = container.querySelector('.xb-nd-menu-wrap');
+        document.querySelectorAll('.xb-nd-menu-wrap.open').forEach(w => {
+            if (w !== wrap) w.classList.remove('open');
+        });
+        wrap?.classList.toggle('open');
+        return;
+    }
+
+    if (action === 'open-gallery') {
+        await openGallery(
+            container.dataset.slotId,
+            Number(container.dataset.mesid),
+            buildSharedGalleryCallbacks(container.dataset.slotId, Number(container.dataset.mesid)),
+        );
+        return;
+    }
+
+    if (action === 'refresh-image' || action === 'nav-next') {
+        container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
+        const currentIndex = parseInt(container.dataset.currentIndex) || 0;
+        if (action === 'nav-next' && currentIndex > 0) {
+            await navigateToImage(container, currentIndex - 1);
+        } else {
+            await refreshSingleImage(container);
+        }
+        return;
+    }
+
+    if (action === 'nav-prev') {
+        const currentIndex = parseInt(container.dataset.currentIndex) || 0;
+        const historyCount = parseInt(container.dataset.historyCount) || 1;
+        if (currentIndex < historyCount - 1) {
+            await navigateToImage(container, currentIndex + 1);
+        }
+        return;
+    }
+
+    if (action === 'delete-image') {
+        container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
+        await deleteCurrentImage(container);
+        return;
+    }
+
+    if (action === 'retry-image') {
+        await retryFailedImage(container);
+        return;
+    }
+
+    if (action === 'edit-tags') {
+        container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
+        toggleEditPanel(container, true);
+        return;
+    }
+
+    if (action === 'cancel-edit') {
+        toggleEditPanel(container, false);
+        return;
+    }
+
+    if (action === 'save-tags') {
+        await saveEditedTags(container);
+        return;
+    }
+
+    if (action === 'save-tags-retry') {
+        await saveTagsAndRetry(container);
+        return;
+    }
+
+    if (action === 'save-image') {
+        container.querySelector('.xb-nd-menu-wrap')?.classList.remove('open');
+        await saveCurrentImage(container);
+        return;
+    }
+
+    if (action === 'remove-placeholder') {
+        await removePlaceholder(container);
+    }
+}
+
+function toggleEditPanel(container, show) {
+    const edit = container.querySelector('.xb-nd-edit');
+    if (edit) edit.style.display = show ? 'block' : 'none';
+}
+
+async function saveEditedTags(container) {
+    const input = container.querySelector('.xb-nd-edit-input');
+    if (!input) return;
+    container.dataset.tags = input.value || '';
+    toggleEditPanel(container, false);
+    toastr.success('TAG 已更新，重绘时会使用新内容');
+}
+
+async function refreshSingleImage(container) {
+    const slotId = container.dataset.slotId;
+    const messageId = Number(container.dataset.mesid);
+    const prompt = container.dataset.positive || container.dataset.tags || '';
+    if (!slotId || !prompt) return;
+
+    try {
+        container.classList.add('busy');
+        setImageState(container, ImageState.REFRESHING);
+        const settings = getSettings();
+        const params = getEffectiveParams(settings);
+        const base64 = await generateSdImageQueued({
+            prompt,
+            negativePrompt: params.negativePrefix || '',
+            params,
+        });
+        const imgId = generateImgId();
+        await storePreview({
+            imgId,
+            slotId,
+            messageId,
+            base64,
+            tags: container.dataset.tags || prompt,
+            positive: prompt,
+            negativePrompt: params.negativePrefix || '',
+            anchor: '',
+        });
+        await setSlotSelection(slotId, imgId);
+        const previews = await getPreviewsBySlot(slotId);
+        const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
+        const html = buildImageHtml({
+            slotId,
+            imgId,
+            url: `data:image/png;base64,${base64}`,
+            tags: container.dataset.tags || prompt,
+            positive: prompt,
+            messageId,
+            historyCount: Math.max(1, successPreviews.length),
+            currentIndex: 0,
+        });
+        const node = createNodeFromHtml(html);
+        if (node) container.replaceWith(node);
+        toastr.success('已重绘');
+    } catch (error) {
+        setImageState(container, ImageState.PREVIEW);
+        toastr.error(error?.message || '重绘失败', 'SD WebUI');
+    } finally {
+        container.classList.remove('busy');
+    }
+}
+
+async function retryFailedImage(container) {
+    const slotId = container.dataset.slotId;
+    const messageId = Number(container.dataset.mesid);
+    const tags = String(container.dataset.tags || '').trim();
+    if (!slotId) return;
+
+    // Template-only UI markup built locally.
+    // eslint-disable-next-line no-unsanitized/property
+    container.innerHTML = '<div style="padding:30px;text-align:center;color:rgba(255,255,255,0.6);"><div style="font-size:24px;margin-bottom:8px;">🎨</div><div>生成中...</div></div>';
+
+    let latestFailed = null;
+    try {
+        const settings = getSettings();
+        const params = getEffectiveParams(settings);
+        const failedPreviews = await getPreviewsBySlot(slotId);
+        latestFailed = failedPreviews.find(p => p.status === 'failed') || null;
+        const charPositive = (latestFailed?.characterPrompts || []).map(item => item?.prompt).filter(Boolean).join(', ');
+        const positive = joinTags(params.positivePrefix || '', tags, charPositive);
+        const negative = latestFailed?.negativePrompt || params.negativePrefix || '';
+
+        const base64 = await generateSdImageQueued({
+            prompt: positive,
+            negativePrompt: negative,
+            params,
+        });
+
+        const imgId = generateImgId();
+        await storePreview({
+            imgId,
+            slotId,
+            messageId,
+            base64,
+            tags,
+            positive,
+            characterPrompts: latestFailed?.characterPrompts || [],
+            negativePrompt: negative,
+            anchor: latestFailed?.anchor || '',
+        });
+        await deleteFailedRecordsForSlot(slotId);
+        await setSlotSelection(slotId, imgId);
+
+        // Template-only UI markup built locally.
+        // eslint-disable-next-line no-unsanitized/property
+        container.outerHTML = buildImageHtml({
+            slotId,
+            imgId,
+            url: `data:image/png;base64,${base64}`,
+            tags,
+            positive,
+            messageId,
+            state: ImageState.PREVIEW,
+            historyCount: 1,
+            currentIndex: 0,
+        });
+        toastr.success('图片生成成功');
+    } catch (error) {
+        const classified = classifyError(error) || ErrorType.UNKNOWN;
+        await storeFailedPlaceholder({
+            slotId,
+            messageId,
+            tags,
+            positive: String(container.dataset.positive || ''),
+            errorType: classified.code,
+            errorMessage: classified.desc,
+            characterPrompts: latestFailed?.characterPrompts || [],
+            negativePrompt: latestFailed?.negativePrompt || '',
+            anchor: latestFailed?.anchor || '',
+        }).catch(() => {});
+
+        // Template-only UI markup built locally.
+        // eslint-disable-next-line no-unsanitized/property
+        container.outerHTML = buildFailedPlaceholderHtml({
+            slotId,
+            messageId,
+            tags,
+            positive: String(container.dataset.positive || ''),
+            errorType: classified.label,
+            errorMessage: classified.desc,
+        });
+        toastr.error(classified.desc || '重试失败', 'SD WebUI');
+    }
+}
+
+async function saveTagsAndRetry(container) {
+    const input = container.querySelector('.xb-nd-edit-input');
+    if (!input) return;
+    const nextTags = input.value.trim();
+    if (!nextTags) {
+        alert('TAG 不能为空');
+        return;
+    }
+    container.dataset.tags = nextTags;
+    toggleEditPanel(container, false);
+    await retryFailedImage(container);
+}
+
+async function removePlaceholder(container) {
+    const slotId = container.dataset.slotId;
+    const messageId = Number(container.dataset.mesid);
+    if (!slotId) return;
+    if (!confirm('确定移除此占位符？')) return;
+
+    await deleteFailedRecordsForSlot(slotId).catch(() => {});
+    await clearSlotSelection(slotId).catch(() => {});
+    const ctx = getContext();
+    const message = ctx.chat?.[messageId];
+    if (message?.mes) {
+        message.mes = String(message.mes || '').replace(createPlaceholder(slotId), '').replace(/\n{3,}/g, '\n\n');
+        await persistChatSilently().catch(() => {});
+    }
+    container.remove();
+    toastr.success('占位符已移除');
+}
+
+async function deleteCurrentImage(container) {
+    const slotId = container.dataset.slotId;
+    const imgId = container.dataset.imgId;
+    const messageId = Number(container.dataset.mesid);
+    if (!slotId) return;
+
+    if (imgId) {
+        try { await deletePreview(imgId); } catch {}
+    }
+    const previews = await getPreviewsBySlot(slotId).catch(() => []);
+    if (!previews.some(item => item.status !== 'failed' && (item.base64 || item.savedUrl))) {
+        await clearSlotSelection(slotId).catch(() => {});
+        const ctx = getContext();
+        const message = ctx.chat?.[messageId];
+        if (message?.mes) {
+            message.mes = message.mes.replace(createPlaceholder(slotId), '').replace(/\n{3,}/g, '\n\n');
+            await persistChatSilently().catch(() => {});
+        }
+    }
+    container.remove();
+}
+
+async function saveCurrentImage(container) {
+    const imgId = container.dataset.imgId;
+    const slotId = container.dataset.slotId;
+    if (!imgId || !slotId) return;
+
+    try {
+        const previews = await getPreviewsBySlot(slotId);
+        const preview = previews.find(item => item.imgId === imgId) || previews[0];
+        if (!preview?.base64 && !preview?.savedUrl) throw new Error('图片缓存不存在');
+        if (preview.savedUrl) {
+            toastr.info('这张图已经保存到服务器');
+            return;
+        }
+
+        const ctx = getContext();
+        const charName = ctx.groupId
+            ? String(ctx.groups?.[ctx.groupId]?.id ?? 'group')
+            : String(ctx.characters?.[ctx.characterId]?.name || 'character');
+        const url = await saveBase64AsFile(preview.base64, charName, `sd_${imgId}`, 'png');
+        await updatePreviewSavedUrl(imgId, url);
+        const img = container.querySelector('img');
+        if (img) img.src = url;
+        container.dataset.state = 'saved';
+        toastr.success('图片已保存到服务器');
+    } catch (error) {
+        toastr.error(error?.message || '保存失败');
+    }
+}
+
+function createNodeFromHtml(html) {
+    const template = document.createElement('template');
+    // Local image HTML generated by buildImageHtml.
+    // eslint-disable-next-line no-unsanitized/property
+    template.innerHTML = String(html || '').trim();
+    return template.content.firstElementChild || null;
+}
+
+function setupImageDelegation() {
+    if (imageDelegationBound) return;
+    imageDelegationBound = true;
+    document.addEventListener('click', handleImageDelegatedClick, { capture: true });
+}
+
+function cleanupImageDelegation() {
+    if (!imageDelegationBound) return;
+    document.removeEventListener('click', handleImageDelegatedClick, { capture: true });
+    imageDelegationBound = false;
+}
+
+export async function generateAndInsertImages({
+    messageId,
+    promptOverride = '',
+    negativePromptOverride = '',
+    paramsOverride = {},
+    onStateChange,
+} = {}) {
+    const resolvedMessageId = Number.isFinite(Number(messageId)) ? Number(messageId) : findLastAIMessageId();
+    if (resolvedMessageId < 0) throw new Error('未找到可出图的 AI 消息');
+
+    const job = createGenerationJob(resolvedMessageId);
+    const signal = job.controller.signal;
+
+    try {
+        ensureNovelDrawStyles();
+        await openDB();
+        const ctx = getContext();
+        const initialChatId = ctx.chatId;
+        const message = ctx.chat?.[resolvedMessageId];
+        if (!message || message.is_user) throw new Error('消息不存在或不是 AI 消息');
+
+        onStateChange?.('llm', {});
+        const tasks = await buildTasksFromMessage({
+            message,
+            messageId: resolvedMessageId,
+            signal,
+            promptOverride,
+            negativePromptOverride,
+        });
+        if (signal.aborted) throw new Error('已取消');
+
+        const sdSettings = getSettings();
+        const novelSettings = getNovelDrawSettings();
+        const originalMes = message.mes;
+        message.mes = String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '');
+
+        onStateChange?.('gen', { current: 0, total: tasks.length });
+        const { messageFormatting } = await import('../../../../../../script.js');
+        const results = [];
+        let successCount = 0;
+        let requiresFinalDomSync = false;
+
+        for (let i = 0; i < tasks.length; i++) {
+            if (signal.aborted) break;
+            const currentCtx = getContext();
+            if (currentCtx.chatId !== initialChatId || currentCtx.chat?.[resolvedMessageId] !== message) break;
+
+            const task = tasks[i];
+            const slotId = generateSlotId();
+            const imgId = generateImgId();
+            const params = getEffectiveParams(sdSettings, paramsOverride);
+            const promptData = buildPromptForTask(task, novelSettings, {
+                positivePrefix: params.positivePrefix,
+                negativePrefix: params.negativePrefix,
+            }, promptOverride, negativePromptOverride);
+            let position = findAnchorPosition(message.mes, task.anchor);
+
+            onStateChange?.('progress', { current: i + 1, total: tasks.length });
+
+            let incrementalHtml = '';
+            try {
+                const base64 = await generateSdImageQueued({
+                    prompt: promptData.positive,
+                    negativePrompt: promptData.negative,
+                    params,
+                    signal,
+                    onQueueStateChange: (queueState, queueData) => {
+                        if (queueState === 'queued') {
+                            onStateChange?.('queued', { current: i + 1, total: tasks.length, ...queueData });
+                        }
+                        if (queueState === 'start') {
+                            onStateChange?.('progress', { current: i + 1, total: tasks.length });
+                        }
+                        if (queueState === 'cooldown' && i < tasks.length - 1) {
+                            onStateChange?.('cooldown', {
+                                duration: queueData.duration,
+                                nextIndex: i + 2,
+                                total: tasks.length,
+                            });
+                        }
+                    },
+                    cooldownMs: i < tasks.length - 1 ? FIXED_SD_REQUEST_DELAY_MS : 0,
+                });
+                await storePreview({
+                    imgId,
+                    slotId,
+                    messageId: resolvedMessageId,
+                    base64,
+                    tags: task.scene || promptOverride,
+                    positive: promptData.positive,
+                    characterPrompts: promptData.characterPrompts,
+                    negativePrompt: promptData.negative,
+                    anchor: task.anchor || '',
+                });
+                await setSlotSelection(slotId, imgId);
+                successCount++;
+                results.push({ slotId, imgId, success: true });
+                incrementalHtml = buildImageHtml({
+                    slotId,
+                    imgId,
+                    url: `data:image/png;base64,${base64}`,
+                    tags: task.scene || promptOverride,
+                    positive: promptData.positive,
+                    messageId: resolvedMessageId,
+                    state: ImageState.PREVIEW,
+                    historyCount: 1,
+                    currentIndex: 0,
+                });
+            } catch (error) {
+                if (signal.aborted) break;
+                const errorType = classifyError(error) || ErrorType.UNKNOWN;
+                await storeFailedPlaceholder({
+                    slotId,
+                    messageId: resolvedMessageId,
+                    tags: task.scene || promptOverride,
+                    positive: promptData.positive,
+                    errorType: errorType.code,
+                    errorMessage: errorType.desc,
+                    characterPrompts: promptData.characterPrompts,
+                    negativePrompt: promptData.negative,
+                    anchor: task.anchor || '',
+                });
+                results.push({ slotId, success: false, error: errorType });
+                incrementalHtml = buildFailedPlaceholderHtml({
+                    slotId,
+                    messageId: resolvedMessageId,
+                    tags: task.scene || promptOverride,
+                    positive: promptData.positive,
+                    errorType: errorType.label,
+                    errorMessage: errorType.desc,
+                });
+            }
+
+            if (signal.aborted) break;
+
+            const placeholder = createPlaceholder(slotId);
+            if (position >= 0) {
+                position = findNearestSentenceEnd(message.mes, position);
+                const before = message.mes.slice(0, position);
+                const after = message.mes.slice(position);
+                let insertText = placeholder;
+                if (before.length > 0 && !before.endsWith('\n')) insertText = `\n${insertText}`;
+                if (after.length > 0 && !after.startsWith('\n')) insertText = `${insertText}\n`;
+                message.mes = before + insertText + after;
+            } else {
+                const needNewline = message.mes.length > 0 && !message.mes.endsWith('\n');
+                message.mes += `${needNewline ? '\n' : ''}${placeholder}`;
+            }
+
+            const inserted = insertPreviewIntoRenderedMessage({
+                messageId: resolvedMessageId,
+                slotId,
+                html: incrementalHtml,
+                anchor: task.anchor || '',
+            });
+            if (!inserted) {
+                requiresFinalDomSync = true;
+                const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, resolvedMessageId);
+                $(`[mesid="${resolvedMessageId}"] .mes_text`).html(formatted);
+                await renderPreviewsForMessage(resolvedMessageId);
+            }
+        }
+
+        if (signal.aborted) {
+            if (successCount === 0) message.mes = originalMes;
+            onStateChange?.('success', { success: successCount, total: tasks.length, aborted: true });
+            return { success: successCount, total: tasks.length, results, aborted: true };
+        }
+
+        const finalCtx = getContext();
+        const shouldUpdateDom = finalCtx.chatId === initialChatId && finalCtx.chat?.[resolvedMessageId] === message;
+        if (shouldUpdateDom && requiresFinalDomSync) {
+            const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, resolvedMessageId);
+            $(`[mesid="${resolvedMessageId}"] .mes_text`).html(formatted);
+            await renderPreviewsForMessage(resolvedMessageId);
+        }
+        if (shouldUpdateDom) {
+            await persistChatSilently().catch(() => {});
+        }
+
+        onStateChange?.('success', { success: successCount, total: tasks.length });
+        return { success: successCount, total: tasks.length, results };
+    } finally {
+        generationJobs.delete(String(resolvedMessageId));
+    }
+}
+
+async function testGenerateFromSettingsPanel() {
+    const prompt = getValue('sd-draw-test-prompt').trim();
+    if (!prompt) {
+        toastr.warning('请先填写测试生成 Prompt');
+        return false;
+    }
+
+    const resultEl = document.getElementById('sd-draw-test-result');
+    if (resultEl) resultEl.textContent = '生成中...';
+
+    abortPendingRequest();
+    pendingController = new AbortController();
+
+    try {
+        const settings = getSettings();
+        const effective = getEffectiveParams(settings);
+        const base64 = await generateSdImageQueued({
+            prompt: composePrompt(effective.positivePrefix, prompt),
+            negativePrompt: composePrompt(effective.negativePrefix, getValue('sd-draw-test-negative')),
+            params: effective,
+            signal: pendingController.signal,
+            onQueueStateChange: (state, data) => {
+                if (!resultEl) return;
+                if (state === 'queued') {
+                    resultEl.textContent = data?.ahead > 0 ? `排队中，前方 ${data.ahead} 个任务...` : '排队中...';
+                } else if (state === 'start') {
+                    resultEl.textContent = '生成中...';
+                }
+            },
+        });
+        if (resultEl) {
+            resultEl.replaceChildren();
+            const img = document.createElement('img');
+            img.src = `data:image/png;base64,${base64}`;
+            resultEl.appendChild(img);
+        }
+        toastr.success('测试生成成功');
+        return true;
+    } catch (error) {
+        if (resultEl) resultEl.textContent = '';
+        toastr.error(error?.message || '生成失败', 'SD WebUI');
+        return false;
+    } finally {
+        pendingController = null;
+    }
+}
+
+export async function initSdDraw() {
+    if (moduleInitialized) return;
+    moduleInitialized = true;
+    getSettings();
+    ensureNovelDrawStyles();
+    setupImageDelegation();
+    await openDB().catch(() => {});
+
+    const floatingPanel = await import('./floating-panel.js');
+    ensureSdDrawPanelRef = floatingPanel.ensureSdDrawPanel;
+    destroySdDrawPanelsRef = floatingPanel.destroySdDrawPanels;
+    floatingPanel.initFloatingPanel?.();
+
+    events.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => {
+        const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
+        if (messageId === undefined) return;
+        const ctx = getContext();
+        const message = ctx.chat?.[messageId];
+        if (!message || message.is_user) return;
+        const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+        if (messageEl) ensureSdDrawPanelRef?.(messageEl, Number(messageId));
+        void renderPreviewsForMessage(Number(messageId));
+    });
+
+    events.on(event_types.CHAT_CHANGED, () => {
+        setTimeout(() => {
+            const ctx = getContext();
+            ctx.chat?.forEach?.((message, messageId) => {
+                if (!message || message.is_user) return;
+                const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+                if (messageEl) ensureSdDrawPanelRef?.(messageEl, messageId);
+                void renderPreviewsForMessage(messageId);
+            });
+        }, 150);
+    });
+
+    events.on(event_types.MESSAGE_EDITED, (data) => {
+        const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
+        if (Number.isFinite(Number(messageId))) void renderPreviewsForMessage(Number(messageId));
+    });
+    events.on(event_types.MESSAGE_UPDATED, (data) => {
+        const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
+        if (Number.isFinite(Number(messageId))) void renderPreviewsForMessage(Number(messageId));
+    });
+    events.on(event_types.MESSAGE_SWIPED, (data) => {
+        const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
+        if (Number.isFinite(Number(messageId))) void renderPreviewsForMessage(Number(messageId));
+    });
+    events.on(event_types.GENERATION_ENDED, async () => {
+        try {
+            await autoGenerateForLastAI();
+        } catch (error) {
+            console.error('[SdDraw]', error);
+        }
+    });
+    events.on(event_types.GENERATION_STOPPED, () => {
+        abortGeneration();
+    });
+
+    setTimeout(() => {
+        const ctx = getContext();
+        ctx.chat?.forEach?.((message, messageId) => {
+            if (!message || message.is_user) return;
+            const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+            if (messageEl) ensureSdDrawPanelRef?.(messageEl, messageId);
+            void renderPreviewsForMessage(messageId);
+        });
+    }, 300);
+
+    window.xiaobaixSdDraw = {
+        openSettings,
+        getSettings,
+        testConnection,
+        fetchSdModels,
+        fetchSdSamplers,
+        generateSdImage,
+        generateAndInsertImages,
+        getEffectiveParams,
+        abortGeneration,
+        isEnabled: () => moduleInitialized,
+    };
+
+    window.registerModuleCleanup?.(MODULE_KEY, cleanupSdDraw);
+    console.log('[SdDraw] 模块已初始化');
+}
+
+export function cleanupSdDraw() {
+    if (!moduleInitialized && !overlayElement) return;
+    moduleInitialized = false;
+    events.cleanup();
+    cleanupImageDelegation();
+    abortPendingRequest();
+    abortGeneration();
+    hideSettings();
+    destroySdDrawPanelsRef?.();
+    ensureSdDrawPanelRef = null;
+    destroySdDrawPanelsRef = null;
+    autoBusy = false;
+
+    if (resizeHandler) {
+        window.removeEventListener('resize', resizeHandler);
+        window.visualViewport?.removeEventListener('resize', resizeHandler);
+        resizeHandler = null;
+    }
+
+    overlayElement?.remove();
+    overlayElement = null;
+    eventsBound = false;
+    delete window.xiaobaixSdDraw;
+    console.log('[SdDraw] 模块已清理');
+}
+
+export { classifyError, findLastAIMessageId };

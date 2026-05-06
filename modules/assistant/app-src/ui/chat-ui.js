@@ -222,7 +222,29 @@ export function createChatUi(deps) {
         return `tool-batch:fallback:${fallbackIndex}:${getRenderableMessageSignature(message)}`;
     }
 
-    function buildToolBatch(message, toolMessages, batchIndex) {
+    function buildAssistantToolPreface(message) {
+        const assistantContentText = String(message.content || '').trim();
+        if (!assistantContentText) return null;
+
+        const bubble = document.createElement('div');
+        bubble.className = 'xb-assistant-bubble role-assistant xb-assistant-tool-preface';
+
+        const metaRow = document.createElement('div');
+        metaRow.className = 'xb-assistant-meta-row';
+        const meta = document.createElement('div');
+        meta.className = 'xb-assistant-meta';
+        meta.textContent = '小白助手';
+        metaRow.appendChild(meta);
+
+        const content = document.createElement('div');
+        content.className = 'xb-assistant-content xb-assistant-markdown';
+        content.appendChild(buildSanitizedHtmlFragment(renderMarkdown(assistantContentText)));
+
+        bubble.append(metaRow, content);
+        return bubble;
+    }
+
+    function buildToolBatchDetails(message, toolMessages, batchIndex) {
         const details = document.createElement('details');
         const batchKey = buildToolBatchKey(message, batchIndex);
         details.className = 'xb-assistant-tool-batch';
@@ -246,14 +268,6 @@ export function createChatUi(deps) {
         const body = document.createElement('div');
         body.className = 'xb-assistant-tool-batch-body';
 
-        const assistantContentText = String(message.content || '').trim();
-        if (assistantContentText) {
-            const note = document.createElement('div');
-            note.className = 'xb-assistant-tool-batch-note xb-assistant-markdown';
-            note.appendChild(buildSanitizedHtmlFragment(renderMarkdown(assistantContentText)));
-            body.appendChild(note);
-        }
-
         toolMessages.forEach((toolMessage) => {
             const toolBubble = buildMessageBubble(toolMessage);
             toolBubble.dataset.renderSignature = getRenderableMessageSignature(toolMessage);
@@ -262,6 +276,17 @@ export function createChatUi(deps) {
 
         details.appendChild(body);
         return details;
+    }
+
+    function buildToolBatch(message, toolMessages, batchIndex) {
+        const preface = buildAssistantToolPreface(message);
+        const details = buildToolBatchDetails(message, toolMessages, batchIndex);
+        if (!preface) return details;
+
+        const group = document.createElement('div');
+        group.className = 'xb-assistant-tool-turn';
+        group.append(preface, details);
+        return group;
     }
 
     function buildApprovalPanel(approvalRequest) {
@@ -479,10 +504,13 @@ export function createChatUi(deps) {
         if (message.role === 'assistant' && Array.isArray(message.thoughts) && message.thoughts.length) {
             const details = document.createElement('details');
             details.className = 'xb-assistant-thought-details';
+            if (message.streaming) {
+                details.open = true;
+            }
             const summaryEl = document.createElement('summary');
             summaryEl.textContent = message.thoughts.length > 1
-                ? `展开思考块（${message.thoughts.length} 段）`
-                : '展开思考块';
+                ? `${message.streaming ? '正在思考' : '展开思考块'}（${message.thoughts.length} 段）`
+                : (message.streaming ? '正在思考' : '展开思考块');
             details.appendChild(summaryEl);
 
             message.thoughts.forEach((item) => {
@@ -545,6 +573,7 @@ export function createChatUi(deps) {
         }
 
         container.innerHTML = '';
+        let toolRunGroup = null;
         for (let index = 0; index < state.messages.length; index += 1) {
             const message = state.messages[index];
             if (isAssistantToolCallMessage(message)) {
@@ -557,11 +586,17 @@ export function createChatUi(deps) {
 
                 const toolBatch = buildToolBatch(message, toolMessages, index);
                 toolBatch.dataset.renderSignature = getRenderableMessageSignature(message);
-                container.appendChild(toolBatch);
+                if (!toolRunGroup) {
+                    toolRunGroup = document.createElement('div');
+                    toolRunGroup.className = 'xb-assistant-tool-run';
+                    container.appendChild(toolRunGroup);
+                }
+                toolRunGroup.appendChild(toolBatch);
                 index = nextIndex - 1;
                 continue;
             }
 
+            toolRunGroup = null;
             const nextBubble = buildMessageBubble(message, index);
             nextBubble.dataset.renderSignature = getRenderableMessageSignature(message);
             container.appendChild(nextBubble);

@@ -68,7 +68,10 @@ export function buildAppMarkup(state) {
                         <select id="xb-assistant-jsapi-permission"></select>
                     </label>
                     <label class="xb-assistant-checkbox-row">
-                        <span>思考模式</span>
+                        <span>
+                            Reasoning参数
+                            <small>需 API 支持，否则报错</small>
+                        </span>
                         <span class="xb-assistant-checkbox-control">
                             <input id="xb-assistant-reasoning-enabled" type="checkbox" />
                             <span>开启</span>
