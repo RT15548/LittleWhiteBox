@@ -146,6 +146,9 @@ select.input { cursor: pointer; }
 .btn:hover { background: rgba(255,255,255,0.08); }
 .btn:active { transform: scale(0.98); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.saving { pointer-events: none; opacity: 0.72; }
+.btn.save-success { box-shadow: 0 0 0 1px rgba(63, 185, 80, 0.35) inset; }
+.btn.save-failed { box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.35) inset; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 500; }
 .btn-primary:hover { background: #e5b685; }
 .btn-danger { color: var(--danger); border-color: rgba(248, 81, 73, 0.3); }
@@ -166,6 +169,8 @@ select.input { cursor: pointer; }
 }
 .tip-box i { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
 .status-text { font-size: 12px; color: var(--text-secondary); margin-top: 8px; min-height: 18px; }
+.status-text.success { color: var(--success); }
+.status-text.error { color: var(--danger); }
 .preview-box {
     display: none; margin-top: 16px; text-align: center;
     background: var(--bg-input); border-radius: 10px; padding: 16px;
@@ -274,14 +279,11 @@ select.input { cursor: pointer; }
     .mobile-nav-item i { font-size: 16px; }
 }
 @media (hover: none) and (pointer: coarse) {
-    .app-sidebar { display: none; }
-    .mobile-nav { display: block; }
-    .app-body { padding-bottom: 60px; }
-    .app-main { padding: 16px; padding-bottom: 76px; }
     .btn { min-height: 44px; }
     .input { min-height: 44px; padding: 12px; }
     .nav-item { min-height: 44px; }
     .header-close { width: 44px; height: 44px; min-width: 44px; }
+    .mobile-nav-item { min-height: 44px; }
 }
 </style>
 </head>
@@ -382,7 +384,7 @@ select.input { cursor: pointer; }
                         <button id="sd-draw-save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                         <button id="sd-draw-refresh-options" class="btn"><i class="fa-solid fa-rotate"></i> 拉取模型 / 采样器</button>
                     </div>
-                    <div class="status-text">请求会通过 SillyTavern 后端代理转发，浏览器不会直接访问 SD WebUI。</div>
+                    <div id="sd-draw-api-status" class="status-text">请求会通过 SillyTavern 后端代理转发，浏览器不会直接访问 SD WebUI。</div>
                 </div>
             </section>
 
@@ -462,6 +464,7 @@ select.input { cursor: pointer; }
                         </div>
                     </div>
                     <p class="form-hint">未填写的高级参数不会发送给 SD，适合继续沿用 WebUI 里调好的默认值。</p>
+                    <div id="sd-draw-params-status" class="status-text"></div>
                 </div>
             </section>
 
@@ -503,6 +506,7 @@ select.input { cursor: pointer; }
                         <button id="sd-shared-open-novel-settings" class="btn"><i class="fa-solid fa-file-code"></i> 高级提示词设置</button>
                     </div>
                     <div class="status-text">当前提示词链预设：<span id="sd-shared-prompt-preset-name">默认</span></div>
+                    <div id="sd-shared-status" class="status-text"></div>
                 </div>
 
                 <div class="tip-box">

@@ -610,15 +610,6 @@
 	    function normalizeDrawProvider(provider) {
 	      return DRAW_PROVIDER_VALUES.has(provider) ? provider : 'disabled';
 	    }
-	    function syncProviderEnabledFlags() {
-	      try {
-	        const settings = extension_settings[EXT_ID];
-	        settings.novelDraw ||= {};
-	        settings.sdDraw ||= {};
-	        settings.novelDraw.enabled = settings.drawProvider === 'novelai';
-	        settings.sdDraw.enabled = settings.drawProvider === 'sdwebui';
-	      } catch (e) { }
-	    }
 	    function setModuleEnabled(key, enabled) {
 	      try {
 	        if (!extension_settings[EXT_ID][key]) extension_settings[EXT_ID][key] = {};
@@ -645,7 +636,7 @@
           : normalizeDrawProvider(st.drawProvider);
         const el = $id('xiaobaix_draw_provider');
         if (el) { el.value = nextProvider; if (window.isXiaobaixEnabled) try { $(el).trigger('change'); } catch (e) { } }
-        else { extension_settings[EXT_ID].drawProvider = nextProvider; syncProviderEnabledFlags(); }
+        else { extension_settings[EXT_ID].drawProvider = nextProvider; }
       } catch (e) { }
       try {
         extension_settings[EXT_ID].useBlob = !!st.useBlob;
@@ -667,7 +658,7 @@
       try {
         const dp = $id('xiaobaix_draw_provider');
         if (dp) { dp.value = 'disabled'; try { $(dp).trigger('change'); } catch (e) { } }
-        else { extension_settings[EXT_ID].drawProvider = 'disabled'; syncProviderEnabledFlags(); }
+        else { extension_settings[EXT_ID].drawProvider = 'disabled'; }
       } catch (e) { }
       try {
         extension_settings[EXT_ID].useBlob = false; const bl = $id(KEY_TO_CHECKBOX.useBlob);

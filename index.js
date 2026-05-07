@@ -47,26 +47,6 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     storyOutline: { enabled: false },
     drawProvider: 'disabled',
     novelDraw: { enabled: false },
-    sdDraw: {
-        enabled: false,
-        host: '',
-        auth: '',
-        timeout: 120000,
-        transport: 'st-proxy',
-        selectedPresetId: 'default',
-        presets: [],
-        defaultParams: {
-            steps: null,
-            cfg_scale: null,
-            sampler_name: '',
-            width: 512,
-            height: 512,
-            seed: -1,
-        },
-        selectedModel: '',
-        positivePrefix: '',
-        negativePrefix: '',
-    },
     tts: { enabled: false },
     enaPlanner: { enabled: false },
     assistant: { enabled: false },
@@ -80,55 +60,14 @@ const settings = extension_settings[EXT_ID];
 if (settings.dynamicPrompt && !settings.fourthWall) settings.fourthWall = settings.dynamicPrompt;
 
 const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui']);
-const DEFAULT_SD_DRAW_SETTINGS = {
-    enabled: false,
-    host: '',
-    auth: '',
-    timeout: 120000,
-    transport: 'st-proxy',
-    selectedPresetId: 'default',
-    presets: [],
-    defaultParams: {
-        steps: null,
-        cfg_scale: null,
-        sampler_name: '',
-        width: 512,
-        height: 512,
-        seed: -1,
-    },
-    selectedModel: '',
-    positivePrefix: '',
-    negativePrefix: '',
-};
 
 function normalizeDrawProvider(provider) {
     return DRAW_PROVIDER_VALUES.has(provider) ? provider : 'disabled';
 }
 
-function ensureSdDrawSettings(targetSettings) {
-    const existing = targetSettings.sdDraw && typeof targetSettings.sdDraw === 'object' ? targetSettings.sdDraw : {};
-    targetSettings.sdDraw = {
-        ...DEFAULT_SD_DRAW_SETTINGS,
-        ...existing,
-        defaultParams: {
-            ...DEFAULT_SD_DRAW_SETTINGS.defaultParams,
-            ...(existing.defaultParams || {}),
-        },
-        transport: 'st-proxy',
-    };
-}
-
-function syncProviderEnabledFlags(targetSettings) {
-    targetSettings.novelDraw ||= {};
-    ensureSdDrawSettings(targetSettings);
-    targetSettings.novelDraw.enabled = targetSettings.drawProvider === 'novelai';
-    targetSettings.sdDraw.enabled = targetSettings.drawProvider === 'sdwebui';
-}
-
 function migrateDrawProviderSettings(targetSettings) {
     let changed = false;
     targetSettings.novelDraw ||= {};
-    ensureSdDrawSettings(targetSettings);
 
     if (targetSettings.drawProvider === undefined) {
         targetSettings.drawProvider = targetSettings.novelDraw?.enabled ? 'novelai' : 'disabled';
@@ -140,14 +79,7 @@ function migrateDrawProviderSettings(targetSettings) {
         targetSettings.drawProvider = normalized;
         changed = true;
     }
-
-    const prevNovelEnabled = targetSettings.novelDraw.enabled;
-    const prevSdEnabled = targetSettings.sdDraw.enabled;
-    syncProviderEnabledFlags(targetSettings);
-
-    return changed
-        || prevNovelEnabled !== targetSettings.novelDraw.enabled
-        || prevSdEnabled !== targetSettings.sdDraw.enabled;
+    return changed;
 }
 
 async function cleanupDrawProvider(provider = settings.drawProvider) {
@@ -696,7 +628,6 @@ async function setupSettings() {
 
                 await cleanupDrawProvider(prev);
                 settings.drawProvider = next;
-                syncProviderEnabledFlags(settings);
                 saveSettingsDebounced();
 
                 await initActiveDrawProvider();
@@ -834,7 +765,6 @@ async function setupSettings() {
             OFF.forEach(k => setChecked(MAP[k], false));
             await cleanupDrawProvider(settings.drawProvider);
             settings.drawProvider = 'disabled';
-            syncProviderEnabledFlags(settings);
             $('#xiaobaix_draw_provider').val('disabled');
             syncFeatureActionButtons();
             setChecked('xiaobaix_use_blob', false);

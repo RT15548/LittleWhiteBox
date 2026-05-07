@@ -1,10 +1,11 @@
 // sd-draw.js
 
-import { extension_settings, getContext } from "../../../../../extensions.js";
+import { getContext } from "../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../utils.js";
-import { getRequestHeaders, saveSettingsDebounced } from "../../../../../../script.js";
-import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
+import { getRequestHeaders } from "../../../../../../script.js";
+import { extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
+import { SdDrawStorage } from "../../core/server-storage.js";
 import {
     storePreview,
     storeFailedPlaceholder,
@@ -53,9 +54,9 @@ import {
 
 const MODULE_KEY = 'sdDraw';
 const HTML_PATH = `${extensionFolderPath}/modules/sd-draw/sd-draw.html`;
+const SERVER_FILE_KEY = 'config';
 
 const DEFAULT_SD_DRAW_SETTINGS = {
-    enabled: false,
     host: '',
     auth: '',
     timeout: 120000,
@@ -80,6 +81,8 @@ const DEFAULT_SD_DRAW_SETTINGS = {
 };
 
 let moduleInitialized = false;
+let settingsCache = null;
+let settingsLoaded = false;
 let overlayElement = null;
 let overlayFrame = null;
 let frameReadyPromise = null;
@@ -106,6 +109,8 @@ const SD_SIZE_PRESETS = [
     { value: '1280x768', width: 1280, height: 768 },
 ];
 
+const saveBtnStates = new WeakMap();
+
 function createDefaultPreset() {
     return {
         id: 'default',
@@ -122,9 +127,11 @@ function createDefaultPreset() {
     };
 }
 
-function getRootSettings() {
-    extension_settings[EXT_ID] ||= {};
-    return extension_settings[EXT_ID];
+function cloneSettingsObject(obj) {
+    if (typeof structuredClone === 'function') {
+        return structuredClone(obj);
+    }
+    return JSON.parse(JSON.stringify(obj));
 }
 
 function normalizeSettings(raw = {}) {
@@ -135,7 +142,6 @@ function normalizeSettings(raw = {}) {
     return {
         ...DEFAULT_SD_DRAW_SETTINGS,
         ...raw,
-        enabled: raw.enabled === true,
         transport: 'st-proxy',
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
         overrideSize: String(raw.overrideSize || 'default'),
@@ -201,26 +207,63 @@ function normalizePresets(rawPresets, rawSettings = {}) {
     }));
 }
 
+export async function loadSettings() {
+    if (settingsLoaded && settingsCache) return settingsCache;
+
+    try {
+        const saved = await SdDrawStorage.get(SERVER_FILE_KEY, null);
+        if (saved && typeof saved === 'object') {
+            settingsCache = normalizeSettings(saved);
+        } else {
+            settingsCache = normalizeSettings({});
+            await SdDrawStorage.setAndSave(SERVER_FILE_KEY, settingsCache, { silent: true });
+        }
+    } catch (error) {
+        console.error('[SdDraw] 加载设置失败:', error);
+        settingsCache = normalizeSettings({});
+    }
+
+    settingsLoaded = true;
+    return settingsCache;
+}
+
 export function getSettings() {
-    const root = getRootSettings();
-    root.sdDraw = normalizeSettings(root.sdDraw || {});
-    return root.sdDraw;
+    if (!settingsCache) {
+        console.warn('[SdDraw] 设置未加载，使用默认值');
+        settingsCache = normalizeSettings({});
+    }
+    return settingsCache;
 }
 
-function saveSettings(nextSettings) {
-    const root = getRootSettings();
-    root.sdDraw = normalizeSettings(nextSettings);
-    root.sdDraw.enabled = root.drawProvider === 'sdwebui';
-    root.novelDraw ||= {};
-    root.novelDraw.enabled = root.drawProvider === 'novelai';
-    saveSettingsDebounced();
-    return root.sdDraw;
+async function persistSettings(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
+    const next = normalizeSettings(nextSettings);
+    try {
+        const ok = await SdDrawStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
+        if (ok !== false) {
+            settingsCache = next;
+            if (notify) {
+                toastr.success(okText, 'SD WebUI');
+            }
+            return true;
+        }
+        if (notify) {
+            toastr.error('保存失败', 'SD WebUI');
+        }
+        return false;
+    } catch (error) {
+        if (notify) {
+            toastr.error(error?.message || '保存失败', 'SD WebUI');
+        }
+        return false;
+    }
 }
 
-export function updateSettingsPersistent(mutator) {
-    const draft = JSON.parse(JSON.stringify(getSettings()));
-    if (typeof mutator === 'function') mutator(draft);
-    return saveSettings(draft);
+export async function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
+    const draft = cloneSettingsObject(getSettings());
+    if (typeof mutator === 'function') {
+        await mutator(draft);
+    }
+    return await persistSettings(draft, okText, options);
 }
 
 function getActivePreset(settings = getSettings()) {
@@ -553,8 +596,11 @@ function bindOverlayEvents() {
     querySettingsAll('[data-sd-mode]').forEach((button) => {
         button.addEventListener('click', async () => {
             const nextMode = button.dataset.sdMode === 'auto' ? 'auto' : 'manual';
-            const settings = saveSettings({ ...getSettings(), mode: nextMode });
-            fillForm(settings);
+            const ok = await updateSettingsPersistent((settings) => {
+                settings.mode = nextMode;
+            }, '模式已保存');
+            if (!ok) return;
+            fillForm(getSettings());
             try {
                 const fp = await import('./floating-panel.js');
                 fp.updateAutoModeUI?.();
@@ -563,7 +609,11 @@ function bindOverlayEvents() {
     });
     querySettings('#sd-show-floor')?.addEventListener('change', async (event) => {
         const checked = event.target.checked === true;
-        const settings = saveSettings({ ...getSettings(), showFloorButton: checked });
+        const ok = await updateSettingsPersistent((settings) => {
+            settings.showFloorButton = checked;
+        }, '楼层按钮设置已保存');
+        if (!ok) return;
+        const settings = getSettings();
         fillForm(settings);
         try {
             const fp = await import('./floating-panel.js');
@@ -572,15 +622,19 @@ function bindOverlayEvents() {
     });
     querySettings('#sd-show-floating')?.addEventListener('change', async (event) => {
         const checked = event.target.checked === true;
-        const settings = saveSettings({ ...getSettings(), showFloatingButton: checked });
+        const ok = await updateSettingsPersistent((settings) => {
+            settings.showFloatingButton = checked;
+        }, '悬浮按钮设置已保存');
+        if (!ok) return;
+        const settings = getSettings();
         fillForm(settings);
         try {
             const fp = await import('./floating-panel.js');
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
         } catch {}
     });
-    querySettings('#sd-draw-save')?.addEventListener('click', async () => {
-        const ok = await saveAllSettings({ notify: true });
+    querySettings('#sd-draw-save')?.addEventListener('click', async (event) => {
+        const ok = await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId: 'sd-draw-api-status' });
         if (ok) fillForm(getSettings());
     });
     querySettings('#sd-draw-test')?.addEventListener('click', async () => {
@@ -598,32 +652,35 @@ function bindOverlayEvents() {
     querySettings('#sd-draw-size-preset')?.addEventListener('change', () => {
         applySizePresetSelection();
     });
-    querySettings('#sd-draw-preset-select')?.addEventListener('change', () => {
-        const settings = saveSettings({ ...getSettings(), selectedPresetId: getValue('sd-draw-preset-select') });
-        fillForm(settings);
+    querySettings('#sd-draw-preset-select')?.addEventListener('change', async () => {
+        const ok = await updateSettingsPersistent((settings) => {
+            settings.selectedPresetId = getValue('sd-draw-preset-select');
+        }, '预设已切换', { notify: false, silent: true });
+        if (ok) fillForm(getSettings());
     });
-    querySettings('#sd-draw-preset-add')?.addEventListener('click', () => {
-        const settings = getSettings();
+    querySettings('#sd-draw-preset-add')?.addEventListener('click', async () => {
         const preset = {
             ...readPresetFromForm(),
             id: `preset-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             name: prompt('输入预设名称：', '新预设') || '新预设',
         };
-        saveSettings({ ...settings, presets: [...settings.presets, preset], selectedPresetId: preset.id });
-        fillForm(getSettings());
+        const ok = await updateSettingsPersistent((draft) => {
+            draft.presets = [...draft.presets, preset];
+            draft.selectedPresetId = preset.id;
+        }, '已创建预设');
+        if (ok) fillForm(getSettings());
     });
-    querySettings('#sd-draw-preset-rename')?.addEventListener('click', () => {
+    querySettings('#sd-draw-preset-rename')?.addEventListener('click', async () => {
         const settings = getSettings();
         const preset = getActivePreset(settings);
         const name = prompt('输入新名称：', preset.name || '预设');
         if (!name) return;
-        saveSettings({
-            ...settings,
-            presets: settings.presets.map(item => item.id === preset.id ? { ...item, name } : item),
-        });
-        fillForm(getSettings());
+        const ok = await updateSettingsPersistent((draft) => {
+            draft.presets = draft.presets.map((item) => item.id === preset.id ? { ...item, name } : item);
+        }, '预设已重命名');
+        if (ok) fillForm(getSettings());
     });
-    querySettings('#sd-draw-preset-delete')?.addEventListener('click', () => {
+    querySettings('#sd-draw-preset-delete')?.addEventListener('click', async () => {
         const settings = getSettings();
         if (settings.presets.length <= 1) {
             toastr.warning('至少保留一个预设');
@@ -632,21 +689,27 @@ function bindOverlayEvents() {
         const preset = getActivePreset(settings);
         if (!confirm(`删除预设「${preset.name}」？`)) return;
         const presets = settings.presets.filter(item => item.id !== preset.id);
-        saveSettings({ ...settings, presets, selectedPresetId: presets[0]?.id });
-        fillForm(getSettings());
+        const ok = await updateSettingsPersistent((draft) => {
+            draft.presets = presets;
+            draft.selectedPresetId = presets[0]?.id || 'default';
+        }, '预设已删除');
+        if (ok) fillForm(getSettings());
     });
-    querySettings('#sd-draw-preset-save')?.addEventListener('click', () => {
+    querySettings('#sd-draw-preset-save')?.addEventListener('click', async (event) => {
         const settings = getSettings();
         const preset = getActivePreset(settings);
         const nextPreset = { ...readPresetFromForm(), id: preset.id, name: preset.name };
-        saveSettings({
-            ...settings,
-            ...readForm(),
-            presets: settings.presets.map(item => item.id === preset.id ? nextPreset : item),
-            selectedPresetId: preset.id,
-        });
-        fillForm(getSettings());
-        toastr.success('预设已保存');
+        updateStatusText('sd-draw-params-status', '', '正在保存预设...');
+        setSavingState(event.currentTarget);
+        const ok = await updateSettingsPersistent((draft) => {
+            const form = readForm();
+            Object.assign(draft, form);
+            draft.presets = draft.presets.map((item) => item.id === preset.id ? nextPreset : item);
+            draft.selectedPresetId = preset.id;
+        }, '预设已保存', { notify: false, silent: true });
+        handleSaveResult(ok, event.currentTarget);
+        updateStatusText('sd-draw-params-status', ok ? 'success' : 'error', ok ? '预设已保存到小白X配置文件' : '预设保存失败');
+        if (ok) fillForm(getSettings());
     });
     querySettings('#sd-shared-char-add')?.addEventListener('click', () => {
         addCharacterTagDraft();
@@ -656,8 +719,8 @@ function bindOverlayEvents() {
         await openNovelDrawSettings();
     });
     querySettingsAll('[data-sd-save-shared]').forEach((button) => {
-        button.addEventListener('click', async () => {
-            await saveAllSettings({ notify: true });
+        button.addEventListener('click', async (event) => {
+            await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId: 'sd-shared-status' });
         });
     });
     querySettings('#sd-shared-character-list')?.addEventListener('click', (event) => {
@@ -1019,19 +1082,40 @@ async function saveSharedNovelSettings({ notify = false } = {}) {
     }, '共享规划设置已保存', { notify, silent: !notify });
 }
 
-async function saveAllSettings({ notify = false } = {}) {
-    saveSettings(readForm());
-    const ok = await saveSharedNovelSettings({ notify: false });
+async function saveAllSettings({ notify = false, triggerButton = null, statusElementId = '' } = {}) {
+    if (statusElementId) {
+        updateStatusText(statusElementId, '', '正在保存...');
+    }
+    if (triggerButton) {
+        setSavingState(triggerButton);
+    }
+
+    const sdOk = await persistSettings(readForm(), 'SD WebUI 设置已保存', { notify: false, silent: true });
+    const sharedOk = await saveSharedNovelSettings({ notify: false });
+    const ok = sdOk && sharedOk;
+
     try {
         const fp = await import('./floating-panel.js');
         const settings = getSettings();
         fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
         fp.updateAutoModeUI?.();
     } catch {}
+
+    if (triggerButton) {
+        handleSaveResult(ok, triggerButton);
+    }
+    if (statusElementId) {
+        updateStatusText(
+            statusElementId,
+            ok ? 'success' : 'error',
+            ok ? '已保存到小白X服务端配置' : '保存失败，请重试',
+        );
+    }
+
     if (ok && notify) {
         toastr.success('SD WebUI 与共享规划设置已保存');
     } else if (!ok && notify) {
-        toastr.error('共享规划设置保存失败');
+        toastr.error('SD WebUI 或共享规划设置保存失败');
     }
     refreshSettingsSummary();
     return ok;
@@ -1171,6 +1255,7 @@ async function refreshSdOptions({ notify = false } = {}) {
 }
 
 export async function openSettings() {
+    await loadSettings();
     await loadNovelDrawSettings();
     const overlay = await createOverlay();
     fillForm(getSettings());
@@ -1250,6 +1335,51 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+function updateStatusText(elementId, state, text) {
+    const el = getSettingsElement(elementId);
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = `status-text${state ? ` ${state}` : ''}`;
+}
+
+function setSavingState(button) {
+    if (!button) return;
+    saveBtnStates.set(button, true);
+    const icon = button.querySelector('i');
+    if (icon) {
+        button._origIcon = icon.className;
+        icon.className = 'fa-solid fa-spinner fa-spin';
+    }
+    button.classList.add('saving');
+    button.disabled = true;
+}
+
+function handleSaveResult(success, button, fallbackIcon = 'fa-solid fa-floppy-disk') {
+    if (!button) return;
+    saveBtnStates.delete(button);
+    button.classList.remove('saving');
+    button.disabled = false;
+    const icon = button.querySelector('i');
+    if (!icon) return;
+
+    if (success) {
+        icon.className = 'fa-solid fa-check';
+        button.classList.add('save-success');
+        setTimeout(() => {
+            button.classList.remove('save-success');
+            icon.className = button._origIcon || fallbackIcon;
+        }, 1400);
+        return;
+    }
+
+    icon.className = 'fa-solid fa-xmark';
+    button.classList.add('save-failed');
+    setTimeout(() => {
+        button.classList.remove('save-failed');
+        icon.className = button._origIcon || fallbackIcon;
+    }, 1800);
 }
 
 function generateSlotId() {
@@ -2221,7 +2351,7 @@ async function testGenerateFromSettingsPanel() {
 export async function initSdDraw() {
     if (moduleInitialized) return;
     moduleInitialized = true;
-    getSettings();
+    await loadSettings();
     ensureNovelDrawStyles();
     setupImageDelegation();
     await openDB().catch(() => {});
