@@ -409,10 +409,12 @@ select.input { cursor: pointer; }
                     <div class="form-group">
                         <label class="form-label">正向固定</label>
                         <textarea id="sd-draw-positive-prefix" class="input" rows="3" placeholder="masterpiece, best quality..."></textarea>
+                        <p class="form-hint">API 出图会覆盖 WebUI 网页上的 tag，请把正向固定 tag 填在这里。</p>
                     </div>
                     <div class="form-group">
                         <label class="form-label">负向固定</label>
                         <textarea id="sd-draw-negative-prefix" class="input" rows="3" placeholder="lowres, bad anatomy..."></textarea>
+                        <p class="form-hint">API 出图会覆盖 WebUI 网页上的 tag，请把负向固定 tag 填在这里。</p>
                     </div>
                 </div>
 
@@ -491,7 +493,7 @@ select.input { cursor: pointer; }
                     <div class="form-group">
                         <label class="form-label">API URL</label>
                         <input id="sd-shared-llm-url" type="text" class="input" placeholder="https://api.openai.com/v1">
-                        <p class="form-hint">使用酒馆主 API 时可以留空。这里与 NovelDraw 共用同一套场景分析配置。</p>
+                        <p class="form-hint">使用酒馆主 API 时可以留空。SD 使用独立的 Stable Diffusion 场景提示词。</p>
                     </div>
                     <div class="form-group">
                         <label class="form-label">API Key</label>
@@ -503,15 +505,14 @@ select.input { cursor: pointer; }
                     </div>
                     <div class="btn-group" style="margin-top:16px;">
                         <button class="btn btn-primary" type="button" data-sd-save-shared><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
-                        <button id="sd-shared-open-novel-settings" class="btn"><i class="fa-solid fa-file-code"></i> 高级提示词设置</button>
                     </div>
-                    <div class="status-text">当前提示词链预设：<span id="sd-shared-prompt-preset-name">默认</span></div>
+                    <div class="status-text">当前提示词链：Stable Diffusion / SD WebUI 内置版</div>
                     <div id="sd-shared-status" class="status-text"></div>
                 </div>
 
                 <div class="tip-box">
                     <i class="fa-solid fa-info-circle"></i>
-                    <div>SD 使用这套 LLM 配置来分析楼层画面。提示词模板、消息过滤和世界书等高级项仍与 NovelDraw 共用。</div>
+                    <div>SD 只共用 LLM 渠道和角色库；场景提示词、TAG 要求和输出格式使用 SD 专属版本。</div>
                 </div>
             </section>
 

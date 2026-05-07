@@ -25,7 +25,7 @@ export async function loadLocalDanbooruDB(datUrl) {
 async function _doLoad(datUrl) {
     const gen = ++_loadDBGeneration;
 
-    const { decompressSync, strFromU8 } = await import('../../libs/fflate.mjs');
+    const { decompressSync, strFromU8 } = await import('../../../../libs/fflate.mjs');
     if (gen !== _loadDBGeneration) return null;
 
     const res = await fetch(datUrl, { cache: 'no-cache' });

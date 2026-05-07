@@ -1,15 +1,23 @@
-import { registerToToolbar, removeFromToolbar } from '../../widgets/message-toolbar.js';
+﻿// floating-panel.js
+/**
+ * NovelDraw 画图按钮面板 - 支持楼层按钮和悬浮按钮双模式
+ */
+
 import {
-    abortGeneration,
+    openNovelDrawSettings,
     generateAndInsertImages,
     getSettings,
-    openSettings,
     updateSettingsPersistent,
     findLastAIMessageId,
     classifyError,
-} from './sd-draw.js';
+} from './novel-draw.js';
+import { registerToToolbar, removeFromToolbar } from '../../../../widgets/message-toolbar.js';
 
-const FLOAT_POS_KEY = 'xb_sd_float_pos';
+// ═══════════════════════════════════════════════════════════════════════════
+// 常量
+// ═══════════════════════════════════════════════════════════════════════════
+
+const FLOAT_POS_KEY = 'xb_novel_float_pos';
 const AUTO_RESET_DELAY = 8000;
 
 const FloatState = {
@@ -32,10 +40,16 @@ const SIZE_OPTIONS = [
     { value: '1280x768', label: '1280 x 768  大横', width: 1280, height: 768 },
 ];
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 状态
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 楼层按钮状态
 const panelMap = new Map();
 const pendingCallbacks = new Map();
 let floorObserver = null;
 
+// 悬浮按钮状态
 let floatingEl = null;
 let floatingDragState = null;
 let floatingState = FloatState.IDLE;
@@ -44,9 +58,14 @@ let floatingResult = { success: 0, total: 0, error: null, startTime: 0 };
 let floatingAutoResetTimer = null;
 let floatingCooldownRafId = null;
 let floatingCooldownEndTime = 0;
-let floatingCache = {};
+let $floatingCache = {};
 
+// 通用状态
 let stylesInjected = false;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 样式 - 统一样式（楼层+悬浮共用）
+// ═══════════════════════════════════════════════════════════════════════════
 
 const STYLES = `
 :root {
@@ -54,6 +73,7 @@ const STYLES = `
     --nd-bg: rgba(0, 0, 0, 0.55);
     --nd-bg-solid: rgba(24, 24, 28, 0.98);
     --nd-bg-hover: rgba(0, 0, 0, 0.7);
+    --nd-bg-active: rgba(255, 255, 255, 0.1);
     --nd-border: rgba(255, 255, 255, 0.08);
     --nd-border-hover: rgba(255, 255, 255, 0.2);
     --nd-border-subtle: rgba(255, 255, 255, 0.08);
@@ -67,12 +87,19 @@ const STYLES = `
     --nd-info: #60a5fa;
     --nd-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
     --nd-radius-sm: 6px;
+    --nd-radius-md: 10px;
+    --nd-radius-lg: 14px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   楼层按钮样式
+   ═══════════════════════════════════════════════════════════════════════════ */
 .nd-float {
     position: relative;
     user-select: none;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
+
 .nd-capsule {
     width: 74px;
     height: var(--nd-h);
@@ -85,15 +112,18 @@ const STYLES = `
     overflow: hidden;
     transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .nd-float:hover .nd-capsule {
     background: var(--nd-bg-hover);
     border-color: var(--nd-border-hover);
 }
+
 .nd-float.working .nd-capsule { border-color: rgba(240, 180, 41, 0.5); }
 .nd-float.cooldown .nd-capsule { border-color: rgba(96, 165, 250, 0.6); background: rgba(96, 165, 250, 0.1); }
 .nd-float.success .nd-capsule { border-color: rgba(62, 207, 142, 0.6); background: rgba(62, 207, 142, 0.1); }
 .nd-float.partial .nd-capsule { border-color: rgba(240, 180, 41, 0.6); background: rgba(240, 180, 41, 0.1); }
 .nd-float.error .nd-capsule { border-color: rgba(248, 113, 113, 0.6); background: rgba(248, 113, 113, 0.1); }
+
 .nd-inner {
     display: grid;
     width: 100%;
@@ -101,6 +131,7 @@ const STYLES = `
     grid-template-areas: "s";
     pointer-events: none;
 }
+
 .nd-layer {
     grid-area: s;
     display: flex;
@@ -110,7 +141,9 @@ const STYLES = `
     transition: opacity 0.2s, transform 0.2s;
     pointer-events: auto;
 }
+
 .nd-layer-idle { opacity: 1; transform: translateY(0); }
+
 .nd-float.working .nd-layer-idle,
 .nd-float.cooldown .nd-layer-idle,
 .nd-float.success .nd-layer-idle,
@@ -120,6 +153,7 @@ const STYLES = `
     transform: translateY(-100%);
     pointer-events: none;
 }
+
 .nd-btn-draw {
     flex: 1;
     height: 100%;
@@ -136,6 +170,7 @@ const STYLES = `
 }
 .nd-btn-draw:hover { background: rgba(255, 255, 255, 0.12); }
 .nd-btn-draw:active { transform: scale(0.92); }
+
 .nd-auto-dot {
     position: absolute;
     top: 7px;
@@ -150,7 +185,9 @@ const STYLES = `
     transition: all 0.2s;
 }
 .nd-float.auto-on .nd-auto-dot { opacity: 1; transform: scale(1); }
+
 .nd-sep { width: 1px; height: 12px; background: var(--nd-border); }
+
 .nd-btn-menu {
     width: 24px;
     height: 100%;
@@ -167,8 +204,10 @@ const STYLES = `
 }
 .nd-float:hover .nd-btn-menu { opacity: 1; }
 .nd-btn-menu:hover { background: rgba(255, 255, 255, 0.12); color: var(--nd-text-muted); }
+
 .nd-arrow { transition: transform 0.2s; }
 .nd-float.expanded .nd-arrow { transform: rotate(180deg); }
+
 .nd-layer-active {
     opacity: 0;
     transform: translateY(100%);
@@ -180,6 +219,7 @@ const STYLES = `
     cursor: pointer;
     pointer-events: none;
 }
+
 .nd-float.working .nd-layer-active,
 .nd-float.cooldown .nd-layer-active,
 .nd-float.success .nd-layer-active,
@@ -189,13 +229,18 @@ const STYLES = `
     transform: translateY(0);
     pointer-events: auto;
 }
+
 .nd-float.cooldown .nd-layer-active { color: var(--nd-info); }
 .nd-float.success .nd-layer-active { color: var(--nd-success); }
 .nd-float.partial .nd-layer-active { color: var(--nd-warning); }
 .nd-float.error .nd-layer-active { color: var(--nd-error); }
+
 .nd-spin { display: inline-block; animation: nd-spin 1.5s linear infinite; }
 @keyframes nd-spin { to { transform: rotate(360deg); } }
+
 .nd-countdown { font-variant-numeric: tabular-nums; min-width: 36px; text-align: center; }
+
+/* 详情弹窗 - 向下展开（楼层按钮用） */
 .nd-detail {
     position: absolute;
     top: calc(100% + 8px);
@@ -217,11 +262,13 @@ const STYLES = `
     transform: translateY(-6px) scale(0.96);
     transform-origin: top right;
 }
+
 .nd-float.show-detail .nd-detail {
     opacity: 1;
     visibility: visible;
     transform: translateY(0) scale(1);
 }
+
 .nd-detail-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
 .nd-detail-row + .nd-detail-row { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--nd-border-subtle); }
 .nd-detail-icon { opacity: 0.6; font-size: 13px; }
@@ -230,6 +277,8 @@ const STYLES = `
 .nd-detail-value.success { color: var(--nd-success); }
 .nd-detail-value.warning { color: var(--nd-warning); }
 .nd-detail-value.error { color: var(--nd-error); }
+
+/* 菜单 - 向下展开（楼层按钮用） */
 .nd-menu {
     position: absolute;
     top: calc(100% + 8px);
@@ -249,12 +298,20 @@ const STYLES = `
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 100;
 }
+
 .nd-float.expanded .nd-menu {
     opacity: 1;
     visibility: visible;
     transform: translateY(0) scale(1);
 }
-.nd-card { background: transparent; border: none; border-radius: 0; overflow: visible; }
+
+.nd-card {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+}
+
 .nd-row {
     display: flex;
     align-items: center;
@@ -262,12 +319,15 @@ const STYLES = `
     padding: 6px 2px;
     min-height: 36px;
 }
+
 .nd-label {
     font-size: 11px;
     color: var(--nd-text-muted);
     width: 32px;
     flex-shrink: 0;
+    padding: 0;
 }
+
 .nd-select {
     flex: 1;
     min-width: 0;
@@ -278,20 +338,27 @@ const STYLES = `
     min-height: 32px;
     border-radius: 6px;
     padding: 6px 8px;
+    margin: 0;
     box-sizing: border-box;
     outline: none;
     cursor: pointer;
     text-align: center;
     text-align-last: center;
     transition: border-color 0.2s;
+    vertical-align: middle;
+    -webkit-appearance: none;
+    -moz-appearance: none;
     appearance: none;
 }
 .nd-select:hover { border-color: rgba(255, 255, 255, 0.2); }
 .nd-select:focus { border-color: rgba(255, 255, 255, 0.3); }
 .nd-select option { background: #1a1a1e; color: #eee; text-align: left; }
 .nd-select.size { font-family: "SF Mono", "Menlo", "Consolas", monospace; font-size: 11px; }
+
 .nd-inner-sep { display: none; }
+
 .nd-controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+
 .nd-auto {
     flex: 1;
     display: flex;
@@ -306,6 +373,7 @@ const STYLES = `
 }
 .nd-auto:hover { background: rgba(255, 255, 255, 0.08); }
 .nd-auto.on { background: rgba(62, 207, 142, 0.08); border-color: rgba(62, 207, 142, 0.3); }
+
 .nd-dot {
     width: 7px;
     height: 7px;
@@ -314,9 +382,11 @@ const STYLES = `
     transition: all 0.2s;
 }
 .nd-auto.on .nd-dot { background: var(--nd-success); box-shadow: 0 0 8px rgba(62, 207, 142, 0.5); }
+
 .nd-auto-text { font-size: 12px; color: var(--nd-text-muted); }
 .nd-auto:hover .nd-auto-text { color: var(--nd-text-secondary); }
 .nd-auto.on .nd-auto-text { color: rgba(62, 207, 142, 0.95); }
+
 .nd-gear {
     width: 36px;
     height: 36px;
@@ -332,39 +402,62 @@ const STYLES = `
     transition: all 0.15s;
 }
 .nd-gear:hover { background: rgba(255, 255, 255, 0.08); color: var(--nd-text-secondary); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   悬浮按钮样式（固定定位，可拖拽）
+   ═══════════════════════════════════════════════════════════════════════════ */
 .nd-floating-global {
     position: fixed;
     z-index: 10000;
     user-select: none;
     will-change: transform;
 }
+
 .nd-floating-global .nd-capsule {
     background: var(--nd-bg-solid);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
     touch-action: none;
     cursor: grab;
 }
+
 .nd-floating-global .nd-capsule:active { cursor: grabbing; }
+
+/* 悬浮按钮的详情和菜单向上展开 */
 .nd-floating-global .nd-detail {
     top: auto;
-    bottom: calc(100% + 8px);
-    right: 0;
-    transform: translateY(6px) scale(0.96);
+    bottom: calc(100% + 10px);
+    transform: translateY(4px) scale(0.96);
     transform-origin: bottom right;
 }
+
 .nd-floating-global.show-detail .nd-detail {
     transform: translateY(0) scale(1);
 }
+
+.nd-floating-global .nd-detail::after {
+    content: '';
+    position: absolute;
+    top: auto;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: rgba(18, 18, 22, 0.98);
+    border-bottom-color: transparent;
+}
+
 .nd-floating-global .nd-menu {
     top: auto;
-    bottom: calc(100% + 8px);
-    right: 0;
-    transform: translateY(6px) scale(0.96);
+    bottom: calc(100% + 10px);
+    transform: translateY(6px) scale(0.98);
     transform-origin: bottom right;
 }
+
 .nd-floating-global.expanded .nd-menu {
     transform: translateY(0) scale(1);
 }
+
+/* 悬浮按钮箭头向上 */
 .nd-floating-global .nd-arrow { transform: rotate(180deg); }
 .nd-floating-global.expanded .nd-arrow { transform: rotate(0deg); }
 `;
@@ -372,11 +465,16 @@ const STYLES = `
 function injectStyles() {
     if (stylesInjected) return;
     stylesInjected = true;
+
     const el = document.createElement('style');
-    el.id = 'xiaobaix-sd-floating-style';
+    el.id = 'nd-float-styles';
     el.textContent = STYLES;
     document.head.appendChild(el);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 通用工具函数
+// ═══════════════════════════════════════════════════════════════════════════
 
 function createEl(tag, className, text) {
     const el = document.createElement(tag);
@@ -388,14 +486,14 @@ function createEl(tag, className, text) {
 function fillPresetSelect(selectEl) {
     if (!selectEl) return;
     const settings = getSettings();
-    const presets = settings.presets || [];
-    const currentId = settings.selectedPresetId;
+    const presets = settings.paramsPresets || [];
+    const currentId = settings.selectedParamsPresetId;
     selectEl.replaceChildren();
-    presets.forEach((preset) => {
+    presets.forEach(p => {
         const opt = document.createElement('option');
-        opt.value = preset.id;
-        opt.textContent = preset.name || '未命名';
-        if (preset.id === currentId) opt.selected = true;
+        opt.value = p.id;
+        opt.textContent = p.name || '未命名';
+        if (p.id === currentId) opt.selected = true;
         selectEl.appendChild(opt);
     });
 }
@@ -405,7 +503,7 @@ function fillSizeSelect(selectEl) {
     const settings = getSettings();
     const current = settings.overrideSize || 'default';
     selectEl.replaceChildren();
-    SIZE_OPTIONS.forEach((opt) => {
+    SIZE_OPTIONS.forEach(opt => {
         const option = document.createElement('option');
         option.value = opt.value;
         option.textContent = opt.label;
@@ -413,6 +511,10 @@ function fillSizeSelect(selectEl) {
         selectEl.appendChild(option);
     });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ▼▼▼ 楼层按钮逻辑 ▼▼▼
+// ═══════════════════════════════════════════════════════════════════════════
 
 function createFloorPanelData(messageId) {
     return {
@@ -423,7 +525,7 @@ function createFloorPanelData(messageId) {
         autoResetTimer: null,
         cooldownRafId: null,
         cooldownEndTime: 0,
-        cache: {},
+        $cache: {},
         _cleanup: null,
     };
 }
@@ -431,62 +533,55 @@ function createFloorPanelData(messageId) {
 function createFloorPanelElement(messageId) {
     const settings = getSettings();
     const isAuto = settings.mode === 'auto';
+
     const root = document.createElement('div');
     root.className = `nd-float${isAuto ? ' auto-on' : ''}`;
-    root.dataset.messageId = String(messageId);
+    root.dataset.messageId = messageId;
 
     const capsule = createEl('div', 'nd-capsule');
     const inner = createEl('div', 'nd-inner');
     const layerIdle = createEl('div', 'nd-layer nd-layer-idle');
     const drawBtn = createEl('button', 'nd-btn-draw');
     drawBtn.title = '点击生成配图';
-    drawBtn.append(createEl('span', '', '🎨'), createEl('span', 'nd-auto-dot'));
+    drawBtn.appendChild(createEl('span', '', '🎨'));
+    drawBtn.appendChild(createEl('span', 'nd-auto-dot'));
     const sep = createEl('div', 'nd-sep');
     const menuBtn = createEl('button', 'nd-btn-menu');
     menuBtn.title = '展开菜单';
-    menuBtn.append(createEl('span', 'nd-arrow', '▼'));
+    menuBtn.appendChild(createEl('span', 'nd-arrow', '▼'));
     layerIdle.append(drawBtn, sep, menuBtn);
 
     const layerActive = createEl('div', 'nd-layer nd-layer-active');
     layerActive.append(
         createEl('span', 'nd-status-icon', '⏳'),
-        createEl('span', 'nd-status-text', '分析'),
+        createEl('span', 'nd-status-text', '分析')
     );
+
     inner.append(layerIdle, layerActive);
     capsule.appendChild(inner);
 
-    const detail = createDetailPopup();
-    const menu = createMenu(isAuto);
-    root.append(capsule, detail, menu);
-    return root;
-}
-
-function createDetailPopup() {
     const detail = createEl('div', 'nd-detail');
     const detailRowResult = createEl('div', 'nd-detail-row');
     detailRowResult.append(
         createEl('span', 'nd-detail-icon', '📊'),
         createEl('span', 'nd-detail-label', '结果'),
-        createEl('span', 'nd-detail-value nd-result', '-'),
+        createEl('span', 'nd-detail-value nd-result', '-')
     );
     const detailRowError = createEl('div', 'nd-detail-row nd-error-row');
     detailRowError.style.display = 'none';
     detailRowError.append(
         createEl('span', 'nd-detail-icon', '💡'),
         createEl('span', 'nd-detail-label', '原因'),
-        createEl('span', 'nd-detail-value error nd-error', '-'),
+        createEl('span', 'nd-detail-value error nd-error', '-')
     );
     const detailRowTime = createEl('div', 'nd-detail-row');
     detailRowTime.append(
         createEl('span', 'nd-detail-icon', '⏱'),
         createEl('span', 'nd-detail-label', '耗时'),
-        createEl('span', 'nd-detail-value nd-time', '-'),
+        createEl('span', 'nd-detail-value nd-time', '-')
     );
     detail.append(detailRowResult, detailRowError, detailRowTime);
-    return detail;
-}
 
-function createMenu(isAuto = false) {
     const menu = createEl('div', 'nd-menu');
     const card = createEl('div', 'nd-card');
     const rowPreset = createEl('div', 'nd-row');
@@ -506,19 +601,23 @@ function createMenu(isAuto = false) {
     const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
     autoToggle.append(
         createEl('span', 'nd-dot'),
-        createEl('span', 'nd-auto-text', '自动配图'),
+        createEl('span', 'nd-auto-text', '自动配图')
     );
     const settingsBtn = createEl('button', 'nd-gear nd-settings-btn', '⚙');
     settingsBtn.title = '打开设置';
     controls.append(autoToggle, settingsBtn);
+
     menu.append(card, controls);
-    return menu;
+
+    root.append(capsule, detail, menu);
+    return root;
 }
 
-function cachePanelDOM(panelData) {
+function cacheFloorDOM(panelData) {
     const el = panelData.root;
     if (!el) return;
-    panelData.cache = {
+
+    panelData.$cache = {
         statusIcon: el.querySelector('.nd-status-icon'),
         statusText: el.querySelector('.nd-status-text'),
         result: el.querySelector('.nd-result'),
@@ -531,50 +630,26 @@ function cachePanelDOM(panelData) {
     };
 }
 
-function clearPanelCooldown(panelData) {
-    if (panelData.cooldownRafId) {
-        cancelAnimationFrame(panelData.cooldownRafId);
-        panelData.cooldownRafId = null;
-    }
-    panelData.cooldownEndTime = 0;
-}
-
-function startFloorCooldownTimer(panelData, duration) {
-    clearPanelCooldown(panelData);
-    panelData.cooldownEndTime = Date.now() + duration;
-    function tick() {
-        if (!panelData.cooldownEndTime) return;
-        const remaining = Math.max(0, panelData.cooldownEndTime - Date.now());
-        const statusText = panelData.cache?.statusText;
-        if (statusText) {
-            statusText.textContent = `${(remaining / 1000).toFixed(1)}s`;
-            statusText.className = 'nd-status-text nd-countdown';
-        }
-        if (remaining <= 0) {
-            clearPanelCooldown(panelData);
-            return;
-        }
-        panelData.cooldownRafId = requestAnimationFrame(tick);
-    }
-    panelData.cooldownRafId = requestAnimationFrame(tick);
-}
-
 function setFloorState(messageId, state, data = {}) {
     const panelData = panelMap.get(messageId);
     if (!panelData?.root) return;
 
     const el = panelData.root;
     panelData.state = state;
+
     if (panelData.autoResetTimer) {
         clearTimeout(panelData.autoResetTimer);
         panelData.autoResetTimer = null;
     }
-    if (state !== FloatState.COOLDOWN) {
-        clearPanelCooldown(panelData);
+    if (state !== FloatState.COOLDOWN && panelData.cooldownRafId) {
+        cancelAnimationFrame(panelData.cooldownRafId);
+        panelData.cooldownRafId = null;
+        panelData.cooldownEndTime = 0;
     }
 
     el.classList.remove('working', 'cooldown', 'success', 'partial', 'error', 'show-detail');
-    const { statusIcon, statusText } = panelData.cache;
+
+    const { statusIcon, statusText } = panelData.$cache;
 
     switch (state) {
         case FloatState.IDLE:
@@ -602,7 +677,7 @@ function setFloorState(messageId, state, data = {}) {
         case FloatState.COOLDOWN:
             el.classList.add('cooldown');
             if (statusIcon) { statusIcon.textContent = '⏳'; statusIcon.className = 'nd-status-icon nd-spin'; }
-            startFloorCooldownTimer(panelData, data.duration || 0);
+            startFloorCooldownTimer(panelData, data.duration);
             break;
         case FloatState.SUCCESS:
             el.classList.add('success');
@@ -630,12 +705,39 @@ function setFloorState(messageId, state, data = {}) {
     }
 }
 
+function startFloorCooldownTimer(panelData, duration) {
+    panelData.cooldownEndTime = Date.now() + duration;
+
+    function tick() {
+        if (!panelData.cooldownEndTime) return;
+        const remaining = Math.max(0, panelData.cooldownEndTime - Date.now());
+        const statusText = panelData.$cache?.statusText;
+        if (statusText) {
+            statusText.textContent = `${(remaining / 1000).toFixed(1)}s`;
+            statusText.className = 'nd-status-text nd-countdown';
+        }
+        if (remaining <= 0) {
+            panelData.cooldownRafId = null;
+            panelData.cooldownEndTime = 0;
+            return;
+        }
+        panelData.cooldownRafId = requestAnimationFrame(tick);
+    }
+
+    panelData.cooldownRafId = requestAnimationFrame(tick);
+}
+
 function updateFloorDetailPopup(messageId) {
     const panelData = panelMap.get(messageId);
     if (!panelData?.root) return;
-    const { result: resultEl, errorRow, error: errorEl, time: timeEl } = panelData.cache;
+
+    const { result: resultEl, errorRow, error: errorEl, time: timeEl } = panelData.$cache;
     const { result, state } = panelData;
-    const elapsed = result.startTime ? ((Date.now() - result.startTime) / 1000).toFixed(1) : '-';
+
+    const elapsed = result.startTime
+        ? ((Date.now() - result.startTime) / 1000).toFixed(1)
+        : '-';
+
     if (state === FloatState.SUCCESS || state === FloatState.PARTIAL) {
         if (resultEl) {
             resultEl.textContent = `${result.success}/${result.total} 成功`;
@@ -653,12 +755,14 @@ function updateFloorDetailPopup(messageId) {
         if (errorRow) errorRow.style.display = 'flex';
         if (errorEl) errorEl.textContent = result.error?.desc || '未知错误';
     }
+
     if (timeEl) timeEl.textContent = `${elapsed}s`;
 }
 
 async function handleFloorDrawClick(messageId) {
     const panelData = panelMap.get(messageId);
     if (!panelData || panelData.state !== FloatState.IDLE) return;
+
     try {
         await generateAndInsertImages({
             messageId,
@@ -666,7 +770,7 @@ async function handleFloorDrawClick(messageId) {
                 switch (state) {
                     case 'queued': setFloorState(messageId, FloatState.QUEUED, data); break;
                     case 'llm': setFloorState(messageId, FloatState.LLM); break;
-                    case 'gen':
+                    case 'gen': setFloorState(messageId, FloatState.GEN, data); break;
                     case 'progress': setFloorState(messageId, FloatState.GEN, data); break;
                     case 'cooldown': setFloorState(messageId, FloatState.COOLDOWN, data); break;
                     case 'success':
@@ -679,36 +783,39 @@ async function handleFloorDrawClick(messageId) {
                         }
                         break;
                 }
-            },
+            }
         });
-    } catch (error) {
-        console.error('[SdDraw]', error);
-        if (error.message === '已取消' || error.message?.includes('已有任务进行中') || error.message?.includes('该楼层已有任务进行中')) {
+    } catch (e) {
+        console.error('[NovelDraw]', e);
+        if (e.message === '已取消' || e.message?.includes('已有任务进行中') || e.message?.includes('该楼层已有任务进行中')) {
             setFloorState(messageId, FloatState.IDLE);
-            if (error.message?.includes('任务进行中')) toastr?.info?.(error.message);
+            if (e.message?.includes('任务进行中')) toastr?.info?.(e.message);
         } else {
-            setFloorState(messageId, FloatState.ERROR, { error: classifyError(error) });
+            setFloorState(messageId, FloatState.ERROR, { error: classifyError(e) });
         }
     }
 }
 
 async function handleFloorAbort(messageId) {
     try {
+        const { abortGeneration } = await import('./novel-draw.js');
         if (abortGeneration(messageId)) {
             setFloorState(messageId, FloatState.IDLE);
             toastr?.info?.('已中止');
         }
-    } catch (error) {
-        console.error('[SdDraw] 中止失败:', error);
+    } catch (e) {
+        console.error('[NovelDraw] 中止失败:', e);
     }
 }
 
 function bindFloorPanelEvents(panelData) {
     const { messageId, root: el } = panelData;
+
     el.querySelector('.nd-btn-draw')?.addEventListener('click', (e) => {
         e.stopPropagation();
-        void handleFloorDrawClick(messageId);
+        handleFloorDrawClick(messageId);
     });
+
     el.querySelector('.nd-btn-menu')?.addEventListener('click', (e) => {
         e.stopPropagation();
         el.classList.remove('show-detail');
@@ -718,72 +825,92 @@ function bindFloorPanelEvents(panelData) {
         }
         el.classList.toggle('expanded');
     });
+
     el.querySelector('.nd-layer-active')?.addEventListener('click', (e) => {
         e.stopPropagation();
-        if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(panelData.state)) {
-            void handleFloorAbort(messageId);
-        } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(panelData.state)) {
+        const state = panelData.state;
+        if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(state)) {
+            handleFloorAbort(messageId);
+        } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(state)) {
             updateFloorDetailPopup(messageId);
             el.classList.toggle('show-detail');
         }
     });
-    panelData.cache.presetSelect?.addEventListener('change', async (e) => {
+
+    panelData.$cache.presetSelect?.addEventListener('change', async (e) => {
         await setQuickPreset(e.target.value);
     });
-    panelData.cache.sizeSelect?.addEventListener('change', async (e) => {
+
+    panelData.$cache.sizeSelect?.addEventListener('change', async (e) => {
         await setQuickSize(e.target.value);
     });
-    panelData.cache.autoToggle?.addEventListener('click', async () => {
+
+    panelData.$cache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
     });
+
     el.querySelector('.nd-settings-btn')?.addEventListener('click', (e) => {
         e.stopPropagation();
         el.classList.remove('expanded');
-        void openSettings();
+        openNovelDrawSettings();
     });
+
     const closeMenu = (e) => {
         if (!el.contains(e.target)) {
             el.classList.remove('expanded', 'show-detail');
         }
     };
     document.addEventListener('click', closeMenu, { passive: true });
+
     panelData._cleanup = () => {
         document.removeEventListener('click', closeMenu);
     };
 }
 
 function refreshFloorPresetSelect(messageId) {
-    fillPresetSelect(panelMap.get(messageId)?.cache?.presetSelect);
+    const data = panelMap.get(messageId);
+    const select = data?.$cache?.presetSelect;
+    fillPresetSelect(select);
 }
 
 function refreshFloorSizeSelect(messageId) {
-    fillSizeSelect(panelMap.get(messageId)?.cache?.sizeSelect);
+    const data = panelMap.get(messageId);
+    const select = data?.$cache?.sizeSelect;
+    fillSizeSelect(select);
 }
 
-async function persistQuickSetting(mutator, afterSave) {
-    const ok = await updateSettingsPersistent(mutator);
-    if (ok && typeof afterSave === 'function') afterSave();
+async function persistQuickSetting(mutator, okText, afterSave) {
+    const ok = await updateSettingsPersistent(mutator, okText);
+    if (ok && typeof afterSave === 'function') {
+        afterSave();
+    }
     return ok;
 }
 
 async function setQuickPreset(value) {
-    return persistQuickSetting((settings) => {
-        settings.selectedPresetId = value;
-    }, updateAllPresetSelects);
+    return persistQuickSetting(
+        (settings) => { settings.selectedParamsPresetId = value; },
+        '预设已切换',
+        updateAllPresetSelects,
+    );
 }
 
 async function setQuickSize(value) {
-    return persistQuickSetting((settings) => {
-        settings.overrideSize = value;
-    }, updateAllSizeSelects);
+    return persistQuickSetting(
+        (settings) => { settings.overrideSize = value; },
+        '尺寸已切换',
+        updateAllSizeSelects,
+    );
 }
 
 async function toggleQuickAutoMode() {
     const current = getSettings();
     const nextMode = current.mode === 'auto' ? 'manual' : 'auto';
-    return persistQuickSetting((settings) => {
-        settings.mode = nextMode;
-    }, updateAutoModeUI);
+    return persistQuickSetting(
+        (settings) => { settings.mode = nextMode; },
+        nextMode === 'auto' ? '自动配图已开启' : '自动配图已关闭',
+        updateAutoModeUI,
+    );
 }
 
 function mountFloorPanel(messageEl, messageId) {
@@ -793,86 +920,116 @@ function mountFloorPanel(messageEl, messageId) {
         existing._cleanup?.();
         panelMap.delete(messageId);
     }
+
     injectStyles();
+
     const panelData = createFloorPanelData(messageId);
     const panel = createFloorPanelElement(messageId);
     panelData.root = panel;
+
     const success = registerToToolbar(messageId, panel, {
         position: 'right',
-        id: `sd-draw-${messageId}`,
+        id: `novel-draw-${messageId}`
     });
+
     if (!success) return null;
-    cachePanelDOM(panelData);
+
+    cacheFloorDOM(panelData);
     bindFloorPanelEvents(panelData);
+
     panelMap.set(messageId, panelData);
     return panelData;
 }
 
 function setupFloorObserver() {
     if (floorObserver) return;
+
     floorObserver = new IntersectionObserver((entries) => {
         const toMount = [];
+
         for (const entry of entries) {
             if (!entry.isIntersecting) continue;
+
             const el = entry.target;
             const mid = Number(el.getAttribute('mesid'));
+
             if (pendingCallbacks.has(mid)) {
                 toMount.push({ el, mid });
                 pendingCallbacks.delete(mid);
                 floorObserver.unobserve(el);
             }
         }
+
         if (toMount.length > 0) {
             requestAnimationFrame(() => {
-                toMount.forEach(({ el, mid }) => mountFloorPanel(el, mid));
+                for (const { el, mid } of toMount) {
+                    mountFloorPanel(el, mid);
+                }
             });
         }
     }, { rootMargin: '300px' });
 }
 
-export function ensureSdDrawPanel(messageEl, messageId, options = {}) {
+export function ensureNovelDrawPanel(messageEl, messageId, options = {}) {
     const settings = getSettings();
     if (settings.showFloorButton === false) return null;
+
     const { force = false } = options;
+
     injectStyles();
+
     if (panelMap.has(messageId)) {
         const existing = panelMap.get(messageId);
         if (existing.root?.isConnected) return existing;
         existing._cleanup?.();
         panelMap.delete(messageId);
     }
-    if (force) return mountFloorPanel(messageEl, messageId);
+
+    if (force) {
+        return mountFloorPanel(messageEl, messageId);
+    }
+
     const rect = messageEl.getBoundingClientRect();
     if (rect.top < window.innerHeight + 500 && rect.bottom > -500) {
         return mountFloorPanel(messageEl, messageId);
     }
+
     setupFloorObserver();
     pendingCallbacks.set(messageId, true);
     floorObserver.observe(messageEl);
+
     return null;
 }
 
 export function setStateForMessage(messageId, state, data = {}) {
     let panelData = panelMap.get(messageId);
+
     if (!panelData?.root?.isConnected) {
         const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
         if (messageEl) {
-            panelData = ensureSdDrawPanel(messageEl, messageId, { force: true });
+            panelData = ensureNovelDrawPanel(messageEl, messageId, { force: true });
         }
     }
+
     if (panelData) {
         setFloorState(messageId, state, data);
     }
+
     if (floatingEl && messageId === findLastAIMessageId()) {
         setFloatingState(state, data);
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ▼▼▼ 悬浮按钮逻辑 ▼▼▼
+// ═══════════════════════════════════════════════════════════════════════════
 
 function getFloatingPosition() {
     try {
         const raw = localStorage.getItem(FLOAT_POS_KEY);
         if (raw) return JSON.parse(raw);
     } catch {}
+
     const debug = document.getElementById('xiaobaix-debug-mini');
     if (debug) {
         const r = debug.getBoundingClientRect();
@@ -887,7 +1044,7 @@ function saveFloatingPosition() {
     try {
         localStorage.setItem(FLOAT_POS_KEY, JSON.stringify({
             left: Math.round(r.left),
-            top: Math.round(r.top),
+            top: Math.round(r.top)
         }));
     } catch {}
 }
@@ -912,10 +1069,11 @@ function clearFloatingCooldownTimer() {
 function startFloatingCooldownTimer(duration) {
     clearFloatingCooldownTimer();
     floatingCooldownEndTime = Date.now() + duration;
+
     function tick() {
         if (!floatingCooldownEndTime) return;
         const remaining = Math.max(0, floatingCooldownEndTime - Date.now());
-        const statusText = floatingCache.statusText;
+        const statusText = $floatingCache.statusText;
         if (statusText) {
             statusText.textContent = `${(remaining / 1000).toFixed(1)}s`;
             statusText.className = 'nd-status-text nd-countdown';
@@ -926,20 +1084,29 @@ function startFloatingCooldownTimer(duration) {
         }
         floatingCooldownRafId = requestAnimationFrame(tick);
     }
+
     floatingCooldownRafId = requestAnimationFrame(tick);
 }
 
-export function setFloatingState(state, data = {}) {
+function setFloatingState(state, data = {}) {
     if (!floatingEl) return;
+
     floatingState = state;
+
     if (floatingAutoResetTimer) {
         clearTimeout(floatingAutoResetTimer);
         floatingAutoResetTimer = null;
     }
-    if (state !== FloatState.COOLDOWN) clearFloatingCooldownTimer();
+
+    if (state !== FloatState.COOLDOWN) {
+        clearFloatingCooldownTimer();
+    }
+
     floatingEl.classList.remove('working', 'cooldown', 'success', 'partial', 'error', 'show-detail');
-    const { statusIcon, statusText } = floatingCache;
+
+    const { statusIcon, statusText } = $floatingCache;
     if (!statusIcon || !statusText) return;
+
     switch (state) {
         case FloatState.IDLE:
             floatingMessageId = null;
@@ -970,7 +1137,7 @@ export function setFloatingState(state, data = {}) {
             floatingEl.classList.add('cooldown');
             statusIcon.textContent = '⏳';
             statusIcon.className = 'nd-status-icon nd-spin';
-            startFloatingCooldownTimer(data.duration || 0);
+            startFloatingCooldownTimer(data.duration);
             break;
         case FloatState.SUCCESS:
             floatingEl.classList.add('success');
@@ -1002,9 +1169,13 @@ export function setFloatingState(state, data = {}) {
 }
 
 function updateFloatingDetailPopup() {
-    const { detailResult, detailErrorRow, detailError, detailTime } = floatingCache;
+    const { detailResult, detailErrorRow, detailError, detailTime } = $floatingCache;
     if (!detailResult) return;
-    const elapsed = floatingResult.startTime ? ((Date.now() - floatingResult.startTime) / 1000).toFixed(1) : '-';
+
+    const elapsed = floatingResult.startTime
+        ? ((Date.now() - floatingResult.startTime) / 1000).toFixed(1)
+        : '-';
+
     if (floatingState === FloatState.SUCCESS || floatingState === FloatState.PARTIAL) {
         detailResult.textContent = `${floatingResult.success}/${floatingResult.total} 成功`;
         detailResult.className = `nd-detail-value ${floatingState === FloatState.SUCCESS ? 'success' : 'warning'}`;
@@ -1018,11 +1189,13 @@ function updateFloatingDetailPopup() {
         detailErrorRow.style.display = 'flex';
         detailError.textContent = floatingResult.error?.desc || '未知错误';
     }
+
     detailTime.textContent = `${elapsed}s`;
 }
 
 function onFloatingPointerDown(e) {
-    if (e.button !== 0 || !floatingEl) return;
+    if (e.button !== 0) return;
+
     floatingDragState = {
         startX: e.clientX,
         startY: e.clientY,
@@ -1030,33 +1203,41 @@ function onFloatingPointerDown(e) {
         startTop: floatingEl.getBoundingClientRect().top,
         pointerId: e.pointerId,
         moved: false,
-        originalTarget: e.target,
+        originalTarget: e.target
     };
+
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
     e.preventDefault();
 }
 
 function onFloatingPointerMove(e) {
-    if (!floatingDragState || floatingDragState.pointerId !== e.pointerId || !floatingEl) return;
+    if (!floatingDragState || floatingDragState.pointerId !== e.pointerId) return;
+
     const dx = e.clientX - floatingDragState.startX;
     const dy = e.clientY - floatingDragState.startY;
+
     if (!floatingDragState.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
         floatingDragState.moved = true;
     }
+
     if (floatingDragState.moved) {
         const w = floatingEl.offsetWidth || 88;
         const h = floatingEl.offsetHeight || 36;
         floatingEl.style.left = `${Math.max(0, Math.min(floatingDragState.startLeft + dx, window.innerWidth - w))}px`;
         floatingEl.style.top = `${Math.max(0, Math.min(floatingDragState.startTop + dy, window.innerHeight - h))}px`;
     }
+
     e.preventDefault();
 }
 
 function onFloatingPointerUp(e) {
     if (!floatingDragState || floatingDragState.pointerId !== e.pointerId) return;
+
     const { moved, originalTarget } = floatingDragState;
+
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
     floatingDragState = null;
+
     if (moved) {
         saveFloatingPosition();
     } else {
@@ -1066,7 +1247,7 @@ function onFloatingPointerUp(e) {
 
 function routeFloatingClick(target) {
     if (target.closest('.nd-btn-draw')) {
-        void handleFloatingDrawClick();
+        handleFloatingDrawClick();
     } else if (target.closest('.nd-btn-menu')) {
         floatingEl.classList.remove('show-detail');
         if (!floatingEl.classList.contains('expanded')) {
@@ -1076,7 +1257,7 @@ function routeFloatingClick(target) {
         floatingEl.classList.toggle('expanded');
     } else if (target.closest('.nd-layer-active')) {
         if ([FloatState.QUEUED, FloatState.LLM, FloatState.GEN, FloatState.COOLDOWN].includes(floatingState)) {
-            void handleFloatingAbort();
+            handleFloatingAbort();
         } else if ([FloatState.SUCCESS, FloatState.PARTIAL, FloatState.ERROR].includes(floatingState)) {
             updateFloatingDetailPopup();
             floatingEl.classList.toggle('show-detail');
@@ -1086,12 +1267,15 @@ function routeFloatingClick(target) {
 
 async function handleFloatingDrawClick() {
     if (floatingState !== FloatState.IDLE) return;
+
     const messageId = findLastAIMessageId();
     if (messageId < 0) {
         toastr?.warning?.('没有可配图的AI消息');
         return;
     }
+
     floatingMessageId = messageId;
+
     try {
         await generateAndInsertImages({
             messageId,
@@ -1099,7 +1283,7 @@ async function handleFloatingDrawClick() {
                 switch (state) {
                     case 'queued': setFloatingState(FloatState.QUEUED, data); break;
                     case 'llm': setFloatingState(FloatState.LLM); break;
-                    case 'gen':
+                    case 'gen': setFloatingState(FloatState.GEN, data); break;
                     case 'progress': setFloatingState(FloatState.GEN, data); break;
                     case 'cooldown': setFloatingState(FloatState.COOLDOWN, data); break;
                     case 'success':
@@ -1112,42 +1296,43 @@ async function handleFloatingDrawClick() {
                         }
                         break;
                 }
-            },
+            }
         });
-    } catch (error) {
-        console.error('[SdDraw]', error);
-        if (error.message === '已取消' || error.message?.includes('已有任务进行中') || error.message?.includes('该楼层已有任务进行中')) {
+    } catch (e) {
+        console.error('[NovelDraw]', e);
+        if (e.message === '已取消' || e.message?.includes('已有任务进行中') || e.message?.includes('该楼层已有任务进行中')) {
             setFloatingState(FloatState.IDLE);
-            if (error.message?.includes('任务进行中')) toastr?.info?.(error.message);
+            if (e.message?.includes('任务进行中')) toastr?.info?.(e.message);
         } else {
-            setFloatingState(FloatState.ERROR, { error: classifyError(error) });
+            setFloatingState(FloatState.ERROR, { error: classifyError(e) });
         }
     }
 }
 
 async function handleFloatingAbort() {
     try {
+        const { abortGeneration } = await import('./novel-draw.js');
         const messageId = floatingMessageId;
         if (messageId >= 0 && abortGeneration(messageId)) {
             setFloatingState(FloatState.IDLE);
             toastr?.info?.('已中止');
         }
-    } catch (error) {
-        console.error('[SdDraw] 中止失败:', error);
+    } catch (e) {
+        console.error('[NovelDraw] 中止失败:', e);
     }
 }
 
 function refreshFloatingPresetSelect() {
-    fillPresetSelect(floatingCache.presetSelect);
+    fillPresetSelect($floatingCache.presetSelect);
 }
 
 function refreshFloatingSizeSelect() {
-    fillSizeSelect(floatingCache.sizeSelect);
+    fillSizeSelect($floatingCache.sizeSelect);
 }
 
 function cacheFloatingDOM() {
     if (!floatingEl) return;
-    floatingCache = {
+    $floatingCache = {
         capsule: floatingEl.querySelector('.nd-capsule'),
         statusIcon: floatingEl.querySelector('.nd-status-icon'),
         statusText: floatingEl.querySelector('.nd-status-text'),
@@ -1169,42 +1354,93 @@ function handleFloatingOutsideClick(e) {
 
 function createFloatingButton() {
     if (floatingEl) return;
+
     const settings = getSettings();
-    if (settings.showFloatingButton === false) return;
+    if (settings.showFloatingButton !== true) return;
+
     injectStyles();
+
     const isAuto = settings.mode === 'auto';
+
     floatingEl = document.createElement('div');
     floatingEl.className = `nd-float nd-floating-global${isAuto ? ' auto-on' : ''}`;
     floatingEl.id = 'nd-floating-global';
 
-    const detail = createDetailPopup();
-    const menu = createMenu(isAuto);
+    const detail = createEl('div', 'nd-detail');
+    const detailRowResult = createEl('div', 'nd-detail-row');
+    detailRowResult.append(
+        createEl('span', 'nd-detail-icon', '📊'),
+        createEl('span', 'nd-detail-label', '结果'),
+        createEl('span', 'nd-detail-value nd-result', '-')
+    );
+    const detailRowError = createEl('div', 'nd-detail-row nd-error-row');
+    detailRowError.style.display = 'none';
+    detailRowError.append(
+        createEl('span', 'nd-detail-icon', '💡'),
+        createEl('span', 'nd-detail-label', '原因'),
+        createEl('span', 'nd-detail-value error nd-error', '-')
+    );
+    const detailRowTime = createEl('div', 'nd-detail-row');
+    detailRowTime.append(
+        createEl('span', 'nd-detail-icon', '⏱'),
+        createEl('span', 'nd-detail-label', '耗时'),
+        createEl('span', 'nd-detail-value nd-time', '-')
+    );
+    detail.append(detailRowResult, detailRowError, detailRowTime);
+
+    const menu = createEl('div', 'nd-menu');
+    const card = createEl('div', 'nd-card');
+    const rowPreset = createEl('div', 'nd-row');
+    rowPreset.appendChild(createEl('span', 'nd-label', '预设'));
+    const presetSelect = createEl('select', 'nd-select nd-preset-select');
+    fillPresetSelect(presetSelect);
+    rowPreset.appendChild(presetSelect);
+    const innerSep = createEl('div', 'nd-inner-sep');
+    const rowSize = createEl('div', 'nd-row');
+    rowSize.appendChild(createEl('span', 'nd-label', '尺寸'));
+    const sizeSelect = createEl('select', 'nd-select size nd-size-select');
+    fillSizeSelect(sizeSelect);
+    rowSize.appendChild(sizeSelect);
+    card.append(rowPreset, innerSep, rowSize);
+
+    const controls = createEl('div', 'nd-controls');
+    const autoToggle = createEl('div', `nd-auto${isAuto ? ' on' : ''} nd-auto-toggle`);
+    autoToggle.append(
+        createEl('span', 'nd-dot'),
+        createEl('span', 'nd-auto-text', '自动配图')
+    );
+    const settingsBtn = createEl('button', 'nd-gear nd-settings-btn', '⚙');
+    settingsBtn.title = '打开设置';
+    controls.append(autoToggle, settingsBtn);
+    menu.append(card, controls);
 
     const capsule = createEl('div', 'nd-capsule');
     const inner = createEl('div', 'nd-inner');
     const layerIdle = createEl('div', 'nd-layer nd-layer-idle');
     const drawBtn = createEl('button', 'nd-btn-draw');
     drawBtn.title = '点击为最后一条AI消息生成配图';
-    drawBtn.append(createEl('span', '', '🎨'), createEl('span', 'nd-auto-dot'));
+    drawBtn.appendChild(createEl('span', '', '🎨'));
+    drawBtn.appendChild(createEl('span', 'nd-auto-dot'));
     const sep = createEl('div', 'nd-sep');
     const menuBtn = createEl('button', 'nd-btn-menu');
     menuBtn.title = '展开菜单';
-    menuBtn.append(createEl('span', 'nd-arrow', '▲'));
+    menuBtn.appendChild(createEl('span', 'nd-arrow', '▲'));
     layerIdle.append(drawBtn, sep, menuBtn);
     const layerActive = createEl('div', 'nd-layer nd-layer-active');
     layerActive.append(
         createEl('span', 'nd-status-icon', '⏳'),
-        createEl('span', 'nd-status-text', '分析'),
+        createEl('span', 'nd-status-text', '分析')
     );
     inner.append(layerIdle, layerActive);
     capsule.appendChild(inner);
 
     floatingEl.append(detail, menu, capsule);
+
     document.body.appendChild(floatingEl);
     cacheFloatingDOM();
     applyFloatingPosition();
 
-    const capsuleEl = floatingCache.capsule;
+    const capsuleEl = $floatingCache.capsule;
     if (capsuleEl) {
         capsuleEl.addEventListener('pointerdown', onFloatingPointerDown, { passive: false });
         capsuleEl.addEventListener('pointermove', onFloatingPointerMove, { passive: false });
@@ -1212,64 +1448,85 @@ function createFloatingButton() {
         capsuleEl.addEventListener('pointercancel', onFloatingPointerUp, { passive: false });
     }
 
-    floatingCache.presetSelect?.addEventListener('change', async (e) => {
+    $floatingCache.presetSelect?.addEventListener('change', async (e) => {
         await setQuickPreset(e.target.value);
     });
-    floatingCache.sizeSelect?.addEventListener('change', async (e) => {
+
+    $floatingCache.sizeSelect?.addEventListener('change', async (e) => {
         await setQuickSize(e.target.value);
     });
-    floatingCache.autoToggle?.addEventListener('click', async () => {
+
+    $floatingCache.autoToggle?.addEventListener('click', async () => {
         await toggleQuickAutoMode();
     });
+
     floatingEl.querySelector('.nd-settings-btn')?.addEventListener('click', () => {
         floatingEl.classList.remove('expanded');
-        void openSettings();
+        openNovelDrawSettings();
     });
+
     document.addEventListener('click', handleFloatingOutsideClick, { passive: true });
     window.addEventListener('resize', applyFloatingPosition);
 }
 
 function destroyFloatingButton() {
     clearFloatingCooldownTimer();
+
     if (floatingAutoResetTimer) {
         clearTimeout(floatingAutoResetTimer);
         floatingAutoResetTimer = null;
     }
+
     window.removeEventListener('resize', applyFloatingPosition);
     document.removeEventListener('click', handleFloatingOutsideClick);
+
     floatingEl?.remove();
     floatingEl = null;
     floatingDragState = null;
     floatingState = FloatState.IDLE;
-    floatingCache = {};
+    $floatingCache = {};
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 全局更新函数
+// ═══════════════════════════════════════════════════════════════════════════
+
 function updateAllPresetSelects() {
-    panelMap.forEach((data) => fillPresetSelect(data.cache?.presetSelect));
-    fillPresetSelect(floatingCache.presetSelect);
+    panelMap.forEach((data) => {
+        fillPresetSelect(data.$cache?.presetSelect);
+    });
+    fillPresetSelect($floatingCache.presetSelect);
 }
 
 function updateAllSizeSelects() {
-    panelMap.forEach((data) => fillSizeSelect(data.cache?.sizeSelect));
-    fillSizeSelect(floatingCache.sizeSelect);
+    panelMap.forEach((data) => {
+        fillSizeSelect(data.$cache?.sizeSelect);
+    });
+    fillSizeSelect($floatingCache.sizeSelect);
 }
 
 export function updateAutoModeUI() {
     const isAuto = getSettings().mode === 'auto';
+
     panelMap.forEach((data) => {
         if (!data.root) return;
         data.root.classList.toggle('auto-on', isAuto);
-        data.cache.autoToggle?.classList.toggle('on', isAuto);
+        data.$cache.autoToggle?.classList.toggle('on', isAuto);
     });
+
     if (floatingEl) {
         floatingEl.classList.toggle('auto-on', isAuto);
-        floatingCache.autoToggle?.classList.toggle('on', isAuto);
+        $floatingCache.autoToggle?.classList.toggle('on', isAuto);
     }
 }
 
-export function refreshPresetSelect() {
+export function refreshPresetSelectAll() {
     updateAllPresetSelects();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 按钮显示控制
+// ═══════════════════════════════════════════════════════════════════════════
 
 export function updateButtonVisibility(showFloor, showFloating) {
     if (showFloating && !floatingEl) {
@@ -1277,10 +1534,11 @@ export function updateButtonVisibility(showFloor, showFloating) {
     } else if (!showFloating && floatingEl) {
         destroyFloatingButton();
     }
+
     if (!showFloor) {
         panelMap.forEach((data, messageId) => {
             if (data.autoResetTimer) clearTimeout(data.autoResetTimer);
-            clearPanelCooldown(data);
+            if (data.cooldownRafId) cancelAnimationFrame(data.cooldownRafId);
             data._cleanup?.();
             if (data.root) removeFromToolbar(messageId, data.root);
         });
@@ -1291,8 +1549,14 @@ export function updateButtonVisibility(showFloor, showFloating) {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 初始化与清理
+// ═══════════════════════════════════════════════════════════════════════════
+
 export function initFloatingPanel() {
-    if (getSettings().showFloatingButton !== false) {
+    const settings = getSettings();
+
+    if (settings.showFloatingButton === true) {
         createFloatingButton();
     }
 }
@@ -1300,26 +1564,28 @@ export function initFloatingPanel() {
 export function destroyFloatingPanel() {
     panelMap.forEach((data, messageId) => {
         if (data.autoResetTimer) clearTimeout(data.autoResetTimer);
-        clearPanelCooldown(data);
+        if (data.cooldownRafId) cancelAnimationFrame(data.cooldownRafId);
         data._cleanup?.();
         if (data.root) removeFromToolbar(messageId, data.root);
     });
     panelMap.clear();
     pendingCallbacks.clear();
+
     floorObserver?.disconnect();
     floorObserver = null;
+
     destroyFloatingButton();
 }
 
-export function destroySdDrawPanels() {
-    destroyFloatingPanel();
-    document.getElementById('xiaobaix-sd-floating-style')?.remove();
-    stylesInjected = false;
-}
+// ═══════════════════════════════════════════════════════════════════════════
+// 导出
+// ═══════════════════════════════════════════════════════════════════════════
 
 export {
     FloatState,
+    refreshPresetSelectAll as refreshPresetSelect,
     SIZE_OPTIONS,
     createFloatingButton,
     destroyFloatingButton,
+    setFloatingState,
 };

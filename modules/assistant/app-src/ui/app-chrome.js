@@ -106,7 +106,7 @@ export function renderAppChrome(root, state, options = {}) {
 
     const {
         maxImageAttachments = 3,
-        maxContextTokens = 128000,
+        maxContextTokens = 188000,
         buildContextMeterLabel = () => '',
         getWorkspaceSummary = () => ({ fileCount: 0, modifiedFileCount: 0 }),
         renderAttachmentGallery = () => {},

@@ -6,6 +6,7 @@ import { getRequestHeaders } from '../../../../../script.js';
 import { debounce } from '../../../../utils.js';
 
 const toBase64 = (text) => btoa(unescape(encodeURIComponent(text)));
+const STORAGE_UPLOAD_TIMEOUT_MS = 5000;
 
 class StorageFile {
     constructor(filename, opts = {}) {
@@ -138,11 +139,19 @@ class StorageFile {
         try {
             const json = JSON.stringify(this.cache);
             const base64 = toBase64(json);
-            const res = await fetch('/api/files/upload', {
-                method: 'POST',
-                headers: getRequestHeaders(),
-                body: JSON.stringify({ name: this.filename, data: base64 }),
-            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), STORAGE_UPLOAD_TIMEOUT_MS);
+            let res;
+            try {
+                res = await fetch('/api/files/upload', {
+                    method: 'POST',
+                    headers: getRequestHeaders(),
+                    body: JSON.stringify({ name: this.filename, data: base64 }),
+                    signal: controller.signal,
+                });
+            } finally {
+                clearTimeout(timeoutId);
+            }
             if (!res.ok) {
                 throw new Error(`服务器返回 ${res.status}`);
             }
@@ -156,7 +165,10 @@ class StorageFile {
             return true;
 
         } catch (err) {
-            console.error('[ServerStorage] 保存失败:', err);
+            const saveError = err?.name === 'AbortError'
+                ? new Error(`保存超时（>${STORAGE_UPLOAD_TIMEOUT_MS / 1000}秒）`)
+                : err;
+            console.error('[ServerStorage] 保存失败:', saveError);
             this._retryCount++;
 
             const delay = Math.min(30000, 2000 * (2 ** Math.max(0, this._retryCount - 1)));
@@ -168,7 +180,7 @@ class StorageFile {
             }
 
             if (!silent) {
-                throw err;
+                throw saveError;
             }
             return false;
 

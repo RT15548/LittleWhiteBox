@@ -1,5 +1,5 @@
 /**
- * WorldbookProcessor — novel-draw 世界书处理器
+ * WorldbookProcessor — AI 画图共享世界书处理器
  *
  * 从上传的世界书条目中，按灯状态（绿灯/蓝灯/禁用）过滤，组装为 LLM 上下文。
  */

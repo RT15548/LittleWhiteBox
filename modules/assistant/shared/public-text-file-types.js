@@ -20,6 +20,7 @@ export const PUBLIC_TEXT_FILE_EXTENSIONS = new Set([
     '.toml',
     '.ini',
     '.cfg',
+    '.dat',
     '.sh',
 ]);
 

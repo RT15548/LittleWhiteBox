@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-06T17:09:59.476Z",
+  "generatedAt": "2026-05-07T04:48:04.277Z",
   "version": 1,
   "files": [
     {
@@ -496,6 +496,132 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/cloud-presets.js",
+      "relativePath": "modules/draw/providers/novelai/cloud-presets.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/danbooru-local-db.js",
+      "relativePath": "modules/draw/providers/novelai/danbooru-local-db.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/data/danbooru-chars.dat",
+      "relativePath": "modules/draw/providers/novelai/data/danbooru-chars.dat",
+      "extension": ".dat"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/floating-panel.js",
+      "relativePath": "modules/draw/providers/novelai/floating-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.html",
+      "relativePath": "modules/draw/providers/novelai/novel-draw.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-draw.js",
+      "relativePath": "modules/draw/providers/novelai/novel-draw.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/novel-prompts.js",
+      "relativePath": "modules/draw/providers/novelai/novel-prompts.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/prompts/output-format-legacy.md",
+      "relativePath": "modules/draw/providers/novelai/prompts/output-format-legacy.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/prompts/output-format.md",
+      "relativePath": "modules/draw/providers/novelai/prompts/output-format.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/prompts/top-system-pov.md",
+      "relativePath": "modules/draw/providers/novelai/prompts/top-system-pov.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/prompts/top-system.md",
+      "relativePath": "modules/draw/providers/novelai/prompts/top-system.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/TAG编写指南.md",
+      "relativePath": "modules/draw/providers/novelai/TAG编写指南.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/floating-panel.js",
+      "relativePath": "modules/draw/providers/sd-webui/floating-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.html",
+      "relativePath": "modules/draw/providers/sd-webui/sd-draw.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.js",
+      "relativePath": "modules/draw/providers/sd-webui/sd-draw.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-prompts.js",
+      "relativePath": "modules/draw/providers/sd-webui/sd-prompts.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-common.js",
+      "relativePath": "modules/draw/shared/draw-common.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/draw-settings.js",
+      "relativePath": "modules/draw/shared/draw-settings.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/gallery-cache.js",
+      "relativePath": "modules/draw/shared/gallery-cache.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/scene-planner.js",
+      "relativePath": "modules/draw/shared/scene-planner.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/worldbook-processor.js",
+      "relativePath": "modules/draw/shared/worldbook-processor.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/ena-planner/ena-planner-presets.js",
       "relativePath": "modules/ena-planner/ena-planner-presets.js",
       "extension": ".js"
@@ -580,84 +706,6 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/cloud-presets.js",
-      "relativePath": "modules/novel-draw/cloud-presets.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/danbooru-local-db.js",
-      "relativePath": "modules/novel-draw/danbooru-local-db.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/floating-panel.js",
-      "relativePath": "modules/novel-draw/floating-panel.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/gallery-cache.js",
-      "relativePath": "modules/novel-draw/gallery-cache.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/llm-service.js",
-      "relativePath": "modules/novel-draw/llm-service.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/novel-draw.html",
-      "relativePath": "modules/novel-draw/novel-draw.html",
-      "extension": ".html"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/novel-draw.js",
-      "relativePath": "modules/novel-draw/novel-draw.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/prompts/output-format-legacy.md",
-      "relativePath": "modules/novel-draw/prompts/output-format-legacy.md",
-      "extension": ".md"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/prompts/output-format.md",
-      "relativePath": "modules/novel-draw/prompts/output-format.md",
-      "extension": ".md"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/prompts/top-system-pov.md",
-      "relativePath": "modules/novel-draw/prompts/top-system-pov.md",
-      "extension": ".md"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/prompts/top-system.md",
-      "relativePath": "modules/novel-draw/prompts/top-system.md",
-      "extension": ".md"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/TAG编写指南.md",
-      "relativePath": "modules/novel-draw/TAG编写指南.md",
-      "extension": ".md"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/novel-draw/worldbook-processor.js",
-      "relativePath": "modules/novel-draw/worldbook-processor.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/embedded-tasks.html",
       "relativePath": "modules/scheduled-tasks/embedded-tasks.html",
       "extension": ".html"
@@ -672,24 +720,6 @@
       "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/scheduled-tasks/scheduled-tasks.js",
       "relativePath": "modules/scheduled-tasks/scheduled-tasks.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/sd-draw/floating-panel.js",
-      "relativePath": "modules/sd-draw/floating-panel.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/sd-draw/sd-draw.html",
-      "relativePath": "modules/sd-draw/sd-draw.html",
-      "extension": ".html"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/sd-draw/sd-draw.js",
-      "relativePath": "modules/sd-draw/sd-draw.js",
       "extension": ".js"
     },
     {

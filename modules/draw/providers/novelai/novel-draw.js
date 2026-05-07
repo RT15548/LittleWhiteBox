@@ -4,40 +4,42 @@
 // 导入
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { getContext } from "../../../../../extensions.js";
-import { saveBase64AsFile } from "../../../../../utils.js";
-import { extensionFolderPath } from "../../core/constants.js";
-import { createModuleEvents, event_types } from "../../core/event-manager.js";
-import { NovelDrawStorage } from "../../core/server-storage.js";
-import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
+import { getContext } from "../../../../../../../extensions.js";
+import { saveBase64AsFile } from "../../../../../../../utils.js";
+import { extensionFolderPath } from "../../../../core/constants.js";
+import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
+import { NovelDrawStorage } from "../../../../core/server-storage.js";
+import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../../../core/after-ai-gate.js";
 import {
     openDB, storePreview, getPreview, getPreviewsBySlot,
     getDisplayPreviewForSlot, storeFailedPlaceholder, deleteFailedRecordsForSlot,
     setSlotSelection, clearSlotSelection,
     updatePreviewSavedUrl, deletePreview, getCacheStats, clearExpiredCache, clearAllCache,
     getGallerySummary, getCharacterPreviews, openGallery, closeGallery, destroyGalleryCache
-} from './gallery-cache.js';
+} from '../../shared/gallery-cache.js';
 import {
     PROVIDER_MAP,
     LLMServiceError,
-    loadTagGuide,
-    loadPromptTemplates,
     generateScenePlan,
     parseImagePlan,
+} from '../../shared/scene-planner.js';
+import {
+    loadTagGuide,
+    loadPromptTemplates,
     DEFAULT_PROMPT_CONFIG,
     PROMPT_TEMPLATE_VERSION,
     LEGACY_USER_JSON_FORMAT,
     getLoadedTagGuide,
-} from './llm-service.js';
-import { WorldbookProcessor } from './worldbook-processor.js';
+} from './novel-prompts.js';
+import { WorldbookProcessor } from '../../shared/worldbook-processor.js';
 import {
     openCloudPresetsModal,
     downloadPresetAsFile,
     parsePresetData,
     destroyCloudPresets
 } from './cloud-presets.js';
-import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
-import { getDefaultApiPrefix, getModelListCandidateUrls } from "../../shared/common/openai-url-utils.js";
+import { postToIframe, isTrustedMessage } from "../../../../core/iframe-messaging.js";
+import { getDefaultApiPrefix, getModelListCandidateUrls } from "../../../../shared/common/openai-url-utils.js";
 import {
     loadLocalDanbooruDB, unloadLocalDanbooruDB,
     searchLocalDanbooru, isDanbooruDBLoaded,
@@ -49,7 +51,7 @@ import {
 
 const MODULE_KEY = 'novelDraw';
 const SERVER_FILE_KEY = 'settings';
-const HTML_PATH = `${extensionFolderPath}/modules/novel-draw/novel-draw.html`;
+const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
 const NOVELAI_IMAGE_API = 'https://image.novelai.net/ai/generate-image';
 const CONFIG_VERSION = 5;
 const MAX_SEED = 0xFFFFFFFF;
@@ -2643,14 +2645,8 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         try {
             // 高级模式：世界书处理 + 自定义提示词
             let worldbookEntries = null;
-            let customPrompts = null;
+            let customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
             if (settings.advancedMode) {
-                const activePromptPreset = getActivePromptPreset();
-                customPrompts = activePromptPreset ? {
-                    topSystem: activePromptPreset.topSystem,
-                    tagGuideContent: activePromptPreset.tagGuideContent,
-                    userJsonFormat: activePromptPreset.userJsonFormat,
-                } : null;
                 if (settings.worldbooks?.enabled && settings.worldbooks.uploadedBooks?.length) {
                     const processor = new WorldbookProcessor();
                     const charNames = presentCharacters.map(c => c.name).join(' ');
@@ -2734,7 +2730,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         onStateChange?.('gen', { current: 0, total: tasks.length });
 
         const results = [];
-        const { messageFormatting } = await import('../../../../../../script.js');
+        const { messageFormatting } = await import('../../../../../../../../script.js');
         let successCount = 0;
         let requiresFinalDomSync = false;
 
@@ -3230,7 +3226,7 @@ async function handleFrameMessage(event) {
             sendInitData();
             // 若本地 Danbooru DB 已启用，预加载（失败只警告，不修改用户设置）
             if (getSettings().danbooruLocalDB) {
-                const datUrl = `${extensionFolderPath}/modules/novel-draw/data/danbooru-chars.dat`;
+                const datUrl = `${extensionFolderPath}/modules/draw/providers/novelai/data/danbooru-chars.dat`;
                 loadLocalDanbooruDB(datUrl).catch(e => {
                     console.warn('[NovelDraw] Eager load of local Danbooru DB failed:', e);
                 });
@@ -3626,7 +3622,7 @@ async function handleFrameMessage(event) {
             const enabled = !!data.enabled;
             if (enabled) {
                 try {
-                    const datUrl = `${extensionFolderPath}/modules/novel-draw/data/danbooru-chars.dat`;
+                    const datUrl = `${extensionFolderPath}/modules/draw/providers/novelai/data/danbooru-chars.dat`;
                     const db = await loadLocalDanbooruDB(datUrl);
                     if (!db) break; // 被并发 OFF toggle 取消
                     const ok = await updateSettingsPersistent((settings) => {
@@ -3709,7 +3705,7 @@ async function handleFrameMessage(event) {
             break;
 
         case 'GET_PROMPT_CHAIN': {
-            const { getPromptChainPreview } = await import('./llm-service.js');
+            const { getPromptChainPreview } = await import('./novel-prompts.js');
             const chain = getPromptChainPreview(getSettings().customPrompts);
             const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
             if (iframe) postToIframe(iframe, { type: 'PROMPT_CHAIN_DATA', chain }, 'LittleWhiteBox-NovelDraw');

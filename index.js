@@ -23,8 +23,8 @@ import {
 } from "./modules/iframe-renderer.js";
 import { initVarCommands, cleanupVarCommands } from "./modules/variables/var-commands.js";
 import { initVareventEditor, cleanupVareventEditor } from "./modules/variables/varevent-editor.js";
-import { initNovelDraw, cleanupNovelDraw } from "./modules/novel-draw/novel-draw.js";
-import { initSdDraw, cleanupSdDraw } from "./modules/sd-draw/sd-draw.js";
+import { initNovelDraw, cleanupNovelDraw } from "./modules/draw/providers/novelai/novel-draw.js";
+import { initSdDraw, cleanupSdDraw } from "./modules/draw/providers/sd-webui/sd-draw.js";
 import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
 import { initTts, cleanupTts } from "./modules/tts/tts.js";
@@ -434,17 +434,9 @@ function toggleSettingsControls(enabled) {
         'xiaobaix_ena_planner_enabled', 'xiaobaix_ena_planner_open_settings'
     ];
     controls.forEach(id => {
-        $(`#${id}`).prop('disabled', !enabled).closest('.flex-container').toggleClass('disabled-control', !enabled);
+        $(`#${id}`).prop('disabled', !enabled).toggleClass('disabled-control', !enabled);
     });
-    const styleId = 'xiaobaix-disabled-style';
-    if (!enabled && !document.getElementById(styleId)) {
-        const style = document.createElement('style');
-        style.id = styleId;
-        style.textContent = `.disabled-control, .disabled-control * { opacity: 0.4 !important; pointer-events: none !important; cursor: not-allowed !important; }`;
-        document.head.appendChild(style);
-    } else if (enabled) {
-        document.getElementById(styleId)?.remove();
-    }
+    document.getElementById('xiaobaix-disabled-style')?.remove();
     syncFeatureActionButtons();
 }
 
@@ -499,7 +491,11 @@ async function toggleAllFeatures(enabled) {
         moduleInits.forEach(({ condition, init }) => {
             if (condition) init();
         });
-        await initActiveDrawProvider();
+        try {
+            await initActiveDrawProvider();
+        } catch (e) {
+            console.error('[LittleWhiteBox] 初始化画图 provider 失败:', e);
+        }
         if (extension_settings[EXT_ID].preview?.enabled || extension_settings[EXT_ID].recorded?.enabled) {
             setTimeout(initMessagePreview, 200);
         }
@@ -809,7 +805,7 @@ function setupDebugButtonInSettings() {
 }
 
 function setupMenuTabs() {
-    $(document).on('click', '.menu-tab', function () {
+    $(document).off('click.xiaobaixMenuTabs', '.menu-tab').on('click.xiaobaixMenuTabs', '.menu-tab', function () {
         const targetId = $(this).attr('data-target');
         $('.menu-tab').removeClass('active');
         $('.settings-section').hide();
@@ -849,6 +845,7 @@ jQuery(async () => {
         document.head.appendChild(styleElement);
 
         await setupSettings();
+        setupMenuTabs();
 
         try { initControlAudio(); } catch (e) { }
 
@@ -895,7 +892,11 @@ jQuery(async () => {
                 { condition: true, init: initButtonCollapse }
             ];
             moduleInits.forEach(({ condition, init }) => { if (condition) init(); });
-            await initActiveDrawProvider();
+            try {
+                await initActiveDrawProvider();
+            } catch (e) {
+                console.error('[LittleWhiteBox] 初始化画图 provider 失败:', e);
+            }
 
             if (settings.preview?.enabled || settings.recorded?.enabled) {
                 setTimeout(initMessagePreview, 1500);

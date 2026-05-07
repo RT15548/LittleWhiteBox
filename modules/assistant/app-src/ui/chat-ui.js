@@ -222,9 +222,45 @@ export function createChatUi(deps) {
         return `tool-batch:fallback:${fallbackIndex}:${getRenderableMessageSignature(message)}`;
     }
 
+    function buildThoughtDetails(message) {
+        if (message.role !== 'assistant' || !Array.isArray(message.thoughts) || !message.thoughts.length) {
+            return null;
+        }
+
+        const details = document.createElement('details');
+        details.className = 'xb-assistant-thought-details';
+        if (message.streaming) {
+            details.open = true;
+        }
+        const summaryEl = document.createElement('summary');
+        summaryEl.textContent = message.thoughts.length > 1
+            ? `${message.streaming ? '正在思考' : '展开思考块'}（${message.thoughts.length} 段）`
+            : (message.streaming ? '正在思考' : '展开思考块');
+        details.appendChild(summaryEl);
+
+        message.thoughts.forEach((item) => {
+            const block = document.createElement('div');
+            block.className = 'xb-assistant-thought-block';
+
+            const label = document.createElement('div');
+            label.className = 'xb-assistant-thought-label';
+            label.textContent = item.label;
+
+            const pre = document.createElement('pre');
+            pre.className = 'xb-assistant-content xb-assistant-thought-content';
+            pre.textContent = item.text;
+
+            block.append(label, pre);
+            details.appendChild(block);
+        });
+
+        return details;
+    }
+
     function buildAssistantToolPreface(message) {
         const assistantContentText = String(message.content || '').trim();
-        if (!assistantContentText) return null;
+        const thoughtDetails = buildThoughtDetails(message);
+        if (!assistantContentText && !thoughtDetails) return null;
 
         const bubble = document.createElement('div');
         bubble.className = 'xb-assistant-bubble role-assistant xb-assistant-tool-preface';
@@ -236,11 +272,16 @@ export function createChatUi(deps) {
         meta.textContent = '小白助手';
         metaRow.appendChild(meta);
 
-        const content = document.createElement('div');
-        content.className = 'xb-assistant-content xb-assistant-markdown';
-        content.appendChild(buildSanitizedHtmlFragment(renderMarkdown(assistantContentText)));
-
-        bubble.append(metaRow, content);
+        bubble.appendChild(metaRow);
+        if (thoughtDetails) {
+            bubble.appendChild(thoughtDetails);
+        }
+        if (assistantContentText) {
+            const content = document.createElement('div');
+            content.className = 'xb-assistant-content xb-assistant-markdown';
+            content.appendChild(buildSanitizedHtmlFragment(renderMarkdown(assistantContentText)));
+            bubble.appendChild(content);
+        }
         return bubble;
     }
 
@@ -500,37 +541,7 @@ export function createChatUi(deps) {
             ? (message.streaming ? '思考中…' : '我先查一下相关代码。')
             : '';
         const bodyText = assistantContentText || String(fallbackContent || '').trim();
-        let thoughtDetails = null;
-        if (message.role === 'assistant' && Array.isArray(message.thoughts) && message.thoughts.length) {
-            const details = document.createElement('details');
-            details.className = 'xb-assistant-thought-details';
-            if (message.streaming) {
-                details.open = true;
-            }
-            const summaryEl = document.createElement('summary');
-            summaryEl.textContent = message.thoughts.length > 1
-                ? `${message.streaming ? '正在思考' : '展开思考块'}（${message.thoughts.length} 段）`
-                : (message.streaming ? '正在思考' : '展开思考块');
-            details.appendChild(summaryEl);
-
-            message.thoughts.forEach((item) => {
-                const block = document.createElement('div');
-                block.className = 'xb-assistant-thought-block';
-
-                const label = document.createElement('div');
-                label.className = 'xb-assistant-thought-label';
-                label.textContent = item.label;
-
-                const pre = document.createElement('pre');
-                pre.className = 'xb-assistant-content xb-assistant-thought-content';
-                pre.textContent = item.text;
-
-                block.append(label, pre);
-                details.appendChild(block);
-            });
-
-            thoughtDetails = details;
-        }
+        const thoughtDetails = buildThoughtDetails(message);
 
         if (isEditing) {
             const editorWrap = document.createElement('div');
@@ -567,7 +578,7 @@ export function createChatUi(deps) {
             container.innerHTML = '';
             const empty = document.createElement('div');
             empty.className = 'xb-assistant-empty';
-            empty.innerHTML = '<h2>你好！我是小白助手</h2><p>我是 SillyTavern 中 LittleWhiteBox（小白X）插件的内置技术支持助手。</p><p>我可以帮你做很多事情，比如：</p><ul><li><strong>解答问题与排查报错</strong>：解答关于 SillyTavern 或小白X插件的代码、设置、模块行为等问题，帮你排查报错。</li><li><strong>编写与创作辅助</strong>：辅助你写角色卡、写插件、写 STscript 脚本、整理设定或构思剧情。</li><li><strong>查询实例状态</strong>：我可以执行斜杠命令，帮你查询当前酒馆的 API、模型、角色状态等实时信息。</li><li><strong>查阅文档与源码</strong>：我可以读取酒馆和插件的前端源码及参考文档，为你提供准确的技术支持。</li></ul><p>另外，如果你希望我以特定的性格、语气和你交流，或者有特定的工作习惯要求，你可以随时告诉我，我可以将这些设定保存到我的专属身份设定文件中跨会话记住；同时我会在 98k 上下文附近自动总结，尽量保持长期记忆。</p><p>今天有什么我可以帮你的吗？</p>';
+            empty.innerHTML = '<h2>你好！我是小白助手</h2><p>我是 SillyTavern 中 LittleWhiteBox（小白X）插件的内置技术支持助手。</p><p>我可以帮你做很多事情，比如：</p><ul><li><strong>解答问题与排查报错</strong>：解答关于 SillyTavern 或小白X插件的代码、设置、模块行为等问题，帮你排查报错。</li><li><strong>编写与创作辅助</strong>：辅助你写角色卡、写插件、写 STscript 脚本、整理设定或构思剧情。</li><li><strong>查询实例状态</strong>：我可以执行斜杠命令，帮你查询当前酒馆的 API、模型、角色状态等实时信息。</li><li><strong>查阅文档与源码</strong>：我可以读取酒馆和插件的前端源码及参考文档，为你提供准确的技术支持。</li></ul><p>另外，如果你希望我以特定的性格、语气和你交流，或者有特定的工作习惯要求，你可以随时告诉我，我可以将这些设定保存到我的专属身份设定文件中跨会话记住；当前最大上下文约 188k，并会在 158k 附近自动总结，尽量减少频繁压缩又保持长期记忆。</p><p>今天有什么我可以帮你的吗？</p>';
             container.appendChild(empty);
             return;
         }

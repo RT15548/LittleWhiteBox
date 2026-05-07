@@ -1,11 +1,11 @@
 // sd-draw.js
 
-import { getContext } from "../../../../../extensions.js";
-import { saveBase64AsFile } from "../../../../../utils.js";
-import { getRequestHeaders } from "../../../../../../script.js";
-import { extensionFolderPath } from "../../core/constants.js";
-import { createModuleEvents, event_types } from "../../core/event-manager.js";
-import { SdDrawStorage } from "../../core/server-storage.js";
+import { getContext } from "../../../../../../../extensions.js";
+import { saveBase64AsFile } from "../../../../../../../utils.js";
+import { getRequestHeaders } from "../../../../../../../../script.js";
+import { extensionFolderPath } from "../../../../core/constants.js";
+import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
+import { SdDrawStorage } from "../../../../core/server-storage.js";
 import {
     storePreview,
     storeFailedPlaceholder,
@@ -19,22 +19,20 @@ import {
     deletePreview,
     deleteFailedRecordsForSlot,
     updatePreviewSavedUrl,
-} from "../novel-draw/gallery-cache.js";
+} from "../../shared/gallery-cache.js";
 import {
-    loadPromptTemplates,
-    loadTagGuide,
     generateScenePlan,
     parseImagePlan,
     LLMServiceError,
-} from "../novel-draw/llm-service.js";
-import { WorldbookProcessor } from "../novel-draw/worldbook-processor.js";
+} from "../../shared/scene-planner.js";
+import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
-    loadSettings as loadNovelDrawSettings,
-    getSettings as getNovelDrawSettings,
-    getActiveParamsPreset as getNovelDrawParamsPreset,
-    getActivePromptPreset as getNovelDrawPromptPreset,
-    updateSettingsPersistent as updateNovelDrawSettingsPersistent,
-    openNovelDrawSettings,
+    loadSharedDrawSettings,
+    getSharedDrawSettings,
+    getActiveSharedParamsPreset,
+    updateSharedDrawSettingsPersistent,
+} from "../../shared/draw-settings.js";
+import {
     findLastAIMessageId,
     createPlaceholder,
     renderPreviewsForMessage,
@@ -47,13 +45,14 @@ import {
     applyMessageFilterRules,
     DEFAULT_MESSAGE_FILTER_RULES,
     joinTags,
-    ensureNovelDrawStyles,
+    ensureDrawImageStyles,
     classifyError,
     ErrorType,
-} from "../novel-draw/novel-draw.js";
+} from "../../shared/draw-common.js";
+import { SD_SCENE_PROMPTS } from "./sd-prompts.js";
 
 const MODULE_KEY = 'sdDraw';
-const HTML_PATH = `${extensionFolderPath}/modules/sd-draw/sd-draw.html`;
+const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/sd-webui/sd-draw.html`;
 const SERVER_FILE_KEY = 'config';
 
 const DEFAULT_SD_DRAW_SETTINGS = {
@@ -505,6 +504,8 @@ function ensureStyles() {
     if (document.getElementById('xiaobaix-sd-draw-style')) return;
     const style = document.createElement('style');
     style.id = 'xiaobaix-sd-draw-style';
+    // Keep overlay sizing in createOverlay()/syncOverlayHeight only.
+    // Re-adding height:100vh on the overlay style broke the mobile bottom nav on SD settings.
     style.textContent = `
 #xiaobaix-sd-draw-overlay .sd-draw-backdrop{position:absolute;top:0;left:0;width:100%;height:100%;background:#0d1117}
 #xiaobaix-sd-draw-overlay .sd-draw-frame-wrap{position:absolute;z-index:1}
@@ -713,10 +714,6 @@ function bindOverlayEvents() {
     querySettings('#sd-shared-char-add')?.addEventListener('click', () => {
         addCharacterTagDraft();
     });
-    querySettings('#sd-shared-open-novel-settings')?.addEventListener('click', async () => {
-        await saveAllSettings({ notify: false });
-        await openNovelDrawSettings();
-    });
     querySettingsAll('[data-sd-save-shared]').forEach((button) => {
         button.addEventListener('click', async (event) => {
             await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId: 'sd-shared-status' });
@@ -752,7 +749,7 @@ function fillForm(settings) {
     setValue('sd-draw-negative-prefix', preset.negativePrefix);
     setSelectValue('sd-draw-model', preset.model || '');
     setSelectValue('sd-draw-sampler', preset.sampler_name || '');
-    fillSharedNovelForm();
+    fillSharedDrawForm();
     refreshSettingsSummary();
 }
 
@@ -951,8 +948,13 @@ async function renderGalleryManagement() {
     }
 }
 
-function getNovelCharacterTagsFromForm() {
+function getSharedCharacterTagsFromForm() {
+    const existingById = new Map((getSharedDrawSettings().characterTags || [])
+        .map((item) => [String(item.id || ''), item])
+        .filter(([id]) => id));
+
     return querySettingsAll('.sd-char-card').map((card, index) => ({
+        ...(existingById.get(String(card.dataset.characterId || '')) || {}),
         id: card.dataset.characterId || `sd-char-${Date.now()}-${index}`,
         name: String(card.querySelector('[data-sd-char-field="name"]')?.value || '').trim(),
         aliases: String(card.querySelector('[data-sd-char-field="aliases"]')?.value || '')
@@ -1050,29 +1052,24 @@ function createCharacterField(labelText, fieldName, value, placeholder, options 
     return field;
 }
 
-function fillSharedNovelForm() {
-    const novelSettings = getNovelDrawSettings();
-    const promptPreset = getNovelDrawPromptPreset?.();
-    setSelectValue('sd-shared-llm-provider', novelSettings.llmApi?.provider || 'st');
-    setValue('sd-shared-llm-url', novelSettings.llmApi?.url || '');
-    setValue('sd-shared-llm-key', novelSettings.llmApi?.key || '');
-    setValue('sd-shared-llm-model', novelSettings.llmApi?.model || '');
-    const promptPresetNameEl = querySettings('#sd-shared-prompt-preset-name');
-    if (promptPresetNameEl) {
-        promptPresetNameEl.textContent = promptPreset?.name || '默认';
-    }
-    renderCharacterTagList(novelSettings.characterTags || []);
+function fillSharedDrawForm() {
+    const sharedDrawSettings = getSharedDrawSettings();
+    setSelectValue('sd-shared-llm-provider', sharedDrawSettings.llmApi?.provider || 'st');
+    setValue('sd-shared-llm-url', sharedDrawSettings.llmApi?.url || '');
+    setValue('sd-shared-llm-key', sharedDrawSettings.llmApi?.key || '');
+    setValue('sd-shared-llm-model', sharedDrawSettings.llmApi?.model || '');
+    renderCharacterTagList(sharedDrawSettings.characterTags || []);
 }
 
-async function saveSharedNovelSettings({ notify = false } = {}) {
+async function saveSharedDrawSettings({ notify = false } = {}) {
     const llmApi = {
         provider: getValue('sd-shared-llm-provider').trim() || 'st',
         url: getValue('sd-shared-llm-url').trim(),
         key: getValue('sd-shared-llm-key').trim(),
         model: getValue('sd-shared-llm-model').trim(),
     };
-    const characterTags = getNovelCharacterTagsFromForm();
-    return await updateNovelDrawSettingsPersistent((settings) => {
+    const characterTags = getSharedCharacterTagsFromForm();
+    return await updateSharedDrawSettingsPersistent((settings) => {
         settings.llmApi = {
             ...(settings.llmApi || {}),
             ...llmApi,
@@ -1089,16 +1086,20 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
         setSavingState(triggerButton);
     }
 
-    const sdOk = await persistSettings(readForm(), 'SD WebUI 设置已保存', { notify: false, silent: true });
-    const sharedOk = await saveSharedNovelSettings({ notify: false });
+    const [sdOk, sharedOk] = await Promise.all([
+        persistSettings(readForm(), 'SD WebUI 设置已保存', { notify: false, silent: true }),
+        saveSharedDrawSettings({ notify: false }),
+    ]);
     const ok = sdOk && sharedOk;
 
-    try {
-        const fp = await import('./floating-panel.js');
-        const settings = getSettings();
-        fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
-        fp.updateAutoModeUI?.();
-    } catch {}
+    if (ok) {
+        try {
+            const fp = await import('./floating-panel.js');
+            const settings = getSettings();
+            fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
+            fp.updateAutoModeUI?.();
+        } catch {}
+    }
 
     if (triggerButton) {
         handleSaveResult(ok, triggerButton);
@@ -1107,21 +1108,21 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
         updateStatusText(
             statusElementId,
             ok ? 'success' : 'error',
-            ok ? '已保存到小白X服务端配置' : '保存失败，请重试',
+            ok ? '已保存到小白X服务端配置' : '保存超时或失败，请重试',
         );
     }
 
     if (ok && notify) {
         toastr.success('SD WebUI 与共享规划设置已保存');
     } else if (!ok && notify) {
-        toastr.error('SD WebUI 或共享规划设置保存失败');
+        toastr.error('SD WebUI 或共享规划设置保存超时/失败');
     }
     refreshSettingsSummary();
     return ok;
 }
 
 function addCharacterTagDraft() {
-    const current = getNovelCharacterTagsFromForm();
+    const current = getSharedCharacterTagsFromForm();
     current.push({
         id: `sd-char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         name: '',
@@ -1135,7 +1136,7 @@ function addCharacterTagDraft() {
 }
 
 function deleteCharacterTagDraft(characterId = '') {
-    const current = getNovelCharacterTagsFromForm().filter((item) => String(item.id || '') !== String(characterId || ''));
+    const current = getSharedCharacterTagsFromForm().filter((item) => String(item.id || '') !== String(characterId || ''));
     renderCharacterTagList(current);
     refreshSettingsSummary();
 }
@@ -1143,13 +1144,13 @@ function deleteCharacterTagDraft(characterId = '') {
 function refreshSettingsSummary() {
     const settings = getSettings();
     const activePreset = getActivePreset(settings);
-    const llmProvider = getValue('sd-shared-llm-provider').trim() || getNovelDrawSettings().llmApi?.provider || 'st';
+    const llmProvider = getValue('sd-shared-llm-provider').trim() || getSharedDrawSettings().llmApi?.provider || 'st';
     const draftCharacterCards = querySettingsAll('.sd-char-card').length;
     const characterCount = draftCharacterCards > 0
         ? draftCharacterCards
         : (querySettings('#sd-shared-character-list .sd-char-empty')
             ? 0
-            : (getNovelDrawSettings().characterTags?.length || 0));
+            : (getSharedDrawSettings().characterTags?.length || 0));
     const presetEl = querySettings('#sd-draw-summary-preset');
     const charEl = querySettings('#sd-draw-summary-characters');
     const charSideEl = querySettings('#sd-draw-summary-characters-side');
@@ -1255,7 +1256,7 @@ async function refreshSdOptions({ notify = false } = {}) {
 
 export async function openSettings() {
     await loadSettings();
-    await loadNovelDrawSettings();
+    await loadSharedDrawSettings();
     const overlay = await createOverlay();
     fillForm(getSettings());
     switchSettingsView('test');
@@ -1515,57 +1516,47 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
         }];
     }
 
-    await loadPromptTemplates();
-    await loadTagGuide();
-    await loadNovelDrawSettings();
+    await loadSharedDrawSettings();
 
-    const novelSettings = getNovelDrawSettings();
+    const sharedDrawSettings = getSharedDrawSettings();
     const rawText = String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '').trim();
-    const filterRules = novelSettings.messageFilterRules?.length
-        ? novelSettings.messageFilterRules
+    const filterRules = sharedDrawSettings.messageFilterRules?.length
+        ? sharedDrawSettings.messageFilterRules
         : DEFAULT_MESSAGE_FILTER_RULES;
     const messageText = applyMessageFilterRules(rawText, filterRules);
     if (!messageText) throw new Error('消息内容为空（可能被过滤规则清空）');
 
-    const presentCharacters = detectPresentCharacters(messageText, novelSettings.characterTags || []);
+    const presentCharacters = detectPresentCharacters(messageText, sharedDrawSettings.characterTags || []);
     let worldbookEntries = null;
-    let customPrompts = null;
 
-    if (novelSettings.advancedMode) {
-        const activePromptPreset = getNovelDrawPromptPreset();
-        customPrompts = activePromptPreset ? {
-            topSystem: activePromptPreset.topSystem,
-            tagGuideContent: activePromptPreset.tagGuideContent,
-            userJsonFormat: activePromptPreset.userJsonFormat,
-        } : null;
-
-        if (novelSettings.worldbooks?.enabled && novelSettings.worldbooks.uploadedBooks?.length) {
+    if (sharedDrawSettings.advancedMode) {
+        if (sharedDrawSettings.worldbooks?.enabled && sharedDrawSettings.worldbooks.uploadedBooks?.length) {
             const processor = new WorldbookProcessor();
             const charNames = presentCharacters.map(c => c.name).join(' ');
-            const allEntries = novelSettings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
+            const allEntries = sharedDrawSettings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
             worldbookEntries = processor.processFromEntries({
                 entries: allEntries,
                 contextText: `${messageText} ${charNames}`,
-                keywordFilterMode: novelSettings.worldbooks.keywordFilterMode || 'auto',
+                keywordFilterMode: sharedDrawSettings.worldbooks.keywordFilterMode || 'auto',
             });
         }
     }
 
     let planRaw;
     try {
-        const preset = getNovelDrawParamsPreset();
+        const preset = getActiveSharedParamsPreset();
         planRaw = await generateScenePlan({
             messageText,
             presentCharacters,
-            llmApi: novelSettings.llmApi,
-            useStream: novelSettings.useStream,
-            useWorldInfo: (novelSettings.advancedMode && novelSettings.worldbooks?.enabled) ? false : novelSettings.useWorldInfo,
-            customPrompts,
+            llmApi: sharedDrawSettings.llmApi,
+            useStream: sharedDrawSettings.useStream,
+            useWorldInfo: (sharedDrawSettings.advancedMode && sharedDrawSettings.worldbooks?.enabled) ? false : sharedDrawSettings.useWorldInfo,
+            customPrompts: SD_SCENE_PROMPTS,
             worldbookEntries,
-            timeout: novelSettings.timeout || 120000,
+            timeout: sharedDrawSettings.timeout || 120000,
             maxImages: preset.maxImages || 0,
             maxCharactersPerImage: preset.maxCharactersPerImage || 0,
-            disablePrefill: !!novelSettings.disablePrefill,
+            disablePrefill: !!sharedDrawSettings.disablePrefill,
         });
     } catch (error) {
         if (signal.aborted) throw new Error('已取消');
@@ -1578,7 +1569,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     let tasks = parseImagePlan(planRaw);
     if (!tasks.length) throw new Error('未解析到图片任务');
 
-    const preset = getNovelDrawParamsPreset();
+    const preset = getActiveSharedParamsPreset();
     const maxImg = preset.maxImages || 0;
     const maxChar = preset.maxCharactersPerImage || 0;
     if (maxImg > 0 && tasks.length > maxImg) tasks = tasks.slice(0, maxImg);
@@ -1593,7 +1584,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     return tasks;
 }
 
-function buildPromptForTask(task, novelSettings, sdSettings, promptOverride = '', negativePromptOverride = '') {
+function buildPromptForTask(task, sharedDrawSettings, sdSettings, promptOverride = '', negativePromptOverride = '') {
     if (promptOverride.trim()) {
         return {
             positive: composePrompt(sdSettings.positivePrefix, promptOverride),
@@ -1602,7 +1593,7 @@ function buildPromptForTask(task, novelSettings, sdSettings, promptOverride = ''
         };
     }
 
-    const characterPrompts = assembleCharacterPrompts(task.chars || [], novelSettings.characterTags || []);
+    const characterPrompts = assembleCharacterPrompts(task.chars || [], sharedDrawSettings.characterTags || []);
     const charPositive = characterPrompts.map(item => item.prompt).filter(Boolean).join(', ');
     const charNegative = characterPrompts.map(item => item.uc).filter(Boolean).join(', ');
     return {
@@ -2127,7 +2118,7 @@ export async function generateAndInsertImages({
     const signal = job.controller.signal;
 
     try {
-        ensureNovelDrawStyles();
+        ensureDrawImageStyles();
         await openDB();
         const ctx = getContext();
         const initialChatId = ctx.chatId;
@@ -2145,12 +2136,12 @@ export async function generateAndInsertImages({
         if (signal.aborted) throw new Error('已取消');
 
         const sdSettings = getSettings();
-        const novelSettings = getNovelDrawSettings();
+        const sharedDrawSettings = getSharedDrawSettings();
         const originalMes = message.mes;
         message.mes = String(message.mes || '').replace(/\[image:[a-z0-9\-_]+\]/gi, '');
 
         onStateChange?.('gen', { current: 0, total: tasks.length });
-        const { messageFormatting } = await import('../../../../../../script.js');
+        const { messageFormatting } = await import('../../../../../../../../script.js');
         const results = [];
         let successCount = 0;
         let requiresFinalDomSync = false;
@@ -2164,7 +2155,7 @@ export async function generateAndInsertImages({
             const slotId = generateSlotId();
             const imgId = generateImgId();
             const params = getEffectiveParams(sdSettings, paramsOverride);
-            const promptData = buildPromptForTask(task, novelSettings, {
+            const promptData = buildPromptForTask(task, sharedDrawSettings, {
                 positivePrefix: params.positivePrefix,
                 negativePrefix: params.negativePrefix,
             }, promptOverride, negativePromptOverride);
@@ -2351,7 +2342,7 @@ export async function initSdDraw() {
     if (moduleInitialized) return;
     moduleInitialized = true;
     await loadSettings();
-    ensureNovelDrawStyles();
+    ensureDrawImageStyles();
     setupImageDelegation();
     await openDB().catch(() => {});
 

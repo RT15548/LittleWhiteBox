@@ -7,6 +7,9 @@ const publicRoot = path.join(stRoot, 'public');
 const outputPath = path.join(pluginRoot, 'modules/assistant/assistant-file-manifest.json');
 
 const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.html', '.css', '.json', '.md', '.txt']);
+const INCLUDED_BINARY_TEXT_RESOURCES = new Set([
+    'modules/draw/providers/novelai/data/danbooru-chars.dat',
+]);
 const EXCLUDED_DIR_NAMES = new Set(['.git', 'node_modules', 'dist', 'coverage']);
 const EXCLUDED_PUBLIC_SUBTREES = ['scripts/extensions/third-party/LittleWhiteBox'];
 const EXCLUDED_PATH_PARTS = [`${path.sep}libs${path.sep}`, `${path.sep}vendor${path.sep}`];
@@ -21,8 +24,9 @@ function shouldIncludeFile(fullPath, rootPath) {
     const fileName = path.basename(fullPath);
     const extension = path.extname(fullPath).toLowerCase();
     const relativePath = toPosix(path.relative(rootPath, fullPath));
+    const forceIncludedResource = INCLUDED_BINARY_TEXT_RESOURCES.has(relativePath);
 
-    if (!TEXT_EXTENSIONS.has(extension)) return false;
+    if (!forceIncludedResource && !TEXT_EXTENSIONS.has(extension)) return false;
     if (fileName.endsWith('.min.js')) return false;
     if (fileName === 'package-lock.json') return false;
     if (EXCLUDED_FILE_NAMES.has(fileName)) return false;
@@ -31,7 +35,7 @@ function shouldIncludeFile(fullPath, rootPath) {
     try {
         const stat = fs.statSync(fullPath);
         if (!stat.isFile()) return false;
-        if (stat.size > MAX_FILE_SIZE) return false;
+        if (!forceIncludedResource && stat.size > MAX_FILE_SIZE) return false;
     } catch {
         return false;
     }

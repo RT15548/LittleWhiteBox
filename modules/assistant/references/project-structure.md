@@ -157,29 +157,34 @@ LittleWhiteBox/
 │   │   ├── fw-voice.js                     # 语音常量/指南
 │   │   └── fw-voice-runtime.js             # 语音运行时（合成/播放互斥）
 │   │
-│   ├── novel-draw/                        # 小说/楼层绘图能力主模块
-│   │   ├── TAG编写指南.md                  # TAG 指南
-│   │   ├── cloud-presets.js                # 云端预设
-│   │   ├── danbooru-local-db.js            # Danbooru 本地数据库
-│   │   ├── floating-panel.js               # 浮动面板
-│   │   ├── gallery-cache.js                # 图库缓存
-│   │   ├── image-live-effect.js            # 动效
-│   │   ├── llm-service.js                  # LLM 服务
-│   │   ├── novel-draw.html                 # 画图 UI
-│   │   ├── novel-draw.js                   # 画图主逻辑
-│   │   ├── worldbook-processor.js          # 世界书处理器
-│   │   ├── data/                          # 画图功能本地数据资源
-│   │   │   └── danbooru-chars.dat          # Danbooru 角色数据
-│   │   └── prompts/                       # 画图相关提示词模板
-│   │       ├── output-format-legacy.md     # 旧版输出格式
-│   │       ├── output-format.md            # 输出格式
-│   │       ├── top-system-pov.md           # 顶层系统 POV
-│   │       └── top-system.md               # 顶层系统
-│   │
-│   ├── sd-draw/                           # SD WebUI 画图 Provider 模块
-│   │   ├── floating-panel.js               # SD 楼层/悬浮画图面板
-│   │   ├── sd-draw.html                    # SD 设置面板 UI
-│   │   └── sd-draw.js                      # SD Provider 生命周期、设置和出图逻辑
+│   ├── draw/                              # AI 画图大模块：共享层 + Provider
+│   │   ├── shared/                        # 跨 Provider 共享能力
+│   │   │   ├── draw-common.js              # 占位符、锚点、角色 Prompt、图片 DOM 渲染与错误分类
+│   │   │   ├── draw-settings.js            # 共享 LLM/角色/世界书设置读写，不初始化 Provider 专属 Prompt
+│   │   │   ├── gallery-cache.js            # 共用图库缓存与 [image:slot] 占位符存储
+│   │   │   ├── scene-planner.js            # Provider 无关的 LLM 场景规划调用与解析
+│   │   │   └── worldbook-processor.js      # 世界书上下文处理
+│   │   └── providers/                     # 具体画图后端 Provider
+│   │       ├── novelai/                   # NovelAI Provider
+│   │       │   ├── TAG编写指南.md          # NovelAI 专属 TAG 指南
+│   │       │   ├── cloud-presets.js        # NovelAI 云端预设
+│   │       │   ├── danbooru-local-db.js    # Danbooru 本地数据库
+│   │       │   ├── floating-panel.js       # NovelAI 楼层/悬浮画图面板
+│   │       │   ├── novel-draw.html         # NovelAI 设置 UI
+│   │       │   ├── novel-draw.js           # NovelAI 生命周期、设置和出图逻辑
+│   │       │   ├── novel-prompts.js        # NovelAI 提示词模板加载与默认配置
+│   │       │   ├── data/                  # NovelAI 本地数据资源
+│   │       │   │   └── danbooru-chars.dat  # Danbooru 角色数据
+│   │       │   └── prompts/               # NovelAI 提示词模板
+│   │       │       ├── output-format-legacy.md
+│   │       │       ├── output-format.md
+│   │       │       ├── top-system-pov.md
+│   │       │       └── top-system.md
+│   │       └── sd-webui/                  # SD WebUI Provider
+│   │           ├── floating-panel.js       # SD 楼层/悬浮画图面板
+│   │           ├── sd-draw.html            # SD 设置面板 UI
+│   │           ├── sd-draw.js              # SD 生命周期、设置和出图逻辑
+│   │           └── sd-prompts.js           # SD 专属场景规划提示词
 │   │
 │   ├── scheduled-tasks/                   # 定时任务与嵌入式任务功能
 │   │   ├── embedded-tasks.html             # 内嵌任务 UI

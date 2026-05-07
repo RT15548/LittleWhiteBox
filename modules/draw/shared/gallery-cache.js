@@ -1,8 +1,8 @@
 // gallery-cache.js
 // 画廊和缓存管理模块
 
-import { getContext } from "../../../../../extensions.js";
-import { saveBase64AsFile } from "../../../../../utils.js";
+import { getContext } from "../../../../../../extensions.js";
+import { saveBase64AsFile } from "../../../../../../utils.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
