@@ -403,6 +403,7 @@ function parseImageBlockYaml(block) {
         index,
         anchor: extractStrField(block, 'anchor'),
         scene: extractStrField(block, 'scene'),
+        negative: extractStrField(block, 'negative'),
         chars: [],
         hasCharactersField: false
     };
@@ -455,6 +456,7 @@ function normalizeImageTasks(images) {
             index: Number(img.index) || 0,
             anchor: String(img.anchor || '').trim(),
             scene: String(img.scene || '').trim(),
+            negative: String(img.negative || '').trim(),
             chars: [],
             hasCharactersField: img.hasCharactersField === true
         };

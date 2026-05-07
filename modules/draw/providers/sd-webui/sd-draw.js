@@ -67,12 +67,21 @@ const DEFAULT_SD_DRAW_SETTINGS = {
     selectedPresetId: 'default',
     presets: [],
     defaultParams: {
-        steps: null,
-        cfg_scale: null,
-        sampler_name: '',
-        width: 512,
-        height: 512,
+        steps: 28,
+        cfg_scale: 7,
+        sampler_name: 'Euler a',
+        width: 832,
+        height: 1216,
         seed: -1,
+        batch_size: 1,
+        n_iter: 1,
+        restore_faces: false,
+        tiling: false,
+        enable_hr: false,
+        hr_scale: 1.5,
+        hr_upscaler: 'Latent',
+        denoising_strength: 0.45,
+        clip_skip: 1,
     },
     selectedModel: '',
     positivePrefix: '',
@@ -97,6 +106,7 @@ const generationJobs = new Map();
 const SD_DRAW_VIEWS = ['test', 'api', 'params', 'llm', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
 const FIXED_SD_REQUEST_DELAY_MS = 1000;
+const SETTINGS_SAVE_TIMEOUT_MS = 7000;
 let activeSdImageRequest = null;
 let sdImageRequestQueue = [];
 let sdImageRequestSeq = 0;
@@ -115,12 +125,21 @@ function createDefaultPreset() {
         id: 'default',
         name: '默认',
         model: '',
-        sampler_name: '',
-        width: 512,
-        height: 512,
-        steps: null,
-        cfg_scale: null,
+        sampler_name: 'Euler a',
+        width: 832,
+        height: 1216,
+        steps: 28,
+        cfg_scale: 7,
         seed: -1,
+        batch_size: 1,
+        n_iter: 1,
+        restore_faces: false,
+        tiling: false,
+        enable_hr: false,
+        hr_scale: 1.5,
+        hr_upscaler: 'Latent',
+        denoising_strength: 0.45,
+        clip_skip: 1,
         positivePrefix: '',
         negativePrefix: '',
     };
@@ -152,12 +171,21 @@ function normalizeSettings(raw = {}) {
         defaultParams: {
             ...DEFAULT_SD_DRAW_SETTINGS.defaultParams,
             ...(raw.defaultParams || {}),
-            steps: normalizeOptionalNumber(raw.defaultParams?.steps, 1, 150),
-            cfg_scale: normalizeOptionalNumber(raw.defaultParams?.cfg_scale, 1, 30),
+            steps: normalizeNumber(raw.defaultParams?.steps, DEFAULT_SD_DRAW_SETTINGS.defaultParams.steps, 1, 150),
+            cfg_scale: normalizeNumber(raw.defaultParams?.cfg_scale, DEFAULT_SD_DRAW_SETTINGS.defaultParams.cfg_scale, 1, 30),
             width: normalizeNumber(raw.defaultParams?.width, DEFAULT_SD_DRAW_SETTINGS.defaultParams.width, 64, 2048),
             height: normalizeNumber(raw.defaultParams?.height, DEFAULT_SD_DRAW_SETTINGS.defaultParams.height, 64, 2048),
             seed: Number.isFinite(Number(raw.defaultParams?.seed)) ? Number(raw.defaultParams.seed) : -1,
-            sampler_name: String(raw.defaultParams?.sampler_name || ''),
+            sampler_name: String(raw.defaultParams?.sampler_name || DEFAULT_SD_DRAW_SETTINGS.defaultParams.sampler_name),
+            batch_size: normalizeNumber(raw.defaultParams?.batch_size, DEFAULT_SD_DRAW_SETTINGS.defaultParams.batch_size, 1, 16),
+            n_iter: normalizeNumber(raw.defaultParams?.n_iter, DEFAULT_SD_DRAW_SETTINGS.defaultParams.n_iter, 1, 16),
+            restore_faces: raw.defaultParams?.restore_faces === true,
+            tiling: raw.defaultParams?.tiling === true,
+            enable_hr: raw.defaultParams?.enable_hr === true,
+            hr_scale: normalizeNumber(raw.defaultParams?.hr_scale, DEFAULT_SD_DRAW_SETTINGS.defaultParams.hr_scale, 1, 4),
+            hr_upscaler: String(raw.defaultParams?.hr_upscaler || DEFAULT_SD_DRAW_SETTINGS.defaultParams.hr_upscaler),
+            denoising_strength: normalizeNumber(raw.defaultParams?.denoising_strength, DEFAULT_SD_DRAW_SETTINGS.defaultParams.denoising_strength, 0, 1),
+            clip_skip: normalizeNumber(raw.defaultParams?.clip_skip, DEFAULT_SD_DRAW_SETTINGS.defaultParams.clip_skip, 1, 12),
         },
     };
 }
@@ -168,23 +196,25 @@ function normalizeNumber(value, fallback, min, max) {
     return Math.min(max, Math.max(min, parsed));
 }
 
-function normalizeOptionalNumber(value, min, max) {
-    if (value === null || value === undefined || value === '') return null;
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) return null;
-    return Math.min(max, Math.max(min, parsed));
-}
-
 function normalizePresets(rawPresets, rawSettings = {}) {
     const source = Array.isArray(rawPresets) && rawPresets.length ? rawPresets : [{
         ...createDefaultPreset(),
         model: rawSettings.selectedModel || '',
-        sampler_name: rawSettings.defaultParams?.sampler_name || '',
-        width: rawSettings.defaultParams?.width ?? 512,
-        height: rawSettings.defaultParams?.height ?? 512,
-        steps: normalizeOptionalNumber(rawSettings.defaultParams?.steps, 1, 150),
-        cfg_scale: normalizeOptionalNumber(rawSettings.defaultParams?.cfg_scale, 1, 30),
+        sampler_name: rawSettings.defaultParams?.sampler_name || DEFAULT_SD_DRAW_SETTINGS.defaultParams.sampler_name,
+        width: rawSettings.defaultParams?.width ?? DEFAULT_SD_DRAW_SETTINGS.defaultParams.width,
+        height: rawSettings.defaultParams?.height ?? DEFAULT_SD_DRAW_SETTINGS.defaultParams.height,
+        steps: normalizeNumber(rawSettings.defaultParams?.steps, DEFAULT_SD_DRAW_SETTINGS.defaultParams.steps, 1, 150),
+        cfg_scale: normalizeNumber(rawSettings.defaultParams?.cfg_scale, DEFAULT_SD_DRAW_SETTINGS.defaultParams.cfg_scale, 1, 30),
         seed: Number.isFinite(Number(rawSettings.defaultParams?.seed)) ? Number(rawSettings.defaultParams.seed) : -1,
+        batch_size: normalizeNumber(rawSettings.defaultParams?.batch_size, DEFAULT_SD_DRAW_SETTINGS.defaultParams.batch_size, 1, 16),
+        n_iter: normalizeNumber(rawSettings.defaultParams?.n_iter, DEFAULT_SD_DRAW_SETTINGS.defaultParams.n_iter, 1, 16),
+        restore_faces: rawSettings.defaultParams?.restore_faces === true,
+        tiling: rawSettings.defaultParams?.tiling === true,
+        enable_hr: rawSettings.defaultParams?.enable_hr === true,
+        hr_scale: normalizeNumber(rawSettings.defaultParams?.hr_scale, DEFAULT_SD_DRAW_SETTINGS.defaultParams.hr_scale, 1, 4),
+        hr_upscaler: String(rawSettings.defaultParams?.hr_upscaler || DEFAULT_SD_DRAW_SETTINGS.defaultParams.hr_upscaler),
+        denoising_strength: normalizeNumber(rawSettings.defaultParams?.denoising_strength, DEFAULT_SD_DRAW_SETTINGS.defaultParams.denoising_strength, 0, 1),
+        clip_skip: normalizeNumber(rawSettings.defaultParams?.clip_skip, DEFAULT_SD_DRAW_SETTINGS.defaultParams.clip_skip, 1, 12),
         positivePrefix: rawSettings.positivePrefix || '',
         negativePrefix: rawSettings.negativePrefix || '',
     }];
@@ -196,11 +226,20 @@ function normalizePresets(rawPresets, rawSettings = {}) {
         name: String(preset.name || `预设 ${index + 1}`),
         model: String(preset.model ?? preset.selectedModel ?? ''),
         sampler_name: String(preset.sampler_name ?? preset.sampler ?? ''),
-        width: normalizeNumber(preset.width, 512, 64, 2048),
-        height: normalizeNumber(preset.height, 512, 64, 2048),
-        steps: normalizeOptionalNumber(preset.steps, 1, 150),
-        cfg_scale: normalizeOptionalNumber(preset.cfg_scale, 1, 30),
+        width: normalizeNumber(preset.width, DEFAULT_SD_DRAW_SETTINGS.defaultParams.width, 64, 2048),
+        height: normalizeNumber(preset.height, DEFAULT_SD_DRAW_SETTINGS.defaultParams.height, 64, 2048),
+        steps: normalizeNumber(preset.steps, DEFAULT_SD_DRAW_SETTINGS.defaultParams.steps, 1, 150),
+        cfg_scale: normalizeNumber(preset.cfg_scale, DEFAULT_SD_DRAW_SETTINGS.defaultParams.cfg_scale, 1, 30),
         seed: Number.isFinite(Number(preset.seed)) ? Number(preset.seed) : -1,
+        batch_size: normalizeNumber(preset.batch_size, DEFAULT_SD_DRAW_SETTINGS.defaultParams.batch_size, 1, 16),
+        n_iter: normalizeNumber(preset.n_iter, DEFAULT_SD_DRAW_SETTINGS.defaultParams.n_iter, 1, 16),
+        restore_faces: preset.restore_faces === true,
+        tiling: preset.tiling === true,
+        enable_hr: preset.enable_hr === true,
+        hr_scale: normalizeNumber(preset.hr_scale, DEFAULT_SD_DRAW_SETTINGS.defaultParams.hr_scale, 1, 4),
+        hr_upscaler: String(preset.hr_upscaler || DEFAULT_SD_DRAW_SETTINGS.defaultParams.hr_upscaler),
+        denoising_strength: normalizeNumber(preset.denoising_strength, DEFAULT_SD_DRAW_SETTINGS.defaultParams.denoising_strength, 0, 1),
+        clip_skip: normalizeNumber(preset.clip_skip, DEFAULT_SD_DRAW_SETTINGS.defaultParams.clip_skip, 1, 12),
         positivePrefix: String(preset.positivePrefix ?? ''),
         negativePrefix: String(preset.negativePrefix ?? ''),
     }));
@@ -290,6 +329,15 @@ export function getEffectiveParams(settings = getSettings(), overrides = {}) {
         steps: overrides.steps ?? preset.steps ?? settings.defaultParams?.steps,
         cfg_scale: overrides.cfg_scale ?? preset.cfg_scale ?? settings.defaultParams?.cfg_scale,
         seed: overrides.seed ?? preset.seed ?? settings.defaultParams?.seed,
+        batch_size: overrides.batch_size ?? preset.batch_size ?? settings.defaultParams?.batch_size,
+        n_iter: overrides.n_iter ?? preset.n_iter ?? settings.defaultParams?.n_iter,
+        restore_faces: overrides.restore_faces ?? preset.restore_faces ?? settings.defaultParams?.restore_faces,
+        tiling: overrides.tiling ?? preset.tiling ?? settings.defaultParams?.tiling,
+        enable_hr: overrides.enable_hr ?? preset.enable_hr ?? settings.defaultParams?.enable_hr,
+        hr_scale: overrides.hr_scale ?? preset.hr_scale ?? settings.defaultParams?.hr_scale,
+        hr_upscaler: overrides.hr_upscaler ?? preset.hr_upscaler ?? settings.defaultParams?.hr_upscaler,
+        denoising_strength: overrides.denoising_strength ?? preset.denoising_strength ?? settings.defaultParams?.denoising_strength,
+        clip_skip: overrides.clip_skip ?? preset.clip_skip ?? settings.defaultParams?.clip_skip,
         positivePrefix: overrides.positivePrefix ?? preset.positivePrefix ?? settings.positivePrefix ?? '',
         negativePrefix: overrides.negativePrefix ?? preset.negativePrefix ?? settings.negativePrefix ?? '',
     };
@@ -447,11 +495,30 @@ export async function generateSdImage({ prompt, negativePrompt = '', params = {}
     if (Number.isFinite(Number(effective.steps))) body.steps = normalizeNumber(effective.steps, 20, 1, 150);
     if (Number.isFinite(Number(effective.cfg_scale))) body.cfg_scale = normalizeNumber(effective.cfg_scale, 7, 1, 30);
     if (effective.sampler_name) body.sampler_name = String(effective.sampler_name);
-    if (Number.isFinite(Number(effective.seed)) && Number(effective.seed) >= 0) body.seed = Number(effective.seed);
+    if (Number.isFinite(Number(effective.seed))) body.seed = Number(effective.seed);
+    if (Number.isFinite(Number(effective.batch_size))) body.batch_size = normalizeNumber(effective.batch_size, 1, 1, 16);
+    if (Number.isFinite(Number(effective.n_iter))) body.n_iter = normalizeNumber(effective.n_iter, 1, 1, 16);
+    body.restore_faces = effective.restore_faces === true;
+    body.tiling = effective.tiling === true;
+    body.enable_hr = effective.enable_hr === true;
+    if (body.enable_hr) {
+        if (Number.isFinite(Number(effective.hr_scale))) body.hr_scale = normalizeNumber(effective.hr_scale, 1.5, 1, 4);
+        if (effective.hr_upscaler) body.hr_upscaler = String(effective.hr_upscaler);
+        if (Number.isFinite(Number(effective.denoising_strength))) {
+            body.denoising_strength = normalizeNumber(effective.denoising_strength, 0.45, 0, 1);
+        }
+    }
 
     const model = params.selectedModel ?? effective.model;
+    const overrideSettings = {};
     if (model) {
-        body.override_settings = { sd_model_checkpoint: model };
+        overrideSettings.sd_model_checkpoint = model;
+    }
+    if (Number.isFinite(Number(effective.clip_skip))) {
+        overrideSettings.CLIP_stop_at_last_layers = normalizeNumber(effective.clip_skip, 1, 1, 12);
+    }
+    if (Object.keys(overrideSettings).length) {
+        body.override_settings = overrideSettings;
     }
 
     if (!body.prompt) {
@@ -596,9 +663,9 @@ function bindOverlayEvents() {
     querySettingsAll('[data-sd-mode]').forEach((button) => {
         button.addEventListener('click', async () => {
             const nextMode = button.dataset.sdMode === 'auto' ? 'auto' : 'manual';
-            const ok = await updateSettingsPersistent((settings) => {
+            const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
                 settings.mode = nextMode;
-            }, '模式已保存');
+            }, '模式已保存', { silent: false }));
             if (!ok) return;
             fillForm(getSettings());
             try {
@@ -609,9 +676,9 @@ function bindOverlayEvents() {
     });
     querySettings('#sd-show-floor')?.addEventListener('change', async (event) => {
         const checked = event.target.checked === true;
-        const ok = await updateSettingsPersistent((settings) => {
+        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
             settings.showFloorButton = checked;
-        }, '楼层按钮设置已保存');
+        }, '楼层按钮设置已保存', { silent: false }));
         if (!ok) return;
         const settings = getSettings();
         fillForm(settings);
@@ -622,9 +689,9 @@ function bindOverlayEvents() {
     });
     querySettings('#sd-show-floating')?.addEventListener('change', async (event) => {
         const checked = event.target.checked === true;
-        const ok = await updateSettingsPersistent((settings) => {
+        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
             settings.showFloatingButton = checked;
-        }, '悬浮按钮设置已保存');
+        }, '悬浮按钮设置已保存', { silent: false }));
         if (!ok) return;
         const settings = getSettings();
         fillForm(settings);
@@ -652,10 +719,13 @@ function bindOverlayEvents() {
     querySettings('#sd-draw-size-preset')?.addEventListener('change', () => {
         applySizePresetSelection();
     });
+    querySettings('#sd-draw-hires-enabled')?.addEventListener('change', () => {
+        updateHiresOptionsVisibility();
+    });
     querySettings('#sd-draw-preset-select')?.addEventListener('change', async () => {
-        const ok = await updateSettingsPersistent((settings) => {
+        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
             settings.selectedPresetId = getValue('sd-draw-preset-select');
-        }, '预设已切换', { notify: false, silent: true });
+        }, '预设已切换', { notify: false, silent: false }));
         if (ok) fillForm(getSettings());
     });
     querySettings('#sd-draw-preset-add')?.addEventListener('click', async () => {
@@ -664,10 +734,10 @@ function bindOverlayEvents() {
             id: `preset-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             name: prompt('输入预设名称：', '新预设') || '新预设',
         };
-        const ok = await updateSettingsPersistent((draft) => {
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
             draft.presets = [...draft.presets, preset];
             draft.selectedPresetId = preset.id;
-        }, '已创建预设');
+        }, '已创建预设', { silent: false }));
         if (ok) fillForm(getSettings());
     });
     querySettings('#sd-draw-preset-rename')?.addEventListener('click', async () => {
@@ -675,9 +745,9 @@ function bindOverlayEvents() {
         const preset = getActivePreset(settings);
         const name = prompt('输入新名称：', preset.name || '预设');
         if (!name) return;
-        const ok = await updateSettingsPersistent((draft) => {
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
             draft.presets = draft.presets.map((item) => item.id === preset.id ? { ...item, name } : item);
-        }, '预设已重命名');
+        }, '预设已重命名', { silent: false }));
         if (ok) fillForm(getSettings());
     });
     querySettings('#sd-draw-preset-delete')?.addEventListener('click', async () => {
@@ -689,26 +759,27 @@ function bindOverlayEvents() {
         const preset = getActivePreset(settings);
         if (!confirm(`删除预设「${preset.name}」？`)) return;
         const presets = settings.presets.filter(item => item.id !== preset.id);
-        const ok = await updateSettingsPersistent((draft) => {
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
             draft.presets = presets;
             draft.selectedPresetId = presets[0]?.id || 'default';
-        }, '预设已删除');
+        }, '预设已删除', { silent: false }));
         if (ok) fillForm(getSettings());
     });
     querySettings('#sd-draw-preset-save')?.addEventListener('click', async (event) => {
         const settings = getSettings();
         const preset = getActivePreset(settings);
         const nextPreset = { ...readPresetFromForm(), id: preset.id, name: preset.name };
-        updateStatusText('sd-draw-params-status', '', '正在保存预设...');
-        setSavingState(event.currentTarget);
-        const ok = await updateSettingsPersistent((draft) => {
+        const ok = await runSaveButtonTask(event.currentTarget, () => updateSettingsPersistent((draft) => {
             const form = readForm();
             Object.assign(draft, form);
             draft.presets = draft.presets.map((item) => item.id === preset.id ? nextPreset : item);
             draft.selectedPresetId = preset.id;
-        }, '预设已保存', { notify: false, silent: true });
-        handleSaveResult(ok, event.currentTarget);
-        updateStatusText('sd-draw-params-status', ok ? 'success' : 'error', ok ? '预设已保存到小白X配置文件' : '预设保存失败');
+        }, '预设已保存', { notify: false, silent: false }), {
+            statusElementId: 'sd-draw-params-status',
+            pendingText: '正在保存预设...',
+            successText: '预设已保存到小白X配置文件',
+            errorText: '预设保存超时或失败，请重试',
+        });
         if (ok) fillForm(getSettings());
     });
     querySettings('#sd-shared-char-add')?.addEventListener('click', () => {
@@ -741,10 +812,20 @@ function fillForm(settings) {
     setValue('sd-draw-timeout', settings.timeout);
     setValue('sd-draw-steps', preset.steps ?? '');
     setValue('sd-draw-cfg', preset.cfg_scale ?? '');
-    setValue('sd-draw-seed', Number.isFinite(Number(preset.seed)) && Number(preset.seed) >= 0 ? preset.seed : '');
+    setValue('sd-draw-seed', Number.isFinite(Number(preset.seed)) ? preset.seed : -1);
+    setValue('sd-draw-batch-size', preset.batch_size ?? DEFAULT_SD_DRAW_SETTINGS.defaultParams.batch_size);
+    setValue('sd-draw-batch-count', preset.n_iter ?? DEFAULT_SD_DRAW_SETTINGS.defaultParams.n_iter);
+    setValue('sd-draw-clip-skip', preset.clip_skip ?? DEFAULT_SD_DRAW_SETTINGS.defaultParams.clip_skip);
+    setChecked('sd-draw-restore-faces', preset.restore_faces === true);
+    setChecked('sd-draw-tiling', preset.tiling === true);
+    setChecked('sd-draw-hires-enabled', preset.enable_hr === true);
+    setValue('sd-draw-hr-scale', preset.hr_scale ?? DEFAULT_SD_DRAW_SETTINGS.defaultParams.hr_scale);
+    setValue('sd-draw-hr-upscaler', preset.hr_upscaler || DEFAULT_SD_DRAW_SETTINGS.defaultParams.hr_upscaler);
+    setValue('sd-draw-denoising', preset.denoising_strength ?? DEFAULT_SD_DRAW_SETTINGS.defaultParams.denoising_strength);
     setValue('sd-draw-width', preset.width);
     setValue('sd-draw-height', preset.height);
     updateSizePresetSelection();
+    updateHiresOptionsVisibility();
     setValue('sd-draw-positive-prefix', preset.positivePrefix);
     setValue('sd-draw-negative-prefix', preset.negativePrefix);
     setSelectValue('sd-draw-model', preset.model || '');
@@ -769,6 +850,15 @@ function readForm() {
             height: preset.height,
             seed: preset.seed,
             sampler_name: preset.sampler_name,
+            batch_size: preset.batch_size,
+            n_iter: preset.n_iter,
+            restore_faces: preset.restore_faces,
+            tiling: preset.tiling,
+            enable_hr: preset.enable_hr,
+            hr_scale: preset.hr_scale,
+            hr_upscaler: preset.hr_upscaler,
+            denoising_strength: preset.denoising_strength,
+            clip_skip: preset.clip_skip,
         },
         selectedModel: preset.model,
         positivePrefix: preset.positivePrefix,
@@ -781,8 +871,8 @@ function readPresetFromForm() {
     const settings = getSettings();
     const current = getActivePreset(settings);
     const sizePreset = getValue('sd-draw-size-preset');
-    let width = normalizeNumber(getValue('sd-draw-width'), 512, 64, 2048);
-    let height = normalizeNumber(getValue('sd-draw-height'), 512, 64, 2048);
+    let width = normalizeNumber(getValue('sd-draw-width'), DEFAULT_SD_DRAW_SETTINGS.defaultParams.width, 64, 2048);
+    let height = normalizeNumber(getValue('sd-draw-height'), DEFAULT_SD_DRAW_SETTINGS.defaultParams.height, 64, 2048);
     if (sizePreset && sizePreset !== 'custom') {
         const matched = SD_SIZE_PRESETS.find((item) => item.value === sizePreset);
         if (matched) {
@@ -796,9 +886,18 @@ function readPresetFromForm() {
         sampler_name: getValue('sd-draw-sampler').trim(),
         width,
         height,
-        steps: normalizeOptionalNumber(getValue('sd-draw-steps'), 1, 150),
-        cfg_scale: normalizeOptionalNumber(getValue('sd-draw-cfg'), 1, 30),
+        steps: normalizeNumber(getValue('sd-draw-steps'), DEFAULT_SD_DRAW_SETTINGS.defaultParams.steps, 1, 150),
+        cfg_scale: normalizeNumber(getValue('sd-draw-cfg'), DEFAULT_SD_DRAW_SETTINGS.defaultParams.cfg_scale, 1, 30),
         seed: getValue('sd-draw-seed') === '' ? -1 : Number(getValue('sd-draw-seed')),
+        batch_size: normalizeNumber(getValue('sd-draw-batch-size'), DEFAULT_SD_DRAW_SETTINGS.defaultParams.batch_size, 1, 16),
+        n_iter: normalizeNumber(getValue('sd-draw-batch-count'), DEFAULT_SD_DRAW_SETTINGS.defaultParams.n_iter, 1, 16),
+        restore_faces: getChecked('sd-draw-restore-faces'),
+        tiling: getChecked('sd-draw-tiling'),
+        enable_hr: getChecked('sd-draw-hires-enabled'),
+        hr_scale: normalizeNumber(getValue('sd-draw-hr-scale'), DEFAULT_SD_DRAW_SETTINGS.defaultParams.hr_scale, 1, 4),
+        hr_upscaler: getValue('sd-draw-hr-upscaler').trim() || DEFAULT_SD_DRAW_SETTINGS.defaultParams.hr_upscaler,
+        denoising_strength: normalizeNumber(getValue('sd-draw-denoising'), DEFAULT_SD_DRAW_SETTINGS.defaultParams.denoising_strength, 0, 1),
+        clip_skip: normalizeNumber(getValue('sd-draw-clip-skip'), DEFAULT_SD_DRAW_SETTINGS.defaultParams.clip_skip, 1, 12),
         positivePrefix: getValue('sd-draw-positive-prefix'),
         negativePrefix: getValue('sd-draw-negative-prefix'),
     };
@@ -830,6 +929,12 @@ function applySizePresetSelection() {
         setValue('sd-draw-height', matched.height);
     }
     customRow.classList.add('hidden');
+}
+
+function updateHiresOptionsVisibility() {
+    const row = getSettingsElement('sd-draw-hires-options');
+    if (!row) return;
+    row.classList.toggle('hidden', !getChecked('sd-draw-hires-enabled'));
 }
 
 function fillPresetSelect(settings = getSettings()) {
@@ -1075,34 +1180,49 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
             ...llmApi,
         };
         settings.characterTags = characterTags;
-    }, '共享规划设置已保存', { notify, silent: !notify });
+    }, '共享规划设置已保存', { notify, silent: false });
 }
 
 async function saveAllSettings({ notify = false, triggerButton = null, statusElementId = '' } = {}) {
-    if (statusElementId) {
-        updateStatusText(statusElementId, '', '正在保存...');
-    }
-    if (triggerButton) {
-        setSavingState(triggerButton);
-    }
+    const saveTask = async () => {
+        const [sdOk, sharedOk] = await Promise.all([
+            persistSettings(readForm(), 'SD WebUI 设置已保存', { notify: false, silent: false }),
+            saveSharedDrawSettings({ notify: false }),
+        ]);
+        return sdOk && sharedOk;
+    };
 
-    const [sdOk, sharedOk] = await Promise.all([
-        persistSettings(readForm(), 'SD WebUI 设置已保存', { notify: false, silent: true }),
-        saveSharedDrawSettings({ notify: false }),
-    ]);
-    const ok = sdOk && sharedOk;
-
-    if (ok) {
+    const runPostSaveHooks = async () => {
         try {
             const fp = await import('./floating-panel.js');
             const settings = getSettings();
             fp.updateButtonVisibility?.(settings.showFloorButton !== false, settings.showFloatingButton !== false);
             fp.updateAutoModeUI?.();
         } catch {}
-    }
+    };
 
     if (triggerButton) {
-        handleSaveResult(ok, triggerButton);
+        const ok = await runSaveButtonTask(triggerButton, saveTask, {
+            statusElementId,
+            pendingText: '正在保存...',
+            successText: '已保存到小白X服务端配置',
+            errorText: '保存超时或失败，请重试',
+            notify,
+        });
+        if (ok) await runPostSaveHooks();
+        return ok;
+    }
+
+    let ok = false;
+    try {
+        ok = await withTimeout(saveTask(), SETTINGS_SAVE_TIMEOUT_MS);
+    } catch (error) {
+        console.warn('[SdDraw] 保存操作超时或失败:', error);
+        ok = false;
+    }
+
+    if (ok) {
+        await runPostSaveHooks();
     }
     if (statusElementId) {
         updateStatusText(
@@ -1173,6 +1293,15 @@ function getValue(id) {
     return getSettingsElement(id)?.value ?? '';
 }
 
+function setChecked(id, checked) {
+    const el = getSettingsElement(id);
+    if (el) el.checked = checked === true;
+}
+
+function getChecked(id) {
+    return getSettingsElement(id)?.checked === true;
+}
+
 function setSelectValue(id, value) {
     const el = getSettingsElement(id);
     if (!el) return;
@@ -1240,11 +1369,11 @@ async function refreshSdOptions({ notify = false } = {}) {
         const activePreset = getActivePreset(settings);
         populateSelect('sd-draw-model', normalizeSdModelOptions(models), {
             value: activePreset.model || settings.selectedModel || '',
-            emptyLabel: '使用 SD 当前模型',
+            emptyLabel: '不切换后端已加载模型',
         });
         populateSelect('sd-draw-sampler', normalizeSdSamplerOptions(samplers), {
             value: activePreset.sampler_name || settings.defaultParams?.sampler_name || '',
-            emptyLabel: '使用 SD 当前采样器',
+            emptyLabel: '不切换后端采样器',
         });
         if (notify) toastr.success('SD 模型和采样器已刷新');
         return true;
@@ -1342,6 +1471,49 @@ function updateStatusText(elementId, state, text) {
     if (!el) return;
     el.textContent = text || '';
     el.className = `status-text${state ? ` ${state}` : ''}`;
+}
+
+function withTimeout(promise, timeoutMs, timeoutMessage = '保存超时，请重试') {
+    let timeoutId;
+    const timeout = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
+async function withSaveTimeout(promise) {
+    try {
+        return await withTimeout(promise, SETTINGS_SAVE_TIMEOUT_MS);
+    } catch (error) {
+        console.warn('[SdDraw] 保存操作超时或失败:', error);
+        return false;
+    }
+}
+
+async function runSaveButtonTask(button, task, {
+    statusElementId = '',
+    pendingText = '正在保存...',
+    successText = '已保存',
+    errorText = '保存超时或失败，请重试',
+    notify = false,
+} = {}) {
+    if (statusElementId) updateStatusText(statusElementId, '', pendingText);
+    setSavingState(button);
+    let ok = false;
+    try {
+        ok = await withTimeout(Promise.resolve().then(task), SETTINGS_SAVE_TIMEOUT_MS);
+    } catch (error) {
+        console.warn('[SdDraw] 保存操作超时或失败:', error);
+        ok = false;
+    }
+    handleSaveResult(ok, button);
+    if (statusElementId) updateStatusText(statusElementId, ok ? 'success' : 'error', ok ? successText : errorText);
+    if (notify) {
+        if (ok) toastr.success(successText, 'SD WebUI');
+        else toastr.error(errorText, 'SD WebUI');
+    }
+    refreshSettingsSummary();
+    return ok;
 }
 
 function setSavingState(button) {

@@ -126,6 +126,7 @@ body {
 .form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
 .form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.hidden { display: none !important; }
 .input {
     width: 100%; padding: 10px 12px; background: var(--bg-input);
     border: 1px solid var(--border); border-radius: 8px;
@@ -156,6 +157,13 @@ select.input { cursor: pointer; }
 .btn-icon { width: 40px; padding: 0; }
 .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn-sm { padding: 6px 10px; min-height: 32px; font-size: 12px; }
+.check-row {
+    display: flex; align-items: center; gap: 8px;
+    min-height: 40px; padding: 10px 12px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-secondary); font-size: 13px; cursor: pointer;
+}
+.check-row input { accent-color: var(--accent); }
 .preset-bar {
     display: flex; align-items: center; gap: 8px; padding: 12px 16px;
     background: var(--bg-tertiary); border: 1px solid var(--border);
@@ -350,7 +358,7 @@ select.input { cursor: pointer; }
                     <div>
                         <div>消息楼层按钮的 🎨 为对应消息生成配图。</div>
                         <div>SD 出图会复用小白X的场景分析、角色识别和图片占位符。</div>
-                        <div>模型、VAE、脚本等复杂设置仍建议在 SD WebUI 里维护。</div>
+                        <div>本页预设会作为 API 参数发送；WebUI 网页输入框不会参与本次出图。</div>
                     </div>
                 </div>
             </section>
@@ -409,12 +417,12 @@ select.input { cursor: pointer; }
                     <div class="form-group">
                         <label class="form-label">正向固定</label>
                         <textarea id="sd-draw-positive-prefix" class="input" rows="3" placeholder="masterpiece, best quality..."></textarea>
-                        <p class="form-hint">API 出图会覆盖 WebUI 网页上的 tag，请把正向固定 tag 填在这里。</p>
+                        <p class="form-hint">API 出图不会读取 WebUI 网页上的 tag，请把正向固定 tag 填在这里。</p>
                     </div>
                     <div class="form-group">
                         <label class="form-label">负向固定</label>
                         <textarea id="sd-draw-negative-prefix" class="input" rows="3" placeholder="lowres, bad anatomy..."></textarea>
-                        <p class="form-hint">API 出图会覆盖 WebUI 网页上的 tag，请把负向固定 tag 填在这里。</p>
+                        <p class="form-hint">API 出图不会读取 WebUI 网页上的 tag，请把负向固定 tag 填在这里。</p>
                     </div>
                 </div>
 
@@ -424,16 +432,16 @@ select.input { cursor: pointer; }
                         <div class="form-group">
                             <label class="form-label">模型</label>
                             <select id="sd-draw-model" class="input">
-                                <option value="">使用 SD 当前模型</option>
+                                <option value="">不切换后端已加载模型</option>
                             </select>
-                            <p class="form-hint">留空时不覆盖 WebUI 当前模型</p>
+                            <p class="form-hint">不选择模型时只是不发送切换模型指令；不是读取 WebUI 网页选择。</p>
                         </div>
                         <div class="form-group">
                             <label class="form-label">采样器</label>
                             <select id="sd-draw-sampler" class="input">
-                                <option value="">使用 SD 当前采样器</option>
+                                <option value="">不切换后端采样器</option>
                             </select>
-                            <p class="form-hint">留空时不覆盖 WebUI 当前采样器</p>
+                            <p class="form-hint">建议选择一个采样器；未拉取前默认 Euler a。</p>
                         </div>
                     </div>
                 </div>
@@ -456,16 +464,51 @@ select.input { cursor: pointer; }
                                 <input id="sd-draw-height" class="input" type="number" min="64" max="2048" step="8" placeholder="高度">
                             </div>
                         </div>
+                    </div>
+                    <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">Steps / CFG / Seed</label>
                             <div class="input-row">
-                                <input id="sd-draw-steps" class="input" type="number" min="1" max="150" step="1" placeholder="不覆盖">
-                                <input id="sd-draw-cfg" class="input" type="number" min="1" max="30" step="0.5" placeholder="不覆盖">
+                                <input id="sd-draw-steps" class="input" type="number" min="1" max="150" step="1" placeholder="28">
+                                <input id="sd-draw-cfg" class="input" type="number" min="1" max="30" step="0.5" placeholder="7">
                                 <input id="sd-draw-seed" class="input" type="number" step="1" placeholder="-1">
                             </div>
                         </div>
                     </div>
-                    <p class="form-hint">未填写的高级参数不会发送给 SD，适合继续沿用 WebUI 里调好的默认值。</p>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Clip Skip</label>
+                            <input id="sd-draw-clip-skip" class="input" type="number" min="1" max="12" step="1" placeholder="1">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">常用开关</label>
+                            <div class="input-row">
+                                <label class="check-row"><input id="sd-draw-restore-faces" type="checkbox"> 修复面部</label>
+                                <label class="check-row"><input id="sd-draw-tiling" type="checkbox"> 平铺</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="check-row"><input id="sd-draw-hires-enabled" type="checkbox"> 启用 Hires.fix</label>
+                            <p class="form-hint">需要 SD WebUI 后端支持；默认关闭，避免显存压力。</p>
+                        </div>
+                    </div>
+                    <div id="sd-draw-hires-options" class="form-row hidden">
+                        <div class="form-group">
+                            <label class="form-label">放大倍数</label>
+                            <input id="sd-draw-hr-scale" class="input" type="number" min="1" max="4" step="0.1" placeholder="1.5">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">放大算法</label>
+                            <input id="sd-draw-hr-upscaler" class="input" type="text" placeholder="Latent">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">重绘幅度</label>
+                            <input id="sd-draw-denoising" class="input" type="number" min="0" max="1" step="0.01" placeholder="0.45">
+                        </div>
+                    </div>
+                    <p class="form-hint">小白X会把本预设参数发送给 SD API；请在这里配置基础参数，WebUI 网页输入框不会参与。</p>
                     <div id="sd-draw-params-status" class="status-text"></div>
                 </div>
             </section>

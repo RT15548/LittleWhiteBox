@@ -118,7 +118,10 @@ class StorageFile {
             this._pendingSave = true;
 
             if (!silent) {
-                await this._waitForSaveComplete();
+                const completed = await this._waitForSaveComplete(STORAGE_UPLOAD_TIMEOUT_MS);
+                if (!completed) {
+                    throw new Error(`保存超时（>${STORAGE_UPLOAD_TIMEOUT_MS / 1000}秒）`);
+                }
                 if (this._dirtyVersion > this._savedVersion) {
                     return this.saveNow({ silent });
                 }
@@ -194,10 +197,12 @@ class StorageFile {
     }
 
     /** 等待保存完成 */
-    _waitForSaveComplete() {
+    _waitForSaveComplete(timeoutMs = STORAGE_UPLOAD_TIMEOUT_MS) {
         return new Promise(resolve => {
+            const startedAt = Date.now();
             const check = () => {
-                if (!this._saving) resolve();
+                if (!this._saving) resolve(true);
+                else if (Date.now() - startedAt >= timeoutMs) resolve(false);
                 else setTimeout(check, 50);
             };
             check();
