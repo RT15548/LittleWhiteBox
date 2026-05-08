@@ -67,9 +67,9 @@ const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/comfyui/comfy-d
 const DANBOORU_DATA_PATH = `${extensionFolderPath}/modules/draw/shared/data/danbooru-chars.dat`;
 const SERVER_FILE_KEY = 'config';
 
-// 通用 SD/SDXL txt2img 工作流模板。
+// 简单模式只使用 ComfyUI 最基础的“整包模型文生图”链路。
 // 节点 9 使用 PreviewImage，避免默认把图片写入用户本地 ComfyUI output 目录。
-// 节点 ID 固定：3=KSampler, 4=CheckpointLoader, 5=EmptyLatentImage, 6=正向CLIP, 7=负向CLIP, 8=VAEDecode, 9=PreviewImage
+// 节点 ID 固定：3=KSampler, 4=模型加载, 5=画布, 6=正向提示词, 7=负向提示词, 8=解码, 9=预览图
 const BUILTIN_WORKFLOW_TEMPLATE = {
     "3": {
         "inputs": {
@@ -113,6 +113,8 @@ const BUILTIN_WORKFLOW_TEMPLATE = {
 };
 const DEFAULT_COMFY_DRAW_SETTINGS = {
     host: '',
+    connectionMode: 'proxy',
+    auth: '',
     timeout: 120000,
     mode: 'manual',
     overrideSize: 'default',
@@ -180,10 +182,10 @@ const COMFY_SIZE_PRESETS = [
 const BUILTIN_WORKFLOWS = [
     {
         id: 'official-core-checkpoint',
-        name: '官方核心文生图',
-        family: 'Checkpoint',
-        summary: 'CheckpointLoaderSimple -> CLIPTextEncode(正/负) -> KSampler -> VAEDecode -> PreviewImage',
-        description: '对应 ComfyUI 官方默认 Text-to-Image 教程的核心节点链，只把最终 SaveImage 改成 PreviewImage，避免默认写入本地 output 目录。',
+        name: '基础出图',
+        family: 'simple',
+        summary: '最稳的入门方案：选一个模型文件，直接文生图。',
+        description: '适合第一次跑通 ComfyUI。小白X 会把提示词、尺寸、采样参数填进内置工作流，并只返回预览图。',
         recommended: {
             width: 512,
             height: 512,
@@ -192,14 +194,14 @@ const BUILTIN_WORKFLOWS = [
             sampler: 'euler',
             scheduler: 'normal',
         },
-        notes: '最稳妥，适合先跑通 ComfyUI 的基础 checkpoint 文生图。',
+        notes: '如果你不确定选什么，就先用这个。',
     },
     {
         id: 'checkpoint-sdxl',
-        name: 'SDXL Checkpoint 文生图',
-        family: 'Checkpoint',
-        summary: '与官方核心文生图相同的节点链，但按 SDXL 常用尺寸给出推荐参数。',
-        description: '仍然是最基础的 checkpoint 文生图工作流，只是把推荐尺寸切到 1024 级别，方便直接拿来跑 SDXL checkpoint。',
+        name: '高清出图',
+        family: 'simple',
+        summary: '同一套稳定流程，但默认使用 1024 尺寸。',
+        description: '适合已经确认模型能正常出图后再使用。画面更大，也更吃显存。',
         recommended: {
             width: 1024,
             height: 1024,
@@ -208,23 +210,7 @@ const BUILTIN_WORKFLOWS = [
             sampler: 'euler',
             scheduler: 'normal',
         },
-        notes: '适合能直接放进 CheckpointLoaderSimple 的 SDXL checkpoint。',
-    },
-    {
-        id: 'checkpoint-flux-fp8',
-        name: 'FLUX FP8 Checkpoint 文生图',
-        family: 'Checkpoint',
-        summary: '同样使用最基础的 checkpoint 节点链，面向官方文档中的 FLUX checkpoint 版本示例。',
-        description: '官方文档提供了 FLUX.1 的 checkpoint 版本文生图示例；如果你手上的 Flux 不是 checkpoint 版，而是完整多模型工作流，请切到自定义工作流。',
-        recommended: {
-            width: 1024,
-            height: 1024,
-            steps: 20,
-            cfg: 7,
-            sampler: 'euler',
-            scheduler: 'normal',
-        },
-        notes: '用于 flux1-dev-fp8.safetensors / flux1-schnell-fp8.safetensors 这类 checkpoint 版路线。',
+        notes: '如果报显存不足，切回基础出图或降低尺寸。',
     },
 ];
 const providerDefaults = {
@@ -310,6 +296,8 @@ function normalizeSettings(raw = {}) {
         overrideSize: String(raw.overrideSize || 'default'),
         showFloorButton: raw.showFloorButton !== false,
         showFloatingButton: raw.showFloatingButton !== false,
+        connectionMode: raw.connectionMode === 'direct' ? 'direct' : 'proxy',
+        auth: String(raw.auth ?? ''),
         timeout: normalizeNumber(raw.timeout, DEFAULT_COMFY_DRAW_SETTINGS.timeout, 10000, 600000),
         selectedPresetId,
         builtinWorkflowId,
@@ -474,7 +462,7 @@ function getBuiltinWorkflowPreviewParams(settings = getSettings()) {
     };
 }
 
-function createComfyProxySignal(signal, timeoutMs) {
+function createComfyRequestSignal(signal, timeoutMs) {
     const controller = new AbortController();
     let timeoutId = null;
     const abort = () => controller.abort();
@@ -498,10 +486,52 @@ function createComfyProxySignal(signal, timeoutMs) {
     };
 }
 
-async function fetchComfyProxy(path, body = {}, { signal, timeoutMs } = {}) {
+function createComfyDeadlineSignal(signal, timeoutMs) {
+    return createComfyRequestSignal(signal, timeoutMs);
+}
+
+function getComfyAuthHeaders(settings = getSettings()) {
+    const auth = String(settings.auth || '').trim();
+    if (!auth) return {};
+    return { Authorization: `Basic ${btoa(auth)}` };
+}
+
+function isDirectConnection(settings = getSettings()) {
+    return settings.connectionMode === 'direct';
+}
+
+function createComfyUrl(path, query = {}, settings = getSettings()) {
+    const base = String(settings.host || '').trim();
+    if (!base) throw new Error('请先填写 ComfyUI 地址');
+    const url = new URL(path, base.endsWith('/') ? base : `${base}/`);
+    Object.entries(query || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+    });
+    return url;
+}
+
+async function readBlobAsBase64(blob) {
+    return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+        reader.onerror = () => reject(reader.error || new Error('图片读取失败'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function requestComfyTransport(path, body = {}, { signal, timeoutMs } = {}) {
     const settings = getSettings();
     if (!settings.host) throw new Error('请先填写 ComfyUI 地址');
-    const proxySignal = createComfyProxySignal(signal, timeoutMs ?? settings.timeout ?? 120000);
+    if (isDirectConnection(settings) && path === 'ping') {
+        await testComfyDirectConnection({ signal, timeoutMs });
+        return { ok: true, json: async () => ({}) };
+    }
+    if (isDirectConnection(settings) && path === 'gene[用户触发屏蔽词]e') {
+        const workflow = JSON.parse(body?.prompt || '{}')?.prompt;
+        const data = await fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs });
+        return { ok: true, json: async () => ({ data }) };
+    }
+    const proxySignal = createComfyRequestSignal(signal, timeoutMs ?? settings.timeout ?? 120000);
     try {
         const response = await fetch(`/api/sd/comfy/${path}`, {
             method: 'POST',
@@ -525,19 +555,144 @@ async function fetchComfyProxy(path, body = {}, { signal, timeoutMs } = {}) {
     }
 }
 
-// 通过酒馆后端代理获取可用模型列表，避免浏览器 CORS/混合内容问题。
-async function fetchComfyModels({ signal } = {}) {
-    const res = await fetchComfyProxy('models', {}, { signal });
-    const data = await res.json();
-    if (!Array.isArray(data)) return [];
-    return data.map(item => typeof item === 'string' ? item : item?.value).filter(Boolean);
+async function fetchComfyDirectJson(path, { signal, timeoutMs, method = 'GET', body } = {}) {
+    const settings = getSettings();
+    const directSignal = createComfyRequestSignal(signal, timeoutMs ?? settings.timeout ?? 120000);
+    try {
+        const response = await fetch(createComfyUrl(path, {}, settings), {
+            method,
+            headers: {
+                ...getComfyAuthHeaders(settings),
+                ...(body ? { 'Content-Type': 'application/json' } : {}),
+            },
+            body,
+            signal: directSignal.signal,
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(text || `HTTP ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        if (error?.name === 'AbortError') throw new Error(signal?.aborted ? '已取消' : '生成超时');
+        throw error;
+    } finally {
+        directSignal.cleanup();
+    }
 }
 
-// 通过酒馆后端代理获取采样器和调度器列表。
+async function fetchComfyDirectBlob(path, query = {}, { signal, timeoutMs } = {}) {
+    const settings = getSettings();
+    const directSignal = createComfyRequestSignal(signal, timeoutMs ?? settings.timeout ?? 120000);
+    try {
+        const response = await fetch(createComfyUrl(path, query, settings), {
+            headers: getComfyAuthHeaders(settings),
+            signal: directSignal.signal,
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(text || `HTTP ${response.status}`);
+        }
+        return await response.blob();
+    } catch (error) {
+        if (error?.name === 'AbortError') throw new Error(signal?.aborted ? '已取消' : '生成超时');
+        throw error;
+    } finally {
+        directSignal.cleanup();
+    }
+}
+
+function normalizeComfyModelList(data = {}) {
+    return (data.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || []).filter(Boolean);
+}
+
+async function fetchComfyDirectModels({ signal } = {}) {
+    const data = await fetchComfyDirectJson('/object_info', { signal });
+    return normalizeComfyModelList(data);
+}
+
+async function fetchComfyDirectSamplers({ signal } = {}) {
+    const data = await fetchComfyDirectJson('/object_info', { signal });
+    return {
+        samplers: data.KSampler?.input?.required?.sampler_name?.[0] || [],
+        schedulers: data.KSampler?.input?.required?.scheduler?.[0] || [],
+    };
+}
+
+async function testComfyDirectConnection({ signal, timeoutMs } = {}) {
+    await fetchComfyDirectJson('/system_stats', { signal, timeoutMs });
+}
+
+async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs } = {}) {
+    const deadline = createComfyDeadlineSignal(signal, timeoutMs);
+    try {
+        const data = await fetchComfyDirectJson('/prompt', {
+            method: 'POST',
+            body: JSON.stringify({ prompt: workflow }),
+            signal: deadline.signal,
+            timeoutMs,
+        });
+        const promptId = data?.prompt_id;
+        if (!promptId) throw new Error('ComfyUI 未返回任务 ID');
+
+        let item = null;
+        while (!deadline.signal.aborted) {
+            const history = await fetchComfyDirectJson('/history', { signal: deadline.signal, timeoutMs });
+            item = history?.[promptId];
+            if (item) break;
+            await waitWithAbort(deadline.signal, 100);
+        }
+        if (deadline.signal.aborted) throw new Error(signal?.aborted ? '已取消' : '生成超时');
+        if (!item) throw new Error('ComfyUI 未返回生成结果');
+
+        if (item.status?.status_str === 'error') {
+            const errorMessages = item.status?.messages
+                ?.filter(it => it[0] === 'execution_error')
+                .map(it => it[1])
+                .map(it => `${it.node_type} [${it.node_id}] ${it.exception_type}: ${it.exception_message}`)
+                .join('\n') || '';
+            throw new Error(`ComfyUI 生成失败${errorMessages ? `\n\n${errorMessages}` : ''}`);
+        }
+
+        const outputs = Object.keys(item.outputs || {}).map(key => item.outputs[key]);
+        const imgInfo = outputs.map(it => it.images).flat()[0] ?? outputs.map(it => it.gifs).flat()[0];
+        if (!imgInfo) throw new Error('ComfyUI 未返回图片数据');
+
+        const blob = await fetchComfyDirectBlob('/view', {
+            filename: imgInfo.filename,
+            subfolder: imgInfo.subfolder,
+            type: imgInfo.type,
+        }, { signal: deadline.signal, timeoutMs });
+        return await readBlobAsBase64(blob);
+    } finally {
+        deadline.cleanup();
+    }
+}
+
+async function fetchComfyModels({ signal } = {}) {
+    if (isDirectConnection()) {
+        return await fetchComfyDirectModels({ signal });
+    }
+    const res = await requestComfyTransport('models', {}, { signal });
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+    return data
+        .filter(item => {
+            const label = String(item?.text ?? item?.value ?? item ?? '');
+            const value = String(item?.value ?? item ?? '');
+            return !/^(UNet|GGUF):/i.test(label) && !/^(UNet|GGUF):/i.test(value);
+        })
+        .map(item => typeof item === 'string' ? item : item?.value)
+        .filter(Boolean);
+}
+
 async function fetchComfySamplers({ signal } = {}) {
+    if (isDirectConnection()) {
+        return await fetchComfyDirectSamplers({ signal });
+    }
     const [samplersRes, schedulersRes] = await Promise.all([
-        fetchComfyProxy('samplers', {}, { signal }),
-        fetchComfyProxy('schedulers', {}, { signal }),
+        requestComfyTransport('samplers', {}, { signal }),
+        requestComfyTransport('schedulers', {}, { signal }),
     ]);
     const samplers = await samplersRes.json();
     const schedulers = await schedulersRes.json();
@@ -639,7 +794,7 @@ export async function generateComfyImage({ prompt, negativePrompt = '', params =
         });
     }
 
-    const response = await fetchComfyProxy('generate', {
+    const response = await requestComfyTransport('generate', {
         prompt: JSON.stringify({ prompt: injected }),
     }, {
         signal,
@@ -901,6 +1056,9 @@ function bindOverlayEvents() {
     querySettings('#comfy-draw-save')?.addEventListener('click', async (event) => {
         const ok = await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId: 'comfy-draw-api-status' });
         if (ok) fillForm(getSettings());
+    });
+    querySettings('#comfy-connection-mode')?.addEventListener('change', () => {
+        updateConnectionModeUI(getValue('comfy-connection-mode'));
     });
     querySettings('#comfy-draw-test')?.addEventListener('click', async () => {
         await saveAllSettings({ notify: false });
@@ -1177,6 +1335,9 @@ function fillForm(settings) {
     querySettingsAll('[data-comfy-mode]').forEach((button) => {
         button.classList.toggle('active', button.dataset.comfyMode === (settings.mode === 'auto' ? 'auto' : 'manual'));
     });
+    setValue('comfy-connection-mode', settings.connectionMode || 'proxy');
+    setValue('comfy-draw-auth', settings.auth || '');
+    updateConnectionModeUI(settings.connectionMode || 'proxy');
     setValue('comfy-draw-host', settings.host);
     setValue('comfy-draw-timeout', settings.timeout);
     setValue('comfy-draw-width', preset.width);
@@ -1221,6 +1382,8 @@ function readForm() {
     return {
         ...current,
         host: getValue('comfy-draw-host').trim(),
+        connectionMode: getValue('comfy-connection-mode') === 'direct' ? 'direct' : 'proxy',
+        auth: getValue('comfy-draw-auth').trim(),
         timeout: normalizeNumber(getValue('comfy-draw-timeout'), current.timeout, 10000, 600000),
         builtinWorkflowId: getValue('comfy-builtin-workflow') || current.builtinWorkflowId || DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId,
         presets: current.presets.map(item => item.id === current.selectedPresetId ? { ...preset, id: item.id, name: item.name } : item),
@@ -1298,26 +1461,52 @@ function fillPresetSelect(settings = getSettings()) {
     select.value = settings.selectedPresetId;
 }
 
+function updateConnectionModeUI(mode = getSettings().connectionMode) {
+    const isDirect = mode === 'direct';
+    const authRow = getSettingsElement('comfy-auth-row');
+    const connectionHint = getSettingsElement('comfy-connection-hint');
+    const hostHint = getSettingsElement('comfy-host-hint');
+    const status = getSettingsElement('comfy-draw-api-status');
+    authRow?.classList.toggle('hidden', !isDirect);
+    if (connectionHint) {
+        connectionHint.textContent = isDirect
+            ? '浏览器直连可以填写 Comfy Basic Auth；需要浏览器能访问该地址。'
+            : '后端代理不在小白X里填写 Comfy 认证；如果 Comfy 开了 Basic Auth，请改用浏览器直连。';
+    }
+    if (hostHint) {
+        hostHint.textContent = isDirect
+            ? '填写当前浏览器能访问到的 ComfyUI 地址。'
+            : '填写酒馆服务器能访问到的 ComfyUI 地址。';
+    }
+    if (status) {
+        status.textContent = isDirect
+            ? '当前使用浏览器直连 ComfyUI。'
+            : '当前使用酒馆后端代理连接 ComfyUI。';
+        status.className = 'status-text';
+    }
+}
+
 // 填充模型下拉框
 function populateModelSelect(models = []) {
     const select = getSettingsElement('comfy-draw-model');
     if (!select) return;
     const currentValue = select.value;
+    const modelList = Array.isArray(models) ? models.filter(Boolean) : [];
     select.textContent = '';
-    if (!models.length) {
+    if (!modelList.length) {
         const opt = document.createElement('option');
         opt.value = '';
-        opt.textContent = '请先拉取模型列表';
+        opt.textContent = '未找到可直接出图的模型';
         select.appendChild(opt);
     } else {
-        models.forEach(model => {
+        modelList.forEach(model => {
             const opt = document.createElement('option');
             opt.value = model;
             opt.textContent = model;
             select.appendChild(opt);
         });
     }
-    if (currentValue && models.includes(currentValue)) {
+    if (currentValue && modelList.includes(currentValue)) {
         select.value = currentValue;
     }
 }
@@ -1329,7 +1518,7 @@ function populateBuiltinWorkflowSelect(selectedId) {
     BUILTIN_WORKFLOWS.forEach((item) => {
         const option = document.createElement('option');
         option.value = item.id;
-        option.textContent = `${item.name} (${item.family})`;
+        option.textContent = item.name;
         select.appendChild(option);
     });
     select.value = BUILTIN_WORKFLOWS.some((item) => item.id === selectedId)
@@ -1351,7 +1540,7 @@ function refreshBuiltinWorkflowPanel(settings = getSettings()) {
 
 // 刷新 ComfyUI 模型和采样器列表
 async function refreshComfyOptions({ notify = true } = {}) {
-    updateStatusText('comfy-draw-api-status', '', '正在获取模型和采样器列表...');
+    updateStatusText('comfy-draw-api-status', '', '正在获取模型和生成参数...');
     try {
         const [models, samplerInfo] = await Promise.all([
             fetchComfyModels(),
@@ -1367,7 +1556,16 @@ async function refreshComfyOptions({ notify = true } = {}) {
         populateModelSelect(models || []);
         // 可选：动态更新采样器/调度器下拉框（如果需要的话）
 
-        if (notify) updateStatusText('comfy-draw-api-status', 'success', `已获取 ${models?.length || 0} 个模型`);
+        const count = models?.length || 0;
+        if (notify) {
+            updateStatusText(
+                'comfy-draw-api-status',
+                count ? 'success' : 'error',
+                count
+                    ? `已获取 ${count} 个可直接出图的模型`
+                    : '没有找到“只选一个模型文件就能画”的模型；如果你的模型需要多个文件，请导入自定义工作流',
+            );
+        }
         return true;
     } catch (error) {
         console.error('[ComfyDraw] refreshComfyOptions failed:', error);
@@ -2274,7 +2472,7 @@ async function testConnection() {
     pendingController = new AbortController();
 
     try {
-        await fetchComfyProxy('ping', {}, {
+        await requestComfyTransport('ping', {}, {
             signal: pendingController.signal,
             timeoutMs: settings.timeout || 120000,
         });

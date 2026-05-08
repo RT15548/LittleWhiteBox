@@ -416,14 +416,26 @@ select.input { cursor: pointer; }
 
                 <div class="card">
                     <div class="form-group">
+                        <label class="form-label">连接方式</label>
+                        <select id="comfy-connection-mode" class="input">
+                            <option value="proxy">酒馆后端代理</option>
+                            <option value="direct">浏览器直连</option>
+                        </select>
+                        <p id="comfy-connection-hint" class="form-hint">后端代理不在小白X里填写 Comfy 认证；如果 Comfy 开了 Basic Auth，请改用浏览器直连。</p>
+                    </div>
+                    <div class="form-group">
                         <label class="form-label">ComfyUI 地址</label>
                         <div class="input-row">
                             <input id="comfy-draw-host" class="input" type="text" placeholder="http://127.0.0.1:8188">
                             <button id="comfy-draw-test" class="btn"><i class="fa-solid fa-plug"></i> 测试连接</button>
                         </div>
-                        <p class="form-hint">填写酒馆服务器能访问到的 ComfyUI 地址；请求会通过酒馆后端转发，不需要浏览器直连。</p>
+                        <p id="comfy-host-hint" class="form-hint">填写酒馆服务器能访问到的 ComfyUI 地址。</p>
                     </div>
                     <div class="form-row">
+                        <div id="comfy-auth-row" class="form-group hidden">
+                            <label class="form-label">认证信息</label>
+                            <input id="comfy-draw-auth" class="input" type="text" placeholder="Basic Auth: user:pass">
+                        </div>
                         <div class="form-group">
                             <label class="form-label">超时时间 (毫秒)</label>
                             <input id="comfy-draw-timeout" class="input" type="number" min="10000" step="1000">
@@ -432,7 +444,7 @@ select.input { cursor: pointer; }
                     <div class="btn-group" style="margin-top:16px;">
                         <button id="comfy-draw-save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                     </div>
-                    <div id="comfy-draw-api-status" class="status-text">ComfyUI 请求会通过酒馆后端代理发送。</div>
+                    <div id="comfy-draw-api-status" class="status-text">当前使用酒馆后端代理连接 ComfyUI。</div>
                 </div>
             </section>
 
@@ -476,7 +488,7 @@ select.input { cursor: pointer; }
                             </select>
                             <button id="comfy-draw-refresh-models" class="btn" type="button"><i class="fa-solid fa-rotate"></i> 拉取模型</button>
                         </div>
-                        <p class="form-hint">从 ComfyUI 获取已安装的模型列表。支持 SD 1.5、SDXL、Flux 等。</p>
+                        <p class="form-hint">这里只显示“选一个模型文件就能画”的模型。需要多个文件的复杂模型，请用自定义工作流。</p>
                     </div>
                 </div>
 
@@ -523,7 +535,7 @@ select.input { cursor: pointer; }
                             <input id="comfy-draw-cfg" class="input" type="number" min="1" max="30" step="0.5" value="7">
                         </div>
                     </div>
-                    <p class="form-hint">采样器和调度器的组合会影响出图效果和速度。常用组合：Euler a + Normal、DPM++ 2M + Karras。</p>
+                    <p class="form-hint">采样器和调度器会影响出图效果和速度。常用组合：Euler a + Normal、DPM++ 2M + Karras。</p>
                 </div>
 
                 <div class="card">
