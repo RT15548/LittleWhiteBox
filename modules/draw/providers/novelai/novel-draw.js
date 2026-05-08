@@ -263,6 +263,12 @@ function ensureStyles() {
     document.head.appendChild(style);
 }
 
+function syncOverlayHeight() {
+    const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
+    if (!overlay) return;
+    overlay.style.height = `${window.innerHeight}px`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 工具函数
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3099,7 +3105,7 @@ function createOverlay() {
 
     const updateHeight = () => {
         if (overlay.style.display !== 'none') {
-            overlay.style.height = `${window.innerHeight}px`;
+            syncOverlayHeight();
         }
     };
     overlayResizeHandler = updateHeight;
@@ -3117,7 +3123,7 @@ function createOverlay() {
 
     const iframe = document.createElement('iframe');
     iframe.id = 'xiaobaix-novel-draw-iframe';
-    iframe.src = HTML_PATH;
+    iframe.src = `${HTML_PATH}?v=${Date.now()}`;
 
     frameWrap.appendChild(iframe);
     overlay.appendChild(backdrop);
@@ -3132,8 +3138,8 @@ function showOverlay() {
     if (!overlayCreated) createOverlay();
     const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
     if (overlay) {
-        overlay.style.height = `${window.innerHeight}px`;
         overlay.style.display = 'block';
+        syncOverlayHeight();
     }
     console.log('[NovelDraw] showOverlay: frameReady=%s', frameReady);
     if (frameReady) sendInitData();
