@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>ComfyUI Draw</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --bg-input: rgba(0, 0, 0, 0.25);
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #484f58;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-focus: rgba(212, 165, 116, 0.5);
+    --accent: #d4a574;
+    --accent-soft: rgba(212, 165, 116, 0.15);
+    --success: #3fb950;
+    --danger: #f85149;
+    --warning: #d29922;
+}
+html, body { height: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+}
+.app-container { display: flex; flex-direction: column; min-height: 100vh; }
+.app-body { display: flex; flex: 1; min-height: 0; }
+.app-main { flex: 1; padding: 24px; overflow-y: auto; }
+.mobile-nav {
+    display: none; position: fixed; bottom: 0; left: 0; right: 0;
+    height: 60px; background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 100;
+}
+.mobile-nav-inner { display: flex; height: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.mobile-nav-inner::-webkit-scrollbar { display: none; }
+.mobile-nav-item {
+    flex: 1; min-width: 60px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 4px;
+    color: var(--text-muted); font-size: 10px; cursor: pointer; padding: 8px 4px;
+}
+.mobile-nav-item i { font-size: 18px; }
+.mobile-nav-item.active { color: var(--accent); }
+.app-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.app-sidebar {
+    width: 200px; min-width: 200px; background: var(--bg-secondary);
+    border-right: 1px solid var(--border); padding: 16px 8px;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.header-logo { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.header-logo i { color: var(--accent); }
+.header-badge {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 12px; font-size: 11px; color: var(--text-muted);
+}
+.header-badge.on { color: var(--success); border-color: rgba(63, 185, 80, 0.3); }
+.header-badge i { font-size: 6px; }
+.header-spacer { flex: 1; min-width: 10px; }
+.header-credit {
+    font-size: 11px; color: var(--text-muted); opacity: 0.5;
+    margin-left: 6px; letter-spacing: 0.02em; font-style: italic;
+    transition: opacity 0.2s; white-space: nowrap;
+}
+.header-credit:hover { opacity: 0.9; }
+.header-toggles { display: flex; gap: 6px; margin-right: 8px; }
+.header-toggle {
+    display: flex; align-items: center; gap: 4px; padding: 4px 8px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px;
+    font-size: 11px; color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+}
+.header-toggle input { accent-color: var(--accent); }
+.header-mode {
+    display: flex; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 16px; padding: 2px;
+}
+.header-mode button {
+    padding: 6px 14px; border: none; border-radius: 14px;
+    background: transparent; color: var(--text-secondary);
+    font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.header-mode button.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.header-close {
+    width: 36px; height: 36px; min-width: 36px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--text-secondary);
+    cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.header-close:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+.nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    border-radius: 8px; color: var(--text-secondary); cursor: pointer;
+    transition: all 0.15s; font-size: 13px;
+}
+.nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.nav-item i { width: 18px; text-align: center; }
+.nav-divider { height: 1px; background: var(--border); margin: 8px 0; }
+.view { display: none; max-width: 800px; margin: 0 auto; }
+.view.active { display: block; animation: viewIn 0.2s ease; }
+.view.wide { max-width: 1200px; }
+@keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
+.view-header { margin-bottom: 20px; }
+.view-title { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+.view-desc { font-size: 13px; color: var(--text-secondary); margin: 0; }
+.card {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+}
+.card-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+.form-group { margin-bottom: 16px; }
+.form-group:last-child { margin-bottom: 0; }
+.form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
+.form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.hidden { display: none !important; }
+.input {
+    width: 100%; padding: 10px 12px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-primary); font-size: 13px; transition: border-color 0.15s;
+}
+.input:focus { outline: none; border-color: var(--border-focus); }
+.input::placeholder { color: var(--text-muted); }
+textarea.input { min-height: 80px; resize: vertical; font-family: inherit; }
+select.input { cursor: pointer; }
+.input-row { display: flex; gap: 8px; }
+.input-row .input { flex: 1; min-width: 0; }
+.btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 10px 16px; min-height: 40px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--bg-tertiary); color: var(--text-primary);
+    font-size: 13px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.btn:hover { background: rgba(255,255,255,0.08); }
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.saving { pointer-events: none; opacity: 0.72; }
+.btn.save-success { box-shadow: 0 0 0 1px rgba(63, 185, 80, 0.35) inset; }
+.btn.save-failed { box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.35) inset; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 500; }
+.btn-primary:hover { background: #e5b685; }
+.btn-danger { color: var(--danger); border-color: rgba(248, 81, 73, 0.3); }
+.btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
+.btn-icon { width: 40px; padding: 0; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-sm { padding: 6px 10px; min-height: 32px; font-size: 12px; }
+.check-row {
+    display: flex; align-items: center; gap: 8px;
+    min-height: 40px; padding: 10px 12px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-secondary); font-size: 13px; cursor: pointer;
+}
+.check-row input { accent-color: var(--accent); }
+.preset-bar {
+    display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
+.tip-box {
+    display: flex; gap: 10px; padding: 14px; background: var(--accent-soft);
+    border: 1px solid rgba(212,165,116,.25); border-radius: 10px;
+    font-size: 12px; color: var(--text-secondary);
+}
+.tip-box i { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
+.status-text { font-size: 12px; color: var(--text-secondary); margin-top: 8px; min-height: 18px; }
+.status-text.success { color: var(--success); }
+.status-text.error { color: var(--danger); }
+.preview-box {
+    display: none; margin-top: 16px; text-align: center;
+    background: var(--bg-input); border-radius: 10px; padding: 16px;
+}
+.preview-box:not(:empty) { display: block; }
+.preview-box img { max-width: 100%; max-height: 400px; border-radius: 6px; }
+.workflow-mode-btns { display: flex; gap: 12px; }
+.workflow-mode-btn {
+    flex: 1; padding: 16px; border: 2px solid var(--border); border-radius: 10px;
+    background: var(--bg-tertiary); color: var(--text-secondary);
+    cursor: pointer; text-align: center; font-size: 13px; font-weight: 500;
+    transition: all 0.15s;
+}
+.workflow-mode-btn:hover { border-color: var(--border-focus); color: var(--text-primary); }
+.workflow-mode-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.workflow-mode-btn i { display: block; font-size: 22px; margin-bottom: 8px; }
+.char-management-layout {
+    display: grid; grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+    gap: 16px; align-items: start;
+}
+.char-management-sidebar {
+    display: flex; flex-direction: column; gap: 16px;
+    position: sticky; top: 0; align-self: start;
+}
+.char-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.char-summary-item {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 12px;
+}
+.char-summary-label { font-size: 11px; color: var(--text-secondary); }
+.char-summary-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text-primary); }
+.char-summary-value.accent { color: var(--accent); }
+.char-list-card { min-height: 520px; }
+.char-list-card-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 12px; margin-bottom: 16px;
+}
+.char-list-card-header .card-title { margin-bottom: 0; }
+.char-list-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 84px; padding: 8px 12px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600;
+}
+.char-list-body { display: flex; flex-direction: column; gap: 12px; }
+.char-grid { display: flex; flex-direction: column; gap: 12px; }
+.char-empty {
+    text-align: center; padding: 40px 20px; color: var(--text-muted);
+    background: var(--bg-tertiary); border: 1px dashed var(--border); border-radius: 10px;
+}
+.char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
+.char-empty strong { color: var(--text-primary); display: block; margin-bottom: 6px; font-size: 14px; }
+.sd-char-card {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px; margin: 0;
+}
+.sd-char-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.sd-char-card-title {
+    display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px;
+}
+.gallery-grid { display: grid; gap: 14px; }
+.gallery-char-card {
+    padding: 14px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+}
+.gallery-char-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px;
+}
+.gallery-char-name { font-weight: 600; }
+.gallery-char-meta { font-size: 12px; color: var(--text-secondary); }
+.gallery-slots {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px;
+}
+.gallery-slot-btn {
+    border: 1px solid var(--border); border-radius: 10px; padding: 8px;
+    background: rgba(255,255,255,0.03); color: var(--text-primary); cursor: pointer; text-align: left;
+}
+.gallery-slot-btn:hover { border-color: var(--border-focus); background: rgba(255,255,255,0.06); }
+.gallery-slot-thumb {
+    width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 8px; display: block; background: var(--bg-input); margin-bottom: 8px;
+}
+.gallery-slot-title { font-size: 12px; font-weight: 600; }
+.gallery-slot-sub { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+.gallery-empty {
+    text-align: center; padding: 60px 20px; color: var(--text-muted);
+}
+.gallery-empty i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; display: block; }
+.gallery-empty p { font-size: 13px; margin-top: 8px; }
+.filter-rule-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.filter-rule-row input {
+    flex: 1; font-size: 13px; padding: 4px 8px;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 4px; color: var(--text-primary);
+}
+.filter-rule-row input:focus { outline: none; border-color: var(--border-focus); }
+.filter-rule-row .rule-arrow { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
+.filter-rule-row .btn-del-rule {
+    flex-shrink: 0; background: none; border: none; color: var(--text-muted);
+    cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 3px;
+}
+.filter-rule-row .btn-del-rule:hover { color: var(--danger); background: rgba(255,0,0,.1); }
+.danbooru-panel {
+    margin-top: 8px; padding: 12px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 8px;
+}
+.danbooru-panel.hidden { display: none; }
+.danbooru-search-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.danbooru-search-row input { flex: 1; padding: 6px 10px; font-size: 12px; }
+.danbooru-search-row .btn { padding: 6px 12px; font-size: 12px; white-space: nowrap; }
+.danbooru-char-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.danbooru-char-item {
+    width: 100%; display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 10px; background: var(--bg-tertiary); border: 0; border-radius: 6px;
+    cursor: pointer; font-size: 12px; color: var(--text-primary); text-align: left; transition: background 0.15s;
+}
+.danbooru-char-item:hover { background: var(--accent-soft); }
+.danbooru-char-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.danbooru-char-name { font-weight: 500; }
+.danbooru-char-series { font-size: 10px; color: var(--text-muted); font-style: italic; }
+.danbooru-tag-preview { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.danbooru-status { font-size: 11px; color: var(--text-muted); padding: 8px 0; }
+@media (max-width: 768px) {
+    .app-sidebar { display: none; }
+    .mobile-nav { display: block; }
+    .app-body { padding-bottom: 60px; }
+    .app-main { padding: 16px; padding-bottom: 76px; }
+    .app-header { padding: 10px 12px; gap: 8px; }
+    .header-logo span { display: none; }
+    .header-badge { padding: 4px 8px; font-size: 10px; }
+    .header-badge span { display: none; }
+    .header-mode button { padding: 5px 10px; font-size: 11px; }
+    .header-close { width: 32px; height: 32px; min-width: 32px; font-size: 14px; }
+    .header-credit { display: none; }
+    .view-title { font-size: 18px; }
+    .card { padding: 16px; }
+    .form-row { grid-template-columns: 1fr; }
+    .char-management-layout { grid-template-columns: 1fr; }
+    .char-management-sidebar { position: static; }
+    .preset-bar { padding: 10px 12px; }
+    .preset-bar select { max-width: none; }
+    .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+    .workflow-mode-btns { flex-direction: column; }
+}
+@media (max-width: 400px) {
+    .app-header { padding: 8px 10px; }
+    .header-mode button { padding: 4px 8px; font-size: 10px; }
+    .mobile-nav-item { min-width: 48px; font-size: 9px; }
+    .mobile-nav-item i { font-size: 16px; }
+}
+@media (hover: none) and (pointer: coarse) {
+    .btn { min-height: 44px; }
+    .input { min-height: 44px; padding: 12px; }
+    .nav-item { min-height: 44px; }
+    .header-close { width: 44px; height: 44px; min-width: 44px; }
+    .mobile-nav-item { min-height: 44px; }
+}
+</style>
+</head>
+<body>
+<div class="app-container">
+    <header class="app-header">
+        <div class="header-logo"><i class="fa-solid fa-wand-magic-sparkles"></i><span>ComfyUI Draw</span></div>
+        <div class="header-badge on"><i class="fa-solid fa-circle"></i><span>已启用</span></div>
+        <span class="header-credit"></span>
+        <div class="header-spacer"></div>
+        <div class="header-toggles">
+            <label class="header-toggle">
+                <input type="checkbox" id="comfy-show-floor">
+                <span>楼层</span>
+            </label>
+            <label class="header-toggle">
+                <input type="checkbox" id="comfy-show-floating">
+                <span>悬浮</span>
+            </label>
+        </div>
+        <div class="header-mode">
+            <button type="button" data-comfy-mode="manual" class="active">手动</button>
+            <button type="button" data-comfy-mode="auto">自动</button>
+        </div>
+        <button id="comfy-draw-close" class="header-close" type="button">✕</button>
+    </header>
+
+    <div class="app-body">
+        <nav class="app-sidebar">
+            <div class="nav-item active" data-comfy-view="test"><i class="fa-solid fa-flask"></i>快速测试</div>
+            <div class="nav-item" data-comfy-view="api"><i class="fa-solid fa-key"></i>API 配置</div>
+            <div class="nav-divider"></div>
+            <div class="nav-item" data-comfy-view="workflow"><i class="fa-solid fa-microchip"></i>模型配置</div>
+            <div class="nav-item" data-comfy-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</div>
+            <div class="nav-item" data-comfy-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</div>
+            <div class="nav-divider"></div>
+            <div class="nav-item" data-comfy-view="characters"><i class="fa-solid fa-user-group"></i>角色标签</div>
+            <div class="nav-item" data-comfy-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
+        </nav>
+
+        <main class="app-main">
+            <section class="view active" data-comfy-view-panel="test">
+                <div class="view-header">
+                    <h2 class="view-title">快速测试</h2>
+                    <p class="view-desc">验证 ComfyUI 连接和生成效果</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">测试 TAG</label>
+                        <div class="input-row">
+                            <input id="comfy-draw-test-prompt" class="input" type="text" placeholder="1girl, smile, upper body, simple background">
+                            <button id="comfy-draw-test-generate" class="btn btn-primary" type="button"><i class="fa-solid fa-play"></i> 生成</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">负向 TAG</label>
+                        <textarea id="comfy-draw-test-negative" class="input" rows="2" placeholder="可选，测试时会和当前预设的负向固定一起使用"></textarea>
+                    </div>
+                    <div id="comfy-draw-test-result" class="preview-box"></div>
+                </div>
+
+                <div class="tip-box">
+                    <i class="fa-solid fa-lightbulb"></i>
+                    <div>
+                        <div>消息楼层按钮的 🎨 为对应消息生成配图。</div>
+                        <div>小白X会先分析当前楼层，再把结果组装成 ComfyUI 出图参数。</div>
+                        <div>本页填写的参数和固定 TAG 会直接发给 ComfyUI API。</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="view" data-comfy-view-panel="api">
+                <div class="view-header">
+                    <h2 class="view-title">API 配置</h2>
+                    <p class="view-desc">ComfyUI 服务连接设置</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">ComfyUI 地址</label>
+                        <div class="input-row">
+                            <input id="comfy-draw-host" class="input" type="text" placeholder="http://127.0.0.1:8188">
+                            <button id="comfy-draw-test" class="btn"><i class="fa-solid fa-plug"></i> 测试连接</button>
+                        </div>
+                        <p class="form-hint">填写酒馆服务器能访问到的 ComfyUI 地址。</p>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">超时时间 (毫秒)</label>
+                            <input id="comfy-draw-timeout" class="input" type="number" min="10000" step="1000">
+                        </div>
+                    </div>
+                    <div class="btn-group" style="margin-top:16px;">
+                        <button id="comfy-draw-save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                    </div>
+                    <div id="comfy-draw-api-status" class="status-text">ComfyUI 浏览器直连模式，请确保 ComfyUI 已允许跨域访问。</div>
+                </div>
+            </section>
+
+            <section class="view" data-comfy-view-panel="workflow">
+                <div class="view-header">
+                    <h2 class="view-title">模型配置</h2>
+                    <p class="view-desc">选择模型和生成参数</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">模型选择</div>
+                    <div class="form-group">
+                        <label class="form-label">模型</label>
+                        <div class="input-row">
+                            <select id="comfy-draw-model" class="input">
+                                <option value="">请先拉取模型列表</option>
+                            </select>
+                            <button id="comfy-draw-refresh-models" class="btn" type="button"><i class="fa-solid fa-rotate"></i> 拉取模型</button>
+                        </div>
+                        <p class="form-hint">从 ComfyUI 获取已安装的模型列表。支持 SD 1.5、SDXL、Flux 等。</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">生成参数</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">采样器</label>
+                            <select id="comfy-draw-sampler" class="input">
+                                <option value="euler">Euler</option>
+                                <option value="euler_ancestral">Euler a</option>
+                                <option value="heun">Heun</option>
+                                <option value="dpm_2">DPM 2</option>
+                                <option value="dpm_2_ancestral">DPM 2 a</option>
+                                <option value="lms">LMS</option>
+                                <option value="dpmpp_2s_ancestral">DPM++ 2S a</option>
+                                <option value="dpmpp_sde">DPM++ SDE</option>
+                                <option value="dpmpp_2m">DPM++ 2M</option>
+                                <option value="dpmpp_2m_sde">DPM++ 2M SDE</option>
+                                <option value="dpmpp_3m_sde">DPM++ 3M SDE</option>
+                                <option value="ddim">DDIM</option>
+                                <option value="uni_pc">UniPC</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">调度器</label>
+                            <select id="comfy-draw-scheduler" class="input">
+                                <option value="normal">Normal</option>
+                                <option value="karras">Karras</option>
+                                <option value="exponential">Exponential</option>
+                                <option value="sgm_uniform">SGM Uniform</option>
+                                <option value="simple">Simple</option>
+                                <option value="ddim_uniform">DDIM Uniform</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Steps</label>
+                            <input id="comfy-draw-steps" class="input" type="number" min="1" max="150" step="1" value="20">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">CFG Scale</label>
+                            <input id="comfy-draw-cfg" class="input" type="number" min="1" max="30" step="0.5" value="7">
+                        </div>
+                    </div>
+                    <p class="form-hint">采样器和调度器的组合会影响出图效果和速度。常用组合：Euler a + Normal、DPM++ 2M + Karras。</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+                        <span>🔧 高级：自定义工作流</span>
+                        <button type="button" id="comfy-toggle-advanced" class="btn btn-sm" style="font-size:11px;">
+                            <i class="fa-solid fa-chevron-down"></i> 展开
+                        </button>
+                    </div>
+                    <p class="form-hint">如果你有自己的复杂工作流（ControlNet、IP-Adapter 等），可以展开此项导入使用。</p>
+
+                    <div id="comfy-advanced-section" class="hidden" style="margin-top:16px;">
+                        <div class="workflow-mode-btns" style="margin-bottom:16px;">
+                            <button type="button" class="workflow-mode-btn active" id="comfy-workflow-mode-simple">
+                                <i class="fa-solid fa-bolt"></i>
+                                使用上方模型配置
+                            </button>
+                            <button type="button" class="workflow-mode-btn" id="comfy-workflow-mode-custom">
+                                <i class="fa-solid fa-file-code"></i>
+                                使用自定义工作流
+                            </button>
+                        </div>
+
+                        <div id="comfy-custom-workflow-section" class="hidden">
+                            <div class="tip-box" style="margin-bottom:16px;">
+                                <i class="fa-solid fa-circle-info"></i>
+                                <div>在 ComfyUI 界面，点击菜单 → 保存(API格式) 导出工作流。节点 ID 可右键节点 → Properties Panel 查看。</div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">工作流 JSON</label>
+                                <textarea id="comfy-workflow-json" class="input" rows="8" style="font-family:monospace;font-size:12px;" placeholder='粘贴从 ComfyUI 导出的 workflow_api.json 内容'></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">节点 ID 映射</label>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">正向提示词节点</label>
+                                        <input id="comfy-node-positive" class="input" type="text" placeholder="如：6">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">负向提示词节点</label>
+                                        <input id="comfy-node-negative" class="input" type="text" placeholder="如：7">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">宽度节点（可选）</label>
+                                        <input id="comfy-node-width" class="input" type="text" placeholder="如：5">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">高度节点（可选）</label>
+                                        <input id="comfy-node-height" class="input" type="text" placeholder="如：5">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">种子节点（可选）</label>
+                                        <input id="comfy-node-seed" class="input" type="text" placeholder="如：3">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="btn-group">
+                                <button id="comfy-workflow-save" class="btn btn-primary" type="button"><i class="fa-solid fa-floppy-disk"></i> 保存自定义工作流</button>
+                            </div>
+                            <div id="comfy-workflow-status" class="status-text"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="view" data-comfy-view-panel="params">
+                <div class="view-header">
+                    <h2 class="view-title">绘图参数</h2>
+                    <p class="view-desc">固定标签与尺寸设置</p>
+                </div>
+
+                <div class="preset-bar">
+                    <select id="comfy-draw-preset-select" class="input"></select>
+                    <div class="btn-group">
+                        <button id="comfy-draw-preset-add" class="btn btn-icon" type="button" title="新建"><i class="fa-solid fa-plus"></i></button>
+                        <button id="comfy-draw-preset-rename" class="btn btn-icon" type="button" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                        <button id="comfy-draw-preset-save" class="btn btn-primary" type="button" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
+                        <button id="comfy-draw-preset-delete" class="btn btn-danger btn-icon" type="button" title="删除"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">🌐 全局标签</div>
+                    <div class="form-group">
+                        <label class="form-label">正向固定</label>
+                        <textarea id="comfy-draw-positive-prefix" class="input" rows="3" placeholder="masterpiece, best quality..."></textarea>
+                        <p class="form-hint">API 出图不会读取 ComfyUI 网页上的 tag，请把正向固定 tag 填在这里。</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">负向固定</label>
+                        <textarea id="comfy-draw-negative-prefix" class="input" rows="3" placeholder="lowres, bad anatomy..."></textarea>
+                        <p class="form-hint">API 出图不会读取 ComfyUI 网页上的 tag，请把负向固定 tag 填在这里。</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">尺寸覆盖</div>
+                    <p class="form-hint" style="margin-bottom:12px;">设置生成图片的尺寸。</p>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">尺寸预设</label>
+                            <select id="comfy-draw-size-preset" class="input">
+                                <option value="832x1216">832 × 1216 竖图</option>
+                                <option value="1216x832">1216 × 832 横图</option>
+                                <option value="1024x1024">1024 × 1024 方图</option>
+                                <option value="768x1280">768 × 1280 竖图</option>
+                                <option value="1280x768">1280 × 768 横图</option>
+                                <option value="custom">自定义...</option>
+                            </select>
+                            <div id="comfy-draw-custom-size" class="input-row hidden" style="margin-top:6px;">
+                                <input id="comfy-draw-width" class="input" type="number" min="64" max="2048" step="8" placeholder="宽度">
+                                <input id="comfy-draw-height" class="input" type="number" min="64" max="2048" step="8" placeholder="高度">
+                            </div>
+                        </div>
+                    </div>
+                    <div id="comfy-draw-params-status" class="status-text"></div>
+                </div>
+            </section>
+
+            <section class="view" data-comfy-view-panel="llm">
+                <div class="view-header">
+                    <h2 class="view-title">LLM 配置</h2>
+                    <p class="view-desc">场景分析所用的大语言模型渠道设置</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">渠道配置</div>
+                    <div class="form-group">
+                        <label class="form-label">LLM 渠道</label>
+                        <select id="comfy-shared-llm-provider" class="input">
+                            <option value="st">酒馆主 API</option>
+                            <option value="openai">OpenAI 兼容</option>
+                            <option value="google">Google Gemini</option>
+                            <option value="claude">Claude</option>
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="cohere">Cohere</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                    </div>
+                    <div id="comfy-shared-llm-url-row" class="form-group hidden">
+                        <label class="form-label">API URL</label>
+                        <input id="comfy-shared-llm-url" type="text" class="input" placeholder="https://api.openai.com/v1">
+                        <p class="form-hint">可直接填写完整前缀；若只填裸地址，拉模型时会按渠道补默认前缀。</p>
+                    </div>
+                    <div id="comfy-shared-llm-key-row" class="form-group hidden">
+                        <label class="form-label">API Key</label>
+                        <input id="comfy-shared-llm-key" type="password" class="input" placeholder="sk-xxx...">
+                    </div>
+                    <div id="comfy-shared-llm-model-manual-row" class="form-group hidden">
+                        <label class="form-label">模型</label>
+                        <input id="comfy-shared-llm-model-manual" type="text" class="input" placeholder="gemini-1.5-pro">
+                    </div>
+                    <div id="comfy-shared-llm-model-select-row" class="form-group hidden">
+                        <label class="form-label">模型</label>
+                        <select id="comfy-shared-llm-model-select" class="input">
+                            <option value="">请先拉取模型列表</option>
+                        </select>
+                    </div>
+                    <div id="comfy-shared-llm-connect-row" class="btn-group hidden" style="margin-top:12px;">
+                        <button id="comfy-shared-llm-fetch" class="btn"><i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表</button>
+                    </div>
+                    <div class="form-group" style="margin-top:16px;">
+                        <label class="check-row"><input type="checkbox" id="comfy-shared-use-stream"> 启用流式生成</label>
+                    </div>
+                    <div class="form-group" style="margin-top:8px;">
+                        <label class="check-row"><input type="checkbox" id="comfy-shared-use-worldinfo"> 使用世界书</label>
+                        <p class="form-hint" style="margin-left:12px;">勾选后，会把世界书内容注入到场景分析里。</p>
+                    </div>
+                    <div class="form-group" style="margin-top:8px;">
+                        <label class="check-row"><input type="checkbox" id="comfy-shared-disable-prefill"> 禁用尾部预填充</label>
+                        <p class="form-hint" style="margin-left:12px;">某些模型或 API 不支持 prefill 时再开启。</p>
+                    </div>
+                    <div class="btn-group" style="margin-top:16px;">
+                        <button class="btn btn-primary" type="button" data-comfy-save-shared><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                    </div>
+                    <div id="comfy-shared-status" class="status-text"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">消息过滤规则</div>
+                    <p class="form-hint" style="margin-bottom:8px;">过滤 RP 消息里的思考块或其他干扰内容，避免影响场景分析。起始和结束之间的内容会被移除。</p>
+                    <div id="comfy-filter-rules-list"></div>
+                    <div class="btn-group" style="margin-top:8px;">
+                        <button id="comfy-filter-add" class="btn btn-sm">+ 添加规则</button>
+                        <button id="comfy-filter-reset" class="btn btn-sm">恢复默认</button>
+                    </div>
+                    <div class="btn-group" style="margin-top:12px;">
+                        <button id="comfy-filter-save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存规则</button>
+                    </div>
+                </div>
+
+                <div class="tip-box">
+                    <i class="fa-solid fa-info-circle"></i>
+                    <div>这里配置的是 ComfyUI 场景分析用的 LLM 渠道。画图提示词和输出格式已经内置好，正常使用不用额外折腾。</div>
+                </div>
+            </section>
+
+            <section class="view wide" data-comfy-view-panel="characters">
+                <div class="view-header">
+                    <h2 class="view-title">角色标签</h2>
+                    <p class="view-desc">这里直接维护小白X共用角色库，ComfyUI 出图会使用这里的角色外貌、服装参考和角色负向标签</p>
+                </div>
+
+                <div class="char-management-layout">
+                    <aside class="char-management-sidebar">
+                        <div class="card">
+                            <div class="card-title">📊 角色概览</div>
+                            <div class="char-summary-grid">
+                                <div class="char-summary-item">
+                                    <div class="char-summary-label">总角色数</div>
+                                    <div id="comfy-draw-summary-characters-side" class="char-summary-value accent">0</div>
+                                </div>
+                                <div class="char-summary-item">
+                                    <div class="char-summary-label">当前预设</div>
+                                    <div id="comfy-draw-summary-preset" class="char-summary-value">默认</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-title">🧰 批量操作</div>
+                            <div class="btn-group">
+                                <button id="comfy-shared-char-add" class="btn btn-primary btn-sm" type="button"><i class="fa-solid fa-plus"></i> 添加角色</button>
+                                <button id="comfy-shared-char-clear" class="btn btn-danger btn-sm" type="button"><i class="fa-solid fa-trash-can"></i> 清除全部</button>
+                                <button id="comfy-shared-char-export" class="btn btn-sm" type="button"><i class="fa-solid fa-download"></i> 导出</button>
+                                <label class="btn btn-sm" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="comfy-shared-char-import" accept=".json" style="display:none;"></label>
+                                <button class="btn btn-sm" type="button" data-comfy-save-shared><i class="fa-solid fa-floppy-disk"></i> 保存角色</button>
+                            </div>
+                            <p class="form-hint" style="margin-top:10px;">角色名、别名、外观、服装参考、角色负向标签都会被画图流程直接使用。</p>
+                        </div>
+                        <div class="card">
+                            <div class="card-title">🔎 Danbooru 资源库</div>
+                            <label class="check-row">
+                                <input type="checkbox" id="comfy-danbooru-local">
+                                <span>启用本地角色库</span>
+                            </label>
+                            <div id="comfy-danbooru-local-status" class="status-text">未加载</div>
+                            <p class="form-hint">启用后可离线搜索角色官方 tag，并自动填入外观标签。</p>
+                        </div>
+                    </aside>
+
+                    <section class="char-management-main">
+                        <div class="card char-list-card">
+                            <div class="char-list-card-header">
+                                <div>
+                                    <div class="card-title">👥 角色列表</div>
+                                    <p class="form-hint" style="margin-top:6px;">先在这里把角色底稿定稳，出图时只需要补当前动作、表情和互动</p>
+                                </div>
+                                <div id="comfy-draw-character-result-count" class="char-list-count">0 / 0</div>
+                            </div>
+                            <div class="char-list-body">
+                                <div id="comfy-shared-character-list" class="char-grid"></div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </section>
+
+            <section class="view wide" data-comfy-view-panel="gallery">
+                <div class="view-header">
+                    <h2 class="view-title">图片管理</h2>
+                    <p class="view-desc">这里直接查看小白X共用图库，所有楼层配图都会保存在同一份缓存里。</p>
+                </div>
+
+                <div class="card" style="margin-bottom:20px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+                        <div style="display:flex;gap:32px;">
+                            <div style="text-align:center;">
+                                <div style="font-size:28px;font-weight:700;color:var(--accent);" id="comfy-gallery-count">0</div>
+                                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">图片数量</div>
+                            </div>
+                            <div style="text-align:center;">
+                                <div style="font-size:28px;font-weight:700;" id="comfy-gallery-size">0 MB</div>
+                                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">占用空间</div>
+                            </div>
+                        </div>
+                        <div class="btn-group">
+                            <button id="comfy-gallery-refresh" class="btn btn-sm"><i class="fa-solid fa-arrows-rotate"></i> 刷新</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="comfy-gallery-container" class="gallery-grid"></div>
+                <div id="comfy-gallery-empty" class="gallery-empty" style="display:none;">
+                    <i class="fa-solid fa-images"></i>
+                    <div>暂无图片</div>
+                    <p>楼层里生成的配图会出现在这里，点击缩略图可打开共享图库查看历史版本</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <nav class="mobile-nav">
+        <div class="mobile-nav-inner">
+            <div class="mobile-nav-item active" data-comfy-view="test"><i class="fa-solid fa-flask"></i><span>测试</span></div>
+            <div class="mobile-nav-item" data-comfy-view="api"><i class="fa-solid fa-key"></i><span>API</span></div>
+            <div class="mobile-nav-item" data-comfy-view="workflow"><i class="fa-solid fa-microchip"></i><span>模型</span></div>
+            <div class="mobile-nav-item" data-comfy-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
+            <div class="mobile-nav-item" data-comfy-view="llm"><i class="fa-solid fa-robot"></i><span>LLM</span></div>
+            <div class="mobile-nav-item" data-comfy-view="characters"><i class="fa-solid fa-user-group"></i><span>角色</span></div>
+            <div class="mobile-nav-item" data-comfy-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
+        </div>
+    </nav>
+</div>
+</body>
+</html>

@@ -25,6 +25,7 @@ import { initVarCommands, cleanupVarCommands } from "./modules/variables/var-com
 import { initVareventEditor, cleanupVareventEditor } from "./modules/variables/varevent-editor.js";
 import { initNovelDraw, cleanupNovelDraw } from "./modules/draw/providers/novelai/novel-draw.js";
 import { initSdDraw, cleanupSdDraw } from "./modules/draw/providers/sd-webui/sd-draw.js";
+import { initComfyDraw, cleanupComfyDraw } from "./modules/draw/providers/comfyui/comfy-draw.js";
 import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
 import { initTts, cleanupTts } from "./modules/tts/tts.js";
@@ -59,7 +60,7 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
 const settings = extension_settings[EXT_ID];
 if (settings.dynamicPrompt && !settings.fourthWall) settings.fourthWall = settings.dynamicPrompt;
 
-const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui']);
+const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui', 'comfyui']);
 
 function normalizeDrawProvider(provider) {
     return DRAW_PROVIDER_VALUES.has(provider) ? provider : 'disabled';
@@ -88,6 +89,8 @@ async function cleanupDrawProvider(provider = settings.drawProvider) {
         try { await cleanupNovelDraw(); } catch (e) { }
     } else if (normalized === 'sdwebui') {
         try { await cleanupSdDraw(); } catch (e) { }
+    } else if (normalized === 'comfyui') {
+        try { await cleanupComfyDraw(); } catch (e) { }
     }
 }
 
@@ -98,6 +101,8 @@ async function initActiveDrawProvider() {
         await initNovelDraw();
     } else if (settings.drawProvider === 'sdwebui') {
         await initSdDraw();
+    } else if (settings.drawProvider === 'comfyui') {
+        await initComfyDraw();
     }
 }
 
@@ -137,6 +142,19 @@ function installDrawFacade() {
                 const sdSettings = sdDraw.getSettings?.() || {};
                 const effective = sdDraw.getEffectiveParams?.(sdSettings, payload.params || {}) || {};
                 return sdDraw.generateSdImage({
+                    prompt: [effective.positivePrefix, prompt].filter(Boolean).join(', '),
+                    negativePrompt: [effective.negativePrefix, negativePrompt].filter(Boolean).join(', '),
+                    params: effective,
+                    signal: payload.signal,
+                });
+            }
+
+            if (provider === 'comfyui') {
+                const comfyDraw = window.xiaobaixComfyDraw;
+                if (!comfyDraw?.generateComfyImage) throw new Error('ComfyUI 画图模块未初始化');
+                const comfySettings = comfyDraw.getSettings?.() || {};
+                const effective = comfyDraw.getEffectiveParams?.(comfySettings, payload.params || {}) || {};
+                return comfyDraw.generateComfyImage({
                     prompt: [effective.positivePrefix, prompt].filter(Boolean).join(', '),
                     negativePrompt: [effective.negativePrefix, negativePrompt].filter(Boolean).join(', '),
                     params: effective,
@@ -647,6 +665,8 @@ async function setupSettings() {
                 window.xiaobaixNovelDraw.openSettings();
             } else if (provider === 'sdwebui' && window.xiaobaixSdDraw?.openSettings) {
                 window.xiaobaixSdDraw.openSettings();
+            } else if (provider === 'comfyui' && window.xiaobaixComfyDraw?.openSettings) {
+                window.xiaobaixComfyDraw.openSettings();
             } else if (provider === 'disabled') {
                 toastr.warning('请先选择画图后端');
             } else {
