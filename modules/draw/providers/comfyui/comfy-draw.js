@@ -718,6 +718,33 @@ function buildSimpleWorkflow({ model, sampler, scheduler, steps, cfg, width, hei
     return wf;
 }
 
+function parseComfyApiWorkflowJson(text) {
+    let workflow;
+    try {
+        workflow = JSON.parse(String(text || ''));
+    } catch (error) {
+        throw new Error(`JSON 格式错误：${error.message}`);
+    }
+    if (!workflow || Array.isArray(workflow) || typeof workflow !== 'object') {
+        throw new Error('工作流格式错误：请导入 API Format workflow JSON。');
+    }
+
+    const hasApiNode = Object.values(workflow).some((node) => (
+        node
+        && typeof node === 'object'
+        && !Array.isArray(node)
+        && typeof node.class_type === 'string'
+        && node.inputs
+        && typeof node.inputs === 'object'
+        && !Array.isArray(node.inputs)
+    ));
+    if (!hasApiNode) {
+        throw new Error('工作流格式错误：需要 API Format workflow JSON，请在 ComfyUI 使用 Save (API Format) 导出。');
+    }
+
+    return workflow;
+}
+
 function injectPromptIntoWorkflow(workflow, positive, negative, width, height, nodeMap) {
     const wf = JSON.parse(JSON.stringify(workflow));
     if (nodeMap.positive && wf[nodeMap.positive]) {
@@ -761,18 +788,12 @@ export async function generateComfyImage({ prompt, negativePrompt = '', params =
 
     if (settings.workflowMode === 'custom' && settings.customWorkflow?.json) {
         // 自定义工作流模式
-        let workflow;
-        try {
-            workflow = JSON.parse(settings.customWorkflow.json);
-        } catch (e) {
-            throw new Error('自定义工作流 JSON 格式错误：' + e.message);
-        }
+        const workflow = parseComfyApiWorkflowJson(settings.customWorkflow.json);
         const nodeMap = {
             positive: settings.customWorkflow.nodePositive || '',
             negative: settings.customWorkflow.nodeNegative || '',
             width: settings.customWorkflow.nodeWidth || '',
             height: settings.customWorkflow.nodeHeight || '',
-            seed: settings.customWorkflow.nodeSeed || '',
         };
         injected = injectPromptIntoWorkflow(workflow, positive, negative, width, height, nodeMap);
     } else {
@@ -1213,11 +1234,11 @@ function bindOverlayEvents() {
         if (!file) return;
         try {
             const text = await file.text();
-            JSON.parse(text); // 验证 JSON 格式
+            parseComfyApiWorkflowJson(text);
             setValue('comfy-workflow-json', text);
             toastr.success('工作流已导入，请配置节点映射后保存', 'ComfyUI');
         } catch (e) {
-            toastr.error('JSON 格式错误：' + e.message, 'ComfyUI');
+            toastr.error(e.message || '工作流格式错误：需要 API Format workflow JSON', 'ComfyUI');
         }
         event.target.value = ''; // 重置以允许重复导入同一文件
     });
@@ -1284,15 +1305,22 @@ function bindOverlayEvents() {
         if (ok) fillForm(getSettings());
     });
     querySettings('#comfy-workflow-save')?.addEventListener('click', async (event) => {
+        const nodePositive = getValue('comfy-node-positive').trim();
+        if (!nodePositive) {
+            toastr.error('请填写正向提示词节点 ID，工作流才能保存。', 'ComfyUI');
+            return;
+        }
         const ok = await runSaveButtonTask(event.currentTarget, () => updateSettingsPersistent((draft) => {
+            const json = getValue('comfy-workflow-json');
+            parseComfyApiWorkflowJson(json);
             draft.workflowMode = 'custom';
             draft.customWorkflow = {
-                json: getValue('comfy-workflow-json'),
-                nodePositive: getValue('comfy-node-positive').trim(),
+                json,
+                nodePositive,
                 nodeNegative: getValue('comfy-node-negative').trim(),
                 nodeWidth: getValue('comfy-node-width').trim(),
                 nodeHeight: getValue('comfy-node-height').trim(),
-                nodeSeed: getValue('comfy-node-seed').trim(),
+                nodeSeed: '',
             };
         }, '工作流已保存', { notify: false, silent: false }), {
             statusElementId: 'comfy-workflow-status',
