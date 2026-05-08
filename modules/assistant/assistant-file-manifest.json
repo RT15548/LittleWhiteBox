@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-08T03:32:41.902Z",
+  "generatedAt": "2026-05-08T07:39:00.544Z",
   "version": 1,
   "files": [
     {
@@ -493,6 +493,42 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/debug-panel/debug-panel.js",
       "relativePath": "modules/debug-panel/debug-panel.js",
       "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.html",
+      "relativePath": "modules/draw/providers/comfyui/comfy-draw.html",
+      "extension": ".html"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-draw.js",
+      "relativePath": "modules/draw/providers/comfyui/comfy-draw.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/comfy-prompts.js",
+      "relativePath": "modules/draw/providers/comfyui/comfy-prompts.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/COMFY_TAG编写指南.md",
+      "relativePath": "modules/draw/providers/comfyui/COMFY_TAG编写指南.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/floating-panel.js",
+      "relativePath": "modules/draw/providers/comfyui/floating-panel.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/workflows/default-txt2img.json",
+      "relativePath": "modules/draw/providers/comfyui/workflows/default-txt2img.json",
+      "extension": ".json"
     },
     {
       "source": "littlewhitebox",
@@ -1294,6 +1330,12 @@
     },
     {
       "source": "sillytavern-public",
+      "publicPath": "css/!USER-CSS-README.md",
+      "relativePath": "css/!USER-CSS-README.md",
+      "extension": ".md"
+    },
+    {
+      "source": "sillytavern-public",
       "publicPath": "css/accounts.css",
       "relativePath": "css/accounts.css",
       "extension": ".css"
@@ -1468,6 +1510,12 @@
     },
     {
       "source": "sillytavern-public",
+      "publicPath": "css/streaming-display.css",
+      "relativePath": "css/streaming-display.css",
+      "extension": ".css"
+    },
+    {
+      "source": "sillytavern-public",
       "publicPath": "css/tags.css",
       "relativePath": "css/tags.css",
       "extension": ".css"
@@ -1486,12 +1534,6 @@
     },
     {
       "source": "sillytavern-public",
-      "publicPath": "css/user.css",
-      "relativePath": "css/user.css",
-      "extension": ".css"
-    },
-    {
-      "source": "sillytavern-public",
       "publicPath": "css/welcome.css",
       "relativePath": "css/welcome.css",
       "extension": ".css"
@@ -1501,30 +1543,6 @@
       "publicPath": "css/world-info.css",
       "relativePath": "css/world-info.css",
       "extension": ".css"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "error/forbidden-by-whitelist.html",
-      "relativePath": "error/forbidden-by-whitelist.html",
-      "extension": ".html"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "error/host-not-allowed.html",
-      "relativePath": "error/host-not-allowed.html",
-      "extension": ".html"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "error/unauthorized.html",
-      "relativePath": "error/unauthorized.html",
-      "extension": ".html"
-    },
-    {
-      "source": "sillytavern-public",
-      "publicPath": "error/url-not-found.html",
-      "relativePath": "error/url-not-found.html",
-      "extension": ".html"
     },
     {
       "source": "sillytavern-public",
@@ -3280,6 +3298,12 @@
     },
     {
       "source": "sillytavern-public",
+      "publicPath": "scripts/streaming-display.js",
+      "relativePath": "scripts/streaming-display.js",
+      "extension": ".js"
+    },
+    {
+      "source": "sillytavern-public",
       "publicPath": "scripts/swipe-picker.js",
       "relativePath": "scripts/swipe-picker.js",
       "extension": ".js"
@@ -3600,6 +3624,12 @@
       "source": "sillytavern-public",
       "publicPath": "scripts/templates/themeImportWarning.html",
       "relativePath": "scripts/templates/themeImportWarning.html",
+      "extension": ".html"
+    },
+    {
+      "source": "sillytavern-public",
+      "publicPath": "scripts/templates/thirdPartyExtensionWarning.html",
+      "relativePath": "scripts/templates/thirdPartyExtensionWarning.html",
       "extension": ".html"
     },
     {
