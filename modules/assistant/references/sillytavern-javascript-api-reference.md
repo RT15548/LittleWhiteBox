@@ -1,7 +1,18 @@
 # SillyTavern JavaScript API Reference
-> 从源代码自动提取 · 共 160 个 API
+> 1.18 基线整理 · 从源代码抽取与人工对照补完 · 共 168 个 API
 
-本文档用于回答一个具体问题：`getContext()` 暴露了哪些前端 API，它们大致是什么、能不能作为新代码入口。
+本文档用于回答一个更实用的问题：SillyTavern 1.18 前端公开给扩展与插件侧使用的 JavaScript API 有哪些，它们大致是什么、能不能作为新代码入口。
+
+当前覆盖范围：
+- `ctx.*`：`st.extensions.getContext()` 返回的上下文对象。
+- `st.script.*`：`script.js` 等前端主模块导出，适合读运行时状态或调用主前端方法。
+- `st.extensions.*`：扩展系统相关导出，例如模板渲染、扩展字段写入、扩展菜单、API URL 等。
+- `st.slash.*`：Slash 命令执行与帮助入口，以及命令注册相关导出。
+
+命名空间关系：
+- `ctx` 不是独立全局，而是 `st.extensions.getContext()` 的返回值。
+- 很多 `ctx.*` 条目本质上是对 `st.script.*` 或 `st.extensions.*` 的再封装；新代码优先选语义更直接、废弃说明更少的入口。
+- 如果一个能力只在 `st.extensions.*` 或 `st.slash.*` 里存在，不要假设它一定也会出现在 `ctx.*`。
 
 使用建议：
 - 优先看有明确函数签名的条目，再看变量/对象条目。
@@ -117,6 +128,26 @@ export function getCurrentChatId()
 export function getRequestHeaders({ omitContentType = false } = {})
 ```
 ---
+### `getContext`
+**源文件**: `scripts\st-context.js:114`
+**签名**:
+```javascript
+export function getContext()
+```
+**状态判断**: 这是扩展侧最核心的上下文入口，会返回当前聊天、角色、事件、变量、生成、世界书、工具调用等一整套前端能力集合。
+
+**使用建议**: 需要 `ctx.xxx` 时先从这里理解来源；如果只是要少量能力，优先直接使用更窄的 `st.script.*`、`st.extensions.*` 或 `st.slash.*` 命名空间。
+---
+### `getApiUrl`
+**源文件**: `scripts\extensions.js:48`
+**签名**:
+```javascript
+const getApiUrl = () => extension_settings.apiUrl;
+```
+**状态判断**: 这是 Extras API / 扩展 API URL 的读取入口，不是聊天后端 URL，也不是任意模型 API 地址。
+
+**使用建议**: 只有在确实要对接 SillyTavern Extras 扩展服务时再读它；普通聊天生成、Slash 调用、上下文读取都不需要碰它。
+---
 ### `reloadCurrentChat`
 **源文件**: `script.js:1674`
 **签名**:
@@ -173,6 +204,16 @@ export let chat_metadata = {};
 ```javascript
 export function saveMetadataDebounced()
 ```
+---
+### `cancelDebouncedMetadataSave`
+**源文件**: `scripts\extensions.js:81`
+**签名**:
+```javascript
+export function cancelDebouncedMetadataSave()
+```
+**状态判断**: 这是 `saveMetadataDebounced()` 的配套取消入口，用来撤销还没真正落盘的延迟保存计时器。
+
+**使用建议**: 只有在你明确要中止一次尚未执行的 metadata 自动保存时才调用；普通保存流程不要先取消再手动补一套。
 ---
 ### `streamingProcessor`
 **源文件**: `script.js:455`
@@ -652,6 +693,16 @@ export const ARGUMENT_TYPE = {
 
 **替代方案**: 优先使用 `executeSlashCommandsWithOptions()`，这样更容易控制执行来源和行为。
 ---
+### `getSlashCommandsHelp`
+**源文件**: `scripts\slash-commands.js:111`
+**签名**:
+```javascript
+const getSlashCommandsHelp = parser.getHelpString.bind(parser);
+```
+**状态判断**: 这是 Slash 命令帮助文本入口，返回当前已注册命令的帮助字符串，适合做能力探查，不适合直接拿来推断参数对象细节。
+
+**使用建议**: 需要先确认命令是否存在、名称怎么写、帮助文案怎么显示时用它；需要精准参数语义时还是回到专门参考文档或对应源码。
+---
 ### `timestampToMoment`
 **源文件**: `scripts\utils.js:1079`
 **文档**:
@@ -1039,6 +1090,23 @@ export async function generateRawData({ prompt = '', api = null, instructOverrid
 ```javascript
 export async function writeExtensionField(characterId, key, value)
 ```
+---
+### `writeExtensionFieldBulk`
+**源文件**: `scripts\extensions.js:2143`
+**文档**:
+```javascript
+/**
+ * Writes (or deletes) an extension field for multiple characters in a single
+ * bulk request.
+ */
+```
+**签名**:
+```javascript
+export async function writeExtensionFieldBulk(avatars, key, value, { filterPath } = {})
+```
+**状态判断**: 这是面向多角色卡批量写扩展字段的入口，支持用 `UNSET_VALUE` 触发字段删除，不只是“批量 set”。
+
+**使用建议**: 只有在确实要对一批角色卡统一写扩展字段时再用它；单角色更新优先 `writeExtensionField()`，这样影响范围更可控。
 ---
 ### `getThumbnailUrl`
 **源文件**: `script.js:7453`
@@ -1631,6 +1699,17 @@ export function convertCharacterBook(characterBook)
 export async function getWorldInfoPrompt(chat, maxContext, isDryRun, globalScanData)
 ```
 ---
+### `getWorldInfoNames`
+**源文件**: `scripts\st-context.js:282`
+**类型**: 函数
+**说明**:
+```javascript
+getWorldInfoNames: () => Array.isArray(world_names) ? [...world_names] : []
+```
+**状态判断**: 这是世界书名称列表的轻量读取入口，返回的是当前前端已知世界书名数组副本，不负责加载完整世界书内容。
+
+**使用建议**: 只想知道当前有哪些世界书时优先用它；需要具体条目、提示拼接结果或完整内容时再看 `loadWorldInfo()` / `getWorldInfoPrompt()`。
+---
 ### `CONNECT_API_MAP`
 **源文件**: `script.js`
 **类型**: 变量/对象
@@ -1846,6 +1925,23 @@ export async function unshallowCharacter(characterId)
 ```javascript
 export async function unshallowGroupMembers(groupId)
 ```
+---
+### `getExtensionManifest`
+**源文件**: `scripts\extensions.js:524`
+**文档**:
+```javascript
+/**
+ * Returns a deep clone of the manifest for the given extension name.
+ * Accepts either the short name or the full internal key.
+ */
+```
+**签名**:
+```javascript
+export function getExtensionManifest(name)
+```
+**状态判断**: 这是扩展清单读取入口，返回的是 manifest 深拷贝，适合读扩展元信息，不适合作为“扩展是否已激活”的唯一判断。
+
+**使用建议**: 需要查看某个扩展的显示名、版本、 hook、设置面板能力时读取它；判断启用态、安装态时最好结合扩展系统其它状态一起看。
 ---
 ### `openThirdPartyExtensionMenu`
 **源文件**: `scripts\extensions.js:1819`
@@ -2121,6 +2217,23 @@ export function existsGlobalVariable(name)
 ```javascript
 export const IGNORE_SYMBOL = Symbol.for('ignore');
 ```
+---
+### `constants.unset`
+**源文件**: `scripts\extensions.js:2052`
+**文档**:
+```javascript
+/**
+ * Sentinel value used by extension field bulk writers to mean:
+ * delete the extension key entirely instead of storing a normal value.
+ */
+```
+**签名**:
+```javascript
+export const UNSET_VALUE = '__@@UNSET@@__';
+```
+**状态判断**: 这是一个带特殊语义的哨兵值，不是普通字符串常量。把它传给扩展字段写入接口时，含义是“删掉字段”，不是“把字段值设置成这串文本”。
+
+**使用建议**: 只在 `writeExtensionFieldBulk()` 这类明确支持删除语义的接口里使用它；不要把它混进普通业务数据或用户可见配置。
 ---
 ### `maxContext`
 **源文件**: `scripts\st-context.js:130`

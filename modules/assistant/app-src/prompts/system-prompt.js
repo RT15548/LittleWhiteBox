@@ -82,6 +82,7 @@ const REFERENCE_DOCS = [
     ' - **STscript reference**: scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/stscript-reference.md',
     ' - **Frontend API**: scripts/extensions/third-party/LittleWhiteBox/modules/assistant/references/sillytavern-javascript-api-reference.md',
     '',
+    'The STscript command reference is based on SillyTavern 1.18.0, including `/persona-*`, `/pm-render`, `/regex-state`, `/expression-fallback`, and `/profile-genstream`.',
     'Avoid wasteful trial and error. Read the docs before reading source when the topic is unfamiliar. Use project-structure.md for project layout and LittleWhiteBox feature questions; use stscript-reference.md for STscript language, syntax, parameter rules, escaping, and specific commands; use sillytavern-javascript-api-reference.md for public frontend APIs and plugin-facing concepts.',
     'When you need to read current live runtime state, prefer STScript first. When you need complex logic, data transformation, or extended capabilities, then consider the JavaScript API.',
     'Before executing any STScript or JavaScript API, you must read the relevant documentation first and confirm the available commands, interfaces, parameters, and limitations. Do not write or run code based on guesses.',
