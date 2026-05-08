@@ -399,6 +399,38 @@ test('local sources tool runtime rejects editor mutation tools outside editor wr
     assert.equal(executeCalls, 0);
 });
 
+test('local sources tool runtime accepts Write filePath alias for editor permissions', async () => {
+    let currentState = createState({
+        'local/demo.txt': 'old\n',
+    });
+    let executeCalls = 0;
+    const runtime = createLocalSourcesToolRuntime({
+        getLocalSources: () => currentState,
+        setLocalSources: (nextSources) => {
+            currentState = cloneState(nextSources);
+        },
+        normalizeLocalSourcesSnapshot: cloneState,
+        executeToolCall: async () => {
+            executeCalls += 1;
+            return { ok: true };
+        },
+    });
+
+    const result = await runtime.execute('Write', {
+        filePath: 'local/demo.txt',
+        content: 'next\n',
+    }, {
+        workspaceMeta: {
+            source: 'editor',
+            baseVersion: 0,
+            path: 'local/demo.txt',
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(executeCalls, 1);
+});
+
 test('local sources tool runtime applies editor batch writes through the normal mutation pipeline', async () => {
     let currentState = createState({
         'local/demo.txt': 'old\n',

@@ -43,7 +43,7 @@ import { getDefaultApiPrefix, getModelListCandidateUrls } from "../../../../shar
 import {
     loadLocalDanbooruDB, unloadLocalDanbooruDB,
     searchLocalDanbooru, isDanbooruDBLoaded,
-} from './danbooru-local-db.js';
+} from '../../shared/danbooru-local-db.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -3226,7 +3226,7 @@ async function handleFrameMessage(event) {
             sendInitData();
             // 若本地 Danbooru DB 已启用，预加载（失败只警告，不修改用户设置）
             if (getSettings().danbooruLocalDB) {
-                const datUrl = `${extensionFolderPath}/modules/draw/providers/novelai/data/danbooru-chars.dat`;
+                const datUrl = `${extensionFolderPath}/modules/draw/shared/data/danbooru-chars.dat`;
                 loadLocalDanbooruDB(datUrl).catch(e => {
                     console.warn('[NovelDraw] Eager load of local Danbooru DB failed:', e);
                 });
@@ -3622,7 +3622,7 @@ async function handleFrameMessage(event) {
             const enabled = !!data.enabled;
             if (enabled) {
                 try {
-                    const datUrl = `${extensionFolderPath}/modules/draw/providers/novelai/data/danbooru-chars.dat`;
+                    const datUrl = `${extensionFolderPath}/modules/draw/shared/data/danbooru-chars.dat`;
                     const db = await loadLocalDanbooruDB(datUrl);
                     if (!db) break; // 被并发 OFF toggle 取消
                     const ok = await updateSettingsPersistent((settings) => {

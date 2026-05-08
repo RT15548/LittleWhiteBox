@@ -23,7 +23,9 @@ export function getWorkspaceMutationPermissionError(name = '', meta = {}, args =
     }
 
     if (toolName === 'Write') {
-        const targetPath = normalizeWorkspacePathText(args?.path);
+        const targetPath = normalizeWorkspacePathText(
+            typeof args?.path === 'string' ? args.path : args?.filePath,
+        );
         const metaPath = normalizeWorkspacePathText(meta.path);
         return targetPath && metaPath && targetPath === metaPath
             ? ''

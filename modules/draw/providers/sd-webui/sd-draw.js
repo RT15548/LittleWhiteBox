@@ -6,6 +6,7 @@ import { getRequestHeaders } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
 import { SdDrawStorage } from "../../../../core/server-storage.js";
+import { getDefaultApiPrefix, getModelListCandidateUrls } from "../../../../shared/common/openai-url-utils.js";
 import {
     storePreview,
     storeFailedPlaceholder,
@@ -49,10 +50,21 @@ import {
     classifyError,
     ErrorType,
 } from "../../shared/draw-common.js";
-import { SD_SCENE_PROMPTS } from "./sd-prompts.js";
+import {
+    loadLocalDanbooruDB,
+    unloadLocalDanbooruDB,
+    searchLocalDanbooru,
+    isDanbooruDBLoaded,
+} from "../../shared/danbooru-local-db.js";
+import {
+    SD_SCENE_PROMPTS,
+    loadPromptTemplates,
+    loadTagGuide,
+} from "./sd-prompts.js";
 
 const MODULE_KEY = 'sdDraw';
 const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/sd-webui/sd-draw.html`;
+const DANBOORU_DATA_PATH = `${extensionFolderPath}/modules/draw/shared/data/danbooru-chars.dat`;
 const SERVER_FILE_KEY = 'config';
 
 const DEFAULT_SD_DRAW_SETTINGS = {
@@ -117,6 +129,15 @@ const SD_SIZE_PRESETS = [
     { value: '768x1280', width: 768, height: 1280 },
     { value: '1280x768', width: 1280, height: 768 },
 ];
+const providerDefaults = {
+    st: { url: '', needKey: false, canFetch: false, needManualModel: false },
+    openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
+    google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false, needManualModel: true },
+    claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true },
+    deepseek: { url: 'https://api.deepseek.com', needKey: true, canFetch: true, needManualModel: false },
+    cohere: { url: 'https://api.cohere.ai', needKey: true, canFetch: false, needManualModel: true },
+    custom: { url: '', needKey: true, canFetch: true, needManualModel: false },
+};
 
 const saveBtnStates = new WeakMap();
 
@@ -785,6 +806,38 @@ function bindOverlayEvents() {
     querySettings('#sd-shared-char-add')?.addEventListener('click', () => {
         addCharacterTagDraft();
     });
+    querySettings('#sd-shared-char-clear')?.addEventListener('click', () => {
+        clearCharacterTagsDraft();
+    });
+    querySettings('#sd-shared-char-export')?.addEventListener('click', () => {
+        exportSharedCharacterTags();
+    });
+    querySettings('#sd-shared-char-import')?.addEventListener('change', async (event) => {
+        await importSharedCharacterTags(event.target);
+    });
+    querySettings('#sd-danbooru-local')?.addEventListener('change', async (event) => {
+        await setSdDanbooruLocalEnabled(event.target.checked === true);
+    });
+    querySettings('#sd-shared-llm-provider')?.addEventListener('change', () => {
+        handleSharedLlmProviderChange();
+    });
+    querySettings('#sd-shared-llm-fetch')?.addEventListener('click', async () => {
+        await fetchSharedLlmModels();
+    });
+    querySettings('#sd-filter-add')?.addEventListener('click', () => {
+        renderFilterRuleRow({ start: '', end: '' });
+    });
+    querySettings('#sd-filter-reset')?.addEventListener('click', () => {
+        renderFilterRules(DEFAULT_MESSAGE_FILTER_RULES);
+    });
+    querySettings('#sd-filter-save')?.addEventListener('click', async (event) => {
+        await runSaveButtonTask(event.currentTarget, () => saveSharedDrawSettings({ notify: false }), {
+            statusElementId: 'sd-shared-status',
+            pendingText: '正在保存过滤规则...',
+            successText: '过滤规则已保存',
+            errorText: '过滤规则保存超时或失败，请重试',
+        });
+    });
     querySettingsAll('[data-sd-save-shared]').forEach((button) => {
         button.addEventListener('click', async (event) => {
             await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId: 'sd-shared-status' });
@@ -792,8 +845,14 @@ function bindOverlayEvents() {
     });
     querySettings('#sd-shared-character-list')?.addEventListener('click', (event) => {
         const deleteButton = event.target.closest('[data-sd-char-delete]');
-        if (!deleteButton) return;
-        deleteCharacterTagDraft(deleteButton.dataset.sdCharDelete);
+        if (deleteButton) {
+            deleteCharacterTagDraft(deleteButton.dataset.sdCharDelete);
+            return;
+        }
+        const danbooruButton = event.target.closest('[data-sd-char-danbooru]');
+        if (danbooruButton) {
+            showSdDanbooruPanel(danbooruButton.dataset.sdCharDanbooru);
+        }
     });
 }
 
@@ -1068,8 +1127,10 @@ function getSharedCharacterTagsFromForm() {
             .filter(Boolean),
         type: String(card.querySelector('[data-sd-char-field="type"]')?.value || 'girl').trim() || 'girl',
         appearance: String(card.querySelector('[data-sd-char-field="appearance"]')?.value || '').trim(),
+        negativeTags: String(card.querySelector('[data-sd-char-field="negativeTags"]')?.value || '').trim(),
         danbooruTag: String(card.querySelector('[data-sd-char-field="danbooruTag"]')?.value || '').trim(),
-    })).filter((item) => item.name || item.appearance || item.danbooruTag || item.aliases.length);
+        outfits: parseCharacterOutfits(card.querySelector('[data-sd-char-field="outfits"]')?.value || ''),
+    })).filter((item) => item.name || item.appearance || item.danbooruTag || item.negativeTags || item.aliases.length || item.outfits?.length);
 }
 
 function renderCharacterTagList(tags = []) {
@@ -1113,7 +1174,24 @@ function renderCharacterTagList(tags = []) {
         const delText = document.createElement('span');
         delText.textContent = '删除';
         delButton.append(delIcon, delText);
-        top.append(title, delButton);
+        const danbooruButton = document.createElement('button');
+        danbooruButton.className = 'btn btn-sm';
+        danbooruButton.type = 'button';
+        danbooruButton.dataset.sdCharDanbooru = card.dataset.characterId;
+        if (!isDanbooruDBLoaded()) {
+            danbooruButton.disabled = true;
+            danbooruButton.style.opacity = '0.35';
+        }
+        const danbooruIcon = document.createElement('i');
+        danbooruIcon.className = 'fa-solid fa-magnifying-glass';
+        const danbooruText = document.createElement('span');
+        danbooruText.textContent = 'Danbooru';
+        danbooruButton.append(danbooruIcon, danbooruText);
+
+        const actions = document.createElement('div');
+        actions.className = 'btn-group';
+        actions.append(danbooruButton, delButton);
+        top.append(title, actions);
 
         const grid = document.createElement('div');
         grid.className = 'form-row';
@@ -1127,8 +1205,14 @@ function renderCharacterTagList(tags = []) {
             grid,
             createCharacterField('别名（逗号分隔）', 'aliases', (tag.aliases || []).join(', '), '例如 小芙, Freya'),
             createCharacterField('外观标签', 'appearance', tag.appearance || '', '会拼进角色外观提示词', { multiline: true }),
+            createCharacterField('负向标签', 'negativeTags', tag.negativeTags || '', '角色专属 negative / uc 标签', { multiline: true }),
             createCharacterField('Danbooru Tag', 'danbooruTag', tag.danbooruTag || '', '可选，用于兼容原有角色提示逻辑'),
+            createCharacterField('服装参考（每行一套）', 'outfits', serializeCharacterOutfits(tag.outfits || []), '校服 = white shirt, pleated skirt', { multiline: true }),
         );
+        const panel = document.createElement('div');
+        panel.className = 'danbooru-panel hidden';
+        panel.dataset.charId = card.dataset.characterId;
+        card.appendChild(panel);
         list.appendChild(card);
     });
 }
@@ -1157,13 +1241,444 @@ function createCharacterField(labelText, fieldName, value, placeholder, options 
     return field;
 }
 
+function serializeCharacterOutfits(outfits = []) {
+    return (Array.isArray(outfits) ? outfits : [])
+        .map((outfit) => {
+            const name = String(outfit?.name || '').trim();
+            const tags = String(outfit?.tags || '').trim();
+            if (!name && !tags) return '';
+            return name ? `${name} = ${tags}` : tags;
+        })
+        .filter(Boolean)
+        .join('\n');
+}
+
+function parseCharacterOutfits(value = '') {
+    return String(value || '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+            const matched = line.split('=');
+            if (matched.length >= 2) {
+                return {
+                    name: matched.shift().trim(),
+                    tags: matched.join('=').trim(),
+                };
+            }
+            return {
+                name: '',
+                tags: line,
+            };
+        })
+        .filter((outfit) => outfit.name || outfit.tags);
+}
+
+function updateSharedLlmProviderUI() {
+    const provider = getValue('sd-shared-llm-provider') || 'st';
+    const providerConfig = providerDefaults[provider] || providerDefaults.custom;
+    const sharedDrawSettings = getSharedDrawSettings();
+    const isSt = provider === 'st';
+    const modelCache = Array.isArray(sharedDrawSettings.llmApi?.modelCache) ? sharedDrawSettings.llmApi.modelCache : [];
+    const hasCache = modelCache.length > 0;
+
+    querySettings('#sd-shared-llm-url-row')?.classList.toggle('hidden', isSt);
+    querySettings('#sd-shared-llm-key-row')?.classList.toggle('hidden', isSt);
+    querySettings('#sd-shared-llm-model-manual-row')?.classList.toggle('hidden', isSt || !providerConfig.needManualModel);
+    querySettings('#sd-shared-llm-model-select-row')?.classList.toggle('hidden', isSt || providerConfig.needManualModel || !hasCache);
+    querySettings('#sd-shared-llm-connect-row')?.classList.toggle('hidden', isSt || !providerConfig.canFetch);
+}
+
+function getCurrentSharedLlmModel() {
+    const provider = getValue('sd-shared-llm-provider') || 'st';
+    const providerConfig = providerDefaults[provider] || providerDefaults.custom;
+    if (providerConfig.needManualModel) return getValue('sd-shared-llm-model-manual').trim();
+    if (providerConfig.canFetch) return getValue('sd-shared-llm-model-select').trim();
+    return '';
+}
+
+function handleSharedLlmProviderChange() {
+    const provider = getValue('sd-shared-llm-provider') || 'st';
+    const providerConfig = providerDefaults[provider] || providerDefaults.custom;
+    const sharedDrawSettings = getSharedDrawSettings();
+    const nextUrl = sharedDrawSettings.llmApi?.provider === provider
+        ? (sharedDrawSettings.llmApi?.url || providerConfig.url || '')
+        : (providerConfig.url || '');
+
+    setValue('sd-shared-llm-url', nextUrl);
+    if (!providerConfig.canFetch) {
+        sharedDrawSettings.llmApi = {
+            ...(sharedDrawSettings.llmApi || {}),
+            modelCache: [],
+        };
+    }
+    fillSharedLlmModelFields();
+    updateSharedLlmProviderUI();
+}
+
+function fillSharedLlmModelFields() {
+    const sharedDrawSettings = getSharedDrawSettings();
+    const llmApi = sharedDrawSettings.llmApi || {};
+    const provider = getValue('sd-shared-llm-provider') || llmApi.provider || 'st';
+    const providerConfig = providerDefaults[provider] || providerDefaults.custom;
+    const modelCache = Array.isArray(llmApi.modelCache) ? llmApi.modelCache : [];
+    populateSelect(
+        'sd-shared-llm-model-select',
+        modelCache.map((item) => ({ value: item, label: item })),
+        { value: llmApi.model || '', emptyLabel: '请先拉取模型列表' },
+    );
+    if (providerConfig.needManualModel) {
+        setValue('sd-shared-llm-model-manual', llmApi.model || '');
+    } else if (providerConfig.canFetch) {
+        setSelectValue('sd-shared-llm-model-select', llmApi.model || '');
+    }
+}
+
+async function fetchSharedLlmModels() {
+    const provider = getValue('sd-shared-llm-provider').trim() || 'st';
+    const url = getValue('sd-shared-llm-url').trim();
+    const key = getValue('sd-shared-llm-key').trim();
+    const button = getSettingsElement('sd-shared-llm-fetch');
+
+    if (!key) {
+        updateStatusText('sd-shared-status', 'error', '请先填写 LLM API Key');
+        return false;
+    }
+
+    const tryFetch = async (requestUrl) => {
+        try {
+            const response = await fetch(requestUrl, {
+                headers: {
+                    Authorization: `Bearer ${key}`,
+                    Accept: 'application/json',
+                },
+            });
+            if (!response.ok) return null;
+            return (await response.json())?.data?.map((item) => item?.id).filter(Boolean) || null;
+        } catch {
+            return null;
+        }
+    };
+
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 连接中...';
+    }
+    updateStatusText('sd-shared-status', '', '正在连接并拉取模型列表...');
+
+    try {
+        let models = null;
+        for (const requestUrl of getModelListCandidateUrls(url, getDefaultApiPrefix(provider))) {
+            models = await tryFetch(requestUrl);
+            if (models?.length) break;
+        }
+        if (!models?.length) throw new Error('未获取到模型列表');
+
+        await updateSharedDrawSettingsPersistent((settings) => {
+            settings.llmApi = {
+                ...(settings.llmApi || {}),
+                provider,
+                url,
+                key,
+                modelCache: [...new Set(models)],
+                model: getCurrentSharedLlmModel() || settings.llmApi?.model || models[0] || '',
+            };
+        }, `已获取 ${models.length} 个模型`, { notify: false, silent: false });
+
+        fillSharedLlmModelFields();
+        updateSharedLlmProviderUI();
+        updateStatusText('sd-shared-status', 'success', `已获取 ${models.length} 个模型`);
+        return true;
+    } catch (error) {
+        updateStatusText('sd-shared-status', 'error', `连接失败：${error?.message || '请检查配置'}`);
+        return false;
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = '<i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表';
+        }
+    }
+}
+
+function renderFilterRuleRow(rule = { start: '', end: '' }) {
+    const list = getSettingsElement('sd-filter-rules-list');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'filter-rule-row';
+
+    const start = document.createElement('input');
+    start.type = 'text';
+    start.placeholder = '起始标记';
+    start.value = String(rule.start || '');
+    start.dataset.sdFilterField = 'start';
+
+    const arrow = document.createElement('span');
+    arrow.className = 'rule-arrow';
+    arrow.textContent = '→';
+
+    const end = document.createElement('input');
+    end.type = 'text';
+    end.placeholder = '结束标记';
+    end.value = String(rule.end || '');
+    end.dataset.sdFilterField = 'end';
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'btn-del-rule';
+    del.textContent = '×';
+    del.addEventListener('click', () => row.remove());
+
+    row.append(start, arrow, end, del);
+    list.appendChild(row);
+}
+
+function renderFilterRules(rules = []) {
+    const list = getSettingsElement('sd-filter-rules-list');
+    if (!list) return;
+    list.textContent = '';
+    const normalized = Array.isArray(rules) && rules.length ? rules : DEFAULT_MESSAGE_FILTER_RULES;
+    normalized.forEach((rule) => renderFilterRuleRow(rule));
+}
+
+function collectFilterRules() {
+    return querySettingsAll('#sd-filter-rules-list .filter-rule-row')
+        .map((row) => ({
+            start: String(row.querySelector('[data-sd-filter-field="start"]')?.value || '').trim(),
+            end: String(row.querySelector('[data-sd-filter-field="end"]')?.value || '').trim(),
+        }))
+        .filter((rule) => rule.start || rule.end);
+}
+
+function parseDanbooruCharName(tagName) {
+    const match = String(tagName || '').match(/^(.+?)_\((.+)\)$/);
+    if (match) {
+        return {
+            charName: match[1].replace(/_/g, ' '),
+            series: match[2].replace(/_/g, ' '),
+        };
+    }
+    return {
+        charName: String(tagName || '').replace(/_/g, ' '),
+        series: '',
+    };
+}
+
+async function setSdDanbooruLocalEnabled(enabled) {
+    const checkbox = getSettingsElement('sd-danbooru-local');
+    const status = getSettingsElement('sd-danbooru-local-status');
+    if (status) status.textContent = enabled ? '加载中...' : '未加载';
+    if (checkbox) checkbox.disabled = true;
+
+    try {
+        if (enabled) {
+            const db = await loadLocalDanbooruDB(DANBOORU_DATA_PATH);
+            if (!db) return false;
+            await updateSharedDrawSettingsPersistent((settings) => {
+                settings.danbooruLocalDB = true;
+            }, `Danbooru 本地库已加载 (${db.length} 条)`, { notify: false, silent: false });
+            if (status) status.textContent = `已加载 ${db.length} 条`;
+        } else {
+            unloadLocalDanbooruDB();
+            await updateSharedDrawSettingsPersistent((settings) => {
+                settings.danbooruLocalDB = false;
+            }, 'Danbooru 本地库已关闭', { notify: false, silent: false });
+            if (status) status.textContent = '未加载';
+        }
+        if (checkbox) checkbox.checked = enabled;
+        renderCharacterTagList(getSharedCharacterTagsFromForm());
+        refreshSettingsSummary();
+        return true;
+    } catch (error) {
+        console.warn('[SdDraw] Danbooru 本地库切换失败:', error);
+        unloadLocalDanbooruDB();
+        await updateSharedDrawSettingsPersistent((settings) => {
+            settings.danbooruLocalDB = false;
+        }, 'Danbooru 本地库加载失败', { notify: false, silent: false }).catch(() => {});
+        if (checkbox) checkbox.checked = false;
+        if (status) status.textContent = '加载失败';
+        toastr.error('Danbooru 本地库加载失败');
+        renderCharacterTagList(getSharedCharacterTagsFromForm());
+        refreshSettingsSummary();
+        return false;
+    } finally {
+        if (checkbox) checkbox.disabled = false;
+    }
+}
+
+async function ensureSdDanbooruLoadedForForm(sharedDrawSettings = getSharedDrawSettings()) {
+    const checkbox = getSettingsElement('sd-danbooru-local');
+    const status = getSettingsElement('sd-danbooru-local-status');
+    const enabled = sharedDrawSettings.danbooruLocalDB === true;
+    if (checkbox) checkbox.checked = enabled;
+    if (!enabled) {
+        if (status) status.textContent = '未加载';
+        return;
+    }
+    if (isDanbooruDBLoaded()) {
+        if (status) status.textContent = '已加载';
+        return;
+    }
+    if (status) status.textContent = '加载中...';
+    try {
+        const db = await loadLocalDanbooruDB(DANBOORU_DATA_PATH);
+        if (status) status.textContent = db ? `已加载 ${db.length} 条` : '未加载';
+        renderCharacterTagList(getSharedCharacterTagsFromForm());
+    } catch (error) {
+        console.warn('[SdDraw] 预加载 Danbooru 本地库失败:', error);
+        if (status) status.textContent = '加载失败';
+    }
+}
+
+function showSdDanbooruPanel(characterId = '') {
+    if (!isDanbooruDBLoaded()) {
+        toastr.warning('请先启用 Danbooru 本地资源库');
+        return;
+    }
+    const panel = querySettings(`.danbooru-panel[data-char-id="${CSS.escape(characterId)}"]`);
+    const card = querySettings(`.sd-char-card[data-character-id="${CSS.escape(characterId)}"]`);
+    if (!panel || !card) return;
+
+    const currentTag = card.querySelector('[data-sd-char-field="danbooruTag"]')?.value || '';
+    const currentName = card.querySelector('[data-sd-char-field="name"]')?.value || '';
+    const defaultQuery = currentTag || currentName || '';
+
+    panel.classList.remove('hidden');
+    const doc = panel.ownerDocument || document;
+    const row = doc.createElement('div');
+    row.className = 'danbooru-search-row';
+
+    const input = doc.createElement('input');
+    input.type = 'text';
+    input.className = 'input danbooru-query';
+    input.value = defaultQuery;
+    input.placeholder = '角色名搜索（本地库）';
+
+    const searchButton = doc.createElement('button');
+    searchButton.className = 'btn btn-primary danbooru-search-btn';
+    searchButton.type = 'button';
+    const searchIcon = doc.createElement('i');
+    searchIcon.className = 'fa-solid fa-magnifying-glass';
+    const searchText = doc.createElement('span');
+    searchText.textContent = '本地搜索';
+    searchButton.append(searchIcon, searchText);
+
+    const closeButton = doc.createElement('button');
+    closeButton.className = 'btn danbooru-close-btn';
+    closeButton.type = 'button';
+    const closeIcon = doc.createElement('i');
+    closeIcon.className = 'fa-solid fa-xmark';
+    closeButton.appendChild(closeIcon);
+
+    const results = doc.createElement('div');
+    results.className = 'danbooru-results';
+    row.append(input, searchButton, closeButton);
+    panel.replaceChildren(row, results);
+
+    const runSearch = () => {
+        const query = input.value.trim();
+        if (!query) return;
+        const loading = doc.createElement('div');
+        loading.className = 'danbooru-status';
+        const spinner = doc.createElement('i');
+        spinner.className = 'fa-solid fa-spinner fa-spin';
+        const loadingText = doc.createTextNode(' 本地搜索中...');
+        loading.append(spinner, loadingText);
+        results.replaceChildren(loading);
+        renderSdDanbooruResults(searchLocalDanbooru(query, 10), characterId, results);
+    };
+
+    searchButton.addEventListener('click', runSearch);
+    input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') runSearch();
+    });
+    closeButton.addEventListener('click', () => {
+        panel.classList.add('hidden');
+        panel.replaceChildren();
+    });
+
+    if (defaultQuery) runSearch();
+}
+
+function renderSdDanbooruResults(results = [], characterId = '', container = null) {
+    const target = container || querySettings(`.danbooru-panel[data-char-id="${CSS.escape(characterId)}"] .danbooru-results`);
+    const card = querySettings(`.sd-char-card[data-character-id="${CSS.escape(characterId)}"]`);
+    if (!target || !card) return;
+
+    if (!results.length) {
+        const status = (target.ownerDocument || document).createElement('div');
+        status.className = 'danbooru-status';
+        status.textContent = '本地库未找到匹配角色';
+        target.replaceChildren(status);
+        return;
+    }
+
+    const doc = target.ownerDocument || document;
+    const list = doc.createElement('div');
+    list.className = 'danbooru-char-list';
+
+    results.forEach((result) => {
+        const parsed = parseDanbooruCharName(result.name);
+        const tagPreview = (result.tags || []).slice(0, 6).map((tag) => tag.replace(/_/g, ' ')).join(', ');
+        const item = doc.createElement('button');
+        item.className = 'danbooru-char-item local-fix';
+        item.type = 'button';
+        item.dataset.tag = result.name;
+        item.dataset.tags = JSON.stringify(result.tags || []);
+
+        const info = doc.createElement('span');
+        info.className = 'danbooru-char-info';
+        const name = doc.createElement('span');
+        name.className = 'danbooru-char-name';
+        name.textContent = parsed.charName;
+        info.appendChild(name);
+        if (parsed.series) {
+            const series = doc.createElement('span');
+            series.className = 'danbooru-char-series';
+            series.textContent = parsed.series;
+            info.appendChild(series);
+        }
+        if (tagPreview) {
+            const preview = doc.createElement('span');
+            preview.className = 'danbooru-tag-preview';
+            preview.textContent = tagPreview;
+            info.appendChild(preview);
+        }
+        item.appendChild(info);
+        item.addEventListener('click', () => {
+            let appearanceTags = [];
+            try { appearanceTags = JSON.parse(item.dataset.tags || '[]'); } catch {}
+            const tagInput = card.querySelector('[data-sd-char-field="danbooruTag"]');
+            const appearanceInput = card.querySelector('[data-sd-char-field="appearance"]');
+            if (tagInput) tagInput.value = item.dataset.tag || '';
+            if (appearanceInput && appearanceTags.length) {
+                appearanceInput.value = appearanceTags.map((tag) => tag.replace(/_/g, ' ')).join(', ');
+            }
+            const panel = querySettings(`.danbooru-panel[data-char-id="${CSS.escape(characterId)}"]`);
+            if (panel) {
+                panel.classList.add('hidden');
+                panel.replaceChildren();
+            }
+            refreshSettingsSummary();
+            toastr.success('已填入 Danbooru 标签，请保存角色');
+        });
+        list.appendChild(item);
+    });
+    target.replaceChildren(list);
+}
+
 function fillSharedDrawForm() {
     const sharedDrawSettings = getSharedDrawSettings();
     setSelectValue('sd-shared-llm-provider', sharedDrawSettings.llmApi?.provider || 'st');
     setValue('sd-shared-llm-url', sharedDrawSettings.llmApi?.url || '');
     setValue('sd-shared-llm-key', sharedDrawSettings.llmApi?.key || '');
-    setValue('sd-shared-llm-model', sharedDrawSettings.llmApi?.model || '');
+    setChecked('sd-shared-use-stream', sharedDrawSettings.useStream === true);
+    setChecked('sd-shared-use-worldinfo', sharedDrawSettings.useWorldInfo === true);
+    setChecked('sd-shared-disable-prefill', sharedDrawSettings.disablePrefill === true);
+    fillSharedLlmModelFields();
+    updateSharedLlmProviderUI();
+    renderFilterRules(sharedDrawSettings.messageFilterRules || []);
     renderCharacterTagList(sharedDrawSettings.characterTags || []);
+    void ensureSdDanbooruLoadedForForm(sharedDrawSettings);
 }
 
 async function saveSharedDrawSettings({ notify = false } = {}) {
@@ -1171,7 +1686,7 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
         provider: getValue('sd-shared-llm-provider').trim() || 'st',
         url: getValue('sd-shared-llm-url').trim(),
         key: getValue('sd-shared-llm-key').trim(),
-        model: getValue('sd-shared-llm-model').trim(),
+        model: getCurrentSharedLlmModel(),
     };
     const characterTags = getSharedCharacterTagsFromForm();
     return await updateSharedDrawSettingsPersistent((settings) => {
@@ -1179,6 +1694,10 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
             ...(settings.llmApi || {}),
             ...llmApi,
         };
+        settings.useStream = getChecked('sd-shared-use-stream');
+        settings.useWorldInfo = getChecked('sd-shared-use-worldinfo');
+        settings.disablePrefill = getChecked('sd-shared-disable-prefill');
+        settings.messageFilterRules = collectFilterRules();
         settings.characterTags = characterTags;
     }, '共享规划设置已保存', { notify, silent: false });
 }
@@ -1249,10 +1768,84 @@ function addCharacterTagDraft() {
         aliases: [],
         type: 'girl',
         appearance: '',
+        negativeTags: '',
         danbooruTag: '',
+        outfits: [],
     });
     renderCharacterTagList(current);
     refreshSettingsSummary();
+}
+
+function clearCharacterTagsDraft() {
+    const current = getSharedCharacterTagsFromForm();
+    if (!current.length) {
+        toastr.warning('没有角色可清除');
+        return;
+    }
+    if (!confirm(`确定清空全部 ${current.length} 个角色？此操作不可撤销。`)) return;
+    renderCharacterTagList([]);
+    refreshSettingsSummary();
+}
+
+function exportSharedCharacterTags() {
+    const current = getSharedCharacterTagsFromForm();
+    if (!current.length) {
+        toastr.warning('没有可导出的角色');
+        return;
+    }
+    const data = {
+        type: 'novel-draw-characters',
+        version: 3,
+        characters: current,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'character-tags.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+async function importSharedCharacterTags(input) {
+    const file = input?.files?.[0];
+    if (!file) return;
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (data.type !== 'novel-draw-characters' || !Array.isArray(data.characters)) {
+            throw new Error('无效文件');
+        }
+        const merged = [...getSharedCharacterTagsFromForm()];
+        for (const char of data.characters) {
+            if (!char?.name) continue;
+            const existingIndex = merged.findIndex((item) => item.name === char.name);
+            const nextChar = {
+                id: char.id || `sd-char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                name: char.name || '',
+                aliases: Array.isArray(char.aliases) ? char.aliases : [],
+                type: char.type || 'girl',
+                appearance: char.appearance || char.tags || '',
+                negativeTags: char.negativeTags || '',
+                danbooruTag: char.danbooruTag || '',
+                outfits: Array.isArray(char.outfits) ? char.outfits : [],
+            };
+            if (existingIndex >= 0) {
+                merged[existingIndex] = { ...merged[existingIndex], ...nextChar, id: merged[existingIndex].id };
+            } else {
+                merged.push(nextChar);
+            }
+        }
+        renderCharacterTagList(merged);
+        refreshSettingsSummary();
+        toastr.success(`已导入 ${data.characters.length} 个角色，请记得保存`);
+    } catch (error) {
+        toastr.error(`导入失败：${error?.message || '文件格式错误'}`);
+    } finally {
+        if (input) input.value = '';
+    }
 }
 
 function deleteCharacterTagDraft(characterId = '') {
@@ -1682,7 +2275,6 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     if (promptOverride.trim()) {
         return [{
             scene: promptOverride.trim(),
-            negative: negativePromptOverride.trim(),
             chars: [],
             anchor: '',
         }];
@@ -1760,17 +2352,19 @@ function buildPromptForTask(task, sharedDrawSettings, sdSettings, promptOverride
     if (promptOverride.trim()) {
         return {
             positive: composePrompt(sdSettings.positivePrefix, promptOverride),
-            negative: composePrompt(sdSettings.negativePrefix, negativePromptOverride || task.negative || ''),
+            negative: composePrompt(sdSettings.negativePrefix, negativePromptOverride),
             characterPrompts: [],
         };
     }
 
-    const characterPrompts = assembleCharacterPrompts(task.chars || [], sharedDrawSettings.characterTags || []);
+    const characterPrompts = assembleCharacterPrompts(task.chars || [], sharedDrawSettings.characterTags || [], {
+        preserveDanbooruCanonical: true,
+    });
     const charPositive = characterPrompts.map(item => item.prompt).filter(Boolean).join(', ');
     const charNegative = characterPrompts.map(item => item.uc).filter(Boolean).join(', ');
     return {
         positive: joinTags(sdSettings.positivePrefix, task.scene, charPositive),
-        negative: joinTags(sdSettings.negativePrefix, negativePromptOverride, task.negative, charNegative),
+        negative: joinTags(sdSettings.negativePrefix, negativePromptOverride, charNegative),
         characterPrompts,
     };
 }
@@ -2513,6 +3107,8 @@ async function testGenerateFromSettingsPanel() {
 export async function initSdDraw() {
     if (moduleInitialized) return;
     moduleInitialized = true;
+    await loadPromptTemplates();
+    await loadTagGuide();
     await loadSettings();
     ensureDrawImageStyles();
     setupImageDelegation();

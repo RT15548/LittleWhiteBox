@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-07T04:48:04.277Z",
+  "generatedAt": "2026-05-08T00:47:41.184Z",
   "version": 1,
   "files": [
     {
@@ -502,18 +502,6 @@
     },
     {
       "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/danbooru-local-db.js",
-      "relativePath": "modules/draw/providers/novelai/danbooru-local-db.js",
-      "extension": ".js"
-    },
-    {
-      "source": "littlewhitebox",
-      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/data/danbooru-chars.dat",
-      "relativePath": "modules/draw/providers/novelai/data/danbooru-chars.dat",
-      "extension": ".dat"
-    },
-    {
-      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/novelai/floating-panel.js",
       "relativePath": "modules/draw/providers/novelai/floating-panel.js",
       "extension": ".js"
@@ -574,6 +562,18 @@
     },
     {
       "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/prompts/output-format.md",
+      "relativePath": "modules/draw/providers/sd-webui/prompts/output-format.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/prompts/top-system.md",
+      "relativePath": "modules/draw/providers/sd-webui/prompts/top-system.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-draw.html",
       "relativePath": "modules/draw/providers/sd-webui/sd-draw.html",
       "extension": ".html"
@@ -589,6 +589,24 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/sd-prompts.js",
       "relativePath": "modules/draw/providers/sd-webui/sd-prompts.js",
       "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/sd-webui/SD_TAG编写指南.md",
+      "relativePath": "modules/draw/providers/sd-webui/SD_TAG编写指南.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/danbooru-local-db.js",
+      "relativePath": "modules/draw/shared/danbooru-local-db.js",
+      "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/shared/data/danbooru-chars.dat",
+      "relativePath": "modules/draw/shared/data/danbooru-chars.dat",
+      "extension": ".dat"
     },
     {
       "source": "littlewhitebox",

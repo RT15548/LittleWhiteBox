@@ -259,6 +259,39 @@ select.input { cursor: pointer; }
 }
 .gallery-empty i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; display: block; }
 .gallery-empty p { font-size: 13px; margin-top: 8px; }
+.filter-rule-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.filter-rule-row input {
+    flex: 1; font-size: 13px; padding: 4px 8px;
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 4px; color: var(--text-primary);
+}
+.filter-rule-row input:focus { outline: none; border-color: var(--border-focus); }
+.filter-rule-row .rule-arrow { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
+.filter-rule-row .btn-del-rule {
+    flex-shrink: 0; background: none; border: none; color: var(--text-muted);
+    cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 3px;
+}
+.filter-rule-row .btn-del-rule:hover { color: var(--danger); background: rgba(255,0,0,.1); }
+.danbooru-panel {
+    margin-top: 8px; padding: 12px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 8px;
+}
+.danbooru-panel.hidden { display: none; }
+.danbooru-search-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.danbooru-search-row input { flex: 1; padding: 6px 10px; font-size: 12px; }
+.danbooru-search-row .btn { padding: 6px 12px; font-size: 12px; white-space: nowrap; }
+.danbooru-char-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.danbooru-char-item {
+    width: 100%; display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 10px; background: var(--bg-tertiary); border: 0; border-radius: 6px;
+    cursor: pointer; font-size: 12px; color: var(--text-primary); text-align: left; transition: background 0.15s;
+}
+.danbooru-char-item:hover { background: var(--accent-soft); }
+.danbooru-char-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.danbooru-char-name { font-weight: 500; }
+.danbooru-char-series { font-size: 10px; color: var(--text-muted); font-style: italic; }
+.danbooru-tag-preview { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.danbooru-status { font-size: 11px; color: var(--text-muted); padding: 8px 0; }
 @media (max-width: 768px) {
     .app-sidebar { display: none; }
     .mobile-nav { display: block; }
@@ -357,8 +390,8 @@ select.input { cursor: pointer; }
                     <i class="fa-solid fa-lightbulb"></i>
                     <div>
                         <div>消息楼层按钮的 🎨 为对应消息生成配图。</div>
-                        <div>SD 出图会复用小白X的场景分析、角色识别和图片占位符。</div>
-                        <div>本页预设会作为 API 参数发送；WebUI 网页输入框不会参与本次出图。</div>
+                        <div>小白X会先分析当前楼层，再把结果组装成 SD 出图参数。</div>
+                        <div>本页填写的参数和固定 TAG 会直接发给 SD API；WebUI 网页输入框不会参与这次出图。</div>
                     </div>
                 </div>
             </section>
@@ -533,36 +566,68 @@ select.input { cursor: pointer; }
                             <option value="custom">自定义</option>
                         </select>
                     </div>
-                    <div class="form-group">
+                    <div id="sd-shared-llm-url-row" class="form-group hidden">
                         <label class="form-label">API URL</label>
                         <input id="sd-shared-llm-url" type="text" class="input" placeholder="https://api.openai.com/v1">
-                        <p class="form-hint">使用酒馆主 API 时可以留空。SD 使用独立的 Stable Diffusion 场景提示词。</p>
+                        <p class="form-hint">可直接填写完整前缀；若只填裸地址，拉模型时会按渠道补默认前缀。</p>
                     </div>
-                    <div class="form-group">
+                    <div id="sd-shared-llm-key-row" class="form-group hidden">
                         <label class="form-label">API Key</label>
                         <input id="sd-shared-llm-key" type="password" class="input" placeholder="sk-xxx...">
                     </div>
-                    <div class="form-group">
+                    <div id="sd-shared-llm-model-manual-row" class="form-group hidden">
                         <label class="form-label">模型</label>
-                        <input id="sd-shared-llm-model" type="text" class="input" placeholder="gemini-1.5-pro">
+                        <input id="sd-shared-llm-model-manual" type="text" class="input" placeholder="gemini-1.5-pro">
+                    </div>
+                    <div id="sd-shared-llm-model-select-row" class="form-group hidden">
+                        <label class="form-label">模型</label>
+                        <select id="sd-shared-llm-model-select" class="input">
+                            <option value="">请先拉取模型列表</option>
+                        </select>
+                    </div>
+                    <div id="sd-shared-llm-connect-row" class="btn-group hidden" style="margin-top:12px;">
+                        <button id="sd-shared-llm-fetch" class="btn"><i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表</button>
+                    </div>
+                    <div class="form-group" style="margin-top:16px;">
+                        <label class="check-row"><input type="checkbox" id="sd-shared-use-stream"> 启用流式生成</label>
+                    </div>
+                    <div class="form-group" style="margin-top:8px;">
+                        <label class="check-row"><input type="checkbox" id="sd-shared-use-worldinfo"> 使用世界书</label>
+                        <p class="form-hint" style="margin-left:12px;">勾选后，会把世界书内容注入到场景分析里。</p>
+                    </div>
+                    <div class="form-group" style="margin-top:8px;">
+                        <label class="check-row"><input type="checkbox" id="sd-shared-disable-prefill"> 禁用尾部预填充</label>
+                        <p class="form-hint" style="margin-left:12px;">某些模型或 API 不支持 prefill 时再开启。</p>
                     </div>
                     <div class="btn-group" style="margin-top:16px;">
                         <button class="btn btn-primary" type="button" data-sd-save-shared><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
                     </div>
-                    <div class="status-text">当前提示词链：Stable Diffusion / SD WebUI 内置版</div>
                     <div id="sd-shared-status" class="status-text"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">消息过滤规则</div>
+                    <p class="form-hint" style="margin-bottom:8px;">过滤 RP 消息里的思考块或其他干扰内容，避免影响场景分析。起始和结束之间的内容会被移除。</p>
+                    <div id="sd-filter-rules-list"></div>
+                    <div class="btn-group" style="margin-top:8px;">
+                        <button id="sd-filter-add" class="btn btn-sm">+ 添加规则</button>
+                        <button id="sd-filter-reset" class="btn btn-sm">恢复默认</button>
+                    </div>
+                    <div class="btn-group" style="margin-top:12px;">
+                        <button id="sd-filter-save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存规则</button>
+                    </div>
                 </div>
 
                 <div class="tip-box">
                     <i class="fa-solid fa-info-circle"></i>
-                    <div>SD 只共用 LLM 渠道和角色库；场景提示词、TAG 要求和输出格式使用 SD 专属版本。</div>
+                    <div>这里配置的是 SD 场景分析用的 LLM 渠道。画图提示词和输出格式已经内置好，正常使用不用额外折腾。</div>
                 </div>
             </section>
 
             <section class="view wide" data-sd-view-panel="characters">
                 <div class="view-header">
                     <h2 class="view-title">角色标签</h2>
-                    <p class="view-desc">集中管理角色外貌标签。SD 与 NovelDraw 共用同一份角色库</p>
+                    <p class="view-desc">这里直接维护小白X共用角色库，SD 出图会使用这里的角色外貌、服装参考和角色负向标签</p>
                 </div>
 
                 <div class="char-management-layout">
@@ -584,9 +649,21 @@ select.input { cursor: pointer; }
                             <div class="card-title">🧰 批量操作</div>
                             <div class="btn-group">
                                 <button id="sd-shared-char-add" class="btn btn-primary btn-sm" type="button"><i class="fa-solid fa-plus"></i> 添加角色</button>
+                                <button id="sd-shared-char-clear" class="btn btn-danger btn-sm" type="button"><i class="fa-solid fa-trash-can"></i> 清除全部</button>
+                                <button id="sd-shared-char-export" class="btn btn-sm" type="button"><i class="fa-solid fa-download"></i> 导出</button>
+                                <label class="btn btn-sm" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="sd-shared-char-import" accept=".json" style="display:none;"></label>
                                 <button class="btn btn-sm" type="button" data-sd-save-shared><i class="fa-solid fa-floppy-disk"></i> 保存角色</button>
                             </div>
-                            <p class="form-hint" style="margin-top:10px;">导入、导出、Danbooru 资源库等高级管理项，仍在 NovelDraw 完整角色页中处理。</p>
+                            <p class="form-hint" style="margin-top:10px;">角色名、别名、外观、服装参考、角色负向标签都会被画图流程直接使用。</p>
+                        </div>
+                        <div class="card">
+                            <div class="card-title">🔎 Danbooru 资源库</div>
+                            <label class="check-row">
+                                <input type="checkbox" id="sd-danbooru-local">
+                                <span>启用本地角色库</span>
+                            </label>
+                            <div id="sd-danbooru-local-status" class="status-text">未加载</div>
+                            <p class="form-hint">启用后可离线搜索角色官方 tag，并自动填入外观标签。</p>
                         </div>
                     </aside>
 
@@ -595,7 +672,7 @@ select.input { cursor: pointer; }
                             <div class="char-list-card-header">
                                 <div>
                                     <div class="card-title">👥 角色列表</div>
-                                    <p class="form-hint" style="margin-top:6px;">预设角色外貌，LLM 只需补充动作和互动标签</p>
+                                    <p class="form-hint" style="margin-top:6px;">先在这里把角色底稿定稳，出图时只需要补当前动作、表情和互动</p>
                                 </div>
                                 <div id="sd-draw-character-result-count" class="char-list-count">0 / 0</div>
                             </div>
@@ -610,7 +687,7 @@ select.input { cursor: pointer; }
             <section class="view wide" data-sd-view-panel="gallery">
                 <div class="view-header">
                     <h2 class="view-title">图片管理</h2>
-                    <p class="view-desc">这里直接查看小白X共用图库。NovelDraw 和 SD WebUI 生成的图片都在同一份缓存里。</p>
+                    <p class="view-desc">这里直接查看小白X共用图库，所有楼层配图都会保存在同一份缓存里。</p>
                 </div>
 
                 <div class="card" style="margin-bottom:20px;">

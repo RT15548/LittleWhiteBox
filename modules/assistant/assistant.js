@@ -1589,9 +1589,10 @@ async function readFile(args = {}, options = {}) {
 
 async function writeLocalFile(args = {}, options = {}) {
     ensureNotAborted(options.signal);
-    const targetPath = normalizeWritableLocalPath(args.path);
+    const rawPath = typeof args.path === 'string' ? args.path : args.filePath;
+    const targetPath = normalizeWritableLocalPath(rawPath);
     if (!targetPath) {
-        throw new Error(getWritableLocalPathError(args.path));
+        throw new Error(getWritableLocalPathError(rawPath));
     }
 
     const content = typeof args.content === 'string'

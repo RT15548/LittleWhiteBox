@@ -8,7 +8,7 @@ const outputPath = path.join(pluginRoot, 'modules/assistant/assistant-file-manif
 
 const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.html', '.css', '.json', '.md', '.txt']);
 const INCLUDED_BINARY_TEXT_RESOURCES = new Set([
-    'modules/draw/providers/novelai/data/danbooru-chars.dat',
+    'modules/draw/shared/data/danbooru-chars.dat',
 ]);
 const EXCLUDED_DIR_NAMES = new Set(['.git', 'node_modules', 'dist', 'coverage']);
 const EXCLUDED_PUBLIC_SUBTREES = ['scripts/extensions/third-party/LittleWhiteBox'];

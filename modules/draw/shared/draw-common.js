@@ -94,13 +94,14 @@ function normalizeCharacterOutfits(outfits = []) {
         .filter(outfit => outfit.name || outfit.tags);
 }
 
-function danbooruToNai(tag) {
-    return String(tag || '').replace(/_/g, ' ');
+function formatDanbooruTag(tag, options = {}) {
+    const value = String(tag || '').trim();
+    return options.preserveDanbooruCanonical ? value : value.replace(/_/g, ' ');
 }
 
-function buildKnownCharacterBasePrompt(character = {}) {
-    const naiTag = character.danbooruTag ? danbooruToNai(character.danbooruTag) : '';
-    return joinTags(naiTag, character.type, character.appearance);
+function buildKnownCharacterBasePrompt(character = {}, options = {}) {
+    const danbooruTag = character.danbooruTag ? formatDanbooruTag(character.danbooruTag, options) : '';
+    return joinTags(danbooruTag, character.type, character.appearance);
 }
 
 const GRID_COL = { A: 0.1, B: 0.3, C: 0.5, D: 0.7, E: 0.9 };
@@ -141,7 +142,7 @@ export function detectPresentCharacters(messageText, characterTags) {
     return present;
 }
 
-export function assembleCharacterPrompts(sceneChars, knownCharacters) {
+export function assembleCharacterPrompts(sceneChars, knownCharacters, options = {}) {
     return sceneChars.map(char => {
         const charLower = String(char.name || '').toLowerCase();
         const known = knownCharacters.find(k =>
@@ -151,15 +152,15 @@ export function assembleCharacterPrompts(sceneChars, knownCharacters) {
 
         if (known) {
             return {
-                prompt: joinTags(buildKnownCharacterBasePrompt(known), char.costume, char.action, char.interact),
+                prompt: joinTags(buildKnownCharacterBasePrompt(known, options), char.costume, char.action, char.interact),
                 uc: joinTags(known.negativeTags, char.uc),
                 center: gridToCoord(char.center) || { x: 0.5, y: 0.5 },
             };
         }
 
-        const naiTag = char.danbooru ? danbooruToNai(char.danbooru) : '';
+        const danbooruTag = char.danbooru ? formatDanbooruTag(char.danbooru, options) : '';
         return {
-            prompt: joinTags(naiTag, char.type, char.appear, char.costume, char.action, char.interact),
+            prompt: joinTags(danbooruTag, char.type, char.appear, char.costume, char.action, char.interact),
             uc: char.uc || '',
             center: gridToCoord(char.center) || { x: 0.5, y: 0.5 },
         };

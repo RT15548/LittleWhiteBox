@@ -147,6 +147,7 @@ export const TOOL_DEFINITIONS = [
                 type: 'object',
                 properties: {
                     path: { type: 'string', description: 'Target `local/...` file path, for example local/README.md or local/my-plugin/README.md.' },
+                    filePath: { type: 'string', description: 'Compatibility alias for `path`; prefer `path` for new calls.' },
                     content: { type: 'string', description: 'Full text content to write.' },
                 },
                 required: ['path', 'content'],
@@ -474,7 +475,7 @@ export function describeToolCall(name, args = {}) {
         case TOOL_NAMES.READ:
             return `读取文件 ${(args.filePath || args.path || '')}${args.offset ? `:${args.offset}` : args.startLine ? `:${args.startLine}` : ''}`.trim();
         case TOOL_NAMES.WRITE:
-            return `写入文件 ${args.path || ''}`.trim();
+            return `写入文件 ${args.path || args.filePath || ''}`.trim();
         case TOOL_NAMES.APPLY_PATCH:
             return '应用补丁';
         case TOOL_NAMES.DELETE:

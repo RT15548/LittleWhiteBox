@@ -1,4 +1,4 @@
-// danbooru-local-db.js — Danbooru 本地角色数据库（离线搜索 + 自动修正）
+// danbooru-local-db.js - Danbooru 本地角色数据库（离线搜索 + 自动修正）
 
 // ── 模块状态 ────────────────────────────────────────────────────
 let localDanbooruDB = null;     // null | Array<[tagName, appearanceTags[]]>
@@ -25,7 +25,7 @@ export async function loadLocalDanbooruDB(datUrl) {
 async function _doLoad(datUrl) {
     const gen = ++_loadDBGeneration;
 
-    const { decompressSync, strFromU8 } = await import('../../../../libs/fflate.mjs');
+    const { decompressSync, strFromU8 } = await import('../../../libs/fflate.mjs');
     if (gen !== _loadDBGeneration) return null;
 
     const res = await fetch(datUrl, { cache: 'no-cache' });
@@ -64,7 +64,7 @@ async function _doLoad(datUrl) {
 
     localDanbooruDB = db;
     localDanbooruIndex = index;
-    console.log(`[NovelDraw] Local Danbooru DB loaded: ${db.length} entries, index: ${index.size} tokens`);
+    console.log(`[Draw] Local Danbooru DB loaded: ${db.length} entries, index: ${index.size} tokens`);
     return db;
 }
 
@@ -75,7 +75,7 @@ export function unloadLocalDanbooruDB() {
     localDanbooruDB = null;
     localDanbooruIndex = null;
     _loadDBPromise = null;
-    console.log('[NovelDraw] Local Danbooru DB unloaded');
+    console.log('[Draw] Local Danbooru DB unloaded');
 }
 
 // ── 搜索 ────────────────────────────────────────────────────────

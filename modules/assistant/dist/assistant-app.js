@@ -17798,6 +17798,10 @@ var oz = class {
             type: "string",
             description: "Target `local/...` file path, for example local/README.md or local/my-plugin/README.md."
           },
+          filePath: {
+            type: "string",
+            description: "Compatibility alias for `path`; prefer `path` for new calls."
+          },
           content: {
             type: "string",
             description: "Full text content to write."
@@ -54556,7 +54560,8 @@ var hse = ['你是 SillyTavern 中 LittleWhiteBox（中文一般称"小白X"）�
   " - Changes affect only session copy; never written back to user's original files",
   " - Create new paths directly: `local/file.txt` or `local/<root>/file.txt`",
   ' - For lookup inside workspace, use `scope: "local"` with Grep / LS / Glob / Read, then modify with Write / apply_patch / Move / Delete',
-  " - Prefer apply_patch for targeted edits; Write for new files or full rewrites",
+  ' - Exact tool arguments: Read uses `{ "filePath": "local/..." }`; Write uses `{ "path": "local/...", "content": "..." }`; apply_patch uses `{ "patchText": "..." }`',
+  " - Prefer apply_patch for targeted edits or rewrites of part of a file; use Write only for new files or full whole-file rewrites",
   " - apply_patch hunk headers may be plain `@@`, anchored as `@@ existing line`, or standard unified diff style such as `@@ -1,3 +1,3 @@`",
   " - In unified diff hunk headers, line ranges are positioning hints; if text appears after the second `@@`, for example `@@ -1,3 +1,3 @@ function test() {`, that trailing text is the real header anchor",
   "",

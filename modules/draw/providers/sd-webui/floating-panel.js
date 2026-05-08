@@ -659,23 +659,31 @@ function updateFloorDetailPopup(messageId) {
 async function handleFloorDrawClick(messageId) {
     const panelData = panelMap.get(messageId);
     if (!panelData || panelData.state !== FloatState.IDLE) return;
+    const resolvedMessageId = resolvePanelMessageId(panelData) ?? messageId;
+    if (resolvedMessageId !== messageId) {
+        console.warn('[SdDraw] 楼层面板 messageId 与 DOM 不一致，已按 DOM 楼层生成:', { state: messageId, dom: resolvedMessageId });
+        panelMap.delete(messageId);
+        panelData.messageId = resolvedMessageId;
+        panelData.root.dataset.messageId = String(resolvedMessageId);
+        panelMap.set(resolvedMessageId, panelData);
+    }
     try {
         await generateAndInsertImages({
-            messageId,
+            messageId: resolvedMessageId,
             onStateChange: (state, data) => {
                 switch (state) {
-                    case 'queued': setFloorState(messageId, FloatState.QUEUED, data); break;
-                    case 'llm': setFloorState(messageId, FloatState.LLM); break;
+                    case 'queued': setFloorState(resolvedMessageId, FloatState.QUEUED, data); break;
+                    case 'llm': setFloorState(resolvedMessageId, FloatState.LLM); break;
                     case 'gen':
-                    case 'progress': setFloorState(messageId, FloatState.GEN, data); break;
-                    case 'cooldown': setFloorState(messageId, FloatState.COOLDOWN, data); break;
+                    case 'progress': setFloorState(resolvedMessageId, FloatState.GEN, data); break;
+                    case 'cooldown': setFloorState(resolvedMessageId, FloatState.COOLDOWN, data); break;
                     case 'success':
                         if (data.aborted && data.success === 0) {
-                            setFloorState(messageId, FloatState.IDLE);
+                            setFloorState(resolvedMessageId, FloatState.IDLE);
                         } else if (data.aborted || data.success < data.total) {
-                            setFloorState(messageId, FloatState.PARTIAL, data);
+                            setFloorState(resolvedMessageId, FloatState.PARTIAL, data);
                         } else {
-                            setFloorState(messageId, FloatState.SUCCESS, data);
+                            setFloorState(resolvedMessageId, FloatState.SUCCESS, data);
                         }
                         break;
                 }
@@ -684,12 +692,18 @@ async function handleFloorDrawClick(messageId) {
     } catch (error) {
         console.error('[SdDraw]', error);
         if (error.message === '已取消' || error.message?.includes('已有任务进行中') || error.message?.includes('该楼层已有任务进行中')) {
-            setFloorState(messageId, FloatState.IDLE);
+            setFloorState(resolvedMessageId, FloatState.IDLE);
             if (error.message?.includes('任务进行中')) toastr?.info?.(error.message);
         } else {
-            setFloorState(messageId, FloatState.ERROR, { error: classifyError(error) });
+            setFloorState(resolvedMessageId, FloatState.ERROR, { error: classifyError(error) });
         }
     }
+}
+
+function resolvePanelMessageId(panelData) {
+    const raw = panelData?.root?.closest?.('.mes')?.getAttribute?.('mesid');
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function handleFloorAbort(messageId) {

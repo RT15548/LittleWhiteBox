@@ -159,6 +159,9 @@ LittleWhiteBox/
 │   │
 │   ├── draw/                              # AI 画图大模块：共享层 + Provider
 │   │   ├── shared/                        # 跨 Provider 共享能力
+│   │   │   ├── danbooru-local-db.js        # Danbooru 本地角色库加载与搜索
+│   │   │   ├── data/                       # 跨 Provider 共用画图数据资源
+│   │   │   │   └── danbooru-chars.dat      # Danbooru 角色数据
 │   │   │   ├── draw-common.js              # 占位符、锚点、角色 Prompt、图片 DOM 渲染与错误分类
 │   │   │   ├── draw-settings.js            # 共享 LLM/角色/世界书设置读写，不初始化 Provider 专属 Prompt
 │   │   │   ├── gallery-cache.js            # 共用图库缓存与 [image:slot] 占位符存储
@@ -168,23 +171,24 @@ LittleWhiteBox/
 │   │       ├── novelai/                   # NovelAI Provider
 │   │       │   ├── TAG编写指南.md          # NovelAI 专属 TAG 指南
 │   │       │   ├── cloud-presets.js        # NovelAI 云端预设
-│   │       │   ├── danbooru-local-db.js    # Danbooru 本地数据库
 │   │       │   ├── floating-panel.js       # NovelAI 楼层/悬浮画图面板
 │   │       │   ├── novel-draw.html         # NovelAI 设置 UI
 │   │       │   ├── novel-draw.js           # NovelAI 生命周期、设置和出图逻辑
 │   │       │   ├── novel-prompts.js        # NovelAI 提示词模板加载与默认配置
-│   │       │   ├── data/                  # NovelAI 本地数据资源
-│   │       │   │   └── danbooru-chars.dat  # Danbooru 角色数据
 │   │       │   └── prompts/               # NovelAI 提示词模板
 │   │       │       ├── output-format-legacy.md
 │   │       │       ├── output-format.md
 │   │       │       ├── top-system-pov.md
 │   │       │       └── top-system.md
 │   │       └── sd-webui/                  # SD WebUI Provider
+│   │           ├── SD_TAG编写指南.md       # SD 专属 TAG 指南
 │   │           ├── floating-panel.js       # SD 楼层/悬浮画图面板
+│   │           ├── prompts/               # SD 提示词模板
+│   │           │   ├── output-format.md
+│   │           │   └── top-system.md
 │   │           ├── sd-draw.html            # SD 设置面板 UI
 │   │           ├── sd-draw.js              # SD 生命周期、设置和出图逻辑
-│   │           └── sd-prompts.js           # SD 专属场景规划提示词
+│   │           └── sd-prompts.js           # SD 提示词模板加载与默认配置
 │   │
 │   ├── scheduled-tasks/                   # 定时任务与嵌入式任务功能
 │   │   ├── embedded-tasks.html             # 内嵌任务 UI

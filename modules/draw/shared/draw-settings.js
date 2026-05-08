@@ -11,6 +11,7 @@ const DEFAULT_SHARED_DRAW_SETTINGS = {
     advancedMode: false,
     timeout: 120000,
     characterTags: [],
+    danbooruLocalDB: false,
     messageFilterRules: [],
     worldbooks: { enabled: false, uploadedBooks: [], keywordFilterMode: 'auto' },
     paramsPresets: [],
