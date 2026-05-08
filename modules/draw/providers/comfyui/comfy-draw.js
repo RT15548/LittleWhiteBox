@@ -1183,10 +1183,10 @@ function bindOverlayEvents() {
         if (!ok) toastr.error('应用失败，请重试', 'ComfyUI');
         if (ok) fillForm(getSettings());
     });
-    // 高级面板展开/折叠
-    querySettings('#comfy-toggle-advanced')?.addEventListener('click', () => {
-        const section = getSettingsElement('comfy-advanced-section');
-        const btn = getSettingsElement('comfy-toggle-advanced');
+    // 高级参数面板展开/折叠（简单模式内）
+    querySettings('#comfy-toggle-advanced-params')?.addEventListener('click', () => {
+        const section = getSettingsElement('comfy-advanced-params-section');
+        const btn = getSettingsElement('comfy-toggle-advanced-params');
         if (!section || !btn) return;
         const isHidden = section.classList.contains('hidden');
         section.classList.toggle('hidden', !isHidden);
@@ -1194,7 +1194,7 @@ function bindOverlayEvents() {
         icon.className = isHidden ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
         btn.replaceChildren(icon, document.createTextNode(isHidden ? ' 收起' : ' 展开'));
     });
-    // 工作流模式切换（高级面板内）
+    // 工作流模式切换（顶部二选一）
     querySettings('#comfy-workflow-mode-simple')?.addEventListener('click', async () => {
         const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
             draft.workflowMode = 'simple';
@@ -1206,6 +1206,36 @@ function bindOverlayEvents() {
             draft.workflowMode = 'custom';
         }, '已切换到自定义模式', { silent: false }));
         if (ok) fillForm(getSettings());
+    });
+    // 自定义工作流：JSON 文件导入
+    querySettings('#comfy-workflow-import')?.addEventListener('change', async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            JSON.parse(text); // 验证 JSON 格式
+            setValue('comfy-workflow-json', text);
+            toastr.success('工作流已导入，请配置节点映射后保存', 'ComfyUI');
+        } catch (e) {
+            toastr.error('JSON 格式错误：' + e.message, 'ComfyUI');
+        }
+        event.target.value = ''; // 重置以允许重复导入同一文件
+    });
+    // 自定义工作流：清空
+    querySettings('#comfy-workflow-clear')?.addEventListener('click', () => {
+        setValue('comfy-workflow-json', '');
+        toastr.info('已清空工作流内容', 'ComfyUI');
+    });
+    // 自定义工作流：高级覆盖参数折叠
+    querySettings('#comfy-toggle-node-override')?.addEventListener('click', () => {
+        const section = getSettingsElement('comfy-node-override-section');
+        const btn = getSettingsElement('comfy-toggle-node-override');
+        if (!section || !btn) return;
+        const isHidden = section.classList.contains('hidden');
+        section.classList.toggle('hidden', !isHidden);
+        const icon = document.createElement('i');
+        icon.className = isHidden ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+        btn.replaceChildren(icon, document.createTextNode(isHidden ? ' 收起' : ' 展开'));
     });
     // 模型/采样器/调度器/steps/cfg 变更
     querySettings('#comfy-draw-model')?.addEventListener('change', async () => {
@@ -1358,9 +1388,11 @@ function fillForm(settings) {
     const isSimple = settings.workflowMode !== 'custom';
     const simpleBtn = getSettingsElement('comfy-workflow-mode-simple');
     const customBtn = getSettingsElement('comfy-workflow-mode-custom');
-    const customSection = getSettingsElement('comfy-custom-workflow-section');
+    const simpleSection = getSettingsElement('comfy-simple-mode-section');
+    const customSection = getSettingsElement('comfy-custom-mode-section');
     if (simpleBtn) simpleBtn.classList.toggle('active', isSimple);
     if (customBtn) customBtn.classList.toggle('active', !isSimple);
+    if (simpleSection) simpleSection.classList.toggle('hidden', !isSimple);
     if (customSection) customSection.classList.toggle('hidden', isSimple);
 
     // 自定义工作流字段（保留原逻辑）

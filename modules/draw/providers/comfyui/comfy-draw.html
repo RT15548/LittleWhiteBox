@@ -368,7 +368,7 @@ select.input { cursor: pointer; }
             <div class="nav-item active" data-comfy-view="test"><i class="fa-solid fa-flask"></i>快速测试</div>
             <div class="nav-item" data-comfy-view="api"><i class="fa-solid fa-key"></i>API 配置</div>
             <div class="nav-divider"></div>
-            <div class="nav-item" data-comfy-view="workflow"><i class="fa-solid fa-microchip"></i>模型配置</div>
+            <div class="nav-item" data-comfy-view="workflow"><i class="fa-solid fa-microchip"></i>工作流配置</div>
             <div class="nav-item" data-comfy-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</div>
             <div class="nav-item" data-comfy-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</div>
             <div class="nav-divider"></div>
@@ -450,155 +450,201 @@ select.input { cursor: pointer; }
 
             <section class="view" data-comfy-view-panel="workflow">
                 <div class="view-header">
-                    <h2 class="view-title">模型配置</h2>
-                    <p class="view-desc">选择模型和生成参数</p>
+                    <h2 class="view-title">工作流配置</h2>
+                    <p class="view-desc">选择出图模式</p>
                 </div>
 
+                <!-- 模式选择：最顶部、最醒目 -->
                 <div class="card">
-                    <div class="card-title">内置工作流</div>
-                    <div class="form-group">
-                        <label class="form-label">工作流方案</label>
-                        <div class="input-row">
-                            <select id="comfy-builtin-workflow" class="input"></select>
-                            <button id="comfy-builtin-workflow-apply" class="btn" type="button"><i class="fa-solid fa-wand-magic-sparkles"></i> 应用推荐参数</button>
-                        </div>
-                    </div>
-                    <div class="tip-box" style="margin-bottom:16px;">
-                        <i class="fa-solid fa-circle-info"></i>
-                        <div>
-                            <div id="comfy-builtin-workflow-summary" style="font-weight:600;color:var(--text-primary);margin-bottom:4px;"></div>
-                            <div id="comfy-builtin-workflow-desc"></div>
-                            <div id="comfy-builtin-workflow-notes" style="margin-top:6px;color:var(--text-muted);"></div>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">当前内置工作流（API 格式）</label>
-                        <textarea id="comfy-builtin-workflow-preview" class="input" rows="12" readonly style="font-family:monospace;font-size:12px;"></textarea>
-                        <p class="form-hint">只读预览。这里展示的是小白X 简单模式按当前模型、采样器、Steps、CFG 和尺寸组装后将要发送的 ComfyUI API 工作流骨架。</p>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-title">模型选择</div>
-                    <div class="form-group">
-                        <label class="form-label">模型</label>
-                        <div class="input-row">
-                            <select id="comfy-draw-model" class="input">
-                                <option value="">请先拉取模型列表</option>
-                            </select>
-                            <button id="comfy-draw-refresh-models" class="btn" type="button"><i class="fa-solid fa-rotate"></i> 拉取模型</button>
-                        </div>
-                        <p class="form-hint">这里只显示“选一个模型文件就能画”的模型。需要多个文件的复杂模型，请用自定义工作流。</p>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-title">生成参数</div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">采样器</label>
-                            <select id="comfy-draw-sampler" class="input">
-                                <option value="euler">Euler</option>
-                                <option value="euler_ancestral">Euler a</option>
-                                <option value="heun">Heun</option>
-                                <option value="dpm_2">DPM 2</option>
-                                <option value="dpm_2_ancestral">DPM 2 a</option>
-                                <option value="lms">LMS</option>
-                                <option value="dpmpp_2s_ancestral">DPM++ 2S a</option>
-                                <option value="dpmpp_sde">DPM++ SDE</option>
-                                <option value="dpmpp_2m">DPM++ 2M</option>
-                                <option value="dpmpp_2m_sde">DPM++ 2M SDE</option>
-                                <option value="dpmpp_3m_sde">DPM++ 3M SDE</option>
-                                <option value="ddim">DDIM</option>
-                                <option value="uni_pc">UniPC</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">调度器</label>
-                            <select id="comfy-draw-scheduler" class="input">
-                                <option value="normal">Normal</option>
-                                <option value="karras">Karras</option>
-                                <option value="exponential">Exponential</option>
-                                <option value="sgm_uniform">SGM Uniform</option>
-                                <option value="simple">Simple</option>
-                                <option value="ddim_uniform">DDIM Uniform</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label">Steps</label>
-                            <input id="comfy-draw-steps" class="input" type="number" min="1" max="150" step="1" value="20">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">CFG Scale</label>
-                            <input id="comfy-draw-cfg" class="input" type="number" min="1" max="30" step="0.5" value="7">
-                        </div>
-                    </div>
-                    <p class="form-hint">采样器和调度器会影响出图效果和速度。常用组合：Euler a + Normal、DPM++ 2M + Karras。</p>
-                </div>
-
-                <div class="card">
-                    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
-                        <span>🔧 高级：自定义工作流</span>
-                        <button type="button" id="comfy-toggle-advanced" class="btn btn-sm" style="font-size:11px;">
-                            <i class="fa-solid fa-chevron-down"></i> 展开
+                    <div class="card-title">出图模式</div>
+                    <div class="workflow-mode-btns" style="margin-bottom:12px;">
+                        <button type="button" class="workflow-mode-btn active" id="comfy-workflow-mode-simple">
+                            <i class="fa-solid fa-bolt"></i>
+                            简单模式
+                            <span style="font-size:11px;font-weight:400;color:var(--text-muted);display:block;margin-top:4px;">选个模型就能画</span>
+                        </button>
+                        <button type="button" class="workflow-mode-btn" id="comfy-workflow-mode-custom">
+                            <i class="fa-solid fa-file-code"></i>
+                            自定义工作流
+                            <span style="font-size:11px;font-weight:400;color:var(--text-muted);display:block;margin-top:4px;">导入你自己的工作流</span>
                         </button>
                     </div>
-                    <p class="form-hint">如果你有自己的复杂工作流（ControlNet、IP-Adapter 等），可以展开此项导入使用。</p>
+                </div>
 
-                    <div id="comfy-advanced-section" class="hidden" style="margin-top:16px;">
-                        <div class="workflow-mode-btns" style="margin-bottom:16px;">
-                            <button type="button" class="workflow-mode-btn active" id="comfy-workflow-mode-simple">
-                                <i class="fa-solid fa-bolt"></i>
-                                使用当前内置工作流
-                            </button>
-                            <button type="button" class="workflow-mode-btn" id="comfy-workflow-mode-custom">
-                                <i class="fa-solid fa-file-code"></i>
-                                使用自定义工作流
+                <!-- ========== 简单模式区块 ========== -->
+                <div id="comfy-simple-mode-section">
+                    <div class="card">
+                        <div class="card-title">模型选择</div>
+                        <div class="form-group">
+                            <label class="form-label">模型</label>
+                            <div class="input-row">
+                                <select id="comfy-draw-model" class="input">
+                                    <option value="">请先拉取模型列表</option>
+                                </select>
+                                <button id="comfy-draw-refresh-models" class="btn" type="button"><i class="fa-solid fa-rotate"></i> 拉取模型</button>
+                            </div>
+                            <p class="form-hint">从 ComfyUI 拉取可用的 checkpoint 模型。</p>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+                            <span>高级参数</span>
+                            <button type="button" id="comfy-toggle-advanced-params" class="btn btn-sm" style="font-size:11px;">
+                                <i class="fa-solid fa-chevron-down"></i> 展开
                             </button>
                         </div>
+                        <p class="form-hint">通常使用默认值即可。如需调整采样器、步数等参数可展开。</p>
 
-                        <div id="comfy-custom-workflow-section" class="hidden">
-                            <div class="tip-box" style="margin-bottom:16px;">
-                                <i class="fa-solid fa-circle-info"></i>
-                                <div>在 ComfyUI 界面，点击菜单 → 保存(API格式) 导出工作流。节点 ID 可右键节点 → Properties Panel 查看。</div>
+                        <div id="comfy-advanced-params-section" class="hidden" style="margin-top:16px;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">采样器</label>
+                                    <select id="comfy-draw-sampler" class="input">
+                                        <option value="euler">Euler</option>
+                                        <option value="euler_ancestral">Euler a</option>
+                                        <option value="heun">Heun</option>
+                                        <option value="dpm_2">DPM 2</option>
+                                        <option value="dpm_2_ancestral">DPM 2 a</option>
+                                        <option value="lms">LMS</option>
+                                        <option value="dpmpp_2s_ancestral">DPM++ 2S a</option>
+                                        <option value="dpmpp_sde">DPM++ SDE</option>
+                                        <option value="dpmpp_2m">DPM++ 2M</option>
+                                        <option value="dpmpp_2m_sde">DPM++ 2M SDE</option>
+                                        <option value="dpmpp_3m_sde">DPM++ 3M SDE</option>
+                                        <option value="ddim">DDIM</option>
+                                        <option value="uni_pc">UniPC</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">调度器</label>
+                                    <select id="comfy-draw-scheduler" class="input">
+                                        <option value="normal">Normal</option>
+                                        <option value="karras">Karras</option>
+                                        <option value="exponential">Exponential</option>
+                                        <option value="sgm_uniform">SGM Uniform</option>
+                                        <option value="simple">Simple</option>
+                                        <option value="ddim_uniform">DDIM Uniform</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label class="form-label">工作流 JSON</label>
-                                <textarea id="comfy-workflow-json" class="input" rows="8" style="font-family:monospace;font-size:12px;" placeholder='粘贴从 ComfyUI 导出的 workflow_api.json 内容'></textarea>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Steps</label>
+                                    <input id="comfy-draw-steps" class="input" type="number" min="1" max="150" step="1" value="20">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">CFG Scale</label>
+                                    <input id="comfy-draw-cfg" class="input" type="number" min="1" max="30" step="0.5" value="7">
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label class="form-label">节点 ID 映射</label>
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label class="form-label">正向提示词节点</label>
-                                        <input id="comfy-node-positive" class="input" type="text" placeholder="如：6">
-                                    </div>
-                                    <div class="form-group">
-                                        <label class="form-label">负向提示词节点</label>
-                                        <input id="comfy-node-negative" class="input" type="text" placeholder="如：7">
+                            <p class="form-hint" style="margin-top:8px;">采样器和调度器会影响出图效果。常用组合：Euler a + Normal、DPM++ 2M + Karras。</p>
+
+                            <!-- 内置工作流预览（折叠内） -->
+                            <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+                                <div class="form-group">
+                                    <label class="form-label">工作流方案</label>
+                                    <div class="input-row">
+                                        <select id="comfy-builtin-workflow" class="input"></select>
+                                        <button id="comfy-builtin-workflow-apply" class="btn" type="button"><i class="fa-solid fa-wand-magic-sparkles"></i> 应用推荐参数</button>
                                     </div>
                                 </div>
+                                <div class="tip-box" style="margin-bottom:16px;">
+                                    <i class="fa-solid fa-circle-info"></i>
+                                    <div>
+                                        <div id="comfy-builtin-workflow-summary" style="font-weight:600;color:var(--text-primary);margin-bottom:4px;"></div>
+                                        <div id="comfy-builtin-workflow-desc"></div>
+                                        <div id="comfy-builtin-workflow-notes" style="margin-top:6px;color:var(--text-muted);"></div>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">工作流预览（只读）</label>
+                                    <textarea id="comfy-builtin-workflow-preview" class="input" rows="10" readonly style="font-family:monospace;font-size:11px;"></textarea>
+                                    <p class="form-hint">这是小白X 简单模式实际发送给 ComfyUI 的工作流结构，帮助理解 ComfyUI 的工作原理。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========== 自定义工作流区块 ========== -->
+                <div id="comfy-custom-mode-section" class="hidden">
+                    <div class="card">
+                        <div class="card-title">导入工作流</div>
+                        <div class="tip-box" style="margin-bottom:16px;">
+                            <i class="fa-solid fa-circle-info"></i>
+                            <div>
+                                <div style="margin-bottom:6px;"><strong>如何导出工作流？</strong></div>
+                                <div>在 ComfyUI 界面，点击右上角菜单 → <strong>Save (API Format)</strong> 下载 JSON 文件。</div>
+                                <div style="margin-top:6px;color:var(--text-muted);">注意：必须是 API 格式，不是普通的 Save。</div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">工作流 JSON</label>
+                            <div class="btn-group" style="margin-bottom:8px;">
+                                <label class="btn" style="cursor:pointer;">
+                                    <i class="fa-solid fa-file-import"></i> 导入 JSON 文件
+                                    <input type="file" id="comfy-workflow-import" accept=".json" style="display:none;">
+                                </label>
+                                <button id="comfy-workflow-clear" class="btn btn-danger" type="button"><i class="fa-solid fa-trash"></i> 清空</button>
+                            </div>
+                            <textarea id="comfy-workflow-json" class="input" rows="10" style="font-family:monospace;font-size:11px;" placeholder='点击上方按钮导入，或直接粘贴 workflow_api.json 内容'></textarea>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">提示词节点映射</div>
+                        <p class="form-hint" style="margin-bottom:12px;">告诉小白X 把生成的提示词填到哪个节点。节点 ID 可在 ComfyUI 里右键节点 → Properties Panel 查看。</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">正向提示词节点 <span style="color:var(--danger);">*</span></label>
+                                <input id="comfy-node-positive" class="input" type="text" placeholder="如：6">
+                                <p class="form-hint">必填。通常是 CLIP Text Encode (Positive) 节点的 ID。</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">负向提示词节点</label>
+                                <input id="comfy-node-negative" class="input" type="text" placeholder="如：7">
+                                <p class="form-hint">可选。CLIP Text Encode (Negative) 节点的 ID。</p>
+                            </div>
+                        </div>
+
+                        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                                <span style="font-size:12px;color:var(--text-secondary);">高级：尺寸覆盖</span>
+                                <button type="button" id="comfy-toggle-node-override" class="btn btn-sm" style="font-size:11px;">
+                                    <i class="fa-solid fa-chevron-down"></i> 展开
+                                </button>
+                            </div>
+                            <p class="form-hint">通常不需要填。如果你想用"绘图参数"页的尺寸覆盖工作流里的固定值，再填。</p>
+
+                            <div id="comfy-node-override-section" class="hidden" style="margin-top:12px;">
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label class="form-label">宽度节点（可选）</label>
+                                        <label class="form-label">宽度节点 ID</label>
                                         <input id="comfy-node-width" class="input" type="text" placeholder="如：5">
                                     </div>
                                     <div class="form-group">
-                                        <label class="form-label">高度节点（可选）</label>
+                                        <label class="form-label">高度节点 ID</label>
                                         <input id="comfy-node-height" class="input" type="text" placeholder="如：5">
                                     </div>
-                                    <div class="form-group">
-                                        <label class="form-label">种子节点（可选）</label>
-                                        <input id="comfy-node-seed" class="input" type="text" placeholder="如：3">
-                                    </div>
                                 </div>
+                                <p class="form-hint">填了 EmptyLatentImage 节点的 ID，小白X 就会用"绘图参数"页的尺寸覆盖它。不填就用工作流 JSON 里的固定值。</p>
                             </div>
-                            <div class="btn-group">
-                                <button id="comfy-workflow-save" class="btn btn-primary" type="button"><i class="fa-solid fa-floppy-disk"></i> 保存自定义工作流</button>
-                            </div>
-                            <div id="comfy-workflow-status" class="status-text"></div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="btn-group">
+                            <button id="comfy-workflow-save" class="btn btn-primary" type="button"><i class="fa-solid fa-floppy-disk"></i> 保存自定义工作流</button>
+                        </div>
+                        <div id="comfy-workflow-status" class="status-text"></div>
+                    </div>
+
+                    <div class="tip-box">
+                        <i class="fa-solid fa-lightbulb"></i>
+                        <div>
+                            <div style="font-weight:600;margin-bottom:4px;">自定义工作流模式说明</div>
+                            <div>采样器、Steps、CFG 等参数已经在你的工作流 JSON 里配置好了，小白X 只负责注入提示词、尺寸和随机种子。</div>
                         </div>
                     </div>
                 </div>
