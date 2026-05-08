@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-08T07:39:00.544Z",
+  "generatedAt": "2026-05-08T07:59:25.385Z",
   "version": 1,
   "files": [
     {
@@ -523,6 +523,18 @@
       "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/floating-panel.js",
       "relativePath": "modules/draw/providers/comfyui/floating-panel.js",
       "extension": ".js"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/prompts/output-format.md",
+      "relativePath": "modules/draw/providers/comfyui/prompts/output-format.md",
+      "extension": ".md"
+    },
+    {
+      "source": "littlewhitebox",
+      "publicPath": "scripts/extensions/third-party/LittleWhiteBox/modules/draw/providers/comfyui/prompts/top-system.md",
+      "relativePath": "modules/draw/providers/comfyui/prompts/top-system.md",
+      "extension": ".md"
     },
     {
       "source": "littlewhitebox",

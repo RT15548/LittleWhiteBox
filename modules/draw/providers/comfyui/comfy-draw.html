@@ -421,7 +421,7 @@ select.input { cursor: pointer; }
                             <input id="comfy-draw-host" class="input" type="text" placeholder="http://127.0.0.1:8188">
                             <button id="comfy-draw-test" class="btn"><i class="fa-solid fa-plug"></i> 测试连接</button>
                         </div>
-                        <p class="form-hint">填写酒馆服务器能访问到的 ComfyUI 地址。</p>
+                        <p class="form-hint">填写酒馆服务器能访问到的 ComfyUI 地址；请求会通过酒馆后端转发，不需要浏览器直连。</p>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -432,7 +432,7 @@ select.input { cursor: pointer; }
                     <div class="btn-group" style="margin-top:16px;">
                         <button id="comfy-draw-save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
                     </div>
-                    <div id="comfy-draw-api-status" class="status-text">ComfyUI 浏览器直连模式，请确保 ComfyUI 已允许跨域访问。</div>
+                    <div id="comfy-draw-api-status" class="status-text">ComfyUI 请求会通过酒馆后端代理发送。</div>
                 </div>
             </section>
 
@@ -440,6 +440,30 @@ select.input { cursor: pointer; }
                 <div class="view-header">
                     <h2 class="view-title">模型配置</h2>
                     <p class="view-desc">选择模型和生成参数</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">内置工作流</div>
+                    <div class="form-group">
+                        <label class="form-label">工作流方案</label>
+                        <div class="input-row">
+                            <select id="comfy-builtin-workflow" class="input"></select>
+                            <button id="comfy-builtin-workflow-apply" class="btn" type="button"><i class="fa-solid fa-wand-magic-sparkles"></i> 应用推荐参数</button>
+                        </div>
+                    </div>
+                    <div class="tip-box" style="margin-bottom:16px;">
+                        <i class="fa-solid fa-circle-info"></i>
+                        <div>
+                            <div id="comfy-builtin-workflow-summary" style="font-weight:600;color:var(--text-primary);margin-bottom:4px;"></div>
+                            <div id="comfy-builtin-workflow-desc"></div>
+                            <div id="comfy-builtin-workflow-notes" style="margin-top:6px;color:var(--text-muted);"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">当前内置工作流（API 格式）</label>
+                        <textarea id="comfy-builtin-workflow-preview" class="input" rows="12" readonly style="font-family:monospace;font-size:12px;"></textarea>
+                        <p class="form-hint">只读预览。这里展示的是小白X 简单模式按当前模型、采样器、Steps、CFG 和尺寸组装后将要发送的 ComfyUI API 工作流骨架。</p>
+                    </div>
                 </div>
 
                 <div class="card">
@@ -515,7 +539,7 @@ select.input { cursor: pointer; }
                         <div class="workflow-mode-btns" style="margin-bottom:16px;">
                             <button type="button" class="workflow-mode-btn active" id="comfy-workflow-mode-simple">
                                 <i class="fa-solid fa-bolt"></i>
-                                使用上方模型配置
+                                使用当前内置工作流
                             </button>
                             <button type="button" class="workflow-mode-btn" id="comfy-workflow-mode-custom">
                                 <i class="fa-solid fa-file-code"></i>

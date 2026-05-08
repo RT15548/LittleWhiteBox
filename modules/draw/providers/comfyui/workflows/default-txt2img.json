@@ -51,9 +51,8 @@
   },
   "9": {
     "inputs": {
-      "filename_prefix": "ComfyUI",
       "images": ["8", 0]
     },
-    "class_type": "SaveImage"
+    "class_type": "PreviewImage"
   }
 }

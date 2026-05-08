@@ -4,7 +4,7 @@ const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/comfyui/CO
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/comfyui/prompts`;
 
 /** 每次修改 ComfyUI 默认提示词内容时递增，方便后续做预设/缓存刷新判断。 */
-export const PROMPT_TEMPLATE_VERSION = 2;
+export const PROMPT_TEMPLATE_VERSION = 3;
 
 export const COMFY_SCENE_PROMPTS = {
     topSystem: `[Visual Scene Planning - ComfyUI txt2img]
@@ -22,11 +22,11 @@ Core rules:
 - Anchors must be exact substrings copied from the source narrative.
 - Tag order matters: subject count, identity/features, clothing, action/expression, interaction, background, lighting, camera.
 ---
-Stable Diffusion Scene Planner:
+ComfyUI Scene Planner:
 <Chat_History>`,
 
     assistantDoc: `Scene Planner:
-Specifications reviewed. I will follow these Stable Diffusion tag-writing rules:
+Specifications reviewed. I will follow these ComfyUI tag-writing rules:
 {$tagGuide}`,
 
     assistantAskBackground: `Scene Planner:
@@ -55,7 +55,7 @@ Settings understood. Final question: what narrative text requires illustration?`
 
     metaProtocolStart: `Scene Planner:
 ACKNOWLEDGED. Beginning the YAML:
-Stable Diffusion Visual Scene Planner:
+ComfyUI Visual Scene Planner:
 <meta_protocol>`,
 
     userJsonFormat: `Generate a single valid YAML object with one root-level key: images.
@@ -95,9 +95,9 @@ Rules:
 ├─ World settings: received
 ├─ Character profiles: received
 ├─ Narrative content: received
-├─ Output format: SD WebUI YAML
+├─ Output format: ComfyUI YAML
 └─ Prompt scope: visible image tags only
-All checks passed. Generating concise SD-compatible YAML now.`,
+All checks passed. Generating concise ComfyUI-compatible YAML now.`,
 
     userConfirm: `If the YAML was truncated, regenerate the complete YAML only.
 </Chat_History>`,

@@ -2,6 +2,7 @@
 
 import { getContext } from "../../../../../../../extensions.js";
 import { saveBase64AsFile } from "../../../../../../../utils.js";
+import { getRequestHeaders } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
 import { ComfyDrawStorage } from "../../../../core/server-storage.js";
@@ -66,8 +67,9 @@ const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/comfyui/comfy-d
 const DANBOORU_DATA_PATH = `${extensionFolderPath}/modules/draw/shared/data/danbooru-chars.dat`;
 const SERVER_FILE_KEY = 'config';
 
-// 通用 SD/SDXL txt2img 工作流模板
-// 节点 ID 固定：3=KSampler, 4=CheckpointLoader, 5=EmptyLatentImage, 6=正向CLIP, 7=负向CLIP, 8=VAEDecode, 9=SaveImage
+// 通用 SD/SDXL txt2img 工作流模板。
+// 节点 9 使用 PreviewImage，避免默认把图片写入用户本地 ComfyUI output 目录。
+// 节点 ID 固定：3=KSampler, 4=CheckpointLoader, 5=EmptyLatentImage, 6=正向CLIP, 7=负向CLIP, 8=VAEDecode, 9=PreviewImage
 const BUILTIN_WORKFLOW_TEMPLATE = {
     "3": {
         "inputs": {
@@ -105,12 +107,10 @@ const BUILTIN_WORKFLOW_TEMPLATE = {
         "class_type": "VAEDecode"
     },
     "9": {
-        "inputs": { "filename_prefix": "ComfyUI", "images": ["8", 0] },
-        "class_type": "SaveImage"
+        "inputs": { "images": ["8", 0] },
+        "class_type": "PreviewImage"
     }
 };
-const BUILTIN_NODES = { positive: "6", negative: "7", width: "5", height: "5", seed: "3" };
-
 const DEFAULT_COMFY_DRAW_SETTINGS = {
     host: '',
     timeout: 120000,
@@ -119,6 +119,7 @@ const DEFAULT_COMFY_DRAW_SETTINGS = {
     showFloorButton: true,
     showFloatingButton: true,
     selectedPresetId: 'default',
+    builtinWorkflowId: 'official-core-checkpoint',
     presets: [],
 
     // 简单模式参数
@@ -175,6 +176,56 @@ const COMFY_SIZE_PRESETS = [
     { value: '1024x1024', width: 1024, height: 1024 },
     { value: '768x1280', width: 768, height: 1280 },
     { value: '1280x768', width: 1280, height: 768 },
+];
+const BUILTIN_WORKFLOWS = [
+    {
+        id: 'official-core-checkpoint',
+        name: '官方核心文生图',
+        family: 'Checkpoint',
+        summary: 'CheckpointLoaderSimple -> CLIPTextEncode(正/负) -> KSampler -> VAEDecode -> PreviewImage',
+        description: '对应 ComfyUI 官方默认 Text-to-Image 教程的核心节点链，只把最终 SaveImage 改成 PreviewImage，避免默认写入本地 output 目录。',
+        recommended: {
+            width: 512,
+            height: 512,
+            steps: 20,
+            cfg: 8,
+            sampler: 'euler',
+            scheduler: 'normal',
+        },
+        notes: '最稳妥，适合先跑通 ComfyUI 的基础 checkpoint 文生图。',
+    },
+    {
+        id: 'checkpoint-sdxl',
+        name: 'SDXL Checkpoint 文生图',
+        family: 'Checkpoint',
+        summary: '与官方核心文生图相同的节点链，但按 SDXL 常用尺寸给出推荐参数。',
+        description: '仍然是最基础的 checkpoint 文生图工作流，只是把推荐尺寸切到 1024 级别，方便直接拿来跑 SDXL checkpoint。',
+        recommended: {
+            width: 1024,
+            height: 1024,
+            steps: 20,
+            cfg: 7,
+            sampler: 'euler',
+            scheduler: 'normal',
+        },
+        notes: '适合能直接放进 CheckpointLoaderSimple 的 SDXL checkpoint。',
+    },
+    {
+        id: 'checkpoint-flux-fp8',
+        name: 'FLUX FP8 Checkpoint 文生图',
+        family: 'Checkpoint',
+        summary: '同样使用最基础的 checkpoint 节点链，面向官方文档中的 FLUX checkpoint 版本示例。',
+        description: '官方文档提供了 FLUX.1 的 checkpoint 版本文生图示例；如果你手上的 Flux 不是 checkpoint 版，而是完整多模型工作流，请切到自定义工作流。',
+        recommended: {
+            width: 1024,
+            height: 1024,
+            steps: 20,
+            cfg: 7,
+            sampler: 'euler',
+            scheduler: 'normal',
+        },
+        notes: '用于 flux1-dev-fp8.safetensors / flux1-schnell-fp8.safetensors 这类 checkpoint 版路线。',
+    },
 ];
 const providerDefaults = {
     st: { url: '', needKey: false, canFetch: false, needManualModel: false },
@@ -249,6 +300,9 @@ function normalizeSettings(raw = {}) {
     const selectedPresetId = presets.some(p => p.id === raw.selectedPresetId)
         ? raw.selectedPresetId
         : presets[0]?.id || 'default';
+    const builtinWorkflowId = BUILTIN_WORKFLOWS.some((item) => item.id === raw.builtinWorkflowId)
+        ? raw.builtinWorkflowId
+        : DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId;
     return {
         ...DEFAULT_COMFY_DRAW_SETTINGS,
         ...raw,
@@ -258,6 +312,7 @@ function normalizeSettings(raw = {}) {
         showFloatingButton: raw.showFloatingButton !== false,
         timeout: normalizeNumber(raw.timeout, DEFAULT_COMFY_DRAW_SETTINGS.timeout, 10000, 600000),
         selectedPresetId,
+        builtinWorkflowId,
         presets,
         // 简单模式参数
         selectedModel: String(raw.selectedModel ?? ''),
@@ -372,35 +427,124 @@ function getEffectiveParams(settings = getSettings(), overrides = {}) {
     };
 }
 
-async function fetchComfy(path, options = {}) {
+function getBuiltinWorkflowDefinition(id) {
+    return BUILTIN_WORKFLOWS.find((item) => item.id === id) || BUILTIN_WORKFLOWS[0];
+}
+
+function createBuiltinWorkflowPreview({ model, width, height, steps, cfg, sampler, scheduler }) {
+    const workflow = JSON.parse(JSON.stringify(BUILTIN_WORKFLOW_TEMPLATE));
+    workflow["4"].inputs.ckpt_name = String(model || "<selected-model>");
+    workflow["3"].inputs.seed = "<random-seed>";
+    workflow["3"].inputs.steps = steps;
+    workflow["3"].inputs.cfg = cfg;
+    workflow["3"].inputs.sampler_name = sampler;
+    workflow["3"].inputs.scheduler = scheduler;
+    workflow["5"].inputs.width = width;
+    workflow["5"].inputs.height = height;
+    workflow["6"].inputs.text = "<positive-prompt>";
+    workflow["7"].inputs.text = "<negative-prompt>";
+    return JSON.stringify(workflow, null, 2);
+}
+
+function getBuiltinWorkflowPreviewParams(settings = getSettings()) {
+    const activePreset = getActivePreset(settings);
+    const selectedBuiltinId = getValue('comfy-builtin-workflow') || settings.builtinWorkflowId || DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId;
+    const workflow = getBuiltinWorkflowDefinition(selectedBuiltinId);
+    const fallback = workflow.recommended || {};
+    const sizePreset = getValue('comfy-draw-size-preset');
+
+    let width = normalizeNumber(getValue('comfy-draw-width'), activePreset?.width ?? fallback.width ?? 1024, 64, 2048);
+    let height = normalizeNumber(getValue('comfy-draw-height'), activePreset?.height ?? fallback.height ?? 1024, 64, 2048);
+    if (sizePreset && sizePreset !== 'custom') {
+        const matched = COMFY_SIZE_PRESETS.find((item) => item.value === sizePreset);
+        if (matched) {
+            width = matched.width;
+            height = matched.height;
+        }
+    }
+
+    return {
+        model: getValue('comfy-draw-model') || activePreset?.model || settings.selectedModel || '<selected-model>',
+        sampler: getValue('comfy-draw-sampler') || activePreset?.sampler || settings.sampler || fallback.sampler || 'euler',
+        scheduler: getValue('comfy-draw-scheduler') || activePreset?.scheduler || settings.scheduler || fallback.scheduler || 'normal',
+        steps: normalizeNumber(getValue('comfy-draw-steps'), activePreset?.steps ?? settings.steps ?? fallback.steps ?? 20, 1, 150),
+        cfg: normalizeNumber(getValue('comfy-draw-cfg'), activePreset?.cfg ?? settings.cfg ?? fallback.cfg ?? 7, 1, 30),
+        width,
+        height,
+    };
+}
+
+function createComfyProxySignal(signal, timeoutMs) {
+    const controller = new AbortController();
+    let timeoutId = null;
+    const abort = () => controller.abort();
+
+    if (signal?.aborted) {
+        controller.abort();
+    } else if (signal) {
+        signal.addEventListener('abort', abort, { once: true });
+    }
+
+    if (Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0) {
+        timeoutId = setTimeout(() => controller.abort(), Number(timeoutMs));
+    }
+
+    return {
+        signal: controller.signal,
+        cleanup() {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (signal) signal.removeEventListener('abort', abort);
+        },
+    };
+}
+
+async function fetchComfyProxy(path, body = {}, { signal, timeoutMs } = {}) {
     const settings = getSettings();
     if (!settings.host) throw new Error('请先填写 ComfyUI 地址');
-    const url = `${settings.host.replace(/\/$/, '')}${path}`;
-    const response = await fetch(url, {
-        ...options,
-        signal: options.signal,
-    });
-    if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new Error(text || `HTTP ${response.status}`);
+    const proxySignal = createComfyProxySignal(signal, timeoutMs ?? settings.timeout ?? 120000);
+    try {
+        const response = await fetch(`/api/sd/comfy/${path}`, {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                url: settings.host,
+                ...body,
+            }),
+            signal: proxySignal.signal,
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new Error(text || `HTTP ${response.status}`);
+        }
+        return response;
+    } catch (error) {
+        if (error?.name === 'AbortError') throw new Error(signal?.aborted ? '已取消' : '生成超时');
+        throw error;
+    } finally {
+        proxySignal.cleanup();
     }
-    return response;
 }
 
-// 从 ComfyUI /object_info 获取可用模型列表
+// 通过酒馆后端代理获取可用模型列表，避免浏览器 CORS/混合内容问题。
 async function fetchComfyModels({ signal } = {}) {
-    const res = await fetchComfy('/object_info/CheckpointLoaderSimple', { signal });
+    const res = await fetchComfyProxy('models', {}, { signal });
     const data = await res.json();
-    return data?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || [];
+    if (!Array.isArray(data)) return [];
+    return data.map(item => typeof item === 'string' ? item : item?.value).filter(Boolean);
 }
 
-// 从 ComfyUI /object_info 获取采样器列表
+// 通过酒馆后端代理获取采样器和调度器列表。
 async function fetchComfySamplers({ signal } = {}) {
-    const res = await fetchComfy('/object_info/KSampler', { signal });
-    const data = await res.json();
-    const samplers = data?.KSampler?.input?.required?.sampler_name?.[0] || [];
-    const schedulers = data?.KSampler?.input?.required?.scheduler?.[0] || [];
-    return { samplers, schedulers };
+    const [samplersRes, schedulersRes] = await Promise.all([
+        fetchComfyProxy('samplers', {}, { signal }),
+        fetchComfyProxy('schedulers', {}, { signal }),
+    ]);
+    const samplers = await samplersRes.json();
+    const schedulers = await schedulersRes.json();
+    return {
+        samplers: Array.isArray(samplers) ? samplers : [],
+        schedulers: Array.isArray(schedulers) ? schedulers : [],
+    };
 }
 
 // 构建简单模式工作流
@@ -417,26 +561,6 @@ function buildSimpleWorkflow({ model, sampler, scheduler, steps, cfg, width, hei
     wf["6"].inputs.text = positive;
     wf["7"].inputs.text = negative;
     return wf;
-}
-
-async function pollComfyHistory(promptId, signal, timeoutMs = 120000) {
-    const start = Date.now();
-    while (true) {
-        if (signal?.aborted) throw new Error('已取消');
-        if (Date.now() - start > timeoutMs) throw new Error('生成超时');
-        await new Promise(r => setTimeout(r, 1500));
-        const res = await fetchComfy(`/history/${promptId}`, { signal });
-        const data = await res.json();
-        if (data[promptId]) {
-            const outputs = data[promptId].outputs;
-            for (const nodeId of Object.keys(outputs)) {
-                const images = outputs[nodeId]?.images;
-                if (Array.isArray(images) && images.length > 0) {
-                    return images[0];
-                }
-            }
-        }
-    }
 }
 
 function injectPromptIntoWorkflow(workflow, positive, negative, width, height, nodeMap) {
@@ -515,35 +639,15 @@ export async function generateComfyImage({ prompt, negativePrompt = '', params =
         });
     }
 
-    const promptRes = await fetchComfy('/prompt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: injected }),
+    const response = await fetchComfyProxy('generate', {
+        prompt: JSON.stringify({ prompt: injected }),
+    }, {
         signal,
+        timeoutMs: settings.timeout || 120000,
     });
-    const promptData = await promptRes.json();
-    const promptId = promptData?.prompt_id;
-    if (!promptId) throw new Error('ComfyUI 未返回 prompt_id');
-
-    const imageInfo = await pollComfyHistory(promptId, signal, settings.timeout || 120000);
-    if (!imageInfo?.filename) throw new Error('ComfyUI 未返回图片信息');
-
-    const params2 = new URLSearchParams({
-        filename: imageInfo.filename,
-        subfolder: imageInfo.subfolder || '',
-        type: imageInfo.type || 'output',
-    });
-    const viewRes = await fetchComfy(`/view?${params2.toString()}`, { signal });
-    const blob = await viewRes.blob();
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            const result = String(reader.result || '').replace(/^data:image\/\w+;base64,/, '');
-            resolve(result);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-    });
+    const data = await response.json();
+    if (!data?.data) throw new Error('ComfyUI 未返回图片数据');
+    return String(data.data || '');
 }
 
 function waitWithAbort(signal, durationMs) {
@@ -809,6 +913,22 @@ function bindOverlayEvents() {
     querySettings('#comfy-draw-size-preset')?.addEventListener('change', () => {
         applySizePresetSelection();
     });
+    [
+        'comfy-draw-model',
+        'comfy-draw-sampler',
+        'comfy-draw-scheduler',
+        'comfy-draw-steps',
+        'comfy-draw-cfg',
+        'comfy-draw-width',
+        'comfy-draw-height',
+    ].forEach((id) => {
+        const eventName = id === 'comfy-draw-width' || id === 'comfy-draw-height' || id === 'comfy-draw-steps' || id === 'comfy-draw-cfg'
+            ? 'input'
+            : 'change';
+        querySettings(`#${id}`)?.addEventListener(eventName, () => {
+            refreshBuiltinWorkflowPanel(getSettings());
+        });
+    });
     querySettings('#comfy-draw-preset-select')?.addEventListener('change', async () => {
         const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
             settings.selectedPresetId = getValue('comfy-draw-preset-select');
@@ -873,6 +993,38 @@ function bindOverlayEvents() {
     querySettings('#comfy-draw-refresh-models')?.addEventListener('click', async () => {
         await refreshComfyOptions();
     });
+    querySettings('#comfy-builtin-workflow')?.addEventListener('change', async () => {
+        const builtinWorkflowId = getValue('comfy-builtin-workflow') || DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId;
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+            draft.builtinWorkflowId = builtinWorkflowId;
+        }, '内置工作流已保存', { notify: false, silent: false }));
+        if (ok) refreshBuiltinWorkflowPanel(getSettings());
+    });
+    querySettings('#comfy-builtin-workflow-apply')?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        const workflow = getBuiltinWorkflowDefinition(getValue('comfy-builtin-workflow') || getSettings().builtinWorkflowId);
+        const recommended = workflow.recommended || {};
+        setSavingState(button);
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+            draft.builtinWorkflowId = workflow.id;
+            draft.sampler = recommended.sampler || draft.sampler;
+            draft.scheduler = recommended.scheduler || draft.scheduler;
+            draft.steps = normalizeNumber(recommended.steps, draft.steps, 1, 150);
+            draft.cfg = normalizeNumber(recommended.cfg, draft.cfg, 1, 30);
+            const preset = draft.presets.find((item) => item.id === draft.selectedPresetId);
+            if (preset) {
+                preset.width = normalizeNumber(recommended.width, preset.width, 64, 2048);
+                preset.height = normalizeNumber(recommended.height, preset.height, 64, 2048);
+                preset.sampler = recommended.sampler || preset.sampler;
+                preset.scheduler = recommended.scheduler || preset.scheduler;
+                preset.steps = normalizeNumber(recommended.steps, preset.steps, 1, 150);
+                preset.cfg = normalizeNumber(recommended.cfg, preset.cfg, 1, 30);
+            }
+        }, '已应用内置工作流推荐参数', { notify: false, silent: false }));
+        handleSaveResult(ok, button, 'fa-solid fa-wand-magic-sparkles');
+        if (!ok) toastr.error('应用失败，请重试', 'ComfyUI');
+        if (ok) fillForm(getSettings());
+    });
     // 高级面板展开/折叠
     querySettings('#comfy-toggle-advanced')?.addEventListener('click', () => {
         const section = getSettingsElement('comfy-advanced-section');
@@ -880,9 +1032,9 @@ function bindOverlayEvents() {
         if (!section || !btn) return;
         const isHidden = section.classList.contains('hidden');
         section.classList.toggle('hidden', !isHidden);
-        btn.innerHTML = isHidden
-            ? '<i class="fa-solid fa-chevron-up"></i> 收起'
-            : '<i class="fa-solid fa-chevron-down"></i> 展开';
+        const icon = document.createElement('i');
+        icon.className = isHidden ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+        btn.replaceChildren(icon, document.createTextNode(isHidden ? ' 收起' : ' 展开'));
     });
     // 工作流模式切换（高级面板内）
     querySettings('#comfy-workflow-mode-simple')?.addEventListener('click', async () => {
@@ -1058,6 +1210,7 @@ function fillForm(settings) {
     setValue('comfy-node-height', settings.customWorkflow?.nodeHeight || '');
     setValue('comfy-node-seed', settings.customWorkflow?.nodeSeed || '');
 
+    refreshBuiltinWorkflowPanel(settings);
     fillSharedDrawForm();
     refreshSettingsSummary();
 }
@@ -1069,6 +1222,7 @@ function readForm() {
         ...current,
         host: getValue('comfy-draw-host').trim(),
         timeout: normalizeNumber(getValue('comfy-draw-timeout'), current.timeout, 10000, 600000),
+        builtinWorkflowId: getValue('comfy-builtin-workflow') || current.builtinWorkflowId || DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId,
         presets: current.presets.map(item => item.id === current.selectedPresetId ? { ...preset, id: item.id, name: item.name } : item),
     };
 }
@@ -1119,6 +1273,7 @@ function applySizePresetSelection() {
     if (!customRow) return;
     if (value === 'custom') {
         customRow.classList.remove('hidden');
+        refreshBuiltinWorkflowPanel(getSettings());
         return;
     }
     const matched = COMFY_SIZE_PRESETS.find((item) => item.value === value);
@@ -1127,6 +1282,7 @@ function applySizePresetSelection() {
         setValue('comfy-draw-height', matched.height);
     }
     customRow.classList.add('hidden');
+    refreshBuiltinWorkflowPanel(getSettings());
 }
 
 function fillPresetSelect(settings = getSettings()) {
@@ -1164,6 +1320,33 @@ function populateModelSelect(models = []) {
     if (currentValue && models.includes(currentValue)) {
         select.value = currentValue;
     }
+}
+
+function populateBuiltinWorkflowSelect(selectedId) {
+    const select = getSettingsElement('comfy-builtin-workflow');
+    if (!select) return;
+    select.textContent = '';
+    BUILTIN_WORKFLOWS.forEach((item) => {
+        const option = document.createElement('option');
+        option.value = item.id;
+        option.textContent = `${item.name} (${item.family})`;
+        select.appendChild(option);
+    });
+    select.value = BUILTIN_WORKFLOWS.some((item) => item.id === selectedId)
+        ? selectedId
+        : BUILTIN_WORKFLOWS[0].id;
+}
+
+function refreshBuiltinWorkflowPanel(settings = getSettings()) {
+    const workflow = getBuiltinWorkflowDefinition(settings.builtinWorkflowId);
+    populateBuiltinWorkflowSelect(workflow.id);
+    const summaryEl = getSettingsElement('comfy-builtin-workflow-summary');
+    const descEl = getSettingsElement('comfy-builtin-workflow-desc');
+    const notesEl = getSettingsElement('comfy-builtin-workflow-notes');
+    if (summaryEl) summaryEl.textContent = workflow.summary;
+    if (descEl) descEl.textContent = workflow.description;
+    if (notesEl) notesEl.textContent = workflow.notes || '';
+    setValue('comfy-builtin-workflow-preview', createBuiltinWorkflowPreview(getBuiltinWorkflowPreviewParams(settings)));
 }
 
 // 刷新 ComfyUI 模型和采样器列表
@@ -2089,25 +2272,23 @@ async function testConnection() {
 
     abortPendingRequest();
     pendingController = new AbortController();
-    const timeoutId = setTimeout(() => pendingController?.abort(), settings.timeout);
 
     try {
-        const response = await fetch(`${settings.host.replace(/\/$/, '')}/system_stats`, {
+        await fetchComfyProxy('ping', {}, {
             signal: pendingController.signal,
+            timeoutMs: settings.timeout || 120000,
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         toastr.success('ComfyUI 连接成功');
         // 测试成功后自动拉取模型
         await refreshComfyOptions({ notify: false });
         return true;
     } catch (error) {
-        const message = error?.name === 'AbortError'
+        const message = error?.name === 'AbortError' || error?.message === '生成超时'
             ? '连接超时，请检查地址是否可访问'
             : (error?.message || '无法连接 ComfyUI');
         toastr.error(message, 'ComfyUI 连接失败');
         return false;
     } finally {
-        clearTimeout(timeoutId);
         pendingController = null;
     }
 }
