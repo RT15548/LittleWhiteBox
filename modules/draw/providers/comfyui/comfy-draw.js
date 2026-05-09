@@ -3406,7 +3406,9 @@ async function saveEditedTags(container) {
         newCharPrompts = [];
         charInputs.forEach(input => {
             const index = parseInt(input.dataset.index);
-            newCharPrompts[index] = { ...originalPreview.characterPrompts[index], prompt: input.value.trim() };
+            if (originalPreview.characterPrompts[index]) {
+                newCharPrompts.push({ ...originalPreview.characterPrompts[index], prompt: input.value.trim() });
+            }
         });
     }
 
