@@ -1,5 +1,5 @@
 import { xbLog } from "../../../core/debug-core.js";
-import { getDefaultApiPrefix, resolveApiBaseUrl } from "../../../shared/common/openai-url-utils.js";
+import { callDrawScenePlannerLlm } from "./draw-llm.js";
 
 const EMPTY_PROMPT_CONFIG = {
     topSystem: '',
@@ -33,13 +33,10 @@ Content Provider:
 
 export const PROVIDER_MAP = {
     openai: "openai",
-    google: "gemini",
-    gemini: "gemini",
+    google: "google",
+    gemini: "google",
     claude: "claude",
     anthropic: "claude",
-    deepseek: "deepseek",
-    cohere: "cohere",
-    custom: "custom",
 };
 
 /**
@@ -78,31 +75,6 @@ export class LLMServiceError extends Error {
     }
 }
 
-function getStreamingModule() {
-    const mod = window.xiaobaixStreamingGeneration;
-    return mod?.xbgenrawCommand ? mod : null;
-}
-
-function waitForStreamingComplete(sessionId, streamingMod, timeout = 120000, signal) {
-    return new Promise((resolve, reject) => {
-        const start = Date.now();
-        let timer;
-        const onAbort = () => { clearTimeout(timer); reject(new LLMServiceError('已中止', 'ABORTED')); };
-        if (signal?.aborted) { onAbort(); return; }
-        signal?.addEventListener('abort', onAbort, { once: true });
-        const poll = () => {
-            const { isStreaming, text } = streamingMod.getStatus(sessionId);
-            if (!isStreaming) { signal?.removeEventListener('abort', onAbort); return resolve(text || ''); }
-            if (Date.now() - start > timeout) {
-                signal?.removeEventListener('abort', onAbort);
-                return reject(new LLMServiceError('生成超时', 'TIMEOUT'));
-            }
-            timer = setTimeout(poll, 300);
-        };
-        poll();
-    });
-}
-
 export function buildCharacterInfoForLLM(presentCharacters) {
     if (!presentCharacters?.length) {
         return `【已录入角色】: 无
@@ -127,13 +99,6 @@ export function buildCharacterInfoForLLM(presentCharacters) {
 ${lines.join('\n')}`;
 }
 
-function b64UrlEncode(str) {
-    const utf8 = new TextEncoder().encode(String(str));
-    let bin = '';
-    utf8.forEach(b => bin += String.fromCharCode(b));
-    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
 export async function generateScenePlan(options) {
     const {
         messageText,
@@ -148,6 +113,7 @@ export async function generateScenePlan(options) {
         maxImages = 0,
         maxCharactersPerImage = 0,
         disablePrefill = false,
+        signal = null,
     } = options;
     if (!messageText?.trim()) {
         throw new LLMServiceError('消息内容为空', 'EMPTY_MESSAGE');
@@ -187,7 +153,7 @@ export async function generateScenePlan(options) {
         // 未启用世界书：清除占位符，避免残留在 prompt 中
         worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
     } else {
-        // useWorldInfo=true 但无自定义条目：清除占位符，由 xbgenraw 下游注入酒馆原生世界书
+        // useWorldInfo=true 但无自定义条目：保留当前旧行为，清除占位符避免裸文本残留
         worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
     }
     topMessages.push({
@@ -248,41 +214,23 @@ export async function generateScenePlan(options) {
         content: promptConfig.userConfirm
     });
 
-    const streamingMod = getStreamingModule();
-    if (!streamingMod) {
-        throw new LLMServiceError('xbgenraw 模块不可用', 'MODULE_UNAVAILABLE');
+    const messages = []
+        .concat(topMessages)
+        .concat(mainPrompt.trim() ? [{ role: 'user', content: mainPrompt.trim() }] : [])
+        .concat(bottomMessages);
+    if (!disablePrefill && String(promptConfig.assistantPrefill || '').trim()) {
+        messages.push({ role: 'assistant', content: promptConfig.assistantPrefill });
     }
-    const isSt = llmApi.provider === 'st';
-    const resolvedApiUrl = !isSt && llmApi.url
-        ? resolveApiBaseUrl(llmApi.url, getDefaultApiPrefix(llmApi.provider))
-        : '';
-    const args = {
-        as: 'user',
-        nonstream: useStream ? 'false' : 'true',
-        top64: b64UrlEncode(JSON.stringify(topMessages)),
-        bottom64: b64UrlEncode(JSON.stringify(bottomMessages)),
-        bottomassistant: disablePrefill ? '' : promptConfig.assistantPrefill,
-        id: 'xb_nd_scene_plan',
-        ...(isSt ? {} : {
-            api: llmApi.provider,
-            apiurl: resolvedApiUrl,
-            apipassword: llmApi.key,
-            model: llmApi.model,
-            temperature: '0.7',
-            presence_penalty: 'off',
-            frequency_penalty: 'off',
-            top_p: 'off',
-            top_k: 'off',
-        }),
-    };
+
     let rawOutput;
     try {
-        if (useStream) {
-            const sessionId = await streamingMod.xbgenrawCommand(args, mainPrompt);
-            rawOutput = await waitForStreamingComplete(sessionId, streamingMod, timeout);
-        } else {
-            rawOutput = await streamingMod.xbgenrawCommand(args, mainPrompt);
-        }
+        rawOutput = await callDrawScenePlannerLlm({
+            messages,
+            llmApi,
+            useStream,
+            timeout,
+            signal,
+        });
     } catch (e) {
         throw new LLMServiceError(`LLM 调用失败: ${e.message}`, 'CALL_FAILED');
     }

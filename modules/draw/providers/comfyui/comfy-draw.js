@@ -216,9 +216,6 @@ const providerDefaults = {
     openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
     google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false, needManualModel: true },
     claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true },
-    deepseek: { url: 'https://api.deepseek.com', needKey: true, canFetch: true, needManualModel: false },
-    cohere: { url: 'https://api.cohere.ai', needKey: true, canFetch: false, needManualModel: true },
-    custom: { url: '', needKey: true, canFetch: true, needManualModel: false },
 };
 
 const saveBtnStates = new WeakMap();
@@ -1902,7 +1899,7 @@ function parseCharacterOutfits(value = '') {
 
 function updateSharedLlmProviderUI() {
     const provider = getValue('comfy-shared-llm-provider') || 'st';
-    const providerConfig = providerDefaults[provider] || providerDefaults.custom;
+    const providerConfig = providerDefaults[provider] || providerDefaults.st;
     const sharedDrawSettings = getSharedDrawSettings();
     const isSt = provider === 'st';
     const modelCache = Array.isArray(sharedDrawSettings.llmApi?.modelCache) ? sharedDrawSettings.llmApi.modelCache : [];
@@ -1917,7 +1914,7 @@ function updateSharedLlmProviderUI() {
 
 function getCurrentSharedLlmModel() {
     const provider = getValue('comfy-shared-llm-provider') || 'st';
-    const providerConfig = providerDefaults[provider] || providerDefaults.custom;
+    const providerConfig = providerDefaults[provider] || providerDefaults.st;
     if (providerConfig.needManualModel) return getValue('comfy-shared-llm-model-manual').trim();
     if (providerConfig.canFetch) return getValue('comfy-shared-llm-model-select').trim();
     return '';
@@ -1925,7 +1922,7 @@ function getCurrentSharedLlmModel() {
 
 function handleSharedLlmProviderChange() {
     const provider = getValue('comfy-shared-llm-provider') || 'st';
-    const providerConfig = providerDefaults[provider] || providerDefaults.custom;
+    const providerConfig = providerDefaults[provider] || providerDefaults.st;
     const sharedDrawSettings = getSharedDrawSettings();
     const nextUrl = sharedDrawSettings.llmApi?.provider === provider
         ? (sharedDrawSettings.llmApi?.url || providerConfig.url || '')
@@ -1943,7 +1940,7 @@ function fillSharedLlmModelFields() {
     const sharedDrawSettings = getSharedDrawSettings();
     const llmApi = sharedDrawSettings.llmApi || {};
     const provider = getValue('comfy-shared-llm-provider') || llmApi.provider || 'st';
-    const providerConfig = providerDefaults[provider] || providerDefaults.custom;
+    const providerConfig = providerDefaults[provider] || providerDefaults.st;
     const modelCache = Array.isArray(llmApi.modelCache) ? llmApi.modelCache : [];
     populateSelect(
         'comfy-shared-llm-model-select',
@@ -1962,6 +1959,11 @@ async function fetchSharedLlmModels() {
     const url = getValue('comfy-shared-llm-url').trim();
     const key = getValue('comfy-shared-llm-key').trim();
     const button = getSettingsElement('comfy-shared-llm-fetch');
+
+    if (provider !== 'openai') {
+        updateStatusText('comfy-shared-status', 'error', '当前渠道无需拉取模型列表');
+        return false;
+    }
 
     if (!key) {
         updateStatusText('comfy-shared-status', 'error', '请先填写 LLM API Key');
@@ -2824,6 +2826,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
             maxImages: preset.maxImages || 0,
             maxCharactersPerImage: preset.maxCharactersPerImage || 0,
             disablePrefill: !!sharedDrawSettings.disablePrefill,
+            signal,
         });
     } catch (error) {
         if (signal.aborted) throw new Error('已取消');

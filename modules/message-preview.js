@@ -45,15 +45,22 @@ function injectPreviewModalStyles() {
       overflow:hidden;
     }
     .mp-header{display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--SmartThemeBorderColor);font-weight:600;cursor:move;flex-shrink:0}
-    .mp-body{height:60vh;overflow:auto;padding:10px;flex:1;min-height:160px}
-    .mp-footer{display:flex;gap:8px;justify-content:flex-end;padding:12px 14px;border-top:1px solid var(--SmartThemeBorderColor);flex-shrink:0}
+    .mp-body{height:60vh;overflow:hidden;padding:10px;flex:1;min-height:160px}
+    .mp-footer{display:flex;gap:8px;justify-content:flex-end;padding:12px 14px;border-top:1px solid var(--SmartThemeBorderColor);flex-shrink:0;max-width:100%;box-sizing:border-box}
     .mp-close{cursor:pointer}
     .mp-btn{cursor:pointer;border:1px solid var(--SmartThemeBorderColor);background:var(--SmartThemeBlurTintColor);padding:6px 10px;border-radius:6px}
+    .mp-tabs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-right:auto;min-width:0}
+    .mp-tab-btn{padding:5px 10px;font-size:12px;line-height:1}
+    .mp-tab-btn.active{background:var(--SmartThemeBorderColor);color:var(--SmartThemeBodyColor)}
     .mp-search-input{padding:4px 8px;border:1px solid var(--SmartThemeBorderColor);border-radius:4px;background:var(--SmartThemeShadowColor);color:inherit;font-size:12px;width:120px}
     .mp-search-btn{padding:4px 6px;font-size:12px;min-width:24px;text-align:center}
     .mp-search-info{font-size:12px;opacity:.8;white-space:nowrap}
-    .message-preview-container{height:100%}
-    .message-preview-content-box{height:100%;overflow:auto}
+    .message-preview-container{height:100%;min-height:0}
+    .message-preview-content-box{height:100%;overflow:auto;box-sizing:border-box;max-width:100%}
+    .mp-view{display:none;height:100%;min-height:0}
+    .mp-view.active{display:block}
+    .mp-state-raw,.mp-state-backend{margin:0;white-space:pre;tab-size:2;font-family:monospace;min-width:max-content}
+    .mp-backend-note{padding:6px 10px;margin:0 0 10px;border:1px dashed var(--SmartThemeBorderColor);border-radius:6px;font-size:12px;opacity:.85}
     .mp-highlight{background-color:yellow;color:black;padding:1px 2px;border-radius:2px}
     .mp-highlight.current{background-color:orange;font-weight:bold}
     @media (max-width:999px){
@@ -133,11 +140,15 @@ function createMovableModal(title, content) {
   // Template-only UI markup.
   // eslint-disable-next-line no-unsanitized/property
   footer.innerHTML = `
+    <div class="mp-tabs">
+      <button class="mp-btn mp-tab-btn active" data-view="beautified" id="mp-view-beautified">美化</button>
+      <button class="mp-btn mp-tab-btn" data-view="raw" id="mp-view-raw">原始JSON</button>
+      <button class="mp-btn mp-tab-btn" data-view="backend" id="mp-view-backend">模拟后端</button>
+    </div>
     <input type="text" class="mp-search-input" placeholder="搜索..." />
     <button class="mp-btn mp-search-btn" id="mp-search-prev">↑</button>
     <button class="mp-btn mp-search-btn" id="mp-search-next">↓</button>
     <span class="mp-search-info" id="mp-search-info"></span>
-    <button class="mp-btn" id="mp-toggle-format">切换原始格式</button>
     <button class="mp-btn" id="mp-focus-search">搜索</button>
     <button class="mp-btn" id="mp-close">关闭</button>
   `;
@@ -153,20 +164,25 @@ function createMovableModal(title, content) {
   const searchInfo = footer.querySelector('#mp-search-info');
   const prevBtn = footer.querySelector('#mp-search-prev');
   const nextBtn = footer.querySelector('#mp-search-next');
+  const tabBtns = [...footer.querySelectorAll('.mp-tab-btn')];
+  let activeView = 'beautified';
 
-  function clearHighlights() {
-    body.querySelectorAll('.mp-highlight').forEach(el => {
+  const getActiveView = () => body.querySelector(`.mp-view[data-view="${activeView}"] .mp-view-content`) || body;
+
+  function clearHighlights(root = getActiveView()) {
+    root.querySelectorAll('.mp-highlight').forEach(el => {
       // Controlled markup generated locally.
       // eslint-disable-next-line no-unsanitized/property
       el.outerHTML = el.innerHTML;
     });
   }
   function performSearch(query) {
-    clearHighlights();
+    const root = getActiveView();
+    clearHighlights(root);
     searchResults = [];
     currentIndex = -1;
     if (!query.trim()) { searchInfo.textContent = ''; return; }
-    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, null, false);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
     const nodes = [];
     let node;
     while ((node = walker.nextNode())) { nodes.push(node); }
@@ -199,9 +215,10 @@ function createMovableModal(title, content) {
   }
   function updateSearchInfo() { if (!searchResults.length) searchInfo.textContent = searchInput.value.trim() ? '无结果' : ''; else searchInfo.textContent = `${currentIndex + 1}/${searchResults.length}`; }
   function highlightCurrent() {
-    body.querySelectorAll('.mp-highlight.current').forEach(el => el.classList.remove('current'));
+    const root = getActiveView();
+    root.querySelectorAll('.mp-highlight.current').forEach(el => el.classList.remove('current'));
     if (currentIndex >= 0 && currentIndex < searchResults.length) {
-      const el = body.querySelector(`.mp-highlight[data-search-index="${currentIndex}"]`);
+      const el = root.querySelector(`.mp-highlight[data-search-index="${currentIndex}"]`);
       if (el) { el.classList.add('current'); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     }
   }
@@ -219,73 +236,405 @@ function createMovableModal(title, content) {
   nextBtn.addEventListener('click', () => navigateSearch('next'));
   footer.querySelector('#mp-focus-search')?.addEventListener('click', () => { searchInput.focus(); if (searchInput.value) navigateSearch('next'); });
 
+  const setView = (view) => {
+    activeView = view;
+    body.querySelectorAll('.mp-view').forEach((el) => {
+      el.classList.toggle('active', el.dataset.view === view);
+    });
+    tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
+    searchInput.value = '';
+    clearHighlights();
+    searchResults = [];
+    currentIndex = -1;
+    searchInfo.textContent = '';
+  };
+  tabBtns.forEach((btn) => btn.addEventListener('click', () => setView(btn.dataset.view || 'beautified')));
+
   const close = () => overlay.remove();
   header.querySelector('.mp-close').addEventListener('click', close);
   footer.querySelector('#mp-close').addEventListener('click', close);
-  footer.querySelector('#mp-toggle-format').addEventListener('click', (e) => {
-    const box = body.querySelector(".message-preview-content-box");
-    const f = box?.querySelector(".mp-state-formatted");
-    const r = box?.querySelector(".mp-state-raw");
-    if (!(f && r)) return;
-    const showRaw = r.style.display === "none";
-    r.style.display = showRaw ? "block" : "none";
-    f.style.display = showRaw ? "none" : "block";
-    e.currentTarget.textContent = showRaw ? "切换整理格式" : "切换原始格式";
-    searchInput.value = "";
-    clearHighlights();
-    searchInfo.textContent = "";
-    searchResults = [];
-    currentIndex = -1;
-  });
 
   document.body.appendChild(overlay);
   return { overlay, modal, body, close };
 }
 
-const MIRROR = { MERGE: "merge", MERGE_TOOLS: "merge_tools", SEMI: "semi", SEMI_TOOLS: "semi_tools", STRICT: "strict", STRICT_TOOLS: "strict_tools", SINGLE: "single" };
+const VIEW_MODES = {
+  BEAUTIFIED: 'beautified',
+  RAW: 'raw',
+  BACKEND: 'backend',
+};
+
 const roleMap = { system: { label: "SYSTEM:", color: "#F7E3DA" }, user: { label: "USER:", color: "#F0ADA7" }, assistant: { label: "ASSISTANT:", color: "#6BB2CC" } };
 const escapeHtml = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
 const colorXml = (t) => {
   const safe = escapeHtml(t);
   return safe.replace(/&lt;([^&]+?)&gt;/g, '<span style="color:#999;font-weight:bold;">&lt;$1&gt;</span>');
 };
-const getNames = (req) => { const n = { charName: String(req?.char_name || ""), userName: String(req?.user_name || ""), groupNames: Array.isArray(req?.group_names) ? req.group_names.map(String) : [] }; n.startsWithGroupName = (m) => n.groupNames.some((g) => String(m || "").startsWith(`${g}: `)); return n; };
-const toText = (m) => { const c = m?.content; if (typeof c === "string") return c; if (Array.isArray(c)) return c.map((p) => p?.type === "text" ? String(p.text || "") : p?.type === "image_url" ? "[image]" : p?.type === "video_url" ? "[video]" : typeof p === "string" ? p : (typeof p?.content === "string" ? p.content : "")).filter(Boolean).join("\n\n"); return String(c || ""); };
-const applyName = (m, n) => { const { role, name } = m; let t = toText(m); if (role === "system" && name === "example_assistant") { if (n.charName && !t.startsWith(`${n.charName}: `) && !n.startsWithGroupName(t)) t = `${n.charName}: ${t}`; } else if (role === "system" && name === "example_user") { if (n.userName && !t.startsWith(`${n.userName}: `)) t = `${n.userName}: ${t}`; } else if (name && role !== "system" && !t.startsWith(`${name}: `)) t = `${name}: ${t}`; return { ...m, content: t, name: undefined }; };
-function mergeMessages(messages, names, { strict = false, placeholders = false, single = false, tools = false } = {}) {
-  if (!Array.isArray(messages)) return [];
-  let mapped = messages.map((m) => applyName({ ...m }, names)).map((x) => { const m = { ...x }; if (!tools) { if (m.role === "tool") m.role = "user"; delete m.tool_calls; delete m.tool_call_id; } if (single) { if (m.role === "assistant") { const t = String(m.content || ""); if (names.charName && !t.startsWith(`${names.charName}: `) && !names.startsWithGroupName(t)) m.content = `${names.charName}: ${t}`; } if (m.role === "user") { const t = String(m.content || ""); if (names.userName && !t.startsWith(`${names.userName}: `)) m.content = `${names.userName}: ${t}`; } m.role = "user"; } return m; });
-  const squash = (arr) => { const out = []; for (const m of arr) { if (out.length && out[out.length - 1].role === m.role && String(m.content || "").length && m.role !== "tool") out[out.length - 1].content += `\n\n${m.content}`; else out.push(m); } return out; };
-  let sq = squash(mapped);
-  if (strict) { for (let i = 0; i < sq.length; i++) if (i > 0 && sq[i].role === "system") sq[i].role = "user"; if (placeholders) { if (!sq.length) sq.push({ role: "user", content: "[Start a new chat]" }); else if (sq[0].role === "system" && (sq.length === 1 || sq[1].role !== "user")) sq.splice(1, 0, { role: "user", content: "[Start a new chat]" }); else if (sq[0].role !== "system" && sq[0].role !== "user") sq.unshift({ role: "user", content: "[Start a new chat]" }); } return squash(sq); }
-  if (!sq.length) sq.push({ role: "user", content: "[Start a new chat]" });
-  return sq;
-}
-function mirror(requestData) {
+const cloneJson = (value) => { try { return JSON.parse(JSON.stringify(value)); } catch { return value; } };
+const getNames = (req) => {
+  const n = {
+    charName: String(req?.char_name || ""),
+    userName: String(req?.user_name || ""),
+    groupNames: Array.isArray(req?.group_names) ? req.group_names.map(String) : [],
+  };
+  n.startsWithGroupName = (m) => n.groupNames.some((g) => String(m || "").startsWith(`${g}: `));
+  return n;
+};
+const rawMessages = (d) => {
   try {
-    let type = String(requestData?.custom_prompt_post_processing || "").toLowerCase();
-    const source = String(requestData?.chat_completion_source || "").toLowerCase();
-    if (source === "perplexity") type = MIRROR.STRICT;
-    const names = getNames(requestData || {}), src = Array.isArray(requestData?.messages) ? JSON.parse(JSON.stringify(requestData.messages)) : [];
-    const mk = (o) => mergeMessages(src, names, o);
-    switch (type) {
-      case MIRROR.MERGE: return mk({ strict: false });
-      case MIRROR.MERGE_TOOLS: return mk({ strict: false, tools: true });
-      case MIRROR.SEMI: return mk({ strict: true });
-      case MIRROR.SEMI_TOOLS: return mk({ strict: true, tools: true });
-      case MIRROR.STRICT: return mk({ strict: true, placeholders: true });
-      case MIRROR.STRICT_TOOLS: return mk({ strict: true, placeholders: true, tools: true });
-      case MIRROR.SINGLE: return mk({ strict: true, single: true });
-      default: return src;
+    if (Array.isArray(d?.requestData?.messages)) return cloneJson(d.requestData.messages);
+    if (Array.isArray(d?.messages)) return cloneJson(d.messages);
+  } catch { }
+  return [];
+};
+const displayContent = (content) => {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((part) => {
+      if (typeof part === "string") return part;
+      if (!part || typeof part !== "object") return "";
+      if (part.type === "text") return String(part.text || "");
+      if (part.type === "image_url") return "[image]";
+      if (part.type === "video_url") return "[video]";
+      if (part.type === "audio_url") return "[audio]";
+      if (part.type === "tool_use") return "[tool_use]";
+      if (part.type === "tool_result") return "[tool_result]";
+      return JSON.stringify(part);
+    }).filter(Boolean).join("\n\n");
+  }
+  try { return JSON.stringify(content ?? "", null, 2); } catch { return String(content ?? ""); }
+};
+const normalizeRole = (role) => {
+  const value = String(role || "").toLowerCase();
+  if (value === "model") return "assistant";
+  if (value === "human") return "user";
+  return value || "user";
+};
+const mergeMessagesLikeBackend = (messages, names, { strict = false, placeholders = false, single = false, tools = false } = {}) => {
+  if (!Array.isArray(messages)) return [];
+  const mergedMessages = [];
+  const contentTokens = new Map();
+  const cloned = messages.map((message) => {
+    const msg = { ...message };
+    const role = normalizeRole(msg.role);
+    msg.role = role;
+    if (!msg.content) msg.content = '';
+    if (Array.isArray(msg.content)) {
+      const text = msg.content.map((content) => {
+        if (content?.type === 'text') return content.text;
+        if (['image_url', 'video_url', 'audio_url'].includes(content?.type)) {
+          const token = `__xbp_media_${contentTokens.size}__`;
+          contentTokens.set(token, content);
+          return token;
+        }
+        return '';
+      }).join('\n\n');
+      msg.content = text;
     }
-  } catch { return Array.isArray(requestData?.messages) ? requestData.messages : []; }
-}
-const finalMsgs = (d) => { try { if (d?.requestData?.messages) return mirror(d.requestData); if (Array.isArray(d?.messages)) return d.messages; return []; } catch { return Array.isArray(d?.messages) ? d.messages : []; } };
+    if (msg.role === 'system' && msg.name === 'example_assistant') {
+      if (names.charName && !msg.content.startsWith(`${names.charName}: `) && !names.startsWithGroupName(msg.content)) {
+        msg.content = `${names.charName}: ${msg.content}`;
+      }
+    }
+    if (msg.role === 'system' && msg.name === 'example_user') {
+      if (names.userName && !msg.content.startsWith(`${names.userName}: `)) {
+        msg.content = `${names.userName}: ${msg.content}`;
+      }
+    }
+    if (msg.name && msg.role !== 'system' && !msg.content.startsWith(`${msg.name}: `)) {
+      msg.content = `${msg.name}: ${msg.content}`;
+    }
+    if (msg.role === 'tool' && !tools) {
+      msg.role = 'user';
+    }
+    if (single) {
+      if (msg.role === 'assistant' && names.charName && !msg.content.startsWith(`${names.charName}: `) && !names.startsWithGroupName(msg.content)) {
+        msg.content = `${names.charName}: ${msg.content}`;
+      }
+      if (msg.role === 'user' && names.userName && !msg.content.startsWith(`${names.userName}: `)) {
+        msg.content = `${names.userName}: ${msg.content}`;
+      }
+      msg.role = 'user';
+    }
+    delete msg.name;
+    if (!tools) {
+      delete msg.tool_calls;
+      delete msg.tool_call_id;
+    }
+    return msg;
+  });
+  for (const message of cloned) {
+    if (mergedMessages.length > 0 && mergedMessages[mergedMessages.length - 1].role === message.role && message.content && message.role !== 'tool') {
+      mergedMessages[mergedMessages.length - 1].content += `\n\n${message.content}`;
+    } else {
+      mergedMessages.push(message);
+    }
+  }
+  if (mergedMessages.length === 0) {
+    mergedMessages.push({ role: 'user', content: 'Let\'s get started.' });
+  }
+  if (contentTokens.size > 0) {
+    mergedMessages.forEach((message) => {
+      if (!String(message.content || '').trim()) return;
+      const splitContent = String(message.content).split('\n\n');
+      if (!splitContent.some((part) => contentTokens.has(part))) return;
+      const mergedContent = [];
+      splitContent.forEach((content) => {
+        if (contentTokens.has(content)) {
+          mergedContent.push(contentTokens.get(content));
+        } else if (mergedContent.length > 0 && mergedContent[mergedContent.length - 1]?.type === 'text') {
+          mergedContent[mergedContent.length - 1].text += `\n\n${content}`;
+        } else {
+          mergedContent.push({ type: 'text', text: content });
+        }
+      });
+      message.content = mergedContent;
+    });
+  }
+  if (strict) {
+    for (let i = 0; i < mergedMessages.length; i++) {
+      if (i > 0 && mergedMessages[i].role === 'system') {
+        mergedMessages[i].role = 'user';
+      }
+    }
+    if (placeholders && mergedMessages.length) {
+      if (mergedMessages[0].role === 'system' && (mergedMessages.length === 1 || mergedMessages[1].role !== 'user')) {
+        mergedMessages.splice(1, 0, { role: 'user', content: 'Let\'s get started.' });
+      } else if (mergedMessages[0].role !== 'system' && mergedMessages[0].role !== 'user') {
+        mergedMessages.unshift({ role: 'user', content: 'Let\'s get started.' });
+      }
+    }
+    return mergeMessagesLikeBackend(mergedMessages, names, { strict: false, placeholders, single: false, tools });
+  }
+  return mergedMessages;
+};
+const compactJson = (value) => {
+  if (Array.isArray(value)) return value.map(compactJson);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  Object.entries(value).forEach(([key, val]) => {
+    if (val === undefined) return;
+    out[key] = compactJson(val);
+  });
+  return out;
+};
+const convertClaudeTools = (tools, source) => {
+  if (!Array.isArray(tools)) return [];
+  return tools
+    .filter(tool => tool?.type === 'function' && tool.function)
+    .map(tool => ({
+      name: tool.function.name,
+      description: tool.function.description,
+      input_schema: cloneJson(tool.function.parameters || {}),
+      _note: source ? undefined : undefined,
+    }))
+    .map(tool => compactJson(tool));
+};
+const convertGoogleTools = (tools) => {
+  if (!Array.isArray(tools) || !tools.length) return [];
+  const functionDeclarations = [];
+  const customTools = [];
+  tools.forEach((tool) => {
+    if (tool?.type === 'function' && tool.function) {
+      const fn = cloneJson(tool.function);
+      if (fn?.parameters?.$schema) delete fn.parameters.$schema;
+      if (fn?.parameters?.properties && Object.keys(fn.parameters.properties).length === 0) delete fn.parameters;
+      functionDeclarations.push(fn);
+    } else if (tool?.type && tool[tool.type]) {
+      customTools.push({ [tool.type]: cloneJson(tool[tool.type]) });
+    }
+  });
+  if (functionDeclarations.length) return [{ function_declarations: functionDeclarations }];
+  return customTools;
+};
+const buildOpenAiLikeBody = (req, messages) => {
+  const body = {
+    messages,
+    model: req.model,
+    temperature: req.temperature,
+    max_tokens: req.max_tokens,
+    max_completion_tokens: req.max_completion_tokens,
+    stream: req.stream,
+    presence_penalty: req.presence_penalty,
+    frequency_penalty: req.frequency_penalty,
+    top_p: req.top_p,
+    top_k: req.top_k,
+    stop: Array.isArray(req.stop) && req.stop.length ? req.stop : undefined,
+    logit_bias: req.logit_bias,
+    seed: req.seed,
+    n: req.n,
+  };
+  if (Array.isArray(req.tools) && req.tools.length) {
+    body.tools = cloneJson(req.tools);
+    body.tool_choice = cloneJson(req.tool_choice);
+  }
+  if (req.json_schema) {
+    body.response_format = {
+      type: 'json_schema',
+      json_schema: {
+        name: req.json_schema.name,
+        strict: req.json_schema.strict ?? true,
+        schema: req.json_schema.value,
+      },
+    };
+  }
+  return compactJson(body);
+};
+const simulateBackendPayload = (d) => {
+  const req = cloneJson(d?.requestData ?? d ?? {});
+  const source = String(req?.chat_completion_source || '').toLowerCase();
+  const names = getNames(req || {});
+  const messages = Array.isArray(req.messages) ? cloneJson(req.messages) : [];
+  const postProcessingType = String(req.custom_prompt_post_processing || '').toLowerCase();
+  const postProcessed = postProcessingType
+    ? mergeMessagesLikeBackend(messages, names, {
+        strict: ['semi', 'semi_tools', 'strict', 'strict_tools', 'single'].includes(postProcessingType),
+        placeholders: ['strict', 'strict_tools'].includes(postProcessingType),
+        single: postProcessingType === 'single',
+        tools: ['merge_tools', 'semi_tools', 'strict_tools'].includes(postProcessingType),
+      })
+    : messages;
+
+  if (source === 'claude') {
+    const useSysPrompt = Boolean(req.use_sysprompt);
+    const useTools = Array.isArray(req.tools) && req.tools.length > 0;
+    const systemPrompt = [];
+    let working = cloneJson(postProcessed);
+    if (useSysPrompt) {
+      let i = 0;
+      for (; i < working.length; i++) {
+        if (normalizeRole(working[i]?.role) !== 'system') break;
+        systemPrompt.push({ type: 'text', text: displayContent(working[i]?.content) });
+      }
+      working = working.slice(i);
+      if (working.length === 0) {
+        working.unshift({ role: 'user', content: 'Let\'s get started.' });
+      }
+    }
+    if (req.assistant_prefill) {
+      working.push({ role: 'assistant', content: [{ type: 'text', text: String(req.assistant_prefill).trimEnd() }] });
+    }
+    working = working.map((message) => {
+      const out = { ...message, role: normalizeRole(message.role) };
+      if (out.role === 'system') out.role = 'user';
+      if (out.role === 'tool') {
+        out.role = 'user';
+        out.content = [{ type: 'tool_result', tool_use_id: out.tool_call_id, content: out.content }];
+      } else if (typeof out.content === 'string') {
+        out.content = [{ type: 'text', text: out.content || '\u200b' }];
+      }
+      delete out.name;
+      delete out.tool_call_id;
+      delete out.tool_calls;
+      return out;
+    });
+    const result = {
+      system: useSysPrompt ? systemPrompt : undefined,
+      messages: working,
+      model: req.model,
+      max_tokens: req.max_tokens,
+      stop_sequences: Array.isArray(req.stop) ? req.stop : [],
+      temperature: req.temperature,
+      top_p: req.top_p,
+      top_k: req.top_k,
+      stream: req.stream,
+    };
+    if (!useSysPrompt) delete result.system;
+    if (useTools) {
+      result.tool_choice = { type: req.tool_choice };
+      result.tools = convertClaudeTools(req.tools, source);
+    }
+    if (req.json_schema) {
+      const jsonTool = {
+        name: req.json_schema.name,
+        description: req.json_schema.description || 'Well-formed JSON object',
+        input_schema: cloneJson(req.json_schema.value),
+      };
+      result.tools = [...(result.tools || []), jsonTool];
+      result.tool_choice = { type: 'tool', name: req.json_schema.name };
+    }
+    return compactJson(result);
+  }
+
+  if (['google', 'gemini', 'makersuite', 'vertexai'].includes(source)) {
+    const useSysPrompt = Boolean(req.use_sysprompt);
+    const prompt = {
+      contents: [],
+      safetySettings: cloneJson(req.safety_settings || req.safetySettings || []),
+      generationConfig: {
+        stopSequences: Array.isArray(req.stop) && req.stop.length ? req.stop : undefined,
+        candidateCount: 1,
+        maxOutputTokens: req.max_output_tokens ?? req.max_tokens,
+        temperature: req.temperature,
+        topP: req.top_p,
+        topK: req.top_k,
+        responseMimeType: req.responseMimeType,
+        responseSchema: req.responseSchema,
+        seed: req.seed,
+      },
+    };
+    const systemParts = [];
+    let working = cloneJson(postProcessed);
+    if (useSysPrompt) {
+      while (working.length > 1 && normalizeRole(working[0]?.role) === 'system') {
+        systemParts.push({ text: displayContent(working[0]?.content) });
+        working.shift();
+      }
+    }
+    const toPart = (message) => {
+      const content = message?.content;
+      if (Array.isArray(content)) {
+        const parts = [];
+        content.forEach((part) => {
+          if (part?.type === 'text') parts.push({ text: String(part.text || '') });
+        });
+        return parts.length ? parts : [{ text: '' }];
+      }
+      return [{ text: displayContent(content) }];
+    };
+    working.forEach((message) => {
+      const role = normalizeRole(message?.role);
+      const normalizedRole = role === 'assistant' ? 'model' : 'user';
+      if (role === 'system') {
+        if (useSysPrompt) {
+          systemParts.push({ text: displayContent(message?.content) });
+          return;
+        }
+      }
+      prompt.contents.push({
+        role: normalizedRole,
+        parts: toPart(message),
+      });
+    });
+    if (systemParts.length) {
+      prompt.systemInstruction = { parts: systemParts };
+    }
+    const tools = convertGoogleTools(req.tools);
+    if (tools.length) {
+      prompt.tools = tools;
+    }
+    const toolChoice = req.tool_choice;
+    let functionCallingConfig;
+    if (typeof toolChoice === 'string') {
+      if (toolChoice === 'none') functionCallingConfig = { mode: 'NONE' };
+      if (toolChoice === 'required') functionCallingConfig = { mode: 'ANY' };
+      if (toolChoice === 'auto') functionCallingConfig = { mode: 'AUTO' };
+    } else if (toolChoice?.function?.name) {
+      functionCallingConfig = { mode: 'ANY', allowedFunctionNames: [toolChoice.function.name] };
+    }
+    if (functionCallingConfig) {
+      prompt.toolConfig = { functionCallingConfig };
+    }
+    return compactJson(prompt);
+  }
+
+  return buildOpenAiLikeBody(req, postProcessed);
+};
 const formatPreview = (d) => {
-  const msgs = finalMsgs(d);
-  let out = `↓酒馆日志↓(${msgs.length})\n${"-".repeat(30)}\n`;
+  const msgs = rawMessages(d);
+  let out = `↓请求消息↓(${msgs.length})\n${"-".repeat(30)}\n`;
   msgs.forEach((m, i) => {
-    const txt = String(m.content || "");
+    const txt = displayContent(m?.content);
     const safeTxt = escapeHtml(txt);
     const rm = roleMap[m.role] || { label: `${String(m.role || "").toUpperCase()}:`, color: "#FFF" };
     out += `<div style="color:${rm.color};font-weight:bold;margin-top:${i ? "15px" : "0"};">${rm.label}</div>`;
@@ -293,9 +642,18 @@ const formatPreview = (d) => {
   });
   return out;
 };
-const stripTop = (o) => { try { if (!o || typeof o !== "object") return o; if (Array.isArray(o)) return o; const messages = Array.isArray(o.messages) ? JSON.parse(JSON.stringify(o.messages)) : undefined; return typeof messages !== "undefined" ? { messages } : {}; } catch { return {}; } };
-const formatRaw = (d) => { try { const hasReq = Array.isArray(d?.requestData?.messages), hasMsgs = !hasReq && Array.isArray(d?.messages); let obj; if (hasReq) { const req = JSON.parse(JSON.stringify(d.requestData)); try { req.messages = mirror(req); } catch { } obj = req; } else if (hasMsgs) { const fake = { ...(d || {}), messages: d.messages }; let mm = null; try { mm = mirror(fake); } catch { } obj = { ...(d || {}), messages: mm || d.messages }; } else obj = d?.requestData ?? d; obj = stripTop(obj); return colorXml(JSON.stringify(obj, null, 2)); } catch { try { return colorXml(String(d)); } catch { return ""; } } };
-const buildPreviewHtml = (d) => { const formatted = formatPreview(d), raw = formatRaw(d); return `<div class="message-preview-container"><div class="message-preview-content-box"><div class="mp-state-formatted">${formatted}</div><pre class="mp-state-raw" style="display:none;">${raw}</pre></div></div>`; };
+const formatRaw = (d) => { try { const obj = cloneJson(d?.requestData ?? d); return colorXml(JSON.stringify(obj, null, 2)); } catch { try { return colorXml(String(d)); } catch { return ""; } } };
+const formatBackend = (d) => { try { const obj = simulateBackendPayload(d); return colorXml(JSON.stringify(obj, null, 2)); } catch (error) { try { return colorXml(JSON.stringify({ error: error?.message || String(error) }, null, 2)); } catch { return ""; } } };
+const buildPreviewHtml = (d) => {
+  const formatted = formatPreview(d);
+  const raw = formatRaw(d);
+  const backend = formatBackend(d);
+  return `<div class="message-preview-container">
+    <div class="mp-view active" data-view="${VIEW_MODES.BEAUTIFIED}"><div class="message-preview-content-box mp-view-content">${formatted}</div></div>
+    <div class="mp-view" data-view="${VIEW_MODES.RAW}"><div class="message-preview-content-box mp-view-content"><pre class="mp-state-raw">${raw}</pre></div></div>
+    <div class="mp-view" data-view="${VIEW_MODES.BACKEND}"><div class="message-preview-content-box mp-view-content"><div class="mp-backend-note">模拟后端：前端按已知规则推演，尽量贴近酒馆后端真实发送格式。</div><pre class="mp-state-backend">${backend}</pre></div></div>
+  </div>`;
+};
 const openPopup = async (html, title) => { createMovableModal(title, html); };
 const displayPreview = async (d) => { try { await openPopup(buildPreviewHtml(d), "消息拦截"); } catch { toastr.error("显示拦截失败"); } };
 

@@ -23,6 +23,7 @@ import {
     generateScenePlan,
     parseImagePlan,
 } from '../../shared/scene-planner.js';
+import { normalizeDrawLlmApi } from '../../shared/draw-llm.js';
 import {
     loadTagGuide,
     loadPromptTemplates,
@@ -831,7 +832,7 @@ function handleFetchError(e) {
 
 function normalizeSettings(saved) {
     const merged = { ...DEFAULT_SETTINGS, ...(saved || {}) };
-    merged.llmApi = { ...DEFAULT_SETTINGS.llmApi, ...(saved?.llmApi || {}) };
+    merged.llmApi = normalizeDrawLlmApi({ ...DEFAULT_SETTINGS.llmApi, ...(saved?.llmApi || {}) });
     merged.customPrompts = { ...DEFAULT_SETTINGS.customPrompts, ...(saved?.customPrompts || {}) };
     merged.worldbooks = { ...DEFAULT_SETTINGS.worldbooks, ...(saved?.worldbooks || {}) };
     if (!Array.isArray(merged.worldbooks.uploadedBooks)) merged.worldbooks.uploadedBooks = [];
@@ -2714,6 +2715,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 maxImages: preset.maxImages || 0,
                 maxCharactersPerImage: preset.maxCharactersPerImage || 0,
                 disablePrefill: !!settings.disablePrefill,
+                signal,
             });
         } catch (e) {
             if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
@@ -3464,7 +3466,7 @@ async function handleFrameMessage(event) {
                 if (data.llmApi && typeof data.llmApi === 'object') {
                     const allowed = ['provider', 'url', 'key', 'model', 'modelCache'];
                     const clean = Object.fromEntries(allowed.filter(k => k in data.llmApi).map(k => [k, data.llmApi[k]]));
-                    settings.llmApi = { ...settings.llmApi, ...clean };
+                    settings.llmApi = normalizeDrawLlmApi({ ...settings.llmApi, ...clean });
                 }
                 if (typeof data.useStream === 'boolean') settings.useStream = data.useStream;
                 if (typeof data.useWorldInfo === 'boolean') settings.useWorldInfo = data.useWorldInfo;
@@ -3624,7 +3626,11 @@ async function handleFrameMessage(event) {
         case 'FETCH_LLM_MODELS': {
             try {
                 postStatus('loading', '连接中...');
-                const apiCfg = data.llmApi || {};
+                const apiCfg = normalizeDrawLlmApi(data.llmApi || {});
+                if (apiCfg.provider !== 'openai') {
+                    postStatus('error', '当前渠道无需拉取模型列表');
+                    break;
+                }
                 const apiKey = String(apiCfg.key || '').trim();
                 if (!apiKey) {
                     postStatus('error', '请先填写 API KEY');

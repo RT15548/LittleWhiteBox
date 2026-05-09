@@ -1,4 +1,5 @@
 import { NovelDrawStorage } from "../../../core/server-storage.js";
+import { normalizeDrawLlmApi } from "./draw-llm.js";
 
 // 历史兼容：共享画图设置仍存放在 LittleWhiteBox_NovelDraw.json/settings。
 // 不改文件名，避免迁移用户数据；这里仅抽出 provider-neutral 字段读写。
@@ -41,7 +42,7 @@ function normalizeCharacterOutfits(outfits = []) {
 function normalizeSharedDrawSettings(saved = {}) {
     const merged = {
         ...saved,
-        llmApi: { ...DEFAULT_SHARED_DRAW_SETTINGS.llmApi, ...(saved.llmApi || {}) },
+        llmApi: normalizeDrawLlmApi({ ...DEFAULT_SHARED_DRAW_SETTINGS.llmApi, ...(saved.llmApi || {}) }),
         worldbooks: { ...DEFAULT_SHARED_DRAW_SETTINGS.worldbooks, ...(saved.worldbooks || {}) },
     };
 

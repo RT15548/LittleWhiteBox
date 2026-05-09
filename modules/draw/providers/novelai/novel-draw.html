@@ -891,9 +891,6 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                             <option value="openai">OpenAI 兼容</option>
                             <option value="google">Google Gemini</option>
                             <option value="claude">Claude</option>
-                            <option value="deepseek">DeepSeek</option>
-                            <option value="cohere">Cohere</option>
-                            <option value="custom">自定义</option>
                         </select>
                     </div>
                     <div id="nd_llm_url_row" class="form-group hidden">
@@ -1336,10 +1333,7 @@ const providerDefaults = {
     st: { url: '', needKey: false, canFetch: false, needManualModel: false },
     openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
     google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false, needManualModel: true },
-    claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true },
-    deepseek: { url: 'https://api.deepseek.com', needKey: true, canFetch: true, needManualModel: false },
-    cohere: { url: 'https://api.cohere.ai', needKey: true, canFetch: false, needManualModel: true },
-    custom: { url: '', needKey: true, canFetch: true, needManualModel: false }
+    claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true }
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2134,7 +2128,7 @@ function renderModalContent() {
 
 function updateLlmProviderUI() {
     const provider = $('nd_llm_provider').value;
-    const pv = providerDefaults[provider] || providerDefaults.custom;
+    const pv = providerDefaults[provider] || providerDefaults.st;
     const isSt = provider === 'st';
     const hasCache = (state.llmApi?.modelCache?.length || 0) > 0;
     
@@ -2294,7 +2288,7 @@ function renderWorldbookEntriesLocal(book) {
 
 function getCurrentLlmModel() {
     const provider = $('nd_llm_provider').value;
-    const pv = providerDefaults[provider] || providerDefaults.custom;
+    const pv = providerDefaults[provider] || providerDefaults.st;
     if (pv.needManualModel) return $('nd_llm_model_manual').value.trim();
     else if (pv.canFetch) return $('nd_llm_model_select').value || '';
     return '';
@@ -2403,8 +2397,8 @@ function applyPromptPreset() {
 
 function applyLlmApi() {
     const api = state.llmApi || {};
-    const provider = api.provider || 'st';
-    const pv = providerDefaults[provider] || providerDefaults.custom;
+    const provider = providerDefaults[api.provider] ? api.provider : 'st';
+    const pv = providerDefaults[provider] || providerDefaults.st;
     
     $('nd_llm_provider').value = provider;
     $('nd_llm_url').value = api.url || pv.url || '';
@@ -2833,7 +2827,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // LLM 配置
     // ═══════════════════════════════════════════════════════════════════════
     $('nd_llm_provider').addEventListener('change', function() {
-        const pv = providerDefaults[this.value] || providerDefaults.custom;
+        const pv = providerDefaults[this.value] || providerDefaults.st;
         if (pv.url) $('nd_llm_url').value = pv.url;
         if (!pv.canFetch) { state.llmApi = state.llmApi || {}; state.llmApi.modelCache = []; }
         updateLlmProviderUI();
