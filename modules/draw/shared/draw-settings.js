@@ -90,7 +90,8 @@ export function getSharedDrawSettings() {
 
 export async function updateSharedDrawSettingsPersistent(mutator, okText = '已保存', options = {}) {
     const { notify = false, silent = true } = options;
-    const current = await loadSharedDrawSettings();
+    const saved = await NovelDrawStorage.get(SERVER_FILE_KEY, null);
+    const current = normalizeSharedDrawSettings(saved || settingsCache || {});
     const draft = cloneSettingsObject(current);
 
     if (typeof mutator === 'function') {
@@ -99,18 +100,21 @@ export async function updateSharedDrawSettingsPersistent(mutator, okText = '已�
 
     const next = normalizeSharedDrawSettings(draft);
     next.updatedAt = Date.now();
+    const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
 
     try {
+        settingsCache = next;
         const ok = await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
         if (ok !== false) {
-            settingsCache = next;
             if (notify && window.toastr) toastr.success(okText);
             return true;
         }
         if (notify && window.toastr) toastr.error('保存失败');
+        settingsCache = previous;
         return false;
     } catch (error) {
         console.error('[DrawSettings] 保存共享画图设置失败:', error);
+        settingsCache = previous;
         if (notify && window.toastr) toastr.error(`保存失败：${error?.message || '网络异常'}`);
         return false;
     }

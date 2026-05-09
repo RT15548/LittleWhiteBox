@@ -295,10 +295,11 @@ export function getSettings() {
 
 async function persistSettings(nextSettings, okText = '已保存', { notify = true, silent = false } = {}) {
     const next = normalizeSettings(nextSettings);
+    const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
     try {
+        settingsCache = next;
         const ok = await SdDrawStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
         if (ok !== false) {
-            settingsCache = next;
             if (notify) {
                 toastr.success(okText, 'SD WebUI');
             }
@@ -307,8 +308,10 @@ async function persistSettings(nextSettings, okText = '已保存', { notify = tr
         if (notify) {
             toastr.error('保存失败', 'SD WebUI');
         }
+        settingsCache = previous;
         return false;
     } catch (error) {
+        settingsCache = previous;
         if (notify) {
             toastr.error(error?.message || '保存失败', 'SD WebUI');
         }

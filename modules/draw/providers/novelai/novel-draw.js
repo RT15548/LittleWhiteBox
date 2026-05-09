@@ -1065,7 +1065,14 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
 }
 
 async function updateSettingsPersistent(mutator, okText = '已保存', options = {}) {
-    const draft = cloneSettingsObject(getSettings());
+    let base = getSettings();
+    try {
+        const latest = await NovelDrawStorage.get(SERVER_FILE_KEY, null);
+        if (latest && typeof latest === 'object') {
+            base = normalizeSettings(latest);
+        }
+    } catch {}
+    const draft = cloneSettingsObject(base);
     if (typeof mutator === 'function') {
         await mutator(draft);
     }
@@ -2734,7 +2741,9 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     if (learnResult.newChars.length) parts.push(`新角色: ${learnResult.newChars.join(', ')}`);
                     if (learnResult.updatedChars.length) parts.push(`更新: ${learnResult.updatedChars.join(', ')}`);
                     const msg = `已学习 ${parts.join(' | ')}`;
-                    persistSettings(settingsCopy, msg)
+                    updateSettingsPersistent((draft) => {
+                        draft.characterTags = tagsCopy;
+                    }, msg)
                         .then((ok) => { if (ok && overlayCreated && frameReady) sendInitData(); })
                         .catch(e => {
                             console.warn('[NovelDraw] 自动学习保存失败:', e);
