@@ -424,7 +424,7 @@ function parseImageBlockYaml(block) {
         image.hasCharactersField = true;
         const inlineEmpty = block.match(/^[ ]*characters[ ]*:[ ]*\[\s*\]/m);
         if (!inlineEmpty) {
-            const charsMatch = block.match(/^[ ]*characters[ ]*:[ ]*$/m);
+            const charsMatch = block.match(/^[ ]*characters[ ]*:[ ]*(?:#.*)?$/m);
             if (charsMatch) {
                 const charsStart = charsMatch.index + charsMatch[0].length;
                 let charsEnd = block.length;

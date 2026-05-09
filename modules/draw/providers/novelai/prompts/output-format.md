@@ -30,7 +30,7 @@ images:
   - index: 1
     anchor: 精准复制原文5-15字，句末标点（。！？…】]』""）
     scene: (分级), (角色关系+位置), (视角构图), (背景+光影)
-    characters:  # 如纯场景图则为[]
+    characters:
       - name: 角色名
         danbooru: character_name_(series) 或 name_(original) 或 ""
         type: girl|boy|woman|man|other （仅未知角色）
