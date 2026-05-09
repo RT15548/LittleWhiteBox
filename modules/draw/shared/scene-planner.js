@@ -1,9 +1,11 @@
 import { xbLog } from "../../../core/debug-core.js";
 import { callDrawScenePlannerLlm } from "./draw-llm.js";
+import { getWorldInfoPrompt } from "../../../../../../../scripts/world-info.js";
 
 const EMPTY_PROMPT_CONFIG = {
     topSystem: '',
     assistantDoc: '{$tagGuide}',
+    tagGuideContent: '',
     assistantAskBackground: '',
     userWorldInfo: `Content Provider:
 <worldInfo>
@@ -99,6 +101,49 @@ export function buildCharacterInfoForLLM(presentCharacters) {
 ${lines.join('\n')}`;
 }
 
+function collectWorldInfoSections(result) {
+    const sections = [];
+    const pushText = (title, text) => {
+        const content = String(text || '').trim();
+        if (content) sections.push(`【${title}】\n${content}`);
+    };
+
+    pushText('酒馆世界书-前置', result?.worldInfoBefore);
+    if (Array.isArray(result?.worldInfoDepth)) {
+        const depthText = result.worldInfoDepth
+            .flatMap(item => Array.isArray(item?.entries) ? item.entries : [])
+            .map(entry => String(entry || '').trim())
+            .filter(Boolean)
+            .join('\n');
+        pushText('酒馆世界书-深度', depthText);
+    }
+    pushText('酒馆世界书-后置', result?.worldInfoAfter);
+    return sections;
+}
+
+async function buildNativeWorldInfoForDraw(messageText, presentCharacters) {
+    try {
+        const charNames = (presentCharacters || []).map(c => c?.name).filter(Boolean).join(' ');
+        const scanChat = [messageText, charNames].map(v => String(v || '').trim()).filter(Boolean);
+        if (!scanChat.length) return '';
+
+        const result = await getWorldInfoPrompt(scanChat, 8192, true, { trigger: 'normal' });
+        return collectWorldInfoSections(result).join('\n\n').trim();
+    } catch (error) {
+        console.warn('[Draw Scene Planner] 酒馆世界书扫描失败:', error);
+        return '';
+    }
+}
+
+function combineWorldInfoEntries({ uploadedEntries = '', nativeEntries = '' } = {}) {
+    const sections = [];
+    const uploaded = String(uploadedEntries || '').trim();
+    const native = String(nativeEntries || '').trim();
+    if (native) sections.push(`### 酒馆当前世界书\n${native}`);
+    if (uploaded) sections.push(`### 画图上传世界书\n${uploaded}`);
+    return sections.join('\n\n').trim();
+}
+
 export async function generateScenePlan(options) {
     const {
         messageText,
@@ -119,7 +164,7 @@ export async function generateScenePlan(options) {
         throw new LLMServiceError('消息内容为空', 'EMPTY_MESSAGE');
     }
     const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
-    const effectiveTagGuide = getEffectiveTagGuide(customPrompts?.tagGuideContent);
+    const effectiveTagGuide = getEffectiveTagGuide(promptConfig.tagGuideContent);
     const charInfo = buildCharacterInfoForLLM(presentCharacters);
 
     const topMessages = [];
@@ -145,15 +190,20 @@ export async function generateScenePlan(options) {
         content: promptConfig.assistantAskBackground
     });
 
+    const nativeWorldInfo = useWorldInfo ? await buildNativeWorldInfoForDraw(messageText, presentCharacters) : '';
+    const combinedWorldInfo = combineWorldInfoEntries({
+        uploadedEntries: worldbookEntries,
+        nativeEntries: nativeWorldInfo,
+    });
+
     let worldInfoContent = promptConfig.userWorldInfo;
-    if (worldbookEntries && worldbookEntries.trim()) {
-        // 高级模式：使用自定义世界书条目替换占位符
-        worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, () => worldbookEntries);
+    if (combinedWorldInfo) {
+        worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, () => combinedWorldInfo);
     } else if (!useWorldInfo) {
         // 未启用世界书：清除占位符，避免残留在 prompt 中
         worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
     } else {
-        // useWorldInfo=true 但无自定义条目：保留当前旧行为，清除占位符避免裸文本残留
+        // 启用酒馆世界书但未命中条目：清除占位符，避免裸文本残留
         worldInfoContent = worldInfoContent.replace(/\{\$worldInfo\}/gi, '');
     }
     topMessages.push({

@@ -4,8 +4,10 @@ import { replaceXbGetVarInString, replaceXbGetVarYamlInString } from "../../vari
 import { resolveApiBaseUrl, getDefaultApiPrefix } from "../../../shared/common/openai-url-utils.js";
 import { readSseEventsFromResponse } from "../../../shared/host-llm/chat-completions/sse.js";
 
+const DRAW_CHAT_COMPLETIONS_STATUS_ENDPOINT = '/api/backends/chat-completions/status';
 const DRAW_CHAT_COMPLETIONS_ENDPOINT = '/api/backends/chat-completions/generate';
 const SUPPORTED_DRAW_PROVIDERS = new Set(['st', 'openai', 'claude', 'google', 'gemini', 'anthropic']);
+let lastDrawLlmRequestSnapshot = null;
 
 function cloneJson(value) {
     try {
@@ -13,6 +15,31 @@ function cloneJson(value) {
     } catch {
         return value;
     }
+}
+
+function redactPayload(value) {
+    const cloned = cloneJson(value);
+    const sensitiveKey = /^(proxy_password|api_key|key|password|authorization|x-api-key|custom_include_headers|custom_include_body)$/i;
+    const visit = (item) => {
+        if (!item || typeof item !== 'object') return;
+        if (Array.isArray(item)) {
+            item.forEach(visit);
+            return;
+        }
+        for (const [key, nested] of Object.entries(item)) {
+            if (sensitiveKey.test(key) && nested) {
+                item[key] = '***';
+            } else {
+                visit(nested);
+            }
+        }
+    };
+    visit(cloned);
+    return cloned;
+}
+
+export function getLastDrawLlmRequestSnapshot() {
+    return cloneJson(lastDrawLlmRequestSnapshot);
 }
 
 function normalizeText(value) {
@@ -287,6 +314,83 @@ function buildProviderPayload(llmApi, messages, stream) {
     return payload;
 }
 
+function buildProviderStatusPayload(llmApi) {
+    const api = normalizeDrawLlmApi(llmApi);
+    let source = '';
+    let reverseProxy = '';
+    let proxyPassword = '';
+
+    if (api.provider === 'openai') {
+        source = chat_completion_sources.OPENAI;
+        reverseProxy = api.url ? resolveApiBaseUrl(api.url, getDefaultApiPrefix('openai')) : '';
+        proxyPassword = api.key;
+    } else if (api.provider === 'google') {
+        source = chat_completion_sources.MAKERSUITE;
+        reverseProxy = api.url ? resolveGeminiBackendBaseUrl(api.url) : '';
+        proxyPassword = api.key;
+    } else if (api.provider === 'claude') {
+        throw new Error('Claude 渠道暂不支持从酒馆后端拉取模型列表，请手动填写模型 ID。');
+    } else {
+        throw new Error('当前渠道无需拉取模型列表。');
+    }
+
+    if (!proxyPassword) {
+        throw new Error('请先填写 API KEY。');
+    }
+
+    const payload = {
+        chat_completion_source: source,
+        reverse_proxy: reverseProxy,
+        proxy_password: proxyPassword,
+    };
+
+    Object.keys(payload).forEach((key) => {
+        if (payload[key] === undefined || payload[key] === '') delete payload[key];
+    });
+
+    return payload;
+}
+
+function extractModelIds(data) {
+    const list = Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.models)
+            ? data.models
+            : [];
+    return [...new Set(list
+        .map((item) => String(item?.id || item?.name || item || '').replace(/^models\//, '').trim())
+        .filter(Boolean))];
+}
+
+export async function fetchDrawLlmModels(llmApi = {}, { signal = null } = {}) {
+    const payload = buildProviderStatusPayload(llmApi);
+    const response = await fetch(DRAW_CHAT_COMPLETIONS_STATUS_ENDPOINT, {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        cache: 'no-cache',
+        body: JSON.stringify(payload),
+        signal,
+    });
+
+    const rawText = await response.text();
+    let data = null;
+    try {
+        data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+        throw new Error(rawText || '模型列表返回不是 JSON');
+    }
+
+    const models = extractModelIds(data);
+    if (!response.ok || (data?.error && !models.length)) {
+        throw new Error(data?.message || data?.error?.message || rawText || `HTTP ${response.status}`);
+    }
+    if (!models.length) {
+        throw new Error('未获取到模型列表');
+    }
+
+    return models;
+}
+
 function convertTrailingAssistantForClaude(messages, llmApi) {
     const provider = normalizeDrawLlmApi(llmApi).provider;
     const isClaude = provider === 'claude'
@@ -361,6 +465,14 @@ export async function callDrawScenePlannerLlm({
         .filter(message => String(message.content || '').trim());
 
     const payload = buildProviderPayload(llmApi, prepared, useStream);
+    lastDrawLlmRequestSnapshot = {
+        timestamp: Date.now(),
+        note: '前端发送给 SillyTavern /api/backends/chat-completions/generate 的请求快照；后端再转给 Claude/Gemini/OpenAI 后的最终上游格式前端无法直接看到。',
+        endpoint: DRAW_CHAT_COMPLETIONS_ENDPOINT,
+        provider: normalizeDrawLlmApi(llmApi).provider,
+        messages: cloneJson(prepared),
+        payload: redactPayload(payload),
+    };
     const abortable = createTimeoutSignal(Number(timeout) || 120000, signal);
 
     try {

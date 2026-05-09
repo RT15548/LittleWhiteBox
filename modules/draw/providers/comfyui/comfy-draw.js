@@ -6,7 +6,6 @@ import { getRequestHeaders } from "../../../../../../../../script.js";
 import { extensionFolderPath } from "../../../../core/constants.js";
 import { createModuleEvents, event_types } from "../../../../core/event-manager.js";
 import { ComfyDrawStorage } from "../../../../core/server-storage.js";
-import { getDefaultApiPrefix, getModelListCandidateUrls } from "../../../../shared/common/openai-url-utils.js";
 import {
     storePreview,
     storeFailedPlaceholder,
@@ -32,6 +31,7 @@ import {
     getSharedDrawSettings,
     updateSharedDrawSettingsPersistent,
 } from "../../shared/draw-settings.js";
+import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot } from "../../shared/draw-llm.js";
 import {
     findLastAIMessageId,
     createPlaceholder,
@@ -164,7 +164,7 @@ let imageDelegationBound = false;
 let autoBusy = false;
 const events = createModuleEvents(MODULE_KEY);
 const generationJobs = new Map();
-const COMFY_DRAW_VIEWS = ['test', 'api', 'workflow', 'params', 'llm', 'characters', 'gallery'];
+const COMFY_DRAW_VIEWS = ['test', 'api', 'workflow', 'params', 'llm', 'worldbook', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
 const FIXED_COMFY_REQUEST_DELAY_MS = 1000;
 let activeComfyImageRequest = null;
@@ -214,7 +214,7 @@ const BUILTIN_WORKFLOWS = [
 const providerDefaults = {
     st: { url: '', needKey: false, canFetch: false, needManualModel: false },
     openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
-    google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false, needManualModel: true },
+    google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: true, needManualModel: false },
     claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true },
 };
 
@@ -1353,6 +1353,9 @@ function bindOverlayEvents() {
     querySettings('#comfy-shared-llm-fetch')?.addEventListener('click', async () => {
         await fetchSharedLlmModels();
     });
+    querySettings('#comfy-llm-request-refresh')?.addEventListener('click', () => {
+        renderLastLlmRequestPreview();
+    });
     querySettings('#comfy-filter-add')?.addEventListener('click', () => {
         renderFilterRuleRow({ start: '', end: '' });
     });
@@ -1367,9 +1370,11 @@ function bindOverlayEvents() {
             errorText: '过滤规则保存失败，请重试',
         });
     });
+    bindWorldbookUploadEvents();
     querySettingsAll('[data-comfy-save-shared]').forEach((button) => {
         button.addEventListener('click', async (event) => {
-            await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId: 'comfy-shared-status' });
+            const statusElementId = event.currentTarget.dataset.comfyStatus || 'comfy-shared-status';
+            await saveAllSettings({ notify: true, triggerButton: event.currentTarget, statusElementId });
         });
     });
     querySettings('#comfy-shared-character-list')?.addEventListener('click', (event) => {
@@ -1650,6 +1655,9 @@ function switchSettingsView(viewName = 'test') {
     });
     if (normalized === 'gallery') {
         void renderGalleryManagement();
+    }
+    if (normalized === 'llm') {
+        renderLastLlmRequestPreview();
     }
 }
 
@@ -1960,27 +1968,10 @@ async function fetchSharedLlmModels() {
     const key = getValue('comfy-shared-llm-key').trim();
     const button = getSettingsElement('comfy-shared-llm-fetch');
 
-    if (provider !== 'openai') {
+    if (provider === 'st') {
         updateStatusText('comfy-shared-status', 'error', '当前渠道无需拉取模型列表');
         return false;
     }
-
-    if (!key) {
-        updateStatusText('comfy-shared-status', 'error', '请先填写 LLM API Key');
-        return false;
-    }
-
-    const tryFetch = async (requestUrl) => {
-        try {
-            const response = await fetch(requestUrl, {
-                headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
-            });
-            if (!response.ok) return null;
-            return (await response.json())?.data?.map((item) => item?.id).filter(Boolean) || null;
-        } catch {
-            return null;
-        }
-    };
 
     if (button) {
         button.disabled = true;
@@ -1989,12 +1980,7 @@ async function fetchSharedLlmModels() {
     updateStatusText('comfy-shared-status', '', '正在连接并拉取模型列表...');
 
     try {
-        let models = null;
-        for (const requestUrl of getModelListCandidateUrls(url, getDefaultApiPrefix(provider))) {
-            models = await tryFetch(requestUrl);
-            if (models?.length) break;
-        }
-        if (!models?.length) throw new Error('未获取到模型列表');
+        const models = await fetchDrawLlmModels({ provider, url, key });
 
         await updateSharedDrawSettingsPersistent((settings) => {
             settings.llmApi = {
@@ -2064,6 +2050,208 @@ function collectFilterRules() {
             end: String(row.querySelector('[data-comfy-filter-field="end"]')?.value || '').trim(),
         }))
         .filter((rule) => rule.start || rule.end);
+}
+
+function parseWorldbookJson(jsonText, fileName) {
+    const data = JSON.parse(jsonText);
+    if (!data.entries || typeof data.entries !== 'object') {
+        throw new Error('不是有效的世界书文件（缺少 entries 字段）');
+    }
+    const entries = [];
+    for (const [uid, entry] of Object.entries(data.entries)) {
+        if (!entry || typeof entry !== 'object') continue;
+        const content = String(entry.content || '').trim();
+        if (!content) continue;
+        entries.push({
+            uid: Number(uid),
+            comment: String(entry.comment || ''),
+            key: Array.isArray(entry.key) ? entry.key : (entry.key ? [entry.key] : []),
+            keysecondary: Array.isArray(entry.keysecondary) ? entry.keysecondary : [],
+            constant: entry.constant === true,
+            disable: entry.disable === true,
+            content,
+            order: entry.order ?? 100,
+        });
+    }
+    if (!entries.length) {
+        throw new Error('世界书中无有效条目（所有条目缺少 content）');
+    }
+    return { name: fileName, uploadedAt: Date.now(), entries };
+}
+
+async function handleWorldbookFiles(files) {
+    const sharedDrawSettings = getSharedDrawSettings();
+    const worldbooks = sharedDrawSettings.worldbooks || {};
+    const uploaded = Array.isArray(worldbooks.uploadedBooks) ? [...worldbooks.uploadedBooks] : [];
+    const errors = [];
+    let added = 0;
+
+    for (const file of Array.from(files || [])) {
+        if (!file.name.toLowerCase().endsWith('.json')) {
+            errors.push(`${file.name}: 不是 .json 文件`);
+            continue;
+        }
+        try {
+            const book = parseWorldbookJson(await file.text(), file.name);
+            const existingIndex = uploaded.findIndex((item) => item.name === book.name);
+            if (existingIndex >= 0) uploaded[existingIndex] = book;
+            else uploaded.push(book);
+            added++;
+        } catch (error) {
+            errors.push(`${file.name}: ${error?.message || '解析失败'}`);
+        }
+    }
+
+    sharedDrawSettings.worldbooks = { ...worldbooks, uploadedBooks: uploaded };
+    renderUploadedBooks(uploaded);
+    if (added > 0) {
+        updateStatusText('comfy-shared-status', 'success', `已读取 ${added} 个世界书，请点击保存配置`);
+        updateStatusText('comfy-worldbook-status', 'success', `已读取 ${added} 个世界书，请点击保存配置`);
+    }
+    if (errors.length) {
+        const container = getSettingsElement('comfy-wb-entries');
+        if (container) {
+            const message = container.ownerDocument.createElement('p');
+            message.className = 'form-hint';
+            message.style.color = 'var(--danger)';
+            message.textContent = errors.join('\n');
+            container.replaceChildren(message);
+        }
+    }
+}
+
+function renderUploadedBooks(books = []) {
+    const container = getSettingsElement('comfy-wb-uploaded-list');
+    if (!container) return;
+    const normalized = Array.isArray(books) ? books : [];
+    if (!normalized.length) {
+        const empty = container.ownerDocument.createElement('p');
+        empty.className = 'form-hint';
+        empty.textContent = '尚未上传世界书';
+        container.replaceChildren(empty);
+        const entries = getSettingsElement('comfy-wb-entries');
+        if (entries) {
+            const hint = entries.ownerDocument.createElement('p');
+            hint.className = 'form-hint';
+            hint.textContent = '请先上传世界书';
+            entries.replaceChildren(hint);
+        }
+        return;
+    }
+    const doc = container.ownerDocument;
+    const items = normalized.map((book, index) => {
+        const entries = Array.isArray(book.entries) ? book.entries : [];
+        const activeCount = entries.filter((entry) => !entry.disable).length;
+        const item = doc.createElement('div');
+        item.className = 'wb-book-item';
+        item.dataset.index = String(index);
+        const name = doc.createElement('span');
+        name.className = 'wb-book-name';
+        name.textContent = book.name || `世界书 ${index + 1}`;
+        const count = doc.createElement('span');
+        count.className = 'wb-book-count';
+        count.textContent = `${activeCount}/${entries.length} 条目`;
+        const del = doc.createElement('button');
+        del.className = 'wb-book-delete';
+        del.dataset.index = String(index);
+        del.type = 'button';
+        del.title = '移除';
+        const icon = doc.createElement('i');
+        icon.className = 'fa-solid fa-xmark';
+        del.append(icon);
+        item.append(name, count, del);
+        return item;
+    });
+    container.replaceChildren(...items);
+
+    container.querySelectorAll('.wb-book-item').forEach((item) => {
+        item.addEventListener('click', (event) => {
+            if (event.target.closest('.wb-book-delete')) return;
+            const book = normalized[Number(item.dataset.index)];
+            if (book) renderWorldbookEntries(book);
+        });
+    });
+    container.querySelectorAll('.wb-book-delete').forEach((button) => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const sharedDrawSettings = getSharedDrawSettings();
+            const worldbooks = sharedDrawSettings.worldbooks || {};
+            const nextBooks = Array.isArray(worldbooks.uploadedBooks) ? [...worldbooks.uploadedBooks] : [];
+            nextBooks.splice(Number(button.dataset.index), 1);
+            sharedDrawSettings.worldbooks = { ...worldbooks, uploadedBooks: nextBooks };
+            renderUploadedBooks(nextBooks);
+            updateStatusText('comfy-shared-status', '', '已移除，请点击保存配置');
+            updateStatusText('comfy-worldbook-status', '', '已移除，请点击保存配置');
+        });
+    });
+}
+
+function renderWorldbookEntries(book) {
+    const container = getSettingsElement('comfy-wb-entries');
+    if (!container) return;
+    const entries = Array.isArray(book.entries) ? book.entries : [];
+    if (!entries.length) {
+        const empty = container.ownerDocument.createElement('p');
+        empty.className = 'form-hint';
+        empty.textContent = `${book.name || '世界书'}: 无条目`;
+        container.replaceChildren(empty);
+        return;
+    }
+    const doc = container.ownerDocument;
+    const title = doc.createElement('p');
+    title.className = 'form-hint';
+    title.style.marginBottom = '8px';
+    title.textContent = `${book.name || '世界书'} (${entries.length} 条)`;
+    const entryItems = entries.map((entry) => {
+            const state = entry.disable ? 'disabled' : (entry.constant ? 'constant' : 'normal');
+            const label = entry.disable ? '已禁用' : (entry.constant ? '常驻' : '关键词触发');
+            const keys = (entry.key || []).filter(Boolean).join(', ');
+            const item = doc.createElement('div');
+            item.className = 'wb-entry-item';
+            const lamp = doc.createElement('div');
+            lamp.className = `wb-lamp ${state}`;
+            lamp.title = label;
+            const info = doc.createElement('div');
+            info.className = 'wb-entry-info';
+            const entryTitle = doc.createElement('div');
+            entryTitle.className = 'wb-entry-title';
+            entryTitle.textContent = entry.comment || '(未命名)';
+            info.append(entryTitle);
+            if (keys) {
+                const keyLine = doc.createElement('div');
+                keyLine.className = 'wb-entry-keys';
+                keyLine.textContent = `关键词: ${keys}`;
+                info.append(keyLine);
+            }
+            const preview = doc.createElement('div');
+            preview.className = 'wb-entry-preview';
+            preview.textContent = String(entry.content || '').slice(0, 200);
+            info.append(preview);
+            item.append(lamp, info);
+            return item;
+        });
+    container.replaceChildren(title, ...entryItems);
+}
+
+function bindWorldbookUploadEvents() {
+    const dropzone = getSettingsElement('comfy-wb-dropzone');
+    const fileInput = getSettingsElement('comfy-wb-file-input');
+    if (!dropzone || !fileInput) return;
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        dropzone.classList.add('dragover');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (event) => {
+        event.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (event.dataTransfer?.files?.length) void handleWorldbookFiles(event.dataTransfer.files);
+    });
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files?.length) void handleWorldbookFiles(fileInput.files);
+        fileInput.value = '';
+    });
 }
 
 function parseDanbooruCharName(tagName) {
@@ -2277,10 +2465,14 @@ function fillSharedDrawForm() {
     setChecked('comfy-shared-use-stream', sharedDrawSettings.useStream === true);
     setChecked('comfy-shared-use-worldinfo', sharedDrawSettings.useWorldInfo === true);
     setChecked('comfy-shared-disable-prefill', sharedDrawSettings.disablePrefill === true);
+    setChecked('comfy-wb-enabled', sharedDrawSettings.worldbooks?.enabled === true);
+    setSelectValue('comfy-wb-filter-mode', sharedDrawSettings.worldbooks?.keywordFilterMode || 'auto');
+    renderUploadedBooks(sharedDrawSettings.worldbooks?.uploadedBooks || []);
     fillSharedLlmModelFields();
     updateSharedLlmProviderUI();
     renderFilterRules(sharedDrawSettings.messageFilterRules || []);
     renderCharacterTagList(sharedDrawSettings.characterTags || []);
+    renderLastLlmRequestPreview();
     void ensureComfyDanbooruLoadedForForm(sharedDrawSettings);
 }
 
@@ -2299,6 +2491,12 @@ async function saveSharedDrawSettings({ notify = false } = {}) {
         settings.disablePrefill = getChecked('comfy-shared-disable-prefill');
         settings.messageFilterRules = collectFilterRules();
         settings.characterTags = characterTags;
+        settings.worldbooks = {
+            ...(settings.worldbooks || {}),
+            enabled: getChecked('comfy-wb-enabled'),
+            uploadedBooks: getSharedDrawSettings().worldbooks?.uploadedBooks || [],
+            keywordFilterMode: getValue('comfy-wb-filter-mode') || 'auto',
+        };
     }, '共享规划设置已保存', { notify, silent: false });
 }
 
@@ -2582,6 +2780,15 @@ function updateStatusText(elementId, state, text) {
     el.className = `status-text${state ? ` ${state}` : ''}`;
 }
 
+function renderLastLlmRequestPreview() {
+    const preview = getSettingsElement('comfy-llm-request-preview');
+    if (!preview) return;
+    const snapshot = getLastDrawLlmRequestSnapshot();
+    preview.textContent = snapshot
+        ? JSON.stringify(snapshot, null, 2)
+        : '暂无请求记录，请先触发一次画图分析。';
+}
+
 async function withSaveTimeout(promise) {
     try {
         return await promise;
@@ -2797,17 +3004,15 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     const presentCharacters = detectPresentCharacters(messageText, sharedDrawSettings.characterTags || []);
     let worldbookEntries = null;
 
-    if (sharedDrawSettings.advancedMode) {
-        if (sharedDrawSettings.worldbooks?.enabled && sharedDrawSettings.worldbooks.uploadedBooks?.length) {
-            const processor = new WorldbookProcessor();
-            const charNames = presentCharacters.map(c => c.name).join(' ');
-            const allEntries = sharedDrawSettings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
-            worldbookEntries = processor.processFromEntries({
-                entries: allEntries,
-                contextText: `${messageText} ${charNames}`,
-                keywordFilterMode: sharedDrawSettings.worldbooks.keywordFilterMode || 'auto',
-            });
-        }
+    if (sharedDrawSettings.worldbooks?.enabled && sharedDrawSettings.worldbooks.uploadedBooks?.length) {
+        const processor = new WorldbookProcessor();
+        const charNames = presentCharacters.map(c => c.name).join(' ');
+        const allEntries = sharedDrawSettings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
+        worldbookEntries = processor.processFromEntries({
+            entries: allEntries,
+            contextText: `${messageText} ${charNames}`,
+            keywordFilterMode: sharedDrawSettings.worldbooks.keywordFilterMode || 'auto',
+        });
     }
 
     let planRaw;
@@ -2818,7 +3023,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
             presentCharacters,
             llmApi: sharedDrawSettings.llmApi,
             useStream: sharedDrawSettings.useStream,
-            useWorldInfo: (sharedDrawSettings.advancedMode && sharedDrawSettings.worldbooks?.enabled) ? false : sharedDrawSettings.useWorldInfo,
+            useWorldInfo: sharedDrawSettings.useWorldInfo,
             customPrompts: COMFY_SCENE_PROMPTS,
             promptDefaults: COMFY_SCENE_PROMPTS,
             worldbookEntries,

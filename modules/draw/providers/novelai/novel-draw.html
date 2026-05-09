@@ -587,6 +587,12 @@ body.advanced-mode .nd-simple-only { display: none !important; }
     max-height: 200px; overflow-y: auto; color: var(--text-muted);
 }
 .chain-item.expanded .chain-content-preview { display: block; }
+.llm-request-preview {
+    margin-top: 10px; padding: 12px; max-height: 360px; overflow: auto;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-secondary); font-family: monospace; font-size: 11px; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-word;
+}
 </style>
 </head>
 
@@ -634,9 +640,9 @@ body.advanced-mode .nd-simple-only { display: none !important; }
             <div class="nav-divider"></div>
             <div class="nav-item" data-view="characters"><i class="fa-solid fa-user-group"></i>角色标签</div>
             <div class="nav-item" data-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
-            <div class="nav-divider nd-advanced-only"></div>
+            <div class="nav-divider"></div>
             <div class="nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i>提示词模板</div>
-            <div class="nav-item nd-advanced-only" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i>世界书</div>
+            <div class="nav-item" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i>世界书</div>
         </nav>
 
         <!-- ═══════════════════════════════════════════════════════════════════
@@ -921,12 +927,6 @@ body.advanced-mode .nd-simple-only { display: none !important; }
 				</div>
 				<div class="form-group" style="margin-top:8px;">
 				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
-				        <input type="checkbox" id="nd_use_worldinfo"> 使用世界书
-				    </label>
-				    <p class="form-hint" style="margin-left:24px;">勾选后，注入世界书作为背景知识</p>
-				</div>
-				<div class="form-group" style="margin-top:8px;">
-				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
 				        <input type="checkbox" id="nd_disable_prefill"> 禁用尾部预填充
 				    </label>
 				    <p class="form-hint" style="margin-left:24px;">关闭 assistant prefill 注入（某些模型/API 不支持预填充时启用，合规检查和截断重生保留）</p>
@@ -954,13 +954,21 @@ body.advanced-mode .nd-simple-only { display: none !important; }
 
                 <div class="tip-box nd-simple-only">
                     <i class="fa-solid fa-info-circle"></i>
-                    <div>场景分析提示词由插件内置，无需配置。勾选「使用世界书」后，会注入世界书作为背景知识。</div>
+                    <div>场景分析提示词由插件内置，无需配置。世界书注入请到「世界书」页统一管理。</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">最近一次实际请求</div>
+                    <p class="form-hint">显示前端发送给 SillyTavern /api/backends/chat-completions/generate 的最近一次请求；后端再转上游后的最终格式前端无法直接看到。</p>
+                    <div class="btn-group" style="margin-top:8px;">
+                        <button id="nd_llm_request_refresh" class="btn btn-sm" type="button">刷新最近请求</button>
+                    </div>
+                    <pre id="nd_llm_request_preview" class="llm-request-preview">暂无请求记录，请先触发一次画图分析。</pre>
                 </div>
                 <div class="card advanced-toggle-box">
                     <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;font-weight:600;">
                         <input type="checkbox" id="nd_advanced_mode"> 高级模式
                     </label>
-                    <p class="form-hint" style="margin-left:24px;margin-top:4px;">开启后可自定义提示词模板并精细配置世界书注入</p>
+                    <p class="form-hint" style="margin-left:24px;margin-top:4px;">开启后可自定义提示词模板；世界书管理始终可见。</p>
                 </div>
             </div>
 
@@ -1206,17 +1214,25 @@ body.advanced-mode .nd-simple-only { display: none !important; }
             </div>
 
             <!-- ═══════════════════════════════════════════════════════════════
-                 世界书管理 (高级模式)
+                 世界书管理
                  ═══════════════════════════════════════════════════════════════ -->
             <div id="view-worldbook" class="view">
                 <div class="view-header">
                     <h2 class="view-title">世界书</h2>
-                    <p class="view-desc">上传世界书 JSON 文件用于生图上下文</p>
+                    <p class="view-desc">统一管理画图场景分析可注入的世界书来源</p>
                 </div>
 
                 <div class="card">
-                    <div class="card-title">上传世界书</div>
-                    <p class="form-hint">支持酒馆导出的 .json 世界书文件，可多选</p>
+                    <div class="card-title">酒馆当前世界书</div>
+                    <label class="check-row"><input type="checkbox" id="nd_use_worldinfo"> 使用酒馆当前世界书</label>
+                    <p class="form-hint" style="margin-left:12px;">使用 SillyTavern 当前已启用的世界书，按酒馆原生规则扫描当前楼层文本和角色名后注入。</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">画图上传世界书</div>
+                    <label class="check-row"><input type="checkbox" id="nd_wb_enabled"> 启用画图上传世界书</label>
+                    <p class="form-hint" style="margin-left:12px;">支持常驻、关键词、禁用的简化过滤；可与酒馆当前世界书同时开启。</p>
+                    <p class="form-hint" style="margin-top:12px;">支持酒馆导出的 .json 世界书文件，可多选。</p>
                     <input type="file" id="nd_wb_file_input" multiple accept=".json" style="display:none;">
                     <div id="nd_wb_dropzone" class="wb-dropzone">
                         <i class="fa-solid fa-cloud-arrow-up" style="font-size:24px;opacity:0.5;"></i>
@@ -1230,10 +1246,10 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                     <div class="form-group">
                         <label class="form-label">过滤模式</label>
                         <select id="nd_wb_filter_mode" class="input">
-                            <option value="auto">自动 (遵循灯状态)</option>
+                            <option value="auto">自动 (简化关键词过滤)</option>
                             <option value="all_active">全部激活条目</option>
                         </select>
-                        <p class="form-hint">「自动」模式下：绿灯条目始终包含、蓝灯条目按关键词匹配、禁用条目排除</p>
+                        <p class="form-hint">自动模式：常驻条目始终注入；普通条目按关键词匹配；禁用条目排除。该过滤是画图模块简化规则，不完全等同酒馆原生世界书。</p>
                     </div>
                 </div>
 
@@ -1248,6 +1264,7 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                 <div class="btn-group" style="margin-top:16px;">
                     <button id="nd_wb_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
                 </div>
+                <div id="nd_wb_status" class="status-text"></div>
             </div>
 
         </main>
@@ -1265,7 +1282,7 @@ body.advanced-mode .nd-simple-only { display: none !important; }
             <div class="mobile-nav-item" data-view="characters"><i class="fa-solid fa-user-group"></i><span>角色</span></div>
             <div class="mobile-nav-item" data-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
             <div class="mobile-nav-item nd-advanced-only" data-view="prompts"><i class="fa-solid fa-file-code"></i><span>提示词</span></div>
-            <div class="mobile-nav-item nd-advanced-only" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i><span>世界书</span></div>
+            <div class="mobile-nav-item" data-view="worldbook"><i class="fa-solid fa-book-atlas"></i><span>世界书</span></div>
         </div>
     </nav>
 
@@ -1332,7 +1349,7 @@ const CHARACTER_TYPES = [
 const providerDefaults = {
     st: { url: '', needKey: false, canFetch: false, needManualModel: false },
     openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
-    google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false, needManualModel: true },
+    google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: true, needManualModel: false },
     claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true }
 };
 
@@ -2150,6 +2167,8 @@ function applyAdvancedMode() {
 
     // 世界书
     const wb = state.worldbooks || {};
+    $('nd_use_worldinfo').checked = state.useWorldInfo === true;
+    $('nd_wb_enabled').checked = wb.enabled === true;
     $('nd_wb_filter_mode').value = wb.keywordFilterMode || 'auto';
     renderUploadedBooks(wb.uploadedBooks || []);
 }
@@ -2213,11 +2232,13 @@ async function handleWorldbookFiles(files) {
     if (added > 0) {
         state.worldbooks = { ...state.worldbooks, uploadedBooks: uploaded };
         renderUploadedBooks(uploaded);
+        updateStatus($('nd_wb_status'), 'success', `已读取 ${added} 个世界书，请点击保存配置`);
     }
 
     if (errors.length) {
         const container = $('nd_wb_entries');
         container.innerHTML = `<p class="form-hint" style="color:var(--danger);">${errors.map(escapeHtml).join('<br>')}</p>`;
+        updateStatus($('nd_wb_status'), 'error', `有 ${errors.length} 个文件读取失败`);
     }
 }
 
@@ -2256,8 +2277,17 @@ function renderUploadedBooks(books) {
             state.worldbooks = { ...state.worldbooks, uploadedBooks: uploaded };
             renderUploadedBooks(uploaded);
             $('nd_wb_entries').innerHTML = '<p class="form-hint">请先上传世界书</p>';
+            updateStatus($('nd_wb_status'), '', '已移除，请点击保存配置');
         });
     });
+}
+
+function renderLastLlmRequest(snapshot) {
+    const preview = $('nd_llm_request_preview');
+    if (!preview) return;
+    preview.textContent = snapshot
+        ? JSON.stringify(snapshot, null, 2)
+        : '暂无请求记录，请先触发一次画图分析。';
 }
 
 function renderWorldbookEntriesLocal(book) {
@@ -2404,7 +2434,6 @@ function applyLlmApi() {
     $('nd_llm_url').value = api.url || pv.url || '';
     $('nd_llm_key').value = api.key || '';
     $('nd_use_stream').checked = state.useStream !== false;
-    $('nd_use_worldinfo').checked = state.useWorldInfo === true;
     $('nd_disable_prefill').checked = state.disablePrefill === true;
     if (pv.needManualModel) $('nd_llm_model_manual').value = api.model || '';
     
@@ -2503,6 +2532,11 @@ window.addEventListener('message', event => {
             break;
             
         case 'STATUS':
+            if (data.target === 'worldbook') {
+                updateStatus($('nd_wb_status'), data.state, data.text);
+                if (data.state === 'success' || data.state === 'error') handleSaveResult(data.state === 'success');
+                break;
+            }
             updateStatus($('nd_status'), data.state, data.text);
             updateStatus($('nd_api_status'), data.state, data.text);
             updateStatus($('nd_llm_status'), data.state, data.text);
@@ -2563,6 +2597,10 @@ window.addEventListener('message', event => {
 
         case 'PROMPT_CHAIN_DATA':
             renderPromptChain(data.chain || []);
+            break;
+
+        case 'LAST_LLM_REQUEST_DATA':
+            renderLastLlmRequest(data.snapshot || null);
             break;
 
         case 'SYNC_SUMMARY_FILTER_RESULT': {
@@ -2852,9 +2890,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 modelCache: state.llmApi?.modelCache || []
             },
             useStream: $('nd_use_stream').checked,
-            useWorldInfo: $('nd_use_worldinfo').checked,
             disablePrefill: $('nd_disable_prefill').checked
         });
+    });
+    $('nd_llm_request_refresh').addEventListener('click', () => {
+        postToParent({ type: 'GET_LAST_LLM_REQUEST' });
     });
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -3076,10 +3116,10 @@ document.addEventListener('DOMContentLoaded', () => {
         setSavingState($('nd_wb_save'));
         const uploaded = state.worldbooks?.uploadedBooks || [];
         postToParent({ type: 'SAVE_WORLDBOOK_CONFIG', worldbooks: {
-            enabled: uploaded.length > 0,
+            enabled: $('nd_wb_enabled').checked,
             uploadedBooks: uploaded,
             keywordFilterMode: $('nd_wb_filter_mode').value || 'auto',
-        }});
+        }, useWorldInfo: $('nd_use_worldinfo').checked });
     });
 
     // ═══════════════════════════════════════════════════════════════════════

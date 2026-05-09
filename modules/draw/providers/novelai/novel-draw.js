@@ -23,7 +23,7 @@ import {
     generateScenePlan,
     parseImagePlan,
 } from '../../shared/scene-planner.js';
-import { normalizeDrawLlmApi } from '../../shared/draw-llm.js';
+import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot, normalizeDrawLlmApi } from '../../shared/draw-llm.js';
 import {
     loadTagGuide,
     loadPromptTemplates,
@@ -40,7 +40,6 @@ import {
     destroyCloudPresets
 } from './cloud-presets.js';
 import { postToIframe, isTrustedMessage } from "../../../../core/iframe-messaging.js";
-import { getDefaultApiPrefix, getModelListCandidateUrls } from "../../../../shared/common/openai-url-utils.js";
 import {
     loadLocalDanbooruDB, unloadLocalDanbooruDB,
     searchLocalDanbooru, isDanbooruDBLoaded,
@@ -2686,20 +2685,17 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         let planRaw;
         try {
-            // 高级模式：世界书处理 + 自定义提示词
             let worldbookEntries = null;
             let customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
-            if (settings.advancedMode) {
-                if (settings.worldbooks?.enabled && settings.worldbooks.uploadedBooks?.length) {
-                    const processor = new WorldbookProcessor();
-                    const charNames = presentCharacters.map(c => c.name).join(' ');
-                    const allEntries = settings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
-                    worldbookEntries = processor.processFromEntries({
-                        entries: allEntries,
-                        contextText: messageText + ' ' + charNames,
-                        keywordFilterMode: settings.worldbooks.keywordFilterMode || 'auto',
-                    });
-                }
+            if (settings.worldbooks?.enabled && settings.worldbooks.uploadedBooks?.length) {
+                const processor = new WorldbookProcessor();
+                const charNames = presentCharacters.map(c => c.name).join(' ');
+                const allEntries = settings.worldbooks.uploadedBooks.flatMap(b => b.entries || []);
+                worldbookEntries = processor.processFromEntries({
+                    entries: allEntries,
+                    contextText: messageText + ' ' + charNames,
+                    keywordFilterMode: settings.worldbooks.keywordFilterMode || 'auto',
+                });
             }
 
             planRaw = await generateScenePlan({
@@ -2707,7 +2703,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 presentCharacters,
                 llmApi: settings.llmApi,
                 useStream: settings.useStream,
-                useWorldInfo: (settings.advancedMode && settings.worldbooks?.enabled) ? false : settings.useWorldInfo,
+                useWorldInfo: settings.useWorldInfo,
                 customPrompts,
                 promptDefaults: DEFAULT_PROMPT_CONFIG,
                 worldbookEntries,
@@ -3259,9 +3255,9 @@ async function sendInitData() {
     }, 'LittleWhiteBox-NovelDraw');
 }
 
-function postStatus(state, text) {
+function postStatus(state, text, target = '') {
     const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
-    if (iframe) postToIframe(iframe, { type: 'STATUS', state, text }, 'LittleWhiteBox-NovelDraw');
+    if (iframe) postToIframe(iframe, { type: 'STATUS', state, text, target }, 'LittleWhiteBox-NovelDraw');
 }
 
 async function handleFrameMessage(event) {
@@ -3611,14 +3607,18 @@ async function handleFrameMessage(event) {
         }
 
         case 'SAVE_WORLDBOOK_CONFIG': {
-            await updateSettingsPersistent((settings) => {
+            const ok = await updateSettingsPersistent((settings) => {
+                if (typeof data.useWorldInfo === 'boolean') {
+                    settings.useWorldInfo = data.useWorldInfo;
+                }
                 if (data.worldbooks && typeof data.worldbooks === 'object') {
                     const allowed = ['enabled', 'uploadedBooks', 'keywordFilterMode'];
                     const clean = Object.fromEntries(allowed.filter(k => k in data.worldbooks).map(k => [k, data.worldbooks[k]]));
                     settings.worldbooks = { ...settings.worldbooks, ...clean };
                     if (!Array.isArray(settings.worldbooks.uploadedBooks)) settings.worldbooks.uploadedBooks = [];
                 }
-            }, '世界书配置已保存');
+            }, '世界书配置已保存', { notify: false });
+            postStatus(ok ? 'success' : 'error', ok ? '世界书配置已保存' : '世界书配置保存失败', 'worldbook');
             sendInitData();
             break;
         }
@@ -3627,32 +3627,7 @@ async function handleFrameMessage(event) {
             try {
                 postStatus('loading', '连接中...');
                 const apiCfg = normalizeDrawLlmApi(data.llmApi || {});
-                if (apiCfg.provider !== 'openai') {
-                    postStatus('error', '当前渠道无需拉取模型列表');
-                    break;
-                }
-                const apiKey = String(apiCfg.key || '').trim();
-                if (!apiKey) {
-                    postStatus('error', '请先填写 API KEY');
-                    break;
-                }
-
-                const tryFetch = async url => {
-                    try {
-                        const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } });
-                        if (!res.ok) return null;
-                        return (await res.json())?.data?.map(m => m?.id).filter(Boolean) || null;
-                    } catch {
-                        return null;
-                    }
-                };
-
-                let models = null;
-                for (const url of getModelListCandidateUrls(apiCfg.url, getDefaultApiPrefix(apiCfg.provider))) {
-                    models = await tryFetch(url);
-                    if (models?.length) break;
-                }
-                if (!models?.length) throw new Error('未获取到模型列表');
+                const models = await fetchDrawLlmModels(apiCfg);
 
                 const ok = await updateSettingsPersistent((settings) => {
                     settings.llmApi.provider = apiCfg.provider;
@@ -3778,6 +3753,16 @@ async function handleFrameMessage(event) {
             const chain = getPromptChainPreview(getSettings().customPrompts);
             const iframe = document.getElementById('xiaobaix-novel-draw-iframe');
             if (iframe) postToIframe(iframe, { type: 'PROMPT_CHAIN_DATA', chain }, 'LittleWhiteBox-NovelDraw');
+            break;
+        }
+
+        case 'GET_LAST_LLM_REQUEST': {
+            if (iframe) {
+                postToIframe(iframe, {
+                    type: 'LAST_LLM_REQUEST_DATA',
+                    snapshot: getLastDrawLlmRequestSnapshot(),
+                }, 'LittleWhiteBox-NovelDraw');
+            }
             break;
         }
 

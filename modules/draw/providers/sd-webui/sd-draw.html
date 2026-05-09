@@ -179,6 +179,12 @@ select.input { cursor: pointer; }
 .status-text { font-size: 12px; color: var(--text-secondary); margin-top: 8px; min-height: 18px; }
 .status-text.success { color: var(--success); }
 .status-text.error { color: var(--danger); }
+.llm-request-preview {
+    margin-top: 10px; padding: 12px; max-height: 360px; overflow: auto;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-secondary); font-family: monospace; font-size: 11px; line-height: 1.45;
+    white-space: pre-wrap; word-break: break-word;
+}
 .preview-box {
     display: none; margin-top: 16px; text-align: center;
     background: var(--bg-input); border-radius: 10px; padding: 16px;
@@ -272,6 +278,42 @@ select.input { cursor: pointer; }
     cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 3px;
 }
 .filter-rule-row .btn-del-rule:hover { color: var(--danger); background: rgba(255,0,0,.1); }
+.wb-book-list { display: flex; flex-direction: column; gap: 6px; }
+.wb-book-item {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 8px; cursor: pointer; transition: border-color 0.15s;
+}
+.wb-book-item:hover { border-color: var(--border-focus); }
+.wb-book-name { flex: 1; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-book-count { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.wb-book-delete {
+    background: none; border: none; color: var(--text-muted); cursor: pointer;
+    padding: 4px 6px; border-radius: 4px; flex-shrink: 0;
+}
+.wb-book-delete:hover { color: var(--danger); background: rgba(255,0,0,0.1); }
+.wb-dropzone {
+    border: 2px dashed var(--border); border-radius: 10px; padding: 28px 16px;
+    text-align: center; cursor: pointer; transition: all 0.15s; color: var(--text-secondary);
+    background: var(--bg-input);
+}
+.wb-dropzone:hover, .wb-dropzone.dragover {
+    border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+}
+.wb-dropzone p { margin: 0; font-size: 13px; }
+.wb-entry-list { margin-top: 8px; }
+.wb-entry-item {
+    display: flex; gap: 10px; padding: 10px; border-bottom: 1px solid var(--border);
+}
+.wb-entry-item:last-child { border-bottom: none; }
+.wb-lamp { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.wb-lamp.constant { background: var(--success); }
+.wb-lamp.normal { background: var(--warning); }
+.wb-lamp.disabled { background: var(--text-muted); }
+.wb-entry-info { flex: 1; min-width: 0; }
+.wb-entry-title { font-weight: 500; }
+.wb-entry-keys { color: var(--text-secondary); font-size: 11px; }
+.wb-entry-preview { color: var(--text-muted); font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .danbooru-panel {
     margin-top: 8px; padding: 12px; background: var(--bg-input);
     border: 1px solid var(--border); border-radius: 8px;
@@ -359,6 +401,7 @@ select.input { cursor: pointer; }
             <div class="nav-divider"></div>
             <div class="nav-item" data-sd-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</div>
             <div class="nav-item" data-sd-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</div>
+            <div class="nav-item" data-sd-view="worldbook"><i class="fa-solid fa-book-atlas"></i>世界书</div>
             <div class="nav-divider"></div>
             <div class="nav-item" data-sd-view="characters"><i class="fa-solid fa-user-group"></i>角色标签</div>
             <div class="nav-item" data-sd-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
@@ -605,10 +648,6 @@ select.input { cursor: pointer; }
                         <label class="check-row"><input type="checkbox" id="sd-shared-use-stream"> 启用流式生成</label>
                     </div>
                     <div class="form-group" style="margin-top:8px;">
-                        <label class="check-row"><input type="checkbox" id="sd-shared-use-worldinfo"> 使用世界书</label>
-                        <p class="form-hint" style="margin-left:12px;">勾选后，会把世界书内容注入到场景分析里。</p>
-                    </div>
-                    <div class="form-group" style="margin-top:8px;">
                         <label class="check-row"><input type="checkbox" id="sd-shared-disable-prefill"> 禁用尾部预填充</label>
                         <p class="form-hint" style="margin-left:12px;">某些模型或 API 不支持 prefill 时再开启。</p>
                     </div>
@@ -633,8 +672,68 @@ select.input { cursor: pointer; }
 
                 <div class="tip-box">
                     <i class="fa-solid fa-info-circle"></i>
-                    <div>这里配置的是 SD 场景分析用的 LLM 渠道。画图提示词和输出格式已经内置好，正常使用不用额外折腾。</div>
+                    <div>这里配置的是 SD 场景分析用的 LLM 渠道。世界书注入请到「世界书」页统一管理。</div>
                 </div>
+
+                <div class="card">
+                    <div class="card-title">最近一次实际请求</div>
+                    <p class="form-hint">显示前端发送给 SillyTavern /api/backends/chat-completions/generate 的最近一次请求；后端再转上游后的最终格式前端无法直接看到。</p>
+                    <div class="btn-group" style="margin-top:8px;">
+                        <button id="sd-llm-request-refresh" class="btn btn-sm" type="button">刷新最近请求</button>
+                    </div>
+                    <pre id="sd-llm-request-preview" class="llm-request-preview">暂无请求记录，请先触发一次画图分析。</pre>
+                </div>
+            </section>
+
+            <section class="view" data-sd-view-panel="worldbook">
+                <div class="view-header">
+                    <h2 class="view-title">世界书</h2>
+                    <p class="view-desc">统一管理画图场景分析可注入的世界书来源</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">酒馆当前世界书</div>
+                    <label class="check-row"><input type="checkbox" id="sd-shared-use-worldinfo"> 使用酒馆当前世界书</label>
+                    <p class="form-hint" style="margin-left:12px;">使用 SillyTavern 当前已启用的世界书，按酒馆原生规则扫描当前楼层文本和角色名后注入。</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">画图上传世界书</div>
+                    <label class="check-row"><input type="checkbox" id="sd-wb-enabled"> 启用画图上传世界书</label>
+                    <p class="form-hint" style="margin-left:12px;">支持常驻、关键词、禁用的简化过滤；可与酒馆当前世界书同时开启。</p>
+                    <p class="form-hint" style="margin-top:12px;">支持酒馆导出的 .json 世界书文件，可多选。</p>
+                    <input type="file" id="sd-wb-file-input" multiple accept=".json" style="display:none;">
+                    <div id="sd-wb-dropzone" class="wb-dropzone">
+                        <i class="fa-solid fa-cloud-arrow-up" style="font-size:24px;opacity:0.5;"></i>
+                        <p>点击或拖拽 .json 文件到此处</p>
+                    </div>
+                    <div id="sd-wb-uploaded-list" class="wb-book-list" style="margin-top:12px;"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">过滤设置</div>
+                    <div class="form-group">
+                        <label class="form-label">过滤模式</label>
+                        <select id="sd-wb-filter-mode" class="input">
+                            <option value="auto">自动 (简化关键词过滤)</option>
+                            <option value="all_active">全部激活条目</option>
+                        </select>
+                        <p class="form-hint">自动模式：常驻条目始终注入；普通条目按关键词匹配；禁用条目排除。该过滤是画图模块简化规则，不完全等同酒馆原生世界书。</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">条目预览</div>
+                    <p class="form-hint">点击已上传的世界书可预览其条目</p>
+                    <div id="sd-wb-entries" class="wb-entry-list">
+                        <p class="form-hint">请先上传世界书</p>
+                    </div>
+                </div>
+
+                <div class="btn-group" style="margin-top:16px;">
+                    <button class="btn btn-primary" type="button" data-sd-save-shared data-sd-status="sd-worldbook-status"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                </div>
+                <div id="sd-worldbook-status" class="status-text"></div>
             </section>
 
             <section class="view wide" data-sd-view-panel="characters">
@@ -737,6 +836,7 @@ select.input { cursor: pointer; }
             <div class="mobile-nav-item" data-sd-view="api"><i class="fa-solid fa-key"></i><span>API</span></div>
             <div class="mobile-nav-item" data-sd-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
             <div class="mobile-nav-item" data-sd-view="llm"><i class="fa-solid fa-robot"></i><span>LLM</span></div>
+            <div class="mobile-nav-item" data-sd-view="worldbook"><i class="fa-solid fa-book-atlas"></i><span>世界书</span></div>
             <div class="mobile-nav-item" data-sd-view="characters"><i class="fa-solid fa-user-group"></i><span>角色</span></div>
             <div class="mobile-nav-item" data-sd-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
         </div>

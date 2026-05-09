@@ -1,13 +1,13 @@
 /**
  * WorldbookProcessor — AI 画图共享世界书处理器
  *
- * 从上传的世界书条目中，按灯状态（绿灯/蓝灯/禁用）过滤，组装为 LLM 上下文。
+ * 从上传的世界书条目中，按简化规则（常驻/普通关键词/禁用）过滤，组装为 LLM 上下文。
  */
 
 export class WorldbookProcessor {
 
     /**
-     * 按灯状态和关键词过滤条目
+     * 按常驻、关键词和禁用状态过滤条目
      * @param {Array} entries  条目数组，需包含 key/keysecondary/constant/disable/content/order
      * @param {string} contextText  当前场景文本 + 角色名
      * @param {'auto'|'all_active'} mode
@@ -20,7 +20,7 @@ export class WorldbookProcessor {
             if (entry.constant) return true;
             if (mode === 'all_active') return true;
 
-            // auto 模式：蓝灯条目需关键词匹配
+            // auto 模式：普通关键词条目需关键词匹配
             // 主关键词 (key): OR — 任一命中即可
             // 次关键词 (keysecondary): AND — 全部命中才算（且需主关键词先命中）
             const primary = (entry.key || []).filter(k => k.trim());

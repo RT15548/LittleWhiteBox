@@ -74,6 +74,8 @@ mindful_prelude:
 `,
 
     assistantPrefill: `非常抱歉，请放心！现在继续重新完整生成YAML。`,
+
+    tagGuideContent: '',
 };
 
 /**
@@ -138,6 +140,7 @@ export async function loadTagGuide() {
         const response = await fetch(TAG_GUIDE_PATH, { cache: 'no-cache' });
         if (response.ok) {
             tagGuideContent = await response.text();
+            LLM_PROMPT_CONFIG.tagGuideContent = tagGuideContent;
             console.log('[NovelDraw Prompts] TAG编写指南已加载');
             return true;
         }
