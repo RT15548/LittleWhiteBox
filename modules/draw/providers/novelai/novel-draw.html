@@ -2643,8 +2643,12 @@ document.addEventListener('DOMContentLoaded', () => {
     
     $('nd_save_api').addEventListener('click', () => {
         setSavingState($('nd_save_api'));
-        postToParent({ type: 'SAVE_API_KEY', apiKey: $('nd_api_key').value.trim() });
-        postToParent({ type: 'SAVE_TIMEOUT', timeout: Number($('nd_timeout').value) * 1000 || 180000, requestDelay: parseDelay($('nd_delay').value) });
+        postToParent({
+            type: 'SAVE_API_CONFIG',
+            apiKey: $('nd_api_key').value.trim(),
+            timeout: Number($('nd_timeout').value) * 1000 || 180000,
+            requestDelay: parseDelay($('nd_delay').value)
+        });
     });
     
     $('nd_test_api').addEventListener('click', () => postToParent({ type: 'TEST_API', apiKey: $('nd_api_key').value.trim() }));

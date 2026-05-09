@@ -1023,6 +1023,7 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
     const next = normalizeSettings(s);
     next.updatedAt = Date.now();
     next.configVersion = CONFIG_VERSION;
+    const previous = settingsCache ? cloneSettingsObject(settingsCache) : null;
 
     console.log(
         '[NovelDraw] persistSettings:',
@@ -1036,9 +1037,10 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
     );
 
     try {
+        // 先切到最新内存态，避免“刚保存立刻生成”仍读到旧 key / 旧参数。
+        settingsCache = next;
         const ok = await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
         if (ok !== false) {
-            settingsCache = next;
             if (notify) {
                 postStatus('success', okText);
             }
@@ -1049,10 +1051,12 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
         if (notify) {
             postStatus('error', '保存失败');
         }
+        settingsCache = previous;
         console.warn('[NovelDraw] persistSettings: FAILED without throw');
         return false;
     } catch (e) {
         console.error('[NovelDraw] persistSettings: FAILED', e);
+        settingsCache = previous;
         if (notify) {
             postStatus('error', `保存失败：${e?.message || '网络异常'}`);
         }
@@ -3294,6 +3298,21 @@ async function handleFrameMessage(event) {
         case 'SAVE_API_KEY': {
             await updateSettingsPersistent((settings) => {
                 settings.apiKey = typeof data.apiKey === 'string' ? data.apiKey : settings.apiKey;
+            }, '已保存');
+            break;
+        }
+
+        case 'SAVE_API_CONFIG': {
+            await updateSettingsPersistent((settings) => {
+                if (typeof data.apiKey === 'string') {
+                    settings.apiKey = data.apiKey.trim();
+                }
+                if (typeof data.timeout === 'number' && data.timeout > 0) {
+                    settings.timeout = data.timeout;
+                }
+                if (data.requestDelay?.min > 0 && data.requestDelay?.max > 0) {
+                    settings.requestDelay = data.requestDelay;
+                }
             }, '已保存');
             break;
         }

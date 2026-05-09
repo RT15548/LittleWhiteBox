@@ -118,7 +118,6 @@ const generationJobs = new Map();
 const SD_DRAW_VIEWS = ['test', 'api', 'params', 'llm', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
 const FIXED_SD_REQUEST_DELAY_MS = 1000;
-const SETTINGS_SAVE_TIMEOUT_MS = 7000;
 let activeSdImageRequest = null;
 let sdImageRequestQueue = [];
 let sdImageRequestSeq = 0;
@@ -799,7 +798,7 @@ function bindOverlayEvents() {
             statusElementId: 'sd-draw-params-status',
             pendingText: '正在保存预设...',
             successText: '预设已保存到小白X配置文件',
-            errorText: '预设保存超时或失败，请重试',
+            errorText: '预设保存失败，请重试',
         });
         if (ok) fillForm(getSettings());
     });
@@ -835,7 +834,7 @@ function bindOverlayEvents() {
             statusElementId: 'sd-shared-status',
             pendingText: '正在保存过滤规则...',
             successText: '过滤规则已保存',
-            errorText: '过滤规则保存超时或失败，请重试',
+            errorText: '过滤规则保存失败，请重试',
         });
     });
     querySettingsAll('[data-sd-save-shared]').forEach((button) => {
@@ -1725,7 +1724,7 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
             statusElementId,
             pendingText: '正在保存...',
             successText: '已保存到小白X服务端配置',
-            errorText: '保存超时或失败，请重试',
+            errorText: '保存失败，请重试',
             notify,
         });
         if (ok) await runPostSaveHooks();
@@ -1734,9 +1733,9 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
 
     let ok = false;
     try {
-        ok = await withTimeout(saveTask(), SETTINGS_SAVE_TIMEOUT_MS);
+        ok = await saveTask();
     } catch (error) {
-        console.warn('[SdDraw] 保存操作超时或失败:', error);
+        console.warn('[SdDraw] 保存操作失败:', error);
         ok = false;
     }
 
@@ -1747,14 +1746,14 @@ async function saveAllSettings({ notify = false, triggerButton = null, statusEle
         updateStatusText(
             statusElementId,
             ok ? 'success' : 'error',
-            ok ? '已保存到小白X服务端配置' : '保存超时或失败，请重试',
+            ok ? '已保存到小白X服务端配置' : '保存失败，请重试',
         );
     }
 
     if (ok && notify) {
         toastr.success('SD WebUI 与共享规划设置已保存');
     } else if (!ok && notify) {
-        toastr.error('SD WebUI 或共享规划设置保存超时/失败');
+        toastr.error('SD WebUI 或共享规划设置保存失败');
     }
     refreshSettingsSummary();
     return ok;
@@ -2066,19 +2065,11 @@ function updateStatusText(elementId, state, text) {
     el.className = `status-text${state ? ` ${state}` : ''}`;
 }
 
-function withTimeout(promise, timeoutMs, timeoutMessage = '保存超时，请重试') {
-    let timeoutId;
-    const timeout = new Promise((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-    });
-    return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
-}
-
 async function withSaveTimeout(promise) {
     try {
-        return await withTimeout(promise, SETTINGS_SAVE_TIMEOUT_MS);
+        return await promise;
     } catch (error) {
-        console.warn('[SdDraw] 保存操作超时或失败:', error);
+        console.warn('[SdDraw] 保存操作失败:', error);
         return false;
     }
 }
@@ -2087,16 +2078,16 @@ async function runSaveButtonTask(button, task, {
     statusElementId = '',
     pendingText = '正在保存...',
     successText = '已保存',
-    errorText = '保存超时或失败，请重试',
+    errorText = '保存失败，请重试',
     notify = false,
 } = {}) {
     if (statusElementId) updateStatusText(statusElementId, '', pendingText);
     setSavingState(button);
     let ok = false;
     try {
-        ok = await withTimeout(Promise.resolve().then(task), SETTINGS_SAVE_TIMEOUT_MS);
+        ok = await Promise.resolve().then(task);
     } catch (error) {
-        console.warn('[SdDraw] 保存操作超时或失败:', error);
+        console.warn('[SdDraw] 保存操作失败:', error);
         ok = false;
     }
     handleSaveResult(ok, button);
