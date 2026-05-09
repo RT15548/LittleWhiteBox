@@ -216,21 +216,52 @@ window.testRemoveUpdateUI = () => {
 };
 
 async function checkLittleWhiteBoxUpdate() {
+    const checkByManifestVersion = async () => {
+        try {
+            const timestamp = Date.now();
+            const localRes = await fetch(`${extensionFolderPath}/manifest.json?t=${timestamp}`, { cache: 'no-cache' });
+            if (!localRes.ok) return null;
+            const localManifest = await localRes.json();
+            const localVersion = localManifest.version;
+            const remoteRes = await fetch(`https://api.github.com/repos/RT15548/LittleWhiteBox/contents/manifest.json?t=${timestamp}`, { cache: 'no-cache' });
+            if (!remoteRes.ok) return null;
+            const remoteData = await remoteRes.json();
+            const remoteManifest = JSON.parse(atob(remoteData.content));
+            const remoteVersion = remoteManifest.version;
+            return localVersion !== remoteVersion ? { isUpToDate: false, localVersion, remoteVersion } : { isUpToDate: true, localVersion, remoteVersion };
+        } catch (e) {
+            return null;
+        }
+    };
+
     try {
-        const timestamp = Date.now();
-        const localRes = await fetch(`${extensionFolderPath}/manifest.json?t=${timestamp}`, { cache: 'no-cache' });
-        if (!localRes.ok) return null;
-        const localManifest = await localRes.json();
-        const localVersion = localManifest.version;
-        const remoteRes = await fetch(`https://api.github.com/repos/RT15548/LittleWhiteBox/contents/manifest.json?t=${timestamp}`, { cache: 'no-cache' });
-        if (!remoteRes.ok) return null;
-        const remoteData = await remoteRes.json();
-        const remoteManifest = JSON.parse(atob(remoteData.content));
-        const remoteVersion = remoteManifest.version;
-        return localVersion !== remoteVersion ? { isUpToDate: false, localVersion, remoteVersion } : { isUpToDate: true, localVersion, remoteVersion };
+        const detectedGlobal = await detectLittleWhiteBoxGlobalFlag();
+        const tryOrder = detectedGlobal === null ? [false, true] : [detectedGlobal, !detectedGlobal];
+
+        for (let i = 0; i < tryOrder.length; i++) {
+            const response = await requestLittleWhiteBoxVersion(tryOrder[i]);
+
+            if (response.ok) {
+                const data = await response.json();
+                if (typeof data?.isUpToDate === 'boolean') {
+                    return { ...data, source: 'git' };
+                }
+                break;
+            }
+
+            const text = await response.text();
+            const shouldRetry = i === 0 && (
+                response.status === 404
+                || response.status === 403
+                || /Directory does not exist|Forbidden|permission/i.test(text)
+            );
+
+            if (!shouldRetry) break;
+        }
     } catch (e) {
-        return null;
     }
+
+    return checkByManifestVersion();
 }
 
 async function detectLittleWhiteBoxGlobalFlag() {
@@ -262,6 +293,14 @@ async function detectLittleWhiteBoxGlobalFlag() {
 
 async function requestLittleWhiteBoxUpdate(globalFlag) {
     return fetch('/api/extensions/update', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ extensionName: EXT_ID, global: globalFlag }),
+    });
+}
+
+async function requestLittleWhiteBoxVersion(globalFlag) {
+    return fetch('/api/extensions/version', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({ extensionName: EXT_ID, global: globalFlag }),
