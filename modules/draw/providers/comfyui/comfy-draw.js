@@ -3147,6 +3147,50 @@ function syncContainerToPreview(container, preview, historyCount = 1, currentInd
     updateNavControls(container, currentIndex, historyCount);
 }
 
+async function getPreviewByImageId(container) {
+    const imgId = container?.dataset?.imgId || '';
+    if (!imgId) return null;
+    try {
+        return await getPreview(imgId);
+    } catch {
+        return null;
+    }
+}
+
+function buildEditedPromptData(sceneTags, characterPrompts = [], params = getEffectiveParams(getSettings())) {
+    const charPositive = (Array.isArray(characterPrompts) ? characterPrompts : [])
+        .map(item => item?.prompt)
+        .filter(Boolean)
+        .join(', ');
+    const charNegative = (Array.isArray(characterPrompts) ? characterPrompts : [])
+        .map(item => item?.uc)
+        .filter(Boolean)
+        .join(', ');
+    return {
+        positive: joinTags(params.positivePrefix || '', sceneTags, charPositive),
+        negative: joinTags(params.negativePrefix || '', charNegative),
+    };
+}
+
+function appendEditGroup(container, { label, value, type, index = null }) {
+    const group = document.createElement('div');
+    group.className = 'xb-nd-edit-group';
+
+    const labelEl = document.createElement('div');
+    labelEl.className = 'xb-nd-edit-group-label';
+    labelEl.textContent = label;
+    group.appendChild(labelEl);
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'xb-nd-edit-input';
+    textarea.dataset.type = type;
+    if (index !== null) textarea.dataset.index = String(index);
+    textarea.value = value || '';
+    group.appendChild(textarea);
+
+    container.appendChild(group);
+}
+
 async function navigateToImage(container, targetIndex) {
     const slotId = container.dataset.slotId;
     const historyCount = parseInt(container.dataset.historyCount) || 1;
@@ -3314,13 +3358,8 @@ async function toggleEditPanel(container, show) {
     );
 
     if (show) {
-        const imgId = container.dataset.imgId;
         const currentTags = container.dataset.tags || '';
-
-        let preview = null;
-        if (imgId) {
-            try { preview = await getPreview(imgId); } catch {}
-        }
+        const preview = await getPreviewByImageId(container);
 
         if (origLabel) origLabel.style.display = 'none';
         if (origTextarea) origTextarea.style.display = 'none';
@@ -3332,24 +3371,16 @@ async function toggleEditPanel(container, show) {
             editPanel.insertBefore(scrollWrap, editPanel.firstChild);
         }
 
-        let html = `
-            <div class="xb-nd-edit-group">
-                <div class="xb-nd-edit-group-label">🎬 场景</div>
-                <textarea class="xb-nd-edit-input" data-type="scene">${escapeHtml(currentTags)}</textarea>
-            </div>`;
+        scrollWrap.replaceChildren();
+        appendEditGroup(scrollWrap, { label: '场景', value: currentTags, type: 'scene' });
 
         if (preview?.characterPrompts?.length > 0) {
             preview.characterPrompts.forEach((char, i) => {
                 const name = char.name || `角色 ${i + 1}`;
-                html += `
-                <div class="xb-nd-edit-group">
-                    <div class="xb-nd-edit-group-label">👤 ${escapeHtml(name)}</div>
-                    <textarea class="xb-nd-edit-input" data-type="char" data-index="${i}">${escapeHtml(char.prompt || '')}</textarea>
-                </div>`;
+                appendEditGroup(scrollWrap, { label: name, value: char.prompt || '', type: 'char', index: i });
             });
         }
 
-        scrollWrap.innerHTML = html;
         editPanel.style.display = 'block';
 
         if (btnsPanel) {
@@ -3392,12 +3423,7 @@ async function saveEditedTags(container) {
         return;
     }
 
-    let originalPreview = null;
-    try {
-        originalPreview = await getPreview(imgId);
-    } catch (e) {
-        console.error('[Comfy-Draw] 获取原始预览失败:', e);
-    }
+    const originalPreview = await getPreviewByImageId(container);
 
     const charInputs = editPanel.querySelectorAll('textarea[data-type="char"]');
     let newCharPrompts = null;
@@ -3412,8 +3438,9 @@ async function saveEditedTags(container) {
         });
     }
 
+    const promptData = buildEditedPromptData(newSceneTags, newCharPrompts || originalPreview?.characterPrompts || []);
     container.dataset.tags = newSceneTags;
-    container.dataset.positive = newSceneTags;
+    container.dataset.positive = promptData.positive || newSceneTags;
 
     if (imgId && originalPreview) {
         try {
@@ -3421,7 +3448,8 @@ async function saveEditedTags(container) {
                 ...originalPreview,
                 characterPrompts: newCharPrompts || originalPreview.characterPrompts,
                 tags: newSceneTags,
-                positive: newSceneTags,
+                positive: promptData.positive || newSceneTags,
+                negativePrompt: promptData.negative || originalPreview.negativePrompt || '',
             });
         } catch (e) {
             console.error('[Comfy-Draw] 保存角色编辑失败:', e);
@@ -3436,7 +3464,10 @@ async function saveEditedTags(container) {
 async function refreshSingleImage(container) {
     const slotId = container.dataset.slotId;
     const messageId = Number(container.dataset.mesid);
-    const prompt = container.dataset.positive || container.dataset.tags || '';
+    const preview = await getPreviewByImageId(container);
+    const sceneTags = container.dataset.tags || preview?.tags || '';
+    const promptData = buildEditedPromptData(sceneTags, preview?.characterPrompts || []);
+    const prompt = promptData.positive || container.dataset.positive || sceneTags;
     if (!slotId || !prompt) return;
 
     try {
@@ -3446,14 +3477,15 @@ async function refreshSingleImage(container) {
         const params = getEffectiveParams(settings);
         const base64 = await generateComfyImageQueued({
             prompt,
-            negativePrompt: params.negativePrefix || '',
+            negativePrompt: promptData.negative || preview?.negativePrompt || params.negativePrefix || '',
             params,
         });
         const imgId = generateImgId();
         await storePreview({
             imgId, slotId, messageId, base64,
             tags: container.dataset.tags || prompt, positive: prompt,
-            negativePrompt: params.negativePrefix || '', anchor: '',
+            characterPrompts: preview?.characterPrompts || [],
+            negativePrompt: promptData.negative || preview?.negativePrompt || params.negativePrefix || '', anchor: '',
         });
         await setSlotSelection(slotId, imgId);
         const previews = await getPreviewsBySlot(slotId);

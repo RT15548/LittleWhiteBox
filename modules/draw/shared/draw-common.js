@@ -153,6 +153,7 @@ export function assembleCharacterPrompts(sceneChars, knownCharacters, options = 
 
         if (known) {
             return {
+                name: known.name || char.name,
                 prompt: joinTags(buildKnownCharacterBasePrompt(known, options), char.costume, char.action, char.interact),
                 uc: joinTags(known.negativeTags, char.uc),
                 center: gridToCoord(char.center) || { x: 0.5, y: 0.5 },
@@ -161,6 +162,7 @@ export function assembleCharacterPrompts(sceneChars, knownCharacters, options = 
 
         const danbooruTag = char.danbooru ? formatDanbooruTag(char.danbooru, options) : '';
         return {
+            name: char.name,
             prompt: joinTags(danbooruTag, char.type, char.appear, char.costume, char.action, char.interact),
             uc: char.uc || '',
             center: gridToCoord(char.center) || { x: 0.5, y: 0.5 },
@@ -292,6 +294,12 @@ export function ensureDrawImageStyles() {
 .xb-nd-dropdown button{width:32px;height:32px;border:none;background:transparent;color:rgba(255,255,255,0.85);cursor:pointer;font-size:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background 0.15s;padding:0;margin:0}
 .xb-nd-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.85);padding:8px 16px;border-radius:8px;color:#fff;font-size:12px;z-index:10}
 .xb-nd-edit{animation:nd-slide-up 0.2s ease-out}
+.xb-nd-edit-scroll{max-height:250px;overflow-y:auto;margin-bottom:8px}
+.xb-nd-edit-scroll::-webkit-scrollbar{width:4px}
+.xb-nd-edit-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.2);border-radius:2px}
+.xb-nd-edit-group{margin-bottom:8px}
+.xb-nd-edit-group:last-child{margin-bottom:0}
+.xb-nd-edit-group-label{font-size:10px;color:rgba(255,255,255,0.58);margin-bottom:4px}
 .xb-nd-edit-input{width:100%;min-height:60px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;font-size:12px;padding:8px;resize:vertical;font-family:monospace}
 .xb-nd-failed-icon{color:rgba(248,113,113,0.9);font-size:24px;margin-bottom:8px}
 .xb-nd-failed-title{color:rgba(255,255,255,0.7);font-size:13px;margin-bottom:4px}

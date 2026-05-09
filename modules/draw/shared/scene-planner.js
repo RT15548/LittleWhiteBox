@@ -298,8 +298,6 @@ export async function generateScenePlan(options) {
         xbLog.info("novelDrawLlm", `rawOutput(len=${rawOutput?.length || 0}): ${String(rawOutput || "").slice(0, 1200)}`);
     }
 
-    console.log('[ScenePlanner] LLM 原始输出 (完整):', rawOutput);
-
     return rawOutput;
 }
 
@@ -527,10 +525,7 @@ export function parseImagePlan(aiOutput) {
         throw new LLMServiceError('LLM 输出为空', 'EMPTY_OUTPUT');
     }
 
-    console.log('[ScenePlanner] cleanYamlInput 后:', text);
-
     const yamlResult = parseYamlImagePlan(text);
-    console.log('[ScenePlanner] parseYamlImagePlan 结果:', JSON.stringify(yamlResult, null, 2));
 
     if (yamlResult && yamlResult.length > 0) {
         console.log(`%c[LLM-Service] 解析成功: ${yamlResult.length} 个图片任务`, 'color: #3ecf8e');

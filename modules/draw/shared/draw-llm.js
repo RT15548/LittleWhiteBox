@@ -1,5 +1,5 @@
 import { chat, eventSource, event_types, getRequestHeaders, name1, name2, substituteParams } from "../../../../../../../script.js";
-import { chat_completion_sources, getChatCompletionModel, getStreamingReply, tryParseStreamingError, oai_settings } from "../../../../../../../scripts/openai.js";
+import { chat_completion_sources, getChatCompletionModel, getStreamingReply, oai_settings } from "../../../../../../../scripts/openai.js";
 import { replaceXbGetVarInString, replaceXbGetVarYamlInString } from "../../variables/var-commands.js";
 import { resolveApiBaseUrl, getDefaultApiPrefix } from "../../../shared/common/openai-url-utils.js";
 import { readSseEventsFromResponse } from "../../../shared/host-llm/chat-completions/sse.js";
@@ -418,6 +418,25 @@ function extractMessageText(data) {
     );
 }
 
+function getApiErrorMessage(data) {
+    if (!data || typeof data !== 'object') return '';
+    return data.error?.message
+        || data.detail?.error?.message
+        || data.detail?.message
+        || (typeof data.detail === 'string' ? data.detail : '')
+        || data.message
+        || '';
+}
+
+function parseApiErrorText(text) {
+    if (!text || typeof text !== 'string') return '';
+    try {
+        return getApiErrorMessage(JSON.parse(text));
+    } catch {
+        return '';
+    }
+}
+
 function mergeStreamText(current, incoming) {
     const next = String(incoming || '');
     const previous = String(current || '');
@@ -487,8 +506,7 @@ export async function callDrawScenePlannerLlm({
         if (useStream) {
             if (!response.ok) {
                 const text = await response.text().catch(() => '');
-                tryParseStreamingError(response, text, { quiet: true });
-                throw new Error(text || `HTTP ${response.status}`);
+                throw new Error(parseApiErrorText(text) || text || `HTTP ${response.status}`);
             }
             let output = '';
             let streamError = null;
@@ -496,10 +514,9 @@ export async function callDrawScenePlannerLlm({
             await readSseEventsFromResponse(response, (event) => {
                 const rawData = event?.data ?? event;
                 if (typeof rawData === 'string' && rawData !== '[DONE]') {
-                    try {
-                        tryParseStreamingError(response, rawData, { quiet: true });
-                    } catch (e) {
-                        streamError = e;
+                    const errorMessage = parseApiErrorText(rawData);
+                    if (errorMessage) {
+                        streamError = new Error(errorMessage);
                         return;
                     }
                 }
@@ -524,7 +541,7 @@ export async function callDrawScenePlannerLlm({
             throw new Error(rawText || error?.message || '返回不是 JSON');
         }
         if (!response.ok || data?.error) {
-            throw new Error(data?.error?.message || data?.message || data?.detail?.error?.message || rawText || `HTTP ${response.status}`);
+            throw new Error(getApiErrorMessage(data) || rawText || `HTTP ${response.status}`);
         }
         if (data?.message && !extractMessageText(data)) {
             throw new Error(data.message);
