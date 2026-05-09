@@ -30,7 +30,6 @@ import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
     loadSharedDrawSettings,
     getSharedDrawSettings,
-    getActiveSharedParamsPreset,
     updateSharedDrawSettingsPersistent,
 } from "../../shared/draw-settings.js";
 import {
@@ -238,6 +237,8 @@ function createDefaultPreset() {
         scheduler: 'normal',
         steps: 20,
         cfg: 7,
+        maxImages: 0,
+        maxCharactersPerImage: 0,
     };
 }
 
@@ -277,6 +278,8 @@ function normalizePresets(rawPresets, rawSettings = {}) {
         scheduler: String(preset.scheduler || 'normal'),
         steps: normalizeNumber(preset.steps, 20, 1, 150),
         cfg: normalizeNumber(preset.cfg, 7, 1, 30),
+        maxImages: normalizeNumber(preset.maxImages, 0, 0, 999),
+        maxCharactersPerImage: normalizeNumber(preset.maxCharactersPerImage, 0, 0, 999),
     }));
 }
 
@@ -1405,6 +1408,8 @@ function fillForm(settings) {
     updateSizePresetSelection();
     setValue('comfy-draw-positive-prefix', preset.positivePrefix);
     setValue('comfy-draw-negative-prefix', preset.negativePrefix);
+    setValue('comfy-draw-max-images', preset.maxImages || 0);
+    setValue('comfy-draw-max-chars', preset.maxCharactersPerImage || 0);
 
     // 模型配置页面
     populateModelSelect(settings.modelCache || []);
@@ -1477,6 +1482,8 @@ function readPresetFromForm() {
         scheduler: getValue('comfy-draw-scheduler'),
         steps: normalizeNumber(getValue('comfy-draw-steps'), 20, 1, 150),
         cfg: normalizeNumber(getValue('comfy-draw-cfg'), 7, 1, 30),
+        maxImages: normalizeNumber(getValue('comfy-draw-max-images'), 0, 0, 999),
+        maxCharactersPerImage: normalizeNumber(getValue('comfy-draw-max-chars'), 0, 0, 999),
     };
 }
 
@@ -2803,7 +2810,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
 
     let planRaw;
     try {
-        const preset = getActiveSharedParamsPreset();
+        const preset = getActivePreset(getSettings());
         planRaw = await generateScenePlan({
             messageText,
             presentCharacters,
@@ -2829,7 +2836,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     let tasks = parseImagePlan(planRaw);
     if (!tasks.length) throw new Error('未解析到图片任务');
 
-    const preset = getActiveSharedParamsPreset();
+    const preset = getActivePreset(getSettings());
     const maxImg = preset.maxImages || 0;
     const maxChar = preset.maxCharactersPerImage || 0;
     if (maxImg > 0 && tasks.length > maxImg) tasks = tasks.slice(0, maxImg);

@@ -460,6 +460,22 @@ select.input { cursor: pointer; }
                 </div>
 
                 <div class="card">
+                    <div class="card-title">场景规划</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">最大出图数</label>
+                            <input id="sd-draw-max-images" class="input" type="number" min="0" step="1" placeholder="0">
+                            <p class="form-hint">0 表示不限制；大于 0 时会要求 LLM 最多规划这么多张图。</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">单图最大角色数</label>
+                            <input id="sd-draw-max-chars" class="input" type="number" min="0" step="1" placeholder="0">
+                            <p class="form-hint">0 表示不限制；大于 0 时每张图最多保留这么多角色。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
                     <div class="card-title">模型与采样</div>
                     <div class="form-row">
                         <div class="form-group">

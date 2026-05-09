@@ -20,8 +20,9 @@ export const ErrorType = {
     AUTH: { code: 'auth', label: '认证', desc: '认证信息无效或过期' },
     QUOTA: { code: 'quota', label: '额度', desc: '额度不足' },
     BUSY: { code: 'busy', label: '繁忙', desc: '当前并发繁忙，请稍后重试' },
-    PARSE: { code: 'parse', label: '解析', desc: '返回格式无法解析' },
-    LLM: { code: 'llm', label: 'LLM', desc: '场景分析失败' },
+    PARSE: { code: 'parse', label: '解析失败', desc: 'LLM 输出未解析为图片任务' },
+    LLM: { code: 'llm', label: 'LLM失败', desc: '场景分析失败' },
+    LLM_EMPTY: { code: 'llm_empty', label: '空回', desc: 'LLM 未返回内容' },
     TIMEOUT: { code: 'timeout', label: '超时', desc: '请求超时' },
     UNKNOWN: { code: 'unknown', label: '错误', desc: '未知错误' },
     CACHE_LOST: { code: 'cache_lost', label: '缓存丢失', desc: '图片缓存已过期' },
@@ -234,7 +235,17 @@ export function findNearestSentenceEnd(mes, startPos) {
 }
 
 export function classifyError(error) {
-    if (error instanceof LLMServiceError) return ErrorType.LLM;
+    if (error instanceof LLMServiceError) {
+        const code = String(error.code || '').toUpperCase();
+        const message = String(error.message || '').toLowerCase();
+        if (code === 'EMPTY_OUTPUT' || message.includes('输出为空') || message.includes('未返回内容')) {
+            return ErrorType.LLM_EMPTY;
+        }
+        if (code === 'PARSE_ERROR' || message.includes('无法解析') || message.includes('未解析到图片任务')) {
+            return ErrorType.PARSE;
+        }
+        return ErrorType.LLM;
+    }
     if (error?.errorType) return error.errorType;
     const msg = String(error?.message || error || '').toLowerCase();
     if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) return ErrorType.NETWORK;
@@ -242,7 +253,9 @@ export function classifyError(error) {
     if (msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit') || msg.includes('请求频繁') || msg.includes('busy')) return ErrorType.BUSY;
     if (msg.includes('402') || msg.includes('anlas') || msg.includes('quota')) return ErrorType.QUOTA;
     if (msg.includes('timeout') || msg.includes('abort')) return ErrorType.TIMEOUT;
+    if (msg.includes('输出为空') || msg.includes('empty_output') || msg.includes('未返回内容')) return ErrorType.LLM_EMPTY;
     if (msg.includes('parse') || msg.includes('json')) return ErrorType.PARSE;
+    if (msg.includes('无法解析') || msg.includes('未解析到图片任务')) return ErrorType.PARSE;
     if (msg.includes('llm') || msg.includes('xbgenraw')) return ErrorType.LLM;
     return { ...ErrorType.UNKNOWN, desc: error?.message || '未知错误' };
 }

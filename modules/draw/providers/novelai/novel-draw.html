@@ -732,12 +732,14 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                 <div class="card">
                     <div class="card-title">🌐 全局标签</div>
                     <div class="form-group">
-                        <label class="form-label">正向固定</label>
+                        <label class="form-label">正向固定 / 画风固定</label>
                         <textarea id="nd_positive" class="input" rows="3" placeholder="masterpiece, best quality..."></textarea>
+                        <p class="form-hint">想稳定画风，请把固定风格、画师、年代、渲染方式等写在这里；LLM 只负责补当前剧情场景。</p>
                     </div>
                     <div class="form-group">
                         <label class="form-label">负向固定</label>
                         <textarea id="nd_negative" class="input" rows="3" placeholder="lowres, bad anatomy..."></textarea>
+                        <p class="form-hint">鬼图、畸形、风格污染相关的排除词也建议固定在这里。</p>
                     </div>
                 </div>
                 

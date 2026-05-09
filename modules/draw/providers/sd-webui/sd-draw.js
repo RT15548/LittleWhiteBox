@@ -30,7 +30,6 @@ import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
 import {
     loadSharedDrawSettings,
     getSharedDrawSettings,
-    getActiveSharedParamsPreset,
     updateSharedDrawSettingsPersistent,
 } from "../../shared/draw-settings.js";
 import {
@@ -162,6 +161,8 @@ function createDefaultPreset() {
         clip_skip: 1,
         positivePrefix: '',
         negativePrefix: '',
+        maxImages: 0,
+        maxCharactersPerImage: 0,
     };
 }
 
@@ -262,6 +263,8 @@ function normalizePresets(rawPresets, rawSettings = {}) {
         clip_skip: normalizeNumber(preset.clip_skip, DEFAULT_SD_DRAW_SETTINGS.defaultParams.clip_skip, 1, 12),
         positivePrefix: String(preset.positivePrefix ?? ''),
         negativePrefix: String(preset.negativePrefix ?? ''),
+        maxImages: normalizeNumber(preset.maxImages, 0, 0, 999),
+        maxCharactersPerImage: normalizeNumber(preset.maxCharactersPerImage, 0, 0, 999),
     }));
 }
 
@@ -889,6 +892,8 @@ function fillForm(settings) {
     updateHiresOptionsVisibility();
     setValue('sd-draw-positive-prefix', preset.positivePrefix);
     setValue('sd-draw-negative-prefix', preset.negativePrefix);
+    setValue('sd-draw-max-images', preset.maxImages || 0);
+    setValue('sd-draw-max-chars', preset.maxCharactersPerImage || 0);
     setSelectValue('sd-draw-model', preset.model || '');
     setSelectValue('sd-draw-sampler', preset.sampler_name || '');
     fillSharedDrawForm();
@@ -961,6 +966,8 @@ function readPresetFromForm() {
         clip_skip: normalizeNumber(getValue('sd-draw-clip-skip'), DEFAULT_SD_DRAW_SETTINGS.defaultParams.clip_skip, 1, 12),
         positivePrefix: getValue('sd-draw-positive-prefix'),
         negativePrefix: getValue('sd-draw-negative-prefix'),
+        maxImages: normalizeNumber(getValue('sd-draw-max-images'), 0, 0, 999),
+        maxCharactersPerImage: normalizeNumber(getValue('sd-draw-max-chars'), 0, 0, 999),
     };
 }
 
@@ -2302,7 +2309,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
 
     let planRaw;
     try {
-        const preset = getActiveSharedParamsPreset();
+        const preset = getActivePreset(getSettings());
         planRaw = await generateScenePlan({
             messageText,
             presentCharacters,
@@ -2328,7 +2335,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     let tasks = parseImagePlan(planRaw);
     if (!tasks.length) throw new Error('未解析到图片任务');
 
-    const preset = getActiveSharedParamsPreset();
+    const preset = getActivePreset(getSettings());
     const maxImg = preset.maxImages || 0;
     const maxChar = preset.maxCharactersPerImage || 0;
     if (maxImg > 0 && tasks.length > maxImg) tasks = tasks.slice(0, maxImg);

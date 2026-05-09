@@ -102,8 +102,9 @@ const ErrorType = {
     AUTH: { code: 'auth', label: '认证', desc: 'API Key 无效或过期' },
     QUOTA: { code: 'quota', label: '额度', desc: 'Anlas 点数不足' },
     BUSY: { code: 'busy', label: '繁忙', desc: '当前并发繁忙，请稍后重试' },
-    PARSE: { code: 'parse', label: '解析', desc: '返回格式无法解析' },
-    LLM: { code: 'llm', label: 'LLM', desc: '场景分析失败' },
+    PARSE: { code: 'parse', label: '解析失败', desc: 'LLM 输出未解析为图片任务' },
+    LLM: { code: 'llm', label: 'LLM失败', desc: '场景分析失败' },
+    LLM_EMPTY: { code: 'llm_empty', label: '空回', desc: 'LLM 未返回内容' },
     TIMEOUT: { code: 'timeout', label: '超时', desc: '请求超时' },
     UNKNOWN: { code: 'unknown', label: '错误', desc: '未知错误' },
     CACHE_LOST: { code: 'cache_lost', label: '缓存丢失', desc: '图片缓存已过期' },
@@ -776,8 +777,21 @@ class NovelDrawError extends Error {
     }
 }
 
+function classifyLlmError(e) {
+    const code = String(e?.code || '').toUpperCase();
+    const msg = String(e?.message || '').toLowerCase();
+
+    if (code === 'EMPTY_OUTPUT' || msg.includes('输出为空') || msg.includes('未返回内容')) {
+        return ErrorType.LLM_EMPTY;
+    }
+    if (code === 'PARSE_ERROR' || msg.includes('无法解析') || msg.includes('未解析到图片任务')) {
+        return ErrorType.PARSE;
+    }
+    return ErrorType.LLM;
+}
+
 function classifyError(e) {
-    if (e instanceof LLMServiceError) return ErrorType.LLM;
+    if (e instanceof LLMServiceError) return classifyLlmError(e);
     if (e instanceof NovelDrawError && e.errorType) return e.errorType;
     const msg = (e?.message || '').toLowerCase();
     if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) return ErrorType.NETWORK;
@@ -785,7 +799,9 @@ function classifyError(e) {
     if (msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit') || msg.includes('请求频繁') || msg.includes('busy')) return ErrorType.BUSY;
     if (msg.includes('402') || msg.includes('anlas') || msg.includes('quota')) return ErrorType.QUOTA;
     if (msg.includes('timeout') || msg.includes('abort')) return ErrorType.TIMEOUT;
+    if (msg.includes('输出为空') || msg.includes('empty_output') || msg.includes('未返回内容')) return ErrorType.LLM_EMPTY;
     if (msg.includes('parse') || msg.includes('json')) return ErrorType.PARSE;
+    if (msg.includes('无法解析') || msg.includes('未解析到图片任务')) return ErrorType.PARSE;
     if (msg.includes('llm') || msg.includes('xbgenraw')) return ErrorType.LLM;
     return { ...ErrorType.UNKNOWN, desc: e?.message || '未知错误' };
 }
@@ -1442,12 +1458,10 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
             dynamic_thresholding: false,
             controlnet_strength: 1,
             legacy: false,
-            add_original_image: true,
             legacy_v3_extend: false,
             use_coords: characterPrompts.some(cp => cp.center && (cp.center.x !== 0.5 || cp.center.y !== 0.5)),
             legacy_uc: false,
             normalize_reference_strength_multiple: true,
-            inpaintImg2ImgStrength: 1,
             deliberate_euler_ancestral_bug: false,
             prefer_brownian: true,
             image_format: 'png',
@@ -2704,7 +2718,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         } catch (e) {
             if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
             if (e instanceof LLMServiceError) {
-                throw new NovelDrawError(`场景分析失败: ${e.message}`, ErrorType.LLM);
+                throw new NovelDrawError(`场景分析失败: ${e.message}`, classifyError(e));
             }
             throw e;
         }
