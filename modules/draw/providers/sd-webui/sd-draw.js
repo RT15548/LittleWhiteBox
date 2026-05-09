@@ -14,6 +14,7 @@ import {
     openDB,
     openGallery,
     getPreviewsBySlot,
+    getPreview,
     getGallerySummary,
     getCharacterPreviews,
     deletePreview,
@@ -2832,17 +2833,140 @@ async function handleImageDelegatedClick(event) {
     }
 }
 
-function toggleEditPanel(container, show) {
-    const edit = container.querySelector('.xb-nd-edit');
-    if (edit) edit.style.display = show ? 'block' : 'none';
+async function toggleEditPanel(container, show) {
+    const editPanel = container.querySelector('.xb-nd-edit');
+    const btnsPanel = container.querySelector('.xb-nd-btns') || container.querySelector('.xb-nd-failed-btns');
+
+    if (!editPanel) return;
+
+    const origLabel = Array.from(editPanel.children).find(el =>
+        el.tagName === 'DIV' && el.textContent.includes('编辑 TAG')
+    );
+    const origTextarea = Array.from(editPanel.children).find(el =>
+        el.tagName === 'TEXTAREA' && !el.dataset.type
+    );
+
+    if (show) {
+        const imgId = container.dataset.imgId;
+        const currentTags = container.dataset.tags || '';
+
+        let preview = null;
+        if (imgId) {
+            try { preview = await getPreview(imgId); } catch {}
+        }
+
+        if (origLabel) origLabel.style.display = 'none';
+        if (origTextarea) origTextarea.style.display = 'none';
+
+        let scrollWrap = editPanel.querySelector('.xb-nd-edit-scroll');
+        if (!scrollWrap) {
+            scrollWrap = document.createElement('div');
+            scrollWrap.className = 'xb-nd-edit-scroll';
+            editPanel.insertBefore(scrollWrap, editPanel.firstChild);
+        }
+
+        let html = `
+            <div class="xb-nd-edit-group">
+                <div class="xb-nd-edit-group-label">🎬 场景</div>
+                <textarea class="xb-nd-edit-input" data-type="scene">${escapeHtml(currentTags)}</textarea>
+            </div>`;
+
+        if (preview?.characterPrompts?.length > 0) {
+            preview.characterPrompts.forEach((char, i) => {
+                const name = char.name || `角色 ${i + 1}`;
+                html += `
+                <div class="xb-nd-edit-group">
+                    <div class="xb-nd-edit-group-label">👤 ${escapeHtml(name)}</div>
+                    <textarea class="xb-nd-edit-input" data-type="char" data-index="${i}">${escapeHtml(char.prompt || '')}</textarea>
+                </div>`;
+            });
+        }
+
+        scrollWrap.innerHTML = html;
+        editPanel.style.display = 'block';
+
+        if (btnsPanel) {
+            btnsPanel.style.opacity = '0.3';
+            btnsPanel.style.pointerEvents = 'none';
+        }
+
+        scrollWrap.querySelector('[data-type="scene"]')?.focus();
+
+    } else {
+        const scrollWrap = editPanel.querySelector('.xb-nd-edit-scroll');
+        if (scrollWrap) scrollWrap.remove();
+
+        if (origLabel) origLabel.style.display = '';
+        if (origTextarea) {
+            origTextarea.style.display = '';
+            origTextarea.value = container.dataset.tags || '';
+        }
+
+        editPanel.style.display = 'none';
+        if (btnsPanel) {
+            btnsPanel.style.opacity = '';
+            btnsPanel.style.pointerEvents = '';
+        }
+    }
 }
 
 async function saveEditedTags(container) {
-    const input = container.querySelector('.xb-nd-edit-input');
-    if (!input) return;
-    container.dataset.tags = input.value || '';
+    const imgId = container.dataset.imgId;
+    const slotId = container.dataset.slotId;
+    const messageId = parseInt(container.dataset.mesid);
+    const editPanel = container.querySelector('.xb-nd-edit');
+
+    if (!editPanel) return;
+
+    const sceneInput = editPanel.querySelector('textarea[data-type="scene"]');
+    if (!sceneInput) return;
+
+    const newSceneTags = sceneInput.value.trim();
+    if (!newSceneTags) {
+        toastr.warning('场景 TAG 不能为空');
+        return;
+    }
+
+    let originalPreview = null;
+    try {
+        originalPreview = await getPreview(imgId);
+    } catch (e) {
+        console.error('[SD-Draw] 获取原始预览失败:', e);
+    }
+
+    const charInputs = editPanel.querySelectorAll('textarea[data-type="char"]');
+    let newCharPrompts = null;
+
+    if (charInputs.length > 0 && originalPreview?.characterPrompts?.length > 0) {
+        newCharPrompts = [];
+        charInputs.forEach(input => {
+            const index = parseInt(input.dataset.index);
+            const newPrompt = input.value.trim();
+            newCharPrompts[index] = { ...originalPreview.characterPrompts[index], prompt: newPrompt };
+        });
+    }
+
+    const newPositive = newSceneTags;
+    const tagsForStorage = newSceneTags;
+    container.dataset.tags = tagsForStorage;
+    container.dataset.positive = newPositive;
+
+    if (imgId && originalPreview) {
+        try {
+            await storePreview({
+                ...originalPreview,
+                characterPrompts: newCharPrompts || originalPreview.characterPrompts,
+                tags: tagsForStorage,
+                positive: newPositive,
+            });
+        } catch (e) {
+            console.error('[SD-Draw] 保存角色编辑失败:', e);
+        }
+    }
+
     toggleEditPanel(container, false);
-    toastr.success('TAG 已更新，重绘时会使用新内容');
+    const charCount = newCharPrompts?.length || 0;
+    toastr.success(`TAG 已保存 (场景${charCount > 0 ? ` + ${charCount} 个角色` : ''})`);
 }
 
 async function refreshSingleImage(container) {

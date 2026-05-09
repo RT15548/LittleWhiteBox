@@ -2714,6 +2714,8 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 signal,
             });
         } catch (e) {
+            console.error('[NovelDraw] 场景分析原始错误:', e);
+            console.error('[NovelDraw] 错误详情:', { message: e?.message, code: e?.code, name: e?.name, stack: e?.stack });
             if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
             if (e instanceof LLMServiceError) {
                 throw new NovelDrawError(`场景分析失败: ${e.message}`, classifyError(e));

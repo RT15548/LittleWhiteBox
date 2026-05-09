@@ -282,12 +282,23 @@ export async function generateScenePlan(options) {
             signal,
         });
     } catch (e) {
+        console.error('[ScenePlanner] LLM 调用原始错误:', e);
+        console.error('[ScenePlanner] 错误详情:', { message: e?.message, code: e?.code, name: e?.name, stack: e?.stack });
+        xbLog.error('novelDrawLlm', `LLM 调用失败: ${e?.message}`, { code: e?.code, name: e?.name });
         throw new LLMServiceError(`LLM 调用失败: ${e.message}`, 'CALL_FAILED');
+    }
+
+    if (!rawOutput || !String(rawOutput).trim()) {
+        console.warn('[ScenePlanner] LLM 返回为空');
+        xbLog.error('novelDrawLlm', 'LLM 输出为空', null);
+        throw new LLMServiceError('LLM 输出为空', 'EMPTY_OUTPUT');
     }
 
     if (xbLog.isEnabled()) {
         xbLog.info("novelDrawLlm", `rawOutput(len=${rawOutput?.length || 0}): ${String(rawOutput || "").slice(0, 1200)}`);
     }
+
+    console.log('[ScenePlanner] LLM 原始输出 (完整):', rawOutput);
 
     return rawOutput;
 }
@@ -516,7 +527,10 @@ export function parseImagePlan(aiOutput) {
         throw new LLMServiceError('LLM 输出为空', 'EMPTY_OUTPUT');
     }
 
+    console.log('[ScenePlanner] cleanYamlInput 后:', text);
+
     const yamlResult = parseYamlImagePlan(text);
+    console.log('[ScenePlanner] parseYamlImagePlan 结果:', JSON.stringify(yamlResult, null, 2));
 
     if (yamlResult && yamlResult.length > 0) {
         console.log(`%c[LLM-Service] 解析成功: ${yamlResult.length} 个图片任务`, 'color: #3ecf8e');

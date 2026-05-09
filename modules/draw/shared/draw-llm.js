@@ -1,5 +1,5 @@
 import { chat, eventSource, event_types, getRequestHeaders, name1, name2, substituteParams } from "../../../../../../../script.js";
-import { chat_completion_sources, getChatCompletionModel, getStreamingReply, oai_settings } from "../../../../../../../scripts/openai.js";
+import { chat_completion_sources, getChatCompletionModel, getStreamingReply, tryParseStreamingError, oai_settings } from "../../../../../../../scripts/openai.js";
 import { replaceXbGetVarInString, replaceXbGetVarYamlInString } from "../../variables/var-commands.js";
 import { resolveApiBaseUrl, getDefaultApiPrefix } from "../../../shared/common/openai-url-utils.js";
 import { readSseEventsFromResponse } from "../../../shared/host-llm/chat-completions/sse.js";
@@ -487,17 +487,32 @@ export async function callDrawScenePlannerLlm({
         if (useStream) {
             if (!response.ok) {
                 const text = await response.text().catch(() => '');
+                tryParseStreamingError(response, text, { quiet: true });
                 throw new Error(text || `HTTP ${response.status}`);
             }
             let output = '';
+            let streamError = null;
             const state = { reasoning: '', images: [], signature: '', toolSignatures: {} };
             await readSseEventsFromResponse(response, (event) => {
+                const rawData = event?.data ?? event;
+                if (typeof rawData === 'string' && rawData !== '[DONE]') {
+                    try {
+                        tryParseStreamingError(response, rawData, { quiet: true });
+                    } catch (e) {
+                        streamError = e;
+                        return;
+                    }
+                }
+                if (streamError) return;
                 const chunk = getStreamingReply(event, state, {
                     chatCompletionSource: payload.chat_completion_source,
                     overrideShowThoughts: true,
                 });
                 output = mergeStreamText(output, chunk);
             });
+            if (streamError) {
+                throw streamError;
+            }
             return output;
         }
 
@@ -509,7 +524,10 @@ export async function callDrawScenePlannerLlm({
             throw new Error(rawText || error?.message || '返回不是 JSON');
         }
         if (!response.ok || data?.error) {
-            throw new Error(data?.error?.message || data?.message || rawText || `HTTP ${response.status}`);
+            throw new Error(data?.error?.message || data?.message || data?.detail?.error?.message || rawText || `HTTP ${response.status}`);
+        }
+        if (data?.message && !extractMessageText(data)) {
+            throw new Error(data.message);
         }
         return extractMessageText(data);
     } catch (error) {
