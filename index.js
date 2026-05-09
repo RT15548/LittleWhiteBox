@@ -47,6 +47,7 @@ extension_settings[EXT_ID] = extension_settings[EXT_ID] || {
     storySummary: { enabled: true },
     storyOutline: { enabled: false },
     drawProvider: 'disabled',
+    drawProviderUpdatedAt: 0,
     novelDraw: { enabled: false },
     tts: { enabled: false },
     enaPlanner: { enabled: false },
@@ -61,9 +62,32 @@ const settings = extension_settings[EXT_ID];
 if (settings.dynamicPrompt && !settings.fourthWall) settings.fourthWall = settings.dynamicPrompt;
 
 const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui', 'comfyui']);
+const DRAW_PROVIDER_STORAGE_KEY = 'LittleWhiteBox.drawProviderSelection';
 
 function normalizeDrawProvider(provider) {
     return DRAW_PROVIDER_VALUES.has(provider) ? provider : 'disabled';
+}
+
+function readDrawProviderSelectionMirror() {
+    try {
+        const raw = localStorage.getItem(DRAW_PROVIDER_STORAGE_KEY);
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        const provider = normalizeDrawProvider(data?.provider);
+        const updatedAt = Number(data?.updatedAt) || 0;
+        return { provider, updatedAt };
+    } catch {
+        return null;
+    }
+}
+
+function writeDrawProviderSelectionMirror(provider, updatedAt = Date.now()) {
+    try {
+        localStorage.setItem(DRAW_PROVIDER_STORAGE_KEY, JSON.stringify({
+            provider: normalizeDrawProvider(provider),
+            updatedAt,
+        }));
+    } catch { }
 }
 
 function migrateDrawProviderSettings(targetSettings) {
@@ -79,6 +103,16 @@ function migrateDrawProviderSettings(targetSettings) {
     if (targetSettings.drawProvider !== normalized) {
         targetSettings.drawProvider = normalized;
         changed = true;
+    }
+
+    const mirrored = readDrawProviderSelectionMirror();
+    const settingsUpdatedAt = Number(targetSettings.drawProviderUpdatedAt) || 0;
+    if (mirrored && mirrored.updatedAt > settingsUpdatedAt && targetSettings.drawProvider !== mirrored.provider) {
+        targetSettings.drawProvider = mirrored.provider;
+        targetSettings.drawProviderUpdatedAt = mirrored.updatedAt;
+        changed = true;
+    } else {
+        writeDrawProviderSelectionMirror(targetSettings.drawProvider, settingsUpdatedAt || Date.now());
     }
     return changed;
 }
@@ -684,7 +718,12 @@ async function setupSettings() {
                 if (prev === next) return;
 
                 await cleanupDrawProvider(prev);
+                const updatedAt = Date.now();
                 settings.drawProvider = next;
+                settings.drawProviderUpdatedAt = updatedAt;
+                extension_settings[EXT_ID].drawProvider = next;
+                extension_settings[EXT_ID].drawProviderUpdatedAt = updatedAt;
+                writeDrawProviderSelectionMirror(next, updatedAt);
                 saveSettingsDebounced();
 
                 await initActiveDrawProvider();
@@ -823,7 +862,12 @@ async function setupSettings() {
             ON.forEach(k => setChecked(MAP[k], true));
             OFF.forEach(k => setChecked(MAP[k], false));
             await cleanupDrawProvider(settings.drawProvider);
+            const drawDisabledAt = Date.now();
             settings.drawProvider = 'disabled';
+            settings.drawProviderUpdatedAt = drawDisabledAt;
+            extension_settings[EXT_ID].drawProvider = 'disabled';
+            extension_settings[EXT_ID].drawProviderUpdatedAt = drawDisabledAt;
+            writeDrawProviderSelectionMirror('disabled', drawDisabledAt);
             $('#xiaobaix_draw_provider').val('disabled');
             syncFeatureActionButtons();
             setChecked('xiaobaix_use_blob', false);

@@ -162,6 +162,7 @@ let ensureComfyDrawPanelRef = null;
 let destroyComfyDrawPanelsRef = null;
 let imageDelegationBound = false;
 let autoBusy = false;
+let currentSettingsView = 'test';
 const events = createModuleEvents(MODULE_KEY);
 const generationJobs = new Map();
 const COMFY_DRAW_VIEWS = ['test', 'api', 'workflow', 'params', 'llm', 'worldbook', 'characters', 'gallery'];
@@ -1030,8 +1031,12 @@ function bindOverlayEvents() {
     if (!overlayElement || eventsBound || !getSettingsDocument()) return;
     eventsBound = true;
     querySettings('#comfy-draw-close')?.addEventListener('click', hideSettings);
-    querySettingsAll('[data-comfy-view]').forEach((button) => {
-        button.addEventListener('click', () => switchSettingsView(button.dataset.comfyView || 'test'));
+    getSettingsDocument()?.addEventListener('click', (event) => {
+        const button = event.target?.closest?.('[data-comfy-view]');
+        if (!button) return;
+        event.preventDefault();
+        event.stopPropagation();
+        switchSettingsView(button.dataset.comfyView || 'test');
     });
     querySettings('#comfy-gallery-refresh')?.addEventListener('click', async () => {
         await renderGalleryManagement();
@@ -1647,6 +1652,7 @@ async function refreshComfyOptions({ notify = true } = {}) {
 
 function switchSettingsView(viewName = 'test') {
     const normalized = COMFY_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
+    currentSettingsView = normalized;
     querySettingsAll('[data-comfy-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.comfyView === normalized);
     });
@@ -2704,7 +2710,7 @@ export async function openSettings() {
     await loadSharedDrawSettings();
     const overlay = await createOverlay();
     fillForm(getSettings());
-    switchSettingsView('test');
+    switchSettingsView(currentSettingsView);
     syncOverlayHeight();
     overlay.style.display = 'block';
 }
