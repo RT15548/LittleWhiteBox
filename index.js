@@ -299,9 +299,13 @@ async function updateLittleWhiteBoxExtension() {
             return false;
         }
         const data = await response.json();
-        const message = data.isUpToDate ? 'LittleWhiteBox is up to date' : `LittleWhiteBox updated`;
-        const title = data.isUpToDate ? '' : '请刷新页面以应用更新';
-        toastr.success(message, title);
+        if (data.isUpToDate) {
+            toastr.success('LittleWhiteBox is up to date');
+            return true;
+        }
+
+        toastr.success('LittleWhiteBox updated，页面即将刷新', '正在应用更新');
+        setTimeout(() => window.location.reload(), 1000);
         return true;
     } catch (error) {
         toastr.error('Error during update', 'LittleWhiteBox update failed');
