@@ -1001,30 +1001,5 @@ select.input { cursor: pointer; }
         </div>
     </nav>
 </div>
-<script>
-(() => {
-    function switchLocalView(viewName) {
-        const normalized = viewName === 'worldbook' ? 'worldbook' : '';
-        if (!normalized) return false;
-        document.querySelectorAll('[data-comfy-view]').forEach(button => {
-            button.classList.toggle('active', button.getAttribute('data-comfy-view') === normalized);
-        });
-        document.querySelectorAll('[data-comfy-view-panel]').forEach(panel => {
-            panel.classList.toggle('active', panel.getAttribute('data-comfy-view-panel') === normalized);
-        });
-        return true;
-    }
-
-    document.addEventListener('click', (event) => {
-        const button = event.target?.closest?.('[data-comfy-view]');
-        const viewName = button?.getAttribute?.('data-comfy-view');
-        if (viewName !== 'worldbook') return;
-        if (switchLocalView(viewName)) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-        }
-    }, true);
-})();
-</script>
 </body>
 </html>

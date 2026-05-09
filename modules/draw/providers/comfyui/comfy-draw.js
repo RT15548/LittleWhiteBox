@@ -162,7 +162,6 @@ let ensureComfyDrawPanelRef = null;
 let destroyComfyDrawPanelsRef = null;
 let imageDelegationBound = false;
 let autoBusy = false;
-let currentSettingsView = 'test';
 const events = createModuleEvents(MODULE_KEY);
 const generationJobs = new Map();
 const COMFY_DRAW_VIEWS = ['test', 'api', 'workflow', 'params', 'llm', 'worldbook', 'characters', 'gallery'];
@@ -1652,7 +1651,6 @@ async function refreshComfyOptions({ notify = true } = {}) {
 
 function switchSettingsView(viewName = 'test') {
     const normalized = COMFY_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
-    currentSettingsView = normalized;
     querySettingsAll('[data-comfy-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.comfyView === normalized);
     });
@@ -2710,7 +2708,7 @@ export async function openSettings() {
     await loadSharedDrawSettings();
     const overlay = await createOverlay();
     fillForm(getSettings());
-    switchSettingsView(currentSettingsView);
+    switchSettingsView('test');
     syncOverlayHeight();
     overlay.style.display = 'block';
 }

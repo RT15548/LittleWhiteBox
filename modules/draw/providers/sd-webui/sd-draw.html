@@ -842,30 +842,5 @@ select.input { cursor: pointer; }
         </div>
     </nav>
 </div>
-<script>
-(() => {
-    function switchLocalView(viewName) {
-        const normalized = viewName === 'worldbook' ? 'worldbook' : '';
-        if (!normalized) return false;
-        document.querySelectorAll('[data-sd-view]').forEach(button => {
-            button.classList.toggle('active', button.getAttribute('data-sd-view') === normalized);
-        });
-        document.querySelectorAll('[data-sd-view-panel]').forEach(panel => {
-            panel.classList.toggle('active', panel.getAttribute('data-sd-view-panel') === normalized);
-        });
-        return true;
-    }
-
-    document.addEventListener('click', (event) => {
-        const button = event.target?.closest?.('[data-sd-view]');
-        const viewName = button?.getAttribute?.('data-sd-view');
-        if (viewName !== 'worldbook') return;
-        if (switchLocalView(viewName)) {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-        }
-    }, true);
-})();
-</script>
 </body>
 </html>

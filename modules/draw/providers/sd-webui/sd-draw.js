@@ -112,7 +112,6 @@ let ensureSdDrawPanelRef = null;
 let destroySdDrawPanelsRef = null;
 let imageDelegationBound = false;
 let autoBusy = false;
-let currentSettingsView = 'test';
 const events = createModuleEvents(MODULE_KEY);
 const generationJobs = new Map();
 const SD_DRAW_VIEWS = ['test', 'api', 'params', 'llm', 'worldbook', 'characters', 'gallery'];
@@ -1027,7 +1026,6 @@ function fillPresetSelect(settings = getSettings()) {
 
 function switchSettingsView(viewName = 'test') {
     const normalized = SD_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
-    currentSettingsView = normalized;
     querySettingsAll('[data-sd-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.sdView === normalized);
     });
@@ -2193,7 +2191,7 @@ export async function openSettings() {
     await loadSharedDrawSettings();
     const overlay = await createOverlay();
     fillForm(getSettings());
-    switchSettingsView(currentSettingsView);
+    switchSettingsView('test');
     syncOverlayHeight();
     overlay.style.display = 'block';
     void refreshSdOptions();
