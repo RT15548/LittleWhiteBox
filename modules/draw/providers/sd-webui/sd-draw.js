@@ -2307,6 +2307,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
             useStream: sharedDrawSettings.useStream,
             useWorldInfo: (sharedDrawSettings.advancedMode && sharedDrawSettings.worldbooks?.enabled) ? false : sharedDrawSettings.useWorldInfo,
             customPrompts: SD_SCENE_PROMPTS,
+            promptDefaults: SD_SCENE_PROMPTS,
             worldbookEntries,
             timeout: sharedDrawSettings.timeout || 120000,
             maxImages: preset.maxImages || 0,

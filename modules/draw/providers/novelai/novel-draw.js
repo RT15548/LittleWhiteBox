@@ -2687,6 +2687,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 useStream: settings.useStream,
                 useWorldInfo: (settings.advancedMode && settings.worldbooks?.enabled) ? false : settings.useWorldInfo,
                 customPrompts,
+                promptDefaults: DEFAULT_PROMPT_CONFIG,
                 worldbookEntries,
                 timeout: settings.timeout || 120000,
                 maxImages: preset.maxImages || 0,

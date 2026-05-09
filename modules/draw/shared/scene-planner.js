@@ -46,10 +46,13 @@ export const PROVIDER_MAP = {
  * 获取当前生效的提示词配置（合并自定义覆盖）
  * @param {Object|null} custom  customPrompts 对象，null 字段表示使用默认
  */
-export function getEffectivePromptConfig(custom) {
-    if (!custom) return EMPTY_PROMPT_CONFIG;
-    const merged = { ...EMPTY_PROMPT_CONFIG };
-    for (const key of Object.keys(EMPTY_PROMPT_CONFIG)) {
+export function getEffectivePromptConfig(custom, defaults = EMPTY_PROMPT_CONFIG) {
+    const base = (defaults && typeof defaults === 'object')
+        ? { ...EMPTY_PROMPT_CONFIG, ...defaults }
+        : { ...EMPTY_PROMPT_CONFIG };
+    if (!custom) return base;
+    const merged = { ...base };
+    for (const key of Object.keys(base)) {
         if (typeof custom[key] === 'string' && custom[key].trim()) {
             merged[key] = custom[key];
         }
@@ -139,6 +142,7 @@ export async function generateScenePlan(options) {
         useStream = false,
         useWorldInfo = false,
         customPrompts = null,
+        promptDefaults = EMPTY_PROMPT_CONFIG,
         worldbookEntries = null,
         timeout = 120000,
         maxImages = 0,
@@ -148,7 +152,7 @@ export async function generateScenePlan(options) {
     if (!messageText?.trim()) {
         throw new LLMServiceError('消息内容为空', 'EMPTY_MESSAGE');
     }
-    const promptConfig = getEffectivePromptConfig(customPrompts);
+    const promptConfig = getEffectivePromptConfig(customPrompts, promptDefaults);
     const effectiveTagGuide = getEffectiveTagGuide(customPrompts?.tagGuideContent);
     const charInfo = buildCharacterInfoForLLM(presentCharacters);
 
