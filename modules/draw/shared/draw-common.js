@@ -248,9 +248,9 @@ export function classifyError(error) {
 }
 
 export function ensureDrawImageStyles() {
-    if (document.getElementById('nd-styles')) return;
+    if (document.getElementById('xiaobaix-draw-image-styles')) return;
     const style = document.createElement('style');
-    style.id = 'nd-styles';
+    style.id = 'xiaobaix-draw-image-styles';
     style.textContent = `
 .xb-nd-img{margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border-radius:14px;padding:4px}
 .xb-nd-img[data-state="preview"]{border:1px dashed rgba(255,152,0,0.35)}

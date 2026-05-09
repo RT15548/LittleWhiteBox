@@ -191,9 +191,9 @@ let afterAiGateDispose = null;
 // ═══════════════════════════════════════════════════════════════════════════
 
 function ensureStyles() {
-    if (document.getElementById('nd-styles')) return;
+    if (document.getElementById('xiaobaix-novel-draw-style')) return;
     const style = document.createElement('style');
-    style.id = 'nd-styles';
+    style.id = 'xiaobaix-novel-draw-style';
     style.textContent = `
 .xb-nd-img{margin:0.8em 0;text-align:center;position:relative;display:block;width:100%;border-radius:14px;padding:4px}
 .xb-nd-img[data-state="preview"]{border:1px dashed rgba(255,152,0,0.35)}
@@ -267,6 +267,17 @@ function syncOverlayHeight() {
     const overlay = document.getElementById('xiaobaix-novel-draw-overlay');
     if (!overlay) return;
     overlay.style.height = `${window.innerHeight}px`;
+    syncOverlayFrameLayout();
+}
+
+function syncOverlayFrameLayout() {
+    const frameWrap = document.querySelector('#xiaobaix-novel-draw-overlay .nd-frame-wrap');
+    if (!frameWrap) return;
+    const inset = window.matchMedia?.('(max-width: 768px)')?.matches ? 0 : 12;
+    frameWrap.style.top = `${inset}px`;
+    frameWrap.style.left = `${inset}px`;
+    frameWrap.style.right = `${inset}px`;
+    frameWrap.style.bottom = `${inset}px`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3120,15 +3131,18 @@ function createOverlay() {
 
     const frameWrap = document.createElement('div');
     frameWrap.className = 'nd-frame-wrap';
+    frameWrap.style.cssText = 'position:absolute;z-index:1;top:12px;left:12px;right:12px;bottom:12px;';
 
     const iframe = document.createElement('iframe');
     iframe.id = 'xiaobaix-novel-draw-iframe';
     iframe.src = `${HTML_PATH}?v=${Date.now()}`;
+    iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d1117;display:block;';
 
     frameWrap.appendChild(iframe);
     overlay.appendChild(backdrop);
     overlay.appendChild(frameWrap);
     document.body.appendChild(overlay);
+    syncOverlayFrameLayout();
     // Guarded by isTrustedMessage (origin + source).
     // eslint-disable-next-line no-restricted-syntax
     window.addEventListener('message', handleFrameMessage);
