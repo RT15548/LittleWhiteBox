@@ -410,6 +410,21 @@ function cloneConfig(value) {
     return JSON.parse(JSON.stringify(value));
 }
 
+function assertSummaryConfigPersisted(expected, actual) {
+    if (!actual || typeof actual !== "object") {
+        throw new Error("保存后读取配置失败");
+    }
+
+    const expectedApi = expected?.api || {};
+    const actualApi = actual?.api || {};
+    const fields = ["provider", "url", "key", "model"];
+    for (const field of fields) {
+        if (String(actualApi[field] ?? "") !== String(expectedApi[field] ?? "")) {
+            throw new Error(`保存校验失败：API ${field} 未写入服务器`);
+        }
+    }
+}
+
 function normalizeSummaryPanelConfig(rawConfig = null) {
     const defaults = createDefaultSummaryPanelConfig();
     const clampKeepVisibleCount = (value) => {
@@ -522,8 +537,12 @@ export function saveVectorConfig(vectorCfg) {
 export async function saveSummaryPanelConfigVerified(config) {
     const normalized = normalizeSummaryPanelConfig(config);
     await CommonSettingStorage.setAndSave(SUMMARY_CONFIG_KEY, normalized, { silent: false });
-    setSummaryPanelConfigCache(normalized);
-    return cloneConfig(normalized);
+    CommonSettingStorage.clearCache();
+    const savedConfig = await CommonSettingStorage.get(SUMMARY_CONFIG_KEY, null);
+    const savedNormalized = normalizeSummaryPanelConfig(savedConfig);
+    assertSummaryConfigPersisted(normalized, savedNormalized);
+    setSummaryPanelConfigCache(savedNormalized);
+    return cloneConfig(savedNormalized);
 }
 
 export async function loadConfigFromServer() {

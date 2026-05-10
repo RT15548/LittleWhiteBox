@@ -587,6 +587,7 @@ body.advanced-mode .comfy-advanced-only { display: flex !important; }
                                     <option value="">请先拉取模型列表</option>
                                 </select>
                                 <button id="comfy-draw-refresh-models" class="btn" type="button"><i class="fa-solid fa-rotate"></i> 拉取模型</button>
+                                <span id="comfy-draw-model-status" class="status-text inline-status" style="margin-top:0;white-space:nowrap;"></span>
                             </div>
                             <p class="form-hint">从 ComfyUI 拉取可用的 checkpoint 模型。</p>
                             <div id="comfy-draw-workflow-status" class="status-text">点击“拉取模型”后，会在这里显示结果。</div>
@@ -990,7 +991,7 @@ body.advanced-mode .comfy-advanced-only { display: flex !important; }
                 <div class="card">
                     <div class="card-title">酒馆当前世界书</div>
                     <label class="check-row"><input type="checkbox" id="comfy-shared-use-worldinfo"> 使用酒馆当前世界书</label>
-                    <p class="form-hint" style="margin-left:12px;">使用 SillyTavern 当前已启用的世界书，按酒馆原生规则扫描当前楼层文本和角色名后注入。</p>
+                    <p class="form-hint" style="margin-left:12px;">使用 SillyTavern 当前已启用的世界书，按酒馆原生规则扫描蓝灯、绿灯条目后注入。</p>
                 </div>
 
                 <div class="card">

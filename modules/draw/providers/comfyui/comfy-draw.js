@@ -747,13 +747,13 @@ function normalizeComfyModelList(data = {}) {
     return (data.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0] || []).filter(Boolean);
 }
 
-async function fetchComfyDirectModels({ signal } = {}) {
-    const data = await fetchComfyDirectJson('/object_info', { signal });
+async function fetchComfyDirectModels({ signal, timeoutMs } = {}) {
+    const data = await fetchComfyDirectJson('/object_info', { signal, timeoutMs });
     return normalizeComfyModelList(data);
 }
 
-async function fetchComfyDirectSamplers({ signal } = {}) {
-    const data = await fetchComfyDirectJson('/object_info', { signal });
+async function fetchComfyDirectSamplers({ signal, timeoutMs } = {}) {
+    const data = await fetchComfyDirectJson('/object_info', { signal, timeoutMs });
     return {
         samplers: data.KSampler?.input?.required?.sampler_name?.[0] || [],
         schedulers: data.KSampler?.input?.required?.scheduler?.[0] || [],
@@ -810,11 +810,11 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs }
     }
 }
 
-async function fetchComfyModels({ signal } = {}) {
+async function fetchComfyModels({ signal, timeoutMs } = {}) {
     if (isDirectConnection()) {
-        return await fetchComfyDirectModels({ signal });
+        return await fetchComfyDirectModels({ signal, timeoutMs });
     }
-    const res = await requestComfyTransport('models', {}, { signal });
+    const res = await requestComfyTransport('models', {}, { signal, timeoutMs });
     const data = await res.json();
     if (!Array.isArray(data)) return [];
     return data
@@ -827,13 +827,13 @@ async function fetchComfyModels({ signal } = {}) {
         .filter(Boolean);
 }
 
-async function fetchComfySamplers({ signal } = {}) {
+async function fetchComfySamplers({ signal, timeoutMs } = {}) {
     if (isDirectConnection()) {
-        return await fetchComfyDirectSamplers({ signal });
+        return await fetchComfyDirectSamplers({ signal, timeoutMs });
     }
     const [samplersRes, schedulersRes] = await Promise.all([
-        requestComfyTransport('samplers', {}, { signal }),
-        requestComfyTransport('schedulers', {}, { signal }),
+        requestComfyTransport('samplers', {}, { signal, timeoutMs }),
+        requestComfyTransport('schedulers', {}, { signal, timeoutMs }),
     ]);
     const samplers = await samplersRes.json();
     const schedulers = await schedulersRes.json();
@@ -1314,8 +1314,31 @@ function bindOverlayEvents() {
         if (ok) fillForm(getSettings());
     });
     // 拉取模型按钮
-    querySettings('#comfy-draw-refresh-models')?.addEventListener('click', async () => {
-        await refreshComfyOptions();
+    querySettings('#comfy-draw-refresh-models')?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        if (button) {
+            button.disabled = true;
+            const doc = getSettingsDocument() || document;
+            const icon = doc.createElement('i');
+            if (icon) icon.className = 'fa-solid fa-spinner fa-spin';
+            button.replaceChildren(icon, doc.createTextNode(' 拉取中...'));
+        }
+        try {
+            const saved = await saveAllSettings({ notify: false });
+            if (!saved) {
+                updateStatusText('comfy-draw-workflow-status', 'error', '保存当前连接配置失败，请重试');
+                return;
+            }
+            await refreshComfyOptions({ notify: true });
+        } finally {
+            if (button) {
+                button.disabled = false;
+                const doc = getSettingsDocument() || document;
+                const icon = doc.createElement('i');
+                if (icon) icon.className = 'fa-solid fa-rotate';
+                button.replaceChildren(icon, doc.createTextNode(' 拉取模型'));
+            }
+        }
     });
     querySettings('#comfy-builtin-workflow')?.addEventListener('change', async () => {
         const builtinWorkflowId = getValue('comfy-builtin-workflow') || DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId;
@@ -1403,51 +1426,58 @@ function bindOverlayEvents() {
         icon.className = isHidden ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
         btn.replaceChildren(icon, document.createTextNode(isHidden ? ' 收起' : ' 展开'));
     });
-    // 模型/采样器/调度器/steps/cfg 变更
+    const saveComfyWorkflowField = async (label, mutator, statusElementId = 'comfy-draw-workflow-status') => {
+        updateStatusText(statusElementId, '', `${label}保存中...`);
+        const ok = await withSaveTimeout(updateSettingsPersistent(mutator, `${label}已保存`, { notify: false, silent: false }));
+        updateStatusText(
+            statusElementId,
+            ok ? 'success' : 'error',
+            ok ? `${label}已保存，关闭设置即可` : `${label}保存失败，请重试`,
+        );
+        if (ok) fillForm(getSettings());
+        return ok;
+    };
+
+    // 模型/采样器/调度器/steps/cfg 变更后即时保存
     querySettings('#comfy-draw-model')?.addEventListener('change', async () => {
         const model = getValue('comfy-draw-model');
-        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+        await saveComfyWorkflowField('模型', (draft) => {
             draft.selectedModel = model;
             const preset = draft.presets.find(p => p.id === draft.selectedPresetId);
             if (preset) preset.model = model;
-        }, '模型已保存', { notify: false, silent: false }));
-        if (ok) fillForm(getSettings());
+        }, 'comfy-draw-model-status');
     });
     querySettings('#comfy-draw-sampler')?.addEventListener('change', async () => {
         const sampler = getValue('comfy-draw-sampler');
-        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+        await saveComfyWorkflowField('采样器', (draft) => {
             draft.sampler = sampler;
             const preset = draft.presets.find(p => p.id === draft.selectedPresetId);
             if (preset) preset.sampler = sampler;
-        }, '采样器已保存', { notify: false, silent: false }));
-        if (ok) fillForm(getSettings());
+        });
     });
     querySettings('#comfy-draw-scheduler')?.addEventListener('change', async () => {
         const scheduler = getValue('comfy-draw-scheduler');
-        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+        await saveComfyWorkflowField('调度器', (draft) => {
             draft.scheduler = scheduler;
             const preset = draft.presets.find(p => p.id === draft.selectedPresetId);
             if (preset) preset.scheduler = scheduler;
-        }, '调度器已保存', { notify: false, silent: false }));
-        if (ok) fillForm(getSettings());
+        });
     });
     querySettings('#comfy-draw-steps')?.addEventListener('change', async () => {
         const steps = normalizeNumber(getValue('comfy-draw-steps'), 20, 1, 150);
-        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+        await saveComfyWorkflowField('Steps', (draft) => {
             draft.steps = steps;
             const preset = draft.presets.find(p => p.id === draft.selectedPresetId);
             if (preset) preset.steps = steps;
-        }, 'Steps 已保存', { notify: false, silent: false }));
-        if (ok) fillForm(getSettings());
+        });
     });
     querySettings('#comfy-draw-cfg')?.addEventListener('change', async () => {
         const cfg = normalizeNumber(getValue('comfy-draw-cfg'), 7, 1, 30);
-        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+        await saveComfyWorkflowField('CFG', (draft) => {
             draft.cfg = cfg;
             const preset = draft.presets.find(p => p.id === draft.selectedPresetId);
             if (preset) preset.cfg = cfg;
-        }, 'CFG 已保存', { notify: false, silent: false }));
-        if (ok) fillForm(getSettings());
+        });
     });
     querySettings('#comfy-workflow-save')?.addEventListener('click', async (event) => {
         const nodePositive = getValue('comfy-node-positive').trim();
@@ -1997,10 +2027,10 @@ function refreshBuiltinWorkflowPanel(settings = getSettings()) {
 }
 
 // 刷新 ComfyUI 模型和采样器列表
-async function refreshComfyOptions({ notify = true } = {}) {
-    updateComfyOptionStatus('', '正在获取模型列表...');
+async function refreshComfyOptions({ notify = true, timeoutMs = getSettings().timeout || 120000 } = {}) {
+    if (notify) updateStatusText('comfy-draw-workflow-status', '', '正在获取模型列表...');
     try {
-        const models = await fetchComfyModels();
+        const models = await fetchComfyModels({ timeoutMs });
 
         await updateSettingsPersistent((draft) => {
             draft.modelCache = models || [];
@@ -2017,7 +2047,7 @@ async function refreshComfyOptions({ notify = true } = {}) {
                     : '没有找到“只选一个模型文件就能画”的模型；如果你的模型需要多个文件，请导入自定义工作流',
             );
         }
-        void refreshComfySamplerOptions({ notify });
+        void refreshComfySamplerOptions({ notify: false, timeoutMs: Math.max(timeoutMs, 30000) });
         return true;
     } catch (error) {
         console.error('[ComfyDraw] refreshComfyOptions failed:', error);
@@ -2026,9 +2056,9 @@ async function refreshComfyOptions({ notify = true } = {}) {
     }
 }
 
-async function refreshComfySamplerOptions({ notify = true } = {}) {
+async function refreshComfySamplerOptions({ notify = true, timeoutMs = Math.max(getSettings().timeout || 120000, 30000) } = {}) {
     try {
-        const samplerInfo = await fetchComfySamplers();
+        const samplerInfo = await fetchComfySamplers({ timeoutMs });
         await updateSettingsPersistent((draft) => {
             draft.samplerCache = samplerInfo?.samplers || [];
             draft.schedulerCache = samplerInfo?.schedulers || [];
@@ -3156,8 +3186,7 @@ async function testConnection() {
             timeoutMs: settings.timeout || 120000,
         });
         toastr.success('ComfyUI 连接成功');
-        // 测试成功后自动拉取模型
-        await refreshComfyOptions({ notify: false });
+        updateStatusText('comfy-draw-api-status', 'success', '连接成功');
         return true;
     } catch (error) {
         const message = error?.name === 'AbortError' || error?.message === '生成超时'
