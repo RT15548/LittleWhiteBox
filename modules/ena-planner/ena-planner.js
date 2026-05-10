@@ -115,6 +115,14 @@ function ensureSettings() {
     deepMerge(s, d);
     if (!Array.isArray(s.responseKeepTags)) s.responseKeepTags = structuredClone(d.responseKeepTags);
     else s.responseKeepTags = normalizeResponseKeepTags(s.responseKeepTags);
+    if (!s.promptTemplates || typeof s.promptTemplates !== 'object' || Array.isArray(s.promptTemplates)) {
+        s.promptTemplates = {};
+    }
+    for (const [name, blocks] of Object.entries(BUILTIN_TEMPLATES)) {
+        if (s.promptTemplates[name] === undefined) {
+            s.promptTemplates[name] = structuredClone(blocks);
+        }
+    }
 
     // Migration: remove old keys that are no longer needed
     delete s.includeCharacterLorebooks;
