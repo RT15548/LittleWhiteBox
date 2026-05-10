@@ -8,7 +8,7 @@ ComfyUI 使用与 SD WebUI 相同的 **Danbooru 风格 tags** 和短英文视觉
 - Tag 之间用英文逗号 `,` 分隔，tag 内部用空格（如 `long hair` 而非 `long_hair`）
 - 不输出模型、采样器、VAE、LoRA、ControlNet、节点配置、seed 等参数
 - 不输出通用质量词：`masterpiece`, `best quality`, `highres` 等由用户在「正向固定」配置
-- 不输出整图 negative。负向由用户在「负向固定」和角色 `uc` 字段配置
+- 不输出整图 negative 字段；只允许在角色 `uc` 中写当前角色专属排除项，通用负向由用户在「负向固定」配置
 
 ---
 
@@ -131,7 +131,7 @@ tag--        → 降低
 
 ## 角色 uc 字段
 
-`uc` 只写角色专属排除项，不写通用质量负面。
+`uc` 是角色级排除项，会并入最终负向提示词；只写当前角色专属排除，不写整图 negative 或通用质量负面。
 
 **适合写入：**
 - 当前角色摘掉了眼镜: `glasses`

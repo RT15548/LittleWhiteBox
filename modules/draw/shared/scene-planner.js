@@ -1,6 +1,7 @@
 import { xbLog } from "../../../core/debug-core.js";
 import { callDrawScenePlannerLlm } from "./draw-llm.js";
 import { getWorldInfoPrompt } from "../../../../../../../scripts/world-info.js";
+import jsyaml from "../../../libs/js-yaml.mjs";
 
 const EMPTY_PROMPT_CONFIG = {
     topSystem: '',
@@ -144,6 +145,34 @@ function combineWorldInfoEntries({ uploadedEntries = '', nativeEntries = '' } = 
     return sections.join('\n\n').trim();
 }
 
+function buildSessionLimitsLine(maxImages, maxCharactersPerImage) {
+    const clauses = [];
+    if (maxImages > 0) {
+        clauses.push(`生成 ${maxImages} 项 images 数组`);
+    } else if (maxCharactersPerImage > 0) {
+        clauses.push('生成 images 数组');
+    }
+    if (maxCharactersPerImage > 0) clauses.push(`每项的 characters 最多 ${maxCharactersPerImage} 人`);
+    if (!clauses.length) return '';
+    return `同时，为本次 <content> 内容${clauses.join('、')}。`;
+}
+
+function appendSessionLimitsToUserConfirm(userConfirm, limitLine) {
+    const baseConfirm = String(userConfirm || '').trimEnd();
+    const appendedLine = String(limitLine || '').trim();
+    if (!appendedLine) return baseConfirm;
+    if (!baseConfirm) return appendedLine;
+
+    const closingTagMatch = baseConfirm.match(/(\n?\s*<\/[A-Za-z0-9_:-]+>\s*)$/);
+    if (!closingTagMatch) {
+        return `${baseConfirm}\n${appendedLine}`;
+    }
+
+    const closingTag = closingTagMatch[1].trim();
+    const prefix = baseConfirm.slice(0, baseConfirm.length - closingTagMatch[1].length).trimEnd();
+    return [prefix, appendedLine, closingTag].filter(Boolean).join('\n');
+}
+
 export async function generateScenePlan(options) {
     const {
         messageText,
@@ -227,26 +256,10 @@ export async function generateScenePlan(options) {
         content: promptConfig.metaProtocolStart
     });
 
-    // 变量替换（供自定义 prompt 使用；默认 prompt 通过下方 LIMITS 注入，此处为 no-op）
-    let userJsonFormatContent = promptConfig.userJsonFormat;
-    if (maxImages > 0) userJsonFormatContent = userJsonFormatContent.replace(/\{\{maxImages\}\}/g, String(maxImages));
-    if (maxCharactersPerImage > 0) userJsonFormatContent = userJsonFormatContent.replace(/\{\{maxCharactersPerImage\}\}/g, String(maxCharactersPerImage));
-
     bottomMessages.push({
         role: 'user',
-        content: userJsonFormatContent
+        content: promptConfig.userJsonFormat
     });
-
-    // 动态注入数量限制
-    const limitLines = [];
-    if (maxImages > 0) limitLines.push(`- images 数组最多 ${maxImages} 项，只选取最重要的视觉核心场景`);
-    if (maxCharactersPerImage > 0) limitLines.push(`- 每张图的 characters 最多 ${maxCharactersPerImage} 人，优先保留主要角色`);
-    if (limitLines.length) {
-        bottomMessages.push({
-            role: 'user',
-            content: `## LIMITS (严格遵守)：\n${limitLines.join('\n')}`,
-        });
-    }
 
     bottomMessages.push({
         role: 'user',
@@ -261,7 +274,10 @@ export async function generateScenePlan(options) {
 
     bottomMessages.push({
         role: 'user',
-        content: promptConfig.userConfirm
+        content: appendSessionLimitsToUserConfirm(
+            promptConfig.userConfirm,
+            buildSessionLimitsLine(maxImages, maxCharactersPerImage)
+        )
     });
 
     const messages = []
@@ -302,163 +318,107 @@ export async function generateScenePlan(options) {
 }
 
 function cleanYamlInput(text) {
-    return String(text || '')
-        .replace(/^[\s\S]*?```(?:ya?ml|json)?\s*\n?/i, '')
-        .replace(/\n?```[\s\S]*$/i, '')
+    let normalized = String(text || '')
         .replace(/\r\n/g, '\n')
         .replace(/\t/g, '  ')
         .trim();
-}
 
-function splitByPattern(text, pattern) {
-    const blocks = [];
-    const regex = new RegExp(pattern.source, 'gm');
-    const matches = [...text.matchAll(regex)];
-    if (matches.length === 0) return [];
-    for (let i = 0; i < matches.length; i++) {
-        const start = matches[i].index;
-        const end = i < matches.length - 1 ? matches[i + 1].index : text.length;
-        blocks.push(text.slice(start, end));
+    if (!normalized) return '';
+
+    const fencedBlocks = [...normalized.matchAll(/```(?:ya?ml|json)?\s*([\s\S]*?)```/gi)];
+    const fencedWithImages = fencedBlocks.find((match) => /(^|\n)images:\s*(?:#.*)?(?=\n|$|\[)/i.test(match[1] || ''));
+    if (fencedWithImages) {
+        normalized = String(fencedWithImages[1] || '').trim();
+    } else if (fencedBlocks.length > 0) {
+        normalized = String(fencedBlocks[0][1] || '').trim();
     }
-    return blocks;
-}
 
-function extractNumField(text, fieldName) {
-    const regex = new RegExp(`${fieldName}\\s*:\\s*(\\d+)`);
-    const match = text.match(regex);
-    return match ? parseInt(match[1]) : 0;
-}
+    normalized = normalized
+        .replace(/^```(?:ya?ml|json)?\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
 
-function extractStrField(text, fieldName) {
-    const regex = new RegExp(`^[ ]*-?[ ]*${fieldName}[ ]*:[ ]*(.*)$`, 'mi');
-    const match = text.match(regex);
-    if (!match) return '';
+    const imagesMatch = normalized.match(/(^|\n)images:\s*(?:#.*)?(?=\n|$|\[)/i);
+    if (imagesMatch) {
+        normalized = normalized.slice((imagesMatch.index || 0) + imagesMatch[1].length);
+    }
 
-    let value = match[1].trim();
-    const afterMatch = text.slice(match.index + match[0].length);
-
-    if (/^[|>][-+]?$/.test(value)) {
-        const foldStyle = value.startsWith('>');
-        const lines = [];
-        let baseIndent = -1;
-        for (const line of afterMatch.split('\n')) {
-            if (!line.trim()) {
-                if (baseIndent >= 0) lines.push('');
-                continue;
-            }
-            const indent = line.search(/\S/);
-            if (indent < 0) continue;
-            if (baseIndent < 0) {
-                baseIndent = indent;
-            } else if (indent < baseIndent) {
-                break;
-            }
-            lines.push(line.slice(baseIndent));
+    const keptLines = [];
+    const lines = normalized.split('\n');
+    for (let index = 0; index < lines.length; index++) {
+        const line = lines[index];
+        const trimmed = line.trim();
+        if (index === 0) {
+            keptLines.push(line);
+            continue;
         }
-        while (lines.length > 0 && !lines[lines.length - 1].trim()) {
-            lines.pop();
+        if (!trimmed) {
+            keptLines.push(line);
+            continue;
         }
-        return foldStyle ? lines.join(' ').trim() : lines.join('\n').trim();
+        if (/^```/.test(trimmed)) break;
+        if (/^[ \t]/.test(line)) {
+            keptLines.push(line);
+            continue;
+        }
+        break;
     }
 
-    if (!value) {
-        const nextLineMatch = afterMatch.match(/^\n([ ]+)(\S.*)$/m);
-        if (nextLineMatch) {
-            value = nextLineMatch[2].trim();
-        }
-    }
-
-    if (value) {
-        if ((value.startsWith('"') && value.endsWith('"')) ||
-            (value.startsWith("'") && value.endsWith("'"))) {
-            value = value.slice(1, -1);
-        }
-        value = value
-            .replace(/\\"/g, '"')
-            .replace(/\\'/g, "'")
-            .replace(/\\n/g, '\n')
-            .replace(/\\\\/g, '\\');
-    }
-
-    return value;
+    return keptLines.join('\n').trim();
 }
 
-function parseCharacterBlock(block) {
-    const name = extractStrField(block, 'name');
-    if (!name) return null;
-
-    const char = { name };
-    const optionalFields = ['danbooru', 'type', 'appear', 'costume', 'action', 'interact', 'uc', 'center'];
-    for (const field of optionalFields) {
-        const value = extractStrField(block, field);
-        if (value) char[field] = value;
-    }
-    return char;
+function normalizeYamlScalar(value) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value).trim();
+    return '';
 }
 
-function parseCharactersSection(charsText) {
-    const chars = [];
-    const charBlocks = splitByPattern(charsText, /^[ ]*-[ ]*name[ ]*:/m);
-    for (const block of charBlocks) {
-        const char = parseCharacterBlock(block);
-        if (char) chars.push(char);
-    }
-    return chars;
-}
+function parseYamlCharacters(rawCharacters) {
+    if (!Array.isArray(rawCharacters)) return [];
 
-function parseImageBlockYaml(block) {
-    const index = extractNumField(block, 'index');
-    if (!index) return null;
+    return rawCharacters.map((rawChar) => {
+        if (!rawChar || typeof rawChar !== 'object') return null;
 
-    const image = {
-        index,
-        anchor: extractStrField(block, 'anchor'),
-        scene: extractStrField(block, 'scene'),
-        negative: extractStrField(block, 'negative'),
-        chars: [],
-        hasCharactersField: false
-    };
+        const name = normalizeYamlScalar(rawChar.name);
+        if (!name) return null;
 
-    const charsFieldMatch = block.match(/^[ ]*characters[ ]*:/m);
-    if (charsFieldMatch) {
-        image.hasCharactersField = true;
-        const inlineEmpty = block.match(/^[ ]*characters[ ]*:[ ]*\[\s*\]/m);
-        if (!inlineEmpty) {
-            const charsMatch = block.match(/^[ ]*characters[ ]*:[ ]*(?:#.*)?$/m);
-            if (charsMatch) {
-                const charsStart = charsMatch.index + charsMatch[0].length;
-                let charsEnd = block.length;
-                const afterChars = block.slice(charsStart);
-                const nextFieldMatch = afterChars.match(/\n([ ]{0,6})([a-z_]+)[ ]*:/m);
-                if (nextFieldMatch && nextFieldMatch[1].length <= 2) {
-                    charsEnd = charsStart + nextFieldMatch.index;
-                }
-                const charsContent = block.slice(charsStart, charsEnd);
-                image.chars = parseCharactersSection(charsContent);
-            }
+        const char = { name };
+        const optionalFields = ['danbooru', 'type', 'appear', 'costume', 'action', 'interact', 'uc', 'center'];
+        for (const field of optionalFields) {
+            const value = normalizeYamlScalar(rawChar[field]);
+            if (value) char[field] = value;
         }
-    }
-
-    return image;
+        return char;
+    }).filter(Boolean);
 }
-
 
 function parseYamlImagePlan(text) {
-    const images = [];
-    let content = text;
-
-    const imagesMatch = text.match(/^[ ]*images[ ]*:[ ]*$/m);
-    if (imagesMatch) {
-        content = text.slice(imagesMatch.index + imagesMatch[0].length);
+    let root = null;
+    try {
+        root = jsyaml.load(text);
+    } catch (error) {
+        const message = error?.message || 'YAML 格式无效';
+        throw new LLMServiceError(`YAML 解析失败: ${message}`, 'PARSE_ERROR', {
+            sample: text.slice(0, 300),
+            yamlError: message,
+        });
     }
 
-    const imageBlocks = splitByPattern(content, /^[ ]*-[ ]*index[ ]*:/m);
-    for (const block of imageBlocks) {
-        const parsed = parseImageBlockYaml(block);
-        if (parsed) images.push(parsed);
-    }
-
-    return images;
+    const rawImages = Array.isArray(root?.images)
+        ? root.images
+        : (Array.isArray(root) ? root : []);
+    return rawImages.map((rawImage) => {
+        const image = rawImage && typeof rawImage === 'object' ? rawImage : {};
+        return {
+            index: Number(image.index) || 0,
+            anchor: normalizeYamlScalar(image.anchor),
+            scene: normalizeYamlScalar(image.scene),
+            negative: normalizeYamlScalar(image.negative),
+            chars: parseYamlCharacters(image.characters),
+            hasCharactersField: Object.prototype.hasOwnProperty.call(image, 'characters'),
+        };
+    });
 }
 
 function normalizeImageTasks(images) {
@@ -525,7 +485,16 @@ export function parseImagePlan(aiOutput) {
         throw new LLMServiceError('LLM 输出为空', 'EMPTY_OUTPUT');
     }
 
-    const yamlResult = parseYamlImagePlan(text);
+    let yamlResult = [];
+    try {
+        yamlResult = parseYamlImagePlan(text);
+    } catch (error) {
+        if (error instanceof LLMServiceError) {
+            xbLog.error('novelDrawLlm', `[LLM-Service] YAML 解析失败: ${error.message}`, error.details || null);
+            throw error;
+        }
+        throw error;
+    }
 
     if (yamlResult && yamlResult.length > 0) {
         console.log(`%c[LLM-Service] 解析成功: ${yamlResult.length} 个图片任务`, 'color: #3ecf8e');

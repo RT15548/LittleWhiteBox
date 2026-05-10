@@ -129,7 +129,7 @@ export function getPromptChainPreview(customPrompts) {
         { role: 'assistant', key: 'assistantCheck',
           summary: '合规检查 → 开始输出 YAML' },
         { role: 'user', key: 'userConfirm',
-          summary: '要求完整重新生成 YAML' },
+          summary: '要求完整重新生成 YAML，并动态追加本次 images/characters 数量限制' },
         { role: 'assistant', key: 'assistantPrefill', optional: true,
           summary: 'Prefill: 继续生成（可通过"禁用尾部预填充"关闭）' },
     ];

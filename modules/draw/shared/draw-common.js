@@ -596,6 +596,14 @@ function buildFailedPlaceholderHtml({ slotId, messageId, tags, positive, errorTy
     <button class="xb-nd-edit-btn" data-action="edit-tags">✏️ 编辑TAG</button>
     <button class="xb-nd-remove-btn" data-action="remove-placeholder">🗑️ 移除</button>
 </div>
+<div class="xb-nd-edit" style="display:none;margin-top:12px;text-align:left;">
+    <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:6px;">编辑 TAG（场景描述）</div>
+    <textarea class="xb-nd-edit-input">${escapedTags}</textarea>
+    <div style="display:flex;gap:6px;margin-top:8px;">
+        <button data-action="save-tags-retry" style="flex:1;padding:6px 12px;background:rgba(212,165,116,0.3);border:1px solid rgba(212,165,116,0.5);border-radius:6px;color:#fff;font-size:12px;cursor:pointer;">保存并重试</button>
+        <button data-action="cancel-edit" style="padding:6px 12px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;font-size:12px;cursor:pointer;">取消</button>
+    </div>
+</div>
 </div>`;
 }
 

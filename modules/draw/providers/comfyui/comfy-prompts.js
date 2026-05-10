@@ -74,11 +74,12 @@ images:
         action: "pose, expression, gesture, gaze, and single-instant action tags"
         interact: "interaction tags with other characters or objects; use source#/target#/mutual# when direction matters"
         uc: "character-specific exclusions for hidden traits, removed clothes/accessories, or mutually exclusive states"
-        center: "center | left | right | top | bottom | top-left | top-right | bottom-left | bottom-right"
+        center: "A1~E5 5x5 grid position"
 
 Rules:
 - Every image must include index, anchor, scene, and characters.
 - For pure scenery or object-focused images, use characters: [].
+- If a selected image contains a known character from the provided character list, output that character in characters using the exact registered name.
 - Known characters should keep stable name and danbooru, and still include costume/action/interact/uc/center for the current moment.
 - Unknown characters must include type and appear.
 - Do not output generic quality tags such as masterpiece, best quality, highres.
@@ -139,7 +140,7 @@ export function getPromptChainPreview(customPrompts) {
         { role: 'user', key: 'userJsonFormat', editable: true, summary: 'ComfyUI YAML 输出格式规范' },
         { role: 'user', key: 'metaProtocolEnd', summary: '</meta_protocol>' },
         { role: 'assistant', key: 'assistantCheck', summary: '合规检查 → 开始输出 YAML' },
-        { role: 'user', key: 'userConfirm', summary: '要求完整重新生成 YAML' },
+        { role: 'user', key: 'userConfirm', summary: '要求完整重新生成 YAML，并动态追加本次 images/characters 数量限制' },
         { role: 'assistant', key: 'assistantPrefill', optional: true, summary: 'Prefill: 继续生成' },
     ];
 }

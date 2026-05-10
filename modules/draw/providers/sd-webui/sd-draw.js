@@ -2488,6 +2488,7 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
         return [{
             scene: promptOverride.trim(),
             chars: [],
+            characterPrompts: [],
             anchor: '',
         }];
     }
@@ -2561,17 +2562,20 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
 }
 
 function buildPromptForTask(task, sharedDrawSettings, sdSettings, promptOverride = '', negativePromptOverride = '') {
+    const characterPrompts = Array.isArray(task?.characterPrompts)
+        ? task.characterPrompts.filter(Boolean)
+        : assembleCharacterPrompts(task.chars || [], sharedDrawSettings.characterTags || [], {
+            preserveDanbooruCanonical: true,
+        });
+
     if (promptOverride.trim()) {
         return {
             positive: composePrompt(sdSettings.positivePrefix, promptOverride),
             negative: composePrompt(sdSettings.negativePrefix, negativePromptOverride),
-            characterPrompts: [],
+            characterPrompts,
         };
     }
 
-    const characterPrompts = assembleCharacterPrompts(task.chars || [], sharedDrawSettings.characterTags || [], {
-        preserveDanbooruCanonical: true,
-    });
     const charPositive = characterPrompts.map(item => item.prompt).filter(Boolean).join(', ');
     const charNegative = characterPrompts.map(item => item.uc).filter(Boolean).join(', ');
     return {

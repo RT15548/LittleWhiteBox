@@ -727,14 +727,14 @@ select.input { cursor: pointer; }
                     <div class="card-title">场景规划</div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label">最大出图数</label>
+                            <label class="form-label">要求出图数</label>
                             <input id="comfy-draw-max-images" class="input" type="number" min="0" step="1" placeholder="0">
-                            <p class="form-hint">0 表示不限制；大于 0 时会要求 LLM 最多规划这么多张图。</p>
+                            <p class="form-hint">0 表示不指定；大于 0 时要求 LLM 规划这个数量的图片。</p>
                         </div>
                         <div class="form-group">
                             <label class="form-label">单图最大角色数</label>
                             <input id="comfy-draw-max-chars" class="input" type="number" min="0" step="1" placeholder="0">
-                            <p class="form-hint">0 表示不限制；大于 0 时每张图最多保留这么多角色。</p>
+                            <p class="form-hint">0 表示不指定；大于 0 时每张图最多保留这么多角色。</p>
                         </div>
                     </div>
                 </div>

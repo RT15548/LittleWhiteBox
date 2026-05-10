@@ -2993,7 +2993,7 @@ async function autoGenerateForLastAI() {
 
 async function buildTasksFromMessage({ message, messageId, signal, promptOverride = '', negativePromptOverride = '' }) {
     if (promptOverride.trim()) {
-        return [{ scene: promptOverride.trim(), chars: [], anchor: '' }];
+        return [{ scene: promptOverride.trim(), chars: [], characterPrompts: [], anchor: '' }];
     }
 
     await loadSharedDrawSettings();
@@ -3065,17 +3065,20 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
 }
 
 function buildPromptForTask(task, sharedDrawSettings, comfySettings, promptOverride = '', negativePromptOverride = '') {
+    const characterPrompts = Array.isArray(task?.characterPrompts)
+        ? task.characterPrompts.filter(Boolean)
+        : assembleCharacterPrompts(task.chars || [], sharedDrawSettings.characterTags || [], {
+            preserveDanbooruCanonical: true,
+        });
+
     if (promptOverride.trim()) {
         return {
             positive: composePrompt(comfySettings.positivePrefix, promptOverride),
             negative: composePrompt(comfySettings.negativePrefix, negativePromptOverride),
-            characterPrompts: [],
+            characterPrompts,
         };
     }
 
-    const characterPrompts = assembleCharacterPrompts(task.chars || [], sharedDrawSettings.characterTags || [], {
-        preserveDanbooruCanonical: true,
-    });
     const charPositive = characterPrompts.map(item => item.prompt).filter(Boolean).join(', ');
     const charNegative = characterPrompts.map(item => item.uc).filter(Boolean).join(', ');
     return {

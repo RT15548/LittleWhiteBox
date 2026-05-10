@@ -122,10 +122,11 @@ images:
 ---
 
 ## Per-character UC 规则
-uc 字段 = 只对该角色生效的负面 Tag：
+uc 字段 = 只对该角色生效的排除 Tag；这是角色级 uc，不是整图 negative：
 - 常规互斥排除: 无胸罩→bra；脱帽→hat
 - 多角色互斥排除: 角色1开心排除sad，角色2悲伤排除happy
 - 视角/遮挡导致不可见的特征须移至 uc
+- 不要在 uc 中写通用质量负面，如 bad anatomy, bad hands, worst quality, lowres
 
 ---
 
@@ -248,6 +249,7 @@ uc 字段 = 只对该角色生效的负面 Tag：
 
 ## NOTED
 - anchor must be exact substring from source text
+- If a selected image contains a known character from the provided character list, output that character in characters using the exact registered name
 - Known characters (已录入角色): output name + danbooru + costume + action + interact + uc + center only (禁止输出 type/appear，系统自动注入；若提供服装参考，只把你最终选定并按剧情调整后的当前服装写进 costume)
 - Unknown characters: always include ALL fields: type + appear + costume + action + interact + uc + center
 - Tags use spaces not underscores in output (pink hair, not pink_hair)
