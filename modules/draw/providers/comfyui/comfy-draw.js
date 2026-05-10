@@ -73,8 +73,8 @@ const DANBOORU_DATA_PATH = `${extensionFolderPath}/modules/draw/shared/data/danb
 const SERVER_FILE_KEY = 'config';
 
 // 简单模式只使用 ComfyUI 最基础的“整包模型文生图”链路。
-// 节点 9 使用 PreviewImage，避免默认把图片写入用户本地 ComfyUI output 目录。
-// 节点 ID 固定：3=KSampler, 4=模型加载, 5=画布, 6=正向提示词, 7=负向提示词, 8=解码, 9=预览图
+// SillyTavern 原生 Comfy 后端从 history.outputs[*].images/gifs 取图，因此末端必须有 SaveImage。
+// 节点 ID 固定：3=KSampler, 4=模型加载, 5=画布, 6=正向提示词, 7=负向提示词, 8=解码, 9=保存输出
 const BUILTIN_WORKFLOW_TEMPLATE = {
     "3": {
         "inputs": {
@@ -112,8 +112,11 @@ const BUILTIN_WORKFLOW_TEMPLATE = {
         "class_type": "VAEDecode"
     },
     "9": {
-        "inputs": { "images": ["8", 0] },
-        "class_type": "PreviewImage"
+        "inputs": {
+            "filename_prefix": "LittleWhiteBox_Comfy",
+            "images": ["8", 0]
+        },
+        "class_type": "SaveImage"
     }
 };
 const DEFAULT_COMFY_DRAW_SETTINGS = {
@@ -886,6 +889,107 @@ function parseComfyApiWorkflowJson(text) {
     return workflow;
 }
 
+function getNextComfyNodeId(workflow) {
+    const maxId = Object.keys(workflow || {})
+        .map((id) => Number(id))
+        .filter(Number.isFinite)
+        .reduce((max, id) => Math.max(max, id), 0);
+    return String(maxId + 1);
+}
+
+function isComfyLink(value) {
+    return Array.isArray(value) && value.length >= 2 && value[0] !== undefined && value[1] !== undefined;
+}
+
+function normalizeComfyClassType(value) {
+    return String(value || '').replace(/\s+/g, '').toLowerCase();
+}
+
+function hasComfySaveImageOutput(workflow) {
+    return Object.values(workflow || {}).some((node) => {
+        const type = normalizeComfyClassType(node?.class_type);
+        return type === 'saveimage';
+    });
+}
+
+function getComfyNodeTitle(node) {
+    return String(node?._meta?.title || node?.title || '').trim().toLowerCase();
+}
+
+function getComfyPreviewImageSources(workflow) {
+    return Object.entries(workflow || {})
+        .filter(([, node]) => normalizeComfyClassType(node?.class_type) === 'previewimage')
+        .map(([id, node]) => ({
+            id,
+            title: getComfyNodeTitle(node),
+            source: node?.inputs?.images,
+        }))
+        .filter((item) => isComfyLink(item.source));
+}
+
+function getComfyOutputTitleScore(title) {
+    if (/final|最终/i.test(title)) return 50;
+    if (/output|result|输出|结果/i.test(title)) return 40;
+    if (/enhanced|upscale|refined|增强|放大|精修/i.test(title)) return 30;
+    if (/preview|预览/i.test(title)) return 10;
+    return 0;
+}
+
+function inferComfyImageSource(workflow) {
+    const entries = Object.entries(workflow || {});
+
+    const previews = getComfyPreviewImageSources(workflow);
+    const preferredPreview = previews
+        .map((item) => ({ ...item, score: getComfyOutputTitleScore(item.title) }))
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score || Number(b.id) - Number(a.id))[0];
+    if (preferredPreview) return preferredPreview.source;
+
+    const nonMaskPreview = previews
+        .filter((item) => !/mask|遮罩/i.test(item.title))
+        .sort((a, b) => Number(b.id) - Number(a.id))[0];
+    if (nonMaskPreview) return nonMaskPreview.source;
+
+    const anyPreview = previews.sort((a, b) => Number(b.id) - Number(a.id))[0];
+    if (anyPreview) return anyPreview.source;
+
+    const vaeDecode = entries
+        .filter(([, node]) => normalizeComfyClassType(node?.class_type) === 'vaedecode')
+        .sort(([a], [b]) => Number(b) - Number(a))[0];
+    if (vaeDecode) {
+        return [vaeDecode[0], 0];
+    }
+
+    for (const [, node] of entries) {
+        const inputs = node?.inputs || {};
+        for (const key of ['images', 'image']) {
+            if (isComfyLink(inputs[key])) {
+                return inputs[key];
+            }
+        }
+    }
+
+    return null;
+}
+
+function ensureComfySaveImageOutput(workflow) {
+    if (hasComfySaveImageOutput(workflow)) return workflow;
+
+    const imageSource = inferComfyImageSource(workflow);
+    if (!imageSource) return workflow;
+
+    const nodeId = getNextComfyNodeId(workflow);
+    workflow[nodeId] = {
+        inputs: {
+            filename_prefix: 'LittleWhiteBox_Comfy',
+            images: imageSource,
+        },
+        class_type: 'SaveImage',
+        _meta: { title: 'LittleWhiteBox 输出' },
+    };
+    return workflow;
+}
+
 function injectPromptIntoWorkflow(workflow, positive, negative, width, height, nodeMap) {
     const wf = JSON.parse(JSON.stringify(workflow));
     if (nodeMap.positive && wf[nodeMap.positive]) {
@@ -910,6 +1014,7 @@ function injectPromptIntoWorkflow(workflow, positive, negative, width, height, n
             seedNode.noise_seed = Math.floor(Math.random() * 2 ** 32);
         }
     }
+    ensureComfySaveImageOutput(wf);
     return wf;
 }
 
@@ -1429,11 +1534,18 @@ function bindOverlayEvents() {
     const saveComfyWorkflowField = async (label, mutator, statusElementId = 'comfy-draw-workflow-status') => {
         updateStatusText(statusElementId, '', `${label}保存中...`);
         const ok = await withSaveTimeout(updateSettingsPersistent(mutator, `${label}已保存`, { notify: false, silent: false }));
+        const successText = `${label}已保存`;
         updateStatusText(
             statusElementId,
             ok ? 'success' : 'error',
-            ok ? `${label}已保存，关闭设置即可` : `${label}保存失败，请重试`,
+            ok ? successText : `${label}保存失败，请重试`,
         );
+        if (ok) {
+            setTimeout(() => {
+                const el = getSettingsElement(statusElementId);
+                if (el?.textContent === successText) updateStatusText(statusElementId, '', '');
+            }, 1800);
+        }
         if (ok) fillForm(getSettings());
         return ok;
     };

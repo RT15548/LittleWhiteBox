@@ -684,6 +684,7 @@ body.advanced-mode .comfy-advanced-only { display: flex !important; }
                                 <div style="margin-bottom:6px;"><strong>如何导出工作流？</strong></div>
                                 <div>在 ComfyUI 界面，点击右上角菜单 → <strong>Save (API Format)</strong> 下载 JSON 文件。</div>
                                 <div style="margin-top:6px;color:var(--text-muted);">注意：必须是 API 格式，不是普通的 Save。</div>
+                                <div style="margin-top:6px;color:var(--text-muted);">建议工作流最后接一个 <strong>SaveImage</strong> 节点，方便酒馆原生接口拿到图片。若没有，插件会优先从疑似最终图的 <strong>PreviewImage</strong>，再从非遮罩预览或 <strong>VAEDecode</strong> 自动补一个保存输出节点；复杂工作流仍建议手动接明确的最终输出节点。</div>
                             </div>
                         </div>
                         <div class="form-group">
