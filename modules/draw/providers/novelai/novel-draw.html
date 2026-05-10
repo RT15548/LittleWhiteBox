@@ -168,6 +168,10 @@ select.input { cursor: pointer; }
     border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
 }
 .preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
+.action-status-row {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px;
+}
+.action-status-row .btn-group { margin-top: 0 !important; }
 .char-management-layout {
     display: grid; grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
     gap: 16px; align-items: start;
@@ -299,6 +303,12 @@ select.input { cursor: pointer; }
 .status-text.success { color: var(--success); }
 .status-text.error { color: var(--danger); }
 .status-text.loading { color: var(--warning); }
+.preset-bar .status-text.inline-status,
+.action-status-row .status-text {
+    margin-top: 0;
+    flex: 1 1 220px;
+    min-width: 180px;
+}
 .tip-box {
     display: flex; gap: 10px; padding: 12px 14px; background: var(--accent-soft);
     border: 1px solid rgba(212, 165, 116, 0.2); border-radius: 8px;
@@ -425,6 +435,8 @@ select.input { cursor: pointer; }
     .char-list-card-header { flex-direction: column; }
     .preset-bar { padding: 10px 12px; }
     .preset-bar select { max-width: none; }
+    .preset-bar .status-text.inline-status,
+    .action-status-row .status-text { flex-basis: 100%; min-width: 0; }
     .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 12px; }
 }
 @media (max-width: 400px) {
@@ -733,6 +745,7 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                         <button id="nd_params_export" class="btn btn-icon" title="导出当前预设"><i class="fa-solid fa-share-from-square"></i></button>
                         <button id="nd_params_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
                     </div>
+                    <div id="nd_params_status" class="status-text inline-status"></div>
                 </div>
                 
                 <div class="card">
@@ -918,7 +931,8 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                     </div>
                     <div id="nd_llm_connect_row" class="btn-group hidden" style="margin-top:12px;">
                         <button id="nd_llm_fetch" class="btn"><i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表</button>
-                    </div>                    
+                    </div>
+                    <div id="nd_llm_fetch_status" class="status-text"></div>
 
 				<div class="form-group" style="margin-top:16px;">
 				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
@@ -929,12 +943,14 @@ body.advanced-mode .nd-simple-only { display: none !important; }
 				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
 				        <input type="checkbox" id="nd_disable_prefill"> 禁用尾部预填充
 				    </label>
-				    <p class="form-hint" style="margin-left:24px;">关闭 assistant prefill 注入（某些模型/API 不支持预填充时启用，合规检查和截断重生保留）</p>
+				    <p class="form-hint" style="margin-left:24px;">如果当前模型开启后报错，再勾选此项。</p>
 				</div>
                     
-                    <div id="nd_llm_status" class="status-text"></div>
-                    <div class="btn-group" style="margin-top:16px;">
-                        <button id="nd_llm_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                    <div class="action-status-row">
+                        <div class="btn-group">
+                            <button id="nd_llm_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                        </div>
+                        <div id="nd_llm_status" class="status-text"></div>
                     </div>
                 </div>
 
@@ -947,8 +963,11 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                         <button id="nd_filter_sync" class="btn btn-sm">同步总结的过滤规则</button>
                         <button id="nd_filter_reset" class="btn btn-sm">恢复默认</button>
                     </div>
-                    <div class="btn-group" style="margin-top:12px;">
-                        <button id="nd_filter_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存规则</button>
+                    <div class="action-status-row">
+                        <div class="btn-group">
+                            <button id="nd_filter_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存规则</button>
+                        </div>
+                        <div id="nd_filter_status" class="status-text"></div>
                     </div>
                 </div>
 
@@ -958,7 +977,7 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                 </div>
                 <div class="card">
                     <div class="card-title">最近一次实际请求</div>
-                    <p class="form-hint">显示前端发送给 SillyTavern /api/backends/chat-completions/generate 的最近一次请求；后端再转上游后的最终格式前端无法直接看到。</p>
+                    <p class="form-hint">显示最近一次场景分析请求，方便检查提示词和上下文。</p>
                     <div class="btn-group" style="margin-top:8px;">
                         <button id="nd_llm_request_refresh" class="btn btn-sm" type="button">刷新最近请求</button>
                     </div>
@@ -1128,15 +1147,16 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                             </div>
                         </div>
                         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                            <div style="display:flex;align-items:center;gap:6px;background:var(--bg-input);padding:6px 10px;border-radius:8px;border:1px solid var(--border);">
-                                <span style="font-size:12px;color:var(--text-secondary);">自动清理</span>
-                                <input id="nd_cache_days" type="number" class="input" style="width:50px;padding:4px 6px;min-height:28px;text-align:center;" value="3" min="1" max="30">
-                                <span style="font-size:12px;color:var(--text-secondary);">天</span>
-                                <button id="nd_save_cache_days" class="btn btn-sm btn-icon" style="min-height:28px;width:28px;padding:0;"><i class="fa-solid fa-check"></i></button>
-                            </div>
-                            <button id="nd_clear_expired" class="btn btn-sm"><i class="fa-solid fa-broom"></i> 清理过期</button>
-                            <button id="nd_clear_all" class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i> 清空全部</button>
-                            <button id="nd_refresh_stats" class="btn btn-sm btn-icon"><i class="fa-solid fa-arrows-rotate"></i></button>
+                        <div style="display:flex;align-items:center;gap:6px;background:var(--bg-input);padding:6px 10px;border-radius:8px;border:1px solid var(--border);">
+                            <span style="font-size:12px;color:var(--text-secondary);">自动清理</span>
+                            <input id="nd_cache_days" type="number" class="input" style="width:50px;padding:4px 6px;min-height:28px;text-align:center;" value="3" min="1" max="30">
+                            <span style="font-size:12px;color:var(--text-secondary);">天</span>
+                            <button id="nd_save_cache_days" class="btn btn-sm btn-icon" style="min-height:28px;width:28px;padding:0;"><i class="fa-solid fa-check"></i></button>
+                        </div>
+                        <div id="nd_gallery_status" class="status-text" style="flex:1 1 220px;min-width:180px;margin-top:0;"></div>
+                        <button id="nd_clear_expired" class="btn btn-sm"><i class="fa-solid fa-broom"></i> 清理过期</button>
+                        <button id="nd_clear_all" class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i> 清空全部</button>
+                        <button id="nd_refresh_stats" class="btn btn-sm btn-icon"><i class="fa-solid fa-arrows-rotate"></i></button>
                         </div>
                     </div>
                 </div>
@@ -1166,6 +1186,7 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                         <button id="nd_prompt_preset_save" class="btn btn-primary" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
                         <button id="nd_prompt_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
                     </div>
+                    <div id="nd_prompt_preset_status" class="status-text inline-status"></div>
                 </div>
 
                 <div class="card">
@@ -1195,11 +1216,14 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                     <textarea id="nd_prompt_format" class="prompt-textarea" rows="8"></textarea>
                 </div>
 
-                <div class="btn-group" style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">
-                    <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存到当前预设</button>
-                    <button id="nd_prompts_reset_all" class="btn btn-danger"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
-                    <button id="nd_prompts_export" class="btn"><i class="fa-solid fa-download"></i> 导出模板</button>
-                    <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入模板<input type="file" id="nd_prompts_import" accept=".json" style="display:none;"></label>
+                <div class="action-status-row">
+                    <div class="btn-group" style="display:flex;gap:12px;flex-wrap:wrap;">
+                        <button id="nd_prompts_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存到当前预设</button>
+                        <button id="nd_prompts_reset_all" class="btn btn-danger"><i class="fa-solid fa-rotate-left"></i> 全部恢复默认</button>
+                        <button id="nd_prompts_export" class="btn"><i class="fa-solid fa-download"></i> 导出模板</button>
+                        <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入模板<input type="file" id="nd_prompts_import" accept=".json" style="display:none;"></label>
+                    </div>
+                    <div id="nd_prompts_status" class="status-text"></div>
                 </div>
 
                 <!-- 消息链结构预览 -->
@@ -1261,10 +1285,12 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                     </div>
                 </div>
 
-                <div class="btn-group" style="margin-top:16px;">
-                    <button id="nd_wb_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                <div class="action-status-row">
+                    <div class="btn-group">
+                        <button id="nd_wb_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                    </div>
+                    <div id="nd_wb_status" class="status-text"></div>
                 </div>
-                <div id="nd_wb_status" class="status-text"></div>
             </div>
 
         </main>
@@ -2537,9 +2563,25 @@ window.addEventListener('message', event => {
                 if (data.state === 'success' || data.state === 'error') handleSaveResult(data.state === 'success');
                 break;
             }
-            updateStatus($('nd_status'), data.state, data.text);
-            updateStatus($('nd_api_status'), data.state, data.text);
-            updateStatus($('nd_llm_status'), data.state, data.text);
+            if (data.target === 'api') {
+                updateStatus($('nd_api_status'), data.state, data.text);
+            } else if (data.target === 'llm') {
+                updateStatus($('nd_llm_status'), data.state, data.text);
+            } else if (data.target === 'llm-fetch') {
+                updateStatus($('nd_llm_fetch_status'), data.state, data.text);
+            } else if (data.target === 'params') {
+                updateStatus($('nd_params_status'), data.state, data.text);
+            } else if (data.target === 'prompt-preset') {
+                updateStatus($('nd_prompt_preset_status'), data.state, data.text);
+            } else if (data.target === 'prompts') {
+                updateStatus($('nd_prompts_status'), data.state, data.text);
+            } else if (data.target === 'filter') {
+                updateStatus($('nd_filter_status'), data.state, data.text);
+            } else if (data.target === 'gallery') {
+                updateStatus($('nd_gallery_status'), data.state, data.text);
+            } else {
+                updateStatus($('nd_status'), data.state, data.text);
+            }
             const fetchBtn = $('nd_llm_fetch');
             if (fetchBtn?.disabled) {
                 fetchBtn.disabled = false;
@@ -2989,7 +3031,7 @@ document.addEventListener('DOMContentLoaded', () => {
             topSystem: $('nd_prompt_system').value,
             tagGuideContent: $('nd_prompt_guide').value,
             userJsonFormat: $('nd_prompt_format').value,
-        }});
+        }, statusTarget: 'prompt-preset' });
     });
 
     $('nd_prompt_add').addEventListener('click', () => postToParent({ type: 'ADD_PROMPT_PRESET' }));
@@ -3014,7 +3056,7 @@ document.addEventListener('DOMContentLoaded', () => {
             topSystem: $('nd_prompt_system').value,
             tagGuideContent: $('nd_prompt_guide').value,
             userJsonFormat: $('nd_prompt_format').value,
-        }});
+        }, statusTarget: 'prompts' });
     });
 
     $('nd_prompt_reset_system').addEventListener('click', () => {
@@ -3045,7 +3087,7 @@ document.addEventListener('DOMContentLoaded', () => {
             topSystem: topSystemVal,
             tagGuideContent: defaults.tagGuideContent || '',
             userJsonFormat: defaults.userJsonFormat || '',
-        }});
+        }, statusTarget: 'prompts' });
     });
 
     $('nd_prompts_export').addEventListener('click', () => {

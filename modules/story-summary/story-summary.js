@@ -20,6 +20,7 @@ import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { createModuleEvents } from "../../core/event-manager.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
 import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
+import { getDefaultApiPrefix, getModelListCandidateUrls } from "../../shared/common/openai-url-utils.js";
 
 // config/store
 import {
@@ -119,6 +120,8 @@ const MODULE_ID = "storySummary";
 const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.html`;
 const VALID_SECTIONS = ["keywords", "events", "characters", "arcs", "facts"];
 const MESSAGE_EVENT = "message";
+const SUMMARY_MODEL_FETCH_PROVIDERS = new Set(["openai", "custom"]);
+const SUMMARY_MODEL_FETCH_TIMEOUT_MS = 5000;
 
 function compactRecallRuntimeStatsForLog(statsList = getRecallRuntimeStats()) {
     if (!Array.isArray(statsList) || !statsList.length) return "[]";
@@ -139,6 +142,59 @@ function compactRecallRuntimeStatsForLog(statsList = getRecallRuntimeStats()) {
             `err=${stats.lastError || "-"}`,
         ].join(" ");
     }).join(" | ");
+}
+
+async function tryFetchSummaryModelIds(url, headers = {}, signal = null) {
+    try {
+        const res = await fetch(url, { method: "GET", headers, signal });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data?.data?.map(item => item?.id).filter(Boolean) || null;
+    } catch (error) {
+        if (error?.name === "AbortError") throw error;
+        return null;
+    }
+}
+
+async function fetchSummaryModelsForUi(payload = {}) {
+    const provider = String(payload?.provider || "").trim().toLowerCase();
+    const baseUrl = String(payload?.url || "").trim();
+    const apiKey = String(payload?.apiKey || "").trim();
+
+    if (!SUMMARY_MODEL_FETCH_PROVIDERS.has(provider)) {
+        throw new Error("当前渠道不支持自动拉取模型");
+    }
+    if (!baseUrl) {
+        throw new Error("请先填写 API URL");
+    }
+    if (!apiKey) {
+        throw new Error("请先填写 API KEY");
+    }
+
+    const headers = {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: "application/json",
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), SUMMARY_MODEL_FETCH_TIMEOUT_MS);
+    try {
+        for (const url of getModelListCandidateUrls(baseUrl, getDefaultApiPrefix(provider))) {
+            const models = await tryFetchSummaryModelIds(url, headers, controller.signal);
+            if (models?.length) {
+                return [...new Set(models)];
+            }
+        }
+
+        throw new Error("未获取到模型列表");
+    } catch (error) {
+        if (error?.name === "AbortError") {
+            throw new Error("请求超时（>5s）");
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeoutId);
+    }
 }
 
 function logRecallRuntimeCheckpoint(label, extra = "") {
@@ -2047,6 +2103,25 @@ async function handleFrameMessage(event) {
             window.xiaobaixStreamingGeneration?.cancel?.("xb9");
             postToFrame({ type: "GENERATION_STATE", isGenerating: false });
             postToFrame({ type: "SUMMARY_STATUS", statusText: "已停止" });
+            break;
+
+        case "FETCH_SUMMARY_MODELS":
+            (async () => {
+                try {
+                    const models = await fetchSummaryModelsForUi(data);
+                    postToFrame({
+                        type: "SUMMARY_MODELS",
+                        requestId: data.requestId || "",
+                        models,
+                    });
+                } catch (e) {
+                    postToFrame({
+                        type: "SUMMARY_MODELS_ERROR",
+                        requestId: data.requestId || "",
+                        message: String(e?.message || e || "拉取模型失败"),
+                    });
+                }
+            })();
             break;
 
         case "VECTOR_TEST_ONLINE":

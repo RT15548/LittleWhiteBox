@@ -4,7 +4,7 @@ const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/sd-webui/S
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/sd-webui/prompts`;
 
 /** 每次修改 SD 默认提示词内容时递增，方便后续做预设/缓存刷新判断。 */
-export const PROMPT_TEMPLATE_VERSION = 3;
+export const PROMPT_TEMPLATE_VERSION = 4;
 
 export const SD_SCENE_PROMPTS = {
     topSystem: `[Visual Scene Planning - Stable Diffusion WebUI txt2img]
@@ -116,7 +116,11 @@ mindful_prelude:
     tagGuideContent: '',
 };
 
+export let LEGACY_USER_JSON_FORMAT = '';
+
 let tagGuideContent = '';
+
+export { SD_SCENE_PROMPTS as DEFAULT_PROMPT_CONFIG };
 
 export function getEffectiveTagGuide(customGuide) {
     if (typeof customGuide === 'string' && customGuide.trim()) return customGuide;
@@ -165,7 +169,9 @@ export async function loadTagGuide() {
 export async function loadPromptTemplates() {
     const files = [
         { key: 'topSystem', path: `${PROMPTS_DIR}/top-system.md` },
+        { key: 'topSystemPov', path: `${PROMPTS_DIR}/top-system-pov.md` },
         { key: 'userJsonFormat', path: `${PROMPTS_DIR}/output-format.md` },
+        { key: '_legacy', path: `${PROMPTS_DIR}/output-format-legacy.md` },
     ];
     const results = await Promise.allSettled(files.map(async ({ key, path }) => {
         const response = await fetch(path, { cache: 'no-cache' });
@@ -177,7 +183,11 @@ export async function loadPromptTemplates() {
     for (const result of results) {
         if (result.status === 'fulfilled') {
             const { key, text } = result.value;
-            SD_SCENE_PROMPTS[key] = text;
+            if (key === '_legacy') {
+                LEGACY_USER_JSON_FORMAT = text;
+            } else {
+                SD_SCENE_PROMPTS[key] = text;
+            }
         } else {
             console.error('[SD-Draw Prompts] 提示词文件加载失败:', result.reason);
             allOk = false;
@@ -185,7 +195,7 @@ export async function loadPromptTemplates() {
     }
 
     if (allOk) {
-        console.log('[SD-Draw Prompts] 提示词模板已加载 (topSystem, userJsonFormat)');
+        console.log('[SD-Draw Prompts] 提示词模板已加载 (topSystem, topSystemPov, userJsonFormat, legacy)');
     } else {
         console.warn('[SD-Draw Prompts] 部分提示词文件加载失败，将使用内置默认值');
     }

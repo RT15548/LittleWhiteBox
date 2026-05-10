@@ -110,6 +110,7 @@ tag--        → 降低
 **互动（多角色时）：**
 - `holding hands`, `hug`, `kiss`, `face to face`, `hand on shoulder`
 - 方向不清时用前缀: `source#动作`, `target#动作`, `mutual#动作`
+- 在 ComfyUI 中，`interact` 仍然会作为角色 prompt 的普通 tags 并入最终正向提示词，不是 NovelAI 专属能力
 
 ---
 
@@ -120,6 +121,8 @@ tag--        → 降低
 **标签：** 必须添加 `nsfw` 标签
 
 **身体部位：** `penis`, `vagina`, `anus`, `nipples`, `erection`, `clitoris`, `testicles`, `pussy`
+
+**横截面/断面图：** `cross section`, `internal view`, `x-ray`
 
 **性行为：** `sex`, `vaginal`, `anal`, `oral`, `fellatio`, `cunnilingus`, `paizuri`, `handjob`
 

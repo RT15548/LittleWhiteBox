@@ -58,6 +58,11 @@ import {
 } from "../../shared/danbooru-local-db.js";
 import {
     COMFY_SCENE_PROMPTS,
+    DEFAULT_PROMPT_CONFIG,
+    LEGACY_USER_JSON_FORMAT,
+    PROMPT_TEMPLATE_VERSION,
+    getLoadedTagGuide,
+    getPromptChainPreview,
     loadPromptTemplates,
     loadTagGuide,
 } from "./comfy-prompts.js";
@@ -141,13 +146,17 @@ const DEFAULT_COMFY_DRAW_SETTINGS = {
         nodeNegative: '',
         nodeWidth: '',
         nodeHeight: '',
-        nodeSeed: '',
     },
 
     // 缓存
     modelCache: [],
     samplerCache: [],
     schedulerCache: [],
+    advancedMode: false,
+    customPrompts: { topSystem: null, tagGuideContent: null, userJsonFormat: null },
+    promptPresets: [],
+    selectedPromptPresetId: null,
+    _promptTemplateVersion: 0,
 };
 
 let moduleInitialized = false;
@@ -165,7 +174,7 @@ let imageDelegationBound = false;
 let autoBusy = false;
 const events = createModuleEvents(MODULE_KEY);
 const generationJobs = new Map();
-const COMFY_DRAW_VIEWS = ['test', 'api', 'workflow', 'params', 'llm', 'worldbook', 'characters', 'gallery'];
+const COMFY_DRAW_VIEWS = ['test', 'api', 'workflow', 'params', 'llm', 'prompts', 'worldbook', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
 const FIXED_COMFY_REQUEST_DELAY_MS = 1000;
 let activeComfyImageRequest = null;
@@ -240,6 +249,63 @@ function createDefaultPreset() {
     };
 }
 
+function getPromptPresetDefaults(name) {
+    const guide = getLoadedTagGuide() || '';
+    if (name === '默认-第一人称视角') {
+        return {
+            topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov || DEFAULT_PROMPT_CONFIG.topSystem,
+            tagGuideContent: guide,
+            userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
+        };
+    }
+    if (name === '默认-模型要求低') {
+        return {
+            topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+            tagGuideContent: guide,
+            userJsonFormat: LEGACY_USER_JSON_FORMAT || DEFAULT_PROMPT_CONFIG.userJsonFormat,
+        };
+    }
+    return {
+        topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+        tagGuideContent: guide,
+        userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
+    };
+}
+
+function createPromptPreset(name, id = `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`) {
+    return { id, name, ...getPromptPresetDefaults(name) };
+}
+
+function createDefaultPromptPresets() {
+    return [
+        createPromptPreset('默认-模型要求高'),
+        createPromptPreset('默认-第一人称视角'),
+        createPromptPreset('默认-模型要求低'),
+    ];
+}
+
+function hasPromptOverrideValue(customPrompts = {}) {
+    return ['topSystem', 'tagGuideContent', 'userJsonFormat']
+        .some((key) => typeof customPrompts?.[key] === 'string' && customPrompts[key].trim());
+}
+
+function createPresetFromCustomPrompts(customPrompts = {}) {
+    const defaults = getPromptPresetDefaults('默认-模型要求高');
+    return {
+        id: `prompt-legacy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: '自定义-旧配置迁移',
+        topSystem: typeof customPrompts.topSystem === 'string' && customPrompts.topSystem.trim()
+            ? customPrompts.topSystem
+            : defaults.topSystem,
+        tagGuideContent: typeof customPrompts.tagGuideContent === 'string' && customPrompts.tagGuideContent.trim()
+            ? customPrompts.tagGuideContent
+            : defaults.tagGuideContent,
+        userJsonFormat: typeof customPrompts.userJsonFormat === 'string' && customPrompts.userJsonFormat.trim()
+            ? customPrompts.userJsonFormat
+            : defaults.userJsonFormat,
+    };
+}
+
 function cloneSettingsObject(obj) {
     if (typeof structuredClone === 'function') {
         return structuredClone(obj);
@@ -289,7 +355,7 @@ function normalizeSettings(raw = {}) {
     const builtinWorkflowId = BUILTIN_WORKFLOWS.some((item) => item.id === raw.builtinWorkflowId)
         ? raw.builtinWorkflowId
         : DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId;
-    return {
+    const merged = {
         ...DEFAULT_COMFY_DRAW_SETTINGS,
         ...raw,
         mode: raw.mode === 'auto' ? 'auto' : 'manual',
@@ -316,13 +382,76 @@ function normalizeSettings(raw = {}) {
             nodeNegative: String(raw.customWorkflow?.nodeNegative || ''),
             nodeWidth: String(raw.customWorkflow?.nodeWidth || ''),
             nodeHeight: String(raw.customWorkflow?.nodeHeight || ''),
-            nodeSeed: String(raw.customWorkflow?.nodeSeed || ''),
         },
         // 缓存
         modelCache: Array.isArray(raw.modelCache) ? raw.modelCache : [],
         samplerCache: Array.isArray(raw.samplerCache) ? raw.samplerCache : [],
         schedulerCache: Array.isArray(raw.schedulerCache) ? raw.schedulerCache : [],
     };
+
+    merged.advancedMode = !!raw.advancedMode;
+    merged.customPrompts = { ...DEFAULT_COMFY_DRAW_SETTINGS.customPrompts, ...(raw.customPrompts || {}) };
+    if (!Array.isArray(merged.promptPresets)) merged.promptPresets = [];
+
+    if (!merged.promptPresets.length) {
+        merged.promptPresets = createDefaultPromptPresets();
+        if (hasPromptOverrideValue(merged.customPrompts)) {
+            const legacyPreset = createPresetFromCustomPrompts(merged.customPrompts);
+            merged.promptPresets.push(legacyPreset);
+            merged.selectedPromptPresetId = legacyPreset.id;
+        } else {
+            merged.selectedPromptPresetId = merged.promptPresets[0]?.id || null;
+        }
+    }
+
+    const legacyNames = { '默认1': '默认-模型要求高', '默认2': '默认-模型要求低' };
+    merged.promptPresets.forEach((preset, index) => {
+        if (legacyNames[preset.name]) preset.name = legacyNames[preset.name];
+        preset.id = String(preset.id || `prompt-${Date.now()}-${index}`);
+    });
+
+    const defaultPresetNames = ['默认-模型要求高', '默认-第一人称视角', '默认-模型要求低'];
+    const storedVersion = Number(merged._promptTemplateVersion) || 0;
+    if (!merged.promptPresets.some((preset) => preset.name === '默认-第一人称视角')) {
+        const insertIndex = merged.promptPresets.findIndex((preset) => preset.name === '默认-模型要求低');
+        const povPreset = createPromptPreset('默认-第一人称视角');
+        if (insertIndex >= 0) merged.promptPresets.splice(insertIndex, 0, povPreset);
+        else merged.promptPresets.push(povPreset);
+    }
+    if (storedVersion < PROMPT_TEMPLATE_VERSION) {
+        merged.promptPresets = merged.promptPresets.map((preset) => {
+            if (!defaultPresetNames.includes(preset.name)) return preset;
+            return {
+                ...preset,
+                ...getPromptPresetDefaults(preset.name),
+            };
+        });
+        merged._promptTemplateVersion = PROMPT_TEMPLATE_VERSION;
+    }
+
+    merged.promptPresets = merged.promptPresets.map((preset) => {
+        const defaults = getPromptPresetDefaults(preset.name);
+        return {
+            ...preset,
+            topSystem: preset.topSystem ?? defaults.topSystem,
+            tagGuideContent: preset.tagGuideContent ?? defaults.tagGuideContent,
+            userJsonFormat: preset.userJsonFormat ?? defaults.userJsonFormat,
+        };
+    });
+
+    if (!merged.selectedPromptPresetId || !merged.promptPresets.some((preset) => preset.id === merged.selectedPromptPresetId)) {
+        merged.selectedPromptPresetId = merged.promptPresets[0]?.id || null;
+    }
+    if (!merged.customPrompts.topSystem || !merged.customPrompts.userJsonFormat || merged.customPrompts.tagGuideContent == null) {
+        const activePromptPreset = merged.promptPresets.find((preset) => preset.id === merged.selectedPromptPresetId) || merged.promptPresets[0] || createPromptPreset('默认-模型要求高');
+        merged.customPrompts = {
+            topSystem: activePromptPreset.topSystem,
+            tagGuideContent: activePromptPreset.tagGuideContent,
+            userJsonFormat: activePromptPreset.userJsonFormat,
+        };
+    }
+
+    return merged;
 }
 
 export async function loadSettings() {
@@ -349,6 +478,9 @@ export function getSettings() {
     if (!settingsCache) {
         console.warn('[ComfyDraw] 设置未加载，使用默认值');
         settingsCache = normalizeSettings({});
+    }
+    if (!settingsCache.promptPresets?.length) {
+        settingsCache = normalizeSettings(settingsCache);
     }
     return settingsCache;
 }
@@ -389,6 +521,12 @@ export async function updateSettingsPersistent(mutator, okText = '已保存', op
 
 function getActivePreset(settings = getSettings()) {
     return settings.presets.find(p => p.id === settings.selectedPresetId) || settings.presets[0] || createDefaultPreset();
+}
+
+function getActivePromptPreset(settings = getSettings()) {
+    return settings.promptPresets.find((preset) => preset.id === settings.selectedPromptPresetId)
+        || settings.promptPresets[0]
+        || createPromptPreset('默认-模型要求高');
 }
 
 function getEffectiveParams(settings = getSettings(), overrides = {}) {
@@ -1327,7 +1465,6 @@ function bindOverlayEvents() {
                 nodeNegative: getValue('comfy-node-negative').trim(),
                 nodeWidth: getValue('comfy-node-width').trim(),
                 nodeHeight: getValue('comfy-node-height').trim(),
-                nodeSeed: '',
             };
         }, '工作流已保存', { notify: false, silent: false }), {
             statusElementId: 'comfy-workflow-status',
@@ -1361,6 +1498,198 @@ function bindOverlayEvents() {
     querySettings('#comfy-llm-request-refresh')?.addEventListener('click', () => {
         renderLastLlmRequestPreview();
     });
+    querySettings('#comfy-advanced-mode')?.addEventListener('change', async (event) => {
+        const checked = event.target.checked === true;
+        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
+            settings.advancedMode = checked;
+        }, checked ? '高级模式已开启' : '高级模式已关闭', { notify: false, silent: false }));
+        if (ok) {
+            fillForm(getSettings());
+            if (!checked && querySettings('[data-comfy-view].active')?.dataset.comfyView === 'prompts') {
+                switchSettingsView('llm');
+            }
+        }
+    });
+    querySettings('#comfy-prompt-preset-select')?.addEventListener('change', async () => {
+        const selectedId = getValue('comfy-prompt-preset-select');
+        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
+            settings.selectedPromptPresetId = selectedId;
+            const active = settings.promptPresets.find((preset) => preset.id === selectedId) || settings.promptPresets[0];
+            if (active) {
+                settings.customPrompts = {
+                    topSystem: active.topSystem,
+                    tagGuideContent: active.tagGuideContent,
+                    userJsonFormat: active.userJsonFormat,
+                };
+            }
+        }, '提示词预设已切换', { notify: false, silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#comfy-prompt-preset-add')?.addEventListener('click', async () => {
+        const current = readPromptPresetFromForm();
+        const preset = {
+            ...current,
+            id: `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            name: prompt('输入提示词预设名称：', `提示词-${(getSettings().promptPresets || []).length + 1}`) || `提示词-${(getSettings().promptPresets || []).length + 1}`,
+        };
+        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
+            settings.promptPresets = [...settings.promptPresets, preset];
+            settings.selectedPromptPresetId = preset.id;
+            settings.customPrompts = {
+                topSystem: preset.topSystem,
+                tagGuideContent: preset.tagGuideContent,
+                userJsonFormat: preset.userJsonFormat,
+            };
+        }, '已创建提示词预设', { notify: false, silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#comfy-prompt-preset-rename')?.addEventListener('click', async () => {
+        const settings = getSettings();
+        const preset = getActivePromptPreset(settings);
+        const name = prompt('输入新名称：', preset.name || '提示词预设');
+        if (!name) return;
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+            draft.promptPresets = draft.promptPresets.map((item) => item.id === preset.id ? { ...item, name } : item);
+        }, '提示词预设已重命名', { notify: false, silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#comfy-prompt-preset-delete')?.addEventListener('click', async () => {
+        const settings = getSettings();
+        if ((settings.promptPresets || []).length <= 1) {
+            toastr.warning('至少保留一个提示词预设');
+            return;
+        }
+        const preset = getActivePromptPreset(settings);
+        if (!confirm(`删除提示词预设「${preset.name}」？`)) return;
+        const nextPresets = settings.promptPresets.filter((item) => item.id !== preset.id);
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+            draft.promptPresets = nextPresets;
+            draft.selectedPromptPresetId = nextPresets[0]?.id || null;
+            const active = nextPresets[0];
+            if (active) {
+                draft.customPrompts = {
+                    topSystem: active.topSystem,
+                    tagGuideContent: active.tagGuideContent,
+                    userJsonFormat: active.userJsonFormat,
+                };
+            }
+        }, '提示词预设已删除', { notify: false, silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#comfy-prompt-preset-save')?.addEventListener('click', async (event) => {
+        const settings = getSettings();
+        const preset = getActivePromptPreset(settings);
+        const nextPreset = { ...readPromptPresetFromForm(preset), id: preset.id, name: preset.name };
+        const ok = await runSaveButtonTask(event.currentTarget, () => updateSettingsPersistent((draft) => {
+            draft.promptPresets = draft.promptPresets.map((item) => item.id === preset.id ? nextPreset : item);
+            draft.selectedPromptPresetId = preset.id;
+            draft.customPrompts = {
+                topSystem: nextPreset.topSystem,
+                tagGuideContent: nextPreset.tagGuideContent,
+                userJsonFormat: nextPreset.userJsonFormat,
+            };
+        }, '提示词预设已保存', { notify: false, silent: false }), {
+            statusElementId: 'comfy-prompt-preset-status',
+            pendingText: '正在保存提示词预设...',
+            successText: '提示词预设已保存',
+            errorText: '提示词预设保存失败，请重试',
+        });
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#comfy-prompts-save')?.addEventListener('click', async (event) => {
+        const settings = getSettings();
+        const preset = getActivePromptPreset(settings);
+        const nextPreset = { ...readPromptPresetFromForm(preset), id: preset.id, name: preset.name };
+        const ok = await runSaveButtonTask(event.currentTarget, () => updateSettingsPersistent((draft) => {
+            draft.promptPresets = draft.promptPresets.map((item) => item.id === preset.id ? nextPreset : item);
+            draft.selectedPromptPresetId = preset.id;
+            draft.customPrompts = {
+                topSystem: nextPreset.topSystem,
+                tagGuideContent: nextPreset.tagGuideContent,
+                userJsonFormat: nextPreset.userJsonFormat,
+            };
+        }, '提示词预设已保存', { notify: false, silent: false }), {
+            statusElementId: 'comfy-prompts-status',
+            pendingText: '正在保存提示词模板...',
+            successText: '提示词模板已保存到当前预设',
+            errorText: '提示词模板保存失败，请重试',
+        });
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#comfy-prompt-reset-system')?.addEventListener('click', () => {
+        const defaults = getPromptPresetDefaults(getActivePromptPreset(getSettings()).name);
+        setValue('comfy-prompt-system', defaults.topSystem);
+        renderPromptChainPreview();
+    });
+    querySettings('#comfy-prompt-reset-guide')?.addEventListener('click', () => {
+        const defaults = getPromptPresetDefaults(getActivePromptPreset(getSettings()).name);
+        setValue('comfy-prompt-guide', defaults.tagGuideContent);
+        renderPromptChainPreview();
+    });
+    querySettings('#comfy-prompt-reset-format')?.addEventListener('click', () => {
+        const defaults = getPromptPresetDefaults(getActivePromptPreset(getSettings()).name);
+        setValue('comfy-prompt-format', defaults.userJsonFormat);
+        renderPromptChainPreview();
+    });
+    querySettings('#comfy-prompts-reset-all')?.addEventListener('click', () => {
+        if (!confirm('确认恢复当前提示词模板为默认值？')) return;
+        const defaults = getPromptPresetDefaults(getActivePromptPreset(getSettings()).name);
+        setValue('comfy-prompt-system', defaults.topSystem);
+        setValue('comfy-prompt-guide', defaults.tagGuideContent);
+        setValue('comfy-prompt-format', defaults.userJsonFormat);
+        renderPromptChainPreview();
+    });
+    querySettings('#comfy-prompts-export')?.addEventListener('click', () => {
+        const payload = {
+            _type: 'comfy-draw-prompt-template',
+            _version: 1,
+            topSystem: getValue('comfy-prompt-system'),
+            tagGuideContent: getValue('comfy-prompt-guide'),
+            userJsonFormat: getValue('comfy-prompt-format'),
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'comfy-draw-prompts.json';
+        link.click();
+        URL.revokeObjectURL(url);
+    });
+    querySettings('#comfy-prompts-import')?.addEventListener('change', async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const payload = JSON.parse(text);
+            if (typeof payload.topSystem !== 'string' || typeof payload.tagGuideContent !== 'string' || typeof payload.userJsonFormat !== 'string') {
+                throw new Error('不是有效的提示词模板文件');
+            }
+            setValue('comfy-prompt-system', payload.topSystem);
+            setValue('comfy-prompt-guide', payload.tagGuideContent);
+            setValue('comfy-prompt-format', payload.userJsonFormat);
+            renderPromptChainPreview();
+            toastr.success('导入成功，请点击保存以生效', 'ComfyUI');
+        } catch (error) {
+            toastr.error(error?.message || '导入失败', 'ComfyUI');
+        } finally {
+            event.target.value = '';
+        }
+    });
+    querySettings('#comfy-chain-toggle')?.addEventListener('click', () => {
+        const container = getSettingsElement('comfy-prompt-chain');
+        const icon = querySettings('#comfy-chain-toggle .chain-toggle-icon');
+        if (!container) return;
+        const isOpen = container.classList.toggle('open');
+        if (icon) icon.textContent = isOpen ? '▼ 收起' : '▶ 展开';
+        if (isOpen) renderPromptChainPreview();
+    });
+    ['comfy-prompt-system', 'comfy-prompt-guide', 'comfy-prompt-format'].forEach((id) => {
+        querySettings(`#${id}`)?.addEventListener('input', () => {
+            if (getSettingsElement('comfy-prompt-chain')?.classList.contains('open')) {
+                renderPromptChainPreview();
+            }
+        });
+    });
     querySettings('#comfy-filter-add')?.addEventListener('click', () => {
         renderFilterRuleRow({ start: '', end: '' });
     });
@@ -1369,7 +1698,7 @@ function bindOverlayEvents() {
     });
     querySettings('#comfy-filter-save')?.addEventListener('click', async (event) => {
         await runSaveButtonTask(event.currentTarget, () => saveSharedDrawSettings({ notify: false }), {
-            statusElementId: 'comfy-shared-status',
+            statusElementId: 'comfy-filter-status',
             pendingText: '正在保存过滤规则...',
             successText: '过滤规则已保存',
             errorText: '过滤规则保存失败，请重试',
@@ -1398,10 +1727,13 @@ function bindOverlayEvents() {
 function fillForm(settings) {
     const preset = getActivePreset(settings);
     fillPresetSelect(settings);
+    fillPromptPresetSelect(settings);
     const showFloor = getSettingsElement('comfy-show-floor');
     const showFloating = getSettingsElement('comfy-show-floating');
     if (showFloor) showFloor.checked = settings.showFloorButton !== false;
     if (showFloating) showFloating.checked = settings.showFloatingButton !== false;
+    setChecked('comfy-advanced-mode', settings.advancedMode === true);
+    getSettingsDocument()?.body?.classList.toggle('advanced-mode', settings.advancedMode === true);
     querySettingsAll('[data-comfy-mode]').forEach((button) => {
         button.classList.toggle('active', button.dataset.comfyMode === (settings.mode === 'auto' ? 'auto' : 'manual'));
     });
@@ -1420,6 +1752,20 @@ function fillForm(settings) {
 
     // 模型配置页面
     populateModelSelect(settings.modelCache || []);
+    if (Array.isArray(settings.samplerCache) && settings.samplerCache.length) {
+        populateSelect(
+            'comfy-draw-sampler',
+            settings.samplerCache.map((item) => ({ value: item, label: item })),
+            { value: preset.sampler || settings.sampler || 'euler' },
+        );
+    }
+    if (Array.isArray(settings.schedulerCache) && settings.schedulerCache.length) {
+        populateSelect(
+            'comfy-draw-scheduler',
+            settings.schedulerCache.map((item) => ({ value: item, label: item })),
+            { value: preset.scheduler || settings.scheduler || 'normal' },
+        );
+    }
     setSelectValue('comfy-draw-model', preset.model || settings.selectedModel || '');
     setSelectValue('comfy-draw-sampler', preset.sampler || settings.sampler || 'euler');
     setSelectValue('comfy-draw-scheduler', preset.scheduler || settings.scheduler || 'normal');
@@ -1443,9 +1789,9 @@ function fillForm(settings) {
     setValue('comfy-node-negative', settings.customWorkflow?.nodeNegative || '');
     setValue('comfy-node-width', settings.customWorkflow?.nodeWidth || '');
     setValue('comfy-node-height', settings.customWorkflow?.nodeHeight || '');
-    setValue('comfy-node-seed', settings.customWorkflow?.nodeSeed || '');
 
     refreshBuiltinWorkflowPanel(settings);
+    applyPromptPresetToForm(settings);
     fillSharedDrawForm();
     refreshSettingsSummary();
 }
@@ -1537,12 +1883,46 @@ function fillPresetSelect(settings = getSettings()) {
     select.value = settings.selectedPresetId;
 }
 
+function fillPromptPresetSelect(settings = getSettings()) {
+    const select = getSettingsElement('comfy-prompt-preset-select');
+    if (!select) return;
+    select.textContent = '';
+    (settings.promptPresets || []).forEach((preset) => {
+        const option = document.createElement('option');
+        option.value = preset.id;
+        option.textContent = preset.name || preset.id;
+        select.appendChild(option);
+    });
+    select.value = settings.selectedPromptPresetId || settings.promptPresets?.[0]?.id || '';
+}
+
+function applyPromptPresetToForm(settings = getSettings()) {
+    const promptPreset = getActivePromptPreset(settings);
+    setValue('comfy-prompt-system', promptPreset.topSystem || '');
+    setValue('comfy-prompt-guide', promptPreset.tagGuideContent || '');
+    setValue('comfy-prompt-format', promptPreset.userJsonFormat || '');
+    renderPromptChainPreview(settings);
+}
+
+function readPromptPresetFromForm(basePreset = getActivePromptPreset(getSettings())) {
+    return {
+        ...basePreset,
+        topSystem: getValue('comfy-prompt-system'),
+        tagGuideContent: getValue('comfy-prompt-guide'),
+        userJsonFormat: getValue('comfy-prompt-format'),
+    };
+}
+
 function updateConnectionModeUI(mode = getSettings().connectionMode) {
     const isDirect = mode === 'direct';
     const authRow = getSettingsElement('comfy-auth-row');
     const connectionHint = getSettingsElement('comfy-connection-hint');
     const hostHint = getSettingsElement('comfy-host-hint');
     const status = getSettingsElement('comfy-draw-api-status');
+    const workflowStatus = getSettingsElement('comfy-draw-workflow-status');
+    const statusText = isDirect
+        ? '当前使用浏览器直连 ComfyUI。'
+        : '当前使用酒馆后端代理连接 ComfyUI。';
     authRow?.classList.toggle('hidden', !isDirect);
     if (connectionHint) {
         connectionHint.textContent = isDirect
@@ -1555,10 +1935,12 @@ function updateConnectionModeUI(mode = getSettings().connectionMode) {
             : '填写酒馆服务器能访问到的 ComfyUI 地址。';
     }
     if (status) {
-        status.textContent = isDirect
-            ? '当前使用浏览器直连 ComfyUI。'
-            : '当前使用酒馆后端代理连接 ComfyUI。';
+        status.textContent = statusText;
         status.className = 'status-text';
+    }
+    if (workflowStatus) {
+        workflowStatus.textContent = statusText;
+        workflowStatus.className = 'status-text';
     }
 }
 
@@ -1616,42 +1998,62 @@ function refreshBuiltinWorkflowPanel(settings = getSettings()) {
 
 // 刷新 ComfyUI 模型和采样器列表
 async function refreshComfyOptions({ notify = true } = {}) {
-    updateStatusText('comfy-draw-api-status', '', '正在获取模型和生成参数...');
+    updateComfyOptionStatus('', '正在获取模型列表...');
     try {
-        const [models, samplerInfo] = await Promise.all([
-            fetchComfyModels(),
-            fetchComfySamplers(),
-        ]);
+        const models = await fetchComfyModels();
 
         await updateSettingsPersistent((draft) => {
             draft.modelCache = models || [];
-            draft.samplerCache = samplerInfo?.samplers || [];
-            draft.schedulerCache = samplerInfo?.schedulers || [];
         }, '模型列表已更新', { notify, silent: !notify });
 
         populateModelSelect(models || []);
-        // 可选：动态更新采样器/调度器下拉框（如果需要的话）
 
         const count = models?.length || 0;
         if (notify) {
-            updateStatusText(
-                'comfy-draw-api-status',
+            updateComfyOptionStatus(
                 count ? 'success' : 'error',
                 count
-                    ? `已获取 ${count} 个可直接出图的模型`
+                    ? `已获取 ${count} 个可直接出图的模型；采样器/调度器后台刷新中`
                     : '没有找到“只选一个模型文件就能画”的模型；如果你的模型需要多个文件，请导入自定义工作流',
             );
         }
+        void refreshComfySamplerOptions({ notify });
         return true;
     } catch (error) {
         console.error('[ComfyDraw] refreshComfyOptions failed:', error);
-        if (notify) updateStatusText('comfy-draw-api-status', 'error', error?.message || '获取失败');
+        if (notify) updateComfyOptionStatus('error', error?.message || '获取失败');
         return false;
     }
 }
 
+async function refreshComfySamplerOptions({ notify = true } = {}) {
+    try {
+        const samplerInfo = await fetchComfySamplers();
+        await updateSettingsPersistent((draft) => {
+            draft.samplerCache = samplerInfo?.samplers || [];
+            draft.schedulerCache = samplerInfo?.schedulers || [];
+        }, '采样器列表已更新', { notify: false, silent: true });
+
+        populateSelect(
+            'comfy-draw-sampler',
+            (samplerInfo?.samplers || []).map((item) => ({ value: item, label: item })),
+            { value: getValue('comfy-draw-sampler') || getActivePreset(getSettings()).sampler || getSettings().sampler || 'euler' },
+        );
+        populateSelect(
+            'comfy-draw-scheduler',
+            (samplerInfo?.schedulers || []).map((item) => ({ value: item, label: item })),
+            { value: getValue('comfy-draw-scheduler') || getActivePreset(getSettings()).scheduler || getSettings().scheduler || 'normal' },
+        );
+        if (notify) updateComfyOptionStatus('success', '采样器/调度器已刷新');
+    } catch (error) {
+        console.warn('[ComfyDraw] refreshComfySamplerOptions failed:', error);
+        if (notify) updateComfyOptionStatus('error', `模型已更新，采样器/调度器刷新失败：${error?.message || '请检查配置'}`);
+    }
+}
+
 function switchSettingsView(viewName = 'test') {
-    const normalized = COMFY_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
+    const requested = COMFY_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
+    const normalized = requested === 'prompts' && !getSettings().advancedMode ? 'llm' : requested;
     querySettingsAll('[data-comfy-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.comfyView === normalized);
     });
@@ -1663,6 +2065,9 @@ function switchSettingsView(viewName = 'test') {
     }
     if (normalized === 'llm') {
         renderLastLlmRequestPreview();
+    }
+    if (normalized === 'prompts') {
+        renderPromptChainPreview();
     }
 }
 
@@ -1974,7 +2379,7 @@ async function fetchSharedLlmModels() {
     const button = getSettingsElement('comfy-shared-llm-fetch');
 
     if (provider === 'st') {
-        updateStatusText('comfy-shared-status', 'error', '当前渠道无需拉取模型列表');
+        updateStatusText('comfy-shared-llm-fetch-status', 'error', '当前渠道无需拉取模型列表');
         return false;
     }
 
@@ -1982,7 +2387,7 @@ async function fetchSharedLlmModels() {
         button.disabled = true;
         button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 连接中...';
     }
-    updateStatusText('comfy-shared-status', '', '正在连接并拉取模型列表...');
+    updateStatusText('comfy-shared-llm-fetch-status', '', '正在连接并拉取模型列表...');
 
     try {
         const models = await fetchDrawLlmModels({ provider, url, key });
@@ -2000,10 +2405,10 @@ async function fetchSharedLlmModels() {
 
         fillSharedLlmModelFields();
         updateSharedLlmProviderUI();
-        updateStatusText('comfy-shared-status', 'success', `已获取 ${models.length} 个模型`);
+        updateStatusText('comfy-shared-llm-fetch-status', 'success', `已获取 ${models.length} 个模型`);
         return true;
     } catch (error) {
-        updateStatusText('comfy-shared-status', 'error', `连接失败：${error?.message || '请检查配置'}`);
+        updateStatusText('comfy-shared-llm-fetch-status', 'error', `连接失败：${error?.message || '请检查配置'}`);
         return false;
     } finally {
         if (button) {
@@ -2785,6 +3190,11 @@ function updateStatusText(elementId, state, text) {
     el.className = `status-text${state ? ` ${state}` : ''}`;
 }
 
+function updateComfyOptionStatus(state, text) {
+    updateStatusText('comfy-draw-api-status', state, text);
+    updateStatusText('comfy-draw-workflow-status', state, text);
+}
+
 function renderLastLlmRequestPreview() {
     const preview = getSettingsElement('comfy-llm-request-preview');
     if (!preview) return;
@@ -2792,6 +3202,102 @@ function renderLastLlmRequestPreview() {
     preview.textContent = snapshot
         ? JSON.stringify(snapshot, null, 2)
         : '暂无请求记录，请先触发一次画图分析。';
+}
+
+function renderPromptChainPreview(settings = getSettings()) {
+    const container = getSettingsElement('comfy-prompt-chain');
+    if (!container) return;
+
+    const promptPreset = getActivePromptPreset(settings);
+    const systemInput = getSettingsElement('comfy-prompt-system');
+    const guideInput = getSettingsElement('comfy-prompt-guide');
+    const formatInput = getSettingsElement('comfy-prompt-format');
+    const formPromptPreset = {
+        ...promptPreset,
+        topSystem: systemInput ? systemInput.value : (promptPreset?.topSystem || ''),
+        tagGuideContent: guideInput ? guideInput.value : (promptPreset?.tagGuideContent || ''),
+        userJsonFormat: formatInput ? formatInput.value : (promptPreset?.userJsonFormat || ''),
+    };
+    const promptConfig = {
+        ...COMFY_SCENE_PROMPTS,
+        ...formPromptPreset,
+        tagGuideContent: formPromptPreset.tagGuideContent || getLoadedTagGuide() || '',
+    };
+    const chain = getPromptChainPreview(promptConfig);
+    const editableMap = {
+        topSystem: 'comfy-prompt-system',
+        tagGuideContent: 'comfy-prompt-guide',
+        userJsonFormat: 'comfy-prompt-format',
+    };
+
+    container.replaceChildren();
+
+    chain.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = 'chain-item';
+        row.dataset.key = item.key;
+        row.dataset.editableId = editableMap[item.key] || '';
+
+        const role = document.createElement('span');
+        role.className = `chain-role ${item.role}`;
+        role.textContent = item.role;
+
+        const summary = document.createElement('div');
+        summary.className = 'chain-summary';
+
+        const summaryText = document.createElement('div');
+        summaryText.className = 'chain-summary-text';
+        summaryText.textContent = `${index + 1}. ${item.summary || ''}`;
+        if (item.label) {
+            const label = document.createElement('span');
+            label.className = 'chain-editable';
+            label.textContent = ` [${item.label}]`;
+            summaryText.appendChild(label);
+        }
+        if (item.editable) {
+            const edit = document.createElement('span');
+            edit.className = 'chain-editable';
+            edit.title = '可在上方编辑';
+            edit.textContent = ' ✏️';
+            summaryText.appendChild(edit);
+        }
+        summary.appendChild(summaryText);
+
+        if (Array.isArray(item.variables) && item.variables.length) {
+            const vars = document.createElement('div');
+            vars.className = 'chain-variables';
+            item.variables.forEach((value) => {
+                const span = document.createElement('span');
+                span.textContent = `📎 ${value}`;
+                vars.appendChild(span);
+            });
+            summary.appendChild(vars);
+        }
+
+        const preview = document.createElement('div');
+        preview.className = 'chain-content-preview';
+        summary.appendChild(preview);
+
+        row.append(role, summary);
+        row.addEventListener('click', () => {
+            const editableId = row.dataset.editableId;
+            if (editableId) {
+                const target = getSettingsElement(editableId);
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    target.focus();
+                    return;
+                }
+            }
+            row.classList.toggle('expanded');
+            let content = promptConfig[row.dataset.key] || '(内置模板，不可编辑)';
+            if (row.dataset.key === 'assistantDoc') {
+                content = String(content).replace('{$tagGuide}', promptConfig.tagGuideContent || '');
+            }
+            preview.textContent = content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
+        });
+        container.appendChild(row);
+    });
 }
 
 async function withSaveTimeout(promise) {
@@ -3023,14 +3529,15 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     let planRaw;
     try {
         const preset = getActivePreset(getSettings());
+        const promptPreset = getActivePromptPreset(getSettings()) || DEFAULT_PROMPT_CONFIG;
         planRaw = await generateScenePlan({
             messageText,
             presentCharacters,
             llmApi: sharedDrawSettings.llmApi,
             useStream: sharedDrawSettings.useStream,
             useWorldInfo: sharedDrawSettings.useWorldInfo,
-            customPrompts: COMFY_SCENE_PROMPTS,
-            promptDefaults: COMFY_SCENE_PROMPTS,
+            customPrompts: promptPreset,
+            promptDefaults: DEFAULT_PROMPT_CONFIG,
             worldbookEntries,
             timeout: sharedDrawSettings.timeout || 120000,
             maxImages: preset.maxImages || 0,

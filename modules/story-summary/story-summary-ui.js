@@ -565,6 +565,12 @@ All checks passed. Beginning incremental extraction...
     let lastRecallLogText = '';
     let modelListFetchedThisIframe = false;
     let configSaveSeq = 0;
+    let summaryModelFetchSeq = 0;
+    let pendingSummaryModelFetchRequestId = '';
+    let summaryModelFetchTimeoutId = null;
+    let settingsSaveTimeoutId = null;
+    let panelConfigLoadedFromServer = false;
+    let settingsOpenedWithServerConfig = false;
     const pendingConfigSaveRequests = new Map();
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -582,6 +588,32 @@ All checks passed. Beginning incremental extraction...
     function nextConfigSaveRequestId() {
         configSaveSeq += 1;
         return `summary-config-save-${Date.now()}-${configSaveSeq}`;
+    }
+
+    function nextSummaryModelFetchRequestId() {
+        summaryModelFetchSeq += 1;
+        return `summary-model-fetch-${Date.now()}-${summaryModelFetchSeq}`;
+    }
+
+    function resetSummaryModelFetchUi() {
+        if (summaryModelFetchTimeoutId) {
+            clearTimeout(summaryModelFetchTimeoutId);
+            summaryModelFetchTimeoutId = null;
+        }
+        $('btn-connect').disabled = false;
+        $('btn-connect').textContent = '连接 / 拉取模型列表';
+    }
+
+    function resetSettingsSaveUi() {
+        if (settingsSaveTimeoutId) {
+            clearTimeout(settingsSaveTimeoutId);
+            settingsSaveTimeoutId = null;
+        }
+        const btn = $('settings-save');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '保存';
+        }
     }
 
     function normalizeVectorConfigUI(raw = null) {
@@ -706,7 +738,12 @@ All checks passed. Beginning incremental extraction...
 
     function applyConfig(cfg) {
         if (!cfg) return;
+        const currentApiKey = String(config.api?.key || '').trim();
+        const currentInputKey = String($('api-key')?.value || '').trim();
         Object.assign(config.api, cfg.api || {});
+        if (!String(config.api.key || '').trim() && (currentInputKey || currentApiKey)) {
+            config.api.key = currentInputKey || currentApiKey;
+        }
         config.api.modelCache = [];
         Object.assign(config.gen, cfg.gen || {});
         Object.assign(config.trigger, cfg.trigger || {});
@@ -744,16 +781,26 @@ All checks passed. Beginning incremental extraction...
             const requestId = nextConfigSaveRequestId();
             const statusId = options.statusId || 'api-connect-status';
             const statusEl = $(statusId);
+            const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 0;
             if (statusEl && options.loadingMessage) {
                 setStatusText(statusEl, options.loadingMessage, 'loading');
             }
 
             return new Promise(resolve => {
+                let timeoutId = null;
+                if (timeoutMs > 0) {
+                    timeoutId = setTimeout(() => {
+                        pendingConfigSaveRequests.delete(requestId);
+                        setStatusText(statusEl, `${options.errorPrefix || '保存失败：'}请求超时（>${Math.round(timeoutMs / 1000)}s）`, 'error');
+                        resolve(false);
+                    }, timeoutMs);
+                }
                 pendingConfigSaveRequests.set(requestId, {
                     resolve,
                     statusId,
                     successMessage: options.successMessage || '配置已保存',
                     errorPrefix: options.errorPrefix || '保存失败：',
+                    timeoutId,
                 });
                 postMsg('SAVE_PANEL_CONFIG', { config, requestId });
             });
@@ -1022,14 +1069,6 @@ All checks passed. Beginning incremental extraction...
         $('vector-atom-count').textContent = stats.stateVectors || 0;
         $('vector-chunk-count').textContent = stats.chunkCount || 0;
         $('vector-event-count').textContent = stats.eventVectors || 0;
-        const runtime = stats.recallRuntime && !Array.isArray(stats.recallRuntime)
-            ? stats.recallRuntime
-            : null;
-        const runtimeText = runtime
-            ? `${runtime.backend || 'unknown'} / ${runtime.status || (runtime.ready ? 'ready' : 'cold')}`
-            : 'cold';
-        const runtimeEl = $('vector-runtime-status');
-        if (runtimeEl) runtimeEl.textContent = runtimeText;
     }
 
     function showVectorMismatchWarning(show) {
@@ -1314,6 +1353,16 @@ All checks passed. Beginning incremental extraction...
         updateProviderUI(config.api.provider);
         if (config.vector) loadVectorConfig(config.vector);
         renderFilterRules(Array.isArray(config.textFilterRules) ? config.textFilterRules : DEFAULT_FILTER_RULES);
+        settingsOpenedWithServerConfig = panelConfigLoadedFromServer;
+        if (!settingsOpenedWithServerConfig) {
+            postMsg('REQUEST_PANEL_CONFIG');
+            setStatusText($('api-connect-status'), '正在读取服务器配置，请稍候再保存', 'loading');
+        }
+        const saveBtn = $('settings-save');
+        if (saveBtn) {
+            saveBtn.disabled = !settingsOpenedWithServerConfig;
+            saveBtn.textContent = settingsOpenedWithServerConfig ? '保存' : '等待配置...';
+        }
 
         // Initialize sub-options visibility
         const autoSummaryOptions = $('auto-summary-options');
@@ -1336,54 +1385,75 @@ All checks passed. Beginning incremental extraction...
         postMsg('SETTINGS_OPENED');
     }
 
-    async function closeSettings(save) {
-        if (save) {
-            const pn = id => { const v = $(id).value; return v === '' ? null : parseFloat(v); };
-            const provider = $('api-provider').value;
+    function collectSettingsFormToConfig() {
+        const pn = id => { const v = $(id).value; return v === '' ? null : parseFloat(v); };
+        const provider = $('api-provider').value;
 
-            config.api.provider = provider;
-            config.api.url = $('api-url').value;
-            config.api.key = $('api-key').value;
-            config.api.model = provider === 'st' ? '' : $('api-model-text').value.trim();
-            config.api.modelCache = [];
+        config.api.provider = provider;
+        config.api.url = $('api-url').value;
+        config.api.key = $('api-key').value;
+        config.api.model = provider === 'st' ? '' : $('api-model-text').value.trim();
+        config.api.modelCache = [];
 
-            config.gen.temperature = pn('gen-temp');
-            config.gen.top_p = pn('gen-top-p');
-            config.gen.top_k = pn('gen-top-k');
-            config.gen.presence_penalty = pn('gen-presence');
-            config.gen.frequency_penalty = pn('gen-frequency');
+        config.gen.temperature = pn('gen-temp');
+        config.gen.top_p = pn('gen-top-p');
+        config.gen.top_k = pn('gen-top-k');
+        config.gen.presence_penalty = pn('gen-presence');
+        config.gen.frequency_penalty = pn('gen-frequency');
 
-            const timing = $('trigger-timing').value;
-            config.trigger.timing = normalizeTriggerTiming(timing);
-            config.trigger.role = $('trigger-role').value || 'system';
-            config.trigger.enabled = $('trigger-enabled').checked;
-            config.trigger.interval = Math.max(1, Math.min(30, parseInt($('trigger-interval').value) || 20));
-            config.trigger.useStream = $('trigger-stream').checked;
-            config.trigger.maxPerRun = parseInt($('trigger-max-per-run').value) || 100;
-            config.trigger.wrapperHead = $('trigger-wrapper-head').value;
-            config.trigger.wrapperTail = $('trigger-wrapper-tail').value;
-            config.trigger.forceInsertAtEnd = $('trigger-insert-at-end').checked;
-            config.prompts.summarySystemPrompt = $('summary-system-prompt').value;
-            config.prompts.summaryAssistantDocPrompt = $('summary-assistant-doc-prompt').value;
-            config.prompts.summaryAssistantAskSummaryPrompt = $('summary-assistant-ask-summary-prompt').value;
-            config.prompts.summaryAssistantAskContentPrompt = $('summary-assistant-ask-content-prompt').value;
-            config.prompts.summaryMetaProtocolStartPrompt = $('summary-meta-protocol-start-prompt').value;
-            config.prompts.summaryUserJsonFormatPrompt = $('summary-user-json-format-prompt').value;
-            config.prompts.summaryAssistantCheckPrompt = $('summary-assistant-check-prompt').value;
-            config.prompts.summaryUserConfirmPrompt = $('summary-user-confirm-prompt').value;
-            config.prompts.summaryAssistantPrefillPrompt = $('summary-assistant-prefill-prompt').value;
-            config.prompts.memoryTemplate = $('memory-prompt-template').value;
-            config.textFilterRules = collectFilterRules();
+        const timing = $('trigger-timing').value;
+        config.trigger.timing = normalizeTriggerTiming(timing);
+        config.trigger.role = $('trigger-role').value || 'system';
+        config.trigger.enabled = $('trigger-enabled').checked;
+        config.trigger.interval = Math.max(1, Math.min(30, parseInt($('trigger-interval').value) || 20));
+        config.trigger.useStream = $('trigger-stream').checked;
+        config.trigger.maxPerRun = parseInt($('trigger-max-per-run').value) || 100;
+        config.trigger.wrapperHead = $('trigger-wrapper-head').value;
+        config.trigger.wrapperTail = $('trigger-wrapper-tail').value;
+        config.trigger.forceInsertAtEnd = $('trigger-insert-at-end').checked;
+        config.prompts.summarySystemPrompt = $('summary-system-prompt').value;
+        config.prompts.summaryAssistantDocPrompt = $('summary-assistant-doc-prompt').value;
+        config.prompts.summaryAssistantAskSummaryPrompt = $('summary-assistant-ask-summary-prompt').value;
+        config.prompts.summaryAssistantAskContentPrompt = $('summary-assistant-ask-content-prompt').value;
+        config.prompts.summaryMetaProtocolStartPrompt = $('summary-meta-protocol-start-prompt').value;
+        config.prompts.summaryUserJsonFormatPrompt = $('summary-user-json-format-prompt').value;
+        config.prompts.summaryAssistantCheckPrompt = $('summary-assistant-check-prompt').value;
+        config.prompts.summaryUserConfirmPrompt = $('summary-user-confirm-prompt').value;
+        config.prompts.summaryAssistantPrefillPrompt = $('summary-assistant-prefill-prompt').value;
+        config.prompts.memoryTemplate = $('memory-prompt-template').value;
+        config.textFilterRules = collectFilterRules();
+        config.vector = getVectorConfig();
+    }
 
-            config.vector = getVectorConfig();
-            const saved = await saveConfig({
-                statusId: 'api-connect-status',
-                loadingMessage: '保存中...',
-                successMessage: '配置已保存',
-            });
-            if (!saved) return;
+    async function saveSettings() {
+        if (!settingsOpenedWithServerConfig) {
+            postMsg('REQUEST_PANEL_CONFIG');
+            setStatusText($('api-connect-status'), '服务器配置尚未加载完成，请关闭设置后重开再保存', 'error');
+            return false;
         }
+        collectSettingsFormToConfig();
+        const btn = $('settings-save');
+        const statusEl = $('api-connect-status');
+        resetSettingsSaveUi();
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '保存中...';
+        }
+        if (statusEl) setStatusText(statusEl, '保存中...', 'loading');
+        const savePromise = saveConfig({
+            statusId: 'api-connect-status',
+            loadingMessage: '保存中...',
+            successMessage: '配置已保存',
+            timeoutMs: 5000,
+        });
+        const saved = await savePromise;
+        resetSettingsSaveUi();
+        return saved;
+    }
 
+    function closeSettings() {
+        resetSettingsSaveUi();
+        settingsOpenedWithServerConfig = false;
         $('settings-modal').classList.remove('active');
         postMsg('SETTINGS_CLOSED');
     }
@@ -1406,40 +1476,28 @@ All checks passed. Beginning incremental extraction...
             return;
         }
 
+        const requestId = nextSummaryModelFetchRequestId();
+        pendingSummaryModelFetchRequestId = requestId;
         btn.disabled = true;
         btn.textContent = '连接中...';
         statusEl.textContent = '连接中...';
-
-        try {
-            let models = null;
-            for (const url of getModelListCandidateUrls(baseUrl, getDefaultApiPrefix(config.api.provider))) {
-                models = await tryParseModelIds(url, {
-                    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }
-                });
-                if (models?.length) break;
-            }
-            if (!models?.length) throw new Error('未获取到模型列表');
-
-            config.api.modelCache = [...new Set(models)];
-            modelListFetchedThisIframe = true;
-            setSelectOptions($('api-model-select'), config.api.modelCache, '请选择');
-            $('api-model-select-row').classList.remove('hidden');
-
-            if (!config.api.model && models.length) {
-                config.api.model = models[0];
-                $('api-model-text').value = models[0];
-                $('api-model-select').value = models[0];
-            } else if (config.api.model) {
-                $('api-model-select').value = config.api.model;
-            }
-
-            statusEl.textContent = `拉取成功：${models.length} 个模型`;
-        } catch (e) {
-            statusEl.textContent = '拉取失败：' + (e.message || '请检查 URL 和 KEY');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = '连接 / 拉取模型列表';
+        if (summaryModelFetchTimeoutId) {
+            clearTimeout(summaryModelFetchTimeoutId);
         }
+        summaryModelFetchTimeoutId = setTimeout(() => {
+            if (pendingSummaryModelFetchRequestId !== requestId) return;
+            pendingSummaryModelFetchRequestId = '';
+            resetSummaryModelFetchUi();
+            setStatusText(statusEl, '拉取失败：请求超时（>5s）', 'error');
+        }, 5000);
+
+        postMsg('FETCH_SUMMARY_MODELS', {
+            requestId,
+            provider,
+            url: baseUrl,
+            apiKey,
+            timeoutMs: 5000,
+        });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2402,13 +2460,18 @@ All checks passed. Beginning incremental extraction...
             }
 
             case 'LOAD_PANEL_CONFIG':
+                panelConfigLoadedFromServer = true;
                 if (d.config) applyConfig(d.config);
+                if ($('settings-modal')?.classList.contains('active') && !settingsOpenedWithServerConfig) {
+                    openSettings();
+                }
                 break;
 
             case 'PANEL_CONFIG_SAVE_RESULT': {
                 const pending = pendingConfigSaveRequests.get(d.requestId || '');
                 if (pending) {
                     pendingConfigSaveRequests.delete(d.requestId || '');
+                    if (pending.timeoutId) clearTimeout(pending.timeoutId);
                     const statusEl = $(pending.statusId);
                     if (d.success) {
                         if (d.config) applyConfig(d.config);
@@ -2423,6 +2486,36 @@ All checks passed. Beginning incremental extraction...
                 }
                 break;
             }
+
+            case 'SUMMARY_MODELS': {
+                if (!d.requestId || d.requestId !== pendingSummaryModelFetchRequestId) break;
+                pendingSummaryModelFetchRequestId = '';
+                resetSummaryModelFetchUi();
+
+                const models = Array.isArray(d.models) ? [...new Set(d.models.filter(Boolean))] : [];
+                config.api.modelCache = models;
+                modelListFetchedThisIframe = models.length > 0;
+                setSelectOptions($('api-model-select'), config.api.modelCache, '请选择');
+                $('api-model-select-row').classList.toggle('hidden', !models.length);
+
+                if (!config.api.model && models.length) {
+                    config.api.model = models[0];
+                    $('api-model-text').value = models[0];
+                    $('api-model-select').value = models[0];
+                } else if (config.api.model) {
+                    $('api-model-select').value = config.api.model;
+                }
+
+                setStatusText($('api-connect-status'), `拉取成功：${models.length} 个模型`, 'success');
+                break;
+            }
+
+            case 'SUMMARY_MODELS_ERROR':
+                if (!d.requestId || d.requestId !== pendingSummaryModelFetchRequestId) break;
+                pendingSummaryModelFetchRequestId = '';
+                resetSummaryModelFetchUi();
+                setStatusText($('api-connect-status'), '拉取失败：' + (d.message || '请检查 URL 和 KEY'), 'error');
+                break;
 
             case 'VECTOR_CONFIG':
                 if (d.config) loadVectorConfig(d.config);
@@ -2561,10 +2654,10 @@ All checks passed. Beginning incremental extraction...
 
         // Settings modal
         $('btn-settings').onclick = openSettings;
-        $('settings-backdrop').onclick = () => closeSettings(false);
-        $('settings-close').onclick = () => closeSettings(false);
-        $('settings-cancel').onclick = () => closeSettings(false);
-        $('settings-save').onclick = () => closeSettings(true);
+        $('settings-backdrop').onclick = closeSettings;
+        $('settings-close').onclick = closeSettings;
+        $('settings-cancel').onclick = closeSettings;
+        $('settings-save').onclick = saveSettings;
 
         // Settings tabs
         $$('.settings-tab').forEach(tab => {

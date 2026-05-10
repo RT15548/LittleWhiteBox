@@ -4,7 +4,7 @@ const TAG_GUIDE_PATH = `${extensionFolderPath}/modules/draw/providers/comfyui/CO
 const PROMPTS_DIR = `${extensionFolderPath}/modules/draw/providers/comfyui/prompts`;
 
 /** 每次修改 ComfyUI 默认提示词内容时递增，方便后续做预设/缓存刷新判断。 */
-export const PROMPT_TEMPLATE_VERSION = 4;
+export const PROMPT_TEMPLATE_VERSION = 5;
 
 export const COMFY_SCENE_PROMPTS = {
     topSystem: `[Visual Scene Planning - ComfyUI txt2img]
@@ -116,7 +116,11 @@ mindful_prelude:
     tagGuideContent: '',
 };
 
+export let LEGACY_USER_JSON_FORMAT = '';
+
 let tagGuideContent = '';
+
+export { COMFY_SCENE_PROMPTS as DEFAULT_PROMPT_CONFIG };
 
 export function getEffectiveTagGuide(customGuide) {
     if (typeof customGuide === 'string' && customGuide.trim()) return customGuide;
@@ -165,7 +169,9 @@ export async function loadTagGuide() {
 export async function loadPromptTemplates() {
     const files = [
         { key: 'topSystem', path: `${PROMPTS_DIR}/top-system.md` },
+        { key: 'topSystemPov', path: `${PROMPTS_DIR}/top-system-pov.md` },
         { key: 'userJsonFormat', path: `${PROMPTS_DIR}/output-format.md` },
+        { key: '_legacy', path: `${PROMPTS_DIR}/output-format-legacy.md` },
     ];
     const results = await Promise.allSettled(files.map(async ({ key, path }) => {
         const response = await fetch(path, { cache: 'no-cache' });
@@ -177,7 +183,11 @@ export async function loadPromptTemplates() {
     for (const result of results) {
         if (result.status === 'fulfilled') {
             const { key, text } = result.value;
-            COMFY_SCENE_PROMPTS[key] = text;
+            if (key === '_legacy') {
+                LEGACY_USER_JSON_FORMAT = text;
+            } else {
+                COMFY_SCENE_PROMPTS[key] = text;
+            }
         } else {
             console.error('[ComfyDraw Prompts] 提示词文件加载失败:', result.reason);
             allOk = false;
@@ -185,7 +195,7 @@ export async function loadPromptTemplates() {
     }
 
     if (allOk) {
-        console.log('[ComfyDraw Prompts] 提示词模板已加载 (topSystem, userJsonFormat)');
+        console.log('[ComfyDraw Prompts] 提示词模板已加载 (topSystem, topSystemPov, userJsonFormat, legacy)');
     } else {
         console.warn('[ComfyDraw Prompts] 部分提示词文件加载失败，将使用内置默认值');
     }

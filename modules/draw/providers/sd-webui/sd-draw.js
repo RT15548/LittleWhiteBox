@@ -57,7 +57,12 @@ import {
     isDanbooruDBLoaded,
 } from "../../shared/danbooru-local-db.js";
 import {
+    DEFAULT_PROMPT_CONFIG,
+    LEGACY_USER_JSON_FORMAT,
+    PROMPT_TEMPLATE_VERSION,
     SD_SCENE_PROMPTS,
+    getLoadedTagGuide,
+    getPromptChainPreview,
     loadPromptTemplates,
     loadTagGuide,
 } from "./sd-prompts.js";
@@ -98,6 +103,11 @@ const DEFAULT_SD_DRAW_SETTINGS = {
     selectedModel: '',
     positivePrefix: '',
     negativePrefix: '',
+    advancedMode: false,
+    customPrompts: { topSystem: null, tagGuideContent: null, userJsonFormat: null },
+    promptPresets: [],
+    selectedPromptPresetId: null,
+    _promptTemplateVersion: 0,
 };
 
 let moduleInitialized = false;
@@ -115,7 +125,7 @@ let imageDelegationBound = false;
 let autoBusy = false;
 const events = createModuleEvents(MODULE_KEY);
 const generationJobs = new Map();
-const SD_DRAW_VIEWS = ['test', 'api', 'params', 'llm', 'worldbook', 'characters', 'gallery'];
+const SD_DRAW_VIEWS = ['test', 'api', 'params', 'llm', 'prompts', 'worldbook', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
 const FIXED_SD_REQUEST_DELAY_MS = 1000;
 let activeSdImageRequest = null;
@@ -164,6 +174,63 @@ function createDefaultPreset() {
     };
 }
 
+function getPromptPresetDefaults(name) {
+    const guide = getLoadedTagGuide() || '';
+    if (name === '默认-第一人称视角') {
+        return {
+            topSystem: DEFAULT_PROMPT_CONFIG.topSystemPov || DEFAULT_PROMPT_CONFIG.topSystem,
+            tagGuideContent: guide,
+            userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
+        };
+    }
+    if (name === '默认-模型要求低') {
+        return {
+            topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+            tagGuideContent: guide,
+            userJsonFormat: LEGACY_USER_JSON_FORMAT || DEFAULT_PROMPT_CONFIG.userJsonFormat,
+        };
+    }
+    return {
+        topSystem: DEFAULT_PROMPT_CONFIG.topSystem,
+        tagGuideContent: guide,
+        userJsonFormat: DEFAULT_PROMPT_CONFIG.userJsonFormat,
+    };
+}
+
+function createPromptPreset(name, id = `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`) {
+    return { id, name, ...getPromptPresetDefaults(name) };
+}
+
+function createDefaultPromptPresets() {
+    return [
+        createPromptPreset('默认-模型要求高'),
+        createPromptPreset('默认-第一人称视角'),
+        createPromptPreset('默认-模型要求低'),
+    ];
+}
+
+function hasPromptOverrideValue(customPrompts = {}) {
+    return ['topSystem', 'tagGuideContent', 'userJsonFormat']
+        .some((key) => typeof customPrompts?.[key] === 'string' && customPrompts[key].trim());
+}
+
+function createPresetFromCustomPrompts(customPrompts = {}) {
+    const defaults = getPromptPresetDefaults('默认-模型要求高');
+    return {
+        id: `prompt-legacy-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: '自定义-旧配置迁移',
+        topSystem: typeof customPrompts.topSystem === 'string' && customPrompts.topSystem.trim()
+            ? customPrompts.topSystem
+            : defaults.topSystem,
+        tagGuideContent: typeof customPrompts.tagGuideContent === 'string' && customPrompts.tagGuideContent.trim()
+            ? customPrompts.tagGuideContent
+            : defaults.tagGuideContent,
+        userJsonFormat: typeof customPrompts.userJsonFormat === 'string' && customPrompts.userJsonFormat.trim()
+            ? customPrompts.userJsonFormat
+            : defaults.userJsonFormat,
+    };
+}
+
 function cloneSettingsObject(obj) {
     if (typeof structuredClone === 'function') {
         return structuredClone(obj);
@@ -176,7 +243,7 @@ function normalizeSettings(raw = {}) {
     const selectedPresetId = presets.some(p => p.id === raw.selectedPresetId)
         ? raw.selectedPresetId
         : presets[0]?.id || 'default';
-    return {
+    const merged = {
         ...DEFAULT_SD_DRAW_SETTINGS,
         ...raw,
         transport: 'st-proxy',
@@ -207,6 +274,70 @@ function normalizeSettings(raw = {}) {
             clip_skip: normalizeNumber(raw.defaultParams?.clip_skip, DEFAULT_SD_DRAW_SETTINGS.defaultParams.clip_skip, 1, 12),
         },
     };
+
+    merged.advancedMode = !!raw.advancedMode;
+    merged.customPrompts = { ...DEFAULT_SD_DRAW_SETTINGS.customPrompts, ...(raw.customPrompts || {}) };
+    if (!Array.isArray(merged.promptPresets)) merged.promptPresets = [];
+
+    if (!merged.promptPresets.length) {
+        merged.promptPresets = createDefaultPromptPresets();
+        if (hasPromptOverrideValue(merged.customPrompts)) {
+            const legacyPreset = createPresetFromCustomPrompts(merged.customPrompts);
+            merged.promptPresets.push(legacyPreset);
+            merged.selectedPromptPresetId = legacyPreset.id;
+        } else {
+            merged.selectedPromptPresetId = merged.promptPresets[0]?.id || null;
+        }
+    }
+
+    const legacyNames = { '默认1': '默认-模型要求高', '默认2': '默认-模型要求低' };
+    merged.promptPresets.forEach((preset, index) => {
+        if (legacyNames[preset.name]) preset.name = legacyNames[preset.name];
+        preset.id = String(preset.id || `prompt-${Date.now()}-${index}`);
+    });
+
+    const defaultPresetNames = ['默认-模型要求高', '默认-第一人称视角', '默认-模型要求低'];
+    const storedVersion = Number(merged._promptTemplateVersion) || 0;
+    if (!merged.promptPresets.some((preset) => preset.name === '默认-第一人称视角')) {
+        const insertIndex = merged.promptPresets.findIndex((preset) => preset.name === '默认-模型要求低');
+        const povPreset = createPromptPreset('默认-第一人称视角');
+        if (insertIndex >= 0) merged.promptPresets.splice(insertIndex, 0, povPreset);
+        else merged.promptPresets.push(povPreset);
+    }
+    if (storedVersion < PROMPT_TEMPLATE_VERSION) {
+        merged.promptPresets = merged.promptPresets.map((preset) => {
+            if (!defaultPresetNames.includes(preset.name)) return preset;
+            return {
+                ...preset,
+                ...getPromptPresetDefaults(preset.name),
+            };
+        });
+        merged._promptTemplateVersion = PROMPT_TEMPLATE_VERSION;
+    }
+
+    merged.promptPresets = merged.promptPresets.map((preset) => {
+        const defaults = getPromptPresetDefaults(preset.name);
+        return {
+            ...preset,
+            topSystem: preset.topSystem ?? defaults.topSystem,
+            tagGuideContent: preset.tagGuideContent ?? defaults.tagGuideContent,
+            userJsonFormat: preset.userJsonFormat ?? defaults.userJsonFormat,
+        };
+    });
+
+    if (!merged.selectedPromptPresetId || !merged.promptPresets.some((preset) => preset.id === merged.selectedPromptPresetId)) {
+        merged.selectedPromptPresetId = merged.promptPresets[0]?.id || null;
+    }
+    if (!merged.customPrompts.topSystem || !merged.customPrompts.userJsonFormat || merged.customPrompts.tagGuideContent == null) {
+        const activePromptPreset = merged.promptPresets.find((preset) => preset.id === merged.selectedPromptPresetId) || merged.promptPresets[0] || createPromptPreset('默认-模型要求高');
+        merged.customPrompts = {
+            topSystem: activePromptPreset.topSystem,
+            tagGuideContent: activePromptPreset.tagGuideContent,
+            userJsonFormat: activePromptPreset.userJsonFormat,
+        };
+    }
+
+    return merged;
 }
 
 function normalizeNumber(value, fallback, min, max) {
@@ -291,6 +422,9 @@ export function getSettings() {
         console.warn('[SdDraw] 设置未加载，使用默认值');
         settingsCache = normalizeSettings({});
     }
+    if (!settingsCache.promptPresets?.length) {
+        settingsCache = normalizeSettings(settingsCache);
+    }
     return settingsCache;
 }
 
@@ -330,6 +464,12 @@ export async function updateSettingsPersistent(mutator, okText = '已保存', op
 
 function getActivePreset(settings = getSettings()) {
     return settings.presets.find(p => p.id === settings.selectedPresetId) || settings.presets[0] || createDefaultPreset();
+}
+
+function getActivePromptPreset(settings = getSettings()) {
+    return settings.promptPresets.find((preset) => preset.id === settings.selectedPromptPresetId)
+        || settings.promptPresets[0]
+        || createPromptPreset('默认-模型要求高');
 }
 
 export function getEffectiveParams(settings = getSettings(), overrides = {}) {
@@ -834,6 +974,198 @@ function bindOverlayEvents() {
     querySettings('#sd-llm-request-refresh')?.addEventListener('click', () => {
         renderLastLlmRequestPreview();
     });
+    querySettings('#sd-advanced-mode')?.addEventListener('change', async (event) => {
+        const checked = event.target.checked === true;
+        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
+            settings.advancedMode = checked;
+        }, checked ? '高级模式已开启' : '高级模式已关闭', { notify: false, silent: false }));
+        if (ok) {
+            fillForm(getSettings());
+            if (!checked && querySettings('[data-sd-view].active')?.dataset.sdView === 'prompts') {
+                switchSettingsView('llm');
+            }
+        }
+    });
+    querySettings('#sd-prompt-preset-select')?.addEventListener('change', async () => {
+        const selectedId = getValue('sd-prompt-preset-select');
+        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
+            settings.selectedPromptPresetId = selectedId;
+            const active = settings.promptPresets.find((preset) => preset.id === selectedId) || settings.promptPresets[0];
+            if (active) {
+                settings.customPrompts = {
+                    topSystem: active.topSystem,
+                    tagGuideContent: active.tagGuideContent,
+                    userJsonFormat: active.userJsonFormat,
+                };
+            }
+        }, '提示词预设已切换', { notify: false, silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#sd-prompt-preset-add')?.addEventListener('click', async () => {
+        const current = readPromptPresetFromForm();
+        const preset = {
+            ...current,
+            id: `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            name: prompt('输入提示词预设名称：', `提示词-${(getSettings().promptPresets || []).length + 1}`) || `提示词-${(getSettings().promptPresets || []).length + 1}`,
+        };
+        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
+            settings.promptPresets = [...settings.promptPresets, preset];
+            settings.selectedPromptPresetId = preset.id;
+            settings.customPrompts = {
+                topSystem: preset.topSystem,
+                tagGuideContent: preset.tagGuideContent,
+                userJsonFormat: preset.userJsonFormat,
+            };
+        }, '已创建提示词预设', { notify: false, silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#sd-prompt-preset-rename')?.addEventListener('click', async () => {
+        const settings = getSettings();
+        const preset = getActivePromptPreset(settings);
+        const name = prompt('输入新名称：', preset.name || '提示词预设');
+        if (!name) return;
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+            draft.promptPresets = draft.promptPresets.map((item) => item.id === preset.id ? { ...item, name } : item);
+        }, '提示词预设已重命名', { notify: false, silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#sd-prompt-preset-delete')?.addEventListener('click', async () => {
+        const settings = getSettings();
+        if ((settings.promptPresets || []).length <= 1) {
+            toastr.warning('至少保留一个提示词预设');
+            return;
+        }
+        const preset = getActivePromptPreset(settings);
+        if (!confirm(`删除提示词预设「${preset.name}」？`)) return;
+        const nextPresets = settings.promptPresets.filter((item) => item.id !== preset.id);
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+            draft.promptPresets = nextPresets;
+            draft.selectedPromptPresetId = nextPresets[0]?.id || null;
+            const active = nextPresets[0];
+            if (active) {
+                draft.customPrompts = {
+                    topSystem: active.topSystem,
+                    tagGuideContent: active.tagGuideContent,
+                    userJsonFormat: active.userJsonFormat,
+                };
+            }
+        }, '提示词预设已删除', { notify: false, silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#sd-prompt-preset-save')?.addEventListener('click', async (event) => {
+        const settings = getSettings();
+        const preset = getActivePromptPreset(settings);
+        const nextPreset = { ...readPromptPresetFromForm(preset), id: preset.id, name: preset.name };
+        const ok = await runSaveButtonTask(event.currentTarget, () => updateSettingsPersistent((draft) => {
+            draft.promptPresets = draft.promptPresets.map((item) => item.id === preset.id ? nextPreset : item);
+            draft.selectedPromptPresetId = preset.id;
+            draft.customPrompts = {
+                topSystem: nextPreset.topSystem,
+                tagGuideContent: nextPreset.tagGuideContent,
+                userJsonFormat: nextPreset.userJsonFormat,
+            };
+        }, '提示词预设已保存', { notify: false, silent: false }), {
+            statusElementId: 'sd-prompt-preset-status',
+            pendingText: '正在保存提示词预设...',
+            successText: '提示词预设已保存',
+            errorText: '提示词预设保存失败，请重试',
+        });
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#sd-prompts-save')?.addEventListener('click', async (event) => {
+        const settings = getSettings();
+        const preset = getActivePromptPreset(settings);
+        const nextPreset = { ...readPromptPresetFromForm(preset), id: preset.id, name: preset.name };
+        const ok = await runSaveButtonTask(event.currentTarget, () => updateSettingsPersistent((draft) => {
+            draft.promptPresets = draft.promptPresets.map((item) => item.id === preset.id ? nextPreset : item);
+            draft.selectedPromptPresetId = preset.id;
+            draft.customPrompts = {
+                topSystem: nextPreset.topSystem,
+                tagGuideContent: nextPreset.tagGuideContent,
+                userJsonFormat: nextPreset.userJsonFormat,
+            };
+        }, '提示词预设已保存', { notify: false, silent: false }), {
+            statusElementId: 'sd-prompts-status',
+            pendingText: '正在保存提示词模板...',
+            successText: '提示词模板已保存到当前预设',
+            errorText: '提示词模板保存失败，请重试',
+        });
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#sd-prompt-reset-system')?.addEventListener('click', () => {
+        const defaults = getPromptPresetDefaults(getActivePromptPreset(getSettings()).name);
+        setValue('sd-prompt-system', defaults.topSystem);
+        renderPromptChainPreview();
+    });
+    querySettings('#sd-prompt-reset-guide')?.addEventListener('click', () => {
+        const defaults = getPromptPresetDefaults(getActivePromptPreset(getSettings()).name);
+        setValue('sd-prompt-guide', defaults.tagGuideContent);
+        renderPromptChainPreview();
+    });
+    querySettings('#sd-prompt-reset-format')?.addEventListener('click', () => {
+        const defaults = getPromptPresetDefaults(getActivePromptPreset(getSettings()).name);
+        setValue('sd-prompt-format', defaults.userJsonFormat);
+        renderPromptChainPreview();
+    });
+    querySettings('#sd-prompts-reset-all')?.addEventListener('click', () => {
+        if (!confirm('确认恢复当前提示词模板为默认值？')) return;
+        const defaults = getPromptPresetDefaults(getActivePromptPreset(getSettings()).name);
+        setValue('sd-prompt-system', defaults.topSystem);
+        setValue('sd-prompt-guide', defaults.tagGuideContent);
+        setValue('sd-prompt-format', defaults.userJsonFormat);
+        renderPromptChainPreview();
+    });
+    querySettings('#sd-prompts-export')?.addEventListener('click', () => {
+        const payload = {
+            _type: 'sd-draw-prompt-template',
+            _version: 1,
+            topSystem: getValue('sd-prompt-system'),
+            tagGuideContent: getValue('sd-prompt-guide'),
+            userJsonFormat: getValue('sd-prompt-format'),
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'sd-draw-prompts.json';
+        link.click();
+        URL.revokeObjectURL(url);
+    });
+    querySettings('#sd-prompts-import')?.addEventListener('change', async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const payload = JSON.parse(text);
+            if (typeof payload.topSystem !== 'string' || typeof payload.tagGuideContent !== 'string' || typeof payload.userJsonFormat !== 'string') {
+                throw new Error('不是有效的提示词模板文件');
+            }
+            setValue('sd-prompt-system', payload.topSystem);
+            setValue('sd-prompt-guide', payload.tagGuideContent);
+            setValue('sd-prompt-format', payload.userJsonFormat);
+            renderPromptChainPreview();
+            toastr.success('导入成功，请点击保存以生效', 'SD WebUI');
+        } catch (error) {
+            toastr.error(error?.message || '导入失败', 'SD WebUI');
+        } finally {
+            event.target.value = '';
+        }
+    });
+    querySettings('#sd-chain-toggle')?.addEventListener('click', () => {
+        const container = getSettingsElement('sd-prompt-chain');
+        const icon = querySettings('#sd-chain-toggle .chain-toggle-icon');
+        if (!container) return;
+        const isOpen = container.classList.toggle('open');
+        if (icon) icon.textContent = isOpen ? '▼ 收起' : '▶ 展开';
+        if (isOpen) renderPromptChainPreview();
+    });
+    ['sd-prompt-system', 'sd-prompt-guide', 'sd-prompt-format'].forEach((id) => {
+        querySettings(`#${id}`)?.addEventListener('input', () => {
+            if (getSettingsElement('sd-prompt-chain')?.classList.contains('open')) {
+                renderPromptChainPreview();
+            }
+        });
+    });
     querySettings('#sd-filter-add')?.addEventListener('click', () => {
         renderFilterRuleRow({ start: '', end: '' });
     });
@@ -842,7 +1174,7 @@ function bindOverlayEvents() {
     });
     querySettings('#sd-filter-save')?.addEventListener('click', async (event) => {
         await runSaveButtonTask(event.currentTarget, () => saveSharedDrawSettings({ notify: false }), {
-            statusElementId: 'sd-shared-status',
+            statusElementId: 'sd-filter-status',
             pendingText: '正在保存过滤规则...',
             successText: '过滤规则已保存',
             errorText: '过滤规则保存失败，请重试',
@@ -871,10 +1203,13 @@ function bindOverlayEvents() {
 function fillForm(settings) {
     const preset = getActivePreset(settings);
     fillPresetSelect(settings);
+    fillPromptPresetSelect(settings);
     const showFloor = getSettingsElement('sd-show-floor');
     const showFloating = getSettingsElement('sd-show-floating');
     if (showFloor) showFloor.checked = settings.showFloorButton !== false;
     if (showFloating) showFloating.checked = settings.showFloatingButton !== false;
+    setChecked('sd-advanced-mode', settings.advancedMode === true);
+    getSettingsDocument()?.body?.classList.toggle('advanced-mode', settings.advancedMode === true);
     querySettingsAll('[data-sd-mode]').forEach((button) => {
         button.classList.toggle('active', button.dataset.sdMode === (settings.mode === 'auto' ? 'auto' : 'manual'));
     });
@@ -903,6 +1238,7 @@ function fillForm(settings) {
     setValue('sd-draw-max-chars', preset.maxCharactersPerImage || 0);
     setSelectValue('sd-draw-model', preset.model || '');
     setSelectValue('sd-draw-sampler', preset.sampler_name || '');
+    applyPromptPresetToForm(settings);
     fillSharedDrawForm();
     refreshSettingsSummary();
 }
@@ -1025,8 +1361,39 @@ function fillPresetSelect(settings = getSettings()) {
     select.value = settings.selectedPresetId;
 }
 
+function fillPromptPresetSelect(settings = getSettings()) {
+    const select = getSettingsElement('sd-prompt-preset-select');
+    if (!select) return;
+    select.textContent = '';
+    (settings.promptPresets || []).forEach((preset) => {
+        const option = document.createElement('option');
+        option.value = preset.id;
+        option.textContent = preset.name || preset.id;
+        select.appendChild(option);
+    });
+    select.value = settings.selectedPromptPresetId || settings.promptPresets?.[0]?.id || '';
+}
+
+function applyPromptPresetToForm(settings = getSettings()) {
+    const promptPreset = getActivePromptPreset(settings);
+    setValue('sd-prompt-system', promptPreset.topSystem || '');
+    setValue('sd-prompt-guide', promptPreset.tagGuideContent || '');
+    setValue('sd-prompt-format', promptPreset.userJsonFormat || '');
+    renderPromptChainPreview(settings);
+}
+
+function readPromptPresetFromForm(basePreset = getActivePromptPreset(getSettings())) {
+    return {
+        ...basePreset,
+        topSystem: getValue('sd-prompt-system'),
+        tagGuideContent: getValue('sd-prompt-guide'),
+        userJsonFormat: getValue('sd-prompt-format'),
+    };
+}
+
 function switchSettingsView(viewName = 'test') {
-    const normalized = SD_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
+    const requested = SD_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
+    const normalized = requested === 'prompts' && !getSettings().advancedMode ? 'llm' : requested;
     querySettingsAll('[data-sd-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.sdView === normalized);
     });
@@ -1038,6 +1405,9 @@ function switchSettingsView(viewName = 'test') {
     }
     if (normalized === 'llm') {
         renderLastLlmRequestPreview();
+    }
+    if (normalized === 'prompts') {
+        renderPromptChainPreview();
     }
 }
 
@@ -1360,7 +1730,7 @@ async function fetchSharedLlmModels() {
     const button = getSettingsElement('sd-shared-llm-fetch');
 
     if (provider === 'st') {
-        updateStatusText('sd-shared-status', 'error', '当前渠道无需拉取模型列表');
+        updateStatusText('sd-shared-llm-fetch-status', 'error', '当前渠道无需拉取模型列表');
         return false;
     }
 
@@ -1368,7 +1738,7 @@ async function fetchSharedLlmModels() {
         button.disabled = true;
         button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 连接中...';
     }
-    updateStatusText('sd-shared-status', '', '正在连接并拉取模型列表...');
+    updateStatusText('sd-shared-llm-fetch-status', '', '正在连接并拉取模型列表...');
 
     try {
         const models = await fetchDrawLlmModels({ provider, url, key });
@@ -1386,10 +1756,10 @@ async function fetchSharedLlmModels() {
 
         fillSharedLlmModelFields();
         updateSharedLlmProviderUI();
-        updateStatusText('sd-shared-status', 'success', `已获取 ${models.length} 个模型`);
+        updateStatusText('sd-shared-llm-fetch-status', 'success', `已获取 ${models.length} 个模型`);
         return true;
     } catch (error) {
-        updateStatusText('sd-shared-status', 'error', `连接失败：${error?.message || '请检查配置'}`);
+        updateStatusText('sd-shared-llm-fetch-status', 'error', `连接失败：${error?.message || '请检查配置'}`);
         return false;
     } finally {
         if (button) {
@@ -2068,7 +2438,6 @@ function deleteCharacterTagDraft(characterId = '') {
 function refreshSettingsSummary() {
     const settings = getSettings();
     const activePreset = getActivePreset(settings);
-    const llmProvider = getValue('sd-shared-llm-provider').trim() || getSharedDrawSettings().llmApi?.provider || 'st';
     const draftCharacterCards = querySettingsAll('.sd-char-card').length;
     const characterCount = draftCharacterCards > 0
         ? draftCharacterCards
@@ -2076,15 +2445,11 @@ function refreshSettingsSummary() {
             ? 0
             : (getSharedDrawSettings().characterTags?.length || 0));
     const presetEl = querySettings('#sd-draw-summary-preset');
-    const charEl = querySettings('#sd-draw-summary-characters');
     const charSideEl = querySettings('#sd-draw-summary-characters-side');
     const charResultEl = querySettings('#sd-draw-character-result-count');
-    const llmEl = querySettings('#sd-draw-summary-llm');
     if (presetEl) presetEl.textContent = activePreset?.name || '默认';
-    if (charEl) charEl.textContent = String(characterCount);
     if (charSideEl) charSideEl.textContent = String(characterCount);
     if (charResultEl) charResultEl.textContent = `${characterCount} / ${characterCount}`;
-    if (llmEl) llmEl.textContent = llmProvider === 'st' ? 'ST' : llmProvider;
 }
 
 
@@ -2284,6 +2649,102 @@ function renderLastLlmRequestPreview() {
     preview.textContent = snapshot
         ? JSON.stringify(snapshot, null, 2)
         : '暂无请求记录，请先触发一次画图分析。';
+}
+
+function renderPromptChainPreview(settings = getSettings()) {
+    const container = getSettingsElement('sd-prompt-chain');
+    if (!container) return;
+
+    const promptPreset = getActivePromptPreset(settings);
+    const systemInput = getSettingsElement('sd-prompt-system');
+    const guideInput = getSettingsElement('sd-prompt-guide');
+    const formatInput = getSettingsElement('sd-prompt-format');
+    const formPromptPreset = {
+        ...promptPreset,
+        topSystem: systemInput ? systemInput.value : (promptPreset?.topSystem || ''),
+        tagGuideContent: guideInput ? guideInput.value : (promptPreset?.tagGuideContent || ''),
+        userJsonFormat: formatInput ? formatInput.value : (promptPreset?.userJsonFormat || ''),
+    };
+    const promptConfig = {
+        ...SD_SCENE_PROMPTS,
+        ...formPromptPreset,
+        tagGuideContent: formPromptPreset.tagGuideContent || getLoadedTagGuide() || '',
+    };
+    const chain = getPromptChainPreview(promptConfig);
+    const editableMap = {
+        topSystem: 'sd-prompt-system',
+        tagGuideContent: 'sd-prompt-guide',
+        userJsonFormat: 'sd-prompt-format',
+    };
+
+    container.replaceChildren();
+
+    chain.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = 'chain-item';
+        row.dataset.key = item.key;
+        row.dataset.editableId = editableMap[item.key] || '';
+
+        const role = document.createElement('span');
+        role.className = `chain-role ${item.role}`;
+        role.textContent = item.role;
+
+        const summary = document.createElement('div');
+        summary.className = 'chain-summary';
+
+        const summaryText = document.createElement('div');
+        summaryText.className = 'chain-summary-text';
+        summaryText.textContent = `${index + 1}. ${item.summary || ''}`;
+        if (item.label) {
+            const label = document.createElement('span');
+            label.className = 'chain-editable';
+            label.textContent = ` [${item.label}]`;
+            summaryText.appendChild(label);
+        }
+        if (item.editable) {
+            const edit = document.createElement('span');
+            edit.className = 'chain-editable';
+            edit.title = '可在上方编辑';
+            edit.textContent = ' ✏️';
+            summaryText.appendChild(edit);
+        }
+        summary.appendChild(summaryText);
+
+        if (Array.isArray(item.variables) && item.variables.length) {
+            const vars = document.createElement('div');
+            vars.className = 'chain-variables';
+            item.variables.forEach((value) => {
+                const span = document.createElement('span');
+                span.textContent = `📎 ${value}`;
+                vars.appendChild(span);
+            });
+            summary.appendChild(vars);
+        }
+
+        const preview = document.createElement('div');
+        preview.className = 'chain-content-preview';
+        summary.appendChild(preview);
+
+        row.append(role, summary);
+        row.addEventListener('click', () => {
+            const editableId = row.dataset.editableId;
+            if (editableId) {
+                const target = getSettingsElement(editableId);
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    target.focus();
+                    return;
+                }
+            }
+            row.classList.toggle('expanded');
+            let content = promptConfig[row.dataset.key] || '(内置模板，不可编辑)';
+            if (row.dataset.key === 'assistantDoc') {
+                content = String(content).replace('{$tagGuide}', promptConfig.tagGuideContent || '');
+            }
+            preview.textContent = content.length > 1200 ? `${content.slice(0, 1200)}\n...(已截断)` : content;
+        });
+        container.appendChild(row);
+    });
 }
 
 async function withSaveTimeout(promise) {
@@ -2520,14 +2981,15 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
     let planRaw;
     try {
         const preset = getActivePreset(getSettings());
+        const promptPreset = getActivePromptPreset(getSettings()) || DEFAULT_PROMPT_CONFIG;
         planRaw = await generateScenePlan({
             messageText,
             presentCharacters,
             llmApi: sharedDrawSettings.llmApi,
             useStream: sharedDrawSettings.useStream,
             useWorldInfo: sharedDrawSettings.useWorldInfo,
-            customPrompts: SD_SCENE_PROMPTS,
-            promptDefaults: SD_SCENE_PROMPTS,
+            customPrompts: promptPreset,
+            promptDefaults: DEFAULT_PROMPT_CONFIG,
             worldbookEntries,
             timeout: sharedDrawSettings.timeout || 120000,
             maxImages: preset.maxImages || 0,

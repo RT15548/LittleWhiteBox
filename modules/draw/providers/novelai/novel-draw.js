@@ -1035,7 +1035,7 @@ function saveSettings(s) {
     return next;
 }
 
-async function persistSettings(s, okText = '已保存', { notify = true, silent = false } = {}) {
+async function persistSettings(s, okText = '已保存', { notify = true, silent = false, target = '' } = {}) {
     const next = normalizeSettings(s);
     next.updatedAt = Date.now();
     next.configVersion = CONFIG_VERSION;
@@ -1058,14 +1058,14 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
         const ok = await NovelDrawStorage.setAndSave(SERVER_FILE_KEY, next, { silent });
         if (ok !== false) {
             if (notify) {
-                postStatus('success', okText);
+                postStatus('success', okText, target);
             }
             console.log('[NovelDraw] persistSettings: SUCCESS');
             return true;
         }
 
         if (notify) {
-            postStatus('error', '保存失败');
+            postStatus('error', '保存失败', target);
         }
         settingsCache = previous;
         console.warn('[NovelDraw] persistSettings: FAILED without throw');
@@ -1074,7 +1074,7 @@ async function persistSettings(s, okText = '已保存', { notify = true, silent 
         console.error('[NovelDraw] persistSettings: FAILED', e);
         settingsCache = previous;
         if (notify) {
-            postStatus('error', `保存失败：${e?.message || '网络异常'}`);
+            postStatus('error', `保存失败：${e?.message || '网络异常'}`, target);
         }
         return false;
     }
@@ -3322,7 +3322,7 @@ async function handleFrameMessage(event) {
         case 'SAVE_API_KEY': {
             await updateSettingsPersistent((settings) => {
                 settings.apiKey = typeof data.apiKey === 'string' ? data.apiKey : settings.apiKey;
-            }, '已保存');
+            }, '已保存', { target: 'api' });
             break;
         }
 
@@ -3337,7 +3337,7 @@ async function handleFrameMessage(event) {
                 if (data.requestDelay?.min > 0 && data.requestDelay?.max > 0) {
                     settings.requestDelay = data.requestDelay;
                 }
-            }, '已保存');
+            }, '已保存', { target: 'api' });
             break;
         }
 
@@ -3345,7 +3345,7 @@ async function handleFrameMessage(event) {
             await updateSettingsPersistent((settings) => {
                 if (typeof data.timeout === 'number' && data.timeout > 0) settings.timeout = data.timeout;
                 if (data.requestDelay?.min > 0 && data.requestDelay?.max > 0) settings.requestDelay = data.requestDelay;
-            }, '已保存');
+            }, '已保存', { target: 'api' });
             break;
         }
 
@@ -3354,17 +3354,17 @@ async function handleFrameMessage(event) {
                 if (typeof data.cacheDays === 'number' && data.cacheDays >= 1 && data.cacheDays <= 30) {
                     settings.cacheDays = data.cacheDays;
                 }
-            }, '已保存');
+            }, '已保存', { target: 'gallery' });
             break;
         }
 
         case 'TEST_API': {
             try {
-                postStatus('loading', '测试中...');
+                postStatus('loading', '测试中...', 'api');
                 await testApiConnection(data.apiKey);
-                postStatus('success', '连接成功');
+                postStatus('success', '连接成功', 'api');
             } catch (e) {
-                postStatus('error', e?.message);
+                postStatus('error', e?.message, 'api');
             }
             break;
         }
@@ -3375,7 +3375,7 @@ async function handleFrameMessage(event) {
                 if (Array.isArray(data.paramsPresets) && data.paramsPresets.length > 0) {
                     settings.paramsPresets = data.paramsPresets;
                 }
-            }, '已保存');
+            }, '已保存', { target: 'params' });
             if (ok) {
                 sendInitData();
                 try {
@@ -3395,7 +3395,7 @@ async function handleFrameMessage(event) {
                 copy.name = (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : `配置-${settings.paramsPresets.length + 1}`;
                 settings.paramsPresets.push(copy);
                 settings.selectedParamsPresetId = id;
-            }, '已创建');
+            }, '已创建', { target: 'params' });
             if (ok) {
                 sendInitData();
                 try {
@@ -3409,14 +3409,14 @@ async function handleFrameMessage(event) {
         case 'DEL_PARAMS_PRESET': {
             const s = getSettings();
             if (s.paramsPresets.length <= 1) {
-                postStatus('error', '至少保留一个预设');
+                postStatus('error', '至少保留一个预设', 'params');
                 break;
             }
             const ok = await updateSettingsPersistent((settings) => {
                 const idx = settings.paramsPresets.findIndex(p => p.id === settings.selectedParamsPresetId);
                 if (idx >= 0) settings.paramsPresets.splice(idx, 1);
                 settings.selectedParamsPresetId = settings.paramsPresets[0]?.id || null;
-            }, '已删除');
+            }, '已删除', { target: 'params' });
             if (ok) {
                 sendInitData();
                 try {
@@ -3436,7 +3436,7 @@ async function handleFrameMessage(event) {
                 const ok = await updateSettingsPersistent((settings) => {
                     settings.paramsPresets.push(newPreset);
                     settings.selectedParamsPresetId = newPreset.id;
-                }, `已导入: ${newPreset.name}`);
+                }, `已导入: ${newPreset.name}`, { target: 'params' });
                 if (ok) {
                     await notifySettingsUpdated();
                     sendInitData();
@@ -3449,11 +3449,11 @@ async function handleFrameMessage(event) {
             const presetId = data.presetId || s.selectedParamsPresetId;
             const preset = s.paramsPresets.find(p => p.id === presetId);
             if (!preset) {
-                postStatus('error', '没有可导出的预设');
+                postStatus('error', '没有可导出的预设', 'params');
                 break;
             }
             downloadPresetAsFile(preset);
-            postStatus('success', '已导出');
+            postStatus('success', '已导出', 'params');
             break;
         }
 
@@ -3469,7 +3469,7 @@ async function handleFrameMessage(event) {
                 if (typeof data.useStream === 'boolean') settings.useStream = data.useStream;
                 if (typeof data.useWorldInfo === 'boolean') settings.useWorldInfo = data.useWorldInfo;
                 if (typeof data.disablePrefill === 'boolean') settings.disablePrefill = data.disablePrefill;
-            }, '已保存');
+            }, '已保存', { target: 'llm' });
             if (ok) sendInitData();
             break;
         }
@@ -3506,7 +3506,7 @@ async function handleFrameMessage(event) {
                     const defaultVal = resetDefaults[key];
                     if (settings.customPrompts) settings.customPrompts[key] = defaultVal;
                     if (active) active[key] = defaultVal;
-                }, '已恢复默认');
+                }, '已恢复默认', { target: 'prompts' });
             }
             sendInitData();
             break;
@@ -3530,7 +3530,7 @@ async function handleFrameMessage(event) {
                             userJsonFormat: active.userJsonFormat,
                         };
                     }
-                }, '已切换预设');
+                }, '已切换预设', { target: 'prompt-preset' });
                 if (!ok) {
                     sendInitData();
                 }
@@ -3552,7 +3552,7 @@ async function handleFrameMessage(event) {
                 settings.promptPresets.push(newPreset);
                 settings.selectedPromptPresetId = id;
                 settings.customPrompts = { topSystem: newPreset.topSystem, tagGuideContent: newPreset.tagGuideContent, userJsonFormat: newPreset.userJsonFormat };
-            }, '已创建');
+            }, '已创建', { target: 'prompt-preset' });
             if (ok) sendInitData();
             break;
         }
@@ -3560,7 +3560,7 @@ async function handleFrameMessage(event) {
         case 'DEL_PROMPT_PRESET': {
             const s = getSettings();
             if (s.promptPresets.length <= 1) {
-                postStatus('error', '至少保留一个预设');
+                postStatus('error', '至少保留一个预设', 'prompt-preset');
                 break;
             }
             const ok = await updateSettingsPersistent((settings) => {
@@ -3571,7 +3571,7 @@ async function handleFrameMessage(event) {
                 if (active) {
                     settings.customPrompts = { topSystem: active.topSystem, tagGuideContent: active.tagGuideContent, userJsonFormat: active.userJsonFormat };
                 }
-            }, '已删除');
+            }, '已删除', { target: 'prompt-preset' });
             if (ok) sendInitData();
             break;
         }
@@ -3582,7 +3582,7 @@ async function handleFrameMessage(event) {
                 await updateSettingsPersistent((settings) => {
                     const preset = settings.promptPresets.find(p => p.id === settings.selectedPromptPresetId);
                     if (preset) preset.name = data.name.trim();
-                }, '已重命名');
+                }, '已重命名', { target: 'prompt-preset' });
                 sendInitData();
             }
             break;
@@ -3591,6 +3591,7 @@ async function handleFrameMessage(event) {
         case 'SAVE_PROMPT_PRESET': {
             const active = getSettings().promptPresets.find(p => p.id === (data.selectedPromptPresetId || getSettings().selectedPromptPresetId));
             if (active && data.customPrompts && typeof data.customPrompts === 'object') {
+                const statusTarget = data.statusTarget === 'prompt-preset' ? 'prompt-preset' : 'prompts';
                 await updateSettingsPersistent((settings) => {
                     if (data.selectedPromptPresetId && settings.promptPresets.some(p => p.id === data.selectedPromptPresetId)) {
                         settings.selectedPromptPresetId = data.selectedPromptPresetId;
@@ -3602,7 +3603,7 @@ async function handleFrameMessage(event) {
                     if ('tagGuideContent' in cp) current.tagGuideContent = cp.tagGuideContent;
                     if ('userJsonFormat' in cp) current.userJsonFormat = cp.userJsonFormat;
                     settings.customPrompts = { topSystem: current.topSystem, tagGuideContent: current.tagGuideContent, userJsonFormat: current.userJsonFormat };
-                }, '提示词预设已保存');
+                }, '提示词预设已保存', { target: statusTarget });
             }
             sendInitData();
             break;
@@ -3627,7 +3628,7 @@ async function handleFrameMessage(event) {
 
         case 'FETCH_LLM_MODELS': {
             try {
-                postStatus('loading', '连接中...');
+                postStatus('loading', '连接中...', 'llm-fetch');
                 const apiCfg = normalizeDrawLlmApi(data.llmApi || {});
                 const models = await fetchDrawLlmModels(apiCfg);
 
@@ -3637,10 +3638,10 @@ async function handleFrameMessage(event) {
                     settings.llmApi.key = apiCfg.key;
                     settings.llmApi.modelCache = [...new Set(models)];
                     if (!settings.llmApi.model && models.length) settings.llmApi.model = models[0];
-                }, `获取 ${models.length} 个模型`);
+                }, `获取 ${models.length} 个模型`, { target: 'llm-fetch' });
                 if (ok) sendInitData();
             } catch (e) {
-                postStatus('error', '连接失败：' + (e.message || '请检查配置'));
+                postStatus('error', '连接失败：' + (e.message || '请检查配置'), 'llm-fetch');
             }
             break;
         }
@@ -3714,7 +3715,7 @@ async function handleFrameMessage(event) {
         case 'SAVE_MESSAGE_FILTER_RULES': {
             await updateSettingsPersistent((settings) => {
                 settings.messageFilterRules = Array.isArray(data.rules) ? data.rules : [];
-            }, '过滤规则已保存');
+            }, '过滤规则已保存', { target: 'filter' });
             break;
         }
 
@@ -3740,14 +3741,14 @@ async function handleFrameMessage(event) {
             const s = getSettings();
             const n = await clearExpiredCache(s.cacheDays || 3);
             sendInitData();
-            postStatus('success', `已清理/瘦身 ${n} 条`);
+            postStatus('success', `已清理/瘦身 ${n} 条`, 'gallery');
             break;
         }
 
         case 'CLEAR_ALL_CACHE':
             await clearAllCache();
             sendInitData();
-            postStatus('success', '已清空');
+            postStatus('success', '已清空', 'gallery');
             break;
 
         case 'GET_PROMPT_CHAIN': {
@@ -3774,7 +3775,7 @@ async function handleFrameMessage(event) {
 
         case 'USE_GALLERY_IMAGE':
             sendInitData();
-            postStatus('success', '已选择');
+            postStatus('success', '已选择', 'gallery');
             break;
 
         case 'SAVE_GALLERY_IMAGE': {

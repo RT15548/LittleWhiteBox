@@ -113,7 +113,7 @@
             <hr class="sysHR" />
           </div>
           <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
-            <label for="xiaobaix_draw_provider" class="has-tooltip" data-tooltip="选择小白X使用的画图后端。SD WebUI 地址由酒馆服务器访问，不读取酒馆自带画图设置。">画图后端</label>
+            <label for="xiaobaix_draw_provider" class="has-tooltip" data-tooltip="选择小白X使用的画图渠道。使用 SD WebUI 时，请在小白X设置里填写连接地址。">画图后端</label>
             <select id="xiaobaix_draw_provider" class="text_pole" style="width:auto;min-width:150px;">
               <option value="disabled">关闭</option>
               <option value="novelai">NovelAI</option>
@@ -131,7 +131,7 @@
           <div class="flex-container">
             <input type="checkbox" id="xiaobaix_tts_enabled" />
             <label for="xiaobaix_tts_enabled" class="has-tooltip"
-                   data-tooltip="AI回复渲染后自动朗读。需要先在 config.yaml 开启 enableCorsProxy: true 并重启。所有请求通过 ST 内置代理，不经过第三方。">
+                   data-tooltip="AI 回复渲染后自动朗读。首次使用前，请先在 config.yaml 开启 enableCorsProxy: true 并重启酒馆。">
               启用 TTS 语音
             </label>
             <button id="xiaobaix_tts_open_settings" class="menu_button menu_button_icon"

@@ -44,12 +44,12 @@
             </label>
             <div class="vector-boundary-container" id="container-vector-boundary">
                 <label class="chk-label vector-boundary-label" id="lbl-vector-boundary"
-                    title="开：按最新向量边界隐藏；关：仅按总结边界隐藏，缓存命中更稳">
+                    title="开：按智能记忆的最新进度隐藏；关：按剧情总结的最新进度隐藏。若隐藏范围不对，可先关闭试试。">
                     <input type="checkbox" id="use-vector-boundary" checked>
                     <span>向量边界</span>
                 </label>
                 <span class="info-dot" id="vector-boundary-info"
-                    title="开：按最新向量边界隐藏；关：仅按总结边界隐藏，缓存命中更稳">i</span>
+                    title="开：按智能记忆的最新进度隐藏；关：按剧情总结的最新进度隐藏。若隐藏范围不对，可先关闭试试。">i</span>
             </div>
             <span class="spacer"></span>
             <div class="btn-group">
@@ -227,7 +227,7 @@
                         <div class="settings-row hidden" id="api-key-row">
                             <div class="settings-field full">
                                 <label>API KEY</label>
-                                <input type="password" id="api-key" placeholder="仅保存在本地，不会上传">
+                                <input type="password" id="api-key" placeholder="保存到小白X配置">
                             </div>
                         </div>
                         <div class="settings-row hidden" id="api-model-manual-row">
@@ -242,7 +242,7 @@
                                 <select id="api-model-select">
                                     <option value="">请选择</option>
                                 </select>
-                                <div class="settings-hint">选择后会回填到上面的模型名输入框。原生下拉更稳，不依赖额外样式。</div>
+                                <div class="settings-hint">选择后会回填到上面的模型名输入框。</div>
                             </div>
                         </div>
                         <div class="settings-btn-row hidden" id="api-connect-row"
@@ -688,12 +688,6 @@
                                                 <span class="vector-stat-label">L2 Events:</span>
                                                 <span class="vector-stat-value"><strong
                                                         id="vector-event-count">0</strong></span>
-                                            </div>
-                                            <span class="vector-stat-sep">·</span>
-                                            <div class="vector-stat-col">
-                                                <span class="vector-stat-label">召回运行时:</span>
-                                                <span class="vector-stat-value"><strong
-                                                        id="vector-runtime-status">cold</strong></span>
                                             </div>
                                         </div>
                                         <div class="vector-mismatch-warning hidden" id="vector-mismatch-warning">
