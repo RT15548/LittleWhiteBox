@@ -6,6 +6,8 @@ import {
 import { LLMServiceError } from "./scene-planner.js";
 
 const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
+const DRAW_IMAGE_HTML_REGEX = /<div[^>]*class="xb-nd-img"[^>]*>[\s\S]*?<\/div>/gi;
+let generateInterceptorRefCount = 0;
 
 export const ImageState = {
     PREVIEW: 'preview',
@@ -43,6 +45,32 @@ export const DEFAULT_MESSAGE_FILTER_RULES = [
 
 export function createPlaceholder(slotId) {
     return `[image:${slotId}]`;
+}
+
+export function stripDrawArtifactsFromMessage(text) {
+    return String(text || '')
+        .replace(PLACEHOLDER_REGEX, '')
+        .replace(DRAW_IMAGE_HTML_REGEX, '');
+}
+
+export function setupDrawGenerateInterceptor() {
+    generateInterceptorRefCount += 1;
+    if (!window.xiaobaixGenerateInterceptor) {
+        window.xiaobaixGenerateInterceptor = function (chat) {
+            if (!Array.isArray(chat)) return;
+            for (const msg of chat) {
+                if (!msg?.mes) continue;
+                msg.mes = stripDrawArtifactsFromMessage(msg.mes);
+            }
+        };
+    }
+}
+
+export function cleanupDrawGenerateInterceptor() {
+    generateInterceptorRefCount = Math.max(0, generateInterceptorRefCount - 1);
+    if (generateInterceptorRefCount === 0) {
+        delete window.xiaobaixGenerateInterceptor;
+    }
 }
 
 export function joinTags(...parts) {

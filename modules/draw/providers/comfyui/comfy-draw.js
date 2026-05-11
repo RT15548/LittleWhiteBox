@@ -36,6 +36,8 @@ import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot } from "../../shared/
 import {
     findLastAIMessageId,
     createPlaceholder,
+    setupDrawGenerateInterceptor,
+    cleanupDrawGenerateInterceptor,
     renderPreviewsForMessage,
     buildImageHtml,
     insertPreviewIntoRenderedMessage,
@@ -4739,6 +4741,7 @@ export async function initComfyDraw() {
     await loadTagGuide();
     await loadSettings();
     ensureDrawImageStyles();
+    setupDrawGenerateInterceptor();
     setupImageDelegation();
     await openDB().catch(() => {});
 
@@ -4842,6 +4845,7 @@ export function cleanupComfyDraw() {
     overlayFrame = null;
     frameReadyPromise = null;
     eventsBound = false;
+    cleanupDrawGenerateInterceptor();
     delete window.xiaobaixComfyDraw;
     console.log('[ComfyDraw] 模块已清理');
 }

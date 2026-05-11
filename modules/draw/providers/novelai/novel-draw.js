@@ -44,6 +44,10 @@ import {
     loadLocalDanbooruDB, unloadLocalDanbooruDB,
     searchLocalDanbooru, isDanbooruDBLoaded,
 } from '../../shared/danbooru-local-db.js';
+import {
+    setupDrawGenerateInterceptor,
+    cleanupDrawGenerateInterceptor,
+} from '../../shared/draw-common.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -3113,23 +3117,6 @@ async function autoGenerateForLastAI() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 生成拦截器
-// ═══════════════════════════════════════════════════════════════════════════
-
-function setupGenerateInterceptor() {
-    if (!window.xiaobaixGenerateInterceptor) {
-        window.xiaobaixGenerateInterceptor = function (chat) {
-            for (const msg of chat) {
-                if (msg.mes) {
-                    msg.mes = msg.mes.replace(PLACEHOLDER_REGEX, '');
-                    msg.mes = msg.mes.replace(/<div[^>]*class="xb-nd-img"[^>]*>[\s\S]*?<\/div>/gi, '');
-                }
-            }
-        };
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // Overlay 设置面板
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -3890,7 +3877,7 @@ export async function initNovelDraw() {
     migrateNullTagGuide();
 
     setupEventDelegation();
-    setupGenerateInterceptor();
+    setupDrawGenerateInterceptor();
     openDB().then(() => { 
         const s = getSettings(); 
         clearExpiredCache(s.cacheDays || 3); 
@@ -4054,7 +4041,7 @@ export async function cleanupNovelDraw() {
 
     delete window.xiaobaixNovelDraw;
     delete window._xbNovelEventsBound;
-    delete window.xiaobaixGenerateInterceptor;
+    cleanupDrawGenerateInterceptor();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
