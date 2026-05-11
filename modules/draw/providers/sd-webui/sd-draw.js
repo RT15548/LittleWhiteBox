@@ -103,7 +103,7 @@ const DEFAULT_SD_DRAW_SETTINGS = {
     selectedModel: '',
     positivePrefix: '',
     negativePrefix: '',
-    advancedMode: false,
+    advancedMode: true,
     customPrompts: { topSystem: null, tagGuideContent: null, userJsonFormat: null },
     promptPresets: [],
     selectedPromptPresetId: null,
@@ -275,7 +275,7 @@ function normalizeSettings(raw = {}) {
         },
     };
 
-    merged.advancedMode = !!raw.advancedMode;
+    merged.advancedMode = true;
     merged.customPrompts = { ...DEFAULT_SD_DRAW_SETTINGS.customPrompts, ...(raw.customPrompts || {}) };
     if (!Array.isArray(merged.promptPresets)) merged.promptPresets = [];
 
@@ -974,18 +974,6 @@ function bindOverlayEvents() {
     querySettings('#sd-llm-request-refresh')?.addEventListener('click', () => {
         renderLastLlmRequestPreview();
     });
-    querySettings('#sd-advanced-mode')?.addEventListener('change', async (event) => {
-        const checked = event.target.checked === true;
-        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
-            settings.advancedMode = checked;
-        }, checked ? '高级模式已开启' : '高级模式已关闭', { notify: false, silent: false }));
-        if (ok) {
-            fillForm(getSettings());
-            if (!checked && querySettings('[data-sd-view].active')?.dataset.sdView === 'prompts') {
-                switchSettingsView('llm');
-            }
-        }
-    });
     querySettings('#sd-prompt-preset-select')?.addEventListener('change', async () => {
         const selectedId = getValue('sd-prompt-preset-select');
         const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
@@ -1208,8 +1196,7 @@ function fillForm(settings) {
     const showFloating = getSettingsElement('sd-show-floating');
     if (showFloor) showFloor.checked = settings.showFloorButton !== false;
     if (showFloating) showFloating.checked = settings.showFloatingButton !== false;
-    setChecked('sd-advanced-mode', settings.advancedMode === true);
-    getSettingsDocument()?.body?.classList.toggle('advanced-mode', settings.advancedMode === true);
+    getSettingsDocument()?.body?.classList.add('advanced-mode');
     querySettingsAll('[data-sd-mode]').forEach((button) => {
         button.classList.toggle('active', button.dataset.sdMode === (settings.mode === 'auto' ? 'auto' : 'manual'));
     });
@@ -1393,7 +1380,7 @@ function readPromptPresetFromForm(basePreset = getActivePromptPreset(getSettings
 
 function switchSettingsView(viewName = 'test') {
     const requested = SD_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
-    const normalized = requested === 'prompts' && !getSettings().advancedMode ? 'llm' : requested;
+    const normalized = requested;
     querySettingsAll('[data-sd-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.sdView === normalized);
     });

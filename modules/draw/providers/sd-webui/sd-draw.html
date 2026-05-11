@@ -195,12 +195,7 @@ select.input { cursor: pointer; }
     color: var(--text-secondary); font-family: monospace; font-size: 11px; line-height: 1.45;
     white-space: pre-wrap; word-break: break-word;
 }
-.sd-advanced-only { display: none !important; }
-body.advanced-mode .sd-advanced-only { display: flex !important; }
-.advanced-toggle-box {
-    padding: 12px 16px; margin-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-}
+.sd-advanced-only { display: flex !important; }
 .prompt-textarea {
     width: 100%; min-height: 180px; max-height: 400px;
     padding: 12px; font-family: 'Cascadia Code', 'Fira Code', monospace;
@@ -751,11 +746,6 @@ body.advanced-mode .sd-advanced-only { display: flex !important; }
                 <div class="tip-box">
                     <i class="fa-solid fa-info-circle"></i>
                     <div>这里配置的是 SD 场景分析用的 LLM 渠道。世界书注入请到「世界书」页统一管理。</div>
-                </div>
-
-                <div class="card advanced-toggle-box">
-                    <label class="check-row"><input type="checkbox" id="sd-advanced-mode"> 高级模式</label>
-                    <p class="form-hint" style="margin-left:24px;margin-top:4px;">开启后可自定义 SD 场景分析提示词模板。</p>
                 </div>
 
                 <div class="card">

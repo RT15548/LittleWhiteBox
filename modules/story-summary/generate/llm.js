@@ -1,7 +1,6 @@
 // LLM Service
 
 import {
-    getSummaryPanelConfig,
     DEFAULT_SUMMARY_SYSTEM_PROMPT,
     DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT,
     DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT,
@@ -82,16 +81,15 @@ function formatFactsForLLM(facts) {
 }
 
 function buildSummaryMessages(existingSummary, existingFacts, newHistoryText, historyRange, nextEventId, existingEventCount) {
-    const promptCfg = getSummaryPanelConfig()?.prompts || {};
-    const summarySystemPrompt = String(promptCfg.summarySystemPrompt || DEFAULT_SUMMARY_SYSTEM_PROMPT).trim() || DEFAULT_SUMMARY_SYSTEM_PROMPT;
-    const assistantDocPrompt = String(promptCfg.summaryAssistantDocPrompt || DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT).trim() || DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT;
-    const assistantAskSummaryPrompt = String(promptCfg.summaryAssistantAskSummaryPrompt || DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT).trim() || DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT;
-    const assistantAskContentPrompt = String(promptCfg.summaryAssistantAskContentPrompt || DEFAULT_SUMMARY_ASSISTANT_ASK_CONTENT_PROMPT).trim() || DEFAULT_SUMMARY_ASSISTANT_ASK_CONTENT_PROMPT;
-    const metaProtocolStartPrompt = String(promptCfg.summaryMetaProtocolStartPrompt || DEFAULT_SUMMARY_META_PROTOCOL_START_PROMPT).trim() || DEFAULT_SUMMARY_META_PROTOCOL_START_PROMPT;
-    const userJsonFormatPrompt = String(promptCfg.summaryUserJsonFormatPrompt || DEFAULT_SUMMARY_USER_JSON_FORMAT_PROMPT).trim() || DEFAULT_SUMMARY_USER_JSON_FORMAT_PROMPT;
-    const assistantCheckPrompt = String(promptCfg.summaryAssistantCheckPrompt || DEFAULT_SUMMARY_ASSISTANT_CHECK_PROMPT).trim() || DEFAULT_SUMMARY_ASSISTANT_CHECK_PROMPT;
-    const userConfirmPrompt = String(promptCfg.summaryUserConfirmPrompt || DEFAULT_SUMMARY_USER_CONFIRM_PROMPT).trim() || DEFAULT_SUMMARY_USER_CONFIRM_PROMPT;
-    const assistantPrefillPrompt = String(promptCfg.summaryAssistantPrefillPrompt || DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT).trim() || DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT;
+    const summarySystemPrompt = DEFAULT_SUMMARY_SYSTEM_PROMPT;
+    const assistantDocPrompt = DEFAULT_SUMMARY_ASSISTANT_DOC_PROMPT;
+    const assistantAskSummaryPrompt = DEFAULT_SUMMARY_ASSISTANT_ASK_SUMMARY_PROMPT;
+    const assistantAskContentPrompt = DEFAULT_SUMMARY_ASSISTANT_ASK_CONTENT_PROMPT;
+    const metaProtocolStartPrompt = DEFAULT_SUMMARY_META_PROTOCOL_START_PROMPT;
+    const userJsonFormatPrompt = DEFAULT_SUMMARY_USER_JSON_FORMAT_PROMPT;
+    const assistantCheckPrompt = DEFAULT_SUMMARY_ASSISTANT_CHECK_PROMPT;
+    const userConfirmPrompt = DEFAULT_SUMMARY_USER_CONFIRM_PROMPT;
+    const assistantPrefillPrompt = DEFAULT_SUMMARY_ASSISTANT_PREFILL_PROMPT;
     const { text: factsText, predicates } = formatFactsForLLM(existingFacts);
 
     const predicatesHint = predicates.length > 0

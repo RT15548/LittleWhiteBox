@@ -141,6 +141,8 @@ const DEFAULT_COMFY_DRAW_SETTINGS = {
 
     // 工作流模式：'simple' | 'custom'
     workflowMode: 'simple',
+    selectedWorkflowPresetId: 'workflow-default',
+    workflowPresets: [],
 
     // 自定义工作流（保留）
     customWorkflow: {
@@ -149,13 +151,15 @@ const DEFAULT_COMFY_DRAW_SETTINGS = {
         nodeNegative: '',
         nodeWidth: '',
         nodeHeight: '',
+        nodeSeed: '',
+        nodeSaveImage: '',
     },
 
     // 缓存
     modelCache: [],
     samplerCache: [],
     schedulerCache: [],
-    advancedMode: false,
+    advancedMode: true,
     customPrompts: { topSystem: null, tagGuideContent: null, userJsonFormat: null },
     promptPresets: [],
     selectedPromptPresetId: null,
@@ -250,6 +254,47 @@ function createDefaultPreset() {
         maxImages: 0,
         maxCharactersPerImage: 0,
     };
+}
+
+function createDefaultWorkflowPreset() {
+    return {
+        id: 'workflow-default',
+        name: '默认工作流',
+        json: '',
+        nodePositive: '',
+        nodeNegative: '',
+        nodeWidth: '',
+        nodeHeight: '',
+        nodeSeed: '',
+        nodeSaveImage: '',
+    };
+}
+
+function normalizeWorkflowPresets(rawPresets, rawCustomWorkflow = {}) {
+    const fallbackPreset = {
+        ...createDefaultWorkflowPreset(),
+        json: String(rawCustomWorkflow?.json || ''),
+        nodePositive: String(rawCustomWorkflow?.nodePositive || ''),
+        nodeNegative: String(rawCustomWorkflow?.nodeNegative || ''),
+        nodeWidth: String(rawCustomWorkflow?.nodeWidth || ''),
+        nodeHeight: String(rawCustomWorkflow?.nodeHeight || ''),
+        nodeSeed: String(rawCustomWorkflow?.nodeSeed || ''),
+        nodeSaveImage: String(rawCustomWorkflow?.nodeSaveImage || ''),
+    };
+    const source = Array.isArray(rawPresets) && rawPresets.length ? rawPresets : [fallbackPreset];
+    return source.map((preset, index) => ({
+        ...createDefaultWorkflowPreset(),
+        ...preset,
+        id: String(preset?.id || `workflow-${Date.now()}-${index}`),
+        name: String(preset?.name || `工作流 ${index + 1}`),
+        json: String(preset?.json || ''),
+        nodePositive: String(preset?.nodePositive || ''),
+        nodeNegative: String(preset?.nodeNegative || ''),
+        nodeWidth: String(preset?.nodeWidth || ''),
+        nodeHeight: String(preset?.nodeHeight || ''),
+        nodeSeed: String(preset?.nodeSeed || ''),
+        nodeSaveImage: String(preset?.nodeSaveImage || ''),
+    }));
 }
 
 function getPromptPresetDefaults(name) {
@@ -352,12 +397,17 @@ function normalizePresets(rawPresets, rawSettings = {}) {
 
 function normalizeSettings(raw = {}) {
     const presets = normalizePresets(raw.presets, raw);
+    const workflowPresets = normalizeWorkflowPresets(raw.workflowPresets, raw.customWorkflow);
     const selectedPresetId = presets.some(p => p.id === raw.selectedPresetId)
         ? raw.selectedPresetId
         : presets[0]?.id || 'default';
+    const selectedWorkflowPresetId = workflowPresets.some((p) => p.id === raw.selectedWorkflowPresetId)
+        ? raw.selectedWorkflowPresetId
+        : workflowPresets[0]?.id || 'workflow-default';
     const builtinWorkflowId = BUILTIN_WORKFLOWS.some((item) => item.id === raw.builtinWorkflowId)
         ? raw.builtinWorkflowId
         : DEFAULT_COMFY_DRAW_SETTINGS.builtinWorkflowId;
+    const activeWorkflowPreset = workflowPresets.find((item) => item.id === selectedWorkflowPresetId) || workflowPresets[0] || createDefaultWorkflowPreset();
     const merged = {
         ...DEFAULT_COMFY_DRAW_SETTINGS,
         ...raw,
@@ -369,8 +419,10 @@ function normalizeSettings(raw = {}) {
         auth: String(raw.auth ?? ''),
         timeout: normalizeNumber(raw.timeout, DEFAULT_COMFY_DRAW_SETTINGS.timeout, 10000, 600000),
         selectedPresetId,
+        selectedWorkflowPresetId,
         builtinWorkflowId,
         presets,
+        workflowPresets,
         // 简单模式参数
         selectedModel: String(raw.selectedModel ?? ''),
         sampler: String(raw.sampler || 'euler'),
@@ -380,11 +432,13 @@ function normalizeSettings(raw = {}) {
         // 工作流模式：兼容旧的 'builtin' 转为 'simple'
         workflowMode: raw.workflowMode === 'custom' ? 'custom' : 'simple',
         customWorkflow: {
-            json: String(raw.customWorkflow?.json || ''),
-            nodePositive: String(raw.customWorkflow?.nodePositive || ''),
-            nodeNegative: String(raw.customWorkflow?.nodeNegative || ''),
-            nodeWidth: String(raw.customWorkflow?.nodeWidth || ''),
-            nodeHeight: String(raw.customWorkflow?.nodeHeight || ''),
+            json: String(activeWorkflowPreset?.json || ''),
+            nodePositive: String(activeWorkflowPreset?.nodePositive || ''),
+            nodeNegative: String(activeWorkflowPreset?.nodeNegative || ''),
+            nodeWidth: String(activeWorkflowPreset?.nodeWidth || ''),
+            nodeHeight: String(activeWorkflowPreset?.nodeHeight || ''),
+            nodeSeed: String(activeWorkflowPreset?.nodeSeed || ''),
+            nodeSaveImage: String(activeWorkflowPreset?.nodeSaveImage || ''),
         },
         // 缓存
         modelCache: Array.isArray(raw.modelCache) ? raw.modelCache : [],
@@ -392,7 +446,7 @@ function normalizeSettings(raw = {}) {
         schedulerCache: Array.isArray(raw.schedulerCache) ? raw.schedulerCache : [],
     };
 
-    merged.advancedMode = !!raw.advancedMode;
+    merged.advancedMode = true;
     merged.customPrompts = { ...DEFAULT_COMFY_DRAW_SETTINGS.customPrompts, ...(raw.customPrompts || {}) };
     if (!Array.isArray(merged.promptPresets)) merged.promptPresets = [];
 
@@ -524,6 +578,31 @@ export async function updateSettingsPersistent(mutator, okText = '已保存', op
 
 function getActivePreset(settings = getSettings()) {
     return settings.presets.find(p => p.id === settings.selectedPresetId) || settings.presets[0] || createDefaultPreset();
+}
+
+function getActiveWorkflowPreset(settings = getSettings()) {
+    return settings.workflowPresets?.find((p) => p.id === settings.selectedWorkflowPresetId)
+        || settings.workflowPresets?.[0]
+        || createDefaultWorkflowPreset();
+}
+
+function buildWorkflowNodeMapFromForm() {
+    return {
+        positive: getValue('comfy-node-positive').trim(),
+        negative: getValue('comfy-node-negative').trim(),
+        width: getValue('comfy-node-width').trim(),
+        height: getValue('comfy-node-height').trim(),
+        seed: getValue('comfy-node-seed').trim(),
+        saveImage: getValue('comfy-node-save-image').trim(),
+    };
+}
+
+function validateWorkflowPresetDraftOrThrow({ json, nodeMap }) {
+    if (!nodeMap.positive || !nodeMap.saveImage) {
+        throw new Error('请至少填写正向提示词节点和 SaveImage 节点。');
+    }
+    const workflow = parseComfyApiWorkflowJson(json);
+    validateComfyWorkflowNodeMap(workflow, nodeMap);
 }
 
 function getActivePromptPreset(settings = getSettings()) {
@@ -672,7 +751,11 @@ async function requestComfyTransport(path, body = {}, { signal, timeoutMs } = {}
     }
     if (isDirectConnection(settings) && path === 'gene[用户触发屏蔽词]e') {
         const workflow = JSON.parse(body?.prompt || '{}')?.prompt;
-        const data = await fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs });
+        const data = await fetchComfyDirectImageFromWorkflow(workflow, {
+            signal,
+            timeoutMs,
+            preferredSaveImageNodeId: body?.preferredSaveImageNodeId,
+        });
         return { ok: true, json: async () => ({ data }) };
     }
     const proxySignal = createComfyRequestSignal(signal, timeoutMs ?? settings.timeout ?? 120000);
@@ -767,7 +850,7 @@ async function testComfyDirectConnection({ signal, timeoutMs } = {}) {
     await fetchComfyDirectJson('/system_stats', { signal, timeoutMs });
 }
 
-async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs } = {}) {
+async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, preferredSaveImageNodeId } = {}) {
     const deadline = createComfyDeadlineSignal(signal, timeoutMs);
     try {
         const data = await fetchComfyDirectJson('/prompt', {
@@ -798,8 +881,7 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs }
             throw new Error(`ComfyUI 生成失败${errorMessages ? `\n\n${errorMessages}` : ''}`);
         }
 
-        const outputs = Object.keys(item.outputs || {}).map(key => item.outputs[key]);
-        const imgInfo = outputs.map(it => it.images).flat()[0] ?? outputs.map(it => it.gifs).flat()[0];
+        const imgInfo = resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId);
         if (!imgInfo) throw new Error('ComfyUI 未返回图片数据');
 
         const blob = await fetchComfyDirectBlob('/view', {
@@ -865,7 +947,7 @@ function buildSimpleWorkflow({ model, sampler, scheduler, steps, cfg, width, hei
 function parseComfyApiWorkflowJson(text) {
     let workflow;
     try {
-        workflow = JSON.parse(String(text || ''));
+        workflow = JSON.parse(String(text || '').replace(/^\uFEFF/, ''));
     } catch (error) {
         throw new Error(`JSON 格式错误：${error.message}`);
     }
@@ -889,12 +971,71 @@ function parseComfyApiWorkflowJson(text) {
     return workflow;
 }
 
-function getNextComfyNodeId(workflow) {
-    const maxId = Object.keys(workflow || {})
-        .map((id) => Number(id))
-        .filter(Number.isFinite)
-        .reduce((max, id) => Math.max(max, id), 0);
-    return String(maxId + 1);
+function requireComfyNode(workflow, nodeId, label) {
+    const id = String(nodeId || '').trim();
+    if (!id) return null;
+    const node = workflow?.[id];
+    if (!node || typeof node !== 'object' || !node.inputs || typeof node.inputs !== 'object') {
+        throw new Error(`${label}不存在：${id}`);
+    }
+    return node;
+}
+
+function validateComfyTextNode(workflow, nodeId, label, { required = false } = {}) {
+    const id = String(nodeId || '').trim();
+    if (!id) {
+        if (required) throw new Error(`请填写${label}`);
+        return;
+    }
+    const node = requireComfyNode(workflow, id, label);
+    if (!('text' in node.inputs)) {
+        throw new Error(`${label}需要填 CLIP Text Encode 这类带 text 输入的节点：${id}`);
+    }
+}
+
+function validateComfyInputNode(workflow, nodeId, label, inputName, { required = false } = {}) {
+    const id = String(nodeId || '').trim();
+    if (!id) {
+        if (required) throw new Error(`请填写${label}`);
+        return;
+    }
+    const node = requireComfyNode(workflow, id, label);
+    if (!(inputName in node.inputs)) {
+        throw new Error(`${label}节点没有 ${inputName} 输入：${id}`);
+    }
+}
+
+function validateComfySeedNode(workflow, nodeId, { required = false } = {}) {
+    const id = String(nodeId || '').trim();
+    if (!id) {
+        if (required) throw new Error('请填写Seed 节点');
+        return;
+    }
+    const node = requireComfyNode(workflow, id, 'Seed 节点');
+    if (!('seed' in node.inputs) && !('noise_seed' in node.inputs)) {
+        throw new Error(`Seed 节点需要带 seed 或 noise_seed 输入：${id}`);
+    }
+}
+
+function validateComfySaveImageNode(workflow, nodeId, { required = false } = {}) {
+    const id = String(nodeId || '').trim();
+    if (!id) {
+        if (required) throw new Error('请填写SaveImage 节点');
+        return;
+    }
+    const node = requireComfyNode(workflow, id, 'SaveImage 节点');
+    if (normalizeComfyClassType(node.class_type) !== 'saveimage') {
+        throw new Error(`SaveImage 节点 ID 需要指向 SaveImage 节点：${id}`);
+    }
+}
+
+function validateComfyWorkflowNodeMap(workflow, nodeMap) {
+    validateComfyTextNode(workflow, nodeMap.positive, '正向提示词节点', { required: true });
+    validateComfyTextNode(workflow, nodeMap.negative, '负向提示词节点');
+    validateComfyInputNode(workflow, nodeMap.width, '宽度节点', 'width');
+    validateComfyInputNode(workflow, nodeMap.height, '高度节点', 'height');
+    validateComfySeedNode(workflow, nodeMap.seed);
+    validateComfySaveImageNode(workflow, nodeMap.saveImage, { required: true });
 }
 
 function isComfyLink(value) {
@@ -905,93 +1046,93 @@ function normalizeComfyClassType(value) {
     return String(value || '').replace(/\s+/g, '').toLowerCase();
 }
 
-function hasComfySaveImageOutput(workflow) {
-    return Object.values(workflow || {}).some((node) => {
-        const type = normalizeComfyClassType(node?.class_type);
-        return type === 'saveimage';
-    });
-}
-
 function getComfyNodeTitle(node) {
     return String(node?._meta?.title || node?.title || '').trim().toLowerCase();
-}
-
-function getComfyPreviewImageSources(workflow) {
-    return Object.entries(workflow || {})
-        .filter(([, node]) => normalizeComfyClassType(node?.class_type) === 'previewimage')
-        .map(([id, node]) => ({
-            id,
-            title: getComfyNodeTitle(node),
-            source: node?.inputs?.images,
-        }))
-        .filter((item) => isComfyLink(item.source));
 }
 
 function getComfyOutputTitleScore(title) {
     if (/final|最终/i.test(title)) return 50;
     if (/output|result|输出|结果/i.test(title)) return 40;
-    if (/enhanced|upscale|refined|增强|放大|精修/i.test(title)) return 30;
-    if (/preview|预览/i.test(title)) return 10;
+    if (/save|保存/i.test(title)) return 35;
     return 0;
 }
 
-function inferComfyImageSource(workflow) {
-    const entries = Object.entries(workflow || {});
+function extractComfyOutputAssets(output) {
+    if (!output || typeof output !== 'object') return [];
+    return [
+        ...(Array.isArray(output.images) ? output.images : []),
+        ...(Array.isArray(output.gifs) ? output.gifs : []),
+    ];
+}
 
-    const previews = getComfyPreviewImageSources(workflow);
-    const preferredPreview = previews
-        .map((item) => ({ ...item, score: getComfyOutputTitleScore(item.title) }))
-        .filter((item) => item.score > 0)
-        .sort((a, b) => b.score - a.score || Number(b.id) - Number(a.id))[0];
-    if (preferredPreview) return preferredPreview.source;
-
-    const nonMaskPreview = previews
-        .filter((item) => !/mask|遮罩/i.test(item.title))
-        .sort((a, b) => Number(b.id) - Number(a.id))[0];
-    if (nonMaskPreview) return nonMaskPreview.source;
-
-    const anyPreview = previews.sort((a, b) => Number(b.id) - Number(a.id))[0];
-    if (anyPreview) return anyPreview.source;
-
-    const vaeDecode = entries
-        .filter(([, node]) => normalizeComfyClassType(node?.class_type) === 'vaedecode')
-        .sort(([a], [b]) => Number(b) - Number(a))[0];
-    if (vaeDecode) {
-        return [vaeDecode[0], 0];
-    }
-
-    for (const [, node] of entries) {
+function getReferencedComfyNodeIds(workflow) {
+    const refs = new Set();
+    Object.values(workflow || {}).forEach((node) => {
         const inputs = node?.inputs || {};
-        for (const key of ['images', 'image']) {
-            if (isComfyLink(inputs[key])) {
-                return inputs[key];
+        Object.values(inputs).forEach((value) => {
+            if (isComfyLink(value)) {
+                refs.add(String(value[0]));
             }
-        }
-    }
+        });
+    });
+    return refs;
+}
 
+function pruneComfyOutputNodes(workflow, preferredSaveImageNodeId = '') {
+    const preferredId = String(preferredSaveImageNodeId || '').trim();
+    const hasSaveImage = getPreferredComfySaveImageNodeIds(workflow).length > 0;
+    if (!preferredId && !hasSaveImage) return workflow;
+
+    const refs = getReferencedComfyNodeIds(workflow);
+    Object.entries(workflow || {}).forEach(([id, node]) => {
+        if (refs.has(String(id))) return;
+        const type = normalizeComfyClassType(node?.class_type);
+        const isOutputNode = type === 'previewimage' || type === 'saveimage';
+        if (!isOutputNode) return;
+
+        if (preferredId) {
+            if (String(id) !== preferredId) delete workflow[id];
+            return;
+        }
+        if (type === 'previewimage') delete workflow[id];
+    });
+    return workflow;
+}
+
+function pickComfyOutputAssetByNodeIds(item, nodeIds = []) {
+    const outputs = item?.outputs || {};
+    for (const nodeId of nodeIds) {
+        const assets = extractComfyOutputAssets(outputs[String(nodeId)]);
+        if (assets.length) return assets[0];
+    }
     return null;
 }
 
-function ensureComfySaveImageOutput(workflow) {
-    if (hasComfySaveImageOutput(workflow)) return workflow;
+function getPreferredComfySaveImageNodeIds(workflow) {
+    return Object.entries(workflow || {})
+        .filter(([, node]) => normalizeComfyClassType(node?.class_type) === 'saveimage')
+        .map(([id, node]) => ({
+            id: String(id),
+            score: getComfyOutputTitleScore(getComfyNodeTitle(node)),
+        }))
+        .sort((a, b) => b.score - a.score || Number(b.id) - Number(a.id))
+        .map((item) => item.id);
+}
 
-    const imageSource = inferComfyImageSource(workflow);
-    if (!imageSource) return workflow;
+function resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId = '') {
+    const preferredNodeId = String(preferredSaveImageNodeId || '').trim();
+    if (preferredNodeId) {
+        const preferredAsset = pickComfyOutputAssetByNodeIds(item, [preferredNodeId]);
+        if (preferredAsset) return preferredAsset;
+    }
 
-    const nodeId = getNextComfyNodeId(workflow);
-    workflow[nodeId] = {
-        inputs: {
-            filename_prefix: 'LittleWhiteBox_Comfy',
-            images: imageSource,
-        },
-        class_type: 'SaveImage',
-        _meta: { title: 'LittleWhiteBox 输出' },
-    };
-    return workflow;
+    const saveImageAsset = pickComfyOutputAssetByNodeIds(item, getPreferredComfySaveImageNodeIds(workflow));
+    return saveImageAsset || null;
 }
 
 function injectPromptIntoWorkflow(workflow, positive, negative, width, height, nodeMap) {
     const wf = JSON.parse(JSON.stringify(workflow));
+    validateComfyWorkflowNodeMap(wf, nodeMap);
     if (nodeMap.positive && wf[nodeMap.positive]) {
         wf[nodeMap.positive].inputs.text = positive;
     }
@@ -1014,7 +1155,7 @@ function injectPromptIntoWorkflow(workflow, positive, negative, width, height, n
             seedNode.noise_seed = Math.floor(Math.random() * 2 ** 32);
         }
     }
-    ensureComfySaveImageOutput(wf);
+    pruneComfyOutputNodes(wf, nodeMap.saveImage);
     return wf;
 }
 
@@ -1040,6 +1181,8 @@ export async function generateComfyImage({ prompt, negativePrompt = '', params =
             negative: settings.customWorkflow.nodeNegative || '',
             width: settings.customWorkflow.nodeWidth || '',
             height: settings.customWorkflow.nodeHeight || '',
+            seed: settings.customWorkflow.nodeSeed || '',
+            saveImage: settings.customWorkflow.nodeSaveImage || '',
         };
         injected = injectPromptIntoWorkflow(workflow, positive, negative, width, height, nodeMap);
     } else {
@@ -1061,9 +1204,14 @@ export async function generateComfyImage({ prompt, negativePrompt = '', params =
         });
     }
 
-    const response = await requestComfyTransport('generate', {
+    const requestBody = {
         prompt: JSON.stringify({ prompt: injected }),
-    }, {
+    };
+    if (isDirectConnection(settings) && settings.workflowMode === 'custom') {
+        requestBody.preferredSaveImageNodeId = String(settings.customWorkflow?.nodeSaveImage || '').trim();
+    }
+
+    const response = await requestComfyTransport('generate', requestBody, {
         signal,
         timeoutMs: settings.timeout || 120000,
     });
@@ -1418,6 +1566,79 @@ function bindOverlayEvents() {
         });
         if (ok) fillForm(getSettings());
     });
+    querySettings('#comfy-workflow-preset-select')?.addEventListener('change', async () => {
+        const selectedWorkflowPresetId = getValue('comfy-workflow-preset-select');
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+            draft.selectedWorkflowPresetId = selectedWorkflowPresetId;
+            const preset = draft.workflowPresets.find((item) => item.id === selectedWorkflowPresetId) || draft.workflowPresets[0] || createDefaultWorkflowPreset();
+            draft.customWorkflow = {
+                json: preset.json,
+                nodePositive: preset.nodePositive,
+                nodeNegative: preset.nodeNegative,
+                nodeWidth: preset.nodeWidth,
+                nodeHeight: preset.nodeHeight,
+                nodeSeed: preset.nodeSeed,
+                nodeSaveImage: preset.nodeSaveImage,
+            };
+        }, '工作流预设已切换', { notify: false, silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#comfy-workflow-preset-add')?.addEventListener('click', async () => {
+        const preset = {
+            ...createDefaultWorkflowPreset(),
+            id: `workflow-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            name: prompt('输入工作流预设名称：', '新工作流') || '新工作流',
+        };
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+            draft.workflowPresets = [...(draft.workflowPresets || []), preset];
+            draft.selectedWorkflowPresetId = preset.id;
+            draft.customWorkflow = {
+                json: preset.json,
+                nodePositive: preset.nodePositive,
+                nodeNegative: preset.nodeNegative,
+                nodeWidth: preset.nodeWidth,
+                nodeHeight: preset.nodeHeight,
+                nodeSeed: preset.nodeSeed,
+                nodeSaveImage: preset.nodeSaveImage,
+            };
+        }, '已创建工作流预设', { silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#comfy-workflow-preset-rename')?.addEventListener('click', async () => {
+        const settings = getSettings();
+        const preset = getActiveWorkflowPreset(settings);
+        const name = prompt('输入新名称：', preset.name || '工作流');
+        if (!name) return;
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+            draft.workflowPresets = draft.workflowPresets.map((item) => item.id === preset.id ? { ...item, name } : item);
+        }, '工作流预设已重命名', { silent: false }));
+        if (ok) fillForm(getSettings());
+    });
+    querySettings('#comfy-workflow-preset-delete')?.addEventListener('click', async () => {
+        const settings = getSettings();
+        if ((settings.workflowPresets || []).length <= 1) {
+            toastr.warning('至少保留一个工作流预设');
+            return;
+        }
+        const preset = getActiveWorkflowPreset(settings);
+        if (!confirm(`删除工作流预设「${preset.name}」？`)) return;
+        const workflowPresets = settings.workflowPresets.filter((item) => item.id !== preset.id);
+        const nextPreset = workflowPresets[0] || createDefaultWorkflowPreset();
+        const ok = await withSaveTimeout(updateSettingsPersistent((draft) => {
+            draft.workflowPresets = workflowPresets;
+            draft.selectedWorkflowPresetId = nextPreset.id;
+            draft.customWorkflow = {
+                json: nextPreset.json,
+                nodePositive: nextPreset.nodePositive,
+                nodeNegative: nextPreset.nodeNegative,
+                nodeWidth: nextPreset.nodeWidth,
+                nodeHeight: nextPreset.nodeHeight,
+                nodeSeed: nextPreset.nodeSeed,
+                nodeSaveImage: nextPreset.nodeSaveImage,
+            };
+        }, '工作流预设已删除', { silent: false }));
+        if (ok) fillForm(getSettings());
+    });
     // 拉取模型按钮
     querySettings('#comfy-draw-refresh-models')?.addEventListener('click', async (event) => {
         const button = event.currentTarget;
@@ -1520,17 +1741,6 @@ function bindOverlayEvents() {
         setValue('comfy-workflow-json', '');
         toastr.info('已清空工作流内容', 'ComfyUI');
     });
-    // 自定义工作流：高级覆盖参数折叠
-    querySettings('#comfy-toggle-node-override')?.addEventListener('click', () => {
-        const section = getSettingsElement('comfy-node-override-section');
-        const btn = getSettingsElement('comfy-toggle-node-override');
-        if (!section || !btn) return;
-        const isHidden = section.classList.contains('hidden');
-        section.classList.toggle('hidden', !isHidden);
-        const icon = document.createElement('i');
-        icon.className = isHidden ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
-        btn.replaceChildren(icon, document.createTextNode(isHidden ? ' 收起' : ' 展开'));
-    });
     const saveComfyWorkflowField = async (label, mutator, statusElementId = 'comfy-draw-workflow-status') => {
         updateStatusText(statusElementId, '', `${label}保存中...`);
         const ok = await withSaveTimeout(updateSettingsPersistent(mutator, `${label}已保存`, { notify: false, silent: false }));
@@ -1591,27 +1801,39 @@ function bindOverlayEvents() {
             if (preset) preset.cfg = cfg;
         });
     });
-    querySettings('#comfy-workflow-save')?.addEventListener('click', async (event) => {
-        const nodePositive = getValue('comfy-node-positive').trim();
-        if (!nodePositive) {
-            toastr.error('请填写正向提示词节点 ID，工作流才能保存。', 'ComfyUI');
-            return;
-        }
+    querySettings('#comfy-workflow-preset-save')?.addEventListener('click', async (event) => {
+        const settings = getSettings();
+        const activePreset = getActiveWorkflowPreset(settings);
+        const nodeMap = buildWorkflowNodeMapFromForm();
         const ok = await runSaveButtonTask(event.currentTarget, () => updateSettingsPersistent((draft) => {
             const json = getValue('comfy-workflow-json');
-            parseComfyApiWorkflowJson(json);
+            validateWorkflowPresetDraftOrThrow({ json, nodeMap });
+            const nextPreset = {
+                ...activePreset,
+                json,
+                nodePositive: nodeMap.positive,
+                nodeNegative: nodeMap.negative,
+                nodeWidth: nodeMap.width,
+                nodeHeight: nodeMap.height,
+                nodeSeed: nodeMap.seed,
+                nodeSaveImage: nodeMap.saveImage,
+            };
+            draft.workflowPresets = draft.workflowPresets.map((item) => item.id === activePreset.id ? nextPreset : item);
+            draft.selectedWorkflowPresetId = activePreset.id;
             draft.workflowMode = 'custom';
             draft.customWorkflow = {
-                json,
-                nodePositive,
-                nodeNegative: getValue('comfy-node-negative').trim(),
-                nodeWidth: getValue('comfy-node-width').trim(),
-                nodeHeight: getValue('comfy-node-height').trim(),
+                json: nextPreset.json,
+                nodePositive: nextPreset.nodePositive,
+                nodeNegative: nextPreset.nodeNegative,
+                nodeWidth: nextPreset.nodeWidth,
+                nodeHeight: nextPreset.nodeHeight,
+                nodeSeed: nextPreset.nodeSeed,
+                nodeSaveImage: nextPreset.nodeSaveImage,
             };
-        }, '工作流已保存', { notify: false, silent: false }), {
-            statusElementId: 'comfy-workflow-status',
-            pendingText: '正在保存工作流...',
-            successText: '工作流已保存',
+        }, '工作流预设已保存', { notify: false, silent: false }), {
+            statusElementId: 'comfy-workflow-preset-status',
+            pendingText: '正在保存工作流预设...',
+            successText: '工作流预设已保存',
             errorText: '保存失败，请重试',
         });
         if (ok) fillForm(getSettings());
@@ -1639,18 +1861,6 @@ function bindOverlayEvents() {
     });
     querySettings('#comfy-llm-request-refresh')?.addEventListener('click', () => {
         renderLastLlmRequestPreview();
-    });
-    querySettings('#comfy-advanced-mode')?.addEventListener('change', async (event) => {
-        const checked = event.target.checked === true;
-        const ok = await withSaveTimeout(updateSettingsPersistent((settings) => {
-            settings.advancedMode = checked;
-        }, checked ? '高级模式已开启' : '高级模式已关闭', { notify: false, silent: false }));
-        if (ok) {
-            fillForm(getSettings());
-            if (!checked && querySettings('[data-comfy-view].active')?.dataset.comfyView === 'prompts') {
-                switchSettingsView('llm');
-            }
-        }
     });
     querySettings('#comfy-prompt-preset-select')?.addEventListener('change', async () => {
         const selectedId = getValue('comfy-prompt-preset-select');
@@ -1869,13 +2079,13 @@ function bindOverlayEvents() {
 function fillForm(settings) {
     const preset = getActivePreset(settings);
     fillPresetSelect(settings);
+    fillWorkflowPresetSelect(settings);
     fillPromptPresetSelect(settings);
     const showFloor = getSettingsElement('comfy-show-floor');
     const showFloating = getSettingsElement('comfy-show-floating');
     if (showFloor) showFloor.checked = settings.showFloorButton !== false;
     if (showFloating) showFloating.checked = settings.showFloatingButton !== false;
-    setChecked('comfy-advanced-mode', settings.advancedMode === true);
-    getSettingsDocument()?.body?.classList.toggle('advanced-mode', settings.advancedMode === true);
+    getSettingsDocument()?.body?.classList.add('advanced-mode');
     querySettingsAll('[data-comfy-mode]').forEach((button) => {
         button.classList.toggle('active', button.dataset.comfyMode === (settings.mode === 'auto' ? 'auto' : 'manual'));
     });
@@ -1931,6 +2141,8 @@ function fillForm(settings) {
     setValue('comfy-node-negative', settings.customWorkflow?.nodeNegative || '');
     setValue('comfy-node-width', settings.customWorkflow?.nodeWidth || '');
     setValue('comfy-node-height', settings.customWorkflow?.nodeHeight || '');
+    setValue('comfy-node-seed', settings.customWorkflow?.nodeSeed || '');
+    setValue('comfy-node-save-image', settings.customWorkflow?.nodeSaveImage || '');
 
     refreshBuiltinWorkflowPanel(settings);
     applyPromptPresetToForm(settings);
@@ -2023,6 +2235,19 @@ function fillPresetSelect(settings = getSettings()) {
         select.appendChild(option);
     });
     select.value = settings.selectedPresetId;
+}
+
+function fillWorkflowPresetSelect(settings = getSettings()) {
+    const select = getSettingsElement('comfy-workflow-preset-select');
+    if (!select) return;
+    select.textContent = '';
+    (settings.workflowPresets || []).forEach((preset) => {
+        const option = document.createElement('option');
+        option.value = preset.id;
+        option.textContent = preset.name || preset.id;
+        select.appendChild(option);
+    });
+    select.value = settings.selectedWorkflowPresetId || settings.workflowPresets?.[0]?.id || '';
 }
 
 function fillPromptPresetSelect(settings = getSettings()) {
@@ -2195,7 +2420,7 @@ async function refreshComfySamplerOptions({ notify = true, timeoutMs = Math.max(
 
 function switchSettingsView(viewName = 'test') {
     const requested = COMFY_DRAW_VIEWS.includes(viewName) ? viewName : 'test';
-    const normalized = requested === 'prompts' && !getSettings().advancedMode ? 'llm' : requested;
+    const normalized = requested;
     querySettingsAll('[data-comfy-view]').forEach((button) => {
         button.classList.toggle('active', button.dataset.comfyView === normalized);
     });

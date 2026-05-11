@@ -195,12 +195,7 @@ select.input { cursor: pointer; }
     color: var(--text-secondary); font-family: monospace; font-size: 11px; line-height: 1.45;
     white-space: pre-wrap; word-break: break-word;
 }
-.comfy-advanced-only { display: none !important; }
-body.advanced-mode .comfy-advanced-only { display: flex !important; }
-.advanced-toggle-box {
-    padding: 12px 16px; margin-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-}
+.comfy-advanced-only { display: flex !important; }
 .prompt-textarea {
     width: 100%; min-height: 180px; max-height: 400px;
     padding: 12px; font-family: 'Cascadia Code', 'Fira Code', monospace;
@@ -678,13 +673,23 @@ body.advanced-mode .comfy-advanced-only { display: flex !important; }
                 <div id="comfy-custom-mode-section" class="hidden">
                     <div class="card">
                         <div class="card-title">导入工作流</div>
+                        <div class="preset-bar" style="margin-bottom:16px;">
+                            <select id="comfy-workflow-preset-select" class="input"></select>
+                            <div class="btn-group">
+                                <button id="comfy-workflow-preset-add" class="btn btn-icon" type="button" title="新建"><i class="fa-solid fa-plus"></i></button>
+                                <button id="comfy-workflow-preset-rename" class="btn btn-icon" type="button" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                                <button id="comfy-workflow-preset-save" class="btn btn-primary" type="button" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
+                                <button id="comfy-workflow-preset-delete" class="btn btn-danger btn-icon" type="button" title="删除"><i class="fa-solid fa-trash"></i></button>
+                            </div>
+                            <div id="comfy-workflow-preset-status" class="status-text inline-status"></div>
+                        </div>
                         <div class="tip-box" style="margin-bottom:16px;">
                             <i class="fa-solid fa-circle-info"></i>
                             <div>
                                 <div style="margin-bottom:6px;"><strong>如何导出工作流？</strong></div>
                                 <div>在 ComfyUI 界面，点击右上角菜单 → <strong>Save (API Format)</strong> 下载 JSON 文件。</div>
-                                <div style="margin-top:6px;color:var(--text-muted);">注意：必须是 API 格式，不是普通的 Save。</div>
-                                <div style="margin-top:6px;color:var(--text-muted);">建议工作流最后接一个 <strong>SaveImage</strong> 节点，方便酒馆原生接口拿到图片。若没有，插件会优先从疑似最终图的 <strong>PreviewImage</strong>，再从非遮罩预览或 <strong>VAEDecode</strong> 自动补一个保存输出节点；复杂工作流仍建议手动接明确的最终输出节点。</div>
+                                <div style="margin-top:6px;">注意：必须是 API 格式，不是普通的 Save。</div>
+                                <div style="margin-top:6px;">自定义工作流请自己接好最终出图的 <strong>SaveImage</strong> 节点，并在下方填写对应节点 ID。</div>
                             </div>
                         </div>
                         <div class="form-group">
@@ -701,51 +706,45 @@ body.advanced-mode .comfy-advanced-only { display: flex !important; }
                     </div>
 
                     <div class="card">
-                        <div class="card-title">提示词节点映射</div>
-                        <p class="form-hint" style="margin-bottom:12px;">告诉小白X 把生成的提示词填到哪个节点。节点 ID 可在 ComfyUI 里右键节点 → Properties Panel 查看。</p>
+                        <div class="card-title">节点映射</div>
+                        <p class="form-hint" style="margin-bottom:12px;">告诉小白X 正向、负向、宽高、Seed 和最终出图分别对应哪个节点。节点 ID 可在 ComfyUI 里右键节点后查看。</p>
                         <div class="form-row">
                             <div class="form-group">
                                 <label class="form-label">正向提示词节点 <span style="color:var(--danger);">*</span></label>
                                 <input id="comfy-node-positive" class="input" type="text" placeholder="如：6">
-                                <p class="form-hint">必填。通常是 CLIP Text Encode (Positive) 节点的 ID。</p>
+                                <p class="form-hint">通常填 CLIP Text Encode (Positive)。</p>
                             </div>
                             <div class="form-group">
                                 <label class="form-label">负向提示词节点</label>
                                 <input id="comfy-node-negative" class="input" type="text" placeholder="如：7">
-                                <p class="form-hint">可选。CLIP Text Encode (Negative) 节点的 ID。</p>
+                                <p class="form-hint">通常填 CLIP Text Encode (Negative)。</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">SaveImage 节点 ID <span style="color:var(--danger);">*</span></label>
+                                <input id="comfy-node-save-image" class="input" type="text" placeholder="如：90">
+                                <p class="form-hint">填最终出图的 SaveImage 节点。</p>
                             </div>
                         </div>
 
                         <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                                <span style="font-size:12px;color:var(--text-secondary);">高级：尺寸覆盖</span>
-                                <button type="button" id="comfy-toggle-node-override" class="btn btn-sm" style="font-size:11px;">
-                                    <i class="fa-solid fa-chevron-down"></i> 展开
-                                </button>
-                            </div>
-                            <p class="form-hint">通常不需要填。如果你想用"绘图参数"页的尺寸覆盖工作流里的固定值，再填。</p>
-
-                            <div id="comfy-node-override-section" class="hidden" style="margin-top:12px;">
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label class="form-label">宽度节点 ID</label>
-                                        <input id="comfy-node-width" class="input" type="text" placeholder="如：5">
-                                    </div>
-                                    <div class="form-group">
-                                        <label class="form-label">高度节点 ID</label>
-                                        <input id="comfy-node-height" class="input" type="text" placeholder="如：5">
-                                    </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">宽度节点 ID</label>
+                                    <input id="comfy-node-width" class="input" type="text" placeholder="如：5">
+                                    <p class="form-hint">通常填带宽度输入的尺寸节点。</p>
                                 </div>
-                                <p class="form-hint">填了 EmptyLatentImage 节点的 ID，小白X 就会用"绘图参数"页的尺寸覆盖它。不填就用工作流 JSON 里的固定值。</p>
+                                <div class="form-group">
+                                    <label class="form-label">高度节点 ID</label>
+                                    <input id="comfy-node-height" class="input" type="text" placeholder="如：5">
+                                    <p class="form-hint">通常和宽度是同一个节点。</p>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Seed 节点 ID</label>
+                                    <input id="comfy-node-seed" class="input" type="text" placeholder="如：3">
+                                    <p class="form-hint">通常填带 seed 或 noise_seed 的采样节点。</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="btn-group">
-                            <button id="comfy-workflow-save" class="btn btn-primary" type="button"><i class="fa-solid fa-floppy-disk"></i> 保存自定义工作流</button>
-                        </div>
-                        <div id="comfy-workflow-status" class="status-text"></div>
                     </div>
 
                     <div class="tip-box">
@@ -902,11 +901,6 @@ body.advanced-mode .comfy-advanced-only { display: flex !important; }
                 <div class="tip-box">
                     <i class="fa-solid fa-info-circle"></i>
                     <div>这里配置的是 ComfyUI 场景分析用的 LLM 渠道。世界书注入请到「世界书」页统一管理。</div>
-                </div>
-
-                <div class="card advanced-toggle-box">
-                    <label class="check-row"><input type="checkbox" id="comfy-advanced-mode"> 高级模式</label>
-                    <p class="form-hint" style="margin-left:24px;margin-top:4px;">开启后可自定义 ComfyUI 场景分析提示词模板。</p>
                 </div>
 
                 <div class="card">
@@ -1134,7 +1128,7 @@ body.advanced-mode .comfy-advanced-only { display: flex !important; }
         <div class="mobile-nav-inner">
             <div class="mobile-nav-item active" data-comfy-view="test"><i class="fa-solid fa-flask"></i><span>测试</span></div>
             <div class="mobile-nav-item" data-comfy-view="api"><i class="fa-solid fa-key"></i><span>API</span></div>
-            <div class="mobile-nav-item" data-comfy-view="workflow"><i class="fa-solid fa-microchip"></i><span>模型</span></div>
+            <div class="mobile-nav-item" data-comfy-view="workflow"><i class="fa-solid fa-microchip"></i><span>工作流</span></div>
             <div class="mobile-nav-item" data-comfy-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
             <div class="mobile-nav-item" data-comfy-view="llm"><i class="fa-solid fa-robot"></i><span>LLM</span></div>
             <div class="mobile-nav-item comfy-advanced-only" data-comfy-view="prompts"><i class="fa-solid fa-file-code"></i><span>提示词</span></div>

@@ -433,6 +433,20 @@ textarea.input {
   flex-wrap: wrap;
 }
 
+.btn-group-compact {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.btn-icon {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Tip Box
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -841,6 +855,15 @@ details summary:hover {
     width: 100%;
   }
 
+  .btn-group-compact {
+    flex-direction: row;
+    justify-content: flex-start;
+  }
+
+  .btn-group-compact .btn {
+    width: 40px;
+  }
+
   .mobile-nav {
     height: 52px;
   }
@@ -858,6 +881,14 @@ details summary:hover {
   .btn {
     min-height: 44px;
     padding: 10px 18px;
+  }
+
+  .btn-icon {
+    min-height: 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
   }
 
   .btn-sm {

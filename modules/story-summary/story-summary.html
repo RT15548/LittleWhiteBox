@@ -755,53 +755,53 @@
                     <div class="settings-section">
                         <div class="settings-btn-row" style="margin: 0 0 12px 0; align-items: center;">
                             <div class="settings-section-title" style="margin: 0;">增量总结提示词</div>
-                            <button class="btn btn-sm" id="btn-reset-summary-prompts" style="margin-left:auto;">恢复默认</button>
+                            <div class="settings-hint" style="margin-left:auto;">内置只读</div>
                         </div>
-                        <div class="settings-hint" style="margin-bottom: 12px;">这里展示的是一次完整增量总结的各段提示词。像 <code>{$nextEventId}</code>、<code>{$existingEventCount}</code> 这样的占位符会在运行时自动替换，不要删除。</div>
+                        <div class="settings-hint" style="margin-bottom: 12px;">这里展示的是内置增量总结prompt，只读。</div>
                         <div class="settings-row">
                             <div class="settings-field full">
-                                <textarea class="editor-ta" id="summary-system-prompt" style="min-height: 300px;" placeholder="assistant"></textarea>
+                                <textarea class="editor-ta" id="summary-system-prompt" style="min-height: 300px;" placeholder="assistant" readonly></textarea>
                             </div>
                         </div>
                         <div class="settings-row">
                             <div class="settings-field full">
-                                <textarea class="editor-ta" id="summary-assistant-doc-prompt" style="min-height: 220px;" placeholder="assistant"></textarea>
+                                <textarea class="editor-ta" id="summary-assistant-doc-prompt" style="min-height: 220px;" placeholder="assistant" readonly></textarea>
                             </div>
                         </div>
                         <div class="settings-row">
                             <div class="settings-field full">
-                                <textarea class="editor-ta" id="summary-assistant-ask-summary-prompt" style="min-height: 120px;" placeholder="user"></textarea>
+                                <textarea class="editor-ta" id="summary-assistant-ask-summary-prompt" style="min-height: 120px;" placeholder="user" readonly></textarea>
                             </div>
                         </div>
                         <div class="settings-row">
                             <div class="settings-field full">
-                                <textarea class="editor-ta" id="summary-assistant-ask-content-prompt" style="min-height: 160px;" placeholder="assistant"></textarea>
+                                <textarea class="editor-ta" id="summary-assistant-ask-content-prompt" style="min-height: 160px;" placeholder="assistant" readonly></textarea>
                             </div>
                         </div>
                         <div class="settings-row">
                             <div class="settings-field full">
                                 <label>{插入聊天历史记录}</label>
-                                <textarea class="editor-ta" id="summary-meta-protocol-start-prompt" style="min-height: 120px;" placeholder="user"></textarea>
+                                <textarea class="editor-ta" id="summary-meta-protocol-start-prompt" style="min-height: 120px;" placeholder="user" readonly></textarea>
                             </div>
                         </div>
                         <div class="settings-row">
                             <div class="settings-field full">
-                                <textarea class="editor-ta" id="summary-user-json-format-prompt" style="min-height: 320px;" placeholder="user"></textarea>
+                                <textarea class="editor-ta" id="summary-user-json-format-prompt" style="min-height: 320px;" placeholder="user" readonly></textarea>
                             </div>
                         </div>
                         <div class="settings-row">
                             <div class="settings-field full">
-                                <textarea class="editor-ta" id="summary-assistant-check-prompt" style="min-height: 180px;" placeholder="assistant"></textarea>
+                                <textarea class="editor-ta" id="summary-assistant-check-prompt" style="min-height: 180px;" placeholder="assistant" readonly></textarea>
                             </div>
                         </div>
                         <div class="settings-row">
                             <div class="settings-field full">
-                                <textarea class="editor-ta" id="summary-user-confirm-prompt" style="min-height: 100px;" placeholder="user"></textarea>
+                                <textarea class="editor-ta" id="summary-user-confirm-prompt" style="min-height: 100px;" placeholder="user" readonly></textarea>
                             </div>
                         </div>
                         <div class="settings-row">
                             <div class="settings-field full">
-                                <textarea class="editor-ta" id="summary-assistant-prefill-prompt" style="min-height: 80px;" placeholder="assistant"></textarea>
+                                <textarea class="editor-ta" id="summary-assistant-prefill-prompt" style="min-height: 80px;" placeholder="assistant" readonly></textarea>
                             </div>
                         </div>
                     </div>

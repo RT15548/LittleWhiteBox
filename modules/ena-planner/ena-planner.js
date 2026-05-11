@@ -7,7 +7,14 @@ import { extensionFolderPath } from '../../core/constants.js';
 import { EnaPlannerStorage } from '../../core/server-storage.js';
 import { postToIframe, isTrustedIframeEvent } from '../../core/iframe-messaging.js';
 import { DEFAULT_PROMPT_BLOCKS, BUILTIN_TEMPLATES } from './ena-planner-presets.js';
-import { getDefaultApiPrefix, joinApiUrl, resolveApiBaseUrl } from '../../shared/common/openai-url-utils.js';
+import { getDefaultApiPrefix, resolveApiBaseUrl } from '../../shared/common/openai-url-utils.js';
+import {
+    buildHostOpenAICompatibleGeneratePayload,
+    createHostChatCompletion,
+    fetchHostOpenAICompatibleModels,
+    setHostChatCompletionsRequestHeadersProvider,
+    streamHostChatCompletion,
+} from '../../shared/host-llm/chat-completions/client.js';
 import { formatOutlinePrompt } from '../story-outline/story-outline.js';
 import { shouldSendOnEnter } from '../../../../../../scripts/RossAscends-mods.js';
 import jsyaml from '../../libs/js-yaml.mjs';
@@ -231,11 +238,51 @@ function buildApiPrefix() {
     return getDefaultPrefixByChannel(s.api.channel);
 }
 
-function buildUrl(path) {
+function buildResolvedApiBaseUrl() {
     const s = ensureSettings();
     const base = normalizeUrlBase(s.api.baseUrl);
-    const resolvedBase = resolveApiBaseUrl(base, buildApiPrefix());
-    return joinApiUrl(resolvedBase, path);
+    return resolveApiBaseUrl(base, buildApiPrefix());
+}
+
+function setHostRequestHeaders() {
+    setHostChatCompletionsRequestHeadersProvider(() => getRequestHeaders());
+}
+
+function buildPlannerHostPayload(messages) {
+    const s = ensureSettings();
+    const maxTokens = s.api.max_tokens === '' ? undefined : Number(s.api.max_tokens);
+    const temperature = Number(s.api.temperature);
+    const payload = buildHostOpenAICompatibleGeneratePayload(
+        {
+            baseUrl: buildResolvedApiBaseUrl(),
+            apiKey: s.api.apiKey,
+            model: s.api.model,
+        },
+        {
+            maxTokens: Number.isNaN(maxTokens) || maxTokens <= 0 ? undefined : maxTokens,
+            temperature: Number.isNaN(temperature) ? undefined : temperature,
+        },
+        messages,
+        !!s.api.stream,
+    );
+
+    const topP = Number(s.api.top_p);
+    if (!Number.isNaN(topP)) payload.top_p = topP;
+
+    const topK = Number(s.api.top_k);
+    if (!Number.isNaN(topK) && topK > 0) payload.top_k = topK;
+
+    const presencePenalty = s.api.presence_penalty === '' ? null : Number(s.api.presence_penalty);
+    if (presencePenalty != null && !Number.isNaN(presencePenalty)) {
+        payload.presence_penalty = presencePenalty;
+    }
+
+    const frequencyPenalty = s.api.frequency_penalty === '' ? null : Number(s.api.frequency_penalty);
+    if (frequencyPenalty != null && !Number.isNaN(frequencyPenalty)) {
+        payload.frequency_penalty = frequencyPenalty;
+    }
+
+    return payload;
 }
 
 function setSendUIBusy(busy) {
@@ -927,85 +974,27 @@ async function callPlanner(messages, options = {}) {
     if (!s.api.baseUrl) throw new Error('未配置 API URL');
     if (!s.api.apiKey) throw new Error('未配置 API KEY');
     if (!s.api.model) throw new Error('未选择模型');
-
-    const url = buildUrl('/chat/completions');
-
-    const body = {
-        model: s.api.model,
-        messages,
-        stream: !!s.api.stream
-    };
-
-    const t = Number(s.api.temperature);
-    if (!Number.isNaN(t)) body.temperature = t;
-    const tp = Number(s.api.top_p);
-    if (!Number.isNaN(tp)) body.top_p = tp;
-    const tk = Number(s.api.top_k);
-    if (!Number.isNaN(tk) && tk > 0) body.top_k = tk;
-    const pp = s.api.presence_penalty === '' ? null : Number(s.api.presence_penalty);
-    if (pp != null && !Number.isNaN(pp)) body.presence_penalty = pp;
-    const fp = s.api.frequency_penalty === '' ? null : Number(s.api.frequency_penalty);
-    if (fp != null && !Number.isNaN(fp)) body.frequency_penalty = fp;
-    const mt = s.api.max_tokens === '' ? null : Number(s.api.max_tokens);
-    if (mt != null && !Number.isNaN(mt) && mt > 0) body.max_tokens = mt;
+    setHostRequestHeaders();
+    const payload = buildPlannerHostPayload(messages);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), PLANNER_REQUEST_TIMEOUT_MS);
     try {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-                ...getRequestHeaders(),
-                Authorization: `Bearer ${s.api.apiKey}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(body),
-            signal: controller.signal
-        });
-
-        if (!res.ok) {
-            const text = await res.text().catch(() => '');
-            throw new Error(`规划请求失败: ${res.status} ${text}`.slice(0, 500));
-        }
-
         if (!s.api.stream) {
-            const data = await res.json();
+            const data = await createHostChatCompletion(payload, { signal: controller.signal });
             const text = String(data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? '');
             if (text) options?.onDelta?.(text, text);
             return text;
         }
 
-        // SSE stream
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        let buf = '';
         let full = '';
-
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buf += decoder.decode(value, { stream: true });
-            const chunks = buf.split('\n\n');
-            buf = chunks.pop() ?? '';
-
-            for (const ch of chunks) {
-                const lines = ch.split('\n').map(x => x.trim()).filter(Boolean);
-                for (const line of lines) {
-                    if (!line.startsWith('data:')) continue;
-                    const payload = line.slice(5).trim();
-                    if (payload === '[DONE]') continue;
-                    try {
-                        const j = JSON.parse(payload);
-                        const delta = j?.choices?.[0]?.delta;
-                        const piece = delta?.content ?? delta?.text ?? '';
-                        if (piece) {
-                            full += piece;
-                            options?.onDelta?.(piece, full);
-                        }
-                    } catch { }
-                }
-            }
-        }
+        await streamHostChatCompletion(payload, (event) => {
+            const delta = event?.choices?.[0]?.delta;
+            const piece = delta?.content ?? delta?.text ?? '';
+            if (!piece) return;
+            full += piece;
+            options?.onDelta?.(piece, full);
+        }, { signal: controller.signal });
         return full;
     } catch (err) {
         if (controller.signal.aborted || err?.name === 'AbortError') {
@@ -1021,21 +1010,11 @@ async function fetchModelsForUi() {
     const s = ensureSettings();
     if (!s.api.baseUrl) throw new Error('请先填写 API URL');
     if (!s.api.apiKey) throw new Error('请先填写 API KEY');
-    const url = buildUrl('/models');
-    const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-            ...getRequestHeaders(),
-            Authorization: `Bearer ${s.api.apiKey}`
-        }
+    setHostRequestHeaders();
+    return await fetchHostOpenAICompatibleModels({
+        baseUrl: buildResolvedApiBaseUrl(),
+        apiKey: s.api.apiKey,
     });
-    if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`拉取模型失败: ${res.status} ${text}`.slice(0, 300));
-    }
-    const data = await res.json();
-    const list = Array.isArray(data?.data) ? data.data : [];
-    return list.map(x => x?.id).filter(Boolean);
 }
 
 async function debugWorldbookForUi() {

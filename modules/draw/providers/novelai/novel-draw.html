@@ -458,10 +458,9 @@ select.input { cursor: pointer; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 .hidden { display: none !important; }
 
-/* ── 高级模式 ── */
-.nd-advanced-only { display: none !important; }
-body.advanced-mode .nd-advanced-only { display: flex !important; }
-body.advanced-mode .nd-simple-only { display: none !important; }
+/* ── 提示词模板始终可见 ── */
+.nd-advanced-only { display: flex !important; }
+.nd-simple-only { display: none !important; }
 
 .prompt-textarea {
     width: 100%; min-height: 180px; max-height: 400px;
@@ -518,11 +517,6 @@ body.advanced-mode .nd-simple-only { display: none !important; }
 .wb-entry-title { font-weight: 500; }
 .wb-entry-keys { color: var(--text-secondary); font-size: 11px; }
 .wb-entry-preview { color: var(--text-muted); font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.advanced-toggle-box {
-    padding: 12px 16px; margin-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-}
 
 /* Danbooru 搜索面板 */
 .danbooru-panel {
@@ -983,12 +977,6 @@ body.advanced-mode .nd-simple-only { display: none !important; }
                     </div>
                     <pre id="nd_llm_request_preview" class="llm-request-preview">暂无请求记录，请先触发一次画图分析。</pre>
                 </div>
-                <div class="card advanced-toggle-box">
-                    <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;font-weight:600;">
-                        <input type="checkbox" id="nd_advanced_mode"> 高级模式
-                    </label>
-                    <p class="form-hint" style="margin-left:24px;margin-top:4px;">开启后可自定义提示词模板；世界书管理始终可见。</p>
-                </div>
             </div>
 
             <!-- ═══════════════════════════════════════════════════════════════
@@ -1170,7 +1158,7 @@ body.advanced-mode .nd-simple-only { display: none !important; }
             </div>
 
             <!-- ═══════════════════════════════════════════════════════════════
-                 提示词模板 (高级模式)
+                 提示词模板
                  ═══════════════════════════════════════════════════════════════ -->
             <div id="view-prompts" class="view">
                 <div class="view-header">
@@ -2183,13 +2171,12 @@ function updateLlmProviderUI() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 高级模式
+// 提示词模板始终可见
 // ═══════════════════════════════════════════════════════════════════════════
 
 function applyAdvancedMode() {
-    const adv = !!state.advancedMode;
-    $('nd_advanced_mode').checked = adv;
-    document.body.classList.toggle('advanced-mode', adv);
+    state.advancedMode = true;
+    document.body.classList.add('advanced-mode');
 
     // 世界书
     const wb = state.worldbooks || {};
@@ -3010,15 +2997,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // ═══════════════════════════════════════════════════════════════════════
-    // 高级模式事件
-    // ═══════════════════════════════════════════════════════════════════════
-    $('nd_advanced_mode').addEventListener('change', () => {
-        const adv = $('nd_advanced_mode').checked;
-        state.advancedMode = adv;
-        document.body.classList.toggle('advanced-mode', adv);
-        postToParent({ type: 'SAVE_ADVANCED_MODE', advancedMode: adv });
-    });
-
     // 提示词预设管理 — 纯本地切换，与参数预设一致
     $('nd_prompt_preset').addEventListener('change', () => {
         state.selectedPromptPresetId = $('nd_prompt_preset').value;

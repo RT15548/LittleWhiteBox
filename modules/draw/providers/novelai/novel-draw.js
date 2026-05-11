@@ -157,7 +157,7 @@ const DEFAULT_SETTINGS = {
     overrideSize: 'default',
     showFloorButton: true,
     showFloatingButton: false,
-    advancedMode: false,
+    advancedMode: true,
     customPrompts: { topSystem: null, tagGuideContent: null, userJsonFormat: null },
     promptPresets: [],
     selectedPromptPresetId: null,
@@ -831,6 +831,7 @@ function handleFetchError(e) {
 
 function normalizeSettings(saved) {
     const merged = { ...DEFAULT_SETTINGS, ...(saved || {}) };
+    merged.advancedMode = true;
     merged.llmApi = normalizeDrawLlmApi({ ...DEFAULT_SETTINGS.llmApi, ...(saved?.llmApi || {}) });
     merged.customPrompts = { ...DEFAULT_SETTINGS.customPrompts, ...(saved?.customPrompts || {}) };
     merged.worldbooks = { ...DEFAULT_SETTINGS.worldbooks, ...(saved?.worldbooks || {}) };
@@ -3471,22 +3472,6 @@ async function handleFrameMessage(event) {
                 if (typeof data.disablePrefill === 'boolean') settings.disablePrefill = data.disablePrefill;
             }, '已保存', { target: 'llm' });
             if (ok) sendInitData();
-            break;
-        }
-
-        // ═══════════════════════════════════════════════════════════════
-        // 高级模式
-        // ═══════════════════════════════════════════════════════════════
-
-        case 'SAVE_ADVANCED_MODE': {
-            // 仅持久化，不回传 INIT_DATA — iframe 已在本地完成 UI 切换
-            const nextAdvancedMode = !!data.advancedMode;
-            const ok = await updateSettingsPersistent((settings) => {
-                settings.advancedMode = nextAdvancedMode;
-            }, nextAdvancedMode ? '高级模式已开启' : '高级模式已关闭');
-            if (!ok) {
-                sendInitData();
-            }
             break;
         }
 

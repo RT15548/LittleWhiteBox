@@ -24,6 +24,7 @@ import { getDefaultApiPrefix, getModelListCandidateUrls } from "../../shared/com
 
 // config/store
 import {
+    BUILTIN_SUMMARY_PROMPTS,
     getSettings,
     getSummaryPanelConfig,
     getVectorConfig,
@@ -1332,7 +1333,11 @@ function initButtonForLatestMessage() {
 async function sendSavedConfigToFrame() {
     try {
         const savedConfig = await loadConfigFromServer();
-        postToFrame({ type: "LOAD_PANEL_CONFIG", config: savedConfig });
+        postToFrame({
+            type: "LOAD_PANEL_CONFIG",
+            config: savedConfig,
+            builtInSummaryPrompts: BUILTIN_SUMMARY_PROMPTS,
+        });
     } catch (e) {
         xbLog.warn(MODULE_ID, "加载面板配置失败", e);
     }
