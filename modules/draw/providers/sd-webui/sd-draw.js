@@ -36,8 +36,6 @@ import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot } from "../../shared/
 import {
     findLastAIMessageId,
     createPlaceholder,
-    setupDrawGenerateInterceptor,
-    cleanupDrawGenerateInterceptor,
     renderPreviewsForMessage,
     buildImageHtml,
     insertPreviewIntoRenderedMessage,
@@ -3933,7 +3931,6 @@ export async function initSdDraw() {
     await loadTagGuide();
     await loadSettings();
     ensureDrawImageStyles();
-    setupDrawGenerateInterceptor();
     setupImageDelegation();
     await openDB().catch(() => {});
 
@@ -4039,7 +4036,6 @@ export function cleanupSdDraw() {
     overlayFrame = null;
     frameReadyPromise = null;
     eventsBound = false;
-    cleanupDrawGenerateInterceptor();
     delete window.xiaobaixSdDraw;
     console.log('[SdDraw] 模块已清理');
 }

@@ -44,11 +44,6 @@ import {
     loadLocalDanbooruDB, unloadLocalDanbooruDB,
     searchLocalDanbooru, isDanbooruDBLoaded,
 } from '../../shared/danbooru-local-db.js';
-import {
-    setupDrawGenerateInterceptor,
-    cleanupDrawGenerateInterceptor,
-} from '../../shared/draw-common.js';
-
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3877,7 +3872,6 @@ export async function initNovelDraw() {
     migrateNullTagGuide();
 
     setupEventDelegation();
-    setupDrawGenerateInterceptor();
     openDB().then(() => { 
         const s = getSettings(); 
         clearExpiredCache(s.cacheDays || 3); 
@@ -4041,7 +4035,6 @@ export async function cleanupNovelDraw() {
 
     delete window.xiaobaixNovelDraw;
     delete window._xbNovelEventsBound;
-    cleanupDrawGenerateInterceptor();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

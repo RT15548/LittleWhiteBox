@@ -26,6 +26,7 @@ import { initVareventEditor, cleanupVareventEditor } from "./modules/variables/v
 import { initNovelDraw, cleanupNovelDraw } from "./modules/draw/providers/novelai/novel-draw.js";
 import { initSdDraw, cleanupSdDraw } from "./modules/draw/providers/sd-webui/sd-draw.js";
 import { initComfyDraw, cleanupComfyDraw } from "./modules/draw/providers/comfyui/comfy-draw.js";
+import { setupDrawGenerateInterceptor } from "./modules/draw/shared/draw-common.js";
 import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
 import { initTts, cleanupTts } from "./modules/tts/tts.js";
@@ -205,6 +206,7 @@ let moduleCleanupFunctions = new Map();
 let updateCheckPerformed = false;
 
 window.isXiaobaixEnabled = isXiaobaixEnabled;
+setupDrawGenerateInterceptor({ shouldStrip: () => isXiaobaixEnabled });
 window.testLittleWhiteBoxUpdate = async () => {
     updateCheckPerformed = false;
     await performExtensionUpdateCheck();
