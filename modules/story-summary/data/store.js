@@ -239,6 +239,17 @@ function normalizeSummaryStore(store) {
         changed = true;
     }
 
+    const pendingImportBoundary = store.pendingImportBoundary;
+    if (pendingImportBoundary == null || pendingImportBoundary === false) {
+        if ('pendingImportBoundary' in store) {
+            delete store.pendingImportBoundary;
+            changed = true;
+        }
+    } else if (pendingImportBoundary !== true) {
+        store.pendingImportBoundary = true;
+        changed = true;
+    }
+
     const json = normalizeSummaryJson(store.json);
     if (json.changed) {
         store.json = json.value;
@@ -634,6 +645,7 @@ export async function executeRollback(chatId, store, targetEndMesId, currentLeng
         store.lastSummarizedMesId = -1;
         store.json = null;
         store.summaryHistory = [];
+        delete store.pendingImportBoundary;
         store.hideSummarizedHistory = false;
 
         await clearEventVectors(chatId);
@@ -667,6 +679,7 @@ export async function executeRollback(chatId, store, targetEndMesId, currentLeng
         store.json = json;
         store.lastSummarizedMesId = targetEndMesId;
         store.summaryHistory = (store.summaryHistory || []).filter(h => h.endMesId <= targetEndMesId);
+        delete store.pendingImportBoundary;
 
         if (deletedEventIds.length > 0) {
             await deleteEventVectorsByIds(chatId, deletedEventIds);
@@ -705,6 +718,7 @@ export async function clearSummaryData(chatId) {
         delete store.json;
         store.lastSummarizedMesId = -1;
         store.summaryHistory = [];
+        delete store.pendingImportBoundary;
         store.hideSummarizedHistory = false;
         store.updatedAt = Date.now();
         saveSummaryStore();

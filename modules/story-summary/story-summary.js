@@ -1637,6 +1637,61 @@ function buildSummaryExportPackage(store) {
     };
 }
 
+function stampImportedSummaryJson(json, boundary) {
+    if (!json || typeof json !== "object" || !Number.isFinite(boundary) || boundary < 0) {
+        return;
+    }
+
+    for (const item of (json.keywords || [])) {
+        if (item && typeof item === "object") item._addedAt = boundary;
+    }
+
+    for (const item of (json.events || [])) {
+        if (item && typeof item === "object") item._addedAt = boundary;
+    }
+
+    const mainCharacters = json.characters?.main || [];
+    for (const item of mainCharacters) {
+        if (item && typeof item === "object") item._addedAt = boundary;
+    }
+
+    for (const arc of (json.arcs || [])) {
+        if (!arc || typeof arc !== "object") continue;
+        arc._addedAt = boundary;
+        for (const moment of (arc.moments || [])) {
+            if (moment && typeof moment === "object") moment._addedAt = boundary;
+        }
+    }
+
+    for (const fact of (json.facts || [])) {
+        if (fact && typeof fact === "object") fact._addedAt = boundary;
+    }
+}
+
+function applyImportedSummaryBoundary(store, boundary) {
+    if (!store?.json || !Number.isFinite(boundary) || boundary < 0) {
+        return false;
+    }
+
+    stampImportedSummaryJson(store.json, boundary);
+    store.lastSummarizedMesId = boundary;
+    store.summaryHistory = [{ endMesId: boundary }];
+    delete store.pendingImportBoundary;
+    store.updatedAt = Date.now();
+    return true;
+}
+
+function clearPendingImportBoundary(store) {
+    if (!store?.pendingImportBoundary) {
+        return false;
+    }
+
+    delete store.pendingImportBoundary;
+    store.updatedAt = Date.now();
+    saveSummaryStore();
+    return true;
+}
+
 async function importSummaryMemoryPackage(rawText) {
     if (!String(rawText || "").trim()) {
         throw new Error("记忆包内容为空");
@@ -1668,8 +1723,14 @@ async function importSummaryMemoryPackage(rawText) {
     }
 
     store.json = importedJson;
-    store.lastSummarizedMesId = -1;
-    store.summaryHistory = [];
+    const importBoundary = (Array.isArray(chat) ? chat.length : 0) - 1;
+    if (importBoundary >= 0) {
+        applyImportedSummaryBoundary(store, importBoundary);
+    } else {
+        store.lastSummarizedMesId = -1;
+        store.summaryHistory = [];
+        store.pendingImportBoundary = true;
+    }
     store.updatedAt = Date.now();
     saveSummaryStore();
 
@@ -2018,6 +2079,7 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
                 onError: (msg) => postToFrame({ type: "SUMMARY_ERROR", message: msg }),
                 onComplete: async ({ merged, endMesId, newEventIds }) => {
                     const store = getSummaryStore();
+                    clearPendingImportBoundary(store);
                     postToFrame({ type: "SUMMARY_FULL_DATA", payload: buildFramePayload(store) });
 
                     // Incrementally add new events to the lexical index
@@ -2536,6 +2598,7 @@ async function handleManualGenerate(mesId, config) {
             onError: (msg) => postToFrame({ type: "SUMMARY_ERROR", message: msg }),
             onComplete: async ({ merged, endMesId, newEventIds }) => {
                 const store = getSummaryStore();
+                clearPendingImportBoundary(store);
                 postToFrame({ type: "SUMMARY_FULL_DATA", payload: buildFramePayload(store) });
 
                 // Incrementally add new events to the lexical index
@@ -2780,6 +2843,9 @@ async function handleGenerationStarted(type, _params, isDryRun) {
         if (boundary < 0) boundary = store?.lastSummarizedMesId ?? -1;
     } else {
         boundary = store?.lastSummarizedMesId ?? -1;
+    }
+    if (!vectorCfg?.enabled && boundary < 0 && store?.pendingImportBoundary && store?.json) {
+        boundary = chatLen - 1;
     }
     timing.boundary = Math.round(performance.now() - T_Boundary);
     if (boundary < 0) {
