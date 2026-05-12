@@ -196,6 +196,12 @@ body.immersive-mode .mes {
     padding: 0px !important;
 }
 
+body.immersive-mode.immersive-all .mes.immersive-virtualized-message {
+    content-visibility: auto;
+    contain: layout paint style;
+    contain-intrinsic-size: auto var(--immersive-message-height, 220px);
+}
+
 body.immersive-mode .mes_buttons,
 body.immersive-mode .mes_edit_buttons {
     position: absolute !important;
