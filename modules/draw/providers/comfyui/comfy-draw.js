@@ -749,7 +749,7 @@ async function requestComfyTransport(path, body = {}, { signal, timeoutMs } = {}
         await testComfyDirectConnection({ signal, timeoutMs });
         return { ok: true, json: async () => ({}) };
     }
-    if (isDirectConnection(settings) && path === 'gene[用户触发屏蔽词]e') {
+    if (isDirectConnection(settings) && path === 'generate') {
         const workflow = JSON.parse(body?.prompt || '{}')?.prompt;
         const data = await fetchComfyDirectImageFromWorkflow(workflow, {
             signal,
@@ -771,10 +771,16 @@ async function requestComfyTransport(path, body = {}, { signal, timeoutMs } = {}
         });
         if (!response.ok) {
             const text = await response.text().catch(() => '');
+            if (path === 'generate') {
+                throw new Error(buildComfyProxyGenerateError(text || `HTTP ${response.status}`, response.status));
+            }
             throw new Error(text || `HTTP ${response.status}`);
         }
         return response;
     } catch (error) {
+        if (path === 'generate' && isComfyProxyGenerateFailure(error)) {
+            throw new Error(buildComfyProxyGenerateError(error?.message || 'ComfyUI 生成失败', error?.status));
+        }
         if (error?.name === 'AbortError') throw new Error(signal?.aborted ? '已取消' : '生成超时');
         throw error;
     } finally {
@@ -850,6 +856,24 @@ async function testComfyDirectConnection({ signal, timeoutMs } = {}) {
     await fetchComfyDirectJson('/system_stats', { signal, timeoutMs });
 }
 
+function isComfyProxyGenerateFailure(error) {
+    const msg = String(error?.message || error || '').toLowerCase();
+    return msg.includes('did not return any recognizable outputs')
+        || msg.includes('未返回图片数据')
+        || msg.includes('execution_cached')
+        || msg.includes('cached-empty')
+        || msg.includes('comfyui 生成失败');
+}
+
+function buildComfyProxyGenerateError(message, status = null) {
+    const raw = String(message || '').trim();
+    const prefix = status ? `ComfyUI 代理取图失败（HTTP ${status}）` : 'ComfyUI 代理取图失败';
+    if (/did not return any recognizable outputs|未返回图片数据|execution_cached|cached-empty/i.test(raw)) {
+        return `${prefix}：后端拿到了任务结果，但没有识别到可返回的图片输出。Comfy 可能已经出图，请检查 Comfy output；如果反复出现，建议切换到浏览器直连模式。`;
+    }
+    return `${prefix}：${raw || '后端返回失败'}。如果 Comfy 已经实际出图，请检查 Comfy output；反复出现可尝试切换到浏览器直连模式。`;
+}
+
 async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, preferredSaveImageNodeId } = {}) {
     const deadline = createComfyDeadlineSignal(signal, timeoutMs);
     try {
@@ -863,10 +887,27 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, 
         if (!promptId) throw new Error('ComfyUI 未返回任务 ID');
 
         let item = null;
+        let cachedEmptySince = 0;
         while (!deadline.signal.aborted) {
             const history = await fetchComfyDirectJson('/history', { signal: deadline.signal, timeoutMs });
             item = history?.[promptId];
-            if (item) break;
+            if (!item) {
+                await waitWithAbort(deadline.signal, 100);
+                continue;
+            }
+
+            if (item.status?.status_str === 'error') break;
+
+            const imgInfo = resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId);
+            if (imgInfo) break;
+
+            if (item.status?.status_str === 'success') {
+                cachedEmptySince ||= Date.now();
+                if (Date.now() - cachedEmptySince > 3000) {
+                    throw new Error('ComfyUI 任务已完成，但 history.outputs 仍为空，可能命中 cached-empty outputs；请稍后重试或切换到浏览器直连模式。');
+                }
+            }
+
             await waitWithAbort(deadline.signal, 100);
         }
         if (deadline.signal.aborted) throw new Error(signal?.aborted ? '已取消' : '生成超时');
@@ -882,7 +923,10 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, 
         }
 
         const imgInfo = resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId);
-        if (!imgInfo) throw new Error('ComfyUI 未返回图片数据');
+        if (!imgInfo) {
+            const cachedEmpty = item?.status?.status_str === 'success' ? '，可能命中 cached-empty outputs' : '';
+            throw new Error(`ComfyUI 未返回图片数据${cachedEmpty}。`);
+        }
 
         const blob = await fetchComfyDirectBlob('/view', {
             filename: imgInfo.filename,
@@ -2284,6 +2328,7 @@ function updateConnectionModeUI(mode = getSettings().connectionMode) {
     const isDirect = mode === 'direct';
     const authRow = getSettingsElement('comfy-auth-row');
     const connectionHint = getSettingsElement('comfy-connection-hint');
+    const connectionModeNote = getSettingsElement('comfy-connection-mode-note');
     const hostHint = getSettingsElement('comfy-host-hint');
     const status = getSettingsElement('comfy-draw-api-status');
     const workflowStatus = getSettingsElement('comfy-draw-workflow-status');
@@ -2295,6 +2340,11 @@ function updateConnectionModeUI(mode = getSettings().connectionMode) {
         connectionHint.textContent = isDirect
             ? '浏览器直连可以填写 Comfy Basic Auth；需要浏览器能访问该地址。'
             : '后端代理不在小白X里填写 Comfy 认证；如果 Comfy 开了 Basic Auth，请改用浏览器直连。';
+    }
+    if (connectionModeNote) {
+        connectionModeNote.textContent = isDirect
+            ? '浏览器直连可由插件自己完整轮询 Comfy 的 history 和 outputs。'
+            : '代理模式下，取图由酒馆后端决定；遇到 cached-empty outputs 时，前端无法补救。';
     }
     if (hostHint) {
         hostHint.textContent = isDirect
