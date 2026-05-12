@@ -861,17 +861,16 @@ function isComfyProxyGenerateFailure(error) {
     return msg.includes('did not return any recognizable outputs')
         || msg.includes('未返回图片数据')
         || msg.includes('execution_cached')
-        || msg.includes('cached-empty')
-        || msg.includes('comfyui 生成失败');
+        || msg.includes('cached-empty');
 }
 
 function buildComfyProxyGenerateError(message, status = null) {
     const raw = String(message || '').trim();
     const prefix = status ? `ComfyUI 代理取图失败（HTTP ${status}）` : 'ComfyUI 代理取图失败';
     if (/did not return any recognizable outputs|未返回图片数据|execution_cached|cached-empty/i.test(raw)) {
-        return `${prefix}：后端拿到了任务结果，但没有识别到可返回的图片输出。Comfy 可能已经出图，请检查 Comfy output；如果反复出现，建议切换到浏览器直连模式。`;
+        return `${prefix}：后端拿到了任务结果，但没有识别到可返回的图片输出。Comfy 可能已经出图，请检查 Comfy output；如果反复出现，请留意是否重复提交或命中了 cached-empty 状态。`;
     }
-    return `${prefix}：${raw || '后端返回失败'}。如果 Comfy 已经实际出图，请检查 Comfy output；反复出现可尝试切换到浏览器直连模式。`;
+    return `${prefix}：${raw || '后端返回失败'}`;
 }
 
 async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, preferredSaveImageNodeId } = {}) {
@@ -903,8 +902,8 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, 
 
             if (item.status?.status_str === 'success') {
                 cachedEmptySince ||= Date.now();
-                if (Date.now() - cachedEmptySince > 3000) {
-                    throw new Error('ComfyUI 任务已完成，但 history.outputs 仍为空，可能命中 cached-empty outputs；请稍后重试或切换到浏览器直连模式。');
+                if (Date.now() - cachedEmptySince > 15000) {
+                    throw new Error('ComfyUI 任务已完成，但 history.outputs 仍为空，可能命中 cached-empty outputs；请稍后重试，或检查 Comfy output / 缓存状态。');
                 }
             }
 
@@ -925,7 +924,7 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, 
         const imgInfo = resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId);
         if (!imgInfo) {
             const cachedEmpty = item?.status?.status_str === 'success' ? '，可能命中 cached-empty outputs' : '';
-            throw new Error(`ComfyUI 未返回图片数据${cachedEmpty}。`);
+            throw new Error(`ComfyUI 未返回图片数据${cachedEmpty}。请稍后重试，或检查 Comfy output / 缓存状态。`);
         }
 
         const blob = await fetchComfyDirectBlob('/view', {
