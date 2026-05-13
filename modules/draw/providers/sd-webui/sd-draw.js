@@ -20,6 +20,7 @@ import {
     deletePreview,
     deleteFailedRecordsForSlot,
     updatePreviewSavedUrl,
+    getPreviewDisplayUrl,
 } from "../../shared/gallery-cache.js";
 import {
     generateScenePlan,
@@ -1468,7 +1469,7 @@ async function renderGalleryManagement() {
 
             const img = document.createElement('img');
             img.className = 'gallery-slot-thumb';
-            img.src = latest.savedUrl || `data:image/png;base64,${latest.base64}`;
+            img.src = getPreviewDisplayUrl(latest);
             img.alt = '';
 
             const label = document.createElement('div');
@@ -3086,7 +3087,7 @@ function updateNavControls(container, currentIndex, total) {
 function syncContainerToPreview(container, preview, historyCount = 1, currentIndex = 0) {
     const imgEl = container.querySelector('.xb-nd-img-wrap > img');
     if (!imgEl || !preview) return;
-    imgEl.src = preview.savedUrl || `data:image/png;base64,${preview.base64}`;
+    imgEl.src = getPreviewDisplayUrl(preview);
     container.dataset.imgId = preview.imgId;
     container.dataset.tags = String(preview.tags || '');
     container.dataset.positive = String(preview.positive || '');
@@ -3487,7 +3488,7 @@ async function refreshSingleImage(container) {
         const html = buildImageHtml({
             slotId,
             imgId,
-            url: `data:image/png;base64,${base64}`,
+            url: getPreviewDisplayUrl({ imgId, base64 }),
             tags: container.dataset.tags || prompt,
             positive: prompt,
             messageId,
@@ -3551,7 +3552,7 @@ async function retryFailedImage(container) {
         container.outerHTML = buildImageHtml({
             slotId,
             imgId,
-            url: `data:image/png;base64,${base64}`,
+            url: getPreviewDisplayUrl({ imgId, base64 }),
             tags,
             positive,
             messageId,
@@ -3790,7 +3791,7 @@ export async function generateAndInsertImages({
                 incrementalHtml = buildImageHtml({
                     slotId,
                     imgId,
-                    url: `data:image/png;base64,${base64}`,
+                    url: getPreviewDisplayUrl({ imgId, base64 }),
                     tags: task.scene || promptOverride,
                     positive: promptData.positive,
                     messageId: resolvedMessageId,

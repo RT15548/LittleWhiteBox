@@ -2,6 +2,7 @@ import { getContext } from "../../../../../../extensions.js";
 import {
     getDisplayPreviewForSlot,
     getPreviewsBySlot,
+    getPreviewDisplayUrl,
 } from "./gallery-cache.js";
 import { LLMServiceError } from "./scene-planner.js";
 
@@ -321,11 +322,11 @@ export function ensureDrawImageStyles() {
 .xb-nd-img[data-state="failed"]{border:1px dashed rgba(248,113,113,0.5);background:rgba(248,113,113,0.05);padding:20px}
 .xb-nd-img.busy img{opacity:0.5}
 .xb-nd-img-wrap{position:relative;overflow:hidden;border-radius:10px;touch-action:pan-y pinch-zoom}
-.xb-nd-img img{width:auto;height:auto;max-width:100%;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);display:block;user-select:none;-webkit-user-drag:none;transition:transform 0.25s ease,opacity 0.2s ease;will-change:transform,opacity}
-.xb-nd-img img.sliding-left{animation:ndSlideOutLeft 0.25s ease forwards}
-.xb-nd-img img.sliding-right{animation:ndSlideOutRight 0.25s ease forwards}
-.xb-nd-img img.sliding-in-left{animation:ndSlideInLeft 0.25s ease forwards}
-.xb-nd-img img.sliding-in-right{animation:ndSlideInRight 0.25s ease forwards}
+.xb-nd-img img{width:auto;height:auto;max-width:100%;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);display:block;user-select:none;-webkit-user-drag:none;transition:transform 0.25s ease,opacity 0.2s ease}
+.xb-nd-img img.sliding-left{animation:ndSlideOutLeft 0.25s ease forwards;will-change:transform,opacity}
+.xb-nd-img img.sliding-right{animation:ndSlideOutRight 0.25s ease forwards;will-change:transform,opacity}
+.xb-nd-img img.sliding-in-left{animation:ndSlideInLeft 0.25s ease forwards;will-change:transform,opacity}
+.xb-nd-img img.sliding-in-right{animation:ndSlideInRight 0.25s ease forwards;will-change:transform,opacity}
 @keyframes ndSlideOutLeft{from{transform:translateX(0);opacity:1}to{transform:translateX(-30%);opacity:0}}
 @keyframes ndSlideOutRight{from{transform:translateX(0);opacity:1}to{transform:translateX(30%);opacity:0}}
 @keyframes ndSlideInLeft{from{transform:translateX(30%);opacity:0}to{transform:translateX(0);opacity:1}}
@@ -685,7 +686,7 @@ export async function renderPreviewsForMessage(messageId) {
                     errorMessage: displayData.failedInfo?.errorMessage || ErrorType.CACHE_LOST.desc,
                 });
             } else if (displayData.hasData && displayData.preview) {
-                const url = displayData.preview.savedUrl || `data:image/png;base64,${displayData.preview.base64}`;
+                const url = getPreviewDisplayUrl(displayData.preview);
                 replacementHtml = buildImageHtml({
                     slotId,
                     imgId: displayData.preview.imgId,

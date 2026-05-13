@@ -15,7 +15,8 @@ import {
     getDisplayPreviewForSlot, storeFailedPlaceholder, deleteFailedRecordsForSlot,
     setSlotSelection, clearSlotSelection,
     updatePreviewSavedUrl, deletePreview, getCacheStats, clearExpiredCache, clearAllCache,
-    getGallerySummary, getCharacterPreviews, openGallery, closeGallery, destroyGalleryCache
+    getGallerySummary, getCharacterPreviews, openGallery, closeGallery, destroyGalleryCache,
+    getPreviewDisplayUrl
 } from '../../shared/gallery-cache.js';
 import {
     PROVIDER_MAP,
@@ -200,11 +201,11 @@ function ensureStyles() {
 .xb-nd-img[data-state="failed"]{border:1px dashed rgba(248,113,113,0.5);background:rgba(248,113,113,0.05);padding:20px}
 .xb-nd-img.busy img{opacity:0.5}
 .xb-nd-img-wrap{position:relative;overflow:hidden;border-radius:10px;touch-action:pan-y pinch-zoom}
-.xb-nd-img img{width:auto;height:auto;max-width:100%;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);display:block;user-select:none;-webkit-user-drag:none;transition:transform 0.25s ease,opacity 0.2s ease;will-change:transform,opacity}
-.xb-nd-img img.sliding-left{animation:ndSlideOutLeft 0.25s ease forwards}
-.xb-nd-img img.sliding-right{animation:ndSlideOutRight 0.25s ease forwards}
-.xb-nd-img img.sliding-in-left{animation:ndSlideInLeft 0.25s ease forwards}
-.xb-nd-img img.sliding-in-right{animation:ndSlideInRight 0.25s ease forwards}
+.xb-nd-img img{width:auto;height:auto;max-width:100%;border-radius:10px;cursor:pointer;box-shadow:0 3px 15px rgba(0,0,0,0.25);display:block;user-select:none;-webkit-user-drag:none;transition:transform 0.25s ease,opacity 0.2s ease}
+.xb-nd-img img.sliding-left{animation:ndSlideOutLeft 0.25s ease forwards;will-change:transform,opacity}
+.xb-nd-img img.sliding-right{animation:ndSlideOutRight 0.25s ease forwards;will-change:transform,opacity}
+.xb-nd-img img.sliding-in-left{animation:ndSlideInLeft 0.25s ease forwards;will-change:transform,opacity}
+.xb-nd-img img.sliding-in-right{animation:ndSlideInRight 0.25s ease forwards;will-change:transform,opacity}
 @keyframes ndSlideOutLeft{from{transform:translateX(0);opacity:1}to{transform:translateX(-30%);opacity:0}}
 @keyframes ndSlideOutRight{from{transform:translateX(0);opacity:1}to{transform:translateX(30%);opacity:0}}
 @keyframes ndSlideInLeft{from{transform:translateX(30%);opacity:0}to{transform:translateX(0);opacity:1}}
@@ -1740,7 +1741,7 @@ async function navigateToImage(container, targetIndex) {
 
     await new Promise(r => setTimeout(r, 200));
 
-    const newUrl = targetPreview.savedUrl || `data:image/png;base64,${targetPreview.base64}`;
+    const newUrl = getPreviewDisplayUrl(targetPreview);
     imgEl.src = newUrl;
     container.dataset.imgId = targetPreview.imgId;
     container.dataset.tags = escapeHtml(targetPreview.tags || '');
@@ -1928,7 +1929,7 @@ async function handleImageClick(container) {
         onUse: (sid, msgId, selected, historyCount) => {
             const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
             if (cont) {
-                cont.querySelector('img').src = selected.savedUrl || `data:image/png;base64,${selected.base64}`;
+                cont.querySelector('img').src = getPreviewDisplayUrl(selected);
                 cont.dataset.imgId = selected.imgId;
                 cont.dataset.tags = escapeHtml(selected.tags || '');
                 cont.dataset.positive = escapeHtml(selected.positive || '');
@@ -1957,7 +1958,7 @@ async function handleImageClick(container) {
             const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
             if (cont && cont.dataset.imgId === deletedImgId && remainingPreviews.length > 0) {
                 const latest = remainingPreviews[0];
-                cont.querySelector('img').src = latest.savedUrl || `data:image/png;base64,${latest.base64}`;
+                cont.querySelector('img').src = getPreviewDisplayUrl(latest);
                 cont.dataset.imgId = latest.imgId;
                 setImageState(cont, latest.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
             }
@@ -2207,7 +2208,7 @@ async function refreshSingleImage(container) {
         });
         await setSlotSelection(slotId, newImgId);
 
-        container.querySelector('img').src = `data:image/png;base64,${base64}`;
+        container.querySelector('img').src = getPreviewDisplayUrl({ imgId: newImgId, base64 });
         container.dataset.imgId = newImgId;
         container.dataset.positive = escapeHtml(scene);
         container.dataset.currentIndex = '0';
@@ -2270,7 +2271,7 @@ async function deleteCurrentImage(container) {
         if (successPreviews.length > 0) {
             const latest = successPreviews[0];
             await setSlotSelection(slotId, latest.imgId);
-            container.querySelector('img').src = latest.savedUrl || `data:image/png;base64,${latest.base64}`;
+            container.querySelector('img').src = getPreviewDisplayUrl(latest);
             container.dataset.imgId = latest.imgId;
             container.dataset.tags = escapeHtml(latest.tags || '');
             container.dataset.positive = escapeHtml(latest.positive || '');
@@ -2362,7 +2363,7 @@ async function retryFailedImage(container) {
         const imgHtml = buildImageHtml({
             slotId,
             imgId: newImgId,
-            url: `data:image/png;base64,${base64}`,
+            url: getPreviewDisplayUrl({ imgId: newImgId, base64 }),
             tags: tags || '',
             positive: scene,
             messageId,
@@ -2522,7 +2523,7 @@ async function renderPreviewsForMessage(messageId) {
                     errorMessage: displayData.failedInfo?.errorMessage || ErrorType.CACHE_LOST.desc
                 });
             } else if (displayData.hasData && displayData.preview) {
-                const url = displayData.preview.savedUrl || `data:image/png;base64,${displayData.preview.base64}`;
+                const url = getPreviewDisplayUrl(displayData.preview);
                 replacementHtml = buildImageHtml({
                     slotId,
                     imgId: displayData.preview.imgId,
@@ -2841,7 +2842,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 incrementalHtml = buildImageHtml({
                     slotId,
                     imgId,
-                    url: `data:image/png;base64,${base64}`,
+                    url: getPreviewDisplayUrl({ imgId, base64 }),
                     tags: tagsForStore,
                     positive: scene,
                     messageId,

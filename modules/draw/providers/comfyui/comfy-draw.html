@@ -521,8 +521,8 @@ select.input { cursor: pointer; }
                             <option value="proxy">酒馆后端代理</option>
                             <option value="direct">浏览器直连</option>
                         </select>
-                        <p id="comfy-connection-hint" class="form-hint">使用酒馆连接时，不需要在这里填写 ComfyUI 登录信息。若你的 ComfyUI 开了 Basic Auth，请改用浏览器直连。</p>
-                        <p id="comfy-connection-mode-note" class="form-hint">代理模式下，取图由酒馆后端决定；遇到 cached-empty outputs 时，前端无法补救。浏览器直连可由插件自己完整判定历史和输出。</p>
+                        <p id="comfy-connection-hint" class="form-hint">酒馆代理会通过 SillyTavern 转发请求；这里不填写 ComfyUI 认证信息。</p>
+                        <p id="comfy-connection-mode-note" class="form-hint">如果代理偶发拿不到图，可以先检查 ComfyUI 输出目录，或换浏览器直连对照。</p>
                     </div>
                     <div class="form-group">
                         <label class="form-label">ComfyUI 地址</label>

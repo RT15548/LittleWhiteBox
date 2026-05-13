@@ -14,6 +14,7 @@ const DB_SELECTIONS_STORE = 'selections';
 const DB_VERSION = 2;
 const CACHE_TTL = 5000;
 const PREVIEW_CACHE_LIMIT = 64;
+const PREVIEW_OBJECT_URL_LIMIT = 128;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 状态
@@ -25,6 +26,96 @@ let galleryOverlayCreated = false;
 let currentGalleryData = null;
 
 const previewCache = new Map();
+const previewObjectUrlCache = new Map();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 图片显示 URL
+// ═══════════════════════════════════════════════════════════════════════════
+
+function parseBase64Image(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const match = raw.match(/^data:([^;]+);base64,(.*)$/i);
+    return {
+        mime: match?.[1] || 'image/png',
+        data: match ? match[2] : raw,
+    };
+}
+
+function base64ToBlob(base64, mime) {
+    const binary = atob(base64);
+    const chunkSize = 8192;
+    const chunks = [];
+    for (let offset = 0; offset < binary.length; offset += chunkSize) {
+        const slice = binary.slice(offset, offset + chunkSize);
+        const bytes = new Uint8Array(slice.length);
+        for (let i = 0; i < slice.length; i++) {
+            bytes[i] = slice.charCodeAt(i);
+        }
+        chunks.push(bytes);
+    }
+    return new Blob(chunks, { type: mime });
+}
+
+function getObjectUrlCacheKey(imgId, base64) {
+    return String(imgId || '').trim() || `inline-${String(base64 || '').slice(0, 80)}`;
+}
+
+function isObjectUrlInUse(url) {
+    if (typeof document === 'undefined') return true;
+    return Array.from(document.images || []).some(img => img?.src === url);
+}
+
+function prunePreviewObjectUrls() {
+    if (previewObjectUrlCache.size <= PREVIEW_OBJECT_URL_LIMIT) return;
+    for (const [key, url] of previewObjectUrlCache.entries()) {
+        if (previewObjectUrlCache.size <= PREVIEW_OBJECT_URL_LIMIT) break;
+        if (isObjectUrlInUse(url)) continue;
+        try { URL.revokeObjectURL(url); } catch {}
+        previewObjectUrlCache.delete(key);
+    }
+}
+
+export function revokePreviewObjectUrl(imgId) {
+    const key = String(imgId || '').trim();
+    if (!key) return;
+    const url = previewObjectUrlCache.get(key);
+    if (!url) return;
+    try { URL.revokeObjectURL(url); } catch {}
+    previewObjectUrlCache.delete(key);
+}
+
+export function clearPreviewObjectUrls() {
+    for (const url of previewObjectUrlCache.values()) {
+        try { URL.revokeObjectURL(url); } catch {}
+    }
+    previewObjectUrlCache.clear();
+}
+
+export function getPreviewDisplayUrl(preview = {}) {
+    const savedUrl = String(preview?.savedUrl || '').trim();
+    if (savedUrl) return savedUrl;
+
+    const parsed = parseBase64Image(preview?.base64);
+    if (!parsed?.data) return '';
+
+    if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof atob !== 'function') {
+        return `data:${parsed.mime};base64,${parsed.data}`;
+    }
+
+    const key = getObjectUrlCacheKey(preview?.imgId, parsed.data);
+    const cached = previewObjectUrlCache.get(key);
+    if (cached) return cached;
+
+    try {
+        const url = URL.createObjectURL(base64ToBlob(parsed.data, parsed.mime));
+        previewObjectUrlCache.set(key, url);
+        prunePreviewObjectUrls();
+        return url;
+    } catch {
+        return `data:${parsed.mime};base64,${parsed.data}`;
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 内存缓存
@@ -355,7 +446,11 @@ export async function deletePreview(imgId) {
         try {
             const tx = database.transaction(DB_STORE, 'readwrite');
             tx.objectStore(DB_STORE).delete(imgId);
-            tx.oncomplete = () => { if (slotId) invalidateCache(slotId); resolve(); };
+            tx.oncomplete = () => {
+                revokePreviewObjectUrl(imgId);
+                if (slotId) invalidateCache(slotId);
+                resolve();
+            };
             tx.onerror = () => reject(tx.error);
         } catch (e) {
             reject(e);
@@ -383,7 +478,11 @@ export async function updatePreviewSavedUrl(imgId, savedUrl) {
         try {
             const tx = database.transaction(DB_STORE, 'readwrite');
             tx.objectStore(DB_STORE).put(preview);
-            tx.oncomplete = () => { invalidateCache(preview.slotId); resolve(); };
+            tx.oncomplete = () => {
+                revokePreviewObjectUrl(imgId);
+                invalidateCache(preview.slotId);
+                resolve();
+            };
             tx.onerror = () => reject(tx.error);
         } catch (e) {
             reject(e);
@@ -443,6 +542,7 @@ export async function clearExpiredCache(cacheDays = 3) {
                     const shouldTrimSavedBase64 = !!record.savedUrl && !!record.base64;
 
                     if (isExpiredUnsaved || (isFailed && record.timestamp < cutoff)) { 
+                        revokePreviewObjectUrl(record.imgId);
                         cursor.delete(); 
                         cleaned++; 
                         cursor.continue(); 
@@ -451,6 +551,7 @@ export async function clearExpiredCache(cacheDays = 3) {
 
                     if (shouldTrimSavedBase64) {
                         record.base64 = null;
+                        revokePreviewObjectUrl(record.imgId);
                         cursor.update(record);
                         cleaned++;
                     }
@@ -478,7 +579,11 @@ export async function clearAllCache() {
             if (stores.length > 1) {
                 tx.objectStore(DB_SELECTIONS_STORE).clear();
             }
-            tx.oncomplete = () => { invalidateCache(); resolve(); };
+            tx.oncomplete = () => {
+                clearPreviewObjectUrls();
+                invalidateCache();
+                resolve();
+            };
             tx.onerror = () => reject(tx.error);
         } catch (e) {
             reject(e);
@@ -636,7 +741,7 @@ function renderGallery() {
     const current = previews[currentIndex];
     if (!current) return;
     
-    document.getElementById('nd-gallery-img').src = current.savedUrl || `data:image/png;base64,${current.base64}`;
+    document.getElementById('nd-gallery-img').src = getPreviewDisplayUrl(current);
     document.getElementById('nd-gallery-saved-badge').style.display = current.savedUrl ? 'block' : 'none';
     
     const reversedPreviews = previews.slice().reverse();
@@ -645,7 +750,7 @@ function renderGallery() {
     // Generated from local preview data only.
     // eslint-disable-next-line no-unsanitized/property
     thumbsContainer.innerHTML = reversedPreviews.map((p, i) => {
-        const src = p.savedUrl || `data:image/png;base64,${p.base64}`;
+        const src = getPreviewDisplayUrl(p);
         const originalIndex = previews.length - 1 - i;
         const classes = ['nd-gallery-thumb'];
         if (originalIndex === currentIndex) classes.push('active');
@@ -768,6 +873,7 @@ async function deleteCurrentGalleryImage() {
 export function destroyGalleryCache() {
     closeGallery();
     invalidateCache();
+    clearPreviewObjectUrls();
     
     document.getElementById('nd-gallery-overlay')?.remove();
     document.getElementById('nd-gallery-styles')?.remove();

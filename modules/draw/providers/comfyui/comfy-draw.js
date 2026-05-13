@@ -20,6 +20,7 @@ import {
     deletePreview,
     deleteFailedRecordsForSlot,
     updatePreviewSavedUrl,
+    getPreviewDisplayUrl,
 } from "../../shared/gallery-cache.js";
 import {
     generateScenePlan,
@@ -866,9 +867,9 @@ function isComfyProxyGenerateFailure(error) {
 
 function buildComfyProxyGenerateError(message, status = null) {
     const raw = String(message || '').trim();
-    const prefix = status ? `ComfyUI 代理取图失败（HTTP ${status}）` : 'ComfyUI 代理取图失败';
+    const prefix = status ? `ComfyUI 取图失败（HTTP ${status}）` : 'ComfyUI 取图失败';
     if (/did not return any recognizable outputs|未返回图片数据|execution_cached|cached-empty/i.test(raw)) {
-        return `${prefix}：后端拿到了任务结果，但没有识别到可返回的图片输出。Comfy 可能已经出图，请检查 Comfy output；如果反复出现，请留意是否重复提交或命中了 cached-empty 状态。`;
+        return `${prefix}：ComfyUI 可能已经出图，但这次没有把图片返回到酒馆。请先检查 ComfyUI 输出目录；如果反复出现，可以换另一种连接方式对照。`;
     }
     return `${prefix}：${raw || '后端返回失败'}`;
 }
@@ -903,7 +904,7 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, 
             if (item.status?.status_str === 'success') {
                 cachedEmptySince ||= Date.now();
                 if (Date.now() - cachedEmptySince > 15000) {
-                    throw new Error('ComfyUI 任务已完成，但 history.outputs 仍为空，可能命中 cached-empty outputs；请稍后重试，或检查 Comfy output / 缓存状态。');
+                    throw new Error('ComfyUI 可能已经出图，但这次没有把图片返回到酒馆。请先检查 ComfyUI 输出目录；如果反复出现，可以换另一种连接方式对照。');
                 }
             }
 
@@ -923,8 +924,10 @@ async function fetchComfyDirectImageFromWorkflow(workflow, { signal, timeoutMs, 
 
         const imgInfo = resolveComfyDirectOutputImage(item, workflow, preferredSaveImageNodeId);
         if (!imgInfo) {
-            const cachedEmpty = item?.status?.status_str === 'success' ? '，可能命中 cached-empty outputs' : '';
-            throw new Error(`ComfyUI 未返回图片数据${cachedEmpty}。请稍后重试，或检查 Comfy output / 缓存状态。`);
+            const suffix = item?.status?.status_str === 'success'
+                ? '请先检查 ComfyUI 输出目录；如果反复出现，可以换另一种连接方式对照。'
+                : '请稍后重试，或检查 ComfyUI 是否正常出图。';
+            throw new Error(`ComfyUI 未返回图片数据。${suffix}`);
         }
 
         const blob = await fetchComfyDirectBlob('/view', {
@@ -2337,13 +2340,13 @@ function updateConnectionModeUI(mode = getSettings().connectionMode) {
     authRow?.classList.toggle('hidden', !isDirect);
     if (connectionHint) {
         connectionHint.textContent = isDirect
-            ? '浏览器直连可以填写 Comfy Basic Auth；需要浏览器能访问该地址。'
-            : '后端代理不在小白X里填写 Comfy 认证；如果 Comfy 开了 Basic Auth，请改用浏览器直连。';
+            ? '浏览器直连会从当前浏览器访问 ComfyUI；需要登录时可在这里填写认证信息。'
+            : '酒馆代理会通过 SillyTavern 转发请求；这里不填写 ComfyUI 认证信息。';
     }
     if (connectionModeNote) {
         connectionModeNote.textContent = isDirect
-            ? '浏览器直连可由插件自己完整轮询 Comfy 的 history 和 outputs。'
-            : '代理模式下，取图由酒馆后端决定；遇到 cached-empty outputs 时，前端无法补救。';
+            ? '如果直连偶发连接失败，可以先换酒馆代理对照。'
+            : '如果代理偶发拿不到图，可以先检查 ComfyUI 输出目录，或换浏览器直连对照。';
     }
     if (hostHint) {
         hostHint.textContent = isDirect
@@ -2557,7 +2560,7 @@ async function renderGalleryManagement() {
 
             const img = document.createElement('img');
             img.className = 'gallery-slot-thumb';
-            img.src = latest.savedUrl || `data:image/png;base64,${latest.base64}`;
+            img.src = getPreviewDisplayUrl(latest);
             img.alt = '';
 
             const label = document.createElement('div');
@@ -4062,7 +4065,7 @@ function updateNavControls(container, currentIndex, total) {
 function syncContainerToPreview(container, preview, historyCount = 1, currentIndex = 0) {
     const imgEl = container.querySelector('.xb-nd-img-wrap > img');
     if (!imgEl || !preview) return;
-    imgEl.src = preview.savedUrl || `data:image/png;base64,${preview.base64}`;
+    imgEl.src = getPreviewDisplayUrl(preview);
     container.dataset.imgId = preview.imgId;
     container.dataset.tags = String(preview.tags || '');
     container.dataset.positive = String(preview.positive || '');
@@ -4416,7 +4419,7 @@ async function refreshSingleImage(container) {
         const previews = await getPreviewsBySlot(slotId);
         const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
         const html = buildImageHtml({
-            slotId, imgId, url: `data:image/png;base64,${base64}`,
+            slotId, imgId, url: getPreviewDisplayUrl({ imgId, base64 }),
             tags: container.dataset.tags || prompt, positive: prompt,
             messageId, historyCount: Math.max(1, successPreviews.length), currentIndex: 0,
         });
@@ -4462,7 +4465,7 @@ async function retryFailedImage(container) {
 
         // eslint-disable-next-line no-unsanitized/property
         container.outerHTML = buildImageHtml({
-            slotId, imgId, url: `data:image/png;base64,${base64}`,
+            slotId, imgId, url: getPreviewDisplayUrl({ imgId, base64 }),
             tags, positive, messageId, state: ImageState.PREVIEW, historyCount: 1, currentIndex: 0,
         });
         toastr.success('图片生成成功');
@@ -4661,7 +4664,7 @@ export async function generateAndInsertImages({
                 successCount++;
                 results.push({ slotId, imgId, success: true });
                 incrementalHtml = buildImageHtml({
-                    slotId, imgId, url: `data:image/png;base64,${base64}`,
+                    slotId, imgId, url: getPreviewDisplayUrl({ imgId, base64 }),
                     tags: task.scene || promptOverride, positive: promptData.positive,
                     messageId: resolvedMessageId, state: ImageState.PREVIEW, historyCount: 1, currentIndex: 0,
                 });
