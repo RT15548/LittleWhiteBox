@@ -50,6 +50,9 @@ import {
     ensureDrawImageStyles,
     classifyError,
     ErrorType,
+    syncDrawSavedFromPreview,
+    syncDrawSavedAfterDeletion,
+    clearDrawSavedEntry,
 } from "../../shared/draw-common.js";
 import {
     loadLocalDanbooruDB,
@@ -3159,6 +3162,12 @@ async function navigateToImage(container, targetIndex) {
     await new Promise(resolve => setTimeout(resolve, 200));
     syncContainerToPreview(container, targetPreview, historyCount, targetIndex);
     await setSlotSelection(slotId, targetPreview.imgId);
+    const messageId = Number(container.dataset.mesid);
+    if (targetPreview.savedUrl) {
+        void syncDrawSavedFromPreview(messageId, targetPreview, { slotId }).catch(() => {});
+    } else {
+        void clearDrawSavedEntry(messageId, slotId).catch(() => {});
+    }
     imgEl.classList.remove(`sliding-${direction}`);
     imgEl.classList.add(`sliding-in-${direction === 'left' ? 'left' : 'right'}`);
     await new Promise(resolve => setTimeout(resolve, 250));
@@ -3172,6 +3181,11 @@ function buildSharedGalleryCallbacks(slotId, messageId) {
             if (cont) {
                 syncContainerToPreview(cont, selected, historyCount, 0);
             }
+            if (selected?.savedUrl) {
+                void syncDrawSavedFromPreview(msgId, selected, { slotId: sid }).catch(() => {});
+            } else {
+                void clearDrawSavedEntry(msgId, sid).catch(() => {});
+            }
         },
         onSave: async (imgId, url) => {
             const cont = document.querySelector(`.xb-nd-img[data-img-id="${imgId}"]`);
@@ -3180,12 +3194,15 @@ function buildSharedGalleryCallbacks(slotId, messageId) {
                 if (img) img.src = url;
                 setImageState(cont, ImageState.SAVED);
             }
+            const preview = await getPreview(imgId).catch(() => null);
+            if (preview) await syncDrawSavedFromPreview(messageId, preview, { slotId, savedUrl: url }).catch(() => {});
         },
         onDelete: async (sid, deletedImgId, remainingPreviews) => {
             const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
             if (cont && cont.dataset.imgId === deletedImgId && remainingPreviews.length > 0) {
                 syncContainerToPreview(cont, remainingPreviews[0], remainingPreviews.length, 0);
             }
+            await syncDrawSavedAfterDeletion(messageId, sid, deletedImgId, remainingPreviews).catch(() => {});
         },
         onBecameEmpty: async (sid, msgId, lastImageInfo = {}) => {
             const cont = document.querySelector(`.xb-nd-img[data-slot-id="${sid}"]`);
@@ -3209,6 +3226,7 @@ function buildSharedGalleryCallbacks(slotId, messageId) {
                 errorType: 'deleted',
                 errorMessage: '图片已删除，点击重试可重新生成',
             }).catch(() => {});
+            await clearDrawSavedEntry(msgId, sid).catch(() => {});
             if (getSettingsElement('sd-gallery-container')) {
                 await renderGalleryManagement();
             }
@@ -3514,6 +3532,13 @@ async function saveEditedTags(container) {
                 positive: newPositive,
                 negativePrompt: promptData.negative || originalPreview.negativePrompt || '',
             });
+            if (originalPreview.savedUrl) {
+                await syncDrawSavedFromPreview(Number(container.dataset.mesid), originalPreview, {
+                    slotId: originalPreview.slotId || container.dataset.slotId,
+                    tags: tagsForStorage,
+                    positive: newPositive,
+                }).catch(() => {});
+            }
         } catch (e) {
             console.error('[SD-Draw] 保存角色编辑失败:', e);
         }
@@ -3556,6 +3581,7 @@ async function refreshSingleImage(container) {
             anchor: '',
         });
         await setSlotSelection(slotId, imgId);
+        void clearDrawSavedEntry(messageId, slotId).catch(() => {});
         const previews = await getPreviewsBySlot(slotId);
         const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
         const html = buildImageHtml({
@@ -3683,6 +3709,7 @@ async function removePlaceholder(container) {
 
     await deleteFailedRecordsForSlot(slotId).catch(() => {});
     await clearSlotSelection(slotId).catch(() => {});
+    await clearDrawSavedEntry(messageId, slotId).catch(() => {});
     const ctx = getContext();
     const message = ctx.chat?.[messageId];
     if (message?.mes) {
@@ -3703,8 +3730,17 @@ async function deleteCurrentImage(container) {
         try { await deletePreview(imgId); } catch {}
     }
     const previews = await getPreviewsBySlot(slotId).catch(() => []);
-    if (!previews.some(item => item.status !== 'failed' && (item.base64 || item.savedUrl))) {
+    const successPreviews = previews.filter(item => item.status !== 'failed' && (item.base64 || item.savedUrl));
+    if (successPreviews.length > 0) {
+        const nextPreview = successPreviews[0];
+        await setSlotSelection(slotId, nextPreview.imgId).catch(() => {});
+        syncContainerToPreview(container, nextPreview, successPreviews.length, 0);
+        await syncDrawSavedAfterDeletion(messageId, slotId, imgId, successPreviews).catch(() => {});
+        toastr.success(`已删除（剩余 ${successPreviews.length} 张）`);
+        return;
+    } else {
         await clearSlotSelection(slotId).catch(() => {});
+        await clearDrawSavedEntry(messageId, slotId).catch(() => {});
         const ctx = getContext();
         const message = ctx.chat?.[messageId];
         if (message?.mes) {
@@ -3713,6 +3749,7 @@ async function deleteCurrentImage(container) {
         }
     }
     container.remove();
+    toastr.success('图片已删除');
 }
 
 async function saveCurrentImage(container) {
@@ -3735,6 +3772,7 @@ async function saveCurrentImage(container) {
             : String(ctx.characters?.[ctx.characterId]?.name || 'character');
         const url = await saveBase64AsFile(preview.base64, charName, `sd_${imgId}`, 'png');
         await updatePreviewSavedUrl(imgId, url);
+        await syncDrawSavedFromPreview(Number(container.dataset.mesid), preview, { slotId, savedUrl: url }).catch(() => {});
         const img = container.querySelector('img');
         if (img) img.src = url;
         container.dataset.state = 'saved';

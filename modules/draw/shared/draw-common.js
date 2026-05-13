@@ -8,6 +8,8 @@ import { LLMServiceError } from "./scene-planner.js";
 
 const PLACEHOLDER_REGEX = /\[image\s*:\s*([a-z0-9\-_]+)\]/gi;
 const DRAW_IMAGE_HTML_REGEX = /<div\b[^>]*class=(["'])[^"']*\bxb-nd-img\b[^"']*\1[^>]*>[\s\S]*?<\/div>/gi;
+const DRAW_SAVED_EXTRA_KEY = 'xiaobaixDrawSaved';
+const LEGACY_NOVEL_SAVED_EXTRA_KEY = 'novelDrawSaved';
 
 export const ImageState = {
     PREVIEW: 'preview',
@@ -444,6 +446,128 @@ function getTrimmedText(value) {
     return String(value || '').replace(/\u200B/g, '').trim();
 }
 
+async function persistChatSilently() {
+    const ctx = getContext();
+    if (!ctx?.saveChat) return;
+    await Promise.resolve(ctx.saveChat());
+}
+
+function getSavedMap(message, key) {
+    const savedMap = message?.extra?.[key];
+    return savedMap && typeof savedMap === 'object' ? savedMap : null;
+}
+
+function ensureMessageExtra(message) {
+    if (!message) return null;
+    if (!message.extra || typeof message.extra !== 'object') {
+        message.extra = {};
+    }
+    return message.extra;
+}
+
+function ensureSavedMap(message, key) {
+    const extra = ensureMessageExtra(message);
+    if (!extra) return null;
+    if (!extra[key] || typeof extra[key] !== 'object') {
+        extra[key] = {};
+    }
+    return extra[key];
+}
+
+function normalizeDrawSavedEntry(slotId, data = {}) {
+    if (!slotId || !data?.savedUrl) return null;
+    return {
+        slotId,
+        imgId: data.imgId || '',
+        savedUrl: data.savedUrl,
+        tags: data.tags || '',
+        positive: data.positive || '',
+        anchor: data.anchor || '',
+        updatedAt: Number.isFinite(data.updatedAt) ? data.updatedAt : Date.now(),
+    };
+}
+
+export function getDrawSavedEntry(message, slotId) {
+    if (!slotId) return null;
+    const current = normalizeDrawSavedEntry(slotId, getSavedMap(message, DRAW_SAVED_EXTRA_KEY)?.[slotId]);
+    if (current) return current;
+    return normalizeDrawSavedEntry(slotId, getSavedMap(message, LEGACY_NOVEL_SAVED_EXTRA_KEY)?.[slotId]);
+}
+
+export async function setDrawSavedEntry(messageId, slotId, data) {
+    const ctx = getContext();
+    const message = ctx.chat?.[messageId];
+    const entry = normalizeDrawSavedEntry(slotId, data);
+    if (!message || !entry) return false;
+
+    const savedMap = ensureSavedMap(message, DRAW_SAVED_EXTRA_KEY);
+    if (!savedMap) return false;
+
+    const previous = savedMap[slotId];
+    const unchanged = previous &&
+        previous.imgId === entry.imgId &&
+        previous.savedUrl === entry.savedUrl &&
+        previous.tags === entry.tags &&
+        previous.positive === entry.positive &&
+        previous.anchor === entry.anchor;
+    const legacyMap = getSavedMap(message, LEGACY_NOVEL_SAVED_EXTRA_KEY);
+    const hasLegacyEntry = !!legacyMap?.[slotId];
+    if (unchanged && !hasLegacyEntry) return true;
+
+    savedMap[slotId] = entry;
+    if (hasLegacyEntry) {
+        delete legacyMap[slotId];
+        if (Object.keys(legacyMap).length === 0) {
+            delete message.extra[LEGACY_NOVEL_SAVED_EXTRA_KEY];
+        }
+    }
+    await persistChatSilently();
+    return true;
+}
+
+export async function clearDrawSavedEntry(messageId, slotId) {
+    const ctx = getContext();
+    const message = ctx.chat?.[messageId];
+    if (!message?.extra || !slotId) return false;
+
+    let changed = false;
+    for (const key of [DRAW_SAVED_EXTRA_KEY, LEGACY_NOVEL_SAVED_EXTRA_KEY]) {
+        const savedMap = getSavedMap(message, key);
+        if (!savedMap?.[slotId]) continue;
+        delete savedMap[slotId];
+        changed = true;
+        if (Object.keys(savedMap).length === 0) delete message.extra[key];
+    }
+
+    if (!changed) return false;
+    await persistChatSilently();
+    return true;
+}
+
+export async function syncDrawSavedFromPreview(messageId, preview, overrides = {}) {
+    const slotId = overrides.slotId || preview?.slotId;
+    if (!slotId) return false;
+
+    return setDrawSavedEntry(messageId, slotId, {
+        imgId: overrides.imgId || preview?.imgId,
+        savedUrl: overrides.savedUrl || preview?.savedUrl,
+        tags: overrides.tags ?? preview?.tags ?? '',
+        positive: overrides.positive ?? preview?.positive ?? '',
+        anchor: overrides.anchor ?? preview?.anchor ?? '',
+    });
+}
+
+export async function syncDrawSavedAfterDeletion(messageId, slotId, deletedImgId, remainingPreviews = []) {
+    const message = getContext().chat?.[messageId];
+    const currentSaved = getDrawSavedEntry(message, slotId);
+    if (!currentSaved) return false;
+    if (deletedImgId && currentSaved.imgId && currentSaved.imgId !== deletedImgId) return false;
+
+    const replacement = remainingPreviews.find(item => item?.savedUrl);
+    if (replacement) return syncDrawSavedFromPreview(messageId, replacement, { slotId });
+    return clearDrawSavedEntry(messageId, slotId);
+}
+
 function findTopLevelFlowContainer(root, node) {
     let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
     while (current && current.parentElement && current.parentElement !== root) {
@@ -594,18 +718,8 @@ export function insertPreviewIntoRenderedMessage({ messageId, slotId, html, anch
     return insertPreviewByAnchor(mesTextEl, slotId, anchor, html);
 }
 
-function getNovelDrawSavedMap(message) {
-    const savedMap = message?.extra?.novelDrawSaved;
-    return savedMap && typeof savedMap === 'object' ? savedMap : null;
-}
-
-function getNovelDrawSavedEntry(message, slotId) {
-    if (!slotId) return null;
-    return getNovelDrawSavedMap(message)?.[slotId] || null;
-}
-
 async function resolveRenderPreviewForSlot(message, messageId, slotId) {
-    const savedEntry = getNovelDrawSavedEntry(message, slotId);
+    const savedEntry = getDrawSavedEntry(message, slotId);
     if (savedEntry?.savedUrl) {
         const previews = await getPreviewsBySlot(slotId).catch(() => []);
         const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));

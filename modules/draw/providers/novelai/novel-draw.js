@@ -45,6 +45,12 @@ import {
     loadLocalDanbooruDB, unloadLocalDanbooruDB,
     searchLocalDanbooru, isDanbooruDBLoaded,
 } from '../../shared/danbooru-local-db.js';
+import {
+    getDrawSavedEntry,
+    clearDrawSavedEntry,
+    syncDrawSavedFromPreview,
+    syncDrawSavedAfterDeletion,
+} from '../../shared/draw-common.js';
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
 // ═══════════════════════════════════════════════════════════════════════════
@@ -287,27 +293,8 @@ function syncOverlayFrameLayout() {
 
 function createPlaceholder(slotId) { return `[image:${slotId}]`; }
 
-function getNovelDrawSavedMap(message) {
-    const savedMap = message?.extra?.novelDrawSaved;
-    return savedMap && typeof savedMap === 'object' ? savedMap : null;
-}
-
 function getNovelDrawSavedEntry(message, slotId) {
-    if (!slotId) return null;
-    return getNovelDrawSavedMap(message)?.[slotId] || null;
-}
-
-function normalizeNovelDrawSavedEntry(slotId, data = {}) {
-    if (!slotId || !data?.savedUrl) return null;
-    return {
-        slotId,
-        imgId: data.imgId || '',
-        savedUrl: data.savedUrl,
-        tags: data.tags || '',
-        positive: data.positive || '',
-        anchor: data.anchor || '',
-        updatedAt: Date.now(),
-    };
+    return getDrawSavedEntry(message, slotId);
 }
 
 async function persistChatSilently() {
@@ -316,66 +303,16 @@ async function persistChatSilently() {
     await Promise.resolve(ctx.saveChat());
 }
 
-async function setNovelDrawSavedEntry(messageId, slotId, data) {
-    const ctx = getContext();
-    const message = ctx.chat?.[messageId];
-    const entry = normalizeNovelDrawSavedEntry(slotId, data);
-    if (!message || !entry) return false;
-
-    message.extra ||= {};
-    message.extra.novelDrawSaved ||= {};
-
-    const previous = message.extra.novelDrawSaved[slotId];
-    const unchanged = previous &&
-        previous.imgId === entry.imgId &&
-        previous.savedUrl === entry.savedUrl &&
-        previous.tags === entry.tags &&
-        previous.positive === entry.positive &&
-        previous.anchor === entry.anchor;
-    if (unchanged) return true;
-
-    message.extra.novelDrawSaved[slotId] = entry;
-    await persistChatSilently();
-    return true;
-}
-
 async function clearNovelDrawSavedEntry(messageId, slotId) {
-    const ctx = getContext();
-    const message = ctx.chat?.[messageId];
-    const savedMap = getNovelDrawSavedMap(message);
-    if (!message || !savedMap?.[slotId]) return false;
-
-    delete savedMap[slotId];
-    if (Object.keys(savedMap).length === 0 && message.extra) {
-        delete message.extra.novelDrawSaved;
-    }
-
-    await persistChatSilently();
-    return true;
+    return clearDrawSavedEntry(messageId, slotId);
 }
 
 async function syncNovelDrawSavedFromPreview(messageId, preview, overrides = {}) {
-    const slotId = overrides.slotId || preview?.slotId;
-    if (!slotId) return false;
-
-    return setNovelDrawSavedEntry(messageId, slotId, {
-        imgId: overrides.imgId || preview?.imgId,
-        savedUrl: overrides.savedUrl || preview?.savedUrl,
-        tags: overrides.tags ?? preview?.tags ?? '',
-        positive: overrides.positive ?? preview?.positive ?? '',
-        anchor: overrides.anchor ?? preview?.anchor ?? '',
-    });
+    return syncDrawSavedFromPreview(messageId, preview, overrides);
 }
 
 async function syncNovelDrawSavedAfterDeletion(messageId, slotId, deletedImgId, remainingPreviews = []) {
-    const message = getContext().chat?.[messageId];
-    const currentSaved = getNovelDrawSavedEntry(message, slotId);
-    if (!currentSaved) return false;
-    if (deletedImgId && currentSaved.imgId && currentSaved.imgId !== deletedImgId) return false;
-
-    const replacement = remainingPreviews.find(item => item?.savedUrl);
-    if (replacement) return syncNovelDrawSavedFromPreview(messageId, replacement, { slotId });
-    return clearNovelDrawSavedEntry(messageId, slotId);
+    return syncDrawSavedAfterDeletion(messageId, slotId, deletedImgId, remainingPreviews);
 }
 
 function extractSlotIds(mes) {
@@ -1754,6 +1691,9 @@ async function navigateToImage(container, targetIndex) {
     if (targetPreview.savedUrl) {
         const messageId = parseInt(container.dataset.mesid);
         void syncNovelDrawSavedFromPreview(messageId, targetPreview, { slotId }).catch(() => {});
+    } else {
+        const messageId = parseInt(container.dataset.mesid);
+        void clearNovelDrawSavedEntry(messageId, slotId).catch(() => {});
     }
 
     imgEl.classList.remove(`sliding-${direction}`);
@@ -1940,6 +1880,8 @@ async function handleImageClick(container) {
             }
             if (selected?.savedUrl) {
                 void syncNovelDrawSavedFromPreview(msgId, selected, { slotId: sid }).catch(() => {});
+            } else {
+                void clearNovelDrawSavedEntry(msgId, sid).catch(() => {});
             }
         },
         onSave: (imgId, url) => {
@@ -2207,6 +2149,7 @@ async function refreshSingleImage(container) {
             anchor,
         });
         await setSlotSelection(slotId, newImgId);
+        await clearNovelDrawSavedEntry(messageId, slotId).catch(() => {});
 
         container.querySelector('img').src = getPreviewDisplayUrl({ imgId: newImgId, base64 });
         container.dataset.imgId = newImgId;
