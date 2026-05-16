@@ -157,20 +157,24 @@ function buildSessionLimitsLine(maxImages, maxCharactersPerImage) {
     return `同时，为本次 <content> 内容${clauses.join('、')}。`;
 }
 
-function appendSessionLimitsToUserConfirm(userConfirm, limitLine) {
+function appendLinesToUserConfirm(userConfirm, appendedLines = []) {
     const baseConfirm = String(userConfirm || '').trimEnd();
-    const appendedLine = String(limitLine || '').trim();
-    if (!appendedLine) return baseConfirm;
-    if (!baseConfirm) return appendedLine;
+    const appendedText = []
+        .concat(appendedLines || [])
+        .map(line => String(line || '').trim())
+        .filter(Boolean)
+        .join('\n');
+    if (!appendedText) return baseConfirm;
+    if (!baseConfirm) return appendedText;
 
     const closingTagMatch = baseConfirm.match(/(\n?\s*<\/[A-Za-z0-9_:-]+>\s*)$/);
     if (!closingTagMatch) {
-        return `${baseConfirm}\n${appendedLine}`;
+        return `${baseConfirm}\n${appendedText}`;
     }
 
     const closingTag = closingTagMatch[1].trim();
     const prefix = baseConfirm.slice(0, baseConfirm.length - closingTagMatch[1].length).trimEnd();
-    return [prefix, appendedLine, closingTag].filter(Boolean).join('\n');
+    return [prefix, appendedText, closingTag].filter(Boolean).join('\n');
 }
 
 export async function generateScenePlan(options) {
@@ -187,6 +191,7 @@ export async function generateScenePlan(options) {
         maxImages = 0,
         maxCharactersPerImage = 0,
         disablePrefill = false,
+        extraOutputRule = '',
         signal = null,
     } = options;
     if (!messageText?.trim()) {
@@ -274,9 +279,12 @@ export async function generateScenePlan(options) {
 
     bottomMessages.push({
         role: 'user',
-        content: appendSessionLimitsToUserConfirm(
+        content: appendLinesToUserConfirm(
             promptConfig.userConfirm,
-            buildSessionLimitsLine(maxImages, maxCharactersPerImage)
+            [
+                buildSessionLimitsLine(maxImages, maxCharactersPerImage),
+                extraOutputRule,
+            ]
         )
     });
 
@@ -357,7 +365,7 @@ function cleanYamlInput(text) {
             continue;
         }
         if (/^```/.test(trimmed)) break;
-        if (/^[ \t]/.test(line)) {
+        if (/^[ \t]/.test(line) || /^-\s/.test(line)) {
             keptLines.push(line);
             continue;
         }
@@ -503,4 +511,40 @@ export function parseImagePlan(aiOutput) {
 
     xbLog.error('novelDrawLlm', `[LLM-Service] 解析失败，原始输出: ${text.slice(0, 500)}`, null);
     throw new LLMServiceError('无法解析 LLM 输出', 'PARSE_ERROR', { sample: text.slice(0, 300) });
+}
+
+function shouldRetryScenePlan(error) {
+    if (!(error instanceof LLMServiceError)) return false;
+    return ['PARSE_ERROR', 'EMPTY_OUTPUT', 'NO_IMAGE_TASKS'].includes(error.code);
+}
+
+export async function generateAndParseScenePlan(options) {
+    const parseOutput = (rawOutput) => {
+        const tasks = parseImagePlan(rawOutput);
+        if (tasks.length > 0) return tasks;
+        throw new LLMServiceError('未解析到图片任务', 'NO_IMAGE_TASKS');
+    };
+
+    try {
+        const rawOutput = await generateScenePlan(options);
+        return parseOutput(rawOutput);
+    } catch (error) {
+        if (options?.signal?.aborted || !shouldRetryScenePlan(error)) {
+            throw error;
+        }
+        console.warn('[ScenePlanner] 解析类失败，准备重试一次:', error?.message || error);
+    }
+
+    const retryRule = [
+        'CRITICAL OUTPUT RULE:',
+        'Output only valid YAML.',
+        'Do not include Markdown fences.',
+        'Do not include explanations or notes before or after YAML.',
+    ].join('\n');
+
+    const retryOutput = await generateScenePlan({
+        ...options,
+        extraOutputRule: retryRule,
+    });
+    return parseOutput(retryOutput);
 }

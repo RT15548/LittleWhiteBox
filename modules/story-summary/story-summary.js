@@ -230,6 +230,7 @@ let overlayCreated = false;
 let frameReady = false;
 let currentMesId = null;
 let pendingFrameMessages = [];
+let lastRecallLogText = "";
 /** @type {ReturnType<typeof createModuleEvents>|null} */
 let events = null;
 let afterAiGateDispose = null;
@@ -469,6 +470,10 @@ function notifySummaryState() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function postToFrame(payload) {
+    if (payload?.type === "RECALL_LOG") {
+        lastRecallLogText = String(payload.text || "");
+    }
+
     const iframe = document.getElementById("xiaobaix-story-summary-iframe");
     if (!iframe?.contentWindow) return;
     if (!frameReady) {
@@ -2229,6 +2234,10 @@ async function handleFrameMessage(event) {
             sendAnchorStatsToFrame();
             break;
 
+        case "REQUEST_RECALL_LOG":
+            postToFrame({ type: "RECALL_LOG", text: lastRecallLogText });
+            break;
+
         case "VECTOR_EXPORT":
             (async () => {
                 try {
@@ -2629,6 +2638,7 @@ async function handleChatChanged() {
     if (!events) return;
     clearDeferredBackgroundTasks();
     _lastBuiltPromptText = "";  // ← 加这一行，切聊天时清掉旧 summary
+    lastRecallLogText = "";
     const { chat } = getContext();
     activeChatId = getContext().chatId || null;
     logRecallRuntimeCheckpoint("chatChanged:before-retain", `chat=${activeChatId || "-"} length=${Array.isArray(chat) ? chat.length : 0}`);
@@ -2871,7 +2881,9 @@ async function handleGenerationStarted(type, _params, isDryRun) {
             pendingUserMessage,
         });
         text = r?.text || "";
+        lastRecallLogText = String(r?.logText || "");
     } else {
+        lastRecallLogText = "";
         text = buildNonVectorPromptText() || "";
     }
     timing.buildPrompt = Math.round(performance.now() - T_BuildPrompt);
@@ -2966,6 +2978,7 @@ function registerEvents() {
             try {
                 return JSON.stringify({
                     pendingFrameMessages,
+                    lastRecallLogText,
                     recallRuntime: getRecallRuntimeStats(),
                 }).length * 2;
             } catch {
@@ -2975,10 +2988,12 @@ function registerEvents() {
         getDetail: () => ({
             activeChatId,
             pendingFrameMessages: pendingFrameMessages.length,
+            hasRecallLog: Boolean(lastRecallLogText),
             recallRuntime: getRecallRuntimeStats(),
         }),
         clear: () => {
             pendingFrameMessages = [];
+            lastRecallLogText = "";
             frameReady = false;
             clearRecallRuntime().catch(() => {});
         },

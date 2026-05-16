@@ -21,8 +21,7 @@ import {
 import {
     PROVIDER_MAP,
     LLMServiceError,
-    generateScenePlan,
-    parseImagePlan,
+    generateAndParseScenePlan,
 } from '../../shared/scene-planner.js';
 import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot, normalizeDrawLlmApi } from '../../shared/draw-llm.js';
 import {
@@ -46,10 +45,13 @@ import {
     searchLocalDanbooru, isDanbooruDBLoaded,
 } from '../../shared/danbooru-local-db.js';
 import {
-    getDrawSavedEntry,
     clearDrawSavedEntry,
     syncDrawSavedFromPreview,
     syncDrawSavedAfterDeletion,
+    startSharedDrawPreviewRuntime,
+    stopSharedDrawPreviewRuntime,
+    renderAllDrawPreviews,
+    renderPreviewsForMessage as renderSharedPreviewsForMessage,
 } from '../../shared/draw-common.js';
 // ═══════════════════════════════════════════════════════════════════════════
 // 常量
@@ -63,7 +65,6 @@ const CONFIG_VERSION = 5;
 const MAX_SEED = 0xFFFFFFFF;
 const API_TEST_TIMEOUT = 15000;
 const PLACEHOLDER_REGEX = /\[image:([a-z0-9\-_]+)\]/gi;
-const INITIAL_RENDER_MESSAGE_LIMIT = 1;
 
 // ── 消息文本过滤 ──────────────────────────────────────────────────
 const DEFAULT_MESSAGE_FILTER_RULES = [
@@ -188,7 +189,6 @@ let generationJobs = new Map();
 let imageRequestQueue = [];
 let activeImageRequest = null;
 let imageRequestSeq = 0;
-let messageObserver = null;
 let ensureNovelDrawPanelRef = null;
 let overlayResizeHandler = null;
 let afterAiGateDispose = null;
@@ -292,10 +292,6 @@ function syncOverlayFrameLayout() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function createPlaceholder(slotId) { return `[image:${slotId}]`; }
-
-function getNovelDrawSavedEntry(message, slotId) {
-    return getDrawSavedEntry(message, slotId);
-}
 
 async function persistChatSilently() {
     const ctx = getContext();
@@ -2371,193 +2367,6 @@ async function removePlaceholder(container) {
     showToast('占位符已移除');
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 消息级懒加载
-// ═══════════════════════════════════════════════════════════════════════════
-
-function initMessageObserver() {
-    if (messageObserver) return;
-    messageObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (!entry.isIntersecting) return;
-            const mesEl = entry.target;
-            messageObserver.unobserve(mesEl);
-            const messageId = parseInt(mesEl.getAttribute('mesid'), 10);
-            if (!Number.isNaN(messageId)) {
-                renderPreviewsForMessage(messageId);
-            }
-        });
-    }, { rootMargin: '600px 0px', threshold: 0.01 });
-}
-
-function observeMessageForLazyRender(messageId) {
-    const mesEl = document.querySelector(`.mes[mesid="${messageId}"]`);
-    if (!mesEl || mesEl.dataset.ndLazyObserved === '1') return;
-    initMessageObserver();
-    mesEl.dataset.ndLazyObserved = '1';
-    messageObserver.observe(mesEl);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 预览渲染
-// ═══════════════════════════════════════════════════════════════════════════
-
-async function resolveRenderPreviewForSlot(message, messageId, slotId) {
-    const savedEntry = getNovelDrawSavedEntry(message, slotId);
-    if (savedEntry?.savedUrl) {
-        const previews = await getPreviewsBySlot(slotId).catch(() => []);
-        const successPreviews = previews.filter(p => p.status !== 'failed' && (p.base64 || p.savedUrl));
-        const selectedIndex = successPreviews.findIndex(p => p.imgId === savedEntry.imgId);
-        const matchedPreview = selectedIndex >= 0 ? successPreviews[selectedIndex] : null;
-
-        return {
-            preview: {
-                ...matchedPreview,
-                slotId,
-                imgId: savedEntry.imgId || matchedPreview?.imgId || `saved-${slotId}`,
-                savedUrl: savedEntry.savedUrl,
-                tags: savedEntry.tags ?? matchedPreview?.tags ?? '',
-                positive: savedEntry.positive ?? matchedPreview?.positive ?? '',
-                anchor: savedEntry.anchor ?? matchedPreview?.anchor ?? '',
-                messageId,
-            },
-            historyCount: selectedIndex >= 0 ? successPreviews.length : 1,
-            currentIndex: selectedIndex >= 0 ? selectedIndex : 0,
-            hasData: true,
-            isFailed: false,
-            source: 'message-extra',
-        };
-    }
-
-    const displayData = await getDisplayPreviewForSlot(slotId);
-    return { ...displayData, currentIndex: 0, source: 'gallery-cache' };
-}
-
-async function renderPreviewsForMessage(messageId) {
-    const ctx = getContext();
-    const message = ctx.chat?.[messageId];
-    if (!message?.mes) return;
-
-    const slotIds = extractSlotIds(message.mes);
-    if (slotIds.size === 0) return;
-
-    const mesTextEl = getMesTextElement(messageId);
-    if (!mesTextEl) return;
-
-    const replacements = [];
-
-    for (const slotId of slotIds) {
-        if (mesTextEl.querySelector(`.xb-nd-img[data-slot-id="${slotId}"]`)) continue;
-
-        let replacementHtml;
-        let anchor = '';
-
-        try {
-            const displayData = await resolveRenderPreviewForSlot(message, messageId, slotId);
-            anchor = displayData.preview?.anchor || '';
-
-            if (displayData.isFailed) {
-                replacementHtml = buildFailedPlaceholderHtml({
-                    slotId,
-                    messageId,
-                    tags: displayData.failedInfo?.tags || '',
-                    positive: displayData.failedInfo?.positive || '',
-                    errorType: displayData.failedInfo?.errorType || ErrorType.CACHE_LOST.label,
-                    errorMessage: displayData.failedInfo?.errorMessage || ErrorType.CACHE_LOST.desc
-                });
-            } else if (displayData.hasData && displayData.preview) {
-                const url = getPreviewDisplayUrl(displayData.preview);
-                replacementHtml = buildImageHtml({
-                    slotId,
-                    imgId: displayData.preview.imgId,
-                    url,
-                    tags: displayData.preview.tags || '',
-                    positive: displayData.preview.positive || '',
-                    messageId,
-                    state: displayData.preview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW,
-                    historyCount: displayData.historyCount,
-                    currentIndex: displayData.currentIndex ?? 0
-                });
-            } else {
-                replacementHtml = buildFailedPlaceholderHtml({
-                    slotId,
-                    messageId,
-                    tags: '',
-                    positive: '',
-                    errorType: ErrorType.CACHE_LOST.label,
-                    errorMessage: ErrorType.CACHE_LOST.desc
-                });
-            }
-        } catch (e) {
-            console.error(`[NovelDraw] 渲染 ${slotId} 失败:`, e);
-            replacementHtml = buildFailedPlaceholderHtml({
-                slotId,
-                messageId,
-                tags: '',
-                positive: '',
-                errorType: ErrorType.UNKNOWN.label,
-                errorMessage: e?.message || '未知错误'
-            });
-        }
-
-        replacements.push({ slotId, html: replacementHtml, anchor });
-    }
-
-    if (replacements.length === 0) return;
-
-    const insertedSlotIds = replacePlaceholdersInDomBatch(mesTextEl, replacements);
-    const pendingFallback = replacements.filter(item => !insertedSlotIds.has(item.slotId));
-    if (pendingFallback.length === 0) return;
-
-    let html = mesTextEl.innerHTML;
-    let fallbackReplaced = false;
-
-    for (const item of pendingFallback) {
-        const placeholder = createPlaceholder(item.slotId);
-        const escapedPlaceholder = placeholder.replace(/[[\]]/g, '\\$&');
-        if (!new RegExp(escapedPlaceholder).test(html)) continue;
-
-        html = html.replace(new RegExp(escapedPlaceholder, 'g'), item.html);
-        fallbackReplaced = true;
-    }
-
-    let anchorInserted = false;
-    if (!fallbackReplaced) {
-        pendingFallback.forEach(item => {
-            if (insertPreviewByAnchor(mesTextEl, item.slotId, item.anchor || '', item.html)) {
-                anchorInserted = true;
-            }
-        });
-    }
-
-    if (fallbackReplaced && !anchorInserted && !isMessageBeingEdited(messageId)) {
-        // Template-only UI markup built locally.
-        // eslint-disable-next-line no-unsanitized/property
-        mesTextEl.innerHTML = html;
-    }
-}
-
-async function renderAllPreviews() {
-    const ctx = getContext();
-    const chat = ctx.chat || [];
-    let rendered = 0;
-
-    for (let i = chat.length - 1; i >= 0; i--) {
-        if (extractSlotIds(chat[i]?.mes).size === 0) continue;
-        if (rendered < INITIAL_RENDER_MESSAGE_LIMIT) {
-            await renderPreviewsForMessage(i);
-            rendered++;
-        } else {
-            observeMessageForLazyRender(i);
-        }
-    }
-}
-
-async function handleMessageRendered(data) {
-    const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
-    if (messageId !== undefined) await renderPreviewsForMessage(messageId);
-}
-
 function notifyNovelDrawAfterAi(data, source) {
     const context = getContext();
     const chatId = String(context?.chatId || '');
@@ -2578,19 +2387,6 @@ function notifyNovelDrawAfterAi(data, source) {
         source,
         kind: MODULE_KEY,
     });
-}
-
-async function handleChatChanged() {
-    await new Promise(r => setTimeout(r, 50));
-    await renderAllPreviews();
-}
-
-async function handleMessageModified(data) {
-    const raw = typeof data === 'object' ? (data?.messageId ?? data?.mesId) : data;
-    const messageId = parseInt(raw, 10);
-    if (isNaN(messageId)) return;
-    await new Promise(r => setTimeout(r, 100));
-    await renderPreviewsForMessage(messageId);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2627,7 +2423,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
 
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
 
-        let planRaw;
+        let tasks = [];
         try {
             let worldbookEntries = null;
             let customPrompts = getActivePromptPreset() || DEFAULT_PROMPT_CONFIG;
@@ -2642,7 +2438,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                 });
             }
 
-            planRaw = await generateScenePlan({
+            tasks = await generateAndParseScenePlan({
                 messageText,
                 presentCharacters,
                 llmApi: settings.llmApi,
@@ -2668,9 +2464,6 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
         }
 
         if (signal.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
-
-        let tasks = parseImagePlan(planRaw);
-        if (!tasks.length) throw new NovelDrawError('未解析到图片任务', ErrorType.PARSE);
 
         // 硬上限：截断图片数量和每张图角色数量
         const maxImg = preset.maxImages || 0;
@@ -2863,7 +2656,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                         requiresFinalDomSync = true;
                         const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
                         $(`[mesid="${messageId}"] .mes_text`).html(formatted);
-                        await renderPreviewsForMessage(messageId);
+                        await renderSharedPreviewsForMessage(messageId);
                     }
                 }
             } catch (e) {
@@ -2897,7 +2690,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                     if (successCount === 0 || requiresFinalDomSync) {
                         const formatted = messageFormatting(message.mes, message.name, message.is_system, message.is_user, messageId);
                         $(`[mesid="${messageId}"] .mes_text`).html(formatted);
-                        await renderPreviewsForMessage(messageId);
+                        await renderSharedPreviewsForMessage(messageId);
                     }
                 } catch (e) {
                     console.warn('[NovelDraw] abort DOM 同步失败:', e);
@@ -2924,7 +2717,7 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             );
             $('[mesid="' + messageId + '"] .mes_text').html(formatted);
 
-            await renderPreviewsForMessage(messageId);
+            await renderSharedPreviewsForMessage(messageId);
 
             try {
                 const { processMessageById } = await import('../iframe-renderer.js');
@@ -3798,6 +3591,7 @@ export async function openNovelDrawSettings() {
 
 export async function initNovelDraw() {
     if (window?.isXiaobaixEnabled === false) return;
+    if (moduleInitialized) return;
 
     await loadPromptTemplates();
     await loadSettings();
@@ -3806,7 +3600,7 @@ export async function initNovelDraw() {
     afterAiGateDispose?.();
     afterAiGateDispose = registerAfterAiHandler(MODULE_KEY, ({ chatId, messageId }) => {
         if (String(getContext()?.chatId || '') !== String(chatId || '')) return;
-        void renderPreviewsForMessage(messageId);
+        void renderSharedPreviewsForMessage(messageId);
     });
     ensureStyles();
 
@@ -3816,10 +3610,11 @@ export async function initNovelDraw() {
     migrateNullTagGuide();
 
     setupEventDelegation();
-    openDB().then(() => { 
-        const s = getSettings(); 
-        clearExpiredCache(s.cacheDays || 3); 
-    });
+    await openDB().then(() => {
+        const s = getSettings();
+        clearExpiredCache(s.cacheDays || 3);
+    }).catch(() => {});
+    startSharedDrawPreviewRuntime();
 
     // ════════════════════════════════════════════════════════════════════
     // 动态导入 floating-panel（避免循环依赖）
@@ -3866,11 +3661,6 @@ export async function initNovelDraw() {
     events.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => {
         notifyNovelDrawAfterAi(data, 'character_message_rendered');
     });
-    events.on(event_types.USER_MESSAGE_RENDERED, handleMessageRendered);
-    events.on(event_types.CHAT_CHANGED, handleChatChanged);
-    events.on(event_types.MESSAGE_EDITED, handleMessageModified);
-    events.on(event_types.MESSAGE_UPDATED, handleMessageModified);
-    events.on(event_types.MESSAGE_SWIPED, handleMessageModified);
     events.on(event_types.GENERATION_ENDED, async () => {
         notifyNovelDrawAfterAi(null, 'generation_ended');
         try {
@@ -3915,8 +3705,8 @@ export async function initNovelDraw() {
         createPlaceholder,
         extractSlotIds,
         PLACEHOLDER_REGEX,
-        renderAllPreviews,
-        renderPreviewsForMessage,
+        renderAllPreviews: renderAllDrawPreviews,
+        renderPreviewsForMessage: renderSharedPreviewsForMessage,
         getCacheStats,
         clearExpiredCache,
         clearAllCache,
@@ -3939,6 +3729,7 @@ export async function cleanupNovelDraw() {
     settingsCache = null;
     settingsLoaded = false;
     events.cleanup();
+    stopSharedDrawPreviewRuntime();
     afterAiGateDispose?.();
     afterAiGateDispose = null;
     hideOverlay();
@@ -3951,11 +3742,6 @@ export async function cleanupNovelDraw() {
     generationJobs.clear();
     imageRequestQueue = [];
     activeImageRequest = null;
-
-    if (messageObserver) {
-        messageObserver.disconnect();
-        messageObserver = null;
-    }
 
     window.removeEventListener('message', handleFrameMessage);
     // 移除事件委托监听器（防止累积泄漏）
@@ -3999,7 +3785,7 @@ export {
     generateAndInsertImages,
     generateNovelImage,
     createPlaceholder,
-    renderPreviewsForMessage,
+    renderSharedPreviewsForMessage as renderPreviewsForMessage,
     buildImageHtml,
     insertPreviewIntoRenderedMessage,
     findAnchorPosition,

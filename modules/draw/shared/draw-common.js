@@ -5,11 +5,19 @@ import {
     getPreviewDisplayUrl,
 } from "./gallery-cache.js";
 import { LLMServiceError } from "./scene-planner.js";
+import { createModuleEvents, event_types } from "../../core/event-manager.js";
 
 const PLACEHOLDER_REGEX = /\[image\s*:\s*([a-z0-9\-_]+)\]/gi;
 const DRAW_IMAGE_HTML_REGEX = /<div\b[^>]*class=(["'])[^"']*\bxb-nd-img\b[^"']*\1[^>]*>[\s\S]*?<\/div>/gi;
 const DRAW_SAVED_EXTRA_KEY = 'xiaobaixDrawSaved';
 const LEGACY_NOVEL_SAVED_EXTRA_KEY = 'novelDrawSaved';
+const INITIAL_RENDER_MESSAGE_LIMIT = 1;
+
+let drawPreviewRuntimeEvents = null;
+let drawPreviewRuntimeRefs = 0;
+let drawPreviewMessageObserver = null;
+let drawPreviewRuntimeGeneration = 0;
+const drawPreviewPendingTimers = new Set();
 
 export const ImageState = {
     PREVIEW: 'preview',
@@ -433,7 +441,7 @@ function createNodeFromHtml(html) {
     return template.content.firstElementChild || null;
 }
 
-function extractSlotIds(mes) {
+export function extractSlotIds(mes) {
     const ids = new Set();
     if (!mes) return ids;
     let match;
@@ -865,4 +873,126 @@ export async function renderPreviewsForMessage(messageId) {
         // eslint-disable-next-line no-unsanitized/property
         mesTextEl.innerHTML = html;
     }
+}
+
+function initDrawPreviewMessageObserver() {
+    if (drawPreviewMessageObserver) return;
+    drawPreviewMessageObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (!entry.isIntersecting) return;
+            const mesEl = entry.target;
+            drawPreviewMessageObserver.unobserve(mesEl);
+            delete mesEl.dataset.ndLazyObserved;
+            const messageId = parseInt(mesEl.getAttribute('mesid'), 10);
+            if (!Number.isNaN(messageId)) {
+                renderPreviewsForMessage(messageId);
+            }
+        });
+    }, { rootMargin: '600px 0px', threshold: 0.01 });
+}
+
+function observeMessageForDrawPreviewLazyRender(messageId) {
+    const mesEl = document.querySelector(`.mes[mesid="${messageId}"]`);
+    if (!mesEl || mesEl.dataset.ndLazyObserved === '1') return;
+    initDrawPreviewMessageObserver();
+    mesEl.dataset.ndLazyObserved = '1';
+    drawPreviewMessageObserver.observe(mesEl);
+}
+
+function isMessageNearViewport(mesEl) {
+    if (!mesEl) return false;
+    const root = document.getElementById('chat');
+    const rootRect = root?.getBoundingClientRect?.() || { top: 0, bottom: window.innerHeight || 0 };
+    const rect = mesEl.getBoundingClientRect();
+    return rect.bottom >= rootRect.top - 600 && rect.top <= rootRect.bottom + 600;
+}
+
+function cleanupDrawPreviewMessageObserver() {
+    if (drawPreviewMessageObserver) {
+        drawPreviewMessageObserver.disconnect();
+        drawPreviewMessageObserver = null;
+    }
+    document.querySelectorAll('[data-nd-lazy-observed="1"]').forEach(el => {
+        delete el.dataset.ndLazyObserved;
+    });
+}
+
+export async function renderAllDrawPreviews() {
+    const ctx = getContext();
+    const chat = ctx.chat || [];
+    let rendered = 0;
+
+    for (let i = chat.length - 1; i >= 0; i--) {
+        if (extractSlotIds(chat[i]?.mes).size === 0) continue;
+        const mesEl = document.querySelector(`.mes[mesid="${i}"]`);
+        if (rendered < INITIAL_RENDER_MESSAGE_LIMIT || isMessageNearViewport(mesEl)) {
+            await renderPreviewsForMessage(i);
+            rendered++;
+        } else {
+            observeMessageForDrawPreviewLazyRender(i);
+        }
+    }
+}
+
+function clearPendingDrawPreviewTimers() {
+    for (const timer of drawPreviewPendingTimers) {
+        clearTimeout(timer);
+    }
+    drawPreviewPendingTimers.clear();
+}
+
+function scheduleRenderAllDrawPreviews(delay = 150) {
+    const generation = drawPreviewRuntimeGeneration;
+    const timer = setTimeout(() => {
+        drawPreviewPendingTimers.delete(timer);
+        if (!drawPreviewRuntimeEvents || generation !== drawPreviewRuntimeGeneration) return;
+        cleanupDrawPreviewMessageObserver();
+        void renderAllDrawPreviews();
+    }, delay);
+    drawPreviewPendingTimers.add(timer);
+}
+
+function handleDrawPreviewMessageRendered(data) {
+    const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
+    if (messageId !== undefined) void renderPreviewsForMessage(messageId);
+}
+
+function handleDrawPreviewMessageModified(data) {
+    const raw = typeof data === 'object' ? (data?.messageId ?? data?.mesId) : data;
+    const messageId = parseInt(raw, 10);
+    if (Number.isNaN(messageId)) return;
+    setTimeout(() => {
+        void renderPreviewsForMessage(messageId);
+    }, 100);
+}
+
+export function startSharedDrawPreviewRuntime() {
+    drawPreviewRuntimeRefs++;
+    if (drawPreviewRuntimeEvents) return;
+
+    drawPreviewRuntimeGeneration++;
+    drawPreviewRuntimeEvents = createModuleEvents('drawPreviewRuntime');
+    drawPreviewRuntimeEvents.on(event_types.CHARACTER_MESSAGE_RENDERED, handleDrawPreviewMessageRendered);
+    drawPreviewRuntimeEvents.on(event_types.USER_MESSAGE_RENDERED, handleDrawPreviewMessageRendered);
+    drawPreviewRuntimeEvents.on(event_types.CHAT_CHANGED, () => scheduleRenderAllDrawPreviews(150));
+    drawPreviewRuntimeEvents.on(event_types.MORE_MESSAGES_LOADED, () => scheduleRenderAllDrawPreviews(150));
+    drawPreviewRuntimeEvents.on(event_types.MESSAGE_EDITED, handleDrawPreviewMessageModified);
+    drawPreviewRuntimeEvents.on(event_types.MESSAGE_UPDATED, handleDrawPreviewMessageModified);
+    drawPreviewRuntimeEvents.on(event_types.MESSAGE_SWIPED, handleDrawPreviewMessageModified);
+
+    setTimeout(() => {
+        if (!drawPreviewRuntimeEvents) return;
+        void renderAllDrawPreviews();
+    }, 300);
+}
+
+export function stopSharedDrawPreviewRuntime() {
+    drawPreviewRuntimeRefs = Math.max(0, drawPreviewRuntimeRefs - 1);
+    if (drawPreviewRuntimeRefs > 0) return;
+
+    drawPreviewRuntimeEvents?.cleanup();
+    drawPreviewRuntimeEvents = null;
+    drawPreviewRuntimeGeneration++;
+    clearPendingDrawPreviewTimers();
+    cleanupDrawPreviewMessageObserver();
 }

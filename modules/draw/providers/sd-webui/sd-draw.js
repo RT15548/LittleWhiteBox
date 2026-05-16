@@ -23,8 +23,7 @@ import {
     getPreviewDisplayUrl,
 } from "../../shared/gallery-cache.js";
 import {
-    generateScenePlan,
-    parseImagePlan,
+    generateAndParseScenePlan,
     LLMServiceError,
 } from "../../shared/scene-planner.js";
 import { WorldbookProcessor } from "../../shared/worldbook-processor.js";
@@ -53,6 +52,8 @@ import {
     syncDrawSavedFromPreview,
     syncDrawSavedAfterDeletion,
     clearDrawSavedEntry,
+    startSharedDrawPreviewRuntime,
+    stopSharedDrawPreviewRuntime,
 } from "../../shared/draw-common.js";
 import {
     loadLocalDanbooruDB,
@@ -126,13 +127,11 @@ let eventsBound = false;
 let ensureSdDrawPanelRef = null;
 let destroySdDrawPanelsRef = null;
 let imageDelegationBound = false;
-let messageObserver = null;
 let autoBusy = false;
 const events = createModuleEvents(MODULE_KEY);
 const generationJobs = new Map();
 const SD_DRAW_VIEWS = ['test', 'api', 'params', 'llm', 'prompts', 'worldbook', 'characters', 'gallery'];
 const ImageState = { PREVIEW: 'preview', SAVING: 'saving', SAVED: 'saved', REFRESHING: 'refreshing', FAILED: 'failed' };
-const INITIAL_RENDER_MESSAGE_LIMIT = 1;
 const FIXED_SD_REQUEST_DELAY_MS = 1000;
 let activeSdImageRequest = null;
 let sdImageRequestQueue = [];
@@ -2971,11 +2970,11 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
         });
     }
 
-    let planRaw;
+    let tasks = [];
     try {
         const preset = getActivePreset(getSettings());
         const promptPreset = getActivePromptPreset(getSettings()) || DEFAULT_PROMPT_CONFIG;
-        planRaw = await generateScenePlan({
+        tasks = await generateAndParseScenePlan({
             messageText,
             presentCharacters,
             llmApi: sharedDrawSettings.llmApi,
@@ -2997,9 +2996,6 @@ async function buildTasksFromMessage({ message, messageId, signal, promptOverrid
         }
         throw error;
     }
-
-    let tasks = parseImagePlan(planRaw);
-    if (!tasks.length) throw new Error('未解析到图片任务');
 
     const preset = getActivePreset(getSettings());
     const maxImg = preset.maxImages || 0;
@@ -3234,74 +3230,15 @@ function buildSharedGalleryCallbacks(slotId, messageId) {
     };
 }
 
-function messageHasImagePlaceholders(message) {
-    return /\[image\s*:\s*[a-z0-9\-_]+\]/i.test(String(message?.mes || ''));
-}
-
-function initMessageObserver() {
-    if (messageObserver) return;
-    messageObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-            if (!entry.isIntersecting) return;
-            const mesEl = entry.target;
-            messageObserver.unobserve(mesEl);
-            mesEl.removeAttribute('data-xb-sd-lazy-observed');
-            const messageId = Number(mesEl.getAttribute('mesid'));
-            if (Number.isFinite(messageId)) void renderPreviewsForMessage(messageId);
-        });
-    }, { rootMargin: '600px 0px', threshold: 0.01 });
-}
-
-function observeMessageForLazyRender(messageId) {
-    const mesEl = document.querySelector(`.mes[mesid="${messageId}"]`);
-    if (!mesEl || mesEl.dataset.xbSdLazyObserved === '1') return;
-    initMessageObserver();
-    mesEl.dataset.xbSdLazyObserved = '1';
-    messageObserver.observe(mesEl);
-}
-
-function isMessageNearViewport(mesEl) {
-    if (!mesEl) return false;
-    const root = document.getElementById('chat');
-    const rootRect = root?.getBoundingClientRect?.() || { top: 0, bottom: window.innerHeight || 0 };
-    const rect = mesEl.getBoundingClientRect();
-    return rect.bottom >= rootRect.top - 600 && rect.top <= rootRect.bottom + 600;
-}
-
-function renderPreviewNowOrObserve(messageId) {
-    const mesEl = document.querySelector(`.mes[mesid="${messageId}"]`);
-    if (isMessageNearViewport(mesEl)) {
-        void renderPreviewsForMessage(messageId);
-    } else {
-        observeMessageForLazyRender(messageId);
-    }
-}
-
-function cleanupMessageObserver() {
-    messageObserver?.disconnect();
-    messageObserver = null;
-    document.querySelectorAll('[data-xb-sd-lazy-observed="1"]').forEach(el => {
-        el.removeAttribute('data-xb-sd-lazy-observed');
-    });
-}
-
-function refreshPanelsAndPreviewsLazily() {
+function renderExistingPanels() {
     const ctx = getContext();
     const chat = ctx.chat || [];
-    let rendered = 0;
 
     for (let messageId = chat.length - 1; messageId >= 0; messageId--) {
         const message = chat[messageId];
         if (!message || message.is_user) continue;
         const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
         if (messageEl) ensureSdDrawPanelRef?.(messageEl, messageId);
-        if (!messageHasImagePlaceholders(message)) continue;
-        if (rendered < INITIAL_RENDER_MESSAGE_LIMIT) {
-            void renderPreviewsForMessage(messageId);
-            rendered++;
-        } else {
-            observeMessageForLazyRender(messageId);
-        }
     }
 }
 
@@ -4050,6 +3987,7 @@ export async function initSdDraw() {
     ensureSdDrawPanelRef = floatingPanel.ensureSdDrawPanel;
     destroySdDrawPanelsRef = floatingPanel.destroySdDrawPanels;
     floatingPanel.initFloatingPanel?.();
+    startSharedDrawPreviewRuntime();
 
     events.on(event_types.CHARACTER_MESSAGE_RENDERED, (data) => {
         const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
@@ -4059,27 +3997,12 @@ export async function initSdDraw() {
         if (!message || message.is_user) return;
         const messageEl = document.querySelector(`.mes[mesid="${messageId}"]`);
         if (messageEl) ensureSdDrawPanelRef?.(messageEl, Number(messageId));
-        if (messageHasImagePlaceholders(message)) renderPreviewNowOrObserve(Number(messageId));
     });
 
     events.on(event_types.CHAT_CHANGED, () => {
         setTimeout(() => {
-            cleanupMessageObserver();
-            refreshPanelsAndPreviewsLazily();
+            renderExistingPanels();
         }, 150);
-    });
-
-    events.on(event_types.MESSAGE_EDITED, (data) => {
-        const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
-        if (Number.isFinite(Number(messageId))) void renderPreviewsForMessage(Number(messageId));
-    });
-    events.on(event_types.MESSAGE_UPDATED, (data) => {
-        const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
-        if (Number.isFinite(Number(messageId))) void renderPreviewsForMessage(Number(messageId));
-    });
-    events.on(event_types.MESSAGE_SWIPED, (data) => {
-        const messageId = typeof data === 'number' ? data : data?.messageId ?? data?.mesId;
-        if (Number.isFinite(Number(messageId))) void renderPreviewsForMessage(Number(messageId));
     });
     events.on(event_types.GENERATION_ENDED, async () => {
         try {
@@ -4093,7 +4016,7 @@ export async function initSdDraw() {
     });
 
     setTimeout(() => {
-        refreshPanelsAndPreviewsLazily();
+        renderExistingPanels();
     }, 300);
 
     window.xiaobaixSdDraw = {
@@ -4118,7 +4041,7 @@ export function cleanupSdDraw() {
     moduleInitialized = false;
     events.cleanup();
     cleanupImageDelegation();
-    cleanupMessageObserver();
+    stopSharedDrawPreviewRuntime();
     abortPendingRequest();
     abortGeneration();
     hideSettings();
