@@ -129,7 +129,7 @@ export async function callLLM(messages, options = {}) {
         max_tokens,
         stream: false,
     };
-    if (model.includes('Qwen3')) {
+    if (model.toLowerCase().includes('qwen3')) {
         body.enable_thinking = false;
     }
 
