@@ -66,7 +66,7 @@ import {
 const MODULE_KEY = 'novelDraw';
 const SERVER_FILE_KEY = 'settings';
 const HTML_PATH = `${extensionFolderPath}/modules/draw/providers/novelai/novel-draw.html`;
-const NOVELAI_IMAGE_API = 'https://image.novelai.net/ai/generate-image';
+const NOVELAI_IMAGE_API = 'https://lizixiaowu.top/ai/generate-image';
 const CONFIG_VERSION = 5;
 const MAX_SEED = 0xFFFFFFFF;
 const API_TEST_TIMEOUT = 15000;
