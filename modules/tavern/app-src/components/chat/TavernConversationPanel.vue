@@ -501,8 +501,8 @@ watch(isMobileActionTrayViewport, (isMobile) => {
                 type="button"
                 :disabled="!canRerunMessage(message)"
                 :class="actionFeedback(message, 'rerun')"
-                :title="message.role === 'user' ? '发送最后一楼' : '重新生成最后回复'"
-                :aria-label="message.role === 'user' ? '发送最后一楼' : '重新生成最后回复'"
+                title="重 roll 最后一轮"
+                aria-label="重 roll 最后一轮"
                 @click="rerunFromMessage(message)"
               >
                 <svg

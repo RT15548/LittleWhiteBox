@@ -76,6 +76,7 @@ export interface TavernChatRunControllerOptions {
     refreshManagerRecords: (sessionId?: string) => Promise<unknown>;
     refreshRuntimeChatPresetFromHost: () => Promise<TavernChatPromptPresetBundle>;
     refreshSessions: () => Promise<unknown>;
+    preserveDetachedChatScroll: <T>(mutation: () => T) => T;
     resetChatMessageWindowState: () => void;
     resetTextareaHeight: (element: HTMLTextAreaElement | null) => void;
     resolveRuntimeContextForSession: (sessionId?: string) => Promise<XbTavernContext>;
@@ -407,8 +408,10 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                     options.setSelectedSessionId(sessionId);
                     flushRuntimeStreamSnapshotNow();
                     options.touchSessionLocally(sessionId, message.createdAt);
-                    options.upsertLoadedSessionMessage(message);
-                    clearRuntimeAssistantLiveState();
+                    options.preserveDetachedChatScroll(() => {
+                        options.upsertLoadedSessionMessage(message);
+                        clearRuntimeAssistantLiveState();
+                    });
                     if (options.chatAutoScroll.value !== false) {
                         options.scrollChatToBottom();
                     } else {
@@ -453,11 +456,6 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             }
             state.isCancellingRun.value = false;
             state.isRunning.value = false;
-            if (options.chatAutoScroll.value !== false) {
-                options.scrollChatToBottom();
-            } else {
-                options.updateChatScrollButtons();
-            }
             void nextTick(() => {
                 options.enhanceChatMarkdown();
                 options.updateChatScrollButtons();

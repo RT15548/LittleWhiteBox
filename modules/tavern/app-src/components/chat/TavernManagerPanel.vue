@@ -573,8 +573,8 @@ watch(
                 type="button"
                 :disabled="!canRerunManagerMessage(item.message)"
                 :class="managerActionFeedback(item.message, 'rerun')"
-                :title="item.message.role === 'user' ? '从这里重问助手' : '重新生成这条助手回复'"
-                :aria-label="item.message.role === 'user' ? '从这里重问助手' : '重新生成这条助手回复'"
+                title="重 roll 最后一轮"
+                aria-label="重 roll 最后一轮"
                 @click="rerunFromManagerMessage(item.message)"
               >
                 ↻

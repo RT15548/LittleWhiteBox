@@ -3223,20 +3223,22 @@ function canEditManagerMessage(message: TavernManagerMessageRecord) {
 
 function canRerunMessage(message: TavernMessageRecord) {
     if (isRunning.value) {return false;}
+    if (!['user', 'assistant'].includes(message.role)) {return false;}
     const latest = latestSessionMessage.value;
-    if (!latest || latest.sessionId !== message.sessionId || latest.order !== message.order) {return false;}
-    if (message.role === 'user') {return true;}
-    if (message.role !== 'assistant') {return false;}
-    return true;
+    return !!latest
+        && latest.sessionId === message.sessionId
+        && ['user', 'assistant'].includes(latest.role);
 }
 
 function canRerunManagerMessage(message: TavernManagerMessageRecord) {
     if (isManagerAssistantRunning.value) {return false;}
-    if (message.role === 'user') {return true;}
+    if (!['user', 'assistant'].includes(message.role)) {return false;}
     const sorted = [...managerChatMessages.value].sort((left, right) => left.order - right.order);
-    const index = sorted.findIndex((item) => item.order === message.order);
-    if (index < 0) {return false;}
-    return sorted.slice(0, index + 1).some((item) => item.role === 'user');
+    const latest = sorted[sorted.length - 1];
+    return !!latest
+        && latest.sessionId === message.sessionId
+        && ['user', 'assistant'].includes(latest.role)
+        && sorted.some((item) => item.role === 'user' && item.order <= latest.order);
 }
 
 function isEditingMessage(message: TavernMessageRecord) {
@@ -3540,9 +3542,12 @@ async function rerunFromMessage(message: TavernMessageRecord) {
         flashMessageAction(message, 'rerun', false);
         return;
     }
-    const userMessage = message.role === 'user'
-        ? message
-        : await getLatestTavernUserMessageAtOrBefore(message.sessionId, message.order);
+    const latest = latestSessionMessage.value;
+    const userMessage = latest?.role === 'user'
+        ? latest
+        : latest
+            ? await getLatestTavernUserMessageAtOrBefore(latest.sessionId, latest.order)
+            : null;
     if (!userMessage) {
         flashMessageAction(message, 'rerun', false);
         return;
@@ -3612,10 +3617,10 @@ async function rerunFromManagerMessage(message: TavernManagerMessageRecord) {
         return;
     }
     const sorted = [...managerChatMessages.value].sort((left, right) => left.order - right.order);
-    const index = sorted.findIndex((item) => item.order === message.order);
-    const userMessage = message.role === 'user'
-        ? message
-        : [...sorted.slice(0, Math.max(0, index + 1))].reverse().find((item) => item.role === 'user');
+    const latest = sorted[sorted.length - 1];
+    const userMessage = latest?.role === 'user'
+        ? latest
+        : [...sorted].reverse().find((item) => item.role === 'user' && item.order <= (latest?.order ?? -1));
     if (!userMessage || !selectedSessionId.value) {
         flashManagerMessageAction(message, 'rerun', false);
         return;
@@ -3923,6 +3928,7 @@ const chatRunController = useTavernChatRunController({
     refreshManagerRecords,
     refreshRuntimeChatPresetFromHost,
     refreshSessions,
+    preserveDetachedChatScroll: preserveDetachedChatScrollDuringMarkdown,
     resetChatMessageWindowState,
     resetTextareaHeight,
     resolveRuntimeContextForSession,

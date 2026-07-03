@@ -52,7 +52,7 @@ export function preprocessTavernRoleplayMarkdown(text = '', options: TavernRolep
 }
 
 const TAVERN_HTML_IFRAME_SELECTOR = 'iframe.xb-tavern-html-iframe';
-const TAVERN_HTML_PRE_SELECTOR = 'pre[data-xb-tavern-html-final="true"]';
+const TAVERN_HTML_PRE_SELECTOR = 'pre[data-xb-tavern-html-final="true"], pre[data-xb-tavern-html-pending="true"]';
 const TAVERN_HTML_GENERATE_RELAY_TIMEOUT_MS = 300_000;
 const TAVERN_HTML_CODE_LANGUAGES = new Set(['html', 'htm', 'xhtml', 'xml', 'svg', 'vue', 'svelte']);
 const TAVERN_HTML_FRAGMENT_START_REGEX = /^\s*(?:<!--[\s\S]*?-->\s*)*<(?:style|link|meta|svg|iframe|canvas|img|video|audio|picture|div|section|main|article|header|footer|nav|aside|p|span|button|input|textarea|select|label|ul|ol|li|table|thead|tbody|tr|td|th|form|figure|figcaption|details|summary|dialog|h[1-6])\b/i;
@@ -558,13 +558,12 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         void loadTavernHtmlIframeContent(iframe, html);
     }
 
-    function hidePendingTavernHtmlPreviews(root: HTMLElement) {
+    function markPendingTavernHtmlPreviews(root: HTMLElement) {
         if (!options.htmlRenderEnabled.value) {return;}
         root.querySelectorAll<HTMLElement>('pre > code').forEach((codeBlock) => {
             const pre = codeBlock.parentElement as HTMLPreElement | null;
             if (!pre || pre.dataset.xbTavernHtmlFinal === 'true') {return;}
             if (!isRenderableTavernHtmlCodeBlock(codeBlock)) {return;}
-            pre.style.display = 'none';
             pre.dataset.xbTavernHtmlPending = 'true';
         });
     }
@@ -883,8 +882,9 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         });
     }
 
-    function enhanceInlineImageTokens(root: HTMLElement) {
-        if (!canEnhanceMarkdownRoot(root) || root.closest('.streaming, .pending-user')) {return;}
+    function enhanceInlineImageTokens(root: HTMLElement, options: { hydrate?: boolean } = {}) {
+        if (!canEnhanceMarkdownRoot(root)) {return;}
+        const shouldHydrate = options.hydrate !== false;
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
             acceptNode(node) {
                 const textNode = node as Text;
@@ -933,7 +933,9 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         root.querySelectorAll<HTMLElement>('.xb-tavern-inline-image').forEach((slot) => {
             removeAdjacentInlineImageLineBreaks(slot);
         });
-        hydrateInlineImageSlots(root);
+        if (shouldHydrate) {
+            hydrateInlineImageSlots(root);
+        }
     }
 
     function handleInlineImageProgressEvent(event: Event) {
@@ -1119,27 +1121,38 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         });
     }
 
+    function enhanceStableMarkdownNode(node: HTMLElement, optionsOverride: { live?: boolean } = {}) {
+        if (!canEnhanceMarkdownRoot(node)) {return;}
+        const signature = node.dataset.markdownSignature || '';
+        const marker = optionsOverride.live ? 'markdownLiveEnhanced' : 'markdownEnhanced';
+        if (node.dataset[marker] === signature) {return;}
+        if (optionsOverride.live) {
+            markPendingTavernHtmlPreviews(node);
+        } else {
+            enhanceTavernHtmlCodeBlocks(node);
+        }
+        enhanceMarkdownContent(node, {
+            codeBlockClassName: 'xb-tavern-codeblock',
+            codeCopyClassName: 'xb-tavern-code-copy',
+            flattenPreCode: true,
+            htmlBlockMode: optionsOverride.live
+                ? 'code'
+                : options.htmlRenderEnabled.value ? 'preview' : 'code',
+            skipPreSelector: TAVERN_HTML_PRE_SELECTOR,
+        });
+        drawImageEnhancer.enhanceTavernImageMarkers(node);
+        enhanceInlineImageTokens(node, { hydrate: !optionsOverride.live });
+        enhanceRoleplayDialogue(node);
+        enhanceActionCheckMarkers(node);
+        node.dataset[marker] = signature;
+    }
+
     function enhanceChatMarkdown() {
         preserveChatScroll(() => {
             const root = options.chatScrollRef.value;
             if (!root?.querySelectorAll) {return;}
             root.querySelectorAll<HTMLElement>('.xb-tavern-markdown').forEach((node) => {
-                if (!canEnhanceMarkdownRoot(node)) {return;}
-                const signature = node.dataset.markdownSignature || '';
-                if (node.dataset.markdownEnhanced === signature) {return;}
-                enhanceTavernHtmlCodeBlocks(node);
-                enhanceMarkdownContent(node, {
-                    codeBlockClassName: 'xb-tavern-codeblock',
-                    codeCopyClassName: 'xb-tavern-code-copy',
-                    flattenPreCode: true,
-                    htmlBlockMode: options.htmlRenderEnabled.value ? 'preview' : 'code',
-                    skipPreSelector: TAVERN_HTML_PRE_SELECTOR,
-                });
-                drawImageEnhancer.enhanceTavernImageMarkers(node);
-                enhanceInlineImageTokens(node);
-                enhanceRoleplayDialogue(node);
-                enhanceActionCheckMarkers(node);
-                node.dataset.markdownEnhanced = signature;
+                enhanceStableMarkdownNode(node);
             });
         });
     }
@@ -1148,10 +1161,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
         const root = options.chatScrollRef.value;
         if (!root?.querySelectorAll) {return;}
         root.querySelectorAll<HTMLElement>('.chat-bubble.streaming .xb-tavern-markdown').forEach((node) => {
-            if (!canEnhanceMarkdownRoot(node)) {return;}
-            // Match the native renderer: streamed DOM is unstable, so HTML iframes wait for the final message.
-            hidePendingTavernHtmlPreviews(node);
-            enhanceActionCheckMarkers(node);
+            enhanceStableMarkdownNode(node, { live: true });
         });
     }
 
