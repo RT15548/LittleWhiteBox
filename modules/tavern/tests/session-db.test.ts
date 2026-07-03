@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import db, {
     appendTavernMessage,
     appendTavernManagerMessage,
+    appendTavernStructuredStatePatch,
+    branchTavernSession,
     createTavernSession,
     countTavernMessagesInRange,
     deleteTavernSession,
@@ -41,6 +43,20 @@ import db, {
     saveTavernPreset,
     setActiveTavernPresetId,
     tavernAssistantPresetsTable,
+    tavernManagerMemorySnapshotsTable,
+    tavernManagerMessagesTable,
+    tavernManagerRunsTable,
+    tavernManagerStateSnapshotsTable,
+    tavernManagerTaskSnapshotsTable,
+    tavernMemoryFilesTable,
+    tavernMemoryIndexesTable,
+    tavernMemorySnapshotsTable,
+    tavernStateDocumentsTable,
+    tavernStatePatchesTable,
+    tavernStatusSnapshotsTable,
+    tavernTaskFingerprintStatesTable,
+    tavernTaskSnapshotsTable,
+    tavernTasksTable,
     touchRunningTavernManagerRun,
     updateTavernManagerMessage,
     updateTavernMessage,
@@ -167,6 +183,250 @@ test('tavern session db stores independent sessions and messages', async () => {
     assert.deepEqual(messages.map((message) => message.role), ['user', 'assistant']);
     assert.equal(messages[0]?.buildSnapshot?.presetId, 'preset-1');
     assert.deepEqual(messages[1]?.requestSnapshot, { messageCount: buildResult.messages.length });
+});
+
+test('branchTavernSession clones a complete archive without selecting the branch', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({
+        title: '主线档案',
+        characterKey: 'char-a',
+        characterName: 'Aster',
+        contextSnapshot: { character: { characterKey: 'char-a', name: 'Aster' } },
+    });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '开门。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '门后是地图室。' });
+    await appendTavernManagerMessage(session.id, { role: 'assistant', content: '档案整理完毕。' });
+    const run = await createTavernManagerRun({
+        id: 'source-run',
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        trigger: 'after_turn',
+        status: 'completed',
+    });
+    const timestamp = Date.now();
+    const memoryFile = {
+        sessionId: session.id,
+        path: 'memory/state.md',
+        content: '# 会话记忆\n\n地图室出现。',
+        status: 'active' as const,
+        source: 'manager',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
+    await tavernMemoryFilesTable.put(memoryFile);
+    await tavernMemorySnapshotsTable.put({
+        sessionId: session.id,
+        floor: assistant.order,
+        files: [{ path: memoryFile.path, file: memoryFile }],
+        createdAt: timestamp,
+    });
+    await tavernMemoryIndexesTable.put({
+        sessionId: session.id,
+        kind: 'derived',
+        status: 'ready',
+        updatedAt: timestamp,
+        files: [{
+            path: memoryFile.path,
+            status: memoryFile.status,
+            source: memoryFile.source,
+            createdAt: memoryFile.createdAt,
+            updatedAt: memoryFile.updatedAt,
+            contentLength: memoryFile.content.length,
+            preview: '地图室出现。',
+        }],
+    });
+    await tavernManagerMemorySnapshotsTable.put({
+        managerRunId: run.id,
+        sessionId: session.id,
+        path: memoryFile.path,
+        beforeExists: true,
+        beforeFile: memoryFile,
+        beforeHash: 'before-memory',
+        afterHash: 'after-memory',
+        rollbackStatus: 'pending',
+        error: '',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    });
+    const stateDocument: TavernStructuredStateDocumentRecord = {
+        sessionId: session.id,
+        docType: 'tavern.map',
+        docId: 'branch-map',
+        title: '分支地图',
+        revision: 2,
+        data: { elements: [{ id: 'door', label: '门' }] },
+        digest: 'map-digest',
+        status: 'active',
+        source: 'manager',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
+    const statusDocument: TavernStructuredStateDocumentRecord = {
+        sessionId: session.id,
+        docType: 'tavern.status',
+        docId: 'main',
+        title: '状态栏',
+        revision: 1,
+        data: { subjects: [{ id: 'user', name: '玩家' }] },
+        digest: 'status-digest',
+        status: 'active',
+        source: 'manager',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
+    await tavernStateDocumentsTable.bulkPut([stateDocument, statusDocument]);
+    const patch = await appendTavernStructuredStatePatch({
+        id: 'source-patch',
+        sessionId: session.id,
+        docType: stateDocument.docType,
+        docId: stateDocument.docId,
+        revision: 2,
+        managerRunId: run.id,
+        sourceAssistantOrder: assistant.order,
+        ops: [{ op: 'add', path: '/elements/0', value: { id: 'door' } }],
+        summary: '新增地图门',
+    });
+    await tavernManagerStateSnapshotsTable.put({
+        managerRunId: run.id,
+        sessionId: session.id,
+        docType: stateDocument.docType,
+        docId: stateDocument.docId,
+        beforeExists: true,
+        beforeDocument: stateDocument,
+        beforeHash: 'before-state',
+        afterHash: 'after-state',
+        rollbackStatus: 'pending',
+        error: '',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    });
+    await tavernStatusSnapshotsTable.put({
+        sessionId: session.id,
+        floor: assistant.order,
+        document: statusDocument,
+        digest: statusDocument.digest,
+        createdAt: timestamp,
+    });
+    const task = {
+        id: 'event-door',
+        sessionId: session.id,
+        status: 'active' as const,
+        title: '开门线',
+        horizon: '查清门后的地图室。',
+        current: '玩家刚打开门。',
+        doneWhen: '确认地图室的用途。',
+        hookForModel: '门后的地图室还在等玩家检查。',
+        fingerprint: 'event-door-fingerprint',
+        createdOrder: user.order,
+        updatedOrder: assistant.order,
+        lastAdvancedOrder: assistant.order,
+        sourceManagerRunId: run.id,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
+    await tavernTasksTable.put(task);
+    await tavernTaskSnapshotsTable.put({
+        sessionId: session.id,
+        floor: assistant.order,
+        tasks: [task],
+        abandonedFingerprints: ['old-event-fingerprint'],
+        createdAt: timestamp,
+    });
+    await tavernManagerTaskSnapshotsTable.put({
+        managerRunId: run.id,
+        sessionId: session.id,
+        beforeTasks: [task],
+        beforeFingerprints: ['old-event-fingerprint'],
+        beforeHash: 'before-task',
+        afterHash: 'after-task',
+        rollbackStatus: 'pending',
+        error: '',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    });
+    await tavernTaskFingerprintStatesTable.put({
+        sessionId: session.id,
+        abandonedFingerprints: ['old-event-fingerprint'],
+        updatedAt: timestamp,
+    });
+
+    assert.equal(await getSelectedTavernSessionId(), session.id);
+    const sourceCounts = await Promise.all([
+        listTavernMessages(session.id),
+        tavernManagerMessagesTable.where('sessionId').equals(session.id).toArray(),
+        tavernManagerRunsTable.where('sessionId').equals(session.id).toArray(),
+        tavernMemoryFilesTable.where('sessionId').equals(session.id).toArray(),
+        tavernMemorySnapshotsTable.where('sessionId').equals(session.id).toArray(),
+        tavernMemoryIndexesTable.where('sessionId').equals(session.id).toArray(),
+        tavernStateDocumentsTable.where('sessionId').equals(session.id).toArray(),
+        tavernStatePatchesTable.where('sessionId').equals(session.id).toArray(),
+        tavernStatusSnapshotsTable.where('sessionId').equals(session.id).toArray(),
+        tavernTasksTable.where('sessionId').equals(session.id).toArray(),
+        tavernTaskSnapshotsTable.where('sessionId').equals(session.id).toArray(),
+        tavernTaskFingerprintStatesTable.where('sessionId').equals(session.id).toArray(),
+    ]);
+
+    const branch = await branchTavernSession(session.id);
+    assert.ok(branch);
+    assert.notEqual(branch.id, session.id);
+    assert.equal(branch.title, '主线档案 · 分支');
+    assert.equal(await getSelectedTavernSessionId(), session.id);
+
+    const branchCounts = await Promise.all([
+        listTavernMessages(branch.id),
+        tavernManagerMessagesTable.where('sessionId').equals(branch.id).toArray(),
+        tavernManagerRunsTable.where('sessionId').equals(branch.id).toArray(),
+        tavernMemoryFilesTable.where('sessionId').equals(branch.id).toArray(),
+        tavernMemorySnapshotsTable.where('sessionId').equals(branch.id).toArray(),
+        tavernMemoryIndexesTable.where('sessionId').equals(branch.id).toArray(),
+        tavernStateDocumentsTable.where('sessionId').equals(branch.id).toArray(),
+        tavernStatePatchesTable.where('sessionId').equals(branch.id).toArray(),
+        tavernStatusSnapshotsTable.where('sessionId').equals(branch.id).toArray(),
+        tavernTasksTable.where('sessionId').equals(branch.id).toArray(),
+        tavernTaskSnapshotsTable.where('sessionId').equals(branch.id).toArray(),
+        tavernTaskFingerprintStatesTable.where('sessionId').equals(branch.id).toArray(),
+    ]);
+    assert.deepEqual(branchCounts.map((items) => items.length), sourceCounts.map((items) => items.length));
+    branchCounts.forEach((items) => {
+        assert.equal(items.every((item) => item.sessionId === branch.id), true);
+    });
+
+    const [branchRun] = await tavernManagerRunsTable.where('sessionId').equals(branch.id).toArray();
+    assert.ok(branchRun);
+    assert.notEqual(branchRun.id, run.id);
+    const [branchPatch] = await tavernStatePatchesTable.where('sessionId').equals(branch.id).toArray();
+    assert.ok(branchPatch);
+    assert.notEqual(branchPatch.id, patch.id);
+    assert.equal(branchPatch.managerRunId, branchRun.id);
+    const [branchTask] = await tavernTasksTable.where('sessionId').equals(branch.id).toArray();
+    assert.equal(branchTask?.sourceManagerRunId, branchRun.id);
+
+    const [branchMemorySnapshot] = await tavernMemorySnapshotsTable.where('sessionId').equals(branch.id).toArray();
+    assert.equal(branchMemorySnapshot?.files[0]?.file.sessionId, branch.id);
+    const [branchManagerMemorySnapshot] = await tavernManagerMemorySnapshotsTable.where('sessionId').equals(branch.id).toArray();
+    assert.equal(branchManagerMemorySnapshot?.managerRunId, branchRun.id);
+    assert.equal(branchManagerMemorySnapshot?.beforeFile?.sessionId, branch.id);
+    const [branchManagerStateSnapshot] = await tavernManagerStateSnapshotsTable.where('sessionId').equals(branch.id).toArray();
+    assert.equal(branchManagerStateSnapshot?.managerRunId, branchRun.id);
+    assert.equal(branchManagerStateSnapshot?.beforeDocument?.sessionId, branch.id);
+    const [branchStatusSnapshot] = await tavernStatusSnapshotsTable.where('sessionId').equals(branch.id).toArray();
+    assert.equal(branchStatusSnapshot?.document?.sessionId, branch.id);
+    const [branchTaskSnapshot] = await tavernTaskSnapshotsTable.where('sessionId').equals(branch.id).toArray();
+    assert.equal(branchTaskSnapshot?.tasks[0]?.sessionId, branch.id);
+    assert.equal(branchTaskSnapshot?.tasks[0]?.sourceManagerRunId, branchRun.id);
+    const [branchManagerTaskSnapshot] = await tavernManagerTaskSnapshotsTable.where('sessionId').equals(branch.id).toArray();
+    assert.equal(branchManagerTaskSnapshot?.managerRunId, branchRun.id);
+    assert.equal(branchManagerTaskSnapshot?.beforeTasks[0]?.sessionId, branch.id);
+    assert.equal(branchManagerTaskSnapshot?.beforeTasks[0]?.sourceManagerRunId, branchRun.id);
+
+    assert.ok(await getTavernSession(session.id));
+    assert.ok(await tavernManagerRunsTable.get(run.id));
+    assert.ok(await tavernStatePatchesTable.get(patch.id));
+    assert.equal((await listTavernMessages(session.id)).length, sourceCounts[0].length);
 });
 
 test('tavern message indexed helpers read latest, direct, recent, and range windows', async () => {

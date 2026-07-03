@@ -26,9 +26,10 @@ import {
     rebuildTavernMemoryDerivedIndex,
 } from '../shared/memory-files';
 import {
-    createTavernSession,
     appendTavernMessage,
     appendTavernManagerMessage,
+    branchTavernSession,
+    createTavernSession,
     deleteTavernManagerMessages,
     deleteTavernMessages,
     getLatestTavernUserMessageAtOrBefore,
@@ -2937,6 +2938,49 @@ async function createNewChatSession() {
     await createSessionAndOpenChat({ contextSnapshot: snapshotContext });
 }
 
+function getChatSessionBranchBlockedReason(): string {
+    if (!selectedSessionId.value) {return '当前没有会话。';}
+    if (isRunning.value || isCancellingRun.value) {return '正在生成回复，稍后再开启对话分支。';}
+    if (managerBusy.value || isManagerAssistantRunning.value || isManagerAssistantCancelling.value || retryingManagerRunId.value) {
+        return '助手/管理器正在维护档案，稍后再开启对话分支。';
+    }
+    return '';
+}
+
+async function branchCurrentChatSession() {
+    const blockedBeforeConfirm = getChatSessionBranchBlockedReason();
+    if (blockedBeforeConfirm) {
+        showTavernToast(blockedBeforeConfirm, { tone: 'warning', durationMs: 2600 });
+        return;
+    }
+    const sourceSessionId = String(selectedSessionId.value || '').trim();
+    const confirmed = await confirmTavernDialog({
+        title: '开启对话分支',
+        message: '会复制当前会话档案，生成一份独立分支。当前聊天不会切换，你可以稍后在会话档案中打开它。',
+        cancelText: '取消',
+        confirmText: '开启分支',
+    });
+    if (!confirmed) {return;}
+    const blockedAfterConfirm = getChatSessionBranchBlockedReason();
+    if (blockedAfterConfirm || selectedSessionId.value !== sourceSessionId) {
+        showTavernToast(blockedAfterConfirm || '当前会话已切换，未开启对话分支。', { tone: 'warning', durationMs: 2600 });
+        return;
+    }
+    try {
+        const branch = await branchTavernSession(sourceSessionId);
+        if (!branch) {throw new Error('branch_session_missing');}
+        await refreshSessions();
+        showTavernToast('已创建对话分支', { tone: 'info', durationMs: 2200 });
+    } catch (error) {
+        await alertTavernDialog({
+            title: '开启对话分支失败',
+            message: describeError(error),
+            confirmText: '知道了',
+            tone: 'warning',
+        });
+    }
+}
+
 async function handleHomePrimaryAction() {
     if (canResumeSelectedSession.value) {
         openChatView();
@@ -4467,6 +4511,7 @@ const shellContext = {
 } satisfies TavernShellContext;
 
 const sessionContext = {
+    branchCurrentChatSession,
     chatMessages,
     chatMessageWindow,
     createNewChatSession,

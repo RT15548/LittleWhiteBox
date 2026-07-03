@@ -733,7 +733,8 @@ test('tavern chat hot paths use message windows instead of full session scans', 
     assert.doesNotMatch(appSource, /async function refreshSessions[\s\S]{0,520}listTavernMessages\(/);
     assert.doesNotMatch(appSource, /async function deleteMessageTurn[\s\S]{0,900}listTavernMessages\(/);
     assert.match(appSource, /listTavernMessageOrdersFrom\(message\.sessionId, message\.order\)/);
-    assert.match(appSource, /getLatestTavernUserMessageAtOrBefore\(message\.sessionId, message\.order\)/);
+    assert.match(appSource, /async function rerunFromMessage\(message: TavernMessageRecord\)[\s\S]*const latest = latestSessionMessage\.value;[\s\S]*getLatestTavernUserMessageAtOrBefore\(latest\.sessionId, latest\.order\)/);
+    assert.doesNotMatch(appSource, /getLatestTavernUserMessageAtOrBefore\(message\.sessionId, message\.order\)/);
     assert.doesNotMatch(simulateBody, /listTavernMessages\(/);
     assert.match(simulateBody, /loadTavernPromptHistoryWindow\(/);
     assert.doesNotMatch(runTurnBody, /listTavernMessages\(/);
@@ -1580,7 +1581,7 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.match(appSource, /liveManagerMarkdownSignature[\s\S]*homeThemeDark\.value \? 'theme:dark' : 'theme:light'/);
     assert.match(appSource, /watch\(\[[\s\S]*\(\) => htmlRenderEnabled\.value,[\s\S]*\(\) => homeThemeDark\.value,[\s\S]*enhanceChatMarkdown\(\);/);
     assert.match(appSource, /watch\(\[[\s\S]*\(\) => liveManagerMarkdownSignature\.value,[\s\S]*\(\) => homeThemeDark\.value,[\s\S]*enhanceManagerMarkdown\(\);/);
-    assert.match(markdownToolsSource, /htmlBlockMode: options\.htmlRenderEnabled\.value \? 'preview' : 'code'/);
+    assert.match(markdownToolsSource, /htmlBlockMode: optionsOverride\.live[\s\S]*\? 'code'[\s\S]*: options\.htmlRenderEnabled\.value \? 'preview' : 'code'/);
     assert.match(markdownToolsSource, /htmlBlockMode: options\.htmlRenderEnabled\.value \? undefined : 'code'/);
     assert.match(markdownToolsSource, /window\.addEventListener\(TAVERN_INLINE_IMAGE_PROGRESS_EVENT/);
     assert.match(markdownToolsSource, /window\.removeEventListener\(TAVERN_INLINE_IMAGE_PROGRESS_EVENT/);
@@ -1782,11 +1783,12 @@ test('tavern live stream rendering is frame-batched without bypassing display re
     const liveEnhanceMatch = markdownToolsSource.match(/function enhanceLiveChatMarkdown\(\) \{[\s\S]*?\n {4}\}/);
 
     assert.ok(liveEnhanceMatch);
-    assert.match(markdownToolsSource, /function hidePendingTavernHtmlPreviews\(root: HTMLElement\)[\s\S]*pre\.dataset\.xbTavernHtmlPending = 'true';/);
+    assert.match(markdownToolsSource, /function markPendingTavernHtmlPreviews\(root: HTMLElement\)[\s\S]*pre\.dataset\.xbTavernHtmlPending = 'true';/);
     assert.match(markdownToolsSource, /function cleanupTavernHtmlPre\(pre: HTMLPreElement\)[\s\S]*delete pre\.dataset\.xbTavernHtmlPending;/);
     assert.match(markdownToolsSource, /function renderTavernHtmlPre\(pre: HTMLPreElement, html = '', hash = ''\)[\s\S]*delete pre\.dataset\.xbTavernHtmlPending;/);
-    assert.match(liveEnhanceMatch[0], /hidePendingTavernHtmlPreviews\(node\);/);
-    assert.match(liveEnhanceMatch[0], /enhanceActionCheckMarkers\(node\);/);
+    assert.match(markdownToolsSource, /function enhanceStableMarkdownNode\(node: HTMLElement[\s\S]*if \(optionsOverride\.live\) \{[\s\S]*markPendingTavernHtmlPreviews\(node\);[\s\S]*\} else \{[\s\S]*enhanceTavernHtmlCodeBlocks\(node\);/);
+    assert.match(markdownToolsSource, /function enhanceStableMarkdownNode\(node: HTMLElement[\s\S]*enhanceActionCheckMarkers\(node\);/);
+    assert.match(liveEnhanceMatch[0], /enhanceStableMarkdownNode\(node, \{ live: true \}\);/);
     assert.doesNotMatch(liveEnhanceMatch[0], /enhanceTavernHtmlCodeBlocks/);
 
     assert.doesNotMatch(appSource, /let runtimeStreamFrame = 0;/);

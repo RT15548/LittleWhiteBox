@@ -87,6 +87,7 @@ const {
     visibleUserAvatar,
 } = chat;
 const {
+    branchCurrentChatSession,
     chatMessages,
     chatMessageWindow,
     createNewChatSession,
@@ -254,6 +255,11 @@ async function createSessionFromComposeMenu() {
 function openSessionArchiveFromComposeMenu() {
     closeComposeMenu();
     sessionArchiveOpen.value = true;
+}
+
+async function branchSessionFromComposeMenu() {
+    closeComposeMenu();
+    await branchCurrentChatSession();
 }
 
 function openAuthorNoteFromComposeMenu() {
@@ -775,6 +781,14 @@ watch(isMobileActionTrayViewport, (isMobile) => {
               @click="openSessionArchiveFromComposeMenu"
             >
               会话档案
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              class="compose-menu-item"
+              @click="branchSessionFromComposeMenu"
+            >
+              对话分支
             </button>
             <button
               type="button"

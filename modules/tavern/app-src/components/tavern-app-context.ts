@@ -223,6 +223,7 @@ export interface TavernCharacterContext {
 }
 
 export interface TavernSessionContext {
+    branchCurrentChatSession: TavernCommand<[], Promise<void>>;
     chatMessages: TavernReadable<TavernMessageRecord[]>;
     chatMessageWindow: TavernReadable<TavernMessageWindowState>;
     createNewChatSession: TavernCommand<[], Promise<void>>;

@@ -864,6 +864,199 @@ export async function getTavernSession(sessionId = ''): Promise<TavernSessionRec
     return await tavernSessionsTable.get(id) || null;
 }
 
+function cloneBranchMemorySnapshotFiles(files: TavernMemorySnapshotFileEntry[] = [], sessionId = ''): TavernMemorySnapshotFileEntry[] {
+    return files.map((entry) => ({
+        ...cloneSerializable(entry, entry),
+        file: {
+            ...cloneSerializable(entry.file, entry.file),
+            sessionId,
+        },
+    }));
+}
+
+function cloneBranchTask(task: TavernTaskRecord, sessionId = '', mapManagerRunId: (managerRunId?: string) => string): TavernTaskRecord {
+    const cloned = cloneSerializable(task, task);
+    return {
+        ...cloned,
+        sessionId,
+        sourceManagerRunId: cloned.sourceManagerRunId ? mapManagerRunId(cloned.sourceManagerRunId) : cloned.sourceManagerRunId,
+    };
+}
+
+export async function branchTavernSession(sessionId = ''): Promise<TavernSessionRecord | null> {
+    const sourceSessionId = String(sessionId || '').trim();
+    if (!sourceSessionId) {return null;}
+    const timestamp = now();
+    const nextSessionId = createId();
+    const managerRunIdMap = new Map<string, string>();
+    const mapManagerRunId = (managerRunId = '') => {
+        const original = String(managerRunId || '').trim();
+        if (!original) {return '';}
+        const existing = managerRunIdMap.get(original);
+        if (existing) {return existing;}
+        const next = createId('manager-run');
+        managerRunIdMap.set(original, next);
+        return next;
+    };
+    return await db.transaction(
+        'rw',
+        tavernSessionsTable,
+        tavernMessagesTable,
+        tavernManagerMessagesTable,
+        tavernManagerRunsTable,
+        tavernManagerMemorySnapshotsTable,
+        tavernManagerStateSnapshotsTable,
+        tavernManagerTaskSnapshotsTable,
+        tavernMemoryFilesTable,
+        tavernMemorySnapshotsTable,
+        tavernMemoryIndexesTable,
+        tavernStateDocumentsTable,
+        tavernStatePatchesTable,
+        tavernTasksTable,
+        tavernTaskSnapshotsTable,
+        tavernStatusSnapshotsTable,
+        tavernTaskFingerprintStatesTable,
+        async () => {
+            const sourceSession = await tavernSessionsTable.get(sourceSessionId);
+            if (!sourceSession) {return null;}
+            const [
+                messages,
+                managerMessages,
+                managerRuns,
+                managerMemorySnapshots,
+                managerStateSnapshots,
+                managerTaskSnapshots,
+                memoryFiles,
+                memorySnapshots,
+                memoryIndexes,
+                stateDocuments,
+                statePatches,
+                tasks,
+                taskSnapshots,
+                statusSnapshots,
+                fingerprintStates,
+            ] = await Promise.all([
+                tavernMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernManagerMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernManagerRunsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernManagerMemorySnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernManagerStateSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernManagerTaskSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernMemoryFilesTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernMemorySnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernMemoryIndexesTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernStateDocumentsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernStatePatchesTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernTasksTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernTaskSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernStatusSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernTaskFingerprintStatesTable.where('sessionId').equals(sourceSessionId).toArray(),
+            ]);
+            const session: TavernSessionRecord = {
+                ...cloneSerializable(sourceSession, sourceSession),
+                id: nextSessionId,
+                title: normalizeTitle(`${sourceSession.title || sourceSession.characterName || '未命名会话'} · 分支`),
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                contextSnapshot: cloneSerializable(sourceSession.contextSnapshot, undefined),
+                buildSnapshot: cloneSerializable(sourceSession.buildSnapshot, undefined),
+                state: cloneSerializable(normalizeTavernSessionState(sourceSession.state || {}), {}),
+            };
+            managerRuns.forEach((run) => {
+                managerRunIdMap.set(run.id, createId('manager-run'));
+            });
+            await tavernSessionsTable.put(session);
+            await Promise.all([
+                messages.length ? tavernMessagesTable.bulkPut(messages.map((message) => ({
+                    ...cloneSerializable(message, message),
+                    sessionId: nextSessionId,
+                }))) : 0,
+                managerMessages.length ? tavernManagerMessagesTable.bulkPut(managerMessages.map((message) => ({
+                    ...cloneSerializable(message, message),
+                    sessionId: nextSessionId,
+                }))) : 0,
+                managerRuns.length ? tavernManagerRunsTable.bulkPut(managerRuns.map((run) => ({
+                    ...cloneSerializable(run, run),
+                    id: mapManagerRunId(run.id),
+                    sessionId: nextSessionId,
+                }))) : 0,
+                memoryFiles.length ? tavernMemoryFilesTable.bulkPut(memoryFiles.map((file) => ({
+                    ...cloneSerializable(file, file),
+                    sessionId: nextSessionId,
+                }))) : 0,
+                memorySnapshots.length ? tavernMemorySnapshotsTable.bulkPut(memorySnapshots.map((snapshot) => ({
+                    ...cloneSerializable(snapshot, snapshot),
+                    sessionId: nextSessionId,
+                    files: cloneBranchMemorySnapshotFiles(snapshot.files || [], nextSessionId),
+                }))) : 0,
+                memoryIndexes.length ? tavernMemoryIndexesTable.bulkPut(memoryIndexes.map((index) => ({
+                    ...cloneSerializable(index, index),
+                    sessionId: nextSessionId,
+                }))) : 0,
+                managerMemorySnapshots.length ? tavernManagerMemorySnapshotsTable.bulkPut(managerMemorySnapshots.map((snapshot) => ({
+                    ...cloneSerializable(snapshot, snapshot),
+                    managerRunId: mapManagerRunId(snapshot.managerRunId),
+                    sessionId: nextSessionId,
+                    beforeFile: snapshot.beforeFile
+                        ? {
+                            ...cloneSerializable(snapshot.beforeFile, snapshot.beforeFile),
+                            sessionId: nextSessionId,
+                        }
+                        : undefined,
+                }))) : 0,
+                stateDocuments.length ? tavernStateDocumentsTable.bulkPut(stateDocuments.map((document) => ({
+                    ...cloneSerializable(document, document),
+                    sessionId: nextSessionId,
+                }))) : 0,
+                statePatches.length ? tavernStatePatchesTable.bulkPut(statePatches.map((patch) => ({
+                    ...cloneSerializable(patch, patch),
+                    id: createId('state-patch'),
+                    sessionId: nextSessionId,
+                    managerRunId: patch.managerRunId ? mapManagerRunId(patch.managerRunId) : patch.managerRunId,
+                }))) : 0,
+                managerStateSnapshots.length ? tavernManagerStateSnapshotsTable.bulkPut(managerStateSnapshots.map((snapshot) => ({
+                    ...cloneSerializable(snapshot, snapshot),
+                    managerRunId: mapManagerRunId(snapshot.managerRunId),
+                    sessionId: nextSessionId,
+                    beforeDocument: snapshot.beforeDocument
+                        ? {
+                            ...cloneSerializable(snapshot.beforeDocument, snapshot.beforeDocument),
+                            sessionId: nextSessionId,
+                        }
+                        : undefined,
+                }))) : 0,
+                tasks.length ? tavernTasksTable.bulkPut(tasks.map((task) => cloneBranchTask(task, nextSessionId, mapManagerRunId))) : 0,
+                taskSnapshots.length ? tavernTaskSnapshotsTable.bulkPut(taskSnapshots.map((snapshot) => ({
+                    ...cloneSerializable(snapshot, snapshot),
+                    sessionId: nextSessionId,
+                    tasks: (snapshot.tasks || []).map((task) => cloneBranchTask(task, nextSessionId, mapManagerRunId)),
+                }))) : 0,
+                statusSnapshots.length ? tavernStatusSnapshotsTable.bulkPut(statusSnapshots.map((snapshot) => ({
+                    ...cloneSerializable(snapshot, snapshot),
+                    sessionId: nextSessionId,
+                    document: snapshot.document
+                        ? {
+                            ...cloneSerializable(snapshot.document, snapshot.document),
+                            sessionId: nextSessionId,
+                        }
+                        : undefined,
+                }))) : 0,
+                managerTaskSnapshots.length ? tavernManagerTaskSnapshotsTable.bulkPut(managerTaskSnapshots.map((snapshot) => ({
+                    ...cloneSerializable(snapshot, snapshot),
+                    managerRunId: mapManagerRunId(snapshot.managerRunId),
+                    sessionId: nextSessionId,
+                    beforeTasks: (snapshot.beforeTasks || []).map((task) => cloneBranchTask(task, nextSessionId, mapManagerRunId)),
+                }))) : 0,
+                fingerprintStates.length ? tavernTaskFingerprintStatesTable.bulkPut(fingerprintStates.map((state) => ({
+                    ...cloneSerializable(state, state),
+                    sessionId: nextSessionId,
+                }))) : 0,
+            ]);
+            return session;
+        },
+    );
+}
+
 export async function deleteTavernSession(sessionId = ''): Promise<number> {
     const id = String(sessionId || '').trim();
     if (!id) {return 0;}
