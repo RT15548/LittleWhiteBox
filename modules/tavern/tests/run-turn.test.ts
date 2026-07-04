@@ -438,20 +438,18 @@ test('xb tavern run turn sends only the latest quest hook first to ST-native mem
         },
     });
     await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-event',
+        op: 'upsert-vision',
         eventId: 'old-hook',
         title: '旧线索',
-        horizon: '旧线索远景',
-        current: '旧线索当前',
+        vision: '旧线索远景',
         doneWhen: '角色当场说出答案。',
         hookForModel: '旧码头的名字还挂在雨里。',
     }, { sourceAssistantOrder: 5 });
     await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-event',
+        op: 'upsert-vision',
         eventId: 'latest-hook',
         title: '最新线',
-        horizon: '最新线索远景',
-        current: '最新线索当前',
+        vision: '最新线索远景',
         doneWhen: '角色当场说出答案。',
         hookForModel: '莉娜听见旧码头时短暂停顿。',
     }, { sourceAssistantOrder: 7 });
@@ -2266,12 +2264,12 @@ test('tavern manager prompt strips unauthorized module rules cleanly', () => {
         includeCartography: false,
         includeQuestOrchestration: true,
     });
-    assert.match(questOnly, /## Events/);
-    assert.match(questOnly, /playable future directions/);
-    assert.match(questOnly, /Ambitious, tonally fitting, with a clear first step/);
-    assert.match(questOnly, /yes, let me go do that/);
-    assert.match(questOnly, /If no sufficiently good direction comes to mind, leave the pool empty/);
-    assert.doesNotMatch(questOnly, /"op":"upsert-event"|hookForModel|doneWhen.*objective completion condition/);
+    assert.match(questOnly, /## Events \(Ambition Palette\)/);
+    assert.match(questOnly, /grand goals they could choose to chase/);
+    assert.match(questOnly, /big, distant END/);
+    assert.match(questOnly, /fuck yes, let's do that/);
+    assert.match(questOnly, /If nothing genuinely grand comes, leave it empty/);
+    assert.doesNotMatch(questOnly, /"op":"upsert-vision"|hookForModel|doneWhen.*objective completion condition/);
     assert.doesNotMatch(questOnly, /MemoryWrite/);
     assert.doesNotMatch(questOnly, /## Structured State/);
     assert.doesNotMatch(questOnly, /## Map/);

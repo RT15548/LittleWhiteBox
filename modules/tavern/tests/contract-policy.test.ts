@@ -168,13 +168,14 @@ test('tavern auto manager tool policy keeps read tools and module-specific write
         cartographyEngine: false,
         statusPanel: false,
     }));
-    assert.deepEqual(disabled.allowedToolNames, ['LS', 'Grep', 'Read']);
+    assert.deepEqual(disabled.allowedToolNames, ['LS', 'Grep', 'Read', 'web_search']);
     assert.equal(isAutoManagerToolAllowed('Write', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('MapPatch', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('MapSceneEdit', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('EventPatch', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('StatusPatch', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('Read', disabled.runtime.contract), true);
+    assert.equal(isAutoManagerToolAllowed('web_search', disabled.runtime.contract), true);
 
     const memoryDenied = buildDeniedAutoManagerToolResult('Write', disabled.runtime.contract);
     assert.equal(memoryDenied.ok, false);

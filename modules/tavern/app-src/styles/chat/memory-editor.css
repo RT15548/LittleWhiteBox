@@ -313,9 +313,8 @@
     line-height: 1.25;
 }
 
-.tavern-chat.xb-page .tavern-event-horizon,
 .tavern-chat.xb-page .tavern-event-done,
-.tavern-chat.xb-page .tavern-event-current-text,
+.tavern-chat.xb-page .tavern-event-vision-text,
 .tavern-chat.xb-page .tavern-event-card p,
 .tavern-chat.xb-page .tavern-event-empty p {
     margin: 0;
@@ -324,7 +323,7 @@
     line-height: 1.55;
 }
 
-.tavern-chat.xb-page .tavern-event-current-entry {
+.tavern-chat.xb-page .tavern-event-vision-entry {
     padding: 9px 10px;
     border: 1px solid rgba(var(--xb-accent-rgb), 0.18);
     border-radius: 6px;
@@ -336,21 +335,18 @@
     line-height: 1.6;
 }
 
-.tavern-chat.xb-page .tavern-event-field,
 .tavern-chat.xb-page .tavern-event-done-token {
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
-.tavern-chat.xb-page .tavern-event-field span,
 .tavern-chat.xb-page .tavern-event-done-token span {
     color: var(--xb-text-dim);
     font-size: 11px;
     line-height: 1.2;
 }
 
-.tavern-chat.xb-page .tavern-event-field p,
 .tavern-chat.xb-page .tavern-event-done-token p {
     margin: 0;
     color: var(--xb-text-muted);
@@ -427,14 +423,8 @@
     line-height: 1.3;
 }
 
-.tavern-chat.xb-page .tavern-event-card .tavern-event-current-text {
+.tavern-chat.xb-page .tavern-event-card .tavern-event-vision-text {
     color: var(--xb-text-body);
-}
-
-.tavern-chat.xb-page .tavern-event-card .tavern-event-horizon {
-    margin-top: 5px;
-    color: var(--xb-text-dim);
-    font-size: 11px;
 }
 
 .tavern-chat.xb-page .tavern-event-card.is-completed strong {
@@ -448,7 +438,7 @@
     background: rgba(255, 255, 255, 0.012);
 }
 
-.tavern-chat.xb-page .tavern-event-card.is-completed .tavern-event-current-text {
+.tavern-chat.xb-page .tavern-event-card.is-completed .tavern-event-vision-text {
     color: var(--xb-text-dim);
 }
 

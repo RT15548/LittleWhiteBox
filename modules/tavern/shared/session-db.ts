@@ -41,6 +41,17 @@ import {
     type TavernRuntimeEvent,
 } from './runtime-events';
 
+type TavernDexieUpgradeTransaction = {
+    table: (name: string) => {
+        clear: () => Promise<unknown>;
+    };
+};
+
+type TavernDexieVersionWithUpgrade = {
+    stores: (schema: Record<string, string | null>) => void;
+    upgrade: (fn: (transaction: TavernDexieUpgradeTransaction) => Promise<void>) => void;
+};
+
 export interface TavernSessionRecord {
     id: string;
     title: string;
@@ -258,14 +269,12 @@ export interface TavernTaskRecord {
     sessionId: string;
     status: TavernTaskStatus;
     title: string;
-    horizon: string;
-    current: string;
+    vision: string;
     doneWhen: string;
     hookForModel: string;
     fingerprint: string;
     createdOrder: number;
     updatedOrder: number;
-    lastAdvancedOrder: number;
     completedOrder?: number;
     abandonedOrder?: number;
     sourceManagerRunId?: string;
@@ -580,6 +589,35 @@ class TavernDatabase extends Dexie {
             statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
             managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
             taskFingerprintStates: 'sessionId, updatedAt',
+        });
+        const version10 = this.version(10) as unknown as TavernDexieVersionWithUpgrade;
+        version10.stores({
+            sessions: 'id, updatedAt, characterKey, characterName',
+            messages: '[sessionId+order], sessionId, order',
+            managerMessages: '[sessionId+order], sessionId, order',
+            meta: 'key',
+            presets: 'id, updatedAt, sourcePresetId',
+            managerRuns: 'id, sessionId, status, turn, updatedAt',
+            memoryFiles: '[sessionId+path], sessionId, path, status, updatedAt',
+            memoryStateSnapshots: null,
+            memorySnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            memoryIndexes: '[sessionId+kind], sessionId, kind, status, updatedAt',
+            assistantPresets: 'id, updatedAt',
+            managerMemorySnapshots: '[managerRunId+path], managerRunId, sessionId, path, updatedAt',
+            stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
+            statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
+            managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
+            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
+            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
+            taskFingerprintStates: 'sessionId, updatedAt',
+        });
+        version10.upgrade(async (transaction: TavernDexieUpgradeTransaction) => {
+            await transaction.table('tasks').clear();
+            await transaction.table('taskSnapshots').clear();
+            await transaction.table('managerTaskSnapshots').clear();
+            await transaction.table('taskFingerprintStates').clear();
         });
     }
 }

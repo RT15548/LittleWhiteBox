@@ -23,12 +23,12 @@ const completedPreviewTasks = computed(() => completedTasks.value.slice(0, 3));
 const completedHiddenCount = computed(() => Math.max(0, completedTasks.value.length - completedPreviewTasks.value.length));
 const emptyTitle = computed(() => {
     if (!props.enabled) {return '事件功能未授权';}
-    if (Number(props.assistantFloor) < 5) {return '剧情展开后会出现事件线索';}
-    return '当前没有足够新鲜的方向';
+    if (Number(props.assistantFloor) < 5) {return '剧情展开后会出现野望';}
+    return '当前没有足够新鲜的野望';
 });
 const emptyText = computed(() => {
-    if (!props.enabled) {return '开启契约里的织线者后，后台会维护可回滚的事件线索池。';}
-    if (Number(props.assistantFloor) < 5) {return '先让人物、地点和关系沉淀几轮，系统不会过早生成方向。';}
+    if (!props.enabled) {return '开启契约里的织线者后，后台会维护可回滚的野望调色盘。';}
+    if (Number(props.assistantFloor) < 5) {return '先让人物、地点和关系沉淀几轮，系统不会过早生成野望。';}
     return '后台没有找到对味的新钩子时会保持空白。';
 });
 
@@ -38,7 +38,7 @@ function orderLabel(task: TavernTaskRecord): string {
 }
 
 function eventTitle(task: TavernTaskRecord): string {
-    return String(task.title || task.current || '未命名方向').trim();
+    return String(task.title || task.vision || '未命名野望').trim();
 }
 </script>
 
@@ -49,16 +49,12 @@ function eventTitle(task: TavernTaskRecord): string {
       class="tavern-event-current"
     >
       <div class="tavern-event-current-head">
-        <span class="tavern-event-kicker">当前方向</span>
+        <span class="tavern-event-kicker">野望调色盘</span>
         <small>{{ orderLabel(primaryTask) }}</small>
       </div>
       <h3>{{ eventTitle(primaryTask) }}</h3>
-      <div class="tavern-event-current-entry">
-        {{ primaryTask.current }}
-      </div>
-      <div class="tavern-event-field">
-        <span>远景</span>
-        <p>{{ primaryTask.horizon }}</p>
+      <div class="tavern-event-vision-entry">
+        {{ primaryTask.vision }}
       </div>
       <div class="tavern-event-done-token">
         <span>达成标志</span>
@@ -78,7 +74,7 @@ function eventTitle(task: TavernTaskRecord): string {
       class="tavern-event-section"
     >
       <header>
-        <strong>其他线索</strong>
+        <strong>其他野望</strong>
         <span>{{ alternateTasks.length }}</span>
       </header>
       <article
@@ -90,14 +86,11 @@ function eventTitle(task: TavernTaskRecord): string {
           <strong>{{ eventTitle(task) }}</strong>
           <small>{{ orderLabel(task) }}</small>
         </div>
-        <p class="tavern-event-current-text">
-          {{ task.current }}
+        <p class="tavern-event-vision-text">
+          {{ task.vision }}
         </p>
         <p class="tavern-event-done">
           达成：{{ task.doneWhen }}
-        </p>
-        <p class="tavern-event-horizon">
-          {{ task.horizon }}
         </p>
       </article>
     </div>
@@ -118,8 +111,8 @@ function eventTitle(task: TavernTaskRecord): string {
           <strong>{{ eventTitle(task) }}</strong>
           <small>{{ orderLabel(task) }}</small>
         </div>
-        <p class="tavern-event-current-text">
-          {{ task.current }}
+        <p class="tavern-event-vision-text">
+          {{ task.vision }}
         </p>
         <p class="tavern-event-done">
           达成：{{ task.doneWhen }}

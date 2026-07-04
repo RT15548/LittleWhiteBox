@@ -63,7 +63,7 @@ function buildWhatYouHaveSection(options: TavernManagerPromptOptions = {}): stri
             includeMemory ? '- A specific character\'s full file → Read `memory/characters/<name>.md`.' : '',
             includeCartography ? '- Map atlas `world` or a specific scene map → MapAtlasRead / MapSceneRead.' : '',
             includeStatus ? '- Status panel full document → StatusRead.' : '',
-            includeQuestOrchestration ? '- Event pool current contents → EventInspect.' : '',
+            includeQuestOrchestration ? '- Ambition palette current contents → EventInspect.' : '',
             '- Verify what actually happened in the RP → Grep/Read under `chat/`.',
         ].filter(Boolean);
         return [
@@ -83,7 +83,7 @@ function buildWhatYouHaveSection(options: TavernManagerPromptOptions = {}): stri
         includeMemory ? '- Global memory `state.md` in full.' : '',
         includeCartography ? '- Map atlas `world` (place hierarchy, routes, scene links, actor locations including current player position).' : '',
         includeStatus ? '- Status panel full document.' : '',
-        includeQuestOrchestration ? '- Event pool current contents.' : '',
+        includeQuestOrchestration ? '- Ambition palette current contents.' : '',
         includeMemory ? '- Character memory **filename list only** (not file contents).' : '',
     ].filter(Boolean);
     const whenNeeded = [
@@ -137,8 +137,8 @@ function buildToolsSection(options: TavernManagerPromptOptions = {}): string {
     ] : [];
     const eventTools = includeQuestOrchestration ? [
         'Event operations:',
-        '- **EventInspect** — view the event pool',
-        '- **EventPatch** — maintain event directions',
+        '- **EventInspect** — view the ambition palette',
+        '- **EventPatch** — maintain ambitions',
     ] : [];
     const webTools = options.includeWebSearch ? [
         'Web research:',
@@ -368,30 +368,26 @@ function buildEventsSection(): string {
     return [
         '---',
         '',
-        '## Events',
+        '## Events (Ambition Palette)',
         '',
-        'Events are governed entirely by system rules; there is no user-editable setting.',
+        'Offer the player 2-4 grand goals they could choose to chase. Each is a big, distant END the player would actively WANT — not a summary of the past, not a prediction of the next beat. This is the only thing this tool does.',
         '',
-        'The event engine maintains "big things the story could go next" — playable future directions.',
-        'It does not record what already happened, does not replace memory, does not replace the map, and is not a random encounter generator.',
+        'What makes an ambition land:',
+        '- It sits far beyond where the plot is already heading — not the next turn or two the player can already see coming, but a large-scale end they haven\'t even glimpsed yet. Zoom out past this scene: mine the worldbook, the wider setting, the whole arc. Big. Distant.',
+        '- It burns with a drive: revenge, hunger, ambition, desire, possession. Not a neutral to-do item — something the player craves.',
+        '- It shows a concrete, vivid endgame they can already picture — a moment, a confrontation, a triumph, a person in their arms or under their heel.',
+        '- Seeing it should trigger "fuck yes, let\'s do that." If it reads like a task list or a background errand, it failed.',
+        '- It grows straight out of what\'s already established, and there\'s already a scent of a way in (a letter, a secret, a weakness you glimpsed).',
         '',
-        'Good directions:',
-        '- Ambitious, tonally fitting, with a clear first step. When the user sees one, the natural reaction should be "yes, let me go do that" — not "that is just background noise."',
-        '- Must grow from established characters, places, relationships, world facts, tone, and user preferences, then combine into a situation that has not yet appeared on screen.',
-        '- Match the current story\'s boldness. In erotic, violent, political, horror, or domestic stories, directions should carry the same desire, edge, and intensity — do not sanitize into generic mystery hooks.',
+        'Match the story\'s raw appetite. In erotic, violent, political, or horror stories, the goals carry the same lust, cruelty, and edge — never sanitize a sharp story into a safe mystery hook.',
         '',
-        'Do not create:',
-        '- Restatements of existing foreshadowing.',
-        '- Unresolved items already recorded in memory.',
-        '- Natural continuations of the current relationship or current scene.',
-        '- Generic background trivia.',
-        '- Random accidents disconnected from the current story.',
+        'Give 2-4 ambitions pointing DIFFERENT ways (one revenge, one escape, one conquest — not three shades of the same). This is rare and precious: most turns, change nothing. If nothing genuinely grand comes, leave it empty.',
         '',
-        'If no sufficiently good direction comes to mind, leave the pool empty. Fewer is better than mediocre.',
+        'Maintenance: complete an ambition when the RP reaches its doneWhen; abandon one the plot has killed or the player has refused; otherwise leave it alone.',
         '',
-        'Tool usage:',
-        '- EventInspect to view the current event pool.',
-        '- EventPatch to add, advance, complete, or remove directions.',
+        'Tools:',
+        '- EventInspect to view the current palette.',
+        '- EventPatch to add, complete, or abandon ambitions.',
     ].join('\n');
 }
 

@@ -86,7 +86,7 @@ export function rollbackImpactLines(impact: AcceptedStateRollbackImpact): string
     const lines: string[] = [];
     const restoreTargets: string[] = [];
     if (impact.memory.changed) {restoreTargets.push('会话记忆');}
-    if (impact.tasks.changed) {restoreTargets.push('事件线索');}
+    if (impact.tasks.changed) {restoreTargets.push('野望调色盘');}
     if (impact.status.changed) {restoreTargets.push('状态栏');}
     if (restoreTargets.length) {
         lines.push(`${joinRollbackTargets(restoreTargets)}会恢复到${target}。`);

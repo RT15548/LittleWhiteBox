@@ -365,7 +365,7 @@ function buildAutoManagerUserPrompt(input: {
         ...(allowMemory ? [buildResidentMemoryBlock(input.memoryFiles), ''] : []),
         ...(allowMap ? [String(input.atlasWorldBlock || '[Map atlas world]\nnull').trim(), ''] : []),
         ...(allowStatus ? [String(input.statusPanelBlock || '[Status panel full document]\nnull').trim(), ''] : []),
-        ...(allowQuest ? [String(input.taskPoolBlock || '[Current Event Pool]\nActive directions: unknown.').trim(), ''] : []),
+        ...(allowQuest ? [String(input.taskPoolBlock || '[Current Ambition Palette]\nActive ambitions: unknown.').trim(), ''] : []),
         ...(allowMemory ? [buildCharacterMemoryFilenameListBlock(input.memoryFiles), ''] : []),
         '[Current turn user message]',
         cleanSourceTextForManager(input.userMessage.content),
@@ -1289,7 +1289,7 @@ async function runManagerTask(input: {
         await rebuildTavernMemoryDerivedIndexForLiveSession(input.sessionId);
         const changedCount = changedFiles.length + changedStates.length + changedTasks.length;
         const defaultOutput = changedCount
-            ? `已维护 ${changedFiles.length} 个记忆文件、${changedStates.length} 份结构化状态、${changedTasks.length} 条事件线索。`
+            ? `已维护 ${changedFiles.length} 个记忆文件、${changedStates.length} 份结构化状态、${changedTasks.length} 条野望。`
             : '已检查并回复。';
         const completed = await finalizeManagerRun(managerRun, {
             status: 'completed',
@@ -1643,7 +1643,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
                     ...changedTasks,
                     ...abandonedTasks.map((task) => `event/${task.id}`),
                 ])];
-                const staleSummary = `系统已放弃 ${abandonedTasks.length} 条过期事件线索。`;
+                const staleSummary = `系统已放弃 ${abandonedTasks.length} 条过期野望。`;
                 const outputText = String(completedRun.outputText || '').trim();
                 completedRun = await finalizeManagerRun(completedRun, {
                     outputText: outputText && outputText !== '已检查并回复。'
