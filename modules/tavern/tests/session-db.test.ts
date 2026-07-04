@@ -5452,7 +5452,7 @@ test('tavern manager chat returns segmented protocol messages and keeps final te
     ]);
 });
 
-test('tavern manager persists provider tool protocol messages for later manager chat replay', async () => {
+test('tavern manager stores provider tool protocol messages but skips them in later chat prompts', async () => {
     await db.delete();
     await db.open();
 
@@ -5488,27 +5488,26 @@ test('tavern manager persists provider tool protocol messages for later manager 
     });
     await appendTavernManagerMessage(session.id, { role: 'assistant', content: '北门半开。' });
 
-    let replayChecked = false;
+    let replayMessages: Array<Record<string, unknown>> = [];
     const result = await runXbTavernManagerChat({
         sessionId: session.id,
         agentConfig: {},
         question: '继续判断。',
         executeManagerOnce: async (options) => {
-            const replayAssistant = options.messages?.find((message) => (
+            replayMessages = (options.messages || []) as unknown as Array<Record<string, unknown>>;
+            const replayAssistant = replayMessages.find((message) => (
                 message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length
             ));
-            const replayTool = options.messages?.find((message) => message.role === 'tool');
-            assert.equal(replayAssistant?.providerPayload && typeof replayAssistant.providerPayload === 'object', true);
-            assert.equal(replayAssistant?.tool_calls?.[0]?.function?.name, 'Read');
-            assert.equal(replayTool?.tool_call_id, 'read-state');
-            assert.equal(replayTool?.toolName, 'Read');
-            replayChecked = true;
+            const replayTool = replayMessages.find((message) => message.role === 'tool');
+            assert.equal(replayAssistant, undefined);
+            assert.equal(replayTool, undefined);
             return { provider: 'fake-manager', model: 'memory-model', text: '已确认。' };
         },
     });
 
     assert.equal(result.ok, true);
-    assert.equal(replayChecked, true);
+    assert.equal(replayMessages.some((message) => message.role === 'user' && String(message.content || '').includes('读一下北门')), true);
+    assert.equal(replayMessages.some((message) => message.role === 'assistant' && message.content === '北门半开。'), true);
 });
 
 test('tavern manager uses session toolResponses when runner supports session tool loop', async () => {
@@ -6922,6 +6921,5 @@ test('tavern manager chat does not replay stale tool drafts from errored history
         message.role === 'assistant' && message.content === 'provider failed'
     ));
     assert.equal(result.ok, true);
-    assert.equal(Array.isArray((assistantReplay as { toolCalls?: unknown[] } | undefined)?.toolCalls), false);
-    assert.equal(Array.isArray((assistantReplay as { tool_calls?: unknown[] } | undefined)?.tool_calls), false);
+    assert.equal(assistantReplay, undefined);
 });

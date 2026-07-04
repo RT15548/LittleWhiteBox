@@ -388,6 +388,14 @@ function buildChatManagerUserPrompt(input: {
     ].join('\n');
 }
 
+function isPersistedManagerToolProtocolMessage(message: TavernManagerMessageRecord): boolean {
+    if (message.role === 'tool') {return true;}
+    if (message.role !== 'assistant') {return false;}
+    const legacyToolCalls = (message as { tool_calls?: unknown[] }).tool_calls;
+    return (Array.isArray(message.toolCalls) && message.toolCalls.length > 0)
+        || (Array.isArray(legacyToolCalls) && legacyToolCalls.length > 0);
+}
+
 function buildInputSummary(input: { trigger?: string; turn?: number; userOrder?: number; assistantOrder?: number; text?: string }): string {
     if (String(input.trigger || '') === 'manager_chat') {
         return `manager chat; turn ${Math.max(0, Number(input.turn) || 0)}; question ${String(input.text || '').length} chars`;
@@ -1161,6 +1169,7 @@ async function buildChatManagerMessages(input: {
         }),
     }];
     history.forEach((message) => {
+        if (isPersistedManagerToolProtocolMessage(message)) {return;}
         const canReplayToolCalls = message.role === 'assistant'
             && message.error !== true
             && !['aborted', 'error'].includes(String(message.finishReason || '').trim());
