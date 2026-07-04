@@ -681,8 +681,18 @@ test('tavern request log is sourced from runtime request snapshots', () => {
     const hostSource = readRepoFile('modules/tavern/tavern.ts');
     const nativePromptSource = readRepoFile('modules/tavern/host/native-prompt.ts');
     const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
+    const requestLogModalSource = readRepoFile('modules/tavern/app-src/components/TavernRequestLogModal.vue');
+    const requestLogPreviewSource = readRepoFile('modules/tavern/app-src/utils/request-log-preview.ts');
     assert.match(appSource, /lastRequestSnapshot\.value\?\.rawRequestJson \|\| lastRequestSnapshot\.value\?\.rawMessagesJson/);
     assert.match(appSource, /simulateRequestJson\.value = result\.requestSnapshot\.rawRequestJson \|\| result\.requestSnapshot\.rawMessagesJson/);
+    assert.match(requestLogModalSource, /buildRequestLogPreview/);
+    assert.match(requestLogModalSource, /美化显示/);
+    assert.match(requestLogModalSource, /原始 JSON/);
+    assert.match(requestLogModalSource, /class="prompt-log-search"/);
+    assert.match(requestLogModalSource, /prompt-search-mark/);
+    assert.doesNotMatch(requestLogModalSource, /v-html/);
+    assert.match(requestLogPreviewSource, /export function buildRequestLogPreview/);
+    assert.match(requestLogPreviewSource, /\['request', 'body', 'messages'\]/);
     assert.match(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: runtimePreset/);
     assert.match(chatRunSource, /runXbTavernTurn\(\{[\s\S]*chatPreset: runtimePreset/);
     assert.doesNotMatch(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: activeChatPreset\.value/);
