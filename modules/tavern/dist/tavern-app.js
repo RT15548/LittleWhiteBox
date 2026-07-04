@@ -68,7 +68,7 @@ function De(e) {
     for (const n in e) e[n] && (t += n + " ");
   return t.trim();
 }
-var uN = "itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly", vK = /* @__PURE__ */ Oy(uN), oCe = /* @__PURE__ */ Oy(uN + ",async,autofocus,autoplay,controls,default,defer,disabled,hidden,inert,loop,open,required,reversed,scoped,seamless,checked,muted,multiple,selected");
+var uN = "itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly", vK = /* @__PURE__ */ Oy(uN), iCe = /* @__PURE__ */ Oy(uN + ",async,autofocus,autoplay,controls,default,defer,disabled,hidden,inert,loop,open,required,reversed,scoped,seamless,checked,muted,multiple,selected");
 function cN(e) {
   return !!e || e === "";
 }
@@ -1286,7 +1286,7 @@ function qE(e) {
   const t = gv.get(e);
   t && (t.flags |= 8, gv.delete(e));
 }
-var lCe = Hy().requestIdleCallback || ((e) => setTimeout(e, 1)), uCe = Hy().cancelIdleCallback || ((e) => clearTimeout(e)), Sh = (e) => !!e.type.__asyncLoader, BN = (e) => e.type.__isKeepAlive;
+var oCe = Hy().requestIdleCallback || ((e) => setTimeout(e, 1)), lCe = Hy().cancelIdleCallback || ((e) => clearTimeout(e)), Sh = (e) => !!e.type.__asyncLoader, BN = (e) => e.type.__isKeepAlive;
 function a5(e, t) {
   UN(e, "a", t);
 }
@@ -15595,7 +15595,7 @@ var zV = class extends bd {
       await t.table("tasks").clear(), await t.table("taskSnapshots").clear(), await t.table("managerTaskSnapshots").clear(), await t.table("taskFingerprintStates").clear();
     });
   }
-}, Dt = new zV(), ct = Dt.sessions, Yt = Dt.messages, Mr = Dt.managerMessages, Ha = Dt.meta, cCe = Dt.presets, jn = Dt.managerRuns, Tn = Dt.memoryFiles, oa = Dt.memorySnapshots, Pr = Dt.memoryIndexes, Wu = Dt.assistantPresets, ur = Dt.managerMemorySnapshots, yn = Dt.stateDocuments, cr = Dt.statePatches, Ps = Dt.managerStateSnapshots, Bn = Dt.tasks, la = Dt.taskSnapshots, ua = Dt.statusSnapshots, ir = Dt.managerTaskSnapshots, ca = Dt.taskFingerprintStates, Pa = bd;
+}, Dt = new zV(), ct = Dt.sessions, Yt = Dt.messages, Mr = Dt.managerMessages, Ha = Dt.meta, uCe = Dt.presets, jn = Dt.managerRuns, Tn = Dt.memoryFiles, oa = Dt.memorySnapshots, Pr = Dt.memoryIndexes, Wu = Dt.assistantPresets, ur = Dt.managerMemorySnapshots, yn = Dt.stateDocuments, cr = Dt.statePatches, Ps = Dt.managerStateSnapshots, Bn = Dt.tasks, la = Dt.taskSnapshots, ua = Dt.statusSnapshots, ir = Dt.managerTaskSnapshots, ca = Dt.taskFingerprintStates, Pa = bd;
 function wn() {
   return Date.now();
 }
@@ -63491,12 +63491,9 @@ function aEe(e, t) {
 }
 function sEe(e, t, n = {}) {
   const r = No(e) ? e : {}, a = [
-    n.requestKind || String(r.requestKind || ""),
-    n.providerLabel || n.provider || String(r.provider || ""),
-    n.model || String(r.model || ""),
-    n.presetName || "",
+    n.presetName || String(r.presetName || r.chatPresetName || ""),
     `${t.length} messages`,
-    n.messageChars ? `${n.messageChars} chars` : ""
+    n.messageChars || r.messageChars ? `${n.messageChars || r.messageChars} chars` : ""
   ];
   if (n.capturedAt) {
     const s = new Date(Number(n.capturedAt));
@@ -63548,47 +63545,41 @@ var oEe = {
   "aria-label": "API 请求视图"
 }, cEe = { class: "prompt-tab-group" }, dEe = { class: "prompt-tab-group prompt-view-mode-tabs" }, fEe = { class: "prompt-log-search" }, hEe = { class: "prompt-inspector-view" }, pEe = {
   key: 0,
-  class: "prompt-inspector-summary"
-}, mEe = {
-  key: 1,
   class: "prompt-simulate-panel"
-}, gEe = ["value"], vEe = {
-  key: 2,
+}, mEe = ["value"], gEe = {
+  key: 1,
   class: "muted compact"
-}, yEe = {
-  key: 3,
+}, vEe = {
+  key: 2,
   class: "error"
-}, _Ee = {
+}, yEe = {
   key: 0,
   class: "prompt-request-pretty"
-}, bEe = { class: "prompt-preview-section" }, wEe = { class: "prompt-preview-chip-row" }, SEe = {
+}, _Ee = { class: "prompt-preview-section" }, bEe = { class: "prompt-preview-chip-row" }, wEe = {
   key: 0,
   class: "prompt-preview-error"
-}, AEe = {
+}, SEe = {
   key: 0,
   class: "prompt-preview-section"
-}, kEe = { class: "prompt-preview-fields" }, TEe = { key: 0 }, IEe = ["onClick"], EEe = { key: 2 }, xEe = {
-  key: 1,
-  class: "prompt-preview-section"
-}, CEe = { class: "prompt-preview-fields" }, MEe = { key: 0 }, PEe = ["onClick"], REe = { key: 2 }, NEe = { class: "prompt-preview-section" }, $Ee = { class: "prompt-preview-message-rule" }, LEe = {
+}, AEe = { class: "prompt-preview-parameter-panel" }, kEe = { class: "prompt-preview-parameter-head" }, TEe = { class: "prompt-preview-fields is-compact" }, IEe = { key: 0 }, EEe = ["onClick"], xEe = { key: 2 }, CEe = { key: 0 }, MEe = ["onClick"], PEe = { key: 2 }, REe = { class: "prompt-preview-section" }, NEe = { class: "prompt-preview-message-rule" }, $Ee = {
   key: 0,
   class: "prompt-preview-messages"
-}, DEe = { key: 0 }, OEe = {
+}, LEe = { key: 0 }, DEe = {
   key: 0,
   class: "prompt-preview-message-meta"
-}, FEe = { class: "prompt-preview-meta-heading" }, BEe = { class: "prompt-preview-fields" }, UEe = { key: 0 }, qEe = ["onClick"], HEe = { key: 2 }, KEe = {
+}, OEe = { class: "prompt-preview-meta-heading" }, FEe = { class: "prompt-preview-fields" }, BEe = { key: 0 }, UEe = ["onClick"], qEe = { key: 2 }, HEe = {
   key: 1,
   class: "prompt-empty-state"
-}, WEe = {
-  key: 2,
+}, KEe = {
+  key: 1,
   class: "prompt-preview-section"
-}, zEe = { class: "prompt-preview-fields" }, GEe = { key: 0 }, VEe = ["onClick"], JEe = { key: 2 }, YEe = {
+}, WEe = { class: "prompt-preview-fields" }, zEe = { key: 0 }, GEe = ["onClick"], VEe = { key: 2 }, JEe = {
   key: 1,
   class: "prompt-request-json"
-}, jEe = {
-  key: 5,
+}, YEe = {
+  key: 4,
   class: "prompt-empty-state"
-}, XEe = /* @__PURE__ */ Nn({
+}, jEe = /* @__PURE__ */ Nn({
   __name: "TavernRequestLogModal",
   props: {
     tab: {},
@@ -63743,32 +63734,22 @@ var oEe = {
         ref: o,
         class: "prompt-inspector-body"
       }, [m("section", hEe, [
-        e.tab === "history" ? (L(), D("div", pEe, [
-          m("span", null, V(d.value ? "有记录" : "暂无记录"), 1),
-          m("span", null, V(e.lastRequestSnapshot?.requestKind || "history"), 1),
-          m("span", null, V(e.lastRequestSnapshot?.providerLabel || e.lastRequestSnapshot?.provider || "未调用"), 1),
-          m("span", null, V(e.lastRequestSnapshot?.model || "未选择模型"), 1)
-        ])) : ge("", !0),
-        e.tab === "simulate" ? (L(), D("div", mEe, [m("div", null, [O[12] || (O[12] = m("label", { for: "request-simulate-input" }, "模拟本轮发言", -1)), m("textarea", {
+        e.tab === "simulate" ? (L(), D("div", pEe, [m("div", null, [O[12] || (O[12] = m("label", { for: "request-simulate-input" }, "模拟本轮发言", -1)), m("textarea", {
           id: "request-simulate-input",
           value: e.simulateInput,
           rows: "5",
           placeholder: "写一句要模拟发送的话",
           onInput: a
-        }, null, 40, gEe)]), m("button", {
+        }, null, 40, mEe)]), m("button", {
           type: "button",
           onClick: O[8] || (O[8] = (F) => M.$emit("simulate"))
         }, " 生成请求 ")])) : ge("", !0),
-        e.tab === "simulate" && e.simulateStatus ? (L(), D("p", vEe, V(e.simulateStatus), 1)) : ge("", !0),
-        e.tab === "simulate" && e.simulateError ? (L(), D("p", yEe, V(e.simulateError), 1)) : ge("", !0),
-        d.value ? (L(), D(We, { key: 4 }, [s.value === "pretty" ? (L(), D("div", _Ee, [
-          m("section", bEe, [
-            O[13] || (O[13] = m("h3", null, "请求概览", -1)),
-            m("div", wEe, [(L(!0), D(We, null, it(v.value.chips, (F) => (L(), D("span", { key: F }, V(F), 1))), 128))]),
-            v.value.parseError ? (L(), D("p", SEe, " JSON 解析失败：" + V(v.value.parseError), 1)) : ge("", !0)
-          ]),
-          v.value.outerFields.length ? (L(), D("section", AEe, [O[14] || (O[14] = m("h3", null, "外层记录", -1)), m("div", kEe, [(L(!0), D(We, null, it(v.value.outerFields, (F) => (L(), D("div", {
-            key: F.key,
+        e.tab === "simulate" && e.simulateStatus ? (L(), D("p", gEe, V(e.simulateStatus), 1)) : ge("", !0),
+        e.tab === "simulate" && e.simulateError ? (L(), D("p", vEe, V(e.simulateError), 1)) : ge("", !0),
+        d.value ? (L(), D(We, { key: 3 }, [s.value === "pretty" ? (L(), D("div", yEe, [
+          m("section", _Ee, [m("div", bEe, [(L(!0), D(We, null, it(v.value.chips, (F) => (L(), D("span", { key: F }, V(F), 1))), 128))]), v.value.parseError ? (L(), D("p", wEe, " JSON 解析失败：" + V(v.value.parseError), 1)) : ge("", !0)]),
+          v.value.outerFields.length || v.value.requestFieldsBeforeMessages.length ? (L(), D("section", SEe, [m("div", AEe, [m("div", kEe, [O[13] || (O[13] = m("span", null, "请求参数", -1)), m("small", null, V(v.value.outerFields.length + v.value.requestFieldsBeforeMessages.length), 1)]), m("div", TEe, [(L(!0), D(We, null, it(v.value.outerFields, (F) => (L(), D("div", {
+            key: `outer:${F.key}`,
             class: "prompt-preview-field"
           }, [
             m("span", null, V(F.label), 1),
@@ -63777,11 +63758,10 @@ var oEe = {
               type: "button",
               class: "prompt-preview-json-toggle",
               onClick: (W) => k($("outer", F))
-            }, V(g("outer", F)), 9, IEe)) : (L(), D("code", TEe, V(F.text), 1)),
-            N("outer", F) ? (L(), D("pre", EEe, V(F.text), 1)) : ge("", !0)
-          ]))), 128))])])) : ge("", !0),
-          v.value.requestFieldsBeforeMessages.length ? (L(), D("section", xEe, [O[15] || (O[15] = m("h3", null, "请求参数", -1)), m("div", CEe, [(L(!0), D(We, null, it(v.value.requestFieldsBeforeMessages, (F) => (L(), D("div", {
-            key: F.key,
+            }, V(g("outer", F)), 9, EEe)) : (L(), D("code", IEe, V(F.text), 1)),
+            N("outer", F) ? (L(), D("pre", xEe, V(F.text), 1)) : ge("", !0)
+          ]))), 128)), (L(!0), D(We, null, it(v.value.requestFieldsBeforeMessages, (F) => (L(), D("div", {
+            key: `before:${F.key}`,
             class: "prompt-preview-field"
           }, [
             m("span", null, V(F.label), 1),
@@ -63790,23 +63770,23 @@ var oEe = {
               type: "button",
               class: "prompt-preview-json-toggle",
               onClick: (W) => k($("before", F))
-            }, V(g("before", F)), 9, PEe)) : (L(), D("code", MEe, V(F.text), 1)),
-            N("before", F) ? (L(), D("pre", REe, V(F.text), 1)) : ge("", !0)
-          ]))), 128))])])) : ge("", !0),
-          m("section", NEe, [m("div", $Ee, [m("span", null, "MESSAGES · " + V(v.value.messages.length), 1)]), v.value.messages.length ? (L(), D("div", LEe, [(L(!0), D(We, null, it(v.value.messages, (F) => (L(), D("article", {
+            }, V(g("before", F)), 9, MEe)) : (L(), D("code", CEe, V(F.text), 1)),
+            N("before", F) ? (L(), D("pre", PEe, V(F.text), 1)) : ge("", !0)
+          ]))), 128))])])])) : ge("", !0),
+          m("section", REe, [m("div", NEe, [m("span", null, "MESSAGES · " + V(v.value.messages.length), 1)]), v.value.messages.length ? (L(), D("div", $Ee, [(L(!0), D(We, null, it(v.value.messages, (F) => (L(), D("article", {
             key: F.index,
             class: De(["prompt-preview-message", F.roleClass])
           }, [
             m("header", null, [
               m("strong", null, V(F.roleLabel), 1),
               m("span", null, "#" + V(F.index + 1), 1),
-              F.name ? (L(), D("small", DEe, V(F.name), 1)) : ge("", !0)
+              F.name ? (L(), D("small", LEe, V(F.name), 1)) : ge("", !0)
             ]),
             m("pre", null, [(L(!0), D(We, null, it(F.contentSegments, (W, U) => (L(), D("span", {
               key: U,
               class: De({ "prompt-preview-xml-tag": W.kind === "xml-tag" })
             }, V(W.text), 3))), 128))]),
-            F.metaFields.length ? (L(), D("div", OEe, [m("div", FEe, " meta · " + V(F.metaFields.length), 1), m("div", BEe, [(L(!0), D(We, null, it(F.metaFields, (W) => (L(), D("div", {
+            F.metaFields.length ? (L(), D("div", DEe, [m("div", OEe, " meta · " + V(F.metaFields.length), 1), m("div", FEe, [(L(!0), D(We, null, it(F.metaFields, (W) => (L(), D("div", {
               key: W.key,
               class: "prompt-preview-field"
             }, [
@@ -63816,11 +63796,11 @@ var oEe = {
                 type: "button",
                 class: "prompt-preview-json-toggle",
                 onClick: (U) => k($("message", W, F.index))
-              }, V(g("message", W, F.index)), 9, qEe)) : (L(), D("code", UEe, V(W.text), 1)),
-              N("message", W, F.index) ? (L(), D("pre", HEe, V(W.text), 1)) : ge("", !0)
+              }, V(g("message", W, F.index)), 9, UEe)) : (L(), D("code", BEe, V(W.text), 1)),
+              N("message", W, F.index) ? (L(), D("pre", qEe, V(W.text), 1)) : ge("", !0)
             ]))), 128))])])) : ge("", !0)
-          ], 2))), 128))])) : (L(), D("p", KEe, " 没有解析到 messages。 "))]),
-          v.value.requestFieldsAfterMessages.length ? (L(), D("section", WEe, [O[16] || (O[16] = m("h3", null, "附加参数", -1)), m("div", zEe, [(L(!0), D(We, null, it(v.value.requestFieldsAfterMessages, (F) => (L(), D("div", {
+          ], 2))), 128))])) : (L(), D("p", HEe, " 没有解析到 messages。 "))]),
+          v.value.requestFieldsAfterMessages.length ? (L(), D("section", KEe, [O[14] || (O[14] = m("h3", null, "附加参数", -1)), m("div", WEe, [(L(!0), D(We, null, it(v.value.requestFieldsAfterMessages, (F) => (L(), D("div", {
             key: F.key,
             class: "prompt-preview-field"
           }, [
@@ -63830,14 +63810,14 @@ var oEe = {
               type: "button",
               class: "prompt-preview-json-toggle",
               onClick: (W) => k($("after", F))
-            }, V(g("after", F)), 9, VEe)) : (L(), D("code", GEe, V(F.text), 1)),
-            N("after", F) ? (L(), D("pre", JEe, V(F.text), 1)) : ge("", !0)
+            }, V(g("after", F)), 9, GEe)) : (L(), D("code", zEe, V(F.text), 1)),
+            N("after", F) ? (L(), D("pre", VEe, V(F.text), 1)) : ge("", !0)
           ]))), 128))])])) : ge("", !0)
-        ])) : (L(), D("pre", YEe, V(d.value), 1))], 64)) : (L(), D("p", jEe, V(y.value), 1))
+        ])) : (L(), D("pre", JEe, V(d.value), 1))], 64)) : (L(), D("p", YEe, V(y.value), 1))
       ])], 512)
     ])], 32));
   }
-}), QEe = XEe, ZEe = { class: "xb-sidebar settings-sidebar" }, exe = { class: "panel guide-card" }, txe = { class: "guide-steps" }, nxe = ["onClick"], rxe = { class: "guide-label-full" }, axe = { class: "guide-label-mobile" }, sxe = { key: 0 }, ixe = /* @__PURE__ */ Nn({
+}), XEe = jEe, QEe = { class: "xb-sidebar settings-sidebar" }, ZEe = { class: "panel guide-card" }, exe = { class: "guide-steps" }, txe = ["onClick"], nxe = { class: "guide-label-full" }, rxe = { class: "guide-label-mobile" }, axe = { key: 0 }, sxe = /* @__PURE__ */ Nn({
   __name: "TavernSettingsSidebar",
   props: {
     active: {},
@@ -63846,26 +63826,26 @@ var oEe = {
   emits: ["select"],
   setup(e, { emit: t }) {
     const n = t;
-    return (r, a) => (L(), D("aside", ZEe, [m("div", exe, [a[0] || (a[0] = m("h2", null, "设置", -1)), m("div", txe, [(L(!0), D(We, null, it(e.items, (s) => (L(), D("button", {
+    return (r, a) => (L(), D("aside", QEe, [m("div", ZEe, [a[0] || (a[0] = m("h2", null, "设置", -1)), m("div", exe, [(L(!0), D(We, null, it(e.items, (s) => (L(), D("button", {
       key: s.key,
       type: "button",
       class: De(["guide-step", { active: e.active === s.key }]),
       onClick: (i) => n("select", s.key)
-    }, [m("strong", null, [m("span", rxe, V(s.label), 1), m("span", axe, V(s.mobileLabel || s.label), 1)]), s.badge ? (L(), D("em", sxe, V(s.badge), 1)) : ge("", !0)], 10, nxe))), 128))])])]));
+    }, [m("strong", null, [m("span", nxe, V(s.label), 1), m("span", rxe, V(s.mobileLabel || s.label), 1)]), s.badge ? (L(), D("em", axe, V(s.badge), 1)) : ge("", !0)], 10, txe))), 128))])])]));
   }
-}), oxe = ixe, lxe = { class: "panel step-panel api-workspace" }, uxe = /* @__PURE__ */ Nn({
+}), ixe = sxe, oxe = { class: "panel step-panel api-workspace" }, lxe = /* @__PURE__ */ Nn({
   __name: "TavernApiSettingsPanel",
   setup(e) {
     const { activeSettingsWorkspace: t, apiSettingsRootRef: n } = Ul();
     function r(a) {
       n.value = a instanceof HTMLElement ? a : null;
     }
-    return (a, s) => br((L(), D("div", lxe, [s[0] || (s[0] = m("div", { class: "panel-head" }, [m("div", null, [m("h2", null, "API 配置")])], -1)), m("div", { class: "api-scroll-body" }, [m("div", {
+    return (a, s) => br((L(), D("div", oxe, [s[0] || (s[0] = m("div", { class: "panel-head" }, [m("div", null, [m("h2", null, "API 配置")])], -1)), m("div", { class: "api-scroll-body" }, [m("div", {
       ref: r,
       class: "tavern-api-settings"
     })])], 512)), [[Dd, T(t) === "api"]]);
   }
-}), cxe = uxe, dxe = { class: "xb-main" }, fxe = /* @__PURE__ */ Nn({
+}), uxe = lxe, cxe = { class: "xb-main" }, dxe = /* @__PURE__ */ Nn({
   __name: "TavernSettingsPage",
   setup(e) {
     const t = Ul(), n = Bl(), { activeSettingsWorkspace: r, selectSettingsWorkspace: a, settingsNavItems: s } = t, { activeView: i, homeThemeDark: l } = n;
@@ -63880,7 +63860,7 @@ var oEe = {
         onHome: u[0] || (u[0] = (c) => i.value = "home"),
         onToggleTheme: u[1] || (u[1] = (c) => l.value = !T(l))
       }, null, 8, ["dark"]),
-      Kn(oxe, {
+      Kn(ixe, {
         active: T(r),
         items: T(s),
         onSelect: T(a)
@@ -63889,9 +63869,9 @@ var oEe = {
         "items",
         "onSelect"
       ]),
-      m("section", dxe, [
+      m("section", cxe, [
         T(r) === "characters" ? (L(), En(YU, { key: 0 })) : ge("", !0),
-        T(r) === "api" ? (L(), En(cxe, { key: 1 })) : ge("", !0),
+        T(r) === "api" ? (L(), En(uxe, { key: 1 })) : ge("", !0),
         T(r) === "chatPreset" ? (L(), En(QU, { key: 2 })) : ge("", !0),
         T(r) === "worldbooks" ? (L(), En(sq, { key: 3 })) : ge("", !0),
         T(r) === "regex" ? (L(), En(tq, { key: 4 })) : ge("", !0),
@@ -63900,7 +63880,7 @@ var oEe = {
       ])
     ], 2)) : ge("", !0);
   }
-}), hxe = fxe, pxe = { chat: { exclude: [
+}), fxe = dxe, hxe = { chat: { exclude: [
   "embedding",
   "embed",
   "rerank",
@@ -63915,7 +63895,7 @@ var oEe = {
   "sdxl",
   "flux",
   "moderation"
-] } }, mxe = Object.freeze([
+] } }, pxe = Object.freeze([
   "claude-opus-4-7",
   "claude-opus-4-6",
   "claude-opus-4-5",
@@ -63941,7 +63921,7 @@ function ki(e, t, n = "") {
   });
 }
 function bp(e = []) {
-  const t = [...new Set(e.filter(Boolean).map((a) => String(a).trim()).filter(Boolean))], n = pxe.chat, r = t.filter((a) => {
+  const t = [...new Set(e.filter(Boolean).map((a) => String(a).trim()).filter(Boolean))], n = hxe.chat, r = t.filter((a) => {
     const s = a.toLowerCase();
     return !n.exclude.some((i) => s.includes(i));
   });
@@ -63953,7 +63933,7 @@ function Eg(e = "") {
 function Nd(e) {
   return String(e || "").trim().replace(/\/+$/, "");
 }
-function gxe(e = "") {
+function mxe(e = "") {
   return e === "sillytavern-openai-compatible" || e === "sillytavern-claude" || e === "sillytavern-google";
 }
 function Mc(e = "") {
@@ -63962,13 +63942,13 @@ function Mc(e = "") {
 function PA(e = "") {
   return e === "anthropic" || e === "sillytavern-claude";
 }
-function vxe(e = "") {
+function gxe(e = "") {
   return e === "sillytavern-claude" ? tk : e === "sillytavern-google" ? nk : Od;
 }
 function wp(e = []) {
   return [...new Set(e.filter(Boolean).map((t) => String(t).trim()).filter(Boolean))];
 }
-function yxe(e) {
+function vxe(e) {
   const t = Nd(e);
   if (!t) return [];
   if (t.endsWith("/v1")) {
@@ -63994,7 +63974,7 @@ function lq(e) {
   }
   return wp([`${t}/v1/models`, `${t}/models`]);
 }
-function _xe(e, t) {
+function yxe(e, t) {
   const n = Nd(e);
   if (!n) return [];
   const r = n.endsWith("/v1beta") ? n.slice(0, -7) : n;
@@ -64007,7 +63987,7 @@ function _xe(e, t) {
     `${r}/models`
   ]);
 }
-function bxe(e, t) {
+function _xe(e, t) {
   const n = [
     e?.error?.message,
     e?.message,
@@ -64017,7 +63997,7 @@ function bxe(e, t) {
   ].find((r) => typeof r == "string" && r.trim());
   return n ? n.trim() : String(t || "").trim().slice(0, 160);
 }
-async function wxe(e, t = {}) {
+async function bxe(e, t = {}) {
   const n = await fetch(e, t), r = await n.text();
   let a = null, s = null;
   try {
@@ -64032,22 +64012,22 @@ async function wxe(e, t = {}) {
     data: a,
     rawText: r,
     parseError: s,
-    errorSnippet: bxe(a, r)
+    errorSnippet: _xe(a, r)
   };
 }
-function Sxe(e) {
+function wxe(e) {
   return bp((e?.data || []).map((t) => String(t?.id || "").trim()).filter(Boolean));
 }
 function uq(e) {
   return bp((e?.data || []).map((t) => String(t?.id || "").trim()).filter(Boolean));
 }
-function Axe(e) {
+function Sxe(e) {
   return bp((e?.models || e?.data || []).map((t) => String(t?.id || t?.name || "")).map((t) => t.split("/").pop() || "").filter(Boolean));
 }
 async function dv({ urls: e, requestOptionsList: t, extractModels: n, providerLabel: r }) {
   let a = null;
   for (const s of e) for (const i of t) {
-    const l = await wxe(s, i);
+    const l = await bxe(s, i);
     if (!l.ok) {
       a = l;
       continue;
@@ -64072,7 +64052,7 @@ async function dv({ urls: e, requestOptionsList: t, extractModels: n, providerLa
   }
   throw new Error(`${r} 拉取模型失败：未获取到模型列表。`);
 }
-async function kxe(e) {
+async function Axe(e) {
   const t = String(e.apiKey || "").trim(), n = Nd(e.baseUrl || ""), r = Nd(n || _$.claude);
   if (t && r) try {
     return await dv({
@@ -64088,16 +64068,16 @@ async function kxe(e) {
   } catch (a) {
     if (n) throw a;
   }
-  return [...mxe];
+  return [...pxe];
 }
 async function YR(e) {
   const t = e.provider, n = Nd(e.baseUrl || ""), r = String(e.apiKey || "").trim();
-  if (t === "sillytavern-claude") return bp(await kxe(e));
-  if (gxe(t)) return bp(await o8(e, vxe(t)));
+  if (t === "sillytavern-claude") return bp(await Axe(e));
+  if (mxe(t)) return bp(await o8(e, gxe(t)));
   if (!r) throw new Error("请先填写 API Key。");
   if (!n) throw new Error("请先填写 Base URL。");
   return t === "google" ? await dv({
-    urls: _xe(n, r),
+    urls: yxe(n, r),
     requestOptionsList: [
       { headers: {
         Accept: "application/json",
@@ -64109,7 +64089,7 @@ async function YR(e) {
       } },
       { headers: { Accept: "application/json" } }
     ],
-    extractModels: Axe,
+    extractModels: Sxe,
     providerLabel: "Google AI"
   }) : PA(t) ? await dv({
     urls: lq(n),
@@ -64121,20 +64101,20 @@ async function YR(e) {
     extractModels: uq,
     providerLabel: "Anthropic"
   }) : await dv({
-    urls: yxe(n),
+    urls: vxe(n),
     requestOptionsList: [{ headers: {
       Authorization: `Bearer ${r}`,
       Accept: "application/json"
     } }],
-    extractModels: Sxe,
+    extractModels: wxe,
     providerLabel: t === "openai-responses" ? "OpenAI Responses" : "OpenAI-Compatible"
   });
 }
-function Txe(e) {
+function kxe(e) {
   return e instanceof Error ? e.message : String(e || "unknown_error");
 }
-function Ixe(e = {}) {
-  const { state: t, render: n, showToast: r, createRequestId: a = (K = "req") => `${K}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, saveConfig: s, describeError: i = Txe, getRuntimeSummaryText: l } = e;
+function Txe(e = {}) {
+  const { state: t, render: n, showToast: r, createRequestId: a = (K = "req") => `${K}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, saveConfig: s, describeError: i = kxe, getRuntimeSummaryText: l } = e;
   function o() {
     t.configFormSyncPending = !0;
   }
@@ -64692,11 +64672,11 @@ function Hf(e) {
     delete: '<path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />'
   }[e] || ""}</svg>`;
 }
-function Exe(e = {}) {
+function Ixe(e = {}) {
   const t = String(e?.status || "idle");
   return t === "saving" ? "saving" : t === "success" ? "success" : t === "error" ? "error" : "save";
 }
-function xxe(e = {}) {
+function Exe(e = {}) {
   const t = String(e?.status || "idle");
   return t === "saving" ? {
     className: "xb-assistant-save-button is-saving",
@@ -64712,8 +64692,8 @@ function xxe(e = {}) {
     title: "保存配置"
   };
 }
-function Cxe(e = {}) {
-  const { configSave: t = {}, runtimeText: n = "", inlineToastText: r = "", showInlineToast: a = !0, showAssistantPermissions: s = !0, showDelegateSettings: i = !0, activePage: l = "main", delegatePresetHint: o = "DelegateRun 分身会使用这里的独立 API 配置；可以和主助手使用不同 Provider、Base URL、模型和 Tool 调用格式。", isBusy: u = !1, canDeletePreset: c = !0 } = e, d = xxe(t), h = Exe(t), v = u || String(t?.status || "") === "saving" ? "disabled" : "", y = u || !c ? "disabled" : "", _ = l === "delegate" ? "delegate" : "main", x = _ === "main", E = _ === "delegate", k = s ? `
+function xxe(e = {}) {
+  const { configSave: t = {}, runtimeText: n = "", inlineToastText: r = "", showInlineToast: a = !0, showAssistantPermissions: s = !0, showDelegateSettings: i = !0, activePage: l = "main", delegatePresetHint: o = "DelegateRun 分身会使用这里的独立 API 配置；可以和主助手使用不同 Provider、Base URL、模型和 Tool 调用格式。", isBusy: u = !1, canDeletePreset: c = !0 } = e, d = Exe(t), h = Ixe(t), v = u || String(t?.status || "") === "saving" ? "disabled" : "", y = u || !c ? "disabled" : "", _ = l === "delegate" ? "delegate" : "main", x = _ === "main", E = _ === "delegate", k = s ? `
             <label>
                 <span>斜杠命令权限</span>
                 <select id="xb-assistant-permission-mode"></select>
@@ -64898,7 +64878,7 @@ function Cxe(e = {}) {
         </section>
     `;
 }
-var Mxe = 1800;
+var Cxe = 1800;
 function xg() {
   const e = /* @__PURE__ */ ie({
     status: "idle",
@@ -64928,7 +64908,7 @@ function xg() {
         status: "idle",
         error: ""
       }, t = null);
-    }, Mxe), t.unref?.();
+    }, Cxe), t.unref?.();
   }
   return {
     feedback: e,
@@ -64937,7 +64917,7 @@ function xg() {
     completeSaveFeedback: a
   };
 }
-var eS = 48, tS = 48, nS = 80, Cg = 24, rS = 60, Pxe = [
+var eS = 48, tS = 48, nS = 80, Cg = 24, rS = 60, Mxe = [
   {
     key: "statePrompt",
     label: "全局记忆",
@@ -64953,7 +64933,7 @@ var eS = 48, tS = 48, nS = 80, Cg = 24, rS = 60, Pxe = [
     label: "状态栏",
     summary: "状态面板骨架与更新规则"
   }
-], Rxe = {
+], Pxe = {
   top: "最前面",
   beforeCharacter: "角色卡前",
   afterCharacter: "角色卡后",
@@ -64974,7 +64954,7 @@ function no(e) {
 function rl(e = "") {
   return String(e || "").trim().toLocaleLowerCase();
 }
-function Nxe(e, t) {
+function Rxe(e, t) {
   return t ? rl(e).includes(t) : !0;
 }
 function aS(e, t = 1600) {
@@ -64995,13 +64975,13 @@ function Xs(e) {
 function sS(e) {
   return e === !0 || e === "true" ? !0 : e === !1 || e === "false" ? !1 : null;
 }
-function $xe(e) {
+function Nxe(e) {
   if (e === !0 || e === "true") return !0;
   if (e === !1 || e === "false" || e === "" || e === null || e === void 0) return !1;
   const t = Number(e);
   return Number.isFinite(t) && t > 0 ? Math.floor(t) : !1;
 }
-function Lxe(e) {
+function $xe(e) {
   const t = Ur(e), n = Array.isArray(t.entries) ? t.entries.map((r) => {
     const a = Ur(r);
     return {
@@ -65062,7 +65042,7 @@ function Kf(e) {
     ignoreBudget: t.ignoreBudget === !0,
     excludeRecursion: t.excludeRecursion === !0,
     preventRecursion: t.preventRecursion === !0,
-    delayUntilRecursion: $xe(t.delayUntilRecursion),
+    delayUntilRecursion: Nxe(t.delayUntilRecursion),
     group: String(t.group ?? ""),
     groupOverride: t.groupOverride === !0,
     groupWeight: Xs(t.groupWeight),
@@ -65080,7 +65060,7 @@ function Kf(e) {
     revision: String(t.revision || t.entryHash || "")
   };
 }
-function Dxe(e, t) {
+function Lxe(e, t) {
   const n = String(e.comment || "").trim();
   return {
     uid: String(e.uid || t?.uid || "").trim(),
@@ -65124,7 +65104,7 @@ function Wf(e = {}) {
     maxDepth: t.maxDepth === null || t.maxDepth === "" || t.maxDepth === void 0 ? null : Number(t.maxDepth)
   };
 }
-function Oxe(e) {
+function Dxe(e) {
   const t = Ur(e), n = String(t.id || "").trim();
   return n ? {
     id: n,
@@ -65134,8 +65114,8 @@ function Oxe(e) {
     active: t.active === !0
   } : null;
 }
-function Fxe(e) {
-  const t = Ur(e), n = String(t.currentUserId || "").trim() || null, r = Array.isArray(t.users) ? t.users.map((a) => Oxe(a)).filter((a) => !!a) : [];
+function Oxe(e) {
+  const t = Ur(e), n = String(t.currentUserId || "").trim() || null, r = Array.isArray(t.users) ? t.users.map((a) => Dxe(a)).filter((a) => !!a) : [];
   return n && !r.some((a) => a.id === n) && r.unshift({
     id: n,
     name: n,
@@ -65150,12 +65130,12 @@ function Fxe(e) {
     currentUserId: n
   };
 }
-var Bxe = 5e3, Uxe = 5e3;
-function qxe() {
+var Fxe = 5e3, Bxe = 5e3;
+function Uxe() {
   const e = String(window.location.hash || "").replace(/^#\/?/, "").split("/")[1];
   return e === "characters" || e === "api" || e === "chatPreset" || e === "worldbooks" || e === "regex" || e === "assistantPreset" || e === "base" ? e : "api";
 }
-function Hxe(e) {
+function qxe(e) {
   const t = v2(), n = rp(), r = /* @__PURE__ */ ie(null), a = /* @__PURE__ */ ie({
     status: "idle",
     requestId: "",
@@ -65189,7 +65169,7 @@ function Hxe(e) {
     }));
   }), na = X(() => {
     const G = rl(be.value);
-    return G ? zr.value.filter((ae) => Nxe(ae.label || ae.name, G)) : zr.value;
+    return G ? zr.value.filter((ae) => Rxe(ae.label || ae.name, G)) : zr.value;
   }), lt = X(() => {
     const G = na.value.slice(0, Ie.value), ae = String(O.value || o.value.promptManager?.name || o.value.name || "").trim();
     if (!ae || G.some((Le) => Le.name === ae)) return G;
@@ -65296,7 +65276,7 @@ function Hxe(e) {
       label: "基础设定",
       mobileLabel: "基础设定"
     }
-  ]), Dr = X(() => qe.value.find((G) => G.id === Oe.value) || null), Os = X(() => Pxe.map((G) => ({
+  ]), Dr = X(() => qe.value.find((G) => G.id === Oe.value) || null), Os = X(() => Mxe.map((G) => ({
     id: G.key,
     key: G.key,
     label: G.label,
@@ -65360,7 +65340,7 @@ function Hxe(e) {
     ...G,
     previewId: G.id || `chat-preset-section-${ae}`,
     previewLabel: G.label || G.source || `提示词 ${ae + 1}`,
-    previewPlacement: G.source === "promptManager" ? G.marker ? "酒馆标记" : "酒馆顺序" : Rxe[G.placement || "beforeHistory"] || G.placement || "历史前",
+    previewPlacement: G.source === "promptManager" ? G.marker ? "酒馆标记" : "酒馆顺序" : Pxe[G.placement || "beforeHistory"] || G.placement || "历史前",
     sectionIndex: ae,
     chars: String(G.content || "").length
   })).filter((G) => (G.content || G.marker) && G.enabled !== !1)), Bs = X(() => Or.value.reduce((G, ae) => G + ae.chars, 0));
@@ -65446,7 +65426,7 @@ function Hxe(e) {
     const Le = new Promise((ut, dt) => {
       ve = setTimeout(() => {
         dt(/* @__PURE__ */ new Error("保存超时，请重试")), ae?.abort();
-      }, Uxe), ve.unref?.();
+      }, Bxe), ve.unref?.();
     });
     try {
       return await Promise.race([e.requestHost("xb-tavern:save-chat-preset", { payload: G }, ae ? { signal: ae.signal } : {}), Le]);
@@ -65469,7 +65449,7 @@ function Hxe(e) {
     if (!ve || ve.name !== Le || !ae.uid) return;
     const ut = ve.entries.findIndex((Vr) => Vr.uid === ae.uid);
     if (ut < 0) return;
-    const dt = ve.entries[ut], wt = Dxe(ae, dt), bt = [...ve.entries];
+    const dt = ve.entries[ut], wt = Lxe(ae, dt), bt = [...ve.entries];
     bt[ut] = wt, bt.sort((Vr, Wo) => Number(Wo.order) - Number(Vr.order)), Te.value = {
       ...ve,
       enabledCount: Math.max(0, ve.enabledCount + (wt.enabled ? 1 : 0) - (dt.enabled ? 1 : 0)),
@@ -65626,7 +65606,7 @@ function Hxe(e) {
         limit: pe.value
       } });
       if (ve !== Lt || String(U.value || "").trim() !== ut) return;
-      Te.value = Lxe(dt.result || dt), de.value = "";
+      Te.value = $xe(dt.result || dt), de.value = "";
     } catch (dt) {
       if (ve !== Lt || String(U.value || "").trim() !== ut) return;
       ae.preserveExistingOnError || (Te.value = null), de.value = dt instanceof Error ? dt.message : String(dt || "预览读取失败");
@@ -65851,7 +65831,7 @@ function Hxe(e) {
     ve !== ae && rc({ loadBatchSize: ve });
   }
   function tf(G) {
-    const ae = Fxe(G);
+    const ae = Oxe(G);
     qe.value = ae.users, Oe.value = ae.currentUserId;
   }
   async function nf() {
@@ -66105,7 +66085,7 @@ function Hxe(e) {
           error: ""
         }, Ye.configSave = a.value, s.value = "", rn(Wi));
       }, 1800), rn(Wi));
-    }, Bxe), rn(Wi);
+    }, Fxe), rn(Wi);
   }
   function uc(G = "", ae = {}) {
     if (G && a.value.requestId && G !== a.value.requestId) return;
@@ -66132,7 +66112,7 @@ function Hxe(e) {
   }
   function Wi() {
     const G = r.value;
-    G && (Ke || (Ke = Ixe({
+    G && (Ke || (Ke = Txe({
       state: Ye,
       render: Wi,
       describeError: e.describeError,
@@ -66141,7 +66121,7 @@ function Hxe(e) {
       },
       saveConfig: _s,
       getRuntimeSummaryText: () => ln.value
-    })), Ye.configSave = a.value, G.innerHTML = Cxe({
+    })), Ye.configSave = a.value, G.innerHTML = xxe({
       configSave: a.value,
       runtimeText: ln.value,
       inlineToastText: s.value,
@@ -66399,13 +66379,13 @@ function Hxe(e) {
     syncWorldbooksFromHost: Tr
   };
 }
-var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class: "character-worldbook-picker" }, Gxe = {
+var Hxe = ["data-chat-font-size"], Kxe = { class: "xb-os-stage" }, Wxe = { class: "character-worldbook-picker" }, zxe = {
   key: 0,
   class: "worldbook-picker-status"
-}, Vxe = { class: "worldbook-picker-list" }, Jxe = ["disabled", "onClick"], Yxe = { class: "tavern-dialog-head" }, jxe = { id: "tavern-dialog-title" }, Xxe = { class: "tavern-dialog-body" }, Qxe = { key: 0 }, Zxe = {
+}, Gxe = { class: "worldbook-picker-list" }, Vxe = ["disabled", "onClick"], Jxe = { class: "tavern-dialog-head" }, Yxe = { id: "tavern-dialog-title" }, jxe = { class: "tavern-dialog-body" }, Xxe = { key: 0 }, Qxe = {
   key: 1,
   class: "tavern-dialog-field"
-}, eCe = ["placeholder"], tCe = { class: "tavern-dialog-actions" }, Mg = 48, nCe = 12, rCe = 36, XR = 48, iS = 24, QR = 480, aCe = 200, ZR = 1e9, eN = "LittleWhiteBox_Tavern_theme", sCe = /* @__PURE__ */ Nn({
+}, Zxe = ["placeholder"], eCe = { class: "tavern-dialog-actions" }, Mg = 48, tCe = 12, nCe = 36, XR = 48, iS = 24, QR = 480, rCe = 200, ZR = 1e9, eN = "LittleWhiteBox_Tavern_theme", aCe = /* @__PURE__ */ Nn({
   __name: "App",
   setup(e) {
     const t = /* @__PURE__ */ ie({}), n = /* @__PURE__ */ ie({}), r = /* @__PURE__ */ ie({}), a = /* @__PURE__ */ ie(zc({})), s = /* @__PURE__ */ ie(!0), i = X(() => po(a.value.hiddenOutsideCount)), l = X(() => XA(a.value.loadBatchSize)), o = /* @__PURE__ */ ie({}), u = gfe(), c = u.ready, d = u.status, h = /* @__PURE__ */ ie("15px"), v = /* @__PURE__ */ ie("23px"), y = /* @__PURE__ */ ie([]), _ = /* @__PURE__ */ ie(""), x = /* @__PURE__ */ ie(0), E = /* @__PURE__ */ ie(""), k = /* @__PURE__ */ ie(""), $ = /* @__PURE__ */ ie(null), N = /* @__PURE__ */ ie(!1), g = /* @__PURE__ */ ie(""), A = /* @__PURE__ */ ie(!1), b = /* @__PURE__ */ ie([]);
@@ -66455,7 +66435,7 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
     function za(S) {
       return Array.isArray(S) ? S.map((C) => String(C || "").trim()).filter(Boolean) : [];
     }
-    const ys = X(() => ol(me.value?.contextSnapshot?.authorNote)), Na = X(() => Ca(me.value?.state || {})), Un = X(() => Ts(Na.value.contract)), xt = X(() => !!(me.value && String(me.value.characterKey || "").trim())), et = /* @__PURE__ */ ie(zr()), Be = /* @__PURE__ */ ie(qxe()), Qt = /* @__PURE__ */ ie(na()), qn = /* @__PURE__ */ ie("chat"), Ga = /* @__PURE__ */ ie("balanced"), di = /* @__PURE__ */ ie(null), Dr = /* @__PURE__ */ ie(null), Os = /* @__PURE__ */ ie(null), Dn = Nx({
+    const ys = X(() => ol(me.value?.contextSnapshot?.authorNote)), Na = X(() => Ca(me.value?.state || {})), Un = X(() => Ts(Na.value.contract)), xt = X(() => !!(me.value && String(me.value.characterKey || "").trim())), et = /* @__PURE__ */ ie(zr()), Be = /* @__PURE__ */ ie(Uxe()), Qt = /* @__PURE__ */ ie(na()), qn = /* @__PURE__ */ ie("chat"), Ga = /* @__PURE__ */ ie("balanced"), di = /* @__PURE__ */ ie(null), Dr = /* @__PURE__ */ ie(null), Os = /* @__PURE__ */ ie(null), Dn = Nx({
       totalItems: () => Ce.value,
       defaultLimit: i,
       loadBatchSize: l
@@ -66666,7 +66646,7 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
     })), Gl = X(() => {
       const S = String(me.value?.characterKey || gi.value.character?.characterKey || "").trim();
       return (S ? zo(S, { optional: !0 }) : "") || String(me.value?.contextSnapshot?.character?.nativeCharacterId || "").trim() || String(gi.value.character?.nativeCharacterId || "").trim();
-    }), { activeAssistantPreset: lc, applyHostChatPreset: Z_, handleApiConfigSaved: eb, loadTavernUsers: tb, openSettingsWorkspace: af, openWorldbookWorkspace: cm, refreshPresets: nb, refreshRegexFromHost: sf, refreshRuntimeChatPresetFromHost: dm, renderApiSettingsPanel: uc, runtimeChatPreset: _s, selectSettingsWorkspace: Wi, settingsContext: rb, syncApiSettingsConfigFromAgentConfig: of, syncChatPresetFromHost: lf, syncWorldbooksFromHost: ab } = Hxe({
+    }), { activeAssistantPreset: lc, applyHostChatPreset: Z_, handleApiConfigSaved: eb, loadTavernUsers: tb, openSettingsWorkspace: af, openWorldbookWorkspace: cm, refreshPresets: nb, refreshRegexFromHost: sf, refreshRuntimeChatPresetFromHost: dm, renderApiSettingsPanel: uc, runtimeChatPreset: _s, selectSettingsWorkspace: Wi, settingsContext: rb, syncApiSettingsConfigFromAgentConfig: of, syncChatPresetFromHost: lf, syncWorldbooksFromHost: ab } = qxe({
       activeView: et,
       activeSettingsWorkspace: Be,
       agentConfig: r,
@@ -66876,7 +66856,7 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
     }
     const pq = X(() => ob(me.value) || yi(zi.value.name || "") || "未选择角色"), mq = X(() => fe.value ? pq.value : yi(fm.value) || "未选择角色"), lb = X(() => me.value?.state?.lastRequestSnapshot), gq = X(() => String(lb.value?.rawRequestJson || lb.value?.rawMessagesJson || "")), { archivedManagerRuns: vq, currentManagerWorkRun: yq, formatRunActivityLine: _q, formatRunIssueLine: bq, formatRunInputLine: wq, formatRunMapLine: Sq, formatRunMemoryLine: Aq, formatRunModelLine: kq, formatRunTaskLine: Tq, hiddenManagerRunCount: Iq, isManagerRunLive: Eq, managerBusy: pm, managerRunTone: xq, managerStatusClock: Cq, managerStatusLabel: Mq, managerToolStatusLabel: Pq, managerToolTone: Rq, managerToolTraceItems: Nq, toolTraceSummary: $q } = VIe({
       managerRuns: ze,
-      visibleRunLimit: nCe
+      visibleRunLimit: tCe
     });
     function $I(S) {
       return bt.sessionFloorLabel(S);
@@ -66910,7 +66890,7 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
       return im.set(S, q), q;
     }
     function BI(S = "") {
-      const C = S === "turns" ? rCe : iS, q = Number(zn.value[S]);
+      const C = S === "turns" ? nCe : iS, q = Number(zn.value[S]);
       return Number.isFinite(q) && q > 0 ? Math.floor(q) : C;
     }
     function Dq(S = "") {
@@ -67196,7 +67176,7 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
       const ce = window.setTimeout(() => {
         const Pe = mi.get(S);
         Pe && (Pe.timer = 0, jI(S));
-      }, aCe);
+      }, rCe);
       mi.set(S, {
         timer: ce,
         latest: C,
@@ -69426,7 +69406,7 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
       "data-chat-font-size": a.value.chatFontSize,
       style: Mn(Ot.value)
     }, [
-      m("section", Wxe, [
+      m("section", Kxe, [
         et.value === "home" ? (L(), En(Ofe, {
           key: 0,
           dark: Qt.value,
@@ -69453,7 +69433,7 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
           onBack: C[4] || (C[4] = (q) => et.value = "home")
         }, null, 8, ["dark"])) : ge("", !0),
         et.value === "chat" ? (L(), En(zIe, { key: 2 })) : ge("", !0),
-        et.value === "settings" ? (L(), En(hxe, { key: 3 })) : ge("", !0)
+        et.value === "settings" ? (L(), En(fxe, { key: 3 })) : ge("", !0)
       ]),
       ue.value ? (L(), D("div", {
         key: ue.value.id,
@@ -69461,7 +69441,7 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
         role: "status",
         "aria-live": "polite"
       }, V(ue.value.message), 3)) : ge("", !0),
-      Bo.value ? (L(), En(QEe, {
+      Bo.value ? (L(), En(XEe, {
         key: 1,
         tab: Ui.value,
         "onUpdate:tab": C[5] || (C[5] = (q) => Ui.value = q),
@@ -69487,20 +69467,20 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
         key: 2,
         class: "character-worldbook-picker-overlay",
         onClick: dn(oE, ["self"])
-      }, [m("section", zxe, [
+      }, [m("section", Wxe, [
         m("header", null, [C[11] || (C[11] = m("strong", null, "选择角色世界书", -1)), m("button", {
           type: "button",
           class: "worldbook-picker-close",
           "aria-label": "关闭",
           onClick: oE
         })]),
-        g.value ? (L(), D("div", Gxe, V(g.value), 1)) : ge("", !0),
-        m("div", Vxe, [(L(!0), D(We, null, it(b.value, (q) => (L(), D("button", {
+        g.value ? (L(), D("div", zxe, V(g.value), 1)) : ge("", !0),
+        m("div", Gxe, [(L(!0), D(We, null, it(b.value, (q) => (L(), D("button", {
           key: q,
           type: "button",
           disabled: N.value,
           onClick: (ce) => _3(q)
-        }, V(q), 9, Jxe))), 128))])
+        }, V(q), 9, Vxe))), 128))])
       ])])) : ge("", !0),
       (L(), En(ON, { to: "body" }, [H.value ? (L(), D("div", {
         key: 0,
@@ -69517,20 +69497,20 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
         tabindex: "-1",
         onSubmit: dn(Hs, ["prevent"])
       }, [
-        m("header", Yxe, [m("div", null, [m("strong", jxe, V(H.value.title), 1)]), m("button", {
+        m("header", Jxe, [m("div", null, [m("strong", Yxe, V(H.value.title), 1)]), m("button", {
           type: "button",
           class: "tavern-dialog-close",
           "aria-label": "关闭",
           onClick: C[7] || (C[7] = (q) => ra())
         })]),
-        m("div", Xxe, [H.value.message ? (L(), D("p", Qxe, V(H.value.message), 1)) : ge("", !0), H.value.kind === "prompt" ? (L(), D("label", Zxe, [br(m("input", {
+        m("div", jxe, [H.value.message ? (L(), D("p", Xxe, V(H.value.message), 1)) : ge("", !0), H.value.kind === "prompt" ? (L(), D("label", Qxe, [br(m("input", {
           ref_key: "tavernDialogInputRef",
           ref: se,
           "onUpdate:modelValue": C[8] || (C[8] = (q) => H.value.inputValue = q),
           type: "text",
           placeholder: H.value.placeholder
-        }, null, 8, eCe), [[Cs, H.value.inputValue]])])) : ge("", !0)]),
-        m("footer", tCe, [H.value.kind !== "alert" ? (L(), D("button", {
+        }, null, 8, Zxe), [[Cs, H.value.inputValue]])])) : ge("", !0)]),
+        m("footer", eCe, [H.value.kind !== "alert" ? (L(), D("button", {
           key: 0,
           ref_key: "tavernDialogCancelRef",
           ref: tt,
@@ -69544,7 +69524,7 @@ var Kxe = ["data-chat-font-size"], Wxe = { class: "xb-os-stage" }, zxe = { class
           class: "tavern-dialog-button primary"
         }, V(Ks.value), 513)])
       ], 34)], 34)) : ge("", !0)]))
-    ], 14, Kxe));
+    ], 14, Hxe));
   }
-}), iCe = sCe;
-I6(iCe).mount("#app");
+}), sCe = aCe;
+I6(sCe).mount("#app");

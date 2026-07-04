@@ -53,7 +53,29 @@ test('request log preview parses wrapper request body messages without flattenin
     assert.deepEqual(preview.requestFieldsBeforeMessages.map((field) => field.key), ['url', 'body.model']);
     assert.deepEqual(preview.requestFieldsAfterMessages.map((field) => field.key), ['body.tools']);
     assert.equal(preview.messages[0]?.role, 'user');
-    assert.ok(preview.chips.includes('OpenAI 兼容'));
+    assert.equal(preview.chips.includes('OpenAI 兼容'), false);
+    assert.ok(preview.chips.includes('1 messages'));
+});
+
+test('request log preview chips start at preset details, not provider duplicates', () => {
+    const preview = buildRequestLogPreview(JSON.stringify({
+        provider: 'openai-compatible',
+        model: 'claude-opus-4-6',
+        request: {
+            messages: [{ role: 'user', content: 'Hello' }],
+        },
+    }), {
+        requestKind: 'actual',
+        providerLabel: 'OpenAI 兼容',
+        model: 'ignored-model',
+        presetName: '酒馆 actual',
+        messageChars: 12,
+    });
+
+    assert.deepEqual(preview.chips.slice(0, 3), ['酒馆 actual', '1 messages', '12 chars']);
+    assert.equal(preview.chips.includes('actual'), false);
+    assert.equal(preview.chips.includes('OpenAI 兼容'), false);
+    assert.equal(preview.chips.includes('ignored-model'), false);
 });
 
 test('request log preview renders message content and meta without html strings', () => {

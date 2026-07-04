@@ -250,12 +250,9 @@ function collectSiblingFields(root: unknown, messagesPath: string[] | null): {
 function buildChips(root: unknown, messages: RequestLogPreviewMessage[], meta: RequestLogSnapshotMeta = {}): string[] {
     const rootRecord = isRecord(root) ? root : {};
     const chips = [
-        meta.requestKind || String(rootRecord.requestKind || ''),
-        meta.providerLabel || meta.provider || String(rootRecord.provider || ''),
-        meta.model || String(rootRecord.model || ''),
-        meta.presetName || '',
+        meta.presetName || String(rootRecord.presetName || rootRecord.chatPresetName || ''),
         `${messages.length} messages`,
-        meta.messageChars ? `${meta.messageChars} chars` : '',
+        meta.messageChars || rootRecord.messageChars ? `${meta.messageChars || rootRecord.messageChars} chars` : '',
     ];
     if (meta.capturedAt) {
         const date = new Date(Number(meta.capturedAt));

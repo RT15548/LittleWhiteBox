@@ -689,8 +689,10 @@ test('tavern request log is sourced from runtime request snapshots', () => {
     assert.match(requestLogModalSource, /美化显示/);
     assert.match(requestLogModalSource, /原始 JSON/);
     assert.match(requestLogModalSource, /class="prompt-log-search"/);
+    assert.match(requestLogModalSource, /class="prompt-preview-parameter-panel"/);
     assert.match(requestLogModalSource, /prompt-search-mark/);
     assert.doesNotMatch(requestLogModalSource, /v-html/);
+    assert.doesNotMatch(requestLogModalSource, /prompt-inspector-summary/);
     assert.match(requestLogPreviewSource, /export function buildRequestLogPreview/);
     assert.match(requestLogPreviewSource, /\['request', 'body', 'messages'\]/);
     assert.match(appSource, /simulateXbTavernRequest\(\{[\s\S]*chatPreset: runtimePreset/);

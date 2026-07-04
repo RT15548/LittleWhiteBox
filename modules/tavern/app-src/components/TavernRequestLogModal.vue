@@ -273,15 +273,6 @@ onBeforeUnmount(() => clearSearchMarks());
       >
         <section class="prompt-inspector-view">
           <div
-            v-if="tab === 'history'"
-            class="prompt-inspector-summary"
-          >
-            <span>{{ activeRawJson ? '有记录' : '暂无记录' }}</span>
-            <span>{{ lastRequestSnapshot?.requestKind || 'history' }}</span>
-            <span>{{ lastRequestSnapshot?.providerLabel || lastRequestSnapshot?.provider || '未调用' }}</span>
-            <span>{{ lastRequestSnapshot?.model || '未选择模型' }}</span>
-          </div>
-          <div
             v-if="tab === 'simulate'"
             class="prompt-simulate-panel"
           >
@@ -320,7 +311,6 @@ onBeforeUnmount(() => clearSearchMarks());
               class="prompt-request-pretty"
             >
               <section class="prompt-preview-section">
-                <h3>请求概览</h3>
                 <div class="prompt-preview-chip-row">
                   <span
                     v-for="chip in activePreview.chips"
@@ -335,56 +325,53 @@ onBeforeUnmount(() => clearSearchMarks());
                 </p>
               </section>
               <section
-                v-if="activePreview.outerFields.length"
+                v-if="activePreview.outerFields.length || activePreview.requestFieldsBeforeMessages.length"
                 class="prompt-preview-section"
               >
-                <h3>外层记录</h3>
-                <div class="prompt-preview-fields">
-                  <div
-                    v-for="field in activePreview.outerFields"
-                    :key="field.key"
-                    class="prompt-preview-field"
-                  >
-                    <span>{{ field.label }}</span>
-                    <code v-if="!isJsonField(field)">{{ field.text }}</code>
-                    <button
-                      v-else
-                      type="button"
-                      class="prompt-preview-json-toggle"
-                      @click="toggleExpandedField(fieldExpansionKey('outer', field))"
-                    >
-                      {{ jsonToggleLabel('outer', field) }}
-                    </button>
-                    <pre
-                      v-if="isJsonFieldExpanded('outer', field)"
-                    >{{ field.text }}</pre>
+                <div class="prompt-preview-parameter-panel">
+                  <div class="prompt-preview-parameter-head">
+                    <span>请求参数</span>
+                    <small>{{ activePreview.outerFields.length + activePreview.requestFieldsBeforeMessages.length }}</small>
                   </div>
-                </div>
-              </section>
-              <section
-                v-if="activePreview.requestFieldsBeforeMessages.length"
-                class="prompt-preview-section"
-              >
-                <h3>请求参数</h3>
-                <div class="prompt-preview-fields">
-                  <div
-                    v-for="field in activePreview.requestFieldsBeforeMessages"
-                    :key="field.key"
-                    class="prompt-preview-field"
-                  >
-                    <span>{{ field.label }}</span>
-                    <code v-if="!isJsonField(field)">{{ field.text }}</code>
-                    <button
-                      v-else
-                      type="button"
-                      class="prompt-preview-json-toggle"
-                      @click="toggleExpandedField(fieldExpansionKey('before', field))"
+                  <div class="prompt-preview-fields is-compact">
+                    <div
+                      v-for="field in activePreview.outerFields"
+                      :key="`outer:${field.key}`"
+                      class="prompt-preview-field"
                     >
-                      {{ jsonToggleLabel('before', field) }}
-                    </button>
-                    <pre
-                      v-if="isJsonFieldExpanded('before', field)"
-                    >{{ field.text }}</pre>
+                      <span>{{ field.label }}</span>
+                      <code v-if="!isJsonField(field)">{{ field.text }}</code>
+                      <button
+                        v-else
+                        type="button"
+                        class="prompt-preview-json-toggle"
+                        @click="toggleExpandedField(fieldExpansionKey('outer', field))"
+                      >
+                        {{ jsonToggleLabel('outer', field) }}
+                      </button>
+                      <pre
+                        v-if="isJsonFieldExpanded('outer', field)"
+                      >{{ field.text }}</pre>
+                    </div>
+                    <div
+                      v-for="field in activePreview.requestFieldsBeforeMessages"
+                      :key="`before:${field.key}`"
+                      class="prompt-preview-field"
+                    >
+                      <span>{{ field.label }}</span>
+                      <code v-if="!isJsonField(field)">{{ field.text }}</code>
+                      <button
+                        v-else
+                        type="button"
+                        class="prompt-preview-json-toggle"
+                        @click="toggleExpandedField(fieldExpansionKey('before', field))"
+                      >
+                        {{ jsonToggleLabel('before', field) }}
+                      </button>
+                      <pre
+                        v-if="isJsonFieldExpanded('before', field)"
+                      >{{ field.text }}</pre>
+                    </div>
                   </div>
                 </div>
               </section>
