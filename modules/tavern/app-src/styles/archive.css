@@ -478,9 +478,9 @@
 
 .prompt-preview-field {
     display: grid;
-    grid-template-columns: minmax(90px, 170px) minmax(0, 1fr);
+    grid-template-columns: minmax(96px, 188px) minmax(0, 1fr);
     align-items: start;
-    gap: 10px;
+    gap: 14px;
     min-width: 0;
     border: 1px solid var(--prompt-border);
     border-radius: 6px;

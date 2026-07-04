@@ -310,8 +310,14 @@ onBeforeUnmount(() => clearSearchMarks());
               v-if="displayMode === 'pretty'"
               class="prompt-request-pretty"
             >
-              <section class="prompt-preview-section">
-                <div class="prompt-preview-chip-row">
+              <section
+                v-if="activePreview.chips.length || activePreview.parseError"
+                class="prompt-preview-section"
+              >
+                <div
+                  v-if="activePreview.chips.length"
+                  class="prompt-preview-chip-row"
+                >
                   <span
                     v-for="chip in activePreview.chips"
                     :key="chip"
@@ -377,7 +383,7 @@ onBeforeUnmount(() => clearSearchMarks());
               </section>
               <section class="prompt-preview-section">
                 <div class="prompt-preview-message-rule">
-                  <span>MESSAGES · {{ activePreview.messages.length }}</span>
+                  <span>API MESSAGES · {{ activePreview.messages.length }}</span>
                 </div>
                 <div
                   v-if="activePreview.messages.length"

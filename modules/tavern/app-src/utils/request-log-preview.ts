@@ -247,15 +247,22 @@ function collectSiblingFields(root: unknown, messagesPath: string[] | null): {
     return { outerFields, beforeFields, afterFields };
 }
 
+function resolveMessageChars(root: unknown, messages: RequestLogPreviewMessage[], meta: RequestLogSnapshotMeta = {}): number {
+    const rootRecord = isRecord(root) ? root : {};
+    const explicit = [meta.messageChars, rootRecord.messageChars].find((value) => Number.isFinite(Number(value)));
+    if (explicit !== undefined) {return Math.max(0, Math.floor(Number(explicit)));}
+    return messages.reduce((sum, message) => sum + message.contentText.length, 0);
+}
+
 function buildChips(root: unknown, messages: RequestLogPreviewMessage[], meta: RequestLogSnapshotMeta = {}): string[] {
     const rootRecord = isRecord(root) ? root : {};
+    const messageChars = resolveMessageChars(root, messages, meta);
     const chips = [
-        meta.presetName || String(rootRecord.presetName || rootRecord.chatPresetName || ''),
-        `${messages.length} messages`,
-        meta.messageChars || rootRecord.messageChars ? `${meta.messageChars || rootRecord.messageChars} chars` : '',
+        messageChars || messages.length ? `${messageChars} chars` : '',
     ];
-    if (meta.capturedAt) {
-        const date = new Date(Number(meta.capturedAt));
+    const capturedAt = meta.capturedAt ?? rootRecord.capturedAt;
+    if (capturedAt) {
+        const date = new Date(Number(capturedAt));
         if (!Number.isNaN(date.getTime())) {chips.push(date.toLocaleString());}
     }
     return [...new Set(chips.map((chip) => String(chip || '').trim()).filter(Boolean))];

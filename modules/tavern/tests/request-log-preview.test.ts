@@ -12,7 +12,7 @@ test('request log preview parses a top-level messages array', () => {
     assert.deepEqual(preview.messages.map((message) => message.role), ['system', 'assistant']);
     assert.deepEqual(preview.messages.map((message) => message.roleLabel), ['SYSTEM', 'ASSISTANT']);
     assert.equal(preview.messages[0]?.contentText, 'Rules first.');
-    assert.ok(preview.chips.includes('2 messages'));
+    assert.ok(preview.chips.includes('23 chars'));
     assert.deepEqual(preview.requestFieldsBeforeMessages, []);
     assert.deepEqual(preview.requestFieldsAfterMessages, []);
 });
@@ -54,10 +54,10 @@ test('request log preview parses wrapper request body messages without flattenin
     assert.deepEqual(preview.requestFieldsAfterMessages.map((field) => field.key), ['body.tools']);
     assert.equal(preview.messages[0]?.role, 'user');
     assert.equal(preview.chips.includes('OpenAI 兼容'), false);
-    assert.ok(preview.chips.includes('1 messages'));
+    assert.ok(preview.chips.includes('4 chars'));
 });
 
-test('request log preview chips start at preset details, not provider duplicates', () => {
+test('request log preview chips keep only character count and capture time', () => {
     const preview = buildRequestLogPreview(JSON.stringify({
         provider: 'openai-compatible',
         model: 'claude-opus-4-6',
@@ -70,9 +70,14 @@ test('request log preview chips start at preset details, not provider duplicates
         model: 'ignored-model',
         presetName: '酒馆 actual',
         messageChars: 12,
+        capturedAt: 1730000000000,
     });
 
-    assert.deepEqual(preview.chips.slice(0, 3), ['酒馆 actual', '1 messages', '12 chars']);
+    assert.equal(preview.chips[0], '12 chars');
+    assert.equal(preview.chips.length, 2);
+    assert.match(preview.chips[1] || '', /\d/);
+    assert.equal(preview.chips.includes('酒馆 actual'), false);
+    assert.equal(preview.chips.includes('1 messages'), false);
     assert.equal(preview.chips.includes('actual'), false);
     assert.equal(preview.chips.includes('OpenAI 兼容'), false);
     assert.equal(preview.chips.includes('ignored-model'), false);
