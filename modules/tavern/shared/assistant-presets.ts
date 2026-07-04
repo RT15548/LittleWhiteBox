@@ -20,6 +20,7 @@ interface TavernManagerPromptOptions extends Partial<TavernContractManagerPrompt
     includeCartography?: boolean;
     includeStatus?: boolean;
     includeQuestOrchestration?: boolean;
+    includeWebSearch?: boolean;
     workMode?: 'accepted-turn' | 'manual-chat';
 }
 
@@ -139,11 +140,18 @@ function buildToolsSection(options: TavernManagerPromptOptions = {}): string {
         '- **EventInspect** — view the event pool',
         '- **EventPatch** — maintain event directions',
     ] : [];
+    const webTools = options.includeWebSearch ? [
+        'Web research:',
+        '- **web_search** — use Tavily for real-world facts, public references, time-sensitive information, or outside background that is not available in chat, worldbooks, memory, map, or status records.',
+        '- Prefer LS / Grep / Read for RP source text, imported lore, and continuity. Do not treat web results as RP source truth.',
+        '',
+    ] : [];
     return [
         '## Your Tools',
         '',
         'Detailed usage is described in each domain section below.',
         '',
+        ...webTools,
         ...fileTools,
         ...mapTools,
         ...statusTools,

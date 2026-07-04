@@ -1,4 +1,5 @@
 import { applyTextEdits } from '../../agent-core/tools/text-edit.js';
+import { getTavilySearchToolDefinition } from '../../agent-core/tavily-search.js';
 
 import { getTavernManagerStateToolDefinitions } from './structured-state';
 import { getTavernStatusToolDefinitions } from './status-state';
@@ -49,6 +50,7 @@ export const TAVERN_SOURCE_FILE_TOOL_NAMES = {
 } as const;
 
 export type TavernManagerToolCaller = 'auto' | 'chat';
+export type TavernManagerToolDefinition = { type: 'function'; function: { name: string; description: string; parameters: unknown } };
 
 export interface TavernMemoryToolResult {
     ok: boolean;
@@ -937,7 +939,7 @@ function grepTextFile(
     }
 }
 
-export function getTavernSourceFileToolDefinitions(): Array<{ type: 'function'; function: { name: string; description: string; parameters: unknown } }> {
+export function getTavernSourceFileToolDefinitions(): TavernManagerToolDefinition[] {
     return [
         {
             type: 'function',
@@ -1390,13 +1392,17 @@ export async function executeTavernSourceFileTool(
     }
 }
 
-export function getTavernManagerToolDefinitions(): Array<{ type: 'function'; function: { name: string; description: string; parameters: unknown } }> {
-    return [
+export function getTavernManagerToolDefinitions(options: { webSearchEnabled?: boolean } = {}): TavernManagerToolDefinition[] {
+    const definitions = [
         ...getTavernSourceFileToolDefinitions(),
         ...getTavernManagerStateToolDefinitions(),
         ...getTavernStatusToolDefinitions(),
         ...getTavernTaskToolDefinitions(),
     ];
+    if (options.webSearchEnabled) {
+        definitions.push(getTavilySearchToolDefinition() as TavernManagerToolDefinition);
+    }
+    return definitions;
 }
 
 function isManagerControlError(error: unknown): boolean {

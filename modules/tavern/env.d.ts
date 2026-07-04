@@ -192,6 +192,17 @@ declare module '*.js' {
         config: Record<string, unknown>,
         options?: Record<string, unknown>,
     ): Record<string, unknown>;
+    export const TAVILY_TOOL_NAME: string;
+    export function getTavilySearchToolDefinition(): {
+        type: 'function';
+        function: { name: string; description: string; parameters: unknown };
+    };
+    export function isTavilyConfigured(config?: Record<string, unknown>): boolean;
+    export function runTavilySearchTool(
+        config?: Record<string, unknown>,
+        args?: Record<string, unknown>,
+        options?: Record<string, unknown>,
+    ): Promise<Record<string, unknown>>;
     export function applyTextEdits(content: string, edits: unknown): {
         ok: boolean;
         content: string;

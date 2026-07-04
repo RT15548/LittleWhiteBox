@@ -18,6 +18,7 @@ import {
     executeTavernMemoryTool,
     getTavernMemoryFile,
     getTavernMemoryIndex,
+    getTavernManagerToolDefinitions,
     writeTavernMemoryFile,
 } from '../shared/memory-files';
 import { executeTavernStateTool } from '../shared/structured-state';
@@ -50,6 +51,12 @@ import {
     type XbTavernRunResult,
     type TavernRunOnceOptions,
 } from '../app-src/runtime/run-once';
+import {
+    runXbTavernManagerAfterTurn,
+    runXbTavernManagerChat,
+    type XbTavernManagerOnceOptions,
+} from '../app-src/runtime/manager';
+import { getTavilySearchToolDefinition, TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
 import { executeTavernTaskTool } from '../shared/tasks';
 import { executeTavernStatusTool, TAVERN_STATUS_TOOL_NAMES } from '../shared/status-state';
 import { createXbTavernAgentRuntime, EMPTY_XB_TAVERN_CAPABILITY_REGISTRY } from '../app-src/runtime/agent-runtime';
@@ -3977,6 +3984,241 @@ test('xb tavern runtime keeps capability registry empty until agent tools are ad
     assert.deepEqual(runtime.capabilities, EMPTY_XB_TAVERN_CAPABILITY_REGISTRY);
     assert.deepEqual(task.tools, []);
     assert.equal(task.toolChoice, 'none');
+});
+
+test('xb tavern manager web search uses the shared Tavily tool definition', () => {
+    assert.equal(
+        getTavernManagerToolDefinitions()
+            .some((definition) => definition.function.name === TAVILY_TOOL_NAME),
+        false,
+    );
+
+    const webSearch = getTavernManagerToolDefinitions({ webSearchEnabled: true })
+        .find((definition) => definition.function.name === TAVILY_TOOL_NAME);
+
+    assert.deepEqual(webSearch, getTavilySearchToolDefinition());
+});
+
+test('xb tavern assistant manual chat exposes and executes web_search from shared API config', async () => {
+    await resetDb();
+    const session = await createTavernSession({
+        title: 'Manager web search',
+        contextSnapshot: {
+            character: { characterKey: 'char-1', name: 'Aster' },
+        },
+    });
+    const originalFetch = globalThis.fetch;
+    const fetchCalls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+        fetchCalls.push({
+            url: String(url),
+            body: JSON.parse(String(init?.body || '{}')),
+        });
+        return {
+            ok: true,
+            async json() {
+                return {
+                    results: [{
+                        title: 'Kyoto Gion history',
+                        url: 'https://example.test/gion',
+                        content: 'Gion is a historic Kyoto district.',
+                        score: 0.92,
+                    }],
+                };
+            },
+            async text() {
+                return '';
+            },
+        } as Response;
+    }) as typeof fetch;
+
+    try {
+        let requestCount = 0;
+        let exposedToolNames: string[] = [];
+        let managerSystemPrompt = '';
+        const executeManagerOnce = Object.assign(async (options: XbTavernManagerOnceOptions) => {
+            requestCount += 1;
+            if (requestCount === 1) {
+                exposedToolNames = (Array.isArray(options.tools) ? options.tools : [])
+                    .map((tool) => String((tool as { function?: { name?: string } })?.function?.name || ''))
+                    .filter(Boolean);
+                managerSystemPrompt = String(options.messages?.[0]?.content || '');
+                return {
+                    text: '',
+                    provider: 'fake-provider',
+                    model: 'fake-model',
+                    toolCalls: [{
+                        id: 'search-gion',
+                        name: TAVILY_TOOL_NAME,
+                        arguments: JSON.stringify({ query: 'Kyoto Gion history', maxResults: 3 }),
+                    }],
+                };
+            }
+            assert.equal(options.messages.length, 0);
+            assert.equal(options.toolResponses?.[0]?.name, TAVILY_TOOL_NAME);
+            const response = options.toolResponses?.[0]?.response as Record<string, unknown> | undefined;
+            assert.equal(response?.ok, true);
+            assert.equal(response?.query, 'Kyoto Gion history');
+            assert.equal(response?.count, 1);
+            return {
+                text: '已查到祇园是京都历史街区。',
+                provider: 'fake-provider',
+                model: 'fake-model',
+            };
+        }, { supportsSessionToolLoop: true });
+
+        const result = await runXbTavernManagerChat({
+            sessionId: session.id,
+            agentConfig: {
+                tavilyApiKey: 'test-tavily-key',
+                tavilyBaseUrl: 'https://tavily.example.test',
+                currentPresetName: '默认',
+                presets: {
+                    默认: {
+                        provider: 'fake-provider',
+                        modelConfigs: {
+                            'fake-provider': { model: 'fake-model', apiKey: 'not-used' },
+                        },
+                    },
+                },
+            },
+            question: '帮我查一下祇园历史背景。',
+            executeManagerOnce,
+        });
+
+        assert.equal(result.ok, true);
+        assert.equal(result.text, '已查到祇园是京都历史街区。');
+        assert.equal(requestCount, 2);
+        assert.equal(exposedToolNames.includes(TAVILY_TOOL_NAME), true);
+        assert.match(managerSystemPrompt, /Web research:/);
+        assert.match(managerSystemPrompt, /web_search/);
+        assert.equal(fetchCalls.length, 1);
+        assert.equal(fetchCalls[0]?.url, 'https://tavily.example.test/search');
+        assert.equal(fetchCalls[0]?.body.api_key, 'test-tavily-key');
+        assert.equal(fetchCalls[0]?.body.query, 'Kyoto Gion history');
+        assert.equal(fetchCalls[0]?.body.max_results, 3);
+        assert.equal(result.protocolMessages.some((message) => message.role === 'tool' && message.toolName === TAVILY_TOOL_NAME), true);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('xb tavern assistant automatic run exposes and executes the same web_search tool', async () => {
+    await resetDb();
+    const session = await createTavernSession({
+        title: 'Auto manager web search',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-1', name: 'Aster' },
+        },
+    });
+    const userMessage = await appendTavernMessage(session.id, {
+        role: 'user',
+        content: '她提到想去祇园。',
+    });
+    const assistantMessage = await appendTavernMessage(session.id, {
+        role: 'assistant',
+        content: '她开始回忆那片街区的灯光。',
+    });
+    const originalFetch = globalThis.fetch;
+    const fetchCalls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+        fetchCalls.push({
+            url: String(url),
+            body: JSON.parse(String(init?.body || '{}')),
+        });
+        return {
+            ok: true,
+            async json() {
+                return {
+                    results: [{
+                        title: 'Gion Kyoto',
+                        url: 'https://example.test/gion-auto',
+                        content: 'Gion is associated with Kyoto geisha districts and historic streets.',
+                        score: 0.9,
+                    }],
+                };
+            },
+            async text() {
+                return '';
+            },
+        } as Response;
+    }) as typeof fetch;
+
+    try {
+        let requestCount = 0;
+        let exposedToolNames: string[] = [];
+        let managerSystemPrompt = '';
+        const executeManagerOnce = Object.assign(async (options: XbTavernManagerOnceOptions) => {
+            requestCount += 1;
+            if (requestCount === 1) {
+                exposedToolNames = (Array.isArray(options.tools) ? options.tools : [])
+                    .map((tool) => String((tool as { function?: { name?: string } })?.function?.name || ''))
+                    .filter(Boolean);
+                managerSystemPrompt = String(options.messages?.[0]?.content || '');
+                return {
+                    text: '',
+                    provider: 'fake-provider',
+                    model: 'fake-model',
+                    toolCalls: [{
+                        id: 'auto-search-gion',
+                        name: TAVILY_TOOL_NAME,
+                        arguments: JSON.stringify({ query: 'Kyoto Gion geisha district', maxResults: 2 }),
+                    }],
+                };
+            }
+            assert.equal(options.messages.length, 0);
+            assert.equal(options.toolResponses?.[0]?.name, TAVILY_TOOL_NAME);
+            const response = options.toolResponses?.[0]?.response as Record<string, unknown> | undefined;
+            assert.equal(response?.ok, true);
+            assert.equal(response?.query, 'Kyoto Gion geisha district');
+            assert.equal(response?.count, 1);
+            return {
+                text: '已核对祇园现实背景。',
+                provider: 'fake-provider',
+                model: 'fake-model',
+            };
+        }, { supportsSessionToolLoop: true });
+
+        const result = await runXbTavernManagerAfterTurn({
+            sessionId: session.id,
+            agentConfig: {
+                tavilyApiKey: 'test-tavily-key',
+                tavilyBaseUrl: 'https://tavily.example.test',
+                currentPresetName: '默认',
+                presets: {
+                    默认: {
+                        provider: 'fake-provider',
+                        modelConfigs: {
+                            'fake-provider': { model: 'fake-model', apiKey: 'not-used' },
+                        },
+                    },
+                },
+            },
+            userMessage,
+            assistantMessage,
+            turn: 1,
+            sessionContract: mergeTavernSessionContract(undefined, {
+                memoryArchiving: true,
+            }),
+            executeManagerOnce,
+        });
+
+        assert.equal(result.ok, true);
+        assert.equal(requestCount, 2);
+        assert.equal(exposedToolNames.includes(TAVILY_TOOL_NAME), true);
+        assert.match(managerSystemPrompt, /Web research:/);
+        assert.match(managerSystemPrompt, /web_search/);
+        assert.equal(fetchCalls.length, 1);
+        assert.equal(fetchCalls[0]?.url, 'https://tavily.example.test/search');
+        assert.equal(fetchCalls[0]?.body.api_key, 'test-tavily-key');
+        assert.equal(fetchCalls[0]?.body.query, 'Kyoto Gion geisha district');
+        assert.equal(fetchCalls[0]?.body.max_results, 2);
+        assert.equal(result.protocolMessages?.some((message) => message.role === 'tool' && message.toolName === TAVILY_TOOL_NAME), true);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });
 
 test('xb tavern direct runtime fails before provider call when shared API config is incomplete', async () => {

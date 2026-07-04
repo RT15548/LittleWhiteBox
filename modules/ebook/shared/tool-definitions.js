@@ -1,4 +1,4 @@
-import { TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
+import { getTavilySearchToolDefinition, TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
 
 export const EBOOK_TOOL_NAMES = Object.freeze({
     LS: 'LS',
@@ -97,27 +97,7 @@ export function getEbookToolDefinitions(options = {}) {
     ];
 
     if (webSearchEnabled) {
-        definitions.push({
-            type: 'function',
-            function: {
-                name: EBOOK_TOOL_NAMES.WEB_SEARCH,
-                description: [
-                    'Use Tavily to search real-world facts, public documents, or time-sensitive information not available in the current book or imported sources.',
-                    'Use for real locations, historical background, institutions, professional details, daily-life facts, period facts, public references, or outside research. For book text, imported sources, and setting continuity, prefer LS / Grep / Read.',
-                    'Use focused queries. Verify facts first, then convert results into writing, setting, or review judgments. Do not treat web results as imported book sources.',
-                    'Only available when this tool appears in the tool list. If absent, do not claim to have searched the web.',
-                ].join('\n'),
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        query: { type: 'string', description: 'Focused and specific search query, for example `1997 Hong Kong police ranks` or `Kyoto Gion machiya layout`.' },
-                        maxResults: { type: 'number', description: 'Optional number of results to return. Default 5, max 8.' },
-                    },
-                    required: ['query'],
-                    additionalProperties: false,
-                },
-            },
-        });
+        definitions.push(getTavilySearchToolDefinition());
     }
 
     if (!readOnly) {
