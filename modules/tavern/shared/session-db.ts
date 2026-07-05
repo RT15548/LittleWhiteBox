@@ -729,6 +729,7 @@ function normalizeManagerMessageRole(value: unknown): XbTavernMessage['role'] {
 function normalizeManagerToolCalls(input: TavernAppendManagerMessageInput | Partial<TavernManagerMessageRecord>): Array<{ id?: string; name?: string; arguments?: string }> | undefined {
     const direct = Array.isArray(input.toolCalls) ? input.toolCalls : [];
     const provider = 'tool_calls' in input && Array.isArray(input.tool_calls) ? input.tool_calls : [];
+    const seen = new Set<string>();
     const normalized = [
         ...direct.map((toolCall) => ({
             id: String(toolCall?.id || ''),
@@ -740,7 +741,13 @@ function normalizeManagerToolCalls(input: TavernAppendManagerMessageInput | Part
             name: String(toolCall?.function?.name || ''),
             arguments: String(toolCall?.function?.arguments || '{}'),
         })),
-    ].filter((toolCall) => toolCall.name);
+    ].filter((toolCall) => {
+        if (!toolCall.name) {return false;}
+        const key = `${toolCall.id}\u0000${toolCall.name}\u0000${toolCall.arguments}`;
+        if (seen.has(key)) {return false;}
+        seen.add(key);
+        return true;
+    });
     return normalized.length ? normalized : undefined;
 }
 

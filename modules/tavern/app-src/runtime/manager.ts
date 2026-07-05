@@ -388,19 +388,28 @@ function buildChatManagerUserPrompt(input: {
     ].join('\n');
 }
 
-function isPersistedManagerToolProtocolMessage(message: TavernManagerMessageRecord): boolean {
-    if (message.role === 'tool') {return true;}
-    if (message.role !== 'assistant') {return false;}
-    const legacyToolCalls = (message as { tool_calls?: unknown[] }).tool_calls;
-    return (Array.isArray(message.toolCalls) && message.toolCalls.length > 0)
-        || (Array.isArray(legacyToolCalls) && legacyToolCalls.length > 0);
-}
-
 function buildInputSummary(input: { trigger?: string; turn?: number; userOrder?: number; assistantOrder?: number; text?: string }): string {
     if (String(input.trigger || '') === 'manager_chat') {
         return `manager chat; turn ${Math.max(0, Number(input.turn) || 0)}; question ${String(input.text || '').length} chars`;
     }
     return `turn ${Math.max(0, Number(input.turn) || 0)}; messages ${Number(input.userOrder)}/${Number(input.assistantOrder)}; user ${String(input.text || '').length} chars`;
+}
+
+function normalizeReplayManagerToolCalls(toolCalls: Array<{ id?: string; name?: string; arguments?: string }> = []): Array<{ id?: string; name?: string; arguments?: string }> {
+    const seen = new Set<string>();
+    return (Array.isArray(toolCalls) ? toolCalls : [])
+        .map((toolCall) => ({
+            id: String(toolCall?.id || ''),
+            name: String(toolCall?.name || '').trim(),
+            arguments: String(toolCall?.arguments || '{}'),
+        }))
+        .filter((toolCall) => {
+            if (!toolCall.name) {return false;}
+            const key = `${toolCall.id}\u0000${toolCall.name}\u0000${toolCall.arguments}`;
+            if (seen.has(key)) {return false;}
+            seen.add(key);
+            return true;
+        });
 }
 
 async function runManagerOnceWithAdapter(
@@ -1169,11 +1178,12 @@ async function buildChatManagerMessages(input: {
         }),
     }];
     history.forEach((message) => {
-        if (isPersistedManagerToolProtocolMessage(message)) {return;}
         const canReplayToolCalls = message.role === 'assistant'
             && message.error !== true
             && !['aborted', 'error'].includes(String(message.finishReason || '').trim());
-        const toolCalls = canReplayToolCalls && Array.isArray(message.toolCalls) ? message.toolCalls : [];
+        const toolCalls = canReplayToolCalls && Array.isArray(message.toolCalls)
+            ? normalizeReplayManagerToolCalls(message.toolCalls)
+            : [];
         messages.push({
             role: message.role,
             content: String(message.content || ''),
@@ -1399,8 +1409,11 @@ async function appendAcceptedTurnProtocolMessages(input: {
             name: message.name,
             thoughts: message.thoughts,
             providerPayload: message.providerPayload,
-            toolCalls: message.toolCalls,
-            tool_calls: message.tool_calls,
+            toolCalls: normalizeReplayManagerToolCalls(message.toolCalls || (message.tool_calls || []).map((toolCall) => ({
+                id: String(toolCall?.id || ''),
+                name: String(toolCall?.function?.name || ''),
+                arguments: String(toolCall?.function?.arguments || '{}'),
+            }))),
             toolCallId: message.toolCallId || message.tool_call_id,
             toolName: message.toolName,
             toolDisplay: message.toolDisplay,

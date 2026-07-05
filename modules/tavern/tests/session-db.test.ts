@@ -5452,7 +5452,7 @@ test('tavern manager chat returns segmented protocol messages and keeps final te
     ]);
 });
 
-test('tavern manager stores provider tool protocol messages but skips them in later chat prompts', async () => {
+test('tavern manager stores provider tool protocol messages and replays them once in later chat prompts', async () => {
     await db.delete();
     await db.open();
 
@@ -5497,10 +5497,13 @@ test('tavern manager stores provider tool protocol messages but skips them in la
             replayMessages = (options.messages || []) as unknown as Array<Record<string, unknown>>;
             const replayAssistant = replayMessages.find((message) => (
                 message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length
-            ));
+            )) as { providerPayload?: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> } | undefined;
             const replayTool = replayMessages.find((message) => message.role === 'tool');
-            assert.equal(replayAssistant, undefined);
-            assert.equal(replayTool, undefined);
+            assert.equal(replayAssistant?.providerPayload && typeof replayAssistant.providerPayload === 'object', true);
+            assert.equal(replayAssistant?.tool_calls?.length, 1);
+            assert.equal(replayAssistant?.tool_calls?.[0]?.id, 'read-state');
+            assert.equal(replayAssistant?.tool_calls?.[0]?.function?.name, 'Read');
+            assert.equal((replayTool as { tool_call_id?: string } | undefined)?.tool_call_id, 'read-state');
             return { provider: 'fake-manager', model: 'memory-model', text: '已确认。' };
         },
     });
@@ -5508,6 +5511,112 @@ test('tavern manager stores provider tool protocol messages but skips them in la
     assert.equal(result.ok, true);
     assert.equal(replayMessages.some((message) => message.role === 'user' && String(message.content || '').includes('读一下北门')), true);
     assert.equal(replayMessages.some((message) => message.role === 'assistant' && message.content === '北门半开。'), true);
+});
+
+test('tavern manager message storage dedupes local and provider tool call shapes', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Manager tool call dedupe' });
+    const message = await appendTavernManagerMessage(session.id, {
+        role: 'assistant',
+        content: '我先读档案。',
+        toolCalls: [{
+            id: 'read-state',
+            name: 'Read',
+            arguments: '{"path":"memory/state.md"}',
+        }],
+        tool_calls: [{
+            id: 'read-state',
+            type: 'function',
+            function: {
+                name: 'Read',
+                arguments: '{"path":"memory/state.md"}',
+            },
+        }],
+    });
+
+    assert.equal(message.toolCalls?.length, 1);
+    assert.equal(message.toolCalls?.[0]?.id, 'read-state');
+    assert.equal(message.toolCalls?.[0]?.name, 'Read');
+});
+
+test('tavern manager stores provider-only tool call protocol as canonical local tool calls', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Provider only protocol' });
+    const message = await appendTavernManagerMessage(session.id, {
+        role: 'assistant',
+        content: '我先读档案。',
+        tool_calls: [{
+            id: 'read-state',
+            type: 'function',
+            function: {
+                name: 'Read',
+                arguments: '{"path":"memory/state.md"}',
+            },
+        }],
+    });
+
+    assert.equal(message.toolCalls?.length, 1);
+    assert.equal(message.toolCalls?.[0]?.id, 'read-state');
+    assert.equal(message.toolCalls?.[0]?.name, 'Read');
+});
+
+test('tavern manager chat dedupes already persisted duplicate tool calls before replay', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Persisted duplicate replay' });
+    const user = await appendTavernManagerMessage(session.id, { role: 'user', content: '查一下北门。' });
+    const assistant = await appendTavernManagerMessage(session.id, {
+        role: 'assistant',
+        content: '我先读档案。',
+        toolCalls: [{
+            id: 'read-state',
+            name: 'Read',
+            arguments: '{"path":"memory/state.md"}',
+        }],
+    });
+    const duplicatedAssistant = {
+        ...assistant,
+        toolCalls: [
+            {
+                id: 'read-state',
+                name: 'Read',
+                arguments: '{"path":"memory/state.md"}',
+            },
+            {
+                id: 'read-state',
+                name: 'Read',
+                arguments: '{"path":"memory/state.md"}',
+            },
+        ],
+    };
+    const toolMessage = await appendTavernManagerMessage(session.id, {
+        role: 'tool',
+        content: '{"ok":true,"content":"北门半开。"}',
+        toolCallId: 'read-state',
+        toolName: 'Read',
+    });
+    let replayAssistant: { tool_calls?: unknown[] } | undefined;
+
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '继续。',
+        history: [user, duplicatedAssistant, toolMessage],
+        executeManagerOnce: async (options) => {
+            replayAssistant = (options.messages || []).find((message) => (
+                message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length
+            )) as { tool_calls?: unknown[] } | undefined;
+            return { provider: 'fake-manager', model: 'memory-model', text: '已确认。' };
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(replayAssistant?.tool_calls?.length, 1);
 });
 
 test('tavern manager uses session toolResponses when runner supports session tool loop', async () => {
@@ -6919,7 +7028,8 @@ test('tavern manager chat does not replay stale tool drafts from errored history
 
     const assistantReplay = (replayMessages as Array<Record<string, unknown>>).find((message) => (
         message.role === 'assistant' && message.content === 'provider failed'
-    ));
+    )) as { tool_calls?: unknown[] } | undefined;
     assert.equal(result.ok, true);
-    assert.equal(assistantReplay, undefined);
+    assert.equal(!!assistantReplay, true);
+    assert.equal(Array.isArray(assistantReplay?.tool_calls) && assistantReplay.tool_calls.length > 0, false);
 });
