@@ -1155,6 +1155,12 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
         .xb-assistant-markdown h4 {
             margin: 0 0 0.85em;
         }
+        .xb-assistant-markdown p {
+            margin: 0;
+        }
+        .xb-assistant-markdown p + p {
+            margin-top: 0.65em;
+        }
         .xb-assistant-markdown strong,
         .xb-assistant-markdown b,
         .xb-assistant-markdown h1,

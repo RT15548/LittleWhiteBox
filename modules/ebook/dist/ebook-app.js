@@ -573,8 +573,7 @@ var ii = {
     "eventId",
     "id",
     "title",
-    "horizon",
-    "current",
+    "vision",
     "doneWhen",
     "hookForModel",
     "status"
@@ -680,8 +679,7 @@ var ii = {
   "op",
   "eventId",
   "fingerprint",
-  "horizon",
-  "current",
+  "vision",
   "doneWhen",
   "hookForModel",
   "startOrder",
@@ -37233,6 +37231,12 @@ function dF(e = "xb-ebook-root") {
         .xb-assistant-markdown h3,
         .xb-assistant-markdown h4 {
             margin: 0 0 0.85em;
+        }
+        .xb-assistant-markdown p {
+            margin: 0;
+        }
+        .xb-assistant-markdown p + p {
+            margin-top: 0.65em;
         }
         .xb-assistant-markdown strong,
         .xb-assistant-markdown b,

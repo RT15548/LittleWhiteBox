@@ -1107,6 +1107,12 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-markdown h6 {
             margin: 0 0 0.8em;
         }
+        .xb-assistant-markdown p {
+            margin: 0;
+        }
+        .xb-assistant-markdown p + p {
+            margin-top: 0.65em;
+        }
         .xb-assistant-markdown h1,
         .xb-assistant-markdown h2,
         .xb-assistant-markdown h3,

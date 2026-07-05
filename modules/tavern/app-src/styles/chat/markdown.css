@@ -98,7 +98,12 @@
 .xb-tavern-markdown p {
     font-size: inherit;
     line-height: inherit;
-    white-space: pre-wrap;
+    margin: 0;
+    white-space: normal;
+}
+
+.xb-tavern-markdown p + p {
+    margin-top: 0.65em;
 }
 
 .xb-tavern-markdown li {
