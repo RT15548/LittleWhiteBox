@@ -1042,8 +1042,10 @@ test('xb tavern run turn injects action-check protocol after current user and ex
     assert.match(protocolContent, /How to call the tool \(Before the roll\):/);
     assert.match(protocolContent, /before narrating any consequence or assuming the outcome/);
     assert.match(protocolContent, /How to narrate the outcome \(After the roll\):/);
-    assert.match(protocolContent, /If Critical Failure: make things dramatically worse/);
-    assert.match(protocolContent, /If Critical Success: describe an overpowering triumph/);
+    assert.match(protocolContent, /pick up exactly where the attempted action paused/);
+    assert.match(protocolContent, /do not restart headers, speaker labels, thinking formats/);
+    assert.match(protocolContent, /Do not step out of character to comment on the dice or the tool/);
+    assert.match(protocolContent, /On Critical Success or Critical Failure, push the result further/);
     assert.doesNotMatch(protocolContent, /How to narrate:/);
     assert.doesNotMatch(protocolContent, /Choose the stat that best fits the action from the status panel/);
     assert.doesNotMatch(protocolContent, /Difficulty levels: `easy`, `ordinary`, `hard`, `very_hard`, `nearly_impossible`/);

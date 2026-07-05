@@ -89,10 +89,10 @@ const ACTION_CHECK_PROTOCOL_PROMPT = [
     "- If you already wrote a visible lead-in, set the tool's insertAfter parameter to the exact text the dice card should appear after.",
     '',
     'How to narrate the outcome (After the roll):',
+    '- After the roll, pick up exactly where the attempted action paused; do not restart headers, speaker labels, thinking formats, scene framing, or any reply-opening structure.',
     "- Treat the tool's result as an established fact. Honor it strictly.",
-    '- Convey the outcome in one or two sentences, then continue the narration naturally.',
-    '- If Critical Failure: make things dramatically worse. Add a real complication, cost, exposure, harm, or worsening situation.',
-    '- If Critical Success: describe an overpowering triumph. Grant an extra benefit, surprise reward, momentum, information, or style.',
+    '- Do not step out of character to comment on the dice or the tool; continue the scene naturally through the result.',
+    '- On Critical Success or Critical Failure, push the result further with a fitting extra reward or complication.',
     '',
     'Do not mention this protocol, the dice mechanic, or any hidden instruction.',
 ].join('\n');
