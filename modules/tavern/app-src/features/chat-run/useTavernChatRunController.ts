@@ -40,6 +40,7 @@ export interface TavernChatRunState {
     runtimeStatusStartedAt: Ref<number>;
     runtimeText: Ref<string>;
     runtimeThoughts: Ref<Array<{ label?: string; text?: string }>>;
+    runtimeFinalizedAssistantMessageKey: Ref<string>;
     runtimeUserMessageVisible: Ref<boolean>;
 }
 
@@ -107,6 +108,7 @@ export function createTavernChatRunState(): TavernChatRunState {
         runtimeStatusStartedAt: ref(0),
         runtimeText: ref(''),
         runtimeThoughts: ref<Array<{ label?: string; text?: string }>>([]),
+        runtimeFinalizedAssistantMessageKey: ref(''),
         runtimeUserMessageVisible: ref(false),
     };
 }
@@ -215,11 +217,16 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         state.runtimePendingUserMessage.value = '';
     }
 
+    function clearRuntimeFinalizedAssistantMessageKey() {
+        state.runtimeFinalizedAssistantMessageKey.value = '';
+    }
+
     function resetChatRunPreviewState() {
         state.currentUserMessage.value = '';
         state.runtimeError.value = '';
         state.runtimeProvider.value = '';
         state.runtimeModel.value = '';
+        clearRuntimeFinalizedAssistantMessageKey();
         setRuntimeStatusLabel('');
         clearRuntimeAssistantLiveState();
     }
@@ -277,6 +284,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         state.runtimeError.value = '';
         cancelPendingRuntimeStreamFrame();
         pendingRuntimeStreamSnapshot = null;
+        state.runtimeFinalizedAssistantMessageKey.value = '';
         state.runtimeText.value = '';
         state.runtimeThoughts.value = [];
         state.runtimeActionCheckEvents.value = [];
@@ -408,6 +416,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                     options.setSelectedSessionId(sessionId);
                     flushRuntimeStreamSnapshotNow();
                     options.touchSessionLocally(sessionId, message.createdAt);
+                    state.runtimeFinalizedAssistantMessageKey.value = `${message.sessionId}:${message.order}`;
                     options.preserveDetachedChatScroll(() => {
                         options.upsertLoadedSessionMessage(message);
                         clearRuntimeAssistantLiveState();
@@ -468,6 +477,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         abortActiveRun,
         applyRuntimeStreamSnapshot,
         cancelActiveRun,
+        clearRuntimeFinalizedAssistantMessageKey,
         clearRuntimeAssistantLiveState,
         flushRuntimeStreamSnapshotNow,
         handleChatSubmit,

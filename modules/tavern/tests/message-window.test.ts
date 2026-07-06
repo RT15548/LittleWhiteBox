@@ -71,3 +71,15 @@ test('tavern scroll handlers collapse expanded message windows when returning to
     assert.doesNotMatch(scrollPaneSource, /scrollOptions\.collapseWindow \|\| autoScroll\.value/);
     assert.match(scrollPaneSource, /watch\(\(\) => normalizeHiddenOutsideCount[\s\S]*if \(autoScroll\.value === false\) \{return;\}[\s\S]*resetWindowState\(\);/);
 });
+
+test('tavern reveal older messages preserves the first visible message anchor', () => {
+    const appSource = readFileSync(resolve(root, 'modules/tavern/app-src/App.vue'), 'utf8');
+    const scrollPaneSource = readFileSync(resolve(root, 'modules/tavern/app-src/components/chat/useTavernScrollPane.ts'), 'utf8');
+    assert.match(scrollPaneSource, /revealAnchorConfig\?: AnchorConfig/);
+    assert.match(scrollPaneSource, /const snapshot = options\.revealAnchorConfig[\s\S]*captureElementScrollState\(node, options\.revealAnchorConfig\)/);
+    assert.match(scrollPaneSource, /messageWindowLimit\.value = Number\(state\.uiMessageWindowLimit \|\| messageWindowLimit\.value\);[\s\S]*autoScroll\.value = false;[\s\S]*scheduleRevealScrollRestore\(snapshot\);/);
+    assert.match(scrollPaneSource, /restoreElementScrollState\(node, snapshot, options\.revealAnchorConfig, \{[\s\S]*preserveScrollTop: true/);
+    assert.match(appSource, /revealAnchorConfig: \{\s*itemSelector: '\.chat-bubble\[data-chat-anchor-key\]'/);
+    assert.match(appSource, /revealAnchorConfig: \{\s*itemSelector: '\.manager-card\[data-manager-anchor-key\]'/);
+    assert.doesNotMatch(appSource, /revealAnchorConfig: \{[\s\S]{0,120}chat-history-gate/);
+});

@@ -7,11 +7,18 @@ import {
     normalizeMessageLoadBatchSize,
     resetMessageWindow,
 } from '../../message-window';
+import {
+    captureElementScrollState,
+    restoreElementScrollState,
+    type AnchorConfig,
+    type ElementScrollSnapshot,
+} from '../../scroll-state';
 
 export interface TavernScrollPaneOptions {
     totalItems: () => number;
     defaultLimit?: number | Ref<number>;
     loadBatchSize?: number | Ref<number>;
+    revealAnchorConfig?: AnchorConfig;
 }
 
 export interface TavernScrollToBottomOptions {
@@ -31,6 +38,31 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     let touchStartY: number | null = null;
     let lastScrollTop = 0;
 
+    function restoreRevealScrollSnapshot(snapshot: ElementScrollSnapshot | null) {
+        if (!snapshot || !options.revealAnchorConfig) {return false;}
+        const node = scrollRef.value;
+        if (!node) {return false;}
+        restoreElementScrollState(node, snapshot, options.revealAnchorConfig, {
+            preserveScrollTop: true,
+        });
+        lastScrollTop = Number(node.scrollTop || 0);
+        updateScrollButtons();
+        return true;
+    }
+
+    function scheduleRevealScrollRestore(snapshot: ElementScrollSnapshot | null) {
+        if (!snapshot || !options.revealAnchorConfig) {return;}
+        void nextTick(() => {
+            restoreRevealScrollSnapshot(snapshot);
+            requestAnimationFrame(() => {
+                restoreRevealScrollSnapshot(snapshot);
+                requestAnimationFrame(() => {
+                    restoreRevealScrollSnapshot(snapshot);
+                });
+            });
+        });
+    }
+
     function resetWindowState() {
         const state = { uiMessageWindowLimit: messageWindowLimit.value };
         resetMessageWindow(state, { defaultLimit: normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT) });
@@ -41,6 +73,9 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         const node = scrollRef.value;
         if (!force && autoScroll.value !== false) {return false;}
         if (!node || (!force && node.scrollTop > 64)) {return false;}
+        const snapshot = options.revealAnchorConfig
+            ? captureElementScrollState(node, options.revealAnchorConfig)
+            : null;
         const state = { uiMessageWindowLimit: messageWindowLimit.value };
         if (!expandMessageWindow(state, options.totalItems(), {
             defaultLimit: normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT),
@@ -48,6 +83,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         })) {return false;}
         messageWindowLimit.value = Number(state.uiMessageWindowLimit || messageWindowLimit.value);
         autoScroll.value = false;
+        scheduleRevealScrollRestore(snapshot);
         return true;
     }
 

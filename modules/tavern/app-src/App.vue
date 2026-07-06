@@ -264,6 +264,7 @@ const {
     runtimeStatusStartedAt,
     runtimeText,
     runtimeThoughts,
+    runtimeFinalizedAssistantMessageKey,
     runtimeUserMessageVisible,
 } = chatRunState;
 const tavernToast = ref<{
@@ -436,11 +437,19 @@ const chatScrollPane = useTavernScrollPane({
     totalItems: () => selectedSessionMessageTotal.value,
     defaultLimit: hiddenOutsideCount,
     loadBatchSize,
+    revealAnchorConfig: {
+        itemSelector: '.chat-bubble[data-chat-anchor-key]',
+        datasetKey: 'chatAnchorKey',
+    },
 });
 const managerScrollPane = useTavernScrollPane({
     totalItems: () => managerChatMessageDisplayItems.value.length,
     defaultLimit: hiddenOutsideCount,
     loadBatchSize,
+    revealAnchorConfig: {
+        itemSelector: '.manager-card[data-manager-anchor-key]',
+        datasetKey: 'managerAnchorKey',
+    },
 });
 const chatScrollRef = chatScrollPane.scrollRef;
 const managerScrollRef = managerScrollPane.scrollRef;
@@ -4004,6 +4013,10 @@ function clearRuntimeAssistantLiveState() {
     chatRunController.clearRuntimeAssistantLiveState();
 }
 
+function clearRuntimeFinalizedAssistantMessageKey() {
+    chatRunController.clearRuntimeFinalizedAssistantMessageKey();
+}
+
 function ensureManagerLiveProtocolState(sessionId: string) {
     const id = String(sessionId || '').trim();
     if (!id) {return null;}
@@ -4433,8 +4446,13 @@ watch([
     }
 });
 
-watch([() => activeView.value, () => chatFocus.value], () => {
-    if (activeView.value === 'chat' && chatFocus.value === 'chat') {
+watch([() => activeView.value, () => chatFocus.value], ([view, focus], [previousView, previousFocus]) => {
+    const isRoleplayChat = view === 'chat' && focus === 'chat';
+    const wasRoleplayChat = previousView === 'chat' && previousFocus === 'chat';
+    if (wasRoleplayChat && !isRoleplayChat) {
+        clearRuntimeFinalizedAssistantMessageKey();
+    }
+    if (isRoleplayChat) {
         scrollChatToBottom(true);
     }
 });
@@ -4444,6 +4462,7 @@ watch(() => chatMessageWindowLimit.value, () => {
 });
 
 watch(() => selectedSessionId.value, () => {
+    clearRuntimeFinalizedAssistantMessageKey();
     resetChatMessageWindowState();
     resetManagerMessageWindowState();
     chatAutoScroll.value = true;
@@ -4612,6 +4631,7 @@ const chatContext = {
     runtimeStatusLabel,
     runtimeStatusStartedAt,
     runtimeUserMessageVisible,
+    runtimeFinalizedAssistantMessageKey,
     runtimePendingUserMessage,
     saveEditMessage,
     scrollChatToBottom,

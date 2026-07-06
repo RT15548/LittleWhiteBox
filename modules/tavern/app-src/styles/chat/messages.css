@@ -134,6 +134,10 @@
     box-shadow: none;
 }
 
+.tavern-chat.xb-page .chat-message-item {
+    display: contents;
+}
+
 .chat-bubble {
     --xb-chat-bubble-x: clamp(5px, 0.9vw, 10px);
 

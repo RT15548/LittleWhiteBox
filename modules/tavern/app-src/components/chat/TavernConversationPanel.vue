@@ -74,6 +74,7 @@ const {
     runtimeStatusLabel,
     runtimeText,
     runtimeThoughts,
+    runtimeFinalizedAssistantMessageKey,
     runtimeUserMessageVisible,
     saveEditMessage,
     scrollChatToBottom,
@@ -205,10 +206,17 @@ const pendingUserRenderState = computed(() => {
 });
 const thoughtDisclosure = useTavernEphemeralDisclosureScope();
 const runtimeThoughtDisclosureId = 'chat:runtime-thoughts';
+const runtimeAssistantMessageItemDomKey = 'runtime-assistant-message-item';
 const isMobileActionTrayViewport = useTavernMediaQuery('(max-width: 760px)');
 const activeMessageActionsKey = ref('');
 const composeMenuOpen = ref(false);
 const sessionArchiveOpen = ref(false);
+
+function chatMessageItemDomKey(message: TavernMessageRecord) {
+    return message.role === 'assistant' && messageKey(message) === runtimeFinalizedAssistantMessageKey.value
+        ? runtimeAssistantMessageItemDomKey
+        : `${message.sessionId}-${message.order}`;
+}
 
 function messageThoughtDisclosureId(message: TavernMessageRecord) {
     return `chat:thought:${messageKey(message)}`;
@@ -409,9 +417,10 @@ watch(isMobileActionTrayViewport, (isMobile) => {
         >
           展开较早记录 {{ chatMessageWindow.hiddenBefore }} 条
         </div>
-        <template
+        <div
           v-for="message in visibleChatMessages"
-          :key="`${message.sessionId}-${message.order}`"
+          :key="chatMessageItemDomKey(message)"
+          class="chat-message-item"
         >
           <div
             :data-chat-anchor-key="`${message.sessionId}:${message.order}`"
@@ -602,7 +611,7 @@ watch(isMobileActionTrayViewport, (isMobile) => {
               {{ String((event as { label?: string }).label || '') }}
             </div>
           </div>
-        </template>
+        </div>
         <div
           v-if="pendingUserVisible"
           data-chat-anchor-key="pending:user"
@@ -636,80 +645,90 @@ watch(isMobileActionTrayViewport, (isMobile) => {
         </div>
         <div
           v-if="liveAssistantCanRender && liveAssistantVisible"
-          data-chat-anchor-key="streaming:content"
-          class="chat-bubble from-assistant streaming"
+          :key="runtimeAssistantMessageItemDomKey"
+          class="chat-message-item"
         >
-          <div class="bubble-meta">
-            <span class="bubble-nameplate">
-              <span class="bubble-avatar-stamp">
-                <img
-                  v-if="visibleCharacterAvatar"
-                  :src="visibleCharacterAvatar"
-                  alt=""
-                  @error="rememberBrokenAvatar(visibleCharacterAvatar)"
-                >
-                <span v-else>{{ String(roleLabel('assistant')).slice(0, 1) }}</span>
-              </span>
-              <span class="bubble-role-name">{{ roleLabel('assistant') }}</span>
-            </span>
-            <small>{{ liveAssistantStatusLabel }}</small>
-          </div>
-          <template
-            v-for="displayRuntimeThoughts in [liveAssistantThoughtBlocks]"
-            :key="`${runtimeThoughtDisclosureId}:${displayRuntimeThoughts.length}`"
-          >
-            <details
-              v-if="displayRuntimeThoughts.length"
-              class="tavern-thought-details"
-              :open="thoughtDisclosure.isOpen(runtimeThoughtDisclosureId, true)"
-              @toggle="thoughtDisclosure.setOpenFromEvent(runtimeThoughtDisclosureId, $event)"
-            >
-              <summary>{{ thoughtSummaryLabel(displayRuntimeThoughts, true) }}</summary>
-              <template
-                v-if="thoughtDisclosure.isOpen(runtimeThoughtDisclosureId, true)"
-              >
-                <div
-                  v-for="(thought, thoughtIndex) in displayRuntimeThoughts"
-                  :key="`runtime-thought-${thoughtIndex}`"
-                  class="tavern-thought-block"
-                >
-                  <div class="tavern-thought-label">
-                    {{ thought.label }}
-                  </div>
-                  <pre>{{ thought.text }}</pre>
-                </div>
-              </template>
-            </details>
-          </template>
           <div
-            v-if="liveAssistantMarkdownVisible"
-            class="xb-tavern-markdown"
-            :data-action-check-groups="liveAssistantRenderState.actionCheckGroups || undefined"
-            :data-markdown-signature="liveAssistantRenderState.signature"
-            v-html="renderRoleplayMarkdown(liveAssistantRenderState.text)"
-          />
+            data-chat-anchor-key="streaming:content"
+            class="chat-bubble from-assistant streaming"
+          >
+            <div class="bubble-meta">
+              <span class="bubble-nameplate">
+                <span class="bubble-avatar-stamp">
+                  <img
+                    v-if="visibleCharacterAvatar"
+                    :src="visibleCharacterAvatar"
+                    alt=""
+                    @error="rememberBrokenAvatar(visibleCharacterAvatar)"
+                  >
+                  <span v-else>{{ String(roleLabel('assistant')).slice(0, 1) }}</span>
+                </span>
+                <span class="bubble-role-name">{{ roleLabel('assistant') }}</span>
+              </span>
+              <small>{{ liveAssistantStatusLabel }}</small>
+            </div>
+            <template
+              v-for="displayRuntimeThoughts in [liveAssistantThoughtBlocks]"
+              :key="`${runtimeThoughtDisclosureId}:${displayRuntimeThoughts.length}`"
+            >
+              <details
+                v-if="displayRuntimeThoughts.length"
+                class="tavern-thought-details"
+                :open="thoughtDisclosure.isOpen(runtimeThoughtDisclosureId, true)"
+                @toggle="thoughtDisclosure.setOpenFromEvent(runtimeThoughtDisclosureId, $event)"
+              >
+                <summary>{{ thoughtSummaryLabel(displayRuntimeThoughts, true) }}</summary>
+                <template
+                  v-if="thoughtDisclosure.isOpen(runtimeThoughtDisclosureId, true)"
+                >
+                  <div
+                    v-for="(thought, thoughtIndex) in displayRuntimeThoughts"
+                    :key="`runtime-thought-${thoughtIndex}`"
+                    class="tavern-thought-block"
+                  >
+                    <div class="tavern-thought-label">
+                      {{ thought.label }}
+                    </div>
+                    <pre>{{ thought.text }}</pre>
+                  </div>
+                </template>
+              </details>
+            </template>
+            <div
+              v-if="liveAssistantMarkdownVisible"
+              class="xb-tavern-markdown"
+              :data-action-check-groups="liveAssistantRenderState.actionCheckGroups || undefined"
+              :data-markdown-signature="liveAssistantRenderState.signature"
+              v-html="renderRoleplayMarkdown(liveAssistantRenderState.text)"
+            />
+          </div>
         </div>
         <div
           v-if="liveAssistantCanRender && !liveAssistantVisible"
-          data-chat-anchor-key="streaming:empty"
-          class="chat-bubble from-assistant streaming thinking"
+          :key="runtimeAssistantMessageItemDomKey"
+          class="chat-message-item"
         >
-          <div class="bubble-meta">
-            <span class="bubble-nameplate">
-              <span class="bubble-avatar-stamp">
-                <img
-                  v-if="visibleCharacterAvatar"
-                  :src="visibleCharacterAvatar"
-                  alt=""
-                  @error="rememberBrokenAvatar(visibleCharacterAvatar)"
-                >
-                <span v-else>{{ String(roleLabel('assistant')).slice(0, 1) }}</span>
+          <div
+            data-chat-anchor-key="streaming:empty"
+            class="chat-bubble from-assistant streaming thinking"
+          >
+            <div class="bubble-meta">
+              <span class="bubble-nameplate">
+                <span class="bubble-avatar-stamp">
+                  <img
+                    v-if="visibleCharacterAvatar"
+                    :src="visibleCharacterAvatar"
+                    alt=""
+                    @error="rememberBrokenAvatar(visibleCharacterAvatar)"
+                  >
+                  <span v-else>{{ String(roleLabel('assistant')).slice(0, 1) }}</span>
+                </span>
+                <span class="bubble-role-name">{{ roleLabel('assistant') }}</span>
               </span>
-              <span class="bubble-role-name">{{ roleLabel('assistant') }}</span>
-            </span>
-            <small>{{ liveAssistantStatusLabel }}</small>
+              <small>{{ liveAssistantStatusLabel }}</small>
+            </div>
+            <p>正在组织回复...</p>
           </div>
-          <p>正在组织回复...</p>
         </div>
         <p
           v-if="!chatMessages.length && !isRunning"

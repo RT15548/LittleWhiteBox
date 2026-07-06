@@ -12,7 +12,7 @@ export interface ElementScrollAnchorSnapshot {
     topOffset: number;
 }
 
-interface AnchorConfig {
+export interface AnchorConfig {
     itemSelector: string;
     datasetKey: string;
 }
