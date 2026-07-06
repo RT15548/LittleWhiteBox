@@ -686,8 +686,9 @@ test('tavern request log is sourced from runtime request snapshots', () => {
     assert.match(appSource, /lastRequestSnapshot\.value\?\.rawRequestJson \|\| lastRequestSnapshot\.value\?\.rawMessagesJson/);
     assert.match(appSource, /simulateRequestJson\.value = result\.requestSnapshot\.rawRequestJson \|\| result\.requestSnapshot\.rawMessagesJson/);
     assert.match(requestLogModalSource, /buildRequestLogPreview/);
-    assert.match(requestLogModalSource, /美化显示/);
-    assert.match(requestLogModalSource, /原始 JSON/);
+    assert.match(requestLogModalSource, />\s*美化\s*</);
+    assert.match(requestLogModalSource, />\s*原始\s*</);
+    assert.match(requestLogModalSource, /class="prompt-inspector-tools"/);
     assert.match(requestLogModalSource, /class="prompt-log-search"/);
     assert.match(requestLogModalSource, /class="prompt-preview-parameter-panel"/);
     assert.match(requestLogModalSource, /prompt-search-mark/);

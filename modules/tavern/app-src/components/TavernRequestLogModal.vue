@@ -226,44 +226,48 @@ onBeforeUnmount(() => clearSearchMarks());
             模拟发送
           </button>
         </div>
-        <div class="prompt-tab-group prompt-view-mode-tabs">
-          <button
-            type="button"
-            :class="{ active: displayMode === 'pretty' }"
-            @click="displayMode = 'pretty'"
-          >
-            美化显示
-          </button>
-          <button
-            type="button"
-            :class="{ active: displayMode === 'raw' }"
-            @click="displayMode = 'raw'"
-          >
-            原始 JSON
-          </button>
-        </div>
-        <div class="prompt-log-search">
-          <input
-            v-model="searchText"
-            type="search"
-            placeholder="搜索"
-            aria-label="搜索请求日志"
-          >
-          <button
-            type="button"
-            aria-label="上一个搜索结果"
-            @click="moveSearch('prev')"
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            aria-label="下一个搜索结果"
-            @click="moveSearch('next')"
-          >
-            ↓
-          </button>
-          <span>{{ searchInfo }}</span>
+        <div class="prompt-inspector-tools">
+          <div class="prompt-tab-group prompt-view-mode-tabs">
+            <button
+              type="button"
+              :class="{ active: displayMode === 'pretty' }"
+              @click="displayMode = 'pretty'"
+            >
+              美化
+            </button>
+            <button
+              type="button"
+              :class="{ active: displayMode === 'raw' }"
+              @click="displayMode = 'raw'"
+            >
+              原始
+            </button>
+          </div>
+          <div class="prompt-log-search">
+            <div class="prompt-log-search-box">
+              <input
+                v-model="searchText"
+                type="search"
+                placeholder="搜索"
+                aria-label="搜索请求日志"
+              >
+              <button
+                type="button"
+                aria-label="上一个搜索结果"
+                @click="moveSearch('prev')"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                aria-label="下一个搜索结果"
+                @click="moveSearch('next')"
+              >
+                ↓
+              </button>
+            </div>
+            <span v-if="searchInfo">{{ searchInfo }}</span>
+          </div>
         </div>
       </div>
 

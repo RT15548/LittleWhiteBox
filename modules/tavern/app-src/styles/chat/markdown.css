@@ -6,18 +6,18 @@
 }
 
 [data-chat-font-size='small'] {
-    --xb-tavern-reading-font-offset: 0px;
-    --xb-tavern-reading-line-offset: 0px;
-}
-
-[data-chat-font-size='medium'] {
     --xb-tavern-reading-font-offset: 1px;
     --xb-tavern-reading-line-offset: 2px;
 }
 
-[data-chat-font-size='large'] {
+[data-chat-font-size='medium'] {
     --xb-tavern-reading-font-offset: 2px;
     --xb-tavern-reading-line-offset: 4px;
+}
+
+[data-chat-font-size='large'] {
+    --xb-tavern-reading-font-offset: 3px;
+    --xb-tavern-reading-line-offset: 6px;
 }
 
 .xb-tavern-markdown {

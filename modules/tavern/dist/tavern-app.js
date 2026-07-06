@@ -68,7 +68,7 @@ function Oe(e) {
     for (const n in e) e[n] && (t += n + " ");
   return t.trim();
 }
-var dN = "itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly", wK = /* @__PURE__ */ Dy(dN), fCe = /* @__PURE__ */ Dy(dN + ",async,autofocus,autoplay,controls,default,defer,disabled,hidden,inert,loop,open,required,reversed,scoped,seamless,checked,muted,multiple,selected");
+var dN = "itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly", wK = /* @__PURE__ */ Dy(dN), mCe = /* @__PURE__ */ Dy(dN + ",async,autofocus,autoplay,controls,default,defer,disabled,hidden,inert,loop,open,required,reversed,scoped,seamless,checked,muted,multiple,selected");
 function fN(e) {
   return !!e || e === "";
 }
@@ -1286,7 +1286,7 @@ function KE(e) {
   const t = gv.get(e);
   t && (t.flags |= 8, gv.delete(e));
 }
-var hCe = qy().requestIdleCallback || ((e) => setTimeout(e, 1)), pCe = qy().cancelIdleCallback || ((e) => clearTimeout(e)), wh = (e) => !!e.type.__asyncLoader, qN = (e) => e.type.__isKeepAlive;
+var gCe = qy().requestIdleCallback || ((e) => setTimeout(e, 1)), vCe = qy().cancelIdleCallback || ((e) => clearTimeout(e)), wh = (e) => !!e.type.__asyncLoader, qN = (e) => e.type.__isKeepAlive;
 function l5(e, t) {
   HN(e, "a", t);
 }
@@ -15599,7 +15599,7 @@ var jV = class extends bd {
       await t.table("tasks").clear(), await t.table("taskSnapshots").clear(), await t.table("managerTaskSnapshots").clear(), await t.table("taskFingerprintStates").clear();
     });
   }
-}, Dt = new jV(), ct = Dt.sessions, Yt = Dt.messages, Mr = Dt.managerMessages, Ha = Dt.meta, mCe = Dt.presets, Xn = Dt.managerRuns, Tn = Dt.memoryFiles, oa = Dt.memorySnapshots, Pr = Dt.memoryIndexes, Wu = Dt.assistantPresets, ur = Dt.managerMemorySnapshots, yn = Dt.stateDocuments, cr = Dt.statePatches, Ps = Dt.managerStateSnapshots, Bn = Dt.tasks, la = Dt.taskSnapshots, ua = Dt.statusSnapshots, ir = Dt.managerTaskSnapshots, ca = Dt.taskFingerprintStates, Pa = bd;
+}, Dt = new jV(), ct = Dt.sessions, Yt = Dt.messages, Mr = Dt.managerMessages, Ha = Dt.meta, yCe = Dt.presets, Xn = Dt.managerRuns, Tn = Dt.memoryFiles, oa = Dt.memorySnapshots, Pr = Dt.memoryIndexes, Wu = Dt.assistantPresets, ur = Dt.managerMemorySnapshots, yn = Dt.stateDocuments, cr = Dt.statePatches, Ps = Dt.managerStateSnapshots, Bn = Dt.tasks, la = Dt.taskSnapshots, ua = Dt.statusSnapshots, ir = Dt.managerTaskSnapshots, ca = Dt.taskFingerprintStates, Pa = bd;
 function wn() {
   return Date.now();
 }
@@ -63646,49 +63646,49 @@ var hEe = {
 }, pEe = { class: "prompt-inspector-head" }, mEe = {
   class: "prompt-inspector-tabs",
   "aria-label": "API 请求视图"
-}, gEe = { class: "prompt-tab-group" }, vEe = { class: "prompt-tab-group prompt-view-mode-tabs" }, yEe = { class: "prompt-log-search" }, _Ee = { class: "prompt-inspector-view" }, bEe = {
+}, gEe = { class: "prompt-tab-group" }, vEe = { class: "prompt-inspector-tools" }, yEe = { class: "prompt-tab-group prompt-view-mode-tabs" }, _Ee = { class: "prompt-log-search" }, bEe = { class: "prompt-log-search-box" }, wEe = { key: 0 }, SEe = { class: "prompt-inspector-view" }, AEe = {
   key: 0,
   class: "prompt-simulate-panel"
-}, wEe = ["value"], SEe = {
+}, kEe = ["value"], TEe = {
   key: 1,
   class: "muted compact"
-}, AEe = {
+}, xEe = {
   key: 2,
   class: "error"
-}, kEe = {
+}, EEe = {
   key: 0,
   class: "prompt-request-pretty"
-}, TEe = {
+}, IEe = {
   key: 0,
   class: "prompt-preview-section"
-}, xEe = {
+}, CEe = {
   key: 0,
   class: "prompt-preview-chip-row"
-}, EEe = {
+}, MEe = {
   key: 1,
   class: "prompt-preview-error"
-}, IEe = {
+}, PEe = {
   key: 1,
   class: "prompt-preview-section"
-}, CEe = { class: "prompt-preview-parameter-panel" }, MEe = { class: "prompt-preview-parameter-head" }, PEe = { class: "prompt-preview-fields is-compact" }, REe = { key: 0 }, NEe = ["onClick"], $Ee = { key: 2 }, LEe = { key: 0 }, DEe = ["onClick"], OEe = { key: 2 }, FEe = { class: "prompt-preview-section" }, BEe = { class: "prompt-preview-message-rule" }, UEe = {
+}, REe = { class: "prompt-preview-parameter-panel" }, NEe = { class: "prompt-preview-parameter-head" }, $Ee = { class: "prompt-preview-fields is-compact" }, LEe = { key: 0 }, DEe = ["onClick"], OEe = { key: 2 }, FEe = { key: 0 }, BEe = ["onClick"], UEe = { key: 2 }, qEe = { class: "prompt-preview-section" }, HEe = { class: "prompt-preview-message-rule" }, KEe = {
   key: 0,
   class: "prompt-preview-messages"
-}, qEe = { key: 0 }, HEe = {
+}, WEe = { key: 0 }, zEe = {
   key: 0,
   class: "prompt-preview-message-meta"
-}, KEe = { class: "prompt-preview-meta-heading" }, WEe = { class: "prompt-preview-fields" }, zEe = { key: 0 }, GEe = ["onClick"], VEe = { key: 2 }, JEe = {
+}, GEe = { class: "prompt-preview-meta-heading" }, VEe = { class: "prompt-preview-fields" }, JEe = { key: 0 }, YEe = ["onClick"], jEe = { key: 2 }, XEe = {
   key: 1,
   class: "prompt-empty-state"
-}, YEe = {
+}, QEe = {
   key: 2,
   class: "prompt-preview-section"
-}, jEe = { class: "prompt-preview-fields" }, XEe = { key: 0 }, QEe = ["onClick"], ZEe = { key: 2 }, eIe = {
+}, ZEe = { class: "prompt-preview-fields" }, eIe = { key: 0 }, tIe = ["onClick"], nIe = { key: 2 }, rIe = {
   key: 1,
   class: "prompt-request-json"
-}, tIe = {
+}, aIe = {
   key: 4,
   class: "prompt-empty-state"
-}, nIe = /* @__PURE__ */ Nn({
+}, sIe = /* @__PURE__ */ Nn({
   __name: "TavernRequestLogModal",
   props: {
     tab: {},
@@ -63799,65 +63799,60 @@ var hEe = {
         "aria-label": "关闭日志",
         onClick: O[0] || (O[0] = (B) => M.$emit("close"))
       }, " 关闭 ")]),
-      m("div", mEe, [
-        m("div", gEe, [m("button", {
+      m("div", mEe, [m("div", gEe, [m("button", {
+        type: "button",
+        class: Oe({ active: e.tab === "history" }),
+        onClick: O[1] || (O[1] = (B) => M.$emit("update:tab", "history"))
+      }, " 上次调用 ", 2), m("button", {
+        type: "button",
+        class: Oe({ active: e.tab === "simulate" }),
+        onClick: O[2] || (O[2] = (B) => M.$emit("update:tab", "simulate"))
+      }, " 模拟发送 ", 2)]), m("div", vEe, [m("div", yEe, [m("button", {
+        type: "button",
+        class: Oe({ active: s.value === "pretty" }),
+        onClick: O[3] || (O[3] = (B) => s.value = "pretty")
+      }, " 美化 ", 2), m("button", {
+        type: "button",
+        class: Oe({ active: s.value === "raw" }),
+        onClick: O[4] || (O[4] = (B) => s.value = "raw")
+      }, " 原始 ", 2)]), m("div", _Ee, [m("div", bEe, [
+        br(m("input", {
+          "onUpdate:modelValue": O[5] || (O[5] = (B) => i.value = B),
+          type: "search",
+          placeholder: "搜索",
+          "aria-label": "搜索请求日志"
+        }, null, 512), [[Cs, i.value]]),
+        m("button", {
           type: "button",
-          class: Oe({ active: e.tab === "history" }),
-          onClick: O[1] || (O[1] = (B) => M.$emit("update:tab", "history"))
-        }, " 上次调用 ", 2), m("button", {
+          "aria-label": "上一个搜索结果",
+          onClick: O[6] || (O[6] = (B) => R("prev"))
+        }, " ↑ "),
+        m("button", {
           type: "button",
-          class: Oe({ active: e.tab === "simulate" }),
-          onClick: O[2] || (O[2] = (B) => M.$emit("update:tab", "simulate"))
-        }, " 模拟发送 ", 2)]),
-        m("div", vEe, [m("button", {
-          type: "button",
-          class: Oe({ active: s.value === "pretty" }),
-          onClick: O[3] || (O[3] = (B) => s.value = "pretty")
-        }, " 美化显示 ", 2), m("button", {
-          type: "button",
-          class: Oe({ active: s.value === "raw" }),
-          onClick: O[4] || (O[4] = (B) => s.value = "raw")
-        }, " 原始 JSON ", 2)]),
-        m("div", yEe, [
-          br(m("input", {
-            "onUpdate:modelValue": O[5] || (O[5] = (B) => i.value = B),
-            type: "search",
-            placeholder: "搜索",
-            "aria-label": "搜索请求日志"
-          }, null, 512), [[Cs, i.value]]),
-          m("button", {
-            type: "button",
-            "aria-label": "上一个搜索结果",
-            onClick: O[6] || (O[6] = (B) => R("prev"))
-          }, " ↑ "),
-          m("button", {
-            type: "button",
-            "aria-label": "下一个搜索结果",
-            onClick: O[7] || (O[7] = (B) => R("next"))
-          }, " ↓ "),
-          m("span", null, V(_.value), 1)
-        ])
-      ]),
+          "aria-label": "下一个搜索结果",
+          onClick: O[7] || (O[7] = (B) => R("next"))
+        }, " ↓ ")
+      ]), _.value ? (L(), D("span", wEe, V(_.value), 1)) : ge("", !0)])])]),
       m("div", {
         ref_key: "bodyRef",
         ref: o,
         class: "prompt-inspector-body"
-      }, [m("section", _Ee, [
-        e.tab === "simulate" ? (L(), D("div", bEe, [m("div", null, [O[12] || (O[12] = m("label", { for: "request-simulate-input" }, "模拟本轮发言", -1)), m("textarea", {
+      }, [m("section", SEe, [
+        e.tab === "simulate" ? (L(), D("div", AEe, [m("div", null, [O[12] || (O[12] = m("label", { for: "request-simulate-input" }, "模拟本轮发言", -1)), m("textarea", {
           id: "request-simulate-input",
           value: e.simulateInput,
           rows: "5",
           placeholder: "写一句要模拟发送的话",
           onInput: a
-        }, null, 40, wEe)]), m("button", {
+        }, null, 40, kEe)]), m("button", {
           type: "button",
           onClick: O[8] || (O[8] = (B) => M.$emit("simulate"))
         }, " 生成请求 ")])) : ge("", !0),
-        e.tab === "simulate" && e.simulateStatus ? (L(), D("p", SEe, V(e.simulateStatus), 1)) : ge("", !0),
-        e.tab === "simulate" && e.simulateError ? (L(), D("p", AEe, V(e.simulateError), 1)) : ge("", !0),
-        d.value ? (L(), D(We, { key: 3 }, [s.value === "pretty" ? (L(), D("div", kEe, [
-          v.value.chips.length || v.value.parseError ? (L(), D("section", TEe, [v.value.chips.length ? (L(), D("div", xEe, [(L(!0), D(We, null, it(v.value.chips, (B) => (L(), D("span", { key: B }, V(B), 1))), 128))])) : ge("", !0), v.value.parseError ? (L(), D("p", EEe, " JSON 解析失败：" + V(v.value.parseError), 1)) : ge("", !0)])) : ge("", !0),
-          v.value.outerFields.length || v.value.requestFieldsBeforeMessages.length ? (L(), D("section", IEe, [m("div", CEe, [m("div", MEe, [O[13] || (O[13] = m("span", null, "请求参数", -1)), m("small", null, V(v.value.outerFields.length + v.value.requestFieldsBeforeMessages.length), 1)]), m("div", PEe, [(L(!0), D(We, null, it(v.value.outerFields, (B) => (L(), D("div", {
+        e.tab === "simulate" && e.simulateStatus ? (L(), D("p", TEe, V(e.simulateStatus), 1)) : ge("", !0),
+        e.tab === "simulate" && e.simulateError ? (L(), D("p", xEe, V(e.simulateError), 1)) : ge("", !0),
+        d.value ? (L(), D(We, { key: 3 }, [s.value === "pretty" ? (L(), D("div", EEe, [
+          v.value.chips.length || v.value.parseError ? (L(), D("section", IEe, [v.value.chips.length ? (L(), D("div", CEe, [(L(!0), D(We, null, it(v.value.chips, (B) => (L(), D("span", { key: B }, V(B), 1))), 128))])) : ge("", !0), v.value.parseError ? (L(), D("p", MEe, " JSON 解析失败：" + V(v.value.parseError), 1)) : ge("", !0)])) : ge("", !0),
+          v.value.outerFields.length || v.value.requestFieldsBeforeMessages.length ? (L(), D("section", PEe, [m("div", REe, [m("div", NEe, [O[13] || (O[13] = m("span", null, "请求参数", -1)), m("small", null, V(v.value.outerFields.length + v.value.requestFieldsBeforeMessages.length), 1)]), m("div", $Ee, [(L(!0), D(We, null, it(v.value.outerFields, (B) => (L(), D("div", {
             key: `outer:${B.key}`,
             class: "prompt-preview-field"
           }, [
@@ -63867,8 +63862,8 @@ var hEe = {
               type: "button",
               class: "prompt-preview-json-toggle",
               onClick: (K) => k($("outer", B))
-            }, V(g("outer", B)), 9, NEe)) : (L(), D("code", REe, V(B.text), 1)),
-            N("outer", B) ? (L(), D("pre", $Ee, V(B.text), 1)) : ge("", !0)
+            }, V(g("outer", B)), 9, DEe)) : (L(), D("code", LEe, V(B.text), 1)),
+            N("outer", B) ? (L(), D("pre", OEe, V(B.text), 1)) : ge("", !0)
           ]))), 128)), (L(!0), D(We, null, it(v.value.requestFieldsBeforeMessages, (B) => (L(), D("div", {
             key: `before:${B.key}`,
             class: "prompt-preview-field"
@@ -63879,23 +63874,23 @@ var hEe = {
               type: "button",
               class: "prompt-preview-json-toggle",
               onClick: (K) => k($("before", B))
-            }, V(g("before", B)), 9, DEe)) : (L(), D("code", LEe, V(B.text), 1)),
-            N("before", B) ? (L(), D("pre", OEe, V(B.text), 1)) : ge("", !0)
+            }, V(g("before", B)), 9, BEe)) : (L(), D("code", FEe, V(B.text), 1)),
+            N("before", B) ? (L(), D("pre", UEe, V(B.text), 1)) : ge("", !0)
           ]))), 128))])])])) : ge("", !0),
-          m("section", FEe, [m("div", BEe, [m("span", null, "API MESSAGES · " + V(v.value.messages.length), 1)]), v.value.messages.length ? (L(), D("div", UEe, [(L(!0), D(We, null, it(v.value.messages, (B) => (L(), D("article", {
+          m("section", qEe, [m("div", HEe, [m("span", null, "API MESSAGES · " + V(v.value.messages.length), 1)]), v.value.messages.length ? (L(), D("div", KEe, [(L(!0), D(We, null, it(v.value.messages, (B) => (L(), D("article", {
             key: B.index,
             class: Oe(["prompt-preview-message", B.roleClass])
           }, [
             m("header", null, [
               m("strong", null, V(B.roleLabel), 1),
               m("span", null, "#" + V(B.index + 1), 1),
-              B.name ? (L(), D("small", qEe, V(B.name), 1)) : ge("", !0)
+              B.name ? (L(), D("small", WEe, V(B.name), 1)) : ge("", !0)
             ]),
             m("pre", null, [(L(!0), D(We, null, it(B.contentSegments, (K, U) => (L(), D("span", {
               key: U,
               class: Oe({ "prompt-preview-xml-tag": K.kind === "xml-tag" })
             }, V(K.text), 3))), 128))]),
-            B.metaFields.length ? (L(), D("div", HEe, [m("div", KEe, " meta · " + V(B.metaFields.length), 1), m("div", WEe, [(L(!0), D(We, null, it(B.metaFields, (K) => (L(), D("div", {
+            B.metaFields.length ? (L(), D("div", zEe, [m("div", GEe, " meta · " + V(B.metaFields.length), 1), m("div", VEe, [(L(!0), D(We, null, it(B.metaFields, (K) => (L(), D("div", {
               key: K.key,
               class: "prompt-preview-field"
             }, [
@@ -63905,11 +63900,11 @@ var hEe = {
                 type: "button",
                 class: "prompt-preview-json-toggle",
                 onClick: (U) => k($("message", K, B.index))
-              }, V(g("message", K, B.index)), 9, GEe)) : (L(), D("code", zEe, V(K.text), 1)),
-              N("message", K, B.index) ? (L(), D("pre", VEe, V(K.text), 1)) : ge("", !0)
+              }, V(g("message", K, B.index)), 9, YEe)) : (L(), D("code", JEe, V(K.text), 1)),
+              N("message", K, B.index) ? (L(), D("pre", jEe, V(K.text), 1)) : ge("", !0)
             ]))), 128))])])) : ge("", !0)
-          ], 2))), 128))])) : (L(), D("p", JEe, " 没有解析到 messages。 "))]),
-          v.value.requestFieldsAfterMessages.length ? (L(), D("section", YEe, [O[14] || (O[14] = m("h3", null, "附加参数", -1)), m("div", jEe, [(L(!0), D(We, null, it(v.value.requestFieldsAfterMessages, (B) => (L(), D("div", {
+          ], 2))), 128))])) : (L(), D("p", XEe, " 没有解析到 messages。 "))]),
+          v.value.requestFieldsAfterMessages.length ? (L(), D("section", QEe, [O[14] || (O[14] = m("h3", null, "附加参数", -1)), m("div", ZEe, [(L(!0), D(We, null, it(v.value.requestFieldsAfterMessages, (B) => (L(), D("div", {
             key: B.key,
             class: "prompt-preview-field"
           }, [
@@ -63919,14 +63914,14 @@ var hEe = {
               type: "button",
               class: "prompt-preview-json-toggle",
               onClick: (K) => k($("after", B))
-            }, V(g("after", B)), 9, QEe)) : (L(), D("code", XEe, V(B.text), 1)),
-            N("after", B) ? (L(), D("pre", ZEe, V(B.text), 1)) : ge("", !0)
+            }, V(g("after", B)), 9, tIe)) : (L(), D("code", eIe, V(B.text), 1)),
+            N("after", B) ? (L(), D("pre", nIe, V(B.text), 1)) : ge("", !0)
           ]))), 128))])])) : ge("", !0)
-        ])) : (L(), D("pre", eIe, V(d.value), 1))], 64)) : (L(), D("p", tIe, V(y.value), 1))
+        ])) : (L(), D("pre", rIe, V(d.value), 1))], 64)) : (L(), D("p", aIe, V(y.value), 1))
       ])], 512)
     ])], 32));
   }
-}), rIe = nIe, aIe = { class: "xb-sidebar settings-sidebar" }, sIe = { class: "panel guide-card" }, iIe = { class: "guide-steps" }, oIe = ["onClick"], lIe = { class: "guide-label-full" }, uIe = { class: "guide-label-mobile" }, cIe = { key: 0 }, dIe = /* @__PURE__ */ Nn({
+}), iIe = sIe, oIe = { class: "xb-sidebar settings-sidebar" }, lIe = { class: "panel guide-card" }, uIe = { class: "guide-steps" }, cIe = ["onClick"], dIe = { class: "guide-label-full" }, fIe = { class: "guide-label-mobile" }, hIe = { key: 0 }, pIe = /* @__PURE__ */ Nn({
   __name: "TavernSettingsSidebar",
   props: {
     active: {},
@@ -63935,26 +63930,26 @@ var hEe = {
   emits: ["select"],
   setup(e, { emit: t }) {
     const n = t;
-    return (r, a) => (L(), D("aside", aIe, [m("div", sIe, [a[0] || (a[0] = m("h2", null, "设置", -1)), m("div", iIe, [(L(!0), D(We, null, it(e.items, (s) => (L(), D("button", {
+    return (r, a) => (L(), D("aside", oIe, [m("div", lIe, [a[0] || (a[0] = m("h2", null, "设置", -1)), m("div", uIe, [(L(!0), D(We, null, it(e.items, (s) => (L(), D("button", {
       key: s.key,
       type: "button",
       class: Oe(["guide-step", { active: e.active === s.key }]),
       onClick: (i) => n("select", s.key)
-    }, [m("strong", null, [m("span", lIe, V(s.label), 1), m("span", uIe, V(s.mobileLabel || s.label), 1)]), s.badge ? (L(), D("em", cIe, V(s.badge), 1)) : ge("", !0)], 10, oIe))), 128))])])]));
+    }, [m("strong", null, [m("span", dIe, V(s.label), 1), m("span", fIe, V(s.mobileLabel || s.label), 1)]), s.badge ? (L(), D("em", hIe, V(s.badge), 1)) : ge("", !0)], 10, cIe))), 128))])])]));
   }
-}), fIe = dIe, hIe = { class: "panel step-panel api-workspace" }, pIe = /* @__PURE__ */ Nn({
+}), mIe = pIe, gIe = { class: "panel step-panel api-workspace" }, vIe = /* @__PURE__ */ Nn({
   __name: "TavernApiSettingsPanel",
   setup(e) {
     const { activeSettingsWorkspace: t, apiSettingsRootRef: n } = Ul();
     function r(a) {
       n.value = a instanceof HTMLElement ? a : null;
     }
-    return (a, s) => br((L(), D("div", hIe, [s[0] || (s[0] = m("div", { class: "panel-head" }, [m("div", null, [m("h2", null, "API 配置")])], -1)), m("div", { class: "api-scroll-body" }, [m("div", {
+    return (a, s) => br((L(), D("div", gIe, [s[0] || (s[0] = m("div", { class: "panel-head" }, [m("div", null, [m("h2", null, "API 配置")])], -1)), m("div", { class: "api-scroll-body" }, [m("div", {
       ref: r,
       class: "tavern-api-settings"
     })])], 512)), [[Dd, T(t) === "api"]]);
   }
-}), mIe = pIe, gIe = { class: "xb-main" }, vIe = /* @__PURE__ */ Nn({
+}), yIe = vIe, _Ie = { class: "xb-main" }, bIe = /* @__PURE__ */ Nn({
   __name: "TavernSettingsPage",
   setup(e) {
     const t = Ul(), n = Bl(), { activeSettingsWorkspace: r, selectSettingsWorkspace: a, settingsNavItems: s } = t, { activeView: i, homeThemeDark: l } = n;
@@ -63969,7 +63964,7 @@ var hEe = {
         onHome: u[0] || (u[0] = (c) => i.value = "home"),
         onToggleTheme: u[1] || (u[1] = (c) => l.value = !T(l))
       }, null, 8, ["dark"]),
-      Kn(fIe, {
+      Kn(mIe, {
         active: T(r),
         items: T(s),
         onSelect: T(a)
@@ -63978,9 +63973,9 @@ var hEe = {
         "items",
         "onSelect"
       ]),
-      m("section", gIe, [
+      m("section", _Ie, [
         T(r) === "characters" ? (L(), En(eq, { key: 0 })) : ge("", !0),
-        T(r) === "api" ? (L(), En(mIe, { key: 1 })) : ge("", !0),
+        T(r) === "api" ? (L(), En(yIe, { key: 1 })) : ge("", !0),
         T(r) === "chatPreset" ? (L(), En(rq, { key: 2 })) : ge("", !0),
         T(r) === "worldbooks" ? (L(), En(cq, { key: 3 })) : ge("", !0),
         T(r) === "regex" ? (L(), En(iq, { key: 4 })) : ge("", !0),
@@ -63989,7 +63984,7 @@ var hEe = {
       ])
     ], 2)) : ge("", !0);
   }
-}), yIe = vIe, _Ie = { chat: { exclude: [
+}), wIe = bIe, SIe = { chat: { exclude: [
   "embedding",
   "embed",
   "rerank",
@@ -64004,7 +63999,7 @@ var hEe = {
   "sdxl",
   "flux",
   "moderation"
-] } }, bIe = Object.freeze([
+] } }, AIe = Object.freeze([
   "claude-opus-4-7",
   "claude-opus-4-6",
   "claude-opus-4-5",
@@ -64030,7 +64025,7 @@ function Ti(e, t, n = "") {
   });
 }
 function bp(e = []) {
-  const t = [...new Set(e.filter(Boolean).map((a) => String(a).trim()).filter(Boolean))], n = _Ie.chat, r = t.filter((a) => {
+  const t = [...new Set(e.filter(Boolean).map((a) => String(a).trim()).filter(Boolean))], n = SIe.chat, r = t.filter((a) => {
     const s = a.toLowerCase();
     return !n.exclude.some((i) => s.includes(i));
   });
@@ -64042,7 +64037,7 @@ function Eg(e = "") {
 function Nd(e) {
   return String(e || "").trim().replace(/\/+$/, "");
 }
-function wIe(e = "") {
+function kIe(e = "") {
   return e === "sillytavern-openai-compatible" || e === "sillytavern-claude" || e === "sillytavern-google";
 }
 function Mc(e = "") {
@@ -64051,13 +64046,13 @@ function Mc(e = "") {
 function PA(e = "") {
   return e === "anthropic" || e === "sillytavern-claude";
 }
-function SIe(e = "") {
+function TIe(e = "") {
   return e === "sillytavern-claude" ? tk : e === "sillytavern-google" ? nk : Od;
 }
 function wp(e = []) {
   return [...new Set(e.filter(Boolean).map((t) => String(t).trim()).filter(Boolean))];
 }
-function AIe(e) {
+function xIe(e) {
   const t = Nd(e);
   if (!t) return [];
   if (t.endsWith("/v1")) {
@@ -64083,7 +64078,7 @@ function hq(e) {
   }
   return wp([`${t}/v1/models`, `${t}/models`]);
 }
-function kIe(e, t) {
+function EIe(e, t) {
   const n = Nd(e);
   if (!n) return [];
   const r = n.endsWith("/v1beta") ? n.slice(0, -7) : n;
@@ -64096,7 +64091,7 @@ function kIe(e, t) {
     `${r}/models`
   ]);
 }
-function TIe(e, t) {
+function IIe(e, t) {
   const n = [
     e?.error?.message,
     e?.message,
@@ -64106,7 +64101,7 @@ function TIe(e, t) {
   ].find((r) => typeof r == "string" && r.trim());
   return n ? n.trim() : String(t || "").trim().slice(0, 160);
 }
-async function xIe(e, t = {}) {
+async function CIe(e, t = {}) {
   const n = await fetch(e, t), r = await n.text();
   let a = null, s = null;
   try {
@@ -64121,22 +64116,22 @@ async function xIe(e, t = {}) {
     data: a,
     rawText: r,
     parseError: s,
-    errorSnippet: TIe(a, r)
+    errorSnippet: IIe(a, r)
   };
 }
-function EIe(e) {
+function MIe(e) {
   return bp((e?.data || []).map((t) => String(t?.id || "").trim()).filter(Boolean));
 }
 function pq(e) {
   return bp((e?.data || []).map((t) => String(t?.id || "").trim()).filter(Boolean));
 }
-function IIe(e) {
+function PIe(e) {
   return bp((e?.models || e?.data || []).map((t) => String(t?.id || t?.name || "")).map((t) => t.split("/").pop() || "").filter(Boolean));
 }
 async function dv({ urls: e, requestOptionsList: t, extractModels: n, providerLabel: r }) {
   let a = null;
   for (const s of e) for (const i of t) {
-    const l = await xIe(s, i);
+    const l = await CIe(s, i);
     if (!l.ok) {
       a = l;
       continue;
@@ -64161,7 +64156,7 @@ async function dv({ urls: e, requestOptionsList: t, extractModels: n, providerLa
   }
   throw new Error(`${r} 拉取模型失败：未获取到模型列表。`);
 }
-async function CIe(e) {
+async function RIe(e) {
   const t = String(e.apiKey || "").trim(), n = Nd(e.baseUrl || ""), r = Nd(n || w$.claude);
   if (t && r) try {
     return await dv({
@@ -64177,16 +64172,16 @@ async function CIe(e) {
   } catch (a) {
     if (n) throw a;
   }
-  return [...bIe];
+  return [...AIe];
 }
 async function XR(e) {
   const t = e.provider, n = Nd(e.baseUrl || ""), r = String(e.apiKey || "").trim();
-  if (t === "sillytavern-claude") return bp(await CIe(e));
-  if (wIe(t)) return bp(await f8(e, SIe(t)));
+  if (t === "sillytavern-claude") return bp(await RIe(e));
+  if (kIe(t)) return bp(await f8(e, TIe(t)));
   if (!r) throw new Error("请先填写 API Key。");
   if (!n) throw new Error("请先填写 Base URL。");
   return t === "google" ? await dv({
-    urls: kIe(n, r),
+    urls: EIe(n, r),
     requestOptionsList: [
       { headers: {
         Accept: "application/json",
@@ -64198,7 +64193,7 @@ async function XR(e) {
       } },
       { headers: { Accept: "application/json" } }
     ],
-    extractModels: IIe,
+    extractModels: PIe,
     providerLabel: "Google AI"
   }) : PA(t) ? await dv({
     urls: hq(n),
@@ -64210,20 +64205,20 @@ async function XR(e) {
     extractModels: pq,
     providerLabel: "Anthropic"
   }) : await dv({
-    urls: AIe(n),
+    urls: xIe(n),
     requestOptionsList: [{ headers: {
       Authorization: `Bearer ${r}`,
       Accept: "application/json"
     } }],
-    extractModels: EIe,
+    extractModels: MIe,
     providerLabel: t === "openai-responses" ? "OpenAI Responses" : "OpenAI-Compatible"
   });
 }
-function MIe(e) {
+function NIe(e) {
   return e instanceof Error ? e.message : String(e || "unknown_error");
 }
-function PIe(e = {}) {
-  const { state: t, render: n, showToast: r, createRequestId: a = (W = "req") => `${W}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, saveConfig: s, describeError: i = MIe, getRuntimeSummaryText: l } = e;
+function $Ie(e = {}) {
+  const { state: t, render: n, showToast: r, createRequestId: a = (W = "req") => `${W}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, saveConfig: s, describeError: i = NIe, getRuntimeSummaryText: l } = e;
   function o() {
     t.configFormSyncPending = !0;
   }
@@ -64781,11 +64776,11 @@ function qf(e) {
     delete: '<path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />'
   }[e] || ""}</svg>`;
 }
-function RIe(e = {}) {
+function LIe(e = {}) {
   const t = String(e?.status || "idle");
   return t === "saving" ? "saving" : t === "success" ? "success" : t === "error" ? "error" : "save";
 }
-function NIe(e = {}) {
+function DIe(e = {}) {
   const t = String(e?.status || "idle");
   return t === "saving" ? {
     className: "xb-assistant-save-button is-saving",
@@ -64801,8 +64796,8 @@ function NIe(e = {}) {
     title: "保存配置"
   };
 }
-function $Ie(e = {}) {
-  const { configSave: t = {}, runtimeText: n = "", inlineToastText: r = "", showInlineToast: a = !0, showAssistantPermissions: s = !0, showDelegateSettings: i = !0, activePage: l = "main", delegatePresetHint: o = "DelegateRun 分身会使用这里的独立 API 配置；可以和主助手使用不同 Provider、Base URL、模型和 Tool 调用格式。", isBusy: u = !1, canDeletePreset: c = !0 } = e, d = NIe(t), h = RIe(t), v = u || String(t?.status || "") === "saving" ? "disabled" : "", y = u || !c ? "disabled" : "", _ = l === "delegate" ? "delegate" : "main", I = _ === "main", E = _ === "delegate", k = s ? `
+function OIe(e = {}) {
+  const { configSave: t = {}, runtimeText: n = "", inlineToastText: r = "", showInlineToast: a = !0, showAssistantPermissions: s = !0, showDelegateSettings: i = !0, activePage: l = "main", delegatePresetHint: o = "DelegateRun 分身会使用这里的独立 API 配置；可以和主助手使用不同 Provider、Base URL、模型和 Tool 调用格式。", isBusy: u = !1, canDeletePreset: c = !0 } = e, d = DIe(t), h = LIe(t), v = u || String(t?.status || "") === "saving" ? "disabled" : "", y = u || !c ? "disabled" : "", _ = l === "delegate" ? "delegate" : "main", I = _ === "main", E = _ === "delegate", k = s ? `
             <label>
                 <span>斜杠命令权限</span>
                 <select id="xb-assistant-permission-mode"></select>
@@ -64987,7 +64982,7 @@ function $Ie(e = {}) {
         </section>
     `;
 }
-var LIe = 1800;
+var FIe = 1800;
 function Ig() {
   const e = /* @__PURE__ */ ie({
     status: "idle",
@@ -65017,7 +65012,7 @@ function Ig() {
         status: "idle",
         error: ""
       }, t = null);
-    }, LIe), t.unref?.();
+    }, FIe), t.unref?.();
   }
   return {
     feedback: e,
@@ -65026,7 +65021,7 @@ function Ig() {
     completeSaveFeedback: a
   };
 }
-var eS = 48, tS = 48, nS = 80, Cg = 24, rS = 60, DIe = [
+var eS = 48, tS = 48, nS = 80, Cg = 24, rS = 60, BIe = [
   {
     key: "statePrompt",
     label: "全局记忆",
@@ -65042,7 +65037,7 @@ var eS = 48, tS = 48, nS = 80, Cg = 24, rS = 60, DIe = [
     label: "状态栏",
     summary: "状态面板骨架与更新规则"
   }
-], OIe = {
+], UIe = {
   top: "最前面",
   beforeCharacter: "角色卡前",
   afterCharacter: "角色卡后",
@@ -65063,7 +65058,7 @@ function ro(e) {
 function rl(e = "") {
   return String(e || "").trim().toLocaleLowerCase();
 }
-function FIe(e, t) {
+function qIe(e, t) {
   return t ? rl(e).includes(t) : !0;
 }
 function aS(e, t = 1600) {
@@ -65084,13 +65079,13 @@ function Xs(e) {
 function sS(e) {
   return e === !0 || e === "true" ? !0 : e === !1 || e === "false" ? !1 : null;
 }
-function BIe(e) {
+function HIe(e) {
   if (e === !0 || e === "true") return !0;
   if (e === !1 || e === "false" || e === "" || e === null || e === void 0) return !1;
   const t = Number(e);
   return Number.isFinite(t) && t > 0 ? Math.floor(t) : !1;
 }
-function UIe(e) {
+function KIe(e) {
   const t = Ur(e), n = Array.isArray(t.entries) ? t.entries.map((r) => {
     const a = Ur(r);
     return {
@@ -65151,7 +65146,7 @@ function Hf(e) {
     ignoreBudget: t.ignoreBudget === !0,
     excludeRecursion: t.excludeRecursion === !0,
     preventRecursion: t.preventRecursion === !0,
-    delayUntilRecursion: BIe(t.delayUntilRecursion),
+    delayUntilRecursion: HIe(t.delayUntilRecursion),
     group: String(t.group ?? ""),
     groupOverride: t.groupOverride === !0,
     groupWeight: Xs(t.groupWeight),
@@ -65169,7 +65164,7 @@ function Hf(e) {
     revision: String(t.revision || t.entryHash || "")
   };
 }
-function qIe(e, t) {
+function WIe(e, t) {
   const n = String(e.comment || "").trim();
   return {
     uid: String(e.uid || t?.uid || "").trim(),
@@ -65213,7 +65208,7 @@ function Kf(e = {}) {
     maxDepth: t.maxDepth === null || t.maxDepth === "" || t.maxDepth === void 0 ? null : Number(t.maxDepth)
   };
 }
-function HIe(e) {
+function zIe(e) {
   const t = Ur(e), n = String(t.id || "").trim();
   return n ? {
     id: n,
@@ -65223,8 +65218,8 @@ function HIe(e) {
     active: t.active === !0
   } : null;
 }
-function KIe(e) {
-  const t = Ur(e), n = String(t.currentUserId || "").trim() || null, r = Array.isArray(t.users) ? t.users.map((a) => HIe(a)).filter((a) => !!a) : [];
+function GIe(e) {
+  const t = Ur(e), n = String(t.currentUserId || "").trim() || null, r = Array.isArray(t.users) ? t.users.map((a) => zIe(a)).filter((a) => !!a) : [];
   return n && !r.some((a) => a.id === n) && r.unshift({
     id: n,
     name: n,
@@ -65239,12 +65234,12 @@ function KIe(e) {
     currentUserId: n
   };
 }
-var WIe = 5e3, zIe = 5e3;
-function GIe() {
+var VIe = 5e3, JIe = 5e3;
+function YIe() {
   const e = String(window.location.hash || "").replace(/^#\/?/, "").split("/")[1];
   return e === "characters" || e === "api" || e === "chatPreset" || e === "worldbooks" || e === "regex" || e === "assistantPreset" || e === "base" ? e : "api";
 }
-function VIe(e) {
+function jIe(e) {
   const t = _2(), n = np(), r = /* @__PURE__ */ ie(null), a = /* @__PURE__ */ ie({
     status: "idle",
     requestId: "",
@@ -65278,7 +65273,7 @@ function VIe(e) {
     }));
   }), na = X(() => {
     const z = rl(be.value);
-    return z ? zr.value.filter((ae) => FIe(ae.label || ae.name, z)) : zr.value;
+    return z ? zr.value.filter((ae) => qIe(ae.label || ae.name, z)) : zr.value;
   }), lt = X(() => {
     const z = na.value.slice(0, Ee.value), ae = String(O.value || o.value.promptManager?.name || o.value.name || "").trim();
     if (!ae || z.some((Le) => Le.name === ae)) return z;
@@ -65385,7 +65380,7 @@ function VIe(e) {
       label: "基础设定",
       mobileLabel: "基础设定"
     }
-  ]), Dr = X(() => ze.value.find((z) => z.id === De.value) || null), Os = X(() => DIe.map((z) => ({
+  ]), Dr = X(() => ze.value.find((z) => z.id === De.value) || null), Os = X(() => BIe.map((z) => ({
     id: z.key,
     key: z.key,
     label: z.label,
@@ -65449,7 +65444,7 @@ function VIe(e) {
     ...z,
     previewId: z.id || `chat-preset-section-${ae}`,
     previewLabel: z.label || z.source || `提示词 ${ae + 1}`,
-    previewPlacement: z.source === "promptManager" ? z.marker ? "酒馆标记" : "酒馆顺序" : OIe[z.placement || "beforeHistory"] || z.placement || "历史前",
+    previewPlacement: z.source === "promptManager" ? z.marker ? "酒馆标记" : "酒馆顺序" : UIe[z.placement || "beforeHistory"] || z.placement || "历史前",
     sectionIndex: ae,
     chars: String(z.content || "").length
   })).filter((z) => (z.content || z.marker) && z.enabled !== !1)), Bs = X(() => Or.value.reduce((z, ae) => z + ae.chars, 0));
@@ -65535,7 +65530,7 @@ function VIe(e) {
     const Le = new Promise((ut, dt) => {
       ve = setTimeout(() => {
         dt(/* @__PURE__ */ new Error("保存超时，请重试")), ae?.abort();
-      }, zIe), ve.unref?.();
+      }, JIe), ve.unref?.();
     });
     try {
       return await Promise.race([e.requestHost("xb-tavern:save-chat-preset", { payload: z }, ae ? { signal: ae.signal } : {}), Le]);
@@ -65558,7 +65553,7 @@ function VIe(e) {
     if (!ve || ve.name !== Le || !ae.uid) return;
     const ut = ve.entries.findIndex((Vr) => Vr.uid === ae.uid);
     if (ut < 0) return;
-    const dt = ve.entries[ut], wt = qIe(ae, dt), bt = [...ve.entries];
+    const dt = ve.entries[ut], wt = WIe(ae, dt), bt = [...ve.entries];
     bt[ut] = wt, bt.sort((Vr, Wo) => Number(Wo.order) - Number(Vr.order)), Te.value = {
       ...ve,
       enabledCount: Math.max(0, ve.enabledCount + (wt.enabled ? 1 : 0) - (dt.enabled ? 1 : 0)),
@@ -65715,7 +65710,7 @@ function VIe(e) {
         limit: fe.value
       } });
       if (ve !== Lt || String(U.value || "").trim() !== ut) return;
-      Te.value = UIe(dt.result || dt), de.value = "";
+      Te.value = KIe(dt.result || dt), de.value = "";
     } catch (dt) {
       if (ve !== Lt || String(U.value || "").trim() !== ut) return;
       ae.preserveExistingOnError || (Te.value = null), de.value = dt instanceof Error ? dt.message : String(dt || "预览读取失败");
@@ -65940,7 +65935,7 @@ function VIe(e) {
     ve !== ae && rc({ loadBatchSize: ve });
   }
   function tf(z) {
-    const ae = KIe(z);
+    const ae = GIe(z);
     ze.value = ae.users, De.value = ae.currentUserId;
   }
   async function nf() {
@@ -66194,7 +66189,7 @@ function VIe(e) {
           error: ""
         }, Ye.configSave = a.value, s.value = "", rn(zi));
       }, 1800), rn(zi));
-    }, WIe), rn(zi);
+    }, VIe), rn(zi);
   }
   function uc(z = "", ae = {}) {
     if (z && a.value.requestId && z !== a.value.requestId) return;
@@ -66221,7 +66216,7 @@ function VIe(e) {
   }
   function zi() {
     const z = r.value;
-    z && (Ke || (Ke = PIe({
+    z && (Ke || (Ke = $Ie({
       state: Ye,
       render: zi,
       describeError: e.describeError,
@@ -66230,7 +66225,7 @@ function VIe(e) {
       },
       saveConfig: _s,
       getRuntimeSummaryText: () => ln.value
-    })), Ye.configSave = a.value, z.innerHTML = $Ie({
+    })), Ye.configSave = a.value, z.innerHTML = OIe({
       configSave: a.value,
       runtimeText: ln.value,
       inlineToastText: s.value,
@@ -66488,13 +66483,13 @@ function VIe(e) {
     syncWorldbooksFromHost: Tr
   };
 }
-var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class: "character-worldbook-picker" }, XIe = {
+var XIe = ["data-chat-font-size"], QIe = { class: "xb-os-stage" }, ZIe = { class: "character-worldbook-picker" }, eCe = {
   key: 0,
   class: "worldbook-picker-status"
-}, QIe = { class: "worldbook-picker-list" }, ZIe = ["disabled", "onClick"], eCe = { class: "tavern-dialog-head" }, tCe = { id: "tavern-dialog-title" }, nCe = { class: "tavern-dialog-body" }, rCe = { key: 0 }, aCe = {
+}, tCe = { class: "worldbook-picker-list" }, nCe = ["disabled", "onClick"], rCe = { class: "tavern-dialog-head" }, aCe = { id: "tavern-dialog-title" }, sCe = { class: "tavern-dialog-body" }, iCe = { key: 0 }, oCe = {
   key: 1,
   class: "tavern-dialog-field"
-}, sCe = ["placeholder"], iCe = { class: "tavern-dialog-actions" }, Mg = 48, oCe = 12, lCe = 36, ZR = 48, iS = 24, eN = 480, uCe = 200, tN = 1e9, nN = "LittleWhiteBox_Tavern_theme", cCe = /* @__PURE__ */ Nn({
+}, lCe = ["placeholder"], uCe = { class: "tavern-dialog-actions" }, Mg = 48, cCe = 12, dCe = 36, ZR = 48, iS = 24, eN = 480, fCe = 200, tN = 1e9, nN = "LittleWhiteBox_Tavern_theme", hCe = /* @__PURE__ */ Nn({
   __name: "App",
   setup(e) {
     const t = /* @__PURE__ */ ie({}), n = /* @__PURE__ */ ie({}), r = /* @__PURE__ */ ie({}), a = /* @__PURE__ */ ie(zc({})), s = /* @__PURE__ */ ie(!0), i = X(() => mo(a.value.hiddenOutsideCount)), l = X(() => XA(a.value.loadBatchSize)), o = /* @__PURE__ */ ie({}), u = wfe(), c = u.ready, d = u.status, h = /* @__PURE__ */ ie("15px"), v = /* @__PURE__ */ ie("23px"), y = /* @__PURE__ */ ie([]), _ = /* @__PURE__ */ ie(""), I = /* @__PURE__ */ ie(0), E = /* @__PURE__ */ ie(""), k = /* @__PURE__ */ ie(""), $ = /* @__PURE__ */ ie(null), N = /* @__PURE__ */ ie(!1), g = /* @__PURE__ */ ie(""), A = /* @__PURE__ */ ie(!1), b = /* @__PURE__ */ ie([]);
@@ -66544,7 +66539,7 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
     function za(w) {
       return Array.isArray(w) ? w.map((C) => String(C || "").trim()).filter(Boolean) : [];
     }
-    const ys = X(() => ol(pe.value?.contextSnapshot?.authorNote)), Na = X(() => Ca(pe.value?.state || {})), Un = X(() => Ts(Na.value.contract)), It = X(() => !!(pe.value && String(pe.value.characterKey || "").trim())), et = /* @__PURE__ */ ie(zr()), Be = /* @__PURE__ */ ie(GIe()), Qt = /* @__PURE__ */ ie(na()), qn = /* @__PURE__ */ ie("chat"), Ga = /* @__PURE__ */ ie("balanced"), fi = /* @__PURE__ */ ie(null), Dr = /* @__PURE__ */ ie(null), Os = /* @__PURE__ */ ie(null), Dn = LI({
+    const ys = X(() => ol(pe.value?.contextSnapshot?.authorNote)), Na = X(() => Ca(pe.value?.state || {})), Un = X(() => Ts(Na.value.contract)), It = X(() => !!(pe.value && String(pe.value.characterKey || "").trim())), et = /* @__PURE__ */ ie(zr()), Be = /* @__PURE__ */ ie(YIe()), Qt = /* @__PURE__ */ ie(na()), qn = /* @__PURE__ */ ie("chat"), Ga = /* @__PURE__ */ ie("balanced"), fi = /* @__PURE__ */ ie(null), Dr = /* @__PURE__ */ ie(null), Os = /* @__PURE__ */ ie(null), Dn = LI({
       totalItems: () => Ne.value,
       defaultLimit: i,
       loadBatchSize: l
@@ -66755,7 +66750,7 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
     })), Gl = X(() => {
       const w = String(pe.value?.characterKey || vi.value.character?.characterKey || "").trim();
       return (w ? zo(w, { optional: !0 }) : "") || String(pe.value?.contextSnapshot?.character?.nativeCharacterId || "").trim() || String(vi.value.character?.nativeCharacterId || "").trim();
-    }), { activeAssistantPreset: lc, applyHostChatPreset: Q_, handleApiConfigSaved: Z_, loadTavernUsers: eb, openSettingsWorkspace: af, openWorldbookWorkspace: cm, refreshPresets: tb, refreshRegexFromHost: sf, refreshRuntimeChatPresetFromHost: dm, renderApiSettingsPanel: uc, runtimeChatPreset: _s, selectSettingsWorkspace: zi, settingsContext: nb, syncApiSettingsConfigFromAgentConfig: of, syncChatPresetFromHost: lf, syncWorldbooksFromHost: rb } = VIe({
+    }), { activeAssistantPreset: lc, applyHostChatPreset: Q_, handleApiConfigSaved: Z_, loadTavernUsers: eb, openSettingsWorkspace: af, openWorldbookWorkspace: cm, refreshPresets: tb, refreshRegexFromHost: sf, refreshRuntimeChatPresetFromHost: dm, renderApiSettingsPanel: uc, runtimeChatPreset: _s, selectSettingsWorkspace: zi, settingsContext: nb, syncApiSettingsConfigFromAgentConfig: of, syncChatPresetFromHost: lf, syncWorldbooksFromHost: rb } = jIe({
       activeView: et,
       activeSettingsWorkspace: Be,
       agentConfig: r,
@@ -66965,7 +66960,7 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
     }
     const _q = X(() => ib(pe.value) || _i(Gi.value.name || "") || "未选择角色"), bq = X(() => he.value ? _q.value : _i(fm.value) || "未选择角色"), ob = X(() => pe.value?.state?.lastRequestSnapshot), wq = X(() => String(ob.value?.rawRequestJson || ob.value?.rawMessagesJson || "")), { archivedManagerRuns: Sq, currentManagerWorkRun: Aq, formatRunActivityLine: kq, formatRunIssueLine: Tq, formatRunInputLine: xq, formatRunMapLine: Eq, formatRunMemoryLine: Iq, formatRunModelLine: Cq, formatRunTaskLine: Mq, hiddenManagerRunCount: Pq, isManagerRunLive: Rq, managerBusy: pm, managerRunTone: Nq, managerStatusClock: $q, managerStatusLabel: Lq, managerToolStatusLabel: Dq, managerToolTone: Oq, managerToolTraceItems: Fq, toolTraceSummary: Bq } = Qxe({
       managerRuns: He,
-      visibleRunLimit: oCe
+      visibleRunLimit: cCe
     });
     function Lx(w) {
       return bt.sessionFloorLabel(w);
@@ -66999,7 +66994,7 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
       return im.set(w, q), q;
     }
     function Ux(w = "") {
-      const C = w === "turns" ? lCe : iS, q = Number(zn.value[w]);
+      const C = w === "turns" ? dCe : iS, q = Number(zn.value[w]);
       return Number.isFinite(q) && q > 0 ? Math.floor(q) : C;
     }
     function qq(w = "") {
@@ -67285,7 +67280,7 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
       const ce = window.setTimeout(() => {
         const Me = gi.get(w);
         Me && (Me.timer = 0, Xx(w));
-      }, uCe);
+      }, fCe);
       gi.set(w, {
         timer: ce,
         latest: C,
@@ -69514,7 +69509,7 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
       "data-chat-font-size": a.value.chatFontSize,
       style: Mn(Ot.value)
     }, [
-      m("section", YIe, [
+      m("section", QIe, [
         et.value === "home" ? (L(), En(Hfe, {
           key: 0,
           dark: Qt.value,
@@ -69541,7 +69536,7 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
           onBack: C[4] || (C[4] = (q) => et.value = "home")
         }, null, 8, ["dark"])) : ge("", !0),
         et.value === "chat" ? (L(), En(jxe, { key: 2 })) : ge("", !0),
-        et.value === "settings" ? (L(), En(yIe, { key: 3 })) : ge("", !0)
+        et.value === "settings" ? (L(), En(wIe, { key: 3 })) : ge("", !0)
       ]),
       re.value ? (L(), D("div", {
         key: re.value.id,
@@ -69549,7 +69544,7 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
         role: "status",
         "aria-live": "polite"
       }, V(re.value.message), 3)) : ge("", !0),
-      Bo.value ? (L(), En(rIe, {
+      Bo.value ? (L(), En(iIe, {
         key: 1,
         tab: qi.value,
         "onUpdate:tab": C[5] || (C[5] = (q) => qi.value = q),
@@ -69575,20 +69570,20 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
         key: 2,
         class: "character-worldbook-picker-overlay",
         onClick: dn(lE, ["self"])
-      }, [m("section", jIe, [
+      }, [m("section", ZIe, [
         m("header", null, [C[11] || (C[11] = m("strong", null, "选择角色世界书", -1)), m("button", {
           type: "button",
           class: "worldbook-picker-close",
           "aria-label": "关闭",
           onClick: lE
         })]),
-        g.value ? (L(), D("div", XIe, V(g.value), 1)) : ge("", !0),
-        m("div", QIe, [(L(!0), D(We, null, it(b.value, (q) => (L(), D("button", {
+        g.value ? (L(), D("div", eCe, V(g.value), 1)) : ge("", !0),
+        m("div", tCe, [(L(!0), D(We, null, it(b.value, (q) => (L(), D("button", {
           key: q,
           type: "button",
           disabled: N.value,
           onClick: (ce) => k3(q)
-        }, V(q), 9, ZIe))), 128))])
+        }, V(q), 9, nCe))), 128))])
       ])])) : ge("", !0),
       (L(), En(BN, { to: "body" }, [H.value ? (L(), D("div", {
         key: 0,
@@ -69605,20 +69600,20 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
         tabindex: "-1",
         onSubmit: dn(Hs, ["prevent"])
       }, [
-        m("header", eCe, [m("div", null, [m("strong", tCe, V(H.value.title), 1)]), m("button", {
+        m("header", rCe, [m("div", null, [m("strong", aCe, V(H.value.title), 1)]), m("button", {
           type: "button",
           class: "tavern-dialog-close",
           "aria-label": "关闭",
           onClick: C[7] || (C[7] = (q) => ra())
         })]),
-        m("div", nCe, [H.value.message ? (L(), D("p", rCe, V(H.value.message), 1)) : ge("", !0), H.value.kind === "prompt" ? (L(), D("label", aCe, [br(m("input", {
+        m("div", sCe, [H.value.message ? (L(), D("p", iCe, V(H.value.message), 1)) : ge("", !0), H.value.kind === "prompt" ? (L(), D("label", oCe, [br(m("input", {
           ref_key: "tavernDialogInputRef",
           ref: se,
           "onUpdate:modelValue": C[8] || (C[8] = (q) => H.value.inputValue = q),
           type: "text",
           placeholder: H.value.placeholder
-        }, null, 8, sCe), [[Cs, H.value.inputValue]])])) : ge("", !0)]),
-        m("footer", iCe, [H.value.kind !== "alert" ? (L(), D("button", {
+        }, null, 8, lCe), [[Cs, H.value.inputValue]])])) : ge("", !0)]),
+        m("footer", uCe, [H.value.kind !== "alert" ? (L(), D("button", {
           key: 0,
           ref_key: "tavernDialogCancelRef",
           ref: tt,
@@ -69632,7 +69627,7 @@ var JIe = ["data-chat-font-size"], YIe = { class: "xb-os-stage" }, jIe = { class
           class: "tavern-dialog-button primary"
         }, V(Ks.value), 513)])
       ], 34)], 34)) : ge("", !0)]))
-    ], 14, JIe));
+    ], 14, XIe));
   }
-}), dCe = cCe;
-M6(dCe).mount("#app");
+}), pCe = hCe;
+M6(pCe).mount("#app");
