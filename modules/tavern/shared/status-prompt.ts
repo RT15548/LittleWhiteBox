@@ -32,6 +32,11 @@ function addNumber(target: Record<string, YamlValue | undefined>, key: string, v
     if (numeric !== undefined) {target[key] = numeric;}
 }
 
+function addNonZeroNumber(target: Record<string, YamlValue | undefined>, key: string, value: unknown) {
+    const numeric = numberOrUndefined(value);
+    if (numeric !== undefined && numeric !== 0) {target[key] = numeric;}
+}
+
 function addBoolean(target: Record<string, YamlValue | undefined>, key: string, value: unknown) {
     if (value === true) {target[key] = true;}
 }
@@ -46,9 +51,8 @@ function statusFieldToPromptValue(field: TavernStatusField, block: TavernStatusB
         const gauge = field as TavernStatusGaugeField;
         addText(output, 'name', gauge.name);
         addNumber(output, 'value', gauge.value);
-        addNumber(output, 'min', gauge.min);
+        addNonZeroNumber(output, 'min', gauge.min);
         addNumber(output, 'max', gauge.max);
-        addNumber(output, 'step', gauge.step);
         return stripUndefined(output);
     }
     if (block.form === 'tag') {

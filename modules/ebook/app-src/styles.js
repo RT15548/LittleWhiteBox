@@ -1159,7 +1159,7 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             margin: 0;
         }
         .xb-assistant-markdown p + p {
-            margin-top: 0.65em;
+            margin-top: 0.25em;
         }
         .xb-assistant-markdown strong,
         .xb-assistant-markdown b,

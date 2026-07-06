@@ -80,6 +80,24 @@ function makeContextWindowMessage(order: number, role: string, content = `messag
     };
 }
 
+const identityApplyRegex = async (items: TavernApplyRegexItem[]) => ({
+    items: items.map((item) => ({
+        id: item.id,
+        text: item.text,
+        changed: false,
+    })),
+    changedCount: 0,
+});
+
+const identityApplySubstituteParams = async (items: TavernSubstituteParamsItem[]) => ({
+    items: items.map((item) => ({
+        id: item.id,
+        text: item.text,
+        changed: false,
+    })),
+    changedCount: 0,
+});
+
 function createPromptStatusDocument() {
     return {
         meta: { revision: 0, activeSubject: 'user' },
@@ -383,6 +401,8 @@ test('xb tavern run turn sends the same ST-native prompt shape used by simulatio
         preset,
         currentUserMessage: 'Recall NATIVE_MEMORY_NOTE and enter the clearing.',
         randomEncounterRoll: () => 0.05,
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
         buildNativeChatPrompt: async (input) => {
             nativeInput = input;
             return {
@@ -461,6 +481,8 @@ test('xb tavern run turn sends only the latest quest hook first to ST-native mem
         contextSnapshot: session.contextSnapshot || {},
         preset,
         currentUserMessage: '继续。',
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
         buildNativeChatPrompt: async (input) => {
             memoryPrompt = input.memoryPrompt || '';
             return {
@@ -640,6 +662,8 @@ test('xb tavern session author note reaches native prompt for real and simulated
         contextSnapshot: session.contextSnapshot || {},
         preset,
         currentUserMessage: 'Use the note.',
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
         buildNativeChatPrompt: async (input) => {
             realNativeAuthorNote = input.context?.authorNote;
             return {
@@ -678,6 +702,8 @@ test('xb tavern session author note reaches native prompt for real and simulated
         contextSnapshot: session.contextSnapshot || {},
         preset,
         currentUserMessage: 'Preview the note.',
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
         buildNativeChatPrompt: async (input) => ({
             source: 'test-native-builder',
             promptMessageCount: 1,
@@ -1082,6 +1108,16 @@ test('xb tavern run turn injects status panel yaml without exposing status tools
         contextSnapshot: session.contextSnapshot || {},
         preset,
         currentUserMessage: '我看看自己的状态。',
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
+        buildNativeChatPrompt: async (input) => ({
+            source: 'test-native-builder',
+            promptMessageCount: 2,
+            messages: [
+                { role: 'system', content: input.memoryPrompt || '' },
+                { role: 'user', content: input.currentUserMessage || '' },
+            ],
+        }),
         executeRunOnce: async (options: TavernRunOnceOptions) => {
             rawMessages = JSON.stringify(options.messages);
             exposedToolNames = (Array.isArray(options.tools) ? options.tools : [])
@@ -1194,6 +1230,16 @@ test('xb tavern action check uses status panel gauge when stat matches', async (
         currentUserMessage: '我盯着门缝里的光。',
         actionCheckRoll: () => 1,
         actionCheckPercentRoll: () => 43,
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
+        buildNativeChatPrompt: async (input) => ({
+            source: 'test-native-builder',
+            promptMessageCount: 2,
+            messages: [
+                { role: 'system', content: [input.memoryPrompt || '', input.actionCheckPrompt || ''].filter(Boolean).join('\n\n') },
+                { role: 'user', content: input.currentUserMessage || '' },
+            ],
+        }),
         executeRunOnce,
     });
 
@@ -2763,6 +2809,227 @@ test('xb tavern simulated request applies prompt-stage regex to history without 
     assert.deepEqual((await listTavernMessages(session.id))[1]?.thoughts, [{ label: 'hidden', text: 'OLD_REASONING saved.' }]);
 });
 
+test('xb tavern native prompt build receives prompt-stage regexed history and current input', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Native prompt regex',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-1', name: 'Aster' },
+        },
+    });
+    await appendTavernMessage(session.id, {
+        role: 'user',
+        content: 'OLD_USER visible. <guidance>HIDE_USER</guidance>',
+    });
+    await appendTavernMessage(session.id, {
+        role: 'assistant',
+        content: 'OLD_AI visible. <guidance>HIDE_AI</guidance>',
+    });
+    const stripGuidance = (text: string) => text.replace(/<guidance>[\s\S]*?<\/guidance>/g, '');
+    const applyRegex = async (items: TavernApplyRegexItem[]) => ({
+        items: items.map((item) => {
+            const text = item.options?.isPrompt === true ? stripGuidance(item.text) : item.text;
+            return {
+                id: item.id,
+                text,
+                changed: text !== item.text,
+            };
+        }),
+        changedCount: items.length,
+    });
+    let nativeReceived = {
+        history: [] as string[],
+        currentUserMessage: '',
+    };
+
+    const result = await simulateXbTavernRequest({
+        sessionId: session.id,
+        agentConfig: {
+            currentPresetName: '酒馆 OpenAI',
+            presets: {
+                '酒馆 OpenAI': {
+                    provider: 'sillytavern-openai-compatible',
+                    modelConfigs: {
+                        'sillytavern-openai-compatible': {
+                            model: 'gpt-test',
+                        },
+                    },
+                },
+            },
+        },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: 'NOW visible. <guidance>HIDE_NOW</guidance>',
+        applyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
+        buildNativeChatPrompt: async (input) => {
+            const history = Array.isArray(input.context?.history) ? input.context.history : [];
+            nativeReceived = {
+                history: history.map((message) => String(message.content || '')),
+                currentUserMessage: String(input.currentUserMessage || ''),
+            };
+            const messages = [
+                ...history.map((message) => ({
+                    role: message.role === 'user' ? 'user' as const : 'assistant' as const,
+                    content: String(message.content || ''),
+                })),
+                {
+                    role: 'user' as const,
+                    content: String(input.currentUserMessage || ''),
+                },
+            ].filter((message) => message.content);
+            return {
+                messages,
+                source: 'test-native-prompt',
+                promptMessageCount: messages.length,
+            };
+        },
+    });
+
+    assert.deepEqual(nativeReceived.history, [
+        'OLD_USER visible. ',
+        'OLD_AI visible. ',
+    ]);
+    assert.equal(nativeReceived.currentUserMessage, 'NOW visible. ');
+    assert.match(result.requestSnapshot.rawRequestJson, /OLD_USER visible/);
+    assert.match(result.requestSnapshot.rawRequestJson, /OLD_AI visible/);
+    assert.match(result.requestSnapshot.rawRequestJson, /NOW visible/);
+    assert.doesNotMatch(result.requestSnapshot.rawRequestJson, /HIDE_USER|HIDE_AI|HIDE_NOW|<guidance>/);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), [
+        'OLD_USER visible. <guidance>HIDE_USER</guidance>',
+        'OLD_AI visible. <guidance>HIDE_AI</guidance>',
+    ]);
+});
+
+test('xb tavern native prompt build fails instead of falling back when native messages are empty', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Native prompt empty',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-1', name: 'Aster' },
+        },
+    });
+
+    await assert.rejects(
+        () => simulateXbTavernRequest({
+            sessionId: session.id,
+            agentConfig: {
+                currentPresetName: '酒馆 OpenAI',
+                presets: {
+                    '酒馆 OpenAI': {
+                        provider: 'sillytavern-openai-compatible',
+                        modelConfigs: {
+                            'sillytavern-openai-compatible': {
+                                model: 'gpt-test',
+                            },
+                        },
+                    },
+                },
+            },
+            contextSnapshot: session.contextSnapshot || {},
+            preset,
+            currentUserMessage: 'Hello.',
+            applyRegex: identityApplyRegex,
+            applySubstituteParams: identityApplySubstituteParams,
+            buildNativeChatPrompt: async () => ({
+                source: 'test-native-prompt',
+                promptMessageCount: 0,
+                messages: [],
+            }),
+        }),
+        /native_prompt_builder_returned_empty_messages/,
+    );
+});
+
+test('xb tavern native prompt runtime fails before request when regex hook is missing', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Missing regex hook',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-1', name: 'Aster' },
+        },
+    });
+    let providerCalls = 0;
+
+    await assert.rejects(
+        () => runXbTavernTurn({
+            sessionId: session.id,
+            agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+            contextSnapshot: session.contextSnapshot || {},
+            preset,
+            currentUserMessage: 'Hello.',
+            applySubstituteParams: identityApplySubstituteParams,
+            buildNativeChatPrompt: async () => ({
+                source: 'test-native-prompt',
+                promptMessageCount: 1,
+                messages: [{ role: 'user', content: 'Should not send.' }],
+            }),
+            executeRunOnce: async () => {
+                providerCalls += 1;
+                throw new Error('provider_should_not_run');
+            },
+        }),
+        /native_prompt_regex_runtime_unavailable/,
+    );
+    assert.equal(providerCalls, 0);
+});
+
+test('xb tavern native prompt runtime fails before request when substitute hook is missing', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Missing substitute hook',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-1', name: 'Aster' },
+        },
+    });
+    let nativeBuilderCalls = 0;
+
+    await assert.rejects(
+        () => simulateXbTavernRequest({
+            sessionId: session.id,
+            agentConfig: {
+                currentPresetName: '酒馆 OpenAI',
+                presets: {
+                    '酒馆 OpenAI': {
+                        provider: 'sillytavern-openai-compatible',
+                        modelConfigs: {
+                            'sillytavern-openai-compatible': {
+                                model: 'gpt-test',
+                            },
+                        },
+                    },
+                },
+            },
+            contextSnapshot: session.contextSnapshot || {},
+            preset,
+            currentUserMessage: 'Hello.',
+            applyRegex: identityApplyRegex,
+            buildNativeChatPrompt: async () => {
+                nativeBuilderCalls += 1;
+                return {
+                    source: 'test-native-prompt',
+                    promptMessageCount: 1,
+                    messages: [{ role: 'user', content: 'Should not inspect.' }],
+                };
+            },
+        }),
+        /native_prompt_substitute_params_runtime_unavailable/,
+    );
+    assert.equal(nativeBuilderCalls, 0);
+});
+
 test('xb tavern regex failure before sending preserves the raw user message without calling provider', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
@@ -2815,6 +3082,8 @@ test('xb tavern native prompt build failure preserves the saved user message', a
             contextSnapshot: session.contextSnapshot || {},
             preset,
             currentUserMessage: 'Keep this even if prompt building fails.',
+            applyRegex: identityApplyRegex,
+            applySubstituteParams: identityApplySubstituteParams,
             buildNativeChatPrompt: async () => {
                 throw new Error('native_prompt_failed_before_provider');
             },
@@ -3506,6 +3775,19 @@ test('xb tavern provider resolver reports shared API readiness and request audit
     assert.equal(snapshot.model, 'claude-sonnet-4-0');
     assert.match(snapshot.rawRequestJson, /"request"/);
     assert.match(snapshot.rawRequestJson, /"messages"/);
+
+    const inspectionErrorSnapshot = buildTavernRequestSnapshot({
+        provider: 'fake-provider',
+        model: 'fake-model',
+    }, [{ role: 'user', content: 'Hello.' }], {
+        requestKind: 'actual',
+        requestInspectionError: 'inspect_failed_for_test',
+    });
+    assert.equal(inspectionErrorSnapshot.requestKind, 'actual');
+    assert.equal(inspectionErrorSnapshot.requestInspectionError, 'inspect_failed_for_test');
+    assert.match(inspectionErrorSnapshot.rawRequestJson, /"transport": "inspection-error"/);
+    assert.match(inspectionErrorSnapshot.rawRequestJson, /inspect_failed_for_test/);
+    assert.doesNotMatch(inspectionErrorSnapshot.rawRequestJson, /"transport": "unavailable"/);
 });
 
 test('xb tavern simulated request builds raw API JSON without saving chat messages', async () => {

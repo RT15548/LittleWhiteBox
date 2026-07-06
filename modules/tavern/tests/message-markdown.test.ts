@@ -35,6 +35,21 @@ test('tavern markdown renders emphasis from the bundled parser without global li
     assert.match(html, /<em>文字<\/em>/);
 });
 
+test('tavern markdown collapses blank-like spacer lines instead of rendering empty paragraphs', () => {
+    const html = renderMarkdownToHtml([
+        '你好',
+        '',
+        '&nbsp;',
+        '',
+        '\u200b',
+        '',
+        '我好',
+    ].join('\n'));
+
+    assert.match(html, /^<p>你好<\/p>\s*<p>我好<\/p>$/);
+    assert.doesNotMatch(html, /<p>(?:&nbsp;|\u200b|\s)*<\/p>/);
+});
+
 test('tavern markdown lets ordinary message HTML reach the ST message sanitizer', () => {
     const calls: Array<{ html: string; config: Record<string, unknown> }> = [];
 

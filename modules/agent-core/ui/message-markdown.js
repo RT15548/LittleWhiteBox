@@ -109,10 +109,19 @@ function isHtmlStructureLine(line = '') {
     return !textOutsideTags || !/(^|\s)(?:#{1,6}\s|[-+*]\s|\d+\.\s|```|~~~|>\s)/.test(textOutsideTags);
 }
 
+function normalizeBlankLikeLine(line = '') {
+    const normalized = String(line || '');
+    if (!normalized) return normalized;
+    const stripped = normalized
+        .replace(/&nbsp;|&#160;|&#xa0;/gi, '')
+        .replace(/[\s\u00A0\u200B-\u200D\u2060\uFEFF]+/g, '');
+    return stripped ? normalized : '';
+}
+
 function preprocessNonFenceMarkdown(text = '') {
     const normalized = String(text || '');
     if (!normalized.trim()) return normalized;
-    const lines = normalized.split(/\r?\n/);
+    const lines = normalized.split(/\r?\n/).map((line) => normalizeBlankLikeLine(line));
     const protectedLines = [];
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];

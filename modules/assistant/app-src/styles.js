@@ -1111,7 +1111,7 @@ export function injectAssistantStyles(rootId) {
             margin: 0;
         }
         .xb-assistant-markdown p + p {
-            margin-top: 0.65em;
+            margin-top: 0.25em;
         }
         .xb-assistant-markdown h1,
         .xb-assistant-markdown h2,

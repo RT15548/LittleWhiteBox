@@ -146,6 +146,8 @@ test('status panel prompt yaml keeps full RP fields without implementation metad
     assert.match(yaml, /name: 理智/);
     assert.match(yaml, /value: 62/);
     assert.match(yaml, /max: 99/);
+    assert.doesNotMatch(yaml, /\bmin: 0\b/);
+    assert.doesNotMatch(yaml, /\bstep:/);
     assert.match(yaml, /label: 衣物湿透/);
     assert.match(yaml, /kind: state/);
     assert.match(yaml, /name: 煤油灯/);
@@ -161,6 +163,26 @@ test('status panel prompt yaml keeps full RP fields without implementation metad
     assert.match(yaml, /门缝里有冷光。/);
     assert.doesNotMatch(yaml, /\bid:/);
     assert.doesNotMatch(yaml, /revision|docType|docId|icon|display|accent|layout|activeSubject/);
+});
+
+test('status panel prompt yaml keeps non-zero gauge min', () => {
+    const document = createStatusDoc(3);
+    document.subjects[0].tabs[0].blocks[0].fields[0] = {
+        id: 'rank',
+        name: '阶位',
+        value: 3,
+        min: 1,
+        max: 5,
+        step: 1,
+    };
+
+    const yaml = buildTavernStatusPanelYaml(document);
+
+    assert.match(yaml, /name: 阶位/);
+    assert.match(yaml, /value: 3/);
+    assert.match(yaml, /min: 1/);
+    assert.match(yaml, /max: 5/);
+    assert.doesNotMatch(yaml, /\bstep:/);
 });
 
 test('StatusInit writes the current document and a reversible patch record', async () => {

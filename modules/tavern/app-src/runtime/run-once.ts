@@ -15,10 +15,12 @@ import {
     type XbTavernMessageLayer,
     type XbTavernNativeWorldInfoRuntime,
     type XbTavernNativeWorldInfoTimedState,
+    type XbTavernHistoryMessage,
     type ActivatedWorldEntry,
     type TavernChatPromptPresetBundle,
     type XbTavernRuntimeState,
     XBTavernWorldPosition,
+    normalizeRole,
 } from '../../shared/message-assembler';
 import type { TavernAssistantPreset } from '../../shared/assistant-presets';
 import {
@@ -554,9 +556,10 @@ export interface TavernRequestSnapshot {
     messageChars: number;
     rawMessagesJson: string;
     rawRequestJson: string;
-    requestKind: 'actual' | 'simulated' | 'fallback';
+    requestKind: 'actual' | 'simulated';
     capturedAt: number;
     requestInspection?: TavernRequestInspection;
+    requestInspectionError?: string;
     regexApplications?: TavernRegexApplicationSummary;
 }
 
@@ -693,10 +696,7 @@ async function applyNativeChatPromptBuild(input: {
     diagnostics?: TavernDiagnostics;
 }): Promise<{ buildResult: XbTavernMessageBuildResult; buildSnapshot: XbTavernBuildSnapshot }> {
     if (!input.buildNativeChatPrompt) {
-        return {
-            buildResult: input.baseBuildResult,
-            buildSnapshot: input.baseBuildSnapshot,
-        };
+        throw new Error('native_prompt_builder_unavailable');
     }
     const nativePrompt = await runTavernStage(input.stage, () => input.buildNativeChatPrompt?.({
         context: input.contextForBuild,
@@ -711,10 +711,7 @@ async function applyNativeChatPromptBuild(input: {
     }));
     const nativeMessages = Array.isArray(nativePrompt?.messages) ? nativePrompt.messages : [];
     if (!nativeMessages.length) {
-        return {
-            buildResult: input.baseBuildResult,
-            buildSnapshot: input.baseBuildSnapshot,
-        };
+        throw new Error('native_prompt_builder_returned_empty_messages');
     }
     const buildResult = replaceBuildResultForPromptSource(input.baseBuildResult, nativeMessages, 'sillytavern-native');
     const buildSnapshot = createXbTavernBuildSnapshot(input.contextForBuild, input.chatPreset, buildResult, {
@@ -726,6 +723,22 @@ async function applyNativeChatPromptBuild(input: {
         buildResult,
         buildSnapshot,
     };
+}
+
+function assertNativePromptRuntimeHooks(input: {
+    applyRegex?: TavernApplyRegex;
+    applySubstituteParams?: TavernApplySubstituteParams;
+    buildNativeChatPrompt?: TavernBuildNativeChatPromptRuntime;
+}): void {
+    if (!input.buildNativeChatPrompt) {
+        throw new Error('native_prompt_builder_unavailable');
+    }
+    if (!input.applyRegex) {
+        throw new Error('native_prompt_regex_runtime_unavailable');
+    }
+    if (!input.applySubstituteParams) {
+        throw new Error('native_prompt_substitute_params_runtime_unavailable');
+    }
 }
 
 function isAbortLikeError(error: unknown, signal?: AbortSignal): boolean {
@@ -1058,6 +1071,81 @@ async function applyPromptRegexToConversationMessages(input: {
     };
 }
 
+async function applyNativePromptConversationTransforms(input: {
+    applyRegex?: TavernApplyRegex;
+    applySubstituteParams?: TavernApplySubstituteParams;
+    context: XbTavernContext;
+    currentUserMessage: string;
+    substituteOptions: TavernSubstituteParamsOptions;
+}): Promise<{ context: XbTavernContext; currentUserMessage: string; summary?: TavernRegexApplicationSummary }> {
+    const history = Array.isArray(input.context.history) ? input.context.history : [];
+    const entries: Array<{ kind: 'history'; index: number } | { kind: 'current' }> = [];
+    const messages: XbTavernMessage[] = [];
+
+    history.forEach((message, index) => {
+        const content = String(message.content || message.mes || message.message || '');
+        if (!content) {return;}
+        entries.push({ kind: 'history', index });
+        messages.push({
+            role: message.is_user === true ? 'user' : normalizeRole(message.role, 'assistant'),
+            content,
+            ...(message.name ? { name: String(message.name) } : {}),
+        });
+    });
+
+    if (input.currentUserMessage) {
+        entries.push({ kind: 'current' });
+        messages.push({
+            role: 'user',
+            content: input.currentUserMessage,
+            ...(input.context.user?.name ? { name: String(input.context.user.name) } : {}),
+        });
+    }
+
+    if (!messages.length) {
+        return {
+            context: input.context,
+            currentUserMessage: input.currentUserMessage,
+        };
+    }
+
+    const substitutedMessages = await applyPromptSubstitutionToMessages({
+        applySubstituteParams: input.applySubstituteParams,
+        messages,
+        options: input.substituteOptions,
+    });
+    const applied = await applyPromptRegexToConversationMessages({
+        applyRegex: input.applyRegex,
+        messages: substitutedMessages,
+    });
+    const transformedHistory = history.map((message) => ({ ...message }));
+    let currentUserMessage = input.currentUserMessage;
+
+    entries.forEach((entry, index) => {
+        const transformed = applied.messages[index];
+        if (!transformed) {return;}
+        if (entry.kind === 'current') {
+            currentUserMessage = transformed.content || '';
+            return;
+        }
+        const original = transformedHistory[entry.index] as XbTavernHistoryMessage | undefined;
+        if (!original) {return;}
+        transformedHistory[entry.index] = {
+            ...original,
+            content: transformed.content || '',
+        };
+    });
+
+    return {
+        context: {
+            ...input.context,
+            history: transformedHistory,
+        },
+        currentUserMessage,
+        summary: applied.summary,
+    };
+}
+
 function unchangedSubstituteParamsItems(items: TavernSubstituteParamsItem[] = []): TavernSubstitutedParamsItem[] {
     return items.map((item) => ({
         id: item.id,
@@ -1361,6 +1449,7 @@ export function buildTavernRequestSnapshot(
     messages: XbTavernMessage[] = [],
     override: Partial<Pick<TavernRequestSnapshot, 'provider' | 'model' | 'requestKind'>> & {
         requestInspection?: TavernRequestInspection | null;
+        requestInspectionError?: string;
         chatPreset?: TavernChatPromptPresetBundle;
         regexApplications?: TavernRegexApplicationSummary;
         requestTask?: Record<string, unknown> | null;
@@ -1368,15 +1457,25 @@ export function buildTavernRequestSnapshot(
 ): TavernRequestSnapshot {
     const providerConfig = resolveXbTavernProviderConfig(agentConfig);
     const requestInspection = override.requestInspection || null;
+    const requestInspectionError = String(override.requestInspectionError || '').trim();
     const chatPresetName = String(override.chatPreset?.name || '').trim();
     const snapshotMessages = normalizeRequestSnapshotMessages(messages);
     const rawMessagesJson = JSON.stringify(snapshotMessages, null, 2);
-    const requestForJson = requestInspection || {
-        provider: String(override.provider || providerConfig.provider || ''),
-        model: String(override.model || providerConfig.model || ''),
-        transport: 'unavailable',
-        request: override.requestTask || { messages: snapshotMessages },
-    };
+    const requestForJson = requestInspection
+        || (requestInspectionError
+            ? {
+                provider: String(override.provider || providerConfig.provider || ''),
+                model: String(override.model || providerConfig.model || ''),
+                transport: 'inspection-error',
+                requestInspectionError,
+                request: override.requestTask || { messages: snapshotMessages },
+            }
+            : {
+                provider: String(override.provider || providerConfig.provider || ''),
+                model: String(override.model || providerConfig.model || ''),
+                transport: 'unavailable',
+                request: override.requestTask || { messages: snapshotMessages },
+            });
     const rawRequestJson = JSON.stringify(requestForJson, null, 2);
     return {
         presetName: chatPresetName || providerConfig.currentPresetName,
@@ -1394,6 +1493,7 @@ export function buildTavernRequestSnapshot(
         capturedAt: Date.now(),
         ...(hasRegexApplications(override.regexApplications) ? { regexApplications: override.regexApplications } : {}),
         ...(requestInspection ? { requestInspection } : {}),
+        ...(requestInspectionError ? { requestInspectionError } : {}),
     };
 }
 
@@ -1744,6 +1844,7 @@ async function runTavernOnceWithAdapter(
 }
 
 export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInput): Promise<XbTavernSimulateRequestResult> {
+    assertNativePromptRuntimeHooks(input);
     const chatPreset = resolveInputChatPreset(input);
     const session = input.sessionId ? await getTavernSession(input.sessionId) : null;
     const liveContext = resolveSessionContext(session, input.contextSnapshot);
@@ -1876,14 +1977,26 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
             });
         },
     }));
+    const nativePromptConversation = input.buildNativeChatPrompt
+        ? await runTavernStage('simulate_native_prompt_conversation_transform', () => applyNativePromptConversationTransforms({
+            applyRegex: input.applyRegex,
+            applySubstituteParams: input.applySubstituteParams,
+            context: contextForBuild,
+            currentUserMessage,
+            substituteOptions,
+        }))
+        : {
+            context: contextForBuild,
+            currentUserMessage,
+        };
     const { buildResult, buildSnapshot } = await applyNativeChatPromptBuild({
         stage: 'simulate_native_prompt_build',
         buildNativeChatPrompt: input.buildNativeChatPrompt,
-        contextForBuild,
+        contextForBuild: nativePromptConversation.context,
         chatPreset,
         baseBuildResult: brain.buildResult,
         baseBuildSnapshot: brain.buildSnapshot,
-        currentUserMessage,
+        currentUserMessage: nativePromptConversation.currentUserMessage,
         generationType: String(input.generationTrigger || 'normal'),
         memoryContext: filteredMemoryContext,
         runtimeProtocolMessages,
@@ -2168,6 +2281,7 @@ export async function waitForPendingAcceptedTurnManagers(sessionId = ''): Promis
 
 export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTavernRunResult> {
     notifyRunStatus(input.onRuntimeStatus, '同步状态');
+    assertNativePromptRuntimeHooks(input);
     const chatPreset = resolveInputChatPreset(input);
     if (!input.sessionId) {
         assertUsableTavernContext(input.contextSnapshot || {});
@@ -2407,14 +2521,26 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             });
         },
     }));
+    const nativePromptConversation = input.buildNativeChatPrompt
+        ? await runTavernStage('turn_native_prompt_conversation_transform', () => applyNativePromptConversationTransforms({
+            applyRegex: input.applyRegex,
+            applySubstituteParams: input.applySubstituteParams,
+            context: contextForBuild,
+            currentUserMessage,
+            substituteOptions,
+        }))
+        : {
+            context: contextForBuild,
+            currentUserMessage,
+        };
     const { buildResult, buildSnapshot } = await applyNativeChatPromptBuild({
         stage: 'turn_native_prompt_build',
         buildNativeChatPrompt: input.buildNativeChatPrompt,
-        contextForBuild,
+        contextForBuild: nativePromptConversation.context,
         chatPreset,
         baseBuildResult: brain.buildResult,
         baseBuildSnapshot: brain.buildSnapshot,
-        currentUserMessage,
+        currentUserMessage: nativePromptConversation.currentUserMessage,
         generationType: generationTrigger,
         signal: input.signal,
         memoryContext: filteredMemoryContext,
@@ -2456,11 +2582,12 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             requestKind: 'actual',
             regexApplications,
         })).requestSnapshot;
-    } catch {
+    } catch (error) {
         requestSnapshot = buildTavernRequestSnapshot(input.agentConfig, buildResult.messages, {
-            requestKind: 'fallback',
+            requestKind: 'actual',
             chatPreset,
             regexApplications,
+            requestInspectionError: error instanceof Error ? error.message : String(error || 'request_inspection_failed'),
             requestTask: {
                 messages: buildResult.messages,
                 tools: actionCheckCapabilities.tools,

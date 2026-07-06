@@ -13,7 +13,7 @@ export interface TavernAssistantPreset {
 type AssistantPresetInput = Partial<TavernAssistantPreset>;
 
 export const DEFAULT_TAVERN_ASSISTANT_PRESET_ID = 'littlewhitebox-assistant-default';
-export const DEFAULT_TAVERN_ASSISTANT_PRESET_VERSION = '2026-07-status-panel-default-v1';
+export const DEFAULT_TAVERN_ASSISTANT_PRESET_VERSION = '2026-07-status-panel-default-v2';
 
 interface TavernManagerPromptOptions extends Partial<TavernContractManagerPromptOptions> {
     includeMemory?: boolean;
@@ -518,7 +518,7 @@ export function buildDefaultStatusPanelPrompt(): string {
         '当前状态（标签）',
         '  临时状态，如：受伤、疲惫、恐惧、中毒、饥饿、隐匿等',
         '',
-        '着装（物品，按部位）',
+        '着装（物品，按部位，物品名非角色身体状态和服装状态，而是服装款式）',
         '  头部、上身、下身、足部、配饰',
         '',
         '—— 第二页【能力】——',
