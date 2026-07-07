@@ -1831,6 +1831,7 @@ async function runTavernOnceWithAdapter(
                 requestKind: 'actual',
                 chatPreset: options.chatPreset,
                 regexApplications: options.regexApplications,
+                promptDiagnostics: options.promptDiagnostics,
                 requestTask: inspected.task as unknown as Record<string, unknown>,
             });
         }
@@ -1858,6 +1859,7 @@ async function runTavernOnceWithAdapter(
             requestKind: 'actual',
             chatPreset: options.chatPreset,
             regexApplications: options.regexApplications,
+            promptDiagnostics: options.promptDiagnostics,
             requestTask: inspected.task as unknown as Record<string, unknown>,
         }),
     };

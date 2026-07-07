@@ -53595,6 +53595,7 @@ async function qde(e, t, n) {
       requestKind: "actual",
       chatPreset: n.chatPreset,
       regexApplications: n.regexApplications,
+      promptDiagnostics: n.promptDiagnostics,
       requestTask: r.task
     })), u;
   }
@@ -53614,6 +53615,7 @@ async function qde(e, t, n) {
       requestKind: "actual",
       chatPreset: n.chatPreset,
       regexApplications: n.regexApplications,
+      promptDiagnostics: n.promptDiagnostics,
       requestTask: r.task
     })
   };
