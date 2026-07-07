@@ -478,6 +478,72 @@ function replaceBuildResultForPromptSource(
     };
 }
 
+function normalizeDiagnosticContent(value: unknown): string {
+    return String(value || '').trim();
+}
+
+function countMatchedPromptMessages(sourceMessages: XbTavernMessage[] = [], targetMessages: XbTavernMessage[] = []): {
+    count: number;
+    chars: number;
+} {
+    const remaining = new Map<string, number>();
+    targetMessages.forEach((message) => {
+        const content = normalizeDiagnosticContent(message.content);
+        if (!content) {return;}
+        const key = `${message.role}\n${content}`;
+        remaining.set(key, (remaining.get(key) || 0) + 1);
+    });
+    let count = 0;
+    let chars = 0;
+    sourceMessages.forEach((message) => {
+        const content = normalizeDiagnosticContent(message.content);
+        if (!content) {return;}
+        const key = `${message.role}\n${content}`;
+        const left = remaining.get(key) || 0;
+        if (left <= 0) {return;}
+        remaining.set(key, left - 1);
+        count += 1;
+        chars += content.length;
+    });
+    return { count, chars };
+}
+
+function buildNativePromptDiagnostics(input: {
+    context: XbTavernContext;
+    currentUserMessage: string;
+    nativeMessages: XbTavernMessage[];
+    hostDiagnostics?: Record<string, unknown>;
+}): Record<string, unknown> {
+    const historyMessages = (Array.isArray(input.context.history) ? input.context.history : [])
+        .map((message: XbTavernHistoryMessage) => ({
+            role: normalizeRole(message.role ?? message.is_user),
+            content: normalizeDiagnosticContent(message.content || message.mes || message.message),
+        }))
+        .filter((message) => message.content) as XbTavernMessage[];
+    const currentUserContent = normalizeDiagnosticContent(input.currentUserMessage);
+    const conversationMessages = currentUserContent
+        ? [...historyMessages, { role: 'user' as const, content: currentUserContent }]
+        : historyMessages;
+    const matchedHistory = countMatchedPromptMessages(historyMessages, input.nativeMessages);
+    const matchedConversation = countMatchedPromptMessages(conversationMessages, input.nativeMessages);
+    const appDiagnostics = {
+        nativeInputHistoryCount: historyMessages.length,
+        nativeInputHistoryChars: historyMessages.reduce((sum, message) => sum + normalizeDiagnosticContent(message.content).length, 0),
+        nativeBuiltConversationMessageCount: conversationMessages.length,
+        nativeBuiltConversationChars: conversationMessages.reduce((sum, message) => sum + normalizeDiagnosticContent(message.content).length, 0),
+        nativePreparedMessageCount: input.nativeMessages.length,
+        nativePreparedMessageChars: input.nativeMessages.reduce((sum, message) => sum + normalizeDiagnosticContent(message.content).length, 0),
+        nativeMatchedHistoryCount: matchedHistory.count,
+        nativeMatchedHistoryChars: matchedHistory.chars,
+        nativeMatchedConversationCount: matchedConversation.count,
+        nativeMatchedConversationChars: matchedConversation.chars,
+    };
+    return {
+        ...appDiagnostics,
+        ...(input.hostDiagnostics && typeof input.hostDiagnostics === 'object' ? input.hostDiagnostics : {}),
+    };
+}
+
 function summarizeActionCheckResult(result: TavernActionCheckToolResult): string {
     const errorText = 'error' in result ? result.error : '';
     return String(result.summary || errorText || '').trim();
@@ -716,14 +782,18 @@ async function applyNativeChatPromptBuild(input: {
     if (!nativeMessages.length) {
         throw new Error('native_prompt_builder_returned_empty_messages');
     }
+    const nativePromptDiagnostics = buildNativePromptDiagnostics({
+        context: input.contextForBuild,
+        currentUserMessage: input.currentUserMessage,
+        nativeMessages,
+        hostDiagnostics: nativePrompt?.diagnostics,
+    });
     const buildResult = replaceBuildResultForPromptSource(input.baseBuildResult, nativeMessages, 'sillytavern-native');
     const buildSnapshot = createXbTavernBuildSnapshot(input.contextForBuild, input.chatPreset, buildResult, {
         ...(input.diagnostics && typeof input.diagnostics === 'object' ? input.diagnostics : {}),
         promptSource: nativePrompt?.source || 'sillytavern-prepareOpenAIMessages',
         promptMessageCount: nativePrompt?.promptMessageCount ?? nativeMessages.length,
-        ...(nativePrompt?.diagnostics && typeof nativePrompt.diagnostics === 'object'
-            ? { nativePrompt: nativePrompt.diagnostics }
-            : {}),
+        nativePrompt: nativePromptDiagnostics,
     });
     return {
         buildResult,

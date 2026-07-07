@@ -2935,6 +2935,20 @@ test('xb tavern native prompt build receives prompt-stage regexed history and cu
     assert.match(result.requestSnapshot.rawRequestJson, /OLD_AI visible/);
     assert.match(result.requestSnapshot.rawRequestJson, /NOW visible/);
     assert.doesNotMatch(result.requestSnapshot.rawRequestJson, /HIDE_USER|HIDE_AI|HIDE_NOW|<guidance>/);
+    assert.deepEqual((result.requestSnapshot.promptDiagnostics as {
+        nativePrompt?: Record<string, unknown>;
+    } | undefined)?.nativePrompt, {
+        nativeInputHistoryCount: 2,
+        nativeInputHistoryChars: 32,
+        nativeBuiltConversationMessageCount: 3,
+        nativeBuiltConversationChars: 44,
+        nativePreparedMessageCount: 3,
+        nativePreparedMessageChars: 44,
+        nativeMatchedHistoryCount: 2,
+        nativeMatchedHistoryChars: 32,
+        nativeMatchedConversationCount: 3,
+        nativeMatchedConversationChars: 44,
+    });
     assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), [
         'OLD_USER visible. <guidance>HIDE_USER</guidance>',
         'OLD_AI visible. <guidance>HIDE_AI</guidance>',
