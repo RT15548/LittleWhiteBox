@@ -38,6 +38,7 @@ export interface TavernNativePromptResult {
     messages: XbTavernMessage[];
     source: 'sillytavern-prepareOpenAIMessages';
     promptMessageCount: number;
+    diagnostics?: Record<string, unknown>;
 }
 
 type ExtensionPromptSnapshot = Record<string, Record<string, unknown>>;
@@ -340,6 +341,31 @@ function buildOpenAiMessages(context: XbTavernContext = {}, currentUserMessage =
     }, []);
 }
 
+function countMatchedMessages(sourceMessages: XbTavernMessage[] = [], targetMessages: XbTavernMessage[] = []): {
+    count: number;
+    chars: number;
+} {
+    const remaining = new Map<string, number>();
+    targetMessages.forEach((message) => {
+        const key = `${message.role}\n${normalizeText(message.content)}`;
+        if (!normalizeText(message.content)) {return;}
+        remaining.set(key, (remaining.get(key) || 0) + 1);
+    });
+    let count = 0;
+    let chars = 0;
+    sourceMessages.forEach((message) => {
+        const content = normalizeText(message.content);
+        if (!content) {return;}
+        const key = `${message.role}\n${content}`;
+        const left = remaining.get(key) || 0;
+        if (left <= 0) {return;}
+        remaining.set(key, left - 1);
+        count += 1;
+        chars += content.length;
+    });
+    return { count, chars };
+}
+
 function buildMessageExamples(context: XbTavernContext = {}): unknown[] {
     const character = context.character || {};
     const data = asRecord(character.data);
@@ -595,6 +621,13 @@ async function buildNativePromptNow(input: TavernNativePromptInput = {}, queuedA
         });
         const messages = await traceNativePromptStep(trace, 'build_chat_messages', () => buildOpenAiMessages(context, input.currentUserMessage || ''));
         const messageExamples = await traceNativePromptStep(trace, 'build_examples', () => buildMessageExamples(context));
+        const nativeInputHistory = Array.isArray(context.history) ? context.history : [];
+        const nativeInputHistoryMessages = nativeInputHistory
+            .map((item: XbTavernHistoryMessage) => ({
+                role: normalizeRole(item.role ?? item.is_user),
+                content: normalizeText(item.content || item.mes || item.message),
+            }))
+            .filter((message) => message.content) as XbTavernMessage[];
         const [prepared] = await traceNativePromptStep(trace, 'prepare_openai_messages', () => prepareOpenAIMessages({
             name2: normalizeText(character.name || name2),
             charDescription: getCharacterField(context, 'description', 'description'),
@@ -616,17 +649,35 @@ async function buildNativePromptNow(input: TavernNativePromptInput = {}, queuedA
         const normalizedMessages = (Array.isArray(prepared) ? prepared : [])
             .map(toXbMessage)
             .filter(Boolean) as XbTavernMessage[];
+        const matchedHistory = countMatchedMessages(nativeInputHistoryMessages, normalizedMessages);
+        const matchedConversation = countMatchedMessages(messages, normalizedMessages);
+        const nativeDiagnostics = {
+            nativeInputHistoryCount: nativeInputHistoryMessages.length,
+            nativeInputHistoryChars: nativeInputHistoryMessages.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
+            nativeBuiltConversationMessageCount: messages.length,
+            nativeBuiltConversationChars: messages.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
+            nativePreparedMessageCount: Array.isArray(prepared) ? prepared.length : 0,
+            nativePreparedMessageChars: normalizedMessages.reduce((sum, message) => sum + normalizeText(message.content).length, 0),
+            nativeMatchedHistoryCount: matchedHistory.count,
+            nativeMatchedHistoryChars: matchedHistory.chars,
+            nativeMatchedConversationCount: matchedConversation.count,
+            nativeMatchedConversationChars: matchedConversation.chars,
+            nativeBudgetContext: positiveInteger((promptManager.serviceSettings as Record<string, unknown>)?.openai_max_context),
+            nativeBudgetResponse: positiveInteger((promptManager.serviceSettings as Record<string, unknown>)?.openai_max_tokens),
+        };
         logNativePromptTrace('complete', trace, {
             totalMs: Math.round(nowMs() - trace.startedAt),
             queuedMs: Math.round(trace.startedAt - trace.queuedAt),
             preparedCount: Array.isArray(prepared) ? prepared.length : 0,
             messageCount: normalizedMessages.length,
+            nativeDiagnostics,
             steps: trace.steps,
         });
         return {
             messages: normalizedMessages,
             source: 'sillytavern-prepareOpenAIMessages',
             promptMessageCount: normalizedMessages.length,
+            diagnostics: nativeDiagnostics,
         };
     } catch (error) {
         logNativePromptTrace('failed', trace, {

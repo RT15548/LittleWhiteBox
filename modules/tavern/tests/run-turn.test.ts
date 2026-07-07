@@ -279,6 +279,43 @@ test('xb tavern provider requests trim only the last assistant message content e
     }
 });
 
+test('xb tavern request snapshot exposes prompt diagnostics outside provider request payload', () => {
+    const snapshot = buildTavernRequestSnapshot(
+        { provider: 'fake-provider', model: 'fake-model' },
+        [{ role: 'user', content: 'hello' }],
+        {
+            promptDiagnostics: {
+                nativePrompt: {
+                    nativeInputHistoryCount: 2,
+                    nativeMatchedHistoryCount: 0,
+                },
+            },
+            requestInspection: {
+                provider: 'fake-provider',
+                model: 'fake-model',
+                transport: 'fake',
+                request: {
+                    body: {
+                        messages: [{ role: 'user', content: 'hello' }],
+                    },
+                },
+            },
+        },
+    );
+    const raw = JSON.parse(snapshot.rawRequestJson) as {
+        promptDiagnostics?: unknown;
+        request?: { body?: Record<string, unknown> };
+    };
+    assert.deepEqual(snapshot.promptDiagnostics, {
+        nativePrompt: {
+            nativeInputHistoryCount: 2,
+            nativeMatchedHistoryCount: 0,
+        },
+    });
+    assert.deepEqual(raw.promptDiagnostics, snapshot.promptDiagnostics);
+    assert.equal(raw.request?.body?.promptDiagnostics, undefined);
+});
+
 test('xb tavern run turn skips random encounters when contract disables them', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();

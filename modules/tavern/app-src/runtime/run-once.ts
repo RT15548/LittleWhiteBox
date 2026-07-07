@@ -521,6 +521,7 @@ export interface TavernRunOnceOptions {
     toolChoice?: 'auto' | 'none' | string;
     toolResponses?: TavernToolLoopResponse[];
     finalAnswerReminderText?: string;
+    promptDiagnostics?: Record<string, unknown>;
     signal?: AbortSignal;
     onStreamProgress?: (snapshot: TavernRunStreamSnapshot) => void;
 }
@@ -561,6 +562,7 @@ export interface TavernRequestSnapshot {
     requestInspection?: TavernRequestInspection;
     requestInspectionError?: string;
     regexApplications?: TavernRegexApplicationSummary;
+    promptDiagnostics?: Record<string, unknown>;
 }
 
 export interface TavernRunOnceResult {
@@ -603,6 +605,7 @@ export type TavernBuildNativeChatPromptRuntime = (input: {
     messages?: XbTavernMessage[];
     source?: string;
     promptMessageCount?: number;
+    diagnostics?: Record<string, unknown>;
 }>;
 
 export interface XbTavernRunTurnInput {
@@ -718,6 +721,9 @@ async function applyNativeChatPromptBuild(input: {
         ...(input.diagnostics && typeof input.diagnostics === 'object' ? input.diagnostics : {}),
         promptSource: nativePrompt?.source || 'sillytavern-prepareOpenAIMessages',
         promptMessageCount: nativePrompt?.promptMessageCount ?? nativeMessages.length,
+        ...(nativePrompt?.diagnostics && typeof nativePrompt.diagnostics === 'object'
+            ? { nativePrompt: nativePrompt.diagnostics }
+            : {}),
     });
     return {
         buildResult,
@@ -1453,6 +1459,7 @@ export function buildTavernRequestSnapshot(
         chatPreset?: TavernChatPromptPresetBundle;
         regexApplications?: TavernRegexApplicationSummary;
         requestTask?: Record<string, unknown> | null;
+        promptDiagnostics?: Record<string, unknown> | null;
     } = {},
 ): TavernRequestSnapshot {
     const providerConfig = resolveXbTavernProviderConfig(agentConfig);
@@ -1461,7 +1468,10 @@ export function buildTavernRequestSnapshot(
     const chatPresetName = String(override.chatPreset?.name || '').trim();
     const snapshotMessages = normalizeRequestSnapshotMessages(messages);
     const rawMessagesJson = JSON.stringify(snapshotMessages, null, 2);
-    const requestForJson = requestInspection
+    const promptDiagnostics = override.promptDiagnostics && typeof override.promptDiagnostics === 'object'
+        ? override.promptDiagnostics
+        : null;
+    const requestForJsonBase = requestInspection
         || (requestInspectionError
             ? {
                 provider: String(override.provider || providerConfig.provider || ''),
@@ -1476,6 +1486,12 @@ export function buildTavernRequestSnapshot(
                 transport: 'unavailable',
                 request: override.requestTask || { messages: snapshotMessages },
             });
+    const requestForJson = promptDiagnostics
+        ? {
+            ...requestForJsonBase,
+            promptDiagnostics,
+        }
+        : requestForJsonBase;
     const rawRequestJson = JSON.stringify(requestForJson, null, 2);
     return {
         presetName: chatPresetName || providerConfig.currentPresetName,
@@ -1492,6 +1508,7 @@ export function buildTavernRequestSnapshot(
         requestKind: override.requestKind || 'actual',
         capturedAt: Date.now(),
         ...(hasRegexApplications(override.regexApplications) ? { regexApplications: override.regexApplications } : {}),
+        ...(promptDiagnostics ? { promptDiagnostics } : {}),
         ...(requestInspection ? { requestInspection } : {}),
         ...(requestInspectionError ? { requestInspectionError } : {}),
     };
@@ -1509,6 +1526,7 @@ async function inspectTavernRequest(input: {
     onStreamProgress?: TavernRunOnceOptions['onStreamProgress'];
     requestKind?: TavernRequestSnapshot['requestKind'];
     regexApplications?: TavernRegexApplicationSummary;
+    promptDiagnostics?: Record<string, unknown>;
     providerConfig?: ReturnType<typeof assertXbTavernProviderReady>;
     adapter?: TavernChatAdapter;
 }): Promise<{
@@ -1556,6 +1574,7 @@ async function inspectTavernRequest(input: {
             requestKind: input.requestKind || 'actual',
             chatPreset: input.chatPreset,
             regexApplications: input.regexApplications,
+            promptDiagnostics: input.promptDiagnostics,
             requestTask: task as unknown as Record<string, unknown>,
         }),
         snapshotMessages: requestPlan.requestMessages,
@@ -1792,6 +1811,7 @@ async function runTavernOnceWithAdapter(
         toolChoice: options.toolChoice,
         toolResponses: options.toolResponses,
         finalAnswerReminderText: options.finalAnswerReminderText,
+        promptDiagnostics: options.promptDiagnostics,
         signal: options.signal,
         onStreamProgress: options.onStreamProgress,
         requestKind: 'actual',
@@ -2011,6 +2031,7 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         onStreamProgress: () => {},
         requestKind: 'simulated',
         regexApplications,
+        promptDiagnostics: buildSnapshot.diagnostics as Record<string, unknown> | undefined,
     }));
     const provider = inspected.requestSnapshot.provider;
     const model = inspected.requestSnapshot.model;
@@ -2050,6 +2071,7 @@ async function runTavernActionCheckLoop(input: {
     messages: XbTavernMessage[];
     chatPreset?: TavernChatPromptPresetBundle;
     regexApplications?: TavernRegexApplicationSummary;
+    promptDiagnostics?: Record<string, unknown>;
     signal?: AbortSignal;
     onStreamProgress?: TavernRunOnceOptions['onStreamProgress'];
     executeRunOnce: TavernRunOnceExecutor;
@@ -2070,6 +2092,7 @@ async function runTavernActionCheckLoop(input: {
     let finalRequestSnapshot = buildTavernRequestSnapshot(input.agentConfig, input.messages, {
         chatPreset: input.chatPreset,
         regexApplications: input.regexApplications,
+        promptDiagnostics: input.promptDiagnostics,
     });
     let pendingToolResponses: TavernToolLoopResponse[] | undefined = undefined;
     let pendingFinalAnswerReminderText = '';
@@ -2088,6 +2111,7 @@ async function runTavernActionCheckLoop(input: {
             messages: requestPlan.requestMessages,
             chatPreset: input.chatPreset,
             regexApplications: input.regexApplications,
+            promptDiagnostics: input.promptDiagnostics,
             tools,
             toolChoice: 'auto',
             ...(requestPlan.mode === 'session_tool_response_round'
@@ -2570,6 +2594,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     let requestSnapshot = buildTavernRequestSnapshot(input.agentConfig, buildResult.messages, {
         chatPreset,
         regexApplications,
+        promptDiagnostics: buildSnapshot.diagnostics as Record<string, unknown> | undefined,
     });
     try {
         requestSnapshot = (await inspectTavernRequest({
@@ -2581,12 +2606,14 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             onStreamProgress: handleStreamProgress,
             requestKind: 'actual',
             regexApplications,
+            promptDiagnostics: buildSnapshot.diagnostics as Record<string, unknown> | undefined,
         })).requestSnapshot;
     } catch (error) {
         requestSnapshot = buildTavernRequestSnapshot(input.agentConfig, buildResult.messages, {
             requestKind: 'actual',
             chatPreset,
             regexApplications,
+            promptDiagnostics: buildSnapshot.diagnostics as Record<string, unknown> | undefined,
             requestInspectionError: error instanceof Error ? error.message : String(error || 'request_inspection_failed'),
             requestTask: {
                 messages: buildResult.messages,
@@ -2626,6 +2653,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
                 messages: buildResult.messages,
                 chatPreset,
                 regexApplications,
+                promptDiagnostics: buildSnapshot.diagnostics as Record<string, unknown> | undefined,
                 signal: input.signal,
                 onStreamProgress: handleStreamProgress,
                 executeRunOnce,
@@ -2638,6 +2666,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
                 messages: buildResult.messages,
                 chatPreset,
                 regexApplications,
+                promptDiagnostics: buildSnapshot.diagnostics as Record<string, unknown> | undefined,
                 signal: input.signal,
                 onStreamProgress: handleStreamProgress,
             });
