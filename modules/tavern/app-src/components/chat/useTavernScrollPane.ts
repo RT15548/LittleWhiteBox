@@ -173,8 +173,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     }
 
     function followStreamToBottomIfAtBottom() {
-        if (!isNearBottom()) {
-            autoScroll.value = false;
+        if (autoScroll.value === false) {
             updateScrollButtons();
             return;
         }

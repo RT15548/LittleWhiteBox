@@ -51,10 +51,16 @@ interface PromptManagerSnapshot {
     activeCharacter: unknown;
     prompts: unknown;
     promptOrder: unknown;
+    hasOpenAiMaxContext: boolean;
+    openAiMaxContext: unknown;
+    hasOpenAiMaxTokens: boolean;
+    openAiMaxTokens: unknown;
 }
 
 let nativePromptQueue: Promise<unknown> = Promise.resolve();
 const nativePromptAbortControllers = new Map<string, AbortController>();
+const NATIVE_PROMPT_DRY_RUN_CONTEXT_TOKENS = 200000;
+const NATIVE_PROMPT_DRY_RUN_RESPONSE_TOKENS = 4096;
 
 interface NativePromptTraceStep {
     name: string;
@@ -220,6 +226,10 @@ function capturePromptManager(): PromptManagerSnapshot {
         activeCharacter: runtime.activeCharacter,
         prompts: cloneJson(serviceSettings.prompts),
         promptOrder: cloneJson(serviceSettings.prompt_order),
+        hasOpenAiMaxContext: Object.prototype.hasOwnProperty.call(serviceSettings, 'openai_max_context'),
+        openAiMaxContext: serviceSettings.openai_max_context,
+        hasOpenAiMaxTokens: Object.prototype.hasOwnProperty.call(serviceSettings, 'openai_max_tokens'),
+        openAiMaxTokens: serviceSettings.openai_max_tokens,
     };
 }
 
@@ -231,6 +241,16 @@ function restorePromptManager(snapshot: PromptManagerSnapshot): void {
     }
     serviceSettings.prompts = cloneJson(snapshot.prompts);
     serviceSettings.prompt_order = cloneJson(snapshot.promptOrder);
+    if (snapshot.hasOpenAiMaxContext) {
+        serviceSettings.openai_max_context = snapshot.openAiMaxContext;
+    } else {
+        delete serviceSettings.openai_max_context;
+    }
+    if (snapshot.hasOpenAiMaxTokens) {
+        serviceSettings.openai_max_tokens = snapshot.openAiMaxTokens;
+    } else {
+        delete serviceSettings.openai_max_tokens;
+    }
 }
 
 function cloneJson<T>(value: T): T {
@@ -239,6 +259,44 @@ function cloneJson<T>(value: T): T {
     } catch {
         return value;
     }
+}
+
+function positiveInteger(value: unknown): number | null {
+    const numeric = Math.floor(Number(value));
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function firstPositiveInteger(values: unknown[]): number | null {
+    for (const value of values) {
+        const numeric = positiveInteger(value);
+        if (numeric !== null) {return numeric;}
+    }
+    return null;
+}
+
+function applyNativeDryRunTokenBudget(chatPreset: TavernChatPromptPresetBundle = {}): void {
+    if (!promptManager?.serviceSettings || typeof promptManager.serviceSettings !== 'object') {return;}
+    const serviceSettings = promptManager.serviceSettings as Record<string, unknown>;
+    const preset = asRecord(chatPreset.promptManager);
+    const rawPreset = asRecord(preset.rawPreset);
+    const contextTokens = Math.max(
+        NATIVE_PROMPT_DRY_RUN_CONTEXT_TOKENS,
+        firstPositiveInteger([
+            preset.openai_max_context,
+            rawPreset.openai_max_context,
+            serviceSettings.openai_max_context,
+        ]) || 0,
+    );
+    const responseTokens = Math.min(
+        contextTokens - 1,
+        firstPositiveInteger([
+            preset.openai_max_tokens,
+            rawPreset.openai_max_tokens,
+            serviceSettings.openai_max_tokens,
+        ]) || NATIVE_PROMPT_DRY_RUN_RESPONSE_TOKENS,
+    );
+    serviceSettings.openai_max_context = contextTokens;
+    serviceSettings.openai_max_tokens = Math.max(1, responseTokens);
 }
 
 function roleNumber(role: unknown): number {
@@ -521,6 +579,7 @@ async function buildNativePromptNow(input: TavernNativePromptInput = {}, queuedA
         assertNativePromptNotCancelled(trace);
         await traceNativePromptStep(trace, 'apply_prompt_manager', () => {
             applyChatPresetPromptManager(input.chatPreset, context);
+            applyNativeDryRunTokenBudget(input.chatPreset);
             applyPromptManagerActiveCharacter(context);
         });
         await traceNativePromptStep(trace, 'apply_persona', () => applyUserPersonaPrompt(context));

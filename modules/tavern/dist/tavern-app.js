@@ -7986,8 +7986,8 @@ function FE(e) {
     $(!0);
   }
   function m() {
-    if (!I()) {
-      n.value = !1, _();
+    if (n.value === !1) {
+      _();
       return;
     }
     n.value = !0, $();

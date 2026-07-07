@@ -72,7 +72,7 @@ test('tavern scroll handlers collapse expanded message windows when returning to
     assert.match(scrollPaneSource, /requestAnimationFrame\(\(\) => \{[\s\S]*applyWheelFallback\(target, deltaY\);[\s\S]*if \(target === root\) \{[\s\S]*handleScroll\(\);/);
     assert.doesNotMatch(scrollPaneSource, /onReturnToBottom|notifyReturnToBottom/);
     assert.match(scrollPaneSource, /function placeAtBottomForNewContext\(\) \{[\s\S]*scrollToBottom\(true\);[\s\S]*\}/);
-    assert.match(scrollPaneSource, /function followStreamToBottomIfAtBottom\(\) \{[\s\S]*if \(!isNearBottom\(\)\) \{[\s\S]*autoScroll\.value = false;[\s\S]*return;[\s\S]*\}[\s\S]*scrollToBottom\(\);[\s\S]*\}/);
+    assert.match(scrollPaneSource, /function followStreamToBottomIfAtBottom\(\) \{[\s\S]*if \(autoScroll\.value === false\) \{[\s\S]*updateScrollButtons\(\);[\s\S]*return;[\s\S]*\}[\s\S]*scrollToBottom\(\);[\s\S]*\}/);
     assert.match(scrollPaneSource, /function jumpToBottom\(scrollOptions: TavernScrollToBottomOptions = \{\}\) \{[\s\S]*scrollToBottom\(true, scrollOptions\);[\s\S]*\}/);
     assert.match(scrollPaneSource, /function scrollToBottom\([\s\S]*if \(scrollOptions\.collapseWindow\) \{[\s\S]*collapseMessageWindowIfBottom\(true\);/);
     assert.match(scrollPaneSource, /const apply = \(\) => \{[\s\S]*if \(!force && autoScroll\.value === false\) \{return false;\}[\s\S]*node\.scrollTop = node\.scrollHeight;[\s\S]*return true;/);

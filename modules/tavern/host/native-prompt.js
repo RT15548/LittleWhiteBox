@@ -19,6 +19,8 @@ import {
 } from "../shared/message-assembler.js";
 let nativePromptQueue = Promise.resolve();
 const nativePromptAbortControllers = /* @__PURE__ */ new Map();
+const NATIVE_PROMPT_DRY_RUN_CONTEXT_TOKENS = 2e5;
+const NATIVE_PROMPT_DRY_RUN_RESPONSE_TOKENS = 4096;
 function nowMs() {
   return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
 }
@@ -152,7 +154,11 @@ function capturePromptManager() {
   return {
     activeCharacter: runtime.activeCharacter,
     prompts: cloneJson(serviceSettings.prompts),
-    promptOrder: cloneJson(serviceSettings.prompt_order)
+    promptOrder: cloneJson(serviceSettings.prompt_order),
+    hasOpenAiMaxContext: Object.prototype.hasOwnProperty.call(serviceSettings, "openai_max_context"),
+    openAiMaxContext: serviceSettings.openai_max_context,
+    hasOpenAiMaxTokens: Object.prototype.hasOwnProperty.call(serviceSettings, "openai_max_tokens"),
+    openAiMaxTokens: serviceSettings.openai_max_tokens
   };
 }
 function restorePromptManager(snapshot) {
@@ -163,6 +169,16 @@ function restorePromptManager(snapshot) {
   }
   serviceSettings.prompts = cloneJson(snapshot.prompts);
   serviceSettings.prompt_order = cloneJson(snapshot.promptOrder);
+  if (snapshot.hasOpenAiMaxContext) {
+    serviceSettings.openai_max_context = snapshot.openAiMaxContext;
+  } else {
+    delete serviceSettings.openai_max_context;
+  }
+  if (snapshot.hasOpenAiMaxTokens) {
+    serviceSettings.openai_max_tokens = snapshot.openAiMaxTokens;
+  } else {
+    delete serviceSettings.openai_max_tokens;
+  }
 }
 function cloneJson(value) {
   try {
@@ -170,6 +186,45 @@ function cloneJson(value) {
   } catch {
     return value;
   }
+}
+function positiveInteger(value) {
+  const numeric = Math.floor(Number(value));
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+function firstPositiveInteger(values) {
+  for (const value of values) {
+    const numeric = positiveInteger(value);
+    if (numeric !== null) {
+      return numeric;
+    }
+  }
+  return null;
+}
+function applyNativeDryRunTokenBudget(chatPreset = {}) {
+  if (!promptManager?.serviceSettings || typeof promptManager.serviceSettings !== "object") {
+    return;
+  }
+  const serviceSettings = promptManager.serviceSettings;
+  const preset = asRecord(chatPreset.promptManager);
+  const rawPreset = asRecord(preset.rawPreset);
+  const contextTokens = Math.max(
+    NATIVE_PROMPT_DRY_RUN_CONTEXT_TOKENS,
+    firstPositiveInteger([
+      preset.openai_max_context,
+      rawPreset.openai_max_context,
+      serviceSettings.openai_max_context
+    ]) || 0
+  );
+  const responseTokens = Math.min(
+    contextTokens - 1,
+    firstPositiveInteger([
+      preset.openai_max_tokens,
+      rawPreset.openai_max_tokens,
+      serviceSettings.openai_max_tokens
+    ]) || NATIVE_PROMPT_DRY_RUN_RESPONSE_TOKENS
+  );
+  serviceSettings.openai_max_context = contextTokens;
+  serviceSettings.openai_max_tokens = Math.max(1, responseTokens);
 }
 function roleNumber(role) {
   if (typeof role === "number" && Number.isFinite(role)) {
@@ -436,6 +491,7 @@ async function buildNativePromptNow(input = {}, queuedAt = nowMs(), signal) {
     assertNativePromptNotCancelled(trace);
     await traceNativePromptStep(trace, "apply_prompt_manager", () => {
       applyChatPresetPromptManager(input.chatPreset, context);
+      applyNativeDryRunTokenBudget(input.chatPreset);
       applyPromptManagerActiveCharacter(context);
     });
     await traceNativePromptStep(trace, "apply_persona", () => applyUserPersonaPrompt(context));

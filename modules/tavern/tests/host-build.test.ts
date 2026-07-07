@@ -192,9 +192,9 @@ test('tavern chat font size preference scales reading typography relative to hos
     assert.match(appSource, /:data-chat-font-size="tavernDisplaySettings\.chatFontSize"/);
 
     assert.match(markdownCss, /\[data-chat-font-size\] \{[\s\S]*--xb-tavern-reading-font-size: calc\(var\(--xb-host-main-font-size, 15px\) \+ var\(--xb-tavern-reading-font-offset, 0px\)\);[\s\S]*--xb-tavern-reading-line-height: calc\(var\(--xb-host-prose-line-height, 23px\) \+ var\(--xb-tavern-reading-line-offset, 0px\)\);/);
-    assert.match(markdownCss, /\[data-chat-font-size='small'\] \{[\s\S]*--xb-tavern-reading-font-offset: 0px;[\s\S]*--xb-tavern-reading-line-offset: 0px;/);
-    assert.match(markdownCss, /\[data-chat-font-size='medium'\] \{[\s\S]*--xb-tavern-reading-font-offset: 1px;[\s\S]*--xb-tavern-reading-line-offset: 2px;/);
-    assert.match(markdownCss, /\[data-chat-font-size='large'\] \{[\s\S]*--xb-tavern-reading-font-offset: 2px;[\s\S]*--xb-tavern-reading-line-offset: 4px;/);
+    assert.match(markdownCss, /\[data-chat-font-size='small'\] \{[\s\S]*--xb-tavern-reading-font-offset: 1px;[\s\S]*--xb-tavern-reading-line-offset: 2px;/);
+    assert.match(markdownCss, /\[data-chat-font-size='medium'\] \{[\s\S]*--xb-tavern-reading-font-offset: 2px;[\s\S]*--xb-tavern-reading-line-offset: 4px;/);
+    assert.match(markdownCss, /\[data-chat-font-size='large'\] \{[\s\S]*--xb-tavern-reading-font-offset: 3px;[\s\S]*--xb-tavern-reading-line-offset: 6px;/);
 
     assert.match(markdownCss, /\.xb-tavern-markdown \{[\s\S]*font-size: var\(--xb-tavern-reading-font-size, 15px\);[\s\S]*line-height: var\(--xb-tavern-reading-line-height, 23px\);/);
     assert.match(markdownCss, /\.xb-tavern-markdown p \{[\s\S]*font-size: inherit;[\s\S]*line-height: inherit;[\s\S]*white-space: pre-wrap;/);
@@ -482,7 +482,13 @@ test('tavern native prompt builder injects LittleWhiteBox state without host cha
     assert.match(nativeSource, /function applyChatPresetPromptManager/);
     assert.match(nativeSource, /serviceSettings\.prompts = cloneJson\(prompts\);/);
     assert.match(nativeSource, /replacePromptOrderForCharacter\(promptOrder, nativeCharacterId, activeOrder\)/);
-    assert.match(nativeSource, /applyChatPresetPromptManager\(input\.chatPreset, context\);[\s\S]*applyPromptManagerActiveCharacter\(context\);/);
+    assert.match(nativeSource, /const NATIVE_PROMPT_DRY_RUN_CONTEXT_TOKENS = 200000;/);
+    assert.match(nativeSource, /function applyNativeDryRunTokenBudget\(chatPreset: TavernChatPromptPresetBundle = \{\}\): void/);
+    assert.match(nativeSource, /serviceSettings\.openai_max_context = contextTokens;/);
+    assert.match(nativeSource, /serviceSettings\.openai_max_tokens = Math\.max\(1, responseTokens\);/);
+    assert.match(nativeSource, /applyChatPresetPromptManager\(input\.chatPreset, context\);[\s\S]*applyNativeDryRunTokenBudget\(input\.chatPreset\);[\s\S]*applyPromptManagerActiveCharacter\(context\);/);
+    assert.match(nativeSource, /hasOpenAiMaxContext: Object\.prototype\.hasOwnProperty\.call\(serviceSettings, 'openai_max_context'\)/);
+    assert.match(nativeSource, /delete serviceSettings\.openai_max_context;/);
     assert.match(nativeSource, /activeCharacter = character;/);
     assert.doesNotMatch(nativeSource, /promptOrder\.push\(\{[\s\S]*character_id: character\.id/);
     assert.doesNotMatch(nativeSource, /ensurePromptOrderForActiveCharacter/);
@@ -511,6 +517,12 @@ test('tavern native prompt builder injects LittleWhiteBox state without host cha
     assert.match(nativeSource, /const value = entries\.join\('\\n'\);/);
     assert.match(nativeSource, /setExtensionPrompt\(\s*inject_ids\.CUSTOM_WI_OUTLET\(outletName\),\s*value,\s*Number\(extension_prompt_types\.NONE \?\? 0\),\s*0,\s*\);/);
     assert.match(nativeSource, /flushNativeWorldInfoInjections\(\);[\s\S]*addNativeWorldInfoDepth\(runtime\);[\s\S]*addNativeWorldInfoOutlets\(runtime\);[\s\S]*applyAuthorNotePrompt\(context, input\.currentUserMessage \|\| '', runtime\);[\s\S]*prepareOpenAIMessages/);
+    const buildOpenAiMessagesSource = nativeSource.match(/function buildOpenAiMessages[\s\S]*?\n\}/)?.[0] || '';
+    assert.ok(buildOpenAiMessagesSource);
+    assert.match(buildOpenAiMessagesSource, /messages\.push\(\{[\s\S]*role: 'user'[\s\S]*content: userText/);
+    assert.match(buildOpenAiMessagesSource, /prepared\.reduce<XbTavernMessage\[\]>\(\(result, message, index\) => \{/);
+    assert.match(buildOpenAiMessagesSource, /result\[prepared\.length - 1 - index\] = message;/);
+    assert.doesNotMatch(buildOpenAiMessagesSource, /return prepared;/);
     const outletFunction = nativeSource.match(/function addNativeWorldInfoOutlets[\s\S]*?\n\}/)?.[0] || '';
     assert.ok(outletFunction);
     assert.doesNotMatch(outletFunction, /addInChatPrompt|extension_prompt_types\.IN_CHAT/);
