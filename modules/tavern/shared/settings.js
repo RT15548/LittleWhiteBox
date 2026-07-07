@@ -11,8 +11,7 @@ function clampInteger(value, fallback, min, max) {
   return Math.min(max, Math.max(min, Math.floor(number)));
 }
 function normalizeLoadBatchSize(value, fallback = 20) {
-  const clamped = clampInteger(value, fallback, 5, 50);
-  return Math.min(50, Math.max(5, Math.round(clamped / 5) * 5));
+  return clampInteger(value, fallback, 1, 50);
 }
 function normalizeChatFontSize(value) {
   return value === "small" || value === "medium" || value === "large" ? value : "large";

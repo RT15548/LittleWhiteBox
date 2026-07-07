@@ -14,10 +14,8 @@ export function normalizeHiddenOutsideCount(value: unknown, fallback = AGENT_MES
 
 export function normalizeMessageLoadBatchSize(value: unknown, fallback = AGENT_MESSAGE_WINDOW_CHUNK) {
     const number = Number(value);
-    if (!Number.isFinite(number)) {
-        return Math.min(50, Math.max(5, Math.round(fallback / 5) * 5));
-    }
-    return Math.min(50, Math.max(5, Math.round(number / 5) * 5));
+    if (!Number.isFinite(number)) {return Math.min(50, Math.max(1, Math.floor(fallback)));}
+    return Math.min(50, Math.max(1, Math.floor(number)));
 }
 
 export function getMessageWindow(state: { uiMessageWindowLimit?: number } = {}, totalItems = 0, options: {

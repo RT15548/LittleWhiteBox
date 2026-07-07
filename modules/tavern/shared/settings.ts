@@ -27,8 +27,7 @@ function clampInteger(value: unknown, fallback: number, min: number, max: number
 }
 
 function normalizeLoadBatchSize(value: unknown, fallback = 20) {
-    const clamped = clampInteger(value, fallback, 5, 50);
-    return Math.min(50, Math.max(5, Math.round(clamped / 5) * 5));
+    return clampInteger(value, fallback, 1, 50);
 }
 
 function normalizeChatFontSize(value: unknown): TavernChatFontSize {

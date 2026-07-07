@@ -883,7 +883,7 @@ const sessionController = useTavernSessionController(sessionState, {
     reportStartupProgress,
     resetChatMessageWindowState: () => resetChatMessageWindowState(),
     resetSessionPreviewState,
-    scrollChatToBottom: (force) => scrollChatToBottom(force),
+    placeChatAtBottomForNewContext: () => placeChatAtBottomForNewContext(),
     syncCharacterWorldbookState,
     syncSessionCharacterContextSafely,
     abortActiveRun: () => chatRunController.abortActiveRun(),
@@ -2935,7 +2935,7 @@ async function createSessionAndOpenChat(options: { contextSnapshot?: XbTavernCon
     await createSessionFromContext(options);
     activeView.value = 'chat';
     chatFocus.value = 'chat';
-    scrollChatToBottom(true);
+    placeChatAtBottomForNewContext();
 }
 
 async function createNewChatSession() {
@@ -3054,7 +3054,7 @@ async function removeSession(sessionId: string, event?: Event) {
 function openChatView() {
     activeView.value = 'chat';
     chatFocus.value = 'chat';
-    scrollChatToBottom(true);
+    placeChatAtBottomForNewContext();
 }
 
 function openPromptInspector(tab: 'history' | 'simulate' = 'history') {
@@ -3700,7 +3700,9 @@ async function rerunFromManagerMessage(message: TavernManagerMessageRecord) {
 
 const updateChatScrollButtons = chatScrollPane.updateScrollButtons;
 const updateManagerScrollButtons = managerScrollPane.updateScrollButtons;
-const scrollChatToBottom = chatScrollPane.scrollToBottom;
+const placeChatAtBottomForNewContext = chatScrollPane.placeAtBottomForNewContext;
+const followChatStreamToBottomIfAtBottom = chatScrollPane.followStreamToBottomIfAtBottom;
+const jumpChatToBottom = chatScrollPane.jumpToBottom;
 const scrollChatToTop = chatScrollPane.scrollToTop;
 const scrollManagerToBottom = managerScrollPane.scrollToBottom;
 const scrollManagerToTop = managerScrollPane.scrollToTop;
@@ -3986,7 +3988,6 @@ const chatRunController = useTavernChatRunController({
     resetTextareaHeight,
     resolveRuntimeContextForSession,
     resolveSlashCommandMessageText,
-    scrollChatToBottom,
     setSelectedSessionId: sessionController.setSelectedSessionId,
     setSuppressNextChatWindowLimitReload: sessionController.suppressNextChatWindowLimitReload,
     showToast: showTavernToast,
@@ -4403,26 +4404,38 @@ watch([
     () => visibleChatMessages.value.length,
     () => chatMessageWindow.value.startIndex,
     () => visibleChatMarkdownSignature.value,
-    () => runtimeText.value,
     () => runtimePendingUserMessage.value,
-    () => runtimeThoughtsSignature.value,
-    () => runtimeActionCheckSignature.value,
     () => htmlRenderEnabled.value,
     () => homeThemeDark.value,
     () => activeView.value,
     () => chatFocus.value,
 ], () => {
     if (activeView.value === 'chat' && chatFocus.value === 'chat') {
-        scrollChatToBottom();
         void nextTick(() => {
-            if (isRunning.value) {
-                enhanceLiveChatMarkdown();
-            } else {
-                enhanceChatMarkdown();
-            }
+            enhanceChatMarkdown();
             updateChatScrollButtons();
         });
     }
+});
+
+watch([
+    () => runtimeText.value,
+    () => runtimeThoughtsSignature.value,
+    () => runtimeActionCheckSignature.value,
+], () => {
+    if (activeView.value !== 'chat' || chatFocus.value !== 'chat') {return;}
+    const hasLiveStreamContent = !!(
+        String(runtimeText.value || '')
+        || runtimeThoughts.value.length
+        || runtimeActionCheckEvents.value.length
+    );
+    if (isRunning.value && hasLiveStreamContent) {
+        followChatStreamToBottomIfAtBottom();
+    }
+    void nextTick(() => {
+        enhanceLiveChatMarkdown();
+        updateChatScrollButtons();
+    });
 });
 
 watch([
@@ -4452,9 +4465,6 @@ watch([() => activeView.value, () => chatFocus.value], ([view, focus], [previous
     if (wasRoleplayChat && !isRoleplayChat) {
         clearRuntimeFinalizedAssistantMessageKey();
     }
-    if (isRoleplayChat) {
-        scrollChatToBottom(true);
-    }
 });
 
 watch(() => chatMessageWindowLimit.value, () => {
@@ -4472,7 +4482,7 @@ watch(() => selectedSessionId.value, () => {
     memoryFileSearchText.value = '';
     memoryFileGroupVisibleLimits.value = {};
     void nextTick(() => {
-        scrollChatToBottom(true);
+        placeChatAtBottomForNewContext();
         scrollManagerToBottom(true);
     });
 });
@@ -4634,7 +4644,7 @@ const chatContext = {
     runtimeFinalizedAssistantMessageKey,
     runtimePendingUserMessage,
     saveEditMessage,
-    scrollChatToBottom,
+    jumpChatToBottom,
     scrollChatToTop,
     saveCurrentAuthorNote,
     showChatScrollBottom,
@@ -4829,7 +4839,7 @@ async function runPostReadyStartupTasks() {
         void syncSessionCharacterContextSafely({ sessionId: selectedSessionId.value, force: true });
     }
     if (activeView.value === 'chat' && chatFocus.value === 'chat') {
-        scrollChatToBottom(true);
+        placeChatAtBottomForNewContext();
     }
     reportStartupProgress(100, 'enterTavern');
 }

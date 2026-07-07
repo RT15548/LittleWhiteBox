@@ -381,7 +381,7 @@ export interface TavernChatContext {
     runtimeFinalizedAssistantMessageKey: Ref<string>;
     runtimeUserMessageVisible: Ref<boolean>;
     saveEditMessage: TavernCommand<[message: TavernMessageRecord, options?: { rollbackState?: boolean; content?: string }], Promise<void>>;
-    scrollChatToBottom: TavernCommand<[force?: boolean, options?: { collapseWindow?: boolean; revealHelpers?: boolean }]>;
+    jumpChatToBottom: TavernCommand<[options?: { collapseWindow?: boolean; revealHelpers?: boolean }]>;
     scrollChatToTop: TavernCommand;
     saveCurrentAuthorNote: TavernCommand<[note: XbTavernAuthorNote], Promise<void>>;
     showChatScrollBottom: Ref<boolean>;

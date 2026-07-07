@@ -140,9 +140,9 @@ function selectChatFontSize(size: TavernChatFontSize) {
           <input
             :value="displaySettings.loadBatchSize"
             type="number"
-            min="5"
+            min="1"
             max="50"
-            step="5"
+            step="1"
             :disabled="baseSettingsSaving"
             @change="handleLoadBatchInput(($event.target as HTMLInputElement).value)"
           >

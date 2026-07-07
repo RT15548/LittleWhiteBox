@@ -35,8 +35,8 @@ test('tavern message window matches ebook defaults and expands older messages in
 test('tavern message window normalizes custom hidden counts and load batch sizes', () => {
     assert.equal(normalizeHiddenOutsideCount(0), 1);
     assert.equal(normalizeHiddenOutsideCount(27), 20);
-    assert.equal(normalizeMessageLoadBatchSize(6), 5);
-    assert.equal(normalizeMessageLoadBatchSize(18), 20);
+    assert.equal(normalizeMessageLoadBatchSize(1), 1);
+    assert.equal(normalizeMessageLoadBatchSize(18), 18);
 
     const state = { uiMessageWindowLimit: 1 };
     const windowState = getMessageWindow(state, 12, { defaultLimit: 8 });
@@ -57,15 +57,23 @@ test('tavern scroll handlers collapse expanded message windows when returning to
     assert.doesNotMatch(appSource, /function handleChatScroll\(\)/);
     assert.doesNotMatch(appSource, /function handleManagerScroll\(\)/);
     assert.match(scrollPaneSource, /function handleScroll\(\)[\s\S]*collapseMessageWindowIfBottom\(\);/);
-    assert.match(scrollPaneSource, /const previousScrollTop = lastScrollTop;[\s\S]*const scrollingTowardBottom = currentScrollTop > previousScrollTop;[\s\S]*lastScrollTop = currentScrollTop;/);
-    assert.match(scrollPaneSource, /const nearBottom = isNearBottom\(\);[\s\S]*if \(nearBottom\) \{[\s\S]*autoScroll\.value = true;[\s\S]*\} else \{[\s\S]*autoScroll\.value = false;/);
+    assert.match(scrollPaneSource, /let topRevealAutoBlocked = false;/);
+    assert.match(scrollPaneSource, /if \(!force && topRevealAutoBlocked\) \{return false;\}/);
+    assert.match(scrollPaneSource, /topRevealAutoBlocked = true;[\s\S]*scheduleRevealScrollRestore\(snapshot\);/);
+    assert.match(scrollPaneSource, /if \(currentScrollTop > 96\) \{[\s\S]*topRevealAutoBlocked = false;/);
+    assert.match(scrollPaneSource, /const bottomLockThresholdPx = 5;/);
+    assert.match(scrollPaneSource, /return Math\.abs\(node\.scrollHeight - node\.clientHeight - node\.scrollTop\) < threshold;/);
+    assert.doesNotMatch(scrollPaneSource, /scrollingTowardBottom|currentScrollTop > previousScrollTop/);
+    assert.match(scrollPaneSource, /const atBottom = isNearBottom\(\);[\s\S]*if \(atBottom\) \{[\s\S]*autoScroll\.value = true;[\s\S]*\} else \{[\s\S]*autoScroll\.value = false;/);
     assert.match(scrollPaneSource, /node\.scrollTop = node\.scrollHeight;\s*lastScrollTop = Number\(node\.scrollTop \|\| 0\);/);
     assert.doesNotMatch(scrollPaneSource, /else if \(currentScrollTop < previousScrollTop\) \{[\s\S]*autoScroll\.value = false;/);
     assert.match(scrollPaneSource, /function findWheelScrollTarget\(event: WheelEvent, root: HTMLElement, deltaY: number\)/);
-    assert.match(scrollPaneSource, /const target = findWheelScrollTarget\(event, root, deltaY\);[\s\S]*if \(!target\) \{return;\}[\s\S]*if \(deltaY < 0 && target === root\) \{[\s\S]*autoScroll\.value = false;/);
-    assert.doesNotMatch(scrollPaneSource, /if \(deltaY < 0\) \{\s*autoScroll\.value = false;\s*\}\s*if \(!deltaY\) \{return;\}/);
+    assert.doesNotMatch(scrollPaneSource, /deltaY < 0[\s\S]{0,120}autoScroll\.value = false/);
     assert.match(scrollPaneSource, /requestAnimationFrame\(\(\) => \{[\s\S]*applyWheelFallback\(target, deltaY\);[\s\S]*if \(target === root\) \{[\s\S]*handleScroll\(\);/);
     assert.doesNotMatch(scrollPaneSource, /onReturnToBottom|notifyReturnToBottom/);
+    assert.match(scrollPaneSource, /function placeAtBottomForNewContext\(\) \{[\s\S]*scrollToBottom\(true\);[\s\S]*\}/);
+    assert.match(scrollPaneSource, /function followStreamToBottomIfAtBottom\(\) \{[\s\S]*if \(!isNearBottom\(\)\) \{[\s\S]*autoScroll\.value = false;[\s\S]*return;[\s\S]*\}[\s\S]*scrollToBottom\(\);[\s\S]*\}/);
+    assert.match(scrollPaneSource, /function jumpToBottom\(scrollOptions: TavernScrollToBottomOptions = \{\}\) \{[\s\S]*scrollToBottom\(true, scrollOptions\);[\s\S]*\}/);
     assert.match(scrollPaneSource, /function scrollToBottom\([\s\S]*if \(scrollOptions\.collapseWindow\) \{[\s\S]*collapseMessageWindowIfBottom\(true\);/);
     assert.match(scrollPaneSource, /const apply = \(\) => \{[\s\S]*if \(!force && autoScroll\.value === false\) \{return false;\}[\s\S]*node\.scrollTop = node\.scrollHeight;[\s\S]*return true;/);
     assert.doesNotMatch(scrollPaneSource, /scrollOptions\.collapseWindow \|\| autoScroll\.value/);

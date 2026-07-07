@@ -47,7 +47,7 @@ export interface TavernSessionControllerOptions {
     reportStartupProgress: (percent: number, action: string) => void;
     resetChatMessageWindowState: () => void;
     resetSessionPreviewState: () => void;
-    scrollChatToBottom: (force?: boolean) => void;
+    placeChatAtBottomForNewContext: () => void;
     syncCharacterWorldbookState: (characterKey?: string) => Promise<unknown> | unknown;
     syncSessionCharacterContextSafely: (options?: { sessionId?: string; force?: boolean }) => Promise<void>;
 }
@@ -347,7 +347,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         void options.syncSessionCharacterContextSafely({ sessionId: id, force: true });
         options.activeView.value = 'chat';
         options.chatFocus.value = 'chat';
-        options.scrollChatToBottom(true);
+        options.placeChatAtBottomForNewContext();
     }
 
     async function removeSession(sessionId: string) {
@@ -374,11 +374,6 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         forgetSessionMessageCount(id);
         if (!isDeletingSelectedSession) {
             await refreshSessions();
-            options.activeView.value = state.selectedSessionId.value ? 'chat' : 'home';
-            if (state.selectedSessionId.value) {
-                options.chatFocus.value = 'chat';
-                options.scrollChatToBottom(true);
-            }
             return;
         }
         options.resetSessionPreviewState();
@@ -388,7 +383,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
             await refreshSessions();
             options.activeView.value = 'chat';
             options.chatFocus.value = 'chat';
-            options.scrollChatToBottom(true);
+            options.placeChatAtBottomForNewContext();
             return;
         }
         state.selectedSessionId.value = '';

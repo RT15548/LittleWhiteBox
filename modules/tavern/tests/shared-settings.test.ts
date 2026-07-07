@@ -8,11 +8,11 @@ import {
 test('tavern settings normalize display limits in tavern layer', () => {
     assert.deepEqual(normalizeTavernDisplaySettings({
         hiddenOutsideCount: 0,
-        loadBatchSize: 18,
+        loadBatchSize: 1,
         chatFontSize: 'large',
     }), {
         hiddenOutsideCount: 1,
-        loadBatchSize: 20,
+        loadBatchSize: 1,
         chatFontSize: 'large',
     });
 

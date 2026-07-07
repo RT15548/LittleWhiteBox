@@ -77,7 +77,7 @@ const {
     runtimeFinalizedAssistantMessageKey,
     runtimeUserMessageVisible,
     saveEditMessage,
-    scrollChatToBottom,
+    jumpChatToBottom,
     scrollChatToTop,
     showChatScrollBottom,
     showChatScrollTop,
@@ -311,7 +311,6 @@ watch(
         thoughtDisclosure.reset();
         clearMessageActionTray();
         closeComposeMenu();
-        closeSessionArchive();
     },
 );
 
@@ -746,7 +745,7 @@ watch(isMobileActionTrayViewport, (isMobile) => {
         :show-top="showChatScrollTop"
         :show-bottom="showChatScrollBottom"
         @top="scrollChatToTop"
-        @bottom="scrollChatToBottom(true, { collapseWindow: true, revealHelpers: true })"
+        @bottom="jumpChatToBottom({ collapseWindow: true, revealHelpers: true })"
       />
     </div>
     <div class="chat-compose-dock">

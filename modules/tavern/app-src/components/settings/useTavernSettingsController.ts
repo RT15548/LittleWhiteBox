@@ -1585,7 +1585,7 @@ export function useTavernSettingsController(options: TavernSettingsControllerOpt
     }
     function stepLoadBatchSize(direction: -1 | 1) {
         const current = Number(displaySettings.value.loadBatchSize) || 20;
-        const next = Math.min(50, Math.max(5, current + (direction * 5)));
+        const next = Math.min(50, Math.max(1, current + direction));
         if (next === current) {return;}
         updateDisplaySettingsPatch({ loadBatchSize: next });
     }

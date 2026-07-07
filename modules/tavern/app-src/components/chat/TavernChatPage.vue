@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUpdate, onMounted, onUnmounted, onUpdated, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { captureElementScrollState, restoreElementScrollState, type ElementScrollSnapshot } from '../../scroll-state';
 import TavernContractModal from './TavernContractModal.vue';
 import {
@@ -70,7 +70,6 @@ const {
     visibleChatMessages,
 } = session;
 const {
-    managerAutoScroll,
     managerMessageWindow,
     managerScrollRef,
     updateManagerScrollButtons,
@@ -108,8 +107,6 @@ type ChatQuickWorkspace =
 let pendingChatScrollSnapshot: ElementScrollSnapshot | null = null;
 let pendingManagerScrollSnapshot: ElementScrollSnapshot | null = null;
 let pendingStreamingChatScrollSnapshot: ElementScrollSnapshot | null = null;
-let chatScrollAnchorDirty = true;
-let managerScrollAnchorDirty = true;
 const contractModalOpen = ref(false);
 const quickSettingsOpen = ref<ChatQuickWorkspace | null>(null);
 const chatAppMenuOpen = ref(false);
@@ -338,8 +335,6 @@ function captureChatScrollSnapshot() {
 }
 
 function restoreChatScrollSnapshot(snapshot: ElementScrollSnapshot | null, options: {
-    forceBottom?: boolean;
-    defaultToBottom?: boolean;
     preserveScrollTop?: boolean;
     preserveScrollHeightDelta?: boolean;
 } = {}) {
@@ -415,12 +410,40 @@ watch(() => selectedSessionId.value, () => {
 });
 
 watch(chatScrollAnchorSignature, () => {
-    chatScrollAnchorDirty = true;
+    pendingChatScrollSnapshot = chatPaneVisible.value
+        ? captureChatScrollSnapshot()
+        : null;
 }, { flush: 'sync' });
 
 watch(managerScrollAnchorSignature, () => {
-    managerScrollAnchorDirty = true;
+    pendingManagerScrollSnapshot = managerPaneVisible.value
+        ? captureElementScrollState(managerScrollRef.value, {
+            itemSelector: '[data-manager-anchor-key]',
+            datasetKey: 'managerAnchorKey',
+        })
+        : null;
 }, { flush: 'sync' });
+
+watch(chatScrollAnchorSignature, () => {
+    if (!pendingChatScrollSnapshot) {return;}
+    restoreChatScrollSnapshot(pendingChatScrollSnapshot, {
+        preserveScrollTop: true,
+    });
+    pendingChatScrollSnapshot = null;
+    updateChatScrollButtons();
+}, { flush: 'post' });
+
+watch(managerScrollAnchorSignature, () => {
+    if (!pendingManagerScrollSnapshot) {return;}
+    restoreElementScrollState(managerScrollRef.value, pendingManagerScrollSnapshot, {
+        itemSelector: '[data-manager-anchor-key]',
+        datasetKey: 'managerAnchorKey',
+    }, {
+        preserveScrollTop: true,
+    });
+    pendingManagerScrollSnapshot = null;
+    updateManagerScrollButtons();
+}, { flush: 'post' });
 
 watch(streamingReadingLockSignature, () => {
     if (!shouldLockStreamingChatScroll()) {return;}
@@ -448,48 +471,6 @@ onUnmounted(() => {
     document.removeEventListener('keydown', handleChatAppMenuKeydown);
 });
 
-onBeforeUpdate(() => {
-    pendingChatScrollSnapshot = null;
-    pendingManagerScrollSnapshot = null;
-    if (chatPaneVisible.value && chatScrollAnchorDirty) {
-        pendingChatScrollSnapshot = captureChatScrollSnapshot();
-        return;
-    }
-    if (managerPaneVisible.value && managerScrollAnchorDirty) {
-        pendingManagerScrollSnapshot = captureElementScrollState(managerScrollRef.value, {
-            itemSelector: '[data-manager-anchor-key]',
-            datasetKey: 'managerAnchorKey',
-        });
-    }
-});
-
-onUpdated(() => {
-    const shouldAutoScrollChat = chatPaneVisible.value && chatAutoScroll.value !== false;
-    const shouldAutoScrollManager = managerPaneVisible.value && managerAutoScroll.value !== false;
-    if (pendingChatScrollSnapshot) {
-        restoreChatScrollSnapshot(pendingChatScrollSnapshot, {
-            forceBottom: shouldAutoScrollChat,
-            defaultToBottom: shouldAutoScrollChat,
-            preserveScrollTop: !shouldAutoScrollChat,
-        });
-        chatScrollAnchorDirty = false;
-        updateChatScrollButtons();
-    }
-    if (pendingManagerScrollSnapshot) {
-        restoreElementScrollState(managerScrollRef.value, pendingManagerScrollSnapshot, {
-            itemSelector: '[data-manager-anchor-key]',
-            datasetKey: 'managerAnchorKey',
-        }, {
-            forceBottom: shouldAutoScrollManager,
-            defaultToBottom: shouldAutoScrollManager,
-            preserveScrollTop: !shouldAutoScrollManager,
-        });
-        managerScrollAnchorDirty = false;
-        updateManagerScrollButtons();
-    }
-    pendingChatScrollSnapshot = null;
-    pendingManagerScrollSnapshot = null;
-});
 </script>
 
 <template>

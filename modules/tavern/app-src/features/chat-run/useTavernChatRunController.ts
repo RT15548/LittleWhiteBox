@@ -82,7 +82,6 @@ export interface TavernChatRunControllerOptions {
     resetTextareaHeight: (element: HTMLTextAreaElement | null) => void;
     resolveRuntimeContextForSession: (sessionId?: string) => Promise<XbTavernContext>;
     resolveSlashCommandMessageText: (messageText: string, options?: { reuseUserMessageOrder?: number }) => Promise<string>;
-    scrollChatToBottom: (force?: boolean) => void;
     setSelectedSessionId: (sessionId: string) => void;
     setSuppressNextChatWindowLimitReload: () => void;
     showToast: (message: string, options?: { tone?: 'info' | 'warning' | 'danger'; durationMs?: number }) => void;
@@ -319,18 +318,10 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             state.runtimePendingUserMessage.value = messageText;
             state.currentUserMessage.value = '';
             void nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value));
-            if (followRunAtBottom) {
-                options.scrollChatToBottom(true);
-            } else {
-                options.updateChatScrollButtons();
-            }
+            options.updateChatScrollButtons();
         } else {
             state.runtimeUserMessageVisible.value = true;
-            if (followRunAtBottom) {
-                options.scrollChatToBottom(true);
-            } else {
-                options.updateChatScrollButtons();
-            }
+            options.updateChatScrollButtons();
         }
 
         let assistantMessageSaved = false;
@@ -401,15 +392,9 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                     state.runtimePendingUserMessage.value = '';
                     state.currentUserMessage.value = '';
                     void nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value));
-                    if (options.chatAutoScroll.value !== false) {
-                        options.scrollChatToBottom(true);
-                    } else {
-                        options.updateChatScrollButtons();
-                    }
+                    options.updateChatScrollButtons();
                     await options.persistSelectedSessionId(sessionId);
-                    if (options.chatAutoScroll.value !== false) {
-                        options.scrollChatToBottom(true);
-                    }
+                    options.updateChatScrollButtons();
                 },
                 onAssistantMessageSaved: async (sessionId, message) => {
                     assistantMessageSaved = true;
@@ -421,11 +406,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                         options.upsertLoadedSessionMessage(message);
                         clearRuntimeAssistantLiveState();
                     });
-                    if (options.chatAutoScroll.value !== false) {
-                        options.scrollChatToBottom();
-                    } else {
-                        options.updateChatScrollButtons();
-                    }
+                    options.updateChatScrollButtons();
                 },
                 onManagerRunSaved: async (sessionId) => {
                     await options.refreshManagerRecords(sessionId);
@@ -438,11 +419,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
             state.runtimeProvider.value = result.provider || '';
             state.runtimeModel.value = result.model || '';
             await options.refreshSessions();
-            if (options.chatAutoScroll.value !== false) {
-                options.scrollChatToBottom();
-            } else {
-                options.updateChatScrollButtons();
-            }
+            options.updateChatScrollButtons();
         } catch (error) {
             console.error('[小白酒馆] turn failed', error);
             const pendingUserMessage = state.runtimePendingUserMessage.value;

@@ -35,8 +35,9 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     const messageWindowLimit = ref(normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT));
     let scrollHideTimer: number | null = null;
     let scrollTicking = false;
-    let touchStartY: number | null = null;
     let lastScrollTop = 0;
+    let topRevealAutoBlocked = false;
+    const bottomLockThresholdPx = 5;
 
     function restoreRevealScrollSnapshot(snapshot: ElementScrollSnapshot | null) {
         if (!snapshot || !options.revealAnchorConfig) {return false;}
@@ -67,11 +68,13 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         const state = { uiMessageWindowLimit: messageWindowLimit.value };
         resetMessageWindow(state, { defaultLimit: normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT) });
         messageWindowLimit.value = Number(state.uiMessageWindowLimit || AGENT_MESSAGE_WINDOW_DEFAULT);
+        topRevealAutoBlocked = false;
     }
 
     function revealOlderMessages(force = false) {
         const node = scrollRef.value;
         if (!force && autoScroll.value !== false) {return false;}
+        if (!force && topRevealAutoBlocked) {return false;}
         if (!node || (!force && node.scrollTop > 64)) {return false;}
         const snapshot = options.revealAnchorConfig
             ? captureElementScrollState(node, options.revealAnchorConfig)
@@ -83,6 +86,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         })) {return false;}
         messageWindowLimit.value = Number(state.uiMessageWindowLimit || messageWindowLimit.value);
         autoScroll.value = false;
+        topRevealAutoBlocked = true;
         scheduleRevealScrollRestore(snapshot);
         return true;
     }
@@ -112,10 +116,10 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         }, 1500);
     }
 
-    function isNearBottom(threshold = 56) {
+    function isNearBottom(threshold = bottomLockThresholdPx) {
         const node = scrollRef.value;
         if (!node) {return true;}
-        return node.scrollHeight - node.scrollTop - node.clientHeight <= threshold;
+        return Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) < threshold;
     }
 
     function collapseMessageWindowIfBottom(force = false) {
@@ -164,6 +168,24 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         });
     }
 
+    function placeAtBottomForNewContext() {
+        scrollToBottom(true);
+    }
+
+    function followStreamToBottomIfAtBottom() {
+        if (!isNearBottom()) {
+            autoScroll.value = false;
+            updateScrollButtons();
+            return;
+        }
+        autoScroll.value = true;
+        scrollToBottom();
+    }
+
+    function jumpToBottom(scrollOptions: TavernScrollToBottomOptions = {}) {
+        scrollToBottom(true, scrollOptions);
+    }
+
     function scrollToTop() {
         const node = scrollRef.value;
         if (!node) {return;}
@@ -178,17 +200,16 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     function handleScroll() {
         const node = scrollRef.value;
         if (!node) {return;}
-        if (revealOlderMessages()) {return;}
-        const previousScrollTop = lastScrollTop;
         const currentScrollTop = Number(node.scrollTop || 0);
-        const scrollingTowardBottom = currentScrollTop > previousScrollTop;
+        if (currentScrollTop > 96) {
+            topRevealAutoBlocked = false;
+        }
+        if (revealOlderMessages()) {return;}
         lastScrollTop = currentScrollTop;
-        const nearBottom = isNearBottom();
-        if (nearBottom) {
-            if (autoScroll.value !== false || scrollingTowardBottom) {
-                autoScroll.value = true;
-                collapseMessageWindowIfBottom();
-            }
+        const atBottom = isNearBottom();
+        if (atBottom) {
+            autoScroll.value = true;
+            collapseMessageWindowIfBottom();
         } else {
             autoScroll.value = false;
         }
@@ -256,9 +277,6 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         if (!deltaY) {return;}
         const target = findWheelScrollTarget(event, root, deltaY);
         if (!target) {return;}
-        if (deltaY < 0 && target === root) {
-            autoScroll.value = false;
-        }
         const previousScrollTop = Number(target.scrollTop || 0);
         requestAnimationFrame(() => {
             if (!target.isConnected) {return;}
@@ -270,20 +288,9 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         });
     }
 
-    function handleTouchStart(event: TouchEvent) {
-        touchStartY = Number(event.touches?.[0]?.clientY);
-    }
+    function handleTouchStart() {}
 
-    function handleTouchMove(event: TouchEvent) {
-        const currentY = Number(event.touches?.[0]?.clientY);
-        if (!Number.isFinite(Number(touchStartY)) || !Number.isFinite(currentY)) {
-            autoScroll.value = false;
-            return;
-        }
-        if (touchStartY !== null && (currentY > touchStartY + 4 || !isNearBottom())) {
-            autoScroll.value = false;
-        }
-    }
+    function handleTouchMove() {}
 
     function resetPositionState() {
         lastScrollTop = 0;
@@ -309,6 +316,9 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         updateScrollButtons,
         isNearBottom,
         collapseMessageWindowIfBottom,
+        placeAtBottomForNewContext,
+        followStreamToBottomIfAtBottom,
+        jumpToBottom,
         scrollToBottom,
         scrollToTop,
         handleScroll,
