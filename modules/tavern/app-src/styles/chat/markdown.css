@@ -106,7 +106,7 @@
     margin-top: 0.25em;
 }
 
-.chat-bubble.streaming .xb-tavern-stream-segment {
+.xb-tavern-stream-fade .xb-tavern-stream-segment {
     animation: xb-tavern-stream-fade-in 300ms ease-in-out both;
 }
 
@@ -121,7 +121,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .chat-bubble.streaming .xb-tavern-stream-segment {
+    .xb-tavern-stream-fade .xb-tavern-stream-segment {
         animation: none;
     }
 }

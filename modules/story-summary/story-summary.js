@@ -48,6 +48,7 @@ import {
     getRollbackOnceTargetEndMesId,
     extractRelationshipsFromFacts,
 } from "./data/store.js";
+import { normalizeCharacterAliases } from "./data/character-aliases.js";
 
 // prompt text builder
 import {
@@ -1561,6 +1562,12 @@ function cloneSummaryJsonForPortability(json) {
                         .filter((item) => item.name)
                     : []),
         },
+        characterAliases: normalizeCharacterAliases(src.characterAliases)
+            .map((item) => ({
+                from: item.from,
+                to: item.to,
+                evidence: item.evidence,
+            })),
         arcs: Array.isArray(src.arcs)
             ? src.arcs.map((item) => ({
                 name: String(item?.name || "").trim(),
@@ -1625,6 +1632,7 @@ function buildSummaryExportPackage(store) {
             keywords: json.keywords.length,
             events: json.events.length,
             characters: json.characters.main.length,
+            aliases: json.characterAliases.length,
             arcs: json.arcs.length,
             facts: json.facts.length,
         },
@@ -1687,6 +1695,9 @@ function formatStorySummaryMemoryText(store) {
         .filter(Boolean)
         .map((name) => `- ${name}`));
 
+    pushSection(lines, "角色别名", normalizeCharacterAliases(json.characterAliases)
+        .map((alias) => `- ${alias.to}：${alias.from}${alias.evidence ? `（${alias.evidence}）` : ""}`));
+
     pushSection(lines, "角色弧光", (json.arcs || [])
         .map((arc) => {
             const name = String(arc?.name || "").trim();
@@ -1733,6 +1744,10 @@ function stampImportedSummaryJson(json, boundary) {
     const mainCharacters = json.characters?.main || [];
     for (const item of mainCharacters) {
         if (item && typeof item === "object") item._addedAt = boundary;
+    }
+
+    for (const alias of (json.characterAliases || [])) {
+        if (alias && typeof alias === "object") alias._addedAt = boundary;
     }
 
     for (const arc of (json.arcs || [])) {
@@ -1803,6 +1818,7 @@ async function importSummaryMemoryPackage(rawText) {
     }
 
     store.json = importedJson;
+    delete store.aliasMigrations;
     const importBoundary = (Array.isArray(chat) ? chat.length : 0) - 1;
     if (importBoundary >= 0) {
         applyImportedSummaryBoundary(store, importBoundary);
@@ -2162,13 +2178,17 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
             const result = await runSummaryGeneration(targetMesId, configForRun, {
                 onStatus: (text) => postToFrame({ type: "SUMMARY_STATUS", statusText: text }),
                 onError: (msg) => postToFrame({ type: "SUMMARY_ERROR", message: msg }),
-                onComplete: async ({ merged, endMesId, newEventIds }) => {
+                onComplete: async ({ newEventIds, aliasChanged }) => {
                     const store = getSummaryStore();
                     clearPendingImportBoundary(store);
                     postToFrame({ type: "SUMMARY_FULL_DATA", payload: buildFramePayload(store) });
 
                     // Incrementally add new events to the lexical index
-                    if (newEventIds?.length) {
+                    if (aliasChanged) {
+                        invalidateLexicalIndex();
+                        refreshEntityLexiconAndWarmup();
+                        scheduleLexicalWarmup();
+                    } else if (newEventIds?.length) {
                         const allEvents = store?.json?.events || [];
                         const idSet = new Set(newEventIds);
                         addEventDocuments(allEvents.filter(e => idSet.has(e.id)));
@@ -2685,13 +2705,17 @@ async function handleManualGenerate(mesId, config) {
         await runSummaryGeneration(mesId, config, {
             onStatus: (text) => postToFrame({ type: "SUMMARY_STATUS", statusText: text }),
             onError: (msg) => postToFrame({ type: "SUMMARY_ERROR", message: msg }),
-            onComplete: async ({ merged, endMesId, newEventIds }) => {
+            onComplete: async ({ newEventIds, aliasChanged }) => {
                 const store = getSummaryStore();
                 clearPendingImportBoundary(store);
                 postToFrame({ type: "SUMMARY_FULL_DATA", payload: buildFramePayload(store) });
 
                 // Incrementally add new events to the lexical index
-                if (newEventIds?.length) {
+                if (aliasChanged) {
+                    invalidateLexicalIndex();
+                    refreshEntityLexiconAndWarmup();
+                    scheduleLexicalWarmup();
+                } else if (newEventIds?.length) {
                     const allEvents = store?.json?.events || [];
                     const idSet = new Set(newEventIds);
                     addEventDocuments(allEvents.filter(e => idSet.has(e.id)));

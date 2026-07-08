@@ -1,5 +1,14 @@
 const STREAM_SEGMENT_CLASS = 'xb-tavern-stream-segment';
 const STREAM_SEGMENT_KEY_ATTRIBUTE = 'data-xb-stream-segment-key';
+const DIALOGUE_CLASS = 'xb-rp-dialogue';
+const MAX_INLINE_DIALOGUE_LENGTH = 600;
+const DIALOGUE_QUOTE_PAIRS: Record<string, string> = {
+    '"': '"',
+    '“': '”',
+    '「': '」',
+    '『': '』',
+};
+const DIALOGUE_QUOTE_OPENERS = new Set(Object.keys(DIALOGUE_QUOTE_PAIRS));
 
 type SegmenterLike = {
     segment(text: string): Iterable<{ segment: string }>;
@@ -25,7 +34,83 @@ function shouldSegmentTextNode(textNode: Text) {
     if (!textNode.data || /^\s*$/.test(textNode.data)) {return false;}
     const parent = textNode.parentElement;
     if (!parent) {return false;}
-    return !parent.closest('pre, code, script, style, textarea, iframe');
+    return !parent.closest(`pre, code, script, style, textarea, iframe, .${DIALOGUE_CLASS}`);
+}
+
+function collectDialogueRanges(text: string, options: { allowOpenEnded?: boolean } = {}) {
+    const ranges: Array<{ start: number; end: number }> = [];
+    let cursor = 0;
+    while (cursor < text.length) {
+        const opener = text[cursor];
+        if (!DIALOGUE_QUOTE_OPENERS.has(opener)) {
+            cursor += 1;
+            continue;
+        }
+        const closer = DIALOGUE_QUOTE_PAIRS[opener];
+        const end = text.indexOf(closer, cursor + 1);
+        if (end < 0) {
+            if (!options.allowOpenEnded) {
+                cursor += 1;
+                continue;
+            }
+            const segment = text.slice(cursor + 1);
+            if (!segment.trim() || segment.includes('\n') || segment.length > MAX_INLINE_DIALOGUE_LENGTH) {
+                cursor += 1;
+                continue;
+            }
+            ranges.push({ start: cursor, end: text.length });
+            break;
+        }
+        if (end === cursor + 1 || end - cursor > MAX_INLINE_DIALOGUE_LENGTH) {
+            cursor += 1;
+            continue;
+        }
+        const segment = text.slice(cursor + 1, end);
+        if (segment.includes('\n') || !segment.trim()) {
+            cursor += 1;
+            continue;
+        }
+        ranges.push({ start: cursor, end: end + 1 });
+        cursor = end + 1;
+    }
+    return ranges;
+}
+
+function appendSegmentedText(fragment: DocumentFragment | HTMLElement, text: string, segmenter: SegmenterLike | null, nextSegmentIndex: () => number) {
+    const segments = splitTextSegments(text, segmenter);
+    if (!segments.length) {return;}
+    segments.forEach((segment) => {
+        const span = document.createElement('span');
+        span.className = STREAM_SEGMENT_CLASS;
+        span.textContent = segment;
+        span.setAttribute(STREAM_SEGMENT_KEY_ATTRIBUTE, `${nextSegmentIndex()}:${segment}`);
+        fragment.append(span);
+    });
+}
+
+function buildSegmentedTextFragment(text: string, segmenter: SegmenterLike | null, nextSegmentIndex: () => number) {
+    const fragment = document.createDocumentFragment();
+    const ranges = collectDialogueRanges(text, { allowOpenEnded: true });
+    if (!ranges.length) {
+        appendSegmentedText(fragment, text, segmenter, nextSegmentIndex);
+        return fragment;
+    }
+
+    let cursor = 0;
+    ranges.forEach((range) => {
+        if (range.start > cursor) {
+            appendSegmentedText(fragment, text.slice(cursor, range.start), segmenter, nextSegmentIndex);
+        }
+        const dialogue = document.createElement('span');
+        dialogue.className = DIALOGUE_CLASS;
+        appendSegmentedText(dialogue, text.slice(range.start, range.end), segmenter, nextSegmentIndex);
+        fragment.append(dialogue);
+        cursor = range.end;
+    });
+    if (cursor < text.length) {
+        appendSegmentedText(fragment, text.slice(cursor), segmenter, nextSegmentIndex);
+    }
+    return fragment;
 }
 
 function segmentTextInElement(root: HTMLElement) {
@@ -40,18 +125,14 @@ function segmentTextInElement(root: HTMLElement) {
     }
 
     let segmentIndex = 0;
+    const nextSegmentIndex = () => {
+        const current = segmentIndex;
+        segmentIndex += 1;
+        return current;
+    };
     textNodes.forEach((textNode) => {
-        const segments = splitTextSegments(textNode.data, segmenter);
-        if (!segments.length) {return;}
-        const fragment = document.createDocumentFragment();
-        segments.forEach((segment) => {
-            const span = document.createElement('span');
-            span.className = STREAM_SEGMENT_CLASS;
-            span.textContent = segment;
-            span.setAttribute(STREAM_SEGMENT_KEY_ATTRIBUTE, `${segmentIndex}:${segment}`);
-            fragment.append(span);
-            segmentIndex += 1;
-        });
+        const fragment = buildSegmentedTextFragment(textNode.data, segmenter, nextSegmentIndex);
+        if (!fragment.childNodes.length) {return;}
         textNode.replaceWith(fragment);
     });
 }
@@ -130,8 +211,12 @@ function patchChildren(source: Node, target: Node) {
 }
 
 export function applyStreamFadeMarkdown(root: HTMLElement, html: string) {
-    const target = document.createElement(root.tagName.toLowerCase());
-    setHtmlContent(target, html);
-    segmentTextInElement(target);
-    patchChildren(root, target);
+    try {
+        const target = document.createElement(root.tagName.toLowerCase());
+        setHtmlContent(target, html);
+        segmentTextInElement(target);
+        patchChildren(root, target);
+    } catch {
+        setHtmlContent(root, html);
+    }
 }

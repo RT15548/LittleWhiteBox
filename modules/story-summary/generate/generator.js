@@ -4,6 +4,7 @@
 import { getContext } from "../../../../../../extensions.js";
 import { xbLog } from "../../../core/debug-core.js";
 import { getSummaryStore, saveSummaryStore, addSummarySnapshot, mergeNewData, getFacts } from "../data/store.js";
+import { formatCharacterAliasTableForAI, sanitizeCharacterAliasUpdates } from "../data/character-aliases.js";
 import { generateSummary, parseSummaryJson } from "./llm.js";
 import { filterText } from "../vector/utils/text-filter.js";
 
@@ -75,6 +76,16 @@ function sanitizeFacts(parsed) {
     parsed.factUpdates = ok;
 }
 
+function sanitizeAliases(parsed) {
+    if (!parsed) return;
+    const updates = sanitizeCharacterAliasUpdates(parsed.characterAliasUpdates);
+    if (updates.length) {
+        parsed.characterAliasUpdates = updates;
+    } else {
+        delete parsed.characterAliasUpdates;
+    }
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // causedBy 清洗（事件因果边）
@@ -140,6 +151,12 @@ export function formatExistingSummaryForAI(store) {
     if (data.characters?.main?.length) {
         const names = data.characters.main.map(m => typeof m === 'string' ? m : m.name);
         parts.push(`\n【主要角色】${names.join("、")}`);
+    }
+
+    const aliasTable = formatCharacterAliasTableForAI(data);
+    if (aliasTable) {
+        parts.push("\n【角色别名表】");
+        parts.push(aliasTable);
     }
 
     if (data.arcs?.length) {
@@ -253,10 +270,16 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}) {
     }
 
     sanitizeFacts(parsed);
+    sanitizeAliases(parsed);
     const existingEventIds = new Set((store?.json?.events || []).map(e => e?.id).filter(Boolean));
     sanitizeEventsCausality(parsed, existingEventIds);
 
-    const merged = mergeNewData(store?.json || {}, parsed, slice.endMesId);
+    const mergeResult = mergeNewData(store?.json || {}, parsed, slice.endMesId, { returnMeta: true });
+    const merged = mergeResult.json;
+    if (mergeResult.aliasMigration) {
+        store.aliasMigrations ||= [];
+        store.aliasMigrations.push(mergeResult.aliasMigration);
+    }
 
     store.lastSummarizedMesId = slice.endMesId;
     store.json = merged;
@@ -276,8 +299,9 @@ export async function runSummaryGeneration(mesId, config, callbacks = {}) {
         merged,
         endMesId: slice.endMesId,
         newEventIds,
+        aliasChanged: !!mergeResult.aliasChanged,
         factStats: { updated: parsed.factUpdates?.length || 0 },
     });
 
-    return { success: true, merged, endMesId: slice.endMesId, newEventIds };
+    return { success: true, merged, endMesId: slice.endMesId, newEventIds, aliasChanged: !!mergeResult.aliasChanged };
 }

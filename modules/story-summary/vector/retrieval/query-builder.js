@@ -19,7 +19,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getContext } from '../../../../../../../extensions.js';
-import { buildEntityLexicon, buildDisplayNameMap, extractEntitiesFromText, buildCharacterPools } from './entity-lexicon.js';
+import { buildEntityLexicon, buildDisplayNameMap, extractEntitiesFromText, buildCharacterPools, normalizeEntityTerm } from './entity-lexicon.js';
 import { getLexicalIdfAccessor } from './lexical-index.js';
 import { getSummaryStore } from '../../data/store.js';
 import { filterText } from '../utils/text-filter.js';
@@ -269,7 +269,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
     // 3. 提取焦点词与焦点人物
     const combinedText = allCleanTexts.join(' ');
     const focusTerms = extractEntitiesFromText(combinedText, lexicon, displayMap);
-    const focusCharacters = focusTerms.filter(term => trustedCharacters.has(term.toLowerCase()));
+    const focusCharacters = focusTerms.filter(term => trustedCharacters.has(normalizeEntityTerm(term)));
 
     // 4. 构建 querySegments
     //    上下文在前（oldest → newest），焦点在末尾
@@ -300,7 +300,7 @@ export function buildQueryBundle(lastMessages, pendingUserMessage, store = null,
         : contextLines.join('\n');
 
     // 6. lexicalTerms（实体优先 + 高频实词补充）
-    const entityTerms = focusTerms.map(e => e.toLowerCase());
+    const entityTerms = focusTerms.map(normalizeEntityTerm).filter(Boolean);
     const textTerms = extractKeyTerms(combinedText);
     const termSet = new Set(entityTerms);
     for (const t of textTerms) {

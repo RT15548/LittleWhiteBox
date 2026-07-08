@@ -219,6 +219,10 @@ function chatMessageItemDomKey(message: TavernMessageRecord) {
         : `${message.sessionId}-${message.order}`;
 }
 
+function isRuntimeFinalizedAssistantMessage(message: TavernMessageRecord) {
+    return message.role === 'assistant' && messageKey(message) === runtimeFinalizedAssistantMessageKey.value;
+}
+
 function messageThoughtDisclosureId(message: TavernMessageRecord) {
     return `chat:thought:${messageKey(message)}`;
 }
@@ -592,7 +596,15 @@ watch(isMobileActionTrayViewport, (isMobile) => {
                 v-for="render in [assistantMessageRenderState(message)]"
                 :key="`${messageKey(message)}:${render.signature}`"
               >
+                <TavernStreamMarkdown
+                  v-if="isRuntimeFinalizedAssistantMessage(message)"
+                  :action-check-groups="render.actionCheckGroups || undefined"
+                  :animated="false"
+                  :html="renderRoleplayMarkdown(render.text)"
+                  :signature="render.signature"
+                />
                 <div
+                  v-else
                   class="xb-tavern-markdown"
                   :data-markdown-signature="render.signature"
                   :data-action-check-groups="render.actionCheckGroups || null"
@@ -697,6 +709,7 @@ watch(isMobileActionTrayViewport, (isMobile) => {
             <TavernStreamMarkdown
               v-if="liveAssistantMarkdownVisible"
               :action-check-groups="liveAssistantRenderState.actionCheckGroups || undefined"
+              :animated="true"
               :html="renderRoleplayMarkdown(liveAssistantRenderState.text)"
               :signature="liveAssistantRenderState.signature"
             />

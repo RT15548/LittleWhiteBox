@@ -6,6 +6,7 @@ const props = defineProps<{
     html: string;
     signature: string;
     actionCheckGroups?: string;
+    animated?: boolean;
 }>();
 
 const markdownRoot = ref<HTMLElement | null>(null);
@@ -28,7 +29,8 @@ watch(
 <template>
   <div
     ref="markdownRoot"
-    class="xb-tavern-markdown xb-tavern-stream-fade"
+    class="xb-tavern-markdown"
+    :class="{ 'xb-tavern-stream-fade': animated !== false }"
     :data-action-check-groups="actionCheckGroups || undefined"
     :data-markdown-signature="signature"
   />

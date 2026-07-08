@@ -223,6 +223,9 @@
 
 .chat-bubble.streaming {
     contain: layout style;
+}
+
+.chat-bubble.streaming.thinking {
     border-color: var(--xb-rule-strong);
     border-left-color: var(--xb-cyan);
     background:

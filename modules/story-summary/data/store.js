@@ -6,6 +6,13 @@ import { chat_metadata } from "../../../../../../../script.js";
 import { EXT_ID } from "../../../core/constants.js";
 import { xbLog } from "../../../core/debug-core.js";
 import { clearEventVectors, deleteEventVectorsByIds } from "../vector/storage/chunk-store.js";
+import {
+    applyAliasMigrationsForRollback,
+    applyCharacterAliasUpdates,
+    canonicalizeIncrementalSummaryData,
+    normalizeAliasMigrations,
+    normalizeCharacterAliases,
+} from "./character-aliases.js";
 
 const MODULE_ID = 'summaryStore';
 const FACTS_LIMIT_PER_SUBJECT = 10;
@@ -74,6 +81,16 @@ function normalizeSummaryHistory(history) {
     }
 
     return { value: changed ? next : history, changed };
+}
+
+function normalizeInternalAliasMigrations(migrations) {
+    const normalized = normalizeAliasMigrations(migrations);
+    if (!Array.isArray(migrations)) {
+        return { value: normalized, changed: migrations != null };
+    }
+
+    const changed = JSON.stringify(normalized) !== JSON.stringify(migrations);
+    return { value: changed ? normalized : migrations, changed };
 }
 
 function normalizeSummaryJson(json) {
@@ -189,6 +206,17 @@ function normalizeSummaryJson(json) {
         }
     }
 
+    const normalizedAliases = normalizeCharacterAliases(next.characterAliases);
+    if (next.characterAliases == null) {
+        // Keep the optional alias table absent until it is actually needed.
+    } else if (!Array.isArray(next.characterAliases)) {
+        next.characterAliases = normalizedAliases;
+        changed = true;
+    } else if (JSON.stringify(normalizedAliases) !== JSON.stringify(next.characterAliases)) {
+        next.characterAliases = normalizedAliases;
+        changed = true;
+    }
+
     if (!Array.isArray(next.facts)) {
         const hasOldData = next.world?.length || next.characters?.relationships?.length;
         if (hasOldData) {
@@ -253,6 +281,16 @@ function normalizeSummaryStore(store) {
     const json = normalizeSummaryJson(store.json);
     if (json.changed) {
         store.json = json.value;
+        changed = true;
+    }
+
+    const aliasMigrations = normalizeInternalAliasMigrations(store.aliasMigrations);
+    if (aliasMigrations.changed) {
+        if (aliasMigrations.value.length) {
+            store.aliasMigrations = aliasMigrations.value;
+        } else {
+            delete store.aliasMigrations;
+        }
         changed = true;
     }
 
@@ -521,8 +559,9 @@ function normalizeArcProgress(value) {
 // 数据合并（L2 + L3）
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function mergeNewData(oldJson, parsed, endMesId) {
+export function mergeNewData(oldJson, parsed, endMesId, options = {}) {
     const merged = structuredClone(oldJson || {});
+    const incoming = canonicalizeIncrementalSummaryData(parsed || {}, merged.characterAliases || []);
 
     // L2 初始化
     merged.keywords ||= [];
@@ -535,11 +574,11 @@ export function mergeNewData(oldJson, parsed, endMesId) {
     merged.facts ||= [];
 
     // L2 数据合并
-    if (parsed.keywords?.length) {
-        merged.keywords = parsed.keywords.map(k => ({ ...k, _addedAt: endMesId }));
+    if (incoming.keywords?.length) {
+        merged.keywords = incoming.keywords.map(k => ({ ...k, _addedAt: endMesId }));
     }
 
-    (parsed.events || []).forEach(e => {
+    (incoming.events || []).forEach(e => {
         e._addedAt = endMesId;
         merged.events.push(e);
     });
@@ -550,7 +589,7 @@ export function mergeNewData(oldJson, parsed, endMesId) {
             .map(m => normalizeCharacterNameKey(typeof m === 'string' ? m : m.name))
             .filter(Boolean)
     );
-    (parsed.newCharacters || []).forEach(rawName => {
+    (incoming.newCharacters || []).forEach(rawName => {
         const name = String(typeof rawName === 'string' ? rawName : rawName?.name || '').trim();
         const key = normalizeCharacterNameKey(name);
         if (!key) return;
@@ -566,7 +605,7 @@ export function mergeNewData(oldJson, parsed, endMesId) {
             .map(a => [normalizeCharacterNameKey(a.name), a])
             .filter(([key]) => key)
     );
-    (parsed.arcUpdates || []).forEach(update => {
+    (incoming.arcUpdates || []).forEach(update => {
         const name = String(update?.name || '').trim();
         if (!name) return;
         const key = normalizeCharacterNameKey(name);
@@ -592,9 +631,19 @@ export function mergeNewData(oldJson, parsed, endMesId) {
     merged.arcs = Array.from(arcMap.values());
 
     // L3 factUpdates 合并
-    merged.facts = mergeFacts(merged.facts, parsed.factUpdates || [], endMesId);
+    merged.facts = mergeFacts(merged.facts, incoming.factUpdates || [], endMesId);
 
-    return merged;
+    const aliasResult = applyCharacterAliasUpdates(merged, incoming.characterAliasUpdates || [], endMesId);
+
+    if (options?.returnMeta) {
+        return {
+            json: aliasResult.json,
+            aliasChanged: aliasResult.aliasChanged,
+            aliasMigration: aliasResult.migration,
+        };
+    }
+
+    return aliasResult.json;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -645,6 +694,7 @@ export async function executeRollback(chatId, store, targetEndMesId, currentLeng
         store.lastSummarizedMesId = -1;
         store.json = null;
         store.summaryHistory = [];
+        delete store.aliasMigrations;
         delete store.pendingImportBoundary;
         store.hideSummarizedHistory = false;
 
@@ -655,11 +705,13 @@ export async function executeRollback(chatId, store, targetEndMesId, currentLeng
             .filter(e => (e._addedAt ?? 0) > targetEndMesId)
             .map(e => e.id);
 
-        const json = store.json || {};
+        let json = store.json || {};
+        json = applyAliasMigrationsForRollback(json, store.aliasMigrations || [], targetEndMesId);
 
         // L2 回滚
         json.events = (json.events || []).filter(e => (e._addedAt ?? 0) <= targetEndMesId);
         json.keywords = (json.keywords || []).filter(k => (k._addedAt ?? 0) <= targetEndMesId);
+        json.characterAliases = (json.characterAliases || []).filter(a => (a._addedAt ?? 0) <= targetEndMesId);
         json.arcs = (json.arcs || []).filter(a => (a._addedAt ?? 0) <= targetEndMesId);
         json.arcs.forEach(a => {
             a.moments = (a.moments || []).filter(m =>
@@ -679,6 +731,8 @@ export async function executeRollback(chatId, store, targetEndMesId, currentLeng
         store.json = json;
         store.lastSummarizedMesId = targetEndMesId;
         store.summaryHistory = (store.summaryHistory || []).filter(h => h.endMesId <= targetEndMesId);
+        store.aliasMigrations = (store.aliasMigrations || []).filter(m => (m._addedAt ?? 0) <= targetEndMesId);
+        if (!store.aliasMigrations.length) delete store.aliasMigrations;
         delete store.pendingImportBoundary;
 
         if (deletedEventIds.length > 0) {
@@ -718,6 +772,7 @@ export async function clearSummaryData(chatId) {
         delete store.json;
         store.lastSummarizedMesId = -1;
         store.summaryHistory = [];
+        delete store.aliasMigrations;
         delete store.pendingImportBoundary;
         store.hideSummarizedHistory = false;
         store.updatedAt = Date.now();
