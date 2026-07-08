@@ -967,10 +967,14 @@
 }
 
 .chat-scroll-helpers {
+    --xb-chat-scroll-helper-half-size: 15px;
+    --xb-chat-scroll-helper-edge: max(18px, calc(20% - var(--xb-chat-scroll-helper-half-size)));
+    --xb-chat-scroll-helper-bottom-edge: calc(var(--xb-chat-scroll-helper-edge) + var(--xb-compose-safe-space));
+
     position: absolute;
-    top: 12%;
+    top: var(--xb-chat-scroll-helper-edge);
     right: 10px;
-    bottom: 12%;
+    bottom: var(--xb-chat-scroll-helper-bottom-edge);
     z-index: 3;
     display: flex;
     flex-direction: column;
@@ -1031,9 +1035,7 @@
     }
 
     .chat-scroll-helpers {
-        top: 12%;
         right: 8px;
-        bottom: calc(var(--xb-compose-safe-space) + 46px + env(safe-area-inset-bottom, 0px));
     }
 
     .chat-bubble {
