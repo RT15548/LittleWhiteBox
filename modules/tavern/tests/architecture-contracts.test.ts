@@ -1797,6 +1797,7 @@ test('tavern live stream rendering is frame-batched without bypassing display re
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
+    const streamMarkdownSource = readRepoFile('modules/tavern/app-src/components/chat/TavernStreamMarkdown.vue');
     const markdownToolsSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts');
     const runtimeSource = readRepoFile('modules/tavern/app-src/runtime/run-once.ts');
     const liveEnhanceMatch = markdownToolsSource.match(/function enhanceLiveChatMarkdown\(\) \{[\s\S]*?\n {4}\}/);
@@ -1835,7 +1836,8 @@ test('tavern live stream rendering is frame-batched without bypassing display re
     assert.match(chatRunSource, /state\.isRunning\.value = false;[\s\S]*void nextTick\(\(\) => \{[\s\S]*options\.enhanceChatMarkdown\(\);/);
     assert.match(appSource, /enhanceLiveChatMarkdown,/);
     assert.doesNotMatch(conversationSource, /:key="`live-assistant:\$\{liveAssistantRenderState\.signature\}`"/);
-    assert.match(conversationSource, /:data-markdown-signature="liveAssistantRenderState\.signature"/);
+    assert.match(conversationSource, /<TavernStreamMarkdown[\s\S]*:signature="liveAssistantRenderState\.signature"/);
+    assert.match(streamMarkdownSource, /:data-markdown-signature="signature"/);
     assert.match(conversationSource, /const liveAssistantStatusLabel = computed\(\(\) => \{[\s\S]*const label = runtimeStatusLabel\.value \|\| '同步状态';[\s\S]*const elapsedSeconds = Math\.max\(0, Math\.floor\(Number\(runtimeStatusElapsedSeconds\.value\) \|\| 0\)\);[\s\S]*return `\$\{label\} \$\{elapsedSeconds\}s`;/);
     assert.match(conversationSource, /<small>\{\{ liveAssistantStatusLabel \}\}<\/small>/);
     assert.doesNotMatch(conversationSource, /生成中/);
@@ -2044,6 +2046,8 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     const sessionSource = readRepoFile('modules/tavern/app-src/features/session/useTavernSessionController.ts');
     const chatPageSource = readRepoFile('modules/tavern/app-src/components/chat/TavernChatPage.vue');
     const conversationPanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
+    const streamMarkdownSource = readRepoFile('modules/tavern/app-src/components/chat/TavernStreamMarkdown.vue');
+    const streamFadeMarkdownSource = readRepoFile('modules/tavern/app-src/components/chat/stream-fade-markdown.ts');
     const managerPanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernManagerPanel.vue');
     const markdownToolsSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts');
     const workspacePanelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernWorkspacePanel.vue');
@@ -2051,6 +2055,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     const sessionContractSource = readRepoFile('modules/tavern/shared/session-contract.ts');
     const contextSource = readRepoFile('modules/tavern/app-src/components/tavern-app-context.ts');
     const cssSource = readRepoFile('modules/tavern/app-src/styles/chat/messages.css');
+    const markdownCssSource = readRepoFile('modules/tavern/app-src/styles/chat/markdown.css');
     const appBaseCss = readRepoFile('modules/tavern/app-src/styles/base.css');
     const layoutCss = readRepoFile('modules/tavern/app-src/styles/chat/layout.css');
     const composeCss = readRepoFile('modules/tavern/app-src/styles/chat/compose.css');
@@ -2061,6 +2066,15 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     const memoryEditorSource = readRepoFile('modules/tavern/app-src/components/TavernMemoryEditor.vue');
     assert.match(conversationPanelSource, /hasRenderableLiveAssistantContent/);
     assert.match(conversationPanelSource, /hasRenderableLiveAssistantMarkdown/);
+    assert.match(conversationPanelSource, /import TavernStreamMarkdown from '\.\/TavernStreamMarkdown\.vue';/);
+    assert.match(conversationPanelSource, /<TavernStreamMarkdown[\s\S]*:html="renderRoleplayMarkdown\(liveAssistantRenderState\.text\)"[\s\S]*:signature="liveAssistantRenderState\.signature"/);
+    assert.doesNotMatch(conversationPanelSource, /v-html="renderRoleplayMarkdown\(liveAssistantRenderState\.text\)"/);
+    assert.match(streamMarkdownSource, /applyStreamFadeMarkdown\(root, props\.html \|\| ''\);/);
+    assert.match(streamMarkdownSource, /class="xb-tavern-markdown xb-tavern-stream-fade"/);
+    assert.match(streamFadeMarkdownSource, /Intl[\s\S]*Segmenter/);
+    assert.match(streamFadeMarkdownSource, /NodeFilter\.SHOW_TEXT/);
+    assert.match(streamFadeMarkdownSource, /data-xb-stream-segment-key/);
+    assert.match(streamFadeMarkdownSource, /patchChildren\(root, target\);/);
     assert.match(conversationPanelSource, /runtimeActionCheckEvents/);
     assert.match(contextSource, /runtimeUserMessageVisible: Ref<boolean>/);
     assert.match(contextSource, /runtimeFinalizedAssistantMessageKey: Ref<string>/);
@@ -2170,6 +2184,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(cssSource, /\.bubble-identity \{[\s\S]*display: grid;[\s\S]*justify-items: start;/);
     assert.match(cssSource, /\.chat-bubble\.pending-user \{[\s\S]*contain: layout style;/);
     assert.match(cssSource, /\.chat-bubble\.streaming \{[\s\S]*contain: layout style;/);
+    assert.match(markdownCssSource, /\.chat-bubble\.streaming \.xb-tavern-stream-segment \{[\s\S]*animation: xb-tavern-stream-fade-in 300ms ease-in-out both;/);
     assert.doesNotMatch(cssSource, /\.chat-bubble\.(?:pending-user|streaming) \{[\s\S]*contain: layout style paint;/);
     assert.match(cssSource, /\.chat-bubble>\.message-actions \{[\s\S]*position: absolute;[\s\S]*top: -1px;[\s\S]*right: -1px;[\s\S]*border-radius: 0 10px 0 8px;[\s\S]*opacity: 0;/);
     assert.match(cssSource, /\.bubble-meta-line \{[\s\S]*display: inline-flex;[\s\S]*gap: 6px;/);

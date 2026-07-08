@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import TavernScrollControls from '../TavernScrollControls.vue';
 import TavernMessageEditPanel from './TavernMessageEditPanel.vue';
 import TavernDrawCapsule from './TavernDrawCapsule.vue';
+import TavernStreamMarkdown from './TavernStreamMarkdown.vue';
 import { useTavernChatContext, useTavernDrawContext, useTavernSessionContext, useTavernShellContext } from '../tavern-app-context';
 import { useTavernEphemeralDisclosureScope } from '../useTavernEphemeralDisclosureScope';
 import { useTavernMediaQuery } from '../useTavernMediaQuery';
@@ -693,12 +694,11 @@ watch(isMobileActionTrayViewport, (isMobile) => {
                 </template>
               </details>
             </template>
-            <div
+            <TavernStreamMarkdown
               v-if="liveAssistantMarkdownVisible"
-              class="xb-tavern-markdown"
-              :data-action-check-groups="liveAssistantRenderState.actionCheckGroups || undefined"
-              :data-markdown-signature="liveAssistantRenderState.signature"
-              v-html="renderRoleplayMarkdown(liveAssistantRenderState.text)"
+              :action-check-groups="liveAssistantRenderState.actionCheckGroups || undefined"
+              :html="renderRoleplayMarkdown(liveAssistantRenderState.text)"
+              :signature="liveAssistantRenderState.signature"
             />
           </div>
         </div>
