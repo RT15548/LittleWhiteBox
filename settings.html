@@ -1,6 +1,3 @@
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
 <div class="inline-drawer">
   <div class="inline-drawer-toggle inline-drawer-header">
     <b>小白X</b>
@@ -9,16 +6,16 @@
   <div class="inline-drawer-content">
     <div class="littlewhitebox settings-grid">
       <div class="settings-menu-vertical">
-        <div class="menu-tab active" data-target="js-memory" style="border-bottom:1px solid #303030;"><span class="vertical-text">渲染交互</span></div>
-        <div class="menu-tab" data-target="task" style="border-bottom:1px solid #303030;"><span class="vertical-text">循环任务</span></div>
-        <div class="menu-tab" data-target="template" style="border-bottom:1px solid #303030;"><span class="vertical-text">数据互动</span></div>
-        <div class="menu-tab" data-target="wallhaven" style="border-bottom:1px solid #303030;"><span class="vertical-text">辅助工具</span></div>
+        <div class="menu-tab active" data-target="js-memory"><span class="vertical-text">渲染交互</span></div>
+        <div class="menu-tab" data-target="task"><span class="vertical-text">循环任务</span></div>
+        <div class="menu-tab" data-target="template"><span class="vertical-text">数据互动</span></div>
+        <div class="menu-tab" data-target="wallhaven"><span class="vertical-text">辅助工具</span></div>
       </div>
       <div class="settings-content">
         <div class="js-memory settings-section" style="display:block;">
-          <div class="section-divider" style="margin-bottom:0;margin-top:0;">总开关</div>
+          <div class="section-divider littlewhitebox-section-divider-top">总开关</div>
           <hr class="sysHR" />
-          <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
+          <div class="flex-container alignItemsCenter littlewhitebox-setting-row littlewhitebox-wrap-row">
             <input type="checkbox" id="xiaobaix_enabled" />
             <label for="xiaobaix_enabled" class="has-tooltip" data-tooltip="渲染被```包裹的html、!DOCTYPE、script的代码块内容为交互式界面
 
@@ -29,18 +26,17 @@
           <div class="section-divider">渲染模式
             <hr class="sysHR" />
           </div>
-          <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
+          <div class="flex-container alignItemsCenter littlewhitebox-setting-row littlewhitebox-wrap-row littlewhitebox-render-row">
             <input type="checkbox" id="xiaobaix_render_enabled" />
             <label for="xiaobaix_render_enabled" class="has-tooltip" data-tooltip="控制代码块转换为iframe渲染的功能
 关闭后将清理所有已渲染的iframe">渲染开关</label>
-            <label for="xiaobaix_max_rendered" style="margin-left:8px;">渲染楼层</label>
+            <label for="xiaobaix_max_rendered" class="littlewhitebox-inline-label">渲染楼层</label>
             <input id="xiaobaix_max_rendered"
                    type="number"
-                   class="text_pole dark-number-input"
-                   min="1" max="9999" step="1"
-                   style="width:5rem;margin-left:4px;" />
+                   class="text_pole dark-number-input littlewhitebox-render-count-input"
+                   min="1" max="9999" step="1" />
           </div>
-          <div class="flex-container">
+          <div class="flex-container littlewhitebox-setting-row">
             <input type="checkbox" id="xiaobaix_use_blob" />
             <label for="xiaobaix_use_blob" class="has-tooltip" data-tooltip="大型html适用">启用Blob渲染</label>
           </div>
@@ -48,7 +44,7 @@
           <div class="section-divider">流式，非基础的渲染
             <hr class="sysHR" />
           </div>
-          <div class="flex-container">
+          <div class="flex-container littlewhitebox-setting-row">
             <input type="checkbox" id="xiaobaix_template_enabled" />
             <label for="xiaobaix_template_enabled" class="has-tooltip" data-tooltip="流式多楼层动态渲染">启用沉浸式模板</label>
           </div>
@@ -69,7 +65,7 @@
           <div class="section-divider">功能说明
             <hr class="sysHR" />
           </div>
-          <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
+          <div class="flex-container alignItemsCenter littlewhitebox-setting-row littlewhitebox-wrap-row">
             <div><a href="https://docs.littlewhitebox.qzz.io/" class="download-link" target="_blank">功能文档</a></div>
             <button id="xiaobaix_reset_btn" class="menu_button menu_button_icon" type="button" title="把小白X的功能按钮重置回默认功能设定">
               <small>默认开关</small>
@@ -83,7 +79,7 @@
           <div class="section-divider">消息日志与拦截
             <hr class="sysHR">
           </div>
-          <div class="flex-container">
+          <div class="flex-container alignItemsCenter littlewhitebox-log-toggle-row">
             <input type="checkbox" id="xiaobaix_recorded_enabled" />
             <label for="xiaobaix_recorded_enabled" class="has-tooltip" data-tooltip="每条消息添加图标，点击可看到发送给时AI的记录">Log记录</label>
             <input type="checkbox" id="xiaobaix_preview_enabled" />
@@ -99,15 +95,15 @@
           <div class="section-divider">AI 画图
             <hr class="sysHR" />
           </div>
-          <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
+          <div class="flex-container alignItemsCenter littlewhitebox-setting-row littlewhitebox-select-row">
             <label for="xiaobaix_draw_provider" class="has-tooltip" data-tooltip="选择小白X使用的画图渠道。使用 SD WebUI 时，请在小白X设置里填写连接地址。">画图后端</label>
-            <select id="xiaobaix_draw_provider" class="text_pole" style="width:auto;min-width:150px;">
+            <select id="xiaobaix_draw_provider" class="text_pole littlewhitebox-compact-select">
               <option value="disabled">关闭</option>
               <option value="novelai">NovelAI</option>
               <option value="sdwebui">SD WebUI</option>
               <option value="comfyui">ComfyUI</option>
             </select>
-            <button id="xiaobaix_draw_open_settings" class="menu_button menu_button_icon" type="button" style="margin-left:auto;" title="打开画图详细设置">
+            <button id="xiaobaix_draw_open_settings" class="menu_button menu_button_icon littlewhitebox-row-action" type="button" title="打开画图详细设置">
               <i class="fa-solid fa-palette"></i>
               <small>画图设置</small>
             </button>
@@ -115,14 +111,14 @@
           <div class="section-divider">豆包 语音
             <hr class="sysHR" />
           </div>
-          <div class="flex-container">
+          <div class="flex-container littlewhitebox-setting-row">
             <input type="checkbox" id="xiaobaix_tts_enabled" />
             <label for="xiaobaix_tts_enabled" class="has-tooltip"
                    data-tooltip="AI 回复渲染后自动朗读。首次使用前，请先在 config.yaml 开启 enableCorsProxy: true 并重启酒馆。">
               启用 TTS 语音
             </label>
-            <button id="xiaobaix_tts_open_settings" class="menu_button menu_button_icon"
-                    type="button" style="margin-left:auto;"
+            <button id="xiaobaix_tts_open_settings" class="menu_button menu_button_icon littlewhitebox-row-action"
+                    type="button"
                     title="打开 TTS 设置（音色/复刻/跳过规则）">
               <i class="fa-solid fa-microphone-lines"></i>
               <small>语音设置</small>
@@ -133,14 +129,14 @@
           <div class="section-divider">循环任务
             <hr class="sysHR" />
           </div>
-          <div class="flex-container">
+          <div class="flex-container littlewhitebox-setting-row">
             <input type="checkbox" id="scheduled_tasks_enabled" />
             <label for="scheduled_tasks_enabled" class="has-tooltip" data-tooltip="自动执行设定好的斜杠命令
                         输入/xbqte {{任务名称}}可以手动激活任务
                         导出/入角色卡时, 角色任务会随角色卡一起导出/入">启用循环任务</label>
-          <div id="toggle_task_bar" class="menu_button menu_button_icon" style="margin: 0px; margin-left: auto;" title="显示/隐藏按钮栏">
-            <small>按钮栏</small>
-          </div>
+            <div id="toggle_task_bar" class="menu_button menu_button_icon littlewhitebox-row-action" title="显示/隐藏按钮栏">
+              <small>按钮栏</small>
+            </div>
           </div>
           <hr class="sysHR" />
           <div class="flex-container task-tab-bar">
@@ -148,7 +144,7 @@
             <div class="task-tab" data-target="character_tasks_block">角色任务<span class="task-count" id="character_task_count"></span></div>
             <div class="task-tab" data-target="preset_tasks_block">预设任务<span class="task-count" id="preset_task_count"></span></div>
           </div>
-          <div class="flex-container" style="justify-content: flex-end; flex-wrap: nowrap; gap: 0px; margin-top: 10px;">
+          <div class="flex-container littlewhitebox-task-actions">
             <div id="add_global_task" class="menu_button menu_button_icon" title="添加全局任务">
               <small>+全局</small>
             </div>
@@ -194,6 +190,9 @@
             <button id="xiaobaix_ebook_open_settings" class="menu_button menu_button_icon littlewhitebox-agent-action-button" type="button" title="打开小白电纸书">
               <span>电纸书</span>
             </button>
+            <button id="xiaobaix_tavern_open_settings" class="menu_button menu_button_icon littlewhitebox-agent-action-button" type="button" title="打开小白酒馆">
+              <span>小白酒馆</span>
+            </button>
             <button id="xiaobaix_fourth_wall_open_settings" class="menu_button menu_button_icon littlewhitebox-agent-action-button" type="button" title="打开四次元壁">
               <span>四次元壁</span>
             </button>
@@ -201,15 +200,15 @@
           <br>
           <div class="section-divider">剧情管理</div>
           <hr class="sysHR" />
-          <div class="flex-container">
+          <div class="flex-container littlewhitebox-setting-row">
             <input type="checkbox" id="xiaobaix_story_summary_enabled" />
             <label for="xiaobaix_story_summary_enabled" class="has-tooltip" data-tooltip="在消息楼层添加总结按钮，点击可打开剧情总结面板，AI分析生成关键词云、时间线、人物关系、角色弧光">剧情总结</label>
           </div>
-          <div class="flex-container">
+          <div class="flex-container littlewhitebox-setting-row">
             <input type="checkbox" id="xiaobaix_story_outline_enabled" />
             <label for="xiaobaix_story_outline_enabled" class="has-tooltip" data-tooltip="在X按钮区域添加地图图标，点击可打开可视化剧情地图编辑器">小白板</label>
           </div>
-          <div class="flex-container littlewhitebox-toggle-row">
+          <div class="flex-container littlewhitebox-setting-row littlewhitebox-toggle-row">
             <input type="checkbox" id="xiaobaix_ena_planner_enabled" />
             <label for="xiaobaix_ena_planner_enabled" class="has-tooltip littlewhitebox-toggle-label" data-tooltip="发送前剧情规划，自动注入 plot/note">剧情规划</label>
             <button id="xiaobaix_ena_planner_open_settings" class="menu_button menu_button_icon littlewhitebox-toggle-action" type="button" title="打开剧情规划设置">
@@ -220,17 +219,17 @@
           <br>
           <div class="section-divider">变量控制</div>
           <hr class="sysHR" />
-          <div class="flex-container" style="gap:8px;flex-wrap:wrap;align-items:center;">
+          <div class="flex-container littlewhitebox-setting-row littlewhitebox-select-row littlewhitebox-variables-row">
             <input type="checkbox" id="xiaobaix_variables_core_enabled" />
             <label for="xiaobaix_variables_core_enabled">变量管理</label>
 
-            <select id="xiaobaix_variables_mode" class="text_pole" style="width:auto;margin-left:8px;padding:2px 6px;">
+            <select id="xiaobaix_variables_mode" class="text_pole littlewhitebox-compact-select">
               <option value="1.0">1.0 (plot-log)</option>
               <option value="2.0">2.0 (state)</option>
             </select>
           </div>
 
-          <div class="flex-container">
+          <div class="flex-container littlewhitebox-setting-row">
             <input type="checkbox" id="xiaobaix_variables_panel_enabled" />
             <label for="xiaobaix_variables_panel_enabled">变量面板</label>
           </div>
@@ -243,7 +242,7 @@
 <style>
   .littlewhitebox,
   .littlewhitebox * {
-    font-family: 'ZCOOL KuaiLe', 'ZCOOL XiaoWei', sans-serif !important
+    font-family: sans-serif !important
   }
   .littlewhitebox i,
   .littlewhitebox .fa,
@@ -257,76 +256,86 @@
     display: flex;
     gap: 1px
   }
-  .settings-menu-vertical {
+  .littlewhitebox .settings-menu-vertical {
     display: flex;
     flex-direction: column;
     flex: .5
   }
-  .settings-content {
+  .littlewhitebox .settings-content {
     flex: 19;
     margin-left: 1%;
     width: 89%
   }
-  .menu-tab {
+  .littlewhitebox .menu-tab {
     flex: none;
     padding: 8px 6px;
     text-align: center;
     cursor: pointer;
     color: #696969;
     border: none;
+    border-bottom: 1px solid #303030;
+    border-left: 2px solid transparent;
     transition: color .2s;
     font-weight: 500;
     writing-mode: vertical-rl;
     text-orientation: mixed
   }
-  .menu-tab:hover {
+  .littlewhitebox .menu-tab:hover {
     color: #fff
   }
-  .menu-tab.active {
+  .littlewhitebox .menu-tab.active {
     color: #e9e9e9;
-    border-bottom: none;
     border-left: 2px solid #e9e9e9
   }
-  .settings-section {
+  .littlewhitebox .settings-section {
     padding: 1% 2%
   }
-  .template-replacer-header {
+  .littlewhitebox .template-replacer-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 8px
   }
-  .template-replacer-title {
+  .littlewhitebox .template-replacer-title {
     font-weight: bold;
     color: #cacaca
   }
-  .template-replacer-status {
+  .littlewhitebox .template-replacer-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px
+  }
+  .littlewhitebox .template-replacer-status {
     padding: 5px 10px;
     background: #2a2a2a;
     border-radius: 4px;
     margin-bottom: 10px;
     font-size: .9em
   }
-  .template-replacer-status.has-settings {
+  .littlewhitebox .template-replacer-status.has-settings {
     background: #1a4a1a;
     color: #90ee90
   }
-  .template-replacer-status.no-character {
+  .littlewhitebox .template-replacer-status.no-character {
     background: #4a1a1a;
     color: #ffb3b3
   }
-  .dark-number-input {
+  .littlewhitebox .dark-number-input {
     background-color: rgba(0, 0, 0, .3) !important;
     color: var(--SmartThemeText) !important;
-    border-color: var(--SmartThemeBorderColor) !important;
-    width: 8vw !important
+    border-color: var(--SmartThemeBorderColor) !important
+  }
+  .littlewhitebox label {
+    margin-top: 0
   }
   .littlewhitebox input[type="checkbox"] {
     width: 1.2rem;
     height: 1.2rem;
     background: var(--black30a);
     border-radius: .25em;
-    position: relative
+    position: relative;
+    flex: 0 0 auto;
+    margin: 0
   }
   .littlewhitebox input[type="checkbox"]:checked::after {
     content: "";
@@ -340,38 +349,53 @@
     border-radius: .13em
   }
   .littlewhitebox input[type="checkbox"]+label {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.2rem;
+    margin-top: 0;
+    line-height: 1.2;
     color: #888;
     transition: color .2s
   }
   .littlewhitebox input[type="checkbox"]:checked+label {
     color: #dbdbdb
   }
-  .section-divider {
+  .littlewhitebox .flex-container:has(> input[type="checkbox"]) {
+    align-items: center;
+    gap: 8px;
+  }
+  .littlewhitebox-log-toggle-row {
+    gap: 8px;
+    flex-wrap: wrap
+  }
+  .littlewhitebox .section-divider {
     font-size: .75em;
     color: #8f8f8f;
     margin: .5em 0 .2em;
+    padding-left: 0;
     letter-spacing: .05em;
     font-weight: 400;
     text-align: left;
     user-select: none
   }
-  #section-font {
-    color: #979797
+  .littlewhitebox-section-divider-top {
+    margin-top: 0;
+    margin-bottom: 0
   }
-  .preset-task-hint {
+  .littlewhitebox .preset-task-hint {
     color: #888;
   }
-  .preset-task-hint.no-preset {
+  .littlewhitebox .preset-task-hint.no-preset {
     color: #a66;
   }
-  .task-tab-bar {
+  .littlewhitebox .task-tab-bar {
     gap: 12px;
     flex-wrap: nowrap;
     margin-top: 6px;
     align-items: center;
     justify-content: space-between;
   }
-  .task-tab {
+  .littlewhitebox .task-tab {
     padding: 2px 0;
     border-bottom: 2px solid transparent;
     cursor: pointer;
@@ -380,10 +404,10 @@
     flex: 1 1 0;
     text-align: center;
   }
-  .task-tab:hover {
+  .littlewhitebox .task-tab:hover {
     color: var(--SmartThemeBodyColor, #e9e9e9);
   }
-  .task-tab.active {
+  .littlewhitebox .task-tab.active {
     border-bottom-color: var(--SmartThemeAccentColor, #e9e9e9);
     color: var(--SmartThemeBodyColor, #e9e9e9);
   }
@@ -403,9 +427,54 @@
     margin-left: auto;
     flex: 0 0 auto;
   }
-  .littlewhitebox-toggle-action.disabled-action {
+  .littlewhitebox .disabled-action {
     opacity: .5;
     cursor: not-allowed;
+  }
+  .littlewhitebox .disabled-control {
+    opacity: .55;
+    cursor: not-allowed;
+  }
+  .littlewhitebox-setting-row {
+    min-height: 1.75rem;
+    margin-top: 6px;
+  }
+  .littlewhitebox .settings-section > .flex-container:has(> input[type="checkbox"]) {
+    min-height: 1.75rem;
+    margin-top: 6px;
+  }
+  .littlewhitebox-wrap-row {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .littlewhitebox-render-count-input {
+    width: 5rem !important;
+  }
+  .littlewhitebox-task-actions {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    gap: 0;
+    margin-top: 10px;
+  }
+  .littlewhitebox-select-row {
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  .littlewhitebox-compact-select {
+    flex: 0 0 auto;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 8.5rem;
+    padding: 2px 6px !important;
+    margin-left: 0 !important;
+  }
+  .littlewhitebox-variables-row .littlewhitebox-compact-select {
+    margin-left: auto !important;
+  }
+  .littlewhitebox-row-action {
+    flex: 0 0 auto;
+    margin-left: auto !important;
   }
   .littlewhitebox-agent-actions {
     display: inline-flex;
@@ -437,17 +506,19 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
+    margin-left: auto;
+    flex: 0 0 auto;
   }
-  .task-count {
+  .littlewhitebox .task-count {
     font-size: 0.85em;
     opacity: 0.7;
     margin-left: 0.25em;
   }
-  .has-tooltip {
+  .littlewhitebox .has-tooltip {
     position: relative;
     cursor: pointer
   }
-  .has-tooltip::after {
+  .littlewhitebox .has-tooltip::after {
     content: attr(data-tooltip);
     position: absolute;
     left: 50%;
@@ -467,11 +538,8 @@
     max-width: 300px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, .2)
   }
-  .has-tooltip:hover::after {
+  .littlewhitebox .has-tooltip:hover::after {
     opacity: 1
-  }
-  label {
-    margin-top: .3em
   }
   .littlewhitebox-update-text {
     color: green;
@@ -704,7 +772,7 @@
     max-height: 70vh
   }
   .cloud-tasks-modal * {
-    font-family: 'ZCOOL KuaiLe', 'ZCOOL XiaoWei', sans-serif !important
+    font-family: sans-serif !important
   }
   .cloud-tasks-modal h3 {
     margin-top: 0;
@@ -761,9 +829,9 @@
         <div class="flex1">
           <label for="task_type_edit">任务类型</label>
           <select class="task_type_edit text_pole textarea_compact">
-            <option value="global" id="section-font">全局任务</option>
-            <option value="character" id="section-font">角色任务</option>
-            <option value="preset" id="section-font">预设任务</option>
+            <option value="global">全局任务</option>
+            <option value="character">角色任务</option>
+            <option value="preset">预设任务</option>
           </select>
           <br>
           <div class="flex1">

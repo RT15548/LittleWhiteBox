@@ -10,28 +10,45 @@
         "build:assistant": "npm run build:assistant:manifest && npm run build:assistant:jsapi-manifest && npm run build:assistant:jsapi-runtime && npm run build:assistant:app",
         "build:ebook": "vite build --config vite.ebook.config.mjs",
         "build:fourth-wall": "vite build --config vite.fourth-wall.config.mjs",
+        "build:tavern:material-symbols": "node scripts/build-material-symbols-names.mjs",
+        "build:tavern:host": "node scripts/build-tavern-host.mjs",
+        "build:tavern:app": "vue-tsc --noEmit -p tsconfig.tavern.json && vite build --config vite.tavern.config.mjs",
+        "build:tavern": "npm run build:tavern:material-symbols && npm run build:tavern:host && npm run build:tavern:app",
         "test:story-summary:runtime": "node scripts/story-summary-runtime-check.mjs",
         "test:story-summary:replay": "node scripts/story-summary-replay-runner.mjs",
         "test:story-summary:bootstrap": "node scripts/story-summary-replay-runner.mjs bootstrap",
         "test:story-summary:recall": "node scripts/story-summary-replay-runner.mjs recall-only",
         "test:ebook": "node --test modules/ebook/tests/book-tools.test.js",
-        "test:assistant:workspace": "node --test modules/assistant/tests/local-workspace.test.js modules/assistant/tests/apply-patch.test.js modules/assistant/tests/apply-patch-execution.test.js modules/assistant/tests/agent-protocol.test.js modules/assistant/tests/context-hint.test.js modules/assistant/tests/history-compaction.test.js modules/assistant/tests/memory-files.test.js modules/assistant/tests/host-tool-requests.test.js modules/assistant/tests/local-sources-tool-runtime.test.js modules/assistant/tests/tooling.test.js modules/assistant/tests/delegate-runner.test.js modules/assistant/tests/plan-ledger.test.js modules/assistant/tests/session-store.test.js modules/assistant/tests/anthropic-adapter.test.js modules/assistant/tests/google-adapter.test.js modules/assistant/tests/openai-compatible-adapter.test.js modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
+        "test:variables": "node --test modules/variables/tests/*.test.js",
+        "test:tavern": "node --import tsx --test modules/tavern/tests/*.test.ts",
+        "test:assistant:workspace": "node --test modules/assistant/tests/local-workspace.test.js modules/assistant/tests/apply-patch.test.js modules/assistant/tests/apply-patch-execution.test.js modules/assistant/tests/agent-protocol.test.js modules/assistant/tests/context-hint.test.js modules/assistant/tests/history-compaction.test.js modules/assistant/tests/memory-files.test.js modules/assistant/tests/host-tool-requests.test.js modules/assistant/tests/local-sources-tool-runtime.test.js modules/assistant/tests/tooling.test.js modules/assistant/tests/chat-ui-window.test.js modules/assistant/tests/delegate-runner.test.js modules/assistant/tests/plan-ledger.test.js modules/assistant/tests/session-store.test.js modules/assistant/tests/anthropic-adapter.test.js modules/assistant/tests/google-adapter.test.js modules/assistant/tests/openai-compatible-adapter.test.js modules/assistant/tests/sillytavern-openai-compatible-adapter.test.js",
         "lint:imports": "node scripts/check-relative-imports.mjs",
-        "lint": "node scripts/check-garbled.js && npm run lint:imports && eslint \"**/*.js\"",
-        "lint:fix": "eslint \"**/*.js\" --fix"
+        "lint:tavern": "eslint \"modules/tavern/**/*.{ts,vue}\"",
+        "lint": "node scripts/check-garbled.js && npm run lint:imports && eslint \"**/*.js\" && npm run lint:tavern",
+        "lint:fix:tavern": "eslint \"modules/tavern/**/*.{ts,vue}\" --fix",
+        "lint:fix": "eslint \"**/*.js\" --fix && npm run lint:fix:tavern"
     },
     "devDependencies": {
+        "@typescript-eslint/eslint-plugin": "^8.62.0",
+        "@typescript-eslint/parser": "^8.62.0",
+        "@vitejs/plugin-vue": "^6.0.7",
         "acorn": "^8.16.0",
-        "esbuild": "^0.28.0",
+        "esbuild": "^0.28.1",
         "eslint": "^8.57.1",
         "eslint-plugin-jsdoc": "^48.10.0",
         "eslint-plugin-no-unsanitized": "^4.1.2",
         "eslint-plugin-security": "^1.7.1",
+        "eslint-plugin-vue": "^10.9.1",
         "fake-indexeddb": "^6.2.4",
-        "vite": "^8.0.8"
+        "tsx": "^4.22.3",
+        "typescript": "^6.0.3",
+        "vite": "^8.0.16",
+        "vue": "^3.5.35",
+        "vue-eslint-parser": "^10.4.0",
+        "vue-tsc": "^3.3.2"
     },
     "dependencies": {
-        "@anthropic-ai/sdk": "^0.89.0",
+        "@anthropic-ai/sdk": "^0.91.1",
         "@codemirror/autocomplete": "^6.20.1",
         "@codemirror/commands": "^6.10.3",
         "@codemirror/lang-css": "^6.3.1",
@@ -48,6 +65,10 @@
         "@google/genai": "^1.50.1",
         "codemirror": "^6.0.2",
         "gpt-tokenizer": "^3.4.0",
-        "openai": "^6.34.0"
+        "openai": "^6.44.0",
+        "showdown": "^2.1.0"
+    },
+    "overrides": {
+        "ws": "8.21.0"
     }
 }

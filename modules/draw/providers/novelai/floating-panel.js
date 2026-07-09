@@ -1585,6 +1585,8 @@ export {
     FloatState,
     refreshPresetSelectAll as refreshPresetSelect,
     SIZE_OPTIONS,
+    updateAllPresetSelects,
+    updateAllSizeSelects,
     createFloatingButton,
     destroyFloatingButton,
     setFloatingState,

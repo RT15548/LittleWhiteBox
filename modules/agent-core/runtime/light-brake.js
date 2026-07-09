@@ -12,7 +12,7 @@ export function createLightBrakeController(options = {}) {
     function defaultGetMessageText(name, code, count) {
         return [
             `[工具失败提示] ${name} 已连续 ${count} 次因为 ${code} 失败。`,
-            '不要继续原样重复同一个工具调用；先换路径、换参数、用 LS / Glob / Grep / Read 重新定位，或直接告诉用户当前阻塞点。',
+            '不要继续原样重复同一个工具调用；先换路径、换参数、用 LS / Grep / Read 重新定位，或直接告诉用户当前阻塞点。',
         ].join('\n');
     }
 

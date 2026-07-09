@@ -3,6 +3,7 @@ import {
     getDisplayPreviewForSlot,
     getPreviewsBySlot,
     getPreviewDisplayUrl,
+    warmSlotPreviewNeighbors,
 } from "./gallery-cache.js";
 import { LLMServiceError } from "./scene-planner.js";
 import { createModuleEvents, event_types } from "../../../core/event-manager.js";
@@ -764,9 +765,9 @@ function buildFailedPlaceholderHtml({ slotId, messageId, tags, positive, errorTy
 <div class="xb-nd-failed-title">${escapeHtml(errorType || '生成失败')}</div>
 <div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '点击重试')}</div>
 <div class="xb-nd-failed-btns">
-    <button class="xb-nd-retry-btn" data-action="retry-image">🔄 重新生成</button>
-    <button class="xb-nd-edit-btn" data-action="edit-tags">✏️ 编辑TAG</button>
-    <button class="xb-nd-remove-btn" data-action="remove-placeholder">🗑️ 移除</button>
+    <button class="xb-nd-retry-btn" data-action="retry-image">⟳ 重新生成</button>
+    <button class="xb-nd-edit-btn" data-action="edit-tags">✐ 编辑TAG</button>
+    <button class="xb-nd-remove-btn" data-action="remove-placeholder">✕ 移除</button>
 </div>
 <div class="xb-nd-edit" style="display:none;margin-top:12px;text-align:left;">
     <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:6px;">编辑 TAG（场景描述）</div>
@@ -820,6 +821,7 @@ export async function renderPreviewsForMessage(messageId) {
                     historyCount: displayData.historyCount,
                     currentIndex: displayData.currentIndex ?? 0,
                 });
+                void warmSlotPreviewNeighbors(slotId, displayData.currentIndex ?? 0).catch(() => {});
             } else {
                 replacementHtml = buildFailedPlaceholderHtml({
                     slotId,

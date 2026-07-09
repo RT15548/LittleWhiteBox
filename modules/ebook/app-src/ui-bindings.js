@@ -2,7 +2,11 @@ import { buildActionPrompt } from './prompts.js';
 import { countMessageWindowUnits } from './renderer.js';
 import { EBOOK_THEME_STORAGE_KEY } from './state.js';
 import { formatDraftMetrics } from './text-metrics.js';
-import { expandMessageWindow } from '../../agent-core/ui/message-windowing.js';
+import {
+    AGENT_MESSAGE_WINDOW_DEFAULT,
+    expandMessageWindow,
+    resetMessageWindow,
+} from '../../agent-core/ui/message-windowing.js';
 
 const messageActionFeedbackTimers = new Map();
 
@@ -79,6 +83,18 @@ function autoSizeAgentInput(root) {
     input.style.overflowY = contentHeight > maxHeight ? 'auto' : 'hidden';
 }
 
+function scrollActiveStudioFileIntoView(root) {
+    const activeFile = root?.querySelector?.('.xb-files .xb-file.is-active');
+    if (!activeFile) return;
+    scheduleFrame(() => {
+        try {
+            activeFile.scrollIntoView({ block: 'center', inline: 'nearest' });
+        } catch {
+            activeFile.scrollIntoView?.();
+        }
+    });
+}
+
 function createSvgPath(doc, d) {
     const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', d);
@@ -132,6 +148,24 @@ function applyColorTheme(root, state) {
         themeToggle.setAttribute('title', title);
         themeToggle.setAttribute('aria-label', title);
     });
+}
+
+function openBookPackageFilePicker(bookController) {
+    const doc = document;
+    const input = doc.createElement('input');
+    input.type = 'file';
+    input.accept = '.xbebook.json,.json,application/json';
+    input.style.position = 'fixed';
+    input.style.left = '-9999px';
+    input.style.opacity = '0';
+    input.addEventListener('change', () => {
+        const file = input.files?.[0] || null;
+        input.remove();
+        if (file) void bookController.importBookPackageFile(file);
+    }, { once: true });
+    input.addEventListener('cancel', () => input.remove(), { once: true });
+    doc.body.appendChild(input);
+    input.click();
 }
 
 function updateOpenKeyList(list = [], key = '', open = false) {
@@ -295,12 +329,42 @@ export function bindEbookEvents(options = {}) {
         persistConversation,
         clearConversation,
         showToast,
+        hydrateStartup,
     } = options;
     if (!root) return;
 
     root.querySelector('#xb-close')?.addEventListener('click', () => postToHost('xb-ebook:close'));
     root.querySelector('#xb-library-link')?.addEventListener('click', () => void bookController.showLibrary());
-    root.querySelector('#xb-library-new-book')?.addEventListener('click', () => void bookController.createNewBook());
+    root.querySelector('#xb-library-retry-shelf')?.addEventListener('click', () => void hydrateStartup?.());
+    root.querySelector('#xb-library-new-book')?.addEventListener('click', () => {
+        if (state.isShelfLoading || state.shelfLoadError) return;
+        void bookController.createNewBook();
+    });
+    root.querySelector('#xb-library-transfer-book')?.addEventListener('click', () => {
+        if (state.isShelfLoading || state.shelfLoadError || state.isBusy || state.bookTransferProgress) return;
+        state.isBookTransferMenuOpen = true;
+        render();
+    });
+    root.querySelector('#xb-book-transfer-menu-close')?.addEventListener('click', () => {
+        state.isBookTransferMenuOpen = false;
+        render();
+    });
+    root.querySelector('#xb-book-transfer-menu-overlay')?.addEventListener('click', (event) => {
+        if (event.target !== event.currentTarget) return;
+        state.isBookTransferMenuOpen = false;
+        render();
+    });
+    root.querySelector('#xb-book-transfer-upload')?.addEventListener('click', () => {
+        if (state.isShelfLoading || state.shelfLoadError || state.isBusy || state.bookTransferProgress) return;
+        state.isBookTransferMenuOpen = false;
+        render();
+        openBookPackageFilePicker(bookController);
+    });
+    root.querySelector('#xb-book-transfer-download')?.addEventListener('click', () => {
+        if (state.isShelfLoading || state.shelfLoadError || state.isBusy || state.bookTransferProgress) return;
+        state.isBookTransferMenuOpen = false;
+        void bookController.openExportDialog();
+    });
     root.querySelector('#xb-library-delete-book')?.addEventListener('click', () => {
         state.isDeleteBookOpen = true;
         render();
@@ -313,6 +377,16 @@ export function bindEbookEvents(options = {}) {
         if (event.target !== event.currentTarget) return;
         state.isDeleteBookOpen = false;
         render();
+    });
+    root.querySelector('#xb-book-export-close')?.addEventListener('click', () => void bookController.closeExportDialog());
+    root.querySelector('#xb-book-export-overlay')?.addEventListener('click', (event) => {
+        if (event.target !== event.currentTarget) return;
+        void bookController.closeExportDialog();
+    });
+    root.querySelectorAll('[data-export-book-id]').forEach((button) => {
+        button.addEventListener('click', () => {
+            void bookController.exportBookPackage(button.dataset.exportBookId || '');
+        });
     });
     root.querySelectorAll('[data-delete-book-id]').forEach((button) => {
         button.addEventListener('click', () => {
@@ -368,6 +442,7 @@ export function bindEbookEvents(options = {}) {
     });
     root.querySelectorAll('.xb-library-book').forEach((button) => {
         button.addEventListener('click', () => {
+            if (state.isShelfLoading || state.shelfLoadError) return;
             const bookId = button.dataset.bookId || '';
             if (!bookId) return;
             void bookController.selectBook(bookId);
@@ -402,6 +477,7 @@ export function bindEbookEvents(options = {}) {
     });
     root.querySelector('#xb-mobile-file-picker')?.addEventListener('click', () => {
         root.querySelector('.xb-studio-shell')?.classList.add('is-file-drawer-open');
+        scrollActiveStudioFileIntoView(root);
     });
     root.querySelectorAll('[data-mobile-file-drawer-close]').forEach((button) => {
         button.addEventListener('click', () => {
@@ -571,6 +647,12 @@ export function bindEbookEvents(options = {}) {
             void handleMessageActionClick(messageAction);
             return;
         }
+        const chapterSortToggle = findClosest(event.target, '[data-chapter-sort-toggle]');
+        if (chapterSortToggle && root.contains(chapterSortToggle)) {
+            event.preventDefault?.();
+            void bookController.toggleChapterSortOrder();
+            return;
+        }
         const fileButton = findClosest(event.target, '.xb-file[data-path]');
         if (fileButton && root.contains(fileButton)) {
             event.preventDefault?.();
@@ -651,15 +733,26 @@ export function bindEbookEvents(options = {}) {
         scheduleFrame(() => { apply(); scheduleFrame(apply); });
     }
 
+    function collapseAgentWindowAtBottom() {
+        if (Number(state.uiMessageWindowLimit || 0) <= AGENT_MESSAGE_WINDOW_DEFAULT) return false;
+        resetMessageWindow(state);
+        render();
+        scrollAgentToBottom(root.querySelector('.xb-agent-main'));
+        return true;
+    }
+
     function isAgentNearBottom(threshold = 48) {
         if (!agentMain) return true;
         return agentMain.scrollHeight - agentMain.scrollTop - agentMain.clientHeight <= threshold;
     }
 
-    function suspendAgentAutoScroll(scrollTop = null) {
+    function isAgentAtBottom(threshold = 4) {
+        if (!agentMain) return true;
+        return agentMain.scrollHeight - agentMain.scrollTop - agentMain.clientHeight <= threshold;
+    }
+
+    function suspendAgentAutoScroll() {
         state.agentAutoScroll = false;
-        const lockedTop = Number.isFinite(scrollTop) ? scrollTop : agentMain?.scrollTop;
-        state.agentScrollLockTop = Number.isFinite(lockedTop) ? Math.max(0, lockedTop) : null;
     }
 
     function revealOlderAgentMessages() {
@@ -669,11 +762,13 @@ export function bindEbookEvents(options = {}) {
         const previousScrollHeight = agentMain.scrollHeight;
         const previousScrollTop = agentMain.scrollTop;
         render();
-        scheduleFrame(() => {
+        const restoreExpandedWindowScroll = () => {
             const nextAgentMain = root.querySelector('.xb-agent-main');
             if (!nextAgentMain) return;
             nextAgentMain.scrollTop = Math.max(0, nextAgentMain.scrollHeight - previousScrollHeight + previousScrollTop);
-        });
+        };
+        restoreExpandedWindowScroll();
+        scheduleFrame(restoreExpandedWindowScroll);
         return true;
     }
 
@@ -705,14 +800,16 @@ export function bindEbookEvents(options = {}) {
         const scrollingTowardBottom = currentScrollTop > agentLastScrollTop;
         agentLastScrollTop = currentScrollTop;
         const nearBottom = isAgentNearBottom();
-        if (nearBottom) {
+        const atBottom = isAgentAtBottom();
+        if (atBottom) {
             if (state.agentAutoScroll !== false || scrollingTowardBottom) {
                 state.agentAutoScroll = true;
-                state.agentScrollLockTop = null;
+                if (collapseAgentWindowAtBottom()) return;
             }
+        } else if (nearBottom && state.agentAutoScroll !== false) {
+            state.agentAutoScroll = true;
         } else {
             state.agentAutoScroll = false;
-            state.agentScrollLockTop = currentScrollTop;
         }
         if (agentScrollTicking) return;
         agentScrollTicking = true;
@@ -729,8 +826,7 @@ export function bindEbookEvents(options = {}) {
     });
     agentMain?.addEventListener('wheel', (event) => {
         if (Number(event?.deltaY || 0) < 0) {
-            const intentTop = Number(agentMain.scrollTop || 0) - Math.max(64, Math.abs(Number(event.deltaY || 0)));
-            suspendAgentAutoScroll(intentTop);
+            suspendAgentAutoScroll();
         }
     }, { passive: true });
     agentMain?.addEventListener('touchstart', (event) => {
@@ -743,13 +839,12 @@ export function bindEbookEvents(options = {}) {
             return;
         }
         if (currentY > agentTouchStartY + 4 || !isAgentNearBottom()) {
-            suspendAgentAutoScroll(agentMain?.scrollTop);
+            suspendAgentAutoScroll();
         }
     }, { passive: true });
 
     scrollTopBtn?.addEventListener('click', () => {
         state.agentAutoScroll = false;
-        state.agentScrollLockTop = 0;
         agentMain?.scrollTo({ top: 0, behavior: 'smooth' });
         showScrollHelpers();
         updateAgentScrollButtonsVisibility();
@@ -758,8 +853,9 @@ export function bindEbookEvents(options = {}) {
 
     scrollBottomBtn?.addEventListener('click', () => {
         state.agentAutoScroll = true;
-        state.agentScrollLockTop = null;
-        scrollAgentToBottom(agentMain);
+        if (!collapseAgentWindowAtBottom()) {
+            scrollAgentToBottom(agentMain);
+        }
         showScrollHelpers();
         updateAgentScrollButtonsVisibility();
         scheduleHideScrollHelpers();

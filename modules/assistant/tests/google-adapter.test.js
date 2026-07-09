@@ -330,6 +330,7 @@ test('google adapter sends tool responses through the active chat session', asyn
             }],
         },
     });
+    assert.deepEqual(result.requestInspection?.request?.body?.sendMessage?.message, receivedPayload.message);
 });
 
 test('google adapter streams tool responses through the active chat session', async () => {
@@ -393,6 +394,7 @@ test('google adapter streams tool responses through the active chat session', as
             }],
         },
     });
+    assert.deepEqual(result.requestInspection?.request?.body?.sendMessage?.message, receivedPayload.message);
     assert.deepEqual(result.providerPayload, {
         googleContent: {
             role: 'model',

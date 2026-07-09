@@ -338,6 +338,8 @@
     let summaryModelFetchSeq = 0;
     let pendingSummaryModelFetchRequestId = '';
     let summaryModelFetchTimeoutId = null;
+    let timelineHasRenderedEvents = false;
+    let currentTimelineChatId = '';
     let settingsSaveTimeoutId = null;
     let panelConfigLoadedFromServer = false;
     let settingsOpenedWithServerConfig = false;
@@ -1297,11 +1299,65 @@
             : '<div class="empty">暂无关键词</div>');
     }
 
-    function renderTimeline(ev) {
+    function getTimelineScrollState() {
+        const el = $('timeline-list');
+        if (!el) return { scrollTop: 0, scrollHeight: 0, clientHeight: 0, wasAtBottom: true };
+        const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        return {
+            scrollTop: el.scrollTop,
+            scrollHeight: el.scrollHeight,
+            clientHeight: el.clientHeight,
+            wasAtBottom: distanceToBottom <= 24,
+        };
+    }
+
+    function restoreTimelineScroll(state, mode = 'auto') {
+        const el = $('timeline-list');
+        if (!el) return;
+        requestAnimationFrame(() => {
+            const preserve = () => {
+                const delta = el.scrollHeight - state.scrollHeight;
+                el.scrollTop = Math.max(0, state.scrollTop + delta);
+            };
+            if (mode === 'preserve') {
+                preserve();
+                return;
+            }
+            if (!timelineHasRenderedEvents || state.wasAtBottom) {
+                el.scrollTop = el.scrollHeight;
+                return;
+            }
+            preserve();
+        });
+    }
+
+    function getCssVar(name, fallback) {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return value || fallback;
+    }
+
+    function getRelationTheme() {
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        return {
+            text: getCssVar('--txt', isDark ? '#e0e0e0' : '#333'),
+            textMuted: getCssVar('--txt3', isDark ? '#9a9a9a' : '#888'),
+            panel: getCssVar('--bg2', isDark ? '#1e1e1e' : '#fff'),
+            border: getCssVar('--bdr', isDark ? '#3a3a3a' : '#ddd'),
+            line: getCssVar('--bdr', isDark ? 'rgba(224,224,224,.32)' : '#d8d8d8'),
+            lineFocus: getCssVar('--txt3', isDark ? 'rgba(224,224,224,.58)' : '#aaa'),
+            nodeBorder: isDark ? getCssVar('--bg', '#121212') : '#fff',
+            nodeShadow: isDark ? 'rgba(0,0,0,.38)' : 'rgba(0,0,0,.1)',
+            tooltipShadow: isDark ? '0 8px 22px rgba(0,0,0,.38)' : '0 4px 12px rgba(0,0,0,.15)',
+        };
+    }
+
+    function renderTimeline(ev, options = {}) {
+        const scrollState = getTimelineScrollState();
         summaryData.events = ev || [];
         const c = $('timeline-list');
         if (!ev?.length) {
             setHtml(c, '<div class="empty">暂无事件记录</div>');
+            timelineHasRenderedEvents = false;
             return;
         }
         setHtml(c, ev.map(e => {
@@ -1319,6 +1375,8 @@
                 </div>
             </div>`;
         }).join(''));
+        restoreTimelineScroll(scrollState, options.scrollMode || 'auto');
+        timelineHasRenderedEvents = true;
     }
 
     function getCharName(c) {
@@ -1338,6 +1396,7 @@
         const mobile = innerWidth <= 768;
         const fc = TREND_COLORS[fromTrend] || '#888';
         const tc = TREND_COLORS[toTrend] || '#888';
+        const theme = getRelationTheme();
 
         setHtml(tip, `<div style="line-height:1.8">
             ${fromLabel ? `<div><small>${h(from)}→${h(to)}：</small> <span style="color:${fc}">${h(fromLabel)}</span> <span style="font-size:10px;color:${fc}">[${h(fromTrend)}]</span></div>` : ''}
@@ -1345,8 +1404,8 @@
         </div>`);
 
         tip.style.cssText = mobile
-            ? 'position:absolute;left:8px;bottom:8px;background:#fff;color:#333;padding:10px 14px;border:1px solid #ddd;border-radius:6px;font-size:12px;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,.15);max-width:calc(100% - 16px)'
-            : `position:absolute;left:${Math.max(80, Math.min(x, container.clientWidth - 80))}px;top:${Math.max(60, y)}px;transform:translate(-50%,-100%);background:#fff;color:#333;padding:10px 16px;border:1px solid #ddd;border-radius:6px;font-size:12px;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,.15);max-width:280px`;
+            ? `position:absolute;left:8px;bottom:8px;background:${theme.panel};color:${theme.text};padding:10px 14px;border:1px solid ${theme.border};border-radius:6px;font-size:12px;z-index:100;box-shadow:${theme.tooltipShadow};max-width:calc(100% - 16px)`
+            : `position:absolute;left:${Math.max(80, Math.min(x, container.clientWidth - 80))}px;top:${Math.max(60, y)}px;transform:translate(-50%,-100%);background:${theme.panel};color:${theme.text};padding:10px 16px;border:1px solid ${theme.border};border-radius:6px;font-size:12px;z-index:1000;box-shadow:${theme.tooltipShadow};max-width:280px`;
 
         container.style.position = 'relative';
         container.appendChild(tip);
@@ -1357,6 +1416,7 @@
         summaryData.characters = data || { main: [], relationships: [] };
         const dom = $('relation-chart');
         if (!relationChart) relationChart = echarts.init(dom);
+        const theme = getRelationTheme();
 
         const rels = data?.relationships || [];
         const allNames = new Set((data?.main || []).map(getCharName));
@@ -1388,8 +1448,8 @@
                 id: name, name, symbol: 'circle',
                 symbolSize: Math.min(36, Math.max(16, deg * 3 + 12)),
                 draggable: true,
-                itemStyle: { color: col, borderColor: '#fff', borderWidth: 2, shadowColor: 'rgba(0,0,0,.1)', shadowBlur: 6, shadowOffsetY: 2 },
-                label: { show: true, position: 'right', distance: 5, color: '#333', fontSize: 11, fontWeight },
+                itemStyle: { color: col, borderColor: theme.nodeBorder, borderWidth: 2, shadowColor: theme.nodeShadow, shadowBlur: 6, shadowOffsetY: 2 },
+                label: { show: true, position: 'right', distance: 5, color: theme.text, fontSize: 11, fontWeight },
                 degree: deg
             };
         });
@@ -1409,14 +1469,14 @@
             return {
                 source: r.from, target: r.to, fromName: r.from, toName: r.to,
                 fromLabel: r.fromLabel, toLabel: r.toLabel, fromTrend: r.fromTrend, toTrend: r.toTrend,
-                lineStyle: { width: 1, color: '#d8d8d8', curveness: 0, opacity: 1 },
+                lineStyle: { width: 1, color: theme.line, curveness: 0, opacity: 1 },
                 label: {
                     show: true, position: 'middle', distance: 0,
                     formatter: '{a|◀}{b|▶}',
                     rich: { a: { color: fc, fontSize: 10 }, b: { color: tc, fontSize: 10 } },
                     align: 'center', verticalAlign: 'middle', offset: [0, -0.1]
                 },
-                emphasis: { lineStyle: { width: 1.5, color: '#aaa' }, label: { fontSize: 11 } }
+                emphasis: { lineStyle: { width: 1.5, color: theme.lineFocus }, label: { fontSize: 11 } }
             };
         });
 
@@ -2167,7 +2227,7 @@
         postMsg('UPDATE_SECTION', { section, data: parsed });
 
         if (section === 'keywords') renderKeywords(parsed);
-        else if (section === 'events') { renderTimeline(parsed); $('stat-events').textContent = parsed.length; }
+        else if (section === 'events') { renderTimeline(parsed, { scrollMode: 'preserve' }); $('stat-events').textContent = parsed.length; }
         else if (section === 'characters') renderRelations(parsed);
         else if (section === 'arcs') renderArcs(parsed);
         else if (section === 'facts') renderFacts(parsed);
@@ -2214,6 +2274,11 @@
             case 'SUMMARY_FULL_DATA':
                 if (d.payload) {
                     const p = d.payload;
+                    const nextChatId = typeof p.chatId === 'string' ? p.chatId : '';
+                    if (nextChatId !== currentTimelineChatId) {
+                        currentTimelineChatId = nextChatId;
+                        timelineHasRenderedEvents = false;
+                    }
                     if (p.keywords) renderKeywords(p.keywords);
                     if (p.events) renderTimeline(p.events);
                     if (p.characters) renderRelations(p.characters);
@@ -2236,6 +2301,7 @@
                 $('stat-pending').textContent = t;
                 $('summarized-count').textContent = 0;
                 summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [], facts: [] };
+                currentTimelineChatId = '';
                 renderKeywords([]);
                 renderTimeline([]);
                 renderRelations(null);
@@ -2652,6 +2718,8 @@
                 if (!CSS_MAP[theme]) return;
                 link.setAttribute('href', CSS_MAP[theme]);
                 document.documentElement.setAttribute('data-theme', (theme === 'dark' || theme === 'neo-dark') ? 'dark' : '');
+                hideRelationTooltip();
+                if (relationChart) renderRelations(summaryData.characters);
             }
 
             // 启动时恢复主题
@@ -2671,6 +2739,7 @@
 
         // Notify parent
         postMsg('FRAME_READY');
+        document.body.classList.remove('xb-frame-loading');
     }
 
     // Start

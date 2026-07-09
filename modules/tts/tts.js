@@ -1261,6 +1261,12 @@ export async function initTts() {
             return -1;
         },
         speakMessage: (messageId) => handleMessagePlayClick(messageId),
+        seekPlayback: (messageId, seconds) => {
+            const currentMessageId = player.currentItem?.messageId;
+            if (currentMessageId !== messageId) return false;
+            return player.seek(seconds);
+        },
+        setPlaybackRate: (rate) => player.setPlaybackRate(rate),
     });
 
     initFloatingPanel();

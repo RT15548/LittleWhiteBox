@@ -6,6 +6,8 @@ import { formatDraftMetrics, formatTextMetrics } from './text-metrics.js';
 import { estimateTokenCount } from '../../agent-core/runtime/context-tokens.js';
 import { EBOOK_MAX_CONTEXT_TOKENS } from './history-compaction.js';
 import { getMessageWindow } from '../../agent-core/ui/message-windowing.js';
+import { isTavilyConfigured } from '../../agent-core/tavily-search.js';
+import { getEbookToolDefinitions } from '../shared/tool-definitions.js';
 import { buildBookContextPrompt, buildBookTurnContextPrompt, EBOOK_SYSTEM_PROMPT } from './prompts.js';
 
 const STUDIO_FILE_SECTIONS = [
@@ -137,8 +139,8 @@ function formatVolumeLabel(path = '') {
     const match = String(path || '').match(/^book\/volumes\/(.+)\.md$/);
     if (!match) return '';
     const raw = match[1].split('/').pop() || match[1];
-    if (/^\d+$/.test(raw)) return `第 ${Number(raw)} 卷细纲`;
-    return `${raw} 细纲`;
+    if (/^\d+$/.test(raw)) return `第 ${Number(raw)} 卷规划`;
+    return `${raw} 规划`;
 }
 
 export function formatFileTitle(path = '') {
@@ -216,7 +218,94 @@ function formatContextMeterCount(tokens = 0) {
     return `${Math.max(0, Math.round((Number(tokens) || 0) / 1000))}k`;
 }
 
-function estimateConversationContextTokens(state = {}) {
+function createContextMeterHasher() {
+    let hashA = 2166136261;
+    let hashB = 2166136261 ^ 0x9e3779b9;
+    let charCount = 0;
+    let chunkCount = 0;
+
+    function addText(value = '') {
+        const text = String(value ?? '');
+        chunkCount += 1;
+        charCount += text.length;
+        for (let index = 0; index < text.length; index += 1) {
+            const code = text.charCodeAt(index);
+            hashA ^= code;
+            hashA = Math.imul(hashA, 16777619);
+            hashB ^= code + 0x9e3779b9 + (hashB << 6) + (hashB >>> 2);
+            hashB = Math.imul(hashB, 1597334677);
+        }
+    }
+
+    function addField(name, value = '') {
+        addText('\u001e');
+        addText(name);
+        addText('\u001f');
+        addText(value);
+    }
+
+    function digest() {
+        return [
+            charCount,
+            chunkCount,
+            (hashA >>> 0).toString(36),
+            (hashB >>> 0).toString(36),
+        ].join(':');
+    }
+
+    return {
+        addField,
+        digest,
+    };
+}
+
+export function buildConversationContextMeterStateKey(state = {}, providerConfig = {}) {
+    const hasher = createContextMeterHasher();
+    hasher.addField('book-id', state.book?.id || '');
+    hasher.addField('provider', providerConfig?.provider || '');
+    hasher.addField('model', providerConfig?.model || '');
+    hasher.addField('tool-mode', providerConfig?.toolMode || '');
+    const files = Array.isArray(state.files) ? state.files : [];
+    hasher.addField('file-count', files.length);
+    files.forEach((file, index) => {
+        hasher.addField(`file:${index}:path`, file?.path || '');
+        hasher.addField(`file:${index}:content`, file?.content || '');
+    });
+
+    const messages = Array.isArray(state.messages) ? state.messages : [];
+    hasher.addField('message-count', messages.length);
+    messages.forEach((message, index) => {
+        hasher.addField(`message:${index}:role`, message?.role || '');
+        hasher.addField(`message:${index}:content`, message?.content || '');
+        hasher.addField(`message:${index}:error`, message?.error ? '1' : '0');
+        hasher.addField(`message:${index}:tool-call-id`, message?.toolCallId || '');
+        hasher.addField(`message:${index}:tool-name`, message?.toolName || '');
+        const toolCalls = Array.isArray(message?.toolCalls) ? message.toolCalls : [];
+        hasher.addField(`message:${index}:tool-call-count`, toolCalls.length);
+        toolCalls.forEach((toolCall, toolCallIndex) => {
+            hasher.addField(`message:${index}:tool-call:${toolCallIndex}:id`, toolCall?.id || '');
+            hasher.addField(`message:${index}:tool-call:${toolCallIndex}:name`, toolCall?.name || '');
+            hasher.addField(`message:${index}:tool-call:${toolCallIndex}:arguments`, toolCall?.arguments || '');
+        });
+    });
+
+    return hasher.digest();
+}
+
+function resolveContextStatsForState(state = {}, providerConfig = {}) {
+    const stats = state.contextStats && typeof state.contextStats === 'object' ? state.contextStats : null;
+    if (!stats) return null;
+    const stateKey = buildConversationContextMeterStateKey(state, providerConfig);
+    if (stats.stateKey !== stateKey && !(state.isBusy && stats.source === 'resolved')) return null;
+    const usedTokens = Number(stats.usedTokens);
+    if (!Number.isFinite(usedTokens)) return null;
+    return {
+        ...stats,
+        usedTokens,
+    };
+}
+
+export function estimateConversationContextTokens(state = {}, providerConfig = {}) {
     const contextPrompt = buildBookContextPrompt({
         book: state.book,
         files: state.files,
@@ -224,13 +313,14 @@ function estimateConversationContextTokens(state = {}) {
     const turnContextPrompt = buildBookTurnContextPrompt({
         book: state.book,
         files: state.files,
-        selectedPath: state.selectedPath,
-        historySummary: state.historySummary,
     });
     const lines = [];
     lines.push(`[System]\n${EBOOK_SYSTEM_PROMPT}`);
     lines.push(`[Stable context]\n${contextPrompt}`);
     lines.push(`[Turn context]\n${turnContextPrompt}`);
+    lines.push(`[Tools]\n${JSON.stringify(getEbookToolDefinitions({
+        webSearchEnabled: isTavilyConfigured(providerConfig),
+    }))}`);
     (state.messages || []).forEach((message) => {
         if (!message || !['user', 'assistant', 'tool'].includes(message.role)) return;
         const roleLabel = message.role === 'user'
@@ -246,15 +336,19 @@ function estimateConversationContextTokens(state = {}) {
     return estimateTokenCount(lines.join('\n\n'));
 }
 
-function renderConversationContextMeterLabel(state = {}) {
-    const used = estimateConversationContextTokens(state);
+export function renderConversationContextMeterLabel(state = {}, providerConfig = {}) {
+    const stats = resolveContextStatsForState(state, providerConfig);
+    const used = stats ? stats.usedTokens : estimateConversationContextTokens(state, providerConfig);
     return `${formatContextMeterCount(used)}/${formatContextMeterCount(EBOOK_MAX_CONTEXT_TOKENS)}`;
 }
 
-function renderConversationContextMeterTitle(state = {}) {
-    return state.historySummary?.trim()
-        ? '当前实际送模上下文 / 188k（已整理较早创作记录）'
-        : '当前实际送模上下文 / 188k';
+export function renderConversationContextMeterTitle(state = {}, providerConfig = {}) {
+    const stats = resolveContextStatsForState(state, providerConfig);
+    const source = String(stats?.source || '').trim();
+    const prefix = source === 'resolved'
+        ? '最近一次发模上下文 / 188k'
+        : '当前估算送模上下文 / 188k';
+    return prefix;
 }
 
 function renderCompactionOverlay(state = {}) {
@@ -262,12 +356,12 @@ function renderCompactionOverlay(state = {}) {
     if (!overlay.active) return '';
     const current = formatContextMeterCount(overlay.currentTokens);
     const target = Number(overlay.yieldTokens) > 0 ? formatContextMeterCount(overlay.yieldTokens) : '....';
-    const status = String(overlay.status || '').trim() || '正在整理较早创作记录...';
+    const status = String(overlay.status || '').trim() || '正在释放较早对话...';
     return `
         <div class="xb-distillation-layer${overlay.resolved ? ' resolved' : ''}" role="status" aria-live="polite">
             <div class="xb-distillation-backdrop"></div>
             <div class="xb-distillation-aura"></div>
-            <section class="xb-distillation-plaque" aria-label="创作记忆整理">
+            <section class="xb-distillation-plaque" aria-label="上下文释放">
                 <div class="xb-distillation-title">CONTEXT DISTILLATION</div>
                 <div class="xb-distillation-status">${escapeHtml(status)}</div>
                 <div class="xb-distillation-metrics">
@@ -707,10 +801,21 @@ function renderReaderMarkdownBlock(text = '', paragraphIndex = 0) {
         html = renderReaderMarkdownFallback(raw);
     }
     if (!html) return '';
-    return `<div class="xb-reader-md${paragraphIndex === 0 ? ' xb-reader-drop' : ''}">${html}</div>`;
+    return `<div class="xb-reader-md${paragraphIndex === 0 ? ' xb-reader-drop' : ''}" data-reader-block-key="reader-block:${paragraphIndex}">${html}</div>`;
 }
 
 function renderBookCards(state = {}) {
+    if (state.isShelfLoading) {
+        return `<div class="xb-empty xb-library-empty">${escapeHtml(state.status || '正在打开书架...')}</div>`;
+    }
+    if (state.shelfLoadError) {
+        return `
+            <div class="xb-empty xb-library-empty">
+                <p>${escapeHtml(state.status || '书架加载失败')}</p>
+                <button id="xb-library-retry-shelf" class="xb-shelf-action" type="button">重试打开书架</button>
+            </div>
+        `;
+    }
     if (!state.books.length) {
         return '<div class="xb-empty xb-library-empty">书架上还没有书。</div>';
     }
@@ -721,15 +826,16 @@ function renderBookCards(state = {}) {
         const dataAttr = deleteMode
             ? `data-delete-book-id="${escapeHtml(book.id)}"`
             : `data-book-id="${escapeHtml(book.id)}"`;
+        const chapterCount = getBookChapterCount(book, state);
         return `
-            <button class="xb-library-book${active}${modeClass}" ${dataAttr} ${state.isBusy ? 'disabled' : ''}>
+            <button class="xb-library-book${active}${modeClass}" ${dataAttr} ${state.isBusy || state.isShelfLoading || state.shelfLoadError ? 'disabled' : ''}>
                 <span class="xb-book-spine"></span>
                 <span class="xb-library-book-main">
                     <strong>${escapeHtml(book.title || '未命名书稿')}</strong>
-                    <small>${deleteMode ? '点击删除这本书' : '打开后选择创作或阅读'}</small>
+                    <small>${deleteMode ? '点击删除这本书' : `已创作 ${chapterCount} 章`}</small>
                 </span>
                 <span class="xb-library-book-foot">
-                    <em>${deleteMode ? 'DELETE' : (active ? 'ACTIVE' : 'EBOOK')}</em>
+                    <em>${deleteMode ? 'DELETE' : `${chapterCount}章`}</em>
                     <small>${escapeHtml(formatBookDate(book.updatedAt))}</small>
                 </span>
             </button>
@@ -737,12 +843,25 @@ function renderBookCards(state = {}) {
     }).join('');
 }
 
+function getBookChapterCount(book = {}, state = {}) {
+    const count = Number(book.chapterCount);
+    if (Number.isFinite(count) && count >= 0) return Math.floor(count);
+    if (book.id && book.id === state.book?.id) {
+        return getChapterFiles(state.files).filter((file) => {
+            const content = String(file.content || '').trim();
+            return content && content !== '从这里开始写正文。';
+        }).length;
+    }
+    return 0;
+}
+
 function renderLibraryShelfActions(state = {}, bookCount = 0) {
     const deleteMode = !!state.isDeleteBookOpen;
-    const canDelete = bookCount > 0 && !state.isBusy;
+    const shelfBusy = !!state.isShelfLoading || !!state.shelfLoadError;
+    const canDelete = bookCount > 0 && !state.isBusy && !shelfBusy;
     return `
         <div class="xb-shelf-actions" aria-label="书架操作">
-            <button id="xb-library-new-book" class="xb-shelf-action" type="button" title="新建书稿" aria-label="新建书稿" ${state.isBusy ? 'disabled' : ''}>
+            <button id="xb-library-new-book" class="xb-shelf-action" type="button" title="新建书稿" aria-label="新建书稿" ${state.isBusy || shelfBusy ? 'disabled' : ''}>
                 <span class="xb-shelf-action-ring" aria-hidden="true">+</span>
                 <strong>新建书稿</strong>
             </button>
@@ -771,6 +890,41 @@ function renderExitIcon() {
     `;
 }
 
+function renderImportIcon() {
+    return `
+        <svg class="xb-theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12"></path>
+            <path d="m7 10 5 5 5-5"></path>
+            <path d="M5 21h14"></path>
+            <path d="M5 17v4"></path>
+            <path d="M19 17v4"></path>
+        </svg>
+    `;
+}
+
+function renderExportIcon() {
+    return `
+        <svg class="xb-theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 21V9"></path>
+            <path d="m7 14 5-5 5 5"></path>
+            <path d="M5 3h14"></path>
+            <path d="M5 3v4"></path>
+            <path d="M19 3v4"></path>
+        </svg>
+    `;
+}
+
+function renderTransferTrayIcon() {
+    return `
+        <svg class="xb-theme-icon xb-transfer-tray-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v10"></path>
+            <path d="m8 9 4 4 4-4"></path>
+            <path d="M5 14.5v3.2c0 1 .8 1.8 1.8 1.8h10.4c1 0 1.8-.8 1.8-1.8v-3.2"></path>
+            <path d="M8 16.5h8"></path>
+        </svg>
+    `;
+}
+
 export function renderThemeToggleIcon(colorTheme = 'dark') {
     const isLight = colorTheme === 'light';
     if (isLight) {
@@ -791,12 +945,104 @@ export function renderThemeToggleIcon(colorTheme = 'dark') {
     `;
 }
 
+function renderBookTransferMenuDialog(state = {}) {
+    if (!state.isBookTransferMenuOpen) return '';
+    const bookCount = Array.isArray(state.books) ? state.books.length : 0;
+    const transferActive = !!state.bookTransferProgress;
+    const disabled = state.isBusy || transferActive || state.isShelfLoading || state.shelfLoadError;
+    return `
+        <div class="xb-ebook-delete-overlay xb-ebook-transfer-menu-overlay" id="xb-book-transfer-menu-overlay">
+            <div class="xb-ebook-delete-dialog xb-ebook-transfer-menu-dialog" role="dialog" aria-modal="true" aria-labelledby="xb-book-transfer-menu-title">
+                <div class="xb-ebook-delete-head">
+                    <div>
+                        <h2 id="xb-book-transfer-menu-title">书籍传输</h2>
+                    </div>
+                    <button id="xb-book-transfer-menu-close" class="xb-icon-button" type="button" title="关闭" aria-label="关闭">×</button>
+                </div>
+                <div class="xb-book-transfer-menu-list">
+                    <button class="xb-book-transfer-menu-choice" type="button" id="xb-book-transfer-download" ${disabled || !bookCount ? 'disabled' : ''}>
+                        <span>${renderExportIcon()}</span>
+                        <strong>下载书籍</strong>
+                    </button>
+                    <button class="xb-book-transfer-menu-choice" type="button" id="xb-book-transfer-upload" ${disabled ? 'disabled' : ''}>
+                        <span>${renderImportIcon()}</span>
+                        <strong>上传书籍</strong>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderBookExportDialog(state = {}) {
+    if (!state.isBookExportOpen) return '';
+    const books = Array.isArray(state.books) ? state.books : [];
+    const transferActive = !!state.bookTransferProgress;
+    const list = books.length
+        ? books.map((book) => `
+            <button class="xb-ebook-export-book" type="button" data-export-book-id="${escapeHtml(book.id)}" ${state.isBusy || transferActive ? 'disabled' : ''}>
+                <span>
+                    <strong>${escapeHtml(book.title || '未命名书稿')}</strong>
+                    <small>${escapeHtml(formatBookDate(book.updatedAt))}</small>
+                </span>
+                <em>导出</em>
+            </button>
+        `).join('')
+        : '<div class="xb-ebook-delete-note">书架上还没有可导出的书。</div>';
+    return `
+        <div class="xb-ebook-delete-overlay xb-ebook-export-overlay" id="xb-book-export-overlay">
+            <div class="xb-ebook-delete-dialog xb-ebook-export-dialog" role="dialog" aria-modal="true" aria-labelledby="xb-book-export-title">
+                <div class="xb-ebook-delete-head">
+                    <div>
+                        <h2 id="xb-book-export-title">导出作品包</h2>
+                        <p class="xb-ebook-export-note">选择一本书，导出书稿文件和已引用的阅读器配图。</p>
+                    </div>
+                    <button id="xb-book-export-close" class="xb-icon-button" type="button" title="关闭" aria-label="关闭">×</button>
+                </div>
+                <div class="xb-ebook-delete-list xb-ebook-export-list">
+                    ${list}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderBookTransferOverlay(state = {}) {
+    const progress = state.bookTransferProgress;
+    if (!progress) return '';
+    const mode = progress.mode === 'import' ? '导入作品包' : '导出作品包';
+    const title = String(progress.title || '').trim();
+    const detail = String(progress.detail || '').trim() || '正在处理作品包...';
+    return `
+        <div class="xb-ebook-transfer-overlay" role="status" aria-live="polite">
+            <div class="xb-ebook-transfer-panel">
+                <div class="xb-ebook-transfer-orbit" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                </div>
+                <div class="xb-ebook-transfer-copy">
+                    <strong>${escapeHtml(mode)}</strong>
+                    ${title ? `<small>${escapeHtml(title)}</small>` : ''}
+                    <p>${escapeHtml(detail)}</p>
+                </div>
+                <div class="xb-ebook-transfer-bar" aria-hidden="true"><span></span></div>
+            </div>
+        </div>
+    `;
+}
+
 function renderLibraryShell(options = {}) {
     const state = options.state || {};
     const bookCount = Array.isArray(state.books) ? state.books.length : 0;
     const themeClass = state.colorTheme === 'light' ? 'theme-light' : 'theme-dark';
     const themeToggleIcon = renderThemeToggleIcon(state.colorTheme);
     const themeToggleTitle = state.colorTheme === 'light' ? '切换为深色视觉' : '切换为白底黑字';
+    const transferActive = !!state.bookTransferProgress;
+    const shelfBusy = !!state.isShelfLoading || !!state.shelfLoadError;
+    const shelfStatus = String(state.status || '').trim();
+    const metaText = state.isShelfLoading || state.shelfLoadError
+        ? shelfStatus || '正在打开书架...'
+        : (bookCount ? `${bookCount} 本书稿 · 本地书架` : '本地书架 · 等待第一本书稿');
     return `
         <div class="xb-ebook-screen xb-library-screen ${escapeHtml(themeClass)}${state.isDeleteBookOpen ? ' is-delete-mode' : ''}">
             <div class="xb-ambient-aurora"></div>
@@ -804,9 +1050,10 @@ function renderLibraryShell(options = {}) {
                 <div class="xb-archive-title-block">
                     <h1>小白电纸书</h1>
                     <p class="xb-archive-subtitle">Agent 沉浸式创作与阅读平台</p>
-                    <div class="xb-archive-meta">${bookCount ? `${bookCount} 本书稿 · 本地书架` : '本地书架 · 等待第一本书稿'}</div>
+                    <div class="xb-archive-meta">${escapeHtml(metaText)}</div>
                 </div>
                 <div class="xb-global-actions">
+                    <button id="xb-library-transfer-book" class="xb-glass-button xb-transfer-button" type="button" title="书籍传输" aria-label="书籍传输" ${state.isBusy || transferActive || shelfBusy ? 'disabled' : ''}>${renderTransferTrayIcon()}</button>
                     <button id="xb-theme-toggle" class="xb-glass-button xb-theme-button" type="button" title="${escapeHtml(themeToggleTitle)}" aria-label="${escapeHtml(themeToggleTitle)}">${themeToggleIcon}</button>
                     <button id="xb-close" class="xb-glass-button xb-exit-button" type="button" title="退出电纸书" aria-label="退出电纸书">${renderExitIcon()}</button>
                 </div>
@@ -818,6 +1065,9 @@ function renderLibraryShell(options = {}) {
                     ${renderLibraryShelfActions(state, bookCount)}
                 </section>
             </main>
+            ${renderBookTransferMenuDialog(state)}
+            ${renderBookExportDialog(state)}
+            ${renderBookTransferOverlay(state)}
             ${state.toast ? `<div class="xb-toast">${escapeHtml(state.toast)}</div>` : ''}
         </div>
     `;
@@ -861,13 +1111,15 @@ function getFileGroup(path = '') {
     };
 }
 
-function getStudioFileSignature(file = {}, state = {}) {
+function getStudioFileSignature(file = {}) {
+    // Structural identity only — path + title. The active/selected state is intentionally
+    // excluded so that changing the selected file doesn't alter the signature (which would
+    // force the whole .xb-file-tree to be rebuilt and reset scroll). Selection is synced as a
+    // class toggle in syncFileGroupFiles instead.
     const title = formatFileTitle(file.path);
-    const active = file.path === state.selectedPath;
     return [
         file.path,
         title,
-        active ? 'active' : '',
     ].join(':');
 }
 
@@ -886,15 +1138,25 @@ function renderSectionFiles(section = {}, files = [], state = {}) {
             lastDirectory = directory;
         }
         const active = file.path === state.selectedPath ? ' is-active' : '';
-        const signature = getStudioFileSignature(file, state);
+        const signature = getStudioFileSignature(file);
         rows.push(`
             <button class="xb-file${active}" data-path="${escapeHtml(file.path)}" data-file-signature="${escapeHtml(signature)}">
                 <span class="xb-file-main">${escapeHtml(formatFileTitle(file.path))}</span>
             </button>
         `);
     });
-    const treeSignature = files.map((file) => getStudioFileSignature(file, state)).join('|');
+    const treeSignature = files.map((file) => getStudioFileSignature(file)).join('|');
     return `<div class="xb-file-tree" data-file-tree-signature="${escapeHtml(treeSignature)}">${rows.join('')}</div>`;
+}
+
+function renderFileGroupBadge(group = {}, state = {}) {
+    if (group.key === 'chapters') {
+        const descending = !!state.chapterSortDescending;
+        const label = descending ? '正序' : '倒序';
+        const title = descending ? '按章节正序显示' : '按章节倒序显示';
+        return `<button class="xb-file-sort-toggle${descending ? ' is-descending' : ''}" type="button" data-chapter-sort-toggle title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${escapeHtml(label)}</button>`;
+    }
+    return `<em>${escapeHtml(group.badge)}</em>`;
 }
 
 function renderImportActions(disabledAttr = '') {
@@ -944,18 +1206,23 @@ export function collectStudioFileSectionModels(state = {}, options = {}) {
     return {
         emptyHtml: '',
         groups: [...primarySections, ...otherSections].map((group) => {
-            const filesHtml = renderSectionFiles(group, group.files, state);
+            const displayFiles = group.key === 'chapters' && state.chapterSortDescending
+                ? [...group.files].reverse()
+                : group.files;
             const staticSignature = [
                 group.key,
                 group.title,
                 group.description,
                 group.badge,
+                group.key === 'chapters' && state.chapterSortDescending ? 'desc' : 'asc',
                 group.key === 'sources' ? writeActionAttr : '',
             ].join(':');
-            const fileModels = group.files.map((file) => {
+            const badgeHtml = renderFileGroupBadge(group, state);
+            const filesHtml = renderSectionFiles(group, displayFiles, state);
+            const fileModels = displayFiles.map((file) => {
                 const active = file.path === state.selectedPath;
                 const title = formatFileTitle(file.path);
-                const signature = getStudioFileSignature(file, state);
+                const signature = getStudioFileSignature(file);
                 return {
                     path: file.path,
                     title,
@@ -978,7 +1245,7 @@ export function collectStudioFileSectionModels(state = {}, options = {}) {
                     <div class="xb-file-group" data-file-group-key="${escapeHtml(group.key)}" data-file-static-signature="${escapeHtml(staticSignature)}">
                         <div class="xb-file-group-title">
                             <span>${escapeHtml(group.title)}</span>
-                            <em>${escapeHtml(group.badge)}</em>
+                            ${badgeHtml}
                         </div>
                         <div class="xb-file-group-desc">${escapeHtml(group.description)}</div>
                         ${group.key === 'sources' ? renderImportActions(writeActionAttr) : ''}
@@ -992,7 +1259,7 @@ export function collectStudioFileSectionModels(state = {}, options = {}) {
                     <div class="xb-file-group" data-file-group-key="${escapeHtml(group.key)}" data-file-static-signature="${escapeHtml(staticSignature)}">
                         <div class="xb-file-group-title">
                             <span>${escapeHtml(group.title)}</span>
-                            <em>${escapeHtml(group.badge)}</em>
+                            ${badgeHtml}
                         </div>
                         <div class="xb-file-group-desc">${escapeHtml(group.description)}</div>
                         ${group.key === 'sources' ? renderImportActions(writeActionAttr) : ''}
@@ -1022,6 +1289,16 @@ function createAgentRenderUnit(key = '', signature = '', buildHtml = undefined) 
             return build();
         },
     };
+}
+
+function withAgentRenderUnitKey(html = '', key = '') {
+    const safeKey = escapeHtml(key);
+    const text = String(html || '');
+    if (!safeKey || /^\s*<[a-zA-Z][^>]*\sdata-agent-unit-key=/.test(text)) return text;
+    if (/^\s*<details\b/.test(text)) {
+        return text.replace(/(<summary\b(?![^>]*\sdata-agent-unit-key=)[^>]*)(>)/, `$1 data-agent-unit-key="${safeKey}"$2`);
+    }
+    return text.replace(/^(\s*<[a-zA-Z][^>]*?)(\s*\/?>)/, `$1 data-agent-unit-key="${safeKey}"$2`);
 }
 
 function getThoughtsSignature(message = {}) {
@@ -1083,9 +1360,6 @@ function getToolRunSignature(batches = [], turnKey = '', state = {}, isOpen = fa
 }
 
 export function collectAgentRenderUnits(state = {}) {
-    const memoryHint = state.historySummary
-        ? createAgentRenderUnit('memory', '<div class="xb-agent-memory">已整理较早创作记录，后续写作会继续参考。</div>')
-        : null;
     const messages = Array.isArray(state.messages) ? state.messages : [];
     const units = [];
 
@@ -1239,11 +1513,12 @@ export function collectAgentRenderUnits(state = {}) {
     const hasLiveToolTurn = !!(state.isBusy && Array.isArray(state.toolTrace) && state.toolTrace.length);
     if (!units.length && !hasLiveToolTurn) {
         return [
-            memoryHint,
             createAgentRenderUnit('empty', '<div class="xb-agent-empty">这里是写作助手记录。可以先导入资料，也可以直接说“我想试试写一本书”。</div>'),
         ].filter(Boolean);
     }
-    const messageWindow = getMessageWindow(state, units.length);
+    const messageWindow = getMessageWindow(state, units.length, {
+        preserveStartOnGrow: state.agentAutoScroll === false,
+    });
     const historyGate = messageWindow.hiddenBefore
         ? createAgentRenderUnit(
             `history-gate:${messageWindow.hiddenBefore}`,
@@ -1261,7 +1536,6 @@ export function collectAgentRenderUnits(state = {}) {
         ? createAgentRenderUnit('live-tool-turn', liveTraceSignature, () => renderLiveToolTurn(state))
         : null;
     return [
-        memoryHint,
         historyGate,
         ...units.slice(messageWindow.startIndex),
         liveToolTurn,
@@ -1269,7 +1543,7 @@ export function collectAgentRenderUnits(state = {}) {
 }
 
 export function renderAgentMessages(state = {}) {
-    return collectAgentRenderUnits(state).map((unit) => unit.html).join('');
+    return collectAgentRenderUnits(state).map((unit) => withAgentRenderUnitKey(unit.html, unit.key)).join('');
 }
 
 export function countMessageWindowUnits(messages = []) {
@@ -1376,9 +1650,9 @@ function renderStudioShell(options = {}) {
     const writeActionAttr = state.isBusy ? 'disabled' : '';
     const agentActionAttr = (state.isBusy || !readiness.canRun) ? 'disabled' : '';
     const agentInputAttr = (!state.isBusy && !readiness.canRun) ? 'disabled' : '';
-    const sendButtonAttr = (!state.isBusy && !readiness.canRun) ? 'disabled' : '';
+    const sendButtonAttr = state.isCancellingRun || (!state.isBusy && !readiness.canRun) ? 'disabled' : '';
     const agentInputDraft = String(state.agentInputDraft || '');
-    const canClearConversation = !!(state.messages?.length || state.historySummary?.trim());
+    const canClearConversation = !!state.messages?.length;
     const layoutClass = ['focus-editor', 'focus-agent'].includes(state.studioLayout)
         ? state.studioLayout
         : 'balanced';
@@ -1473,7 +1747,7 @@ function renderStudioShell(options = {}) {
                             </div>
                         </div>
                         <div class="xb-agent-toolbar">
-                            <div class="xb-agent-context-meter" title="${escapeHtml(renderConversationContextMeterTitle(state))}">${escapeHtml(renderConversationContextMeterLabel(state))}</div>
+                            <div class="xb-agent-context-meter" title="${escapeHtml(renderConversationContextMeterTitle(state, providerConfig))}">${escapeHtml(renderConversationContextMeterLabel(state, providerConfig))}</div>
                             <button id="xb-agent-clear" type="button" ${state.isBusy || !canClearConversation ? 'disabled' : ''}>清空对话</button>
                             <button id="xb-agent-open-settings" type="button">API配置</button>
                         </div>
@@ -1485,8 +1759,11 @@ function renderStudioShell(options = {}) {
                                 <div class="xb-actions">
                                     <button data-action="start-book" ${agentActionAttr}>聊新书</button>
                                     <button data-action="spine" ${agentActionAttr}>建书脊</button>
+                                    <button data-action="style-plan" ${agentActionAttr}>定写法</button>
                                     <button data-action="organize" ${agentActionAttr}>整理资料</button>
                                     <button data-action="outline" ${agentActionAttr}>搭大纲</button>
+                                    <button data-action="volume-plan" ${agentActionAttr}>定当前卷</button>
+                                    <button data-action="next-chapter" ${agentActionAttr}>按指挥写</button>
                                     <button data-action="opening-options" ${agentActionAttr}>试写开场</button>
                                 </div>
                             </details>
@@ -1506,7 +1783,7 @@ function renderStudioShell(options = {}) {
                                 <div class="xb-compose-hint" id="xb-compose-hint">Enter 发送 · Shift+Enter 换行</div>
                             </div>
                             <div class="xb-agent-compose-actions">
-                                <button type="submit" class="${state.isBusy ? 'is-busy' : ''}" title="${state.isBusy ? '停止' : '发送'}" aria-label="${state.isBusy ? '停止' : '发送'}" ${sendButtonAttr}>${state.isBusy ? '■' : '➤'}</button>
+                                <button type="submit" class="${state.isBusy ? 'is-busy' : ''}" title="${state.isCancellingRun ? '正在停止' : state.isBusy ? '停止' : '发送'}" aria-label="${state.isCancellingRun ? '正在停止' : state.isBusy ? '停止' : '发送'}" ${sendButtonAttr}>${state.isCancellingRun ? '…' : state.isBusy ? '■' : '➤'}</button>
                             </div>
                         </div>
                     </form>
@@ -1528,7 +1805,24 @@ function renderReaderChapterButtons(chapters = [], activePath = '') {
     `).join('');
 }
 
-function renderReaderTextContent(content = '') {
+function normalizeReaderHeadingText(text = '') {
+    return String(text || '')
+        .replace(/[*_`~]/g, '')
+        .replace(/[《》「」『』“”"'\s]/g, '')
+        .replace(/[。.!！?？：:；;、，,]+$/g, '')
+        .replace(/^第0*(\d+)章$/i, '第$1章')
+        .trim();
+}
+
+function isDuplicateReaderChapterHeading(block = '', chapterTitle = '') {
+    const match = String(block || '').match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
+    if (!match) return false;
+    const heading = normalizeReaderHeadingText(match[1]);
+    const title = normalizeReaderHeadingText(chapterTitle);
+    return !!heading && !!title && heading === title;
+}
+
+function renderReaderTextContent(content = '', options = {}) {
     const normalized = String(content || '').trim();
     if (!normalized) return '';
     const markerRegex = /\[ebook-image:([a-z0-9\-_]+)\]/gi;
@@ -1542,6 +1836,7 @@ function renderReaderTextContent(content = '') {
             .map((block) => block.trim())
             .filter(Boolean)
             .forEach((block) => {
+                if (paragraphIndex === 0 && isDuplicateReaderChapterHeading(block, options.chapterTitle)) return;
                 parts.push(renderReaderMarkdownBlock(block, paragraphIndex));
                 paragraphIndex += 1;
             });
@@ -1617,7 +1912,7 @@ function renderReaderShell(options = {}) {
                                 <p>${escapeHtml(formatTextMetrics(content))}</p>
                             </div>
                         </header>
-                        <div class="xb-reader-content">${renderReaderTextContent(content)}</div>
+                        <div class="xb-reader-content">${renderReaderTextContent(content, { chapterTitle: formatFileTitle(activePath) })}</div>
                         <footer class="xb-reader-foot">
                             <button data-reader-path="${escapeHtml(previous?.path || '')}" ${previous ? '' : 'disabled'}>上一章</button>
                             <button data-reader-path="${escapeHtml(next?.path || '')}" ${next ? '' : 'disabled'}>下一章</button>

@@ -1,0 +1,368 @@
+/* Tavern chat: contract modal and covenant trigger. */
+
+.tavern-chat.xb-page .contract-trigger {
+    min-height: 34px;
+    border: 1px solid rgba(92, 42, 42, 0.22);
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(128, 38, 38, 0.10), rgba(128, 38, 38, 0.04));
+    color: var(--xb-stamp);
+    font-family: var(--xb-font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 7px 14px;
+}
+
+.tavern-chat.xb-page .contract-trigger:hover:not(:disabled),
+.tavern-chat.xb-page .contract-trigger:focus-visible {
+    outline: none;
+    border-color: rgba(92, 42, 42, 0.38);
+    background: linear-gradient(180deg, rgba(128, 38, 38, 0.16), rgba(128, 38, 38, 0.08));
+    color: #7c1e1e;
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .contract-trigger {
+    border-color: rgba(186, 130, 110, 0.24);
+    background: linear-gradient(180deg, rgba(122, 56, 42, 0.20), rgba(122, 56, 42, 0.10));
+    color: #dfb1a3;
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .contract-trigger:hover:not(:disabled),
+.xb-os-shell.theme-dark .tavern-chat.xb-page .contract-trigger:focus-visible {
+    border-color: rgba(223, 177, 163, 0.34);
+    background: linear-gradient(180deg, rgba(122, 56, 42, 0.28), rgba(122, 56, 42, 0.16));
+    color: #f3d4ca;
+}
+
+.tavern-contract-overlay {
+    --contract-overlay: rgba(19, 16, 13, 0.48);
+    --contract-surface: #f4f3ee;
+    --contract-surface-strong: #eae8df;
+    --contract-border: #d8d4c7;
+    --contract-border-strong: #1a1a1a;
+    --contract-title: #1a1a1a;
+    --contract-body: #1a1a1a;
+    --contract-muted: #5c5a56;
+    --contract-accent: #8c2a2a;
+    --contract-seal: #b8963e;
+    --contract-seal-glow: rgba(184, 150, 62, 0.30);
+    --contract-font-title: "Cinzel", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+    position: fixed;
+    inset: 0;
+    z-index: 85;
+    display: grid;
+    place-items: center;
+    background: var(--contract-overlay);
+    backdrop-filter: blur(12px) saturate(0.88);
+    padding: clamp(16px, 3vw, 30px);
+}
+
+.xb-os-shell.theme-dark .tavern-contract-overlay {
+    --contract-overlay: rgba(5, 4, 3, 0.76);
+}
+
+.tavern-contract-modal {
+    position: relative;
+    width: min(640px, 96vw);
+    max-height: min(94vh, 980px);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    border: none;
+    border-radius: 4px;
+    background: var(--contract-surface);
+    color: var(--contract-body);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+}
+
+.tavern-contract-head {
+    position: relative;
+    display: block;
+    text-align: center;
+    margin: 0 clamp(22px, 4vw, 50px);
+    border-bottom: 2px solid var(--contract-border-strong);
+    padding: 50px 0 25px;
+}
+
+.tavern-contract-heading {
+    max-width: 100%;
+}
+
+.tavern-contract-head h2 {
+    margin: 0 0 8px;
+    color: var(--contract-title);
+    font-family: var(--contract-font-title);
+    font-size: clamp(34px, 5vw, 42px);
+    font-weight: 600;
+    letter-spacing: 0.18em;
+}
+
+.tavern-contract-head .eyebrow {
+    margin: 0;
+    color: var(--contract-accent);
+    font-family: var(--xb-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+}
+
+.tavern-contract-close {
+    position: absolute;
+    top: 16px;
+    right: 0;
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    min-height: 34px;
+    border: 1px solid var(--contract-border);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.28);
+    color: var(--contract-muted);
+    font-size: 21px;
+    line-height: 1;
+    padding: 0;
+}
+
+.tavern-contract-close:hover:not(:disabled),
+.tavern-contract-close:focus-visible {
+    outline: none;
+    border-color: var(--contract-border-strong);
+    color: var(--contract-title);
+    background: rgba(255, 255, 255, 0.7);
+}
+
+.tavern-contract-body {
+    overflow: auto;
+    padding: 30px clamp(22px, 4vw, 50px) 0;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.tavern-contract-body::-webkit-scrollbar {
+    display: none;
+}
+
+.tavern-contract-preamble {
+    max-width: min(520px, 100%);
+    margin: 0 auto 35px;
+    color: var(--contract-muted);
+    font-family: "Crimson Pro", Georgia, "Times New Roman", "Noto Serif SC", "Songti SC", serif;
+    font-size: 16px;
+    line-height: 1.68;
+    font-style: italic;
+    text-align: center;
+    text-wrap: balance;
+}
+
+.tavern-contract-tier + .tavern-contract-tier {
+    margin-top: 35px;
+}
+
+.tavern-contract-tier-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 20px;
+}
+
+.tavern-contract-tier-bar::before,
+.tavern-contract-tier-bar::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--contract-border);
+}
+
+.tavern-contract-tier-bar span {
+    color: var(--contract-muted);
+    font-family: var(--contract-font-title);
+    font-size: 12px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.tavern-contract-mandate {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    border-bottom: 1px solid var(--contract-border);
+    padding: 22px 0;
+    transition: opacity 0.4s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.tavern-contract-mandate.is-off {
+    opacity: 0.3;
+}
+
+.tavern-contract-seal {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    border: 2px solid var(--contract-border);
+    border-radius: 999px;
+    background: var(--contract-surface-strong);
+    color: var(--contract-muted);
+    font-size: 20px;
+    margin-top: 2px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    transition: all 0.4s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.tavern-contract-seal > span {
+    opacity: 0.25;
+    transition: opacity 0.4s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.tavern-contract-seal.active {
+    border-color: var(--contract-seal);
+    background: rgba(184, 150, 62, 0.08);
+    color: var(--contract-body);
+    box-shadow: 0 0 15px var(--contract-seal-glow);
+}
+
+.tavern-contract-seal.active > span {
+    opacity: 1;
+}
+
+.tavern-contract-seal:hover:not(:disabled),
+.tavern-contract-seal:focus-visible {
+    outline: none;
+    transform: translateY(-1px);
+}
+
+.tavern-contract-mandate.is-off .tavern-contract-copy h3 {
+    color: var(--contract-muted);
+    text-decoration: line-through;
+}
+
+.tavern-contract-copy {
+    flex: 1 1 auto;
+}
+
+.tavern-contract-copy h3 {
+    margin: 0 0 8px;
+    color: var(--contract-title);
+    font-family: var(--xb-font-serif);
+    font-size: 19px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.tavern-contract-description {
+    margin: 0;
+    color: var(--contract-muted);
+    font-family: var(--xb-font-ui);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.tavern-contract-foot {
+    display: grid;
+    gap: 12px;
+    justify-items: center;
+    border-top: 2px solid var(--contract-border-strong);
+    background: var(--contract-surface-strong);
+    padding: 24px clamp(22px, 4vw, 50px) 30px;
+}
+
+.tavern-contract-save {
+    min-height: 48px;
+    min-width: min(100%, 300px);
+    border: 2px solid var(--contract-border-strong);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--contract-title);
+    font-family: var(--contract-font-title);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    padding: 0 32px;
+}
+
+.tavern-contract-save:disabled {
+    opacity: 0.64;
+    transform: none;
+    box-shadow: none;
+}
+
+.tavern-contract-save:hover:not(:disabled),
+.tavern-contract-save:focus-visible {
+    outline: none;
+    background: var(--contract-title);
+    color: var(--contract-surface);
+    letter-spacing: 0.42em;
+}
+
+.tavern-contract-note {
+    margin: 0;
+    color: var(--contract-muted);
+    font-family: var(--xb-font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-align: center;
+}
+
+.tavern-contract-error {
+    margin: 0;
+    color: var(--contract-accent);
+    font-family: var(--xb-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: center;
+}
+
+@media (max-width: 760px) {
+    .tavern-chat.xb-page .contract-trigger {
+        min-width: 0;
+        padding: 6px 10px;
+    }
+
+    .tavern-contract-modal {
+        width: min(100%, 96vw);
+        max-height: min(94vh, 1000px);
+    }
+
+    .tavern-contract-head {
+        margin: 0 18px;
+        padding: 42px 0 18px;
+    }
+
+    .tavern-contract-body {
+        padding: 22px 18px 0;
+    }
+
+    .tavern-contract-preamble {
+        max-width: 100%;
+        margin-bottom: 28px;
+        font-size: 16px;
+    }
+
+    .tavern-contract-tier + .tavern-contract-tier {
+        margin-top: 28px;
+    }
+
+    .tavern-contract-mandate {
+        gap: 14px;
+        padding: 18px 0;
+    }
+
+    .tavern-contract-copy h3 {
+        font-size: 18px;
+    }
+
+    .tavern-contract-foot {
+        padding: 18px;
+    }
+
+    .tavern-contract-save {
+        min-width: 100%;
+        padding: 0 20px;
+    }
+}

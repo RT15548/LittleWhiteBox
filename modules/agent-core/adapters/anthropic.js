@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { buildSdkRequestInspection } from './request-inspection.js';
 
 function parseArguments(text) {
     try {
@@ -90,6 +91,21 @@ function buildToolResultBlock(message = {}) {
     };
 }
 
+function buildToolUseBlocksFromToolCalls(toolCalls = []) {
+    return (Array.isArray(toolCalls) ? toolCalls : [])
+        .map((toolCall) => {
+            const name = String(toolCall?.function?.name || '').trim();
+            if (!name) return null;
+            return {
+                type: 'tool_use',
+                id: toolCall.id,
+                name,
+                input: parseArguments(toolCall.function.arguments),
+            };
+        })
+        .filter(Boolean);
+}
+
 export function buildAnthropicMessages(messages) {
     const filtered = [];
 
@@ -99,6 +115,16 @@ export function buildAnthropicMessages(messages) {
 
         if (message.role === 'assistant') {
             const preservedContent = normalizeAnthropicContent(message);
+            const topLevelToolUses = buildToolUseBlocksFromToolCalls(message.tool_calls);
+            if (preservedContent && topLevelToolUses.length) {
+                filtered.push({
+                    role: 'assistant',
+                    content: preservedContent
+                        .filter((block) => block?.type !== 'tool_use')
+                        .concat(topLevelToolUses),
+                });
+                continue;
+            }
             if (preservedContent) {
                 filtered.push({
                     role: 'assistant',
@@ -126,12 +152,7 @@ export function buildAnthropicMessages(messages) {
                 role: 'assistant',
                 content: [
                     ...(message.content ? [{ type: 'text', text: message.content }] : []),
-                    ...message.tool_calls.map((toolCall) => ({
-                        type: 'tool_use',
-                        id: toolCall.id,
-                        name: toolCall.function.name,
-                        input: parseArguments(toolCall.function.arguments),
-                    })),
+                    ...buildToolUseBlocksFromToolCalls(message.tool_calls),
                 ],
             });
             continue;
@@ -151,6 +172,8 @@ function emitStreamProgress(task, payload) {
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
+        ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
 }
 
@@ -173,7 +196,7 @@ export class AnthropicAdapter {
         });
     }
 
-    async chat(task) {
+    buildRequestBody(task) {
         const tools = (task.tools || []).map((tool) => ({
             name: tool.function.name,
             description: tool.function.description,
@@ -196,6 +219,29 @@ export class AnthropicAdapter {
                 display: 'summarized',
             };
         }
+        return body;
+    }
+
+    inspectRequest(task, options = {}) {
+        const stream = typeof task.onStreamProgress === 'function';
+        const baseUrl = normalizeAnthropicSdkBaseUrl(this.config.baseUrl);
+        return buildSdkRequestInspection({
+            provider: 'anthropic',
+            model: this.config.model,
+            transport: 'anthropic-sdk',
+            url: `${baseUrl}/v1/messages`,
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': this.config.apiKey || '',
+            },
+            body: options.body || this.buildRequestBody(task),
+            sdk: stream ? 'client.messages.stream' : 'client.messages.create',
+        });
+    }
+
+    async chat(task) {
+        const body = this.buildRequestBody(task);
+        const requestInspection = this.inspectRequest(task, { body });
         let response;
 
         if (typeof task.onStreamProgress === 'function') {
@@ -203,6 +249,8 @@ export class AnthropicAdapter {
                 signal: task.signal,
             });
             const thoughtMap = new Map();
+            const toolDraftMap = new Map();
+            let streamText = '';
             const buildThoughts = () => Array.from(thoughtMap.entries())
                 .sort(([left], [right]) => left.localeCompare(right))
                 .map(([key, text]) => ({
@@ -210,24 +258,73 @@ export class AnthropicAdapter {
                     text,
                 }))
                 .filter((item) => item.text);
+            const buildToolDrafts = () => Array.from(toolDraftMap.entries())
+                .sort(([left], [right]) => Number(left) - Number(right))
+                .map(([, toolCall]) => ({
+                    id: toolCall.id || 'anthropic-tool-draft',
+                    name: toolCall.name || '工具调用',
+                    arguments: toolCall.inputJson || '{}',
+                    draft: true,
+                }))
+                .filter((item) => item.name);
+            const emitToolDraftProgress = () => {
+                const toolCalls = buildToolDrafts();
+                if (!toolCalls.length) return;
+                emitStreamProgress(task, {
+                    text: streamText,
+                    thoughts: buildThoughts(),
+                    toolCalls,
+                    toolCallDraft: true,
+                });
+            };
 
             stream.on('text', (_delta, snapshot) => {
+                streamText = snapshot || '';
                 emitStreamProgress(task, {
-                    text: snapshot || '',
+                    text: streamText,
                     thoughts: buildThoughts(),
+                    ...(buildToolDrafts().length ? { toolCalls: buildToolDrafts(), toolCallDraft: true } : {}),
                 });
             });
             stream.on('thinking', (_delta, snapshot) => {
                 thoughtMap.set('thinking:0', snapshot || '');
                 emitStreamProgress(task, {
                     thoughts: buildThoughts(),
+                    ...(buildToolDrafts().length ? { text: streamText, toolCalls: buildToolDrafts(), toolCallDraft: true } : {}),
                 });
+            });
+            stream.on('streamEvent', (event) => {
+                if (event?.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+                    const initialInput = event.content_block.input && typeof event.content_block.input === 'object'
+                        ? event.content_block.input
+                        : {};
+                    toolDraftMap.set(event.index, {
+                        id: event.content_block.id || `anthropic-tool-draft-${event.index + 1}`,
+                        name: event.content_block.name || '工具调用',
+                        inputJson: Object.keys(initialInput).length ? JSON.stringify(initialInput) : '',
+                    });
+                    emitToolDraftProgress();
+                    return;
+                }
+                if (event?.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') {
+                    const existing = toolDraftMap.get(event.index) || {
+                        id: `anthropic-tool-draft-${event.index + 1}`,
+                        name: '工具调用',
+                        inputJson: '',
+                    };
+                    toolDraftMap.set(event.index, {
+                        ...existing,
+                        inputJson: `${existing.inputJson || ''}${event.delta.partial_json || ''}`,
+                    });
+                    emitToolDraftProgress();
+                }
             });
             stream.on('contentBlock', (contentBlock) => {
                 if (contentBlock?.type !== 'redacted_thinking') return;
                 thoughtMap.set('redacted:0', contentBlock.data || '');
                 emitStreamProgress(task, {
                     thoughts: buildThoughts(),
+                    ...(buildToolDrafts().length ? { text: streamText, toolCalls: buildToolDrafts(), toolCallDraft: true } : {}),
                 });
             });
             response = await stream.finalMessage();
@@ -265,6 +362,7 @@ export class AnthropicAdapter {
             model: response.model || this.config.model,
             provider: 'anthropic',
             providerPayload: buildProviderPayload(response),
+            requestInspection,
         };
     }
 }

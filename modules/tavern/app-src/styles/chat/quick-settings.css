@@ -1,0 +1,352 @@
+/* Chat-local settings modal overrides. Imported after settings.css on purpose. */
+
+.settings-layout.chat-quick-settings-layout {
+    --xb-settings-control-bg: var(--xb-bg-card);
+    --xb-settings-control-focus-bg: var(--xb-bg-soft);
+    --xb-settings-soft-bg: var(--xb-bg-card);
+    --xb-settings-subtle-bg: var(--xb-chat-panel-bg);
+    --xb-settings-float-bg: var(--xb-chat-pop-bg);
+    --xb-settings-sheet-bg: var(--xb-chat-pop-bg);
+    width: 100%;
+    min-height: 0;
+    height: auto;
+    display: block;
+    grid-template-columns: none;
+    grid-template-rows: none;
+    overflow: visible;
+    background: transparent;
+}
+
+.xb-os-shell.theme-light .settings-layout.chat-quick-settings-layout {
+    --xb-settings-control-bg: var(--xb-paper-plain);
+    --xb-settings-control-focus-bg: #ffffff;
+    --xb-settings-soft-bg: var(--xb-paper-plain);
+    --xb-settings-subtle-bg: var(--xb-paper-warm);
+    --xb-settings-float-bg: var(--xb-paper-plain);
+    --xb-settings-sheet-bg: var(--xb-paper-plain);
+}
+
+.settings-layout.chat-quick-settings-layout .xb-main {
+    width: 100%;
+    min-height: 0;
+    display: block;
+    overflow: visible;
+    background: transparent;
+    padding: 0;
+}
+
+.settings-layout.chat-quick-settings-layout .step-panel {
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+}
+
+.settings-layout.chat-quick-settings-layout .step-panel > .panel-head,
+.settings-layout.chat-quick-settings-layout .step-panel > .preset-page-head {
+    min-height: 0;
+    align-items: center;
+    border-bottom: 1px solid var(--xb-line);
+    background: transparent;
+    padding: 0 18px;
+}
+
+.settings-layout.chat-quick-settings-layout .step-panel > .panel-head h2,
+.settings-layout.chat-quick-settings-layout .step-panel > .preset-page-head h2 {
+    display: none;
+}
+
+.settings-layout.chat-quick-settings-layout .step-panel > .panel-head .panel-pills,
+.settings-layout.chat-quick-settings-layout .step-panel > .preset-page-head .panel-pills {
+    min-height: 40px;
+    align-items: center;
+}
+
+.chat-quick-settings-body.is-characters-workspace {
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    overflow: hidden;
+}
+
+.settings-layout.chat-quick-settings-layout.is-characters-workspace,
+.settings-layout.chat-quick-settings-layout.is-characters-workspace .xb-main {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.settings-layout.chat-quick-settings-layout.is-characters-workspace .character-workspace-panel {
+    height: 100%;
+    min-height: 0;
+    gap: 0;
+    overflow: hidden;
+    padding: 0;
+}
+
+.settings-layout.chat-quick-settings-layout.is-characters-workspace .character-archive {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.chat-quick-settings-body.is-chatPreset-workspace {
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    overflow: hidden;
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace,
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .xb-main,
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .step-panel {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.settings-layout.chat-quick-settings-layout .preset-command-bar {
+    min-height: 52px;
+    padding: 8px 18px;
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .preset-workspace {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .preset-studio {
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 0;
+    grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+    overflow: hidden;
+    border-top: 1px solid var(--xb-line);
+    background: var(--xb-chat-pop-bg);
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-sequence-panel {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid var(--xb-line);
+    background: var(--xb-settings-subtle-bg);
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-manager-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 8px;
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-edit-button {
+    display: grid;
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .preset-preview-panel {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--xb-settings-sheet-bg);
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .preset-preview-head {
+    min-height: 46px;
+    border-bottom: 1px solid var(--xb-line);
+    background: var(--xb-settings-sheet-bg);
+    padding: 0 14px;
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-editor-close {
+    display: inline-grid;
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-detail-form {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    background: var(--xb-settings-sheet-bg);
+    padding: 16px;
+}
+
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-detail-form input,
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-detail-form select,
+.settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-detail-form textarea {
+    background-color: var(--xb-settings-control-bg);
+}
+
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .native-workspace {
+    display: flex;
+    flex-direction: column;
+    background: var(--xb-chat-pop-bg);
+}
+
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-overview-grid {
+    min-height: clamp(420px, 64vh, 700px);
+    overflow: visible;
+    background: var(--xb-chat-pop-bg);
+}
+
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-overview-detail {
+    overflow: visible;
+    background: var(--xb-settings-sheet-bg);
+}
+
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-preview-surface {
+    min-height: 0;
+    background: var(--xb-settings-sheet-bg);
+    padding: 16px 18px 20px;
+}
+
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-entry-preview[open] {
+    background: var(--xb-settings-sheet-bg);
+}
+
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-entry-body {
+    background: var(--xb-settings-soft-bg);
+}
+
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-entry-editor {
+    position: relative;
+    z-index: 1;
+    border: 1px solid var(--xb-line);
+    border-radius: 8px;
+    background: var(--xb-settings-sheet-bg);
+    padding: 12px;
+}
+
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-entry-editor input[type="text"],
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-entry-editor input[type="number"],
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-entry-editor select,
+.settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-entry-editor textarea {
+    background-color: var(--xb-settings-control-bg);
+}
+
+@media (max-width: 760px) {
+    .settings-layout.chat-quick-settings-layout {
+        height: auto;
+        overflow: visible;
+    }
+
+    .settings-layout.chat-quick-settings-layout .xb-main,
+    .settings-layout.chat-quick-settings-layout .step-panel {
+        overflow: visible;
+    }
+
+    .settings-layout.chat-quick-settings-layout .step-panel > .panel-head,
+    .settings-layout.chat-quick-settings-layout .step-panel > .preset-page-head {
+        padding: 0 12px;
+    }
+
+    .settings-layout.chat-quick-settings-layout .step-panel > .panel-head .panel-pills,
+    .settings-layout.chat-quick-settings-layout .step-panel > .preset-page-head .panel-pills {
+        display: flex;
+        justify-content: flex-start;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-characters-workspace,
+    .settings-layout.chat-quick-settings-layout.is-characters-workspace .xb-main,
+    .settings-layout.chat-quick-settings-layout.is-characters-workspace .character-workspace-panel {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-characters-workspace .character-archive {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-characters-workspace .character-preview-panel.dossier-view {
+        border-top: 0;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-characters-workspace .character-preview-panel.dossier-view::before {
+        display: none;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .preset-studio,
+    .settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-overview-grid {
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: visible;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-sequence-panel {
+        max-height: none;
+        overflow: hidden;
+        border-right: 0;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-manager-list {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        padding: 0 12px 8px;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-manager-row {
+        width: 100%;
+        flex: none;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-row-actions {
+        display: flex;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .preset-preview-panel.prompt-editor-panel {
+        position: fixed;
+        z-index: 180;
+        inset:
+            max(10px, env(safe-area-inset-top, 0px))
+            max(10px, env(safe-area-inset-right, 0px))
+            max(10px, env(safe-area-inset-bottom, 0px))
+            max(10px, env(safe-area-inset-left, 0px));
+        height: auto;
+        max-height: none;
+        min-height: 0;
+        overflow: hidden;
+        border: 1px solid var(--xb-line);
+        border-radius: 14px;
+        background: var(--xb-settings-sheet-bg);
+        box-shadow: 0 22px 72px rgba(0, 0, 0, 0.46);
+        transform: none;
+    }
+
+    .xb-os-shell.theme-light .settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .preset-preview-panel.prompt-editor-panel {
+        box-shadow: 0 18px 48px rgba(26, 26, 26, 0.18);
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-chatPreset-workspace .prompt-detail-form {
+        flex: 1 1 auto;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 12px;
+    }
+
+    .settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-overview-detail,
+    .settings-layout.chat-quick-settings-layout.is-worldbooks-workspace .worldbook-preview-surface {
+        overflow: visible;
+    }
+}

@@ -1,4 +1,4 @@
-import { TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
+import { getTavilySearchToolDefinition, TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
 
 export const EBOOK_TOOL_NAMES = Object.freeze({
     LS: 'LS',
@@ -47,45 +47,24 @@ export function getEbookToolDefinitions(options = {}) {
         {
             type: 'function',
             function: {
-                name: EBOOK_TOOL_NAMES.GLOB,
-                description: [
-                    'Match current-book file paths by glob pattern.',
-                    'Matches paths only. Does not inspect file contents.',
-                    'Use to narrow candidates by directory, extension, chapter number, or source type.',
-                    'pattern uses `book/...` path patterns. `path` is only an optional directory scope and does not replace pattern.',
-                ].join('\n'),
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        pattern: { type: 'string', description: 'Required glob path pattern, for example `book/**/*.md`, `book/chapters/*.md`, or `book/sources/**/*.md`.' },
-                        path: { type: 'string', description: 'Optional directory scope. Must be `book/.../`, for example `book/chapters/`.' },
-                    },
-                    required: ['pattern'],
-                    additionalProperties: false,
-                },
-            },
-        },
-        {
-            type: 'function',
-            function: {
                 name: EBOOK_TOOL_NAMES.GREP,
                 description: [
                     'Search text inside current-book files.',
-                    'Uses regex by default and returns matching files plus line-level snippets.',
+                    'Uses literal text search by default and returns matching files plus line-level snippets.',
                     'Use before reading many files to locate character names, dialogue, settings, foreshadowing, plot points, or review notes.',
-                    '`path` limits the search directory; `include` limits the file glob. For literal text search, explicitly pass `useRegex: false`.',
+                    '`path` can be a search directory or one exact file; `include` limits the file glob/name. For regex search, explicitly pass `useRegex: true`.',
                 ].join('\n'),
                 parameters: {
                     type: 'object',
                     properties: {
-                        pattern: { type: 'string', description: 'Search pattern. Treated as regex by default; use `useRegex: false` for literal text search.' },
-                        path: { type: 'string', description: 'Optional search directory. Must be `book/.../`, for example `book/chapters/`.' },
-                        include: { type: 'string', description: 'Optional file glob filter, for example `book/chapters/*.md`.' },
+                        pattern: { type: 'string', description: 'Search pattern. Treated as literal text by default; use `useRegex: true` only when you intentionally need regex.' },
+                        path: { type: 'string', description: 'Optional search scope. Can be a directory like `book/chapters/` or one file like `book/chapters/101.md`.' },
+                        include: { type: 'string', description: 'Optional file glob/name filter, for example `book/chapters/*.md` or `101.md`.' },
                         outputMode: { type: 'string', enum: ['content', 'files_with_matches', 'count'], description: '`content` returns matched lines, `files_with_matches` returns files only, and `count` returns match counts. Default `content`.' },
                         limit: { type: 'number', description: 'Maximum number of results to return. Default 100, max 100.' },
                         offset: { type: 'number', description: 'Skip this many results before returning matches. Default 0.' },
                         contextLines: { type: 'number', description: 'How many context lines to show before and after each match. Default 0, max 5.' },
-                        useRegex: { type: 'boolean', description: 'Whether to treat pattern as a regex. Default true.' },
+                        useRegex: { type: 'boolean', description: 'Whether to treat pattern as a regex. Default false; omit it for literal text search.' },
                     },
                     required: ['pattern'],
                     additionalProperties: false,
@@ -118,27 +97,7 @@ export function getEbookToolDefinitions(options = {}) {
     ];
 
     if (webSearchEnabled) {
-        definitions.push({
-            type: 'function',
-            function: {
-                name: EBOOK_TOOL_NAMES.WEB_SEARCH,
-                description: [
-                    'Use Tavily to search real-world facts, public documents, or time-sensitive information not available in the current book or imported sources.',
-                    'Use for real locations, historical background, institutions, professional details, daily-life facts, period facts, public references, or outside research. For book text, imported sources, and setting continuity, prefer LS / Glob / Grep / Read.',
-                    'Use focused queries. Verify facts first, then convert results into writing, setting, or review judgments. Do not treat web results as imported book sources.',
-                    'Only available when this tool appears in the tool list. If absent, do not claim to have searched the web.',
-                ].join('\n'),
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        query: { type: 'string', description: 'Focused and specific search query, for example `1997 Hong Kong police ranks` or `Kyoto Gion machiya layout`.' },
-                        maxResults: { type: 'number', description: 'Optional number of results to return. Default 5, max 8.' },
-                    },
-                    required: ['query'],
-                    additionalProperties: false,
-                },
-            },
-        });
+        definitions.push(getTavilySearchToolDefinition());
     }
 
     if (!readOnly) {
@@ -149,7 +108,7 @@ export function getEbookToolDefinitions(options = {}) {
                     name: EBOOK_TOOL_NAMES.WRITE,
                     description: [
                         'Write a complete text file in the current book.',
-                        'Use for creating files, full-file rewrites, large prose sections, whole sections, or whole-chapter rewrites.',
+                        'Use for creating files, complete file rewrites, whole sections, whole chapters, or rewrites where most content is new.',
                         'Read the target file first. Write overwrites the entire file, so include all original content you want to keep.',
                         'The argument names are `filePath` and `content`. Write replaces the complete target file content.',
                     ].join('\n'),
@@ -169,23 +128,34 @@ export function getEbookToolDefinitions(options = {}) {
                 function: {
                     name: EBOOK_TOOL_NAMES.EDIT,
                     description: [
-                        'Edit one current-book file by replacing original text fragments.',
-                        'Use for in-sentence, small-paragraph, or multi-spot local revisions. One call edits one file; put multiple replacements in the edits array.',
+                        'Edit one existing current-book file by replacing original text fragments, replacing inclusive line ranges, inserting text at line positions, or removing text with empty replacements.',
+                        'One call edits one file.',
+                        'Use oldString/newString for local text replacement. Use startLine/endLine/newString for contiguous passage replacement where copying oldString would be fragile. Use insertAtLine/newString to add new text before a line or at the end without replacing existing text. Use Write instead for creating files, complete rewrites, or rewrites where most content is new.',
+                        'Read the target file first unless the exact current text is already available in the conversation or a recent tool result. Line-range and insertion edits must use line numbers from the latest Read result.',
+                        'Put multiple edits in the edits array. Line-range and insertion items may share one call when they use line numbers from the same Read result. Keep oldString edits separate from line-number edits unless the whole change can be expressed with line numbers.',
+                        'The `edits` argument must be a non-empty array value, not a JSON-stringified string. Correct: `"edits":[{"startLine":10,"endLine":50,"newString":"..."}]`. Wrong: `"edits":"[{\\"startLine\\":10,\\"endLine\\":50,\\"newString\\":\\"...\\"}]"`.',
+                        'Each edit item should choose exactly one mode. Omit unused mode fields when possible. If the provider/tool channel adds stray optional fields, Edit normalizes by priority: complete startLine/endLine wins, then insertAtLine, then oldString.',
+                        'Correct line-range item: `{"startLine":10,"endLine":50,"newString":"..."}`. If a polluted item also contains oldString or insertAtLine, the complete startLine/endLine range is used and stray fields are ignored.',
                         'Do not issue multiple Edit tool calls for the same file in one assistant turn. Combine same-file changes into one Edit call, or wait for the first result before editing that file again.',
                         '',
                         '## Matching Rules',
-                        'oldString must be an exact fragment present in the file, including spaces and newlines.',
+                        'oldString must be an exact fragment present in the file, including spaces and newlines. To remove the matched word, sentence, or fragment, set newString to an empty string.',
                         'Common punctuation equivalence is supported, such as straight/curly quotes and ASCII/full-width comma or period. Replacements preserve the file punctuation style when possible.',
+                        'For long oldString fragments, Edit can also tolerate whitespace-only differences such as indentation, line wrapping, or extra/missing blank lines.',
                         'Each oldString must be unique by default. Multiple matches return line numbers and context.',
+                        'Line-range edits use 1-based inclusive startLine/endLine from Read output. A line range replaces the entire inclusive range with any length of newString; use an empty newString to remove the range. Replacement line count does not need to match the original range.',
+                        'Insertion edits use 1-based insertAtLine from Read output. insertAtLine inserts before that line; use totalLines + 1 to append to the end of the file.',
+                        'Line-range and insertion items in one call are applied by original Read line numbers from bottom to top automatically to avoid line-number shifts; do not adjust later line numbers yourself. If an insertion falls inside a line range being replaced, merge it into that line-range replacement.',
+                        'Do not intentionally mix oldString edits with line-number edits in one Edit call. If one item is polluted by stray optional fields, the tool will still choose one mode by priority instead of failing.',
                         '',
                         '## Failure Handling',
                         'Not found: check whether oldString exactly matches the file content.',
                         'Multiple matches: expand oldString with more context to make it unique, or set `replaceAll: true`.',
                         '',
                         '## Notes',
-                        'edits execute in order. Do not let a later oldString match text just inserted by an earlier newString.',
+                        'oldString edits execute in order. Line-range and insertion edits execute bottom-to-top by original line numbers. Do not let a later oldString match text just inserted by an earlier newString.',
                         'If two changes overlap, merge them into one replacement for the larger fragment instead of splitting them into separate edits.',
-                        'Use Write for large prose blocks, whole sections, whole chapters, or complete new files.',
+                        'Use Write for complete rewrites, complete new files, or when most of the file should be replaced.',
                     ].join('\n'),
                     parameters: {
                         type: 'object',
@@ -193,15 +163,18 @@ export function getEbookToolDefinitions(options = {}) {
                             filePath: { type: 'string', description: 'Target file path, for example `book/chapters/001.md` or `book/characters.md`.' },
                             edits: {
                                 type: 'array',
-                                description: 'Ordered list of text replacements to execute.',
+                                description: 'List of edits as a real, non-empty JSON array, not a quoted JSON string. Each item should use exactly one mode: oldString/newString, startLine/endLine/newString, or insertAtLine/newString. Stray optional fields are ignored by mode priority when possible.',
                                 items: {
                                     type: 'object',
                                     properties: {
-                                        oldString: { type: 'string', description: 'Original text fragment to replace. Must match exactly, with common punctuation equivalence. Use an empty string only when creating a new file.' },
-                                        newString: { type: 'string', description: 'Replacement text.' },
+                                        oldString: { type: 'string', description: 'Original text fragment to replace. Must match exactly, with common punctuation/long-whitespace tolerance. Do not use an empty oldString; use Write to create files.' },
+                                        startLine: { type: 'number', description: '1-based inclusive start line from the latest Read result. Use with endLine instead of oldString.' },
+                                        endLine: { type: 'number', description: '1-based inclusive end line from the latest Read result. Use with startLine instead of oldString.' },
+                                        insertAtLine: { type: 'number', description: '1-based insertion point from the latest Read result. Inserts before this line. Use totalLines + 1 to append to the end of the file.' },
+                                        newString: { type: 'string', description: 'Replacement, inserted text, or an empty string to delete the matched fragment or line range.' },
                                         replaceAll: { type: 'boolean', description: 'Whether to replace all matches. Default false.' },
                                     },
-                                    required: ['oldString', 'newString'],
+                                    required: ['newString'],
                                     additionalProperties: false,
                                 },
                             },

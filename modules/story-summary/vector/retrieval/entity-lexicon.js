@@ -9,6 +9,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { getStateAtoms } from '../storage/state-store.js';
+import { buildAliasResolver, normalizeCharacterAliases, normalizeAliasNameKey } from '../../data/character-aliases.js';
 
 // 人名词典黑名单：代词、标签词、明显非人物词
 const PERSON_LEXICON_BLACKLIST = new Set([
@@ -24,20 +25,16 @@ const PERSON_LEXICON_BLACKLIST = new Set([
  * @param {string} s
  * @returns {string}
  */
-function normalize(s) {
-    return String(s || '')
-        .normalize('NFKC')
-        .replace(/[\u200B-\u200D\uFEFF]/g, '')
-        .trim()
-        .toLowerCase();
+export function normalizeEntityTerm(s) {
+    return normalizeAliasNameKey(s);
 }
 
 function isBlacklistedPersonTerm(raw) {
-    return PERSON_LEXICON_BLACKLIST.has(normalize(raw));
+    return PERSON_LEXICON_BLACKLIST.has(normalizeEntityTerm(raw));
 }
 
 function addPersonTerm(set, raw) {
-    const n = normalize(raw);
+    const n = normalizeEntityTerm(raw);
     if (!n || n.length < 2) return;
     if (isBlacklistedPersonTerm(n)) return;
     set.add(n);
@@ -45,30 +42,36 @@ function addPersonTerm(set, raw) {
 
 function collectTrustedCharacters(store, context) {
     const trusted = new Set();
+    const aliasResolver = buildAliasResolver(store?.json?.characterAliases || []);
 
     const main = store?.json?.characters?.main || [];
     for (const m of main) {
-        addPersonTerm(trusted, typeof m === 'string' ? m : m.name);
+        addPersonTerm(trusted, aliasResolver.resolveName(typeof m === 'string' ? m : m.name));
     }
 
     const arcs = store?.json?.arcs || [];
     for (const a of arcs) {
-        addPersonTerm(trusted, a.name);
+        addPersonTerm(trusted, aliasResolver.resolveName(a.name));
     }
 
     if (context?.name2) {
-        addPersonTerm(trusted, context.name2);
+        addPersonTerm(trusted, aliasResolver.resolveName(context.name2));
     }
 
     const events = store?.json?.events || [];
     for (const ev of events) {
         for (const p of (ev?.participants || [])) {
-            addPersonTerm(trusted, p);
+            addPersonTerm(trusted, aliasResolver.resolveName(p));
         }
     }
 
+    for (const alias of normalizeCharacterAliases(store?.json?.characterAliases)) {
+        addPersonTerm(trusted, aliasResolver.resolveName(alias.from));
+        addPersonTerm(trusted, aliasResolver.resolveName(alias.to));
+    }
+
     if (context?.name1) {
-        trusted.delete(normalize(context.name1));
+        trusted.delete(normalizeEntityTerm(context.name1));
     }
 
     return trusted;
@@ -96,7 +99,7 @@ function collectCandidateCharactersFromL0(context) {
         }
     }
     if (context?.name1) {
-        candidate.delete(normalize(context.name1));
+        candidate.delete(normalizeEntityTerm(context.name1));
     }
     return candidate;
 }
@@ -109,7 +112,12 @@ function collectCandidateCharactersFromL0(context) {
 export function buildCharacterPools(store, context) {
     const trustedCharacters = collectTrustedCharacters(store, context);
     const candidateCharacters = collectCandidateCharactersFromL0(context);
-    const allCharacters = new Set([...trustedCharacters, ...candidateCharacters]);
+    const aliasTerms = new Set();
+    for (const alias of normalizeCharacterAliases(store?.json?.characterAliases)) {
+        addPersonTerm(aliasTerms, alias.from);
+        addPersonTerm(aliasTerms, alias.to);
+    }
+    const allCharacters = new Set([...trustedCharacters, ...candidateCharacters, ...aliasTerms]);
     return { trustedCharacters, candidateCharacters, allCharacters };
 }
 
@@ -143,48 +151,56 @@ export function buildEntityLexicon(store, context) {
  */
 export function buildDisplayNameMap(store, context) {
     const map = new Map();
+    const aliasResolver = buildAliasResolver(store?.json?.characterAliases || []);
 
-    const register = (raw) => {
-        const n = normalize(raw);
+    const register = (raw, display = raw, force = false) => {
+        const n = normalizeEntityTerm(raw);
         if (!n || n.length < 2) return;
         if (isBlacklistedPersonTerm(n)) return;
-        if (!map.has(n)) {
-            map.set(n, String(raw).trim());
+        if (force || !map.has(n)) {
+            map.set(n, String(display || raw).trim());
         }
     };
 
     const main = store?.json?.characters?.main || [];
     for (const m of main) {
-        register(typeof m === 'string' ? m : m.name);
+        const raw = typeof m === 'string' ? m : m.name;
+        register(raw, aliasResolver.resolveName(raw));
     }
 
     const arcs = store?.json?.arcs || [];
     for (const a of arcs) {
-        register(a.name);
+        register(a.name, aliasResolver.resolveName(a.name));
     }
 
-    if (context?.name2) register(context.name2);
+    if (context?.name2) register(context.name2, aliasResolver.resolveName(context.name2));
 
     // 4. L2 events 参与者
     const events = store?.json?.events || [];
     for (const ev of events) {
         for (const p of (ev?.participants || [])) {
-            register(p);
+            register(p, aliasResolver.resolveName(p));
         }
+    }
+
+    for (const alias of normalizeCharacterAliases(store?.json?.characterAliases)) {
+        const canonical = aliasResolver.resolveName(alias.from);
+        register(alias.from, canonical, true);
+        register(alias.to, aliasResolver.resolveName(alias.to), true);
     }
 
     // 5. L0 atoms 的 edges.s/edges.t
     const atoms = getStateAtoms();
     for (const atom of atoms) {
         for (const e of (atom.edges || [])) {
-            register(e?.s);
-            register(e?.t);
+            register(e?.s, aliasResolver.resolveName(e?.s));
+            register(e?.t, aliasResolver.resolveName(e?.t));
         }
     }
 
     // ★ 硬约束：删除 name1
     if (context?.name1) {
-        map.delete(normalize(context.name1));
+        map.delete(normalizeEntityTerm(context.name1));
     }
 
     return map;
@@ -204,15 +220,19 @@ export function buildDisplayNameMap(store, context) {
 export function extractEntitiesFromText(text, lexicon, displayMap) {
     if (!text || !lexicon?.size) return [];
 
-    const textNorm = normalize(text);
+    const textNorm = normalizeEntityTerm(text);
     const hits = [];
     const seen = new Set();
+    const seenDisplay = new Set();
 
     for (const entity of lexicon) {
         if (textNorm.includes(entity) && !seen.has(entity)) {
             seen.add(entity);
             // 优先返回原词形
             const display = displayMap?.get(entity) || entity;
+            const displayKey = normalizeEntityTerm(display);
+            if (displayKey && seenDisplay.has(displayKey)) continue;
+            if (displayKey) seenDisplay.add(displayKey);
             hits.push(display);
         }
     }

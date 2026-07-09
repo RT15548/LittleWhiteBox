@@ -96,6 +96,46 @@ test('assistant delegate config can override provider details directly', () => {
     assert.equal(providerConfig.toolMode, 'tagged-json');
 });
 
+test('assistant provider config can omit temperature while keeping the saved value', () => {
+    const config = normalizeAgentConfig({
+        currentPresetName: '写作',
+        presets: {
+            写作: {
+                provider: 'openai-compatible',
+                modelConfigs: {
+                    'openai-compatible': {
+                        baseUrl: 'https://main.example/v1',
+                        model: 'main-model',
+                        apiKey: 'main-key',
+                        temperature: 0.85,
+                        sendTemperature: false,
+                    },
+                },
+            },
+        },
+        delegateConfig: {
+            provider: 'anthropic',
+            modelConfigs: {
+                anthropic: {
+                    baseUrl: 'https://delegate.example',
+                    model: 'delegate-model',
+                    apiKey: 'delegate-key',
+                    temperature: 0.1,
+                    sendTemperature: true,
+                },
+            },
+        },
+    });
+
+    const savedProviderConfig = config.presets['写作'].modelConfigs['openai-compatible'];
+    assert.equal(savedProviderConfig.temperature, 0.85);
+    assert.equal(savedProviderConfig.sendTemperature, false);
+    assert.equal(resolveActiveProviderConfig(config).temperature, undefined);
+    assert.equal(resolveActiveProviderConfig(config).sendTemperature, false);
+    assert.equal(resolveActiveProviderConfig(config, { role: 'delegate' }).temperature, 0.1);
+    assert.equal(resolveActiveProviderConfig(config, { role: 'delegate' }).sendTemperature, true);
+});
+
 test('assistant config uses one global Tavily setting for main and delegate runs', () => {
     const config = normalizeAgentConfig({
         tavilyApiKey: 'global-tavily-key',

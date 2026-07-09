@@ -1,0 +1,114 @@
+/* Final shell overrides. */
+.xb-os-shell,
+.xb-os-shell:not(.is-home-view) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+}
+
+.xb-os-stage,
+.xb-os-shell:not(.is-home-view) .xb-os-stage {
+    grid-column: 1;
+    grid-row: 1;
+    width: 100%;
+    height: 100%;
+}
+
+.home-corner-actions,
+.page-corner-actions {
+    top: 10px;
+    right: 18px;
+    z-index: 90;
+    gap: 8px;
+}
+
+.home-corner-actions .home-icon-button,
+.page-corner-actions .home-icon-button {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    min-height: 30px;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    color: var(--xb-control-icon);
+}
+
+.xb-os-shell.theme-dark .home-corner-actions .home-icon-button,
+.xb-os-shell.theme-dark .page-corner-actions .home-icon-button {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    color: var(--xb-control-icon);
+}
+
+.xb-os-shell.theme-dark.is-home-view .home-corner-actions .home-icon-button {
+    border-color: rgba(184, 178, 166, 0.18);
+    background: rgba(12, 11, 10, 0.34);
+    color: var(--xb-control-icon);
+    backdrop-filter: blur(10px);
+}
+
+.home-corner-actions .home-icon-button:hover:not(:disabled),
+.home-corner-actions .home-icon-button:focus-visible,
+.page-corner-actions .home-icon-button:hover:not(:disabled),
+.page-corner-actions .home-icon-button:focus-visible {
+    outline: none;
+    border-color: var(--xb-rule);
+    background: var(--xb-stamp-soft);
+    color: var(--xb-stamp);
+}
+
+.page-corner-actions .page-home-button,
+.page-corner-actions .page-api-button,
+.page-corner-actions .page-chat-preset-button,
+.page-corner-actions .page-worldbooks-button {
+    width: 30px;
+    min-width: 30px;
+    color: var(--xb-control-icon);
+    padding: 0;
+}
+
+.page-corner-actions .xb-home-icon,
+.page-corner-actions .xb-api-icon,
+.page-corner-actions .xb-chat-preset-icon,
+.page-corner-actions .xb-worldbooks-icon {
+    width: 18px;
+    height: 18px;
+}
+
+@media (max-width: 760px) {
+    .home-corner-actions,
+    .page-corner-actions {
+        top: 10px;
+        right: 10px;
+        gap: 6px;
+    }
+
+    .home-corner-actions .home-icon-button,
+    .page-corner-actions .home-icon-button {
+        width: 34px;
+        min-width: 34px;
+        height: 34px;
+        min-height: 34px;
+        border-color: rgba(92, 90, 86, 0.22);
+        background: rgba(255, 255, 255, 0.34);
+        backdrop-filter: blur(10px);
+    }
+
+    .xb-os-shell.theme-dark .home-corner-actions .home-icon-button,
+    .xb-os-shell.theme-dark .page-corner-actions .home-icon-button {
+        border-color: rgba(224, 218, 202, 0.14);
+        background: rgba(255, 255, 255, 0.045);
+    }
+
+    .page-corner-actions .page-home-button,
+    .page-corner-actions .page-api-button,
+    .page-corner-actions .page-chat-preset-button,
+    .page-corner-actions .page-worldbooks-button {
+        width: 34px;
+        min-width: 34px;
+        padding: 0;
+    }
+}

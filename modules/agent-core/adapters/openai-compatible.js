@@ -1,4 +1,10 @@
 import OpenAI from 'openai';
+import { buildSdkRequestInspection } from './request-inspection.js';
+import {
+    extractLooseField,
+    findLooseKeyMatch,
+    repairLooseToolArguments,
+} from '../runtime/loose-tool-arguments.js';
 
 function safeParseArguments(text) {
     try {
@@ -40,6 +46,45 @@ function stringifyToolArguments(value) {
     }
 }
 
+function normalizeTaggedToolArguments(argumentsValue, toolName = '') {
+    if (argumentsValue && typeof argumentsValue === 'object' && !Array.isArray(argumentsValue)) {
+        return JSON.stringify(argumentsValue);
+    }
+    const text = typeof argumentsValue === 'string' ? argumentsValue : stringifyToolArguments(argumentsValue);
+    return repairLooseToolArguments(text, toolName) || JSON.stringify(safeParseArguments(text));
+}
+
+function extractLooseArgumentsTextFromToolPayload(payloadText = '') {
+    const source = String(payloadText || '');
+    const match = findLooseKeyMatch(source, 'arguments');
+    if (!match) return '';
+    let start = match.end;
+    while (/\s/.test(source[start] || '')) start += 1;
+    const first = source[start] || '';
+    if (first === '{') {
+        return source.slice(start).replace(/\}\s*$/, '').trimEnd();
+    }
+    if (first === '"') {
+        return source.slice(start + 1).replace(/"\s*\}\s*$/, '').trimEnd();
+    }
+    return source.slice(start).replace(/\}\s*$/, '').trimEnd();
+}
+
+function parseLooseTaggedToolPayload(payloadText = '', index = 0) {
+    const source = String(payloadText || '').trim();
+    const name = extractLooseField(source, 'name', ['id', 'arguments'])
+        || extractLooseField(source, 'toolName', ['id', 'arguments'])
+        || '';
+    const id = extractLooseField(source, 'id', ['name', 'toolName', 'arguments']) || `tool-call-${index + 1}`;
+    const argumentsText = extractLooseArgumentsTextFromToolPayload(source);
+    if (!name || !argumentsText) return null;
+    return {
+        id,
+        name,
+        arguments: normalizeTaggedToolArguments(argumentsText, name),
+    };
+}
+
 function normalizeToolCallForReplay(toolCall, index = 0, fallbackPrefix = 'openai-tool') {
     if (!isPlainObject(toolCall)) return null;
     const toolFunction = isPlainObject(toolCall.function) ? toolCall.function : null;
@@ -67,6 +112,9 @@ function normalizeToolCallsForReplay(toolCalls = [], fallbackPrefix = 'openai-to
 function sanitizeOpenAICompatibleMessage(message) {
     if (!isPlainObject(message)) return null;
     const cloned = cloneJson(message) || {};
+    if (typeof cloned.content === 'string' && /<tool_call\b/i.test(cloned.content)) {
+        cloned.content = stripTaggedToolCallsForDisplay(extractThinkTaggedContent(cloned.content).cleaned);
+    }
     if (Array.isArray(cloned.tool_calls)) {
         const normalizedToolCalls = normalizeToolCallsForReplay(cloned.tool_calls);
         if (normalizedToolCalls.length) {
@@ -112,10 +160,22 @@ export function extractThinkTaggedContent(text = '') {
 }
 
 export function stripTaggedToolCallsForDisplay(text = '') {
-    return String(text || '')
-        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-        .replace(/<tool_call>[\s\S]*$/g, '')
-        .trim();
+    const source = String(text || '');
+    const firstToolTag = source.search(/<tool_call\b/i);
+    if (firstToolTag < 0) return source.trim();
+    return source.slice(0, firstToolTag).trim();
+}
+
+export function buildTaggedToolCallDraft(text = '') {
+    const source = String(text || '');
+    if (!/<tool_call\b/i.test(source)) return [];
+    const nameMatch = source.match(/["']?name["']?\s*:\s*["']([^"']+)/i);
+    return [{
+        id: 'tagged-json-draft',
+        name: nameMatch?.[1] || '工具调用',
+        arguments: '{}',
+        draft: true,
+    }];
 }
 
 function collectThoughtsFromUnknown(thoughts, value, label) {
@@ -200,16 +260,11 @@ export function extractTaggedToolCalls(content = '') {
                 results.push({
                     id: parsed.id || `tool-call-${index + 1}`,
                     name: String(parsed.name || ''),
-                    arguments: typeof parsed.arguments === 'string'
-                        ? parsed.arguments
-                        : JSON.stringify(parsed.arguments || {}),
+                    arguments: normalizeTaggedToolArguments(parsed.arguments, parsed.name),
                 });
             } catch {
-                results.push({
-                    id: `tool-call-${index + 1}`,
-                    name: '',
-                    arguments: '',
-                });
+                const repaired = parseLooseTaggedToolPayload(match[1], index);
+                if (repaired) results.push(repaired);
             }
         });
     });
@@ -242,6 +297,19 @@ function hasReplayableToolCalls(message) {
     return Array.isArray(preserved?.tool_calls) && preserved.tool_calls.length > 0;
 }
 
+function getReplayableToolCalls(message = {}) {
+    const topLevelToolCalls = normalizeToolCallsForReplay(message?.tool_calls);
+    if (topLevelToolCalls.length) return topLevelToolCalls;
+    const preserved = normalizeOpenAICompatibleMessage(message);
+    const preservedToolCalls = normalizeToolCallsForReplay(preserved?.tool_calls);
+    if (preservedToolCalls.length) return preservedToolCalls;
+    return [];
+}
+
+function hasValidToolCalls(message = {}) {
+    return normalizeToolCallsForReplay(message?.tool_calls).length > 0;
+}
+
 function shouldPreserveAssistantReplayMessage(message, index, lastUserIndex) {
     if (message?.role !== 'assistant') return false;
     if (index <= lastUserIndex) return false;
@@ -250,6 +318,29 @@ function shouldPreserveAssistantReplayMessage(message, index, lastUserIndex) {
 
 function shouldForceDeepSeekReasoningContent(model = '') {
     return /deepseek/i.test(String(model || ''));
+}
+
+export function isClaudeLikeModel(model = '') {
+    return /claude/i.test(String(model || ''));
+}
+
+export function normalizeFinalClaudeLikeMessageRole(messages = [], model = '') {
+    if (!isClaudeLikeModel(model)) return messages;
+    let finalRoleIndex = -1;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (typeof messages[index]?.role === 'string') {
+            finalRoleIndex = index;
+            break;
+        }
+    }
+    const finalRole = messages[finalRoleIndex]?.role;
+    if (finalRoleIndex < 0 || finalRole === 'user') return messages;
+    if (finalRole !== 'system' && finalRole !== 'assistant') return messages;
+    return messages.map((message, index) => (
+        index === finalRoleIndex
+            ? { ...message, role: 'user' }
+            : message
+    ));
 }
 
 function ensureReasoningContentForToolCalls(message, model = '') {
@@ -372,10 +463,14 @@ export function buildNativeMessages(task, model = '') {
     const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
     const lastUserIndex = getLastUserMessageIndex(sourceMessages);
     const normalizedMessages = sourceMessages.map((message, index) => {
+        const topLevelToolCalls = normalizeToolCallsForReplay(message?.tool_calls);
         if (shouldPreserveAssistantReplayMessage(message, index, lastUserIndex)) {
             const preserved = normalizeOpenAICompatibleMessage(message);
-            if (preserved) {
-                return ensureReasoningContentForToolCalls(preserved, model);
+            if (hasValidToolCalls(preserved)) {
+                return ensureReasoningContentForToolCalls({
+                    ...preserved,
+                    ...(topLevelToolCalls.length ? { tool_calls: topLevelToolCalls } : {}),
+                }, model);
             }
         }
 
@@ -388,17 +483,22 @@ export function buildNativeMessages(task, model = '') {
             baseMessage.tool_call_id = message.tool_call_id;
         }
 
-        if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
-            const normalizedToolCalls = normalizeToolCallsForReplay(message.tool_calls);
-            if (normalizedToolCalls.length) {
-                baseMessage.tool_calls = normalizedToolCalls;
-            }
+        if (message.role === 'assistant' && topLevelToolCalls.length) {
+            baseMessage.tool_calls = topLevelToolCalls;
         }
 
         return ensureReasoningContentForToolCalls(baseMessage, model);
     });
 
-    return normalizedMessages;
+    const systemPrompt = String(task.systemPrompt || '').trim();
+    if (systemPrompt && normalizedMessages[0]?.role !== 'system') {
+        normalizedMessages.unshift({
+            role: 'system',
+            content: systemPrompt,
+        });
+    }
+
+    return normalizeFinalClaudeLikeMessageRole(normalizedMessages, model);
 }
 
 function buildTaggedProtocolPrompt(task) {
@@ -419,49 +519,51 @@ function buildTaggedProtocolPrompt(task) {
     ].filter(Boolean).join('\n\n');
 }
 
-export function buildTaggedMessages(task) {
+export function buildTaggedMessages(task, model = '') {
     const toolNameById = new Map();
     const messages = [];
     const sourceMessages = Array.isArray(task.messages) ? task.messages : [];
-    const lastUserIndex = getLastUserMessageIndex(sourceMessages);
 
-    sourceMessages.forEach((message, index) => {
-        if (shouldPreserveAssistantReplayMessage(message, index, lastUserIndex)) {
-            const preserved = normalizeOpenAICompatibleMessage(message);
-            if (preserved) {
-                messages.push(preserved);
+    sourceMessages.forEach((message) => {
+        if (message.role === 'assistant') {
+            const toolCalls = getReplayableToolCalls(message);
+            if (toolCalls.length) {
+                const preserved = normalizeOpenAICompatibleMessage(message);
+                const content = typeof preserved?.content === 'string'
+                    ? preserved.content
+                    : String(message.content || '');
+                const taggedBlocks = toolCalls.map((toolCall, index) => {
+                    const toolName = toolCall.function?.name || '';
+                    const toolId = toolCall.id || `tool-call-${index + 1}`;
+                    if (toolName) {
+                        toolNameById.set(toolId, toolName);
+                    }
+                    return `<tool_call>${JSON.stringify({
+                        id: toolId,
+                        name: toolName,
+                        arguments: safeParseArguments(toolCall.function?.arguments || '{}'),
+                    })}</tool_call>`;
+                }).join('\n');
+
+                messages.push({
+                    role: 'assistant',
+                    content: [content, taggedBlocks].filter(Boolean).join('\n\n'),
+                });
                 return;
             }
         }
 
-        if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
-            const taggedBlocks = message.tool_calls.map((toolCall, index) => {
-                const toolName = toolCall.function?.name || '';
-                const toolId = toolCall.id || `tool-call-${index + 1}`;
-                if (toolName) {
-                    toolNameById.set(toolId, toolName);
-                }
-                return `<tool_call>${JSON.stringify({
-                    id: toolId,
-                    name: toolName,
-                    arguments: safeParseArguments(toolCall.function?.arguments || '{}'),
-                })}</tool_call>`;
-            }).join('\n');
-
-            messages.push({
-                role: 'assistant',
-                content: [message.content || '', taggedBlocks].filter(Boolean).join('\n\n'),
-            });
-            return;
-        }
-
         if (message.role === 'tool') {
-            const toolName = toolNameById.get(message.tool_call_id || '') || 'unknown_tool';
+            const toolName = String(message.toolName || message.tool_name || '').trim()
+                || toolNameById.get(message.tool_call_id || '')
+                || 'unknown_tool';
+            if (message.tool_call_id) toolNameById.delete(message.tool_call_id);
             const toolContent = String(message.content || '');
             messages.push({
                 role: 'user',
                 content: [
                     '<tool_result>',
+                    '这是系统工具执行结果，不是用户新发言。',
                     `name: ${toolName}`,
                     'content:',
                     toolContent,
@@ -492,7 +594,7 @@ export function buildTaggedMessages(task) {
         };
     }
 
-    return messages;
+    return normalizeFinalClaudeLikeMessageRole(messages, model);
 }
 
 function emitStreamProgress(task, payload) {
@@ -500,6 +602,8 @@ function emitStreamProgress(task, payload) {
     task.onStreamProgress({
         ...(typeof payload.text === 'string' ? { text: payload.text } : {}),
         ...(Array.isArray(payload.thoughts) ? { thoughts: payload.thoughts } : {}),
+        ...(Array.isArray(payload.toolCalls) ? { toolCalls: payload.toolCalls } : {}),
+        ...(payload.toolCallDraft ? { toolCallDraft: true } : {}),
     });
 }
 
@@ -652,6 +756,50 @@ export class OpenAICompatibleAdapter {
         });
     }
 
+    buildRequestBody(task) {
+        const toolMode = this.config.toolMode || 'native';
+        const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
+        const nativeTools = !isTaggedMode && Array.isArray(task.tools) && task.tools.length
+            ? task.tools
+            : null;
+        const body = {
+            model: this.config.model,
+            messages: isTaggedMode ? buildTaggedMessages(task, this.config.model) : buildNativeMessages(task, this.config.model),
+            ...(nativeTools ? { tools: nativeTools, tool_choice: task.toolChoice || 'auto' } : {}),
+            ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
+        };
+        if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
+            body.temperature = task.temperature;
+        }
+        if (task.reasoning?.enabled) {
+            body.reasoning_effort = task.reasoning.effort;
+        }
+        return body;
+    }
+
+    inspectRequest(task, options = {}) {
+        const stream = typeof task.onStreamProgress === 'function';
+        const body = {
+            ...(options.body || this.buildRequestBody(task)),
+            ...(stream ? { stream: true } : {}),
+        };
+        const baseUrl = String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+        return buildSdkRequestInspection({
+            provider: 'openai-compatible',
+            model: this.config.model,
+            transport: 'openai-compatible',
+            url: `${baseUrl}/chat/completions`,
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: this.config.apiKey ? `Bearer ${this.config.apiKey}` : '',
+            },
+            body,
+            sdk: stream
+                ? 'client.chat.completions.create(..., { stream: true })'
+                : 'client.chat.completions.create',
+        });
+    }
+
     async streamNativeChatCompletions(task, body) {
         const url = `${String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '')}/chat/completions`;
         const response = await fetch(url, {
@@ -701,12 +849,17 @@ export class OpenAICompatibleAdapter {
 
             const thinkTagged = extractThinkTaggedContent(snapshot.content);
             const standardToolCalls = snapshot.toolCalls.filter((item) => item?.function?.name);
+            const progressToolCalls = standardToolCalls.length
+                ? buildToolCallResultsFromOpenAI(snapshot.toolCalls)
+                : buildTaggedToolCallDraft(thinkTagged.cleaned);
             const cleanedText = standardToolCalls.length
                 ? thinkTagged.cleaned
                 : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
             emitStreamProgress(task, {
                 text: cleanedText,
                 thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+                ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
+                ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
             });
         });
 
@@ -736,24 +889,14 @@ export class OpenAICompatibleAdapter {
         const toolMode = this.config.toolMode || 'native';
         const isTaggedMode = toolMode === 'tagged-json' && Array.isArray(task.tools) && task.tools.length > 0;
         const shouldUseStreaming = typeof task.onStreamProgress === 'function';
-        const nativeTools = !isTaggedMode && Array.isArray(task.tools) && task.tools.length
-            ? task.tools
-            : null;
-        const body = {
-            model: this.config.model,
-            messages: isTaggedMode ? buildTaggedMessages(task) : buildNativeMessages(task, this.config.model),
-            ...(nativeTools ? { tools: nativeTools, tool_choice: task.toolChoice || 'auto' } : {}),
-            ...(task.maxTokens ? { max_tokens: task.maxTokens } : {}),
-        };
-        if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
-            body.temperature = task.temperature;
-        }
-        if (task.reasoning?.enabled) {
-            body.reasoning_effort = task.reasoning.effort;
-        }
+        const body = this.buildRequestBody(task);
+        const requestInspection = this.inspectRequest(task, { body });
         if (shouldUseStreaming) {
             if (!isTaggedMode) {
-                return await this.streamNativeChatCompletions(task, body);
+                return {
+                    ...await this.streamNativeChatCompletions(task, body),
+                    requestInspection,
+                };
             }
             const stream = await this.client.chat.completions.create({
                 ...body,
@@ -791,12 +934,17 @@ export class OpenAICompatibleAdapter {
 
                 const thinkTagged = extractThinkTaggedContent(snapshot.content);
                 const standardToolCalls = snapshot.toolCalls.filter((item) => item?.function?.name);
+                const progressToolCalls = standardToolCalls.length
+                    ? buildToolCallResultsFromOpenAI(snapshot.toolCalls)
+                    : buildTaggedToolCallDraft(thinkTagged.cleaned);
                 const cleanedText = standardToolCalls.length
                     ? thinkTagged.cleaned
                     : stripTaggedToolCallsForDisplay(thinkTagged.cleaned);
                 emitStreamProgress(task, {
                     text: cleanedText,
                     thoughts: extractThoughtsFromMessage(assistantSnapshot, choice).concat(thinkTagged.thoughts),
+                    ...(progressToolCalls.length ? { toolCalls: progressToolCalls } : {}),
+                    ...(!standardToolCalls.length && progressToolCalls.length ? { toolCallDraft: true } : {}),
                 });
             }
             const finalCompletion = typeof stream.finalChatCompletion === 'function'
@@ -827,6 +975,7 @@ export class OpenAICompatibleAdapter {
                 model: lastModel,
                 provider: 'openai-compatible',
                 providerPayload,
+                requestInspection,
             };
         }
 
@@ -856,6 +1005,7 @@ export class OpenAICompatibleAdapter {
             model: response.model || this.config.model,
             provider: 'openai-compatible',
             providerPayload: buildProviderPayload(replayableMessage),
+            requestInspection,
         };
     }
 }

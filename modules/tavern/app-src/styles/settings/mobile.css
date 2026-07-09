@@ -1,0 +1,898 @@
+/* Final mobile settings overrides shared across setting workspaces. */
+
+@media (max-width: 560px) {
+    .settings-layout .step-panel > .panel-head,
+    .settings-layout .step-panel > .preset-page-head {
+        min-height: 48px;
+        padding: 8px 100px 8px 12px;
+    }
+
+    .settings-layout .panel-head h2,
+    .settings-layout .preset-page-head h2 {
+        font-size: 20px;
+    }
+
+    .settings-layout .preset-command-bar,
+    .settings-layout .preset-meta-strip {
+        gap: 6px;
+        padding: 6px 12px;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-command-bar {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        min-height: 0;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-source-select,
+    .settings-layout.is-assistantPreset-workspace .assistant-preset-picker {
+        gap: 0;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-source-select > span,
+    .settings-layout.is-assistantPreset-workspace .assistant-preset-picker > span {
+        display: none;
+    }
+
+    .settings-layout.is-chatPreset-workspace .settings-toolstrip {
+        align-items: center;
+        align-self: start;
+        justify-content: flex-end;
+        gap: 6px;
+        height: 34px;
+        overflow: visible;
+        padding-bottom: 0;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-source-select {
+        align-self: start;
+        height: 34px;
+        min-height: 34px;
+        margin: 0;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-source-select select,
+    .settings-layout.is-chatPreset-workspace .settings-icon-tool,
+    .settings-layout.is-chatPreset-workspace .preset-filterbar input {
+        box-sizing: border-box;
+        height: 34px;
+        min-height: 34px;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-source-select select {
+        border-radius: 9px;
+        padding: 0 10px;
+    }
+
+    .settings-layout.is-chatPreset-workspace .settings-icon-tool {
+        width: 34px;
+        min-width: 34px;
+        border-radius: 9px;
+    }
+
+    .settings-layout .preset-source-field {
+        gap: 6px;
+    }
+
+    .settings-layout .preset-source-search span,
+    .settings-layout.is-chatPreset-workspace .preset-filterbar .archive-search span,
+    .settings-layout.is-regex-workspace .native-search span,
+    .settings-layout.is-worldbooks-workspace .native-search span {
+        display: none;
+    }
+
+    .settings-layout .preset-source-search input,
+    .settings-layout .preset-meta-strip input,
+    .settings-layout.is-chatPreset-workspace .preset-filterbar input {
+        min-height: 34px;
+        padding: 8px 10px;
+    }
+
+    .settings-layout .preset-source-list {
+        max-height: 42px;
+        gap: 5px;
+    }
+
+    .settings-layout .preset-source-row {
+        min-width: 132px;
+        min-height: 36px;
+        border-radius: 9px;
+        padding: 6px 8px;
+    }
+
+    .settings-layout .preset-source-row strong {
+        font-size: 13px;
+    }
+
+    .settings-layout .preset-actions {
+        gap: 6px;
+    }
+
+    .settings-layout .preset-actions button {
+        min-height: 30px;
+        padding: 0 11px;
+    }
+
+    .settings-layout .preset-status-line {
+        margin-top: 5px;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .preset-studio,
+    .settings-layout.is-worldbooks-workspace .worldbook-overview-grid {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-sequence-panel {
+        flex: 1 1 auto;
+        max-height: none;
+        overflow: hidden;
+        border-right: 0;
+        border-bottom: 0;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .preset-filterbar {
+        gap: 5px;
+        padding: 6px 12px 7px;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .preset-filterbar p {
+        display: none;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-manager-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        overflow: auto;
+        padding: 0;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-manager-row {
+        flex: 0 0 auto;
+        width: 100%;
+        min-height: 46px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        border: 0;
+        border-left: 2px solid transparent;
+        border-bottom: 1px solid var(--xb-line);
+        border-radius: 0;
+        padding: 7px 12px;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-row-index {
+        display: none;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-row-main small {
+        display: none;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-row-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-move-button {
+        display: none;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-edit-button,
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-toggle {
+        display: inline-grid;
+        place-items: center;
+        width: 28px;
+        min-width: 28px;
+        height: 28px;
+        min-height: 28px;
+        border: 1px solid var(--xb-line);
+        border-radius: 8px;
+        background: var(--xb-settings-control-bg);
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-role-badge {
+        display: inline-grid;
+        place-items: center;
+        width: 22px;
+        min-width: 22px;
+        height: 22px;
+        border: 1px solid var(--xb-line);
+        border-radius: 7px;
+        color: var(--xb-text-muted);
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-toggle {
+        position: relative;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-toggle input {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        margin: 0;
+        opacity: 0;
+        padding: 0;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-toggle::after {
+        content: "";
+        width: 9px;
+        height: 5px;
+        border-left: 1.6px solid currentColor;
+        border-bottom: 1.6px solid currentColor;
+        opacity: 0;
+        transform: translateY(-0.5px) rotate(-45deg);
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-toggle:has(input:checked) {
+        border-color: rgba(var(--xb-accent-rgb), 0.38);
+        color: var(--xb-text-main);
+        background: rgba(var(--xb-accent-rgb), 0.1);
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-toggle:has(input:checked)::after {
+        opacity: 1;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-sequence-panel > .archive-load-more {
+        position: static;
+        width: calc(100% - 24px);
+        min-height: 34px;
+        margin: 8px 12px 12px;
+        border-radius: 9px;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-preview-panel.prompt-editor-panel {
+        position: fixed;
+        z-index: 70;
+        inset: auto 0 0;
+        height: min(78vh, 620px);
+        display: flex;
+        flex-direction: column;
+        border-top: 1px solid var(--xb-line);
+        background: var(--xb-settings-sheet-bg);
+        box-shadow: 0 -22px 70px rgba(0, 0, 0, 0.42);
+        transform: translateY(110%);
+        transition: transform 180ms ease;
+    }
+
+    .xb-os-shell.theme-light .settings-layout.is-chatPreset-workspace .preset-preview-panel.prompt-editor-panel {
+        box-shadow: 0 -18px 44px rgba(26, 26, 26, 0.13);
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace.is-mobile-editor-open .preset-preview-panel.prompt-editor-panel {
+        transform: translateY(0);
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-preview-panel .preset-preview-head {
+        min-height: 46px;
+        padding: 0 12px;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-preview-panel .preset-preview-head strong {
+        font-size: 17px;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-preview-panel .preset-preview-head span {
+        display: none;
+    }
+
+    .settings-layout.is-chatPreset-workspace .preset-workspace .prompt-editor-close {
+        display: inline-grid;
+        place-items: center;
+        width: 32px;
+        min-width: 32px;
+        height: 32px;
+        border: 1px solid var(--xb-line);
+        border-radius: 9px;
+        background: var(--xb-settings-control-bg);
+        color: var(--xb-text-muted);
+        padding: 0;
+    }
+
+    .settings-layout.is-assistantPreset-workspace .preset-meta-strip label > span:first-child {
+        display: none;
+    }
+
+    .settings-layout.is-assistantPreset-workspace .preset-meta-strip {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        overflow: hidden;
+    }
+
+    .settings-layout.is-assistantPreset-workspace .preset-meta-strip label {
+        min-width: 0;
+        margin: 0;
+    }
+
+    .settings-layout.is-assistantPreset-workspace .preset-meta-strip label:first-child {
+        flex: 0 0 min(42%, 142px);
+    }
+
+    .settings-layout.is-assistantPreset-workspace .preset-meta-strip label:last-child {
+        flex: 1 1 auto;
+    }
+
+    .settings-layout.is-assistantPreset-workspace .preset-meta-strip input {
+        width: 100%;
+    }
+
+    .settings-layout.is-assistantPreset-workspace .assistant-preset-item-list {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        padding: 6px 12px 8px;
+    }
+
+    .settings-layout.is-assistantPreset-workspace .assistant-preset-item-list .assistant-preset-nav-row {
+        width: 100%;
+        min-width: 0;
+        min-height: 36px;
+        display: grid;
+        place-items: center;
+        border-radius: 9px;
+        padding: 0 6px;
+        text-align: center;
+    }
+
+    .settings-layout.is-assistantPreset-workspace .assistant-preset-item-list .assistant-preset-nav-row strong {
+        width: 100%;
+        font-size: 13px;
+        line-height: 1;
+        text-align: center;
+    }
+
+    .settings-layout.is-assistantPreset-workspace .assistant-preset-item-list .assistant-preset-nav-row small {
+        display: none;
+    }
+
+    .settings-layout.is-assistantPreset-workspace .assistant-preset-detail-fields textarea {
+        min-height: 54vh;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-global-enable {
+        gap: 0;
+        padding: 0;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-section-head {
+        gap: 0;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-section h3 {
+        font-size: 14px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-global-toggle {
+        min-width: 0;
+        max-width: none;
+        min-height: 34px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 0 10px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-global-bar {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 5px;
+        min-height: 0;
+        padding: 6px 12px 8px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-global-current {
+        font-size: 12px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-global-list {
+        width: 100%;
+        max-height: 118px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4px;
+        padding: 6px 12px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-global-option {
+        min-height: 28px;
+        font-size: 12px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-main-head {
+        min-height: 38px;
+        padding: 8px 12px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-command-bar {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+        min-height: 0;
+        padding: 6px 12px 8px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-command-bar {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 6px;
+        min-height: 0;
+        padding: 6px 12px 8px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-group-select {
+        grid-column: 1;
+        grid-row: 1;
+        height: 34px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-command-bar .settings-toolstrip {
+        grid-column: 2;
+        grid-row: 1;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        height: 34px;
+        overflow: visible;
+        padding-bottom: 0;
+    }
+
+    .settings-layout.is-regex-workspace .regex-search-field {
+        display: none !important;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-source-select,
+    .settings-layout.is-regex-workspace .regex-group-select {
+        display: grid;
+        gap: 0;
+        margin: 0;
+    }
+
+    .settings-layout.is-regex-workspace .preset-command-bar > .regex-group-select {
+        display: grid;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-source-select > span,
+    .settings-layout.is-regex-workspace .regex-group-select > span,
+    .settings-layout.is-regex-workspace .regex-search-field > span {
+        display: none;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-source-select select,
+    .settings-layout.is-regex-workspace .regex-group-select select,
+    .settings-layout.is-regex-workspace .regex-search-field input,
+    .settings-layout.is-regex-workspace .settings-icon-tool {
+        box-sizing: border-box;
+        height: 34px;
+        min-height: 34px;
+        border-radius: 9px;
+        padding: 0 10px;
+    }
+
+    .settings-layout.is-regex-workspace .settings-icon-tool {
+        width: 34px;
+        min-width: 34px;
+        padding: 0;
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio,
+    .settings-layout.is-worldbooks-workspace .worldbook-overview-grid {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio .native-list-panel {
+        flex: 1 1 auto;
+        max-height: none;
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+        border-right: 0;
+        border-bottom: 0;
+        background: var(--xb-settings-subtle-bg);
+        padding: 0;
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio .regex-group-block {
+        flex: 0 0 auto;
+        display: grid;
+        gap: 0;
+        border-bottom: 1px solid var(--xb-line);
+        padding: 0;
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio .regex-group-block .assistant-preset-nav-head {
+        min-height: 36px;
+        border-bottom: 1px solid var(--xb-line);
+        padding: 0 12px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio .regex-group-block .assistant-preset-nav-head strong {
+        font-size: 13px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio .regex-group-block .assistant-preset-nav-head span {
+        display: none;
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio .native-list-row {
+        width: 100%;
+        min-height: 48px;
+        grid-template-columns: 24px minmax(0, 1fr) auto;
+        gap: 8px;
+        border: 0;
+        border-left: 2px solid transparent;
+        border-bottom: 1px solid var(--xb-line);
+        border-radius: 0;
+        padding: 7px 12px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-row-state {
+        width: 22px;
+        min-width: 22px;
+        height: 22px;
+        font-size: 11px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-row-copy small {
+        display: block;
+    }
+
+    .settings-layout.is-regex-workspace .regex-row-actions {
+        gap: 5px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-row-icon {
+        width: 27px;
+        min-width: 27px;
+        height: 27px;
+        min-height: 27px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio .native-add-row {
+        width: calc(100% - 24px);
+        min-height: 32px;
+        justify-self: center;
+        align-self: center;
+        border: 1px dashed var(--xb-line);
+        border-radius: 9px;
+        margin: 8px 12px;
+        padding: 0 9px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-overview-detail {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-preview-surface {
+        height: 100%;
+        overflow: auto;
+        padding: 0 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-metric-grid {
+        display: none;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-entry-preview-list {
+        border-top: 0;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-entry-preview summary {
+        grid-template-columns: minmax(0, 1fr) auto auto 12px;
+        min-height: 42px;
+        gap: 6px;
+        padding: 5px 0;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-entry-preview[open] {
+        margin: 6px 0;
+        padding: 0 8px 8px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-entry-preview[open] summary {
+        min-height: 44px;
+        padding: 6px 0;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-entry-body {
+        max-height: none;
+        overflow: visible;
+        overscroll-behavior: auto;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-entry-title strong {
+        font-size: 14px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-entry-state {
+        grid-column: 2;
+        grid-row: 1;
+        font-size: 12px;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-entry-position {
+        grid-column: 3;
+        grid-row: 1;
+        min-width: 38px;
+        font-size: 10px;
+        justify-self: end;
+        white-space: nowrap;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-entry-preview summary::before {
+        grid-column: 4;
+    }
+
+    .settings-layout.is-worldbooks-workspace .worldbook-preview-more {
+        width: calc(100% - 24px);
+        min-height: 32px;
+        border-radius: 9px;
+        margin: 8px 12px 0;
+    }
+
+    .settings-layout.is-regex-workspace .regex-detail-panel {
+        position: fixed;
+        z-index: 70;
+        inset: 0;
+        height: auto;
+        max-height: none;
+        display: flex;
+        flex-direction: column;
+        border: 0;
+        background: var(--xb-settings-sheet-bg);
+        box-shadow: none;
+        transform: translateY(110%);
+        transition: transform 180ms ease;
+        padding-top: env(safe-area-inset-top, 0px);
+    }
+
+    .xb-os-shell.theme-light .settings-layout.is-regex-workspace .regex-detail-panel {
+        box-shadow: 0 -18px 44px rgba(26, 26, 26, 0.13);
+    }
+
+    .settings-layout.is-regex-workspace .native-workspace.is-mobile-editor-open .regex-detail-panel {
+        transform: translateY(0);
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio .preset-preview-head {
+        min-height: 54px;
+        padding: 0 112px 0 12px;
+        border-bottom: 1px solid var(--xb-line);
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio .preset-preview-head strong {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 17px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-studio .preset-preview-head span {
+        display: none;
+    }
+
+    .settings-layout.is-regex-workspace .regex-editor-actions {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+        z-index: 76;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 8px;
+        border: 1px solid var(--xb-line);
+        border-radius: 13px;
+        background: var(--xb-settings-sheet-bg);
+        box-shadow: 0 -14px 34px rgba(0, 0, 0, 0.26);
+        padding: 8px;
+        margin-left: 0;
+    }
+
+    .settings-layout.is-regex-workspace .regex-editor-secondary,
+    .settings-layout.is-regex-workspace .regex-editor-primary {
+        width: 100%;
+        min-width: 0;
+        min-height: 38px;
+        padding: 0 12px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-editor-grid {
+        gap: 8px;
+        overflow: auto;
+        padding: 12px 12px calc(86px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .settings-layout.is-regex-workspace .regex-editor-section {
+        padding: 10px;
+    }
+
+    .settings-layout.is-regex-workspace .regex-section-title {
+        margin-bottom: 8px;
+        font-size: 15px;
+    }
+
+    .settings-layout.is-api-workspace .api-workspace > .panel-head {
+        min-height: 48px;
+        align-items: center;
+        padding: 8px 12px;
+    }
+
+    .settings-layout.is-api-workspace .api-workspace > .panel-head h2 {
+        font-size: 20px;
+        line-height: 1.05;
+    }
+
+    .settings-layout .step-panel > .panel-head .panel-pills,
+    .settings-layout .step-panel > .preset-page-head .panel-pills {
+        display: none;
+    }
+
+    .settings-layout.is-api-workspace .api-scroll-body {
+        padding: 12px 12px calc(22px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config {
+        gap: 10px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config-tabs {
+        gap: 5px;
+        border-radius: 12px;
+        padding: 3px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config-tab {
+        min-height: 32px;
+        border-radius: 9px;
+        font-size: 12px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config-page {
+        gap: 10px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config label {
+        gap: 5px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-preset-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 7px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-preset-tools {
+        grid-template-columns: repeat(4, 40px);
+        gap: 5px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-preset-tools.is-single {
+        grid-template-columns: 40px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-icon-button {
+        width: 40px;
+        min-width: 40px;
+        height: 40px;
+        min-height: 40px;
+        border-radius: 9px;
+        padding: 0;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config label > span:first-child,
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config-note {
+        font-size: 12px;
+        line-height: 1.45;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config label small {
+        margin-top: 0;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config input:not([type="checkbox"]):not([type="radio"]),
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config select {
+        min-height: 40px;
+        height: 40px;
+        border-radius: 11px;
+        padding: 9px 11px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-config select.xb-assistant-preset-field {
+        padding: 0 11px;
+        font-size: 14px;
+        line-height: 40px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-inline-input {
+        align-items: end;
+        gap: 7px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-inline-input.xb-assistant-model-row {
+        align-items: start;
+        grid-template-rows: auto 40px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-inline-input.xb-assistant-model-row label {
+        display: contents;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-inline-input.xb-assistant-model-row label > span:first-child {
+        grid-column: 1;
+        grid-row: 1;
+        margin-bottom: 0;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-inline-input.xb-assistant-model-row label > select {
+        grid-column: 1;
+        grid-row: 2;
+        box-sizing: border-box;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-inline-input.xb-assistant-model-row > button {
+        grid-column: 2;
+        grid-row: 2;
+        align-self: stretch;
+        box-sizing: border-box;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-inline-input > button {
+        min-height: 40px;
+        height: 40px;
+        border-radius: 11px;
+        line-height: 1;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-temperature-row {
+        grid-template-columns: 88px minmax(0, 1fr);
+        gap: 8px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-temperature-row input[type="number"] {
+        width: 88px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-checkbox-row {
+        align-items: center;
+        min-height: 40px;
+        height: 40px;
+        border-radius: 11px;
+        padding: 0 10px;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-checkbox-row > span:first-child {
+        display: block;
+        margin: 0;
+        line-height: 1;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-checkbox-control {
+        display: inline-flex;
+        align-items: center;
+        height: 16px;
+        line-height: 1;
+    }
+
+    .settings-layout.is-api-workspace .tavern-api-settings .xb-assistant-checkbox-control input {
+        display: block;
+        margin: 0;
+    }
+
+}

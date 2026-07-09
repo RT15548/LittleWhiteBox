@@ -1,0 +1,228 @@
+/* Shared centered dialogs for Tavern confirmations and prompts. */
+
+.tavern-dialog-overlay {
+    --xb-paper: #151311;
+    --xb-paper-plain: #201e1a;
+    --xb-ink: #c9c2b6;
+    --xb-ink-soft: #aaa398;
+    --xb-rule: rgba(184, 178, 166, 0.12);
+    --xb-stamp: #c06d63;
+    --xb-stamp-soft: rgba(192, 109, 99, 0.10);
+    --xb-accent-rgb: 192, 109, 99;
+    --xb-danger: #d88490;
+    --xb-warn: #b8a36e;
+    --xb-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+    --xb-font-ui: "Inter", "Segoe UI Variable", "Segoe UI", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+    --xb-chat-panel-bg: #12110f;
+    --xb-chat-pop-bg: #1b1916;
+    position: fixed;
+    inset: 0;
+    z-index: 100200;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.48);
+    backdrop-filter: blur(14px);
+    padding: 28px;
+}
+
+.tavern-dialog-overlay.theme-light {
+    color-scheme: light;
+    --xb-paper: #f4f3ee;
+    --xb-paper-plain: #fbfaf6;
+    --xb-ink: #1a1a1a;
+    --xb-ink-soft: #5c5a56;
+    --xb-rule: #d8d4c7;
+    --xb-stamp: #8c2a2a;
+    --xb-stamp-soft: rgba(140, 42, 42, 0.08);
+    --xb-accent-rgb: 140, 42, 42;
+    --xb-danger: #9b2d2d;
+    --xb-warn: #8b6f36;
+    --xb-shadow: 4px 4px 0 rgba(26, 26, 26, 0.05);
+    --xb-font-ui: "Segoe UI Variable", "Segoe UI", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+    --xb-chat-panel-bg: var(--xb-paper);
+    --xb-chat-pop-bg: var(--xb-paper-plain);
+}
+
+.tavern-dialog-overlay.theme-dark {
+    color-scheme: dark;
+}
+
+.tavern-dialog {
+    width: min(420px, 100%);
+    max-height: min(86vh, 680px);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 10px;
+    overflow: hidden;
+    border: 1px solid var(--xb-rule);
+    border-radius: 10px;
+    background: var(--xb-chat-pop-bg);
+    box-shadow: var(--xb-shadow);
+    color: var(--xb-ink);
+    padding: 12px;
+}
+
+.tavern-dialog.is-attention {
+    animation: tavern-dialog-attention 220ms var(--xb-fluid, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+@keyframes tavern-dialog-attention {
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    35% {
+        transform: translateX(-5px);
+    }
+
+    70% {
+        transform: translateX(5px);
+    }
+}
+
+.tavern-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    border-bottom: 1px solid var(--xb-rule);
+    padding: 2px 2px 8px;
+}
+
+.tavern-dialog-head div {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.tavern-dialog-head strong {
+    font: 800 14px/1.2 var(--xb-font-ui);
+}
+
+.tavern-dialog-close {
+    position: relative;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 auto;
+    border: 1px solid var(--xb-rule);
+    border-radius: 50%;
+    background: var(--xb-chat-panel-bg);
+    color: var(--xb-ink);
+    padding: 0;
+}
+
+.tavern-dialog-close::before,
+.tavern-dialog-close::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 11px;
+    height: 1.5px;
+    border-radius: 999px;
+    background: currentColor;
+    transform-origin: center;
+}
+
+.tavern-dialog-close::before {
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.tavern-dialog-close::after {
+    transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.tavern-dialog-body {
+    min-height: 0;
+    display: grid;
+    gap: 10px;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.tavern-dialog-body p {
+    margin: 0;
+    color: var(--xb-ink-soft);
+    font: 500 13px/1.55 var(--xb-font-ui);
+    white-space: pre-wrap;
+}
+
+.tavern-dialog-field {
+    display: grid;
+    gap: 6px;
+}
+
+.tavern-dialog-field input {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid var(--xb-rule);
+    border-radius: 7px;
+    background: var(--xb-chat-panel-bg);
+    color: var(--xb-ink);
+    font: 500 13px/1.45 var(--xb-font-ui);
+    padding: 8px 9px;
+}
+
+.tavern-dialog-field input:focus {
+    outline: none;
+    border-color: rgba(var(--xb-accent-rgb), 0.42);
+    box-shadow: 0 0 0 2px var(--xb-stamp-soft);
+}
+
+.tavern-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    border-top: 1px solid var(--xb-rule);
+    padding-top: 8px;
+}
+
+.tavern-dialog-button {
+    min-height: 32px;
+    border-radius: 7px;
+    font: 800 13px/1 var(--xb-font-ui);
+    padding: 0 14px;
+}
+
+.tavern-dialog-button.secondary {
+    border: 1px solid var(--xb-rule);
+    background: var(--xb-chat-panel-bg);
+    color: var(--xb-ink-soft);
+}
+
+.tavern-dialog-button.primary {
+    border: 0;
+    background: var(--xb-stamp);
+    color: var(--xb-paper);
+}
+
+.tavern-dialog.tone-danger .tavern-dialog-button.primary {
+    background: var(--xb-danger);
+    color: var(--xb-paper);
+}
+
+.tavern-dialog.tone-warning .tavern-dialog-button.primary {
+    background: var(--xb-warn);
+    color: var(--xb-paper);
+}
+
+@media (max-width: 560px) {
+    .tavern-dialog-overlay {
+        padding: 18px;
+    }
+
+    .tavern-dialog {
+        width: min(420px, calc(100vw - 36px));
+        max-height: min(82vh, 620px);
+    }
+
+    .tavern-dialog-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tavern-dialog-actions .primary:only-child {
+        grid-column: 1 / -1;
+    }
+}

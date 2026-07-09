@@ -1,5 +1,6 @@
 import Dexie from '../../../libs/dexie.mjs';
 import { normalizeBookDirectoryPath, normalizeBookFilePath } from './book-paths.js';
+import { countDraftedChapterFiles } from './book-progress.js';
 import { DEFAULT_BOOK_FILES } from './book-templates.js';
 
 const db = new Dexie('LittleWhiteBox_Ebook');
@@ -46,6 +47,7 @@ function cloneBook(book = {}) {
         title: String(book.title || ''),
         createdAt: Number(book.createdAt) || 0,
         updatedAt: Number(book.updatedAt) || 0,
+        chapterCount: Math.max(0, Number(book.chapterCount) || 0),
     };
 }
 
@@ -61,7 +63,15 @@ function cloneFile(file = {}) {
 
 export async function listBooks() {
     const books = await booksTable.orderBy('updatedAt').reverse().toArray();
-    return books.map(cloneBook).filter((book) => book.id);
+    const normalizedBooks = books.map(cloneBook).filter((book) => book.id);
+    const chapterCounts = await Promise.all(normalizedBooks.map(async (book) => {
+        const files = await filesTable.where('bookId').equals(book.id).toArray();
+        return countDraftedChapterFiles(files);
+    }));
+    return normalizedBooks.map((book, index) => ({
+        ...book,
+        chapterCount: chapterCounts[index] || 0,
+    }));
 }
 
 export async function getSelectedBookId() {
@@ -90,6 +100,37 @@ export async function createBook(title = '') {
         touchBook: false,
     })));
     await setSelectedBookId(book.id);
+    return cloneBook(book);
+}
+
+export async function importBookFromFiles(title = '', nextFiles = []) {
+    const timestamp = now();
+    const book = {
+        id: createId('book'),
+        title: normalizeTitle(title, '导入书稿'),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
+    const files = (Array.isArray(nextFiles) ? nextFiles : [])
+        .map((file) => ({
+            path: normalizeBookFilePath(file?.path),
+            content: typeof file?.content === 'string' ? file.content : '',
+            createdAt: Number(file?.createdAt) || timestamp,
+            updatedAt: Number(file?.updatedAt) || timestamp,
+        }))
+        .filter((file) => file.path);
+    if (!files.length) throw new Error('ebook_package_has_no_files');
+
+    await db.transaction('rw', booksTable, filesTable, async () => {
+        await booksTable.put(book);
+        await Promise.all(files.map((file) => filesTable.put({
+            bookId: book.id,
+            path: file.path,
+            content: file.content,
+            createdAt: file.createdAt,
+            updatedAt: file.updatedAt,
+        })));
+    });
     return cloneBook(book);
 }
 

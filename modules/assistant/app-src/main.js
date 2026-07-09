@@ -65,7 +65,7 @@ const ACCEPTED_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'ima
 const TOAST_DURATION_MS = 2600;
 const TOAST_DURATION_MIN_MS = 1800;
 const TOAST_DURATION_MAX_MS = 4200;
-const CONFIG_SAVE_TIMEOUT_MS = 3000;
+const CONFIG_SAVE_TIMEOUT_MS = 5000;
 const CONFIG_SAVE_RESULT_MS = 1800;
 const CONTEXT_STATS_RENDER_THROTTLE_MS = 600;
 const currentPlanContextLedger = createPlanLedger({ plansTable: assistantPlansTable });
@@ -138,6 +138,7 @@ const state = {
 };
 
 const pendingToolCalls = new Map();
+const pendingHostRequests = new Map();
 const pendingApprovals = new Map();
 let toastTimer = null;
 let parsedAssistantUA = null;
@@ -160,6 +161,46 @@ function post(type, payload = {}) {
 
 function createRequestId(prefix) {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function requestHost(type, payload = {}, options = {}) {
+    const requestId = createRequestId('host');
+    post(type, { ...payload, requestId });
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            pendingHostRequests.delete(requestId);
+            reject(new Error('host_request_timeout'));
+        }, Number(options.timeoutMs) || CONFIG_SAVE_TIMEOUT_MS);
+        pendingHostRequests.set(requestId, {
+            resolve: (value) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                pendingHostRequests.delete(requestId);
+                resolve(value);
+            },
+            reject: (error) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                pendingHostRequests.delete(requestId);
+                reject(error);
+            },
+        });
+    });
+}
+
+function resolveHostRequest(payload = {}) {
+    const entry = pendingHostRequests.get(String(payload.requestId || ''));
+    if (!entry) return;
+    if (payload.ok === false) {
+        entry.reject(new Error(payload.error || 'host_request_failed'));
+    } else {
+        entry.resolve(payload);
+    }
 }
 
 function safeJsonParse(text, fallback = {}) {
@@ -2087,7 +2128,16 @@ window.addEventListener('message', (event) => {
         const hostRequestHeaders = data.payload?.hostRequestHeaders && typeof data.payload.hostRequestHeaders === 'object'
             ? data.payload.hostRequestHeaders
             : {};
-        setHostChatCompletionsRequestHeadersProvider(() => hostRequestHeaders);
+        setHostChatCompletionsRequestHeadersProvider(async () => {
+            try {
+                const result = await requestHost('xb-assistant:get-host-request-headers', {}, { timeoutMs: 5000 });
+                return result?.hostRequestHeaders && typeof result.hostRequestHeaders === 'object'
+                    ? result.hostRequestHeaders
+                    : hostRequestHeaders;
+            } catch {
+                return hostRequestHeaders;
+            }
+        });
         state.runtime = data.payload?.runtime || null;
         if (!ensureWorkspaceKernelVersion(state.runtime)) return;
         state.skillFiles = normalizeSkillFiles(data.payload?.runtime?.skillFiles || []);
@@ -2176,6 +2226,11 @@ window.addEventListener('message', (event) => {
         applyConfig(data.payload?.config || {});
         completeConfigSave(data.payload?.requestId || '', { ok: false, error: data.payload?.error || '网络异常' });
         showToast(`保存失败：${data.payload?.error || '网络异常'}`);
+        return;
+    }
+
+    if (data.type === 'xb-assistant:host-result') {
+        resolveHostRequest(data.payload || {});
         return;
     }
 

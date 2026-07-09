@@ -97,7 +97,6 @@ export function createEbookConversationStore(options = {}) {
             .map((message, index) => serializeMessage(id, message, index));
         return {
             bookId: id,
-            historySummary: String(state.historySummary || ''),
             messages,
             updatedAt: Date.now(),
         };
@@ -108,7 +107,7 @@ export function createEbookConversationStore(options = {}) {
         await db.transaction('rw', ebookSessionsTable, ebookMessagesTable, async () => {
             await ebookSessionsTable.put({
                 bookId: snapshot.bookId,
-                historySummary: snapshot.historySummary,
+                historySummary: '',
                 updatedAt: snapshot.updatedAt,
             });
             await ebookMessagesTable.where('bookId').equals(snapshot.bookId).delete();
@@ -153,7 +152,7 @@ export function createEbookConversationStore(options = {}) {
             rows.sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
             state.messages = rows.map(normalizeRestoredMessage).filter(Boolean);
             resetConversationUiState(state);
-            state.historySummary = String(session.historySummary || '');
+            state.historySummary = '';
             state.archivedTurnCount = 0;
         } catch (error) {
             console.error('[Ebook] 恢复创作对话失败:', error);

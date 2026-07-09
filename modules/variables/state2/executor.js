@@ -32,7 +32,12 @@ function splitPath(path) {
                 while (i < s.length && s[i] !== ']') val += s[i++];
             }
             if (s[i] === ']') i++;
-            segs.push(/^\d+$/.test(val.trim()) ? Number(val.trim()) : val.trim());
+            const normalizedBracketValue = val.trim();
+            if (normalizedBracketValue === '*') {
+                segs.push('[*]');
+            } else {
+                segs.push(/^\d+$/.test(normalizedBracketValue) ? Number(normalizedBracketValue) : normalizedBracketValue);
+            }
         } else {
             buf += ch;
             i++;

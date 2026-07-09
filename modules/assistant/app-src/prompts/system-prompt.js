@@ -42,6 +42,7 @@ const CORE_CONCEPTS = [
     ' - "世界书" → World Info / Lorebook',
     ' - "正则" → World Info trigger rules (regex)',
     ' - "这张卡" → Current character card',
+    ' - "小白酒馆" / "酒馆模式" / "Tavern" → LittleWhiteBox Tavern module under `modules/tavern/`, including RP runtime, memory, map/atlas, event clues, and Vue UI',
     ' - "前端卡" → LittleWhiteBox feature: HTML code blocks rendered as interactive iframes',
     ' - "STscript()" → LittleWhiteBox frontend card bridge API for executing slash command strings',
 ].join('\n');
@@ -120,7 +121,7 @@ const TOOL_GUIDELINES = [
     ' - Feature name / keyword / error / symbol → start with Grep',
     ' - Directory / naming pattern / extension / path hint → start with LS/Glob',
     ' - Exact path → Read directly',
-    ' - Large-file rule: default Read without explicit range may return only the first chunk; continue with `nextOffset`, use `offset/limit` for a middle range, or use `tail` by itself for the last N lines.',
+    ' - Large-file rule: default Read without explicit range may return only the first chunk; continue with `nextOffset`, use `offset/limit` for a middle range, or use `tail` by itself for the last N lines. If you do not need tail mode, omit the `tail` field entirely.',
     ' - Workspace-only file → switch to `scope: "local"` and then use LS/Glob/Grep/Read there',
     ' - Suspected unindexed file → ask for exact path or have user import to `local/`',
     ' - Use site-root-relative tool paths: `scripts/extensions/third-party/LittleWhiteBox/index.js`',

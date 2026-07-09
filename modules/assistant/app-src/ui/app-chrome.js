@@ -1,5 +1,37 @@
 import { describeMemoryFile, findMemoryFileByPath } from '../memory/memory-files.js';
 
+function appendSvgPath(svg, d) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+}
+
+function createSaveIcon(status = 'idle') {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    if (status === 'saving') {
+        const spinner = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        spinner.setAttribute('class', 'xb-assistant-save-spinner');
+        spinner.setAttribute('d', 'M12 3a9 9 0 1 1-8.2 5.3');
+        svg.append(spinner);
+        return svg;
+    }
+    if (status === 'success') {
+        appendSvgPath(svg, 'M20 6 9 17l-5-5');
+        return svg;
+    }
+    if (status === 'error') {
+        appendSvgPath(svg, 'M18 6 6 18');
+        appendSvgPath(svg, 'M6 6l12 12');
+        return svg;
+    }
+    appendSvgPath(svg, 'M5 21h14a1 1 0 0 0 1-1V7.5L16.5 4H5a1 1 0 0 0-1 1v15a1 1 0 0 0 1 1Z');
+    appendSvgPath(svg, 'M8 21v-7h8v7');
+    appendSvgPath(svg, 'M8 4v5h7');
+    return svg;
+}
+
 export function collectContextHintItems(state = {}) {
     const workspaceSelection = state.workspaceSelectionContext || {};
     const externalEditorContext = state.externalEditorContext || null;
@@ -178,18 +210,23 @@ export function renderAppChrome(root, state, options = {}) {
     saveButton.classList.toggle('is-success', saveState === 'success');
     saveButton.classList.toggle('is-error', saveState === 'error');
     saveButton.disabled = state.isBusy || saveState === 'saving';
+    const normalizedSaveIconState = ['saving', 'success', 'error'].includes(saveState) ? saveState : 'idle';
+    if (saveButton.dataset.iconState !== normalizedSaveIconState) {
+        saveButton.replaceChildren(createSaveIcon(normalizedSaveIconState));
+        saveButton.dataset.iconState = normalizedSaveIconState;
+    }
     if (saveState === 'saving') {
-        saveButton.innerHTML = '<span class="xb-assistant-save-spinner" aria-hidden="true"></span>保存中...';
         saveButton.title = '正在保存配置';
+        saveButton.setAttribute('aria-label', '正在保存配置');
     } else if (saveState === 'success') {
-        saveButton.textContent = '已保存';
         saveButton.title = '配置已保存';
+        saveButton.setAttribute('aria-label', '配置已保存');
     } else if (saveState === 'error') {
-        saveButton.textContent = '保存失败';
         saveButton.title = state.configSave.error || '保存失败';
+        saveButton.setAttribute('aria-label', state.configSave.error || '保存失败');
     } else {
-        saveButton.textContent = '保存配置';
         saveButton.title = '保存配置';
+        saveButton.setAttribute('aria-label', '保存配置');
     }
 
     const pullButton = root.querySelector('#xb-assistant-pull-models');

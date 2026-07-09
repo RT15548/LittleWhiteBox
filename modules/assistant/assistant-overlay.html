@@ -4,9 +4,67 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
     <title>小白助手</title>
+    <style>
+        html,
+        body,
+        #xb-assistant-root {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            background: #eef3f8;
+        }
+
+        #xb-frame-boot {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            display: grid;
+            place-items: center;
+            background: #eef3f8;
+            color: #203249;
+            font: 13px/1.4 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+            transition: opacity 180ms ease;
+        }
+
+        #xb-assistant-root:not(:empty) ~ #xb-frame-boot {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .xb-frame-boot-core {
+            display: grid;
+            justify-items: center;
+            gap: 12px;
+        }
+
+        .xb-frame-boot-ring {
+            width: 28px;
+            height: 28px;
+            border: 2px solid rgba(32, 50, 73, 0.18);
+            border-top-color: #203249;
+            border-radius: 50%;
+            animation: xb-frame-boot-spin 800ms linear infinite;
+        }
+
+        .xb-frame-boot-text {
+            color: rgba(32, 50, 73, 0.68);
+        }
+
+        @keyframes xb-frame-boot-spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
 </head>
 <body>
     <div id="xb-assistant-root"></div>
-    <script type="module" src="./dist/assistant-app.js"></script>
+    <div id="xb-frame-boot" role="status" aria-live="polite">
+        <div class="xb-frame-boot-core">
+            <div class="xb-frame-boot-ring" aria-hidden="true"></div>
+            <div class="xb-frame-boot-text">正在加载</div>
+        </div>
+    </div>
+    <script type="module" src="./dist/assistant-app.js" onerror="document.querySelector('#xb-frame-boot .xb-frame-boot-text').textContent = '加载失败，请刷新重试';"></script>
 </body>
 </html>

@@ -24,12 +24,14 @@ export const DEFAULT_MODEL_CONFIGS = {
         model: 'gpt-4.1-mini',
         apiKey: '',
         temperature: 0.2,
+        sendTemperature: true,
     },
     'openai-compatible': {
         baseUrl: 'https://api.openai.com/v1',
         model: 'gpt-4o-mini',
         apiKey: '',
         temperature: 0.2,
+        sendTemperature: true,
         toolMode: 'native',
     },
     'sillytavern-openai-compatible': {
@@ -37,6 +39,7 @@ export const DEFAULT_MODEL_CONFIGS = {
         model: 'gpt-4o-mini',
         apiKey: '',
         temperature: 0.2,
+        sendTemperature: true,
         toolMode: 'native',
     },
     'sillytavern-claude': {
@@ -44,24 +47,28 @@ export const DEFAULT_MODEL_CONFIGS = {
         model: 'claude-sonnet-4-0',
         apiKey: '',
         temperature: 0.2,
+        sendTemperature: true,
     },
     'sillytavern-google': {
         baseUrl: '',
         model: 'gemini-2.5-pro',
         apiKey: '',
         temperature: 0.2,
+        sendTemperature: true,
     },
     anthropic: {
         baseUrl: 'https://api.anthropic.com',
         model: 'claude-sonnet-4-0',
         apiKey: '',
         temperature: 0.2,
+        sendTemperature: true,
     },
     google: {
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
         model: 'gemini-2.5-pro',
         apiKey: '',
         temperature: 0.2,
+        sendTemperature: true,
     },
 };
 

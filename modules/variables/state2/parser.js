@@ -254,6 +254,15 @@ function parseRuleLine(line) {
     return { path, rule };
 }
 
+function looksLikeDataOpForSchemaPath(line, schemaPath) {
+    if (!schemaPath) return false;
+    const colonIdx = findTopLevelColon(line);
+    if (colonIdx === -1) return false;
+
+    const path = line.slice(0, colonIdx).trim();
+    return path === schemaPath || path.startsWith(`${schemaPath}.`) || path.startsWith(`${schemaPath}[`);
+}
+
 export function parseStateBlock(content) {
     const lines = String(content ?? '').split(/\r?\n/);
 
@@ -298,6 +307,11 @@ export function parseStateBlock(content) {
 
         if (inSchema) {
             if (schemaBaseIndent < 0) {
+                if (indent === 0 && looksLikeDataOpForSchemaPath(trimmed, schemaPath)) {
+                    flushSchema();
+                    i--;
+                    continue;
+                }
                 schemaBaseIndent = indent;
             }
 

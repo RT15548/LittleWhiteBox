@@ -128,7 +128,7 @@ export const TOOL_DEFINITIONS = [
                 'When `scope: "local"` is used, `filePath` still needs the full `local/...` path.',
                 'For some explicit public file paths, direct live reads may still work even if the path is not in the index.',
                 'Returns numbered lines for files and plain entry names for directories; large reads include continuation hints.',
-                'Use `tail` only when you need the last N lines of a file.',
+                'Use `tail` only when you need the last N lines of a file; otherwise omit it entirely.',
             ].join('\n'),
             parameters: {
                 type: 'object',
@@ -137,7 +137,7 @@ export const TOOL_DEFINITIONS = [
                     scope: { type: 'string', enum: ['project', 'local'], description: 'Lookup scope. Default is project. Use local to read only `local/` workspace files or directories.' },
                     offset: { type: 'number', description: 'Optional line offset (1-based). Default 1.' },
                     limit: { type: 'number', description: 'Optional maximum number of lines or directory entries to return. Default 2000.' },
-                    tail: { type: 'number', description: 'Optional number of final file lines to return. Use by itself; cannot be combined with offset, limit, startLine, or endLine.' },
+                    tail: { type: 'number', description: 'Optional number of final file lines to return. Use by itself; cannot be combined with offset, limit, startLine, or endLine. Omit the field entirely when unused; do not send `tail: 0`.' },
                 },
                 required: ['filePath'],
                 additionalProperties: false,

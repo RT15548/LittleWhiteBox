@@ -18,7 +18,9 @@ import {
     setHostChatCompletionsRequestHeadersProvider,
 } from '../../../shared/host-llm/chat-completions/client.js';
 import { createAgentAdapter } from '../../agent-core/provider-config.js';
+import { resolveResultToolCalls } from '../../agent-core/runtime/protocol.js';
 import { pullModelsForProvider } from '../../agent-core/ui/settings-panel.js';
+import { buildNativeMessages } from '../../agent-core/adapters/openai-compatible.js';
 
 function createSseResponse(events = [], delimiter = '\n\n') {
     const payload = events.map((event) => `data: ${JSON.stringify(event)}${delimiter}`).join('') + `data: [DONE]${delimiter}`;
@@ -86,6 +88,62 @@ test('host OpenAI-compatible payloads use SillyTavern backend fields without lea
     assert.equal(Object.hasOwn(payload, 'temperature'), false);
     assert.equal(payload.tool_choice, 'auto');
     assert.equal(payload.tools.length, 1);
+});
+
+test('OpenAI-compatible native messages keep task system prompt in the actual request', async () => {
+    const messages = buildNativeMessages({
+        systemPrompt: 'You are the background manager.',
+        messages: [{ role: 'user', content: 'hello' }],
+    });
+    assert.deepEqual(messages.slice(0, 2), [
+        { role: 'system', content: 'You are the background manager.' },
+        { role: 'user', content: 'hello' },
+    ]);
+
+    const adapter = new SillyTavernOpenAICompatibleAdapter({
+        model: 'compat-model',
+        toolMode: 'native',
+    });
+    const inspection = await adapter.inspectRequest({
+        systemPrompt: 'You are the background manager.',
+        messages: [{ role: 'user', content: 'hello' }],
+    });
+    assert.equal(inspection.request.body.messages[0]?.role, 'system');
+    assert.equal(inspection.request.body.messages[0]?.content, 'You are the background manager.');
+});
+
+test('SillyTavern OpenAI-compatible Claude-like requests coerce the final system role only in the request messages', async () => {
+    const adapter = new SillyTavernOpenAICompatibleAdapter({
+        model: 'anthropic/claude-sonnet-4-6',
+        toolMode: 'native',
+    });
+    const inspection = await adapter.inspectRequest({
+        messages: [
+            { role: 'system', content: '<meta_protocol>' },
+            { role: 'assistant', content: '历史 AI' },
+            { role: 'system', content: '跑团协议' },
+            { role: 'user', content: '继续' },
+            { role: 'system', content: '</meta_protocol>' },
+        ],
+        tools: [{
+            type: 'function',
+            function: {
+                name: 'ActionCheck',
+                parameters: { type: 'object', properties: {} },
+            },
+        }],
+    });
+    const messages = inspection.request.body.messages;
+
+    assert.deepEqual(messages.map((message) => message.role), [
+        'system',
+        'assistant',
+        'system',
+        'user',
+        'user',
+    ]);
+    assert.equal(messages[4].content, '</meta_protocol>');
+    assert.equal(inspection.request.body.tools[0].function.name, 'ActionCheck');
 });
 
 test('host Claude and Google payloads select the matching SillyTavern chat-completions source', () => {
@@ -276,6 +334,7 @@ test('sillytavern Claude adapter streams tool calls through host generate endpoi
     });
     const originalFetch = globalThis.fetch;
     const requests = [];
+    const progress = [];
     globalThis.fetch = async (url, options = {}) => {
         requests.push({
             url: String(url),
@@ -324,7 +383,7 @@ test('sillytavern Claude adapter streams tool calls through host generate endpoi
                     parameters: { type: 'object', properties: { filePath: { type: 'string' } } },
                 },
             }],
-            onStreamProgress: () => {},
+            onStreamProgress: (snapshot) => progress.push(snapshot),
         });
 
         assert.equal(requests[0].url, HOST_CHAT_COMPLETIONS_GENERATE_ENDPOINT);
@@ -339,6 +398,174 @@ test('sillytavern Claude adapter streams tool calls through host generate endpoi
         }]);
         assert.equal(result.provider, 'sillytavern-claude');
         assert.equal(result.providerPayload.anthropicContent[1].type, 'tool_use');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('sillytavern Claude adapter parses tool input only after stream completion', async () => {
+    const adapter = new SillyTavernClaudeAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'claude-sonnet-4-0',
+    });
+    const originalFetch = globalThis.fetch;
+    const progress = [];
+    globalThis.fetch = async () => createSseResponse([
+        {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', id: 'toolu_write', name: 'Write', input: {} },
+        },
+        {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: '{"filePath":"book/chapters/001.md",' },
+        },
+        {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: '"content":"第一行\\n\\"对话\\""}' },
+        },
+        {
+            type: 'message_delta',
+            delta: { stop_reason: 'tool_use' },
+        },
+    ]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '写一章' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Write',
+                    description: 'Write file.',
+                    parameters: { type: 'object', properties: {} },
+                },
+            }],
+            onStreamProgress: (snapshot) => progress.push(snapshot),
+        });
+
+        assert.equal(progress.length >= 2, true);
+        assert.deepEqual(result.toolCalls, [{
+            id: 'toolu_write',
+            name: 'Write',
+            arguments: '{"filePath":"book/chapters/001.md","content":"第一行\\n\\"对话\\""}',
+        }]);
+        assert.deepEqual(result.providerPayload.anthropicContent[0].input, {
+            filePath: 'book/chapters/001.md',
+            content: '第一行\n"对话"',
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('sillytavern Claude adapter preserves malformed final tool input for tool-layer errors', async () => {
+    const adapter = new SillyTavernClaudeAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'claude-sonnet-4-0',
+    });
+    const originalFetch = globalThis.fetch;
+    const progress = [];
+    const rawArguments = '{"filePath":"book/outline.md","edits":[';
+    globalThis.fetch = async () => createSseResponse([
+        {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', id: 'toolu_bad', name: 'Edit', input: {} },
+        },
+        {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: rawArguments },
+        },
+        {
+            type: 'message_delta',
+            delta: { stop_reason: 'tool_use' },
+        },
+    ]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '改大纲' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Edit',
+                    description: 'Edit file.',
+                    parameters: { type: 'object', properties: {} },
+                },
+            }],
+            onStreamProgress: (snapshot) => progress.push(snapshot),
+        });
+
+        assert.deepEqual(result.toolCalls, [{
+            id: 'toolu_bad',
+            name: 'Edit',
+            arguments: rawArguments,
+        }]);
+        assert.deepEqual(result.providerPayload.anthropicContent[0], {
+            type: 'tool_use',
+            id: 'toolu_bad',
+            name: 'Edit',
+            input: {},
+        });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('sillytavern Claude malformed Write input can be repaired by shared tool-call normalization', async () => {
+    const adapter = new SillyTavernClaudeAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'claude-sonnet-4-0',
+    });
+    const originalFetch = globalThis.fetch;
+    const rawArguments = [
+        '{"filePath":"book/chapters/001.md","content":"她说："回来。"',
+        '第二行"}',
+    ].join('\n');
+    globalThis.fetch = async () => createSseResponse([
+        {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'tool_use', id: 'toolu_write_bad', name: 'Write', input: {} },
+        },
+        {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'input_json_delta', partial_json: rawArguments },
+        },
+        {
+            type: 'message_delta',
+            delta: { stop_reason: 'tool_use' },
+        },
+    ]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '写一章' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Write',
+                    description: 'Write file.',
+                    parameters: { type: 'object', properties: {} },
+                },
+            }],
+            onStreamProgress: () => {},
+        });
+        const toolCalls = resolveResultToolCalls(result, { provider: 'sillytavern-claude' });
+
+        assert.equal(result.toolCalls[0].arguments, rawArguments);
+        assert.deepEqual(JSON.parse(toolCalls[0].arguments), {
+            filePath: 'book/chapters/001.md',
+            content: '她说："回来。"\n第二行',
+        });
     } finally {
         globalThis.fetch = originalFetch;
     }
@@ -471,6 +698,74 @@ test('sillytavern Claude adapter replays preserved anthropic content through hos
         });
         assert.equal(requests[0].body.messages[2].role, 'tool');
         assert.equal(result.text, '继续完成。');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('sillytavern Claude replay prefers repaired top-level tool arguments over raw preserved tool input', async () => {
+    const adapter = new SillyTavernClaudeAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'claude-sonnet-4-0',
+    });
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url, options = {}) => {
+        requests.push({
+            url: String(url),
+            body: JSON.parse(String(options.body || '{}')),
+        });
+        return createJsonResponse({
+            content: [{ type: 'text', text: '继续完成。' }],
+            stop_reason: 'end_turn',
+            model: 'claude-sonnet-4-0',
+        });
+    };
+
+    try {
+        await adapter.chat({
+            messages: [
+                { role: 'user', content: '继续处理' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    providerPayload: {
+                        anthropicContent: [
+                            { type: 'text', text: '我来写。' },
+                            { type: 'tool_use', id: 'toolu_write', name: 'Write', input: {} },
+                        ],
+                    },
+                    tool_calls: [{
+                        id: 'toolu_write',
+                        type: 'function',
+                        function: {
+                            name: 'Write',
+                            arguments: '{"filePath":"book/chapters/001.md","content":"正文"}',
+                        },
+                    }],
+                },
+                {
+                    role: 'tool',
+                    tool_call_id: 'toolu_write',
+                    content: JSON.stringify({ ok: true }),
+                },
+            ],
+            tools: [],
+        });
+
+        assert.deepEqual(requests[0].body.messages[1].content, [
+            { type: 'text', text: '我来写。' },
+            {
+                type: 'tool_use',
+                id: 'toolu_write',
+                name: 'Write',
+                input: {
+                    filePath: 'book/chapters/001.md',
+                    content: '正文',
+                },
+            },
+        ]);
     } finally {
         globalThis.fetch = originalFetch;
     }
@@ -807,6 +1102,43 @@ test('host OpenAI-compatible requests include injected SillyTavern CSRF headers'
     }
 });
 
+test('host OpenAI-compatible requests resolve fresh async SillyTavern headers per request', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    let csrfIndex = 0;
+    setHostChatCompletionsRequestHeadersProvider(async () => ({
+        'X-CSRF-Token': `csrf-live-${++csrfIndex}`,
+    }));
+    globalThis.fetch = async (url, options = {}) => {
+        requests.push({
+            url: String(url),
+            headers: options.headers,
+        });
+        return createJsonResponse({ data: [{ id: 'chat-model' }] });
+    };
+
+    try {
+        await fetchHostOpenAICompatibleModels({});
+        await fetchHostOpenAICompatibleModels({});
+
+        assert.deepEqual(requests.map((request) => request.headers), [
+            {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': 'csrf-live-1',
+                Accept: 'application/json',
+            },
+            {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': 'csrf-live-2',
+                Accept: 'application/json',
+            },
+        ]);
+    } finally {
+        setHostChatCompletionsRequestHeadersProvider(null);
+        globalThis.fetch = originalFetch;
+    }
+});
+
 test('host OpenAI-compatible model pull maps CSRF and HTML failures to refresh guidance', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => ({
@@ -837,6 +1169,7 @@ test('sillytavern OpenAI-compatible adapter streams native tool calls through ho
 
     const originalFetch = globalThis.fetch;
     const requests = [];
+    const progress = [];
     globalThis.fetch = async (url, options = {}) => {
         requests.push({
             url: String(url),
@@ -898,7 +1231,7 @@ test('sillytavern OpenAI-compatible adapter streams native tool calls through ho
                     },
                 },
             }],
-            onStreamProgress: () => {},
+            onStreamProgress: (snapshot) => progress.push(snapshot),
         });
 
         assert.equal(requests.length, 1);
@@ -915,7 +1248,73 @@ test('sillytavern OpenAI-compatible adapter streams native tool calls through ho
             name: 'Read',
             arguments: '{"path":"local/test.txt"}',
         }]);
+        assert.equal(progress.some((snapshot) => snapshot.toolCalls?.[0]?.name === 'Read'), true);
+        assert.equal(progress.some((snapshot) => String(snapshot.text || '').includes('我先读文件。')), true);
         assert.equal(result.providerPayload?.openaiCompatibleMessage?.reasoning_content, '先读取一个轻量文件确认工具链。');
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('sillytavern OpenAI-compatible tagged-json streaming hides raw tool JSON and emits tool draft progress', async () => {
+    const adapter = new SillyTavernOpenAICompatibleAdapter({
+        baseUrl: '',
+        apiKey: '',
+        model: 'compat-model',
+        toolMode: 'tagged-json',
+    });
+
+    const originalFetch = globalThis.fetch;
+    const progress = [];
+    globalThis.fetch = async () => createSseResponse([
+        {
+            model: 'compat-model',
+            choices: [{
+                index: 0,
+                delta: { role: 'assistant', content: '我先查一下。' },
+            }],
+        },
+        {
+            model: 'compat-model',
+            choices: [{
+                index: 0,
+                delta: { content: '\n<tool_call>{"name":"Read"' },
+            }],
+        },
+        {
+            model: 'compat-model',
+            choices: [{
+                index: 0,
+                delta: { content: ',"arguments":{"path":"local/test.txt"}}</tool_call>' },
+                finish_reason: 'stop',
+            }],
+        },
+    ]);
+
+    try {
+        const result = await adapter.chat({
+            messages: [{ role: 'user', content: '读文件' }],
+            tools: [{
+                type: 'function',
+                function: {
+                    name: 'Read',
+                    description: 'Read file.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            path: { type: 'string' },
+                        },
+                    },
+                },
+            }],
+            onStreamProgress: (snapshot) => progress.push(snapshot),
+        });
+
+        assert.equal(progress.some((snapshot) => String(snapshot.text || '').includes('<tool_call>')), false);
+        assert.equal(progress.some((snapshot) => snapshot.toolCallDraft === true), true);
+        assert.equal(progress.some((snapshot) => snapshot.toolCalls?.[0]?.name === 'Read'), true);
+        assert.equal(result.text, '我先查一下。');
+        assert.equal(result.toolCalls?.[0]?.name, 'Read');
     } finally {
         globalThis.fetch = originalFetch;
     }

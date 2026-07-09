@@ -1,0 +1,78 @@
+/* Prompt preset editor surface. */
+
+.preset-form-grid textarea,
+.preset-text-field textarea {
+    resize: vertical;
+    line-height: 1.58;
+}
+
+.preset-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.preset-actions button {
+    min-height: 36px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.040);
+}
+
+.session-list .session-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    min-height: 74px;
+    background: rgba(255, 255, 255, 0.028);
+}
+
+.session-list .session-card.active {
+    background: rgba(143, 183, 202, 0.11);
+}
+
+.session-list .session-card.compact {
+    min-height: 58px;
+    border: 1px solid rgba(255, 255, 255, 0.055);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.session-list .session-card button {
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+}
+
+.session-list .session-open {
+    display: grid;
+    min-width: 0;
+    justify-items: start;
+    gap: 5px;
+    background: transparent;
+    text-align: left;
+    padding: 12px 13px;
+}
+
+.session-list .session-delete {
+    width: 58px;
+    border-left: 1px solid rgba(255, 255, 255, 0.055);
+    background: rgba(255, 255, 255, 0.026);
+    color: var(--xb-text-muted);
+    font-size: 12px;
+    padding: 0;
+}
+
+.session-list .session-delete:hover {
+    background: rgba(191, 88, 88, 0.16);
+    color: #f0b1a8;
+}
+
+@media (max-width: 980px) {
+
+    .preset-actions {
+        justify-content: flex-start;
+    }
+
+}

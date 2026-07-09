@@ -145,8 +145,8 @@ class StreamingGeneration {
             const isClaudeModel = modelLower.includes('claude');
 
             if (isClaudeModel && Array.isArray(messages) && messages.length > 0) {
-                if (this._convertTrailingAssistantToSystem(messages)) {
-                    console.log('[xbgen] Claude model: converted trailing assistant prefill to system message');
+                if (this._convertClaudeTrailingPrefillToUser(messages)) {
+                    console.log('[xbgen] Claude model: converted trailing assistant/system prefill to user message');
                 }
             }
 
@@ -830,15 +830,12 @@ class StreamingGeneration {
         return '';
     }
 
-    _convertTrailingAssistantToSystem(messages) {
+    _convertClaudeTrailingPrefillToUser(messages) {
         if (!Array.isArray(messages) || messages.length < 1) return false;
         const lastMsg = messages[messages.length - 1];
-        if (lastMsg?.role !== 'assistant') return false;
+        if (lastMsg?.role !== 'assistant' && lastMsg?.role !== 'system') return false;
 
-        const assistantText = this._extractTextFromMessage(lastMsg).trim();
-        const systemText = assistantText ? `Assistant:\n${assistantText}` : 'Assistant:';
-        lastMsg.role = 'system';
-        lastMsg.content = systemText;
+        lastMsg.role = 'user';
         return true;
     }
 

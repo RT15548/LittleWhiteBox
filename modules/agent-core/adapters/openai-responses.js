@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { buildSdkRequestInspection } from './request-inspection.js';
 
 function buildUserOrSystemMessage(role, content) {
     return {
@@ -288,7 +289,56 @@ export class OpenAIResponsesAdapter {
         });
     }
 
+    buildRequestBody(task, legacySystemInInput = false) {
+        const body = {
+            model: this.config.model,
+            instructions: legacySystemInInput ? undefined : (resolveInstructions(task) || undefined),
+            input: legacySystemInInput ? buildInputMessagesWithSystem(task) : buildInputMessages(task),
+            ...(Array.isArray(task.tools) && task.tools.length
+                ? {
+                    tools: task.tools.map((tool) => ({
+                        type: 'function',
+                        name: tool.function.name,
+                        description: tool.function.description,
+                        parameters: tool.function.parameters,
+                    })),
+                    tool_choice: task.toolChoice || 'auto',
+                }
+                : {}),
+            ...(task.maxTokens ? { max_output_tokens: task.maxTokens } : {}),
+        };
+        if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
+            body.temperature = task.temperature;
+        }
+        if (task.reasoning?.enabled) {
+            body.reasoning = {
+                effort: task.reasoning.effort,
+                summary: 'detailed',
+            };
+        }
+        return body;
+    }
+
+    inspectRequest(task, options = {}) {
+        const stream = typeof task.onStreamProgress === 'function';
+        const legacySystemInInput = options.legacySystemInInput === true;
+        const baseUrl = String(this.config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+        return buildSdkRequestInspection({
+            provider: 'openai-responses',
+            model: this.config.model,
+            transport: 'openai-responses',
+            url: `${baseUrl}/responses`,
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: this.config.apiKey ? `Bearer ${this.config.apiKey}` : '',
+            },
+            body: options.body || this.buildRequestBody(task, legacySystemInInput),
+            sdk: stream ? 'client.responses.stream' : 'client.responses.create',
+        });
+    }
+
     async chat(task) {
+        let requestInspection = this.inspectRequest(task);
         const parseResponse = (response) => {
             const proxyError = detectProxyEndpointError(response);
             if (proxyError) {
@@ -311,45 +361,17 @@ export class OpenAIResponsesAdapter {
             return { output, thoughts, toolCalls, text };
         };
 
-        const createRequestBody = (legacySystemInInput = false) => {
-            const body = {
-                model: this.config.model,
-                instructions: legacySystemInInput ? undefined : (resolveInstructions(task) || undefined),
-                input: legacySystemInInput ? buildInputMessagesWithSystem(task) : buildInputMessages(task),
-                ...(Array.isArray(task.tools) && task.tools.length
-                    ? {
-                        tools: task.tools.map((tool) => ({
-                            type: 'function',
-                            name: tool.function.name,
-                            description: tool.function.description,
-                            parameters: tool.function.parameters,
-                        })),
-                        tool_choice: task.toolChoice || 'auto',
-                    }
-                    : {}),
-                ...(task.maxTokens ? { max_output_tokens: task.maxTokens } : {}),
-            };
-            if (!task.reasoning?.enabled && typeof task.temperature === 'number') {
-                body.temperature = task.temperature;
-            }
-            if (task.reasoning?.enabled) {
-                body.reasoning = {
-                    effort: task.reasoning.effort,
-                    summary: 'detailed',
-                };
-            }
-            return body;
-        };
-
         const createRequest = async (legacySystemInInput = false) => {
-            const body = createRequestBody(legacySystemInInput);
+            const body = this.buildRequestBody(task, legacySystemInInput);
+            requestInspection = this.inspectRequest(task, { body, legacySystemInInput });
             return await this.client.responses.create(body, {
                 signal: task.signal,
             });
         };
 
         const createStreamRequest = async (legacySystemInInput = false) => {
-            const body = createRequestBody(legacySystemInInput);
+            const body = this.buildRequestBody(task, legacySystemInInput);
+            requestInspection = this.inspectRequest(task, { body, legacySystemInInput });
             const stream = this.client.responses.stream(body, {
                 signal: task.signal,
             });
@@ -426,6 +448,7 @@ export class OpenAIResponsesAdapter {
             finishReason: response.incomplete_details?.reason || response.status || 'stop',
             model: response.model || this.config.model,
             provider: 'openai-responses',
+            requestInspection,
         };
     }
 }

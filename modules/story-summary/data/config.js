@@ -202,6 +202,13 @@ Before generating, observe the USER and analyze carefully:
 - 谓词规范化: 复用已有谓词，不要发明同义词
 - 只输出有变化的条目，确保少、硬、稳定
 
+## characterAliasUpdates 规则（可选）
+- 目的: 处理同一角色先用称号/外号/代号，后续揭示真名或统一主名的情况
+- 只有当前新内容出现明确身份桥时才输出；没有证据就省略整个 characterAliasUpdates 字段，不要猜
+- to: 统一主名；from: 旧称呼数组；evidence: 当前批次里的短证据，必须能说明“from 其实是 to”
+- 例: {"to":"李玄清","from":["道长"],"evidence":"#37 道长报出本名李玄清"}
+- 不要列出要修改哪些事件/事实/弧光，系统会自动合并
+
 ## Output Format
 \`\`\`json
 {
@@ -232,6 +239,9 @@ Before generating, observe the USER and analyze carefully:
   "factUpdates": [
     {"s": "主体", "p": "谓词", "o": "当前值", "isState": true, "trend": "仅关系类填"},
     {"s": "要删除的主体", "p": "要删除的谓词", "retracted": true}
+  ],
+  "characterAliasUpdates": [
+    {"to": "统一主名，仅明确揭示身份时输出", "from": ["旧称呼/外号/代号/职称"], "evidence": "当前批次里的短证据"}
   ]
 }
 \`\`\`
@@ -243,6 +253,7 @@ Before generating, observe the USER and analyze carefully:
 - keywords 是全局关键词，综合已有+新增
 - causedBy 仅在因果明确时填写，允许为[]，0-2个
 - factUpdates 可为空数组
+- characterAliasUpdates 是可选字段；没有明确身份揭示时不要输出这个 key
 - 合法JSON，字符串值内部避免英文双引号
 - 用朴实、白描、有烟火气的笔触记录事实，避免比喻和意象
 - 严谨、注重细节，避免使用模糊的概括性语言，应用具体的动词描述动作，例:谁,在什么时间/地点,通过什么方式,对谁,做了什么事,出现了什么道具,结果如何。

@@ -31,6 +31,7 @@ test('Read exposes tail as the only extra range shortcut', () => {
         'tail',
     ]);
     assert.match(definition.function.parameters.properties.tail.description, /cannot be combined with offset, limit/i);
+    assert.match(definition.function.parameters.properties.tail.description, /do not send `tail: 0`/i);
     assert.doesNotMatch(JSON.stringify(definition.function.parameters.properties), /mode|from/i);
 });
 

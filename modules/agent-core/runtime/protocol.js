@@ -1,3 +1,23 @@
+import { repairLooseToolArguments } from './loose-tool-arguments.js';
+
+function normalizeToolCallArguments(toolCall = {}) {
+    const name = String(toolCall?.name || '').trim();
+    if (typeof toolCall?.arguments === 'string') {
+        const raw = toolCall.arguments;
+        try {
+            JSON.parse(raw.trim() || '{}');
+            return raw;
+        } catch {
+            return repairLooseToolArguments(raw, name) || raw;
+        }
+    }
+    try {
+        return JSON.stringify(toolCall?.arguments || {});
+    } catch {
+        return '{}';
+    }
+}
+
 export function normalizeToolCalls(toolCalls = [], options = {}) {
     const fallbackPrefix = String(options.fallbackPrefix || 'agent-tool').trim() || 'agent-tool';
     const createId = typeof options.createId === 'function'
@@ -8,9 +28,7 @@ export function normalizeToolCalls(toolCalls = [], options = {}) {
         .map((toolCall, index) => ({
             id: String(toolCall?.id || createId(index) || `${fallbackPrefix}-${index + 1}`),
             name: String(toolCall?.name || '').trim(),
-            arguments: typeof toolCall?.arguments === 'string'
-                ? toolCall.arguments
-                : JSON.stringify(toolCall?.arguments || {}),
+            arguments: normalizeToolCallArguments(toolCall),
         }))
         .filter((toolCall) => toolCall.name);
 }
@@ -98,9 +116,11 @@ export function buildProviderAssistantToolCallMessage(result = {}, toolCalls = [
 }
 
 export function buildProviderToolResultMessage(message = {}) {
+    const toolName = String(message.toolName || message.tool_name || '').trim();
     return {
         role: 'tool',
         tool_call_id: String(message.toolCallId || message.tool_call_id || ''),
+        ...(toolName ? { toolName } : {}),
         content: String(message.content || ''),
     };
 }

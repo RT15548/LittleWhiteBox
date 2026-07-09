@@ -18,6 +18,7 @@ let db = null;
 
 const generateQueue = [];
 let isQueueProcessing = false;
+const inflightGenerations = new Map();
 
 function getRandomDelay() {
     return QUEUE_DELAY_MIN + Math.random() * (QUEUE_DELAY_MAX - QUEUE_DELAY_MIN);
@@ -27,12 +28,15 @@ function getRandomDelay() {
  * 将生成任务加入队列
  * @returns {Promise<string>} base64 图片
  */
-function enqueueGeneration(tags, onProgress) {
+function enqueueGeneration(tags, progressListeners) {
     return new Promise((resolve, reject) => {
+        const notify = (status, position, delay) => {
+            progressListeners.forEach((listener) => listener?.(status, position, delay));
+        };
         const position = generateQueue.length + 1;
-        onProgress?.('queued', position);
+        notify('queued', position);
         
-        generateQueue.push({ tags, resolve, reject, onProgress });
+        generateQueue.push({ tags, resolve, reject, onProgress: notify });
         processQueue();
     });
 }
@@ -89,6 +93,7 @@ export function clearQueue() {
         const { reject } = generateQueue.shift();
         reject(new Error('队列已清空'));
     }
+    inflightGenerations.clear();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -223,9 +228,28 @@ export async function generateImage(tags, onProgress) {
     // 先检查缓存
     const cached = await getFromCache(tags);
     if (cached) return cached;
+
+    const hash = hashTags(tags);
+    const inflight = inflightGenerations.get(hash);
+    if (inflight) {
+        if (typeof onProgress === 'function') {
+            inflight.progressListeners.add(onProgress);
+        }
+        return inflight.promise;
+    }
+
+    const progressListeners = new Set();
+    if (typeof onProgress === 'function') {
+        progressListeners.add(onProgress);
+    }
     
     // 加入队列生成
-    return enqueueGeneration(tags, onProgress);
+    const promise = enqueueGeneration(tags, progressListeners)
+        .finally(() => {
+            inflightGenerations.delete(hash);
+        });
+    inflightGenerations.set(hash, { promise, progressListeners });
+    return promise;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

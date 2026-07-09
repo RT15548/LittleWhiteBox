@@ -170,55 +170,73 @@ function createMovableModal(title, content) {
   const getActiveView = () => body.querySelector(`.mp-view[data-view="${activeView}"] .mp-view-content`) || body;
 
   function clearHighlights(root = getActiveView()) {
-    root.querySelectorAll('.mp-highlight').forEach(el => {
-      // Controlled markup generated locally.
-      // eslint-disable-next-line no-unsanitized/property
-      el.outerHTML = el.innerHTML;
+    root.querySelectorAll('.mp-highlight').forEach((el) => {
+      const parent = el.parentNode;
+      if (!parent) return;
+      parent.replaceChild(document.createTextNode(el.textContent || ''), el);
+      parent.normalize();
     });
   }
+
+  function collectSearchTextNodes(root) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (parent?.closest?.('.mp-highlight')) return NodeFilter.FILTER_REJECT;
+        if (parent?.closest?.('script,style')) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const nodes = [];
+    let node;
+    while ((node = walker.nextNode())) nodes.push(node);
+    return nodes;
+  }
+
+  function highlightTextNodeMatches(textNode, regex) {
+    const text = textNode.nodeValue || '';
+    regex.lastIndex = 0;
+    const matches = [...text.matchAll(regex)].filter((match) => match[0]);
+    if (!matches.length) return;
+
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    matches.forEach((match) => {
+      const start = match.index ?? 0;
+      const value = match[0];
+      if (start > cursor) fragment.append(document.createTextNode(text.slice(cursor, start)));
+
+      const mark = document.createElement('span');
+      mark.className = 'mp-highlight';
+      mark.dataset.searchIndex = String(searchResults.length);
+      mark.textContent = value;
+      fragment.append(mark);
+      searchResults.push(mark);
+      cursor = start + value.length;
+    });
+    if (cursor < text.length) fragment.append(document.createTextNode(text.slice(cursor)));
+    textNode.replaceWith(fragment);
+  }
+
   function performSearch(query) {
     const root = getActiveView();
     clearHighlights(root);
     searchResults = [];
     currentIndex = -1;
     if (!query.trim()) { searchInfo.textContent = ''; return; }
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
-    const nodes = [];
-    let node;
-    while ((node = walker.nextNode())) { nodes.push(node); }
     const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-    nodes.forEach(textNode => {
-      const text = textNode.textContent;
-      if (!text || !regex.test(text)) return;
-      let html = text;
-      let offset = 0;
-      regex.lastIndex = 0;
-      const matches = [...text.matchAll(regex)];
-      matches.forEach((m) => {
-        const start = m.index + offset;
-        const end = start + m[0].length;
-        const before = html.slice(0, start);
-        const mid = html.slice(start, end);
-        const after = html.slice(end);
-        const span = `<span class="mp-highlight" data-search-index="${searchResults.length}">${mid}</span>`;
-        html = before + span + after;
-        offset += span.length - m[0].length;
-        searchResults.push({});
-      });
-      const parent = textNode.parentElement;
-      // Controlled markup generated locally.
-      // eslint-disable-next-line no-unsanitized/property
-      parent.innerHTML = parent.innerHTML.replace(text, html);
-    });
+    collectSearchTextNodes(root).forEach((textNode) => highlightTextNodeMatches(textNode, regex));
+    if (searchResults.length > 0) currentIndex = 0;
     updateSearchInfo();
-    if (searchResults.length > 0) { currentIndex = 0; highlightCurrent(); }
+    if (searchResults.length > 0) highlightCurrent();
   }
   function updateSearchInfo() { if (!searchResults.length) searchInfo.textContent = searchInput.value.trim() ? '无结果' : ''; else searchInfo.textContent = `${currentIndex + 1}/${searchResults.length}`; }
   function highlightCurrent() {
     const root = getActiveView();
     root.querySelectorAll('.mp-highlight.current').forEach(el => el.classList.remove('current'));
     if (currentIndex >= 0 && currentIndex < searchResults.length) {
-      const el = root.querySelector(`.mp-highlight[data-search-index="${currentIndex}"]`);
+      const el = searchResults[currentIndex];
       if (el) { el.classList.add('current'); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     }
   }
@@ -237,13 +255,13 @@ function createMovableModal(title, content) {
   footer.querySelector('#mp-focus-search')?.addEventListener('click', () => { searchInput.focus(); if (searchInput.value) navigateSearch('next'); });
 
   const setView = (view) => {
+    clearHighlights(getActiveView());
     activeView = view;
     body.querySelectorAll('.mp-view').forEach((el) => {
       el.classList.toggle('active', el.dataset.view === view);
     });
     tabBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
     searchInput.value = '';
-    clearHighlights();
     searchResults = [];
     currentIndex = -1;
     searchInfo.textContent = '';

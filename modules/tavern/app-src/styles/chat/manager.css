@@ -1,0 +1,1035 @@
+/* Tavern chat: manager */
+
+.tavern-chat.xb-page .chat-manager {
+    --xb-manager-bg: var(--xb-chat-panel-bg);
+    --xb-manager-panel: var(--xb-chat-pop-bg);
+    --xb-manager-card-bg: rgba(255, 255, 255, 0.42);
+    --xb-manager-card-soft-bg: rgba(var(--xb-accent-rgb), 0.045);
+    --xb-manager-line: var(--xb-rule);
+    --xb-manager-text: var(--xb-text-body);
+    --xb-manager-muted: var(--xb-text-muted);
+    --xb-manager-accent: var(--xb-stamp);
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border-left: 0;
+    background: var(--xb-manager-bg);
+    color: var(--xb-manager-text);
+    box-shadow: none;
+    overflow: hidden;
+    padding: 0;
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .chat-manager {
+    --xb-manager-bg: var(--xb-machine);
+    --xb-manager-panel: var(--xb-machine-panel);
+    --xb-manager-card-bg: rgba(255, 255, 255, 0.025);
+    --xb-manager-card-soft-bg: rgba(143, 183, 202, 0.035);
+    --xb-manager-line: var(--xb-machine-line);
+    --xb-manager-text: var(--xb-machine-text);
+    --xb-manager-muted: #8f897a;
+    --xb-manager-accent: #b95a50;
+}
+
+.tavern-chat.xb-page .chat-head h2,
+.tavern-chat.xb-page .manager-head h2 {
+    color: var(--xb-text-main);
+    font-family: var(--xb-font-serif);
+    font-size: 22px;
+    font-weight: 400;
+    letter-spacing: 0;
+}
+
+.tavern-chat.xb-page .chat-head-actions,
+.tavern-chat.xb-page .manager-head-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.tavern-chat.xb-page .chat-head-actions button,
+.tavern-chat.xb-page .manager-head-actions button {
+    min-height: 32px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.045);
+    color: var(--xb-text-muted);
+    font-size: 12px;
+    line-height: 1;
+    padding: 0 12px;
+}
+
+.tavern-chat.xb-page .chat-head-actions button:hover,
+.tavern-chat.xb-page .manager-head-actions button:hover {
+    border-color: rgba(143, 183, 202, 0.28);
+    background: rgba(143, 183, 202, 0.10);
+    color: var(--xb-text-main);
+}
+
+.tavern-chat.xb-page .manager-chat-scroll {
+    min-height: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow: auto;
+    background: var(--xb-manager-bg);
+    padding: var(--xb-manager-scroll-padding);
+    scrollbar-color: transparent transparent;
+}
+
+.tavern-chat.xb-page .manager-chat-scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+}
+
+.tavern-chat.xb-page .manager-chat-scroll.is-scrolling {
+    scrollbar-color: rgba(143, 183, 202, 0.30) transparent;
+}
+
+.tavern-chat.xb-page .manager-chat-scroll.is-scrolling::-webkit-scrollbar-thumb {
+    background: rgba(143, 183, 202, 0.30);
+}
+
+.tavern-chat.xb-page .manager-compaction-overlay {
+    position: sticky;
+    top: 8px;
+    z-index: 3;
+    width: min(760px, 88%);
+    padding: 12px 14px;
+    border: 1px solid rgba(224, 187, 105, 0.22);
+    border-radius: 10px;
+    background: rgba(224, 187, 105, 0.12);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+}
+
+.tavern-chat.xb-page .manager-compaction-overlay.resolved {
+    border-color: rgba(120, 214, 164, 0.24);
+    background: rgba(120, 214, 164, 0.11);
+}
+
+.tavern-chat.xb-page .manager-compaction-overlay strong,
+.tavern-chat.xb-page .manager-compaction-overlay small {
+    display: block;
+}
+
+.tavern-chat.xb-page .manager-compaction-overlay small {
+    margin-top: 4px;
+    color: var(--xb-text-muted);
+}
+
+.tavern-chat.xb-page .manager-chat-scroll .manager-message {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    border: 1px solid var(--xb-manager-line);
+    border-radius: 8px;
+    background: var(--xb-manager-card-bg);
+    color: var(--xb-manager-text);
+    box-shadow: none;
+    padding: 13px 15px;
+}
+
+.tavern-chat.xb-page .manager-chat-scroll .manager-message-system,
+.tavern-chat.xb-page .manager-chat-scroll .manager-message-episode {
+    border-left: 1px solid rgba(143, 183, 202, 0.30);
+}
+
+.tavern-chat.xb-page .manager-chat-scroll .manager-message-run {
+    margin-left: auto;
+    border-color: rgba(143, 183, 202, 0.20);
+    background: var(--xb-manager-card-bg);
+}
+
+.tavern-chat.xb-page .manager-chat-scroll .manager-message-user {
+    margin-left: auto;
+    border-color: rgba(185, 90, 80, 0.36);
+    background: rgba(185, 90, 80, 0.08);
+}
+
+.tavern-chat.xb-page .manager-chat-scroll .manager-message-assistant {
+    border-left: 1px solid rgba(143, 183, 202, 0.30);
+}
+
+.tavern-chat.xb-page .manager-chat-scroll .manager-message-turn {
+    border-left: 1px solid rgba(143, 183, 202, 0.24);
+    background: var(--xb-manager-card-soft-bg);
+}
+
+.tavern-chat.xb-page .chat-profile h2,
+.tavern-chat.xb-page .chat-head h2,
+.tavern-chat.xb-page .manager-head h2 {
+    color: var(--xb-ink);
+    font-family: var(--xb-font-serif);
+    font-weight: 600;
+}
+
+.tavern-chat.xb-page .chat-head,
+.tavern-chat.xb-page .manager-head {
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    border-bottom: 0;
+    background: var(--xb-chat-head-bg);
+    padding: 10px 34px 0;
+}
+
+.tavern-chat.xb-page .manager-head {
+    flex: 0 0 auto;
+    padding: 10px 34px 0;
+    background: var(--xb-chat-head-bg);
+}
+
+.tavern-chat.xb-page .manager-head h2,
+.tavern-chat.xb-page .manager-head p {
+    color: var(--xb-manager-text);
+}
+
+.tavern-chat.xb-page .manager-head .eyebrow {
+    color: var(--xb-manager-accent);
+}
+
+.tavern-chat.xb-page .manager-head p {
+    color: var(--xb-manager-muted);
+}
+
+.tavern-chat.xb-page .manager-head-actions button {
+    border-color: var(--xb-manager-line);
+    color: var(--xb-manager-text);
+}
+
+.tavern-chat.xb-page .manager-head .chat-flip-trigger {
+    border-color: var(--xb-manager-accent);
+    background: var(--xb-manager-accent);
+    color: #141414;
+}
+
+.tavern-chat.xb-page .manager-compose button.primary-action:disabled {
+    cursor: default;
+    opacity: 0.38;
+    transform: none;
+}
+
+.tavern-chat.xb-page .manager-compose button.primary-action:disabled:hover {
+    border-color: var(--xb-rule);
+    background: transparent;
+    color: var(--xb-ink-soft);
+}
+
+.tavern-chat.xb-page .manager-compose {
+    --xb-chat-compose-bg: var(--xb-manager-bg);
+    --xb-chat-pop-bg: var(--xb-manager-panel);
+    grid-template-columns: minmax(0, 1fr) 36px;
+    border-radius: 14px;
+}
+
+.tavern-chat.xb-page .manager-compose textarea {
+    color: var(--xb-manager-text);
+    font-family: var(--xb-font-serif);
+}
+
+.tavern-chat.xb-page .manager-compose button.primary-action {
+    color: var(--xb-manager-accent);
+}
+
+.tavern-chat.xb-page .manager-chat-scroll .manager-message-archive-note {
+    margin-left: auto;
+    border-color: rgba(224, 218, 202, 0.16);
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.tavern-chat.xb-page .manager-work-band {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+    border-top: 1px solid rgba(143, 183, 202, 0.10);
+    border-bottom: 1px solid var(--xb-manager-line);
+    background: rgba(255, 255, 255, 0.028);
+    color: var(--xb-manager-text);
+    overflow: hidden;
+    transition:
+        background-color 140ms ease,
+        border-color 140ms ease,
+        box-shadow 140ms ease;
+}
+
+.tavern-chat.xb-page .manager-work-band[open] {
+    border-top-color: rgba(var(--xb-accent-rgb), 0.18);
+    border-bottom-color: rgba(var(--xb-accent-rgb), 0.24);
+    background:
+        linear-gradient(180deg, rgba(var(--xb-accent-rgb), 0.045), transparent 64%),
+        rgba(255, 255, 255, 0.035);
+    box-shadow:
+        0 8px 22px rgba(26, 26, 26, 0.055),
+        inset 0 1px 0 rgba(255, 255, 255, 0.20);
+}
+
+.tavern-chat.xb-page .chat-manager {
+    --xb-compose-safe-space: 46px;
+    --xb-compose-breathing-space: 0px;
+}
+
+.tavern-chat.xb-page .chat-manager > .chat-compose-dock {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+}
+
+.tavern-chat.xb-page .manager-scroll-shell .manager-chat-scroll {
+    scroll-padding-bottom: calc(var(--xb-compose-safe-space) + var(--xb-compose-breathing-space));
+}
+
+.tavern-chat.xb-page .manager-compose-shell {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.tavern-chat.xb-page .manager-compose-dock {
+    padding: 8px 10px 9px;
+}
+
+.tavern-chat.xb-page .manager-message .xb-tavern-markdown {
+    min-width: 0;
+    max-width: 100%;
+    line-height: var(--xb-tavern-reading-line-height, 23px);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.tavern-chat.xb-page .manager-message .xb-tavern-markdown pre,
+.tavern-chat.xb-page .manager-message .xb-tavern-markdown code {
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.tavern-chat.xb-page .manager-scroll-helpers {
+    top: 12%;
+    right: 10px;
+    bottom: 12%;
+    justify-content: space-between;
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .manager-work-band {
+    background: rgba(255, 255, 255, 0.018);
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .manager-work-band[open] {
+    background:
+        linear-gradient(180deg, rgba(143, 183, 202, 0.055), transparent 64%),
+        rgba(255, 255, 255, 0.022);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.045),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.28);
+}
+
+.tavern-chat.xb-page .manager-work-band > summary {
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+        "marker kind"
+        ". summary"
+        ". metric";
+    align-items: start;
+    gap: 3px 10px;
+    min-height: 46px;
+    list-style: none;
+    font-family: var(--xb-font-mono);
+    font-size: 12px;
+    padding: 8px 34px;
+}
+
+.tavern-chat.xb-page .manager-work-band > summary::-webkit-details-marker {
+    display: none;
+}
+
+.tavern-chat.xb-page .manager-work-band > summary::before {
+    content: "+";
+    grid-area: marker;
+    line-height: 1.35;
+    color: var(--xb-manager-accent);
+    font-weight: 700;
+}
+
+.tavern-chat.xb-page .manager-work-band[open] > summary::before {
+    content: "-";
+}
+
+.tavern-chat.xb-page .manager-work-band[open] > summary {
+    border-bottom: 1px solid rgba(var(--xb-accent-rgb), 0.14);
+}
+
+.tavern-chat.xb-page .manager-work-band > summary strong {
+    grid-area: kind;
+    color: var(--xb-manager-text);
+    white-space: nowrap;
+}
+
+.tavern-chat.xb-page .manager-work-band > summary span {
+    grid-area: summary;
+}
+
+.tavern-chat.xb-page .manager-work-band > summary em {
+    grid-area: metric;
+}
+
+.tavern-chat.xb-page .manager-work-band > summary span,
+.tavern-chat.xb-page .manager-work-band > summary em {
+    color: var(--xb-manager-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tavern-chat.xb-page .manager-work-band > summary em {
+    font-style: normal;
+    text-align: left;
+}
+
+.tavern-chat.xb-page .manager-work-band-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+    max-height: 280px;
+    overflow: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.035);
+    box-shadow: inset 0 10px 20px rgba(0, 0, 0, 0.035);
+    padding: 14px 34px 16px;
+}
+
+.xb-os-shell.theme-light .tavern-chat.xb-page .manager-work-band-body {
+    background: rgba(var(--xb-accent-rgb), 0.035);
+    box-shadow: inset 0 10px 20px rgba(31, 43, 58, 0.035);
+}
+
+.tavern-chat.xb-page .manager-tool-list {
+    display: grid;
+    gap: 9px;
+}
+
+.tavern-chat.xb-page .manager-tool-round-title,
+.tavern-chat.xb-page .manager-tool-head {
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.tavern-chat.xb-page .manager-tool-round-title strong,
+.tavern-chat.xb-page .manager-tool-head span {
+    color: var(--xb-manager-text);
+    font-size: 12px;
+}
+
+.tavern-chat.xb-page .manager-tool-round-title span,
+.tavern-chat.xb-page .manager-tool-head em {
+    color: var(--xb-manager-muted);
+    font-size: 11px;
+    font-style: normal;
+}
+
+.tavern-chat.xb-page .manager-tool-item {
+    display: grid;
+    gap: 6px;
+    border: 1px solid var(--xb-manager-line);
+    border-left-color: rgba(143, 183, 202, 0.36);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.035);
+    padding: 9px 10px;
+}
+
+.tavern-chat.xb-page .manager-tool-item.is-running {
+    border-left-color: rgba(224, 187, 105, 0.58);
+}
+
+.tavern-chat.xb-page .manager-tool-item.is-error {
+    border-left-color: rgba(185, 90, 80, 0.64);
+}
+
+.tavern-chat.xb-page .manager-tool-item.is-resolved {
+    border-left-color: rgba(120, 163, 128, 0.50);
+}
+
+.tavern-chat.xb-page .manager-tool-item small,
+.tavern-chat.xb-page .manager-tool-item p {
+    margin: 0;
+    color: var(--xb-manager-muted);
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+.tavern-chat.xb-page .manager-tool-preface {
+    border-left: 1px solid rgba(143, 183, 202, 0.28);
+    color: var(--xb-manager-text);
+    padding-left: 10px;
+}
+
+.tavern-chat.xb-page .manager-tool-thoughts {
+    border: 1px solid var(--xb-manager-line);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.025);
+    padding: 0;
+}
+
+.tavern-chat.xb-page .manager-tool-thoughts > summary {
+    cursor: pointer;
+    list-style: none;
+    color: var(--xb-manager-muted);
+    font-size: 12px;
+    padding: 8px 10px;
+}
+
+.tavern-chat.xb-page .manager-tool-thoughts > summary::-webkit-details-marker {
+    display: none;
+}
+
+.tavern-chat.xb-page .manager-tool-thoughts .chat-thought-block {
+    border-top: 1px solid var(--xb-manager-line);
+    margin: 0;
+    padding: 9px 10px;
+}
+
+.tavern-chat.xb-page .manager-work-current {
+    display: grid;
+    gap: 9px;
+}
+
+.tavern-chat.xb-page .manager-work-section {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: 9px;
+    border: 1px solid rgba(143, 183, 202, 0.18);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.045);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    padding: 10px 12px;
+}
+
+.xb-os-shell.theme-light .tavern-chat.xb-page .manager-work-section {
+    border-color: rgba(var(--xb-accent-rgb), 0.16);
+    background: rgba(255, 255, 255, 0.38);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.tavern-chat.xb-page .manager-work-section-head {
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.tavern-chat.xb-page .manager-work-section-head strong {
+    color: var(--xb-manager-text);
+    font-size: 13px;
+}
+
+.tavern-chat.xb-page .manager-work-section-head small,
+.tavern-chat.xb-page .manager-work-section > p {
+    color: var(--xb-manager-muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.tavern-chat.xb-page .manager-work-section-head small {
+    border: 1px solid rgba(143, 183, 202, 0.22);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.045);
+    color: var(--xb-manager-accent);
+    overflow: hidden;
+    padding: 3px 8px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tavern-chat.xb-page .manager-work-source,
+.tavern-chat.xb-page .manager-work-issue-line {
+    color: var(--xb-manager-muted);
+}
+
+.tavern-chat.xb-page .manager-work-issue-line {
+    border-left: 2px solid rgba(185, 90, 80, 0.48);
+    padding-left: 9px;
+}
+
+.tavern-chat.xb-page .manager-work-status-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    border-top: 1px solid var(--xb-manager-line);
+    border-bottom: 1px solid var(--xb-manager-line);
+    padding: 9px 0;
+}
+
+.tavern-chat.xb-page .manager-work-status-grid p,
+.tavern-chat.xb-page .manager-work-current > p {
+    margin: 0;
+}
+
+.tavern-chat.xb-page .manager-work-band .manager-run-activity {
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    min-height: 20px;
+    border: 1px solid rgba(143, 183, 202, 0.18);
+    border-radius: 999px;
+    background: rgba(143, 183, 202, 0.06);
+    color: var(--xb-manager-muted);
+    padding: 2px 8px;
+}
+
+.tavern-chat.xb-page .manager-work-tools .manager-tool-list {
+    max-height: 218px;
+    overflow: auto;
+    padding-right: 2px;
+}
+
+.tavern-chat.xb-page .manager-tool-thoughts pre {
+    max-height: 180px;
+    overflow: auto;
+    margin: 6px 0 0;
+    color: var(--xb-manager-text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.tavern-chat.xb-page .manager-work-history {
+    grid-column: 1 / -1;
+    min-width: 0;
+    border: 1px solid var(--xb-manager-line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.025);
+    overflow: hidden;
+}
+
+.tavern-chat.xb-page .manager-work-history > summary {
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+    list-style: none;
+    color: var(--xb-manager-muted);
+    font-family: var(--xb-font-mono);
+    font-size: 12px;
+    padding: 9px 10px;
+}
+
+.tavern-chat.xb-page .manager-work-history > summary::-webkit-details-marker {
+    display: none;
+}
+
+.tavern-chat.xb-page .manager-work-history[open] > summary {
+    border-bottom: 1px solid var(--xb-manager-line);
+}
+
+.tavern-chat.xb-page .manager-history-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 4px;
+    border-top: 1px solid var(--xb-manager-line);
+    padding: 9px 10px;
+}
+
+.tavern-chat.xb-page .manager-history-row:first-of-type {
+    border-top: 0;
+}
+
+.tavern-chat.xb-page .manager-history-row strong,
+.tavern-chat.xb-page .manager-history-row small {
+    display: block;
+}
+
+.tavern-chat.xb-page .manager-history-row strong {
+    color: var(--xb-manager-text);
+    font-size: 12px;
+}
+
+.tavern-chat.xb-page .manager-history-row small,
+.tavern-chat.xb-page .manager-history-row span,
+.tavern-chat.xb-page .manager-work-history > p {
+    color: var(--xb-manager-muted);
+    font-size: 11px;
+}
+
+.tavern-chat.xb-page .manager-history-row span {
+    max-width: none;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tavern-chat.xb-page .manager-work-history > p {
+    margin: 0;
+    border-top: 1px solid var(--xb-manager-line);
+    padding: 9px 10px;
+}
+
+.tavern-chat.xb-page .manager-card,
+.tavern-chat.xb-page .manager-card p,
+.tavern-chat.xb-page .manager-card small {
+    color: var(--xb-manager-text);
+}
+
+.tavern-chat.xb-page .manager-card pre {
+    border-color: var(--xb-manager-line);
+    background: var(--xb-manager-panel);
+    color: var(--xb-manager-text);
+}
+
+@media (max-width: 980px) {
+
+    .tavern-chat.xb-page .chat-head,
+    .tavern-chat.xb-page .manager-head {
+        padding-right: 16px;
+        padding-left: 16px;
+    }
+
+    .tavern-chat.xb-page .manager-work-band > summary,
+    .tavern-chat.xb-page .manager-work-band-body {
+        padding-right: 16px;
+        padding-left: 16px;
+    }
+
+    .tavern-chat.xb-page .manager-work-band-body {
+        grid-template-columns: minmax(0, 1fr);
+        max-height: 260px;
+    }
+}
+
+.manager-head p {
+    margin: 0;
+    color: var(--xb-text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.manager-head button {
+    min-height: 30px;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.manager-card.tone-danger,
+.manager-card.is-failed {
+    border-color: rgba(216, 132, 144, 0.34);
+    background: rgba(216, 132, 144, 0.07);
+}
+
+.manager-card.tone-done {
+    border-color: rgba(120, 214, 164, 0.20);
+    background: rgba(120, 214, 164, 0.045);
+}
+
+.manager-card.tone-active {
+    border-color: rgba(143, 183, 202, 0.34);
+    background: rgba(143, 183, 202, 0.055);
+}
+
+.manager-card.is-retrying {
+    border-color: rgba(143, 183, 202, 0.38);
+    background: rgba(143, 183, 202, 0.07);
+}
+
+.manager-card.tone-warn {
+    border-color: rgba(206, 179, 122, 0.34);
+    background: rgba(206, 179, 122, 0.055);
+}
+
+.manager-card.is-stale {
+    border-color: rgba(206, 179, 122, 0.28);
+}
+
+.manager-card.tone-muted {
+    border-color: rgba(206, 179, 122, 0.24);
+    background: rgba(206, 179, 122, 0.045);
+}
+
+.manager-card strong {
+    color: var(--xb-text-main);
+    font-size: 13px;
+}
+
+.manager-card small {
+    color: var(--xb-text-muted);
+    font-size: 11px;
+}
+
+.manager-card .manager-run-activity {
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    min-height: 20px;
+    border: 1px solid rgba(143, 183, 202, 0.18);
+    border-radius: 999px;
+    background: rgba(143, 183, 202, 0.06);
+    color: var(--xb-text-muted);
+    padding: 2px 8px;
+}
+
+.manager-card.tone-active .manager-run-activity {
+    border-color: rgba(143, 183, 202, 0.34);
+    color: var(--xb-manager-text);
+}
+
+.manager-card.tone-warn .manager-run-activity {
+    border-color: rgba(206, 179, 122, 0.34);
+    background: rgba(206, 179, 122, 0.075);
+    color: var(--xb-text-main);
+}
+
+.manager-card.tone-danger .manager-run-activity {
+    border-color: rgba(216, 132, 144, 0.30);
+    background: rgba(216, 132, 144, 0.075);
+}
+
+.manager-card p {
+    margin: 0;
+    color: var(--xb-text-body);
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+.manager-card summary {
+    cursor: pointer;
+}
+
+.manager-card pre {
+    max-height: 220px;
+    overflow: auto;
+    margin: 6px 0 0;
+    border: 1px solid var(--xb-line);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.18);
+    color: var(--xb-text-body);
+    padding: 8px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.manager-card button {
+    justify-self: start;
+    min-height: 28px;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+
+.manager-card .manager-run-retry-button:disabled {
+    border-color: rgba(143, 183, 202, 0.26);
+    background: rgba(143, 183, 202, 0.08);
+    color: var(--xb-text-main);
+    cursor: wait;
+    opacity: 0.88;
+}
+
+.manager-card .message-actions button {
+    justify-self: auto;
+    width: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    height: 30px;
+    padding: 0;
+    font-size: 13px;
+}
+
+.manager-card:hover .message-actions,
+.manager-card:focus-within .message-actions {
+    opacity: 1;
+}
+
+.manager-message-edit-panel {
+    margin-top: 12px;
+}
+
+.tavern-chat.xb-page button,
+.tavern-chat.xb-page select,
+.tavern-chat.xb-page input,
+.tavern-chat.xb-page textarea,
+.tavern-chat.xb-page .panel,
+.tavern-chat.xb-page .manager-card {
+    border-radius: var(--xb-radius);
+}
+
+.manager-run-title {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+}
+
+.manager-head h2 {
+    margin: 2px 0 6px;
+    color: var(--xb-text-main);
+    font: 650 22px/1.18 var(--xb-font-serif);
+    font-size: 24px;
+    font-weight: 780;
+}
+
+.manager-card details {
+    color: var(--xb-text-muted);
+    font-size: 12px;
+    border-top: 1px solid var(--xb-line);
+    padding-top: 8px;
+    border-top-color: rgba(255, 255, 255, 0.075);
+}
+
+.chat-profile h2,
+.manager-head h2,
+.chat-head h2 {
+    font-family: var(--xb-font-serif);
+    font-weight: 400;
+}
+
+.manager-card {
+    display: grid;
+    gap: 6px;
+    border: 1px solid var(--xb-line);
+    border-color: rgba(255, 255, 255, 0.09);
+    padding: 13px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.manager-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--xb-line);
+    align-items: center;
+    border-bottom-color: rgba(255, 255, 255, 0.075);
+    padding-bottom: 18px;
+}
+
+.manager-head-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+@media (max-width: 980px) {
+
+    .chat-head,
+    .manager-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: start;
+        gap: 10px;
+    }
+}
+
+@media (max-width: 980px) {
+
+    .manager-head-actions {
+        align-self: start;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .chat-head,
+    .tavern-chat.xb-page .manager-head {
+        display: none;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .chat-head h2,
+    .tavern-chat.xb-page .manager-head h2 {
+        margin: 0;
+        font-size: 20px;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .chat-head p,
+    .tavern-chat.xb-page .manager-head p:not(.eyebrow) {
+        display: none;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .chat-head-actions,
+    .tavern-chat.xb-page .manager-head-actions {
+        flex-wrap: nowrap;
+        gap: 6px;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .manager-head-actions .chat-flip-trigger {
+        display: none;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .chat-head-actions button,
+    .tavern-chat.xb-page .manager-head-actions button {
+        min-height: 30px;
+        padding: 0 10px;
+        white-space: nowrap;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .manager-scroll-helpers {
+        top: 12%;
+        right: 8px;
+        bottom: calc(var(--xb-compose-safe-space) + 46px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .tavern-chat.xb-page .manager-work-band > summary {
+        min-height: 42px;
+        padding-top: 6px;
+        padding-bottom: 6px;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .manager-compose {
+        --xb-chat-pop-bg: var(--xb-manager-panel);
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .manager-compose textarea {
+        font-size: 16px;
+    }
+}
+
+@media (max-width: 760px) {
+
+    .tavern-chat.xb-page .manager-compose button.primary-action {
+        min-width: 32px;
+        min-height: 31px;
+    }
+}

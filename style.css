@@ -258,38 +258,6 @@ body.immersive-mode .flex-container.flex1.alignitemscenter {
     border-radius: 8px;
 }
 
-.template-replacer-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-}
-
-.template-replacer-title {
-    font-weight: bold;
-    color: var(--SmartThemeEmColor, #007bff);
-}
-
-.template-replacer-controls {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-}
-
-.template-replacer-status {
-    font-size: 12px;
-    color: var(--SmartThemeQuoteColor, #888);
-    font-style: italic;
-}
-
-.template-replacer-status.has-settings {
-    color: var(--SmartThemeEmColor, #007bff);
-}
-
-.template-replacer-status.no-character {
-    color: var(--SmartThemeCheckboxBgColor, #666);
-}
-
 /* ==================== 消息预览插件样式 ==================== */
 #message_preview_btn {
     width: var(--bottomFormBlockSize);
@@ -334,31 +302,6 @@ body.immersive-mode .flex-container.flex1.alignitemscenter {
 
 .mes_history_preview:hover {
     opacity: 1;
-}
-
-/* ==================== 设置菜单和标签样式 ==================== */
-.menu-tab {
-    flex: 1;
-    padding: 2px 8px;
-    text-align: center;
-    cursor: pointer;
-    color: #ccc;
-    border: none;
-    transition: color 0.2s ease;
-    font-weight: 500;
-}
-
-.menu-tab:hover {
-    color: #fff;
-}
-
-.menu-tab.active {
-    color: #007acc;
-    border-bottom: 2px solid #007acc;
-}
-
-.settings-section {
-    padding: 10px 0;
 }
 
 /* ==================== Wallhaven自定义标签样式 ==================== */

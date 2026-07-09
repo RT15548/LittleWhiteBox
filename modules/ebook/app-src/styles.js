@@ -155,7 +155,7 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             grid-row: 1;
             height: 176px;
             display: flex;
-            align-items: flex-end;
+            align-items: flex-start;
             justify-content: space-between;
             gap: 28px;
             padding: 42px 60px 34px;
@@ -213,6 +213,34 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             font-size: 13px;
             font-weight: 600;
         }
+        .xb-global-actions {
+            flex-wrap: nowrap;
+            gap: 8px;
+            padding-top: 2px;
+        }
+        .xb-global-actions .xb-glass-button {
+            width: 30px;
+            min-width: 30px;
+            height: 30px;
+            min-height: 30px;
+            padding: 0;
+            border-color: transparent;
+            background: transparent;
+            color: var(--xb-text-muted);
+            box-shadow: none;
+            backdrop-filter: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .xb-global-actions .xb-glass-button:hover:not(:disabled),
+        .xb-global-actions .xb-glass-button:focus-visible {
+            outline: none;
+            transform: none;
+            border-color: var(--xb-line);
+            background: rgba(255, 255, 255, 0.055);
+            color: var(--xb-text-main);
+        }
         .xb-exit-button {
             width: 40px;
             min-width: 40px;
@@ -241,6 +269,29 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             height: 17px;
             display: block;
             color: currentColor;
+        }
+        .xb-transfer-tray-icon {
+            width: 18px;
+            height: 18px;
+        }
+        .xb-transfer-button {
+            width: 40px;
+            min-width: 40px;
+            height: 40px;
+            min-height: 40px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 0;
+        }
+        .xb-global-actions #xb-close.xb-exit-button,
+        .xb-global-actions .xb-transfer-button {
+            width: 30px;
+            min-width: 30px;
+            height: 30px;
+            min-height: 30px;
+            padding: 0;
         }
         .xb-theme-glyph {
             display: block;
@@ -563,7 +614,7 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
         .xb-mobile-drawer-handle {
             display: none;
         }
-        .xb-sidebar { 
+        .xb-sidebar {
             position: relative;
             z-index: 3;
             width: 250px;
@@ -646,8 +697,10 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             font-size: inherit;
             font-weight: inherit;
         }
-        .xb-file-group-title em {
+        .xb-file-group-title em,
+        .xb-file-sort-toggle {
             padding: 3px 8px;
+            border: 0;
             border-radius: 999px;
             background: rgba(143, 183, 202, 0.12);
             color: var(--xb-cyan);
@@ -656,6 +709,14 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             font-weight: 700;
             font-style: normal;
             letter-spacing: 0.02em;
+        }
+        .xb-file-sort-toggle {
+            min-height: 24px;
+            cursor: pointer;
+        }
+        .xb-file-sort-toggle:hover {
+            background: rgba(143, 183, 202, 0.2);
+            color: #d8f6ff;
         }
         .xb-file-group-desc {
             color: var(--xb-text-muted);
@@ -947,6 +1008,7 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             height: 100%;
             min-height: 0;
             overflow: auto;
+            overflow-anchor: none;
             display: flex;
             flex-direction: column;
             gap: 18px;
@@ -1014,8 +1076,8 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             line-height: 1.65;
         }
         .xb-msg.is-editing {
-            width: min(92%, 760px);
-            max-width: min(92%, 760px);
+            width: min(100%, calc(100% - 34px));
+            max-width: none;
         }
         .xb-msg-user {
             align-self: flex-end;
@@ -1092,6 +1154,12 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
         .xb-assistant-markdown h3,
         .xb-assistant-markdown h4 {
             margin: 0 0 0.85em;
+        }
+        .xb-assistant-markdown p {
+            margin: 0;
+        }
+        .xb-assistant-markdown p + p {
+            margin-top: 0.25em;
         }
         .xb-assistant-markdown strong,
         .xb-assistant-markdown b,
@@ -1858,6 +1926,214 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
         }
         .xb-delete-book-item strong { color: var(--xb-text-main); font-size: 14px; }
         .xb-delete-book-item small { color: var(--xb-text-muted); font-size: 11px; }
+        .xb-ebook-export-dialog {
+            width: min(540px, 100%);
+            grid-template-rows: auto minmax(0, 1fr);
+        }
+        .xb-ebook-export-list {
+            gap: 10px;
+            padding: 16px;
+        }
+        .xb-ebook-export-note {
+            margin-top: 6px;
+            color: var(--xb-text-muted);
+            font-size: 13px;
+            line-height: 1.65;
+        }
+        .xb-ebook-export-book {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 14px;
+            min-height: 62px;
+            padding: 13px 14px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.045);
+            text-align: left;
+        }
+        .xb-ebook-export-book span {
+            min-width: 0;
+            display: grid;
+            gap: 5px;
+        }
+        .xb-ebook-export-book strong {
+            overflow: hidden;
+            color: var(--xb-text-main);
+            font-size: 14px;
+            font-weight: 700;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .xb-ebook-export-book small {
+            color: var(--xb-text-muted);
+            font-family: var(--xb-font-mono);
+            font-size: 11px;
+        }
+        .xb-ebook-export-book em {
+            padding: 5px 10px;
+            border: 1px solid var(--xb-line);
+            border-radius: 999px;
+            color: var(--xb-text-muted);
+            font-size: 12px;
+            font-style: normal;
+        }
+        .xb-ebook-export-book:hover:not(:disabled) em {
+            border-color: var(--xb-line-strong);
+            color: var(--xb-text-main);
+        }
+        .xb-ebook-transfer-menu-dialog {
+            width: min(360px, 100%);
+            grid-template-rows: auto auto;
+        }
+        .xb-book-transfer-menu-list {
+            display: grid;
+            gap: 10px;
+            padding: 16px;
+        }
+        .xb-book-transfer-menu-choice {
+            min-height: 58px;
+            display: grid;
+            grid-template-columns: 34px minmax(0, 1fr);
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.045);
+            color: var(--xb-text-main);
+            text-align: left;
+            transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+        }
+        .xb-book-transfer-menu-choice span {
+            width: 34px;
+            height: 34px;
+            display: grid;
+            place-items: center;
+            border: 1px solid var(--xb-line);
+            border-radius: 50%;
+            color: var(--xb-text-muted);
+        }
+        .xb-book-transfer-menu-choice strong {
+            min-width: 0;
+            overflow: hidden;
+            color: var(--xb-text-main);
+            font-size: 14px;
+            font-weight: 700;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .xb-book-transfer-menu-choice:hover:not(:disabled),
+        .xb-book-transfer-menu-choice:focus-visible:not(:disabled) {
+            border-color: var(--xb-line-strong);
+            background: rgba(255, 255, 255, 0.075);
+            transform: translateY(-1px);
+        }
+        .xb-book-transfer-menu-choice:hover:not(:disabled) span,
+        .xb-book-transfer-menu-choice:focus-visible:not(:disabled) span {
+            border-color: var(--xb-line-strong);
+            color: var(--xb-text-main);
+        }
+        .xb-ebook-transfer-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 120;
+            display: grid;
+            place-items: center;
+            padding: 28px;
+            background: rgba(0, 0, 0, 0.44);
+            backdrop-filter: blur(12px);
+        }
+        .xb-ebook-transfer-panel {
+            width: min(360px, 100%);
+            display: grid;
+            justify-items: center;
+            gap: 14px;
+            padding: 24px 24px 22px;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 18px;
+            background: rgba(14, 17, 23, 0.94);
+            box-shadow: var(--xb-shadow);
+            text-align: center;
+        }
+        .xb-ebook-transfer-orbit {
+            position: relative;
+            width: 42px;
+            height: 42px;
+            border: 1px solid var(--xb-line);
+            border-radius: 999px;
+        }
+        .xb-ebook-transfer-orbit::before {
+            content: '';
+            position: absolute;
+            inset: 8px;
+            border-radius: inherit;
+            border: 1px solid rgba(184, 178, 166, 0.18);
+        }
+        .xb-ebook-transfer-orbit span {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 7px;
+            height: 7px;
+            margin: -3.5px 0 0 -3.5px;
+            border-radius: 999px;
+            background: var(--xb-text-main);
+            animation: xb-transfer-orbit 1.35s linear infinite;
+        }
+        .xb-ebook-transfer-orbit span + span {
+            width: 5px;
+            height: 5px;
+            margin: -2.5px 0 0 -2.5px;
+            opacity: 0.58;
+            animation-duration: 1.75s;
+            animation-direction: reverse;
+        }
+        .xb-ebook-transfer-copy {
+            display: grid;
+            gap: 5px;
+        }
+        .xb-ebook-transfer-copy strong {
+            color: var(--xb-text-main);
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .xb-ebook-transfer-copy small {
+            max-width: 280px;
+            overflow: hidden;
+            color: var(--xb-text-muted);
+            font-size: 12px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .xb-ebook-transfer-copy p {
+            color: var(--xb-text-body);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .xb-ebook-transfer-bar {
+            position: relative;
+            width: 100%;
+            height: 3px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.075);
+        }
+        .xb-ebook-transfer-bar span {
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 42%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, transparent, var(--xb-text-main), transparent);
+            animation: xb-transfer-bar 1.15s ease-in-out infinite;
+        }
+        @keyframes xb-transfer-orbit {
+            from { transform: rotate(0deg) translateX(17px) rotate(0deg); }
+            to { transform: rotate(360deg) translateX(17px) rotate(-360deg); }
+        }
+        @keyframes xb-transfer-bar {
+            from { transform: translateX(-120%); }
+            to { transform: translateX(250%); }
+        }
         .xb-ebook-settings-body .xb-assistant-config {
             display: grid;
             gap: 12px;
@@ -1903,6 +2179,81 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             color: var(--xb-text-main);
             font-size: 13px;
         }
+        .xb-ebook-settings-body .xb-assistant-preset-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
+        }
+        .xb-ebook-settings-body .xb-assistant-preset-field,
+        .xb-ebook-settings-body .xb-assistant-config select.xb-assistant-preset-field {
+            box-sizing: border-box;
+            grid-column: 1;
+            min-width: 0;
+            width: 100%;
+            min-height: 40px;
+            height: 40px;
+            padding: 0 12px;
+            font-size: 14px;
+            line-height: 40px;
+        }
+        .xb-ebook-settings-body .xb-assistant-preset-tools {
+            display: grid;
+            grid-column: 2;
+            grid-template-columns: repeat(4, 40px);
+            align-self: stretch;
+            gap: 6px;
+        }
+        .xb-ebook-settings-body .xb-assistant-preset-tools.is-single {
+            grid-template-columns: 40px;
+        }
+        .xb-ebook-settings-body .xb-assistant-icon-button {
+            display: grid;
+            place-items: center;
+            width: 40px;
+            min-width: 40px;
+            height: 40px;
+            min-height: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.26);
+            color: var(--xb-text-muted);
+            padding: 0;
+            line-height: 1;
+        }
+        .xb-ebook-settings-body .xb-assistant-icon-button svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+            vector-effect: non-scaling-stroke;
+        }
+        .xb-ebook-settings-body .xb-assistant-icon-button:hover:not(:disabled),
+        .xb-ebook-settings-body .xb-assistant-icon-button:focus-visible {
+            outline: none;
+            border-color: rgba(125, 211, 252, 0.32);
+            background: rgba(125, 211, 252, 0.10);
+            color: var(--xb-text-main);
+        }
+        .xb-ebook-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-success,
+        .xb-ebook-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-error {
+            background: rgba(0, 0, 0, 0.26);
+            color: var(--xb-text-muted);
+            border-color: rgba(255, 255, 255, 0.10);
+        }
+        .xb-ebook-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-success {
+            background: rgba(34, 197, 94, 0.12);
+            color: #bbf7d0;
+            border-color: rgba(34, 197, 94, 0.28);
+        }
+        .xb-ebook-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-error {
+            background: rgba(244, 63, 94, 0.10);
+            color: #fecdd3;
+            border-color: rgba(244, 63, 94, 0.28);
+        }
         .xb-ebook-settings-body .xb-assistant-config input,
         .xb-ebook-settings-body .xb-assistant-config select {
             width: 100%;
@@ -1913,6 +2264,16 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             background: rgba(0, 0, 0, 0.26);
             color: var(--xb-text-main);
         }
+        .xb-ebook-settings-body .xb-assistant-config select {
+            color-scheme: dark;
+            background: rgba(15, 18, 24, 0.94);
+            color: rgba(244, 247, 255, 0.96);
+        }
+        .xb-ebook-settings-body .xb-assistant-config select option,
+        .xb-ebook-settings-body .xb-assistant-config select optgroup {
+            background: #151922;
+            color: rgba(244, 247, 255, 0.96);
+        }
         .xb-ebook-settings-body .xb-assistant-inline-input,
         .xb-ebook-settings-body .xb-assistant-checkbox-row {
             display: grid;
@@ -1922,6 +2283,21 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
         }
         .xb-ebook-settings-body .xb-assistant-grow { min-width: 0; }
         .xb-ebook-settings-body .xb-assistant-model-row { align-items: end; }
+        .xb-ebook-settings-body .xb-assistant-temperature-row {
+            display: grid;
+            grid-template-columns: 96px auto;
+            gap: 10px;
+            align-items: end;
+        }
+        .xb-ebook-settings-body .xb-assistant-temperature-row .xb-assistant-checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 40px;
+        }
+        .xb-ebook-settings-body .xb-assistant-temperature-row input[type="number"] {
+            width: 96px;
+        }
         .xb-ebook-settings-body .xb-assistant-checkbox-control {
             display: inline-flex;
             align-items: center;
@@ -1933,35 +2309,17 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             height: 16px;
             accent-color: var(--xb-cyan);
         }
-        .xb-ebook-settings-body .xb-assistant-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .xb-ebook-settings-body .xb-assistant-actions button {
-            min-height: 38px;
-            padding: 0 14px;
-            border-radius: 999px;
-        }
         .xb-assistant-save-button.is-success {
-            background: rgba(34, 197, 94, 0.22);
+            background: rgba(34, 197, 94, 0.12);
             color: #bbf7d0;
-            border-color: rgba(34, 197, 94, 0.34);
+            border-color: rgba(34, 197, 94, 0.28);
         }
         .xb-assistant-save-button.is-error {
-            background: rgba(244, 63, 94, 0.18);
+            background: rgba(244, 63, 94, 0.10);
             color: #fecdd3;
-            border-color: rgba(244, 63, 94, 0.36);
+            border-color: rgba(244, 63, 94, 0.28);
         }
-        .xb-assistant-save-spinner {
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-            margin-right: 6px;
-            border: 2px solid rgba(255, 255, 255, 0.32);
-            border-top-color: currentColor;
-            border-radius: 50%;
-            vertical-align: -2px;
+        .xb-assistant-save-button.is-saving svg {
             animation: xb-spin 0.8s linear infinite;
         }
         @keyframes xb-spin { to { transform: rotate(360deg); } }
@@ -2545,6 +2903,18 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             background: rgba(255, 253, 248, 0.82);
             color: var(--xb-text-main);
         }
+        .theme-light .xb-global-actions .xb-glass-button {
+            border-color: transparent;
+            background: transparent;
+            color: var(--xb-text-muted);
+        }
+        .theme-light .xb-global-actions .xb-glass-button:hover:not(:disabled),
+        .theme-light .xb-global-actions .xb-glass-button:focus-visible {
+            border-color: var(--xb-line);
+            background: rgba(87, 70, 48, 0.055);
+            color: var(--xb-text-main);
+            box-shadow: none;
+        }
         .theme-light .xb-workspace-controller {
             border-color: var(--xb-line);
             background: rgba(255, 253, 248, 0.86);
@@ -2557,9 +2927,30 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
         .theme-light .xb-library-empty,
         .theme-light .xb-section-empty,
         .theme-light .xb-actions-panel,
-        .theme-light .xb-delete-book-item {
+        .theme-light .xb-delete-book-item,
+        .theme-light .xb-book-transfer-menu-choice,
+        .theme-light .xb-ebook-export-book {
             border-color: var(--xb-line);
             background: rgba(255, 253, 248, 0.78);
+        }
+        .theme-light .xb-book-transfer-menu-choice span {
+            border-color: rgba(87, 70, 48, 0.14);
+            background: rgba(87, 70, 48, 0.045);
+        }
+        .theme-light .xb-ebook-export-book em {
+            border-color: rgba(87, 70, 48, 0.14);
+            background: rgba(87, 70, 48, 0.045);
+        }
+        .theme-light .xb-ebook-transfer-overlay {
+            background: rgba(87, 70, 48, 0.20);
+        }
+        .theme-light .xb-ebook-transfer-panel {
+            border-color: rgba(87, 70, 48, 0.13);
+            background: rgba(255, 253, 248, 0.94);
+            box-shadow: 0 18px 44px rgba(87, 70, 48, 0.14);
+        }
+        .theme-light .xb-ebook-transfer-bar {
+            background: rgba(87, 70, 48, 0.08);
         }
         .theme-light .xb-library-book {
             border-color: rgba(87, 70, 48, 0.12);
@@ -2705,6 +3096,38 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
             background: #fffdf8;
             color: var(--xb-text-main);
         }
+        .theme-light .xb-ebook-settings-body .xb-assistant-config select {
+            color-scheme: light;
+            background: #fffdf8;
+            color: var(--xb-text-main);
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-icon-button {
+            border-color: rgba(87, 70, 48, 0.16);
+            background: #fffdf8;
+            color: rgba(87, 70, 48, 0.62);
+            box-shadow: 0 1px 3px rgba(87, 70, 48, 0.06);
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-icon-button:hover:not(:disabled),
+        .theme-light .xb-ebook-settings-body .xb-assistant-icon-button:focus-visible {
+            border-color: rgba(87, 70, 48, 0.24);
+            background: rgba(255, 249, 236, 0.98);
+            color: var(--xb-text-main);
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-success {
+            border-color: rgba(34, 139, 72, 0.25);
+            background: rgba(34, 139, 72, 0.08);
+            color: #176b35;
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-error {
+            border-color: rgba(159, 35, 61, 0.22);
+            background: rgba(159, 35, 61, 0.07);
+            color: #9f233d;
+        }
+        .theme-light .xb-ebook-settings-body .xb-assistant-config select option,
+        .theme-light .xb-ebook-settings-body .xb-assistant-config select optgroup {
+            background: #fffdf8;
+            color: var(--xb-text-main);
+        }
         .theme-light .xb-ebook-settings-body .xb-assistant-inline-status.is-success,
         .theme-light .xb-assistant-save-button.is-success {
             color: #176b35;
@@ -2765,7 +3188,7 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
                 z-index: 30;
                 height: auto;
                 min-height: 0;
-                align-items: center;
+                align-items: flex-start;
                 justify-content: space-between;
                 flex-direction: row;
                 padding: calc(20px + env(safe-area-inset-top, 0px)) 24px 18px;
@@ -3453,17 +3876,27 @@ export function injectEbookStyles(rootId = 'xb-ebook-root') {
                 width: auto;
                 display: flex;
                 grid-template-columns: none;
-                gap: 8px;
+                gap: 6px;
             }
             .xb-global-actions button {
-                width: auto;
-                min-width: 48px;
+                width: 34px;
+                min-width: 34px;
+                height: 34px;
+                min-height: 34px;
+                padding: 0;
             }
             .xb-global-actions #xb-close.xb-exit-button {
-                width: 36px;
-                min-width: 36px;
-                height: 36px;
-                min-height: 36px;
+                width: 34px;
+                min-width: 34px;
+                height: 34px;
+                min-height: 34px;
+                padding: 0;
+            }
+            .xb-global-actions .xb-transfer-button {
+                width: 34px;
+                min-width: 34px;
+                height: 34px;
+                min-height: 34px;
                 padding: 0;
             }
             .xb-library-grid {

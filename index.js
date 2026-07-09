@@ -7,7 +7,7 @@ import { initTasks } from "./modules/scheduled-tasks/scheduled-tasks.js";
 import { initMessagePreview, addHistoryButtonsDebounced } from "./modules/message-preview.js";
 import { initImmersiveMode } from "./modules/immersive-mode.js";
 import { initTemplateEditor } from "./modules/template-editor/template-editor.js";
-import { initFourthWall, fourthWallCleanup, openFourthWall } from "./modules/fourth-wall/fourth-wall.js";
+import { initFourthWall, initFourthWallFloorTools, refreshFourthWallFloorTools, closeFourthWall, openFourthWall } from "./modules/fourth-wall/fourth-wall.js";
 import { initButtonCollapse } from "./widgets/button-collapse.js";
 import { initVariablesPanel, cleanupVariablesPanel } from "./modules/variables/variables-panel.js";
 import { initStreamingGeneration } from "./modules/streaming-generation.js";
@@ -66,6 +66,72 @@ settings.audio.enabled = true;
 settings.wrapperIframe = true;
 
 const DRAW_PROVIDER_VALUES = new Set(['disabled', 'novelai', 'sdwebui', 'comfyui']);
+let tavernModulePromise = null;
+let tavernModule = null;
+let tavernLoadError = null;
+
+async function loadTavernModule() {
+    if (tavernModule) return tavernModule;
+    if (tavernLoadError) throw tavernLoadError;
+    tavernModulePromise ||= import("./modules/tavern/tavern.js")
+        .then((module) => {
+            tavernModule = module;
+            return module;
+        })
+        .catch((error) => {
+            tavernLoadError = error;
+            throw error;
+        });
+    return tavernModulePromise;
+}
+
+function markTavernUnavailable(error) {
+    tavernLoadError ||= error;
+}
+
+async function initTavernSafely() {
+    try {
+        const tavern = await loadTavernModule();
+        if (!isXiaobaixEnabled) return;
+        await tavern.initTavern?.();
+    } catch (error) {
+        markTavernUnavailable(error);
+        console.warn("[LittleWhiteBox] 小白酒馆不可用，其他功能继续运行", error);
+    }
+}
+
+function showTavernUnsupportedNotice(error) {
+    markTavernUnavailable(error);
+    console.warn("[LittleWhiteBox] 小白酒馆不可用", error);
+    toastr.warning('小白酒馆需要 SillyTavern 1.14.0 或更高版本。当前版本过低，其他小白 X 功能仍可正常使用。');
+}
+
+async function openTavernSafely() {
+    try {
+        const tavern = await loadTavernModule();
+        await tavern.initTavern?.();
+        if (tavern.openTavern) {
+            await tavern.openTavern();
+            return;
+        }
+        if (window.xiaobaixTavern?.open) {
+            await window.xiaobaixTavern.open();
+            return;
+        }
+        throw new Error('tavern_open_unavailable');
+    } catch (error) {
+        showTavernUnsupportedNotice(error);
+    }
+}
+
+async function cleanupTavernSafely() {
+    try {
+        const tavern = tavernModule;
+        await tavern?.cleanupTavern?.();
+    } catch (error) {
+        console.warn("[LittleWhiteBox] 小白酒馆清理失败", error);
+    }
+}
 
 function normalizeDrawProvider(provider) {
     return DRAW_PROVIDER_VALUES.has(provider) ? provider : 'disabled';
@@ -112,12 +178,91 @@ async function initActiveDrawProvider() {
     }
 }
 
+function notifyTavernDrawStatusChanged() {
+    try {
+        window.xiaobaixTavern?.refreshDrawStatus?.();
+    } catch { }
+}
+
 function installDrawFacade() {
+    function joinDrawTags(...parts) {
+        return parts
+            .filter(Boolean)
+            .map(part => String(part).trim().replace(/[，、]/g, ',').replace(/^,+|,+$/g, ''))
+            .filter(part => part.length > 0)
+            .join(', ');
+    }
+
     function getProviderGenerateImagesFromText(provider) {
         if (provider === 'novelai') return window.xiaobaixNovelDraw?.generateImagesFromText;
         if (provider === 'sdwebui') return window.xiaobaixSdDraw?.generateImagesFromText;
         if (provider === 'comfyui') return window.xiaobaixComfyDraw?.generateImagesFromText;
         return null;
+    }
+
+    function normalizeCharacterPrompts(value) {
+        return Array.isArray(value)
+            ? value.filter(item => item && typeof item === 'object')
+            : [];
+    }
+
+    function buildDrawPromptData(input = {}) {
+        const provider = normalizeDrawProvider(settings.drawProvider);
+        const payload = typeof input === 'string' ? { prompt: input } : (input || {});
+        const prompt = String(payload.prompt || payload.tags || '').trim();
+        const negativePrompt = String(payload.negativePrompt || payload.negative || '').trim();
+        const characterPrompts = normalizeCharacterPrompts(payload.characterPrompts);
+        const charPositive = characterPrompts.map(item => item.prompt).filter(Boolean).join(', ');
+        const charNegative = characterPrompts.map(item => item.uc).filter(Boolean).join(', ');
+
+        if (provider === 'novelai') {
+            const novelDraw = window.xiaobaixNovelDraw;
+            const novelSettings = novelDraw?.getSettings?.();
+            const preset = novelSettings?.paramsPresets?.find(p => p.id === novelSettings.selectedParamsPresetId)
+                || novelSettings?.paramsPresets?.[0];
+            return {
+                tags: prompt,
+                positive: joinDrawTags(preset?.positivePrefix, prompt),
+                negativePrompt: negativePrompt || preset?.negativePrefix || '',
+                characterPrompts,
+                params: preset?.params || {},
+                hasParamsPreset: !!preset,
+            };
+        }
+
+        if (provider === 'sdwebui') {
+            const sdDraw = window.xiaobaixSdDraw;
+            const sdSettings = sdDraw?.getSettings?.() || {};
+            const effective = sdDraw?.getEffectiveParams?.(sdSettings, payload.params || {}) || {};
+            return {
+                tags: prompt,
+                positive: joinDrawTags(effective.positivePrefix || '', prompt, charPositive),
+                negativePrompt: joinDrawTags(effective.negativePrefix || '', negativePrompt, charNegative),
+                characterPrompts,
+                params: effective,
+            };
+        }
+
+        if (provider === 'comfyui') {
+            const comfyDraw = window.xiaobaixComfyDraw;
+            const comfySettings = comfyDraw?.getSettings?.() || {};
+            const effective = comfyDraw?.getEffectiveParams?.(comfySettings, payload.params || {}) || {};
+            return {
+                tags: prompt,
+                positive: joinDrawTags(effective.positivePrefix || '', prompt, charPositive),
+                negativePrompt: joinDrawTags(effective.negativePrefix || '', negativePrompt, charNegative),
+                characterPrompts,
+                params: effective,
+            };
+        }
+
+        return {
+            tags: prompt,
+            positive: prompt,
+            negativePrompt,
+            characterPrompts,
+            params: payload.params || {},
+        };
     }
 
     window.xiaobaixDraw = {
@@ -137,24 +282,23 @@ function installDrawFacade() {
                 ready: enabled && typeof generateImagesFromText === 'function',
             };
         },
+        buildPromptData(input = {}) {
+            return buildDrawPromptData(input);
+        },
         async generateImage(input = {}) {
             const provider = normalizeDrawProvider(settings.drawProvider);
             const payload = typeof input === 'string' ? { prompt: input } : (input || {});
-            const prompt = payload.prompt || payload.tags || '';
-            const negativePrompt = payload.negativePrompt || payload.negative || '';
+            const promptData = buildDrawPromptData(payload);
 
             if (provider === 'novelai') {
                 const novelDraw = window.xiaobaixNovelDraw;
                 if (!novelDraw?.generateNovelImage) throw new Error('NovelAI 画图模块未初始化');
-                const novelSettings = novelDraw.getSettings?.();
-                const preset = novelSettings?.paramsPresets?.find(p => p.id === novelSettings.selectedParamsPresetId)
-                    || novelSettings?.paramsPresets?.[0];
-                if (!preset) throw new Error('无可用的 NovelAI 参数预设');
+                if (!promptData.hasParamsPreset) throw new Error('无可用的 NovelAI 参数预设');
                 return novelDraw.generateNovelImage({
-                    scene: [preset.positivePrefix, prompt].filter(Boolean).join(', '),
-                    characterPrompts: [],
-                    negativePrompt: negativePrompt || preset.negativePrefix || '',
-                    params: preset.params || {},
+                    scene: promptData.positive || promptData.tags || '',
+                    characterPrompts: promptData.characterPrompts || [],
+                    negativePrompt: promptData.negativePrompt || '',
+                    params: promptData.params || {},
                     signal: payload.signal,
                 });
             }
@@ -162,12 +306,10 @@ function installDrawFacade() {
             if (provider === 'sdwebui') {
                 const sdDraw = window.xiaobaixSdDraw;
                 if (!sdDraw?.generateSdImage) throw new Error('SD WebUI 画图模块未初始化');
-                const sdSettings = sdDraw.getSettings?.() || {};
-                const effective = sdDraw.getEffectiveParams?.(sdSettings, payload.params || {}) || {};
                 return sdDraw.generateSdImage({
-                    prompt: [effective.positivePrefix, prompt].filter(Boolean).join(', '),
-                    negativePrompt: [effective.negativePrefix, negativePrompt].filter(Boolean).join(', '),
-                    params: effective,
+                    prompt: promptData.positive || promptData.tags || '',
+                    negativePrompt: promptData.negativePrompt || '',
+                    params: promptData.params || {},
                     signal: payload.signal,
                 });
             }
@@ -175,12 +317,10 @@ function installDrawFacade() {
             if (provider === 'comfyui') {
                 const comfyDraw = window.xiaobaixComfyDraw;
                 if (!comfyDraw?.generateComfyImage) throw new Error('ComfyUI 画图模块未初始化');
-                const comfySettings = comfyDraw.getSettings?.() || {};
-                const effective = comfyDraw.getEffectiveParams?.(comfySettings, payload.params || {}) || {};
                 return comfyDraw.generateComfyImage({
-                    prompt: [effective.positivePrefix, prompt].filter(Boolean).join(', '),
-                    negativePrompt: [effective.negativePrefix, negativePrompt].filter(Boolean).join(', '),
-                    params: effective,
+                    prompt: promptData.positive || promptData.tags || '',
+                    negativePrompt: promptData.negativePrompt || '',
+                    params: promptData.params || {},
                     signal: payload.signal,
                 });
             }
@@ -567,7 +707,8 @@ function toggleSettingsControls(enabled) {
         'xiaobaix_max_rendered', 'xiaobaix_story_outline_enabled', 'xiaobaix_story_summary_enabled',
         'xiaobaix_draw_provider', 'xiaobaix_draw_open_settings',
         'xiaobaix_tts_enabled', 'xiaobaix_tts_open_settings',
-        'xiaobaix_ena_planner_enabled', 'xiaobaix_ena_planner_open_settings'
+        'xiaobaix_ena_planner_enabled', 'xiaobaix_ena_planner_open_settings',
+        'xiaobaix_tavern_open_settings'
     ];
     controls.forEach(id => {
         $(`#${id}`).prop('disabled', !enabled).toggleClass('disabled-control', !enabled);
@@ -598,6 +739,11 @@ function syncFeatureActionButtons() {
         ebookButton.disabled = !isXiaobaixEnabled;
         ebookButton.classList.toggle('disabled-action', !isXiaobaixEnabled);
     }
+    const tavernButton = document.getElementById('xiaobaix_tavern_open_settings');
+    if (tavernButton) {
+        tavernButton.disabled = !isXiaobaixEnabled;
+        tavernButton.classList.toggle('disabled-action', !isXiaobaixEnabled);
+    }
     const fourthWallButton = document.getElementById('xiaobaix_fourth_wall_open_settings');
     if (fourthWallButton) {
         fourthWallButton.disabled = !isXiaobaixEnabled;
@@ -625,13 +771,13 @@ async function toggleAllFeatures(enabled) {
         const moduleInits = [
             { condition: extension_settings[EXT_ID].immersive?.enabled, init: initImmersiveMode },
             { condition: extension_settings[EXT_ID].templateEditor?.enabled, init: initTemplateEditor },
-            { condition: extension_settings[EXT_ID].fourthWall?.enabled, init: initFourthWall },
             { condition: true, init: initControlAudio },
             { condition: extension_settings[EXT_ID].variablesPanel?.enabled, init: initVariablesPanel },
             { condition: extension_settings[EXT_ID].variablesCore?.enabled, init: initVariablesCore },
             { condition: extension_settings[EXT_ID].tts?.enabled, init: initTts },
             { condition: extension_settings[EXT_ID].enaPlanner?.enabled, init: initEnaPlanner },
             { condition: true, init: initEbook },
+            { condition: true, init: () => { void initTavernSafely(); } },
             { condition: true, init: initStreamingGeneration },
             { condition: true, init: initButtonCollapse }
         ];
@@ -642,6 +788,10 @@ async function toggleAllFeatures(enabled) {
             await initActiveDrawProvider();
         } catch (e) {
             console.error('[LittleWhiteBox] 初始化画图 provider 失败:', e);
+        }
+        try { initFourthWallFloorTools(); } catch (e) { }
+        if (extension_settings[EXT_ID].fourthWall?.enabled) {
+            try { initFourthWall(); } catch (e) { }
         }
         if (extension_settings[EXT_ID].preview?.enabled || extension_settings[EXT_ID].recorded?.enabled) {
             setTimeout(initMessagePreview, 200);
@@ -678,6 +828,7 @@ async function toggleAllFeatures(enabled) {
         try { cleanupEnaPlanner(); } catch (e) { }
         try { cleanupAssistant(); } catch (e) { }
         try { cleanupEbook(); } catch (e) { }
+        await cleanupTavernSafely();
         try { clearBlobCaches(); } catch (e) { }
         toggleSettingsControls(false);
         try { window.cleanupWorldbookHostBridge && window.cleanupWorldbookHostBridge(); document.getElementById('xb-worldbook')?.remove(); } catch (e) { }
@@ -746,6 +897,9 @@ async function setupSettings() {
                     moduleCleanupFunctions.delete(key);
                 }
                 if (enabled && init) await init();
+                if (enabled && key === 'tts') {
+                    try { refreshFourthWallFloorTools(); } catch { }
+                }
                 if (key === 'storySummary') {
                     $(document).trigger('xiaobaix:storySummary:toggle', [enabled]);
                 }
@@ -770,7 +924,12 @@ async function setupSettings() {
                 extension_settings[EXT_ID].drawProvider = next;
                 saveSettingsDebounced();
 
-                await initActiveDrawProvider();
+                try {
+                    await initActiveDrawProvider();
+                } finally {
+                    notifyTavernDrawStatusChanged();
+                }
+                try { refreshFourthWallFloorTools(); } catch { }
                 syncFeatureActionButtons();
             });
         syncFeatureActionButtons();
@@ -842,6 +1001,11 @@ async function setupSettings() {
             }
         });
 
+        $("#xiaobaix_tavern_open_settings").on("click", async function () {
+            if (!isXiaobaixEnabled) return;
+            await openTavernSafely();
+        });
+
         $("#xiaobaix_fourth_wall_open_settings").on("click", function () {
             if (!isXiaobaixEnabled) return;
             try {
@@ -868,6 +1032,9 @@ async function setupSettings() {
                 initRenderer();
                 setTimeout(() => processExistingMessages(), 100);
             }
+            try {
+                window.xiaobaixTavern?.refreshRenderSettings?.();
+            } catch (e) {}
         });
 
         const normalizeMaxRendered = (raw) => {
@@ -917,11 +1084,12 @@ async function setupSettings() {
             settings.fourthWall ||= {};
             settings.fourthWall.enabled = false;
             extension_settings[EXT_ID].fourthWall = settings.fourthWall;
-            try { fourthWallCleanup(); } catch { }
+            try { closeFourthWall(); } catch { }
             await cleanupDrawProvider(settings.drawProvider);
             settings.drawProvider = 'disabled';
             extension_settings[EXT_ID].drawProvider = 'disabled';
             $('#xiaobaix_draw_provider').val('disabled');
+            notifyTavernDrawStatusChanged();
             syncFeatureActionButtons();
             setChecked('xiaobaix_use_blob', false);
             settings.wrapperIframe = true;
@@ -1045,12 +1213,12 @@ jQuery(async () => {
             const moduleInits = [
                 { condition: settings.immersive?.enabled, init: initImmersiveMode },
                 { condition: settings.templateEditor?.enabled, init: initTemplateEditor },
-                { condition: settings.fourthWall?.enabled, init: initFourthWall },
                 { condition: settings.variablesPanel?.enabled, init: initVariablesPanel },
                 { condition: settings.variablesCore?.enabled, init: initVariablesCore },
                 { condition: settings.tts?.enabled, init: initTts },
                 { condition: settings.enaPlanner?.enabled, init: initEnaPlanner },
                 { condition: true, init: initEbook },
+                { condition: true, init: () => { void initTavernSafely(); } },
                 { condition: true, init: initStreamingGeneration },
                 { condition: true, init: initButtonCollapse }
             ];
@@ -1059,6 +1227,10 @@ jQuery(async () => {
                 await initActiveDrawProvider();
             } catch (e) {
                 console.error('[LittleWhiteBox] 初始化画图 provider 失败:', e);
+            }
+            try { initFourthWallFloorTools(); } catch (e) { }
+            if (settings.fourthWall?.enabled) {
+                try { initFourthWall(); } catch (e) { }
             }
 
             if (settings.preview?.enabled || settings.recorded?.enabled) {

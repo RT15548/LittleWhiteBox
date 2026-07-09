@@ -87,7 +87,16 @@ export function createEbookHostBridge(options = {}) {
                 const hostRequestHeaders = data.payload?.hostRequestHeaders && typeof data.payload.hostRequestHeaders === 'object'
                     ? data.payload.hostRequestHeaders
                     : {};
-                setHostChatCompletionsRequestHeadersProvider(() => hostRequestHeaders);
+                setHostChatCompletionsRequestHeadersProvider(async () => {
+                    try {
+                        const result = await requestHost('xb-ebook:get-host-request-headers', {}, { timeoutMs: 5000 });
+                        return result?.hostRequestHeaders && typeof result.hostRequestHeaders === 'object'
+                            ? result.hostRequestHeaders
+                            : hostRequestHeaders;
+                    } catch {
+                        return hostRequestHeaders;
+                    }
+                });
                 onConfig?.(data.payload || {});
                 return;
             }

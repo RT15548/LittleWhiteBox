@@ -858,6 +858,91 @@ body {
     color: #334245;
 }
 
+.fw-agent-settings-body .xb-assistant-preset-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.fw-agent-settings-body .xb-assistant-preset-field,
+.fw-agent-settings-body .xb-assistant-config select.xb-assistant-preset-field {
+    box-sizing: border-box;
+    grid-column: 1;
+    min-width: 0;
+    width: 100%;
+    height: 36px;
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 0.88rem;
+    line-height: 36px;
+}
+
+.fw-agent-settings-body .xb-assistant-preset-tools {
+    display: grid;
+    grid-column: 2;
+    grid-template-columns: repeat(4, 36px);
+    align-self: stretch;
+    gap: 6px;
+}
+
+.fw-agent-settings-body .xb-assistant-preset-tools.is-single {
+    grid-template-columns: 36px;
+}
+
+.fw-agent-settings-body .xb-assistant-icon-button {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    min-height: 36px;
+    border: 1px solid rgba(31, 42, 44, 0.14);
+    background: rgba(255,255,255,0.78);
+    color: var(--text-secondary);
+    padding: 0;
+    border-radius: 10px;
+    line-height: 1;
+}
+
+.fw-agent-settings-body .xb-assistant-icon-button svg {
+    width: 15px;
+    height: 15px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    vector-effect: non-scaling-stroke;
+}
+
+.fw-agent-settings-body .xb-assistant-icon-button:hover:not(:disabled),
+.fw-agent-settings-body .xb-assistant-icon-button:focus-visible {
+    outline: none;
+    background: rgba(47, 125, 133, 0.1);
+    border-color: rgba(47, 125, 133, 0.24);
+    color: var(--text-primary);
+}
+
+.fw-agent-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-success,
+.fw-agent-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-error {
+    background: rgba(255,255,255,0.78) !important;
+    border-color: rgba(31, 42, 44, 0.14) !important;
+    color: var(--text-secondary) !important;
+}
+
+.fw-agent-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-success {
+    background: rgba(79, 141, 105, 0.12) !important;
+    border-color: rgba(79, 141, 105, 0.28) !important;
+    color: #4f8d69 !important;
+}
+
+.fw-agent-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-error {
+    background: rgba(178, 93, 82, 0.10) !important;
+    border-color: rgba(178, 93, 82, 0.28) !important;
+    color: var(--danger) !important;
+}
+
 .fw-agent-settings-body .xb-assistant-config input,
 .fw-agent-settings-body .xb-assistant-config select {
     width: 100%;
@@ -896,6 +981,25 @@ body {
     background: rgba(240, 245, 242, 0.72);
 }
 
+.fw-agent-settings-body .xb-assistant-temperature-row {
+    display: grid;
+    grid-template-columns: 96px auto;
+    gap: 10px;
+    align-items: end;
+}
+
+.fw-agent-settings-body .xb-assistant-temperature-row .xb-assistant-checkbox-row {
+    justify-content: flex-start;
+    min-height: 36px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.fw-agent-settings-body .xb-assistant-temperature-row input[type="number"] {
+    width: 96px;
+}
+
 .fw-agent-settings-body .xb-assistant-checkbox-row small {
     display: block;
     margin-top: 3px;
@@ -915,14 +1019,6 @@ body {
     accent-color: var(--accent);
 }
 
-.fw-agent-settings-body .xb-assistant-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 2px;
-}
-
-.fw-agent-settings-body .xb-assistant-actions button,
 .fw-agent-settings-body .xb-assistant-inline-input button {
     min-height: 34px;
     padding: 7px 13px;
@@ -934,7 +1030,6 @@ body {
     cursor: pointer;
 }
 
-.fw-agent-settings-body .xb-assistant-actions button:hover,
 .fw-agent-settings-body .xb-assistant-inline-input button:hover {
     background: rgba(47, 125, 133, 0.1);
     border-color: rgba(47, 125, 133, 0.24);
@@ -947,13 +1042,15 @@ body {
 }
 
 .fw-agent-settings-body .xb-assistant-save-button.is-success {
-    background: #4f8d69 !important;
-    border-color: #4f8d69 !important;
+    background: rgba(79, 141, 105, 0.12) !important;
+    border-color: rgba(79, 141, 105, 0.28) !important;
+    color: #4f8d69 !important;
 }
 
 .fw-agent-settings-body .xb-assistant-save-button.is-error {
-    background: var(--danger) !important;
-    border-color: var(--danger) !important;
+    background: rgba(178, 93, 82, 0.10) !important;
+    border-color: rgba(178, 93, 82, 0.28) !important;
+    color: var(--danger) !important;
 }
 
 .fw-agent-settings-body .xb-assistant-inline-status,
@@ -970,15 +1067,7 @@ body {
     color: var(--danger);
 }
 
-.fw-agent-settings-body .xb-assistant-save-spinner {
-    width: 12px;
-    height: 12px;
-    border: 2px solid rgba(255,255,255,0.42);
-    border-top-color: #fff;
-    border-radius: 999px;
-    display: inline-block;
-    margin-right: 7px;
-    vertical-align: -2px;
+.fw-agent-settings-body .xb-assistant-save-button.is-saving svg {
     animation: fwSpin 0.8s linear infinite;
 }
 
@@ -1078,6 +1167,72 @@ body {
     --fw-shadow-soft: 0 10px 26px rgba(31, 42, 44, 0.08);
 }
 
+html.theme-dark {
+    color-scheme: dark;
+    --bg-primary: #0f1216;
+    --bg-secondary: #171c22;
+    --bg-tertiary: #20262d;
+    --bg-bubble-user: #2f7d85;
+    --bg-bubble-ai: rgba(24, 30, 35, 0.94);
+    --text-primary: #eef4f5;
+    --text-secondary: #b4c0c2;
+    --text-muted: #7f8c8f;
+    --border-color: rgba(230, 240, 242, 0.13);
+    --accent: #6fb8bd;
+    --accent-hover: #83cbd0;
+    --shadow: 0 16px 40px rgba(0, 0, 0, 0.36);
+    --fw-page: #0f1216;
+    --fw-page-soft: #171c22;
+    --fw-ink: #eef4f5;
+    --fw-ink-soft: #b4c0c2;
+    --fw-ink-muted: #7f8c8f;
+    --fw-line: rgba(230, 240, 242, 0.12);
+    --fw-line-strong: rgba(230, 240, 242, 0.18);
+    --fw-panel: rgba(20, 25, 31, 0.88);
+    --fw-panel-solid: #151a20;
+    --fw-control: rgba(255, 255, 255, 0.07);
+    --fw-control-hover: rgba(255, 255, 255, 0.12);
+    --fw-accent: #6fb8bd;
+    --fw-accent-soft: rgba(111, 184, 189, 0.15);
+    --fw-danger: #e08d86;
+    --fw-shadow-panel: 0 24px 70px rgba(0, 0, 0, 0.45);
+    --fw-shadow-soft: 0 10px 26px rgba(0, 0, 0, 0.24);
+}
+
+html.theme-dark .fw-header {
+    background: rgba(15, 18, 22, 0.82);
+}
+
+html.theme-dark .fw-header-actions,
+html.theme-dark .fw-settings-card,
+html.theme-dark .fw-modal-content,
+html.theme-dark .fw-agent-settings-dialog,
+html.theme-dark .fw-input-area {
+    background: var(--fw-panel);
+    border-color: var(--fw-line);
+}
+
+html.theme-dark .fw-bubble.assistant,
+html.theme-dark .fw-empty,
+html.theme-dark .fw-img-placeholder,
+html.theme-dark .fw-img-loading,
+html.theme-dark .fw-thinking-card,
+html.theme-dark .fw-settings-row {
+    background: var(--fw-control);
+    border-color: var(--fw-line);
+    color: var(--fw-ink);
+}
+
+html.theme-dark .fw-field select,
+html.theme-dark .fw-field input[type="number"],
+html.theme-dark .fw-textarea,
+html.theme-dark .fw-prompt-textarea,
+html.theme-dark .fw-edit-area {
+    background: var(--fw-control);
+    border-color: var(--fw-line);
+    color: var(--fw-ink);
+}
+
 html,
 body {
     background:
@@ -1149,14 +1304,14 @@ body {
 .fw-header-actions.visible {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     flex: 0 0 auto;
-    padding: 4px;
-    border: 1px solid var(--fw-line);
-    border-radius: 999px;
-    background: rgba(255,255,255,0.62);
-    box-shadow: 0 1px 0 rgba(255,255,255,0.72) inset, var(--fw-shadow-soft);
-    backdrop-filter: blur(16px);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
 }
 
 .fw-menu-toggle {
@@ -1186,6 +1341,8 @@ body {
     font-weight: 700;
     gap: 6px;
     box-shadow: none;
+    line-height: 1;
+    justify-content: center;
 }
 
 .fw-btn:hover {
@@ -1204,6 +1361,9 @@ body {
 
 .fw-btn-clear {
     color: var(--fw-danger);
+    width: 34px;
+    min-width: 34px;
+    padding: 0;
 }
 
 .fw-btn-clear:hover,
@@ -1228,10 +1388,8 @@ body {
 }
 
 .fw-minimize-button {
-    font-size: 1.18rem;
-    font-weight: 800;
+    font-size: 0.88rem;
     line-height: 1;
-    padding-bottom: 2px;
 }
 
 .fw-settings {
@@ -1458,7 +1616,7 @@ body {
     padding: 20px clamp(14px, 3vw, 30px);
     gap: 15px;
     background: transparent;
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
 }
 
 .fw-empty {
@@ -1635,6 +1793,199 @@ body {
     padding: 18px 20px 20px;
 }
 
+html.theme-dark .fw-header,
+html.theme-dark .fw-input-area {
+    background: rgba(15, 18, 22, 0.84);
+    border-color: var(--fw-line);
+}
+
+html.theme-dark .fw-settings {
+    background: rgba(4, 7, 10, 0.58);
+}
+
+html.theme-dark .fw-settings-card,
+html.theme-dark .fw-modal,
+html.theme-dark .fw-agent-settings-dialog {
+    background: rgba(18, 23, 29, 0.96);
+    border-color: var(--fw-line);
+    box-shadow: var(--fw-shadow-panel);
+}
+
+html.theme-dark .fw-settings-header,
+html.theme-dark .fw-modal-header,
+html.theme-dark .fw-modal-footer,
+html.theme-dark .fw-agent-settings-head {
+    background: linear-gradient(180deg, rgba(28, 34, 41, 0.92), rgba(18, 23, 29, 0.82));
+    border-color: var(--fw-line);
+}
+
+html.theme-dark .fw-settings-group-title {
+    color: var(--fw-ink-soft);
+}
+
+html.theme-dark .fw-settings-row,
+html.theme-dark .fw-prompt-section,
+html.theme-dark .fw-settings .fw-field,
+html.theme-dark .fw-empty,
+html.theme-dark .fw-thinking-card,
+html.theme-dark .fw-img-placeholder,
+html.theme-dark .fw-img-loading {
+    background: rgba(255, 255, 255, 0.055);
+    border-color: var(--fw-line);
+    color: var(--fw-ink);
+}
+
+html.theme-dark .fw-field label,
+html.theme-dark .fw-session-manager label,
+html.theme-dark .fw-prompt-label,
+html.theme-dark .fw-prompt-hint,
+html.theme-dark .fw-field .speed-val,
+html.theme-dark .fw-field .prob-val {
+    color: var(--fw-ink-soft);
+}
+
+html.theme-dark .fw-field select,
+html.theme-dark .fw-field input[type="number"],
+html.theme-dark .fw-session-manager select,
+html.theme-dark .fw-textarea,
+html.theme-dark .fw-prompt-textarea,
+html.theme-dark .fw-edit-area,
+html.theme-dark .fw-agent-settings-body .xb-assistant-config input,
+html.theme-dark .fw-agent-settings-body .xb-assistant-config select {
+    background: rgba(255, 255, 255, 0.075);
+    border-color: var(--fw-line-strong);
+    color: var(--fw-ink);
+    box-shadow: none;
+}
+
+html.theme-dark .fw-textarea::placeholder,
+html.theme-dark .fw-prompt-textarea::placeholder,
+html.theme-dark .fw-edit-area::placeholder {
+    color: rgba(180, 192, 194, 0.68);
+}
+
+html.theme-dark .fw-textarea:focus,
+html.theme-dark .fw-prompt-textarea:focus,
+html.theme-dark .fw-edit-area:focus,
+html.theme-dark .fw-agent-settings-body .xb-assistant-config input:focus,
+html.theme-dark .fw-agent-settings-body .xb-assistant-config select:focus {
+    border-color: rgba(111, 184, 189, 0.48);
+    box-shadow: 0 0 0 3px rgba(111, 184, 189, 0.12);
+}
+
+html.theme-dark .fw-btn,
+html.theme-dark .fw-settings-close,
+html.theme-dark .fw-modal-close,
+html.theme-dark .fw-agent-settings-head button {
+    color: var(--fw-ink-soft);
+    background: transparent;
+    border-color: transparent;
+}
+
+html.theme-dark .fw-settings-close,
+html.theme-dark .fw-modal-close,
+html.theme-dark .fw-agent-settings-head button {
+    background: rgba(255, 255, 255, 0.055);
+    border-color: var(--fw-line);
+}
+
+html.theme-dark .fw-btn:hover,
+html.theme-dark .fw-settings-close:hover,
+html.theme-dark .fw-modal-close:hover,
+html.theme-dark .fw-agent-settings-head button:hover {
+    background: rgba(255, 255, 255, 0.10);
+    border-color: var(--fw-line-strong);
+    color: var(--fw-ink);
+}
+
+html.theme-dark .fw-btn-primary,
+html.theme-dark .fw-send-btn {
+    background: var(--fw-accent);
+    border-color: transparent;
+    color: #071113;
+}
+
+html.theme-dark .fw-send-btn:hover,
+html.theme-dark .fw-btn-primary:hover {
+    background: var(--accent-hover);
+}
+
+html.theme-dark .fw-regen-btn {
+    background: rgba(255, 255, 255, 0.055);
+    border-color: var(--fw-line);
+    color: var(--fw-ink-soft);
+    box-shadow: none;
+}
+
+html.theme-dark .fw-regen-btn:hover {
+    background: rgba(111, 184, 189, 0.14);
+    border-color: rgba(111, 184, 189, 0.26);
+    color: var(--fw-accent);
+}
+
+html.theme-dark .fw-bubble.assistant {
+    background: rgba(24, 30, 35, 0.94);
+    border-color: var(--fw-line);
+    color: var(--fw-ink);
+    box-shadow: none;
+}
+
+html.theme-dark .fw-avatar {
+    border-color: rgba(230, 240, 242, 0.18);
+    box-shadow: none;
+}
+
+html.theme-dark .fw-agent-config-btn {
+    background: rgba(111, 184, 189, 0.12);
+    border-color: rgba(111, 184, 189, 0.24);
+    color: var(--fw-accent);
+}
+
+html.theme-dark .fw-agent-settings-body .xb-assistant-config label span,
+html.theme-dark .fw-agent-settings-body .xb-assistant-inline-status,
+html.theme-dark .fw-agent-settings-body .xb-assistant-runtime,
+html.theme-dark .fw-agent-settings-body .xb-assistant-checkbox-row small,
+html.theme-dark .fw-agent-settings-loading {
+    color: var(--fw-ink-soft);
+}
+
+html.theme-dark .fw-agent-settings-body .xb-assistant-checkbox-row {
+    background: rgba(255, 255, 255, 0.055);
+    border-color: var(--fw-line);
+}
+
+html.theme-dark .fw-agent-settings-body .xb-assistant-inline-input button {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: var(--fw-line);
+    color: var(--fw-ink);
+}
+
+html.theme-dark .fw-agent-settings-body .xb-assistant-icon-button,
+html.theme-dark .fw-agent-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-success,
+html.theme-dark .fw-agent-settings-body .xb-assistant-icon-button.xb-assistant-save-button.is-error {
+    background: rgba(255, 255, 255, 0.07) !important;
+    border-color: var(--fw-line) !important;
+    color: var(--fw-ink-soft) !important;
+}
+
+html.theme-dark .fw-agent-settings-body .xb-assistant-inline-input button:hover {
+    background: rgba(111, 184, 189, 0.14);
+    border-color: rgba(111, 184, 189, 0.28);
+}
+
+html.theme-dark .fw-agent-settings-body .xb-assistant-icon-button:hover:not(:disabled),
+html.theme-dark .fw-agent-settings-body .xb-assistant-icon-button:focus-visible {
+    background: rgba(111, 184, 189, 0.14) !important;
+    border-color: rgba(111, 184, 189, 0.28) !important;
+    color: var(--fw-ink) !important;
+}
+
+html.theme-dark .fw-agent-settings-body .xb-assistant-save-button {
+    background: var(--fw-accent) !important;
+    border-color: transparent !important;
+    color: #071113 !important;
+}
+
 @media (max-width: 720px) {
     .fw-header {
         padding: 10px 11px;
@@ -1650,8 +2001,8 @@ body {
 
     .fw-header-actions,
     .fw-header-actions.visible {
-        gap: 3px;
-        padding: 3px;
+        gap: 2px;
+        padding: 0;
         max-width: 68vw;
         overflow-x: auto;
         scrollbar-width: none;
@@ -1669,10 +2020,6 @@ body {
     .fw-btn {
         min-height: 32px;
         padding: 0 10px;
-    }
-
-    .fw-btn-clear span {
-        display: none;
     }
 
     .fw-btn-clear {
@@ -1760,11 +2107,11 @@ body {
                 </div>
             </div>
             <div class="fw-header-actions visible" id="header-actions">
-                <button class="fw-btn fw-btn-icon fw-minimize-button" id="btn-close" title="最小化" aria-label="最小化">⌄</button>
+                <button class="fw-btn fw-btn-icon fw-minimize-button" id="btn-close" title="最小化" aria-label="最小化"><i class="fa-solid fa-chevron-down"></i></button>
                 <button class="fw-btn fw-btn-icon" id="btn-fullscreen" title="全屏" aria-label="全屏"><i class="fa-solid fa-expand"></i></button>
                 <button class="fw-btn fw-btn-icon" id="btn-settings" title="设置" aria-label="设置"><i class="fa-solid fa-sliders"></i></button>
                 <button class="fw-btn fw-btn-icon" id="btn-prompt" title="提示词" aria-label="提示词"><i class="fa-solid fa-file-lines"></i></button>
-                <button class="fw-btn fw-btn-clear" id="btn-reset" title="清空当前对话" aria-label="清空当前对话"><i class="fa-solid fa-broom"></i><span>清空</span></button>
+                <button class="fw-btn fw-btn-icon fw-btn-clear" id="btn-reset" title="清空当前对话" aria-label="清空当前对话"><i class="fa-solid fa-broom"></i></button>
                 <button class="fw-btn fw-btn-icon fw-exit-button" id="btn-shutdown" title="退出四次元壁" aria-label="退出四次元壁">
                     <svg class="fw-exit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M11 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h6"></path>
@@ -1998,9 +2345,41 @@ let activeVoiceRequestId = null;
 let agentUiBridge = null;
 let agentSettingsPanel = null;
 let configSaveResetTimer = null;
+const CONFIG_SAVE_TIMEOUT_MS = 5000;
 const pendingAgentConfigSaves = new Map();
 const FW_MESSAGE_WINDOW_DEFAULT = 5;
 const FW_MESSAGE_WINDOW_CHUNK = 20;
+
+function applyTheme(theme) {
+    const normalized = String(theme || '').toLowerCase() === 'dark'
+        || (!theme && window.matchMedia?.('(prefers-color-scheme: dark)').matches)
+        ? 'dark'
+        : 'light';
+    document.documentElement.classList.toggle('theme-dark', normalized === 'dark');
+    document.documentElement.classList.toggle('theme-light', normalized !== 'dark');
+}
+
+function getMessagesContainer() {
+    return document.getElementById('messages');
+}
+
+function scrollMessagesToBottom(options = {}) {
+    const container = getMessagesContainer();
+    if (!container) return;
+    const force = options.force === true;
+    if (!force && state.autoScroll === false) return;
+    const apply = () => {
+        container.scrollTop = container.scrollHeight;
+    };
+    apply();
+    if (options.settle !== false) {
+        requestAnimationFrame(() => {
+            apply();
+            requestAnimationFrame(apply);
+        });
+        setTimeout(apply, 90);
+    }
+}
 
 function createRequestId(prefix = 'req') {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2063,7 +2442,7 @@ async function loadAgentSettingsUi() {
                     pendingAgentConfigSaves.delete(requestId);
                     completeConfigSave(requestId, { ok: false, error: '保存超时，请重试' });
                     reject(new Error('保存超时，请重试'));
-                }, 6000);
+                }, CONFIG_SAVE_TIMEOUT_MS);
                 pendingAgentConfigSaves.set(requestId, { resolve, reject, config, timer });
                 postToParent({ type: 'SAVE_AGENT_CONFIG', requestId, payload });
             });
@@ -2210,6 +2589,7 @@ function handleImageResult(data) {
         img.src = `data:image/png;base64,${data.base64}`;
         img.alt = 'Generated';
         img.onclick = () => window.open(img.src, '_blank');
+        img.addEventListener('load', () => scrollMessagesToBottom(), { once: true });
         slot.innerHTML = '';
         slot.appendChild(img);
         if (data.fromCache) {
@@ -2220,6 +2600,7 @@ function handleImageResult(data) {
             slot.appendChild(badge);
         }
     }
+    scrollMessagesToBottom({ settle: false });
 }
 
 function handleCacheMiss(data) {
@@ -2488,7 +2869,7 @@ function renderMessages(options = {}) {
     } else if (state.autoScroll === false) {
         container.scrollTop = previousScrollTop;
     } else {
-        container.scrollTop = container.scrollHeight;
+        scrollMessagesToBottom({ force: true, settle: false });
     }
     bindMessageEvents(container);
 }
@@ -2650,6 +3031,7 @@ window.addEventListener('message', event => {
 
     switch (data.type) {
         case 'INIT_DATA':
+            applyTheme(data.theme);
             state.settings = data.settings || state.settings;
             state.sessions = data.sessions || [];
             state.activeSessionId = data.activeSessionId;
@@ -2689,6 +3071,10 @@ window.addEventListener('message', event => {
             renderAgentSettingsDialog();
             break;
 
+        case 'THEME_UPDATE':
+            applyTheme(data.theme);
+            break;
+
         case 'STREAM_UPDATE':
             const bubble = document.getElementById('streaming-bubble');
             const thinkingCard = document.getElementById('streaming-thinking-card');
@@ -2700,9 +3086,7 @@ window.addEventListener('message', event => {
                 }
                 bubble.innerHTML = renderContent(data.text);
                 hydrateVoiceSlots(bubble.closest('.fw-messages'));
-                if (state.autoScroll !== false) {
-                    bubble.closest('.fw-messages').scrollTop = bubble.closest('.fw-messages').scrollHeight;
-                }
+                scrollMessagesToBottom({ settle: false });
             }
             break;
 
@@ -2777,6 +3161,7 @@ window.addEventListener('message', event => {
    ══════════════════════════════════════════════════════════════════════════════ */
 
 document.addEventListener('DOMContentLoaded', async () => {
+    applyTheme();
     document.getElementById('btn-settings').onclick = () => setSettingsOpen(!state.settingsOpen);
     document.getElementById('btn-settings-close').onclick = () => setSettingsOpen(false);
     document.getElementById('settings-panel').addEventListener('click', (event) => {

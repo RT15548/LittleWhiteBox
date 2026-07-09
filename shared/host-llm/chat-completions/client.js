@@ -32,13 +32,41 @@ export function setHostChatCompletionsRequestHeadersProvider(provider) {
     requestHeadersProvider = typeof provider === 'function' ? provider : null;
 }
 
-function buildHeaders() {
-    const providedHeaders = requestHeadersProvider?.() || {};
+async function buildHeaders() {
+    const providedHeaders = await Promise.resolve(requestHeadersProvider?.() || {});
     return {
         'Content-Type': 'application/json',
         ...providedHeaders,
         Accept: 'application/json',
     };
+}
+
+function redactHeaders(headers = {}) {
+    const redacted = {};
+    Object.entries(headers || {}).forEach(([key, value]) => {
+        redacted[key] = /authorization|csrf|token|api[-_]?key/i.test(key)
+            ? '[redacted]'
+            : value;
+    });
+    return redacted;
+}
+
+export async function buildHostChatCompletionGenerateRequest(payload = {}, stream = false) {
+    const rawHeaders = await buildHeaders();
+    const request = {
+        url: HOST_CHAT_COMPLETIONS_GENERATE_ENDPOINT,
+        method: 'POST',
+        headers: redactHeaders(rawHeaders),
+        body: {
+            ...payload,
+            stream: !!stream,
+        },
+    };
+    Object.defineProperty(request, 'rawHeaders', {
+        value: rawHeaders,
+        enumerable: false,
+    });
+    return request;
 }
 
 function looksLikeHtmlDocument(text = '') {
@@ -157,7 +185,7 @@ export async function fetchHostChatCompletionsModels(
 ) {
     const response = await fetch(HOST_CHAT_COMPLETIONS_STATUS_ENDPOINT, {
         method: 'POST',
-        headers: buildHeaders(),
+        headers: await buildHeaders(),
         body: JSON.stringify(buildHostChatCompletionsStatusPayload(config, source)),
         signal: options.signal,
     });
@@ -188,13 +216,14 @@ export async function fetchHostOpenAICompatibleModels(config = {}, options = {})
 }
 
 export async function createHostChatCompletion(payload = {}, options = {}) {
-    const response = await fetch(HOST_CHAT_COMPLETIONS_GENERATE_ENDPOINT, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify({
-            ...payload,
-            stream: false,
-        }),
+    const request = await buildHostChatCompletionGenerateRequest(payload, false);
+    if (typeof options.onRequest === 'function') {
+        options.onRequest(request);
+    }
+    const response = await fetch(request.url, {
+        method: request.method,
+        headers: request.rawHeaders || request.headers,
+        body: JSON.stringify(request.body),
         signal: options.signal,
     });
 
@@ -218,13 +247,14 @@ export async function createHostChatCompletion(payload = {}, options = {}) {
 }
 
 export async function streamHostChatCompletion(payload = {}, onEvent, options = {}) {
-    const response = await fetch(HOST_CHAT_COMPLETIONS_GENERATE_ENDPOINT, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify({
-            ...payload,
-            stream: true,
-        }),
+    const request = await buildHostChatCompletionGenerateRequest(payload, true);
+    if (typeof options.onRequest === 'function') {
+        options.onRequest(request);
+    }
+    const response = await fetch(request.url, {
+        method: request.method,
+        headers: request.rawHeaders || request.headers,
+        body: JSON.stringify(request.body),
         signal: options.signal,
     });
 

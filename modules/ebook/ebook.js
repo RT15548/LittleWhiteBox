@@ -1,8 +1,13 @@
+import { getRequestHeaders } from '../../../../../../script.js';
 import { extensionFolderPath } from '../../core/constants.js';
 import { isTrustedMessage, postToIframe } from '../../core/iframe-messaging.js';
 import { buildEbookFrameConfig, saveEbookAgentConfig } from './host/assistant-config.js';
 import { buildImportMaterial } from './host/import-materials.js';
-import { getDisplayPreviewForSlot } from '../draw/shared/gallery-cache.js';
+import {
+    exportPortablePreviewsForSlots,
+    getDisplayPreviewForSlot,
+    importPortablePreviews,
+} from '../draw/shared/gallery-cache.js';
 import { synthesizeAndPlay } from '../fourth-wall/fw-voice-runtime.js';
 
 const SOURCE_HOST = 'xb-ebook-host';
@@ -10,19 +15,33 @@ const SOURCE_APP = 'xb-ebook-app';
 const OVERLAY_ID = 'xiaobaix-ebook-overlay';
 const IFRAME_ID = 'xiaobaix-ebook-iframe';
 const HTML_PATH = `${extensionFolderPath}/modules/ebook/ebook.html`;
+const BUILD_INFO_PATH = `${extensionFolderPath}/modules/ebook/dist/ebook-build.json`;
 
-let manifestVersion = '';
+let ebookCacheKey = '';
+let initialConfigPromise = null;
 
-async function loadManifestVersion() {
-    if (manifestVersion) return manifestVersion;
+async function loadEbookCacheKey() {
+    if (ebookCacheKey) return ebookCacheKey;
+    let manifestVersion = '';
+    let buildHash = '';
     try {
         const response = await fetch(`${extensionFolderPath}/manifest.json`, { cache: 'no-store' });
         const manifest = await response.json();
         manifestVersion = manifest.version || '';
     } catch {
-        // Version is cosmetic; ignore load failures.
+        // Version is only used for cache busting; ignore load failures.
     }
-    return manifestVersion;
+    try {
+        const response = await fetch(BUILD_INFO_PATH, { cache: 'no-store' });
+        if (response.ok) {
+            const buildInfo = await response.json();
+            buildHash = buildInfo.hash || buildInfo.build || '';
+        }
+    } catch {
+        // Older installs may not have a build info file yet.
+    }
+    ebookCacheKey = [manifestVersion, buildHash].filter(Boolean).join('-');
+    return ebookCacheKey;
 }
 
 let frameReady = false;
@@ -108,6 +127,22 @@ function flushPendingMessages() {
     pendingMessages = [];
 }
 
+function prepareInitialConfig() {
+    const promise = buildEbookFrameConfig();
+    initialConfigPromise = promise;
+    void promise.catch(() => {
+        if (initialConfigPromise === promise) {
+            initialConfigPromise = null;
+        }
+    });
+}
+
+async function sendInitialConfigToFrame() {
+    const promise = initialConfigPromise || buildEbookFrameConfig();
+    initialConfigPromise = null;
+    postToFrame('xb-ebook:config', await promise);
+}
+
 async function sendConfigToFrame() {
     postToFrame('xb-ebook:config', await buildEbookFrameConfig());
 }
@@ -152,10 +187,10 @@ async function createOverlay() {
         background: #fff9ed;
     `;
 
-    const version = await loadManifestVersion();
+    const version = await loadEbookCacheKey();
     const iframe = document.createElement('iframe');
     iframe.id = IFRAME_ID;
-    iframe.src = version ? `${HTML_PATH}?v=${version}` : HTML_PATH;
+    iframe.src = version ? `${HTML_PATH}?v=${encodeURIComponent(version)}` : HTML_PATH;
     iframe.style.cssText = `
         display: block;
         width: 100%;
@@ -177,6 +212,7 @@ async function openEbook() {
     if (document.getElementById(OVERLAY_ID)) return;
     frameReady = false;
     pendingMessages = [];
+    prepareInitialConfig();
     installMessageHandler();
     await createOverlay();
 }
@@ -186,6 +222,7 @@ function openEbookSettings() {
     if (!document.getElementById(OVERLAY_ID)) {
         frameReady = false;
         pendingMessages = [];
+        prepareInitialConfig();
         installMessageHandler();
         void createOverlay();
     }
@@ -203,6 +240,7 @@ function closeEbook() {
     removeOverlayResizeHandler();
     frameReady = false;
     pendingMessages = [];
+    initialConfigPromise = null;
     pendingOpenSettings = false;
 }
 
@@ -232,6 +270,13 @@ function replyHostResult(requestId = '', payload = {}) {
     postToFrame('xb-ebook:host-result', {
         requestId,
         ...payload,
+    });
+}
+
+function handleHostRequestHeaders(payload = {}) {
+    replyHostResult(String(payload.requestId || ''), {
+        ok: true,
+        hostRequestHeaders: getRequestHeaders?.() || {},
     });
 }
 
@@ -441,6 +486,41 @@ async function handleDrawImage(payload = {}) {
     }
 }
 
+async function handleExportImages(payload = {}) {
+    const requestId = String(payload.requestId || '');
+    try {
+        const images = await exportPortablePreviewsForSlots(payload.slotIds || []);
+        replyHostResult(requestId, {
+            ok: true,
+            images,
+        });
+    } catch (error) {
+        replyHostResult(requestId, {
+            ok: false,
+            error: error?.message || String(error || 'image_export_failed'),
+        });
+    }
+}
+
+async function handleImportImages(payload = {}) {
+    const requestId = String(payload.requestId || '');
+    try {
+        const result = await importPortablePreviews(payload.images?.previews || [], payload.images?.selections || [], {
+            bookId: payload.bookId,
+            bookTitle: payload.bookTitle,
+        });
+        replyHostResult(requestId, {
+            ok: true,
+            ...result,
+        });
+    } catch (error) {
+        replyHostResult(requestId, {
+            ok: false,
+            error: error?.message || String(error || 'image_import_failed'),
+        });
+    }
+}
+
 function handleFrameMessage(event) {
     const iframe = getIframe();
     if (!isTrustedMessage(event, iframe, SOURCE_APP)) return;
@@ -449,7 +529,9 @@ function handleFrameMessage(event) {
     switch (data.type) {
         case 'xb-ebook:frame-ready':
             frameReady = true;
-            void sendConfigToFrame().then(() => {
+            void sendInitialConfigToFrame().catch((error) => {
+                console.warn('[LittleWhiteBox][Ebook] failed to send initial config', error);
+            }).finally(() => {
                 flushPendingMessages();
                 if (pendingOpenSettings) {
                     revealEbookSettings();
@@ -464,6 +546,9 @@ function handleFrameMessage(event) {
             break;
         case 'xb-ebook:save-config':
             void handleSaveConfig(payload);
+            break;
+        case 'xb-ebook:get-host-request-headers':
+            handleHostRequestHeaders(payload);
             break;
         case 'xb-ebook:draw-status':
             void handleDrawStatus(payload);
@@ -485,6 +570,12 @@ function handleFrameMessage(event) {
             break;
         case 'xb-ebook:draw-image':
             void handleDrawImage(payload);
+            break;
+        case 'xb-ebook:export-images':
+            void handleExportImages(payload);
+            break;
+        case 'xb-ebook:import-images':
+            void handleImportImages(payload);
             break;
         default:
             break;

@@ -10,6 +10,7 @@ export class TtsPlayer {
         this.currentStream = null;
         this.currentCleanup = null;
         this.isPlaying = false;
+        this.playbackRate = 1;
         this.onStateChange = null; // 回调：(state, item, info) => void
     }
 
@@ -82,6 +83,32 @@ export class TtsPlayer {
         return this.playNow(item);
     }
 
+    setPlaybackRate(rate) {
+        const nextRate = Math.max(0.5, Math.min(2, Number(rate) || 1));
+        this.playbackRate = nextRate;
+        if (this.currentAudio) {
+            try {
+                this.currentAudio.playbackRate = nextRate;
+            } catch {}
+        }
+        this._notifyState('ratechange', this.currentItem, { playbackRate: nextRate });
+        return nextRate;
+    }
+
+    seek(seconds) {
+        if (!this.currentAudio) return false;
+        const duration = Number(this.currentAudio.duration);
+        if (!Number.isFinite(duration) || duration <= 0) return false;
+        const nextTime = Math.max(0, Math.min(duration, Number(seconds) || 0));
+        try {
+            this.currentAudio.currentTime = nextTime;
+            this._notifyState('progress', this.currentItem, { currentTime: nextTime, duration });
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     _playNext() {
         if (this.queue.length === 0) {
             this.isPlaying = false;
@@ -106,6 +133,7 @@ export class TtsPlayer {
 
         const url = URL.createObjectURL(item.audioBlob);
         const audio = new Audio(url);
+        audio.playbackRate = this.playbackRate;
         this.currentAudio = audio;
         this.currentCleanup = () => {
             URL.revokeObjectURL(url);
@@ -165,6 +193,7 @@ export class TtsPlayer {
         this.currentStream = stream;
 
         const audio = new Audio();
+        audio.playbackRate = this.playbackRate;
         this.currentAudio = audio;
 
         const cleanup = () => {

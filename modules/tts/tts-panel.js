@@ -36,6 +36,8 @@ let openSettingsFn = null;
 let clearQueueFn = null;
 let getLastAIMessageIdFn = null;
 let speakMessageFn = null;
+let seekPlaybackFn = null;
+let setPlaybackRateFn = null;
 
 export function setPanelConfigHandlers(handlers) {
     getConfigFn = handlers.getConfig;
@@ -44,6 +46,8 @@ export function setPanelConfigHandlers(handlers) {
     clearQueueFn = handlers.clearQueue;
     getLastAIMessageIdFn = handlers.getLastAIMessageId;
     speakMessageFn = handlers.speakMessage;
+    seekPlaybackFn = handlers.seekPlayback;
+    setPlaybackRateFn = handlers.setPlaybackRate;
 }
 
 export function clearPanelConfigHandlers() {
@@ -53,6 +57,8 @@ export function clearPanelConfigHandlers() {
     clearQueueFn = null;
     getLastAIMessageIdFn = null;
     speakMessageFn = null;
+    seekPlaybackFn = null;
+    setPlaybackRateFn = null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -284,7 +290,7 @@ const STYLES = `
 
 .xb-tts-progress {
     position: absolute;
-    bottom: 0;
+    bottom: 1px;
     left: 8px;
     right: 8px;
     height: 2px;
@@ -296,6 +302,7 @@ const STYLES = `
 }
 
 .xb-tts-panel[data-status="playing"] .xb-tts-progress,
+.xb-tts-panel[data-status="paused"] .xb-tts-progress,
 .xb-tts-panel[data-has-queue="true"] .xb-tts-progress {
     opacity: 1;
 }
@@ -304,8 +311,48 @@ const STYLES = `
     height: 100%;
     background: rgba(255, 255, 255, 0.6);
     width: 0%;
-    transition: width 0.4s ease-out;
+    transition: width 0.18s ease-out;
     border-radius: 1px;
+}
+
+.xb-tts-progress-range {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: -4px;
+    width: calc(100% - 16px);
+    height: 12px;
+    padding: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    pointer-events: none;
+}
+
+.xb-tts-panel[data-status="playing"] .xb-tts-progress-range,
+.xb-tts-panel[data-status="paused"] .xb-tts-progress-range {
+    pointer-events: auto;
+}
+
+.xb-tts-progress-range::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+}
+
+.xb-tts-progress-range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
 }
 
 .xb-tts-menu {
@@ -686,6 +733,16 @@ function createCapsuleElement(mode) {
     progress.appendChild(progressInner);
     capsule.appendChild(progress);
 
+    const progressRange = document.createElement('input');
+    progressRange.type = 'range';
+    progressRange.className = 'xb-tts-progress-range';
+    progressRange.min = '0';
+    progressRange.max = '0';
+    progressRange.step = '0.1';
+    progressRange.value = '0';
+    progressRange.setAttribute('aria-label', '朗读进度');
+    capsule.appendChild(progressRange);
+
     return capsule;
 }
 
@@ -718,6 +775,7 @@ function cachePanelDOM(el) {
         statusText: el.querySelector('.xb-tts-status'),
         badge: el.querySelector('.xb-tts-badge'),
         progressInner: el.querySelector('.xb-tts-progress-inner'),
+        progressRange: el.querySelector('.xb-tts-progress-range'),
         voiceSelect: el.querySelector('.voice-select'),
         speedSlider: el.querySelector('.speed-slider'),
         speedVal: el.querySelector('.speed-val'),
@@ -750,9 +808,11 @@ function bindCommonEvents($cache, parentEl = null) {
         }
     });
     $cache.speedSlider?.addEventListener('input', (e) => {
+        const rate = Number(e.target.value);
         if ($cache.speedVal) {
-            $cache.speedVal.textContent = Number(e.target.value).toFixed(1) + 'x';
+            $cache.speedVal.textContent = rate.toFixed(1) + 'x';
         }
+        setPlaybackRateFn?.(rate);
     });
     $cache.speedSlider?.addEventListener('change', async (e) => {
         const config = getConfigFn?.();
@@ -768,6 +828,23 @@ function bindCommonEvents($cache, parentEl = null) {
         panelMap.forEach(data => data.root?.classList.remove('expanded'));
         floatingEl?.classList.remove('expanded');
         openSettingsFn?.();
+    });
+}
+
+function bindProgressEvents($cache, getMessageId) {
+    const range = $cache.progressRange;
+    if (!range) return;
+    const stop = (event) => event.stopPropagation();
+    range.addEventListener('pointerdown', stop);
+    range.addEventListener('mousedown', stop);
+    range.addEventListener('click', stop);
+    range.addEventListener('input', (event) => {
+        event.stopPropagation();
+        const messageId = getMessageId?.();
+        if (typeof messageId !== 'number' || messageId < 0) return;
+        const seconds = Number(range.value);
+        if (!Number.isFinite(seconds)) return;
+        seekPlaybackFn?.(messageId, seconds);
     });
 }
 
@@ -809,6 +886,7 @@ function bindFloorPanelEvents(panelData, onPlay) {
     });
 
     bindCommonEvents($cache);
+    bindProgressEvents($cache, () => messageId);
 
     const closeMenu = (e) => {
         if (!el.contains(e.target)) {
@@ -1026,6 +1104,7 @@ function createFloatingButton() {
     }
 
     bindCommonEvents($floatingCache);
+    bindProgressEvents($floatingCache, () => safeGetLastAIMessageId());
 
     document.addEventListener('click', handleFloatingOutsideClick, { passive: true });
     window.addEventListener('resize', applyFloatingPosition);
@@ -1119,14 +1198,26 @@ function updatePanelStateCore($cache, el, state) {
     if ($cache.badge && hasQueue && current > 0) $cache.badge.textContent = `${current}/${total}`;
     if ($cache.stopBtn) $cache.stopBtn.style.display = showStop ? '' : 'none';
 
+    const duration = Number(state.duration) || 0;
+    const progress = Math.max(0, Math.min(duration, Number(state.progress) || 0));
+    const hasAudioProgress = duration > 0 && (status === 'playing' || status === 'paused' || status === 'ended');
+
     if ($cache.progressInner) {
-        if (hasQueue && total > 0) {
+        if (hasAudioProgress) {
+            $cache.progressInner.style.width = `${Math.min(100, (progress / duration) * 100)}%`;
+        } else if (hasQueue && total > 0) {
             $cache.progressInner.style.width = `${Math.min(100, (current / total) * 100)}%`;
-        } else if (state.progress && state.duration) {
-            $cache.progressInner.style.width = `${Math.min(100, (state.progress / state.duration) * 100)}%`;
         } else {
             $cache.progressInner.style.width = '0%';
         }
+    }
+
+    if ($cache.progressRange) {
+        $cache.progressRange.max = duration > 0 ? String(duration) : '0';
+        if (document.activeElement !== $cache.progressRange) {
+            $cache.progressRange.value = hasAudioProgress ? String(progress) : '0';
+        }
+        $cache.progressRange.disabled = !(duration > 0 && (status === 'playing' || status === 'paused'));
     }
 
     if (state.textLength && $cache.usageText) {
@@ -1259,6 +1350,11 @@ export function resetFloatingState() {
     if ($floatingCache.statusText) $floatingCache.statusText.textContent = '播放';
     if ($floatingCache.badge) $floatingCache.badge.textContent = '0/0';
     if ($floatingCache.progressInner) $floatingCache.progressInner.style.width = '0%';
+    if ($floatingCache.progressRange) {
+        $floatingCache.progressRange.max = '0';
+        $floatingCache.progressRange.value = '0';
+        $floatingCache.progressRange.disabled = true;
+    }
     if ($floatingCache.stopBtn) $floatingCache.stopBtn.style.display = 'none';
     if ($floatingCache.usageText) $floatingCache.usageText.textContent = '-字';
 

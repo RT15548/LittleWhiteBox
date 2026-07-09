@@ -23,6 +23,7 @@ let imageObserver = null;
 let novelDrawObserver = null;
 let afterAiGateDispose = null;
 let runtimeActive = false;
+let enhancerInitialized = false;
 
 export function setMessageEnhancerRuntimeActive(active) {
     runtimeActive = !!active;
@@ -30,7 +31,29 @@ export function setMessageEnhancerRuntimeActive(active) {
 
 function isFourthWallEnabled() {
     const settings = extension_settings[EXT_ID];
+    if (settings?.enabled === false) return false;
     return runtimeActive || !!settings?.fourthWall?.enabled;
+}
+
+function isImageEnhancementEnabled() {
+    const draw = window.xiaobaixDraw;
+    try {
+        const status = draw?.getStatus?.();
+        if (status && typeof status === 'object') return !!status.enabled;
+    } catch { }
+    try {
+        return !!draw?.isEnabled?.();
+    } catch {
+        return false;
+    }
+}
+
+function isVoiceEnhancementEnabled() {
+    try {
+        return !!window.xiaobaixTts?.isEnabled?.();
+    } catch {
+        return false;
+    }
 }
 
 // ════════════════════════════════════════════
@@ -39,6 +62,11 @@ function isFourthWallEnabled() {
 
 export async function initMessageEnhancer() {
     if (!isFourthWallEnabled()) return;
+    if (enhancerInitialized) {
+        processAllMessages();
+        return;
+    }
+    enhancerInitialized = true;
 
     xbLog.info('messageEnhancer', 'init message enhancer');
     initAfterAiGate();
@@ -73,8 +101,14 @@ export async function initMessageEnhancer() {
     processAllMessages();
 }
 
+export function refreshMessageEnhancer() {
+    if (!isFourthWallEnabled()) return;
+    processAllMessages();
+}
+
 export function cleanupMessageEnhancer() {
     xbLog.info('messageEnhancer', 'cleanup message enhancer');
+    enhancerInitialized = false;
 
     events.cleanup();
     afterAiGateDispose?.();
@@ -165,6 +199,7 @@ function initNovelDrawObserver() {
 
 function hasUnrenderedVoice(mesText) {
     if (!mesText) return false;
+    if (!isVoiceEnhancementEnabled()) return false;
     return /\[(?:voice|语音)\s*:[^\]]+\]/i.test(mesText.innerHTML);
 }
 
@@ -297,26 +332,30 @@ function enhanceMessageContent(container) {
     let enhanced = html;
     let hasChanges = false;
 
-    enhanced = enhanced.replace(/\[(?:img|图片)\s*:\s*([^\]]+)\]/gi, (match, inner) => {
-        const tags = parseImageToken(inner);
-        if (!tags) return match;
-        hasChanges = true;
-        return `<div class="xb-img-slot" data-tags="${encodeURIComponent(tags)}"></div>`;
-    });
+    if (isImageEnhancementEnabled()) {
+        enhanced = enhanced.replace(/\[(?:img|图片)\s*:\s*([^\]]+)\]/gi, (match, inner) => {
+            const tags = parseImageToken(inner);
+            if (!tags) return match;
+            hasChanges = true;
+            return `<div class="xb-img-slot" data-tags="${encodeURIComponent(tags)}"></div>`;
+        });
+    }
 
-    enhanced = enhanced.replace(/\[(?:voice|语音)\s*:([^:]*):([^\]]+)\]/gi, (match, emotionRaw, voiceText) => {
-        const txt = voiceText.trim();
-        if (!txt) return match;
-        hasChanges = true;
-        return createVoiceBubbleHTML(txt, (emotionRaw || '').trim().toLowerCase());
-    });
+    if (isVoiceEnhancementEnabled()) {
+        enhanced = enhanced.replace(/\[(?:voice|语音)\s*:([^:]*):([^\]]+)\]/gi, (match, emotionRaw, voiceText) => {
+            const txt = voiceText.trim();
+            if (!txt) return match;
+            hasChanges = true;
+            return createVoiceBubbleHTML(txt, (emotionRaw || '').trim().toLowerCase());
+        });
 
-    enhanced = enhanced.replace(/\[(?:voice|语音)\s*:\s*([^\]:]+)\]/gi, (match, voiceText) => {
-        const txt = voiceText.trim();
-        if (!txt) return match;
-        hasChanges = true;
-        return createVoiceBubbleHTML(txt, '');
-    });
+        enhanced = enhanced.replace(/\[(?:voice|语音)\s*:\s*([^\]:]+)\]/gi, (match, voiceText) => {
+            const txt = voiceText.trim();
+            if (!txt) return match;
+            hasChanges = true;
+            return createVoiceBubbleHTML(txt, '');
+        });
+    }
 
     if (hasChanges) {
         // Replaces existing message HTML with enhanced tokens only.
@@ -352,6 +391,12 @@ function escapeHtml(text) {
 
 function hydrateImageSlots(container) {
     container.querySelectorAll('.xb-img-slot').forEach(slot => {
+        if (slot.dataset.drawDisabled === '1' && isImageEnhancementEnabled()) {
+            slot.dataset.drawDisabled = '';
+            slot.dataset.loaded = '';
+            slot.dataset.loading = '';
+            slot.dataset.observed = '';
+        }
         if (slot.dataset.observed === '1') return;
         slot.dataset.observed = '1';
 
@@ -365,6 +410,16 @@ function hydrateImageSlots(container) {
 }
 
 async function loadImage(slot, tags) {
+    if (!isImageEnhancementEnabled()) {
+        slot.dataset.drawDisabled = '1';
+        slot.dataset.loaded = '';
+        slot.dataset.loading = '';
+        slot.dataset.observed = '';
+        // eslint-disable-next-line no-unsanitized/property
+        slot.innerHTML = `<div class="xb-img-error"><i class="fa-solid fa-ban"></i><div>画图功能未启用</div></div>`;
+        return;
+    }
+    slot.dataset.drawDisabled = '';
     // eslint-disable-next-line no-unsanitized/property
     slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-spinner"></i> 检查缓存...</div>`;
 
@@ -456,6 +511,11 @@ function hydrateVoiceSlots(container) {
 
         bubble.onclick = async (e) => {
             e.stopPropagation();
+            if (!isVoiceEnhancementEnabled()) {
+                bubble.classList.add('error');
+                setTimeout(() => bubble.classList.remove('error'), 3000);
+                return;
+            }
             if (bubble.classList.contains('loading')) return;
 
             if (bubble.classList.contains('playing')) {

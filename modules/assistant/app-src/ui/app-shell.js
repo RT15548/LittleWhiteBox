@@ -51,7 +51,7 @@ export function buildAppMarkup(state) {
                         <form class="xb-assistant-compose" id="xb-assistant-form">
                             <div class="xb-assistant-compose-row">
                                 <div class="xb-assistant-compose-main">
-                                    <textarea id="xb-assistant-input" placeholder=""></textarea>
+                                    <textarea id="xb-assistant-input" rows="1" placeholder=""></textarea>
                                 </div>
                                 <div class="xb-assistant-compose-actions">
                                     <div class="xb-assistant-compose-more" id="xb-assistant-compose-more">

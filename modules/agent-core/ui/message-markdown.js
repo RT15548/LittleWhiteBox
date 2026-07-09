@@ -1,10 +1,16 @@
+import showdown from 'showdown';
+
 let markdownConverter = null;
-let markdownConverterSource = null;
+let showdownPatched = false;
 let htmlBlockSerial = 0;
 const htmlBlockStore = new Map();
+let htmlBoundarySerial = 0;
+const htmlBoundaryStore = new Map();
 
 const HTML_BLOCK_LANGUAGES = new Set(['html', 'htm', 'xhtml', 'xml', 'svg', 'vue', 'svelte']);
 export const HTML_PREVIEW_SANDBOX = 'allow-scripts';
+const STYLE_SCOPE_SELECTORS = ['.xb-tavern-markdown', '.xb-assistant-markdown'];
+const HTML_RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title']);
 
 function escapeHtml(text) {
     return String(text || '')
@@ -20,6 +26,11 @@ function createHtmlBlockId() {
     return `html-${Date.now().toString(36)}-${htmlBlockSerial.toString(36)}`;
 }
 
+function createHtmlBoundaryId() {
+    htmlBoundarySerial += 1;
+    return `raw-${Date.now().toString(36)}-${htmlBoundarySerial.toString(36)}`;
+}
+
 function formatHtmlBlockSize(code = '') {
     const chars = String(code || '').length;
     if (chars >= 1000) {
@@ -29,15 +40,30 @@ function formatHtmlBlockSize(code = '') {
     return `${chars} 字符`;
 }
 
-function getMarkdownLibraries() {
-    return {
-        showdown: globalThis.parent?.showdown || globalThis.showdown,
-        DOMPurify: globalThis.parent?.DOMPurify || globalThis.DOMPurify,
-    };
-}
-
 function isHtmlBlockLanguage(language = '') {
     return HTML_BLOCK_LANGUAGES.has(String(language || '').trim().toLowerCase());
+}
+
+function patchShowdownHtmlSpans() {
+    if (showdownPatched) return;
+    showdownPatched = true;
+    showdown.subParser('unhashHTMLSpans', function unhashHTMLSpans(text, options, globals) {
+        let nextText = globals.converter._dispatch('unhashHTMLSpans.before', text, options, globals);
+        for (let index = 0; index < globals.gHtmlSpans.length; index += 1) {
+            let repText = globals.gHtmlSpans[index];
+            let limit = 0;
+            while (/¨C(\d+)C/.test(repText)) {
+                const num = RegExp.$1;
+                repText = repText.replace(`¨C${num}C`, globals.gHtmlSpans[num]);
+                if (limit === 10000) {
+                    break;
+                }
+                limit += 1;
+            }
+            nextText = nextText.replace(`¨C${index}C`, repText);
+        }
+        return globals.converter._dispatch('unhashHTMLSpans.after', nextText, options, globals);
+    });
 }
 
 function looksLikeHtmlCode(code = '') {
@@ -55,28 +81,78 @@ function storeHtmlBlock(code = '', language = 'html') {
         code: String(code || ''),
         language: String(language || 'html').trim() || 'html',
     });
-    return `@@XB_HTML_BLOCK_${id}@@`;
+    return `@@XBHTMLBLOCK:${id}@@`;
 }
 
-function escapeRawHtmlTags(text = '') {
-    return String(text || '')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+function storeHtmlBoundary(html = '') {
+    const id = createHtmlBoundaryId();
+    htmlBoundaryStore.set(id, String(html || ''));
+    return `@@XBHTMLRAW:${id}@@`;
+}
+
+function isHtmlStructureLine(line = '') {
+    const trimmed = String(line || '').trim();
+    if (!trimmed || !trimmed.startsWith('<') || !trimmed.endsWith('>')) return false;
+    if (/^<!--[\s\S]*-->$/.test(trimmed) || /^<!doctype\b/i.test(trimmed) || /^<\?xml\b/i.test(trimmed)) return false;
+
+    let hasHtmlTag = false;
+    const tagRegex = /<\/?\s*([a-z][\w:-]*)\b[^>]*>/gi;
+    let match = null;
+    while ((match = tagRegex.exec(trimmed)) !== null) {
+        const tagName = String(match[1] || '').toLowerCase();
+        if (HTML_RAW_TEXT_TAGS.has(tagName)) return false;
+        hasHtmlTag = true;
+    }
+    if (!hasHtmlTag) return false;
+
+    const textOutsideTags = trimmed.replace(/<\/?\s*[a-z][\w:-]*\b[^>]*>/gi, '').trim();
+    return !textOutsideTags || !/(^|\s)(?:#{1,6}\s|[-+*]\s|\d+\.\s|```|~~~|>\s)/.test(textOutsideTags);
+}
+
+function normalizeBlankLikeLine(line = '') {
+    const normalized = String(line || '');
+    if (!normalized) return normalized;
+    const stripped = normalized
+        .replace(/&nbsp;|&#160;|&#xa0;/gi, '')
+        .replace(/[\s\u00A0\u200B-\u200D\u2060\uFEFF]+/g, '');
+    return stripped ? normalized : '';
 }
 
 function preprocessNonFenceMarkdown(text = '') {
-    const segment = String(text || '');
-    const trimmed = segment.trim();
-    if (trimmed.length >= 220 && looksLikeHtmlCode(trimmed)) {
-        const leading = segment.match(/^\s*/)?.[0] || '';
-        const trailing = segment.match(/\s*$/)?.[0] || '';
-        return `${leading}${storeHtmlBlock(trimmed, 'html')}${trailing}`;
+    const normalized = String(text || '');
+    if (!normalized.trim()) return normalized;
+    const lines = normalized.split(/\r?\n/).map((line) => normalizeBlankLikeLine(line));
+    const protectedLines = [];
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (!isHtmlStructureLine(line)) {
+            protectedLines.push(line);
+            continue;
+        }
+
+        const blockLines = [line];
+        while (index + 1 < lines.length && isHtmlStructureLine(lines[index + 1])) {
+            index += 1;
+            blockLines.push(lines[index]);
+        }
+
+        const previousLine = protectedLines[protectedLines.length - 1] ?? '';
+        if (previousLine.trim()) {
+            protectedLines.push('');
+        }
+        protectedLines.push(storeHtmlBoundary(blockLines.join('\n')));
+        const nextLine = lines[index + 1] ?? '';
+        if (nextLine.trim() && !isHtmlStructureLine(nextLine)) {
+            protectedLines.push('');
+        }
     }
-    return escapeRawHtmlTags(segment);
+    return protectedLines.join('\n');
 }
 
-function preprocessMarkdownInput(raw = '') {
+function preprocessMarkdownInput(raw = '', options = {}) {
     const text = String(raw || '');
+    const htmlFenceMode = options.htmlFenceMode === 'code' ? 'code' : 'placeholder';
+    const protectRawHtmlBoundaries = options.protectRawHtmlBoundaries !== false;
     const fenceRegex = /(^|\n)(`{3,}|~{3,})[ \t]*([^\n]*)\n([\s\S]*?)\n\2[ \t]*(?=\n|$)/g;
     let result = '';
     let lastIndex = 0;
@@ -90,8 +166,10 @@ function preprocessMarkdownInput(raw = '') {
         const code = String(match[4] || '');
         const shouldFoldAsHtml = isHtmlBlockLanguage(rawLanguage) || (!rawLanguage && looksLikeHtmlCode(code));
 
-        result += preprocessNonFenceMarkdown(text.slice(lastIndex, blockStart));
-        if (shouldFoldAsHtml) {
+        result += protectRawHtmlBoundaries
+            ? preprocessNonFenceMarkdown(text.slice(lastIndex, blockStart))
+            : text.slice(lastIndex, blockStart);
+        if (shouldFoldAsHtml && htmlFenceMode !== 'code') {
             result += storeHtmlBlock(code, rawLanguage || 'html');
         } else {
             result += text.slice(blockStart, fenceEnd);
@@ -99,44 +177,216 @@ function preprocessMarkdownInput(raw = '') {
         lastIndex = fenceEnd;
     }
 
-    result += preprocessNonFenceMarkdown(text.slice(lastIndex));
+    result += protectRawHtmlBoundaries
+        ? preprocessNonFenceMarkdown(text.slice(lastIndex))
+        : text.slice(lastIndex);
     return result;
 }
 
 function injectHtmlBlockPlaceholders(html = '') {
-    return String(html || '').replace(/@@XB_HTML_BLOCK_([a-z0-9-]+)@@/g, (_match, id) => (
-        `<span class="xb-markdown-html-placeholder" data-xb-html-block-id="${id}"></span>`
+    return String(html || '').replace(/@@XBHTMLBLOCK:([a-z0-9-]+)@@|@@XB_HTML_BLOCK_([a-z0-9-]+)@@/g, (_match, id, legacyId) => (
+        `<span class="xb-markdown-html-placeholder" data-xb-html-block-id="${id || legacyId}"></span>`
     ));
 }
 
-export function renderMarkdownToHtml(text) {
+function injectHtmlBoundaryPlaceholders(html = '') {
+    const restoreHtmlBoundary = (_match, id) => {
+        const raw = htmlBoundaryStore.get(id) || '';
+        htmlBoundaryStore.delete(id);
+        return raw;
+    };
+    return String(html || '')
+        .replace(/<p>\s*@@XBHTMLRAW:([a-z0-9-]+)@@\s*<\/p>/g, restoreHtmlBoundary)
+        .replace(/(^|[\r\n])@@XBHTMLRAW:([a-z0-9-]+)@@(?=[\r\n]|$)/g, (match, prefix, id) => (
+            `${prefix}${restoreHtmlBoundary(match, id)}`
+        ));
+}
+
+function decodeHtmlAttribute(value = '') {
+    return String(value || '')
+        .replace(/&#x([0-9a-f]+);?/gi, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16) || 0))
+        .replace(/&#([0-9]+);?/g, (_match, number) => String.fromCodePoint(Number.parseInt(number, 10) || 0))
+        .replace(/&colon;?/gi, ':')
+        .replace(/&tab;?/gi, '\t')
+        .replace(/&newline;?/gi, '\n')
+        .replace(/&amp;?/gi, '&');
+}
+
+function isDangerousUrl(value = '') {
+    const normalized = decodeHtmlAttribute(value)
+        .trim()
+        .replace(/[\u0000-\u001F\u007F\s]+/g, '')
+        .toLowerCase();
+    return /^(?:javascript|vbscript|data):/.test(normalized);
+}
+
+function encodeStyleTags(html = '') {
+    return String(html || '').replace(/<style>([\s\S]+?)<\/style>/gim, (_match, style) => (
+        `<custom-style>${encodeURIComponent(style)}</custom-style>`
+    ));
+}
+
+function splitCssSelectors(selectorText = '') {
+    const selectors = [];
+    let current = '';
+    let depth = 0;
+    for (const char of String(selectorText || '')) {
+        if (char === '(' || char === '[') depth += 1;
+        if ((char === ')' || char === ']') && depth > 0) depth -= 1;
+        if (char === ',' && depth === 0) {
+            selectors.push(current);
+            current = '';
+            continue;
+        }
+        current += char;
+    }
+    if (current) selectors.push(current);
+    return selectors;
+}
+
+function sanitizeCssSelector(selector = '') {
+    const pseudoClasses = ['has', 'not', 'where', 'is', 'matches', 'any'];
+    const pseudoRegex = new RegExp(`:(${pseudoClasses.join('|')})\\(([^)]+)\\)`, 'g');
+    const sanitizeSimpleSelector = (value = '') => String(value || '').split(/\s+/).map((part) => (
+        part.replace(/\.([\w-]+)/g, (match, className) => (
+            String(className || '').startsWith('custom-') ? match : `.custom-${className}`
+        ))
+    )).join(' ');
+
+    const sanitized = String(selector || '').replace(pseudoRegex, (_match, pseudoClass, content) => (
+        `:${pseudoClass}(${sanitizeSimpleSelector(content)})`
+    ));
+    return sanitizeSimpleSelector(sanitized);
+}
+
+function normalizeStyleScopePrefixes(prefixes = STYLE_SCOPE_SELECTORS) {
+    const rawPrefixes = Array.isArray(prefixes) ? prefixes : [prefixes];
+    const normalized = rawPrefixes
+        .map((prefix) => String(prefix || '').trim())
+        .filter(Boolean)
+        .map((prefix) => `${prefix} `);
+    return normalized.length ? normalized : STYLE_SCOPE_SELECTORS.map((prefix) => `${prefix} `);
+}
+
+function prefixCssSelectors(css = '', prefixes = STYLE_SCOPE_SELECTORS) {
+    const scopePrefixes = normalizeStyleScopePrefixes(prefixes);
+    return String(css || '')
+        .replace(/@import[^;]+;?/gi, '')
+        .replace(/(^|[{}])\s*([^@{}][^{}]*)\{/g, (match, boundary, selectorText) => {
+            const selectors = splitCssSelectors(selectorText)
+                .map((selector) => selector.trim())
+                .filter(Boolean);
+            if (!selectors.length) return match;
+            if (selectors.every((selector) => /^(?:from|to|\d+(?:\.\d+)?%)$/i.test(selector))) {
+                return match;
+            }
+            const scoped = selectors.flatMap((selector) => {
+                const sanitizedSelector = sanitizeCssSelector(selector);
+                return scopePrefixes.map((prefix) => `${prefix}${sanitizedSelector}`);
+            }).join(', ');
+            return `${boundary}${scoped}{`;
+        })
+        .replace(/[^{};]+:\s*[^{};]*:\/\/[^{};]*(?:;|(?=}))/g, '');
+}
+
+function decodeStyleTags(html = '', options = {}) {
+    const prefixes = Array.isArray(options.prefixes)
+        ? options.prefixes
+        : (options.prefix ? [options.prefix] : STYLE_SCOPE_SELECTORS);
+    return String(html || '').replace(/<custom-style>([\s\S]+?)<\/custom-style>/gim, (_match, encodedStyle) => {
+        try {
+            const style = decodeURIComponent(String(encodedStyle || '')).replaceAll(/<br\/>/g, '');
+            return `<style>${prefixCssSelectors(style, prefixes)}</style>`;
+        } catch (error) {
+            return `CSS ERROR: ${error instanceof Error ? error.message : String(error || 'decode_failed')}`;
+        }
+    });
+}
+
+function prefixMessageClassAttribute(value = '') {
+    return String(value || '').split(/\s+/).filter(Boolean).map((className) => {
+        if (className.startsWith('fa-') || className.startsWith('note-') || className === 'monospace') {
+            return className;
+        }
+        return className.startsWith('custom-') ? className : `custom-${className}`;
+    }).join(' ');
+}
+
+function sanitizeMarkdownHtmlFallback(html = '') {
+    return String(html || '')
+        .replace(/<\/?(?:script|style|iframe|object|embed|link|meta|base|form|input|button|textarea|select|option)[^>]*>/gi, '')
+        .replace(/\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi, '')
+        .replace(/\s+class\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi, (match, quotedValue) => {
+            const quote = String(quotedValue || '')[0];
+            const hasQuote = quote === '"' || quote === "'";
+            const rawValue = hasQuote ? String(quotedValue).slice(1, -1) : String(quotedValue || '');
+            const prefixed = prefixMessageClassAttribute(rawValue);
+            return hasQuote ? ` class=${quote}${prefixed}${quote}` : ` class=${prefixed}`;
+        })
+        .replace(/\s+(href|src|xlink:href)\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi, (match, name, quotedValue) => {
+            const value = String(quotedValue || '').replace(/^["']|["']$/g, '');
+            return isDangerousUrl(value) ? '' : ` ${name}=${quotedValue}`;
+        });
+}
+
+function readSanitizerFrom(value) {
+    return typeof value?.sanitize === 'function' ? value : null;
+}
+
+function getStMessageSanitizer() {
+    try {
+        const parentSanitizer = globalThis.parent && globalThis.parent !== globalThis
+            ? readSanitizerFrom(globalThis.parent.DOMPurify)
+            : null;
+        if (parentSanitizer) return parentSanitizer;
+    } catch {
+        // Cross-origin parent access can throw; fall back below.
+    }
+
+    return readSanitizerFrom(globalThis.DOMPurify);
+}
+
+function sanitizeMarkdownHtml(html = '') {
+    const raw = encodeStyleTags(html);
+    const sanitizer = getStMessageSanitizer();
+    const config = {
+        RETURN_DOM: false,
+        RETURN_DOM_FRAGMENT: false,
+        RETURN_TRUSTED_TYPE: false,
+        MESSAGE_SANITIZE: true,
+        ADD_TAGS: ['custom-style'],
+    };
+    if (sanitizer) {
+        try {
+            return decodeStyleTags(String(sanitizer.sanitize(raw, config) || ''));
+        } catch {
+            // Fall through to the local test fallback.
+        }
+    }
+    return decodeStyleTags(sanitizeMarkdownHtmlFallback(raw));
+}
+
+export function renderMarkdownToHtml(text, options = {}) {
     const raw = String(text || '').trim();
     if (!raw) return '';
-    const markdownText = preprocessMarkdownInput(raw);
+    const markdownText = preprocessMarkdownInput(raw, options);
 
     try {
-        const { showdown, DOMPurify } = getMarkdownLibraries();
-        if (showdown?.Converter && DOMPurify?.sanitize) {
-            if (!markdownConverter || markdownConverterSource !== showdown) {
-                markdownConverterSource = showdown;
-                markdownConverter = new showdown.Converter({
-                    simpleLineBreaks: true,
-                    strikethrough: true,
-                    tables: true,
-                    tasklists: true,
-                    ghCodeBlocks: true,
-                    simplifiedAutoLink: true,
-                    openLinksInNewWindow: true,
-                    emoji: false,
-                    });
-                }
-            const html = markdownConverter.makeHtml(markdownText);
-            const sanitized = DOMPurify.sanitize(html, {
-                USE_PROFILES: { html: true },
-                FORBID_TAGS: ['style', 'script'],
+        if (!markdownConverter) {
+            patchShowdownHtmlSpans();
+            markdownConverter = new showdown.Converter({
+                emoji: true,
+                literalMidWordUnderscores: true,
+                parseImgDimensions: true,
+                simpleLineBreaks: true,
+                strikethrough: true,
+                tables: true,
+                underline: true,
+                disableForced4SpacesIndentedSublists: true,
             });
-            return injectHtmlBlockPlaceholders(sanitized);
         }
+        const html = injectHtmlBoundaryPlaceholders(markdownConverter.makeHtml(markdownText));
+        return injectHtmlBlockPlaceholders(sanitizeMarkdownHtml(html));
     } catch {
         // Fall through to escaped plain text below.
     }
@@ -144,35 +394,58 @@ export function renderMarkdownToHtml(text) {
     return injectHtmlBlockPlaceholders(escapeHtml(markdownText).replace(/\n/g, '<br>'));
 }
 
-async function copyText(text = '') {
+async function copyText(text = '', ownerDocument = null) {
     const normalized = String(text || '');
     if (!normalized) return false;
+    const doc = ownerDocument?.createElement ? ownerDocument : globalThis.document;
+    const win = doc?.defaultView || globalThis;
 
     try {
-        if (navigator.clipboard?.writeText) {
-            await navigator.clipboard.writeText(normalized);
+        if (doc?.createElement && doc.body?.appendChild) {
+            const textarea = doc.createElement('textarea');
+            try {
+                textarea.value = normalized;
+                textarea.setAttribute('readonly', 'readonly');
+                textarea.style.position = 'fixed';
+                textarea.style.left = '0';
+                textarea.style.top = '0';
+                textarea.style.width = '2em';
+                textarea.style.height = '2em';
+                textarea.style.padding = '0';
+                textarea.style.border = '0';
+                textarea.style.outline = '0';
+                textarea.style.boxShadow = 'none';
+                textarea.style.background = 'transparent';
+                textarea.style.opacity = '0';
+                textarea.style.pointerEvents = 'none';
+                textarea.style.fontSize = '16px';
+                doc.body.appendChild(textarea);
+                try {
+                    textarea.focus({ preventScroll: true });
+                } catch {
+                    textarea.focus();
+                }
+                textarea.select();
+                textarea.setSelectionRange(0, textarea.value.length);
+                const copied = doc.execCommand?.('copy') || false;
+                if (copied) return true;
+            } finally {
+                textarea.remove();
+            }
+        }
+    } catch {
+        // Fall through to the async clipboard path.
+    }
+
+    try {
+        if (win.navigator?.clipboard?.writeText) {
+            await win.navigator.clipboard.writeText(normalized);
             return true;
         }
     } catch {
-        // Fall through to the legacy copy path.
+        // Fall through to false.
     }
-
-    try {
-        const textarea = document.createElement('textarea');
-        textarea.value = normalized;
-        textarea.setAttribute('readonly', 'readonly');
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        textarea.style.pointerEvents = 'none';
-        document.body.appendChild(textarea);
-        textarea.select();
-        textarea.setSelectionRange(0, textarea.value.length);
-        const copied = document.execCommand('copy');
-        textarea.remove();
-        return copied;
-    } catch {
-        return false;
-    }
+    return false;
 }
 
 export function enhancePathLinks(rootNode, options = {}) {
@@ -240,9 +513,22 @@ export function enhanceMarkdownCodeBlocks(rootNode, options = {}) {
     const copyButtonTitle = String(options.copyButtonTitle || '复制代码');
     const copySuccessTitle = String(options.copySuccessTitle || '已复制');
     const copyFailureTitle = String(options.copyFailureTitle || '复制失败');
+    const flattenPreCode = options.flattenPreCode === true;
+    const skipPreSelector = String(options.skipPreSelector || '').trim();
 
     Array.from(rootNode.querySelectorAll('pre')).forEach((pre) => {
+        if (skipPreSelector && pre.matches?.(skipPreSelector)) return;
         if (pre.closest(`.${codeBlockClassName}`)) return;
+
+        const codeNode = pre.children.length === 1 && pre.firstElementChild?.tagName === 'CODE'
+            ? pre.firstElementChild
+            : null;
+        if (flattenPreCode && codeNode) {
+            while (codeNode.firstChild) {
+                pre.insertBefore(codeNode.firstChild, codeNode);
+            }
+            codeNode.remove();
+        }
 
         const wrapper = doc.createElement('div');
         wrapper.className = codeBlockClassName;
@@ -253,14 +539,33 @@ export function enhanceMarkdownCodeBlocks(rootNode, options = {}) {
         copyButton.textContent = '⧉';
         copyButton.title = copyButtonTitle;
         copyButton.setAttribute('aria-label', copyButtonTitle);
-        copyButton.addEventListener('click', async () => {
+        copyButton.addEventListener('pointerdown', (event) => {
+            event.stopPropagation();
+        });
+        copyButton.addEventListener('pointerup', (event) => {
+            event.stopPropagation();
+        });
+        copyButton.addEventListener('touchstart', (event) => {
+            event.stopPropagation();
+        }, { passive: true });
+        copyButton.addEventListener('touchend', (event) => {
+            event.stopPropagation();
+        }, { passive: true });
+        copyButton.addEventListener('click', async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
             const codeText = pre.querySelector('code')?.textContent || pre.textContent || '';
-            const copied = await copyText(codeText);
+            const copied = await copyText(codeText, doc);
             copyButton.textContent = copied ? '✓' : '!';
             copyButton.title = copied ? copySuccessTitle : copyFailureTitle;
+            copyButton.setAttribute('aria-label', copied ? copySuccessTitle : copyFailureTitle);
+            copyButton.classList.toggle('is-copied', copied);
+            copyButton.classList.toggle('is-failed', !copied);
             setTimeout(() => {
                 copyButton.textContent = '⧉';
                 copyButton.title = copyButtonTitle;
+                copyButton.setAttribute('aria-label', copyButtonTitle);
+                copyButton.classList.remove('is-copied', 'is-failed');
             }, 1200);
         });
 
@@ -296,8 +601,22 @@ function buildHtmlPreview(doc, code = '') {
     return iframe;
 }
 
-function createHtmlBlockNode(doc, entry = {}) {
+function createHtmlBlockNode(doc, entry = {}, options = {}) {
     const code = String(entry.code || '');
+    if (options.htmlBlockMode === 'code') {
+        return buildHtmlCodeView(doc, code);
+    }
+
+    if (options.htmlBlockMode === 'preview') {
+        const block = doc.createElement('div');
+        block.className = 'xb-markdown-html-block xb-markdown-html-block-auto';
+        const body = doc.createElement('div');
+        body.className = 'xb-markdown-html-body';
+        body.append(buildHtmlPreview(doc, code));
+        block.append(body);
+        return block;
+    }
+
     const block = doc.createElement('div');
     block.className = 'xb-markdown-html-block';
 
@@ -357,7 +676,7 @@ function createHtmlBlockNode(doc, entry = {}) {
     return block;
 }
 
-export function enhanceHtmlBlocks(rootNode) {
+export function enhanceHtmlBlocks(rootNode, options = {}) {
     if (!rootNode?.querySelectorAll) return;
 
     const doc = rootNode.ownerDocument || globalThis.document;
@@ -372,7 +691,7 @@ export function enhanceHtmlBlocks(rootNode) {
             return;
         }
 
-        const node = createHtmlBlockNode(doc, entry);
+        const node = createHtmlBlockNode(doc, entry, options);
         const parent = placeholder.parentElement;
         if (parent?.tagName === 'P' && parent.textContent.trim() === '') {
             parent.replaceWith(node);
@@ -384,7 +703,7 @@ export function enhanceHtmlBlocks(rootNode) {
 
 export function enhanceMarkdownContent(rootNode, options = {}) {
     if (!rootNode) return rootNode;
-    enhanceHtmlBlocks(rootNode);
+    enhanceHtmlBlocks(rootNode, options);
     enhanceMarkdownCodeBlocks(rootNode, options);
     enhancePathLinks(rootNode, options);
     return rootNode;

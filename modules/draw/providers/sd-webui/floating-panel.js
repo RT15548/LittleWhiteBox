@@ -1334,6 +1334,8 @@ export function destroySdDrawPanels() {
 export {
     FloatState,
     SIZE_OPTIONS,
+    updateAllPresetSelects,
+    updateAllSizeSelects,
     createFloatingButton,
     destroyFloatingButton,
 };

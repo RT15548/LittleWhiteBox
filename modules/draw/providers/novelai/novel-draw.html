@@ -1419,6 +1419,53 @@ function escapeHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+const previewObjectUrls = new Map();
+
+function parsePreviewBase64(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const match = raw.match(/^data:([^;]+);base64,(.*)$/i);
+    return {
+        mime: match?.[1] || 'image/png',
+        data: match ? match[2] : raw,
+    };
+}
+
+function base64ToObjectUrl(base64, mime) {
+    const binary = atob(base64);
+    const chunkSize = 8192;
+    const chunks = [];
+    for (let offset = 0; offset < binary.length; offset += chunkSize) {
+        const slice = binary.slice(offset, offset + chunkSize);
+        const bytes = new Uint8Array(slice.length);
+        for (let i = 0; i < slice.length; i++) {
+            bytes[i] = slice.charCodeAt(i);
+        }
+        chunks.push(bytes);
+    }
+    return URL.createObjectURL(new Blob(chunks, { type: mime }));
+}
+
+function getGalleryImageUrl(image = {}) {
+    const savedUrl = String(image.savedUrl || '').trim();
+    if (savedUrl) return savedUrl;
+    const parsed = parsePreviewBase64(image.base64);
+    if (!parsed?.data) return '';
+    if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function' || typeof atob !== 'function') {
+        return `data:${parsed.mime};base64,${parsed.data}`;
+    }
+    const key = String(image.imgId || '').trim() || `inline-${parsed.data.slice(0, 80)}`;
+    const cached = previewObjectUrls.get(key);
+    if (cached) return cached;
+    try {
+        const url = base64ToObjectUrl(parsed.data, parsed.mime);
+        previewObjectUrls.set(key, url);
+        return url;
+    } catch {
+        return `data:${parsed.mime};base64,${parsed.data}`;
+    }
+}
+
 function getCharEmoji(name) {
     const emojis = ['👤','👩','👨','🧑','👧','👦','👸','🤴','🧙','🧝','🧛','🦸'];
     return emojis[String(name || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0) % emojis.length];
@@ -2079,7 +2126,7 @@ function renderCharacterSlots(charName, slots) {
     slotsContainer.innerHTML = slotEntries.map(([slotId, images]) => {
         const latest = images[0];
         const hasSaved = images.some(img => img.savedUrl);
-        const imgSrc = latest.savedUrl || `data:image/png;base64,${latest.base64}`;
+        const imgSrc = getGalleryImageUrl(latest);
 
         return `
         <div class="gallery-slot" data-slot="${slotId}" data-char="${escapeHtml(charName)}">
@@ -2113,6 +2160,7 @@ function openGalleryModalFromCache(charName, slotId) {
     const slots = loadedCharPreviews[charName];
     if (!slots || !slots[slotId]) return;
     modalData = { slotId, images: slots[slotId], currentIndex: 0, charName };
+    renderModalThumbs();
     renderModalContent();
     $('nd_gallery_modal').classList.add('visible');
 }
@@ -2122,15 +2170,11 @@ function closeGalleryModal() {
     modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
 }
 
-function renderModalContent() {
+function renderModalThumbs() {
     const { images, currentIndex } = modalData;
     if (!images.length) return;
-    const current = images[currentIndex];
-    const imgSrc = current.savedUrl || `data:image/png;base64,${current.base64}`;
-    $('nd_modal_img').src = imgSrc;
-
     $('nd_modal_thumbs').innerHTML = images.map((img, i) => {
-        const src = img.savedUrl || `data:image/png;base64,${img.base64}`;
+        const src = getGalleryImageUrl(img);
         const cls = ['gallery-modal-thumb'];
         if (i === currentIndex) cls.push('active');
         if (img.savedUrl) cls.push('saved');
@@ -2140,6 +2184,22 @@ function renderModalContent() {
     $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
         t.addEventListener('click', () => { modalData.currentIndex = parseInt(t.dataset.index); renderModalContent(); });
     });
+}
+
+function updateModalThumbState() {
+    $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
+        const active = parseInt(t.dataset.index) === modalData.currentIndex;
+        t.classList.toggle('active', active);
+        if (active) t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+}
+
+function renderModalContent() {
+    const { images, currentIndex } = modalData;
+    if (!images.length) return;
+    const current = images[currentIndex];
+    $('nd_modal_img').src = getGalleryImageUrl(current);
+    updateModalThumbState();
     
     const saveBtn = $('nd_modal_save');
     if (current.savedUrl) {
@@ -2605,6 +2665,7 @@ window.addEventListener('message', event => {
                 if (modalData.images.length === 0) closeGalleryModal();
                 else {
                     if (modalData.currentIndex >= modalData.images.length) modalData.currentIndex = modalData.images.length - 1;
+                    renderModalThumbs();
                     renderModalContent();
                 }
             }
@@ -2624,7 +2685,7 @@ window.addEventListener('message', event => {
             }
             if (modalData.slotId) {
                 const img = modalData.images.find(i => i.imgId === data.imgId);
-                if (img) { img.savedUrl = data.savedUrl; renderModalContent(); }
+                if (img) { img.savedUrl = data.savedUrl; renderModalThumbs(); renderModalContent(); }
             }
             break;
 
@@ -2659,6 +2720,13 @@ window.addEventListener('message', event => {
             break;
         }
     }
+});
+
+window.addEventListener('beforeunload', () => {
+    for (const url of previewObjectUrls.values()) {
+        try { URL.revokeObjectURL(url); } catch {}
+    }
+    previewObjectUrls.clear();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,578 @@
+/* Tavern chat: bottom script input dock. */
+
+.tavern-chat.xb-page .chat-main {
+    --xb-compose-safe-space: 44px;
+    --xb-compose-breathing-space: 0px;
+}
+
+.tavern-chat.xb-page .chat-compose-dock {
+    position: relative;
+    z-index: 2;
+    flex: 0 0 auto;
+    border-top: 0;
+    background: transparent;
+    padding: 8px 10px 9px;
+}
+
+.tavern-chat.xb-page .chat-main > .chat-compose-dock {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+}
+
+.tavern-chat.xb-page .chat-main > .chat-scroll-shell .chat-scroll {
+    scroll-padding-bottom: calc(var(--xb-compose-safe-space) + var(--xb-compose-breathing-space));
+}
+
+.tavern-chat.xb-page .chat-compose-spacer {
+    flex: 0 0 calc(var(--xb-compose-safe-space) + var(--xb-compose-breathing-space));
+    width: 100%;
+    pointer-events: none;
+}
+
+.tavern-chat.xb-page .chat-compose-shell {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    align-items: stretch;
+    min-width: 0;
+    border: 1px solid var(--xb-rule);
+    border-radius: 14px;
+    background: var(--xb-chat-pop-bg);
+    box-shadow:
+        1px 1px 0 rgba(26, 26, 26, 0.026),
+        0 8px 22px rgba(26, 26, 26, 0.046);
+    overflow: visible;
+    transition:
+        border-color 0.18s ease,
+        box-shadow 0.18s ease,
+        transform 0.18s ease;
+}
+
+.tavern-chat.xb-page .chat-compose-shell:focus-within {
+    border-color: var(--xb-stamp);
+    box-shadow:
+        0 0 0 3px var(--xb-stamp-soft),
+        0 12px 34px rgba(26, 26, 26, 0.055);
+    transform: translateY(-1px);
+}
+
+.xb-os-shell.theme-dark .tavern-chat.xb-page .chat-compose-shell {
+    box-shadow: none;
+}
+
+.compose-menu-shell {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    align-self: stretch;
+}
+
+.compose-menu-button {
+    align-self: center;
+    justify-self: stretch;
+    display: inline-grid;
+    place-items: center;
+    gap: 3px;
+    width: auto;
+    min-width: 0;
+    min-height: 100%;
+    border: 0;
+    border-radius: 14px 0 0 14px;
+    background: transparent;
+    color: var(--xb-ink-faint);
+    padding: 0;
+}
+
+.xb-os-shell.theme-dark .compose-menu-button {
+    color: var(--xb-control-icon-muted);
+}
+
+.compose-menu-button svg {
+    width: 22px;
+    height: 22px;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    transition: transform 0.18s ease;
+}
+
+.compose-menu-button:hover:not(:disabled) svg,
+.compose-menu-button:focus-visible:not(:disabled) svg,
+.compose-menu-button[aria-expanded="true"] svg {
+    transform: scale(1.06);
+}
+
+.compose-menu-button:hover:not(:disabled),
+.compose-menu-button:focus-visible:not(:disabled),
+.compose-menu-button[aria-expanded="true"] {
+    outline: none;
+    background: var(--xb-stamp-soft);
+    color: var(--xb-stamp);
+}
+
+.compose-menu-popover {
+    position: absolute;
+    z-index: 20;
+    bottom: calc(100% + 10px);
+    left: 0;
+    display: grid;
+    min-width: 142px;
+    border: 1px solid var(--xb-rule);
+    border-radius: 10px;
+    background: var(--xb-chat-pop-bg);
+    box-shadow: 0 14px 38px rgba(26, 26, 26, 0.18);
+    padding: 5px;
+}
+
+.tavern-chat.xb-page .chat-compose {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 36px;
+    align-items: center;
+    min-width: 0;
+    min-height: 32px;
+    border-radius: 0 14px 14px 0;
+    background: var(--xb-chat-panel-bg);
+    box-shadow: inset 2px 2px 5px rgba(26, 26, 26, 0.018);
+    padding: 0;
+}
+
+.compose-menu-item {
+    justify-content: start;
+    width: 100%;
+    min-height: 32px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--xb-ink);
+    padding: 0 10px;
+    font: 700 13px/1 var(--xb-font-ui);
+    text-align: left;
+}
+
+.compose-menu-item:hover,
+.compose-menu-item:focus-visible {
+    outline: none;
+    background: var(--xb-stamp-soft);
+    color: var(--xb-stamp);
+}
+
+.compose-author-note-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 98;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.48);
+    backdrop-filter: blur(14px);
+    padding: 28px;
+}
+
+.compose-author-note-dialog {
+    width: min(420px, 100%);
+    max-height: min(86vh, 680px);
+    overflow: hidden;
+    border: 1px solid var(--xb-rule);
+    border-radius: 16px;
+    background: var(--xb-chat-pop-bg);
+    box-shadow: var(--xb-shadow);
+    padding: 12px;
+}
+
+.compose-author-note-panel {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 10px;
+    min-height: 0;
+    color: var(--xb-ink);
+}
+
+.compose-author-note-body {
+    display: grid;
+    gap: 10px;
+    min-height: 0;
+}
+
+.compose-author-note-dialog .compose-author-note-body {
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.compose-author-note-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    border-bottom: 1px solid var(--xb-rule);
+    padding: 2px 2px 8px;
+}
+
+.compose-author-note-head div {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.compose-author-note-head strong {
+    font: 800 14px/1.2 var(--xb-font-ui);
+}
+
+.compose-author-note-head span,
+.compose-author-note-actions span {
+    color: var(--xb-ink-faint);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.compose-author-note-back {
+    position: relative;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 auto;
+    border: 1px solid var(--xb-rule);
+    border-radius: 50%;
+    background: var(--xb-chat-panel-bg);
+    color: var(--xb-ink);
+    padding: 0;
+}
+
+.compose-author-note-back::before,
+.compose-author-note-back::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 11px;
+    height: 1.5px;
+    border-radius: 999px;
+    background: currentColor;
+    transform-origin: center;
+}
+
+.compose-author-note-back::before {
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.compose-author-note-back::after {
+    transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.compose-author-note-field {
+    display: grid;
+    gap: 6px;
+}
+
+.compose-author-note-field > span,
+.compose-author-note-check span {
+    color: var(--xb-ink-soft);
+    font: 700 12px/1.2 var(--xb-font-ui);
+}
+
+.compose-author-note-field textarea,
+.compose-author-note-field input {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid var(--xb-rule);
+    border-radius: 7px;
+    background: var(--xb-chat-panel-bg);
+    color: var(--xb-ink);
+    font: 500 13px/1.45 var(--xb-font-ui);
+    padding: 8px 9px;
+}
+
+.compose-author-note-field textarea {
+    resize: vertical;
+    min-height: 112px;
+    max-height: 220px;
+}
+
+.compose-author-note-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+}
+
+.compose-author-note-segments {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    border: 1px solid var(--xb-rule);
+    border-radius: 8px;
+    background: var(--xb-chat-panel-bg);
+    padding: 4px;
+}
+
+.compose-author-note-segments button {
+    min-height: 30px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--xb-ink-soft);
+    font: 700 12px/1.15 var(--xb-font-ui);
+    padding: 0 6px;
+}
+
+.compose-author-note-segments button.selected {
+    background: var(--xb-stamp-soft);
+    color: var(--xb-stamp);
+}
+
+.compose-author-note-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.compose-author-note-check input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--xb-stamp);
+}
+
+.compose-author-note-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    border-top: 1px solid var(--xb-rule);
+    padding-top: 8px;
+}
+
+.compose-author-note-actions button {
+    min-height: 32px;
+    border: 0;
+    border-radius: 7px;
+    background: var(--xb-stamp);
+    color: var(--xb-paper);
+    font: 800 13px/1 var(--xb-font-ui);
+    padding: 0 14px;
+}
+
+.compose-author-note-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.xb-os-shell.theme-dark .compose-menu-popover {
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.38);
+}
+
+.chat-compose textarea {
+    min-height: 32px;
+    max-height: 76px;
+    resize: vertical;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--xb-ink);
+    padding: 5px 6px 5px 12px;
+    font-family: var(--xb-font-serif);
+    font-size: var(--xb-tavern-reading-font-size, 15px);
+    line-height: var(--xb-tavern-reading-line-height, 23px);
+}
+
+.chat-compose textarea::placeholder {
+    color: var(--xb-ink-faint);
+    font-family: var(--xb-font-ui);
+    font-style: italic;
+}
+
+.chat-compose textarea:focus,
+.message-edit-box:focus {
+    outline: none;
+}
+
+.chat-compose>button {
+    position: relative;
+    align-self: center;
+    justify-self: center;
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    min-height: 32px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--xb-stamp);
+    padding: 0;
+    font: 760 14px/1 var(--xb-font-ui);
+    transition:
+        background-color 0.18s ease,
+        color 0.18s ease,
+        transform 0.18s ease;
+}
+
+.chat-compose>button.primary-action,
+.primary-action {
+    border-color: transparent;
+    background: transparent;
+    color: var(--xb-stamp);
+}
+
+.chat-compose>button:hover:not(:disabled),
+.chat-compose>button:focus-visible:not(:disabled) {
+    outline: none;
+    background: transparent;
+    color: var(--xb-stamp);
+}
+
+.chat-compose>button:hover:not(:disabled) .compose-send-icon,
+.chat-compose>button:focus-visible:not(:disabled) .compose-send-icon {
+    background: var(--xb-stamp-soft);
+}
+
+.chat-compose>button:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.chat-compose>button:disabled {
+    color: var(--xb-ink-faint);
+}
+
+.xb-os-shell.theme-dark .chat-compose>button:disabled {
+    color: var(--xb-control-icon-muted);
+}
+
+.chat-compose-shell.has-text .chat-compose>button:not(:disabled) .compose-send-icon {
+    background: var(--xb-stamp);
+    color: var(--xb-paper-plain);
+    box-shadow: 0 2px 8px rgba(var(--xb-accent-rgb), 0.24);
+}
+
+.chat-compose .compose-send-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    font-size: 17px;
+    line-height: 1;
+}
+
+.chat-compose .compose-send-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+@media (max-width: 980px) {
+    .tavern-chat.xb-page .chat-main {
+        --xb-compose-safe-space: 40px;
+        --xb-compose-breathing-space: 0px;
+    }
+
+    .tavern-chat.xb-page .chat-main > .chat-scroll-shell .chat-scroll {
+        scroll-padding-bottom: calc(var(--xb-compose-safe-space) + var(--xb-compose-breathing-space));
+    }
+
+    .tavern-chat.xb-page .chat-compose-dock {
+        padding: 7px 8px 8px;
+    }
+
+    .tavern-chat.xb-page .chat-compose-shell {
+        grid-template-columns: 42px minmax(0, 1fr);
+    }
+
+    .tavern-chat.xb-page .chat-compose {
+        grid-template-columns: minmax(0, 1fr) 34px;
+        min-height: 31px;
+    }
+
+    .chat-compose textarea {
+        min-height: 31px;
+        max-height: 76px;
+        padding: 4px 5px 4px 11px;
+    }
+
+    .compose-menu-button {
+        min-height: 31px;
+    }
+
+    .compose-menu-popover {
+        position: absolute;
+        right: auto;
+        bottom: calc(100% + 8px);
+        left: 0;
+        z-index: 97;
+        width: min(280px, calc(100vw - 20px));
+        max-height: calc(100vh - 82px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+        max-height: calc(100dvh - 82px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+        overflow: auto;
+        border-radius: 16px;
+        padding: 8px;
+    }
+
+    .compose-author-note-field textarea {
+        resize: none;
+        max-height: min(190px, 34vh);
+    }
+
+    .compose-author-note-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .compose-author-note-overlay {
+        inset: 0;
+        padding: 0;
+    }
+
+    .compose-author-note-dialog {
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        gap: 12px;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        max-height: none;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        overflow: hidden;
+        box-sizing: border-box;
+        padding:
+            calc(14px + env(safe-area-inset-top, 0px))
+            16px
+            calc(16px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .compose-author-note-dialog .compose-author-note-head {
+        padding: 0 0 10px;
+    }
+
+    .compose-author-note-dialog .compose-author-note-body {
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+        padding-bottom: 2px;
+    }
+
+    .compose-author-note-dialog .compose-author-note-back {
+        width: 32px;
+        height: 32px;
+    }
+
+    .compose-author-note-dialog .compose-author-note-actions {
+        padding-top: 10px;
+    }
+
+    .chat-compose>button {
+        justify-self: center;
+        align-self: center;
+        width: 31px;
+        min-width: 31px;
+        height: 31px;
+        min-height: 31px;
+        margin: 0;
+        border: 0;
+        border-radius: 999px;
+        padding: 0;
+    }
+}

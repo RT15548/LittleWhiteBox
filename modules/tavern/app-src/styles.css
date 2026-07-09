@@ -1,0 +1,14 @@
+@import './styles/base.css';
+@import './styles/theme.css';
+@import './styles/shell.css';
+@import './styles/home-cover.css';
+@import './styles/workspace-shell.css';
+@import './styles/characters.css';
+@import './styles/prompt-presets.css';
+@import './styles/chat.css';
+@import './styles/home.css';
+@import './styles/archive.css';
+@import './styles/shell-overrides.css';
+@import './styles/dialog.css';
+@import './styles/settings.css';
+@import './styles/chat/quick-settings.css';

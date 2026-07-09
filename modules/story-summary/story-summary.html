@@ -8,9 +8,60 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <title>剧情总结 · Story Summary</title>
     <link rel="stylesheet" href="story-summary.css">
+    <style>
+        #xb-frame-boot {
+            position: fixed;
+            inset: 0;
+            z-index: 999999;
+            display: grid;
+            place-items: center;
+            background: #f7f8fb;
+            color: #1f2937;
+            font: 13px/1.4 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 180ms ease;
+        }
+
+        body.xb-frame-loading #xb-frame-boot {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .xb-frame-boot-core {
+            display: grid;
+            justify-items: center;
+            gap: 12px;
+        }
+
+        .xb-frame-boot-ring {
+            width: 28px;
+            height: 28px;
+            border: 2px solid rgba(31, 41, 55, 0.18);
+            border-top-color: #1f2937;
+            border-radius: 50%;
+            animation: xb-frame-boot-spin 800ms linear infinite;
+        }
+
+        .xb-frame-boot-text {
+            color: rgba(31, 41, 55, 0.68);
+        }
+
+        @keyframes xb-frame-boot-spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
 </head>
 
-<body>
+<body class="xb-frame-loading">
+    <div id="xb-frame-boot" role="status" aria-live="polite">
+        <div class="xb-frame-boot-core">
+            <div class="xb-frame-boot-ring" aria-hidden="true"></div>
+            <div class="xb-frame-boot-text">正在加载</div>
+        </div>
+    </div>
     <div class="container">
         <!-- Header -->
         <header>
@@ -1080,8 +1131,8 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-    <script src="story-summary-ui.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js" onerror="document.querySelector('#xb-frame-boot .xb-frame-boot-text').textContent = '加载失败，请刷新重试';"></script>
+    <script src="story-summary-ui.js" onerror="document.querySelector('#xb-frame-boot .xb-frame-boot-text').textContent = '加载失败，请刷新重试';"></script>
     <!-- Confirm Modal -->
     <div class="modal" id="confirm-modal">
         <div class="modal-bg" id="confirm-backdrop"></div>

@@ -16,7 +16,7 @@ import {
     setSlotSelection, clearSlotSelection,
     updatePreviewSavedUrl, deletePreview, getCacheStats, clearExpiredCache, clearAllCache,
     getGallerySummary, getCharacterPreviews, openGallery, closeGallery, destroyGalleryCache,
-    getPreviewDisplayUrl
+    getPreviewDisplayUrl, preloadPreviewDisplayUrl, warmSlotPreviewNeighbors
 } from '../../shared/gallery-cache.js';
 import {
     PROVIDER_MAP,
@@ -1048,10 +1048,57 @@ function getActivePromptPreset() {
     return s.promptPresets.find(p => p.id === s.selectedPromptPresetId) || s.promptPresets[0] || null;
 }
 
+const NOVEL_QUICK_SIZE_OPTIONS = [
+    { value: 'default', label: '跟随预设' },
+    { value: '832x1216', label: '832 x 1216 竖图' },
+    { value: '1216x832', label: '1216 x 832 横图' },
+    { value: '1024x1024', label: '1024 x 1024 方图' },
+    { value: '768x1280', label: '768 x 1280 大竖' },
+    { value: '1280x768', label: '1280 x 768 大横' },
+];
+
+function getQuickSettings() {
+    const settings = getSettings();
+    const presets = (settings.paramsPresets || []).map((preset) => ({
+        value: String(preset.id || ''),
+        label: String(preset.name || '未命名'),
+    })).filter((preset) => preset.value);
+    return {
+        provider: 'novelai',
+        providerLabel: 'NovelAI',
+        available: moduleInitialized,
+        auto: settings.mode === 'auto',
+        presets,
+        selectedPresetId: String(settings.selectedParamsPresetId || presets[0]?.value || ''),
+        sizeOptions: NOVEL_QUICK_SIZE_OPTIONS,
+        selectedSize: String(settings.overrideSize || 'default'),
+    };
+}
+
+async function updateQuickSettings(patch = {}) {
+    const ok = await updateSettingsPersistent((settings) => {
+        if (Object.prototype.hasOwnProperty.call(patch, 'selectedPresetId')) {
+            settings.selectedParamsPresetId = String(patch.selectedPresetId || '');
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'selectedSize')) {
+            settings.overrideSize = String(patch.selectedSize || 'default');
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'auto')) {
+            settings.mode = patch.auto === true ? 'auto' : 'manual';
+        }
+    }, '快捷设置已保存', { notify: false, silent: false });
+    if (!ok) {
+        throw new Error('quick_settings_save_failed');
+    }
+    await notifySettingsUpdated();
+    return getQuickSettings();
+}
+
 async function notifySettingsUpdated() {
     try {
-        const { refreshPresetSelect, updateAutoModeUI } = await import('./floating-panel.js');
+        const { refreshPresetSelect, updateAllSizeSelects, updateAutoModeUI } = await import('./floating-panel.js');
         refreshPresetSelect?.();
+        updateAllSizeSelects?.();
         updateAutoModeUI?.();
     } catch {}
 
@@ -1610,9 +1657,9 @@ function buildFailedPlaceholderHtml({ slotId, messageId, tags, positive, errorTy
 <div class="xb-nd-failed-title">${escapeHtml(errorType || '生成失败')}</div>
 <div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '点击重试')}</div>
 <div class="xb-nd-failed-btns">
-    <button class="xb-nd-retry-btn" data-action="retry-image">🔄 重新生成</button>
-    <button class="xb-nd-edit-btn" data-action="edit-tags">✏️ 编辑TAG</button>
-    <button class="xb-nd-remove-btn" data-action="remove-placeholder">🗑️ 移除</button>
+    <button class="xb-nd-retry-btn" data-action="retry-image">⟳ 重新生成</button>
+    <button class="xb-nd-edit-btn" data-action="edit-tags">✐ 编辑TAG</button>
+    <button class="xb-nd-remove-btn" data-action="remove-placeholder">✕ 移除</button>
 </div>
 <div class="xb-nd-edit" style="display:none;margin-top:12px;text-align:left;">
     <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:6px;">编辑 TAG（场景描述）</div>
@@ -1676,6 +1723,9 @@ async function navigateToImage(container, targetIndex) {
 
     const direction = targetIndex > currentIndex ? 'left' : 'right';
     imgEl.classList.add(`sliding-${direction}`);
+    setTimeout(() => {
+        void preloadPreviewDisplayUrl(targetPreview).catch(() => false);
+    }, 0);
 
     await new Promise(r => setTimeout(r, 200));
 
@@ -1688,6 +1738,7 @@ async function navigateToImage(container, targetIndex) {
 
     setImageState(container, targetPreview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
     updateNavControls(container, targetIndex, historyCount);
+    void warmSlotPreviewNeighbors(slotId, targetIndex).catch(() => {});
     await setSlotSelection(slotId, targetPreview.imgId);
     if (targetPreview.savedUrl) {
         const messageId = parseInt(container.dataset.mesid);
@@ -2400,21 +2451,38 @@ function notifyNovelDrawAfterAi(data, source) {
 
 function buildTextSourceGalleryMeta(options = {}) {
     const source = String(options.source || '').trim();
-    if (source !== 'ebook') return {};
-    const bookId = String(options.bookId || '').trim();
-    const bookTitle = String(options.bookTitle || options.title || '未命名书稿').trim() || '未命名书稿';
-    const chapterPath = String(options.chapterPath || '').trim();
-    const chapterTitle = String(options.chapterTitle || options.title || chapterPath || '章节').trim() || '章节';
-    return {
-        source,
-        bookId,
-        bookTitle,
-        chapterPath,
-        chapterTitle,
-        chatId: bookId ? `ebook:${bookId}` : 'ebook',
-        characterName: `电纸书 / ${bookTitle}`,
-        messageId: `ebook:${bookId || 'unknown'}:${chapterPath || chapterTitle}`,
-    };
+    if (source === 'ebook') {
+        const bookId = String(options.bookId || '').trim();
+        const bookTitle = String(options.bookTitle || options.title || '未命名书稿').trim() || '未命名书稿';
+        const chapterPath = String(options.chapterPath || '').trim();
+        const chapterTitle = String(options.chapterTitle || options.title || chapterPath || '章节').trim() || '章节';
+        return {
+            source,
+            bookId,
+            bookTitle,
+            chapterPath,
+            chapterTitle,
+            chatId: bookId ? `ebook:${bookId}` : 'ebook',
+            characterName: `电纸书 / ${bookTitle}`,
+            messageId: `ebook:${bookId || 'unknown'}:${chapterPath || chapterTitle}`,
+        };
+    }
+    if (source === 'tavern') {
+        const sessionId = String(options.sessionId || '').trim();
+        const messageOrder = Number.isFinite(Number(options.messageOrder))
+            ? Math.max(0, Math.floor(Number(options.messageOrder)))
+            : null;
+        const role = String(options.role || options.title || 'assistant').trim() || 'assistant';
+        return {
+            source,
+            chatId: sessionId || 'tavern',
+            characterName: String(options.characterName || '小白酒馆').trim() || '小白酒馆',
+            messageId: sessionId
+                ? `tavern:${sessionId}:${messageOrder ?? role}`
+                : `tavern:${messageOrder ?? role}`,
+        };
+    }
+    return {};
 }
 
 async function maybeAutoLearnFromTasks(tasks = [], settings = {}) {
@@ -3111,7 +3179,7 @@ function createOverlay() {
     const overlay = document.createElement('div');
     overlay.id = 'xiaobaix-novel-draw-overlay';
 
-    overlay.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:99999!important;display:none;overflow:hidden!important;`;
+    overlay.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:100002!important;display:none;overflow:hidden!important;`;
 
     const updateHeight = () => {
         if (overlay.style.display !== 'none') {
@@ -3958,6 +4026,8 @@ export async function initNovelDraw() {
     window.xiaobaixNovelDraw = {
         getSettings,
         saveSettings,
+        getQuickSettings,
+        updateQuickSettings,
         generateNovelImage,
         generateImagesFromText,
         generateAndInsertImages,
@@ -4040,6 +4110,8 @@ export {
     saveSettingsAndToast,
     persistSettings,
     updateSettingsPersistent,
+    getQuickSettings,
+    updateQuickSettings,
     loadSettings,
     getActiveParamsPreset,
     getActivePromptPreset,

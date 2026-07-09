@@ -97,3 +97,10 @@ TinySegmenter 0.2
 Copyright (c) 2008 Taku Kudo
 MIT License
 http://www.chasen.org/~taku/software/TinySegmenter/
+
+Material Symbols
+Copyright 2024 Google LLC
+Apache License 2.0
+Repository: https://github.com/google/material-design-icons
+Used for: Tavern status panel, scene map, and atlas shared icon font and codepoints name list
+Local license copy: libs/material-symbols/LICENSE

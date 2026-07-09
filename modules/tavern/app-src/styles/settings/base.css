@@ -1,0 +1,247 @@
+/* Tavern settings: base workspace */
+
+.base-settings-workspace {
+    overflow: hidden;
+}
+
+.base-settings-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 22px clamp(26px, 4vw, 54px) 56px;
+}
+
+.base-settings-section {
+    width: min(760px, 100%);
+    border-bottom: 2px solid var(--xb-line-strong);
+    padding: 22px 0;
+}
+
+.base-settings-section:first-child {
+    padding-top: 0;
+}
+
+.base-settings-section:last-child {
+    border-bottom: 0;
+}
+
+.base-settings-section h3 {
+    margin: 0 0 14px;
+    color: var(--xb-text-main);
+    font-family: var(--xb-font-serif);
+    font-size: 24px;
+    font-weight: 540;
+    line-height: 1.12;
+}
+
+.base-user-select {
+    box-sizing: border-box;
+    width: min(420px, 100%);
+    min-height: 40px;
+}
+
+.base-user-detail {
+    width: min(560px, 100%);
+    min-height: 58px;
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.base-user-avatar {
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid var(--xb-line);
+    border-radius: 8px;
+    background: var(--xb-settings-control-bg);
+    color: var(--xb-text-muted);
+    font-family: var(--xb-font-serif);
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.base-user-avatar img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
+
+.base-user-copy {
+    min-width: 0;
+}
+
+.base-user-copy strong {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--xb-text-main);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.base-user-copy p {
+    margin: 5px 0 0;
+    color: var(--xb-text-muted);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.base-setting-row {
+    min-height: 46px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 96px;
+    align-items: center;
+    gap: 14px;
+    width: min(560px, 100%);
+    border-top: 1px solid var(--xb-line);
+    padding: 10px 0;
+}
+
+.base-setting-row:first-of-type {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.base-setting-row > div {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.base-setting-row strong {
+    color: var(--xb-text-main);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.base-setting-row span {
+    color: var(--xb-text-muted);
+    font-size: 13px;
+}
+
+.base-setting-row input {
+    box-sizing: border-box;
+    width: 96px;
+    min-height: 38px;
+    text-align: center;
+}
+
+.base-setting-row--controller {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.chat-font-size-controller {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--xb-line-strong);
+    border-radius: 999px;
+    background: var(--xb-settings-control-bg);
+}
+
+.chat-font-size-controller .xb-layout-button {
+    min-width: 40px;
+    min-height: 30px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 14px;
+    color: var(--xb-text-muted);
+    cursor: pointer;
+}
+
+.chat-font-size-controller .xb-layout-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.chat-font-size-controller .xb-layout-button.is-active {
+    background: var(--xb-ink);
+    color: var(--xb-paper);
+}
+
+.base-context-block {
+    width: min(560px, 100%);
+    border: 1px solid var(--xb-line);
+    border-radius: 8px;
+    background: var(--xb-settings-subtle-bg);
+    padding: 14px 16px;
+}
+
+.base-context-block strong {
+    display: block;
+    color: var(--xb-text-main);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.base-context-block p {
+    margin: 8px 0 0;
+    color: var(--xb-text-muted);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+@media (max-width: 560px) {
+    .settings-layout.is-base-workspace .xb-main {
+        overflow: hidden;
+    }
+
+    .settings-layout.is-base-workspace .step-panel {
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .base-settings-workspace > .panel-head {
+        min-height: 72px;
+        padding: 14px 96px 12px 14px;
+    }
+
+    .base-settings-workspace > .panel-head h2 {
+        font-size: 30px;
+    }
+
+    .base-settings-scroll {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 14px 14px calc(28px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .base-settings-section {
+        padding: 18px 0;
+    }
+
+    .base-settings-section h3 {
+        margin-bottom: 12px;
+        font-size: 22px;
+    }
+
+    .base-setting-row {
+        grid-template-columns: minmax(0, 1fr) 82px;
+        gap: 10px;
+    }
+
+    .base-setting-row--controller {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .base-setting-row input {
+        width: 82px;
+    }
+}

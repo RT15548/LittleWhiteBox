@@ -1,0 +1,152 @@
+/* Global theme tokens for the Tavern app shell. */
+
+:root {
+    color-scheme: dark;
+    --xb-paper: #151311;
+    --xb-paper-warm: #1b1916;
+    --xb-paper-plain: #201e1a;
+    --xb-ink: #c9c2b6;
+    --xb-ink-soft: #aaa398;
+    --xb-ink-faint: #858078;
+    --xb-rule: rgba(184, 178, 166, 0.12);
+    --xb-rule-strong: rgba(184, 178, 166, 0.20);
+    --xb-stamp: #c06d63;
+    --xb-stamp-soft: rgba(192, 109, 99, 0.10);
+    --xb-accent-rgb: 192, 109, 99;
+    --xb-theme-split-bg: rgba(27, 25, 22, 0.74);
+    --xb-control-bg: rgba(184, 178, 166, 0.045);
+    --xb-control-icon: var(--xb-text-body);
+    --xb-control-icon-muted: var(--xb-text-muted);
+    --xb-bg-deep: #151311;
+    --xb-bg-editor: #1b1916;
+    --xb-bg-agent: #1f1d19;
+    --xb-bg-card: #24211d;
+    --xb-bg-soft: #2a2722;
+    --xb-bg-glass: rgba(184, 178, 166, 0.045);
+    --xb-text-main: #d2ccc1;
+    --xb-text-body: #c5beb3;
+    --xb-text-muted: #a29b91;
+    --xb-text-dim: #858078;
+    --xb-line: rgba(184, 178, 166, 0.12);
+    --xb-line-strong: rgba(184, 178, 166, 0.20);
+    --xb-cyan: #8fb4bd;
+    --xb-indigo: #a9a0bc;
+    --xb-gold: #b8b2a6;
+    --xb-danger: #d88490;
+    --xb-ok: #9fd3ad;
+    --xb-warn: #d9bd77;
+    --xb-shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
+    --xb-radius: 8px;
+    --xb-font-ui: "Inter", "Segoe UI Variable", "Segoe UI", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+    --xb-font-serif: "Crimson Pro", Georgia, "Times New Roman", "Noto Serif SC", "Songti SC", serif;
+    --xb-font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+    --xb-fluid: cubic-bezier(0.16, 1, 0.3, 1);
+    font-family: var(--xb-font-ui);
+    color: var(--xb-text-main);
+    background: var(--xb-bg-deep);
+    -webkit-font-smoothing: subpixel-antialiased;
+    text-rendering: auto;
+}
+
+.xb-os-shell.theme-dark {
+    color-scheme: dark;
+    --xb-paper: #151311;
+    --xb-paper-warm: #1b1916;
+    --xb-paper-plain: #201e1a;
+    --xb-ink: #c9c2b6;
+    --xb-ink-soft: #aaa398;
+    --xb-ink-faint: #858078;
+    --xb-rule: rgba(184, 178, 166, 0.12);
+    --xb-rule-strong: rgba(184, 178, 166, 0.20);
+    --xb-stamp: #c06d63;
+    --xb-stamp-soft: rgba(192, 109, 99, 0.10);
+    --xb-accent-rgb: 192, 109, 99;
+    --xb-theme-split-bg: rgba(27, 25, 22, 0.74);
+    --xb-control-bg: rgba(184, 178, 166, 0.045);
+    --xb-control-icon: var(--xb-text-body);
+    --xb-control-icon-muted: var(--xb-text-muted);
+    --xb-machine: #11100e;
+    --xb-machine-panel: #171511;
+    --xb-machine-line: rgba(184, 178, 166, 0.14);
+    --xb-machine-text: #c9c2b6;
+    --xb-bg-deep: #0c0b0a;
+    --xb-bg-editor: #12110f;
+    --xb-bg-agent: #100f0d;
+    --xb-bg-card: #181713;
+    --xb-bg-soft: #211f1b;
+    --xb-bg-glass: rgba(184, 178, 166, 0.045);
+    --xb-text-main: #d2ccc1;
+    --xb-text-body: #c5beb3;
+    --xb-text-muted: #a29b91;
+    --xb-text-dim: #858078;
+    --xb-line: rgba(184, 178, 166, 0.12);
+    --xb-line-strong: rgba(184, 178, 166, 0.20);
+    --xb-cyan: #8fb4bd;
+    --xb-indigo: #a9a0bc;
+    --xb-gold: #b8b2a6;
+    --xb-danger: #d88490;
+    --xb-ok: #8eb79a;
+    --xb-warn: #b8a36e;
+    --xb-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+}
+
+.xb-os-shell.theme-dark,
+.xb-os-shell.theme-dark * {
+    text-shadow: none;
+}
+
+.xb-os-shell.theme-light {
+    color-scheme: light;
+    --xb-paper: #f4f3ee;
+    --xb-paper-warm: #eae8df;
+    --xb-paper-plain: #fbfaf6;
+    --xb-ink: #1a1a1a;
+    --xb-ink-soft: #5c5a56;
+    --xb-ink-faint: #8a867d;
+    --xb-rule: #d8d4c7;
+    --xb-rule-strong: #bfb8a8;
+    --xb-stamp: #8c2a2a;
+    --xb-stamp-soft: rgba(140, 42, 42, 0.08);
+    --xb-accent-rgb: 140, 42, 42;
+    --xb-theme-split-bg: rgba(234, 232, 223, 0.72);
+    --xb-control-bg: rgba(255, 255, 255, 0.38);
+    --xb-control-icon: var(--xb-ink-soft);
+    --xb-control-icon-muted: var(--xb-ink-faint);
+    --xb-machine: #141414;
+    --xb-machine-panel: #1d1d1b;
+    --xb-machine-line: #34322d;
+    --xb-machine-text: #e0daca;
+    --xb-bg-deep: var(--xb-paper);
+    --xb-bg-editor: var(--xb-paper-warm);
+    --xb-bg-agent: var(--xb-paper);
+    --xb-bg-card: var(--xb-paper-plain);
+    --xb-bg-soft: #ebe7da;
+    --xb-bg-glass: rgba(26, 26, 26, 0.035);
+    --xb-text-main: var(--xb-ink);
+    --xb-text-body: #302f2b;
+    --xb-text-muted: var(--xb-ink-soft);
+    --xb-text-dim: var(--xb-ink-faint);
+    --xb-line: var(--xb-rule);
+    --xb-line-strong: var(--xb-rule-strong);
+    --xb-cyan: var(--xb-stamp);
+    --xb-indigo: #4e5f75;
+    --xb-gold: #8b6f36;
+    --xb-danger: #9b2d2d;
+    --xb-ok: #3e7050;
+    --xb-warn: #8b6f36;
+    --xb-shadow: 4px 4px 0 rgba(26, 26, 26, 0.05);
+    --xb-radius: 8px;
+    --xb-font-ui: "Segoe UI Variable", "Segoe UI", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+    --xb-font-serif: Georgia, "Times New Roman", "Noto Serif SC", "Songti SC", serif;
+    --xb-font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+}
+
+.xb-os-shell.theme-light,
+.xb-os-shell.theme-dark,
+.xb-os-shell.theme-light .xb-os-stage,
+.xb-os-shell.theme-dark .xb-os-stage {
+    background:
+        linear-gradient(90deg, transparent 50%, var(--xb-theme-split-bg) 50%),
+        var(--xb-paper);
+    color: var(--xb-ink);
+}

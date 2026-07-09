@@ -16,13 +16,14 @@ import {
     getPreviewsBySlot,
     getPreview,
     getGallerySummary,
-    getCharacterPreviews,
     clearExpiredCache,
     clearAllCache,
     deletePreview,
     deleteFailedRecordsForSlot,
     updatePreviewSavedUrl,
     getPreviewDisplayUrl,
+    preloadPreviewDisplayUrl,
+    warmSlotPreviewNeighbors,
 } from "../../shared/gallery-cache.js";
 import {
     generateAndParseScenePlan,
@@ -474,6 +475,58 @@ function getActivePreset(settings = getSettings()) {
     return settings.presets.find(p => p.id === settings.selectedPresetId) || settings.presets[0] || createDefaultPreset();
 }
 
+function getQuickSizeOptions() {
+    return [
+        { value: 'default', label: '跟随预设' },
+        ...SD_SIZE_PRESETS.map((item) => ({
+            value: item.value,
+            label: item.value.replace('x', ' x '),
+        })),
+    ];
+}
+
+export function getQuickSettings() {
+    const settings = getSettings();
+    const presets = (settings.presets || []).map((preset) => ({
+        value: String(preset.id || ''),
+        label: String(preset.name || '未命名'),
+    })).filter((preset) => preset.value);
+    return {
+        provider: 'sd-webui',
+        providerLabel: 'SD WebUI',
+        available: moduleInitialized,
+        auto: settings.mode === 'auto',
+        presets,
+        selectedPresetId: String(settings.selectedPresetId || presets[0]?.value || ''),
+        sizeOptions: getQuickSizeOptions(),
+        selectedSize: String(settings.overrideSize || 'default'),
+    };
+}
+
+export async function updateQuickSettings(patch = {}) {
+    const ok = await updateSettingsPersistent((settings) => {
+        if (Object.prototype.hasOwnProperty.call(patch, 'selectedPresetId')) {
+            settings.selectedPresetId = String(patch.selectedPresetId || '');
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'selectedSize')) {
+            settings.overrideSize = String(patch.selectedSize || 'default');
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'auto')) {
+            settings.mode = patch.auto === true ? 'auto' : 'manual';
+        }
+    }, '快捷设置已保存', { notify: false, silent: false });
+    if (!ok) {
+        throw new Error('quick_settings_save_failed');
+    }
+    try {
+        const fp = await import('./floating-panel.js');
+        fp.updateAllPresetSelects?.();
+        fp.updateAllSizeSelects?.();
+        fp.updateAutoModeUI?.();
+    } catch {}
+    return getQuickSettings();
+}
+
 function getActivePromptPreset(settings = getSettings()) {
     return settings.promptPresets.find((preset) => preset.id === settings.selectedPromptPresetId)
         || settings.promptPresets[0]
@@ -764,7 +817,7 @@ async function createOverlay() {
 
     overlayElement = document.createElement('div');
     overlayElement.id = 'xiaobaix-sd-draw-overlay';
-    overlayElement.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:99999!important;display:none;overflow:hidden!important;`;
+    overlayElement.style.cssText = `position:fixed!important;top:0!important;left:0!important;width:100vw!important;height:${window.innerHeight}px!important;z-index:100002!important;display:none;overflow:hidden!important;`;
     const backdrop = document.createElement('div');
     backdrop.className = 'sd-draw-backdrop';
     backdrop.addEventListener('click', hideSettings);
@@ -1487,8 +1540,9 @@ async function renderGalleryManagement() {
 
     for (const charName of chars) {
         const charSummary = summary[charName];
-        const slots = await getCharacterPreviews(charName).catch(() => ({}));
-        const slotIds = Object.keys(slots).sort((a, b) => ((slots[b]?.[0]?.timestamp || 0) - (slots[a]?.[0]?.timestamp || 0)));
+        const slotSummaries = charSummary.slots || {};
+        const slotIds = Object.keys(slotSummaries)
+            .sort((a, b) => ((slotSummaries[b]?.latestTimestamp || 0) - (slotSummaries[a]?.latestTimestamp || 0)));
 
         const card = document.createElement('div');
         card.className = 'gallery-char-card';
@@ -1507,19 +1561,20 @@ async function renderGalleryManagement() {
         grid.className = 'gallery-slots';
 
         slotIds.slice(0, 8).forEach((slotId, index) => {
-            const latest = slots[slotId]?.[0];
-            if (!latest) return;
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'gallery-slot-btn';
             button.addEventListener('click', async () => {
-                await openGallery(slotId, Number(latest.messageId || 0), buildSharedGalleryCallbacks(slotId, Number(latest.messageId || 0)));
+                const latest = await getPreview(slotSummaries[slotId]?.latestImgId).catch(() => null);
+                await openGallery(slotId, Number(latest?.messageId || 0), buildSharedGalleryCallbacks(slotId, Number(latest?.messageId || 0)));
             });
 
             const img = document.createElement('img');
             img.className = 'gallery-slot-thumb';
-            img.src = getPreviewDisplayUrl(latest);
             img.alt = '';
+            void getPreview(slotSummaries[slotId]?.latestImgId).then((latest) => {
+                if (latest) img.src = getPreviewDisplayUrl(latest);
+            }).catch(() => {});
 
             const label = document.createElement('div');
             label.className = 'gallery-slot-title';
@@ -1527,7 +1582,7 @@ async function renderGalleryManagement() {
 
             const sub = document.createElement('div');
             sub.className = 'gallery-slot-sub';
-            sub.textContent = `${slots[slotId]?.length || 1} 个版本`;
+            sub.textContent = `${slotSummaries[slotId]?.count || 1} 个版本`;
 
             button.append(img, label, sub);
             grid.appendChild(button);
@@ -3144,6 +3199,7 @@ function syncContainerToPreview(container, preview, historyCount = 1, currentInd
     container.dataset.historyCount = String(historyCount);
     setImageState(container, preview.savedUrl ? ImageState.SAVED : ImageState.PREVIEW);
     updateNavControls(container, currentIndex, historyCount);
+    void warmSlotPreviewNeighbors(container.dataset.slotId, currentIndex).catch(() => {});
 }
 
 async function getPreviewByImageId(container) {
@@ -3203,6 +3259,9 @@ async function navigateToImage(container, targetIndex) {
     if (!imgEl || !targetPreview) return;
     const direction = targetIndex > currentIndex ? 'left' : 'right';
     imgEl.classList.add(`sliding-${direction}`);
+    setTimeout(() => {
+        void preloadPreviewDisplayUrl(targetPreview).catch(() => false);
+    }, 0);
     await new Promise(resolve => setTimeout(resolve, 200));
     syncContainerToPreview(container, targetPreview, historyCount, targetIndex);
     await setSlotSelection(slotId, targetPreview.imgId);
@@ -3298,9 +3357,9 @@ function buildFailedPlaceholderHtml({ slotId, messageId, tags, positive, errorTy
 <div class="xb-nd-failed-title">${escapeHtml(errorType || '生成失败')}</div>
 <div class="xb-nd-failed-desc">${escapeHtml(errorMessage || '点击重试')}</div>
 <div class="xb-nd-failed-btns">
-    <button class="xb-nd-retry-btn" data-action="retry-image">🔄 重新生成</button>
-    <button class="xb-nd-edit-btn" data-action="edit-tags">✏️ 编辑TAG</button>
-    <button class="xb-nd-remove-btn" data-action="remove-placeholder">🗑️ 移除</button>
+    <button class="xb-nd-retry-btn" data-action="retry-image">⟳ 重新生成</button>
+    <button class="xb-nd-edit-btn" data-action="edit-tags">✐ 编辑TAG</button>
+    <button class="xb-nd-remove-btn" data-action="remove-placeholder">✕ 移除</button>
 </div>
 <div class="xb-nd-edit" style="display:none;margin-top:12px;text-align:left;">
     <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:6px;">编辑 TAG（场景描述）</div>
@@ -3789,21 +3848,38 @@ function cleanupImageDelegation() {
 
 function buildTextSourceGalleryMeta(options = {}) {
     const source = String(options.source || '').trim();
-    if (source !== 'ebook') return {};
-    const bookId = String(options.bookId || '').trim();
-    const bookTitle = String(options.bookTitle || options.title || '未命名书稿').trim() || '未命名书稿';
-    const chapterPath = String(options.chapterPath || '').trim();
-    const chapterTitle = String(options.chapterTitle || options.title || chapterPath || '章节').trim() || '章节';
-    return {
-        source,
-        bookId,
-        bookTitle,
-        chapterPath,
-        chapterTitle,
-        chatId: bookId ? `ebook:${bookId}` : 'ebook',
-        characterName: `电纸书 / ${bookTitle}`,
-        messageId: `ebook:${bookId || 'unknown'}:${chapterPath || chapterTitle}`,
-    };
+    if (source === 'ebook') {
+        const bookId = String(options.bookId || '').trim();
+        const bookTitle = String(options.bookTitle || options.title || '未命名书稿').trim() || '未命名书稿';
+        const chapterPath = String(options.chapterPath || '').trim();
+        const chapterTitle = String(options.chapterTitle || options.title || chapterPath || '章节').trim() || '章节';
+        return {
+            source,
+            bookId,
+            bookTitle,
+            chapterPath,
+            chapterTitle,
+            chatId: bookId ? `ebook:${bookId}` : 'ebook',
+            characterName: `电纸书 / ${bookTitle}`,
+            messageId: `ebook:${bookId || 'unknown'}:${chapterPath || chapterTitle}`,
+        };
+    }
+    if (source === 'tavern') {
+        const sessionId = String(options.sessionId || '').trim();
+        const messageOrder = Number.isFinite(Number(options.messageOrder))
+            ? Math.max(0, Math.floor(Number(options.messageOrder)))
+            : null;
+        const role = String(options.role || options.title || 'assistant').trim() || 'assistant';
+        return {
+            source,
+            chatId: sessionId || 'tavern',
+            characterName: String(options.characterName || '小白酒馆').trim() || '小白酒馆',
+            messageId: sessionId
+                ? `tavern:${sessionId}:${messageOrder ?? role}`
+                : `tavern:${messageOrder ?? role}`,
+        };
+    }
+    return {};
 }
 
 export async function generateImagesFromText(options = {}) {
@@ -4217,6 +4293,8 @@ export async function initSdDraw() {
     window.xiaobaixSdDraw = {
         openSettings,
         getSettings,
+        getQuickSettings,
+        updateQuickSettings,
         testConnection,
         fetchSdModels,
         fetchSdSamplers,

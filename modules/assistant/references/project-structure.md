@@ -330,6 +330,31 @@ LittleWhiteBox/
 │   │               ├── stopwords-iso.ja.txt# 日文停用词
 │   │               └── stopwords-iso.zh.txt# 中文停用词
 │   │
+│   ├── tavern/                            # Tavern 面板模块：Vue + TypeScript + Vite 的酒馆运行/调试界面
+│   │   ├── tavern.ts                       # Tavern 模块 TypeScript 入口
+│   │   ├── tavern.js                       # Tavern 宿主入口 / 兼容入口
+│   │   ├── tavern.html                     # Tavern iframe 页面壳
+│   │   ├── env.d.ts                        # Tavern 前端环境类型声明
+│   │   ├── app-src/                       # Tavern Vue 应用源码
+│   │   │   ├── App.vue                     # Tavern 主 Vue 单文件组件
+│   │   │   ├── manager-tool-display.ts     # manager 工具调用展示、流式工具草稿与轮次聚合
+│   │   │   ├── map-display.ts              # 地图/空间状态展示辅助
+│   │   │   ├── runtime/                   # Tavern manager / run-once / provider 等运行时接线
+│   │   │   ├── components/                # Tavern Vue 子组件
+│   │   │   │   ├── TavernMapPanel.vue      # 地图面板
+│   │   │   │   └── chat/                  # 聊天页相关组件
+│   │   │   └── styles/                    # Tavern app 样式分片
+│   │   ├── host/                          # 与 SillyTavern 宿主环境桥接
+│   │   │   ├── agent-config.js             # agent 配置解析与默认值
+│   │   │   └── sillytavern-context.js      # SillyTavern 当前上下文读取/规整
+│   │   ├── shared/                        # Tavern 前后端/运行时共享类型与数据逻辑
+│   │   │   ├── session-db.ts               # Tavern 会话、manager 消息记录、工具调用持久化
+│   │   │   ├── assistant-presets.ts        # assistant preset 定义与规整
+│   │   │   ├── structured-state.ts         # 结构化状态模型
+│   │   │   ├── map-state-*.ts              # 地图状态内容、操作与种子数据
+│   │   │   └── message-assembler.ts        # Tavern 消息组装与协议消息转换
+│   │   └── tests/                         # Tavern 模块测试（session-db、run-turn、map 等）
+│   │
 │   ├── template-editor/                   # 模板编辑器
 │   │   ├── template-editor.html            # 模板编辑器 UI
 │   │   └── template-editor.js              # 模板编辑器逻辑

@@ -4,14 +4,25 @@ import {
     getBook,
     getBookFile,
     getSelectedBookId,
+    importBookFromFiles,
     listBookFiles,
     listBooks,
     renameBook,
     setSelectedBookId,
     upsertBookFile,
 } from '../shared/ebook-db.js';
+import {
+    buildEbookPackage,
+    collectEbookImageSlotIds,
+    makeEbookPackageFileName,
+    parseEbookPackage,
+} from '../shared/book-package.js';
 import { normalizeBookFilePath } from '../shared/book-paths.js';
-import { EBOOK_DRAW_REQUEST_TIMEOUT_MS, EBOOK_TTS_REQUEST_TIMEOUT_MS } from './constants.js';
+import {
+    EBOOK_BOOK_TRANSFER_REQUEST_TIMEOUT_MS,
+    EBOOK_DRAW_REQUEST_TIMEOUT_MS,
+    EBOOK_TTS_REQUEST_TIMEOUT_MS,
+} from './constants.js';
 
 const DEFAULT_DRAFT_PATH = 'book/chapters/001.md';
 const CHAPTER_PATH_REGEX = /^book\/chapters\/.+\.md$/;
@@ -29,6 +40,38 @@ function stripEbookImageMarkers(content = '') {
     return String(content || '').replace(EBOOK_IMAGE_MARKER_REGEX, '').trim();
 }
 
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('file_read_failed'));
+        reader.readAsText(file);
+    });
+}
+
+function downloadTextFile(filename = 'ebook.json', content = '') {
+    const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function waitForPaint() {
+    return new Promise((resolve) => {
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => setTimeout(resolve, 0));
+            return;
+        }
+        setTimeout(resolve, 0);
+    });
+}
+
 function cleanReaderTtsText(content = '') {
     return String(content || '')
         .replace(EBOOK_IMAGE_MARKER_REGEX, '\n')
@@ -40,6 +83,23 @@ function cleanReaderTtsText(content = '') {
         .replace(/[*_`~]+/g, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
+}
+
+function normalizeReaderTtsHeadingText(text = '') {
+    return String(text || '')
+        .replace(/[*_`~]/g, '')
+        .replace(/[《》「」『』“”"'\s]/g, '')
+        .trim();
+}
+
+function stripDuplicateReaderTtsHeading(content = '', chapterTitle = '') {
+    const normalizedTitle = normalizeReaderTtsHeadingText(chapterTitle);
+    const text = String(content || '');
+    if (!normalizedTitle) return text;
+    return text.replace(/^\s{0,3}(?:\r?\n\s{0,3})*#{1,6}\s+(.+?)\s*#*\s*(?:\r?\n|$)/, (full, heading) => {
+        if (normalizeReaderTtsHeadingText(heading) !== normalizedTitle) return full;
+        return '';
+    });
 }
 
 function formatChapterTitle(path = '') {
@@ -195,6 +255,7 @@ export function createBookController(deps = {}) {
         state,
         render,
         renderStudioSurface,
+        renderFilesSurface,
         requestHost,
         showToast,
         conversationStore,
@@ -311,6 +372,12 @@ export function createBookController(deps = {}) {
         return ['loading', 'playing'].includes(String(state.readerTtsPlayback?.status || ''));
     }
 
+    function toggleChapterSortOrder() {
+        state.chapterSortDescending = !state.chapterSortDescending;
+        if (typeof renderFilesSurface === 'function' && renderFilesSurface()) return;
+        render();
+    }
+
     function resetReaderTtsPlayback(status = 'idle') {
         state.readerTtsPlayback = {
             status,
@@ -385,7 +452,7 @@ export function createBookController(deps = {}) {
     }
 
     async function selectBook(bookId = '') {
-        if (state.isBusy) return;
+        if (state.isShelfLoading || state.shelfLoadError || state.isBusy) return;
         const book = await getBook(bookId);
         if (!book) return;
         if (isEditorDirty() && !confirm('当前文件还没保存，确定切换书籍吗？')) return;
@@ -405,10 +472,20 @@ export function createBookController(deps = {}) {
         const file = state.files.find((item) => item.path === path);
         if (!file) return;
         void stopReaderTts({ renderAfter: false });
+        const wasStudio = state.viewMode === 'studio';
         state.selectedPath = file.path;
         state.viewMode = 'studio';
         state.editorContent = file.content;
         state.savedContent = file.content;
+        if (wasStudio) {
+            // Already in studio — only patch the editor surfaces + file selection state. A full
+            // render() here would rebuild the whole shell (including the .xb-sidebar/.xb-files
+            // scroll container) and snap the sidebar to the top. If either surface can't patch
+            // (e.g. the shell node is unexpectedly missing), fall back to a full render.
+            const filesOk = typeof renderFilesSurface === 'function' && renderFilesSurface();
+            const studioOk = typeof renderStudioSurface === 'function' && renderStudioSurface();
+            if (filesOk && studioOk) return;
+        }
         render();
     }
 
@@ -499,7 +576,8 @@ export function createBookController(deps = {}) {
             render();
             return;
         }
-        const text = cleanReaderTtsText(chapter.content);
+        const chapterTitle = formatChapterTitle(chapter.path);
+        const text = cleanReaderTtsText(stripDuplicateReaderTtsHeading(chapter.content, chapterTitle));
         if (!text) {
             showToast?.('当前章节没有可朗读正文');
             return;
@@ -519,7 +597,7 @@ export function createBookController(deps = {}) {
                 bookId: state.book.id,
                 bookTitle: state.book.title || '未命名书稿',
                 chapterPath: chapter.path,
-                chapterTitle: formatChapterTitle(chapter.path),
+                chapterTitle,
             }, {
                 timeoutMs: EBOOK_TTS_REQUEST_TIMEOUT_MS,
             });
@@ -669,7 +747,7 @@ export function createBookController(deps = {}) {
     }
 
     async function createNewBook() {
-        if (state.isBusy) return;
+        if (state.isShelfLoading || state.shelfLoadError || state.isBusy) return;
         const title = prompt('新书名', '新书稿');
         if (title === null) return;
         if (isEditorDirty() && !confirm('当前文件还没保存，确定新建书籍吗？')) return;
@@ -694,6 +772,120 @@ export function createBookController(deps = {}) {
             render();
         } catch (error) {
             showToast(`改名失败：${error?.message || error}`);
+        }
+    }
+
+    function openExportDialog() {
+        if (state.isShelfLoading || state.shelfLoadError || state.isBusy || state.bookTransferProgress) return;
+        state.isBookTransferMenuOpen = false;
+        state.isBookExportOpen = true;
+        render();
+    }
+
+    function closeExportDialog() {
+        if (state.bookTransferProgress) return;
+        state.isBookExportOpen = false;
+        render();
+    }
+
+    async function showBookTransferProgress(mode = 'export', title = '', detail = '') {
+        state.bookTransferProgress = {
+            mode,
+            title: String(title || '').trim(),
+            detail: String(detail || '').trim(),
+            startedAt: Date.now(),
+        };
+        state.status = detail || (mode === 'import' ? '正在导入作品包...' : '正在导出作品包...');
+        render();
+        await waitForPaint();
+    }
+
+    function clearBookTransferProgress() {
+        state.bookTransferProgress = null;
+        state.status = '就绪';
+    }
+
+    async function exportBookPackage(bookId = '') {
+        if (state.isShelfLoading || state.shelfLoadError || state.isBusy || state.bookTransferProgress) return;
+        const id = String(bookId || '').trim();
+        if (!id) return;
+        const book = state.books.find((item) => item.id === id) || await getBook(id);
+        if (!book) {
+            showToast?.('没有找到这本书');
+            return;
+        }
+        if (!confirm(`导出《${book.title || '未命名书稿'}》？`)) return;
+        await showBookTransferProgress('export', book.title || '未命名书稿', '正在读取书稿文件...');
+        try {
+            const files = await listBookFiles(id);
+            const slotIds = collectEbookImageSlotIds(files);
+            await showBookTransferProgress(
+                'export',
+                book.title || '未命名书稿',
+                slotIds.length ? `正在打包 ${slotIds.length} 个阅读器配图...` : '正在生成作品包...',
+            );
+            const imageResult = slotIds.length
+                ? await requestHost('xb-ebook:export-images', { slotIds }, { timeoutMs: EBOOK_BOOK_TRANSFER_REQUEST_TIMEOUT_MS })
+                : { images: { slots: [], previews: [], selections: [], skipped: [] } };
+            await showBookTransferProgress('export', book.title || '未命名书稿', '正在生成下载文件...');
+            const pkg = buildEbookPackage({
+                book,
+                files,
+                images: imageResult?.images || null,
+            });
+            downloadTextFile(
+                makeEbookPackageFileName(book.title || 'ebook'),
+                JSON.stringify(pkg, null, 2),
+            );
+            const skipped = pkg.images?.skipped?.length || 0;
+            state.isBookExportOpen = false;
+            showToast?.(skipped ? `已导出，${skipped} 张图片未找到数据` : '作品包已导出');
+        } catch (error) {
+            showToast?.(`导出失败：${error?.message || error}`);
+        } finally {
+            clearBookTransferProgress();
+            render();
+        }
+    }
+
+    async function importBookPackageFile(file) {
+        if (state.isShelfLoading || state.shelfLoadError || state.isBusy || state.bookTransferProgress || !file) return;
+        await showBookTransferProgress('import', file.name || '作品包', '正在读取作品包...');
+        try {
+            const text = await readFileAsText(file);
+            await showBookTransferProgress('import', file.name || '作品包', '正在解析作品包...');
+            const pkg = parseEbookPackage(JSON.parse(text));
+            await showBookTransferProgress('import', pkg.title || file.name || '作品包', '正在写入书稿文件...');
+            const importedBook = await importBookFromFiles(pkg.title, pkg.files);
+            let imageImportWarning = '';
+            if (pkg.images?.previews?.length || pkg.images?.selections?.length) {
+                try {
+                    await showBookTransferProgress(
+                        'import',
+                        importedBook.title || pkg.title,
+                        `正在导入 ${pkg.images.previews?.length || 0} 张阅读器配图...`,
+                    );
+                    await requestHost('xb-ebook:import-images', {
+                        images: pkg.images,
+                        bookId: importedBook.id,
+                        bookTitle: importedBook.title,
+                    }, {
+                        timeoutMs: EBOOK_BOOK_TRANSFER_REQUEST_TIMEOUT_MS,
+                    });
+                } catch (error) {
+                    imageImportWarning = error?.message || String(error || 'image_import_failed');
+                }
+            }
+            await refreshBooksAndFiles();
+            state.isBookExportOpen = false;
+            showToast?.(imageImportWarning
+                ? `已导入：${importedBook.title || pkg.title}，但图片导入失败：${imageImportWarning}`
+                : `已导入：${importedBook.title || pkg.title}`);
+        } catch (error) {
+            showToast?.(`导入失败：${error?.message || error}`);
+        } finally {
+            clearBookTransferProgress();
+            render();
         }
     }
 
@@ -787,9 +979,12 @@ export function createBookController(deps = {}) {
         createNewBook,
         createNewFile,
         drawCurrentChapter,
+        closeExportDialog,
+        exportBookPackage,
         getDrawImage,
         handleDrawProgress,
         handleTtsState,
+        importBookPackageFile,
         importMaterial,
         initializeBook,
         isEditorDirty,
@@ -798,6 +993,7 @@ export function createBookController(deps = {}) {
         refreshTtsStatus,
         removeBook,
         renameCurrentBook,
+        openExportDialog,
         saveCurrentFile,
         selectBook,
         selectFile,
@@ -807,6 +1003,7 @@ export function createBookController(deps = {}) {
         showReader,
         showStudio,
         stopReaderTts,
+        toggleChapterSortOrder,
         toggleReaderTts,
     };
 }

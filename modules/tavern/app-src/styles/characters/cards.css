@@ -1,0 +1,212 @@
+/* Tavern characters: searchable index */
+
+.character-card-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 8px;
+}
+
+.character-card-grid::-webkit-scrollbar {
+    width: 4px;
+}
+
+.character-card-grid::-webkit-scrollbar-thumb {
+    background: var(--xb-rule-strong);
+}
+
+.character-card-grid:focus-visible {
+    outline: 1px solid var(--xb-stamp);
+    outline-offset: -1px;
+}
+
+.character-card-option {
+    position: relative;
+    width: 100%;
+    min-height: 70px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 2px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--xb-ink);
+    padding: 12px;
+    text-align: left;
+    transition: background 0.15s ease;
+    content-visibility: auto;
+    contain-intrinsic-size: 70px;
+}
+
+.card-focus-indicator {
+    position: absolute;
+    left: 0;
+    top: 10%;
+    width: 3px;
+    height: 80%;
+    border-radius: 0 4px 4px 0;
+    background: var(--xb-stamp);
+    opacity: 0;
+    transform: scaleY(0);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.character-card-option:hover:not(:disabled),
+.character-card-option.current {
+    background: var(--xb-paper);
+}
+
+.character-card-option.selected {
+    background: var(--xb-paper);
+}
+
+.character-card-option.selected .card-focus-indicator {
+    opacity: 1;
+    transform: scaleY(1);
+}
+
+.character-card-option.pending {
+    opacity: 0.72;
+}
+
+.character-card-avatar {
+    flex: 0 0 42px;
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 6px;
+    background: var(--xb-rule);
+    color: var(--xb-ink);
+    font-family: var(--xb-font-serif);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+.character-card-avatar img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    filter: saturate(0.9) contrast(1.1);
+}
+
+.character-card-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.character-card-title {
+    min-width: 0;
+    color: var(--xb-ink);
+    font-family: var(--xb-font-serif);
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.character-card-title strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.character-card-desc {
+    display: -webkit-box;
+    overflow: hidden;
+    color: var(--xb-ink-soft);
+    font-size: 12px;
+    line-height: 1.4;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.card-status-tags {
+    display: flex;
+    gap: 6px;
+    min-height: 15px;
+    margin-top: 4px;
+}
+
+.card-status-tags .tag {
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    font-family: var(--xb-font-mono);
+    font-size: 9px;
+    padding: 2px 6px;
+}
+
+.card-status-tags .tag.active {
+    color: var(--xb-stamp);
+}
+
+.card-status-tags .tag.loading {
+    animation: xb-tavern-character-blink 1.5s infinite;
+    color: var(--xb-ink-faint);
+}
+
+@keyframes xb-tavern-character-blink {
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.character-index-panel .archive-load-more {
+    width: calc(100% - 16px);
+    min-height: 38px;
+    margin: 8px;
+    border: 1px dashed var(--xb-rule-strong);
+    border-radius: 6px;
+    background: var(--xb-paper);
+    color: var(--xb-ink-faint);
+    font-size: 12px;
+    padding: 10px 12px;
+}
+
+.character-index-panel .archive-load-more:hover:not(:disabled) {
+    border-color: var(--xb-ink);
+    color: var(--xb-ink);
+}
+
+@media (max-width: 640px) {
+    .character-card-grid {
+        touch-action: pan-y;
+        padding: 4px 8px 8px;
+    }
+
+    .character-card-option {
+        min-height: 56px;
+        gap: 10px;
+        padding: 8px 10px;
+        content-visibility: visible;
+        contain-intrinsic-size: 56px;
+    }
+
+    .character-card-avatar {
+        flex-basis: 34px;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+    }
+
+    .character-card-title {
+        font-size: 14px;
+    }
+
+    .character-card-desc,
+    .card-status-tags {
+        display: none;
+    }
+
+    .character-index-panel .archive-load-more {
+        min-height: 34px;
+        margin: 4px 8px 8px;
+        padding: 8px 10px;
+    }
+}

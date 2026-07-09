@@ -1,6 +1,52 @@
 import { buildMarkdownFragment, enhancePathLinks } from '../../../agent-core/ui/message-markdown.js';
 import { expandMessageWindow, getMessageWindow } from '../../../agent-core/ui/message-windowing.js';
 
+function isAssistantToolCallMessageForWindow(message) {
+    return message?.role === 'assistant'
+        && Array.isArray(message.toolCalls)
+        && message.toolCalls.length > 0;
+}
+
+export function collectAssistantMessageWindowUnits(messages = []) {
+    const source = Array.isArray(messages) ? messages : [];
+    const units = [];
+    for (let index = 0; index < source.length;) {
+        const message = source[index];
+        const startIndex = index;
+        let nextIndex = index + 1;
+        while (nextIndex < source.length && source[nextIndex]?.role !== 'user') {
+            nextIndex += 1;
+        }
+        units.push({
+            type: message?.role === 'user' ? 'turn' : 'orphan',
+            startIndex,
+            endIndex: nextIndex,
+            hiddenCount: nextIndex - startIndex,
+        });
+        index = nextIndex;
+    }
+    return units;
+}
+
+export function getAssistantMessageWindow(state = {}) {
+    const units = collectAssistantMessageWindowUnits(state.messages || []);
+    const window = getMessageWindow(state, units.length);
+    return {
+        ...window,
+        units,
+        visibleUnits: units.slice(window.startIndex),
+    };
+}
+
+export function getAssistantVisibleMessageRange(state = {}) {
+    const messageWindow = getAssistantMessageWindow(state);
+    return {
+        ...messageWindow,
+        visibleStartIndex: messageWindow.visibleUnits[0]?.startIndex ?? 0,
+        visibleEndIndex: messageWindow.visibleUnits.at(-1)?.endIndex ?? (state.messages || []).length,
+    };
+}
+
 export function createChatUi(deps) {
     const {
         state,
@@ -26,30 +72,49 @@ export function createChatUi(deps) {
         if (!normalized) return false;
 
         try {
+            const textarea = document.createElement('textarea');
+            try {
+                textarea.value = normalized;
+                textarea.setAttribute('readonly', 'readonly');
+                textarea.style.position = 'fixed';
+                textarea.style.left = '0';
+                textarea.style.top = '0';
+                textarea.style.width = '2em';
+                textarea.style.height = '2em';
+                textarea.style.padding = '0';
+                textarea.style.border = '0';
+                textarea.style.outline = '0';
+                textarea.style.boxShadow = 'none';
+                textarea.style.background = 'transparent';
+                textarea.style.opacity = '0';
+                textarea.style.pointerEvents = 'none';
+                textarea.style.fontSize = '16px';
+                document.body.appendChild(textarea);
+                try {
+                    textarea.focus({ preventScroll: true });
+                } catch {
+                    textarea.focus();
+                }
+                textarea.select();
+                textarea.setSelectionRange(0, textarea.value.length);
+                const copied = document.execCommand('copy');
+                if (copied) return true;
+            } finally {
+                textarea.remove();
+            }
+        } catch {
+            // Fall through to the async clipboard path.
+        }
+
+        try {
             if (navigator.clipboard?.writeText) {
                 await navigator.clipboard.writeText(normalized);
                 return true;
             }
         } catch {
-            // Fall through to execCommand fallback.
+            // Fall through to false.
         }
-
-        try {
-            const textarea = document.createElement('textarea');
-            textarea.value = normalized;
-            textarea.setAttribute('readonly', 'readonly');
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            textarea.style.pointerEvents = 'none';
-            document.body.appendChild(textarea);
-            textarea.select();
-            textarea.setSelectionRange(0, textarea.value.length);
-            const copied = document.execCommand('copy');
-            textarea.remove();
-            return copied;
-        } catch {
-            return false;
-        }
+        return false;
     }
 
     function buildInteractivePre(text, className = '') {
@@ -144,9 +209,7 @@ export function createChatUi(deps) {
     }
 
     function isAssistantToolCallMessage(message) {
-        return message?.role === 'assistant'
-            && Array.isArray(message.toolCalls)
-            && message.toolCalls.length > 0;
+        return isAssistantToolCallMessageForWindow(message);
     }
 
     function buildToolBatchKey(message, fallbackIndex = 0) {
@@ -303,8 +366,12 @@ export function createChatUi(deps) {
 
         const panel = document.createElement('div');
         panel.className = 'xb-assistant-approval';
+        panel.setAttribute('role', 'alertdialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('aria-labelledby', 'xb-assistant-approval-title');
 
         const title = document.createElement('div');
+        title.id = 'xb-assistant-approval-title';
         title.className = 'xb-assistant-approval-title';
         title.textContent = approvalRequest.kind === 'generate-skill'
             ? '待确认的技能沉淀'
@@ -612,9 +679,14 @@ export function createChatUi(deps) {
         };
     }
 
-    function collectRenderUnits() {
+    function collectRenderUnits(startIndex = 0, endIndex = state.messages.length) {
         const units = [];
-        for (let index = 0; index < state.messages.length; index += 1) {
+        const normalizedStart = Number(startIndex);
+        const normalizedEnd = Number(endIndex);
+        const start = Math.max(0, Number.isFinite(normalizedStart) ? Math.floor(normalizedStart) : 0);
+        const rawEnd = Number.isFinite(normalizedEnd) ? Math.floor(normalizedEnd) : state.messages.length;
+        const end = Math.min(state.messages.length, Math.max(start, rawEnd));
+        for (let index = start; index < end; index += 1) {
             const message = state.messages[index];
             if (isAssistantToolCallMessage(message)) {
                 const unit = createToolRunRenderUnit(index);
@@ -635,7 +707,7 @@ export function createChatUi(deps) {
                 const gate = document.createElement('div');
                 gate.className = 'xb-assistant-history-gate';
                 gate.dataset.renderSignature = signature;
-                gate.textContent = `较早记录 ${hiddenBefore} 条`;
+                gate.textContent = `较早记录 ${hiddenBefore} 轮`;
                 return gate;
             },
         };
@@ -688,14 +760,14 @@ export function createChatUi(deps) {
             return;
         }
 
-        const allUnitSpecs = collectRenderUnits();
-        const messageWindow = getMessageWindow(state, allUnitSpecs.length);
+        const messageWindow = getAssistantVisibleMessageRange(state);
+        const visibleUnitSpecs = collectRenderUnits(messageWindow.visibleStartIndex, messageWindow.visibleEndIndex);
         const unitSpecs = messageWindow.hiddenBefore
             ? [
                 createHistoryGateRenderUnit(messageWindow.hiddenBefore),
-                ...allUnitSpecs.slice(messageWindow.startIndex),
+                ...visibleUnitSpecs,
             ]
-            : allUnitSpecs;
+            : visibleUnitSpecs;
         const previousUnits = renderCache.kind === 'messages' ? renderCache.units : [];
         const canReuseAll = previousUnits.length === unitSpecs.length
             && unitSpecs.every((unit, index) => previousUnits[index]?.signature === unit.signature);
@@ -720,8 +792,8 @@ export function createChatUi(deps) {
     function revealOlderMessages(container) {
         if (!container) return false;
         if (container.scrollTop > 64) return false;
-        const allUnitSpecs = collectRenderUnits();
-        if (!expandMessageWindow(state, allUnitSpecs.length)) return false;
+        const messageWindow = getAssistantMessageWindow(state);
+        if (!expandMessageWindow(state, messageWindow.total)) return false;
 
         const previousScrollHeight = container.scrollHeight;
         const previousScrollTop = container.scrollTop;

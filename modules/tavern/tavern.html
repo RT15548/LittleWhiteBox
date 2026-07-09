@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>小白酒馆</title>
+    <style>
+        html,
+        body,
+        #app {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            background: #151311;
+        }
+
+        #xb-frame-boot {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            display: grid;
+            place-items: center;
+            background: #151311;
+            color: #b8b2a6;
+            font: 13px/1.4 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+            transition: opacity 180ms ease;
+        }
+
+        #app:not(:empty) ~ #xb-frame-boot {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .xb-frame-boot-core {
+            display: grid;
+            justify-items: center;
+            gap: 10px;
+            width: min(260px, calc(100vw - 64px));
+        }
+
+        .xb-frame-boot-meter {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 14px;
+            width: 100%;
+        }
+
+        .xb-frame-boot-percent {
+            color: rgba(184, 178, 166, 0.86);
+            font: 600 20px/1 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+            letter-spacing: 0.02em;
+        }
+
+        .xb-frame-boot-stage {
+            min-width: 0;
+            color: rgba(184, 178, 166, 0.52);
+            font-size: 12px;
+            text-align: right;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .xb-frame-boot-bar {
+            width: 100%;
+            height: 3px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: rgba(184, 178, 166, 0.16);
+        }
+
+        .xb-frame-boot-fill {
+            width: 5%;
+            height: 100%;
+            border-radius: inherit;
+            background: #b8b2a6;
+            transition: width 220ms ease;
+        }
+
+        .xb-frame-boot-hint {
+            color: rgba(184, 178, 166, 0.48);
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+    <div id="xb-frame-boot" role="status" aria-live="polite">
+        <div class="xb-frame-boot-core">
+            <div class="xb-frame-boot-meter">
+                <span class="xb-frame-boot-percent">5%</span>
+                <span class="xb-frame-boot-stage">等待启动</span>
+            </div>
+            <div class="xb-frame-boot-bar" aria-hidden="true">
+                <div class="xb-frame-boot-fill"></div>
+            </div>
+            <div class="xb-frame-boot-hint">首次加载需约30s</div>
+        </div>
+    </div>
+    <script>
+        const SOURCE_APP = 'xb-tavern-app';
+        const SOURCE_HOST = 'xb-tavern-host';
+        const progressFill = document.querySelector('#xb-frame-boot .xb-frame-boot-fill');
+        const progressPercent = document.querySelector('#xb-frame-boot .xb-frame-boot-percent');
+        const progressStage = document.querySelector('#xb-frame-boot .xb-frame-boot-stage');
+        const startupStageLabels = {
+            startup: '等待启动',
+            loadTavernResources: '载入资源',
+            frameReady: '准备界面',
+            buildTavernContext: '读取上下文',
+            buildTavernFrameConfig: '整理配置',
+            loadFrameSettings: '读取设置',
+            buildChatPreset: '整理预设',
+            attachHostHeaders: '读取宿主信息',
+            frameConfigReady: '配置就绪',
+            sendInitialConfigToFrame: '同步配置',
+            applyHostPayload: '应用配置',
+            refreshPresets: '读取预设',
+            refreshSessions: '读取会话',
+            refreshManagerRecords: '读取工作记录',
+            loadSelectedSessionMessageWindow: '载入消息',
+            enterTavern: '进入酒馆',
+        };
+        const applyStartupProgress = (payload = {}) => {
+            const rawPercent = Number(payload.percent);
+            const percent = Number.isFinite(rawPercent) ? Math.max(0, Math.min(100, rawPercent)) : 5;
+            const roundedPercent = Math.round(percent);
+            const action = String(payload.action || 'startup');
+            const stage = startupStageLabels[action] || action;
+            if (progressFill) progressFill.style.width = `${percent}%`;
+            if (progressPercent) progressPercent.textContent = `${roundedPercent}%`;
+            if (progressStage) progressStage.textContent = stage;
+            if (payload.action) console.debug('[小白酒馆] startup', `${percent}%`, payload.action);
+        };
+        window.addEventListener('message', (event) => {
+            if (event.origin !== window.location.origin) return;
+            const data = event.data || {};
+            if (data.source !== SOURCE_HOST || data.type !== 'xb-tavern:startup-progress') return;
+            applyStartupProgress(data.payload || {});
+        });
+        window.parent?.postMessage({
+            source: SOURCE_APP,
+            type: 'xb-tavern:boot-ready',
+            payload: {},
+        }, window.location.origin);
+        const version = new URLSearchParams(location.search).get('v') || '';
+        const suffix = version ? `?v=${encodeURIComponent(version)}` : '';
+        const stylesheet = document.createElement('link');
+        stylesheet.rel = 'stylesheet';
+        stylesheet.href = `./dist/tavern-app.css${suffix}`;
+        document.head.appendChild(stylesheet);
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = `./dist/tavern-app.js${suffix}`;
+        script.onerror = () => {
+            const hint = document.querySelector('#xb-frame-boot .xb-frame-boot-hint');
+            if (progressFill) progressFill.style.width = '100%';
+            if (progressPercent) progressPercent.textContent = '100%';
+            if (progressStage) progressStage.textContent = '加载失败';
+            if (hint) hint.textContent = '加载失败，请刷新重试';
+        };
+        document.body.appendChild(script);
+    </script>
+</body>
+</html>

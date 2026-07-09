@@ -188,6 +188,82 @@ export function injectAssistantStyles(rootId) {
             color: #41526a;
         }
         .xb-assistant-config label { display: grid; gap: 6px; font-size: 13px; color: #41526a; }
+        .xb-assistant-preset-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
+        }
+        .xb-assistant-preset-field,
+        .xb-assistant-config select.xb-assistant-preset-field {
+            box-sizing: border-box;
+            grid-column: 1;
+            min-width: 0;
+            width: 100%;
+            min-height: 40px;
+            height: 40px;
+            padding: 0 14px;
+            font-size: 14px;
+            line-height: 40px;
+        }
+        .xb-assistant-preset-tools {
+            display: grid;
+            grid-column: 2;
+            grid-template-columns: repeat(4, 40px);
+            align-self: stretch;
+            gap: 6px;
+        }
+        .xb-assistant-preset-tools.is-single {
+            grid-template-columns: 40px;
+        }
+        .xb-assistant-icon-button {
+            display: grid;
+            place-items: center;
+            width: 40px;
+            min-width: 40px;
+            height: 40px;
+            min-height: 40px;
+            border: 1px solid rgba(27, 55, 88, 0.14);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #41526a;
+            padding: 0;
+            line-height: 1;
+            box-shadow: none;
+        }
+        .xb-assistant-icon-button svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+            vector-effect: non-scaling-stroke;
+        }
+        .xb-assistant-icon-button:hover:not(:disabled),
+        .xb-assistant-icon-button:focus-visible {
+            outline: none;
+            border-color: rgba(27, 55, 88, 0.26);
+            background: rgba(27, 55, 88, 0.06);
+            color: #142033;
+        }
+        .xb-assistant-icon-button.xb-assistant-save-button.is-success,
+        .xb-assistant-icon-button.xb-assistant-save-button.is-error {
+            background: rgba(255, 255, 255, 0.9);
+            color: #41526a;
+            border-color: rgba(27, 55, 88, 0.14);
+        }
+        .xb-assistant-icon-button.xb-assistant-save-button.is-success {
+            background: rgba(63, 143, 90, 0.10);
+            border-color: rgba(63, 143, 90, 0.24);
+            color: #2f7b4a;
+        }
+        .xb-assistant-icon-button.xb-assistant-save-button.is-error {
+            background: rgba(182, 90, 85, 0.10);
+            border-color: rgba(182, 90, 85, 0.24);
+            color: #a24d4a;
+        }
         .xb-assistant-config input,
         .xb-assistant-config select,
         .xb-assistant-compose textarea {
@@ -207,6 +283,21 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-grow { min-width: 0; }
         .xb-assistant-model-row { align-items: end; }
+        .xb-assistant-temperature-row {
+            display: grid;
+            grid-template-columns: 96px auto;
+            gap: 10px;
+            align-items: end;
+        }
+        .xb-assistant-temperature-row .xb-assistant-checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 42px;
+        }
+        .xb-assistant-temperature-row input[type="number"] {
+            width: 96px;
+        }
         .xb-assistant-checkbox-row {
             grid-template-columns: minmax(0, 1fr) auto;
             align-items: center;
@@ -217,6 +308,10 @@ export function injectAssistantStyles(rootId) {
             gap: 8px;
             color: #1b3758;
             font-size: 14px;
+        }
+        .xb-assistant-checkbox-control input {
+            width: auto;
+            height: 16px;
         }
         .xb-assistant-help {
             margin-top: -2px;
@@ -238,7 +333,6 @@ export function injectAssistantStyles(rootId) {
             height: 16px;
             accent-color: #1b3758;
         }
-        .xb-assistant-actions,
         .xb-assistant-toolbar {
             display: flex;
             flex-wrap: wrap;
@@ -246,10 +340,6 @@ export function injectAssistantStyles(rootId) {
             align-items: center;
             justify-content: flex-start;
             min-width: 0;
-        }
-        .xb-assistant-actions {
-            gap: 8px;
-            flex-wrap: wrap;
         }
         .xb-assistant-toolbar-cluster {
             display: inline-flex;
@@ -259,7 +349,6 @@ export function injectAssistantStyles(rootId) {
             flex: 1 1 auto;
             min-width: 0;
         }
-        .xb-assistant-actions button,
         .xb-assistant-toolbar button,
         .xb-assistant-compose button {
             border: none;
@@ -285,27 +374,20 @@ export function injectAssistantStyles(rootId) {
             opacity: 0.86;
         }
         .xb-assistant-save-button.is-success {
-            background: #3fb950;
-            color: #fff;
-            box-shadow: 0 14px 28px rgba(63, 185, 80, 0.22);
+            background: rgba(63, 143, 90, 0.10);
+            border-color: rgba(63, 143, 90, 0.24);
+            color: #2f7b4a;
+            box-shadow: none;
         }
         .xb-assistant-save-button.is-error {
-            background: #f85149;
-            color: #fff;
-            box-shadow: 0 14px 28px rgba(248, 81, 73, 0.22);
+            background: rgba(182, 90, 85, 0.10);
+            border-color: rgba(182, 90, 85, 0.24);
+            color: #a24d4a;
+            box-shadow: none;
         }
-        .xb-assistant-save-button .xb-assistant-save-spinner {
-            display: inline-block;
-            width: 14px;
-            height: 14px;
-            margin-right: 8px;
-            border-radius: 999px;
-            border: 2px solid currentColor;
-            border-right-color: transparent;
-            vertical-align: -2px;
+        .xb-assistant-save-button.is-saving svg {
             animation: xb-assistant-spin 0.85s linear infinite;
         }
-        .xb-assistant-actions button:hover,
         .xb-assistant-toolbar button:hover,
         .xb-assistant-compose button:hover {
             transform: translateY(-1px);
@@ -315,14 +397,12 @@ export function injectAssistantStyles(rootId) {
             background: #1b3758;
             color: #fff;
         }
-        .xb-assistant-actions button.secondary,
         .xb-assistant-toolbar button.secondary,
         .xb-assistant-compose button.secondary {
             background: rgba(255, 255, 255, 0.9);
             color: #1b3758;
             box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.12);
         }
-        .xb-assistant-actions button.ghost,
         .xb-assistant-toolbar button.ghost,
         .xb-assistant-compose button.ghost,
         .xb-assistant-inline-input button.ghost {
@@ -331,7 +411,6 @@ export function injectAssistantStyles(rootId) {
             color: #1b3758;
             box-shadow: inset 0 0 0 1px rgba(27, 55, 88, 0.1);
         }
-        .xb-assistant-actions button:disabled,
         .xb-assistant-toolbar button:disabled,
         .xb-assistant-compose button:disabled {
             opacity: 0.52;
@@ -854,9 +933,16 @@ export function injectAssistantStyles(rootId) {
             transform: scale(0.96) translateX(0);
         }
         .xb-assistant-approval-slot {
+            position: fixed;
+            inset: 0;
+            z-index: 80;
             display: grid;
-            gap: 12px;
-            margin-top: 10px;
+            align-items: center;
+            justify-items: center;
+            padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+            box-sizing: border-box;
+            background: rgba(15, 23, 35, 0.36);
+            backdrop-filter: blur(8px);
         }
         .xb-assistant-approval-slot:empty {
             display: none;
@@ -1016,8 +1102,27 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-markdown h1,
         .xb-assistant-markdown h2,
         .xb-assistant-markdown h3,
-        .xb-assistant-markdown h4 {
+        .xb-assistant-markdown h4,
+        .xb-assistant-markdown h5,
+        .xb-assistant-markdown h6 {
             margin: 0 0 0.8em;
+        }
+        .xb-assistant-markdown p {
+            margin: 0;
+        }
+        .xb-assistant-markdown p + p {
+            margin-top: 0.25em;
+        }
+        .xb-assistant-markdown h1,
+        .xb-assistant-markdown h2,
+        .xb-assistant-markdown h3,
+        .xb-assistant-markdown h4,
+        .xb-assistant-markdown h5,
+        .xb-assistant-markdown h6 {
+            color: #203249;
+            font: inherit;
+            font-weight: 700;
+            line-height: inherit;
         }
         .xb-assistant-markdown code {
             padding: 0.12em 0.38em;
@@ -1063,6 +1168,16 @@ export function injectAssistantStyles(rootId) {
         }
         .xb-assistant-codeblock .xb-assistant-code-copy:hover {
             background: rgba(20, 32, 51, 0.22);
+            opacity: 1;
+        }
+        .xb-assistant-codeblock .xb-assistant-code-copy.is-copied {
+            background: rgba(61, 132, 93, 0.16);
+            color: #2c6d49;
+            opacity: 1;
+        }
+        .xb-assistant-codeblock .xb-assistant-code-copy.is-failed {
+            background: rgba(176, 59, 71, 0.14);
+            color: #9b2d3a;
             opacity: 1;
         }
         .xb-assistant-codeblock pre {
@@ -1311,26 +1426,39 @@ export function injectAssistantStyles(rootId) {
             color: #1e2f44;
         }
         .xb-assistant-approval {
-            margin-top: 12px;
-            padding: 14px;
-            border-radius: 14px;
-            background: rgba(244, 248, 252, 0.96);
-            border: 1px solid rgba(27, 55, 88, 0.12);
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr) auto auto;
+            gap: 10px;
+            width: min(860px, 100%);
+            max-height: calc(100vh - 36px);
+            max-height: min(760px, calc(100dvh - 36px));
+            min-height: 0;
+            padding: 16px;
+            border-radius: 16px;
+            background: rgba(244, 248, 252, 0.98);
+            border: 1px solid rgba(27, 55, 88, 0.14);
+            box-shadow: 0 28px 80px rgba(17, 31, 51, 0.28);
+            box-sizing: border-box;
+            overflow: hidden;
         }
         .xb-assistant-approval-title {
-            margin-bottom: 8px;
+            margin: 0;
             color: #1b3758;
             font-size: 12px;
             font-weight: 700;
             letter-spacing: 0.02em;
         }
         .xb-assistant-approval-command {
-            margin-top: 0;
-            margin-bottom: 8px;
+            min-height: 96px;
+            max-height: none;
+            margin: 0;
             padding: 12px;
             border-radius: 12px;
             background: rgba(255, 255, 255, 0.92);
             border: 1px solid rgba(27, 55, 88, 0.1);
+            overflow: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
         }
         .xb-assistant-approval-note {
             color: #4b5a70;
@@ -1340,8 +1468,11 @@ export function injectAssistantStyles(rootId) {
         .xb-assistant-approval-actions {
             display: flex;
             gap: 8px;
-            margin-top: 12px;
+            margin: 2px -16px -16px;
+            padding: 12px 16px 16px;
             flex-wrap: wrap;
+            background: linear-gradient(180deg, rgba(244, 248, 252, 0.78), rgba(244, 248, 252, 0.98) 36%);
+            border-top: 1px solid rgba(27, 55, 88, 0.1);
         }
         .xb-assistant-approval-button {
             border: none;
@@ -1555,7 +1686,7 @@ export function injectAssistantStyles(rootId) {
             white-space: nowrap;
         }
         .xb-assistant-compose textarea {
-            min-height: 66px;
+            min-height: 42px;
             resize: vertical;
             max-width: 100%;
             overflow-x: hidden;
@@ -1727,6 +1858,32 @@ export function injectAssistantStyles(rootId) {
                 grid-template-columns: minmax(0, 1fr) auto;
                 align-items: stretch;
                 gap: 8px;
+            }
+            .xb-assistant-approval-slot {
+                align-items: stretch;
+                padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+            }
+            .xb-assistant-approval {
+                width: 100%;
+                max-height: calc(100vh - 20px);
+                max-height: calc(100dvh - 20px);
+                border-radius: 18px;
+                padding: 14px;
+            }
+            .xb-assistant-approval-command {
+                min-height: 0;
+                font-size: 12px;
+                line-height: 1.55;
+            }
+            .xb-assistant-approval-actions {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                margin: 2px -14px -14px;
+                padding: 12px 14px 14px;
+            }
+            .xb-assistant-approval-button {
+                width: 100%;
+                min-height: 42px;
             }
             .xb-assistant-main {
                 padding: 12px;
@@ -1904,12 +2061,8 @@ export function injectAssistantStyles(rootId) {
             .xb-assistant-workspace-mobile-back {
                 display: inline-flex;
             }
-            .xb-assistant-actions {
-                display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
             .xb-assistant-compose textarea {
-                min-height: 60px;
+                min-height: 42px;
                 max-height: min(200px, 32vh);
                 resize: none;
                 overflow-y: auto;

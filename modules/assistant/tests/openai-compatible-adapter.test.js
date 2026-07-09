@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
     OpenAICompatibleAdapter,
     buildNativeMessages,
+    buildTaggedMessages,
+    extractTaggedToolCalls,
     stripTaggedToolCallsForDisplay,
 } from '../../agent-core/adapters/openai-compatible.js';
 
@@ -29,6 +31,10 @@ test('openai-compatible adapter hides incomplete tagged tool blocks from display
     );
     assert.equal(
         stripTaggedToolCallsForDisplay('前置说明\n<tool_call>{"name":"Read","arguments":{}}</tool_call>\n<tool_call>{"name":"Grep"'),
+        '前置说明',
+    );
+    assert.equal(
+        stripTaggedToolCallsForDisplay('前置说明\n<tool_call>{"name":"Read","arguments":{}}</tool_call>\n这段不该进入下一轮'),
         '前置说明',
     );
 });
@@ -83,6 +89,341 @@ test('openai-compatible adapter sanitizes malformed replay tool calls before sen
             arguments: '{"path":"book/state.md"}',
         },
     }]);
+});
+
+test('openai-compatible Claude-like native messages coerce only the final system or assistant role to user', () => {
+    const messages = buildNativeMessages({
+        messages: [
+            { role: 'system', content: '<meta_protocol>' },
+            { role: 'assistant', content: 'history assistant' },
+            { role: 'system', content: 'runtime system stays in place' },
+            { role: 'user', content: 'current user' },
+            { role: 'system', content: '</meta_protocol>' },
+        ],
+    }, 'anthropic/claude-sonnet-4-6');
+
+    assert.deepEqual(messages.map((message) => message.role), [
+        'system',
+        'assistant',
+        'system',
+        'user',
+        'user',
+    ]);
+    assert.equal(messages[4].content, '</meta_protocol>');
+
+    const assistantTailMessages = buildNativeMessages({
+        messages: [
+            { role: 'system', content: 'rules' },
+            { role: 'user', content: 'continue' },
+            { role: 'assistant', content: 'prefill' },
+        ],
+    }, 'claude-sonnet-4-0');
+
+    assert.deepEqual(assistantTailMessages.map((message) => message.role), [
+        'system',
+        'user',
+        'user',
+    ]);
+
+    const toolTailMessages = buildNativeMessages({
+        messages: [
+            { role: 'user', content: 'run tool' },
+            { role: 'tool', tool_call_id: 'call-1', content: '{"ok":true}' },
+        ],
+    }, 'claude-sonnet-4-0');
+
+    assert.equal(toolTailMessages[1].role, 'tool');
+    assert.equal(toolTailMessages[1].tool_call_id, 'call-1');
+
+    const nonClaudeMessages = buildNativeMessages({
+        messages: [
+            { role: 'user', content: 'hello' },
+            { role: 'system', content: 'tail marker' },
+        ],
+    }, 'gpt-4o-mini');
+
+    assert.equal(nonClaudeMessages[1].role, 'system');
+});
+
+test('openai-compatible adapter removes tagged-json tool garbage from replay payload', () => {
+    const messages = buildNativeMessages({
+        messages: [
+            {
+                role: 'user',
+                content: '继续。',
+            },
+            {
+                role: 'assistant',
+                content: '前置说明',
+                providerPayload: {
+                    openaiCompatibleMessage: {
+                        role: 'assistant',
+                        content: '前置说明\n<tool_call>{"name":"Read","arguments":{"path":"book/state.md"}}</tool_call>\n闭合后的多余正文',
+                        tool_calls: [{
+                            id: 'call-1',
+                            type: 'function',
+                            function: {
+                                name: 'Read',
+                                arguments: '{"path":"book/state.md"}',
+                            },
+                        }],
+                    },
+                },
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'call-1',
+                content: '{}',
+            },
+        ],
+    }, 'compat-model');
+
+    assert.equal(messages[1].content, '前置说明');
+    assert.equal(messages[1].content.includes('tool_call'), false);
+    assert.equal(messages[1].content.includes('闭合后的多余正文'), false);
+});
+
+test('openai-compatible adapter falls back to top-level tool calls when preserved payload has no tool calls', () => {
+    const messages = buildNativeMessages({
+        messages: [
+            {
+                role: 'user',
+                content: '继续。',
+            },
+            {
+                role: 'assistant',
+                content: '我需要读文件。',
+                tool_calls: [{
+                    id: 'call-read',
+                    type: 'function',
+                    function: {
+                        name: 'Read',
+                        arguments: '{"filePath":"book/state.md"}',
+                    },
+                }],
+                providerPayload: {
+                    openaiCompatibleMessage: {
+                        role: 'assistant',
+                        content: '我需要读文件。',
+                    },
+                },
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'call-read',
+                content: '{}',
+            },
+        ],
+    }, 'compat-model');
+
+    assert.deepEqual(messages[1].tool_calls, [{
+        id: 'call-read',
+        type: 'function',
+        function: {
+            name: 'Read',
+            arguments: '{"filePath":"book/state.md"}',
+        },
+    }]);
+});
+
+test('openai-compatible replay prefers repaired top-level tool arguments over raw preserved payload', () => {
+    const repairedArguments = '{"filePath":"book/chapters/001.md","content":"她说：\\"回来。\\"\\n第二行"}';
+    const rawBrokenArguments = '{"filePath":"book/chapters/001.md","content":"她说："回来。"\n第二行"}';
+    const nativeMessages = buildNativeMessages({
+        messages: [
+            { role: 'user', content: '继续。' },
+            {
+                role: 'assistant',
+                content: '',
+                tool_calls: [{
+                    id: 'call-write',
+                    type: 'function',
+                    function: {
+                        name: 'Write',
+                        arguments: repairedArguments,
+                    },
+                }],
+                providerPayload: {
+                    openaiCompatibleMessage: {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [{
+                            id: 'call-write',
+                            type: 'function',
+                            function: {
+                                name: 'Write',
+                                arguments: rawBrokenArguments,
+                            },
+                        }],
+                    },
+                },
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'call-write',
+                content: '{"ok":true}',
+            },
+        ],
+    }, 'compat-model');
+
+    assert.equal(nativeMessages[1].tool_calls[0].function.arguments, repairedArguments);
+
+    const taggedMessages = buildTaggedMessages({
+        systemPrompt: '你是测试助手。',
+        tools: [{ function: { name: 'Write', description: 'Write file.', parameters: { type: 'object', properties: {} } } }],
+        messages: nativeMessages,
+    });
+    const taggedAssistant = taggedMessages.find((message) => (
+        message.role === 'assistant' && String(message.content || '').includes('<tool_call>')
+    ));
+    assert.match(taggedAssistant.content, /\\"回来。\\"/);
+    assert.doesNotMatch(taggedAssistant.content, /她说："回来。"/);
+});
+
+test('openai-compatible tagged replay maps tool results from top-level tool calls without stale id bleed', () => {
+    const messages = buildTaggedMessages({
+        systemPrompt: '你是测试助手。',
+        tools: [{
+            function: {
+                name: 'Read',
+                description: 'Read file.',
+                parameters: { type: 'object', properties: {} },
+            },
+        }],
+        messages: [
+            {
+                role: 'user',
+                content: '连续调用两个工具。',
+            },
+            {
+                role: 'assistant',
+                content: '先写。',
+                tool_calls: [{
+                    id: 'tool-call-1',
+                    type: 'function',
+                    function: {
+                        name: 'Write',
+                        arguments: '{"filePath":"book/chapters/001.md","content":"正文"}',
+                    },
+                }],
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'tool-call-1',
+                content: '{"ok":true,"summary":"已写入 book/chapters/001.md。"}',
+            },
+            {
+                role: 'assistant',
+                content: '再读。',
+                tool_calls: [{
+                    id: 'tool-call-1',
+                    type: 'function',
+                    function: {
+                        name: 'Read',
+                        arguments: '{"filePath":"book/chapters/001.md"}',
+                    },
+                }],
+                providerPayload: {
+                    openaiCompatibleMessage: {
+                        role: 'assistant',
+                        content: '再读。',
+                    },
+                },
+            },
+            {
+                role: 'tool',
+                tool_call_id: 'tool-call-1',
+                content: '{"ok":true,"summary":"读取 book/chapters/001.md。"}',
+            },
+        ],
+    });
+
+    const toolResultMessages = messages.filter((message) => String(message.content || '').includes('<tool_result>'));
+    assert.equal(toolResultMessages.length, 2);
+    assert.match(toolResultMessages[0].content, /name: Write/);
+    assert.match(toolResultMessages[1].content, /name: Read/);
+    assert.doesNotMatch(toolResultMessages[1].content, /name: Write/);
+    assert.match(toolResultMessages[1].content, /这是系统工具执行结果，不是用户新发言。/);
+});
+
+test('openai-compatible tagged replay uses preserved tool result names when call id mapping is unavailable', () => {
+    const messages = buildTaggedMessages({
+        systemPrompt: '你是测试助手。',
+        tools: [{
+            function: {
+                name: 'Read',
+                description: 'Read file.',
+                parameters: { type: 'object', properties: {} },
+            },
+        }],
+        messages: [
+            { role: 'user', content: '继续。' },
+            {
+                role: 'tool',
+                tool_call_id: 'call-read',
+                toolName: 'Read',
+                content: '{"ok":true,"summary":"读取 book/state.md。"}',
+            },
+        ],
+    });
+
+    const toolResult = messages.find((message) => String(message.content || '').includes('<tool_result>'));
+    assert.match(toolResult.content, /name: Read/);
+    assert.doesNotMatch(toolResult.content, /name: unknown_tool/);
+});
+
+test('openai-compatible native replay strips internal tool result names from provider payload', () => {
+    const messages = buildNativeMessages({
+        messages: [
+            { role: 'user', content: '继续。' },
+            {
+                role: 'tool',
+                tool_call_id: 'call-read',
+                toolName: 'Read',
+                content: '{}',
+            },
+        ],
+    }, 'compat-model');
+
+    assert.equal(messages[1].tool_call_id, 'call-read');
+    assert.equal(Object.hasOwn(messages[1], 'toolName'), false);
+});
+
+test('openai-compatible adapter repairs malformed tagged-json Write arguments', () => {
+    const calls = extractTaggedToolCalls([
+        '<tool_call>{"name":"Write","arguments":{"filePath":"book/chapters/001.md","content":"她说："回来。"',
+        '第二行"}} </tool_call>',
+    ].join('\n'));
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].name, 'Write');
+    const args = JSON.parse(calls[0].arguments);
+    assert.deepEqual(args, {
+        filePath: 'book/chapters/001.md',
+        content: '她说："回来。"\n第二行',
+    });
+});
+
+test('openai-compatible adapter repairs malformed tagged-json string arguments', () => {
+    const calls = extractTaggedToolCalls(
+        '<tool_call>{"name":"Write","arguments":"{\\"filePath\\":\\"book/notes/a.md\\",\\"content\\":\\"第一行\n第二行\\"}"}</tool_call>',
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].name, 'Write');
+    const args = JSON.parse(calls[0].arguments);
+    assert.deepEqual(args, {
+        filePath: 'book/notes/a.md',
+        content: '第一行\n第二行',
+    });
+});
+
+test('openai-compatible adapter keeps incomplete tagged-json blocks out of tool calls', () => {
+    const calls = extractTaggedToolCalls(
+        '<tool_call>{"name":"Write","arguments":{"filePath":"book/chapters/001.md","content":"半截',
+    );
+
+    assert.deepEqual(calls, []);
 });
 
 test('openai-compatible adapter ignores a replay message with no valid tool calls', () => {
@@ -543,6 +884,75 @@ test('openai-compatible adapter keeps reasoning_content captured from stream chu
     } finally {
         globalThis.fetch = originalFetch;
     }
+});
+
+test('openai-compatible tagged-json streaming hides raw tool JSON and emits tool draft progress', async () => {
+    const adapter = new OpenAICompatibleAdapter({
+        apiKey: 'test-key',
+        baseUrl: 'https://example.com/openai-compatible',
+        model: 'compat-test',
+        toolMode: 'tagged-json',
+    });
+
+    const chunks = [
+        {
+            model: 'compat-test',
+            choices: [{
+                index: 0,
+                delta: { role: 'assistant', content: '我先查一下。' },
+            }],
+        },
+        {
+            model: 'compat-test',
+            choices: [{
+                index: 0,
+                delta: { content: '\n<tool_call>{"name":"Read"' },
+            }],
+        },
+        {
+            model: 'compat-test',
+            choices: [{
+                index: 0,
+                delta: { content: ',"arguments":{"path":"memory/state.md"}}</tool_call>' },
+                finish_reason: 'stop',
+            }],
+        },
+    ];
+    const stream = {
+        async *[Symbol.asyncIterator]() {
+            for (const chunk of chunks) {
+                yield chunk;
+            }
+        },
+        finalChatCompletion: async () => ({
+            choices: [{
+                message: {
+                    role: 'assistant',
+                    content: '我先查一下。\n<tool_call>{"name":"Read","arguments":{"path":"memory/state.md"}}</tool_call>',
+                },
+            }],
+        }),
+    };
+    adapter.client.chat.completions.create = async () => stream;
+
+    const progress = [];
+    const result = await adapter.chat({
+        messages: [{ role: 'user', content: '查状态' }],
+        tools: [{
+            function: {
+                name: 'Read',
+                description: 'Read memory.',
+                parameters: { type: 'object', properties: { path: { type: 'string' } } },
+            },
+        }],
+        onStreamProgress: (snapshot) => progress.push(snapshot),
+    });
+
+    assert.equal(progress.some((snapshot) => String(snapshot.text || '').includes('<tool_call>')), false);
+    assert.equal(progress.some((snapshot) => snapshot.toolCallDraft === true), true);
+    assert.equal(progress.some((snapshot) => snapshot.toolCalls?.[0]?.name === 'Read'), true);
+    assert.equal(result.text, '我先查一下。');
+    assert.equal(result.toolCalls?.[0]?.name, 'Read');
 });
 
 test('openai-compatible adapter accepts CRLF-delimited SSE events in native streaming mode', async () => {

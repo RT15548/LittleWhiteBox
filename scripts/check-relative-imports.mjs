@@ -29,13 +29,18 @@ function isFile(filePath) {
     }
 }
 
-function hasExactPathCase(filePath) {
-    const resolvedPath = path.resolve(filePath);
-    const { root } = path.parse(resolvedPath);
-    const relativePath = path.relative(root, resolvedPath);
-    let currentPath = root;
+function hasExactSpecifierPathCase(fromFile, specifier) {
+    const cleanSpecifier = stripResourceSuffix(specifier);
+    const segments = cleanSpecifier.split(/[\\/]+/).filter(Boolean);
+    let currentPath = path.dirname(fromFile);
 
-    for (const segment of relativePath.split(path.sep).filter(Boolean)) {
+    for (const segment of segments) {
+        if (segment === '.') continue;
+        if (segment === '..') {
+            currentPath = path.dirname(currentPath);
+            continue;
+        }
+
         let entries = [];
         try {
             entries = fs.readdirSync(currentPath);
@@ -183,9 +188,8 @@ function checkFile(filePath) {
             continue;
         }
 
-        if (!hasExactPathCase(resolvedImport)) {
-            const resolvedRelativePath = toPosix(path.relative(ROOT_DIR, resolvedImport));
-            problems.push(`${relativePath}:${line}:${column} import path case mismatch "${specifier}" -> "${resolvedRelativePath}"`);
+        if (!hasExactSpecifierPathCase(filePath, specifier)) {
+            problems.push(`${relativePath}:${line}:${column} import path case mismatch "${specifier}"`);
         }
     }
 

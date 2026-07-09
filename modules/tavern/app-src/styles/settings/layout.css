@@ -1,0 +1,465 @@
+/* Tavern settings: layout and settings-local surface tokens. */
+
+.settings-layout {
+    --xb-settings-page-bg:
+        radial-gradient(circle at 18% 0%, rgba(var(--xb-accent-rgb), 0.09), transparent 31%),
+        linear-gradient(135deg, #090a0c 0%, #101216 45%, #171312 100%);
+    --xb-settings-sidebar-bg:
+        linear-gradient(180deg, rgba(8, 9, 11, 0.92), rgba(13, 15, 18, 0.74)),
+        rgba(8, 9, 11, 0.94);
+    --xb-settings-main-bg:
+        linear-gradient(180deg, rgba(240, 238, 232, 0.035), transparent 170px),
+        rgba(16, 17, 21, 0.98);
+    --xb-settings-head-bg: linear-gradient(180deg, rgba(16, 17, 21, 0.98), rgba(16, 17, 21, 0.86));
+    --xb-settings-corner-bg: rgba(12, 14, 18, 0.72);
+    --xb-settings-corner-border: rgba(240, 238, 232, 0.12);
+    --xb-settings-control-bg: rgba(0, 0, 0, 0.22);
+    --xb-settings-control-focus-bg: rgba(0, 0, 0, 0.3);
+    --xb-settings-soft-bg: rgba(240, 238, 232, 0.045);
+    --xb-settings-subtle-bg: rgba(240, 238, 232, 0.025);
+    --xb-settings-float-bg: rgba(16, 17, 21, 0.97);
+    --xb-settings-sheet-bg: var(--xb-bg-editor);
+    --xb-font-serif: var(--xb-font-ui);
+    position: relative;
+    min-height: 0;
+    height: 100%;
+    display: grid;
+    grid-template-columns: 278px minmax(0, 1fr);
+    gap: 0;
+    overflow: hidden;
+    color: var(--xb-text-main);
+    background: var(--xb-settings-page-bg);
+}
+
+.xb-os-shell.theme-light .settings-layout {
+    --xb-settings-page-bg:
+        linear-gradient(90deg, transparent 50%, rgba(234, 232, 223, 0.86) 50%),
+        var(--xb-paper);
+    --xb-settings-sidebar-bg:
+        linear-gradient(180deg, rgba(251, 250, 246, 0.78), rgba(244, 243, 238, 0.92)),
+        var(--xb-paper);
+    --xb-settings-main-bg:
+        linear-gradient(180deg, rgba(251, 250, 246, 0.72), transparent 180px),
+        var(--xb-paper-warm);
+    --xb-settings-head-bg: linear-gradient(180deg, rgba(234, 232, 223, 0.98), rgba(234, 232, 223, 0.86));
+    --xb-settings-corner-bg: rgba(251, 250, 246, 0.74);
+    --xb-settings-corner-border: rgba(26, 26, 26, 0.16);
+    --xb-settings-control-bg: rgba(251, 250, 246, 0.72);
+    --xb-settings-control-focus-bg: rgba(251, 250, 246, 0.92);
+    --xb-settings-soft-bg: rgba(251, 250, 246, 0.58);
+    --xb-settings-subtle-bg: rgba(251, 250, 246, 0.36);
+    --xb-settings-float-bg: rgba(251, 250, 246, 0.97);
+    --xb-settings-sheet-bg: var(--xb-paper-plain);
+}
+
+.settings-layout .page-corner-actions {
+    top: 10px;
+    right: 18px;
+    z-index: 90;
+    gap: 8px;
+}
+
+.settings-layout .page-corner-actions .home-icon-button {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    min-height: 30px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--xb-control-icon);
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+.settings-layout .page-corner-actions .home-icon-button:hover:not(:disabled),
+.settings-layout .page-corner-actions .home-icon-button:focus-visible {
+    outline: none;
+    transform: none;
+    border-color: var(--xb-rule);
+    background: var(--xb-stamp-soft);
+    color: var(--xb-stamp);
+}
+
+.settings-layout .settings-sidebar {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden auto;
+    border-right: 1px solid var(--xb-line);
+    background: var(--xb-settings-sidebar-bg);
+    padding: 34px 18px 22px;
+}
+
+.settings-layout .guide-card {
+    display: grid;
+    gap: 22px;
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+}
+
+.settings-layout .guide-card h2 {
+    margin: 0;
+    padding: 0 8px 10px;
+    border-bottom: 1px solid var(--xb-line);
+    color: var(--xb-text-main);
+    font-family: var(--xb-font-serif);
+    font-size: 34px;
+    font-weight: 520;
+    line-height: 1;
+    letter-spacing: 0;
+}
+
+.settings-layout .guide-steps {
+    display: grid;
+    gap: 6px;
+}
+
+.settings-layout .guide-step {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    min-height: 54px;
+    gap: 10px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--xb-text-body);
+    box-shadow: none;
+    text-align: left;
+    padding: 12px 14px;
+    transform: none;
+}
+
+.settings-layout .guide-step strong,
+.settings-layout .guide-step span {
+    grid-column: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-layout .guide-step strong {
+    color: inherit;
+    font-family: var(--xb-font-serif);
+    font-size: 19px;
+    font-weight: 540;
+    letter-spacing: 0;
+}
+
+.settings-layout .guide-label-mobile {
+    display: none;
+}
+
+.settings-layout .guide-step span {
+    color: var(--xb-text-dim);
+    font-family: var(--xb-font-ui);
+    font-size: 12px;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.settings-layout .guide-step em {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    max-width: 86px;
+    overflow: hidden;
+    border: 1px solid rgba(212, 180, 109, 0.32);
+    border-radius: 999px;
+    background: rgba(212, 180, 109, 0.08);
+    color: var(--xb-gold);
+    font-family: var(--xb-font-ui);
+    font-size: 11px;
+    font-style: normal;
+    letter-spacing: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 4px 8px;
+}
+
+.settings-layout .guide-step:hover:not(:disabled),
+.settings-layout .guide-step:focus-visible {
+    outline: none;
+    border-color: var(--xb-line-strong);
+    background: var(--xb-settings-soft-bg);
+    color: var(--xb-text-main);
+    transform: none;
+}
+
+.settings-layout .guide-step.active {
+    border-color: rgba(var(--xb-accent-rgb), 0.22);
+    background: linear-gradient(90deg, rgba(var(--xb-accent-rgb), 0.12), rgba(240, 238, 232, 0.04));
+    color: var(--xb-text-main);
+    box-shadow: inset 3px 0 0 rgba(var(--xb-accent-rgb), 0.82);
+}
+
+.settings-layout .xb-main {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--xb-settings-main-bg);
+    padding: 0;
+}
+
+.settings-layout .step-panel {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+}
+
+.settings-layout .step-panel[style*="display: none"] {
+    display: none !important;
+}
+
+.settings-layout .pill {
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    max-width: 220px;
+    overflow: hidden;
+    border: 1px solid var(--xb-line);
+    border-radius: 999px;
+    background: var(--xb-settings-soft-bg);
+    color: var(--xb-text-muted);
+    font-family: var(--xb-font-ui);
+    font-size: 12px;
+    letter-spacing: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 12px;
+}
+
+.settings-layout .pill.warning {
+    border-color: rgba(212, 180, 109, 0.36);
+    background: rgba(212, 180, 109, 0.1);
+    color: var(--xb-gold);
+}
+
+.settings-layout input:not([type="checkbox"]):not([type="radio"]),
+.settings-layout select,
+.settings-layout textarea {
+    min-width: 0;
+    border: 1px solid var(--xb-line);
+    border-radius: 10px;
+    background: var(--xb-settings-control-bg);
+    color: var(--xb-text-main);
+    font-family: var(--xb-font-ui);
+    font-size: 14px;
+    letter-spacing: 0;
+    padding: 10px 12px;
+    box-shadow: none;
+}
+
+.settings-layout select {
+    color-scheme: dark;
+}
+
+.settings-layout select option,
+.settings-layout select optgroup {
+    background: #161a22;
+    color: rgba(244, 247, 255, 0.96);
+}
+
+.xb-os-shell.theme-light .settings-layout select {
+    color-scheme: light;
+}
+
+.xb-os-shell.theme-light .settings-layout select option,
+.xb-os-shell.theme-light .settings-layout select optgroup {
+    background: #ffffff;
+    color: #17202c;
+}
+
+.settings-layout textarea {
+    line-height: 1.72;
+    resize: vertical;
+}
+
+.settings-layout input:not([type="checkbox"]):not([type="radio"]):focus,
+.settings-layout select:focus,
+.settings-layout textarea:focus {
+    outline: none;
+    border-color: rgba(var(--xb-accent-rgb), 0.36);
+    background: var(--xb-settings-control-focus-bg);
+    box-shadow: 0 0 0 3px rgba(var(--xb-accent-rgb), 0.055);
+}
+
+.settings-layout .inline-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--xb-line);
+    border-radius: 999px;
+    background: var(--xb-settings-soft-bg);
+    color: var(--xb-text-muted);
+    padding: 6px 10px;
+}
+
+.settings-layout .inline-empty-note,
+.settings-layout .empty-note {
+    border: 1px dashed var(--xb-line-strong);
+    border-radius: 14px;
+    background: var(--xb-settings-subtle-bg);
+    color: var(--xb-text-muted);
+    padding: 18px;
+}
+
+.source-light {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    min-width: 22px;
+    height: 22px;
+    border: 1px solid var(--xb-line);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--xb-text-muted);
+    font-size: 11px;
+    font-style: normal;
+}
+
+.source-light.source-global.active {
+    border-color: rgba(var(--xb-accent-rgb), 0.52);
+    background: rgba(var(--xb-accent-rgb), 0.14);
+    color: var(--xb-cyan);
+}
+
+@media (max-width: 1160px) {
+    .settings-layout {
+        grid-template-columns: 236px minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 860px) {
+    .settings-layout {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .settings-layout .settings-sidebar {
+        border-right: 0;
+        border-bottom: 1px solid var(--xb-line);
+        padding: 18px 14px 12px;
+        overflow: visible;
+    }
+
+    .settings-layout .guide-card {
+        gap: 12px;
+    }
+
+    .settings-layout .guide-card h2 {
+        font-size: 26px;
+        padding: 0 6px 6px;
+    }
+
+    .settings-layout .guide-steps {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+    }
+
+    .settings-layout .guide-step {
+        min-width: 154px;
+        min-height: 52px;
+    }
+
+    .settings-layout .panel-pills {
+        display: none;
+    }
+}
+
+@media (max-width: 560px) {
+    .settings-layout {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .settings-layout .settings-sidebar {
+        display: none;
+    }
+
+    .settings-layout .guide-steps {
+        gap: 5px;
+        padding: 0 106px 2px 0;
+        scrollbar-width: none;
+    }
+
+    .settings-layout .guide-steps::-webkit-scrollbar {
+        display: none;
+    }
+
+    .settings-layout .guide-step {
+        min-width: auto;
+        min-height: 32px;
+        display: inline-flex;
+        align-items: center;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        padding: 0 11px;
+    }
+
+    .settings-layout .guide-step strong {
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .settings-layout .guide-label-full {
+        display: none;
+    }
+
+    .settings-layout .guide-label-mobile {
+        display: inline;
+    }
+
+    .settings-layout .guide-step em {
+        display: none;
+    }
+
+    .settings-layout .guide-step.active {
+        box-shadow: none;
+    }
+
+    .settings-layout .xb-main {
+        flex: 1 1 auto;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .settings-layout .step-panel {
+        min-height: 100%;
+        overflow: visible;
+    }
+
+    .settings-layout .page-corner-actions {
+        top: 10px;
+        right: 10px;
+        gap: 6px;
+    }
+
+    .settings-layout .page-corner-actions .home-icon-button {
+        width: 34px;
+        min-width: 34px;
+        height: 34px;
+        min-height: 34px;
+    }
+}

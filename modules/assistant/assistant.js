@@ -265,6 +265,8 @@ function buildRuntimeConfig() {
         delegateConfig: settings.delegateConfig || {},
         presetNames: Object.keys(settings.presets || {}),
         presets: settings.presets || {},
+        tavilyApiKey: settings.tavilyApiKey || '',
+        tavilyBaseUrl: settings.tavilyBaseUrl || '',
         toolInfo: {
             readableSources: ['littlewhitebox', 'sillytavern-public', 'session-local-source'],
             writableSources: ['session-local-source'],
@@ -1439,7 +1441,7 @@ function resolveReadLimit(value, fallback = DEFAULT_AUTO_READ_LINES) {
 
 function resolveReadTail(value) {
     const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return null;
+    if (!Number.isFinite(numeric) || numeric <= 0) return null;
     return Math.max(1, Math.min(Math.trunc(numeric), DEFAULT_AUTO_READ_LINES));
 }
 
@@ -3543,6 +3545,19 @@ async function pushAssistantConfigToIframe() {
     return true;
 }
 
+function replyAssistantHostResult(requestId = '', payload = {}) {
+    const iframe = getAssistantHostWindow().getIframe();
+    if (!iframe?.contentWindow) return false;
+    postToIframe(iframe, {
+        type: 'xb-assistant:host-result',
+        payload: {
+            requestId,
+            ...payload,
+        },
+    });
+    return true;
+}
+
 function revealAssistantSettings() {
     if (!assistantFrameReady) return false;
     const iframe = getAssistantHostWindow().getIframe();
@@ -3636,6 +3651,12 @@ async function handleIframeMessage(event) {
             }
             break;
         }
+        case 'xb-assistant:get-host-request-headers':
+            replyAssistantHostResult(String(payload?.requestId || ''), {
+                ok: true,
+                hostRequestHeaders: getRequestHeaders(),
+            });
+            break;
         case WORKSPACE_MESSAGE_TYPES.HYDRATE:
             console.info('[Assistant][HostBridge] workspace-hydrate:received', summarizeLocalSourcesForDebug(payload?.localSources));
             await getLocalSourcesToolRuntime().hydrateLocalSources(payload?.localSources);

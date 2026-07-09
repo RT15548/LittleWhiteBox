@@ -31,3 +31,6 @@ Simple attribution format: "Based on LittleWhiteBox by biex"
 
 For the complete Apache License 2.0 text, see:
 http://www.apache.org/licenses/LICENSE-2.0
+
+Bundled third-party assets keep their original licenses in their local vendor
+directories. See docs/NOTICE and each libs/*/LICENSE file for details.

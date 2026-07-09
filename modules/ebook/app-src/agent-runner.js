@@ -11,6 +11,7 @@ import {
 } from '../../agent-core/runtime/protocol.js';
 import { createStreamingMessageController } from '../../agent-core/runtime/streaming-messages.js';
 import { createLightBrakeController } from '../../agent-core/runtime/light-brake.js';
+import { resolveConversationTokens } from '../../agent-core/runtime/context-tokens.js';
 import { buildTavilySearchTracePayload, isTavilyConfigured } from '../../agent-core/tavily-search.js';
 import { resetMessageWindow } from '../../agent-core/ui/message-windowing.js';
 import { upsertBookFile } from '../shared/ebook-db.js';
@@ -23,7 +24,11 @@ import {
     formatEbookToolResult,
     getEbookToolDefinitions,
 } from '../shared/book-tools.js';
-import { createEbookHistoryCompactionController, splitEbookMessagesIntoTurns } from './history-compaction.js';
+import {
+    EBOOK_MAX_CONTEXT_TOKENS,
+    createEbookHistoryCompactionController,
+    splitEbookMessagesIntoTurns,
+} from './history-compaction.js';
 import {
     buildBookContextPrompt,
     buildBookTurnContextPrompt,
@@ -31,6 +36,7 @@ import {
     EBOOK_DELEGATE_PROMPT,
     EBOOK_SYSTEM_PROMPT,
 } from './prompts.js';
+import { buildConversationContextMeterStateKey } from './renderer.js';
 import { safeJsonParse, safeJsonStringify } from './text-utils.js';
 
 const MAX_TOOL_ROUNDS = 48;
@@ -76,9 +82,9 @@ function prefixLatestUserMessage(messages = [], contextText = '') {
         return {
             ...message,
             content: [
-                context,
                 '[用户本轮请求]',
                 String(message.content || ''),
+                context,
             ].filter(Boolean).join('\n\n'),
         };
     });
@@ -200,7 +206,7 @@ function appendDelegateProgress(entry = {}, event = {}) {
 
 function getToolArgumentSchemaHint(toolName = '') {
     if (toolName === EBOOK_TOOL_NAMES.EDIT) {
-        return 'Expected Edit arguments: {"filePath":"book/...","edits":[{"oldString":"...","newString":"...","replaceAll":false}]}';
+        return 'Expected Edit arguments: {"filePath":"book/...","edits":[{"oldString":"...","newString":"..."}]} or {"filePath":"book/...","edits":[{"startLine":1,"endLine":3,"newString":"..."}]} or {"filePath":"book/...","edits":[{"insertAtLine":4,"newString":"..."}]}';
     }
     if (toolName === EBOOK_TOOL_NAMES.WRITE) {
         return 'Expected Write arguments: {"filePath":"book/...","content":"..."}';
@@ -276,6 +282,7 @@ export function createEbookAgentRunner(deps = {}) {
         refreshBooksAndFiles,
         render,
         renderAgentSurface,
+        renderPassiveSurface,
         renderToolTraceSurface,
         renderFilesSurface,
         renderEditorFileSurface,
@@ -288,7 +295,9 @@ export function createEbookAgentRunner(deps = {}) {
     } = deps;
     const renderStreamingSurface = typeof renderAgentSurface === 'function'
         ? () => {
-            if (!renderAgentSurface()) render();
+            if (renderAgentSurface()) return;
+            if (typeof renderPassiveSurface === 'function' && renderPassiveSurface()) return;
+            render();
         }
         : render;
     const renderToolSurface = typeof renderToolTraceSurface === 'function'
@@ -323,10 +332,7 @@ export function createEbookAgentRunner(deps = {}) {
         const turnContextPrompt = buildBookTurnContextPrompt({
             book,
             files: state.files,
-            selectedPath: state.selectedPath,
-            selectedText: '',
             currentPlansText,
-            historySummary: state.historySummary,
         });
         const extraSystemMessages = [
             String(options.lightBrakeText || '').trim(),
@@ -334,17 +340,20 @@ export function createEbookAgentRunner(deps = {}) {
         ]
             .filter(Boolean)
             .map((content) => ({ role: 'system', content }));
-        const history = buildEbookProviderMessagesFromHistory(state.messages, {
+        const providerMessages = buildEbookProviderMessagesFromHistory(state.messages, {
             latestUserContextText: turnContextPrompt,
         });
+        // Keep the stable cache prefix limited to the two fixed system messages.
+        // Transient reminders are produced mid loop, so they belong at the replay tail.
         return [
             { role: 'system', content: EBOOK_SYSTEM_PROMPT },
             { role: 'system', content: contextPrompt },
+            ...providerMessages,
             ...extraSystemMessages,
-            ...history,
         ];
     }
 
+    const COMPACTION_OVERLAY_MIN_VISIBLE_MS = 3000;
     let compactionOverlayHideTimer = null;
     let protocolNoticeHideTimer = null;
 
@@ -356,27 +365,37 @@ export function createEbookAgentRunner(deps = {}) {
     }
 
     function updateCompactionOverlay(patch = {}) {
+        const previous = state.compactionOverlay || {};
+        const nextId = patch.id || previous.id || `compaction-${Date.now()}`;
+        const visibleSince = Number(patch.visibleSince)
+            || (previous.id === nextId ? Number(previous.visibleSince) : 0)
+            || Date.now();
         state.compactionOverlay = {
             active: true,
             resolved: false,
             currentTokens: 0,
             yieldTokens: 0,
             triggerTokens: 0,
-            status: '正在整理较早创作记录...',
-            ...(state.compactionOverlay || {}),
+            status: '正在释放较早对话...',
+            ...previous,
             ...patch,
+            id: nextId,
+            visibleSince,
         };
     }
 
-    function scheduleCompactionOverlayHide(delayMs = 2500) {
+    function scheduleCompactionOverlayHide(delayMs = COMPACTION_OVERLAY_MIN_VISIBLE_MS) {
         const overlayId = state.compactionOverlay?.id || '';
+        const visibleSince = Number(state.compactionOverlay?.visibleSince) || Date.now();
+        const elapsedMs = Math.max(0, Date.now() - visibleSince);
+        const waitMs = Math.max(0, delayMs - elapsedMs);
         clearCompactionOverlayHideTimer();
         compactionOverlayHideTimer = globalThis.setTimeout(() => {
             compactionOverlayHideTimer = null;
             if (!overlayId || state.compactionOverlay?.id !== overlayId) return;
             state.compactionOverlay = null;
             render();
-        }, delayMs);
+        }, waitMs);
     }
 
     function clearProtocolNoticeHideTimer() {
@@ -435,7 +454,7 @@ export function createEbookAgentRunner(deps = {}) {
         },
         onCompactionUnable: (event = {}) => {
             updateCompactionOverlay(event);
-            scheduleCompactionOverlayHide(1600);
+            scheduleCompactionOverlayHide();
         },
     });
 
@@ -480,7 +499,6 @@ export function createEbookAgentRunner(deps = {}) {
             book: parentRun.book || state.book,
             files: state.files,
             currentPlansText,
-            historySummary: state.historySummary,
         });
         const callerContext = String(args.context || '').trim();
         const context = [
@@ -494,12 +512,14 @@ export function createEbookAgentRunner(deps = {}) {
         const taskText = String(userText || '').trim();
         if (!taskText || state.isBusy || !state.book) return;
         const appendUserMessage = options.appendUserMessage !== false;
-        const runBook = { ...state.book };
-        const runBookId = runBook.id;
+        const initialBookId = state.book.id;
+        const controller = new AbortController();
         state.isBusy = true;
+        state.isCancellingRun = false;
+        state.activeController = controller;
         state.status = 'AI 正在阅读作品...';
         state.agentAutoScroll = true;
-        state.agentScrollLockTop = null;
+        state.agentForceScrollBottomOnce = true;
         resetMessageWindow(state);
         compactionController.resetCompactionState();
         clearCompactionOverlayHideTimer();
@@ -512,10 +532,47 @@ export function createEbookAgentRunner(deps = {}) {
         }
         state.activeTurnStartIndex = findLastUserMessageIndex(state.messages);
         render();
+        try {
+            if (isEditorDirty() && state.selectedPath) {
+                await upsertBookFile(initialBookId, state.selectedPath, state.editorContent);
+            }
+            await refreshBooksAndFiles();
+        } catch (error) {
+            state.isBusy = false;
+            state.isCancellingRun = false;
+            state.activeController = null;
+            state.status = '就绪';
+            state.messages.push({
+                role: 'assistant',
+                content: `AI 操作失败：${error?.message || error}`,
+                error: true,
+            });
+            await persistConversation?.(initialBookId);
+            render();
+            return;
+        }
+        if (controller.signal.aborted) {
+            state.isBusy = false;
+            state.isCancellingRun = false;
+            state.activeController = null;
+            state.status = '就绪';
+            state.messages.push({ role: 'assistant', content: '已取消本次操作。', error: true });
+            await persistConversation?.(initialBookId);
+            render();
+            return;
+        }
+        if (!state.book) {
+            state.isBusy = false;
+            state.isCancellingRun = false;
+            state.activeController = null;
+            state.status = '就绪';
+            render();
+            return;
+        }
+        const runBook = { ...state.book };
+        const runBookId = runBook.id;
         await persistConversation?.(runBookId);
 
-        const controller = new AbortController();
-        state.activeController = controller;
         const providerConfig = getActiveProviderConfig();
         let streamingAssistantMessage = null;
 
@@ -555,10 +612,6 @@ export function createEbookAgentRunner(deps = {}) {
 
         try {
             const adapter = createAdapter(providerConfig);
-            if (isEditorDirty() && state.selectedPath) {
-                await upsertBookFile(runBookId, state.selectedPath, state.editorContent);
-                await refreshBooksAndFiles();
-            }
             const runtime = createBookToolRuntime({
                 getBookId: () => runBookId,
                 onFilesChanged: refreshBooksAndFiles,
@@ -600,6 +653,36 @@ export function createEbookAgentRunner(deps = {}) {
                 });
                 providerMessageOptions.finalAnswerReminderText = '';
                 return messages;
+            }
+
+            async function updateContextMeterFromRequest(messages = []) {
+                if (!Array.isArray(messages) || !messages.length) return;
+                const updateSerial = (Number(state.contextStatsRequestSerial) || 0) + 1;
+                state.contextStatsRequestSerial = updateSerial;
+                try {
+                    const usedTokens = await resolveConversationTokens({
+                        messages,
+                        tools,
+                        providerConfig,
+                    });
+                    const currentStateKey = buildConversationContextMeterStateKey(state, providerConfig);
+                    if (
+                        updateSerial !== state.contextStatsRequestSerial
+                        || !Number.isFinite(usedTokens)
+                        || controller.signal.aborted
+                    ) return;
+                    state.contextStats = {
+                        usedTokens,
+                        budgetTokens: EBOOK_MAX_CONTEXT_TOKENS,
+                        summaryActive: false,
+                        source: 'resolved',
+                        stateKey: currentStateKey,
+                        updatedAt: Date.now(),
+                    };
+                    renderStreamingSurface();
+                } catch {
+                    // The renderer keeps its local estimate if tokenizer counting is unavailable.
+                }
             }
 
             function dropStreamingAssistantMessage() {
@@ -650,6 +733,7 @@ export function createEbookAgentRunner(deps = {}) {
                     } else {
                         await compactionController.ensureContextBudget(adapter, controller.signal);
                         requestTask.messages = await buildReplayMessages();
+                        void updateContextMeterFromRequest(requestTask.messages);
                     }
 
                     console.info('[Ebook][ModelRequest] round:start', {
@@ -831,6 +915,9 @@ export function createEbookAgentRunner(deps = {}) {
                 state.status = '就绪';
                 await refreshBooksAndFiles();
                 await persistConversation?.(runBookId);
+                void buildReplayMessages()
+                    .then((messages) => updateContextMeterFromRequest(messages))
+                    .catch(() => {});
                 return;
             }
             throw new Error('工具轮次达到上限，已停止。');
@@ -848,6 +935,7 @@ export function createEbookAgentRunner(deps = {}) {
             await persistConversation?.(runBookId);
         } finally {
             state.isBusy = false;
+            state.isCancellingRun = false;
             state.activeController = null;
             state.toolTrace = [];
             state.liveToolTurn = null;
@@ -858,7 +946,16 @@ export function createEbookAgentRunner(deps = {}) {
     }
 
     function cancelActiveRun() {
-        state.activeController?.abort();
+        if (!state.isBusy || !state.activeController) return false;
+        if (!state.isCancellingRun) {
+            state.isCancellingRun = true;
+            state.status = '正在停止...';
+            renderStreamingSurface();
+        }
+        if (!state.activeController.signal?.aborted) {
+            state.activeController.abort();
+        }
+        return true;
     }
 
     async function rerunFromMessageIndex(messageIndex = -1) {

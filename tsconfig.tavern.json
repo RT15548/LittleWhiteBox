@@ -1,0 +1,26 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+        "allowImportingTsExtensions": false,
+        "allowJs": false,
+        "checkJs": false,
+        "noEmit": true,
+        "strict": false,
+        "noImplicitAny": true,
+        "jsx": "preserve",
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "verbatimModuleSyntax": true,
+        "useDefineForClassFields": true,
+        "skipLibCheck": true,
+        "types": ["node", "vite/client"]
+    },
+    "include": [
+        "modules/tavern/**/*.ts",
+        "modules/tavern/**/*.vue",
+        "modules/tavern/**/*.d.ts"
+    ]
+}

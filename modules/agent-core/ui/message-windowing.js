@@ -6,12 +6,22 @@ function normalizePositiveInteger(value, fallback) {
     return Number.isFinite(number) && number > 0 ? Math.floor(number) : fallback;
 }
 
+function normalizeNonNegativeInteger(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
+}
+
 export function getMessageWindow(state = {}, totalItems = 0, options = {}) {
     const total = Math.max(0, Number(totalItems) || 0);
     const defaultLimit = normalizePositiveInteger(options.defaultLimit, AGENT_MESSAGE_WINDOW_DEFAULT);
-    const rawLimit = normalizePositiveInteger(state.uiMessageWindowLimit, defaultLimit);
+    const previousTotal = normalizeNonNegativeInteger(state.uiMessageWindowTotal, total);
+    let rawLimit = normalizePositiveInteger(state.uiMessageWindowLimit, defaultLimit);
+    if (options.preserveStartOnGrow && total > previousTotal) {
+        rawLimit += total - previousTotal;
+    }
     const limit = Math.min(Math.max(defaultLimit, rawLimit), Math.max(total, defaultLimit));
     state.uiMessageWindowLimit = limit;
+    state.uiMessageWindowTotal = total;
 
     const startIndex = Math.max(0, total - limit);
     return {
@@ -34,4 +44,5 @@ export function expandMessageWindow(state = {}, totalItems = 0, options = {}) {
 
 export function resetMessageWindow(state = {}, options = {}) {
     state.uiMessageWindowLimit = normalizePositiveInteger(options.defaultLimit, AGENT_MESSAGE_WINDOW_DEFAULT);
+    state.uiMessageWindowTotal = undefined;
 }
