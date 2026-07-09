@@ -3681,6 +3681,7 @@ const handleManagerTouchMove = managerScrollPane.handleTouchMove;
 function handleComposeKeydown(event: KeyboardEvent) {
     if (event.key !== 'Enter') {return;}
     if (event.isComposing || event.shiftKey || event.altKey) {return;}
+    if (isRunning.value) {return;}
     const shouldSend = event.ctrlKey || event.metaKey || window.innerWidth >= 760;
     if (!shouldSend) {return;}
     event.preventDefault();

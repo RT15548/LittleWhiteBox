@@ -2130,6 +2130,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     const userSavedCallback = chatRunSource.match(/onUserMessageSaved: async \(sessionId, message\) => \{[\s\S]*?\n[ ]{16}\},\n[ ]{16}onAssistantMessageSaved/);
     assert.ok(userSavedCallback);
     assert.match(userSavedCallback[0], /options\.upsertLoadedSessionMessage\(message\);[\s\S]*options\.touchSessionLocally\(sessionId, message\.createdAt\);[\s\S]*state\.runtimePendingUserMessage\.value = '';[\s\S]*await options\.persistSelectedSessionId\(sessionId\)/);
+    assert.doesNotMatch(userSavedCallback[0], /state\.currentUserMessage\.value = ''/);
     assert.doesNotMatch(userSavedCallback[0], /refreshSessions\(\)/);
     const assistantSavedCallback = chatRunSource.match(/onAssistantMessageSaved: async \(sessionId, message\) => \{[\s\S]*?\n[ ]{16}\},\n[ ]{16}onManagerRunSaved/);
     assert.ok(assistantSavedCallback);
@@ -2217,7 +2218,12 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(cssSource, /\.tavern-chat\.xb-page \.chat-scroll \{[\s\S]*background: var\(--xb-chat-scroll-bg\);/);
     assert.doesNotMatch(cssSource, /\.tavern-chat\.xb-page \.chat-scroll \{[\s\S]*repeating-linear-gradient/);
     assert.match(cssSource, /\.tavern-chat\.xb-page \.chat-scroll::-webkit-scrollbar \{[\s\S]*width: 0;[\s\S]*height: 0;/);
-    assert.match(conversationPanelSource, /v-model="currentUserMessage"[\s\S]*rows="1"/);
+    const chatComposeTextareaBlock = conversationPanelSource.match(/<textarea[\s\S]*?v-model="currentUserMessage"[\s\S]*?\/>/);
+    assert.ok(chatComposeTextareaBlock);
+    assert.match(chatComposeTextareaBlock[0], /rows="1"/);
+    assert.doesNotMatch(chatComposeTextareaBlock[0], /:disabled="isRunning"/);
+    assert.match(conversationPanelSource, /:aria-label="isCancellingRun \? '正在停止' : isRunning \? '停止' : '发送'"/);
+    assert.match(appSource, /function handleComposeKeydown\(event: KeyboardEvent\) \{[\s\S]*if \(isRunning\.value\) \{return;\}[\s\S]*event\.preventDefault\(\);[\s\S]*void runOnce\(\);/);
     assert.match(contextSource, /createNewChatSession: TavernCommand<\[\], Promise<void>>/);
     assert.match(appSource, /async function createNewChatSession\(\) \{[\s\S]*resolveRuntimeContextForSession\(selectedSessionId\.value\)[\s\S]*resetSessionPreviewState\(\);[\s\S]*await createSessionAndOpenChat\(\{ contextSnapshot: snapshotContext \}\);/);
     assert.doesNotMatch(chatCss, /sidebar\.css/);

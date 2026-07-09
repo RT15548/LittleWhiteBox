@@ -858,7 +858,6 @@ watch(isMobileActionTrayViewport, (isMobile) => {
             v-model="currentUserMessage"
             rows="1"
             placeholder="对角色说一句话..."
-            :disabled="isRunning"
             @input="handleComposeInput"
             @keydown="handleComposeKeydown"
             @focus="closeComposeMenu"

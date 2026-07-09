@@ -390,8 +390,9 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                     options.touchSessionLocally(sessionId, message.createdAt);
                     state.runtimeUserMessageVisible.value = true;
                     state.runtimePendingUserMessage.value = '';
-                    state.currentUserMessage.value = '';
-                    void nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value));
+                    if (!state.currentUserMessage.value) {
+                        void nextTick(() => options.resetTextareaHeight(options.chatComposeTextareaRef.value));
+                    }
                     options.updateChatScrollButtons();
                     await options.persistSelectedSessionId(sessionId);
                     options.updateChatScrollButtons();
