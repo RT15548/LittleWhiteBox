@@ -968,7 +968,7 @@
 
 .chat-scroll-helpers {
     --xb-chat-scroll-helper-half-size: 15px;
-    --xb-chat-scroll-helper-edge: max(18px, calc(20% - var(--xb-chat-scroll-helper-half-size)));
+    --xb-chat-scroll-helper-edge: max(18px, calc(16% - var(--xb-chat-scroll-helper-half-size)));
     --xb-chat-scroll-helper-bottom-edge: calc(var(--xb-chat-scroll-helper-edge) + var(--xb-compose-safe-space));
 
     position: absolute;

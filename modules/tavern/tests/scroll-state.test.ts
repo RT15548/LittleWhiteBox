@@ -31,7 +31,7 @@ function fakeScrollNode(input: {
     } as unknown as HTMLElement;
 }
 
-test('scroll state restores by the next visible anchor when the top anchor was removed', () => {
+test('scroll state does not jump to another anchor when the viewport anchor was removed', () => {
     const before = fakeScrollNode({
         scrollTop: 100,
         scrollHeight: 1000,
@@ -68,7 +68,47 @@ test('scroll state restores by the next visible anchor when the top anchor was r
         preserveScrollTop: true,
     });
 
-    assert.equal(after.scrollTop, 20);
+    assert.equal(after.scrollTop, 100);
+});
+
+test('scroll state restores by the captured viewport anchor when it still exists', () => {
+    const before = fakeScrollNode({
+        scrollTop: 100,
+        scrollHeight: 1000,
+        clientHeight: 320,
+        rect: { top: 0, bottom: 320 },
+        items: [
+            fakeElement('message:1', { top: -20, bottom: 80 }),
+            fakeElement('message:2', { top: 80, bottom: 180 }),
+        ],
+    });
+    const snapshot = captureElementScrollState(before, {
+        itemSelector: '.chat-bubble[data-chat-anchor-key]',
+        datasetKey: 'chatAnchorKey',
+    });
+
+    assert.equal(snapshot?.anchorKey, 'message:1');
+    assert.equal(snapshot?.anchorTopOffset, -20);
+
+    const after = fakeScrollNode({
+        scrollTop: 100,
+        scrollHeight: 1000,
+        clientHeight: 320,
+        rect: { top: 0, bottom: 320 },
+        items: [
+            fakeElement('message:1', { top: 30, bottom: 130 }),
+            fakeElement('message:2', { top: 130, bottom: 230 }),
+        ],
+    });
+
+    restoreElementScrollState(after, snapshot, {
+        itemSelector: '.chat-bubble[data-chat-anchor-key]',
+        datasetKey: 'chatAnchorKey',
+    }, {
+        preserveScrollTop: true,
+    });
+
+    assert.equal(after.scrollTop, 150);
 });
 
 test('scroll state can preserve detached reading position by scroll height delta', () => {

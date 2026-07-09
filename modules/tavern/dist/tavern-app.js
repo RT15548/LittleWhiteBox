@@ -7887,22 +7887,11 @@ function wv(e, t, n, r = {}) {
     }
     if (r.preserveScrollTop) {
       const a = r.preserveScrollHeightDelta ? Number(e.scrollHeight || 0) - Number(t.scrollHeight || 0) : 0;
-      e.scrollTop = Math.min(Math.max(0, t.scrollTop + a), e.scrollHeight);
-      const s = t.anchors?.length ? t.anchors : t.anchorKey ? [{
-        key: t.anchorKey,
-        topOffset: t.anchorTopOffset
-      }] : [];
-      if (s.length && n) {
-        const i = typeof e.getBoundingClientRect == "function" ? e.getBoundingClientRect() : null, l = Array.from(e.querySelectorAll(n.itemSelector)), o = s.map((c) => {
-          const u = l.find((h) => h?.dataset?.[n.datasetKey] === c.key), d = typeof u?.getBoundingClientRect == "function" ? u.getBoundingClientRect() : null;
-          return d ? {
-            rect: d,
-            topOffset: c.topOffset
-          } : null;
-        }).find((c) => !!c);
-        if (i && o) {
-          const c = o.rect.top - i.top;
-          e.scrollTop = Math.min(Math.max(0, e.scrollTop + c - Number(o.topOffset || 0)), e.scrollHeight);
+      if (e.scrollTop = Math.min(Math.max(0, t.scrollTop + a), e.scrollHeight), t.anchorKey && n) {
+        const s = typeof e.getBoundingClientRect == "function" ? e.getBoundingClientRect() : null, i = Array.from(e.querySelectorAll(n.itemSelector)).find((o) => o?.dataset?.[n.datasetKey] === t.anchorKey), l = typeof i?.getBoundingClientRect == "function" ? i.getBoundingClientRect() : null;
+        if (s && l) {
+          const o = l.top - s.top;
+          e.scrollTop = Math.min(Math.max(0, e.scrollTop + o - Number(t.anchorTopOffset || 0)), e.scrollHeight);
         }
       }
       return;

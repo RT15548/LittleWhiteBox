@@ -83,30 +83,19 @@ export function restoreElementScrollState(
             ? Number(node.scrollHeight || 0) - Number(snapshot.scrollHeight || 0)
             : 0;
         node.scrollTop = Math.min(Math.max(0, snapshot.scrollTop + scrollHeightDelta), node.scrollHeight);
-        const anchors = snapshot.anchors?.length
-            ? snapshot.anchors
-            : snapshot.anchorKey
-                ? [{ key: snapshot.anchorKey, topOffset: snapshot.anchorTopOffset }]
-                : [];
-        if (anchors.length && anchorConfig) {
+        if (snapshot.anchorKey && anchorConfig) {
             const containerRect = typeof node.getBoundingClientRect === 'function'
                 ? node.getBoundingClientRect()
                 : null;
-            const currentAnchors = Array.from(node.querySelectorAll<HTMLElement>(anchorConfig.itemSelector));
-            const matchedAnchor = anchors
-                .map((anchorItem) => {
-                    const anchorNode = currentAnchors
-                        .find((item) => item?.dataset?.[anchorConfig.datasetKey] === anchorItem.key);
-                    const anchorRect = typeof anchorNode?.getBoundingClientRect === 'function'
-                        ? anchorNode.getBoundingClientRect()
-                        : null;
-                    return anchorRect ? { rect: anchorRect, topOffset: anchorItem.topOffset } : null;
-                })
-                .find((item): item is { rect: DOMRect; topOffset: number } => !!item);
-            if (containerRect && matchedAnchor) {
-                const nextOffset = matchedAnchor.rect.top - containerRect.top;
+            const anchorNode = Array.from(node.querySelectorAll<HTMLElement>(anchorConfig.itemSelector))
+                .find((item) => item?.dataset?.[anchorConfig.datasetKey] === snapshot.anchorKey);
+            const anchorRect = typeof anchorNode?.getBoundingClientRect === 'function'
+                ? anchorNode.getBoundingClientRect()
+                : null;
+            if (containerRect && anchorRect) {
+                const nextOffset = anchorRect.top - containerRect.top;
                 node.scrollTop = Math.min(
-                    Math.max(0, node.scrollTop + nextOffset - Number(matchedAnchor.topOffset || 0)),
+                    Math.max(0, node.scrollTop + nextOffset - Number(snapshot.anchorTopOffset || 0)),
                     node.scrollHeight,
                 );
             }
