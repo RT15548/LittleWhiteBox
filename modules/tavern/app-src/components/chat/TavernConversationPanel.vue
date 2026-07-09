@@ -42,6 +42,7 @@ const {
     chatFocus,
     chatLayout,
     chatScrollControlsActive,
+    chatScrollContentRef,
     chatScrollRef,
     copyMessage,
     currentUserMessage,
@@ -111,6 +112,10 @@ const {
 } = draw;
 function setChatScrollRef(element: Element | null) {
     chatScrollRef.value = element instanceof HTMLElement ? element : null;
+}
+
+function setChatScrollContentRef(element: Element | null) {
+    chatScrollContentRef.value = element instanceof HTMLElement ? element : null;
 }
 
 function setChatComposeTextareaRef(element: Element | null) {
@@ -410,32 +415,36 @@ watch(isMobileActionTrayViewport, (isMobile) => {
         @touchmove.passive="handleChatTouchMove"
       >
         <div
-          v-if="chatMessageWindow.hiddenBefore"
-          class="chat-history-gate"
-          :data-chat-anchor-key="`gate:${chatMessageWindow.hiddenBefore}`"
-          role="button"
-          tabindex="0"
-          @click="revealOlderChatMessages(true)"
-          @keydown.enter.prevent="revealOlderChatMessages(true)"
-          @keydown.space.prevent="revealOlderChatMessages(true)"
-        >
-          展开较早记录 {{ chatMessageWindow.hiddenBefore }} 条
-        </div>
-        <div
-          v-for="message in visibleChatMessages"
-          :key="chatMessageItemDomKey(message)"
-          class="chat-message-item"
+          :ref="setChatScrollContentRef"
+          class="chat-scroll-content"
         >
           <div
-            :data-chat-anchor-key="`${message.sessionId}:${message.order}`"
-            class="chat-bubble"
-            :class="[
-              message.role === 'user' ? 'from-user' : 'from-assistant',
-              { 'is-error': message.error },
-              { 'is-action-tray-open': isMessageActionTrayOpen(message) },
-            ]"
-            @click.stop="toggleMessageActionTray(message, $event)"
+            v-if="chatMessageWindow.hiddenBefore"
+            class="chat-history-gate"
+            :data-chat-anchor-key="`gate:${chatMessageWindow.hiddenBefore}`"
+            role="button"
+            tabindex="0"
+            @click="revealOlderChatMessages(true)"
+            @keydown.enter.prevent="revealOlderChatMessages(true)"
+            @keydown.space.prevent="revealOlderChatMessages(true)"
           >
+            展开较早记录 {{ chatMessageWindow.hiddenBefore }} 条
+          </div>
+          <div
+            v-for="message in visibleChatMessages"
+            :key="chatMessageItemDomKey(message)"
+            class="chat-message-item"
+          >
+            <div
+              :data-chat-anchor-key="`${message.sessionId}:${message.order}`"
+              class="chat-bubble"
+              :class="[
+                message.role === 'user' ? 'from-user' : 'from-assistant',
+                { 'is-error': message.error },
+                { 'is-action-tray-open': isMessageActionTrayOpen(message) },
+              ]"
+              @click.stop="toggleMessageActionTray(message, $event)"
+            >
             <div class="bubble-meta">
               <div class="bubble-identity">
                 <span class="bubble-nameplate">
@@ -752,6 +761,7 @@ watch(isMobileActionTrayViewport, (isMobile) => {
           class="chat-compose-spacer"
           aria-hidden="true"
         />
+        </div>
       </div>
       <TavernScrollControls
         :active="chatScrollControlsActive"

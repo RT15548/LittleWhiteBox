@@ -8,7 +8,6 @@ import {
 import { normalizeTavernDisplaySettings, type TavernDisplaySettings } from '../shared/settings';
 import { TAVERN_INLINE_IMAGE_PROGRESS_EVENT, useTavernMarkdownTools } from './components/chat/useTavernMarkdownTools';
 import { useTavernScrollPane } from './components/chat/useTavernScrollPane';
-import { captureElementScrollState, restoreElementScrollState, type ElementScrollSnapshot } from './scroll-state';
 import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
 import {
     normalizeXbTavernAuthorNote,
@@ -437,21 +436,14 @@ const chatScrollPane = useTavernScrollPane({
     totalItems: () => selectedSessionMessageTotal.value,
     defaultLimit: hiddenOutsideCount,
     loadBatchSize,
-    revealAnchorConfig: {
-        itemSelector: '.chat-bubble[data-chat-anchor-key]',
-        datasetKey: 'chatAnchorKey',
-    },
 });
 const managerScrollPane = useTavernScrollPane({
     totalItems: () => managerChatMessageDisplayItems.value.length,
     defaultLimit: hiddenOutsideCount,
     loadBatchSize,
-    revealAnchorConfig: {
-        itemSelector: '.manager-card[data-manager-anchor-key]',
-        datasetKey: 'managerAnchorKey',
-    },
 });
 const chatScrollRef = chatScrollPane.scrollRef;
+const chatScrollContentRef = chatScrollPane.contentRef;
 const managerScrollRef = managerScrollPane.scrollRef;
 const chatAutoScroll = chatScrollPane.autoScroll;
 const managerAutoScroll = managerScrollPane.autoScroll;
@@ -686,36 +678,8 @@ function handleKeyboardViewportFocus(event: FocusEvent) {
     postToHost('xb-tavern:viewport-settle', { reason: event.type });
 }
 
-const chatScrollAnchorConfig = {
-    itemSelector: '.chat-bubble[data-chat-anchor-key], .chat-history-gate[data-chat-anchor-key]',
-    datasetKey: 'chatAnchorKey',
-};
-
-function restoreDetachedChatScrollAfterMarkdown(snapshot: ElementScrollSnapshot | null) {
-    if (!snapshot || chatAutoScroll.value !== false) {return;}
-    restoreElementScrollState(chatScrollRef.value, snapshot, chatScrollAnchorConfig, {
-        preserveScrollTop: true,
-    });
-    chatScrollPane.updateScrollButtons();
-}
-
-function preserveDetachedChatScrollDuringMarkdown<T>(mutation: () => T): T {
-    const snapshot = chatAutoScroll.value === false
-        ? captureElementScrollState(chatScrollRef.value, chatScrollAnchorConfig)
-        : null;
-    try {
-        return mutation();
-    } finally {
-        restoreDetachedChatScrollAfterMarkdown(snapshot);
-        if (snapshot && typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-            window.requestAnimationFrame(() => {
-                restoreDetachedChatScrollAfterMarkdown(snapshot);
-                window.requestAnimationFrame(() => {
-                    restoreDetachedChatScrollAfterMarkdown(snapshot);
-                });
-            });
-        }
-    }
+function preserveChatViewportDuringMutation<T>(mutation: () => T): T {
+    return chatScrollPane.preserveViewportDuringMutation(mutation);
 }
 
 const {
@@ -737,7 +701,7 @@ const {
     confirmDialog: confirmTavernDialog,
     requestHost,
     showToast: showTavernToast,
-    preserveChatScroll: preserveDetachedChatScrollDuringMarkdown,
+    preserveChatScroll: preserveChatViewportDuringMutation,
     getHtmlFrameAvatarUrls: () => ({
         user: String(effectiveContext.value.user?.avatar || ''),
         char: String(effectiveContext.value.character?.avatar || ''),
@@ -3701,7 +3665,6 @@ async function rerunFromManagerMessage(message: TavernManagerMessageRecord) {
 const updateChatScrollButtons = chatScrollPane.updateScrollButtons;
 const updateManagerScrollButtons = managerScrollPane.updateScrollButtons;
 const placeChatAtBottomForNewContext = chatScrollPane.placeAtBottomForNewContext;
-const followChatStreamToBottomIfAtBottom = chatScrollPane.followStreamToBottomIfAtBottom;
 const jumpChatToBottom = chatScrollPane.jumpToBottom;
 const scrollChatToTop = chatScrollPane.scrollToTop;
 const scrollManagerToBottom = managerScrollPane.scrollToBottom;
@@ -3983,7 +3946,7 @@ const chatRunController = useTavernChatRunController({
     refreshManagerRecords,
     refreshRuntimeChatPresetFromHost,
     refreshSessions,
-    preserveDetachedChatScroll: preserveDetachedChatScrollDuringMarkdown,
+    preserveDetachedChatScroll: preserveChatViewportDuringMutation,
     resetChatMessageWindowState,
     resetTextareaHeight,
     resolveRuntimeContextForSession,
@@ -4424,14 +4387,6 @@ watch([
     () => runtimeActionCheckSignature.value,
 ], () => {
     if (activeView.value !== 'chat' || chatFocus.value !== 'chat') {return;}
-    const hasLiveStreamContent = !!(
-        String(runtimeText.value || '')
-        || runtimeThoughts.value.length
-        || runtimeActionCheckEvents.value.length
-    );
-    if (isRunning.value && hasLiveStreamContent) {
-        followChatStreamToBottomIfAtBottom();
-    }
     void nextTick(() => {
         enhanceLiveChatMarkdown();
         updateChatScrollButtons();
@@ -4602,6 +4557,7 @@ const chatContext = {
     chatLayout,
     chatComposeTextareaRef,
     chatScrollControlsActive,
+    chatScrollContentRef,
     chatScrollRef,
     chatSubtitle,
     copyMessage,

@@ -339,6 +339,7 @@ export interface TavernChatContext {
     chatLayout: Ref<string>;
     chatComposeTextareaRef: Ref<HTMLTextAreaElement | null>;
     chatScrollControlsActive: Ref<boolean>;
+    chatScrollContentRef: Ref<HTMLElement | null>;
     chatScrollRef: Ref<HTMLElement | null>;
     chatSubtitle: TavernReadable<string>;
     copyMessage: TavernCommand<[message: TavernMessageRecord], Promise<void>>;

@@ -59,11 +59,12 @@ test('tavern scroll handlers collapse expanded message windows when returning to
     assert.match(scrollPaneSource, /function handleScroll\(\)[\s\S]*collapseMessageWindowIfBottom\(\);/);
     assert.match(scrollPaneSource, /let topRevealAutoBlocked = false;/);
     assert.match(scrollPaneSource, /if \(!force && topRevealAutoBlocked\) \{return false;\}/);
-    assert.match(scrollPaneSource, /topRevealAutoBlocked = true;[\s\S]*scheduleRevealScrollRestore\(snapshot\);/);
+    assert.match(scrollPaneSource, /preserveNextPrepend\(\);[\s\S]*messageWindowLimit\.value = Number\(state\.uiMessageWindowLimit \|\| messageWindowLimit\.value\);[\s\S]*autoScroll\.value = false;[\s\S]*topRevealAutoBlocked = true;/);
     assert.match(scrollPaneSource, /if \(currentScrollTop > 96\) \{[\s\S]*topRevealAutoBlocked = false;/);
-    assert.match(scrollPaneSource, /const bottomLockThresholdPx = 5;/);
-    assert.match(scrollPaneSource, /return Math\.abs\(node\.scrollHeight - node\.clientHeight - node\.scrollTop\) < threshold;/);
+    assert.match(scrollPaneSource, /const bottomLockThresholdPx = 48;/);
+    assert.match(scrollPaneSource, /return node\.scrollHeight - node\.clientHeight - node\.scrollTop <= threshold;/);
     assert.doesNotMatch(scrollPaneSource, /scrollingTowardBottom|currentScrollTop > previousScrollTop/);
+    assert.match(scrollPaneSource, /if \(programmaticScroll\) \{[\s\S]*updateScrollButtons\(\);[\s\S]*return;/);
     assert.match(scrollPaneSource, /const atBottom = isNearBottom\(\);[\s\S]*if \(atBottom\) \{[\s\S]*autoScroll\.value = true;[\s\S]*\} else \{[\s\S]*autoScroll\.value = false;/);
     assert.match(scrollPaneSource, /node\.scrollTop = node\.scrollHeight;\s*lastScrollTop = Number\(node\.scrollTop \|\| 0\);/);
     assert.doesNotMatch(scrollPaneSource, /else if \(currentScrollTop < previousScrollTop\) \{[\s\S]*autoScroll\.value = false;/);
@@ -75,19 +76,21 @@ test('tavern scroll handlers collapse expanded message windows when returning to
     assert.match(scrollPaneSource, /function followStreamToBottomIfAtBottom\(\) \{[\s\S]*if \(autoScroll\.value === false\) \{[\s\S]*updateScrollButtons\(\);[\s\S]*return;[\s\S]*\}[\s\S]*scrollToBottom\(\);[\s\S]*\}/);
     assert.match(scrollPaneSource, /function jumpToBottom\(scrollOptions: TavernScrollToBottomOptions = \{\}\) \{[\s\S]*scrollToBottom\(true, scrollOptions\);[\s\S]*\}/);
     assert.match(scrollPaneSource, /function scrollToBottom\([\s\S]*if \(scrollOptions\.collapseWindow\) \{[\s\S]*collapseMessageWindowIfBottom\(true\);/);
-    assert.match(scrollPaneSource, /const apply = \(\) => \{[\s\S]*if \(!force && autoScroll\.value === false\) \{return false;\}[\s\S]*node\.scrollTop = node\.scrollHeight;[\s\S]*return true;/);
+    assert.match(scrollPaneSource, /function stickToBottom\(\) \{[\s\S]*runSilently\(\(\) => \{[\s\S]*node\.scrollTop = node\.scrollHeight;[\s\S]*\}\);/);
     assert.doesNotMatch(scrollPaneSource, /scrollOptions\.collapseWindow \|\| autoScroll\.value/);
     assert.match(scrollPaneSource, /watch\(\(\) => normalizeHiddenOutsideCount[\s\S]*if \(autoScroll\.value === false\) \{return;\}[\s\S]*resetWindowState\(\);/);
 });
 
-test('tavern reveal older messages preserves the first visible message anchor', () => {
+test('tavern reveal older messages uses isolated delta compensation instead of anchor watchers', () => {
     const appSource = readFileSync(resolve(root, 'modules/tavern/app-src/App.vue'), 'utf8');
     const scrollPaneSource = readFileSync(resolve(root, 'modules/tavern/app-src/components/chat/useTavernScrollPane.ts'), 'utf8');
-    assert.match(scrollPaneSource, /revealAnchorConfig\?: AnchorConfig/);
-    assert.match(scrollPaneSource, /const snapshot = options\.revealAnchorConfig[\s\S]*captureElementScrollState\(node, options\.revealAnchorConfig\)/);
-    assert.match(scrollPaneSource, /messageWindowLimit\.value = Number\(state\.uiMessageWindowLimit \|\| messageWindowLimit\.value\);[\s\S]*autoScroll\.value = false;[\s\S]*scheduleRevealScrollRestore\(snapshot\);/);
-    assert.match(scrollPaneSource, /restoreElementScrollState\(node, snapshot, options\.revealAnchorConfig, \{[\s\S]*preserveScrollTop: true/);
-    assert.match(appSource, /revealAnchorConfig: \{\s*itemSelector: '\.chat-bubble\[data-chat-anchor-key\]'/);
-    assert.match(appSource, /revealAnchorConfig: \{\s*itemSelector: '\.manager-card\[data-manager-anchor-key\]'/);
-    assert.doesNotMatch(appSource, /revealAnchorConfig: \{[\s\S]{0,120}chat-history-gate/);
+    assert.match(scrollPaneSource, /const contentRef = ref<HTMLElement \| null>\(null\);/);
+    assert.match(scrollPaneSource, /let contentResizeObserver: ResizeObserver \| null = null;/);
+    assert.match(scrollPaneSource, /contentResizeObserver = new ResizeObserver\(\(\) => \{[\s\S]*handleContentChanged\(\);[\s\S]*\}\);/);
+    assert.match(scrollPaneSource, /function preserveNextPrepend\(\) \{[\s\S]*scrollHeight: Number\(node\.scrollHeight \|\| 0\),[\s\S]*scrollTop: Number\(node\.scrollTop \|\| 0\),/);
+    assert.match(scrollPaneSource, /function applyPrependCompensation\(\) \{[\s\S]*const delta = Number\(node\.scrollHeight \|\| 0\) - snapshot\.scrollHeight;[\s\S]*node\.scrollTop = Math\.max\(0, snapshot\.scrollTop \+ delta\);/);
+    assert.match(scrollPaneSource, /function handleContentChanged\(\) \{[\s\S]*if \(applyPrependCompensation\(\)\) \{return;\}[\s\S]*if \(autoScroll\.value\) \{[\s\S]*stickToBottom\(\);[\s\S]*return;[\s\S]*\}[\s\S]*updateScrollButtons\(\);/);
+    assert.match(scrollPaneSource, /return \{[\s\S]*contentRef: contentRef as Ref<HTMLElement \| null>,/);
+    assert.doesNotMatch(scrollPaneSource, /revealAnchorConfig|captureElementScrollState|restoreElementScrollState|scheduleRevealScrollRestore/);
+    assert.doesNotMatch(appSource, /revealAnchorConfig:/);
 });

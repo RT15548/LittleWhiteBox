@@ -50,24 +50,14 @@ const {
     rememberBrokenAvatar,
 } = shell;
 const {
-    chatAutoScroll,
     chatLayout,
-    chatScrollRef,
     currentAuthorNote,
     displayCharacterName,
-    isRunning,
     saveCurrentAuthorNote,
-    messageKey,
-    runtimeActionCheckEvents,
-    runtimeText,
-    runtimeThoughts,
-    updateChatScrollButtons,
     visibleCharacterAvatar,
 } = chat;
 const {
-    chatMessageWindow,
     selectedSessionId,
-    visibleChatMessages,
 } = session;
 const {
     managerMessageWindow,
@@ -104,9 +94,7 @@ type ChatQuickWorkspace =
     | 'regex'
     | 'base';
 
-let pendingChatScrollSnapshot: ElementScrollSnapshot | null = null;
 let pendingManagerScrollSnapshot: ElementScrollSnapshot | null = null;
-let pendingStreamingChatScrollSnapshot: ElementScrollSnapshot | null = null;
 const contractModalOpen = ref(false);
 const quickSettingsOpen = ref<ChatQuickWorkspace | null>(null);
 const chatAppMenuOpen = ref(false);
@@ -125,44 +113,11 @@ const isMobileChatViewport = useTavernMediaQuery('(max-width: 760px)');
 
 const contractDraftDirty = computed(() => JSON.stringify(contractDraft.value) !== JSON.stringify(sessionContract.value));
 const shouldMountChatWorkspace = computed(() => !isMobileChatViewport.value || mobileChatPanel.value === 'workspace');
-const chatPaneVisible = computed(() => activeView.value === 'chat' && chatFocus.value === 'chat');
 const managerPaneVisible = computed(() => activeView.value === 'chat' && chatFocus.value === 'manager');
-const chatScrollAnchorSignature = computed(() => [
-    chatMessageWindow.value.startIndex,
-    chatMessageWindow.value.visibleCount,
-    ...visibleChatMessages.value.map((message) => `${messageKey(message)}:${message.error ? 1 : 0}:${String(message.content || '').length}`),
-].join('|'));
 const managerScrollAnchorSignature = computed(() => [
     managerMessageWindow.value.startIndex,
     managerMessageWindow.value.visibleCount,
     ...visibleManagerChatItems.value.map((item) => `${item.kind}:${item.key}`),
-].join('|'));
-const runtimeThoughtsScrollSignature = computed(() => runtimeThoughts.value
-    .map((thought, index) => `${index}:${String(thought.label || '').length}:${String(thought.text || '').length}`)
-    .join('|'));
-const runtimeActionCheckScrollSignature = computed(() => runtimeActionCheckEvents.value
-    .map((event, index) => [
-        index,
-        event.toolCallId || '',
-        event.character || '',
-        event.stat,
-        event.action,
-        event.roll,
-        event.difficulty,
-        event.difficultyLabel || '',
-        event.mode || '',
-        event.threshold ?? '',
-        event.statValue ?? '',
-        event.statMax ?? '',
-        event.outcome || '',
-        event.insertAfterChars,
-        event.success ? 1 : 0,
-    ].join(':'))
-    .join('|'));
-const streamingReadingLockSignature = computed(() => [
-    runtimeText.value,
-    runtimeThoughtsScrollSignature.value,
-    runtimeActionCheckScrollSignature.value,
 ].join('|'));
 
 const authorNotePositionOptions = [
@@ -327,31 +282,6 @@ function handleChatAppMenuKeydown(event: KeyboardEvent) {
     closeChatAppMenu();
 }
 
-function captureChatScrollSnapshot() {
-    return captureElementScrollState(chatScrollRef.value, {
-        itemSelector: '.chat-bubble[data-chat-anchor-key], .chat-history-gate[data-chat-anchor-key]',
-        datasetKey: 'chatAnchorKey',
-    });
-}
-
-function restoreChatScrollSnapshot(snapshot: ElementScrollSnapshot | null, options: {
-    preserveScrollTop?: boolean;
-    preserveScrollHeightDelta?: boolean;
-} = {}) {
-    restoreElementScrollState(chatScrollRef.value, snapshot, {
-        itemSelector: '.chat-bubble[data-chat-anchor-key], .chat-history-gate[data-chat-anchor-key]',
-        datasetKey: 'chatAnchorKey',
-    }, options);
-}
-
-function shouldLockStreamingChatScroll() {
-    return (
-        isRunning.value === true
-        && chatAutoScroll.value === false
-        && chatPaneVisible.value
-    );
-}
-
 function toggleContractDraft(key: TavernContractPermissionKey) {
     contractDraft.value = {
         ...contractDraft.value,
@@ -409,12 +339,6 @@ watch(() => selectedSessionId.value, () => {
     authorNoteDraft.value = normalizeXbTavernAuthorNote(currentAuthorNote.value);
 });
 
-watch(chatScrollAnchorSignature, () => {
-    pendingChatScrollSnapshot = chatPaneVisible.value
-        ? captureChatScrollSnapshot()
-        : null;
-}, { flush: 'sync' });
-
 watch(managerScrollAnchorSignature, () => {
     pendingManagerScrollSnapshot = managerPaneVisible.value
         ? captureElementScrollState(managerScrollRef.value, {
@@ -423,15 +347,6 @@ watch(managerScrollAnchorSignature, () => {
         })
         : null;
 }, { flush: 'sync' });
-
-watch(chatScrollAnchorSignature, () => {
-    if (!pendingChatScrollSnapshot) {return;}
-    restoreChatScrollSnapshot(pendingChatScrollSnapshot, {
-        preserveScrollTop: true,
-    });
-    pendingChatScrollSnapshot = null;
-    updateChatScrollButtons();
-}, { flush: 'post' });
 
 watch(managerScrollAnchorSignature, () => {
     if (!pendingManagerScrollSnapshot) {return;}
@@ -443,22 +358,6 @@ watch(managerScrollAnchorSignature, () => {
     });
     pendingManagerScrollSnapshot = null;
     updateManagerScrollButtons();
-}, { flush: 'post' });
-
-watch(streamingReadingLockSignature, () => {
-    if (!shouldLockStreamingChatScroll()) {return;}
-    pendingStreamingChatScrollSnapshot = captureChatScrollSnapshot();
-}, { flush: 'sync' });
-
-watch(streamingReadingLockSignature, () => {
-    if (!pendingStreamingChatScrollSnapshot) {return;}
-    if (shouldLockStreamingChatScroll()) {
-        restoreChatScrollSnapshot(pendingStreamingChatScrollSnapshot, {
-            preserveScrollTop: true,
-        });
-        updateChatScrollButtons();
-    }
-    pendingStreamingChatScrollSnapshot = null;
 }, { flush: 'post' });
 
 onMounted(() => {

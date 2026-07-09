@@ -7,18 +7,11 @@ import {
     normalizeMessageLoadBatchSize,
     resetMessageWindow,
 } from '../../message-window';
-import {
-    captureElementScrollState,
-    restoreElementScrollState,
-    type AnchorConfig,
-    type ElementScrollSnapshot,
-} from '../../scroll-state';
 
 export interface TavernScrollPaneOptions {
     totalItems: () => number;
     defaultLimit?: number | Ref<number>;
     loadBatchSize?: number | Ref<number>;
-    revealAnchorConfig?: AnchorConfig;
 }
 
 export interface TavernScrollToBottomOptions {
@@ -26,8 +19,18 @@ export interface TavernScrollToBottomOptions {
     revealHelpers?: boolean;
 }
 
+interface ViewportPreservationSnapshot {
+    scrollTop: number;
+    userScrollVersion: number;
+    anchor: {
+        element: HTMLElement;
+        topOffset: number;
+    } | null;
+}
+
 export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     const scrollRef = ref<HTMLElement | null>(null);
+    const contentRef = ref<HTMLElement | null>(null);
     const autoScroll = ref(true);
     const showScrollTop = ref(false);
     const showScrollBottom = ref(false);
@@ -37,32 +40,18 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     let scrollTicking = false;
     let lastScrollTop = 0;
     let topRevealAutoBlocked = false;
-    const bottomLockThresholdPx = 5;
-
-    function restoreRevealScrollSnapshot(snapshot: ElementScrollSnapshot | null) {
-        if (!snapshot || !options.revealAnchorConfig) {return false;}
-        const node = scrollRef.value;
-        if (!node) {return false;}
-        restoreElementScrollState(node, snapshot, options.revealAnchorConfig, {
-            preserveScrollTop: true,
-        });
-        lastScrollTop = Number(node.scrollTop || 0);
-        updateScrollButtons();
-        return true;
-    }
-
-    function scheduleRevealScrollRestore(snapshot: ElementScrollSnapshot | null) {
-        if (!snapshot || !options.revealAnchorConfig) {return;}
-        void nextTick(() => {
-            restoreRevealScrollSnapshot(snapshot);
-            requestAnimationFrame(() => {
-                restoreRevealScrollSnapshot(snapshot);
-                requestAnimationFrame(() => {
-                    restoreRevealScrollSnapshot(snapshot);
-                });
-            });
-        });
-    }
+    let programmaticScroll = false;
+    let programmaticUnlockFrame = 0;
+    let programmaticUnlockSecondFrame = 0;
+    let contentResizeObserver: ResizeObserver | null = null;
+    let prependCompensation: { scrollHeight: number; scrollTop: number } | null = null;
+    let userScrollVersion = 0;
+    let viewportPreservationToken = 0;
+    let activeViewportPreservation: { token: number; snapshot: ViewportPreservationSnapshot } | null = null;
+    let viewportPreservationFrame = 0;
+    let viewportPreservationSecondFrame = 0;
+    const bottomLockThresholdPx = 48;
+    const viewportAnchorSelector = '[data-chat-anchor-key], [data-manager-anchor-key]';
 
     function resetWindowState() {
         const state = { uiMessageWindowLimit: messageWindowLimit.value };
@@ -71,23 +60,268 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         topRevealAutoBlocked = false;
     }
 
+    function clearProgrammaticUnlockFrames() {
+        if (typeof window === 'undefined' || typeof window.cancelAnimationFrame !== 'function') {
+            programmaticUnlockFrame = 0;
+            programmaticUnlockSecondFrame = 0;
+            return;
+        }
+        if (programmaticUnlockFrame) {
+            window.cancelAnimationFrame(programmaticUnlockFrame);
+            programmaticUnlockFrame = 0;
+        }
+        if (programmaticUnlockSecondFrame) {
+            window.cancelAnimationFrame(programmaticUnlockSecondFrame);
+            programmaticUnlockSecondFrame = 0;
+        }
+    }
+
+    function clearViewportPreservationFrames() {
+        if (typeof window === 'undefined' || typeof window.cancelAnimationFrame !== 'function') {
+            viewportPreservationFrame = 0;
+            viewportPreservationSecondFrame = 0;
+            return;
+        }
+        if (viewportPreservationFrame) {
+            window.cancelAnimationFrame(viewportPreservationFrame);
+            viewportPreservationFrame = 0;
+        }
+        if (viewportPreservationSecondFrame) {
+            window.cancelAnimationFrame(viewportPreservationSecondFrame);
+            viewportPreservationSecondFrame = 0;
+        }
+    }
+
+    function requestViewportPreservationFrame(callback: () => void) {
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            callback();
+            return 0;
+        }
+        return window.requestAnimationFrame(callback);
+    }
+
+    function unlockProgrammaticScrollSoon() {
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            programmaticScroll = false;
+            return;
+        }
+        clearProgrammaticUnlockFrames();
+        programmaticUnlockFrame = window.requestAnimationFrame(() => {
+            programmaticUnlockFrame = 0;
+            programmaticUnlockSecondFrame = window.requestAnimationFrame(() => {
+                programmaticUnlockSecondFrame = 0;
+                programmaticScroll = false;
+            });
+        });
+    }
+
+    function runSilently(mutation: () => void) {
+        programmaticScroll = true;
+        try {
+            mutation();
+        } finally {
+            unlockProgrammaticScrollSoon();
+        }
+    }
+
+    function clampScrollTop(node: HTMLElement, scrollTop: number) {
+        const maxScrollTop = Math.max(0, Number(node.scrollHeight || 0) - Number(node.clientHeight || 0));
+        return Math.min(Math.max(0, scrollTop), maxScrollTop);
+    }
+
+    function getViewportAnchorCandidates(contentNode: HTMLElement) {
+        const anchors = Array.from(contentNode.querySelectorAll<HTMLElement>(viewportAnchorSelector));
+        if (anchors.length) {return anchors;}
+        return Array.from(contentNode.children)
+            .filter((child): child is HTMLElement => child instanceof HTMLElement);
+    }
+
+    function findViewportAnchor(node: HTMLElement): ViewportPreservationSnapshot['anchor'] {
+        const contentNode = contentRef.value || node;
+        const containerRect = typeof node.getBoundingClientRect === 'function'
+            ? node.getBoundingClientRect()
+            : null;
+        if (!containerRect) {return null;}
+        const anchor = getViewportAnchorCandidates(contentNode)
+            .map((element) => ({
+                element,
+                rect: typeof element.getBoundingClientRect === 'function'
+                    ? element.getBoundingClientRect()
+                    : null,
+            }))
+            .find((item) => (
+                item.rect
+                && item.rect.bottom >= containerRect.top + 1
+                && item.rect.top <= containerRect.bottom - 1
+            ));
+        return anchor?.rect
+            ? { element: anchor.element, topOffset: anchor.rect.top - containerRect.top }
+            : null;
+    }
+
+    function captureViewportPreservation(): ViewportPreservationSnapshot | null {
+        const node = scrollRef.value;
+        if (!node || autoScroll.value !== false) {return null;}
+        return {
+            scrollTop: Number(node.scrollTop || 0),
+            userScrollVersion,
+            anchor: findViewportAnchor(node),
+        };
+    }
+
+    function restoreViewportPreservation(snapshot: ViewportPreservationSnapshot | null) {
+        const node = scrollRef.value;
+        if (!node || !snapshot || autoScroll.value !== false || snapshot.userScrollVersion !== userScrollVersion) {
+            return false;
+        }
+        const contentNode = contentRef.value || node;
+        const containerRect = typeof node.getBoundingClientRect === 'function'
+            ? node.getBoundingClientRect()
+            : null;
+        const anchor = snapshot.anchor;
+        if (anchor?.element?.isConnected && contentNode.contains(anchor.element) && containerRect) {
+            const anchorRect = typeof anchor.element.getBoundingClientRect === 'function'
+                ? anchor.element.getBoundingClientRect()
+                : null;
+            if (anchorRect) {
+                const nextOffset = anchorRect.top - containerRect.top;
+                runSilently(() => {
+                    node.scrollTop = clampScrollTop(node, Number(node.scrollTop || 0) + nextOffset - anchor.topOffset);
+                    lastScrollTop = Number(node.scrollTop || 0);
+                });
+                updateScrollButtons();
+                return true;
+            }
+        }
+        runSilently(() => {
+            node.scrollTop = clampScrollTop(node, snapshot.scrollTop);
+            lastScrollTop = Number(node.scrollTop || 0);
+        });
+        updateScrollButtons();
+        return true;
+    }
+
+    function restoreActiveViewportPreservation() {
+        const active = activeViewportPreservation;
+        if (!active) {return false;}
+        const restored = restoreViewportPreservation(active.snapshot);
+        if (!restored && activeViewportPreservation?.token === active.token) {
+            activeViewportPreservation = null;
+        }
+        return restored;
+    }
+
+    function scheduleViewportPreservation(snapshot: ViewportPreservationSnapshot | null) {
+        if (!snapshot) {return;}
+        const token = viewportPreservationToken + 1;
+        viewportPreservationToken = token;
+        activeViewportPreservation = { token, snapshot };
+        clearViewportPreservationFrames();
+        restoreActiveViewportPreservation();
+        void nextTick(() => {
+            if (activeViewportPreservation?.token !== token) {return;}
+            restoreActiveViewportPreservation();
+            viewportPreservationFrame = requestViewportPreservationFrame(() => {
+                viewportPreservationFrame = 0;
+                if (activeViewportPreservation?.token !== token) {return;}
+                restoreActiveViewportPreservation();
+                viewportPreservationSecondFrame = requestViewportPreservationFrame(() => {
+                    viewportPreservationSecondFrame = 0;
+                    if (activeViewportPreservation?.token !== token) {return;}
+                    restoreActiveViewportPreservation();
+                    if (activeViewportPreservation?.token === token) {
+                        activeViewportPreservation = null;
+                    }
+                });
+            });
+        });
+    }
+
+    function preserveViewportDuringMutation<T>(mutation: () => T): T {
+        const snapshot = captureViewportPreservation();
+        try {
+            return mutation();
+        } finally {
+            scheduleViewportPreservation(snapshot);
+        }
+    }
+
+    function stickToBottom() {
+        const node = scrollRef.value;
+        if (!node) {return false;}
+        runSilently(() => {
+            node.scrollTop = node.scrollHeight;
+            lastScrollTop = Number(node.scrollTop || 0);
+        });
+        updateScrollButtons();
+        return true;
+    }
+
+    function preserveNextPrepend() {
+        const node = scrollRef.value;
+        if (!node) {return;}
+        prependCompensation = {
+            scrollHeight: Number(node.scrollHeight || 0),
+            scrollTop: Number(node.scrollTop || 0),
+        };
+    }
+
+    function applyPrependCompensation() {
+        const node = scrollRef.value;
+        const snapshot = prependCompensation;
+        if (!node || !snapshot) {return false;}
+        prependCompensation = null;
+        const delta = Number(node.scrollHeight || 0) - snapshot.scrollHeight;
+        runSilently(() => {
+            node.scrollTop = Math.max(0, snapshot.scrollTop + delta);
+            lastScrollTop = Number(node.scrollTop || 0);
+        });
+        updateScrollButtons();
+        return true;
+    }
+
+    function handleContentChanged() {
+        if (applyPrependCompensation()) {return;}
+        if (autoScroll.value) {
+            stickToBottom();
+            return;
+        }
+        if (restoreActiveViewportPreservation()) {return;}
+        updateScrollButtons();
+    }
+
+    function disconnectContentResizeObserver() {
+        if (!contentResizeObserver) {return;}
+        contentResizeObserver.disconnect();
+        contentResizeObserver = null;
+    }
+
+    watch([scrollRef, contentRef], ([scrollNode, contentNode]) => {
+        disconnectContentResizeObserver();
+        if (!scrollNode || !contentNode || typeof ResizeObserver === 'undefined') {return;}
+        contentResizeObserver = new ResizeObserver(() => {
+            handleContentChanged();
+        });
+        contentResizeObserver.observe(contentNode);
+        if (autoScroll.value) {
+            void nextTick(stickToBottom);
+        }
+    }, { flush: 'post' });
+
     function revealOlderMessages(force = false) {
         const node = scrollRef.value;
         if (!force && autoScroll.value !== false) {return false;}
         if (!force && topRevealAutoBlocked) {return false;}
         if (!node || (!force && node.scrollTop > 64)) {return false;}
-        const snapshot = options.revealAnchorConfig
-            ? captureElementScrollState(node, options.revealAnchorConfig)
-            : null;
         const state = { uiMessageWindowLimit: messageWindowLimit.value };
         if (!expandMessageWindow(state, options.totalItems(), {
             defaultLimit: normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT),
             chunk: normalizeMessageLoadBatchSize(unref(options.loadBatchSize), AGENT_MESSAGE_WINDOW_CHUNK),
         })) {return false;}
+        preserveNextPrepend();
         messageWindowLimit.value = Number(state.uiMessageWindowLimit || messageWindowLimit.value);
         autoScroll.value = false;
         topRevealAutoBlocked = true;
-        scheduleRevealScrollRestore(snapshot);
         return true;
     }
 
@@ -119,7 +353,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     function isNearBottom(threshold = bottomLockThresholdPx) {
         const node = scrollRef.value;
         if (!node) {return true;}
-        return Math.abs(node.scrollHeight - node.clientHeight - node.scrollTop) < threshold;
+        return node.scrollHeight - node.clientHeight - node.scrollTop <= threshold;
     }
 
     function collapseMessageWindowIfBottom(force = false) {
@@ -139,32 +373,16 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         if (!force && !autoScroll.value) {return;}
         if (force) {autoScroll.value = true;}
         void nextTick(() => {
-            const apply = () => {
-                if (!force && autoScroll.value === false) {return false;}
-                const node = scrollRef.value;
-                if (!node) {return false;}
-                node.scrollTop = node.scrollHeight;
-                lastScrollTop = Number(node.scrollTop || 0);
-                return true;
-            };
-            if (!apply()) {return;}
-            requestAnimationFrame(() => {
-                if (!apply()) {return;}
-                requestAnimationFrame(() => {
-                    if (!apply()) {return;}
-                    if (scrollOptions.collapseWindow) {
-                        collapseMessageWindowIfBottom(true);
-                        void nextTick(() => {
-                            if (!apply()) {return;}
-                            requestAnimationFrame(apply);
-                        });
-                    }
-                    updateScrollButtons();
-                    if (scrollOptions.revealHelpers) {
-                        scheduleHideScrollHelpers();
-                    }
-                });
-            });
+            if (!force && autoScroll.value === false) {return;}
+            if (!stickToBottom()) {return;}
+            if (scrollOptions.collapseWindow) {
+                collapseMessageWindowIfBottom(true);
+                void nextTick(stickToBottom);
+            }
+            updateScrollButtons();
+            if (scrollOptions.revealHelpers) {
+                scheduleHideScrollHelpers();
+            }
         });
     }
 
@@ -199,6 +417,11 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     function handleScroll() {
         const node = scrollRef.value;
         if (!node) {return;}
+        if (programmaticScroll) {
+            updateScrollButtons();
+            return;
+        }
+        userScrollVersion += 1;
         const currentScrollTop = Number(node.scrollTop || 0);
         if (currentScrollTop > 96) {
             topRevealAutoBlocked = false;
@@ -300,11 +523,18 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
             window.clearTimeout(scrollHideTimer);
             scrollHideTimer = null;
         }
+        clearProgrammaticUnlockFrames();
+        clearViewportPreservationFrames();
+        programmaticScroll = false;
+        prependCompensation = null;
+        activeViewportPreservation = null;
+        disconnectContentResizeObserver();
         scrollRef.value?.classList.remove('is-scrolling');
     }
 
     return {
         scrollRef: scrollRef as Ref<HTMLElement | null>,
+        contentRef: contentRef as Ref<HTMLElement | null>,
         autoScroll,
         showScrollTop,
         showScrollBottom,
@@ -315,6 +545,8 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         updateScrollButtons,
         isNearBottom,
         collapseMessageWindowIfBottom,
+        runSilently,
+        preserveViewportDuringMutation,
         placeAtBottomForNewContext,
         followStreamToBottomIfAtBottom,
         jumpToBottom,
