@@ -3638,10 +3638,11 @@ async function rerunFromManagerMessage(message: TavernManagerMessageRecord) {
     const userMessage = latest?.role === 'user'
         ? latest
         : [...sorted].reverse().find((item) => item.role === 'user' && item.order <= (latest?.order ?? -1));
-    if (!userMessage || !selectedSessionId.value) {
+    if (!userMessage || selectedSessionId.value !== userMessage.sessionId) {
         flashManagerMessageAction(message, 'rerun', false);
         return;
     }
+    const managerSessionId = userMessage.sessionId;
     const ordersToDelete = sorted
         .filter((item) => item.order >= userMessage.order)
         .map((item) => item.order);
@@ -3654,9 +3655,13 @@ async function rerunFromManagerMessage(message: TavernManagerMessageRecord) {
         });
         if (!ok) {return;}
     }
+    if (selectedSessionId.value !== managerSessionId) {
+        flashManagerMessageAction(message, 'rerun', false);
+        return;
+    }
     const historyBeforeTurn = sorted.filter((item) => item.order < userMessage.order);
     flashManagerMessageAction(message, 'rerun', true);
-    await sendManagerQuestion(userMessage.sessionId, userMessage.content, {
+    await sendManagerQuestion(managerSessionId, userMessage.content, {
         historyBeforeTurn,
         replaceOrdersAfterAppend: ordersToDelete,
     });
@@ -4155,7 +4160,12 @@ async function sendManagerQuestion(
 ) {
     const question = String(text || '').trim();
     if (!managerSessionId || !question) {return;}
-    const managerTurn = Number(sessionRuntimeState.value.turn || 0);
+    const managerSession = sessions.value.find((session) => session.id === managerSessionId)
+        || (selectedSessionId.value === managerSessionId ? selectedSession.value : null);
+    const managerTurn = Number(normalizeTavernSessionState(managerSession?.state || {}).turn || 0);
+    const managerContextSnapshot = managerSession
+        ? buildSessionContextSnapshotBase(managerSession)
+        : {};
     const controller = new AbortController();
     managerAssistantController.value = controller;
     isManagerAssistantRunning.value = true;
@@ -4172,6 +4182,7 @@ async function sendManagerQuestion(
             sessionId: managerSessionId,
             agentConfig: agentConfig.value,
             assistantPreset: activeAssistantPreset.value,
+            contextSnapshot: managerContextSnapshot,
             question,
             history: options.historyBeforeTurn,
             signal: controller.signal,
@@ -4264,6 +4275,7 @@ async function sendManagerQuestion(
             sessionId: managerSessionId,
             agentConfig: agentConfig.value,
             assistantPreset: activeAssistantPreset.value,
+            contextSnapshot: managerContextSnapshot,
             question,
             history: historyBeforeTurn,
             turn: managerTurn,

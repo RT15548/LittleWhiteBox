@@ -154,6 +154,7 @@ export interface XbTavernManagerChatInput {
     turn?: number;
     trigger?: string;
     assistantPreset?: TavernAssistantPreset;
+    contextSnapshot?: XbTavernContext;
     signal?: AbortSignal;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
     onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
@@ -185,6 +186,7 @@ export interface EnsureTavernManagerChatBudgetInput {
     sessionId: string;
     agentConfig: Record<string, unknown>;
     assistantPreset?: TavernAssistantPreset;
+    contextSnapshot?: XbTavernContext;
     question: string;
     history?: TavernManagerMessageRecord[];
     signal?: AbortSignal;
@@ -297,6 +299,7 @@ function buildManagerSystemPrompt(
         includeQuestOrchestration?: boolean;
         includeWebSearch?: boolean;
         workMode?: 'accepted-turn' | 'manual-chat';
+        playerName?: string;
     } = {},
 ): string {
     return buildTavernManagerSystemPrompt(assistantPreset, options).trim();
@@ -368,10 +371,14 @@ function buildAutoManagerUserPrompt(input: {
         ...(allowQuest ? [String(input.taskPoolBlock || '[Current Ambition Palette]\nActive ambitions: unknown.').trim(), ''] : []),
         ...(allowMemory ? [buildCharacterMemoryFilenameListBlock(input.memoryFiles), ''] : []),
         '[Current turn user message]',
+        '[BEGIN UNTRUSTED RP EVIDENCE — USER]',
         cleanSourceTextForManager(input.userMessage.content),
+        '[END UNTRUSTED RP EVIDENCE — USER]',
         '',
         '[Current turn assistant reply]',
+        '[BEGIN UNTRUSTED RP EVIDENCE — ASSISTANT]',
         cleanSourceTextForManager(input.assistantMessage.content),
+        '[END UNTRUSTED RP EVIDENCE — ASSISTANT]',
     ];
     return blocks.join('\n');
 }
@@ -1120,6 +1127,10 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
     assistantMessage: TavernMessageRecord;
 }): Promise<XbTavernMessage[]> {
     const contractRuntime = resolveSessionContractRuntime(input.sessionContract);
+    const contextSnapshot = input.contextSnapshot
+        || sourceMessages.assistantMessage.contextSnapshot
+        || sourceMessages.userMessage.contextSnapshot
+        || {};
     if (contractRuntime.includeMemoryFiles) {
         await ensureTavernMemoryDefaults(input.sessionId);
     }
@@ -1142,6 +1153,7 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
                 ...contractRuntime.managerPromptOptions,
                 workMode: 'accepted-turn',
                 includeWebSearch: isManagerWebSearchEnabled(input.agentConfig),
+                playerName: String(contextSnapshot.user?.name || '').trim(),
             }),
         },
         {
@@ -1165,6 +1177,7 @@ async function buildChatManagerMessages(input: {
     question: string;
     agentConfig?: Record<string, unknown>;
     assistantPreset?: TavernAssistantPreset;
+    contextSnapshot?: XbTavernContext;
     history?: TavernManagerMessageRecord[];
 }): Promise<XbTavernMessage[]> {
     await ensureTavernMemoryDefaults(input.sessionId);
@@ -1174,7 +1187,9 @@ async function buildChatManagerMessages(input: {
         role: 'system',
         content: buildManagerSystemPrompt(input.assistantPreset, {
             workMode: 'manual-chat',
+            includeQuestOrchestration: true,
             includeWebSearch: isManagerWebSearchEnabled(input.agentConfig || {}),
+            playerName: String(input.contextSnapshot?.user?.name || '').trim(),
         }),
     }];
     history.forEach((message) => {
@@ -1435,6 +1450,7 @@ async function estimateManagerChatTokens(input: {
     sessionId: string;
     agentConfig: Record<string, unknown>;
     assistantPreset?: TavernAssistantPreset;
+    contextSnapshot?: XbTavernContext;
     question: string;
     history?: TavernManagerMessageRecord[];
 }): Promise<number> {
@@ -1471,6 +1487,7 @@ export async function ensureTavernManagerChatBudget(input: EnsureTavernManagerCh
         sessionId,
         agentConfig: input.agentConfig,
         assistantPreset: input.assistantPreset,
+        contextSnapshot: input.contextSnapshot,
         question: input.question,
         history,
     });
@@ -1509,6 +1526,7 @@ export async function ensureTavernManagerChatBudget(input: EnsureTavernManagerCh
             sessionId,
             agentConfig: input.agentConfig,
             assistantPreset: input.assistantPreset,
+            contextSnapshot: input.contextSnapshot,
             question: input.question,
             history,
         });
@@ -1721,6 +1739,7 @@ export async function runXbTavernManagerChat(input: XbTavernManagerChatInput): P
         question,
         agentConfig: input.agentConfig,
         assistantPreset: input.assistantPreset,
+        contextSnapshot: input.contextSnapshot,
         history,
     });
     const result = await runManagerTask({
@@ -1736,6 +1755,7 @@ export async function runXbTavernManagerChat(input: XbTavernManagerChatInput): P
         messages,
         caller: 'chat',
         requireChangedFiles: false,
+        contextSnapshot: input.contextSnapshot,
         signal: input.signal,
         executeManagerOnce: input.executeManagerOnce,
         onStreamProgress: input.onStreamProgress,

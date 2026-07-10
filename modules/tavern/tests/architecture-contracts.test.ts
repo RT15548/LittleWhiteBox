@@ -2288,6 +2288,9 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(appSource, /async function saveCurrentAuthorNote\(note: XbTavernAuthorNote\)[\s\S]*authorNote: normalized/);
     assert.match(appSource, /async function saveCurrentAuthorNote\(note: XbTavernAuthorNote\)[\s\S]*contextSnapshot: nextContext/);
     assert.match(appSource, /if \(selectedSessionId\.value !== sessionId\) \{return;\}[\s\S]*context\.value = nextContext/);
+    assert.match(appSource, /async function sendManagerQuestion\([\s\S]*const managerSession = sessions\.value\.find\(\(session\) => session\.id === managerSessionId\)[\s\S]*selectedSessionId\.value === managerSessionId \? selectedSession\.value : null[\s\S]*buildSessionContextSnapshotBase\(managerSession\)/);
+    assert.doesNotMatch(appSource, /const managerContextSnapshot = \(selectedSession\.value\?\.contextSnapshot \|\| context\.value/);
+    assert.match(appSource, /async function rerunFromManagerMessage\([\s\S]*if \(selectedSessionId\.value !== managerSessionId\)[\s\S]*sendManagerQuestion\(managerSessionId/);
     assert.match(conversationPanelSource, /function openSessionArchiveFromComposeMenu\(\) \{[\s\S]*closeComposeMenu\(\);[\s\S]*sessionArchiveOpen\.value = true;[\s\S]*\}/);
     assert.match(contextSource, /currentChatCharacterSessions: TavernReadable<TavernSessionRecord\[\]>/);
     assert.match(appSource, /const currentChatCharacterSessions = computed<TavernSessionRecord\[\]>\(\(\) => \{[\s\S]*selectedSession\.value\?\.characterKey[\s\S]*effectiveContext\.value\.character\?\.characterKey[\s\S]*\.filter\(\(session\) => String\(session\.characterKey \|\| ''\)\.trim\(\) === characterKey\)/);

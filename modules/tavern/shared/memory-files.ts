@@ -165,13 +165,20 @@ function normalizeMemoryCharacterName(value: unknown = ''): string {
     return name;
 }
 
-export function isReservedUserMemoryCharacterName(value: unknown = ''): boolean {
-    const key = String(value || '')
+function normalizeCurrentUserMemoryCharacterKey(value: unknown = ''): string {
+    return String(value || '')
         .normalize('NFKC')
         .replace(/[\u200B-\u200D\uFEFF]/g, '')
         .toLowerCase()
-        .replace(/[\s_-]+/g, '')
         .trim();
+}
+
+function normalizeReservedUserMemoryCharacterKey(value: unknown = ''): string {
+    return normalizeCurrentUserMemoryCharacterKey(value).replace(/[\s_-]+/g, '');
+}
+
+export function isReservedUserMemoryCharacterName(value: unknown = ''): boolean {
+    const key = normalizeReservedUserMemoryCharacterKey(value);
     return new Set([
         'user',
         'users',
@@ -741,10 +748,14 @@ function isTavernSourceWritablePath(path = ''): boolean {
     return path === 'memory/state.md' || isCharacterMemoryPath(path);
 }
 
-function validateWritableMemoryPath(path = ''): string {
+function validateWritableMemoryPath(path = '', context: XbTavernContext = {}): string {
     const normalized = normalizeTavernMemoryPath(path);
     const characterName = getCharacterNameFromMemoryPath(normalized);
-    if (characterName && isReservedUserMemoryCharacterName(characterName)) {
+    const currentUserName = normalizeCurrentUserMemoryCharacterKey(context.user?.name);
+    if (characterName && (
+        isReservedUserMemoryCharacterName(characterName)
+        || (currentUserName && normalizeCurrentUserMemoryCharacterKey(characterName) === currentUserName)
+    )) {
         throw new Error('memory_character_user_reserved');
     }
     return normalized;
@@ -1448,6 +1459,7 @@ export async function executeTavernMemoryTool(
         sourceUserOrder?: number;
         sourceAssistantOrder?: number;
         beforeWriteGuard?: () => Promise<void> | void;
+        contextSnapshot?: XbTavernContext;
     } = {},
 ): Promise<TavernMemoryToolResult> {
     const id = String(sessionId || '').trim();
@@ -1492,7 +1504,7 @@ export async function executeTavernMemoryTool(
         }
         if (toolName === TAVERN_MEMORY_TOOL_NAMES.WRITE) {
             const pathInput = String(args.filePath || args.path || '');
-            const path = validateWritableMemoryPath(pathInput);
+            const path = validateWritableMemoryPath(pathInput, options.contextSnapshot);
             const file = await db.transaction(
                 'rw',
                 tavernMemoryFilesTable,
@@ -1528,7 +1540,7 @@ export async function executeTavernMemoryTool(
         }
         if (toolName === TAVERN_MEMORY_TOOL_NAMES.EDIT) {
             const pathInput = String(args.filePath || args.path || '');
-            const path = validateWritableMemoryPath(pathInput);
+            const path = validateWritableMemoryPath(pathInput, options.contextSnapshot);
             const file = await getTavernMemoryFile(id, path);
             if (!file) {return { ok: false, summary: `${path} 不存在。`, path, error: 'memory_file_not_found' };}
             const result = applyTextEdits(file.content, args.edits) as {
