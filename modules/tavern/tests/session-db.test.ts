@@ -1012,6 +1012,25 @@ test('tavern memory files are scoped markdown sources with derived index', async
     assert.equal(userFileWrite.ok, false);
     assert.equal(userFileWrite.error, 'memory_character_user_reserved');
 
+    const namedUserFileWrite = await executeTavernSourceFileTool(session.id, 'Write', {
+        filePath: 'memory/characters/Mira.md',
+        content: '# Mira\n\n不应创建当前玩家的人物档案。',
+    }, {
+        contextSnapshot: { user: { name: 'Mira' } },
+    });
+    assert.equal(namedUserFileWrite.ok, false);
+    assert.equal(namedUserFileWrite.error, 'memory_character_user_reserved');
+
+    for (const distinctNpcName of ['Mi-ra', 'Mi Ra']) {
+        const distinctNpcWrite = await executeTavernSourceFileTool(session.id, 'Write', {
+            filePath: `memory/characters/${distinctNpcName}.md`,
+            content: `# ${distinctNpcName}\n\n与玩家 Mira 不同的 NPC。`,
+        }, {
+            contextSnapshot: { user: { name: 'Mira' } },
+        });
+        assert.equal(distinctNpcWrite.ok, true, `expected ${distinctNpcName} to remain a distinct NPC name`);
+    }
+
     await writeTavernMemoryFile(session.id, 'memory/characters/玩家.md', '# 玩家\n\n旧数据或测试直写仍可能存在。', { source: 'manager' });
     const userFileEdit = await executeTavernMemoryTool(session.id, 'MemoryEdit', {
         filePath: 'memory/characters/玩家.md',
@@ -4874,6 +4893,9 @@ test('tavern auto manager prompt omits unauthorized module instructions from bot
         },
     });
     assert.match(memoryPrompt, /Edit\/Write/);
+    assert.match(memoryPrompt, /Authority and Evidence Boundary/);
+    assert.match(memoryPrompt, /Current user\/message author display name: \\"Mira\\"/);
+    assert.match(memoryPrompt, /BEGIN UNTRUSTED RP EVIDENCE/);
     assert.doesNotMatch(memoryPrompt, /MapAtlasRead|MapSceneEdit|MapInspect summary/);
     assert.doesNotMatch(memoryPrompt, /## Structured State/);
     assert.doesNotMatch(memoryPrompt, /The map does not replace this turn's written memory/i);
@@ -5138,14 +5160,20 @@ test('tavern manager chat keeps full tool access even when the stored contract d
         },
     });
     let calls = 0;
+    let managerSystemPrompt = '';
     const result = await runXbTavernManagerChat({
         sessionId: session.id,
         agentConfig: {},
+        contextSnapshot: { user: { name: 'Mira' } },
         question: '把这件事记到会话记忆里。',
         executeManagerOnce: async (options) => {
             calls += 1;
+            managerSystemPrompt ||= String(options.messages?.[0]?.content || '');
             if (calls === 1) {
                 assert.match(JSON.stringify(options.messages), /Write/);
+                assert.match(managerSystemPrompt, /## How to Work/);
+                assert.match(managerSystemPrompt, /## Events \(Ambition Palette\)/);
+                assert.match(managerSystemPrompt, /Events — maintain a small, stable palette of distant ambitions/);
                 return {
                     provider: 'fake-manager',
                     model: 'chat-tools',
@@ -5170,7 +5198,45 @@ test('tavern manager chat keeps full tool access even when the stored contract d
 
     assert.equal(result.ok, true);
     assert.equal(calls, 2);
+    assert.match(managerSystemPrompt, /Current user\/message author display name: "Mira"/);
     assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /手动管理员仍可写入/);
+});
+
+test('tavern manager chat blocks character-memory writes for the current named user', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Named user memory guard' });
+    let calls = 0;
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        contextSnapshot: { user: { name: 'Mira' } },
+        question: '检查人物档案边界。',
+        executeManagerOnce: async (options) => {
+            calls += 1;
+            if (calls === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'named-user-write',
+                        name: 'Write',
+                        arguments: {
+                            filePath: 'memory/characters/Mira.md',
+                            content: '# Mira\n\n不应写入。',
+                        },
+                    }],
+                };
+            }
+            assert.match(JSON.stringify(options.messages), /memory_character_user_reserved/);
+            return { text: '已阻止为当前玩家建立人物档。' };
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(calls, 2);
+    assert.deepEqual(result.changedFiles, []);
+    assert.equal(await getTavernMemoryFile(session.id, 'memory/characters/Mira.md'), null);
 });
 
 test('tavern manager stores one preface for parallel tool calls in the same round', async () => {

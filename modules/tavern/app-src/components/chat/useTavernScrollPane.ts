@@ -38,11 +38,9 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     const messageWindowLimit = ref(normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT));
     let scrollHideTimer: number | null = null;
     let scrollTicking = false;
-    let lastScrollTop = 0;
     let topRevealAutoBlocked = false;
     let programmaticScroll = false;
-    let programmaticUnlockFrame = 0;
-    let programmaticUnlockSecondFrame = 0;
+    let programmaticScrollTarget: number | null = null;
     let contentResizeObserver: ResizeObserver | null = null;
     let prependCompensation: { scrollHeight: number; scrollTop: number } | null = null;
     let userScrollVersion = 0;
@@ -58,22 +56,6 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         resetMessageWindow(state, { defaultLimit: normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT) });
         messageWindowLimit.value = Number(state.uiMessageWindowLimit || AGENT_MESSAGE_WINDOW_DEFAULT);
         topRevealAutoBlocked = false;
-    }
-
-    function clearProgrammaticUnlockFrames() {
-        if (typeof window === 'undefined' || typeof window.cancelAnimationFrame !== 'function') {
-            programmaticUnlockFrame = 0;
-            programmaticUnlockSecondFrame = 0;
-            return;
-        }
-        if (programmaticUnlockFrame) {
-            window.cancelAnimationFrame(programmaticUnlockFrame);
-            programmaticUnlockFrame = 0;
-        }
-        if (programmaticUnlockSecondFrame) {
-            window.cancelAnimationFrame(programmaticUnlockSecondFrame);
-            programmaticUnlockSecondFrame = 0;
-        }
     }
 
     function clearViewportPreservationFrames() {
@@ -100,27 +82,13 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         return window.requestAnimationFrame(callback);
     }
 
-    function unlockProgrammaticScrollSoon() {
-        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-            programmaticScroll = false;
-            return;
-        }
-        clearProgrammaticUnlockFrames();
-        programmaticUnlockFrame = window.requestAnimationFrame(() => {
-            programmaticUnlockFrame = 0;
-            programmaticUnlockSecondFrame = window.requestAnimationFrame(() => {
-                programmaticUnlockSecondFrame = 0;
-                programmaticScroll = false;
-            });
-        });
-    }
-
     function runSilently(mutation: () => void) {
-        programmaticScroll = true;
         try {
             mutation();
         } finally {
-            unlockProgrammaticScrollSoon();
+            const node = scrollRef.value;
+            programmaticScrollTarget = node ? Number(node.scrollTop || 0) : null;
+            programmaticScroll = programmaticScrollTarget !== null;
         }
     }
 
@@ -187,7 +155,6 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
                 const nextOffset = anchorRect.top - containerRect.top;
                 runSilently(() => {
                     node.scrollTop = clampScrollTop(node, Number(node.scrollTop || 0) + nextOffset - anchor.topOffset);
-                    lastScrollTop = Number(node.scrollTop || 0);
                 });
                 updateScrollButtons();
                 return true;
@@ -195,7 +162,6 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         }
         runSilently(() => {
             node.scrollTop = clampScrollTop(node, snapshot.scrollTop);
-            lastScrollTop = Number(node.scrollTop || 0);
         });
         updateScrollButtons();
         return true;
@@ -251,7 +217,6 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         if (!node) {return false;}
         runSilently(() => {
             node.scrollTop = node.scrollHeight;
-            lastScrollTop = Number(node.scrollTop || 0);
         });
         updateScrollButtons();
         return true;
@@ -274,7 +239,6 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         const delta = Number(node.scrollHeight || 0) - snapshot.scrollHeight;
         runSilently(() => {
             node.scrollTop = Math.max(0, snapshot.scrollTop + delta);
-            lastScrollTop = Number(node.scrollTop || 0);
         });
         updateScrollButtons();
         return true;
@@ -386,17 +350,12 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         });
     }
 
-    function placeAtBottomForNewContext() {
+    function requestUserMessageBottom() {
         scrollToBottom(true);
     }
 
-    function followStreamToBottomIfAtBottom() {
-        if (autoScroll.value === false) {
-            updateScrollButtons();
-            return;
-        }
-        autoScroll.value = true;
-        scrollToBottom();
+    function placeAtBottomForNewContext() {
+        scrollToBottom(true);
     }
 
     function jumpToBottom(scrollOptions: TavernScrollToBottomOptions = {}) {
@@ -407,9 +366,11 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         const node = scrollRef.value;
         if (!node) {return;}
         autoScroll.value = false;
-        lastScrollTop = 0;
-        node.scrollTo?.({ top: 0, behavior: 'smooth' });
-        node.scrollTop = 0;
+        activeViewportPreservation = null;
+        runSilently(() => {
+            node.scrollTo?.({ top: 0, behavior: 'auto' });
+            node.scrollTop = 0;
+        });
         updateScrollButtons();
         scheduleHideScrollHelpers();
     }
@@ -418,8 +379,16 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         const node = scrollRef.value;
         if (!node) {return;}
         if (programmaticScroll) {
-            updateScrollButtons();
-            return;
+            const target = programmaticScrollTarget;
+            const current = Number(node.scrollTop || 0);
+            if (target !== null && Math.abs(current - target) <= 1) {
+                programmaticScroll = false;
+                programmaticScrollTarget = null;
+                updateScrollButtons();
+                return;
+            }
+            programmaticScroll = false;
+            programmaticScrollTarget = null;
         }
         userScrollVersion += 1;
         const currentScrollTop = Number(node.scrollTop || 0);
@@ -427,7 +396,6 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
             topRevealAutoBlocked = false;
         }
         if (revealOlderMessages()) {return;}
-        lastScrollTop = currentScrollTop;
         const atBottom = isNearBottom();
         if (atBottom) {
             autoScroll.value = true;
@@ -514,18 +482,14 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
 
     function handleTouchMove() {}
 
-    function resetPositionState() {
-        lastScrollTop = 0;
-    }
-
     function cleanup() {
         if (scrollHideTimer) {
             window.clearTimeout(scrollHideTimer);
             scrollHideTimer = null;
         }
-        clearProgrammaticUnlockFrames();
-        clearViewportPreservationFrames();
         programmaticScroll = false;
+        programmaticScrollTarget = null;
+        clearViewportPreservationFrames();
         prependCompensation = null;
         activeViewportPreservation = null;
         disconnectContentResizeObserver();
@@ -548,7 +512,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         runSilently,
         preserveViewportDuringMutation,
         placeAtBottomForNewContext,
-        followStreamToBottomIfAtBottom,
+        requestUserMessageBottom,
         jumpToBottom,
         scrollToBottom,
         scrollToTop,
@@ -556,7 +520,6 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         handleWheel,
         handleTouchStart,
         handleTouchMove,
-        resetPositionState,
         cleanup,
     };
 }

@@ -226,11 +226,11 @@
     }
 }
 
-.chat-bubble.streaming {
+.chat-bubble.chat-bubble-stable {
     contain: layout style;
 }
 
-.chat-bubble.streaming.thinking {
+.chat-bubble.chat-bubble-stable.thinking {
     border-color: var(--xb-rule-strong);
     border-left-color: var(--xb-cyan);
     background:
