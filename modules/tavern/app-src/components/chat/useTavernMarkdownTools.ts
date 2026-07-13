@@ -207,7 +207,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
             slot
             && slot.isConnected !== false
             && !isHiddenMarkdownNode(slot)
-            && !slot.closest('.streaming, .pending-user')
+            && !slot.closest('[data-chat-streaming="true"], .pending-user')
         );
     }
 
@@ -1160,7 +1160,7 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     function enhanceLiveChatMarkdown() {
         const root = options.chatScrollRef.value;
         if (!root?.querySelectorAll) {return;}
-        root.querySelectorAll<HTMLElement>('.chat-bubble.streaming .xb-tavern-markdown').forEach((node) => {
+        root.querySelectorAll<HTMLElement>('[data-chat-streaming="true"] .xb-tavern-markdown').forEach((node) => {
             enhanceStableMarkdownNode(node, { live: true });
         });
     }

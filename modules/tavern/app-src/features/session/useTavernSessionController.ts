@@ -180,6 +180,29 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         state.selectedSessionLatestAssistantOrder.value = -1;
     }
 
+    function updateLoadedSessionMessageBounds(messages: TavernMessageRecord[]) {
+        const orders = messages
+            .map((message) => Number(message.order))
+            .filter((order) => Number.isFinite(order));
+        state.loadedSessionMessageStartOrder.value = orders.length ? Math.min(...orders) : null;
+        state.loadedSessionMessageEndOrder.value = orders.length ? Math.max(...orders) : null;
+    }
+
+    function compactLoadedSessionMessageWindow(reservedTailSlots = 0): number {
+        const limit = Math.max(
+            1,
+            Math.floor(Number(options.chatMessageWindowLimit.value) || options.hiddenOutsideCount.value || 1),
+        );
+        const reserved = Math.max(0, Math.floor(Number(reservedTailSlots) || 0));
+        const keepCount = Math.max(0, limit - reserved);
+        const currentMessages = state.loadedSessionMessages.value;
+        if (currentMessages.length <= keepCount) {return 0;}
+        const nextMessages = keepCount ? currentMessages.slice(-keepCount) : [];
+        state.loadedSessionMessages.value = nextMessages;
+        updateLoadedSessionMessageBounds(nextMessages);
+        return currentMessages.length - nextMessages.length;
+    }
+
     async function loadSelectedSessionMessageWindow(loadOptions: { reset?: boolean; sessionId?: string } = {}) {
         options.reportStartupProgress(96, 'loadSelectedSessionMessageWindow');
         const sessionId = String(loadOptions.sessionId || state.selectedSessionId.value || '').trim();
@@ -259,11 +282,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
             remainingMessages.length,
             Math.max(0, Math.floor(Number(state.selectedSessionMessageTotal.value) || 0) - removedCount),
         );
-        const remainingOrders = remainingMessages
-            .map((message) => Number(message.order))
-            .filter((order) => Number.isFinite(order));
-        state.loadedSessionMessageStartOrder.value = remainingOrders.length ? Math.min(...remainingOrders) : null;
-        state.loadedSessionMessageEndOrder.value = remainingOrders.length ? Math.max(...remainingOrders) : null;
+        updateLoadedSessionMessageBounds(remainingMessages);
         state.selectedSessionLatestAssistantOrder.value = remainingMessages
             .filter((message) => message.role === 'assistant' && Number.isFinite(Number(message.order)))
             .reduce((latest, message) => Math.max(latest, Number(message.order)), -1);
@@ -419,6 +438,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         chatMessageWindow,
         clearLoadedSessionMessageWindow,
         clearSelectedSession,
+        compactLoadedSessionMessageWindow,
         handleChatMessageWindowLimitChanged,
         loadSelectedSessionMessageWindow,
         persistSelectedSessionId,

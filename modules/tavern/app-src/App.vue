@@ -8,6 +8,7 @@ import {
 import { normalizeTavernDisplaySettings, type TavernDisplaySettings } from '../shared/settings';
 import { TAVERN_INLINE_IMAGE_PROGRESS_EVENT, useTavernMarkdownTools } from './components/chat/useTavernMarkdownTools';
 import { useTavernScrollPane } from './components/chat/useTavernScrollPane';
+import { buildTavernMessageDisplayDepths } from './components/chat/chat-timeline';
 import { setHostChatCompletionsRequestHeadersProvider } from '../../../shared/host-llm/chat-completions/client.js';
 import {
     normalizeXbTavernAuthorNote,
@@ -263,7 +264,7 @@ const {
     runtimeStatusStartedAt,
     runtimeText,
     runtimeThoughts,
-    runtimeFinalizedAssistantMessageKey,
+    runtimeAssistantMessageKey,
     runtimeUserMessageVisible,
 } = chatRunState;
 const tavernToast = ref<{
@@ -719,7 +720,7 @@ let managerRecordsPollRunning = false;
 let sessionContextSyncSequence = 0;
 let initialConfigApplied = false;
 let postReadyStartupStarted = false;
-const pendingDisplayRegexKeys = new Set<string>();
+const inFlightDisplayRegexRequests = new Map<string, Promise<void>>();
 const pendingRuntimeDisplayRegexRequests = new Map<string, PendingRuntimeDisplayRegexRequest>();
 const latestRuntimeDisplayRegexKeys = new Map<string, string>();
 const runtimeDisplayRegexStableProjection = new Map<string, DisplayRegexProjection>();
@@ -1190,12 +1191,13 @@ const visibleChatMarkdownSignature = computed(() => visibleChatMessages.value
     .map((message) => `${message.sessionId}:${message.order}:${message.error ? 1 : 0}:${markdownSignature(message.content)}`)
     .join('|'));
 const messageDisplayDepthByKey = computed(() => {
-    const displayMessages = loadedSessionMessages.value.filter((message) => isNormalRoleplayDisplayMessage(message));
-    const total = displayMessages.length;
-    return displayMessages.reduce<Record<string, number>>((depthByKey, message, index) => {
-        depthByKey[messageKey(message)] = Math.max(0, total - index - 1);
-        return depthByKey;
-    }, {});
+    return buildTavernMessageDisplayDepths({
+        messages: loadedSessionMessages.value,
+        sessionId: selectedSessionId.value,
+        liveAssistantKey: runtimeAssistantMessageKey.value,
+        messageKey,
+        isDisplayMessage: isNormalRoleplayDisplayMessage,
+    });
 });
 const runtimeThoughtsSignature = computed(() => runtimeThoughts.value
     .map((thought, index) => `${index}:${markdownSignature(String(thought.label || ''))}:${markdownSignature(String(thought.text || ''))}`)
@@ -1396,7 +1398,7 @@ function clearRuntimeDisplayRegexRequests() {
 
 function clearDisplayRegexCache() {
     displayRegexCacheGeneration += 1;
-    pendingDisplayRegexKeys.clear();
+    inFlightDisplayRegexRequests.clear();
     clearRuntimeDisplayRegexRequests();
     displayRegexCache.value = {};
 }
@@ -1545,49 +1547,64 @@ function actionCheckEventsCacheSignature(events: TavernActionCheckRuntimeEvent[]
         .join('|');
 }
 
-async function resolveDisplayRegexText(input: DisplayRegexTextRequest) {
-    if (pendingDisplayRegexKeys.has(input.key)) {return;}
+function resolveDisplayRegexText(input: DisplayRegexTextRequest): Promise<void> {
+    const existing = inFlightDisplayRegexRequests.get(input.key);
+    if (existing) {return existing;}
     const generation = displayRegexCacheGeneration;
-    pendingDisplayRegexKeys.add(input.key);
-    try {
-        const result = await applyTavernRegex([{
-            id: input.key,
-            text: input.text,
-            placement: input.placement,
-            options: input.options,
-        }]);
-        if (generation !== displayRegexCacheGeneration) {return;}
-        const item = result.items.find((candidate) => candidate.id === input.key) || result.items[0];
-        rememberDisplayRegexText(input.key, item?.text ?? input.text);
-    } catch (error) {
-        console.warn('[小白酒馆] 显示正则应用失败', error);
-    } finally {
-        pendingDisplayRegexKeys.delete(input.key);
-    }
+    const request = (async () => {
+        try {
+            const result = await applyTavernRegex([{
+                id: input.key,
+                text: input.text,
+                placement: input.placement,
+                options: input.options,
+            }]);
+            if (generation !== displayRegexCacheGeneration) {return;}
+            const item = result.items.find((candidate) => candidate.id === input.key) || result.items[0];
+            rememberDisplayRegexText(input.key, item?.text ?? input.text);
+        } catch (error) {
+            console.warn('[小白酒馆] 显示正则应用失败', error);
+            if (generation === displayRegexCacheGeneration) {
+                rememberDisplayRegexText(input.key, input.text);
+            }
+        }
+    })().finally(() => {
+        if (inFlightDisplayRegexRequests.get(input.key) === request) {
+            inFlightDisplayRegexRequests.delete(input.key);
+        }
+    });
+    inFlightDisplayRegexRequests.set(input.key, request);
+    return request;
 }
 
-async function resolveRuntimeDisplayRegexText(slot: string, input: DisplayRegexTextRequest) {
-    if (pendingDisplayRegexKeys.has(input.key)) {return;}
+function resolveRuntimeDisplayRegexText(slot: string, input: DisplayRegexTextRequest): Promise<void> {
+    const existing = inFlightDisplayRegexRequests.get(input.key);
+    if (existing) {return existing;}
     const generation = displayRegexCacheGeneration;
-    pendingDisplayRegexKeys.add(input.key);
-    try {
-        const result = await applyTavernRegex([{
-            id: input.key,
-            text: input.text,
-            placement: input.placement,
-            options: input.options,
-        }]);
-        if (generation !== displayRegexCacheGeneration || latestRuntimeDisplayRegexKeys.get(slot) !== input.key) {return;}
-        const item = result.items.find((candidate) => candidate.id === input.key) || result.items[0];
-        rememberRuntimeDisplayRegexProjection(slot, input.key, item?.text ?? input.text, input);
-    } catch (error) {
-        console.warn('[小白酒馆] 生成中显示正则应用失败', error);
-        if (generation === displayRegexCacheGeneration && latestRuntimeDisplayRegexKeys.get(slot) === input.key) {
-            rememberRuntimeDisplayRegexProjection(slot, input.key, input.text, input);
+    const request = (async () => {
+        try {
+            const result = await applyTavernRegex([{
+                id: input.key,
+                text: input.text,
+                placement: input.placement,
+                options: input.options,
+            }]);
+            if (generation !== displayRegexCacheGeneration || latestRuntimeDisplayRegexKeys.get(slot) !== input.key) {return;}
+            const item = result.items.find((candidate) => candidate.id === input.key) || result.items[0];
+            rememberRuntimeDisplayRegexProjection(slot, input.key, item?.text ?? input.text, input);
+        } catch (error) {
+            console.warn('[小白酒馆] 生成中显示正则应用失败', error);
+            if (generation === displayRegexCacheGeneration && latestRuntimeDisplayRegexKeys.get(slot) === input.key) {
+                rememberRuntimeDisplayRegexProjection(slot, input.key, input.text, input);
+            }
         }
-    } finally {
-        pendingDisplayRegexKeys.delete(input.key);
-    }
+    })().finally(() => {
+        if (inFlightDisplayRegexRequests.get(input.key) === request) {
+            inFlightDisplayRegexRequests.delete(input.key);
+        }
+    });
+    inFlightDisplayRegexRequests.set(input.key, request);
+    return request;
 }
 
 function runRuntimeDisplayRegexRequest(slot: string) {
@@ -1627,50 +1644,32 @@ function scheduleRuntimeDisplayRegexText(slot: string, input: DisplayRegexTextRe
     });
 }
 
-function displayMessageContent(message: TavernMessageRecord): string {
-    const text = String(message.content || '');
-    if (!text) {return '';}
-    if (!isNormalRoleplayDisplayMessage(message)) {return text;}
-    const placement = messageRegexPlacement(message);
-    if (!placement) {return text;}
-    const depth = messageDisplayDepth(message);
-    const characterOverride = messageCharacterOverride(message);
-    const key = displayRegexCacheKey('message', message, {
-        placement,
-        text,
-        depth,
-        characterOverride,
-    });
-    const cached = displayRegexCache.value[key];
-    if (cached !== undefined) {return cached;}
-    void resolveDisplayRegexText({
-        key,
-        text,
-        placement,
-        options: {
-            isMarkdown: true,
-            depth,
-            characterOverride,
-        },
-    });
-    return text;
+interface MessageDisplayProjectionSource {
+    fallback: DisplayRegexProjection;
+    request: DisplayRegexTextRequest | null;
 }
 
-function displayMessageRenderProjection(message: TavernMessageRecord): DisplayRegexProjection {
+interface MessageThoughtDisplaySource {
+    thought: { label?: string; text?: string };
+    request: DisplayRegexTextRequest;
+}
+
+function messageDisplayProjectionSource(message: TavernMessageRecord): MessageDisplayProjectionSource {
     const text = String(message.content || '');
-    if (!text) {return { text: '', actionCheckEvents: [] };}
-    const actionCheckEvents = message.role === 'assistant' ? getActionCheckEvents(message.runtimeEvents) : [];
-    if (!actionCheckEvents.length) {
-        return { text: displayMessageContent(message), actionCheckEvents: [] };
+    if (!text) {
+        return { fallback: { text: '', actionCheckEvents: [] }, request: null };
     }
+    const actionCheckEvents = message.role === 'assistant' ? getActionCheckEvents(message.runtimeEvents) : [];
     if (!isNormalRoleplayDisplayMessage(message)) {
-        return { text, actionCheckEvents };
+        return { fallback: { text, actionCheckEvents }, request: null };
     }
     const placement = messageRegexPlacement(message);
     if (!placement) {
-        return { text, actionCheckEvents };
+        return { fallback: { text, actionCheckEvents }, request: null };
     }
-    const markerPayload = injectActionCheckRegexMarkers(text, actionCheckEvents);
+    const markerPayload = actionCheckEvents.length
+        ? injectActionCheckRegexMarkers(text, actionCheckEvents)
+        : { text, boundaries: [] };
     const depth = messageDisplayDepth(message);
     const characterOverride = messageCharacterOverride(message);
     const key = displayRegexCacheKey('message', message, {
@@ -1692,19 +1691,33 @@ function displayMessageRenderProjection(message: TavernMessageRecord): DisplayRe
         actionCheckEvents,
         actionCheckBoundaries: markerPayload.boundaries,
     };
-    const cached = displayRegexCache.value[key];
+    return {
+        fallback: toDisplayRegexProjection(markerPayload.text, request),
+        request,
+    };
+}
+
+function displayMessageRenderProjection(message: TavernMessageRecord): DisplayRegexProjection {
+    const source = messageDisplayProjectionSource(message);
+    const request = source.request;
+    if (!request) {return source.fallback;}
+    const cached = displayRegexCache.value[request.key];
     if (cached !== undefined) {
         return toDisplayRegexProjection(cached, request);
     }
     void resolveDisplayRegexText(request);
-    return toDisplayRegexProjection(markerPayload.text, request);
+    return source.fallback;
 }
 
-function displayMessageThoughtBlocks(message: TavernMessageRecord): Array<{ label?: string; text?: string }> {
+function displayMessageContent(message: TavernMessageRecord): string {
+    return displayMessageRenderProjection(message).text;
+}
+
+function messageThoughtDisplaySources(message: TavernMessageRecord): MessageThoughtDisplaySource[] {
     const depth = messageDisplayDepth(message);
-    return thoughtBlocks(message).map((thought, index) => {
+    return thoughtBlocks(message).flatMap((thought, index) => {
         const text = String(thought.text || '');
-        if (!text) {return thought;}
+        if (!text) {return [];}
         const key = displayRegexCacheKey('reasoning', message, {
             placement: 'reasoning',
             text,
@@ -1712,21 +1725,41 @@ function displayMessageThoughtBlocks(message: TavernMessageRecord): Array<{ labe
             index,
             label: thought.label,
         });
-        const cached = displayRegexCache.value[key];
+        return [{
+            thought,
+            request: {
+                key,
+                text,
+                placement: 'reasoning',
+                options: {
+                    isMarkdown: true,
+                    depth,
+                },
+            },
+        }];
+    });
+}
+
+function displayMessageThoughtBlocks(message: TavernMessageRecord): Array<{ label?: string; text?: string }> {
+    return messageThoughtDisplaySources(message).map(({ thought, request }) => {
+        const cached = displayRegexCache.value[request.key];
         if (cached !== undefined) {
             return { ...thought, text: cached };
         }
-        void resolveDisplayRegexText({
-            key,
-            text,
-            placement: 'reasoning',
-            options: {
-                isMarkdown: true,
-                depth,
-            },
-        });
+        void resolveDisplayRegexText(request);
         return thought;
     }).filter((thought) => String(thought.text || '').trim());
+}
+
+async function prepareAssistantMessageDisplay(message: TavernMessageRecord) {
+    const messageRequest = messageDisplayProjectionSource(message).request;
+    const thoughtRequests = messageThoughtDisplaySources(message).map((source) => source.request);
+    const requests = [messageRequest, ...thoughtRequests].filter((request): request is DisplayRegexTextRequest => !!request);
+    await Promise.all(requests.map((request) => (
+        displayRegexCache.value[request.key] !== undefined
+            ? Promise.resolve()
+            : resolveDisplayRegexText(request)
+    )));
 }
 
 function displayRuntimeRenderProjection(
@@ -2681,12 +2714,26 @@ function pruneLoadedSessionMessagesFromOrder(sessionId = '', fromOrder = Number.
     return sessionController.pruneLoadedSessionMessagesFromOrder(sessionId, fromOrder);
 }
 
+function compactLoadedSessionMessageWindow(reservedTailSlots = 0): number {
+    return sessionController.compactLoadedSessionMessageWindow(reservedTailSlots);
+}
+
 function touchSessionLocally(sessionId: string, updatedAt = Date.now()) {
     sessionController.touchSessionLocally(sessionId, updatedAt);
 }
 
 async function refreshSessions() {
     await sessionController.refreshSessions();
+}
+
+async function refreshSessionRecord(sessionId = '') {
+    const id = String(sessionId || '').trim();
+    if (!id) {return null;}
+    const session = await getTavernSession(id);
+    if (session) {
+        sessionController.updateSessionRecord(session);
+    }
+    return session;
 }
 
 async function saveSessionContract(nextContract: Partial<TavernSessionContract> = {}) {
@@ -2835,6 +2882,14 @@ const resetChatMessageWindowState = chatScrollPane.resetWindowState;
 const resetManagerMessageWindowState = managerScrollPane.resetWindowState;
 const revealOlderChatMessages = chatScrollPane.revealOlderMessages;
 const revealOlderManagerMessages = managerScrollPane.revealOlderMessages;
+
+function resetChatMessageWindowForUserTurn() {
+    const defaultLimit = normalizeHiddenOutsideCount(hiddenOutsideCount.value);
+    if (chatMessageWindowLimit.value !== defaultLimit) {
+        sessionController.suppressNextChatWindowLimitReload();
+    }
+    resetChatMessageWindowState();
+}
 
 function getCharacterGreetingOptions(character: XbTavernCharacter = {}) {
     return [
@@ -3929,11 +3984,8 @@ const chatRunController = useTavernChatRunController({
     activeAssistantPreset,
     activeSession: selectedSession,
     agentConfig,
-    chatAutoScroll,
     chatComposeTextareaRef,
-    chatMessageWindowLimit,
     diagnostics,
-    hiddenOutsideCount,
     historyMode,
     selectedSessionCharacterError,
     selectedSessionId,
@@ -3941,24 +3993,24 @@ const chatRunController = useTavernChatRunController({
     applySubstituteParams: applyTavernSubstituteParams,
     buildNativeChatPrompt,
     clearRuntimeDisplayRegexRequests,
+    compactLoadedSessionMessageWindow,
     createSessionFromContext,
     describeError,
-    enhanceChatMarkdown,
     getNativeWorldInfoRuntime: getNativeWorldbookRuntime,
     loadSelectedSessionMessageWindow,
-    normalizeHiddenOutsideCount,
     persistSelectedSessionId: sessionController.persistSelectedSessionId,
+    prepareAssistantMessageDisplay,
     pruneLoadedSessionMessagesFromOrder,
     refreshManagerRecords,
     refreshRuntimeChatPresetFromHost,
-    refreshSessions,
+    refreshSessionRecord,
     preserveDetachedChatScroll: preserveChatViewportDuringMutation,
-    resetChatMessageWindowState,
+    resetChatMessageWindowForUserTurn,
     resetTextareaHeight,
     resolveRuntimeContextForSession,
     resolveSlashCommandMessageText,
     setSelectedSessionId: sessionController.setSelectedSessionId,
-    setSuppressNextChatWindowLimitReload: sessionController.suppressNextChatWindowLimitReload,
+    requestUserMessageBottom: chatScrollPane.requestUserMessageBottom,
     showToast: showTavernToast,
     thoughtBlocks,
     touchSessionLocally,
@@ -3981,10 +4033,6 @@ async function runOnce(options: Parameters<typeof chatRunController.runOnce>[0] 
 
 function clearRuntimeAssistantLiveState() {
     chatRunController.clearRuntimeAssistantLiveState();
-}
-
-function clearRuntimeFinalizedAssistantMessageKey() {
-    chatRunController.clearRuntimeFinalizedAssistantMessageKey();
 }
 
 function ensureManagerLiveProtocolState(sessionId: string) {
@@ -4427,26 +4475,15 @@ watch([
     }
 });
 
-watch([() => activeView.value, () => chatFocus.value], ([view, focus], [previousView, previousFocus]) => {
-    const isRoleplayChat = view === 'chat' && focus === 'chat';
-    const wasRoleplayChat = previousView === 'chat' && previousFocus === 'chat';
-    if (wasRoleplayChat && !isRoleplayChat) {
-        clearRuntimeFinalizedAssistantMessageKey();
-    }
-});
-
 watch(() => chatMessageWindowLimit.value, () => {
     sessionController.handleChatMessageWindowLimitChanged();
 });
 
 watch(() => selectedSessionId.value, () => {
-    clearRuntimeFinalizedAssistantMessageKey();
     resetChatMessageWindowState();
     resetManagerMessageWindowState();
     chatAutoScroll.value = true;
     managerAutoScroll.value = true;
-    chatScrollPane.resetPositionState();
-    managerScrollPane.resetPositionState();
     memoryFileSearchText.value = '';
     memoryFileGroupVisibleLimits.value = {};
     void nextTick(() => {
@@ -4610,7 +4647,7 @@ const chatContext = {
     runtimeStatusLabel,
     runtimeStatusStartedAt,
     runtimeUserMessageVisible,
-    runtimeFinalizedAssistantMessageKey,
+    runtimeAssistantMessageKey,
     runtimePendingUserMessage,
     saveEditMessage,
     jumpChatToBottom,
