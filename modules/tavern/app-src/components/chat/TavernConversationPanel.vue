@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import TavernScrollControls from '../TavernScrollControls.vue';
 import TavernMessageEditPanel from './TavernMessageEditPanel.vue';
+import TavernMessageMarkdown from './TavernMessageMarkdown.vue';
 import TavernDrawCapsule from './TavernDrawCapsule.vue';
 import TavernAssistantBubble from './TavernAssistantBubble.vue';
 import { buildTavernChatTimeline } from './chat-timeline';
@@ -548,11 +549,11 @@ watch(isMobileActionTrayViewport, (isMobile) => {
                       </template>
                     </details>
                   </template>
-                  <div
+                  <TavernMessageMarkdown
                     v-if="!isEditingMessage(message)"
-                    class="xb-tavern-markdown"
-                    :data-markdown-signature="markdownSignature(displayMessageContent(message))"
-                    v-html="renderRoleplayMarkdown(displayMessageContent(message))"
+                    :html="renderRoleplayMarkdown(displayMessageContent(message))"
+                    phase="settled"
+                    :signature="roleplayMarkdownSignature(displayMessageContent(message))"
                   />
                 </div>
                 <div

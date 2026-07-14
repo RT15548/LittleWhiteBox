@@ -276,6 +276,7 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
         state.runtimeError.value = '';
         cancelPendingRuntimeStreamFrame();
         pendingRuntimeStreamSnapshot = null;
+        options.clearRuntimeDisplayRegexRequests();
         state.runtimeAssistantMessageKey.value = '';
         state.runtimeText.value = '';
         state.runtimeThoughts.value = [];

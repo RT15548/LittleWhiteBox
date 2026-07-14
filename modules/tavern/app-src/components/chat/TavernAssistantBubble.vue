@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import TavernMessageEditPanel from './TavernMessageEditPanel.vue';
-import TavernStreamMarkdown from './TavernStreamMarkdown.vue';
+import TavernMessageMarkdown from './TavernMessageMarkdown.vue';
 import { useTavernChatContext, useTavernDrawContext, useTavernShellContext } from '../tavern-app-context';
 import { useTavernEphemeralDisclosureScope } from '../useTavernEphemeralDisclosureScope';
 import { injectActionCheckRenderMarkers } from '../../../shared/runtime-events';
@@ -31,7 +31,6 @@ const thoughtDisclosure = useTavernEphemeralDisclosureScope();
 const visibleCharacterAvatar = chat.visibleCharacterAvatar;
 const isRunning = chat.isRunning;
 const thoughtDefaultOpen = ref(props.streaming);
-const hasBeenStreaming = ref(props.streaming);
 
 const isEditing = computed(() => !!props.message && chat.isEditingMessage(props.message));
 const messageKey = computed(() => props.message ? chat.messageKey(props.message) : props.anchorKey);
@@ -40,10 +39,7 @@ const useRuntimePresentation = computed(() => props.streaming || !props.message)
 const renderState = computed<AssistantRenderState>(() => {
     const message = props.message;
     const projection = useRuntimePresentation.value || !message
-        ? chat.displayRuntimeRenderProjection(
-            chat.runtimeText.value,
-            Array.isArray(chat.runtimeActionCheckEvents.value) ? chat.runtimeActionCheckEvents.value : [],
-        )
+        ? chat.displayRuntimeRenderProjection()
         : chat.displayMessageRenderProjection(message);
     const payload = injectActionCheckRenderMarkers(projection.text, projection.actionCheckEvents);
     const actionCheckGroups = payload.groups.length ? JSON.stringify(payload.groups) : '';
@@ -65,7 +61,7 @@ const renderHtml = computed(() => chat.renderChatMarkdown(renderState.value.text
 const displayThoughts = computed(() => {
     const message = props.message;
     return useRuntimePresentation.value || !message
-        ? chat.displayRuntimeThoughtBlocks(chat.thoughtBlocks(chat.runtimeThoughts.value))
+        ? chat.displayRuntimeThoughtBlocks()
         : chat.displayMessageThoughtBlocks(message);
 });
 const contentVisible = computed(() => !!String(renderState.value.text || '').trim());
@@ -89,7 +85,6 @@ function roleplayMarkdownOptions() {
 
 watch(() => props.streaming, (streaming) => {
     if (!streaming) {return;}
-    hasBeenStreaming.value = true;
     thoughtDefaultOpen.value = true;
 });
 
@@ -313,11 +308,11 @@ function deleteMessage() {
       </template>
     </details>
 
-    <TavernStreamMarkdown
+    <TavernMessageMarkdown
       v-show="contentVisible"
       :action-check-groups="renderState.actionCheckGroups || undefined"
-      :animated="hasBeenStreaming"
       :html="renderHtml"
+      :phase="streaming ? 'live' : 'settled'"
       :signature="renderState.signature"
     />
     <p
