@@ -110,7 +110,6 @@ onActivated(async () => {
           <b v-else>{{ initial(contact.name) }}</b>
         </span>
         <strong>{{ contact.name }}</strong>
-        <span>{{ sending ? '正在输入…' : '消息' }}</span>
       </div>
       <span class="tavern-phone-head-spacer" />
     </header>

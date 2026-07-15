@@ -205,6 +205,7 @@ export function isReservedUserMemoryCharacterName(value: unknown = ''): boolean 
         '我方',
         '主人翁',
         '叙述者',
+        '旁白',
         '主持人',
     ]).has(key);
 }

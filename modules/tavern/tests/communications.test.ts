@@ -20,6 +20,7 @@ import {
     listTavernCommunicationTimelineEvents,
     listTavernCommunicationThreads,
     markTavernCommunicationThreadRead,
+    reconcileTavernCommunicationContacts,
     recoverInterruptedTavernCommunicationMessages,
     restoreTavernCommunicationsToFloor,
     retryFailedTavernCommunicationMessage,
@@ -27,6 +28,79 @@ import {
     trimTavernCommunicationSnapshotsFromFloor,
 } from '../shared/communications';
 import { buildTavernMessagesRequestMessages } from '../app-src/features/phone-os/apps/messages/tavern-messages-context';
+import { buildTavernAutomaticCommunicationContacts } from '../app-src/features/phone-os/apps/messages/tavern-messages-contacts';
+
+test('phone contact discovery only exposes active NPC memory files', () => {
+    const contacts = buildTavernAutomaticCommunicationContacts([
+        { path: 'memory/characters/艾琳.md', status: 'active' },
+        { path: 'memory/characters/艾琳.md', status: 'active' },
+        { path: 'memory/characters/旧时间线.md', status: 'stale' },
+        { path: 'memory/characters/USER.md', status: 'active' },
+        { path: 'memory/characters/旁白.md', status: 'active' },
+        { path: 'memory/characters/世界模拟器.md', status: 'active' },
+        { path: 'memory/characters/小白.md', status: 'active' },
+        { path: 'memory/state.md', status: 'active' },
+    ], {
+        character: { name: '世界模拟器' },
+        user: { name: '小白' },
+    });
+
+    assert.deepEqual(contacts, [
+        { name: '艾琳', memoryPath: 'memory/characters/艾琳.md' },
+    ]);
+});
+
+test('phone contact reconciliation preserves valid threads and removes experimental contact branches', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Automatic contacts' });
+    const legacyCharacter = await createTavernCommunicationContact({
+        sessionId: session.id,
+        name: '世界模拟器',
+        source: 'character',
+    });
+    const legacyManual = await createTavernCommunicationContact({
+        sessionId: session.id,
+        name: '手动联系人',
+        source: 'manual',
+    });
+    const existingNpc = await createTavernCommunicationContact({
+        sessionId: session.id,
+        name: '艾琳',
+        memoryPath: 'memory/characters/艾琳.md',
+        source: 'memory',
+    });
+    await appendPendingTavernCommunicationMessage({
+        sessionId: session.id,
+        threadId: existingNpc.thread.id,
+        content: '保留这条通讯',
+    });
+    await appendPendingTavernCommunicationMessage({
+        sessionId: session.id,
+        threadId: legacyManual.thread.id,
+        content: '删除这条通讯',
+    });
+
+    await reconcileTavernCommunicationContacts({
+        sessionId: session.id,
+        contacts: [
+            { name: '艾琳', memoryPath: 'memory/characters/艾琳.md' },
+            { name: '诺拉', memoryPath: 'memory/characters/诺拉.md' },
+        ],
+    });
+
+    const contacts = await listTavernCommunicationContacts(session.id);
+    const threads = await listTavernCommunicationThreads(session.id);
+    assert.deepEqual(contacts.map((contact) => [contact.name, contact.source, contact.memoryPath]).sort(), [
+        ['艾琳', 'memory', 'memory/characters/艾琳.md'],
+        ['诺拉', 'memory', 'memory/characters/诺拉.md'],
+    ]);
+    assert.equal(contacts.find((contact) => contact.name === '艾琳')?.id, existingNpc.contact.id);
+    assert.equal(threads.length, 2);
+    assert.equal((await listTavernCommunicationMessages(session.id, existingNpc.thread.id))[0]?.content, '保留这条通讯');
+    assert.deepEqual(await listTavernCommunicationMessages(session.id, legacyCharacter.thread.id), []);
+    assert.deepEqual(await listTavernCommunicationMessages(session.id, legacyManual.thread.id), []);
+});
 
 test('phone message replies persist unread state until the thread is opened', async () => {
     await db.delete();

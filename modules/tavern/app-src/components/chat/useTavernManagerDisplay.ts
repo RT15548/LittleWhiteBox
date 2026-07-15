@@ -1,5 +1,6 @@
 import { computed, ref, type Ref } from 'vue';
 import type { TavernManagerRunRecord } from '../../../shared/session-db';
+import { isTavernManagerRunActive as isPersistedManagerRunActive } from '../../../shared/manager-run-liveness';
 
 interface TavernManagerDisplayOptions {
     managerRuns: Ref<TavernManagerRunRecord[]>;
@@ -38,7 +39,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
     const managerStatusClock = ref(Date.now());
     const latestManagerRun = computed(() => options.managerRuns.value[0] || null);
     const currentManagerWorkRun = computed(() => (
-        options.managerRuns.value.find((run) => isManagerRunLive(run.status)) || latestManagerRun.value
+        options.managerRuns.value.find((run) => isManagerRunActive(run)) || latestManagerRun.value
     ));
     const archivedManagerRuns = computed(() => {
         const currentId = String(currentManagerWorkRun.value?.id || '');
@@ -50,7 +51,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         const currentCount = currentManagerWorkRun.value ? 1 : 0;
         return Math.max(0, options.managerRuns.value.length - currentCount - archivedManagerRuns.value.length);
     });
-    const managerBusy = computed(() => options.managerRuns.value.some((run) => ['queued', 'running'].includes(run.status)));
+    const managerBusy = computed(() => options.managerRuns.value.some((run) => isManagerRunActive(run)));
     function formatDurationAgo(timestamp = 0) {
         const elapsed = Math.max(0, managerStatusClock.value - Number(timestamp || 0));
         if (!timestamp || elapsed < 3000) {return '刚刚';}
@@ -71,8 +72,8 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         return formatElapsedDuration(elapsed).replace(/前$/, '');
     }
 
-    function isManagerRunLive(status = '') {
-        return ['queued', 'running'].includes(String(status || ''));
+    function isManagerRunActive(run: TavernManagerRunRecord) {
+        return isPersistedManagerRunActive(run, managerStatusClock.value);
     }
 
     function managerStatusLabel(status = '') {
@@ -283,7 +284,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         formatRunModelLine,
         formatRunTaskLine,
         hiddenManagerRunCount,
-        isManagerRunLive,
+        isManagerRunActive,
         managerBusy,
         managerRunTone,
         managerStatusClock,

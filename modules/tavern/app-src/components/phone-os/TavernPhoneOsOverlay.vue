@@ -98,10 +98,6 @@ onUnmounted(() => document.removeEventListener('keydown', handleDocumentKeydown)
     >
       <TavernPhoneDeviceFrame
         :mode="phone.os.presentationMode.value"
-        :viewport-height="phone.os.viewportHeight.value"
-        :viewport-offset-left="phone.os.viewportOffsetLeft.value"
-        :viewport-offset-top="phone.os.viewportOffsetTop.value"
-        :viewport-width="phone.os.viewportWidth.value"
         @close="phone.os.closePhone"
       >
         <TavernPhoneSystemBar

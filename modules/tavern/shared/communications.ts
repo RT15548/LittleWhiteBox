@@ -141,6 +141,131 @@ export async function listTavernCommunicationMessages(
         .sort((left, right) => left.sequence - right.sequence);
 }
 
+export async function reconcileTavernCommunicationContacts(input: {
+    sessionId: string;
+    contacts: Array<{
+        name: string;
+        avatar?: string;
+        memoryPath: string;
+    }>;
+}): Promise<void> {
+    const sessionId = String(input.sessionId || '').trim();
+    if (!sessionId) {return;}
+    const desiredContacts = input.contacts.reduce<Array<{ name: string; avatar: string; memoryPath: string }>>((result, item) => {
+        const name = normalizeInlineText(item.name);
+        const memoryPath = String(item.memoryPath || '').trim();
+        if (!name || !memoryPath || result.some((candidate) => (
+            candidate.memoryPath === memoryPath
+            || candidate.name.localeCompare(name, 'zh-CN', { sensitivity: 'base' }) === 0
+        ))) {return result;}
+        result.push({ name, avatar: String(item.avatar || '').trim(), memoryPath });
+        return result;
+    }, []);
+    const timestamp = now();
+    await db.transaction(
+        'rw',
+        tavernCommunicationContactsTable,
+        tavernCommunicationThreadsTable,
+        tavernCommunicationMessagesTable,
+        tavernSessionsTable,
+        async () => {
+            const [existingContacts, existingThreads] = await Promise.all([
+                tavernCommunicationContactsTable.where('sessionId').equals(sessionId).toArray(),
+                tavernCommunicationThreadsTable.where('sessionId').equals(sessionId).toArray(),
+            ]);
+            const retainedContactIds = new Set<string>();
+            let changed = false;
+
+            for (const desired of desiredContacts) {
+                const existing = existingContacts.find((contact) => (
+                    !retainedContactIds.has(contact.id)
+                    && (
+                        contact.memoryPath === desired.memoryPath
+                        || contact.name.localeCompare(desired.name, 'zh-CN', { sensitivity: 'base' }) === 0
+                    )
+                ));
+                if (existing) {
+                    retainedContactIds.add(existing.id);
+                    if (
+                        existing.name !== desired.name
+                        || String(existing.avatar || '') !== desired.avatar
+                        || String(existing.memoryPath || '') !== desired.memoryPath
+                        || existing.source !== 'memory'
+                    ) {
+                        await tavernCommunicationContactsTable.put({
+                            ...existing,
+                            name: desired.name,
+                            avatar: desired.avatar,
+                            memoryPath: desired.memoryPath,
+                            source: 'memory',
+                            updatedAt: timestamp,
+                        });
+                        changed = true;
+                    }
+                    if (!existingThreads.some((thread) => thread.contactId === existing.id)) {
+                        await tavernCommunicationThreadsTable.put({
+                            sessionId,
+                            id: createId('communication-thread'),
+                            contactId: existing.id,
+                            unreadCount: 0,
+                            createdAt: timestamp,
+                            updatedAt: timestamp,
+                        });
+                        changed = true;
+                    }
+                    continue;
+                }
+
+                const contact: TavernCommunicationContactRecord = {
+                    sessionId,
+                    id: createId('communication-contact'),
+                    name: desired.name,
+                    avatar: desired.avatar,
+                    memoryPath: desired.memoryPath,
+                    source: 'memory',
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                };
+                await tavernCommunicationContactsTable.put(contact);
+                await tavernCommunicationThreadsTable.put({
+                    sessionId,
+                    id: createId('communication-thread'),
+                    contactId: contact.id,
+                    unreadCount: 0,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                });
+                retainedContactIds.add(contact.id);
+                changed = true;
+            }
+
+            for (const contact of existingContacts) {
+                if (retainedContactIds.has(contact.id)) {continue;}
+                const obsoleteThreads = existingThreads.filter((thread) => thread.contactId === contact.id);
+                for (const thread of obsoleteThreads) {
+                    const obsoleteMessages = (await tavernCommunicationMessagesTable
+                        .where('threadId')
+                        .equals(thread.id)
+                        .toArray())
+                        .filter((message) => message.sessionId === sessionId);
+                    if (obsoleteMessages.length) {
+                        await tavernCommunicationMessagesTable.bulkDelete(obsoleteMessages.map((message) => [
+                            sessionId,
+                            thread.id,
+                            message.sequence,
+                        ]));
+                    }
+                    await tavernCommunicationThreadsTable.delete([sessionId, thread.id]);
+                }
+                await tavernCommunicationContactsTable.delete([sessionId, contact.id]);
+                changed = true;
+            }
+
+            if (changed) {await tavernSessionsTable.update(sessionId, { updatedAt: timestamp });}
+        },
+    );
+}
+
 export async function createTavernCommunicationContact(input: {
     sessionId: string;
     name: string;

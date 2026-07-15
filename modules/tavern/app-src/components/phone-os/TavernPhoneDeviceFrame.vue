@@ -3,10 +3,6 @@ import type { TavernPhonePresentationMode } from '../../features/phone-os/phone-
 
 defineProps<{
     mode: TavernPhonePresentationMode;
-    viewportHeight: number;
-    viewportOffsetLeft: number;
-    viewportOffsetTop: number;
-    viewportWidth: number;
 }>();
 
 const emit = defineEmits<{
@@ -18,12 +14,6 @@ const emit = defineEmits<{
   <section
     class="tavern-phone-device"
     :class="[`is-${mode}`]"
-    :style="mode === 'mobile-fullscreen' && viewportHeight ? {
-      '--phone-viewport-height': `${viewportHeight}px`,
-      '--phone-viewport-offset-left': `${viewportOffsetLeft}px`,
-      '--phone-viewport-offset-top': `${viewportOffsetTop}px`,
-      '--phone-viewport-width': viewportWidth ? `${viewportWidth}px` : '100%',
-    } : undefined"
     role="document"
   >
     <button

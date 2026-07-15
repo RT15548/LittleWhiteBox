@@ -2,17 +2,20 @@ import { computed, ref, watch, type ComputedRef, type Ref } from 'vue';
 import {
     appendPendingTavernCommunicationMessage,
     completeTavernCommunicationExchange,
-    createTavernCommunicationContact,
     failTavernCommunicationMessage,
     getTavernCommunicationThreadForContact,
     listTavernCommunicationContacts,
     listTavernCommunicationMessages,
     listTavernCommunicationThreads,
     markTavernCommunicationThreadRead,
+    reconcileTavernCommunicationContacts,
     recoverInterruptedTavernCommunicationMessages,
     retryFailedTavernCommunicationMessage,
 } from '../../../../../shared/communications';
-import { getTavernMemoryFile } from '../../../../../shared/memory-files';
+import {
+    getTavernMemoryFile,
+    listTavernMemoryFiles,
+} from '../../../../../shared/memory-files';
 import type { XbTavernContext } from '../../../../../shared/message-assembler';
 import type {
     TavernCommunicationContactRecord,
@@ -21,20 +24,12 @@ import type {
     TavernMemoryIndexFileEntry,
 } from '../../../../../shared/session-db';
 import { runTavernOnce } from '../../../../runtime/run-once';
+import { buildTavernAutomaticCommunicationContacts } from './tavern-messages-contacts';
 import { buildTavernMessagesRequestMessages } from './tavern-messages-context';
-
-export interface TavernPhoneContactCandidate {
-    key: string;
-    name: string;
-    avatar: string;
-    memoryPath: string;
-    source: 'character' | 'memory';
-}
 
 export interface TavernPhoneControllerOptions {
     selectedSessionId: Ref<string>;
     effectiveContext: ComputedRef<XbTavernContext>;
-    visibleCharacterAvatar: ComputedRef<string>;
     memoryFiles: Ref<TavernMemoryIndexFileEntry[]>;
     agentConfig: Ref<Record<string, unknown>>;
     chatRunning: Ref<boolean>;
@@ -67,17 +62,6 @@ function normalizeText(value: unknown, limit = 4000): string {
 
 function cloneSerializable<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function memoryCharacterName(path = ''): string {
-    const normalized = String(path || '').trim();
-    if (!normalized.startsWith('memory/characters/') || !normalized.endsWith('.md')) {return '';}
-    const encoded = normalized.slice('memory/characters/'.length, -'.md'.length);
-    try {
-        return decodeURIComponent(encoded).trim();
-    } catch {
-        return encoded.trim();
-    }
 }
 
 function extractJsonObject(value = ''): Record<string, unknown> | null {
@@ -160,36 +144,6 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         && sendingSessionId.value === String(options.selectedSessionId.value || '').trim()
         && activePending.value?.threadId === activeThreadId.value
     ));
-    const contactCandidates = computed<TavernPhoneContactCandidate[]>(() => {
-        const existingPaths = new Set(contacts.value.map((contact) => String(contact.memoryPath || '')).filter(Boolean));
-        const existingNames = new Set(contacts.value.map((contact) => contact.name.trim().toLocaleLowerCase('zh-CN')));
-        const result: TavernPhoneContactCandidate[] = [];
-        const character = options.effectiveContext.value.character || {};
-        const characterName = normalizeText(character.name, 120);
-        if (characterName && !existingNames.has(characterName.toLocaleLowerCase('zh-CN'))) {
-            result.push({
-                key: `character:${character.characterKey || characterName}`,
-                name: characterName,
-                avatar: options.visibleCharacterAvatar.value,
-                memoryPath: '',
-                source: 'character',
-            });
-        }
-        for (const file of options.memoryFiles.value) {
-            const path = String(file.path || '').trim();
-            const name = memoryCharacterName(path);
-            if (!name || existingPaths.has(path) || existingNames.has(name.toLocaleLowerCase('zh-CN'))) {continue;}
-            result.push({
-                key: `memory:${path}`,
-                name,
-                avatar: '',
-                memoryPath: path,
-                source: 'memory',
-            });
-        }
-        return result.sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
-    });
-
     const sendBlockedReason = computed(() => {
         if (!options.selectedSessionId.value) {return '请先进入一个会话。';}
         if (options.chatRunning.value || options.chatCancelling.value) {return '角色正在回复，暂时不能发送手机消息。';}
@@ -232,6 +186,13 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
             threadSearchText.value = {};
             return;
         }
+        const contextSnapshot = options.effectiveContext.value || {};
+        const memoryFiles = await listTavernMemoryFiles(sessionId);
+        if (requestSequence !== refreshSequence || sessionId !== String(options.selectedSessionId.value || '').trim()) {return;}
+        await reconcileTavernCommunicationContacts({
+            sessionId,
+            contacts: buildTavernAutomaticCommunicationContacts(memoryFiles, contextSnapshot),
+        });
         const [nextContacts, nextThreads] = await Promise.all([
             listTavernCommunicationContacts(sessionId),
             listTavernCommunicationThreads(sessionId),
@@ -311,20 +272,6 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         messages.value = nextMessages;
     }
 
-    async function addContact(candidate: TavernPhoneContactCandidate) {
-        const sessionId = String(options.selectedSessionId.value || '').trim();
-        if (!sessionId) {return;}
-        const created = await createTavernCommunicationContact({
-            sessionId,
-            name: candidate.name,
-            avatar: candidate.avatar,
-            memoryPath: candidate.memoryPath,
-            source: candidate.source,
-        });
-        await refreshPhone();
-        await openContact(created.contact.id);
-    }
-
     function createSendTask(
         contact: TavernCommunicationContactRecord,
         thread: TavernCommunicationThreadRecord,
@@ -348,15 +295,11 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         const contactMemory = task.contact.memoryPath
             ? await getTavernMemoryFile(task.sessionId, task.contact.memoryPath)
             : null;
-        const character = task.contextSnapshot.character || {};
-        const fallbackProfile = task.contact.source === 'character'
-            ? [character.description, character.personality, character.scenario].filter(Boolean).join('\n\n')
-            : '';
         return buildTavernMessagesRequestMessages({
             sessionId: task.sessionId,
             contextSnapshot: task.contextSnapshot,
             contact: task.contact,
-            contactProfile: normalizeText(contactMemory?.content || fallbackProfile, 12000),
+            contactProfile: normalizeText(contactMemory?.content || '', 12000),
             thread: task.thread,
             communicationMessages: history,
             pendingMessage,
@@ -477,14 +420,21 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         })();
     }, { immediate: true });
 
+    watch(() => JSON.stringify({
+        sessionId: options.selectedSessionId.value,
+        characterName: options.effectiveContext.value.character?.name || '',
+        userName: options.effectiveContext.value.user?.name || '',
+        files: options.memoryFiles.value.map((file) => [file.path, file.status]),
+    }), () => {
+        if (options.selectedSessionId.value) {void refreshPhone();}
+    });
+
     return {
         activeContact,
         activeContactId,
         activeThread,
         activeThreadId,
-        addContact,
         canSend,
-        contactCandidates,
         contacts,
         conversationSending,
         draft,

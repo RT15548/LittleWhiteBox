@@ -10,14 +10,12 @@ const props = defineProps<{
     contacts: TavernCommunicationContactRecord[];
     threads: TavernCommunicationThreadRecord[];
     previews: Record<string, TavernCommunicationMessageRecord | null>;
-    candidateCount: number;
     filteredContactIds: string[];
 }>();
 
 const searchQuery = defineModel<string>('searchQuery', { required: true });
 
 const emit = defineEmits<{
-    (event: 'add'): void;
     (event: 'open', contactId: string): void;
 }>();
 
@@ -25,9 +23,14 @@ const rows = computed(() => props.contacts.filter((contact) => props.filteredCon
     const thread = props.threads.find((item) => item.contactId === contact.id) || null;
     const preview = thread ? props.previews[thread.id] || null : null;
     return { contact, thread, preview };
-}).sort((left, right) => (
-    Number(right.thread?.updatedAt || right.contact.updatedAt) - Number(left.thread?.updatedAt || left.contact.updatedAt)
-)));
+}).sort((left, right) => {
+    if (!!left.preview !== !!right.preview) {return left.preview ? -1 : 1;}
+    if (left.preview && right.preview) {
+        const recentDifference = Number(right.preview.updatedAt) - Number(left.preview.updatedAt);
+        if (recentDifference) {return recentDifference;}
+    }
+    return left.contact.name.localeCompare(right.contact.name, 'zh-CN');
+}));
 
 function initial(name = ''): string {
     return Array.from(String(name || '').trim())[0] || '·';
@@ -50,20 +53,6 @@ function previewText(message: TavernCommunicationMessageRecord | null, thread: T
       <div>
         <h2>信息</h2>
       </div>
-      <button
-        type="button"
-        class="tavern-phone-compose-contact"
-        :disabled="!candidateCount"
-        aria-label="添加联系人"
-        @click="emit('add')"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </button>
     </header>
     <label class="tavern-phone-search">
       <svg viewBox="0 0 24 24"><circle
@@ -127,15 +116,8 @@ function previewText(message: TavernCommunicationMessageRecord | null, thread: T
       >
         <i />
       </span>
-      <strong>还没有联系人</strong>
-      <p>从剧情中已经认识的角色里，添加一位可以联系的人。</p>
-      <button
-        type="button"
-        :disabled="!candidateCount"
-        @click="emit('add')"
-      >
-        {{ candidateCount ? '添加联系人' : '暂无可添加角色' }}
-      </button>
+      <strong>剧情中还没有可联系的人</strong>
+      <p>人物档案出现后，会自动来到这里。</p>
     </div>
     <div
       v-else

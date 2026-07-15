@@ -1059,7 +1059,7 @@ const {
     formatRunModelLine,
     formatRunTaskLine,
     hiddenManagerRunCount,
-    isManagerRunLive,
+    isManagerRunActive,
     managerBusy,
     managerRunTone,
     managerStatusClock,
@@ -1076,7 +1076,6 @@ const {
 const phoneContext = useTavernPhoneController({
     selectedSessionId,
     effectiveContext,
-    visibleCharacterAvatar,
     memoryFiles,
     agentConfig,
     chatRunning: isRunning,
@@ -2821,7 +2820,7 @@ async function pollLiveManagerRecords() {
     managerStatusClock.value = Date.now();
     if (managerRecordsPollRunning) {return;}
     if (!selectedSessionId.value) {return;}
-    const hasLiveManagerRun = managerRuns.value.some((run) => isManagerRunLive(run.status));
+    const hasLiveManagerRun = managerRuns.value.some((run) => isManagerRunActive(run));
     if (!hasLiveManagerRun && !isRunning.value && !isManagerAssistantRunning.value) {return;}
     managerRecordsPollRunning = true;
     try {

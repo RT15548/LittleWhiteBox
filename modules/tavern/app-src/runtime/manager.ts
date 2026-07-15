@@ -40,6 +40,7 @@ import {
     type TavernManagerRunRecord,
     type TavernMessageRecord,
 } from '../../shared/session-db';
+import { TAVERN_MANAGER_HEARTBEAT_INTERVAL_MS } from '../../shared/manager-run-liveness';
 import { executeTavernStateTool, getTavernAtlasStateForSession, TAVERN_STATE_TOOL_NAMES, type TavernStateToolResult } from '../../shared/structured-state';
 import {
     describeStatusStateRollbackImpactForMessageRange,
@@ -1114,7 +1115,7 @@ function startManagerRunHeartbeat(managerRunId = '', signal?: AbortSignal): () =
     const timer = setInterval(() => {
         if (stopped || signal?.aborted) {return;}
         void touchRunningTavernManagerRun(id);
-    }, 4000);
+    }, TAVERN_MANAGER_HEARTBEAT_INTERVAL_MS);
     return () => {
         stopped = true;
         clearInterval(timer);

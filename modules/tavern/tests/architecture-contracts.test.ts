@@ -1198,6 +1198,7 @@ test('tavern phone OS drives registered apps through a generic definition contra
     const registrySource = readRepoFile('modules/tavern/app-src/features/phone-os/phone-os-app-registry.ts');
     const typesSource = readRepoFile('modules/tavern/app-src/features/phone-os/phone-os-types.ts');
     const messagesSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/useTavernMessagesController.ts');
+    const contactsSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/tavern-messages-contacts.ts');
     const communicationSource = readRepoFile('modules/tavern/shared/communications.ts');
     const overlaySource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneOsOverlay.vue');
     const appStageSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneAppStage.vue');
@@ -1232,6 +1233,11 @@ test('tavern phone OS drives registered apps through a generic definition contra
     assert.match(phoneControllerSource, /createTavernPhoneAppRegistry\(\{ messages \}\)/);
     assert.doesNotMatch(messagesSource, /const phoneOpen|const phoneScreen|routeStack/);
     assert.match(messagesSource, /draftsByThread/);
+    assert.match(messagesSource, /reconcileTavernCommunicationContacts/);
+    assert.match(contactsSource, /file\.status === 'stale'/);
+    assert.match(contactsSource, /context\.character\?\.name/);
+    assert.match(contactsSource, /context\.user\?\.name/);
+    assert.match(contactsSource, /isReservedUserMemoryCharacterName/);
     assert.match(messagesSource, /let openContactSequence = 0/);
     assert.match(messagesSource, /requestSequence !== openContactSequence/);
     assert.match(messagesSource, /async function markActiveThreadRead/);
@@ -1259,16 +1265,16 @@ test('tavern phone OS drives registered apps through a generic definition contra
     assert.match(messagesAppSource, /TavernMessagesConversation/);
     assert.match(messagesAppSource, /<KeepAlive>/);
     assert.doesNotMatch(messagesAppSource, /prepareMessages|onMounted/);
+    assert.doesNotMatch(messagesAppSource, /TavernMessagesAddContact|contacts\/add|@add/);
+    assert.doesNotMatch(messagesThreadListSource, /添加联系人|暂无可添加角色/);
     assert.match(phoneOsSource, /app\.isAvailable === undefined \|\| !!unref\(app\.isAvailable\)/);
     assert.match(mobileSource, /\.tavern-phone-device\.is-mobile-fullscreen/);
     assert.match(mobileSource, /border-radius: 0/);
-    assert.match(mobileSource, /--phone-viewport-offset-top/);
+    assert.doesNotMatch(mobileSource, /--phone-viewport|translate3d/);
     assert.doesNotMatch(mobileSource, /tavern-phone-system-navigation \{display: none/);
-    assert.match(deviceFrameSource, /viewportOffsetTop/);
-    assert.match(deviceFrameSource, /viewportOffsetLeft/);
+    assert.doesNotMatch(deviceFrameSource, /viewportOffset|viewportHeight|viewportWidth/);
     assert.match(viewportSource, /pointer: coarse/);
-    assert.match(viewportSource, /visualViewport\?\.offsetTop/);
-    assert.match(viewportSource, /visualViewport\?\.offsetLeft/);
+    assert.doesNotMatch(viewportSource, /visualViewport|offsetTop|offsetLeft/);
     assert.doesNotMatch(overlaySource, /dynamic-island|new Date|setInterval/);
 });
 

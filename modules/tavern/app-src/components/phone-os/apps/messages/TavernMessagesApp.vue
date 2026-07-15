@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useTavernPhoneContext } from '../../../tavern-app-context';
-import TavernMessagesAddContact from './TavernMessagesAddContact.vue';
 import TavernMessagesConversation from './TavernMessagesConversation.vue';
 import TavernMessagesThreadList from './TavernMessagesThreadList.vue';
 
@@ -11,7 +10,6 @@ const activePath = computed(() => (
 ));
 const hasKnownRoute = computed(() => (
     activePath.value === '/threads'
-    || activePath.value === '/contacts/add'
     || (activePath.value.startsWith('/threads/') && !!phone.messages.activeContact.value)
 ));
 
@@ -30,9 +28,7 @@ const hasKnownRoute = computed(() => (
         :contacts="phone.messages.contacts.value"
         :threads="phone.messages.threads.value"
         :previews="phone.messages.threadPreviews.value"
-        :candidate-count="phone.messages.contactCandidates.value.length"
         :filtered-contact-ids="phone.messages.filteredContactIds.value"
-        @add="phone.showAddContact"
         @open="phone.openContact"
       />
       <TavernMessagesConversation
@@ -49,13 +45,6 @@ const hasKnownRoute = computed(() => (
         @back="phone.os.back"
         @retry="phone.messages.retryMessage"
         @send="phone.messages.sendMessage()"
-      />
-      <TavernMessagesAddContact
-        v-else-if="activePath === '/contacts/add'"
-        key="messages-add-contact"
-        :candidates="phone.messages.contactCandidates.value"
-        @back="phone.os.back"
-        @add="phone.addContact"
       />
     </KeepAlive>
   </Transition>

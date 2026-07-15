@@ -193,9 +193,5 @@ export function useTavernPhoneOsController(options: TavernPhoneOsControllerOptio
         replaceAppRoute,
         routeStack,
         transitionDirection,
-        viewportHeight: viewport.viewportHeight,
-        viewportOffsetLeft: viewport.viewportOffsetLeft,
-        viewportOffsetTop: viewport.viewportOffsetTop,
-        viewportWidth: viewport.viewportWidth,
     };
 }

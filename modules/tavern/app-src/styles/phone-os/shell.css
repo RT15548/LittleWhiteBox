@@ -275,8 +275,11 @@
 .tavern-phone-home-control:focus-visible,
 .tavern-phone-app-icon-button:focus-visible,
 .tavern-phone-app button:focus-visible,
-.tavern-phone-search input:focus-visible,
-.tavern-phone-imessage-field textarea:focus-visible {
+.tavern-phone-search input:focus-visible {
     outline: 2px solid var(--phone-os-blue);
     outline-offset: 2px;
+}
+
+.tavern-phone-imessage-field textarea:focus-visible {
+    outline: 0;
 }

@@ -35,7 +35,6 @@ import type { TavernCharacterArchiveProgress } from '../../shared/character-arch
 import type { TavernMapStateDocumentItem } from '../../shared/structured-state';
 import type { TavernStatusFieldDeltaMap } from '../../shared/status-state';
 import type { TavernDrawContext } from '../features/draw/useTavernDrawController';
-import type { TavernPhoneContactCandidate } from '../features/phone-os/useTavernPhoneController';
 import type {
     TavernPhoneAppDefinition,
     TavernPhoneOsRoute,
@@ -407,9 +406,7 @@ export interface TavernMessagesContext {
     activeContactId: Ref<string>;
     activeThread: TavernReadable<TavernCommunicationThreadRecord | null>;
     activeThreadId: Ref<string>;
-    addContact: TavernCommand<[candidate: TavernPhoneContactCandidate], Promise<void>>;
     canSend: TavernReadable<boolean>;
-    contactCandidates: TavernReadable<TavernPhoneContactCandidate[]>;
     contacts: Ref<TavernCommunicationContactRecord[]>;
     conversationSending: TavernReadable<boolean>;
     draft: Ref<string>;
@@ -451,20 +448,14 @@ export interface TavernPhoneOsContext {
     replaceAppRoute: TavernCommand<[appId?: string, path?: string, params?: Record<string, string>]>;
     routeStack: Ref<TavernPhoneOsRoute[]>;
     transitionDirection: Ref<'forward' | 'back' | 'home'>;
-    viewportHeight: Ref<number>;
-    viewportOffsetLeft: Ref<number>;
-    viewportOffsetTop: Ref<number>;
-    viewportWidth: Ref<number>;
 }
 
 export interface TavernPhoneContext {
-    addContact: TavernCommand<[candidate: TavernPhoneContactCandidate], Promise<void>>;
     isConversationVisible: TavernCommand<[sessionId?: string, threadId?: string], boolean>;
     messages: TavernMessagesContext;
     openContact: TavernCommand<[contactId: string], Promise<void>>;
     openPhone: TavernCommand<[], Promise<void>>;
     os: TavernPhoneOsContext;
-    showAddContact: TavernCommand;
     showMessageThreads: TavernCommand;
 }
 

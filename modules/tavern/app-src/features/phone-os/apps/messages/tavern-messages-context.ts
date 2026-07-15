@@ -129,22 +129,18 @@ function buildContactContext(input: {
     contact: TavernCommunicationContactRecord;
     profile: string;
 }): XbTavernContext {
-    const currentCharacter = input.context.character || {};
-    const isCurrentCharacter = input.contact.source === 'character';
     return {
         ...input.context,
         authorNote: undefined,
-        character: isCurrentCharacter
-            ? { ...currentCharacter, name: input.contact.name }
-            : {
-                name: input.contact.name,
-                characterKey: `phone:${input.contact.id}`,
-                description: input.profile,
-                personality: '',
-                scenario: '',
-                mesExample: '',
-                data: { description: input.profile },
-            },
+        character: {
+            name: input.contact.name,
+            characterKey: `phone:${input.contact.id}`,
+            description: input.profile,
+            personality: '',
+            scenario: '',
+            mesExample: '',
+            data: { description: input.profile },
+        },
     };
 }
 
