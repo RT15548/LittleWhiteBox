@@ -173,20 +173,28 @@ modules/tavern/shared/
 每款 App 通过注册表接入：
 
 ```ts
-interface TavernPhoneAppManifest {
+interface TavernPhoneAppDefinition {
     id: string;
     name: string;
+    shortName: string;
     icon: string;
     accent: string;
     rootPath: string;
     order: number;
-    isAvailable: () => boolean;
-    badge?: () => number;
+    component: Component;
+    badge?: Readonly<Ref<number>>;
+    isAvailable?: Readonly<Ref<boolean>>;
+    onActivate?: () => void | Promise<void>;
+    onDeactivate?: () => void | Promise<void>;
 }
 ```
 
-- OS 桌面只读取 manifest，不导入 App 业务状态。
-- App 舞台根据 `appId + path` 渲染对应页面。
+- OS 控制器由外部注入定义列表，不导入任何具体 App、组件或业务常量。
+- OS 桌面统一读取定义中的展示信息和响应式徽标，不为信息、地图等 App 写特殊判断。
+- App 可用性由响应式 `isAvailable` 驱动；能力关闭时入口和失效路由同时退出，不保留灰色假 App。
+- App 舞台只通过动态组件渲染当前定义，不维护第二份 `appId → component` 分支表。
+- App 的准备和释放动作进入 `onActivate/onDeactivate`，不散落在组件挂载和系统开关中。
+- 注册表拒绝空 ID、非法根路由和重复 App ID，并按 `order` 生成冻结的确定性列表。
 - 未来地图 App 通过薄桥接读取现有地图能力，不把地图领域逻辑搬进 Phone OS。
 - 不支持的 App 不显示，不放灰色假入口。
 
@@ -395,6 +403,17 @@ interface TavernPhoneAppManifest {
 - [x] 构建产物与源码一致。
 
 完成标准：达到本文第 15 节的最终完成定义后，再交给主人进行首次集中体验。
+
+### Phase 7：App SDK 首版
+
+- [x] 将组件、根路由、展示信息、徽标和生命周期收敛到单一 `TavernPhoneAppDefinition`。
+- [x] OS 控制器改为外部注入定义，不再导入具体 App 注册表。
+- [x] Home 和 App Stage 移除信息 App 特判，统一消费定义。
+- [x] 增加响应式 App 可用性门控，关闭能力后同步移除入口并修复当前路由。
+- [x] 信息 App 数据准备迁入 `onActivate`，关闭、Home、返回根层和会话切换统一触发停用。
+- [x] 增加双 App 排序、冻结、重复 ID 和非法根路由测试。
+
+完成标准：新增第二款 App 时，只增加该 App 自身实现和一条定义，不修改 OS 控制器、Home 或 App Stage。
 
 ## 15. 最终完成定义
 

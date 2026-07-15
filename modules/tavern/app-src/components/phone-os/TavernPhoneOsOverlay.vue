@@ -119,15 +119,14 @@ onUnmounted(() => document.removeEventListener('keydown', handleDocumentKeydown)
             <TavernPhoneHome
               v-if="phone.os.activeRoute.value.kind === 'home'"
               key="phone-home"
-              :apps="phone.os.apps"
+              :apps="phone.os.apps.value"
               :character-avatar="chat.visibleCharacterAvatar.value"
-              :unread-total="phone.messages.unreadTotal.value"
               @launch="handleLaunchApp"
             />
             <TavernPhoneAppStage
               v-else-if="phone.os.activeRoute.value.kind === 'app'"
               :key="phone.os.activeRoute.value.appId"
-              :app-id="phone.os.activeRoute.value.appId"
+              :app="phone.os.activeApp.value"
             />
             <section
               v-else

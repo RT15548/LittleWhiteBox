@@ -1,6 +1,7 @@
 import {
     TAVERN_PHONE_MESSAGES_APP_ID,
 } from './phone-os-types';
+import { createTavernPhoneAppRegistry } from './phone-os-app-registry';
 import { useTavernPhoneOsController } from './useTavernPhoneOsController';
 import {
     useTavernMessagesController,
@@ -15,9 +16,7 @@ const MESSAGES_ADD_CONTACT_PATH = '/contacts/add';
 
 export function useTavernPhoneController(options: TavernPhoneControllerOptions) {
     let contactNavigationSequence = 0;
-    const os = useTavernPhoneOsController({
-        selectedSessionId: options.selectedSessionId,
-    });
+    let os!: ReturnType<typeof useTavernPhoneOsController>;
     const messages = useTavernMessagesController({
         ...options,
         isThreadVisible: (sessionId, threadId) => {
@@ -26,6 +25,10 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
                 && route.kind === 'app'
                 && route.params?.threadId === threadId;
         },
+    });
+    os = useTavernPhoneOsController({
+        apps: createTavernPhoneAppRegistry({ messages }),
+        selectedSessionId: options.selectedSessionId,
     });
 
     async function openPhone() {

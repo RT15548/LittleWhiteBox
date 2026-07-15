@@ -37,7 +37,7 @@ import type { TavernStatusFieldDeltaMap } from '../../shared/status-state';
 import type { TavernDrawContext } from '../features/draw/useTavernDrawController';
 import type { TavernPhoneContactCandidate } from '../features/phone-os/useTavernPhoneController';
 import type {
-    TavernPhoneAppManifest,
+    TavernPhoneAppDefinition,
     TavernPhoneOsRoute,
     TavernPhonePresentationMode,
 } from '../features/phone-os/phone-os-types';
@@ -434,9 +434,9 @@ export interface TavernMessagesContext {
 }
 
 export interface TavernPhoneOsContext {
-    activeApp: TavernReadable<TavernPhoneAppManifest | null>;
+    activeApp: TavernReadable<TavernPhoneAppDefinition | null>;
     activeRoute: TavernReadable<TavernPhoneOsRoute>;
-    apps: TavernPhoneAppManifest[];
+    apps: TavernReadable<TavernPhoneAppDefinition[]>;
     back: TavernCommand;
     backOrClose: TavernCommand;
     closePhone: TavernCommand;

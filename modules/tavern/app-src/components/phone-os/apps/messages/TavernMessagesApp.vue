@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed } from 'vue';
 import { useTavernPhoneContext } from '../../../tavern-app-context';
 import TavernMessagesAddContact from './TavernMessagesAddContact.vue';
 import TavernMessagesConversation from './TavernMessagesConversation.vue';
@@ -15,9 +15,6 @@ const hasKnownRoute = computed(() => (
     || (activePath.value.startsWith('/threads/') && !!phone.messages.activeContact.value)
 ));
 
-onMounted(() => {
-    void phone.messages.prepareMessages();
-});
 </script>
 
 <template>

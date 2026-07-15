@@ -26,9 +26,11 @@
             transition: opacity 180ms ease;
         }
 
-        #app:not(:empty) ~ #xb-frame-boot {
+        html.tavern-ui-ready #xb-frame-boot {
             opacity: 0;
+            visibility: hidden;
             pointer-events: none;
+            transition: opacity 180ms ease, visibility 0s linear 180ms;
         }
 
         .xb-frame-boot-core {
@@ -104,6 +106,20 @@
         const progressFill = document.querySelector('#xb-frame-boot .xb-frame-boot-fill');
         const progressPercent = document.querySelector('#xb-frame-boot .xb-frame-boot-percent');
         const progressStage = document.querySelector('#xb-frame-boot .xb-frame-boot-stage');
+        const progressHint = document.querySelector('#xb-frame-boot .xb-frame-boot-hint');
+        let stylesheetReady = false;
+        let startupReady = false;
+        const revealTavernWhenReady = () => {
+            if (!stylesheetReady || !startupReady) return;
+            document.documentElement.classList.add('tavern-ui-ready');
+            document.querySelector('#xb-frame-boot')?.setAttribute('aria-hidden', 'true');
+        };
+        const showStartupFailure = (message) => {
+            if (progressFill) progressFill.style.width = '100%';
+            if (progressPercent) progressPercent.textContent = '100%';
+            if (progressStage) progressStage.textContent = '加载失败';
+            if (progressHint) progressHint.textContent = message;
+        };
         const startupStageLabels = {
             startup: '等待启动',
             loadTavernResources: '载入资源',
@@ -131,6 +147,10 @@
             if (progressFill) progressFill.style.width = `${percent}%`;
             if (progressPercent) progressPercent.textContent = `${roundedPercent}%`;
             if (progressStage) progressStage.textContent = stage;
+            if (action === 'enterTavern' && percent >= 100) {
+                startupReady = true;
+                revealTavernWhenReady();
+            }
             if (payload.action) console.debug('[小白酒馆] startup', `${percent}%`, payload.action);
         };
         window.addEventListener('message', (event) => {
@@ -149,16 +169,19 @@
         const stylesheet = document.createElement('link');
         stylesheet.rel = 'stylesheet';
         stylesheet.href = `./dist/tavern-app.css${suffix}`;
+        stylesheet.addEventListener('load', () => {
+            stylesheetReady = true;
+            revealTavernWhenReady();
+        }, { once: true });
+        stylesheet.addEventListener('error', () => {
+            showStartupFailure('界面样式加载失败，请刷新重试');
+        }, { once: true });
         document.head.appendChild(stylesheet);
         const script = document.createElement('script');
         script.type = 'module';
         script.src = `./dist/tavern-app.js${suffix}`;
         script.onerror = () => {
-            const hint = document.querySelector('#xb-frame-boot .xb-frame-boot-hint');
-            if (progressFill) progressFill.style.width = '100%';
-            if (progressPercent) progressPercent.textContent = '100%';
-            if (progressStage) progressStage.textContent = '加载失败';
-            if (hint) hint.textContent = '加载失败，请刷新重试';
+            showStartupFailure('界面程序加载失败，请刷新重试');
         };
         document.body.appendChild(script);
     </script>

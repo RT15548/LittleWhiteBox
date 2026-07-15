@@ -288,7 +288,7 @@ function deleteMessage() {
     />
 
     <details
-      v-show="displayThoughts.length"
+      v-show="!isEditing && displayThoughts.length"
       class="tavern-thought-details"
       :open="isThoughtOpen()"
       @toggle="setThoughtOpen"
@@ -309,14 +309,14 @@ function deleteMessage() {
     </details>
 
     <TavernMessageMarkdown
-      v-show="contentVisible"
+      v-show="!isEditing && contentVisible"
       :action-check-groups="renderState.actionCheckGroups || undefined"
       :html="renderHtml"
       :phase="streaming ? 'live' : 'settled'"
       :signature="renderState.signature"
     />
     <p
-      v-show="!contentVisible"
+      v-show="!isEditing && !contentVisible"
       class="assistant-thinking-placeholder"
     >
       {{ streaming ? '正在组织回复...' : '' }}

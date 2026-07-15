@@ -3,6 +3,8 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { test } from 'node:test';
 import { Script, createContext } from 'node:vm';
+import type { Component } from 'vue';
+import { defineTavernPhoneApps } from '../app-src/features/phone-os/phone-os-types';
 
 const root = resolve(import.meta.dirname, '../../..');
 const tavernRoot = resolve(root, 'modules/tavern');
@@ -216,6 +218,11 @@ test('tavern startup posts frame-ready before heavy app tasks and prewarms host 
     assert.match(htmlSource, /const startupStageLabels = \{[\s\S]*loadTavernResources: '载入资源'[\s\S]*loadFrameSettings: '读取设置'[\s\S]*buildChatPreset: '整理预设'[\s\S]*frameConfigReady: '配置就绪'[\s\S]*sendInitialConfigToFrame: '同步配置'[\s\S]*enterTavern: '进入酒馆'/);
     assert.match(htmlSource, /progressPercent\.textContent = `\$\{roundedPercent\}%`/);
     assert.match(htmlSource, /progressStage\.textContent = stage/);
+    assert.doesNotMatch(htmlSource, /#app:not\(:empty\) ~ #xb-frame-boot/);
+    assert.match(htmlSource, /html\.tavern-ui-ready #xb-frame-boot/);
+    assert.match(htmlSource, /let stylesheetReady = false;[\s\S]*let startupReady = false;[\s\S]*const revealTavernWhenReady = \(\) => \{[\s\S]*if \(!stylesheetReady \|\| !startupReady\) return;[\s\S]*classList\.add\('tavern-ui-ready'\)/);
+    assert.match(htmlSource, /action === 'enterTavern' && percent >= 100[\s\S]*startupReady = true;[\s\S]*revealTavernWhenReady\(\)/);
+    assert.match(htmlSource, /stylesheet\.addEventListener\('load',[\s\S]*stylesheetReady = true;[\s\S]*revealTavernWhenReady\(\)/);
     assert.match(htmlSource, /window\.addEventListener\('message'[\s\S]*data\.type !== 'xb-tavern:startup-progress'[\s\S]*applyStartupProgress\(data\.payload \|\| \{\}\)/);
     assert.match(htmlSource, /window\.parent\?\.postMessage\(\{[\s\S]*source: SOURCE_APP,[\s\S]*type: 'xb-tavern:boot-ready'/);
     assert.match(hostSource, /let initialConfigPromise: Promise<Record<string, unknown>> \| null = null;/);
@@ -1185,15 +1192,17 @@ test('tavern phone context uses its own preset and timeline-anchored main-story 
     assert.match(phoneContactListSource, /搜索联系人和消息/);
 });
 
-test('tavern phone OS keeps platform navigation separate from the messages app', () => {
+test('tavern phone OS drives registered apps through a generic definition contract', () => {
     const phoneOsSource = readRepoFile('modules/tavern/app-src/features/phone-os/useTavernPhoneOsController.ts');
     const phoneControllerSource = readRepoFile('modules/tavern/app-src/features/phone-os/useTavernPhoneController.ts');
     const registrySource = readRepoFile('modules/tavern/app-src/features/phone-os/phone-os-app-registry.ts');
+    const typesSource = readRepoFile('modules/tavern/app-src/features/phone-os/phone-os-types.ts');
     const messagesSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/useTavernMessagesController.ts');
     const communicationSource = readRepoFile('modules/tavern/shared/communications.ts');
     const overlaySource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneOsOverlay.vue');
     const appStageSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneAppStage.vue');
     const deviceFrameSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneDeviceFrame.vue');
+    const homeSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneHome.vue');
     const messagesAppSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesApp.vue');
     const viewportSource = readRepoFile('modules/tavern/app-src/features/phone-os/useTavernPhoneViewport.ts');
     const mobileSource = readRepoFile('modules/tavern/app-src/styles/phone-os/mobile.css');
@@ -1204,8 +1213,21 @@ test('tavern phone OS keeps platform navigation separate from the messages app',
     assert.match(phoneOsSource, /function home/);
     assert.match(phoneOsSource, /function appRoutesMatch/);
     assert.match(phoneOsSource, /if \(appRoutesMatch\(activeRoute\.value, next\)\) \{return;\}/);
-    assert.doesNotMatch(phoneOsSource, /Communication|runTavernOnce|contactCandidates/);
+    assert.match(phoneOsSource, /apps: readonly TavernPhoneAppDefinition\[\]/);
+    assert.match(phoneOsSource, /function activateApp/);
+    assert.match(phoneOsSource, /function deactivateApp/);
+    assert.doesNotMatch(phoneOsSource, /Communication|runTavernOnce|contactCandidates|TAVERN_PHONE_MESSAGES_APP_ID|TavernMessagesApp|phone-os-app-registry/);
+    assert.match(typesSource, /interface TavernPhoneAppDefinition extends TavernPhoneAppManifest/);
+    assert.match(typesSource, /component: Component/);
+    assert.match(typesSource, /badge\?: Readonly<Ref<number>>/);
+    assert.match(typesSource, /isAvailable\?: Readonly<Ref<boolean>>/);
+    assert.match(typesSource, /onActivate\?:/);
+    assert.match(typesSource, /duplicate_phone_app_definition/);
     assert.match(registrySource, /TAVERN_PHONE_MESSAGES_APP_ID/);
+    assert.match(registrySource, /component: markRaw\(TavernMessagesApp\)/);
+    assert.match(registrySource, /badge: input\.messages\.unreadTotal/);
+    assert.match(registrySource, /onActivate: input\.messages\.prepareMessages/);
+    assert.match(phoneControllerSource, /createTavernPhoneAppRegistry\(\{ messages \}\)/);
     assert.doesNotMatch(messagesSource, /const phoneOpen|const phoneScreen|routeStack/);
     assert.match(messagesSource, /draftsByThread/);
     assert.match(messagesSource, /let openContactSequence = 0/);
@@ -1221,11 +1243,15 @@ test('tavern phone OS keeps platform navigation separate from the messages app',
     assert.doesNotMatch(overlaySource, /:key="`\$\{phone\.os\.activeRoute\.value\.appId\}:\$\{phone\.os\.activeRoute\.value\.path\}`"/);
     assert.match(overlaySource, /!focusIsInside/);
     assert.doesNotMatch(overlaySource, /TavernMessagesThreadList|TavernMessagesConversation|TavernMessagesAddContact/);
-    assert.match(appStageSource, /TAVERN_PHONE_MESSAGES_APP_ID/);
+    assert.match(appStageSource, /:is="app\.component"/);
+    assert.doesNotMatch(appStageSource, /TAVERN_PHONE_MESSAGES_APP_ID|TavernMessagesApp/);
+    assert.match(homeSource, /unref\(app\.badge\)/);
+    assert.doesNotMatch(homeSource, /app\.id === 'messages'|unreadTotal/);
     assert.match(messagesAppSource, /TavernMessagesThreadList/);
     assert.match(messagesAppSource, /TavernMessagesConversation/);
     assert.match(messagesAppSource, /<KeepAlive>/);
-    assert.match(messagesAppSource, /phone\.messages\.prepareMessages\(\)/);
+    assert.doesNotMatch(messagesAppSource, /prepareMessages|onMounted/);
+    assert.match(phoneOsSource, /app\.isAvailable === undefined \|\| !!unref\(app\.isAvailable\)/);
     assert.match(mobileSource, /\.tavern-phone-device\.is-mobile-fullscreen/);
     assert.match(mobileSource, /border-radius: 0/);
     assert.match(mobileSource, /--phone-viewport-offset-top/);
@@ -1235,6 +1261,42 @@ test('tavern phone OS keeps platform navigation separate from the messages app',
     assert.match(viewportSource, /visualViewport\?\.offsetTop/);
     assert.match(viewportSource, /visualViewport\?\.offsetLeft/);
     assert.doesNotMatch(overlaySource, /dynamic-island|new Date|setInterval/);
+});
+
+test('tavern phone app definitions reject invalid registries and preserve deterministic order', () => {
+    const component = { render: (): null => null } as Component;
+    const apps = defineTavernPhoneApps([
+        {
+            id: 'map',
+            name: '地图',
+            shortName: '地图',
+            icon: 'map',
+            accent: '#3f7f68',
+            rootPath: '/atlas',
+            order: 20,
+            component,
+        },
+        {
+            id: 'messages',
+            name: '信息',
+            shortName: '信息',
+            icon: 'forum',
+            accent: '#4b78ff',
+            rootPath: '/threads',
+            order: 10,
+            component,
+        },
+    ]);
+
+    assert.deepEqual(apps.map((app) => app.id), ['messages', 'map']);
+    assert.equal(Object.isFrozen(apps), true);
+    assert.throws(() => defineTavernPhoneApps([
+        { ...apps[0], order: 10 },
+        { ...apps[0], order: 20 },
+    ]), /duplicate_phone_app_definition:messages/);
+    assert.throws(() => defineTavernPhoneApps([
+        { ...apps[0], id: 'broken', rootPath: 'threads' },
+    ]), /invalid_phone_app_definition/);
 });
 
 test('tavern data rollback helpers keep paired state writes inside transactions', () => {
@@ -2282,9 +2344,9 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(assistantBubbleSource, /const displayThoughts = computed\(\(\) => \{[\s\S]*useRuntimePresentation\.value \|\| !message[\s\S]*chat\.displayRuntimeThoughtBlocks\(\)[\s\S]*chat\.displayMessageThoughtBlocks\(message\)/);
     assert.match(assistantBubbleSource, /class="chat-bubble chat-bubble-stable from-assistant"/);
     assert.match(assistantBubbleSource, /:data-chat-streaming="streaming \? 'true' : undefined"/);
-    assert.match(assistantBubbleSource, /v-show="contentVisible"[\s\S]*v-show="!contentVisible"/);
+    assert.match(assistantBubbleSource, /v-show="!isEditing && contentVisible"[\s\S]*v-show="!isEditing && !contentVisible"/);
     assert.doesNotMatch(assistantBubbleSource, /hasBeenStreaming|animated=/);
-    assert.match(assistantBubbleSource, /v-show="displayThoughts\.length"/);
+    assert.match(assistantBubbleSource, /v-show="!isEditing && displayThoughts\.length"/);
     assert.match(conversationPanelSource, /v-for="item in chatTimelineItems"[\s\S]*:key="item\.key"[\s\S]*class="chat-message-item"[\s\S]*<TavernAssistantBubble[\s\S]*v-if="item\.kind === 'assistant'"[\s\S]*:message="item\.message"[\s\S]*:streaming="item\.streaming"[\s\S]*:anchor-key="item\.key"/);
     assert.doesNotMatch(conversationPanelSource, /v-if="liveAssistantCanRender"/);
     assert.doesNotMatch(chatPageSource, /watch\(streamingReadingLockSignature|watch\(chatScrollAnchorSignature|restoreChatScrollSnapshot|captureChatScrollSnapshot|pendingChatScrollSnapshot|pendingStreamingChatScrollSnapshot/);
@@ -2753,6 +2815,8 @@ test('tavern edited RP messages use native macro substitution before saving', ()
     assert.match(appSource, /async function substituteEditedMessageContent/);
     assert.match(contextSource, /saveEditMessage: TavernCommand<\[message: TavernMessageRecord, options\?: \{ rollbackState\?: boolean; content\?: string \}\], Promise<void>>;/);
     assert.match(editPanelSource, /event: 'save', options: \{ content: string; rollbackState\?: boolean \}/);
+    assert.match(editPanelSource, /if \(event\.key === 'Escape'\) \{[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*return;/);
+    assert.doesNotMatch(editPanelSource, /if \(event\.key === 'Escape'\) \{[\s\S]{0,180}emit\('cancel'\)/);
     assert.match(editPanelSource, />\s*仅保存\s*<\/button>/);
     assert.match(editPanelSource, /@click="save\(\{ rollbackState: true \}\)"[\s\S]*>\s*回滚保存\s*<\/button>/);
     assert.doesNotMatch(editPanelSource, /重来/);

@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import type { TavernPhoneAppManifest } from '../../features/phone-os/phone-os-types';
+import { unref } from 'vue';
+import type { TavernPhoneAppDefinition } from '../../features/phone-os/phone-os-types';
 
 defineProps<{
-    apps: TavernPhoneAppManifest[];
+    apps: TavernPhoneAppDefinition[];
     characterAvatar: string;
-    unreadTotal: number;
 }>();
 
 const emit = defineEmits<{
     (event: 'launch', appId: string): void;
 }>();
+
+function appBadge(app: TavernPhoneAppDefinition): number {
+    return Math.max(0, Math.floor(Number(unref(app.badge)) || 0));
+}
 </script>
 
 <template>
@@ -50,9 +54,10 @@ const emit = defineEmits<{
             aria-hidden="true"
           >{{ app.icon }}</span>
           <i
-            v-if="app.id === 'messages' && unreadTotal"
+            v-if="appBadge(app)"
             class="tavern-phone-app-badge"
-          >{{ unreadTotal > 99 ? '99+' : unreadTotal }}</i>
+            :aria-label="`${appBadge(app)} 条未读`"
+          >{{ appBadge(app) > 99 ? '99+' : appBadge(app) }}</i>
         </span>
         <strong>{{ app.shortName }}</strong>
       </button>

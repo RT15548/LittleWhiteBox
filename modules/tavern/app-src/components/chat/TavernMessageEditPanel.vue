@@ -79,7 +79,7 @@ function save(options: { rollbackState?: boolean } = {}) {
 function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
         event.preventDefault();
-        emit('cancel');
+        event.stopPropagation();
         return;
     }
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {

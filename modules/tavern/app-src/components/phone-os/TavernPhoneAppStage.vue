@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { TAVERN_PHONE_MESSAGES_APP_ID } from '../../features/phone-os/phone-os-types';
-import TavernMessagesApp from './apps/messages/TavernMessagesApp.vue';
+import type { TavernPhoneAppDefinition } from '../../features/phone-os/phone-os-types';
 
 defineProps<{
-    appId: string;
+    app: TavernPhoneAppDefinition | null;
 }>();
 </script>
 
 <template>
-  <TavernMessagesApp v-if="appId === TAVERN_PHONE_MESSAGES_APP_ID" />
+  <component
+    :is="app.component"
+    v-if="app"
+  />
   <section
     v-else
     class="tavern-phone-app tavern-phone-route-missing"
