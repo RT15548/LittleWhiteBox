@@ -1134,6 +1134,55 @@ test('tavern edit and delete route accepted rollback through its feature boundar
     assert.doesNotMatch(appSource, /restoreMemoryStateBeforeMessage|memoryRollbackNoticeForFloor/);
 });
 
+test('tavern phone pending work participates in chat and archive lifecycle guards', () => {
+    const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const phoneControllerSource = readRepoFile('modules/tavern/app-src/features/phone/useTavernPhoneController.ts');
+
+    assert.match(appSource, /function isPhoneSendingForSession\(sessionId = selectedSessionId\.value\)/);
+    assert.match(appSource, /phoneContext\.isSending\.value && phoneContext\.sendingSessionId\.value === id/);
+    assert.match(appSource, /if \(isPhoneSendingForSession\(\)\) \{return '手机消息正在等待回复，稍后再开启对话分支。';\}/);
+    assert.match(appSource, /async function backupSelectedCharacterArchive\(\) \{[\s\S]*if \(phoneContext\.isSending\.value\)/);
+    assert.match(appSource, /async function restoreSelectedCharacterArchive\(\) \{[\s\S]*if \(phoneContext\.isSending\.value\)/);
+    assert.match(appSource, /async function removeSession\(sessionId: string, event\?: Event\) \{[\s\S]*isPhoneSendingForSession\(sessionId\)/);
+    assert.match(phoneControllerSource, /recoverInterruptedTavernCommunicationMessages/);
+    assert.match(phoneControllerSource, /isSending\.value && sendingSessionId\.value === sessionId && !active/);
+    assert.match(phoneControllerSource, /interface TavernPhoneSendTask \{[\s\S]*sessionId: string;[\s\S]*contextSnapshot: XbTavernContext;[\s\S]*agentConfig: Record<string, unknown>;/);
+    assert.match(phoneControllerSource, /contextSnapshot: cloneSerializable\(options\.effectiveContext\.value \|\| \{\}\)/);
+    assert.match(phoneControllerSource, /sendingSessionId\.value = task\.sessionId/);
+    assert.match(phoneControllerSource, /agentConfig: task\.agentConfig/);
+    assert.match(phoneControllerSource, /messages: await buildPhoneMessages\(task, pending\)/);
+    assert.match(phoneControllerSource, /sessionId: task\.sessionId/);
+    assert.match(phoneControllerSource, /options\.memoryEditorMode\.value === 'edit'/);
+    assert.match(phoneControllerSource, /options\.characterArchiveBusy\.value/);
+    assert.doesNotMatch(phoneControllerSource, /getTavernMemoryFile\(sessionId, 'memory\/state\.md'\)/);
+});
+
+test('tavern phone context uses its own preset and timeline-anchored main-story integration', () => {
+    const phoneControllerSource = readRepoFile('modules/tavern/app-src/features/phone/useTavernPhoneController.ts');
+    const phoneContextSource = readRepoFile('modules/tavern/app-src/features/phone/tavern-phone-context.ts');
+    const phoneShellSource = readRepoFile('modules/tavern/app-src/components/phone/TavernPhoneShell.vue');
+    const phoneConversationSource = readRepoFile('modules/tavern/app-src/components/phone/TavernPhoneConversation.vue');
+    const phoneContactListSource = readRepoFile('modules/tavern/app-src/components/phone/TavernPhoneContactList.vue');
+    const communicationSource = readRepoFile('modules/tavern/shared/communications.ts');
+    const runOnceSource = readRepoFile('modules/tavern/app-src/runtime/run-once.ts');
+    const managerSource = readRepoFile('modules/tavern/app-src/runtime/manager.ts');
+
+    assert.match(phoneControllerSource, /buildTavernPhoneRequestMessages/);
+    assert.match(phoneContextSource, /id: 'littlewhitebox-phone-channel'/);
+    assert.match(phoneContextSource, /loadTavernPromptHistoryWindow/);
+    assert.match(phoneContextSource, /beforeOrder: anchorOrder \+ 1/);
+    assert.match(phoneContextSource, /chatPreset: preset/);
+    assert.doesNotMatch(phoneContextSource, /buildNativeChatPrompt|refreshRuntimeChatPresetFromHost/);
+    assert.doesNotMatch(phoneContextSource, /new Date|Date\.now|formatTimestamp|sent_at=/);
+    assert.match(communicationSource, /anchorOrder/);
+    assert.match(runOnceSource, /listTavernCommunicationTimelineEvents/);
+    assert.doesNotMatch(runOnceSource, /buildTavernCommunicationPromptDigest/);
+    assert.match(managerSource, /buildTavernCommunicationEvidenceAtAnchor/);
+    assert.doesNotMatch(phoneShellSource, /new Date|setInterval|clockLabel/);
+    assert.doesNotMatch(phoneConversationSource, /timeLabel|tavern-phone-conversation-date|今天/);
+    assert.doesNotMatch(phoneContactListSource, /timeLabel|new Date/);
+});
+
 test('tavern data rollback helpers keep paired state writes inside transactions', () => {
     const acceptedStateSource = readRepoFile('modules/tavern/shared/accepted-state.ts');
     const managerSource = readRepoFile('modules/tavern/app-src/runtime/manager.ts');
@@ -2235,7 +2284,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(chatComposeTextareaBlock[0], /rows="1"/);
     assert.doesNotMatch(chatComposeTextareaBlock[0], /:disabled="isRunning"/);
     assert.match(conversationPanelSource, /:aria-label="isCancellingRun \? '正在停止' : isRunning \? '停止' : '发送'"/);
-    assert.match(appSource, /function handleComposeKeydown\(event: KeyboardEvent\) \{[\s\S]*if \(isRunning\.value\) \{return;\}[\s\S]*event\.preventDefault\(\);[\s\S]*void runOnce\(\);/);
+    assert.match(appSource, /function handleComposeKeydown\(event: KeyboardEvent\) \{[\s\S]*if \(isRunning\.value \|\| isPhoneSendingForSession\(\)\) \{return;\}[\s\S]*event\.preventDefault\(\);[\s\S]*void runOnce\(\);/);
     assert.match(contextSource, /createNewChatSession: TavernCommand<\[\], Promise<void>>/);
     assert.match(appSource, /async function createNewChatSession\(\) \{[\s\S]*resolveRuntimeContextForSession\(selectedSessionId\.value\)[\s\S]*resetSessionPreviewState\(\);[\s\S]*await createSessionAndOpenChat\(\{ contextSnapshot: snapshotContext \}\);/);
     assert.doesNotMatch(chatCss, /sidebar\.css/);
@@ -2420,7 +2469,7 @@ test('tavern memory workspace keeps session-scoped lazy file loading and index-b
     assert.match(appSource, /watch\(\[[\s\S]*\(\) => String\(selectedSessionId\.value \|\| ''\)\.trim\(\),[\s\S]*\(\) => String\(selectedMemoryFileEntry\.value\?\.path \|\| ''\)\.trim\(\),[\s\S]*\(\) => Number\(selectedMemoryFileEntry\.value\?\.updatedAt\) \|\| 0,[\s\S]*\(\) => Number\(selectedMemoryFileEntry\.value\?\.contentLength\) \|\| 0,[\s\S]*\], async \(\[sessionId, nextPath\]\) => \{/);
     assert.match(appSource, /memoryEditorLoadedPath\.value === nextPath && \(memoryEditorMode\.value === 'edit' \|\| memoryEditorDirty\.value\)/);
     assert.doesNotMatch(appSource, /watch\(selectedMemoryFileEntry,/);
-    assert.match(appSource, /const memoryEditorReadOnly = computed\(\(\) => isRunning\.value \|\| managerBusy\.value \|\| isManagerAssistantRunning\.value\);/);
+    assert.match(appSource, /const memoryEditorReadOnly = computed\(\(\) => \([\s\S]*isRunning\.value[\s\S]*managerBusy\.value[\s\S]*isManagerAssistantRunning\.value[\s\S]*isPhoneSendingForSession\(\)[\s\S]*\)\);/);
     assert.match(appSource, /watch\(memoryEditorReadOnly, \(readOnly\) => \{[\s\S]*memoryEditorMode\.value !== 'edit'[\s\S]*const wasDirty = memoryEditorDirty\.value;[\s\S]*discardMemoryDraft\(\);[\s\S]*if \(wasDirty\) \{[\s\S]*showTavernToast\('记忆正在维护，未保存修改已放弃', \{[\s\S]*tone: 'warning',[\s\S]*durationMs: 4000,[\s\S]*\}\);[\s\S]*\}[\s\S]*\}, \{ immediate: true \}\);/);
     assert.match(memoryWorkspaceSource, /memoryEditorReadOnly: ComputedRef<boolean>;/);
     assert.match(memoryWorkspaceSource, /if \(!options\.selectedSessionId\.value \|\| !file \|\| options\.memoryEditorReadOnly\.value\) \{return;\}/);

@@ -44,10 +44,13 @@ import {
     loadTavernPromptHistoryWindow,
     resolveTavernContextWindow,
     runTavernOnce,
-    runXbTavernTurn,
-    simulateXbTavernRequest,
+    runXbTavernTurn as runXbTavernTurnRuntime,
+    simulateXbTavernRequest as simulateXbTavernRequestRuntime,
+    TAVERN_LOCAL_PROMPT_MESSAGES,
     trimFinalAssistantMessageEnd,
     waitForPendingAcceptedTurnManagers,
+    type XbTavernRunTurnInput,
+    type XbTavernSimulateRequestInput,
     type XbTavernRunResult,
     type TavernRunOnceOptions,
 } from '../app-src/runtime/run-once';
@@ -59,6 +62,11 @@ import {
 import { getTavilySearchToolDefinition, TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
 import { executeTavernTaskTool } from '../shared/tasks';
 import { executeTavernStatusTool, TAVERN_STATUS_TOOL_NAMES } from '../shared/status-state';
+import {
+    appendPendingTavernCommunicationMessage,
+    completeTavernCommunicationExchange,
+    createTavernCommunicationContact,
+} from '../shared/communications';
 import { createXbTavernAgentRuntime, EMPTY_XB_TAVERN_CAPABILITY_REGISTRY } from '../app-src/runtime/agent-runtime';
 import { resolveXbTavernProviderConfig } from '../app-src/runtime/provider';
 import type { TavernApplyRegexItem } from '../shared/regex';
@@ -96,6 +104,39 @@ const identityApplySubstituteParams = async (items: TavernSubstituteParamsItem[]
         changed: false,
     })),
     changedCount: 0,
+});
+
+function createLocalTestNativePrompt(): NonNullable<XbTavernRunTurnInput['buildNativeChatPrompt']> {
+    return async (input) => ({
+        source: 'test-local-prompt',
+        promptMessageCount: input[TAVERN_LOCAL_PROMPT_MESSAGES]?.length || 0,
+        messages: input[TAVERN_LOCAL_PROMPT_MESSAGES] || [],
+    });
+}
+
+function withDefaultNativePromptHooks<T extends XbTavernRunTurnInput | XbTavernSimulateRequestInput>(input: T): T {
+    return {
+        applyRegex: identityApplyRegex,
+        applySubstituteParams: identityApplySubstituteParams,
+        buildNativeChatPrompt: createLocalTestNativePrompt(),
+        ...input,
+    };
+}
+
+function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTavernRunResult> {
+    return runXbTavernTurnRuntime(withDefaultNativePromptHooks(input));
+}
+
+function simulateXbTavernRequest(input: XbTavernSimulateRequestInput) {
+    return simulateXbTavernRequestRuntime(withDefaultNativePromptHooks(input));
+}
+
+test('local native prompt fixtures are symbol keyed and never enter host JSON payloads', () => {
+    const payload = {
+        currentUserMessage: 'hello',
+        [TAVERN_LOCAL_PROMPT_MESSAGES]: [{ role: 'user', content: 'large local prompt' }],
+    };
+    assert.equal(JSON.stringify(payload), '{"currentUserMessage":"hello"}');
 });
 
 function createPromptStatusDocument() {
@@ -2297,7 +2338,7 @@ test('xb tavern run turn starts accepted-turn manager work on the next user send
     assert.match(managerPrompt, /viewBox is the camera/i);
     assert.doesNotMatch(managerPrompt, /meta \+ add|initialize it with one MapPatch/i);
     assert.match(managerPrompt, /Place text labels 15–25 units beside what they describe/i);
-    assert.match(managerPrompt, /Reply with a short, user-facing summary/i);
+    assert.match(managerPrompt, /Reply with a short maintenance report grouped by affected domain/i);
     assert.doesNotMatch(managerPrompt, /电纸书|ebook file-operation/i);
     assert.match(managerPrompt, /Grep with `path:\\?"memory\/\\?"` to check whether a fact is already stored/is);
     assert.doesNotMatch(managerPrompt, /可派生格式/);
@@ -3012,7 +3053,7 @@ test('xb tavern native prompt runtime fails before request when regex hook is mi
     let providerCalls = 0;
 
     await assert.rejects(
-        () => runXbTavernTurn({
+        () => runXbTavernTurnRuntime({
             sessionId: session.id,
             agentConfig: { provider: 'fake-provider', model: 'fake-model' },
             contextSnapshot: session.contextSnapshot || {},
@@ -3048,7 +3089,7 @@ test('xb tavern native prompt runtime fails before request when substitute hook 
     let nativeBuilderCalls = 0;
 
     await assert.rejects(
-        () => simulateXbTavernRequest({
+        () => simulateXbTavernRequestRuntime({
             sessionId: session.id,
             agentConfig: {
                 currentPresetName: '酒馆 OpenAI',
@@ -5547,6 +5588,124 @@ test('xb tavern simulated request uses the same trimmed API history without savi
     assert.match(result.requestSnapshot.rawRequestJson, /simulate-stored-19/);
     assert.match(result.requestSnapshot.rawRequestJson, /simulate-fresh-user/);
     assert.equal((await listTavernMessages(session.id)).length, 20);
+});
+
+test('phone timeline events stay at their anchor and leave the main prompt with the history window', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Anchored phone prompt',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { name: 'Aster', description: 'Aster card.' },
+            user: { name: 'Player' },
+        },
+        presetId: preset.id,
+        presetName: preset.name,
+    });
+    await appendTavernMessage(session.id, { role: 'user', content: 'main-before-phone-user' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: 'main-before-phone-assistant' });
+    const contact = await createTavernCommunicationContact({
+        sessionId: session.id,
+        name: '艾琳',
+        source: 'manual',
+    });
+    const pending = await appendPendingTavernCommunicationMessage({
+        sessionId: session.id,
+        threadId: contact.thread.id,
+        content: 'ANCHOR_PHONE_USER',
+    });
+    await completeTavernCommunicationExchange({
+        pendingMessage: pending,
+        replies: ['ANCHOR_PHONE_REPLY'],
+    });
+    const agentConfig = {
+        currentPresetName: '酒馆 OpenAI',
+        presets: {
+            '酒馆 OpenAI': {
+                provider: 'sillytavern-openai-compatible',
+                modelConfigs: {
+                    'sillytavern-openai-compatible': { model: 'fake-model' },
+                },
+            },
+        },
+    };
+    const anchored = await simulateXbTavernRequest({
+        sessionId: session.id,
+        agentConfig,
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: 'first-preview',
+    });
+    assert.match(anchored.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_USER/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_REPLY/);
+
+    for (let index = 2; index < 25; index += 1) {
+        await appendTavernMessage(session.id, {
+            role: index % 2 === 0 ? 'user' : 'assistant',
+            content: `later-main-${index}`,
+        });
+    }
+    const advanced = await simulateXbTavernRequest({
+        sessionId: session.id,
+        agentConfig,
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: 'advanced-preview',
+    });
+    assert.doesNotMatch(advanced.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_USER/);
+    assert.doesNotMatch(advanced.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_REPLY/);
+    assert.match(advanced.requestSnapshot.rawRequestJson, /later-main-24/);
+});
+
+test('accepted-turn manager receives phone events anchored immediately before the main turn', async () => {
+    await resetDb();
+    const session = await createTavernSession({
+        title: 'Manager phone evidence',
+        contextSnapshot: {
+            character: { name: 'Aster', description: 'Aster card.' },
+            user: { name: 'Player' },
+        },
+    });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '剧情停在站台。' });
+    const contact = await createTavernCommunicationContact({
+        sessionId: session.id,
+        name: '艾琳',
+        source: 'manual',
+    });
+    const pending = await appendPendingTavernCommunicationMessage({
+        sessionId: session.id,
+        threadId: contact.thread.id,
+        content: 'MANAGER_PHONE_USER',
+    });
+    await completeTavernCommunicationExchange({
+        pendingMessage: pending,
+        replies: ['MANAGER_PHONE_REPLY'],
+    });
+    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '继续剧情。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '列车进站。' });
+    let managerPrompt = '';
+    const result = await runXbTavernManagerAfterTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        userMessage,
+        assistantMessage,
+        turn: 1,
+        sessionContract: mergeTavernSessionContract(undefined, { memoryArchiving: true }),
+        executeManagerOnce: async (options) => {
+            managerPrompt = JSON.stringify(options.messages);
+            return {
+                text: '本轮无需修改。',
+                provider: 'fake-provider',
+                model: 'fake-model',
+            };
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.match(managerPrompt, /MANAGER_PHONE_USER/);
+    assert.match(managerPrompt, /MANAGER_PHONE_REPLY/);
+    assert.match(managerPrompt, /BEGIN UNTRUSTED PHONE EVIDENCE/);
 });
 
 test('xb tavern run turn accepts refreshed live context for the same session character', async () => {

@@ -50,6 +50,15 @@ import type {
     TavernCharacterArchiveManifest,
     TavernCharacterArchiveRecord,
 } from '../shared/character-archive-types';
+import {
+    appendPendingTavernCommunicationMessage,
+    completeTavernCommunicationExchange,
+    createTavernCommunicationContact,
+    listTavernCommunicationContacts,
+    listTavernCommunicationMessages,
+    listTavernCommunicationThreads,
+    saveTavernCommunicationSnapshot,
+} from '../shared/communications';
 
 const identityCodec: TavernCharacterArchiveJsonlCodec = {
     gzip: async (bytes) => bytes,
@@ -233,6 +242,23 @@ async function seedArchiveSource() {
         abandonedFingerprints: ['fp-abandoned'],
         updatedAt: 18,
     });
+    const { thread } = await createTavernCommunicationContact({
+        sessionId: a1.id,
+        name: 'Phone Contact',
+        source: 'manual',
+    });
+    const phoneMessage = await appendPendingTavernCommunicationMessage({
+        sessionId: a1.id,
+        threadId: thread.id,
+        content: 'phone hello',
+    });
+    await completeTavernCommunicationExchange({ pendingMessage: phoneMessage, replies: ['phone reply'] });
+    await appendPendingTavernCommunicationMessage({
+        sessionId: a1.id,
+        threadId: thread.id,
+        content: 'phone interrupted',
+    });
+    await saveTavernCommunicationSnapshot(a1.id, 1);
     await tavernSessionsTable.update(a1.id, { updatedAt: 1000 });
     await tavernSessionsTable.update(a2.id, { updatedAt: 3000 });
     await tavernSessionsTable.update(b1.id, { updatedAt: 4000 });
@@ -292,9 +318,14 @@ test('tavern character archive backup includes only the current character and cr
     assert.equal(manifest.counts.memoryFiles, 1);
     assert.equal(manifest.counts.stateDocuments, 5);
     assert.equal(manifest.counts.tasks, 1);
+    assert.equal(manifest.counts.communications, 6);
     assert(uploadedParts.every((part) => part.filename.includes('_archive-test_part_')));
     assert(!records.some((row) => JSON.stringify(row.record).includes('char-b')));
     assert(!records.some((row) => JSON.stringify(row.record).includes('b-session-1')));
+    assert(records.some((row) => row.table === 'communicationContacts'));
+    assert(records.some((row) => row.table === 'communicationThreads'));
+    assert(records.some((row) => row.table === 'communicationMessages'));
+    assert(records.some((row) => row.table === 'communicationSnapshots'));
 });
 
 test('tavern character archive part filenames are scoped by archive id', () => {
@@ -446,6 +477,17 @@ test('tavern character archive restore replaces only the current character and r
     assert.equal((await tavernStatePatchesTable.get('restore-job-test-patch-a-1'))?.managerRunId, 'restore-job-test-run-a-1');
     assert.equal((await tavernManagerMemorySnapshotsTable.get(['restore-job-test-run-a-1', 'memory/state.md']))?.sessionId, restoredA1);
     assert.equal((await tavernManagerStateSnapshotsTable.get(['restore-job-test-run-a-1', 'tavern.map', 'map-main']))?.sessionId, restoredA1);
+    const restoredPhoneContacts = await listTavernCommunicationContacts(restoredA1);
+    const restoredPhoneThreads = await listTavernCommunicationThreads(restoredA1);
+    assert.equal(restoredPhoneContacts[0]?.name, 'Phone Contact');
+    assert.deepEqual(
+        (await listTavernCommunicationMessages(restoredA1, restoredPhoneThreads[0]?.id || '')).map((message) => [message.content, message.status]),
+        [
+            ['phone hello', 'sent'],
+            ['phone reply', 'sent'],
+            ['phone interrupted', 'failed'],
+        ],
+    );
     assert.equal((await tavernManagerTaskSnapshotsTable.get('restore-job-test-run-a-1'))?.sessionId, restoredA1);
     assert.equal((await tavernTaskSnapshotsTable.get([restoredA1, 2]))?.tasks[0]?.sessionId, restoredA1);
     assert.deepEqual((await tavernTaskFingerprintStatesTable.get(restoredA1))?.abandonedFingerprints, ['fp-abandoned']);

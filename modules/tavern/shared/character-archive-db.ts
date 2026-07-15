@@ -16,6 +16,12 @@ import db, {
     tavernTaskFingerprintStatesTable,
     tavernTasksTable,
     tavernTaskSnapshotsTable,
+    tavernCommunicationContactsTable,
+    tavernCommunicationMessagesTable,
+    tavernCommunicationSnapshotsTable,
+    tavernCommunicationThreadsTable,
+    type TavernCommunicationMessageRecord,
+    type TavernCommunicationSnapshotRecord,
     type TavernManagerMemorySnapshotRecord,
     type TavernManagerStateSnapshotRecord,
     type TavernManagerTaskSnapshotRecord,
@@ -85,6 +91,10 @@ const archiveTables: ArchiveTableMap = {
     taskSnapshots: { table: tavernTaskSnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     managerTaskSnapshots: { table: tavernManagerTaskSnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     taskFingerprintStates: { table: tavernTaskFingerprintStatesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    communicationContacts: { table: tavernCommunicationContactsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    communicationThreads: { table: tavernCommunicationThreadsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    communicationMessages: { table: tavernCommunicationMessagesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    communicationSnapshots: { table: tavernCommunicationSnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
 };
 
 function now(): number {
@@ -118,6 +128,7 @@ function incrementArchiveCounts(counts: TavernCharacterArchiveCounts, table: Tav
     if (table === 'memoryFiles') {counts.memoryFiles += 1;}
     if (table === 'stateDocuments') {counts.stateDocuments += 1;}
     if (table === 'tasks') {counts.tasks += 1;}
+    if (table.startsWith('communication')) {counts.communications = (Number(counts.communications) || 0) + 1;}
 }
 
 function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
@@ -126,7 +137,8 @@ function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
         + (Number(counts.messages) || 0)
         + (Number(counts.memoryFiles) || 0)
         + (Number(counts.stateDocuments) || 0)
-        + (Number(counts.tasks) || 0);
+        + (Number(counts.tasks) || 0)
+        + (Number(counts.communications) || 0);
 }
 
 async function forEachTableSessionRecord<TTable extends TavernCharacterArchiveTable>(
@@ -433,6 +445,32 @@ function remapArchiveRecord(
         const snapshot = record as unknown as TavernManagerTaskSnapshotRecord;
         record.beforeTasks = (snapshot.beforeTasks || []).map((task) => remapTask(task, options.mapSessionId, options.mapManagerRunId));
     }
+    if (table === 'communicationMessages') {
+        const message = record as unknown as TavernCommunicationMessageRecord;
+        if (message.status === 'pending') {
+            record.status = 'failed';
+            record.error = '发送已中断，请轻触重试。';
+        }
+    }
+    if (table === 'communicationSnapshots') {
+        const snapshot = record as unknown as TavernCommunicationSnapshotRecord;
+        record.contacts = (snapshot.contacts || []).map((contact) => ({
+            ...contact,
+            sessionId: options.mapSessionId(contact.sessionId),
+        }));
+        record.threads = (snapshot.threads || []).map((thread) => ({
+            ...thread,
+            sessionId: options.mapSessionId(thread.sessionId),
+        }));
+        record.messages = (snapshot.messages || []).map((message) => ({
+            ...message,
+            sessionId: options.mapSessionId(message.sessionId),
+            ...(message.status === 'pending' ? {
+                status: 'failed' as const,
+                error: '发送已中断，请轻触重试。',
+            } : {}),
+        }));
+    }
     return { table, record } as unknown as TavernCharacterArchiveRecord;
 }
 
@@ -504,6 +542,10 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
         tavernTasksTable,
         tavernTaskSnapshotsTable,
         tavernTaskFingerprintStatesTable,
+        tavernCommunicationContactsTable,
+        tavernCommunicationThreadsTable,
+        tavernCommunicationMessagesTable,
+        tavernCommunicationSnapshotsTable,
         async () => {
             for (const table of TAVERN_CHARACTER_ARCHIVE_TABLES) {
                 const rows = batch.filter((record) => record.table === table).map((record) => record.record);
@@ -536,6 +578,10 @@ async function promoteTempArchiveToCharacter(tempCharacterKey = '', characterKey
         tavernTasksTable,
         tavernTaskSnapshotsTable,
         tavernTaskFingerprintStatesTable,
+        tavernCommunicationContactsTable,
+        tavernCommunicationThreadsTable,
+        tavernCommunicationMessagesTable,
+        tavernCommunicationSnapshotsTable,
         tavernMetaTable,
         async () => {
             const tempSessionCount = await tavernSessionsTable.where('characterKey').equals(tempCharacterKey).count();

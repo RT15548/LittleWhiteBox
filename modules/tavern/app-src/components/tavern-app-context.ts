@@ -26,12 +26,16 @@ import type {
     TavernStructuredStateDocumentRecord,
     TavernStructuredStatePatchRecord,
     TavernTaskRecord,
+    TavernCommunicationContactRecord,
+    TavernCommunicationMessageRecord,
+    TavernCommunicationThreadRecord,
 } from '../../shared/session-db';
 import type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 import type { TavernCharacterArchiveProgress } from '../../shared/character-archive-types';
 import type { TavernMapStateDocumentItem } from '../../shared/structured-state';
 import type { TavernStatusFieldDeltaMap } from '../../shared/status-state';
 import type { TavernDrawContext } from '../features/draw/useTavernDrawController';
+import type { TavernPhoneContactCandidate } from '../features/phone/useTavernPhoneController';
 export type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 
 export type TavernReadable<T> = Ref<T> | ComputedRef<T>;
@@ -393,6 +397,36 @@ export interface TavernChatContext {
     visibleUserAvatar: TavernReadable<string>;
 }
 
+export interface TavernPhoneContext {
+    activeContact: TavernReadable<TavernCommunicationContactRecord | null>;
+    activeContactId: Ref<string>;
+    activeThread: TavernReadable<TavernCommunicationThreadRecord | null>;
+    activeThreadId: Ref<string>;
+    addContact: TavernCommand<[candidate: TavernPhoneContactCandidate], Promise<void>>;
+    canSend: TavernReadable<boolean>;
+    closePhone: TavernCommand;
+    contactCandidates: TavernReadable<TavernPhoneContactCandidate[]>;
+    contacts: Ref<TavernCommunicationContactRecord[]>;
+    conversationSending: TavernReadable<boolean>;
+    draft: Ref<string>;
+    isSending: Ref<boolean>;
+    messages: Ref<TavernCommunicationMessageRecord[]>;
+    openContact: TavernCommand<[contactId: string], Promise<void>>;
+    openPhone: TavernCommand<[], Promise<void>>;
+    phoneOpen: Ref<boolean>;
+    phoneScreen: Ref<'threads' | 'conversation' | 'add-contact'>;
+    refreshPhone: TavernCommand<[], Promise<void>>;
+    retryMessage: TavernCommand<[message: TavernCommunicationMessageRecord], Promise<void>>;
+    sendBlockedReason: TavernReadable<string>;
+    sendMessage: TavernCommand<[contentOverride?: string], Promise<void>>;
+    sendingSessionId: Ref<string>;
+    showAddContact: TavernCommand;
+    showThreads: TavernCommand;
+    status: Ref<string>;
+    threadPreviews: Ref<Record<string, TavernCommunicationMessageRecord | null>>;
+    threads: Ref<TavernCommunicationThreadRecord[]>;
+}
+
 export interface TavernManagerContext {
     activeMemoryFiles: TavernReadable<TavernMemoryIndexFileEntry[]>;
     archivedManagerRuns: TavernReadable<TavernManagerRunRecord[]>;
@@ -669,6 +703,7 @@ export interface TavernAppUiContext {
     session: TavernSessionContext;
     draw: TavernDrawContext;
     chat: TavernChatContext;
+    phone: TavernPhoneContext;
     manager: TavernManagerContext;
     memory: TavernMemoryContext;
     workspace: TavernWorkspaceContext;
@@ -703,6 +738,10 @@ export function useTavernDrawContext(): TavernDrawContext {
 
 export function useTavernChatContext(): TavernChatContext {
     return useTavernAppUiContext().chat;
+}
+
+export function useTavernPhoneContext(): TavernPhoneContext {
+    return useTavernAppUiContext().phone;
 }
 
 export function useTavernManagerContext(): TavernManagerContext {

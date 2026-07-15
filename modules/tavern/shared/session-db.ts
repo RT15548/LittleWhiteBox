@@ -108,6 +108,57 @@ export interface TavernMessageRecord {
     runtimeEvents?: TavernRuntimeEvent[];
 }
 
+export type TavernCommunicationContactSource = 'character' | 'memory' | 'manual';
+export type TavernCommunicationMessageRole = 'user' | 'contact';
+export type TavernCommunicationMessageStatus = 'pending' | 'sent' | 'failed';
+
+export interface TavernCommunicationContactRecord {
+    sessionId: string;
+    id: string;
+    name: string;
+    avatar?: string;
+    memoryPath?: string;
+    source: TavernCommunicationContactSource;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface TavernCommunicationThreadRecord {
+    sessionId: string;
+    id: string;
+    contactId: string;
+    summary?: string;
+    summarizedThroughSequence?: number;
+    unreadCount: number;
+    lastResult?: 'reply' | 'silent' | 'unavailable';
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface TavernCommunicationMessageRecord {
+    sessionId: string;
+    threadId: string;
+    sequence: number;
+    anchorOrder: number;
+    role: TavernCommunicationMessageRole;
+    content: string;
+    status: TavernCommunicationMessageStatus;
+    createdAt: number;
+    updatedAt: number;
+    provider?: string;
+    model?: string;
+    error?: string;
+}
+
+export interface TavernCommunicationSnapshotRecord {
+    sessionId: string;
+    floor: number;
+    contacts: TavernCommunicationContactRecord[];
+    threads: TavernCommunicationThreadRecord[];
+    messages: TavernCommunicationMessageRecord[];
+    createdAt: number;
+}
+
 export interface TavernManagerMessageRecord {
     sessionId: string;
     order: number;
@@ -421,6 +472,10 @@ class TavernDatabase extends Dexie {
     statusSnapshots!: DexieTable<TavernStatusSnapshotRecord>;
     managerTaskSnapshots!: DexieTable<TavernManagerTaskSnapshotRecord>;
     taskFingerprintStates!: DexieTable<TavernTaskFingerprintStateRecord>;
+    communicationContacts!: DexieTable<TavernCommunicationContactRecord>;
+    communicationThreads!: DexieTable<TavernCommunicationThreadRecord>;
+    communicationMessages!: DexieTable<TavernCommunicationMessageRecord>;
+    communicationSnapshots!: DexieTable<TavernCommunicationSnapshotRecord>;
 
     constructor() {
         super('LittleWhiteBox_Tavern');
@@ -619,6 +674,32 @@ class TavernDatabase extends Dexie {
             await transaction.table('managerTaskSnapshots').clear();
             await transaction.table('taskFingerprintStates').clear();
         });
+        this.version(11).stores({
+            sessions: 'id, updatedAt, characterKey, characterName',
+            messages: '[sessionId+order], sessionId, order',
+            managerMessages: '[sessionId+order], sessionId, order',
+            meta: 'key',
+            presets: 'id, updatedAt, sourcePresetId',
+            managerRuns: 'id, sessionId, status, turn, updatedAt',
+            memoryFiles: '[sessionId+path], sessionId, path, status, updatedAt',
+            memoryStateSnapshots: null,
+            memorySnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            memoryIndexes: '[sessionId+kind], sessionId, kind, status, updatedAt',
+            assistantPresets: 'id, updatedAt',
+            managerMemorySnapshots: '[managerRunId+path], managerRunId, sessionId, path, updatedAt',
+            stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
+            statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
+            managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
+            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
+            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
+            taskFingerprintStates: 'sessionId, updatedAt',
+            communicationContacts: '[sessionId+id], sessionId, updatedAt',
+            communicationThreads: '[sessionId+id], sessionId, contactId, updatedAt',
+            communicationMessages: '[sessionId+threadId+sequence], sessionId, threadId, sequence, status, updatedAt',
+            communicationSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+        });
     }
 }
 
@@ -643,6 +724,10 @@ export const tavernTaskSnapshotsTable = db.taskSnapshots;
 export const tavernStatusSnapshotsTable = db.statusSnapshots;
 export const tavernManagerTaskSnapshotsTable = db.managerTaskSnapshots;
 export const tavernTaskFingerprintStatesTable = db.taskFingerprintStates;
+export const tavernCommunicationContactsTable = db.communicationContacts;
+export const tavernCommunicationThreadsTable = db.communicationThreads;
+export const tavernCommunicationMessagesTable = db.communicationMessages;
+export const tavernCommunicationSnapshotsTable = db.communicationSnapshots;
 
 type DexieRangeCollection<T> = {
     reverse(): DexieRangeCollection<T>;
@@ -702,6 +787,21 @@ function cloneSerializable<T>(value: T, fallback: T): T {
     } catch {
         return fallback;
     }
+}
+
+function cloneStableCommunicationMessage(
+    message: TavernCommunicationMessageRecord,
+    sessionId: string,
+): TavernCommunicationMessageRecord {
+    const cloned = cloneSerializable(message, message);
+    return {
+        ...cloned,
+        sessionId,
+        ...(cloned.status === 'pending' ? {
+            status: 'failed' as const,
+            error: '发送已中断，请轻触重试。',
+        } : {}),
+    };
 }
 
 function normalizePresetName(value = '', fallback = '酒馆聊天预设'): string {
@@ -961,6 +1061,10 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
         tavernTaskSnapshotsTable,
         tavernStatusSnapshotsTable,
         tavernTaskFingerprintStatesTable,
+        tavernCommunicationContactsTable,
+        tavernCommunicationThreadsTable,
+        tavernCommunicationMessagesTable,
+        tavernCommunicationSnapshotsTable,
         async () => {
             const sourceSession = await tavernSessionsTable.get(sourceSessionId);
             if (!sourceSession) {return null;}
@@ -980,6 +1084,10 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 taskSnapshots,
                 statusSnapshots,
                 fingerprintStates,
+                communicationContacts,
+                communicationThreads,
+                communicationMessages,
+                communicationSnapshots,
             ] = await Promise.all([
                 tavernMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernManagerMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
@@ -996,6 +1104,10 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 tavernTaskSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernStatusSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernTaskFingerprintStatesTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernCommunicationContactsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernCommunicationThreadsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernCommunicationMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernCommunicationSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
             ]);
             const session: TavernSessionRecord = {
                 ...cloneSerializable(sourceSession, sourceSession),
@@ -1096,6 +1208,24 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                     ...cloneSerializable(state, state),
                     sessionId: nextSessionId,
                 }))) : 0,
+                communicationContacts.length ? tavernCommunicationContactsTable.bulkPut(communicationContacts.map((contact) => ({
+                    ...cloneSerializable(contact, contact),
+                    sessionId: nextSessionId,
+                }))) : 0,
+                communicationThreads.length ? tavernCommunicationThreadsTable.bulkPut(communicationThreads.map((thread) => ({
+                    ...cloneSerializable(thread, thread),
+                    sessionId: nextSessionId,
+                }))) : 0,
+                communicationMessages.length ? tavernCommunicationMessagesTable.bulkPut(communicationMessages.map((message) => (
+                    cloneStableCommunicationMessage(message, nextSessionId)
+                ))) : 0,
+                communicationSnapshots.length ? tavernCommunicationSnapshotsTable.bulkPut(communicationSnapshots.map((snapshot) => ({
+                    ...cloneSerializable(snapshot, snapshot),
+                    sessionId: nextSessionId,
+                    contacts: (snapshot.contacts || []).map((contact) => ({ ...cloneSerializable(contact, contact), sessionId: nextSessionId })),
+                    threads: (snapshot.threads || []).map((thread) => ({ ...cloneSerializable(thread, thread), sessionId: nextSessionId })),
+                    messages: (snapshot.messages || []).map((message) => cloneStableCommunicationMessage(message, nextSessionId)),
+                }))) : 0,
             ]);
             return session;
         },
@@ -1125,9 +1255,13 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
         tavernTaskSnapshotsTable,
         tavernStatusSnapshotsTable,
         tavernTaskFingerprintStatesTable,
+        tavernCommunicationContactsTable,
+        tavernCommunicationThreadsTable,
+        tavernCommunicationMessagesTable,
+        tavernCommunicationSnapshotsTable,
         tavernMetaTable,
         async () => {
-            const [messages, managerMessages, runs, snapshots, stateSnapshots, taskRunSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches, tasks, taskSnapshots, statusSnapshots, fingerprintStates] = await Promise.all([
+            const [messages, managerMessages, runs, snapshots, stateSnapshots, taskRunSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches, tasks, taskSnapshots, statusSnapshots, fingerprintStates, communicationContacts, communicationThreads, communicationMessages, communicationSnapshots] = await Promise.all([
                 tavernMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernManagerMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernManagerRunsTable.where('sessionId').equals(id).toArray(),
@@ -1143,6 +1277,10 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
                 tavernTaskSnapshotsTable.where('sessionId').equals(id).toArray(),
                 tavernStatusSnapshotsTable.where('sessionId').equals(id).toArray(),
                 tavernTaskFingerprintStatesTable.where('sessionId').equals(id).toArray(),
+                tavernCommunicationContactsTable.where('sessionId').equals(id).toArray(),
+                tavernCommunicationThreadsTable.where('sessionId').equals(id).toArray(),
+                tavernCommunicationMessagesTable.where('sessionId').equals(id).toArray(),
+                tavernCommunicationSnapshotsTable.where('sessionId').equals(id).toArray(),
             ]);
             await Promise.all([
                 messages.length ? tavernMessagesTable.bulkDelete(messages.map((message) => [message.sessionId, message.order])) : 0,
@@ -1160,6 +1298,10 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
                 taskSnapshots.length ? tavernTaskSnapshotsTable.bulkDelete(taskSnapshots.map((snapshot) => [snapshot.sessionId, snapshot.floor])) : 0,
                 statusSnapshots.length ? tavernStatusSnapshotsTable.bulkDelete(statusSnapshots.map((snapshot) => [snapshot.sessionId, snapshot.floor])) : 0,
                 fingerprintStates.length ? tavernTaskFingerprintStatesTable.bulkDelete(fingerprintStates.map((state) => state.sessionId)) : 0,
+                communicationContacts.length ? tavernCommunicationContactsTable.bulkDelete(communicationContacts.map((contact) => [contact.sessionId, contact.id])) : 0,
+                communicationThreads.length ? tavernCommunicationThreadsTable.bulkDelete(communicationThreads.map((thread) => [thread.sessionId, thread.id])) : 0,
+                communicationMessages.length ? tavernCommunicationMessagesTable.bulkDelete(communicationMessages.map((message) => [message.sessionId, message.threadId, message.sequence])) : 0,
+                communicationSnapshots.length ? tavernCommunicationSnapshotsTable.bulkDelete(communicationSnapshots.map((snapshot) => [snapshot.sessionId, snapshot.floor])) : 0,
             ]);
             await tavernSessionsTable.delete(id);
             const selected = await tavernMetaTable.get('selectedSessionId');

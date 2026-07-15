@@ -6565,6 +6565,7 @@ test('rollback impact reports status-only manager writes as state rollback', asy
         memory: { changed: false, currentFileCount: 0, targetFileCount: 0, changedPaths: [] },
         tasks: { changed: false, currentTaskCount: 0, targetTaskCount: 0 },
         status: { changed: true, currentExists: true, targetExists: false },
+        communications: { changed: false, currentMessageCount: 0, targetMessageCount: 0 },
         managers: managerImpact,
         willRollbackState: true,
         willCancelWork: false,

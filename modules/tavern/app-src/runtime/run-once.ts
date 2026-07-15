@@ -59,6 +59,12 @@ import {
 } from '../../shared/memory-files';
 import { saveAcceptedStateSnapshot } from '../../shared/accepted-state';
 import {
+    listTavernCommunicationTimelineEvents,
+    restoreTavernCommunicationsToFloor,
+    trimTavernCommunicationSnapshotsFromFloor,
+    type TavernCommunicationTimelineEvent,
+} from '../../shared/communications';
+import {
     getLatestQuestHooksForPrompt,
     restoreTavernTasksToFloor,
     trimTavernTaskSnapshotsFromFloor,
@@ -649,6 +655,8 @@ export interface TavernDiagnostics {
     pendingManagerError?: string;
 }
 
+export const TAVERN_LOCAL_PROMPT_MESSAGES = Symbol('tavern-local-prompt-messages');
+
 export type TavernGetNativeWorldInfoRuntime = (input: {
     context: XbTavernContext;
     currentUserMessage: string;
@@ -667,6 +675,7 @@ export type TavernBuildNativeChatPromptRuntime = (input: {
     memoryPrompt?: string;
     chancePrompt?: string;
     actionCheckPrompt?: string;
+    [TAVERN_LOCAL_PROMPT_MESSAGES]?: XbTavernMessage[];
 }) => Promise<{
     messages?: XbTavernMessage[];
     source?: string;
@@ -777,6 +786,7 @@ async function applyNativeChatPromptBuild(input: {
         memoryPrompt: buildMemoryPromptContent(input.memoryContext),
         chancePrompt: input.chancePrompt || '',
         actionCheckPrompt: joinPromptMessages(input.runtimeProtocolMessages || []),
+        [TAVERN_LOCAL_PROMPT_MESSAGES]: input.baseBuildResult.messages,
     }));
     const nativeMessages = Array.isArray(nativePrompt?.messages) ? nativePrompt.messages : [];
     if (!nativeMessages.length) {
@@ -1651,18 +1661,54 @@ async function inspectTavernRequest(input: {
     };
 }
 
-export function buildContextHistory(messages: TavernMessageRecord[] = []): XbTavernMessage[] {
-    return messages
-        .filter((message) => !message.error)
-        .map((message) => ({
-            role: ['system', 'user', 'assistant', 'tool'].includes(message.role)
-                ? message.role as XbTavernMessage['role']
-                : 'assistant',
-            content: stripTavernImageMarkers(message.content),
-            ...(message.name ? { name: message.name } : {}),
-            ...(Array.isArray(message.thoughts) && message.thoughts.length ? { thoughts: message.thoughts } : {}),
-        }))
-        .filter((message) => String(message.content || '').trim());
+export function buildContextHistory(
+    messages: TavernMessageRecord[] = [],
+    communicationEvents: TavernCommunicationTimelineEvent[] = [],
+): XbTavernMessage[] {
+    const eventsByAnchor = new Map<number, TavernCommunicationTimelineEvent[]>();
+    communicationEvents.forEach((event) => {
+        const rows = eventsByAnchor.get(event.anchorOrder) || [];
+        rows.push(event);
+        eventsByAnchor.set(event.anchorOrder, rows);
+    });
+    const history: XbTavernMessage[] = [];
+    const pushEvents = (anchorOrder: number) => {
+        (eventsByAnchor.get(anchorOrder) || [])
+            .sort((left, right) => left.createdAt - right.createdAt)
+            .forEach((event) => history.push(event.message as XbTavernMessage));
+    };
+    pushEvents(-1);
+    [...messages]
+        .sort((left, right) => left.order - right.order)
+        .forEach((message) => {
+            if (!message.error) {
+                const item: XbTavernMessage = {
+                    role: ['system', 'user', 'assistant', 'tool'].includes(message.role)
+                        ? message.role as XbTavernMessage['role']
+                        : 'assistant',
+                    content: stripTavernImageMarkers(message.content),
+                    ...(message.name ? { name: message.name } : {}),
+                    ...(Array.isArray(message.thoughts) && message.thoughts.length ? { thoughts: message.thoughts } : {}),
+                };
+                if (String(item.content || '').trim()) {history.push(item);}
+            }
+            pushEvents(message.order);
+        });
+    return history;
+}
+
+async function loadCommunicationEventsForHistory(
+    sessionId = '',
+    messages: TavernMessageRecord[] = [],
+): Promise<TavernCommunicationTimelineEvent[]> {
+    const sorted = [...messages].sort((left, right) => left.order - right.order);
+    const firstOrder = sorted[0]?.order;
+    const lastOrder = sorted.at(-1)?.order;
+    const fromAnchorOrder = Number.isInteger(Number(firstOrder)) && Number(firstOrder) > 0
+        ? Number(firstOrder)
+        : -1;
+    const toAnchorOrder = Number.isInteger(Number(lastOrder)) ? Number(lastOrder) : -1;
+    return listTavernCommunicationTimelineEvents(sessionId, { fromAnchorOrder, toAnchorOrder });
 }
 
 function findCompletedAssistantForUser(messages: TavernMessageRecord[] = [], userIndex = -1): TavernMessageRecord | null {
@@ -1968,13 +2014,21 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
             currentUserMessage,
         })
         : null;
+    const communicationEvents = session
+        ? await runTavernStage(
+            'simulate_phone_timeline',
+            () => loadCommunicationEventsForHistory(session.id, contextWindow?.historyMessages || []),
+        )
+        : [];
     const contextForBuildRaw: XbTavernContext = {
         ...liveContext,
         worldSettings: {
             ...(liveContext.worldSettings || {}),
             trigger: String(input.generationTrigger || 'normal'),
         },
-        history: session ? buildContextHistory(contextWindow?.historyMessages || []) : (input.contextSnapshot.history || []),
+        history: session
+            ? buildContextHistory(contextWindow?.historyMessages || [], communicationEvents)
+            : (input.contextSnapshot.history || []),
     };
     const nativeContext = await runTavernStage('simulate_native_worldbook_runtime', () => injectNativeWorldInfoRuntime({
         getNativeWorldInfoRuntime: input.getNativeWorldInfoRuntime,
@@ -2395,8 +2449,10 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         await cancelAndRollbackXbTavernManagersForMessageRange(baseSession.id, changedOrder);
         await restoreTavernMemoryToFloor(baseSession.id, changedOrder - 1);
         await restoreTavernTasksToFloor(baseSession.id, changedOrder - 1);
+        await restoreTavernCommunicationsToFloor(baseSession.id, changedOrder - 1);
         await trimTavernMemorySnapshotsFromFloor(baseSession.id, changedOrder);
         await trimTavernTaskSnapshotsFromFloor(baseSession.id, changedOrder);
+        await trimTavernCommunicationSnapshotsFromFloor(baseSession.id, changedOrder);
         await rebuildTavernMemoryDerivedIndex(baseSession.id);
         await deleteTavernMessages(baseSession.id, await listTavernMessageOrdersFrom(baseSession.id, changedOrder));
     }
@@ -2497,6 +2553,10 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         beforeOrder: userMessage?.order,
     });
     const historyMessages = contextWindow.historyMessages;
+    const communicationEvents = await runTavernStage(
+        'turn_phone_timeline',
+        () => loadCommunicationEventsForHistory(baseSession.id, historyMessages),
+    );
     const cooldownMessages = reusedUserMessage
         ? await listLatestTavernUserMessagesBefore(baseSession.id, reusedUserMessage.order, RANDOM_ENCOUNTER_COOLDOWN_TURNS)
         : await listLatestTavernUserMessagesBefore(baseSession.id, userMessage?.order ?? Number.POSITIVE_INFINITY, RANDOM_ENCOUNTER_COOLDOWN_TURNS);
@@ -2521,7 +2581,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             ...(liveContext.worldSettings || {}),
             trigger: generationTrigger,
         },
-        history: buildContextHistory(contextWindow.historyMessages),
+        history: buildContextHistory(contextWindow.historyMessages, communicationEvents),
     };
     notifyRunStatus(input.onRuntimeStatus, '构建请求');
     const nativeContext = await runTavernStage('turn_native_worldbook_runtime', () => injectNativeWorldInfoRuntime({

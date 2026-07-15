@@ -6,6 +6,7 @@ import {
     useTavernCharacterContext,
     useTavernChatContext,
     useTavernManagerContext,
+    useTavernPhoneContext,
     useTavernSessionContext,
     useTavernSettingsContext,
     useTavernShellContext,
@@ -35,11 +36,13 @@ import {
     type XbTavernAuthorNote,
 } from '../../../shared/message-assembler';
 import { useTavernMediaQuery } from '../useTavernMediaQuery';
+import TavernPhoneOverlay from '../phone/TavernPhoneOverlay.vue';
 
 const shell = useTavernShellContext();
 const character = useTavernCharacterContext();
 const chat = useTavernChatContext();
 const manager = useTavernManagerContext();
+const phone = useTavernPhoneContext();
 const session = useTavernSessionContext();
 const settings = useTavernSettingsContext();
 const workspace = useTavernWorkspaceContext();
@@ -59,6 +62,10 @@ const {
 const {
     selectedSessionId,
 } = session;
+const {
+    openPhone,
+    phoneOpen,
+} = phone;
 const {
     managerMessageWindow,
     managerScrollRef,
@@ -390,6 +397,30 @@ onUnmounted(() => {
     >
       <button
         type="button"
+        class="home-icon-button tavern-phone-launch-button"
+        :class="{ 'is-active': phoneOpen }"
+        title="打开手机"
+        aria-label="打开手机"
+        :disabled="!selectedSessionId"
+        @click="openPhone"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <rect
+            x="7"
+            y="2.5"
+            width="10"
+            height="19"
+            rx="2.5"
+          />
+          <path d="M10 5h4" />
+          <path d="M11 18.5h2" />
+        </svg>
+      </button>
+      <button
+        type="button"
         class="home-icon-button home-theme-button"
         :title="homeThemeDark ? '切换到白天' : '切换到夜间'"
         :aria-label="homeThemeDark ? '切换到白天' : '切换到夜间'"
@@ -533,48 +564,27 @@ onUnmounted(() => {
           </button>
           <button
             type="button"
-            class="chat-mobile-icon-button chat-mobile-utility-button"
-            :title="homeThemeDark ? '切换到白天' : '切换到夜间'"
-            :aria-label="homeThemeDark ? '切换到白天' : '切换到夜间'"
-            @click="homeThemeDark = !homeThemeDark"
+            class="chat-mobile-icon-button chat-mobile-utility-button tavern-phone-launch-button"
+            :class="{ 'is-active': phoneOpen }"
+            title="打开手机"
+            aria-label="打开手机"
+            :disabled="!selectedSessionId"
+            @click="closeMobileChatPanel(); openPhone()"
           >
             <svg
-              v-if="homeThemeDark"
               class="chat-mobile-svg"
               viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
               aria-hidden="true"
             >
-              <circle
-                cx="12"
-                cy="12"
-                r="4"
+              <rect
+                x="7"
+                y="2.5"
+                width="10"
+                height="19"
+                rx="2.5"
               />
-              <path d="M12 2v2" />
-              <path d="M12 20v2" />
-              <path d="m4.93 4.93 1.41 1.41" />
-              <path d="m17.66 17.66 1.41 1.41" />
-              <path d="M2 12h2" />
-              <path d="M20 12h2" />
-              <path d="m6.34 17.66-1.41 1.41" />
-              <path d="m19.07 4.93-1.41 1.41" />
-            </svg>
-            <svg
-              v-else
-              class="chat-mobile-svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M20.2 14.5A7.3 7.3 0 0 1 9.5 3.8 8.7 8.7 0 1 0 20.2 14.5Z" />
+              <path d="M10 5h4" />
+              <path d="M11 18.5h2" />
             </svg>
           </button>
           <div
@@ -615,6 +625,15 @@ onUnmounted(() => {
               >
                 <span class="chat-app-menu-label-full">{{ item.label }}</span>
                 <span class="chat-app-menu-label-mobile">{{ item.mobileLabel }}</span>
+              </button>
+              <button
+                type="button"
+                class="chat-app-menu-item"
+                role="menuitem"
+                @click="homeThemeDark = !homeThemeDark; closeChatAppMenu()"
+              >
+                <span class="chat-app-menu-label-full">{{ homeThemeDark ? '切换到白天' : '切换到夜间' }}</span>
+                <span class="chat-app-menu-label-mobile">{{ homeThemeDark ? '白天模式' : '夜间模式' }}</span>
               </button>
               <button
                 type="button"
@@ -918,5 +937,6 @@ onUnmounted(() => {
         </div>
       </section>
     </div>
+    <TavernPhoneOverlay />
   </section>
 </template>

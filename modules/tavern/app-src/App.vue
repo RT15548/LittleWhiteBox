@@ -133,6 +133,7 @@ import {
 } from './features/chat-render/useTavernRuntimeDisplayProjection';
 import { createTavernChatRunState, useTavernChatRunController } from './features/chat-run/useTavernChatRunController';
 import { useTavernDrawController } from './features/draw/useTavernDrawController';
+import { useTavernPhoneController } from './features/phone/useTavernPhoneController';
 import { useTavernHostBridge, type TavernHostMessageData } from './features/host-bridge/useTavernHostBridge';
 import { useMaterialSymbolFont } from './features/material-symbol-font';
 import { createTavernSessionState, useTavernSessionController } from './features/session/useTavernSessionController';
@@ -157,6 +158,7 @@ import {
     type TavernChatContext,
     type TavernDialogOptions,
     type TavernManagerContext,
+    type TavernPhoneContext,
     type TavernMemoryContext,
     type TavernSessionContext,
     type TavernChatWorkspacePanelKey,
@@ -1071,6 +1073,30 @@ const {
     visibleRunLimit: MANAGER_RUN_VISIBLE_LIMIT,
 });
 
+const phoneContext = useTavernPhoneController({
+    selectedSessionId,
+    effectiveContext,
+    visibleCharacterAvatar,
+    memoryFiles,
+    agentConfig,
+    chatRunning: isRunning,
+    chatCancelling: isCancellingRun,
+    managerBusy,
+    managerAssistantRunning: isManagerAssistantRunning,
+    managerAssistantCancelling: isManagerAssistantCancelling,
+    memoryEditorMode,
+    characterArchiveBusy: computed(() => characterArchiveSyncState.value.busy),
+}) satisfies TavernPhoneContext;
+
+function isPhoneSendingForSession(sessionId = selectedSessionId.value): boolean {
+    const id = String(sessionId || '').trim();
+    return !!id && phoneContext.isSending.value && phoneContext.sendingSessionId.value === id;
+}
+
+function warnPhoneWorkInProgress(message = '手机消息正在等待回复，请稍后再试。'): void {
+    showTavernToast(message, { tone: 'warning', durationMs: 2600 });
+}
+
 function sessionFloorCount(session?: TavernSessionRecord | null) {
     return sessionController.sessionFloorCount(session);
 }
@@ -1173,7 +1199,12 @@ const memoryDirectoryGroups = computed(() => {
     }];
 });
 const memoryEditorDocumentAvailable = computed(() => !!selectedMemoryFileEntry.value || !!memoryEditorLoadedPath.value);
-const memoryEditorReadOnly = computed(() => isRunning.value || managerBusy.value || isManagerAssistantRunning.value);
+const memoryEditorReadOnly = computed(() => (
+    isRunning.value
+    || managerBusy.value
+    || isManagerAssistantRunning.value
+    || isPhoneSendingForSession()
+));
 const memoryEditorDirty = computed(() => (
     !!memoryEditorLoadedPath.value
     && memoryEditorDraft.value !== memoryEditorBaseContent.value
@@ -1276,11 +1307,18 @@ const managerWorkMarkdownSignature = computed(() => managerRuns.value
     .concat(homeThemeDark.value ? 'theme:dark' : 'theme:light')
     .join('|'));
 const chatSubtitle = computed(() => {
+    if (isPhoneSendingForSession()) {return '手机消息正在等待回复，完成后可继续剧情。';}
     if (!selectedSessionId.value) {return '写一句话后会自动创建独立会话。';}
     return sessionFloorLabel(selectedSession.value);
 });
-const canSendMessage = computed(() => !isCancellingRun.value && (isRunning.value || (!selectedSessionCharacterError.value && !!currentUserMessage.value.trim())));
-const canSendManagerMessage = computed(() => !isManagerAssistantCancelling.value && (isManagerAssistantRunning.value || (!!selectedSessionId.value && !!managerInputDraft.value.trim())));
+const canSendMessage = computed(() => !isCancellingRun.value && (
+    isRunning.value
+    || (!isPhoneSendingForSession() && !selectedSessionCharacterError.value && !!currentUserMessage.value.trim())
+));
+const canSendManagerMessage = computed(() => !isManagerAssistantCancelling.value && (
+    isManagerAssistantRunning.value
+    || (!isPhoneSendingForSession() && !!selectedSessionId.value && !!managerInputDraft.value.trim())
+));
 
 watch(characterSearchText, () => {
     characterVisibleLimit.value = CHARACTER_ARCHIVE_BATCH_SIZE;
@@ -2357,11 +2395,16 @@ function summarizeArchiveCounts(counts = createEmptyTavernCharacterArchiveCounts
         `${counts.memoryFiles} 份记忆`,
         `${counts.stateDocuments} 份地图/图鉴`,
         `${counts.tasks} 个任务`,
+        `${Number(counts.communications) || 0} 条通讯数据`,
     ].join('，');
 }
 
 async function backupSelectedCharacterArchive() {
     if (characterArchiveSyncState.value.busy) {return;}
+    if (phoneContext.isSending.value) {
+        warnPhoneWorkInProgress('手机消息正在等待回复，稍后再备份角色档案。');
+        return;
+    }
     const character = selectedCharacterPreview.value;
     const characterKey = String(character?.characterKey || '').trim();
     if (!character || !characterKey) {return;}
@@ -2479,6 +2522,10 @@ async function backupSelectedCharacterArchive() {
 
 async function restoreSelectedCharacterArchive() {
     if (characterArchiveSyncState.value.busy) {return;}
+    if (phoneContext.isSending.value) {
+        warnPhoneWorkInProgress('手机消息正在等待回复，稍后再恢复角色档案。');
+        return;
+    }
     const character = selectedCharacterPreview.value;
     const characterKey = String(character?.characterKey || '').trim();
     if (!character || !characterKey) {return;}
@@ -2915,6 +2962,7 @@ async function createNewChatSession() {
 function getChatSessionBranchBlockedReason(): string {
     if (!selectedSessionId.value) {return '当前没有会话。';}
     if (isRunning.value || isCancellingRun.value) {return '正在生成回复，稍后再开启对话分支。';}
+    if (isPhoneSendingForSession()) {return '手机消息正在等待回复，稍后再开启对话分支。';}
     if (managerBusy.value || isManagerAssistantRunning.value || isManagerAssistantCancelling.value || retryingManagerRunId.value) {
         return '助手/管理器正在维护档案，稍后再开启对话分支。';
     }
@@ -3013,6 +3061,10 @@ async function selectSession(sessionId: string) {
 
 async function removeSession(sessionId: string, event?: Event) {
     event?.stopPropagation();
+    if (isPhoneSendingForSession(sessionId)) {
+        warnPhoneWorkInProgress('这个会话还有手机消息在等待回复，稍后再删除。');
+        return;
+    }
     await sessionController.removeSession(sessionId);
 }
 
@@ -3232,15 +3284,18 @@ function managerMessageKey(message: TavernManagerMessageRecord) {
 }
 
 function canEditMessage(message: TavernMessageRecord) {
-    return !isRunning.value && !message.error && ['user', 'assistant'].includes(message.role);
+    return !isRunning.value && !isPhoneSendingForSession(message.sessionId) && !message.error && ['user', 'assistant'].includes(message.role);
 }
 
 function canEditManagerMessage(message: TavernManagerMessageRecord) {
-    return !isManagerAssistantRunning.value && !message.error && ['user', 'assistant'].includes(message.role);
+    return !isManagerAssistantRunning.value
+        && !isPhoneSendingForSession(message.sessionId)
+        && !message.error
+        && ['user', 'assistant'].includes(message.role);
 }
 
 function canRerunMessage(message: TavernMessageRecord) {
-    if (isRunning.value) {return false;}
+    if (isRunning.value || isPhoneSendingForSession(message.sessionId)) {return false;}
     if (!['user', 'assistant'].includes(message.role)) {return false;}
     const latest = latestSessionMessage.value;
     return !!latest
@@ -3249,7 +3304,7 @@ function canRerunMessage(message: TavernMessageRecord) {
 }
 
 function canRerunManagerMessage(message: TavernManagerMessageRecord) {
-    if (isManagerAssistantRunning.value) {return false;}
+    if (isManagerAssistantRunning.value || isPhoneSendingForSession(message.sessionId)) {return false;}
     if (!['user', 'assistant'].includes(message.role)) {return false;}
     const sorted = [...managerChatMessages.value].sort((left, right) => left.order - right.order);
     const latest = sorted[sorted.length - 1];
@@ -3520,6 +3575,10 @@ async function findDeleteOrders(message: TavernMessageRecord) {
 
 async function deleteMessageTurn(message: TavernMessageRecord) {
     if (isRunning.value) {return;}
+    if (isPhoneSendingForSession(message.sessionId)) {
+        warnPhoneWorkInProgress('手机消息正在等待回复，稍后再删除剧情楼层。');
+        return;
+    }
     const ordersToDelete = await findDeleteOrders(message);
     const floor = Math.max(1, Number(message.order) + 1);
     const fromOrder = Math.min(...ordersToDelete);
@@ -3687,7 +3746,7 @@ const handleManagerTouchMove = managerScrollPane.handleTouchMove;
 function handleComposeKeydown(event: KeyboardEvent) {
     if (event.key !== 'Enter') {return;}
     if (event.isComposing || event.shiftKey || event.altKey) {return;}
-    if (isRunning.value) {return;}
+    if (isRunning.value || isPhoneSendingForSession()) {return;}
     const shouldSend = event.ctrlKey || event.metaKey || window.innerWidth >= 760;
     if (!shouldSend) {return;}
     event.preventDefault();
@@ -3970,10 +4029,18 @@ function cancelActiveRun() {
 }
 
 function handleChatSubmit() {
+    if (!isRunning.value && isPhoneSendingForSession()) {
+        warnPhoneWorkInProgress();
+        return;
+    }
     chatRunController.handleChatSubmit();
 }
 
 async function runOnce(options: Parameters<typeof chatRunController.runOnce>[0] = {}) {
+    if (!isRunning.value && isPhoneSendingForSession()) {
+        warnPhoneWorkInProgress();
+        return;
+    }
     await chatRunController.runOnce(options);
 }
 
@@ -4356,6 +4423,10 @@ async function handleManagerSubmit() {
             managerInputStatus.value = '正在停止...';
         }
         managerAssistantController.value?.abort();
+        return;
+    }
+    if (isPhoneSendingForSession()) {
+        warnPhoneWorkInProgress('手机消息正在等待回复，稍后再联系助手。');
         return;
     }
     const text = managerInputDraft.value.trim();
@@ -4754,6 +4825,7 @@ const appUiContext = {
     session: sessionContext,
     draw: drawContext,
     chat: chatContext,
+    phone: phoneContext,
     manager: managerContext,
     memory: memoryContext,
     workspace: workspaceContext,

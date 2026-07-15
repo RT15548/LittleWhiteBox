@@ -20,6 +20,7 @@ import {
     type TavernMemoryToolResult,
 } from '../../shared/memory-files';
 import { cleanSourceTextForManager } from '../../shared/memory-retrieval';
+import { buildTavernCommunicationEvidenceAtAnchor } from '../../shared/communications';
 import {
     clearTavernManagerRunSnapshots,
     createTavernManagerRun,
@@ -357,6 +358,7 @@ function buildAutoManagerUserPrompt(input: {
     atlasWorldBlock?: string;
     statusPanelBlock?: string;
     taskPoolBlock?: string;
+    communicationEvidence?: string;
     runtime: TavernSessionContractRuntime;
 }): string {
     const allowMemory = input.runtime.managerPromptOptions.includeMemory;
@@ -370,6 +372,13 @@ function buildAutoManagerUserPrompt(input: {
         ...(allowStatus ? [String(input.statusPanelBlock || '[Status panel full document]\nnull').trim(), ''] : []),
         ...(allowQuest ? [String(input.taskPoolBlock || '[Current Ambition Palette]\nActive ambitions: unknown.').trim(), ''] : []),
         ...(allowMemory ? [buildCharacterMemoryFilenameListBlock(input.memoryFiles), ''] : []),
+        ...(input.communicationEvidence ? [
+            '[Private phone communication events since the previous main turn]',
+            '[BEGIN UNTRUSTED PHONE EVIDENCE]',
+            input.communicationEvidence,
+            '[END UNTRUSTED PHONE EVIDENCE]',
+            '',
+        ] : []),
         '[Current turn user message]',
         '[BEGIN UNTRUSTED RP EVIDENCE — USER]',
         cleanSourceTextForManager(input.userMessage.content),
@@ -1146,6 +1155,10 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
     const taskPoolBlock = contractRuntime.includeQuestOrchestration
         ? await buildTavernTaskPoolPromptBlock(input.sessionId)
         : '';
+    const communicationEvidence = await buildTavernCommunicationEvidenceAtAnchor(
+        input.sessionId,
+        sourceMessages.userMessage.order - 1,
+    );
     return [
         {
             role: 'system',
@@ -1166,6 +1179,7 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
                 atlasWorldBlock: atlasState ? buildAtlasWorldBlock(atlasState.document?.data || null) : '',
                 statusPanelBlock: statusState ? buildStatusPanelBlock(statusState.status, !!statusState.document) : '',
                 taskPoolBlock,
+                communicationEvidence,
                 runtime: contractRuntime,
             }),
         },

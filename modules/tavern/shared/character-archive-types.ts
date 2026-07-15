@@ -15,6 +15,10 @@ import type {
     TavernTaskFingerprintStateRecord,
     TavernTaskRecord,
     TavernTaskSnapshotRecord,
+    TavernCommunicationContactRecord,
+    TavernCommunicationMessageRecord,
+    TavernCommunicationSnapshotRecord,
+    TavernCommunicationThreadRecord,
 } from './session-db';
 
 export type TavernCharacterArchiveMode = 'backup' | 'restore' | '';
@@ -47,6 +51,7 @@ export interface TavernCharacterArchiveCounts {
     memoryFiles: number;
     stateDocuments: number;
     tasks: number;
+    communications?: number;
 }
 
 export interface TavernCharacterArchivePartManifest {
@@ -103,6 +108,10 @@ export const TAVERN_CHARACTER_ARCHIVE_TABLES = [
     'taskSnapshots',
     'managerTaskSnapshots',
     'taskFingerprintStates',
+    'communicationContacts',
+    'communicationThreads',
+    'communicationMessages',
+    'communicationSnapshots',
 ] as const;
 
 export type TavernCharacterArchiveTable = typeof TAVERN_CHARACTER_ARCHIVE_TABLES[number];
@@ -124,6 +133,10 @@ export type TavernCharacterArchiveRecordPayload = {
     taskSnapshots: TavernTaskSnapshotRecord;
     managerTaskSnapshots: TavernManagerTaskSnapshotRecord;
     taskFingerprintStates: TavernTaskFingerprintStateRecord;
+    communicationContacts: TavernCommunicationContactRecord;
+    communicationThreads: TavernCommunicationThreadRecord;
+    communicationMessages: TavernCommunicationMessageRecord;
+    communicationSnapshots: TavernCommunicationSnapshotRecord;
 };
 
 export type TavernCharacterArchiveRecord<TTable extends TavernCharacterArchiveTable = TavernCharacterArchiveTable> = {
@@ -156,5 +169,6 @@ export function createEmptyTavernCharacterArchiveCounts(): TavernCharacterArchiv
         memoryFiles: 0,
         stateDocuments: 0,
         tasks: 0,
+        communications: 0,
     };
 }
