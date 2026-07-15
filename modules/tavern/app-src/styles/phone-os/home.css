@@ -1,0 +1,168 @@
+.tavern-phone-home {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 78% 8%, rgba(255, 255, 255, 0.17), transparent 27%),
+        linear-gradient(155deg, #262c39 0%, #171b24 42%, #0f1116 100%);
+    color: #f5f1e9;
+    padding: 28px 24px 22px;
+}
+
+.tavern-phone-home-atmosphere {
+    position: absolute;
+    inset: -12%;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.tavern-phone-home-atmosphere img {
+    position: absolute;
+    top: -6%;
+    right: -22%;
+    width: 96%;
+    height: 74%;
+    object-fit: cover;
+    filter: blur(46px) saturate(0.62) brightness(0.62);
+    opacity: 0.46;
+    transform: scale(1.18);
+}
+
+.tavern-phone-home-atmosphere::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(180deg, rgba(7, 9, 12, 0.08), rgba(7, 9, 12, 0.82)),
+        repeating-linear-gradient(115deg, transparent 0 18px, rgba(255, 255, 255, 0.012) 18px 19px);
+}
+
+.tavern-phone-home-atmosphere i {
+    position: absolute;
+    right: 10%;
+    bottom: 18%;
+    width: 190px;
+    height: 190px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 50%;
+    box-shadow: 0 0 80px rgba(86, 122, 255, 0.14);
+}
+
+.tavern-phone-home-copy {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    gap: 6px;
+}
+
+.tavern-phone-home-copy > span {
+    color: rgba(245, 241, 233, 0.54);
+    font: 650 9px/1 var(--phone-os-font);
+    letter-spacing: 0.19em;
+}
+
+.tavern-phone-home-copy h2 {
+    margin: 0;
+    font: 650 36px/1 var(--xb-font-serif);
+    letter-spacing: 0.02em;
+}
+
+.tavern-phone-home-copy p {
+    margin: 0;
+    color: rgba(245, 241, 233, 0.66);
+    font: 480 12px/1.4 var(--phone-os-font);
+}
+
+.tavern-phone-app-grid {
+    position: relative;
+    z-index: 2;
+    align-self: start;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 22px 14px;
+    margin-top: 54px;
+}
+
+.tavern-phone-app-icon-button {
+    min-width: 0;
+    display: grid;
+    justify-items: center;
+    gap: 8px;
+    border: 0;
+    background: transparent;
+    color: #f7f3eb;
+    padding: 0;
+}
+
+.tavern-phone-app-icon {
+    position: relative;
+    width: 58px;
+    height: 58px;
+    display: grid;
+    place-items: center;
+    overflow: visible;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 18px;
+    background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.20), transparent 38%),
+        linear-gradient(150deg, color-mix(in srgb, var(--phone-app-accent) 88%, white), var(--phone-app-accent));
+    box-shadow:
+        0 13px 26px color-mix(in srgb, var(--phone-app-accent) 28%, transparent),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+    transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), filter 0.18s ease;
+}
+
+.tavern-phone-app-icon .material-symbols-rounded {font-size: 31px; color: #fff;}
+.tavern-phone-app-icon-button:hover .tavern-phone-app-icon {transform: translateY(-3px) scale(1.025); filter: saturate(1.08);}
+.tavern-phone-app-icon-button:active .tavern-phone-app-icon {transform: scale(0.94);}
+
+.tavern-phone-device .tavern-phone-app-icon-button:hover:not(:disabled) {
+    border-color: transparent;
+    background: transparent;
+    color: #f7f3eb;
+}
+
+.tavern-phone-app-icon-button > strong {
+    max-width: 70px;
+    overflow: hidden;
+    font: 560 11px/1 var(--phone-os-font);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tavern-phone-app-badge {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    min-width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border: 2px solid #171b24;
+    border-radius: 999px;
+    background: #d94b45;
+    color: #fff;
+    padding: 0 5px;
+    font: normal 760 10px/1 var(--phone-os-font);
+}
+
+.tavern-phone-home-signature {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: rgba(245, 241, 233, 0.38);
+    font: 520 9px/1 var(--phone-os-font);
+    letter-spacing: 0.08em;
+}
+
+.tavern-phone-home-signature i {
+    width: 24px;
+    height: 1px;
+    background: currentColor;
+}

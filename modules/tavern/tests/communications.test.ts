@@ -19,13 +19,39 @@ import {
     listTavernCommunicationMessages,
     listTavernCommunicationTimelineEvents,
     listTavernCommunicationThreads,
+    markTavernCommunicationThreadRead,
     recoverInterruptedTavernCommunicationMessages,
     restoreTavernCommunicationsToFloor,
     retryFailedTavernCommunicationMessage,
     saveTavernCommunicationSnapshot,
     trimTavernCommunicationSnapshotsFromFloor,
 } from '../shared/communications';
-import { buildTavernPhoneRequestMessages } from '../app-src/features/phone/tavern-phone-context';
+import { buildTavernMessagesRequestMessages } from '../app-src/features/phone-os/apps/messages/tavern-messages-context';
+
+test('phone message replies persist unread state until the thread is opened', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Phone unread', characterName: 'Aster' });
+    const { thread } = await createTavernCommunicationContact({
+        sessionId: session.id,
+        name: '艾琳',
+        source: 'memory',
+    });
+    const pending = await appendPendingTavernCommunicationMessage({
+        sessionId: session.id,
+        threadId: thread.id,
+        content: '在吗？',
+    });
+    await completeTavernCommunicationExchange({
+        pendingMessage: pending,
+        replies: ['在。', '刚看到。'],
+        result: 'reply',
+        unreadCountDelta: 2,
+    });
+    assert.equal((await listTavernCommunicationThreads(session.id))[0]?.unreadCount, 2);
+    await markTavernCommunicationThreadRead(session.id, thread.id);
+    assert.equal((await listTavernCommunicationThreads(session.id))[0]?.unreadCount, 0);
+});
 
 test('phone communications persist independently and anchor to the current Tavern timeline position', async () => {
     await db.delete();
@@ -352,7 +378,7 @@ test('phone generation uses the anchored Tavern history window and its own prese
     });
     const currentThread = (await listTavernCommunicationThreads(session.id))
         .find((thread) => thread.id === contact.thread.id) || contact.thread;
-    const requestMessages = await buildTavernPhoneRequestMessages({
+    const requestMessages = await buildTavernMessagesRequestMessages({
         sessionId: session.id,
         contextSnapshot: session.contextSnapshot || {},
         contact: contact.contact,

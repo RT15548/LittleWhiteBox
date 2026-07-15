@@ -8,19 +8,20 @@ import {
     listTavernCommunicationContacts,
     listTavernCommunicationMessages,
     listTavernCommunicationThreads,
+    markTavernCommunicationThreadRead,
     recoverInterruptedTavernCommunicationMessages,
     retryFailedTavernCommunicationMessage,
-} from '../../../shared/communications';
-import { getTavernMemoryFile } from '../../../shared/memory-files';
-import type { XbTavernContext } from '../../../shared/message-assembler';
+} from '../../../../../shared/communications';
+import { getTavernMemoryFile } from '../../../../../shared/memory-files';
+import type { XbTavernContext } from '../../../../../shared/message-assembler';
 import type {
     TavernCommunicationContactRecord,
     TavernCommunicationMessageRecord,
     TavernCommunicationThreadRecord,
     TavernMemoryIndexFileEntry,
-} from '../../../shared/session-db';
-import { runTavernOnce } from '../../runtime/run-once';
-import { buildTavernPhoneRequestMessages } from './tavern-phone-context';
+} from '../../../../../shared/session-db';
+import { runTavernOnce } from '../../../../runtime/run-once';
+import { buildTavernMessagesRequestMessages } from './tavern-messages-context';
 
 export interface TavernPhoneContactCandidate {
     key: string;
@@ -43,6 +44,7 @@ export interface TavernPhoneControllerOptions {
     managerAssistantCancelling: Ref<boolean>;
     memoryEditorMode: Ref<'preview' | 'edit'>;
     characterArchiveBusy: ComputedRef<boolean>;
+    isThreadVisible?: (sessionId: string, threadId: string) => boolean;
 }
 
 interface TavernPhoneReplyPayload {
@@ -122,25 +124,37 @@ function parsePhoneReply(value = ''): TavernPhoneReplyPayload {
     return { result, messages, summary };
 }
 
-export function useTavernPhoneController(options: TavernPhoneControllerOptions) {
-    const phoneOpen = ref(false);
-    const phoneScreen = ref<'threads' | 'conversation' | 'add-contact'>('threads');
+export function useTavernMessagesController(options: TavernPhoneControllerOptions) {
     const contacts = ref<TavernCommunicationContactRecord[]>([]);
     const threads = ref<TavernCommunicationThreadRecord[]>([]);
     const threadPreviews = ref<Record<string, TavernCommunicationMessageRecord | null>>({});
+    const threadSearchText = ref<Record<string, string>>({});
     const activeContactId = ref('');
     const activeThreadId = ref('');
     const messages = ref<TavernCommunicationMessageRecord[]>([]);
     const draft = ref('');
+    const draftsByThread = ref<Record<string, string>>({});
     const status = ref('');
+    const searchQuery = ref('');
     const isSending = ref(false);
     const sendingSessionId = ref('');
     const activePending = ref<{ sessionId: string; threadId: string; sequence: number } | null>(null);
     let refreshSequence = 0;
+    let openContactSequence = 0;
     let sessionChangeSequence = 0;
 
     const activeContact = computed(() => contacts.value.find((contact) => contact.id === activeContactId.value) || null);
     const activeThread = computed(() => threads.value.find((thread) => thread.id === activeThreadId.value) || null);
+    const unreadTotal = computed(() => threads.value.reduce((sum, thread) => sum + Math.max(0, Number(thread.unreadCount) || 0), 0));
+    const filteredContactIds = computed(() => {
+        const query = searchQuery.value.trim().toLocaleLowerCase('zh-CN');
+        if (!query) {return contacts.value.map((contact) => contact.id);}
+        return contacts.value.filter((contact) => {
+            if (contact.name.toLocaleLowerCase('zh-CN').includes(query)) {return true;}
+            const thread = threads.value.find((item) => item.contactId === contact.id);
+            return !!thread && String(threadSearchText.value[thread.id] || '').includes(query);
+        }).map((contact) => contact.id);
+    });
     const conversationSending = computed(() => (
         isSending.value
         && sendingSessionId.value === String(options.selectedSessionId.value || '').trim()
@@ -189,6 +203,24 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
     });
     const canSend = computed(() => !sendBlockedReason.value && !!draft.value.trim() && !!activeThreadId.value);
 
+    watch(activeThreadId, (nextThreadId, previousThreadId) => {
+        if (previousThreadId) {
+            draftsByThread.value = {
+                ...draftsByThread.value,
+                [previousThreadId]: draft.value,
+            };
+        }
+        draft.value = nextThreadId ? String(draftsByThread.value[nextThreadId] || '') : '';
+    });
+
+    watch(draft, (value) => {
+        if (!activeThreadId.value) {return;}
+        draftsByThread.value = {
+            ...draftsByThread.value,
+            [activeThreadId.value]: value,
+        };
+    });
+
     async function refreshPhone() {
         const requestSequence = ++refreshSequence;
         const sessionId = String(options.selectedSessionId.value || '').trim();
@@ -197,6 +229,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
             threads.value = [];
             messages.value = [];
             threadPreviews.value = {};
+            threadSearchText.value = {};
             return;
         }
         const [nextContacts, nextThreads] = await Promise.all([
@@ -205,7 +238,11 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         ]);
         const previewEntries = await Promise.all(nextThreads.map(async (thread) => {
             const threadMessages = await listTavernCommunicationMessages(sessionId, thread.id);
-            return [thread.id, threadMessages.at(-1) || null] as const;
+            return {
+                threadId: thread.id,
+                preview: threadMessages.at(-1) || null,
+                searchText: threadMessages.map((message) => message.content).join('\n').toLocaleLowerCase('zh-CN'),
+            };
         }));
         const nextActiveThreadId = nextThreads.some((thread) => thread.id === activeThreadId.value)
             ? activeThreadId.value
@@ -216,7 +253,8 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         if (requestSequence !== refreshSequence || sessionId !== String(options.selectedSessionId.value || '').trim()) {return;}
         contacts.value = nextContacts;
         threads.value = nextThreads;
-        threadPreviews.value = Object.fromEntries(previewEntries);
+        threadPreviews.value = Object.fromEntries(previewEntries.map((entry) => [entry.threadId, entry.preview]));
+        threadSearchText.value = Object.fromEntries(previewEntries.map((entry) => [entry.threadId, entry.searchText]));
         activeThreadId.value = nextActiveThreadId;
         messages.value = nextMessages;
     }
@@ -230,43 +268,47 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         );
     }
 
-    async function openPhone() {
-        phoneOpen.value = true;
-        phoneScreen.value = activeThreadId.value ? 'conversation' : 'threads';
+    async function prepareMessages() {
         status.value = '';
         const sessionId = String(options.selectedSessionId.value || '').trim();
         if (sessionId) {await recoverInterruptedMessages(sessionId);}
         await refreshPhone();
     }
 
-    function closePhone() {
-        phoneOpen.value = false;
-        status.value = '';
-    }
-
     async function openContact(contactId: string) {
+        const requestSequence = ++openContactSequence;
         const sessionId = String(options.selectedSessionId.value || '').trim();
         const contact = contacts.value.find((item) => item.id === contactId);
         if (!sessionId || !contact) {return;}
         const thread = await getTavernCommunicationThreadForContact(sessionId, contact.id);
         if (!thread) {return;}
         const nextMessages = await listTavernCommunicationMessages(sessionId, thread.id);
-        if (sessionId !== String(options.selectedSessionId.value || '').trim()) {return;}
+        if (
+            requestSequence !== openContactSequence
+            || sessionId !== String(options.selectedSessionId.value || '').trim()
+        ) {return;}
         activeContactId.value = contact.id;
         activeThreadId.value = thread.id;
         messages.value = nextMessages;
-        phoneScreen.value = 'conversation';
         status.value = '';
+        return true;
     }
 
-    function showThreads() {
-        phoneScreen.value = 'threads';
-        status.value = '';
-    }
-
-    function showAddContact() {
-        phoneScreen.value = 'add-contact';
-        status.value = '';
+    async function markActiveThreadRead(threadId = activeThreadId.value) {
+        const sessionId = String(options.selectedSessionId.value || '').trim();
+        const targetThreadId = String(threadId || '').trim();
+        if (!sessionId || !targetThreadId) {return;}
+        const openedThread = await markTavernCommunicationThreadRead(sessionId, targetThreadId);
+        const nextMessages = openedThread
+            ? await listTavernCommunicationMessages(sessionId, targetThreadId)
+            : [];
+        if (
+            !openedThread
+            || sessionId !== String(options.selectedSessionId.value || '').trim()
+            || targetThreadId !== activeThreadId.value
+        ) {return;}
+        threads.value = threads.value.map((item) => item.id === targetThreadId ? openedThread : item);
+        messages.value = nextMessages;
     }
 
     async function addContact(candidate: TavernPhoneContactCandidate) {
@@ -310,7 +352,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         const fallbackProfile = task.contact.source === 'character'
             ? [character.description, character.personality, character.scenario].filter(Boolean).join('\n\n')
             : '';
-        return buildTavernPhoneRequestMessages({
+        return buildTavernMessagesRequestMessages({
             sessionId: task.sessionId,
             contextSnapshot: task.contextSnapshot,
             contact: task.contact,
@@ -359,6 +401,10 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
                 summary: payload.summary,
                 provider: result.provider,
                 model: result.model,
+                unreadCountDelta: payload.result === 'reply'
+                    && !options.isThreadVisible?.(task.sessionId, pending.threadId)
+                    ? payload.messages.length
+                    : 0,
             });
             if (isTaskVisible(task, pending.threadId)) {
                 status.value = payload.result === 'unavailable'
@@ -414,13 +460,14 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
 
     watch(options.selectedSessionId, (value) => {
         const requestSequence = ++sessionChangeSequence;
+        openContactSequence += 1;
         refreshSequence += 1;
-        phoneOpen.value = false;
-        phoneScreen.value = 'threads';
         activeContactId.value = '';
         activeThreadId.value = '';
         messages.value = [];
         draft.value = '';
+        draftsByThread.value = {};
+        searchQuery.value = '';
         status.value = '';
         const sessionId = String(value || '').trim();
         void (async () => {
@@ -437,26 +484,27 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         activeThreadId,
         addContact,
         canSend,
-        closePhone,
         contactCandidates,
         contacts,
         conversationSending,
         draft,
+        draftsByThread,
+        filteredContactIds,
         isSending,
         sendingSessionId,
         messages,
+        markActiveThreadRead,
         openContact,
-        openPhone,
-        phoneOpen,
-        phoneScreen,
+        prepareMessages,
         refreshPhone,
         retryMessage,
+        searchQuery,
         sendBlockedReason,
         sendMessage,
-        showAddContact,
-        showThreads,
         status,
         threadPreviews,
+        threadSearchText,
         threads,
+        unreadTotal,
     };
 }

@@ -36,7 +36,7 @@ import {
     type XbTavernAuthorNote,
 } from '../../../shared/message-assembler';
 import { useTavernMediaQuery } from '../useTavernMediaQuery';
-import TavernPhoneOverlay from '../phone/TavernPhoneOverlay.vue';
+import TavernPhoneOsOverlay from '../phone-os/TavernPhoneOsOverlay.vue';
 
 const shell = useTavernShellContext();
 const character = useTavernCharacterContext();
@@ -64,8 +64,8 @@ const {
 } = session;
 const {
     openPhone,
-    phoneOpen,
 } = phone;
+const phoneOpen = phone.os.isOpen;
 const {
     managerMessageWindow,
     managerScrollRef,
@@ -937,6 +937,6 @@ onUnmounted(() => {
         </div>
       </section>
     </div>
-    <TavernPhoneOverlay />
+    <TavernPhoneOsOverlay />
   </section>
 </template>

@@ -35,7 +35,12 @@ import type { TavernCharacterArchiveProgress } from '../../shared/character-arch
 import type { TavernMapStateDocumentItem } from '../../shared/structured-state';
 import type { TavernStatusFieldDeltaMap } from '../../shared/status-state';
 import type { TavernDrawContext } from '../features/draw/useTavernDrawController';
-import type { TavernPhoneContactCandidate } from '../features/phone/useTavernPhoneController';
+import type { TavernPhoneContactCandidate } from '../features/phone-os/useTavernPhoneController';
+import type {
+    TavernPhoneAppManifest,
+    TavernPhoneOsRoute,
+    TavernPhonePresentationMode,
+} from '../features/phone-os/phone-os-types';
 export type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 
 export type TavernReadable<T> = Ref<T> | ComputedRef<T>;
@@ -397,34 +402,70 @@ export interface TavernChatContext {
     visibleUserAvatar: TavernReadable<string>;
 }
 
-export interface TavernPhoneContext {
+export interface TavernMessagesContext {
     activeContact: TavernReadable<TavernCommunicationContactRecord | null>;
     activeContactId: Ref<string>;
     activeThread: TavernReadable<TavernCommunicationThreadRecord | null>;
     activeThreadId: Ref<string>;
     addContact: TavernCommand<[candidate: TavernPhoneContactCandidate], Promise<void>>;
     canSend: TavernReadable<boolean>;
-    closePhone: TavernCommand;
     contactCandidates: TavernReadable<TavernPhoneContactCandidate[]>;
     contacts: Ref<TavernCommunicationContactRecord[]>;
     conversationSending: TavernReadable<boolean>;
     draft: Ref<string>;
+    draftsByThread: Ref<Record<string, string>>;
+    filteredContactIds: TavernReadable<string[]>;
     isSending: Ref<boolean>;
+    markActiveThreadRead: TavernCommand<[threadId?: string], Promise<void>>;
     messages: Ref<TavernCommunicationMessageRecord[]>;
-    openContact: TavernCommand<[contactId: string], Promise<void>>;
-    openPhone: TavernCommand<[], Promise<void>>;
-    phoneOpen: Ref<boolean>;
-    phoneScreen: Ref<'threads' | 'conversation' | 'add-contact'>;
+    openContact: TavernCommand<[contactId: string], Promise<boolean | undefined>>;
+    prepareMessages: TavernCommand<[], Promise<void>>;
     refreshPhone: TavernCommand<[], Promise<void>>;
     retryMessage: TavernCommand<[message: TavernCommunicationMessageRecord], Promise<void>>;
+    searchQuery: Ref<string>;
     sendBlockedReason: TavernReadable<string>;
     sendMessage: TavernCommand<[contentOverride?: string], Promise<void>>;
     sendingSessionId: Ref<string>;
-    showAddContact: TavernCommand;
-    showThreads: TavernCommand;
     status: Ref<string>;
     threadPreviews: Ref<Record<string, TavernCommunicationMessageRecord | null>>;
+    threadSearchText: Ref<Record<string, string>>;
     threads: Ref<TavernCommunicationThreadRecord[]>;
+    unreadTotal: TavernReadable<number>;
+}
+
+export interface TavernPhoneOsContext {
+    activeApp: TavernReadable<TavernPhoneAppManifest | null>;
+    activeRoute: TavernReadable<TavernPhoneOsRoute>;
+    apps: TavernPhoneAppManifest[];
+    back: TavernCommand;
+    backOrClose: TavernCommand;
+    closePhone: TavernCommand;
+    home: TavernCommand;
+    isAppRouteVisible: TavernCommand<[sessionId?: string, appId?: string, pathPrefix?: string], boolean>;
+    isHome: TavernReadable<boolean>;
+    isOpen: Ref<boolean>;
+    launchApp: TavernCommand<[appId?: string]>;
+    openPhone: TavernCommand;
+    presentationMode: Ref<TavernPhonePresentationMode>;
+    pushAppRoute: TavernCommand<[appId?: string, path?: string, params?: Record<string, string>]>;
+    replaceAppRoute: TavernCommand<[appId?: string, path?: string, params?: Record<string, string>]>;
+    routeStack: Ref<TavernPhoneOsRoute[]>;
+    transitionDirection: Ref<'forward' | 'back' | 'home'>;
+    viewportHeight: Ref<number>;
+    viewportOffsetLeft: Ref<number>;
+    viewportOffsetTop: Ref<number>;
+    viewportWidth: Ref<number>;
+}
+
+export interface TavernPhoneContext {
+    addContact: TavernCommand<[candidate: TavernPhoneContactCandidate], Promise<void>>;
+    isConversationVisible: TavernCommand<[sessionId?: string, threadId?: string], boolean>;
+    messages: TavernMessagesContext;
+    openContact: TavernCommand<[contactId: string], Promise<void>>;
+    openPhone: TavernCommand<[], Promise<void>>;
+    os: TavernPhoneOsContext;
+    showAddContact: TavernCommand;
+    showMessageThreads: TavernCommand;
 }
 
 export interface TavernManagerContext {

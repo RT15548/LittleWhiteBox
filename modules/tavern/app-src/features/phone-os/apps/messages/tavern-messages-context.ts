@@ -1,31 +1,31 @@
-import { buildXbTavernBrainAsync } from '../../../shared/brain';
+import { buildXbTavernBrainAsync } from '../../../../../shared/brain';
 import {
     type TavernChatPromptPresetBundle,
     type XbTavernContext,
     type XbTavernMemoryContext,
     type XbTavernMessage,
-} from '../../../shared/message-assembler';
+} from '../../../../../shared/message-assembler';
 import {
     buildXbTavernMemoryIgnoredTerms,
     buildXbTavernMemoryQuery,
     retrieveXbTavernMemoryContext,
-} from '../../../shared/memory-retrieval';
+} from '../../../../../shared/memory-retrieval';
 import {
     getTavernSession,
     normalizeTavernSessionState,
     type TavernCommunicationContactRecord,
     type TavernCommunicationMessageRecord,
     type TavernCommunicationThreadRecord,
-} from '../../../shared/session-db';
+} from '../../../../../shared/session-db';
 import {
     normalizeTavernSessionContract,
     resolveTavernSessionContractRuntime,
     type TavernSessionContractRuntime,
-} from '../../../shared/session-contract';
-import { getTavernStatusStateForSession } from '../../../shared/status-state';
-import { buildTavernStatusPanelYaml } from '../../../shared/status-prompt';
-import { getLatestQuestHooksForPrompt } from '../../../shared/tasks';
-import { buildContextHistory, loadTavernPromptHistoryWindow } from '../../runtime/run-once';
+} from '../../../../../shared/session-contract';
+import { getTavernStatusStateForSession } from '../../../../../shared/status-state';
+import { buildTavernStatusPanelYaml } from '../../../../../shared/status-prompt';
+import { getLatestQuestHooksForPrompt } from '../../../../../shared/tasks';
+import { buildContextHistory, loadTavernPromptHistoryWindow } from '../../../../runtime/run-once';
 
 const PHONE_HISTORY_LIMIT = 24;
 
@@ -148,7 +148,7 @@ function buildContactContext(input: {
     };
 }
 
-export async function buildTavernPhoneRequestMessages(input: {
+export async function buildTavernMessagesRequestMessages(input: {
     sessionId: string;
     contextSnapshot: XbTavernContext;
     contact: TavernCommunicationContactRecord;

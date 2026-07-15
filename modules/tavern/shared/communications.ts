@@ -268,6 +268,7 @@ export async function completeTavernCommunicationExchange(input: {
     summary?: string;
     provider?: string;
     model?: string;
+    unreadCountDelta?: number;
 }): Promise<TavernCommunicationMessageRecord[]> {
     const pending = input.pendingMessage;
     const timestamp = now();
@@ -289,6 +290,7 @@ export async function completeTavernCommunicationExchange(input: {
             if (!current || current.status !== 'pending' || current.content !== pending.content) {
                 return [];
             }
+            const currentThread = await tavernCommunicationThreadsTable.get([current.sessionId, current.threadId]);
             const sent: TavernCommunicationMessageRecord = {
                 ...current,
                 status: 'sent',
@@ -322,6 +324,10 @@ export async function completeTavernCommunicationExchange(input: {
             }
             await tavernCommunicationThreadsTable.update([current.sessionId, current.threadId], {
                 lastResult: result,
+                unreadCount: Math.max(
+                    0,
+                    (Number(currentThread?.unreadCount) || 0) + Math.max(0, Number(input.unreadCountDelta) || 0),
+                ),
                 ...(summary === undefined ? {} : {
                     summary,
                     summarizedThroughSequence: summary ? sequence - 1 : undefined,
@@ -332,6 +338,23 @@ export async function completeTavernCommunicationExchange(input: {
             return records;
         },
     );
+}
+
+export async function markTavernCommunicationThreadRead(
+    sessionId = '',
+    threadId = '',
+): Promise<TavernCommunicationThreadRecord | null> {
+    const id = String(sessionId || '').trim();
+    const targetThreadId = String(threadId || '').trim();
+    if (!id || !targetThreadId) {return null;}
+    return await db.transaction('rw', tavernCommunicationThreadsTable, async () => {
+        const thread = await tavernCommunicationThreadsTable.get([id, targetThreadId]);
+        if (!thread) {return null;}
+        if (thread.unreadCount) {
+            await tavernCommunicationThreadsTable.update([id, targetThreadId], { unreadCount: 0 });
+        }
+        return { ...thread, unreadCount: 0 };
+    });
 }
 
 export async function failTavernCommunicationMessage(

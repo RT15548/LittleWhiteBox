@@ -1,0 +1,301 @@
+.tavern-phone-app {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    overflow: hidden;
+    background: var(--phone-os-screen);
+    color: var(--phone-os-ink);
+    font-family: var(--phone-os-font);
+}
+
+.tavern-phone-thread-list {grid-template-rows: auto auto minmax(0, 1fr);}
+
+.tavern-phone-app-head {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 19px 11px;
+}
+
+.tavern-phone-app-head > div {display: grid; gap: 4px;}
+
+.tavern-phone-overline {
+    color: var(--phone-os-muted);
+    font: 700 9px/1 var(--phone-os-font);
+    letter-spacing: 0.16em;
+}
+
+.tavern-phone-app-head h2 {
+    margin: 0;
+    color: var(--phone-os-ink);
+    font: 680 31px/1.04 var(--xb-font-serif);
+    letter-spacing: -0.025em;
+}
+
+.tavern-phone-compose-contact {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--phone-os-blue) 13%, transparent);
+    color: var(--phone-os-blue);
+    padding: 0;
+}
+
+.tavern-phone-compose-contact:disabled {opacity: 0.38;}
+.tavern-phone-compose-contact svg {width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;}
+
+.tavern-phone-search {
+    height: 42px;
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    border: 1px solid transparent;
+    border-radius: 13px;
+    background: var(--phone-os-surface-soft);
+    color: var(--phone-os-muted);
+    margin: 0 16px 12px;
+    padding: 0 12px;
+}
+
+.tavern-phone-search:focus-within {
+    border-color: color-mix(in srgb, var(--phone-os-blue) 42%, transparent);
+    background: var(--phone-os-surface);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--phone-os-blue) 10%, transparent);
+}
+
+.tavern-phone-search svg {width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;}
+.tavern-phone-search input {min-width: 0; border: 0; outline: 0; background: transparent; color: var(--phone-os-ink); font: 500 14px/1 var(--phone-os-font);}
+.tavern-phone-search input::placeholder {color: var(--phone-os-muted);}
+.tavern-phone-search input::-webkit-search-cancel-button {cursor: pointer;}
+
+.tavern-phone-thread-rows,
+.tavern-phone-contact-candidates {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    background: var(--phone-os-surface);
+    border-top: 1px solid var(--phone-os-line);
+    scrollbar-width: thin;
+}
+
+.tavern-phone-thread-row {
+    width: 100%;
+    min-height: 78px;
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr) 18px;
+    align-items: center;
+    gap: 12px;
+    border: 0;
+    border-bottom: 1px solid var(--phone-os-line);
+    background: transparent;
+    color: var(--phone-os-ink);
+    padding: 10px 15px 10px 17px;
+    text-align: left;
+}
+
+.tavern-phone-thread-row:hover,
+.tavern-phone-contact-candidates button:hover {background: color-mix(in srgb, var(--phone-os-blue) 5%, transparent);}
+.tavern-phone-thread-row:active,
+.tavern-phone-contact-candidates button:active {background: var(--phone-os-surface-soft);}
+
+.tavern-phone-device .tavern-phone-thread-row:hover:not(:disabled),
+.tavern-phone-device .tavern-phone-contact-candidates button:hover:not(:disabled) {
+    border-color: transparent;
+    border-bottom-color: var(--phone-os-line);
+    background: color-mix(in srgb, var(--phone-os-blue) 5%, transparent);
+    color: var(--phone-os-ink);
+}
+
+.tavern-phone-contact-avatar {
+    width: 52px;
+    height: 52px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 18px;
+    background: linear-gradient(145deg, #a8abb2, #5f626b);
+    color: #fff;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 6px 15px rgba(24, 26, 32, 0.13);
+    flex: 0 0 auto;
+}
+
+.tavern-phone-contact-avatar.is-small {width: 36px; height: 36px; border-radius: 12px;}
+.tavern-phone-contact-avatar img {width: 100%; height: 100%; display: block; object-fit: cover;}
+.tavern-phone-contact-avatar b {font: 720 20px/1 var(--phone-os-font);}
+
+.tavern-phone-thread-copy {min-width: 0; display: grid; gap: 6px;}
+.tavern-phone-thread-title {min-width: 0; display: flex; align-items: center; gap: 7px;}
+.tavern-phone-thread-title strong {min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 680 15px/1.15 var(--phone-os-font);}
+.tavern-phone-thread-preview {min-width: 0; overflow: hidden; color: var(--phone-os-muted); font: 470 13px/1.28 var(--phone-os-font); text-overflow: ellipsis; white-space: nowrap;}
+
+.tavern-phone-unread-badge {
+    min-width: 19px;
+    height: 19px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--phone-os-blue);
+    color: #fff;
+    padding: 0 5px;
+    font: normal 720 9px/1 var(--phone-os-font);
+}
+
+.tavern-phone-chevron {width: 16px; fill: none; stroke: var(--phone-os-muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;}
+
+.tavern-phone-empty-state {
+    min-height: 0;
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 10px;
+    color: var(--phone-os-muted);
+    padding: 28px 32px 54px;
+    text-align: center;
+}
+
+.tavern-phone-empty-state strong {color: var(--phone-os-ink); font: 680 17px/1.15 var(--phone-os-font);}
+.tavern-phone-empty-state p {max-width: 250px; margin: 0; font: 480 13px/1.48 var(--phone-os-font);}
+.tavern-phone-empty-state button {min-height: 40px; border: 0; border-radius: 999px; background: var(--phone-os-blue); color: #fff; padding: 0 17px; font: 650 13px/1 var(--phone-os-font);}
+.tavern-phone-empty-state button:disabled {opacity: 0.42;}
+.tavern-phone-device .tavern-phone-empty-state button:hover:not(:disabled),
+.tavern-phone-device .tavern-phone-route-missing button:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--phone-os-blue-strong);
+    color: #fff;
+}
+
+.tavern-phone-empty-icon {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    display: grid;
+    place-items: center;
+    border-radius: 20px;
+    background: linear-gradient(145deg, #6288ff, #355cdd);
+    box-shadow: 0 12px 24px rgba(58, 94, 220, 0.22);
+}
+
+.tavern-phone-empty-icon::before {content: ""; width: 35px; height: 26px; border-radius: 50%; background: #fff;}
+.tavern-phone-empty-icon i {position: absolute; right: 14px; bottom: 16px; width: 12px; height: 12px; background: #fff; clip-path: polygon(0 0, 100% 0, 100% 100%);}
+.tavern-phone-empty-icon.is-search {background: linear-gradient(145deg, #8a8d96, #5a5d65);}
+.tavern-phone-empty-icon.is-search::before {width: 27px; height: 27px; border: 4px solid #fff; border-radius: 50%; background: transparent;}
+.tavern-phone-empty-icon.is-search i {right: 13px; bottom: 13px; width: 19px; height: 4px; border-radius: 4px; clip-path: none; transform: rotate(45deg); transform-origin: right center;}
+
+.tavern-phone-conversation,
+.tavern-phone-add-contact {grid-template-rows: auto minmax(0, 1fr) auto;}
+.tavern-phone-add-contact {grid-template-rows: auto minmax(0, 1fr);}
+
+.tavern-phone-conversation-head {
+    min-height: 62px;
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) 48px;
+    align-items: center;
+    border-bottom: 1px solid var(--phone-os-line);
+    background: var(--phone-os-surface);
+    padding: 5px 8px 7px;
+}
+
+.tavern-phone-back-button {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--phone-os-blue);
+    padding: 0;
+}
+
+.tavern-phone-back-button:hover {background: var(--phone-os-surface-soft);}
+.tavern-phone-device .tavern-phone-back-button:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--phone-os-surface-soft);
+    color: var(--phone-os-blue);
+}
+.tavern-phone-back-button .material-symbols-rounded {font-size: 22px;}
+.tavern-phone-back-button svg {width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;}
+
+.tavern-phone-conversation-person {min-width: 0; display: grid; justify-items: center; gap: 2px;}
+.tavern-phone-conversation-person strong,
+.tavern-phone-add-contact-head strong {min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 680 12px/1.1 var(--phone-os-font);}
+.tavern-phone-conversation-person > span:last-child,
+.tavern-phone-add-contact-head span {color: var(--phone-os-muted); font: 500 10px/1.1 var(--phone-os-font);}
+.tavern-phone-add-contact-head > div {min-width: 0; display: grid; justify-items: center; gap: 4px;}
+
+.tavern-phone-message-scroll {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    background:
+        radial-gradient(circle at 50% -12%, color-mix(in srgb, var(--phone-os-blue) 7%, transparent), transparent 34%),
+        var(--phone-os-screen);
+    padding: 16px 11px 20px;
+    scrollbar-width: thin;
+}
+
+.tavern-phone-message-row {max-width: 84%; display: grid; gap: 4px; color: var(--phone-os-ink);}
+.tavern-phone-message-row.is-user {align-self: flex-end; justify-items: end;}
+.tavern-phone-message-row.is-contact {align-self: flex-start; justify-items: start;}
+.tavern-phone-message-bubble {display: block; border-radius: 19px; background: var(--phone-os-surface-soft); padding: 9px 13px; font: 490 14px/1.4 var(--phone-os-font); overflow-wrap: anywhere; white-space: pre-wrap;}
+.tavern-phone-message-row.is-user .tavern-phone-message-bubble {border-bottom-right-radius: 6px; background: linear-gradient(165deg, var(--phone-os-blue), var(--phone-os-blue-strong)); color: #fff;}
+.tavern-phone-message-row.is-contact .tavern-phone-message-bubble {border-bottom-left-radius: 6px;}
+.tavern-phone-message-row.is-failed .tavern-phone-message-bubble {box-shadow: 0 0 0 2px color-mix(in srgb, var(--phone-os-danger) 68%, transparent); opacity: 0.78;}
+.tavern-phone-message-row.is-pending .tavern-phone-message-bubble {opacity: 0.58;}
+
+.tavern-phone-message-meta {min-height: 28px; border: 0; border-radius: 999px; background: transparent; color: var(--phone-os-muted); padding: 0 6px; font: 560 10px/1.2 var(--phone-os-font);}
+button.tavern-phone-message-meta {background: color-mix(in srgb, var(--phone-os-danger) 10%, transparent); color: var(--phone-os-danger); padding: 0 10px;}
+.tavern-phone-device button.tavern-phone-message-meta:hover:not(:disabled) {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--phone-os-danger) 16%, transparent);
+    color: var(--phone-os-danger);
+}
+
+.tavern-phone-typing-row {align-self: flex-start;}
+.tavern-phone-typing-row > span {min-width: 50px; height: 34px; display: flex; align-items: center; justify-content: center; gap: 4px; border-radius: 18px 18px 18px 6px; background: var(--phone-os-surface-soft);}
+.tavern-phone-typing-row i {width: 5px; height: 5px; border-radius: 50%; background: var(--phone-os-muted); animation: tavern-phone-typing 1.1s ease-in-out infinite;}
+.tavern-phone-typing-row i:nth-child(2) {animation-delay: 0.14s;}
+.tavern-phone-typing-row i:nth-child(3) {animation-delay: 0.28s;}
+.tavern-phone-thread-status {align-self: center; max-width: 82%; color: var(--phone-os-muted); font: 520 11px/1.4 var(--phone-os-font); padding: 9px 12px; text-align: center;}
+
+.tavern-phone-composer {border-top: 1px solid var(--phone-os-line); background: var(--phone-os-surface); padding: 8px 10px 9px;}
+.tavern-phone-imessage-field {min-height: 44px; display: grid; grid-template-columns: minmax(0, 1fr) 40px; align-items: end; gap: 6px; border: 1px solid var(--phone-os-line); border-radius: 23px; background: var(--phone-os-screen); padding: 3px 3px 3px 13px;}
+.tavern-phone-imessage-field:focus-within {border-color: color-mix(in srgb, var(--phone-os-blue) 45%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--phone-os-blue) 9%, transparent);}
+.tavern-phone-imessage-field textarea {width: 100%; min-height: 36px; max-height: 112px; resize: none; border: 0; outline: 0; background: transparent; color: var(--phone-os-ink); padding: 8px 0 6px; font: 480 14px/1.35 var(--phone-os-font);}
+.tavern-phone-imessage-field textarea::placeholder {color: var(--phone-os-muted);}
+.tavern-phone-imessage-field button {width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--phone-os-blue); color: #fff; padding: 0;}
+.tavern-phone-imessage-field button:disabled {background: var(--phone-os-surface-soft); color: var(--phone-os-muted);}
+.tavern-phone-device .tavern-phone-imessage-field button:hover:not(:disabled),
+.tavern-phone-device .tavern-phone-compose-contact:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--phone-os-blue-strong);
+    color: #fff;
+}
+.tavern-phone-imessage-field button svg {width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round;}
+.tavern-phone-composer-reason {margin: 6px 8px 0; color: var(--phone-os-muted); font: 500 10px/1.35 var(--phone-os-font);}
+
+.tavern-phone-contact-candidates {padding-bottom: 20px;}
+.tavern-phone-contact-candidates button {width: 100%; min-height: 76px; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 0; border-bottom: 1px solid var(--phone-os-line); background: transparent; color: var(--phone-os-ink); padding: 10px 17px; text-align: left;}
+.tavern-phone-contact-candidates button > span:nth-child(2) {min-width: 0; display: grid; gap: 5px;}
+.tavern-phone-contact-candidates button strong {overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 670 15px/1.1 var(--phone-os-font);}
+.tavern-phone-contact-candidates button small {color: var(--phone-os-muted); font: 500 11px/1 var(--phone-os-font);}
+.tavern-phone-contact-candidates button > i {border-radius: 999px; background: color-mix(in srgb, var(--phone-os-blue) 12%, transparent); color: var(--phone-os-blue); padding: 8px 12px; font: normal 650 11px/1 var(--phone-os-font);}
+
+.tavern-phone-route-missing {align-content: center; justify-items: center; gap: 10px; padding: 32px; text-align: center;}
+.tavern-phone-route-missing p {margin: 0; color: var(--phone-os-muted);}
+.tavern-phone-route-missing button {min-height: 42px; border: 0; border-radius: 999px; background: var(--phone-os-blue); color: #fff; padding: 0 17px;}
+
+@keyframes tavern-phone-typing {
+    0%, 60%, 100% {transform: translateY(0); opacity: 0.52;}
+    30% {transform: translateY(-3px); opacity: 1;}
+}

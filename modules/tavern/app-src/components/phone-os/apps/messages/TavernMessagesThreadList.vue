@@ -4,21 +4,24 @@ import type {
     TavernCommunicationContactRecord,
     TavernCommunicationMessageRecord,
     TavernCommunicationThreadRecord,
-} from '../../../shared/session-db';
+} from '../../../../../shared/session-db';
 
 const props = defineProps<{
     contacts: TavernCommunicationContactRecord[];
     threads: TavernCommunicationThreadRecord[];
     previews: Record<string, TavernCommunicationMessageRecord | null>;
     candidateCount: number;
+    filteredContactIds: string[];
 }>();
+
+const searchQuery = defineModel<string>('searchQuery', { required: true });
 
 const emit = defineEmits<{
     (event: 'add'): void;
     (event: 'open', contactId: string): void;
 }>();
 
-const rows = computed(() => props.contacts.map((contact) => {
+const rows = computed(() => props.contacts.filter((contact) => props.filteredContactIds.includes(contact.id)).map((contact) => {
     const thread = props.threads.find((item) => item.contactId === contact.id) || null;
     const preview = thread ? props.previews[thread.id] || null : null;
     return { contact, thread, preview };
@@ -45,7 +48,7 @@ function previewText(message: TavernCommunicationMessageRecord | null, thread: T
   <section class="tavern-phone-app tavern-phone-thread-list">
     <header class="tavern-phone-app-head tavern-phone-messages-head">
       <div>
-        <span class="tavern-phone-overline">小白 OS</span>
+        <span class="tavern-phone-overline">PRIVATE MESSAGES</span>
         <h2>消息</h2>
       </div>
       <button
@@ -63,17 +66,21 @@ function previewText(message: TavernCommunicationMessageRecord | null, thread: T
         </svg>
       </button>
     </header>
-    <div
-      class="tavern-phone-search"
-      aria-hidden="true"
-    >
+    <label class="tavern-phone-search">
       <svg viewBox="0 0 24 24"><circle
         cx="11"
         cy="11"
         r="6"
       /><path d="m16 16 4 4" /></svg>
-      <span>搜索</span>
-    </div>
+      <input
+        v-model="searchQuery"
+        type="search"
+        enterkeyhint="search"
+        autocomplete="off"
+        aria-label="搜索联系人和消息"
+        placeholder="搜索联系人和消息"
+      >
+    </label>
     <div
       v-if="rows.length"
       class="tavern-phone-thread-rows"
@@ -96,6 +103,11 @@ function previewText(message: TavernCommunicationMessageRecord | null, thread: T
         <span class="tavern-phone-thread-copy">
           <span class="tavern-phone-thread-title">
             <strong>{{ row.contact.name }}</strong>
+            <i
+              v-if="row.thread?.unreadCount"
+              class="tavern-phone-unread-badge"
+              :aria-label="`${row.thread.unreadCount} 条未读消息`"
+            >{{ row.thread.unreadCount > 99 ? '99+' : row.thread.unreadCount }}</i>
           </span>
           <span class="tavern-phone-thread-preview">{{ previewText(row.preview, row.thread) }}</span>
         </span>
@@ -107,7 +119,7 @@ function previewText(message: TavernCommunicationMessageRecord | null, thread: T
       </button>
     </div>
     <div
-      v-else
+      v-else-if="!contacts.length"
       class="tavern-phone-empty-state"
     >
       <span
@@ -124,6 +136,25 @@ function previewText(message: TavernCommunicationMessageRecord | null, thread: T
         @click="emit('add')"
       >
         {{ candidateCount ? '添加联系人' : '暂无可添加角色' }}
+      </button>
+    </div>
+    <div
+      v-else
+      class="tavern-phone-empty-state tavern-phone-search-empty"
+    >
+      <span
+        class="tavern-phone-empty-icon is-search"
+        aria-hidden="true"
+      >
+        <i />
+      </span>
+      <strong>没有找到相关内容</strong>
+      <p>换个名字或消息关键词试试。</p>
+      <button
+        type="button"
+        @click="searchQuery = ''"
+      >
+        清除搜索
       </button>
     </div>
   </section>

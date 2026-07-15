@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { nextTick, onActivated, onDeactivated, ref, watch } from 'vue';
 import type {
     TavernCommunicationContactRecord,
     TavernCommunicationMessageRecord,
-} from '../../../shared/session-db';
+} from '../../../../../shared/session-db';
 
 const props = defineProps<{
     contact: TavernCommunicationContactRecord;
@@ -23,6 +23,9 @@ const emit = defineEmits<{
 }>();
 
 const scrollRef = ref<HTMLElement | null>(null);
+const composerRef = ref<HTMLTextAreaElement | null>(null);
+let shouldFollowLatest = true;
+let messageLengthWhenDeactivated = props.messages.length;
 
 function initial(name = ''): string {
     return Array.from(String(name || '').trim())[0] || '·';
@@ -34,14 +37,53 @@ function handleKeydown(event: KeyboardEvent) {
     if (props.canSend) {emit('send');}
 }
 
+function resizeComposer() {
+    const element = composerRef.value;
+    if (!element) {return;}
+    element.style.height = '0px';
+    element.style.height = `${Math.min(element.scrollHeight, 112)}px`;
+}
+
+function handleMessageScroll() {
+    const element = scrollRef.value;
+    if (!element) {return;}
+    shouldFollowLatest = element.scrollHeight - element.scrollTop - element.clientHeight < 72;
+}
+
 watch(
     () => `${props.messages.length}:${props.sending}:${props.messages.at(-1)?.updatedAt || 0}`,
     async () => {
         await nextTick();
-        scrollRef.value?.scrollTo({ top: scrollRef.value.scrollHeight, behavior: 'smooth' });
+        if (shouldFollowLatest || props.sending) {
+            scrollRef.value?.scrollTo({ top: scrollRef.value.scrollHeight, behavior: 'smooth' });
+        }
     },
     { immediate: true },
 );
+
+watch(draft, async () => {
+    await nextTick();
+    resizeComposer();
+});
+
+watch(() => props.contact.id, async () => {
+    shouldFollowLatest = true;
+    await nextTick();
+    scrollRef.value?.scrollTo({ top: scrollRef.value.scrollHeight, behavior: 'auto' });
+});
+
+onDeactivated(() => {
+    messageLengthWhenDeactivated = props.messages.length;
+});
+
+onActivated(async () => {
+    if (props.messages.length !== messageLengthWhenDeactivated) {shouldFollowLatest = true;}
+    await nextTick();
+    resizeComposer();
+    if (shouldFollowLatest) {
+        scrollRef.value?.scrollTo({ top: scrollRef.value.scrollHeight, behavior: 'auto' });
+    }
+});
 </script>
 
 <template>
@@ -75,28 +117,32 @@ watch(
     <div
       ref="scrollRef"
       class="tavern-phone-message-scroll"
+      @scroll.passive="handleMessageScroll"
     >
-      <button
+      <div
         v-for="message in messages"
         :key="`${message.threadId}:${message.sequence}`"
-        type="button"
         class="tavern-phone-message-row"
         :class="[
           `is-${message.role}`,
           `is-${message.status}`,
         ]"
-        :disabled="message.status !== 'failed'"
-        :title="message.status === 'failed' ? '轻触重新发送' : ''"
-        @click="message.status === 'failed' && emit('retry', message)"
       >
         <span class="tavern-phone-message-bubble">{{ message.content }}</span>
-        <span
-          v-if="message.status !== 'sent'"
+        <button
+          v-if="message.status === 'failed'"
+          type="button"
           class="tavern-phone-message-meta"
+          aria-label="重新发送这条消息"
+          @click="emit('retry', message)"
         >
-          {{ message.status === 'failed' ? '发送失败 · 轻触重试' : '发送中' }}
-        </span>
-      </button>
+          发送失败 · 重新发送
+        </button>
+        <span
+          v-else-if="message.status === 'pending'"
+          class="tavern-phone-message-meta"
+        >发送中</span>
+      </div>
       <div
         v-if="sending"
         class="tavern-phone-typing-row"
@@ -114,11 +160,13 @@ watch(
     <footer class="tavern-phone-composer">
       <div class="tavern-phone-imessage-field">
         <textarea
+          ref="composerRef"
           v-model="draft"
           rows="1"
           maxlength="2000"
           :placeholder="blockedReason || '发消息…'"
           :disabled="!!blockedReason && !sending"
+          @input="resizeComposer"
           @keydown="handleKeydown"
         />
         <button
@@ -133,6 +181,13 @@ watch(
           ><path d="M12 19V5M6 11l6-6 6 6" /></svg>
         </button>
       </div>
+      <p
+        v-if="blockedReason && !sending"
+        class="tavern-phone-composer-reason"
+        role="status"
+      >
+        {{ blockedReason }}
+      </p>
     </footer>
   </section>
 </template>

@@ -133,7 +133,7 @@ import {
 } from './features/chat-render/useTavernRuntimeDisplayProjection';
 import { createTavernChatRunState, useTavernChatRunController } from './features/chat-run/useTavernChatRunController';
 import { useTavernDrawController } from './features/draw/useTavernDrawController';
-import { useTavernPhoneController } from './features/phone/useTavernPhoneController';
+import { useTavernPhoneController } from './features/phone-os/useTavernPhoneController';
 import { useTavernHostBridge, type TavernHostMessageData } from './features/host-bridge/useTavernHostBridge';
 import { useMaterialSymbolFont } from './features/material-symbol-font';
 import { createTavernSessionState, useTavernSessionController } from './features/session/useTavernSessionController';
@@ -1090,7 +1090,7 @@ const phoneContext = useTavernPhoneController({
 
 function isPhoneSendingForSession(sessionId = selectedSessionId.value): boolean {
     const id = String(sessionId || '').trim();
-    return !!id && phoneContext.isSending.value && phoneContext.sendingSessionId.value === id;
+    return !!id && phoneContext.messages.isSending.value && phoneContext.messages.sendingSessionId.value === id;
 }
 
 function warnPhoneWorkInProgress(message = '手机消息正在等待回复，请稍后再试。'): void {
@@ -2401,7 +2401,7 @@ function summarizeArchiveCounts(counts = createEmptyTavernCharacterArchiveCounts
 
 async function backupSelectedCharacterArchive() {
     if (characterArchiveSyncState.value.busy) {return;}
-    if (phoneContext.isSending.value) {
+    if (phoneContext.messages.isSending.value) {
         warnPhoneWorkInProgress('手机消息正在等待回复，稍后再备份角色档案。');
         return;
     }
@@ -2522,7 +2522,7 @@ async function backupSelectedCharacterArchive() {
 
 async function restoreSelectedCharacterArchive() {
     if (characterArchiveSyncState.value.busy) {return;}
-    if (phoneContext.isSending.value) {
+    if (phoneContext.messages.isSending.value) {
         warnPhoneWorkInProgress('手机消息正在等待回复，稍后再恢复角色档案。');
         return;
     }

@@ -1,0 +1,24 @@
+.tavern-phone-device {
+    --phone-os-blue: #4b78ff;
+    --phone-os-blue-strong: #2e5fe9;
+    --phone-os-screen: #f3f1ec;
+    --phone-os-surface: rgba(255, 255, 255, 0.88);
+    --phone-os-surface-solid: #fbfaf7;
+    --phone-os-surface-soft: rgba(24, 28, 36, 0.065);
+    --phone-os-ink: #17191d;
+    --phone-os-muted: #777a82;
+    --phone-os-line: rgba(28, 31, 38, 0.11);
+    --phone-os-danger: #c94d43;
+    --phone-os-shadow: rgba(12, 13, 16, 0.38);
+    --phone-os-font: var(--xb-font-ui);
+}
+.xb-os-shell.theme-dark .tavern-phone-device {
+    --phone-os-screen: #111214;
+    --phone-os-surface: rgba(28, 29, 32, 0.90);
+    --phone-os-surface-solid: #1b1c1f;
+    --phone-os-surface-soft: rgba(255, 255, 255, 0.075);
+    --phone-os-ink: #f1efe9;
+    --phone-os-muted: #a2a2a7;
+    --phone-os-line: rgba(255, 255, 255, 0.11);
+    --phone-os-shadow: rgba(0, 0, 0, 0.58);
+}
