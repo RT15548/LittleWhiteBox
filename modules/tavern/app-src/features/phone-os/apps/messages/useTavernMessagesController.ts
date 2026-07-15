@@ -103,7 +103,7 @@ function parsePhoneReply(value = ''): TavernPhoneReplyPayload {
     if (result === 'reply' && !messages.length) {
         throw new Error('对方没有返回可读消息。');
     }
-    const normalizedSummary = typeof parsed.summary === 'string' ? normalizeText(parsed.summary, 1200) : '';
+    const normalizedSummary = typeof parsed.summary === 'string' ? normalizeText(parsed.summary, 200) : '';
     const summary = normalizedSummary || undefined;
     return { result, messages, summary };
 }

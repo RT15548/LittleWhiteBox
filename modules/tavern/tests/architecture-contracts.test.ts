@@ -1167,6 +1167,7 @@ test('tavern phone pending work participates in chat and archive lifecycle guard
 test('tavern phone context uses its own preset and timeline-anchored main-story integration', () => {
     const phoneControllerSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/useTavernMessagesController.ts');
     const phoneContextSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/tavern-messages-context.ts');
+    const phonePromptSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/tavern-messages-prompt.ts');
     const phoneShellSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneSystemBar.vue');
     const phoneConversationSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesConversation.vue');
     const phoneContactListSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesThreadList.vue');
@@ -1178,7 +1179,14 @@ test('tavern phone context uses its own preset and timeline-anchored main-story 
     assert.match(phoneContextSource, /id: 'littlewhitebox-phone-channel'/);
     assert.match(phoneContextSource, /loadTavernPromptHistoryWindow/);
     assert.match(phoneContextSource, /beforeOrder: anchorOrder \+ 1/);
-    assert.match(phoneContextSource, /chatPreset: preset/);
+    assert.match(phoneContextSource, /chatPreset: PHONE_ACTIVATION_PRESET/);
+    assert.match(phoneContextSource, /buildTavernPhonePromptMessages/);
+    assert.match(phonePromptSource, /<role>/);
+    assert.match(phonePromptSource, /<setting>/);
+    assert.match(phonePromptSource, /<story_history>/);
+    assert.match(phonePromptSource, /<current_state_and_memory>/);
+    assert.match(phonePromptSource, /buildTavernPhoneThreadContextMessage/);
+    assert.match(phonePromptSource, /isContactMemoryFile/);
     assert.doesNotMatch(phoneContextSource, /buildNativeChatPrompt|refreshRuntimeChatPresetFromHost/);
     assert.doesNotMatch(phoneContextSource, /new Date|Date\.now|formatTimestamp|sent_at=/);
     assert.match(communicationSource, /anchorOrder/);

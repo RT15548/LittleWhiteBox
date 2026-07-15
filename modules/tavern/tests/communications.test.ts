@@ -29,6 +29,26 @@ import {
 } from '../shared/communications';
 import { buildTavernMessagesRequestMessages } from '../app-src/features/phone-os/apps/messages/tavern-messages-context';
 import { buildTavernAutomaticCommunicationContacts } from '../app-src/features/phone-os/apps/messages/tavern-messages-contacts';
+import { buildTavernPhonePromptMessages } from '../app-src/features/phone-os/apps/messages/tavern-messages-prompt';
+import { XBTavernWorldPosition, type ActivatedWorldEntry } from '../shared/message-assembler';
+
+function activatedPhoneWorldEntry(content: string, position: XBTavernWorldPosition, depth = 0): ActivatedWorldEntry {
+    return {
+        uid: `world-${position}-${depth}`,
+        activationKey: `world-${position}-${depth}`,
+        content,
+        key: [],
+        keysecondary: [],
+        decorators: [],
+        position,
+        role: 'system',
+        order: 0,
+        depth,
+        activationReason: 'test',
+        sourceWorldBook: 'test',
+        contentChars: content.length,
+    };
+}
 
 test('phone contact discovery only exposes active NPC memory files', () => {
     const contacts = buildTavernAutomaticCommunicationContacts([
@@ -409,7 +429,7 @@ test('reopening a phone thread after the main story advances creates a new timel
     );
 });
 
-test('phone generation uses the anchored Tavern history window and its own preset', async () => {
+test('phone generation uses the anchored Tavern history window and five-layer prompt envelopes', async () => {
     await db.delete();
     await db.open();
     const session = await createTavernSession({
@@ -462,8 +482,19 @@ test('phone generation uses the anchored Tavern history window and its own prese
         pendingMessage: pending,
     });
     const raw = JSON.stringify(requestMessages);
+    const roleMessage = requestMessages[0];
+    const settingMessage = requestMessages[1];
+    const storyOpenIndex = requestMessages.findIndex((message) => message.content.startsWith('<story_history>'));
+    const storyCloseIndex = requestMessages.findIndex((message) => message.content === '</story_history>');
+    const currentStateIndex = requestMessages.findIndex((message) => message.content.startsWith('<current_state_and_memory>'));
+    const phoneThreadIndex = requestMessages.findIndex((message) => message.name === 'phone_thread');
+    const finalInstruction = requestMessages.at(-1);
 
-    assert.match(raw, /小白酒馆当前剧情时间线/);
+    assert.match(roleMessage?.content || '', /^<role>/);
+    assert.match(roleMessage?.content || '', /不超过200字/);
+    assert.match(settingMessage?.content || '', /^<setting>/);
+    assert.match(settingMessage?.content || '', /<character_card>[\s\S]*## Character\n艾琳[\s\S]*## User\n玩家/);
+    assert.doesNotMatch(settingMessage?.content || '', /## Description/);
     assert.match(raw, /CONTACT_MEMORY_MARKER/);
     assert.doesNotMatch(raw, /NORMAL_MAIN_CHARACTER_CARD/);
     assert.match(raw, /之前的手机消息/);
@@ -473,8 +504,105 @@ test('phone generation uses the anchored Tavern history window and its own prese
     assert.match(raw, /main-history-16/);
     assert.match(raw, /main-history-24/);
     assert.match(raw, /现在剧情进行到哪里了/);
-    assert.ok(raw.indexOf('main-history-24') < raw.indexOf('之前的手机消息'));
-    assert.ok(raw.indexOf('之前的手机回复') < raw.indexOf('现在剧情进行到哪里了'));
+    assert.equal(raw.match(/现在剧情进行到哪里了/g)?.length, 1);
+    assert.ok(storyOpenIndex >= 0 && storyOpenIndex < storyCloseIndex);
+    assert.ok(storyCloseIndex < currentStateIndex);
+    assert.ok(currentStateIndex < phoneThreadIndex);
+    assert.equal(finalInstruction?.role, 'user');
+    assert.match(finalInstruction?.content || '', /现在你是「艾琳」/);
+    assert.doesNotMatch(finalInstruction?.content || '', /现在剧情进行到哪里了/);
+});
+
+test('phone prompt keeps the full contact memory once and excludes it from related-character recall', () => {
+    const contact = {
+        id: 'contact-erin',
+        sessionId: 'session-1',
+        name: '艾琳',
+        memoryPath: 'memory/characters/艾琳.md',
+        source: 'memory' as const,
+        createdAt: 1,
+        updatedAt: 1,
+    };
+    const thread = {
+        id: 'thread-erin',
+        sessionId: 'session-1',
+        contactId: contact.id,
+        summary: '',
+        unreadCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+    };
+    const messages = buildTavernPhonePromptMessages({
+        context: { user: { name: '玩家', persona: 'PLAYER_PERSONA_MARKER' } },
+        contact,
+        contactProfile: 'CONTACT_MEMORY_MARKER',
+        thread,
+        communicationMessages: [],
+        mainHistory: [],
+        incomingMessage: '找米娅。',
+        anchorOrder: 8,
+        memoryContext: {
+            memoryFiles: [
+                { path: 'memory/state.md', content: 'STATE_MARKER' },
+                { path: 'memory/characters/艾琳.md', content: 'CONTACT_MEMORY_MARKER' },
+                { path: 'memory/characters/米娅.md', content: 'RELATED_MEMORY_MARKER' },
+            ],
+        },
+        activatedWorldEntries: [
+            activatedPhoneWorldEntry('WORLD_BEFORE_MARKER', XBTavernWorldPosition.before),
+            activatedPhoneWorldEntry('WORLD_DEPTH_ONE_MARKER', XBTavernWorldPosition.atDepth, 1),
+            activatedPhoneWorldEntry('WORLD_DEPTH_FOUR_MARKER', XBTavernWorldPosition.atDepth, 4),
+        ],
+    });
+    const raw = JSON.stringify(messages);
+    const setting = messages[1]?.content || '';
+    const currentState = messages.find((message) => message.content.startsWith('<current_state_and_memory>'))?.content || '';
+
+    assert.equal(raw.match(/CONTACT_MEMORY_MARKER/g)?.length, 1);
+    assert.doesNotMatch(setting, /CONTACT_MEMORY_MARKER|## Description/);
+    assert.match(currentState, /## 联系人本人记忆\nCONTACT_MEMORY_MARKER/);
+    assert.match(currentState, /## 相关人物记忆（不含联系人本人）[\s\S]*### 米娅\nRELATED_MEMORY_MARKER/);
+    assert.match(setting, /<world_info_before_character>\nWORLD_BEFORE_MARKER\n<\/world_info_before_character>/);
+    assert.match(currentState, /WORLD_DEPTH_ONE_MARKER/);
+    assert.doesNotMatch(currentState, /WORLD_DEPTH_FOUR_MARKER/);
+    assert.ok(messages.findIndex((message) => message.content.includes('WORLD_DEPTH_FOUR_MARKER')) < messages.findIndex((message) => message.content === '</story_history>'));
+    assert.equal(raw.match(/<incoming_phone_message/g)?.length, 1);
+    assert.equal(messages.at(-1)?.role, 'user');
+});
+
+test('phone prompt omits the optional current-state envelope when every source is empty', () => {
+    const contact = {
+        id: 'contact-empty',
+        sessionId: 'session-1',
+        name: '空白联系人',
+        memoryPath: 'memory/characters/空白联系人.md',
+        source: 'memory' as const,
+        createdAt: 1,
+        updatedAt: 1,
+    };
+    const messages = buildTavernPhonePromptMessages({
+        context: { user: { name: '玩家' } },
+        contact,
+        contactProfile: '',
+        thread: {
+            id: 'thread-empty',
+            sessionId: 'session-1',
+            contactId: contact.id,
+            summary: '',
+            unreadCount: 0,
+            createdAt: 1,
+            updatedAt: 1,
+        },
+        communicationMessages: [],
+        mainHistory: [],
+        incomingMessage: '在吗？',
+        anchorOrder: 0,
+        memoryContext: {},
+        activatedWorldEntries: [],
+    });
+
+    assert.equal(messages.some((message) => message.content.includes('<current_state_and_memory>')), false);
+    assert.equal(JSON.stringify(messages).match(/<incoming_phone_message/g)?.length, 1);
 });
 
 test('session branching clones phone state and session deletion cascades it', async () => {
