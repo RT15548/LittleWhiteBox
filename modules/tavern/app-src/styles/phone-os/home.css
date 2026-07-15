@@ -4,77 +4,64 @@
     height: 100%;
     min-height: 0;
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: minmax(0, 1fr) auto;
     overflow: hidden;
+    isolation: isolate;
     background:
-        radial-gradient(circle at 78% 8%, rgba(255, 255, 255, 0.17), transparent 27%),
-        linear-gradient(155deg, #262c39 0%, #171b24 42%, #0f1116 100%);
-    color: #f5f1e9;
-    padding: 28px 24px 22px;
+        radial-gradient(circle at 18% 18%, rgba(111, 142, 170, 0.58), transparent 34%),
+        radial-gradient(circle at 84% 78%, rgba(126, 93, 81, 0.46), transparent 38%),
+        linear-gradient(150deg, #26313c 0%, #171d25 48%, #101318 100%);
+    color: #fff;
+    padding: 64px 21px 35px;
 }
 
-.tavern-phone-home-atmosphere {
+.tavern-phone-wallpaper {
     position: absolute;
-    inset: -12%;
+    inset: 0;
+    z-index: -1;
     overflow: hidden;
     pointer-events: none;
 }
 
-.tavern-phone-home-atmosphere img {
-    position: absolute;
-    top: -6%;
-    right: -22%;
-    width: 96%;
-    height: 74%;
+.tavern-phone-wallpaper img {
+    width: 100%;
+    height: 100%;
+    display: block;
     object-fit: cover;
-    filter: blur(46px) saturate(0.62) brightness(0.62);
-    opacity: 0.46;
-    transform: scale(1.18);
+    object-position: center 24%;
+    filter: blur(15px) saturate(0.76) contrast(0.96) brightness(0.58);
+    opacity: 0.76;
+    transform: scale(1.12);
 }
 
-.tavern-phone-home-atmosphere::after {
+.tavern-phone-wallpaper::before,
+.tavern-phone-wallpaper::after {
     content: "";
     position: absolute;
     inset: 0;
+}
+
+.tavern-phone-wallpaper::before {
     background:
-        linear-gradient(180deg, rgba(7, 9, 12, 0.08), rgba(7, 9, 12, 0.82)),
-        repeating-linear-gradient(115deg, transparent 0 18px, rgba(255, 255, 255, 0.012) 18px 19px);
+        radial-gradient(circle at 78% 20%, rgba(198, 173, 155, 0.18), transparent 34%),
+        radial-gradient(circle at 16% 74%, rgba(71, 104, 137, 0.32), transparent 40%),
+        linear-gradient(180deg, rgba(5, 7, 10, 0.22) 0%, rgba(5, 7, 10, 0.08) 28%, rgba(5, 7, 10, 0.22) 64%, rgba(5, 7, 10, 0.66) 100%),
+        linear-gradient(105deg, rgba(9, 13, 18, 0.26), transparent 58%);
 }
 
-.tavern-phone-home-atmosphere i {
+.tavern-phone-wallpaper::after {
+    opacity: 0.23;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+    mix-blend-mode: soft-light;
+}
+
+.tavern-phone-wallpaper span {
     position: absolute;
-    right: 10%;
-    bottom: 18%;
-    width: 190px;
-    height: 190px;
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    inset: auto -20% -24% 18%;
+    height: 48%;
     border-radius: 50%;
-    box-shadow: 0 0 80px rgba(86, 122, 255, 0.14);
-}
-
-.tavern-phone-home-copy {
-    position: relative;
-    z-index: 2;
-    display: grid;
-    gap: 6px;
-}
-
-.tavern-phone-home-copy > span {
-    color: rgba(245, 241, 233, 0.54);
-    font: 650 9px/1 var(--phone-os-font);
-    letter-spacing: 0.19em;
-}
-
-.tavern-phone-home-copy h2 {
-    margin: 0;
-    font: 650 36px/1 var(--xb-font-serif);
-    letter-spacing: 0.02em;
-}
-
-.tavern-phone-home-copy p {
-    margin: 0;
-    color: rgba(245, 241, 233, 0.66);
-    font: 480 12px/1.4 var(--phone-os-font);
+    background: rgba(5, 8, 12, 0.58);
+    filter: blur(54px);
 }
 
 .tavern-phone-app-grid {
@@ -83,54 +70,63 @@
     align-self: start;
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 22px 14px;
-    margin-top: 54px;
+    align-content: start;
+    gap: 23px 13px;
 }
 
 .tavern-phone-app-icon-button {
     min-width: 0;
     display: grid;
     justify-items: center;
-    gap: 8px;
+    gap: 7px;
     border: 0;
     background: transparent;
-    color: #f7f3eb;
+    color: #fff;
     padding: 0;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .tavern-phone-app-icon {
     position: relative;
-    width: 58px;
-    height: 58px;
+    width: 60px;
+    height: 60px;
     display: grid;
     place-items: center;
     overflow: visible;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    border-radius: 17px;
     background:
-        linear-gradient(145deg, rgba(255, 255, 255, 0.20), transparent 38%),
-        linear-gradient(150deg, color-mix(in srgb, var(--phone-app-accent) 88%, white), var(--phone-app-accent));
+        linear-gradient(145deg, rgba(255, 255, 255, 0.30), transparent 38%),
+        linear-gradient(150deg, color-mix(in srgb, var(--phone-app-accent) 82%, white), var(--phone-app-accent));
     box-shadow:
-        0 13px 26px color-mix(in srgb, var(--phone-app-accent) 28%, transparent),
+        0 11px 24px rgba(3, 6, 10, 0.38),
         inset 0 0 0 1px rgba(255, 255, 255, 0.10);
-    transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), filter 0.18s ease;
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s ease;
 }
 
-.tavern-phone-app-icon .material-symbols-rounded {font-size: 31px; color: #fff;}
-.tavern-phone-app-icon-button:hover .tavern-phone-app-icon {transform: translateY(-3px) scale(1.025); filter: saturate(1.08);}
-.tavern-phone-app-icon-button:active .tavern-phone-app-icon {transform: scale(0.94);}
+.tavern-phone-app-icon .material-symbols-rounded {
+    color: #fff;
+    font-size: 32px;
+    font-variation-settings: "FILL" 0, "wght" 420, "GRAD" 0, "opsz" 32;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.20);
+}
+
+.tavern-phone-app-icon-button:hover .tavern-phone-app-icon {transform: translateY(-2px); filter: saturate(1.06) brightness(1.04);}
+.tavern-phone-app-icon-button:active .tavern-phone-app-icon {transform: scale(0.91);}
 
 .tavern-phone-device .tavern-phone-app-icon-button:hover:not(:disabled) {
     border-color: transparent;
     background: transparent;
-    color: #f7f3eb;
+    color: #fff;
 }
 
 .tavern-phone-app-icon-button > strong {
-    max-width: 70px;
+    max-width: 74px;
     overflow: hidden;
-    font: 560 11px/1 var(--phone-os-font);
+    color: #fff;
+    font: 590 11px/1.15 var(--phone-os-font);
     text-overflow: ellipsis;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.86), 0 2px 10px rgba(0, 0, 0, 0.44);
     white-space: nowrap;
 }
 
@@ -142,27 +138,30 @@
     height: 22px;
     display: grid;
     place-items: center;
-    border: 2px solid #171b24;
+    border: 2px solid rgba(19, 24, 31, 0.92);
     border-radius: 999px;
-    background: #d94b45;
+    background: #e14f4b;
     color: #fff;
     padding: 0 5px;
     font: normal 760 10px/1 var(--phone-os-font);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28);
 }
 
-.tavern-phone-home-signature {
+.tavern-phone-page-indicator {
     position: relative;
     z-index: 2;
     display: flex;
+    justify-content: center;
     align-items: center;
-    gap: 9px;
-    color: rgba(245, 241, 233, 0.38);
-    font: 520 9px/1 var(--phone-os-font);
-    letter-spacing: 0.08em;
+    min-height: 20px;
 }
 
-.tavern-phone-home-signature i {
-    width: 24px;
-    height: 1px;
-    background: currentColor;
+.tavern-phone-page-indicator i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.48);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.34);
 }
+
+.tavern-phone-page-indicator i.active {background: rgba(255, 255, 255, 0.92);}

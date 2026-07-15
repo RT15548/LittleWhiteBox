@@ -22,7 +22,7 @@
 }
 
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-glass {
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     border: 0;
     border-radius: 0;
     box-shadow: none;
@@ -31,33 +31,37 @@
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-glass::after {display: none;}
 
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-systembar {
-    min-height: calc(48px + env(safe-area-inset-top, 0px));
-    padding: max(6px, env(safe-area-inset-top, 0px)) 8px 3px 16px;
+    height: calc(44px + env(safe-area-inset-top, 0px));
+    padding: max(5px, env(safe-area-inset-top, 0px)) 8px 2px 14px;
 }
 
-.tavern-phone-device.is-mobile-fullscreen .tavern-phone-system-close,
-.tavern-phone-device.is-mobile-fullscreen .tavern-phone-system-home {
-    width: 44px;
-    height: 44px;
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-system-close {
+    width: 34px;
+    height: 34px;
 }
 
-.tavern-phone-device.is-mobile-fullscreen .tavern-phone-system-navigation {display: none;}
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-system-navigation {
+    height: calc(24px + env(safe-area-inset-bottom, 0px));
+    align-items: start;
+}
 
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {
-    padding: 30px 22px max(24px, env(safe-area-inset-bottom, 0px));
+    padding: calc(62px + env(safe-area-inset-top, 0px)) 22px calc(35px + env(safe-area-inset-bottom, 0px));
 }
 
-.tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-head {padding-top: 16px;}
-.tavern-phone-device.is-mobile-fullscreen .tavern-phone-message-scroll {padding-bottom: 22px;}
-.tavern-phone-device.is-mobile-fullscreen .tavern-phone-composer {padding-bottom: max(10px, env(safe-area-inset-bottom, 0px));}
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-app {
+    padding-top: calc(44px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+}
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-message-scroll {padding-bottom: 18px;}
+.tavern-phone-device.is-mobile-fullscreen .tavern-phone-composer {padding-bottom: 9px;}
 
 @media (max-width: 380px), (max-height: 690px) {
-    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {padding-top: 21px;}
-    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home-copy h2 {font-size: 31px;}
-    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-grid {margin-top: 36px;}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {padding-top: calc(56px + env(safe-area-inset-top, 0px));}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-grid {gap: 20px 10px;}
     .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-icon {width: 54px; height: 54px; border-radius: 17px;}
     .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-head {padding-top: 9px;}
     .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-head h2 {font-size: 28px;}
     .tavern-phone-device.is-mobile-fullscreen .tavern-phone-thread-row {min-height: 70px;}
-    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-contact-avatar {width: 47px; height: 47px; border-radius: 16px;}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-contact-avatar {width: 47px; height: 47px; border-radius: 50%;}
 }

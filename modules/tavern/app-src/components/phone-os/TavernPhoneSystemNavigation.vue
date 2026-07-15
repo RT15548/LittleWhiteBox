@@ -9,7 +9,10 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <footer class="tavern-phone-system-navigation">
+  <footer
+    class="tavern-phone-system-navigation"
+    :class="{ 'is-home': isHome }"
+  >
     <button
       type="button"
       class="tavern-phone-home-control"

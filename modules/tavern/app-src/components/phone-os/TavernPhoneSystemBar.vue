@@ -3,39 +3,19 @@ import type { TavernPhonePresentationMode } from '../../features/phone-os/phone-
 
 defineProps<{
     mode: TavernPhonePresentationMode;
-    appName?: string;
     isHome: boolean;
 }>();
 
 const emit = defineEmits<{
     (event: 'close'): void;
-    (event: 'home'): void;
 }>();
 </script>
 
 <template>
   <header
     class="tavern-phone-systembar"
-    :class="[`is-${mode}`]"
+    :class="[`is-${mode}`, { 'is-home': isHome }]"
   >
-    <button
-      v-if="!isHome"
-      type="button"
-      class="tavern-phone-system-home"
-      aria-label="回到手机桌面"
-      title="回到手机桌面"
-      @click="emit('home')"
-    >
-      <span
-        class="material-symbols-rounded"
-        aria-hidden="true"
-      >home_app_logo</span>
-    </button>
-    <span
-      v-else
-      class="tavern-phone-brand-mark"
-    >小白</span>
-    <span class="tavern-phone-system-title">{{ appName || 'Phone OS' }}</span>
     <div class="tavern-phone-system-actions">
       <span
         class="tavern-phone-system-icons"

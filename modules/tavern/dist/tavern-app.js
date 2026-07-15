@@ -71,7 +71,7 @@ function Le(e) {
     for (const n in e) e[n] && (t += n + " ");
   return t.trim();
 }
-var E$ = "itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly", i6 = /* @__PURE__ */ v_(E$), xRe = /* @__PURE__ */ v_(E$ + ",async,autofocus,autoplay,controls,default,defer,disabled,hidden,inert,loop,open,required,reversed,scoped,seamless,checked,muted,multiple,selected");
+var E$ = "itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly", i6 = /* @__PURE__ */ v_(E$), IRe = /* @__PURE__ */ v_(E$ + ",async,autofocus,autoplay,controls,default,defer,disabled,hidden,inert,loop,open,required,reversed,scoped,seamless,checked,muted,multiple,selected");
 function C$(e) {
   return !!e || e === "";
 }
@@ -1462,7 +1462,7 @@ function jC(e) {
   const t = Wv.get(e);
   t && (t.flags |= 8, Wv.delete(e));
 }
-var MRe = A_().requestIdleCallback || ((e) => setTimeout(e, 1)), PRe = A_().cancelIdleCallback || ((e) => clearTimeout(e)), Nl = (e) => !!e.type.__asyncLoader, E_ = (e) => e.type.__isKeepAlive, X6 = {
+var ERe = A_().requestIdleCallback || ((e) => setTimeout(e, 1)), CRe = A_().cancelIdleCallback || ((e) => clearTimeout(e)), Nl = (e) => !!e.type.__asyncLoader, E_ = (e) => e.type.__isKeepAlive, X6 = {
   name: "KeepAlive",
   __isKeepAlive: !0,
   props: {
@@ -16338,7 +16338,7 @@ var XJ = class extends Bd {
       communicationSnapshots: "[sessionId+floor], sessionId, floor, createdAt"
     });
   }
-}, St = new XJ(), ot = St.sessions, Vt = St.messages, Er = St.managerMessages, Wa = St.meta, RRe = St.presets, Yn = St.managerRuns, In = St.memoryFiles, da = St.memorySnapshots, Cr = St.memoryIndexes, uc = St.assistantPresets, or = St.managerMemorySnapshots, mn = St.stateDocuments, ir = St.statePatches, Ls = St.managerStateSnapshots, Bn = St.tasks, fa = St.taskSnapshots, ha = St.statusSnapshots, tr = St.managerTaskSnapshots, pa = St.taskFingerprintStates, Or = St.communicationContacts, gn = St.communicationThreads, wn = St.communicationMessages, za = St.communicationSnapshots, Na = Bd;
+}, St = new XJ(), ot = St.sessions, Vt = St.messages, Er = St.managerMessages, Wa = St.meta, xRe = St.presets, Yn = St.managerRuns, In = St.memoryFiles, da = St.memorySnapshots, Cr = St.memoryIndexes, uc = St.assistantPresets, or = St.managerMemorySnapshots, mn = St.stateDocuments, ir = St.statePatches, Ls = St.managerStateSnapshots, Bn = St.tasks, fa = St.taskSnapshots, ha = St.statusSnapshots, tr = St.managerTaskSnapshots, pa = St.taskFingerprintStates, Or = St.communicationContacts, gn = St.communicationThreads, wn = St.communicationMessages, za = St.communicationSnapshots, Na = Bd;
 function bn() {
   return Date.now();
 }
@@ -57053,7 +57053,7 @@ var Rpe = { class: "tavern-phone-app tavern-phone-add-contact" }, Npe = { class:
       return l ? l.status === "failed" ? "发送失败，轻触查看" : l.status === "pending" ? "正在发送…" : l.role === "user" && u?.lastResult === "unavailable" ? "暂时无法联系到对方" : l.role === "user" && u?.lastResult === "silent" ? `你：${l.content} · 未回复` : `${l.role === "user" ? "你：" : ""}${l.content}` : "轻触开始对话";
     }
     return (l, u) => (L(), O("section", ome, [
-      p("header", ime, [u[5] || (u[5] = p("div", null, [p("span", { class: "tavern-phone-overline" }, "PRIVATE MESSAGES"), p("h2", null, "消息")], -1)), p("button", {
+      p("header", ime, [u[5] || (u[5] = p("div", null, [p("h2", null, "信息")], -1)), p("button", {
         type: "button",
         class: "tavern-phone-compose-contact",
         disabled: !e.candidateCount,
@@ -65356,16 +65356,20 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
       p("div", Uxe, [iW(r.$slots, "default")])
     ], 6));
   }
-}), Hxe = qxe, Kxe = { class: "tavern-phone-home" }, Wxe = {
-  class: "tavern-phone-home-atmosphere",
+}), Hxe = qxe, Kxe = {
+  class: "tavern-phone-wallpaper",
   "aria-hidden": "true"
-}, zxe = ["src"], Vxe = {
+}, Wxe = ["src"], zxe = {
   class: "tavern-phone-app-grid",
   "aria-label": "应用"
-}, Gxe = ["onClick"], Jxe = {
+}, Vxe = ["onClick"], Gxe = {
   class: "material-symbols-rounded",
   "aria-hidden": "true"
-}, Yxe = ["aria-label"], jxe = /* @__PURE__ */ rn({
+}, Jxe = ["aria-label"], Yxe = {
+  key: 0,
+  class: "tavern-phone-page-indicator",
+  "aria-hidden": "true"
+}, jxe = /* @__PURE__ */ rn({
   __name: "TavernPhoneHome",
   props: {
     apps: {},
@@ -65377,18 +65381,13 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
     function r(a) {
       return Math.max(0, Math.floor(Number(T(a.badge)) || 0));
     }
-    return (a, s) => (L(), O("section", Kxe, [
-      p("div", Wxe, [e.characterAvatar ? (L(), O("img", {
+    return (a, s) => (L(), O("section", { class: Le(["tavern-phone-home", { "has-character-wallpaper": !!e.characterAvatar }]) }, [
+      p("div", Kxe, [e.characterAvatar ? (L(), O("img", {
         key: 0,
         src: e.characterAvatar,
         alt: ""
-      }, null, 8, zxe)) : ve("", !0), s[0] || (s[0] = p("i", null, null, -1))]),
-      s[1] || (s[1] = p("div", { class: "tavern-phone-home-copy" }, [
-        p("span", null, "PRIVATE STORY DEVICE"),
-        p("h2", null, "小白"),
-        p("p", null, "属于这段故事的随身入口")
-      ], -1)),
-      p("div", Vxe, [(L(!0), O(Ve, null, at(e.apps, (o) => (L(), O("button", {
+      }, null, 8, Wxe)) : ve("", !0), s[0] || (s[0] = p("span", null, null, -1))]),
+      p("div", zxe, [(L(!0), O(Ve, null, at(e.apps, (o) => (L(), O("button", {
         key: o.id,
         type: "button",
         class: "tavern-phone-app-icon-button",
@@ -65396,81 +65395,60 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
       }, [p("span", {
         class: "tavern-phone-app-icon",
         style: kn({ "--phone-app-accent": o.accent })
-      }, [p("span", Jxe, z(o.icon), 1), r(o) ? (L(), O("i", {
+      }, [p("span", Gxe, z(o.icon), 1), r(o) ? (L(), O("i", {
         key: 0,
         class: "tavern-phone-app-badge",
         "aria-label": `${r(o)} 条未读`
-      }, z(r(o) > 99 ? "99+" : r(o)), 9, Yxe)) : ve("", !0)], 4), p("strong", null, z(o.shortName), 1)], 8, Gxe))), 128))]),
-      s[2] || (s[2] = p("div", {
-        class: "tavern-phone-home-signature",
-        "aria-hidden": "true"
-      }, [p("i"), p("span", null, "每段故事，都有自己的入口")], -1))
-    ]));
+      }, z(r(o) > 99 ? "99+" : r(o)), 9, Jxe)) : ve("", !0)], 4), p("strong", null, z(o.shortName), 1)], 8, Vxe))), 128))]),
+      e.apps.length ? (L(), O("div", Yxe, [...s[1] || (s[1] = [p("i", { class: "active" }, null, -1)])])) : ve("", !0)
+    ], 2));
   }
-}), Xxe = jxe, Qxe = {
-  key: 1,
-  class: "tavern-phone-brand-mark"
-}, Zxe = { class: "tavern-phone-system-title" }, eMe = { class: "tavern-phone-system-actions" }, tMe = /* @__PURE__ */ rn({
+}), Xxe = jxe, Qxe = { class: "tavern-phone-system-actions" }, Zxe = /* @__PURE__ */ rn({
   __name: "TavernPhoneSystemBar",
   props: {
     mode: {},
-    appName: {},
     isHome: { type: Boolean }
   },
-  emits: ["close", "home"],
+  emits: ["close"],
   setup(e, { emit: t }) {
     const n = t;
-    return (r, a) => (L(), O("header", { class: Le(["tavern-phone-systembar", [`is-${e.mode}`]]) }, [
-      e.isHome ? (L(), O("span", Qxe, "小白")) : (L(), O("button", {
-        key: 0,
-        type: "button",
-        class: "tavern-phone-system-home",
-        "aria-label": "回到手机桌面",
-        title: "回到手机桌面",
-        onClick: a[0] || (a[0] = (s) => n("home"))
-      }, [...a[2] || (a[2] = [p("span", {
-        class: "material-symbols-rounded",
-        "aria-hidden": "true"
-      }, "home_app_logo", -1)])])),
-      p("span", Zxe, z(e.appName || "Phone OS"), 1),
-      p("div", eMe, [a[4] || (a[4] = p("span", {
-        class: "tavern-phone-system-icons",
-        "aria-hidden": "true"
-      }, [p("i", { class: "tavern-phone-signal" }, [
-        p("b"),
-        p("b"),
-        p("b"),
-        p("b")
-      ]), p("i", { class: "tavern-phone-battery" }, [p("b")])], -1)), p("button", {
-        type: "button",
-        class: "tavern-phone-system-close",
-        "aria-label": "收起手机",
-        title: "收起手机",
-        onClick: a[1] || (a[1] = (s) => n("close"))
-      }, [...a[3] || (a[3] = [p("span", {
-        class: "material-symbols-rounded",
-        "aria-hidden": "true"
-      }, "keyboard_arrow_down", -1)])])])
-    ], 2));
+    return (r, a) => (L(), O("header", { class: Le(["tavern-phone-systembar", [`is-${e.mode}`, { "is-home": e.isHome }]]) }, [p("div", Qxe, [a[2] || (a[2] = p("span", {
+      class: "tavern-phone-system-icons",
+      "aria-hidden": "true"
+    }, [p("i", { class: "tavern-phone-signal" }, [
+      p("b"),
+      p("b"),
+      p("b"),
+      p("b")
+    ]), p("i", { class: "tavern-phone-battery" }, [p("b")])], -1)), p("button", {
+      type: "button",
+      class: "tavern-phone-system-close",
+      "aria-label": "收起手机",
+      title: "收起手机",
+      onClick: a[0] || (a[0] = (s) => n("close"))
+    }, [...a[1] || (a[1] = [p("span", {
+      class: "material-symbols-rounded",
+      "aria-hidden": "true"
+    }, "keyboard_arrow_down", -1)])])])], 2));
   }
-}), nMe = tMe, rMe = { class: "tavern-phone-system-navigation" }, aMe = ["disabled", "aria-label"], sMe = /* @__PURE__ */ rn({
+}), eMe = Zxe, tMe = ["disabled", "aria-label"], nMe = /* @__PURE__ */ rn({
   __name: "TavernPhoneSystemNavigation",
   props: { isHome: { type: Boolean } },
   emits: ["home"],
   setup(e, { emit: t }) {
     const n = t;
-    return (r, a) => (L(), O("footer", rMe, [p("button", {
+    return (r, a) => (L(), O("footer", { class: Le(["tavern-phone-system-navigation", { "is-home": e.isHome }]) }, [p("button", {
       type: "button",
       class: Le(["tavern-phone-home-control", { "is-home": e.isHome }]),
       disabled: e.isHome,
       "aria-label": e.isHome ? "当前位于手机桌面" : "回到手机桌面",
       onClick: a[0] || (a[0] = (s) => n("home"))
-    }, [...a[1] || (a[1] = [p("span", { "aria-hidden": "true" }, null, -1)])], 10, aMe)]));
+    }, [...a[1] || (a[1] = [p("span", { "aria-hidden": "true" }, null, -1)])], 10, tMe)], 2));
   }
-}), oMe = sMe, iMe = { class: "tavern-phone-screen" }, lMe = {
+}), rMe = nMe, aMe = { class: "tavern-phone-screen" }, sMe = {
   key: "phone-route-missing",
   class: "tavern-phone-app tavern-phone-route-missing"
-}, uMe = /* @__PURE__ */ rn({
+}, oMe = /* @__PURE__ */ rn({
   __name: "TavernPhoneOsOverlay",
   setup(e) {
     const t = EE(), n = _f(), r = /* @__PURE__ */ re(null);
@@ -65521,7 +65499,7 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
         class: Le(["tavern-phone-overlay", [`is-${T(t).os.presentationMode.value}`]]),
         role: "dialog",
         "aria-modal": "true",
-        "aria-label": "小白 Phone OS",
+        "aria-label": "手机系统",
         tabindex: "-1",
         onPointerdown: l
       }, [cn(Hxe, {
@@ -65533,20 +65511,16 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
         onClose: T(t).os.closePhone
       }, {
         default: Xh(() => [
-          cn(nMe, {
+          cn(eMe, {
             mode: T(t).os.presentationMode.value,
-            "app-name": T(t).os.activeApp.value?.name,
             "is-home": T(t).os.isHome.value,
-            onClose: T(t).os.closePhone,
-            onHome: T(t).os.home
+            onClose: T(t).os.closePhone
           }, null, 8, [
             "mode",
-            "app-name",
             "is-home",
-            "onClose",
-            "onHome"
+            "onClose"
           ]),
-          p("main", iMe, [cn(y0, {
+          p("main", aMe, [cn(y0, {
             name: `tavern-phone-route-${T(t).os.transitionDirection.value}`,
             mode: "out-in"
           }, {
@@ -65558,7 +65532,7 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
             }, null, 8, ["apps", "character-avatar"])) : T(t).os.activeRoute.value.kind === "app" ? (L(), Qt(Oxe, {
               key: T(t).os.activeRoute.value.appId,
               app: T(t).os.activeApp.value
-            }, null, 8, ["app"])) : (L(), O("section", lMe, [
+            }, null, 8, ["app"])) : (L(), O("section", sMe, [
               d[1] || (d[1] = p("strong", null, "这个入口暂时不可用", -1)),
               d[2] || (d[2] = p("p", null, "返回手机桌面后再试一次。", -1)),
               p("button", {
@@ -65568,7 +65542,7 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
             ]))]),
             _: 1
           }, 8, ["name"])]),
-          cn(oMe, {
+          cn(rMe, {
             "is-home": T(t).os.isHome.value,
             onHome: T(t).os.home
           }, null, 8, ["is-home", "onHome"])
@@ -65585,7 +65559,7 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
       _: 1
     }));
   }
-}), cMe = uMe, dMe = ["disabled"], fMe = ["title", "aria-label"], hMe = {
+}), iMe = oMe, lMe = ["disabled"], uMe = ["title", "aria-label"], cMe = {
   key: 0,
   class: "xb-theme-icon",
   viewBox: "0 0 24 24",
@@ -65595,31 +65569,31 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
   "stroke-linecap": "round",
   "stroke-linejoin": "round",
   "aria-hidden": "true"
-}, pMe = {
+}, dMe = {
   key: 1,
   class: "xb-theme-glyph",
   "aria-hidden": "true"
-}, mMe = ["aria-expanded"], gMe = {
+}, fMe = ["aria-expanded"], hMe = {
   key: 0,
   class: "chat-app-menu-popover chat-app-menu-popover-desktop",
   role: "menu",
   "aria-label": "酒馆操作"
-}, vMe = ["onClick"], yMe = { class: "chat-app-menu-label-full" }, _Me = { class: "chat-app-menu-label-mobile" }, bMe = {
+}, pMe = ["onClick"], mMe = { class: "chat-app-menu-label-full" }, gMe = { class: "chat-app-menu-label-mobile" }, vMe = {
   key: 0,
   class: "chat-mobile-topbar"
-}, wMe = { class: "chat-mobile-primary-row" }, SMe = {
+}, yMe = { class: "chat-mobile-primary-row" }, _Me = {
   class: "chat-mobile-segment",
   role: "tablist",
   "aria-label": "聊天视图"
-}, AMe = ["aria-selected"], kMe = ["aria-selected"], TMe = { class: "chat-mobile-action-group" }, IMe = ["disabled"], EMe = ["aria-expanded"], CMe = {
+}, bMe = ["aria-selected"], wMe = ["aria-selected"], SMe = { class: "chat-mobile-action-group" }, AMe = ["disabled"], kMe = ["aria-expanded"], TMe = {
   key: 0,
   class: "chat-app-menu-popover",
   role: "menu",
   "aria-label": "酒馆操作"
-}, xMe = ["onClick"], MMe = { class: "chat-app-menu-label-full" }, PMe = { class: "chat-app-menu-label-mobile" }, RMe = { class: "chat-app-menu-label-full" }, NMe = { class: "chat-app-menu-label-mobile" }, $Me = { class: "chat-mobile-context-row" }, LMe = {
+}, IMe = ["onClick"], EMe = { class: "chat-app-menu-label-full" }, CMe = { class: "chat-app-menu-label-mobile" }, xMe = { class: "chat-app-menu-label-full" }, MMe = { class: "chat-app-menu-label-mobile" }, PMe = { class: "chat-mobile-context-row" }, RMe = {
   key: 2,
   class: "xb-sidebar settings-sidebar chat-character-sidebar"
-}, DMe = { class: "panel guide-card chat-character-guide" }, OMe = { class: "chat-character-avatar" }, FMe = ["src"], BMe = { key: 1 }, UMe = { class: "chat-character-card-text" }, qMe = { class: "guide-steps chat-character-steps" }, HMe = ["onClick"], KMe = { class: "guide-label-full" }, WMe = { class: "guide-label-mobile" }, zMe = { class: "chat-flip-card" }, VMe = { class: "compose-author-note-body" }, GMe = { class: "compose-author-note-field" }, JMe = { class: "compose-author-note-field" }, YMe = { class: "compose-author-note-segments" }, jMe = ["onClick"], XMe = { class: "compose-author-note-grid" }, QMe = { class: "compose-author-note-field" }, ZMe = { class: "compose-author-note-field" }, e1e = { class: "compose-author-note-field" }, t1e = { class: "compose-author-note-segments" }, n1e = ["onClick"], r1e = { class: "compose-author-note-check" }, a1e = { class: "compose-author-note-actions" }, s1e = ["disabled"], o1e = { class: "chat-quick-settings-head" }, i1e = { id: "chat-quick-settings-title" }, l1e = { class: "xb-main" }, u1e = /* @__PURE__ */ rn({
+}, NMe = { class: "panel guide-card chat-character-guide" }, $Me = { class: "chat-character-avatar" }, LMe = ["src"], DMe = { key: 1 }, OMe = { class: "chat-character-card-text" }, FMe = { class: "guide-steps chat-character-steps" }, BMe = ["onClick"], UMe = { class: "guide-label-full" }, qMe = { class: "guide-label-mobile" }, HMe = { class: "chat-flip-card" }, KMe = { class: "compose-author-note-body" }, WMe = { class: "compose-author-note-field" }, zMe = { class: "compose-author-note-field" }, VMe = { class: "compose-author-note-segments" }, GMe = ["onClick"], JMe = { class: "compose-author-note-grid" }, YMe = { class: "compose-author-note-field" }, jMe = { class: "compose-author-note-field" }, XMe = { class: "compose-author-note-field" }, QMe = { class: "compose-author-note-segments" }, ZMe = ["onClick"], e1e = { class: "compose-author-note-check" }, t1e = { class: "compose-author-note-actions" }, n1e = ["disabled"], r1e = { class: "chat-quick-settings-head" }, a1e = { id: "chat-quick-settings-title" }, s1e = { class: "xb-main" }, o1e = /* @__PURE__ */ rn({
   __name: "TavernChatPage",
   setup(e) {
     const t = Gi(), n = I3(), r = _f(), a = E3(), s = EE(), o = Rb(), i = jl(), l = C3(), { activeView: u, chatFocus: c, homeThemeDark: d, rememberBrokenAvatar: h } = t, { chatLayout: m, currentAuthorNote: y, displayCharacterName: _, saveCurrentAuthorNote: x, visibleCharacterAvatar: E } = r, { selectedSessionId: A } = o, { openPhone: N } = s, P = s.os.isOpen, { managerMessageWindow: v, managerScrollRef: b, updateManagerScrollButtons: w, visibleManagerChatItems: k } = a, { chatWorkspacePanel: C, saveSessionContract: M, sessionContract: I } = l, { activeSettingsWorkspace: $, apiSettingsRootRef: F, loadTavernUsers: q, refreshPresets: B, refreshRegexFromHost: j, syncChatPresetFromHost: D, syncGlobalWorldbooksFromHost: G, syncWorldbooksForCurrentCharacter: le } = i, { clearSelection: ke, refresh: Ce } = n;
@@ -65833,14 +65807,14 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
           }),
           p("path", { d: "M10 5h4" }),
           p("path", { d: "M11 18.5h2" })
-        ], -1)])], 10, dMe),
+        ], -1)])], 10, lMe),
         p("button", {
           type: "button",
           class: "home-icon-button home-theme-button",
           title: T(d) ? "切换到白天" : "切换到夜间",
           "aria-label": T(d) ? "切换到白天" : "切换到夜间",
           onClick: te[1] || (te[1] = (we) => d.value = !T(d))
-        }, [T(d) ? (L(), O("svg", hMe, [...te[21] || (te[21] = [ar('<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>', 9)])])) : (L(), O("span", pMe, "☾"))], 8, fMe),
+        }, [T(d) ? (L(), O("svg", cMe, [...te[21] || (te[21] = [ar('<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>', 9)])])) : (L(), O("span", dMe, "☾"))], 8, uMe),
         p("button", {
           type: "button",
           class: "home-icon-button page-home-button",
@@ -65875,16 +65849,16 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
           p("path", { d: "M5 7h14" }),
           p("path", { d: "M5 12h14" }),
           p("path", { d: "M5 17h14" })
-        ], -1)])], 8, mMe),
-        me.value ? (L(), O("div", gMe, [(L(), O(Ve, null, at(de, (we) => p("button", {
+        ], -1)])], 8, fMe),
+        me.value ? (L(), O("div", hMe, [(L(), O(Ve, null, at(de, (we) => p("button", {
           key: we.key,
           type: "button",
           class: "chat-app-menu-item",
           role: "menuitem",
           onClick: (We) => Yt(we.key)
-        }, [p("span", yMe, z(we.label), 1), p("span", _Me, z(we.mobileLabel), 1)], 8, vMe)), 64))])) : ve("", !0)
+        }, [p("span", mMe, z(we.label), 1), p("span", gMe, z(we.mobileLabel), 1)], 8, pMe)), 64))])) : ve("", !0)
       ], 512),
-      T(Ie) ? (L(), O("header", bMe, [p("div", wMe, [p("div", SMe, [
+      T(Ie) ? (L(), O("header", vMe, [p("div", yMe, [p("div", _Me, [
         te[24] || (te[24] = p("span", { "aria-hidden": "true" }, null, -1)),
         p("button", {
           type: "button",
@@ -65894,7 +65868,7 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
           onClick: te[3] || (te[3] = (we) => {
             c.value = "chat", Se();
           })
-        }, " 角色 ", 10, AMe),
+        }, " 角色 ", 10, bMe),
         p("button", {
           type: "button",
           role: "tab",
@@ -65903,8 +65877,8 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
           onClick: te[4] || (te[4] = (we) => {
             c.value = "manager", Se();
           })
-        }, " 助手 ", 10, kMe)
-      ]), p("div", TMe, [
+        }, " 助手 ", 10, wMe)
+      ]), p("div", SMe, [
         T(c) === "chat" ? (L(), Qt(O3, {
           key: 0,
           mobile: ""
@@ -65944,7 +65918,7 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
           }),
           p("path", { d: "M10 5h4" }),
           p("path", { d: "M11 18.5h2" })
-        ], -1)])], 10, IMe),
+        ], -1)])], 10, AMe),
         p("div", {
           ref_key: "mobileChatAppMenuRef",
           ref: K,
@@ -65964,14 +65938,14 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
           p("path", { d: "M5 7h14" }),
           p("path", { d: "M5 12h14" }),
           p("path", { d: "M5 17h14" })
-        ], -1)])], 8, EMe), me.value ? (L(), O("div", CMe, [
+        ], -1)])], 8, kMe), me.value ? (L(), O("div", TMe, [
           (L(), O(Ve, null, at(de, (we) => p("button", {
             key: we.key,
             type: "button",
             class: "chat-app-menu-item",
             role: "menuitem",
             onClick: (We) => Yt(we.key)
-          }, [p("span", MMe, z(we.label), 1), p("span", PMe, z(we.mobileLabel), 1)], 8, xMe)), 64)),
+          }, [p("span", EMe, z(we.label), 1), p("span", CMe, z(we.mobileLabel), 1)], 8, IMe)), 64)),
           p("button", {
             type: "button",
             class: "chat-app-menu-item",
@@ -65979,7 +65953,7 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
             onClick: te[7] || (te[7] = (we) => {
               d.value = !T(d), gt();
             })
-          }, [p("span", RMe, z(T(d) ? "切换到白天" : "切换到夜间"), 1), p("span", NMe, z(T(d) ? "白天模式" : "夜间模式"), 1)]),
+          }, [p("span", xMe, z(T(d) ? "切换到白天" : "切换到夜间"), 1), p("span", MMe, z(T(d) ? "白天模式" : "夜间模式"), 1)]),
           p("button", {
             type: "button",
             class: "chat-app-menu-item chat-app-menu-return-home",
@@ -65989,7 +65963,7 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
             })
           }, [...te[28] || (te[28] = [p("span", { class: "chat-app-menu-label-full" }, "返回首页", -1), p("span", { class: "chat-app-menu-label-mobile" }, "返回首页", -1)])])
         ])) : ve("", !0)], 512)
-      ])]), p("div", $Me, [
+      ])]), p("div", PMe, [
         p("button", {
           type: "button",
           class: Le(["chat-mobile-context-button", { "is-active": Z.value === "workspace" && T(C) === "map" }]),
@@ -66027,24 +66001,24 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
         "aria-label": "收起面板",
         onClick: Se
       })) : ve("", !0),
-      T(Ie) ? ve("", !0) : (L(), O("aside", LMe, [p("div", DMe, [p("button", {
+      T(Ie) ? ve("", !0) : (L(), O("aside", RMe, [p("div", NMe, [p("button", {
         type: "button",
         class: Le(["chat-character-card", { active: fe.value === "characters" }]),
         title: "角色卡",
         "aria-label": "角色卡",
         onClick: te[14] || (te[14] = (we) => Yt("characters"))
-      }, [p("span", OMe, [T(E) ? (L(), O("img", {
+      }, [p("span", $Me, [T(E) ? (L(), O("img", {
         key: 0,
         src: T(E),
         alt: "",
         onError: te[13] || (te[13] = (we) => T(h)(T(E)))
-      }, null, 40, FMe)) : (L(), O("span", BMe, z(String(T(_) || "C").slice(0, 1)), 1))]), p("span", UMe, [p("strong", null, z(T(_)), 1)])], 2), p("div", qMe, [(L(), O(Ve, null, at(de, (we) => p("button", {
+      }, null, 40, LMe)) : (L(), O("span", DMe, z(String(T(_) || "C").slice(0, 1)), 1))]), p("span", OMe, [p("strong", null, z(T(_)), 1)])], 2), p("div", FMe, [(L(), O(Ve, null, at(de, (we) => p("button", {
         key: we.key,
         type: "button",
         class: Le(["guide-step", { active: fe.value === we.key }]),
         onClick: (We) => Yt(we.key)
-      }, [p("strong", null, [p("span", KMe, z(we.label), 1), p("span", WMe, z(we.mobileLabel), 1)])], 10, HMe)), 64))])])])),
-      p("section", { class: Le(["chat-workbench", { "is-manager": T(c) === "manager" }]) }, [p("div", zMe, [cn(Wwe, {
+      }, [p("strong", null, [p("span", UMe, z(we.label), 1), p("span", qMe, z(we.mobileLabel), 1)])], 10, BMe)), 64))])])])),
+      p("section", { class: Le(["chat-workbench", { "is-manager": T(c) === "manager" }]) }, [p("div", HMe, [cn(Wwe, {
         onOpenContract: Te,
         onOpenAuthorNote: xt
       }), cn(e0e, { onOpenContract: Te })])], 2),
@@ -66089,18 +66063,18 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
           "aria-label": "关闭玩家便签",
           onClick: an
         })]),
-        p("div", VMe, [
-          p("label", GMe, [te[30] || (te[30] = p("span", null, "便签内容", -1)), Mn(p("textarea", {
+        p("div", KMe, [
+          p("label", WMe, [te[30] || (te[30] = p("span", null, "便签内容", -1)), Mn(p("textarea", {
             "onUpdate:modelValue": te[16] || (te[16] = (we) => Pe.value.prompt = we),
             rows: "6"
           }, null, 512), [[Ka, Pe.value.prompt]])]),
-          p("div", JMe, [te[31] || (te[31] = p("span", null, "插入位置", -1)), p("div", YMe, [(L(), O(Ve, null, at(Re, (we) => p("button", {
+          p("div", zMe, [te[31] || (te[31] = p("span", null, "插入位置", -1)), p("div", VMe, [(L(), O(Ve, null, at(Re, (we) => p("button", {
             key: we.value,
             type: "button",
             class: Le({ selected: Number(Pe.value.position) === we.value }),
             onClick: (We) => Cn({ position: we.value })
-          }, z(we.label), 11, jMe)), 64))])]),
-          p("div", XMe, [p("label", QMe, [te[32] || (te[32] = p("span", null, "Depth", -1)), Mn(p("input", {
+          }, z(we.label), 11, GMe)), 64))])]),
+          p("div", JMe, [p("label", YMe, [te[32] || (te[32] = p("span", null, "Depth", -1)), Mn(p("input", {
             "onUpdate:modelValue": te[17] || (te[17] = (we) => Pe.value.depth = we),
             type: "number",
             min: "0",
@@ -66110,7 +66084,7 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
             Pe.value.depth,
             void 0,
             { number: !0 }
-          ]])]), p("label", ZMe, [te[33] || (te[33] = p("span", null, "插入频率", -1)), Mn(p("input", {
+          ]])]), p("label", jMe, [te[33] || (te[33] = p("span", null, "插入频率", -1)), Mn(p("input", {
             "onUpdate:modelValue": te[18] || (te[18] = (we) => Pe.value.interval = we),
             type: "number",
             min: "0",
@@ -66121,21 +66095,21 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
             void 0,
             { number: !0 }
           ]])])]),
-          p("div", e1e, [te[34] || (te[34] = p("span", null, "Role", -1)), p("div", t1e, [(L(), O(Ve, null, at(Ke, (we) => p("button", {
+          p("div", XMe, [te[34] || (te[34] = p("span", null, "Role", -1)), p("div", QMe, [(L(), O(Ve, null, at(Ke, (we) => p("button", {
             key: we.value,
             type: "button",
             class: Le({ selected: Number(Pe.value.role) === we.value }),
             onClick: (We) => Cn({ role: we.value })
-          }, z(we.label), 11, n1e)), 64))])]),
-          p("label", r1e, [Mn(p("input", {
+          }, z(we.label), 11, ZMe)), 64))])]),
+          p("label", e1e, [Mn(p("input", {
             "onUpdate:modelValue": te[19] || (te[19] = (we) => Pe.value.scan = we),
             type: "checkbox"
           }, null, 512), [[y8, Pe.value.scan]]), te[35] || (te[35] = p("span", null, "参与世界书扫描", -1))])
         ]),
-        p("footer", a1e, [p("span", null, z(U.value || "0 禁用，1 每次，N 每 N 次用户输入"), 1), p("button", {
+        p("footer", t1e, [p("span", null, z(U.value || "0 禁用，1 每次，N 每 N 次用户输入"), 1), p("button", {
           type: "submit",
           disabled: Y.value
-        }, z(Y.value ? "保存中..." : "保存"), 9, s1e)])
+        }, z(Y.value ? "保存中..." : "保存"), 9, n1e)])
       ], 32)], 32)) : ve("", !0),
       fe.value ? (L(), O("div", {
         key: 6,
@@ -66146,7 +66120,7 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
         role: "dialog",
         "aria-modal": "true",
         "aria-labelledby": "chat-quick-settings-title"
-      }, [p("header", o1e, [p("h2", i1e, z(Je.value), 1), p("button", {
+      }, [p("header", r1e, [p("h2", a1e, z(Je.value), 1), p("button", {
         type: "button",
         class: "chat-quick-settings-close",
         title: "关闭",
@@ -66159,12 +66133,12 @@ var _Ee = { class: "tavern-workspace-panel" }, bEe = { class: "tavern-workspace-
       })) : (L(), O("div", {
         key: 1,
         class: Le(["settings-layout chat-quick-settings-layout", qe.value])
-      }, [p("section", l1e, [fe.value === "characters" ? (L(), Qt(x3, { key: 0 })) : fe.value === "chatPreset" ? (L(), Qt(R3, { key: 1 })) : fe.value === "assistantPreset" ? (L(), Qt(M3, { key: 2 })) : fe.value === "worldbooks" ? (L(), Qt(H3, { key: 3 })) : fe.value === "regex" ? (L(), Qt(F3, { key: 4 })) : fe.value === "base" ? (L(), Qt(P3, { key: 5 })) : ve("", !0)])], 2))], 2)], 2)], 2)) : ve("", !0),
-      cn(cMe)
+      }, [p("section", s1e, [fe.value === "characters" ? (L(), Qt(x3, { key: 0 })) : fe.value === "chatPreset" ? (L(), Qt(R3, { key: 1 })) : fe.value === "assistantPreset" ? (L(), Qt(M3, { key: 2 })) : fe.value === "worldbooks" ? (L(), Qt(H3, { key: 3 })) : fe.value === "regex" ? (L(), Qt(F3, { key: 4 })) : fe.value === "base" ? (L(), Qt(P3, { key: 5 })) : ve("", !0)])], 2))], 2)], 2)], 2)) : ve("", !0),
+      cn(iMe)
     ], 2)) : ve("", !0);
   }
-}), c1e = u1e;
-function d1e(e) {
+}), i1e = o1e;
+function l1e(e) {
   return (Array.isArray(e) ? e : []).map((t, n) => {
     const r = t && typeof t == "object" ? t : {};
     return {
@@ -66173,7 +66147,7 @@ function d1e(e) {
     };
   }).filter((t) => t.text);
 }
-function f1e(e) {
+function u1e(e) {
   const t = /* @__PURE__ */ re(Date.now()), n = X(() => e.managerRuns.value[0] || null), r = X(() => e.managerRuns.value.find((k) => c(k.status)) || n.value), a = X(() => {
     const k = String(r.value?.id || "");
     return e.managerRuns.value.filter((C) => String(C.id || "") !== k).slice(0, e.visibleRunLimit);
@@ -66297,7 +66271,7 @@ function f1e(e) {
       const F = I && typeof I == "object" ? I : {}, q = String(F.name || "工具").trim() || "工具", B = String(F.status || "").trim(), j = F.ok !== !1, D = Math.max(0, Number(F.elapsedMs) || (Number(F.startedAt) && Number(F.finishedAt) ? Number(F.finishedAt) - Number(F.startedAt) : 0)), G = Math.max(1, Number(F.round) || 1), le = String(F.preface || "").trim(), ke = `${G}
 ${le}`, Ce = le && !C.has(ke) ? le : "";
       le && C.add(ke);
-      const Q = d1e(F.thoughts), oe = `${G}
+      const Q = l1e(F.thoughts), oe = `${G}
 ${JSON.stringify(Q)}`, fe = Q.length && !M.has(oe) ? Q : [];
       return Q.length && M.add(oe), {
         id: String(F.id || `${q}-${$}`),
@@ -66343,7 +66317,7 @@ ${JSON.stringify(Q)}`, fe = Q.length && !M.has(oe) ? Q : [];
     toolTraceSummary: P
   };
 }
-function h1e(e) {
+function c1e(e) {
   let t = 0;
   function n(m = "") {
     return m === "stale" ? "过期" : "可用";
@@ -66413,7 +66387,7 @@ function h1e(e) {
     selectMemoryFile: l
   };
 }
-var p1e = {
+var d1e = {
   system: "SYSTEM",
   user: "USER",
   assistant: "ASSISTANT",
@@ -66430,7 +66404,7 @@ function Ck(e) {
     return String(e ?? "");
   }
 }
-function m1e(e) {
+function f1e(e) {
   return Array.isArray(e) ? `${e.length} items` : zo(e) ? `${Object.keys(e).length} keys` : typeof e == "string" ? e.length > 80 ? `${e.slice(0, 80)}...` : e : e === null ? "null" : e === void 0 ? "undefined" : String(e);
 }
 function g_(e, t) {
@@ -66445,14 +66419,14 @@ function g_(e, t) {
     value: t,
     text: n ? String(t ?? "null") : Ck(t),
     kind: n ? "scalar" : "json",
-    summary: m1e(t)
+    summary: f1e(t)
   };
 }
-function g1e(e) {
+function h1e(e) {
   const t = String(e || "").toLowerCase();
   return t === "model" ? "assistant" : t === "human" ? "user" : t || "user";
 }
-function v1e(e) {
+function p1e(e) {
   if (typeof e != "string") return e;
   const t = e.trim();
   if (!/^[{[]/.test(t)) return e;
@@ -66463,9 +66437,9 @@ function v1e(e) {
   }
 }
 function xk(e) {
-  return Array.isArray(e) ? e.map(xk) : zo(e) ? Object.fromEntries(Object.entries(e).map(([t, n]) => [t, xk(t === "body" ? v1e(n) : n)])) : e;
+  return Array.isArray(e) ? e.map(xk) : zo(e) ? Object.fromEntries(Object.entries(e).map(([t, n]) => [t, xk(t === "body" ? p1e(n) : n)])) : e;
 }
-function y1e(e) {
+function m1e(e) {
   return typeof e == "string" ? e : Array.isArray(e) ? e.map((t) => {
     if (typeof t == "string") return t;
     if (!t || typeof t != "object") return "";
@@ -66475,7 +66449,7 @@ function y1e(e) {
 
 `) : Ck(e);
 }
-function _1e(e = "") {
+function g1e(e = "") {
   const t = String(e || ""), n = /(<[^&<>]+?>)/g, r = [];
   let a = 0;
   for (const s of t.matchAll(n)) {
@@ -66496,23 +66470,23 @@ function _1e(e = "") {
     kind: "text"
   }];
 }
-function b1e(e, t) {
-  const n = zo(e) ? e : { content: e }, r = g1e(n.role), a = y1e(n.content), s = Object.entries(n).filter(([o]) => !["role", "content"].includes(o)).map(([o, i]) => g_(o, i));
+function v1e(e, t) {
+  const n = zo(e) ? e : { content: e }, r = h1e(n.role), a = m1e(n.content), s = Object.entries(n).filter(([o]) => !["role", "content"].includes(o)).map(([o, i]) => g_(o, i));
   return {
     index: t,
     role: r,
-    roleLabel: p1e[r] || r.toUpperCase(),
+    roleLabel: d1e[r] || r.toUpperCase(),
     roleClass: `is-${r.replace(/[^a-z0-9_-]/gi, "-")}`,
     name: String(n.name || ""),
     contentText: a,
-    contentSegments: _1e(a),
+    contentSegments: g1e(a),
     metaFields: s
   };
 }
 function K3(e, t) {
   return t.reduce((n, r) => zo(n) ? n[r] : void 0, e);
 }
-function w1e(e) {
+function y1e(e) {
   if (Array.isArray(e)) return [];
   for (const n of [
     ["messages"],
@@ -66548,10 +66522,10 @@ function w1e(e) {
 function W3(e = "") {
   return e === "request" || e === "requestData";
 }
-function S1e(e) {
+function _1e(e) {
   return e.filter((t) => !W3(t)).join(".");
 }
-function A1e(e, t) {
+function b1e(e, t) {
   const n = [], r = [], a = [];
   if (!zo(e)) return {
     outerFields: n,
@@ -66576,7 +66550,7 @@ function A1e(e, t) {
     const c = o === 0 && t.length > 1 && W3(i), d = c ? n : r, h = c ? n : a;
     l.forEach(([m, y], _) => {
       if (m === i) return;
-      const x = g_(S1e([...t.slice(0, o), m]) || m, y);
+      const x = g_(_1e([...t.slice(0, o), m]) || m, y);
       _ < u ? d.push(x) : h.push(x);
     }), s = s[i];
   }
@@ -66586,19 +66560,19 @@ function A1e(e, t) {
     afterFields: a
   };
 }
-function k1e(e, t, n = {}) {
+function w1e(e, t, n = {}) {
   const r = zo(e) ? e : {}, a = [n.messageChars, r.messageChars].find((s) => Number.isFinite(Number(s)));
   return a !== void 0 ? Math.max(0, Math.floor(Number(a))) : t.reduce((s, o) => s + o.contentText.length, 0);
 }
-function T1e(e, t, n = {}) {
-  const r = zo(e) ? e : {}, a = k1e(e, t, n), s = [a || t.length ? `${a} chars` : ""], o = n.capturedAt ?? r.capturedAt;
+function S1e(e, t, n = {}) {
+  const r = zo(e) ? e : {}, a = w1e(e, t, n), s = [a || t.length ? `${a} chars` : ""], o = n.capturedAt ?? r.capturedAt;
   if (o) {
     const i = new Date(Number(o));
     Number.isNaN(i.getTime()) || s.push(i.toLocaleString());
   }
   return [...new Set(s.map((i) => String(i || "").trim()).filter(Boolean))];
 }
-function I1e(e = "", t = {}) {
+function A1e(e = "", t = {}) {
   const n = String(e || "");
   if (!n.trim()) return {
     rawJson: n,
@@ -66623,66 +66597,66 @@ function I1e(e = "", t = {}) {
       requestFieldsAfterMessages: []
     };
   }
-  const a = xk(r), s = w1e(a), o = s ? K3(a, s) : Array.isArray(a) ? a : [], i = (Array.isArray(o) ? o : []).map(b1e), l = A1e(a, s);
+  const a = xk(r), s = y1e(a), o = s ? K3(a, s) : Array.isArray(a) ? a : [], i = (Array.isArray(o) ? o : []).map(v1e), l = b1e(a, s);
   return {
     rawJson: n,
     parseError: "",
-    chips: T1e(a, i, t),
+    chips: S1e(a, i, t),
     outerFields: l.outerFields,
     requestFieldsBeforeMessages: l.beforeFields,
     messages: i,
     requestFieldsAfterMessages: l.afterFields
   };
 }
-var E1e = {
+var k1e = {
   class: "prompt-inspector-modal",
   tabindex: "-1"
-}, C1e = { class: "prompt-inspector-head" }, x1e = {
+}, T1e = { class: "prompt-inspector-head" }, I1e = {
   class: "prompt-inspector-tabs",
   "aria-label": "API 请求视图"
-}, M1e = { class: "prompt-tab-group" }, P1e = { class: "prompt-inspector-tools" }, R1e = { class: "prompt-tab-group prompt-view-mode-tabs" }, N1e = { class: "prompt-log-search" }, $1e = { class: "prompt-log-search-box" }, L1e = { key: 0 }, D1e = { class: "prompt-inspector-view" }, O1e = {
+}, E1e = { class: "prompt-tab-group" }, C1e = { class: "prompt-inspector-tools" }, x1e = { class: "prompt-tab-group prompt-view-mode-tabs" }, M1e = { class: "prompt-log-search" }, P1e = { class: "prompt-log-search-box" }, R1e = { key: 0 }, N1e = { class: "prompt-inspector-view" }, $1e = {
   key: 0,
   class: "prompt-simulate-panel"
-}, F1e = ["value"], B1e = {
+}, L1e = ["value"], D1e = {
   key: 1,
   class: "muted compact"
-}, U1e = {
+}, O1e = {
   key: 2,
   class: "error"
-}, q1e = {
+}, F1e = {
   key: 0,
   class: "prompt-request-pretty"
-}, H1e = {
+}, B1e = {
   key: 0,
   class: "prompt-preview-section"
-}, K1e = {
+}, U1e = {
   key: 0,
   class: "prompt-preview-chip-row"
-}, W1e = {
+}, q1e = {
   key: 1,
   class: "prompt-preview-error"
-}, z1e = {
+}, H1e = {
   key: 1,
   class: "prompt-preview-section"
-}, V1e = { class: "prompt-preview-parameter-panel" }, G1e = { class: "prompt-preview-parameter-head" }, J1e = { class: "prompt-preview-fields is-compact" }, Y1e = { key: 0 }, j1e = ["onClick"], X1e = { key: 2 }, Q1e = { key: 0 }, Z1e = ["onClick"], ePe = { key: 2 }, tPe = { class: "prompt-preview-section" }, nPe = { class: "prompt-preview-message-rule" }, rPe = {
+}, K1e = { class: "prompt-preview-parameter-panel" }, W1e = { class: "prompt-preview-parameter-head" }, z1e = { class: "prompt-preview-fields is-compact" }, V1e = { key: 0 }, G1e = ["onClick"], J1e = { key: 2 }, Y1e = { key: 0 }, j1e = ["onClick"], X1e = { key: 2 }, Q1e = { class: "prompt-preview-section" }, Z1e = { class: "prompt-preview-message-rule" }, ePe = {
   key: 0,
   class: "prompt-preview-messages"
-}, aPe = { key: 0 }, sPe = {
+}, tPe = { key: 0 }, nPe = {
   key: 0,
   class: "prompt-preview-message-meta"
-}, oPe = { class: "prompt-preview-meta-heading" }, iPe = { class: "prompt-preview-fields" }, lPe = { key: 0 }, uPe = ["onClick"], cPe = { key: 2 }, dPe = {
+}, rPe = { class: "prompt-preview-meta-heading" }, aPe = { class: "prompt-preview-fields" }, sPe = { key: 0 }, oPe = ["onClick"], iPe = { key: 2 }, lPe = {
   key: 1,
   class: "prompt-empty-state"
-}, fPe = {
+}, uPe = {
   key: 2,
   class: "prompt-preview-section"
-}, hPe = { class: "prompt-preview-fields" }, pPe = { key: 0 }, mPe = ["onClick"], gPe = { key: 2 }, vPe = {
+}, cPe = { class: "prompt-preview-fields" }, dPe = { key: 0 }, fPe = ["onClick"], hPe = { key: 2 }, pPe = {
   key: 1,
   class: "prompt-request-json"
-}, yPe = {
+}, mPe = {
   key: 4,
   class: "prompt-empty-state"
-}, _Pe = /* @__PURE__ */ rn({
+}, gPe = /* @__PURE__ */ rn({
   __name: "TavernRequestLogModal",
   props: {
     tab: {},
@@ -66704,7 +66678,7 @@ var E1e = {
     function a(I) {
       r("update:simulateInput", I.target.value);
     }
-    const s = /* @__PURE__ */ re("pretty"), o = /* @__PURE__ */ re(""), i = /* @__PURE__ */ re(-1), l = /* @__PURE__ */ re(null), u = /* @__PURE__ */ re([]), c = /* @__PURE__ */ re(/* @__PURE__ */ new Set()), d = X(() => String(n.tab === "history" ? n.lastRequestRawJson : n.simulateJson)), h = X(() => n.tab === "history" ? n.lastRequestSnapshot || {} : { requestKind: "simulate" }), m = X(() => I1e(d.value, h.value)), y = X(() => n.tab === "history" ? "暂无请求历史。" : "生成后会显示本次模拟请求。"), _ = X(() => o.value.trim() ? u.value.length ? `${Math.max(0, i.value) + 1}/${u.value.length}` : "无结果" : "");
+    const s = /* @__PURE__ */ re("pretty"), o = /* @__PURE__ */ re(""), i = /* @__PURE__ */ re(-1), l = /* @__PURE__ */ re(null), u = /* @__PURE__ */ re([]), c = /* @__PURE__ */ re(/* @__PURE__ */ new Set()), d = X(() => String(n.tab === "history" ? n.lastRequestRawJson : n.simulateJson)), h = X(() => n.tab === "history" ? n.lastRequestSnapshot || {} : { requestKind: "simulate" }), m = X(() => A1e(d.value, h.value)), y = X(() => n.tab === "history" ? "暂无请求历史。" : "生成后会显示本次模拟请求。"), _ = X(() => o.value.trim() ? u.value.length ? `${Math.max(0, i.value) + 1}/${u.value.length}` : "无结果" : "");
     function x(I) {
       return I.kind === "json";
     }
@@ -66786,14 +66760,14 @@ var E1e = {
       "aria-modal": "true",
       onClick: $[9] || ($[9] = en((F) => I.$emit("close"), ["self"])),
       onKeydown: $[10] || ($[10] = Ra((F) => I.$emit("close"), ["esc"]))
-    }, [p("section", E1e, [
-      p("header", C1e, [$[11] || ($[11] = p("div", { class: "prompt-inspector-heading" }, [p("h2", null, "请求日志")], -1)), p("button", {
+    }, [p("section", k1e, [
+      p("header", T1e, [$[11] || ($[11] = p("div", { class: "prompt-inspector-heading" }, [p("h2", null, "请求日志")], -1)), p("button", {
         type: "button",
         class: "prompt-inspector-close",
         "aria-label": "关闭日志",
         onClick: $[0] || ($[0] = (F) => I.$emit("close"))
       }, " 关闭 ")]),
-      p("div", x1e, [p("div", M1e, [p("button", {
+      p("div", I1e, [p("div", E1e, [p("button", {
         type: "button",
         class: Le({ active: e.tab === "history" }),
         onClick: $[1] || ($[1] = (F) => I.$emit("update:tab", "history"))
@@ -66801,7 +66775,7 @@ var E1e = {
         type: "button",
         class: Le({ active: e.tab === "simulate" }),
         onClick: $[2] || ($[2] = (F) => I.$emit("update:tab", "simulate"))
-      }, " 模拟发送 ", 2)]), p("div", P1e, [p("div", R1e, [p("button", {
+      }, " 模拟发送 ", 2)]), p("div", C1e, [p("div", x1e, [p("button", {
         type: "button",
         class: Le({ active: s.value === "pretty" }),
         onClick: $[3] || ($[3] = (F) => s.value = "pretty")
@@ -66809,7 +66783,7 @@ var E1e = {
         type: "button",
         class: Le({ active: s.value === "raw" }),
         onClick: $[4] || ($[4] = (F) => s.value = "raw")
-      }, " 原始 ", 2)]), p("div", N1e, [p("div", $1e, [
+      }, " 原始 ", 2)]), p("div", M1e, [p("div", P1e, [
         Mn(p("input", {
           "onUpdate:modelValue": $[5] || ($[5] = (F) => o.value = F),
           type: "search",
@@ -66826,27 +66800,27 @@ var E1e = {
           "aria-label": "下一个搜索结果",
           onClick: $[7] || ($[7] = (F) => M("next"))
         }, " ↓ ")
-      ]), _.value ? (L(), O("span", L1e, z(_.value), 1)) : ve("", !0)])])]),
+      ]), _.value ? (L(), O("span", R1e, z(_.value), 1)) : ve("", !0)])])]),
       p("div", {
         ref_key: "bodyRef",
         ref: l,
         class: "prompt-inspector-body"
-      }, [p("section", D1e, [
-        e.tab === "simulate" ? (L(), O("div", O1e, [p("div", null, [$[12] || ($[12] = p("label", { for: "request-simulate-input" }, "模拟本轮发言", -1)), p("textarea", {
+      }, [p("section", N1e, [
+        e.tab === "simulate" ? (L(), O("div", $1e, [p("div", null, [$[12] || ($[12] = p("label", { for: "request-simulate-input" }, "模拟本轮发言", -1)), p("textarea", {
           id: "request-simulate-input",
           value: e.simulateInput,
           rows: "5",
           placeholder: "写一句要模拟发送的话",
           onInput: a
-        }, null, 40, F1e)]), p("button", {
+        }, null, 40, L1e)]), p("button", {
           type: "button",
           onClick: $[8] || ($[8] = (F) => I.$emit("simulate"))
         }, " 生成请求 ")])) : ve("", !0),
-        e.tab === "simulate" && e.simulateStatus ? (L(), O("p", B1e, z(e.simulateStatus), 1)) : ve("", !0),
-        e.tab === "simulate" && e.simulateError ? (L(), O("p", U1e, z(e.simulateError), 1)) : ve("", !0),
-        d.value ? (L(), O(Ve, { key: 3 }, [s.value === "pretty" ? (L(), O("div", q1e, [
-          m.value.chips.length || m.value.parseError ? (L(), O("section", H1e, [m.value.chips.length ? (L(), O("div", K1e, [(L(!0), O(Ve, null, at(m.value.chips, (F) => (L(), O("span", { key: F }, z(F), 1))), 128))])) : ve("", !0), m.value.parseError ? (L(), O("p", W1e, " JSON 解析失败：" + z(m.value.parseError), 1)) : ve("", !0)])) : ve("", !0),
-          m.value.outerFields.length || m.value.requestFieldsBeforeMessages.length ? (L(), O("section", z1e, [p("div", V1e, [p("div", G1e, [$[13] || ($[13] = p("span", null, "请求参数", -1)), p("small", null, z(m.value.outerFields.length + m.value.requestFieldsBeforeMessages.length), 1)]), p("div", J1e, [(L(!0), O(Ve, null, at(m.value.outerFields, (F) => (L(), O("div", {
+        e.tab === "simulate" && e.simulateStatus ? (L(), O("p", D1e, z(e.simulateStatus), 1)) : ve("", !0),
+        e.tab === "simulate" && e.simulateError ? (L(), O("p", O1e, z(e.simulateError), 1)) : ve("", !0),
+        d.value ? (L(), O(Ve, { key: 3 }, [s.value === "pretty" ? (L(), O("div", F1e, [
+          m.value.chips.length || m.value.parseError ? (L(), O("section", B1e, [m.value.chips.length ? (L(), O("div", U1e, [(L(!0), O(Ve, null, at(m.value.chips, (F) => (L(), O("span", { key: F }, z(F), 1))), 128))])) : ve("", !0), m.value.parseError ? (L(), O("p", q1e, " JSON 解析失败：" + z(m.value.parseError), 1)) : ve("", !0)])) : ve("", !0),
+          m.value.outerFields.length || m.value.requestFieldsBeforeMessages.length ? (L(), O("section", H1e, [p("div", K1e, [p("div", W1e, [$[13] || ($[13] = p("span", null, "请求参数", -1)), p("small", null, z(m.value.outerFields.length + m.value.requestFieldsBeforeMessages.length), 1)]), p("div", z1e, [(L(!0), O(Ve, null, at(m.value.outerFields, (F) => (L(), O("div", {
             key: `outer:${F.key}`,
             class: "prompt-preview-field"
           }, [
@@ -66856,8 +66830,8 @@ var E1e = {
               type: "button",
               class: "prompt-preview-json-toggle",
               onClick: (q) => A(N("outer", F))
-            }, z(v("outer", F)), 9, j1e)) : (L(), O("code", Y1e, z(F.text), 1)),
-            P("outer", F) ? (L(), O("pre", X1e, z(F.text), 1)) : ve("", !0)
+            }, z(v("outer", F)), 9, G1e)) : (L(), O("code", V1e, z(F.text), 1)),
+            P("outer", F) ? (L(), O("pre", J1e, z(F.text), 1)) : ve("", !0)
           ]))), 128)), (L(!0), O(Ve, null, at(m.value.requestFieldsBeforeMessages, (F) => (L(), O("div", {
             key: `before:${F.key}`,
             class: "prompt-preview-field"
@@ -66868,23 +66842,23 @@ var E1e = {
               type: "button",
               class: "prompt-preview-json-toggle",
               onClick: (q) => A(N("before", F))
-            }, z(v("before", F)), 9, Z1e)) : (L(), O("code", Q1e, z(F.text), 1)),
-            P("before", F) ? (L(), O("pre", ePe, z(F.text), 1)) : ve("", !0)
+            }, z(v("before", F)), 9, j1e)) : (L(), O("code", Y1e, z(F.text), 1)),
+            P("before", F) ? (L(), O("pre", X1e, z(F.text), 1)) : ve("", !0)
           ]))), 128))])])])) : ve("", !0),
-          p("section", tPe, [p("div", nPe, [p("span", null, "API MESSAGES · " + z(m.value.messages.length), 1)]), m.value.messages.length ? (L(), O("div", rPe, [(L(!0), O(Ve, null, at(m.value.messages, (F) => (L(), O("article", {
+          p("section", Q1e, [p("div", Z1e, [p("span", null, "API MESSAGES · " + z(m.value.messages.length), 1)]), m.value.messages.length ? (L(), O("div", ePe, [(L(!0), O(Ve, null, at(m.value.messages, (F) => (L(), O("article", {
             key: F.index,
             class: Le(["prompt-preview-message", F.roleClass])
           }, [
             p("header", null, [
               p("strong", null, z(F.roleLabel), 1),
               p("span", null, "#" + z(F.index + 1), 1),
-              F.name ? (L(), O("small", aPe, z(F.name), 1)) : ve("", !0)
+              F.name ? (L(), O("small", tPe, z(F.name), 1)) : ve("", !0)
             ]),
             p("pre", null, [(L(!0), O(Ve, null, at(F.contentSegments, (q, B) => (L(), O("span", {
               key: B,
               class: Le({ "prompt-preview-xml-tag": q.kind === "xml-tag" })
             }, z(q.text), 3))), 128))]),
-            F.metaFields.length ? (L(), O("div", sPe, [p("div", oPe, " meta · " + z(F.metaFields.length), 1), p("div", iPe, [(L(!0), O(Ve, null, at(F.metaFields, (q) => (L(), O("div", {
+            F.metaFields.length ? (L(), O("div", nPe, [p("div", rPe, " meta · " + z(F.metaFields.length), 1), p("div", aPe, [(L(!0), O(Ve, null, at(F.metaFields, (q) => (L(), O("div", {
               key: q.key,
               class: "prompt-preview-field"
             }, [
@@ -66894,11 +66868,11 @@ var E1e = {
                 type: "button",
                 class: "prompt-preview-json-toggle",
                 onClick: (B) => A(N("message", q, F.index))
-              }, z(v("message", q, F.index)), 9, uPe)) : (L(), O("code", lPe, z(q.text), 1)),
-              P("message", q, F.index) ? (L(), O("pre", cPe, z(q.text), 1)) : ve("", !0)
+              }, z(v("message", q, F.index)), 9, oPe)) : (L(), O("code", sPe, z(q.text), 1)),
+              P("message", q, F.index) ? (L(), O("pre", iPe, z(q.text), 1)) : ve("", !0)
             ]))), 128))])])) : ve("", !0)
-          ], 2))), 128))])) : (L(), O("p", dPe, " 没有解析到 messages。 "))]),
-          m.value.requestFieldsAfterMessages.length ? (L(), O("section", fPe, [$[14] || ($[14] = p("h3", null, "附加参数", -1)), p("div", hPe, [(L(!0), O(Ve, null, at(m.value.requestFieldsAfterMessages, (F) => (L(), O("div", {
+          ], 2))), 128))])) : (L(), O("p", lPe, " 没有解析到 messages。 "))]),
+          m.value.requestFieldsAfterMessages.length ? (L(), O("section", uPe, [$[14] || ($[14] = p("h3", null, "附加参数", -1)), p("div", cPe, [(L(!0), O(Ve, null, at(m.value.requestFieldsAfterMessages, (F) => (L(), O("div", {
             key: F.key,
             class: "prompt-preview-field"
           }, [
@@ -66908,14 +66882,14 @@ var E1e = {
               type: "button",
               class: "prompt-preview-json-toggle",
               onClick: (q) => A(N("after", F))
-            }, z(v("after", F)), 9, mPe)) : (L(), O("code", pPe, z(F.text), 1)),
-            P("after", F) ? (L(), O("pre", gPe, z(F.text), 1)) : ve("", !0)
+            }, z(v("after", F)), 9, fPe)) : (L(), O("code", dPe, z(F.text), 1)),
+            P("after", F) ? (L(), O("pre", hPe, z(F.text), 1)) : ve("", !0)
           ]))), 128))])])) : ve("", !0)
-        ])) : (L(), O("pre", vPe, z(d.value), 1))], 64)) : (L(), O("p", yPe, z(y.value), 1))
+        ])) : (L(), O("pre", pPe, z(d.value), 1))], 64)) : (L(), O("p", mPe, z(y.value), 1))
       ])], 512)
     ])], 32));
   }
-}), bPe = _Pe, wPe = { class: "xb-sidebar settings-sidebar" }, SPe = { class: "panel guide-card" }, APe = { class: "guide-steps" }, kPe = ["onClick"], TPe = { class: "guide-label-full" }, IPe = { class: "guide-label-mobile" }, EPe = { key: 0 }, CPe = /* @__PURE__ */ rn({
+}), vPe = gPe, yPe = { class: "xb-sidebar settings-sidebar" }, _Pe = { class: "panel guide-card" }, bPe = { class: "guide-steps" }, wPe = ["onClick"], SPe = { class: "guide-label-full" }, APe = { class: "guide-label-mobile" }, kPe = { key: 0 }, TPe = /* @__PURE__ */ rn({
   __name: "TavernSettingsSidebar",
   props: {
     active: {},
@@ -66924,26 +66898,26 @@ var E1e = {
   emits: ["select"],
   setup(e, { emit: t }) {
     const n = t;
-    return (r, a) => (L(), O("aside", wPe, [p("div", SPe, [a[0] || (a[0] = p("h2", null, "设置", -1)), p("div", APe, [(L(!0), O(Ve, null, at(e.items, (s) => (L(), O("button", {
+    return (r, a) => (L(), O("aside", yPe, [p("div", _Pe, [a[0] || (a[0] = p("h2", null, "设置", -1)), p("div", bPe, [(L(!0), O(Ve, null, at(e.items, (s) => (L(), O("button", {
       key: s.key,
       type: "button",
       class: Le(["guide-step", { active: e.active === s.key }]),
       onClick: (o) => n("select", s.key)
-    }, [p("strong", null, [p("span", TPe, z(s.label), 1), p("span", IPe, z(s.mobileLabel || s.label), 1)]), s.badge ? (L(), O("em", EPe, z(s.badge), 1)) : ve("", !0)], 10, kPe))), 128))])])]));
+    }, [p("strong", null, [p("span", SPe, z(s.label), 1), p("span", APe, z(s.mobileLabel || s.label), 1)]), s.badge ? (L(), O("em", kPe, z(s.badge), 1)) : ve("", !0)], 10, wPe))), 128))])])]));
   }
-}), xPe = CPe, MPe = { class: "panel step-panel api-workspace" }, PPe = /* @__PURE__ */ rn({
+}), IPe = TPe, EPe = { class: "panel step-panel api-workspace" }, CPe = /* @__PURE__ */ rn({
   __name: "TavernApiSettingsPanel",
   setup(e) {
     const { activeSettingsWorkspace: t, apiSettingsRootRef: n } = jl();
     function r(a) {
       n.value = a instanceof HTMLElement ? a : null;
     }
-    return (a, s) => Mn((L(), O("div", MPe, [s[0] || (s[0] = p("div", { class: "panel-head" }, [p("div", null, [p("h2", null, "API 配置")])], -1)), p("div", { class: "api-scroll-body" }, [p("div", {
+    return (a, s) => Mn((L(), O("div", EPe, [s[0] || (s[0] = p("div", { class: "panel-head" }, [p("div", null, [p("h2", null, "API 配置")])], -1)), p("div", { class: "api-scroll-body" }, [p("div", {
       ref: r,
       class: "tavern-api-settings"
     })])], 512)), [[Ms, T(t) === "api"]]);
   }
-}), RPe = PPe, NPe = { class: "xb-main" }, $Pe = /* @__PURE__ */ rn({
+}), xPe = CPe, MPe = { class: "xb-main" }, PPe = /* @__PURE__ */ rn({
   __name: "TavernSettingsPage",
   setup(e) {
     const t = jl(), n = Gi(), { activeSettingsWorkspace: r, selectSettingsWorkspace: a, settingsNavItems: s } = t, { activeView: o, homeThemeDark: i } = n;
@@ -66958,7 +66932,7 @@ var E1e = {
         onHome: u[0] || (u[0] = (c) => o.value = "home"),
         onToggleTheme: u[1] || (u[1] = (c) => i.value = !T(i))
       }, null, 8, ["dark"]),
-      cn(xPe, {
+      cn(IPe, {
         active: T(r),
         items: T(s),
         onSelect: T(a)
@@ -66967,9 +66941,9 @@ var E1e = {
         "items",
         "onSelect"
       ]),
-      p("section", NPe, [
+      p("section", MPe, [
         T(r) === "characters" ? (L(), Qt(x3, { key: 0 })) : ve("", !0),
-        T(r) === "api" ? (L(), Qt(RPe, { key: 1 })) : ve("", !0),
+        T(r) === "api" ? (L(), Qt(xPe, { key: 1 })) : ve("", !0),
         T(r) === "chatPreset" ? (L(), Qt(R3, { key: 2 })) : ve("", !0),
         T(r) === "worldbooks" ? (L(), Qt(H3, { key: 3 })) : ve("", !0),
         T(r) === "regex" ? (L(), Qt(F3, { key: 4 })) : ve("", !0),
@@ -66978,7 +66952,7 @@ var E1e = {
       ])
     ], 2)) : ve("", !0);
   }
-}), LPe = $Pe, DPe = { chat: { exclude: [
+}), RPe = PPe, NPe = { chat: { exclude: [
   "embedding",
   "embed",
   "rerank",
@@ -66993,7 +66967,7 @@ var E1e = {
   "sdxl",
   "flux",
   "moderation"
-] } }, OPe = Object.freeze([
+] } }, $Pe = Object.freeze([
   "claude-opus-4-7",
   "claude-opus-4-6",
   "claude-opus-4-5",
@@ -67019,7 +66993,7 @@ function No(e, t, n = "") {
   });
 }
 function Qp(e = []) {
-  const t = [...new Set(e.filter(Boolean).map((a) => String(a).trim()).filter(Boolean))], n = DPe.chat, r = t.filter((a) => {
+  const t = [...new Set(e.filter(Boolean).map((a) => String(a).trim()).filter(Boolean))], n = NPe.chat, r = t.filter((a) => {
     const s = a.toLowerCase();
     return !n.exclude.some((o) => s.includes(o));
   });
@@ -67031,7 +67005,7 @@ function nv(e = "") {
 function Zd(e) {
   return String(e || "").trim().replace(/\/+$/, "");
 }
-function FPe(e = "") {
+function LPe(e = "") {
   return e === "sillytavern-openai-compatible" || e === "sillytavern-claude" || e === "sillytavern-google";
 }
 function Gc(e = "") {
@@ -67040,13 +67014,13 @@ function Gc(e = "") {
 function Mk(e = "") {
   return e === "anthropic" || e === "sillytavern-claude";
 }
-function BPe(e = "") {
+function DPe(e = "") {
   return e === "sillytavern-claude" ? Qk : e === "sillytavern-google" ? Zk : rf;
 }
 function Zp(e = []) {
   return [...new Set(e.filter(Boolean).map((t) => String(t).trim()).filter(Boolean))];
 }
-function UPe(e) {
+function OPe(e) {
   const t = Zd(e);
   if (!t) return [];
   if (t.endsWith("/v1")) {
@@ -67072,7 +67046,7 @@ function z3(e) {
   }
   return Zp([`${t}/v1/models`, `${t}/models`]);
 }
-function qPe(e, t) {
+function FPe(e, t) {
   const n = Zd(e);
   if (!n) return [];
   const r = n.endsWith("/v1beta") ? n.slice(0, -7) : n;
@@ -67085,7 +67059,7 @@ function qPe(e, t) {
     `${r}/models`
   ]);
 }
-function HPe(e, t) {
+function BPe(e, t) {
   const n = [
     e?.error?.message,
     e?.message,
@@ -67095,7 +67069,7 @@ function HPe(e, t) {
   ].find((r) => typeof r == "string" && r.trim());
   return n ? n.trim() : String(t || "").trim().slice(0, 160);
 }
-async function KPe(e, t = {}) {
+async function UPe(e, t = {}) {
   const n = await fetch(e, t), r = await n.text();
   let a = null, s = null;
   try {
@@ -67110,22 +67084,22 @@ async function KPe(e, t = {}) {
     data: a,
     rawText: r,
     parseError: s,
-    errorSnippet: HPe(a, r)
+    errorSnippet: BPe(a, r)
   };
 }
-function WPe(e) {
+function qPe(e) {
   return Qp((e?.data || []).map((t) => String(t?.id || "").trim()).filter(Boolean));
 }
 function V3(e) {
   return Qp((e?.data || []).map((t) => String(t?.id || "").trim()).filter(Boolean));
 }
-function zPe(e) {
+function HPe(e) {
   return Qp((e?.models || e?.data || []).map((t) => String(t?.id || t?.name || "")).map((t) => t.split("/").pop() || "").filter(Boolean));
 }
 async function Bv({ urls: e, requestOptionsList: t, extractModels: n, providerLabel: r }) {
   let a = null;
   for (const s of e) for (const o of t) {
-    const i = await KPe(s, o);
+    const i = await UPe(s, o);
     if (!i.ok) {
       a = i;
       continue;
@@ -67150,7 +67124,7 @@ async function Bv({ urls: e, requestOptionsList: t, extractModels: n, providerLa
   }
   throw new Error(`${r} 拉取模型失败：未获取到模型列表。`);
 }
-async function VPe(e) {
+async function KPe(e) {
   const t = String(e.apiKey || "").trim(), n = Zd(e.baseUrl || ""), r = Zd(n || G2.claude);
   if (t && r) try {
     return await Bv({
@@ -67166,16 +67140,16 @@ async function VPe(e) {
   } catch (a) {
     if (n) throw a;
   }
-  return [...OPe];
+  return [...$Pe];
 }
 async function p$(e) {
   const t = e.provider, n = Zd(e.baseUrl || ""), r = String(e.apiKey || "").trim();
-  if (t === "sillytavern-claude") return Qp(await VPe(e));
-  if (FPe(t)) return Qp(await cV(e, BPe(t)));
+  if (t === "sillytavern-claude") return Qp(await KPe(e));
+  if (LPe(t)) return Qp(await cV(e, DPe(t)));
   if (!r) throw new Error("请先填写 API Key。");
   if (!n) throw new Error("请先填写 Base URL。");
   return t === "google" ? await Bv({
-    urls: qPe(n, r),
+    urls: FPe(n, r),
     requestOptionsList: [
       { headers: {
         Accept: "application/json",
@@ -67187,7 +67161,7 @@ async function p$(e) {
       } },
       { headers: { Accept: "application/json" } }
     ],
-    extractModels: zPe,
+    extractModels: HPe,
     providerLabel: "Google AI"
   }) : Mk(t) ? await Bv({
     urls: z3(n),
@@ -67199,20 +67173,20 @@ async function p$(e) {
     extractModels: V3,
     providerLabel: "Anthropic"
   }) : await Bv({
-    urls: UPe(n),
+    urls: OPe(n),
     requestOptionsList: [{ headers: {
       Authorization: `Bearer ${r}`,
       Accept: "application/json"
     } }],
-    extractModels: WPe,
+    extractModels: qPe,
     providerLabel: t === "openai-responses" ? "OpenAI Responses" : "OpenAI-Compatible"
   });
 }
-function GPe(e) {
+function WPe(e) {
   return e instanceof Error ? e.message : String(e || "unknown_error");
 }
-function JPe(e = {}) {
-  const { state: t, render: n, showToast: r, createRequestId: a = (K = "req") => `${K}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, saveConfig: s, describeError: o = GPe, getRuntimeSummaryText: i } = e;
+function zPe(e = {}) {
+  const { state: t, render: n, showToast: r, createRequestId: a = (K = "req") => `${K}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, saveConfig: s, describeError: o = WPe, getRuntimeSummaryText: i } = e;
   function l() {
     t.configFormSyncPending = !0;
   }
@@ -67770,11 +67744,11 @@ function vh(e) {
     delete: '<path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" /><path d="M10 11v6" /><path d="M14 11v6" />'
   }[e] || ""}</svg>`;
 }
-function YPe(e = {}) {
+function VPe(e = {}) {
   const t = String(e?.status || "idle");
   return t === "saving" ? "saving" : t === "success" ? "success" : t === "error" ? "error" : "save";
 }
-function jPe(e = {}) {
+function GPe(e = {}) {
   const t = String(e?.status || "idle");
   return t === "saving" ? {
     className: "xb-assistant-save-button is-saving",
@@ -67790,8 +67764,8 @@ function jPe(e = {}) {
     title: "保存配置"
   };
 }
-function XPe(e = {}) {
-  const { configSave: t = {}, runtimeText: n = "", inlineToastText: r = "", showInlineToast: a = !0, showAssistantPermissions: s = !0, showDelegateSettings: o = !0, activePage: i = "main", delegatePresetHint: l = "DelegateRun 分身会使用这里的独立 API 配置；可以和主助手使用不同 Provider、Base URL、模型和 Tool 调用格式。", isBusy: u = !1, canDeletePreset: c = !0 } = e, d = jPe(t), h = YPe(t), m = u || String(t?.status || "") === "saving" ? "disabled" : "", y = u || !c ? "disabled" : "", _ = i === "delegate" ? "delegate" : "main", x = _ === "main", E = _ === "delegate", A = s ? `
+function JPe(e = {}) {
+  const { configSave: t = {}, runtimeText: n = "", inlineToastText: r = "", showInlineToast: a = !0, showAssistantPermissions: s = !0, showDelegateSettings: o = !0, activePage: i = "main", delegatePresetHint: l = "DelegateRun 分身会使用这里的独立 API 配置；可以和主助手使用不同 Provider、Base URL、模型和 Tool 调用格式。", isBusy: u = !1, canDeletePreset: c = !0 } = e, d = GPe(t), h = VPe(t), m = u || String(t?.status || "") === "saving" ? "disabled" : "", y = u || !c ? "disabled" : "", _ = i === "delegate" ? "delegate" : "main", x = _ === "main", E = _ === "delegate", A = s ? `
             <label>
                 <span>斜杠命令权限</span>
                 <select id="xb-assistant-permission-mode"></select>
@@ -67976,7 +67950,7 @@ function XPe(e = {}) {
         </section>
     `;
 }
-var QPe = 1800;
+var YPe = 1800;
 function rv() {
   const e = /* @__PURE__ */ re({
     status: "idle",
@@ -68006,7 +67980,7 @@ function rv() {
         status: "idle",
         error: ""
       }, t = null);
-    }, QPe), t.unref?.();
+    }, YPe), t.unref?.();
   }
   return {
     feedback: e,
@@ -68015,7 +67989,7 @@ function rv() {
     completeSaveFeedback: a
   };
 }
-var jS = 48, XS = 48, QS = 80, av = 24, ZS = 60, ZPe = [
+var jS = 48, XS = 48, QS = 80, av = 24, ZS = 60, jPe = [
   {
     key: "statePrompt",
     label: "全局记忆",
@@ -68031,7 +68005,7 @@ var jS = 48, XS = 48, QS = 80, av = 24, ZS = 60, ZPe = [
     label: "状态栏",
     summary: "状态面板骨架与更新规则"
   }
-], eRe = {
+], XPe = {
   top: "最前面",
   beforeCharacter: "角色卡前",
   afterCharacter: "角色卡后",
@@ -68052,7 +68026,7 @@ function ui(e) {
 function ml(e = "") {
   return String(e || "").trim().toLocaleLowerCase();
 }
-function tRe(e, t) {
+function QPe(e, t) {
   return t ? ml(e).includes(t) : !0;
 }
 function e0(e, t = 1600) {
@@ -68073,13 +68047,13 @@ function io(e) {
 function t0(e) {
   return e === !0 || e === "true" ? !0 : e === !1 || e === "false" ? !1 : null;
 }
-function nRe(e) {
+function ZPe(e) {
   if (e === !0 || e === "true") return !0;
   if (e === !1 || e === "false" || e === "" || e === null || e === void 0) return !1;
   const t = Number(e);
   return Number.isFinite(t) && t > 0 ? Math.floor(t) : !1;
 }
-function rRe(e) {
+function eRe(e) {
   const t = Lr(e), n = Array.isArray(t.entries) ? t.entries.map((r) => {
     const a = Lr(r);
     return {
@@ -68140,7 +68114,7 @@ function yh(e) {
     ignoreBudget: t.ignoreBudget === !0,
     excludeRecursion: t.excludeRecursion === !0,
     preventRecursion: t.preventRecursion === !0,
-    delayUntilRecursion: nRe(t.delayUntilRecursion),
+    delayUntilRecursion: ZPe(t.delayUntilRecursion),
     group: String(t.group ?? ""),
     groupOverride: t.groupOverride === !0,
     groupWeight: io(t.groupWeight),
@@ -68158,7 +68132,7 @@ function yh(e) {
     revision: String(t.revision || t.entryHash || "")
   };
 }
-function aRe(e, t) {
+function tRe(e, t) {
   const n = String(e.comment || "").trim();
   return {
     uid: String(e.uid || t?.uid || "").trim(),
@@ -68202,7 +68176,7 @@ function _h(e = {}) {
     maxDepth: t.maxDepth === null || t.maxDepth === "" || t.maxDepth === void 0 ? null : Number(t.maxDepth)
   };
 }
-function sRe(e) {
+function nRe(e) {
   const t = Lr(e), n = String(t.id || "").trim();
   return n ? {
     id: n,
@@ -68212,8 +68186,8 @@ function sRe(e) {
     active: t.active === !0
   } : null;
 }
-function oRe(e) {
-  const t = Lr(e), n = String(t.currentUserId || "").trim() || null, r = Array.isArray(t.users) ? t.users.map((a) => sRe(a)).filter((a) => !!a) : [];
+function rRe(e) {
+  const t = Lr(e), n = String(t.currentUserId || "").trim() || null, r = Array.isArray(t.users) ? t.users.map((a) => nRe(a)).filter((a) => !!a) : [];
   return n && !r.some((a) => a.id === n) && r.unshift({
     id: n,
     name: n,
@@ -68228,12 +68202,12 @@ function oRe(e) {
     currentUserId: n
   };
 }
-var iRe = 5e3, lRe = 5e3;
-function uRe() {
+var aRe = 5e3, sRe = 5e3;
+function oRe() {
   const e = String(window.location.hash || "").replace(/^#\/?/, "").split("/")[1];
   return e === "characters" || e === "api" || e === "chatPreset" || e === "worldbooks" || e === "regex" || e === "assistantPreset" || e === "base" ? e : "api";
 }
-function cRe(e) {
+function iRe(e) {
   const t = zL(), n = Lp(), r = /* @__PURE__ */ re(null), a = /* @__PURE__ */ re({
     status: "idle",
     requestId: "",
@@ -68267,7 +68241,7 @@ function cRe(e) {
     }));
   }), Ks = X(() => {
     const V = ml(be.value);
-    return V ? ur.value.filter((ie) => tRe(ie.label || ie.name, V)) : ur.value;
+    return V ? ur.value.filter((ie) => QPe(ie.label || ie.name, V)) : ur.value;
   }), Ws = X(() => {
     const V = Ks.value.slice(0, Pe.value), ie = String($.value || l.value.promptManager?.name || l.value.name || "").trim();
     if (!ie || V.some((He) => He.name === ie)) return V;
@@ -68374,7 +68348,7 @@ function cRe(e) {
       label: "基础设定",
       mobileLabel: "基础设定"
     }
-  ]), Ja = X(() => Je.value.find((V) => V.id === qe.value) || null), wo = X(() => ZPe.map((V) => ({
+  ]), Ja = X(() => Je.value.find((V) => V.id === qe.value) || null), wo = X(() => jPe.map((V) => ({
     id: V.key,
     key: V.key,
     label: V.label,
@@ -68438,7 +68412,7 @@ function cRe(e) {
     ...V,
     previewId: V.id || `chat-preset-section-${ie}`,
     previewLabel: V.label || V.source || `提示词 ${ie + 1}`,
-    previewPlacement: V.source === "promptManager" ? V.marker ? "酒馆标记" : "酒馆顺序" : eRe[V.placement || "beforeHistory"] || V.placement || "历史前",
+    previewPlacement: V.source === "promptManager" ? V.marker ? "酒馆标记" : "酒馆顺序" : XPe[V.placement || "beforeHistory"] || V.placement || "历史前",
     sectionIndex: ie,
     chars: String(V.content || "").length
   })).filter((V) => (V.content || V.marker) && V.enabled !== !1)), Ql = X(() => Pr.value.reduce((V, ie) => V + ie.chars, 0));
@@ -68524,7 +68498,7 @@ function cRe(e) {
     const He = new Promise((rt, tt) => {
       Ae = setTimeout(() => {
         tt(/* @__PURE__ */ new Error("保存超时，请重试")), ie?.abort();
-      }, lRe), Ae.unref?.();
+      }, sRe), Ae.unref?.();
     });
     try {
       return await Promise.race([e.requestHost("xb-tavern:save-chat-preset", { payload: V }, ie ? { signal: ie.signal } : {}), He]);
@@ -68547,7 +68521,7 @@ function cRe(e) {
     if (!Ae || Ae.name !== He || !ie.uid) return;
     const rt = Ae.entries.findIndex((aa) => aa.uid === ie.uid);
     if (rt < 0) return;
-    const tt = Ae.entries[rt], Et = aRe(ie, tt), Dt = [...Ae.entries];
+    const tt = Ae.entries[rt], Et = tRe(ie, tt), Dt = [...Ae.entries];
     Dt[rt] = Et, Dt.sort((aa, xc) => Number(xc.order) - Number(aa.order)), Ce.value = {
       ...Ae,
       enabledCount: Math.max(0, Ae.enabledCount + (Et.enabled ? 1 : 0) - (tt.enabled ? 1 : 0)),
@@ -68704,7 +68678,7 @@ function cRe(e) {
         limit: Ie.value
       } });
       if (Ae !== we || String(B.value || "").trim() !== rt) return;
-      Ce.value = rRe(tt.result || tt), Q.value = "";
+      Ce.value = eRe(tt.result || tt), Q.value = "";
     } catch (tt) {
       if (Ae !== we || String(B.value || "").trim() !== rt) return;
       ie.preserveExistingOnError || (Ce.value = null), Q.value = tt instanceof Error ? tt.message : String(tt || "预览读取失败");
@@ -68929,7 +68903,7 @@ function cRe(e) {
     Ae !== ie && nu({ loadBatchSize: Ae });
   }
   function Om(V) {
-    const ie = oRe(V);
+    const ie = rRe(V);
     Je.value = ie.users, qe.value = ie.currentUserId;
   }
   async function Tc() {
@@ -69183,7 +69157,7 @@ function cRe(e) {
           error: ""
         }, ze.configSave = a.value, s.value = "", Bt(Ss));
       }, 1800), Bt(Ss));
-    }, iRe), Bt(Ss);
+    }, aRe), Bt(Ss);
   }
   function Jb(V = "", ie = {}) {
     if (V && a.value.requestId && V !== a.value.requestId) return;
@@ -69210,7 +69184,7 @@ function cRe(e) {
   }
   function Ss() {
     const V = r.value;
-    V && (De || (De = JPe({
+    V && (De || (De = zPe({
       state: ze,
       render: Ss,
       describeError: e.describeError,
@@ -69219,7 +69193,7 @@ function cRe(e) {
       },
       saveConfig: Yb,
       getRuntimeSummaryText: () => Nn.value
-    })), ze.configSave = a.value, V.innerHTML = XPe({
+    })), ze.configSave = a.value, V.innerHTML = JPe({
       configSave: a.value,
       runtimeText: Nn.value,
       inlineToastText: s.value,
@@ -69477,13 +69451,13 @@ function cRe(e) {
     syncWorldbooksFromHost: wr
   };
 }
-var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class: "character-worldbook-picker" }, pRe = {
+var lRe = ["data-chat-font-size"], uRe = { class: "xb-os-stage" }, cRe = { class: "character-worldbook-picker" }, dRe = {
   key: 0,
   class: "worldbook-picker-status"
-}, mRe = { class: "worldbook-picker-list" }, gRe = ["disabled", "onClick"], vRe = { class: "tavern-dialog-head" }, yRe = { id: "tavern-dialog-title" }, _Re = { class: "tavern-dialog-body" }, bRe = { key: 0 }, wRe = {
+}, fRe = { class: "worldbook-picker-list" }, hRe = ["disabled", "onClick"], pRe = { class: "tavern-dialog-head" }, mRe = { id: "tavern-dialog-title" }, gRe = { class: "tavern-dialog-body" }, vRe = { key: 0 }, yRe = {
   key: 1,
   class: "tavern-dialog-field"
-}, SRe = ["placeholder"], ARe = { class: "tavern-dialog-actions" }, sv = 48, kRe = 12, TRe = 36, g$ = 48, n0 = 24, v$ = 480, IRe = 200, y$ = 1e9, _$ = "LittleWhiteBox_Tavern_theme", ERe = /* @__PURE__ */ rn({
+}, _Re = ["placeholder"], bRe = { class: "tavern-dialog-actions" }, sv = 48, wRe = 12, SRe = 36, g$ = 48, n0 = 24, v$ = 480, ARe = 200, y$ = 1e9, _$ = "LittleWhiteBox_Tavern_theme", kRe = /* @__PURE__ */ rn({
   __name: "App",
   setup(e) {
     const t = /* @__PURE__ */ re({}), n = /* @__PURE__ */ re({}), r = /* @__PURE__ */ re({}), a = /* @__PURE__ */ re(ld({})), s = /* @__PURE__ */ re(!0), o = X(() => bi(a.value.hiddenOutsideCount)), i = X(() => Jk(a.value.loadBatchSize)), l = /* @__PURE__ */ re({}), u = Zme(), c = u.ready, d = u.status, h = /* @__PURE__ */ re("15px"), m = /* @__PURE__ */ re("23px"), y = /* @__PURE__ */ re([]), _ = /* @__PURE__ */ re(""), x = /* @__PURE__ */ re(0), E = /* @__PURE__ */ re(""), A = /* @__PURE__ */ re(""), N = /* @__PURE__ */ re(null), P = /* @__PURE__ */ re(!1), v = /* @__PURE__ */ re(""), b = /* @__PURE__ */ re(!1), w = /* @__PURE__ */ re([]);
@@ -69533,7 +69507,7 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
     function Da(S) {
       return Array.isArray(S) ? S.map((R) => String(R || "").trim()).filter(Boolean) : [];
     }
-    const Jo = X(() => bl(xe.value?.contextSnapshot?.authorNote)), Ut = X(() => Zr(xe.value?.state || {})), Ue = X(() => cs(Ut.value.contract)), Ge = X(() => !!(xe.value && String(xe.value.characterKey || "").trim())), ye = /* @__PURE__ */ re(Ks()), Ft = /* @__PURE__ */ re(uRe()), fn = /* @__PURE__ */ re(Ws()), $n = /* @__PURE__ */ re("chat"), Xl = /* @__PURE__ */ re("balanced"), Ja = /* @__PURE__ */ re(null), wo = /* @__PURE__ */ re(null), Ji = /* @__PURE__ */ re(null), qn = Vx({
+    const Jo = X(() => bl(xe.value?.contextSnapshot?.authorNote)), Ut = X(() => Zr(xe.value?.state || {})), Ue = X(() => cs(Ut.value.contract)), Ge = X(() => !!(xe.value && String(xe.value.characterKey || "").trim())), ye = /* @__PURE__ */ re(Ks()), Ft = /* @__PURE__ */ re(oRe()), fn = /* @__PURE__ */ re(Ws()), $n = /* @__PURE__ */ re("chat"), Xl = /* @__PURE__ */ re("balanced"), Ja = /* @__PURE__ */ re(null), wo = /* @__PURE__ */ re(null), Ji = /* @__PURE__ */ re(null), qn = Vx({
       totalItems: () => Re.value,
       defaultLimit: o,
       loadBatchSize: i
@@ -69728,7 +69702,7 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
     })), Xo = X(() => {
       const S = String(xe.value?.characterKey || Zs.value.character?.characterKey || "").trim();
       return (S ? ja(S, { optional: !0 }) : "") || String(xe.value?.contextSnapshot?.character?.nativeCharacterId || "").trim() || String(Zs.value.character?.nativeCharacterId || "").trim();
-    }), { activeAssistantPreset: Cc, applyHostChatPreset: Kb, handleApiConfigSaved: Wb, loadTavernUsers: zb, openSettingsWorkspace: If, openWorldbookWorkspace: Km, refreshPresets: Vb, refreshRegexFromHost: Gb, refreshRuntimeChatPresetFromHost: Wm, renderApiSettingsPanel: su, runtimeChatPreset: ws, selectSettingsWorkspace: Jb, settingsContext: Yb, syncApiSettingsConfigFromAgentConfig: Ss, syncChatPresetFromHost: jb, syncWorldbooksFromHost: Xb } = cRe({
+    }), { activeAssistantPreset: Cc, applyHostChatPreset: Kb, handleApiConfigSaved: Wb, loadTavernUsers: zb, openSettingsWorkspace: If, openWorldbookWorkspace: Km, refreshPresets: Vb, refreshRegexFromHost: Gb, refreshRuntimeChatPresetFromHost: Wm, renderApiSettingsPanel: su, runtimeChatPreset: ws, selectSettingsWorkspace: Jb, settingsContext: Yb, syncApiSettingsConfigFromAgentConfig: Ss, syncChatPresetFromHost: jb, syncWorldbooksFromHost: Xb } = iRe({
       activeView: ye,
       activeSettingsWorkspace: Ft,
       agentConfig: r,
@@ -69936,9 +69910,9 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
       const H = Co(S.title || "");
       return H || "";
     }
-    const j3 = X(() => nw(xe.value) || Co(eo.value.name || "") || "未选择角色"), X3 = X(() => he.value ? j3.value : Co(Qb.value) || "未选择角色"), rw = X(() => xe.value?.state?.lastRequestSnapshot), Q3 = X(() => String(rw.value?.rawRequestJson || rw.value?.rawMessagesJson || "")), { archivedManagerRuns: Z3, currentManagerWorkRun: eH, formatRunActivityLine: tH, formatRunIssueLine: nH, formatRunInputLine: rH, formatRunMapLine: aH, formatRunMemoryLine: sH, formatRunModelLine: oH, formatRunTaskLine: iH, hiddenManagerRunCount: lH, isManagerRunLive: uH, managerBusy: xf, managerRunTone: cH, managerStatusClock: dH, managerStatusLabel: fH, managerToolStatusLabel: hH, managerToolTone: pH, managerToolTraceItems: mH, toolTraceSummary: gH } = f1e({
+    const j3 = X(() => nw(xe.value) || Co(eo.value.name || "") || "未选择角色"), X3 = X(() => he.value ? j3.value : Co(Qb.value) || "未选择角色"), rw = X(() => xe.value?.state?.lastRequestSnapshot), Q3 = X(() => String(rw.value?.rawRequestJson || rw.value?.rawMessagesJson || "")), { archivedManagerRuns: Z3, currentManagerWorkRun: eH, formatRunActivityLine: tH, formatRunIssueLine: nH, formatRunInputLine: rH, formatRunMapLine: aH, formatRunMemoryLine: sH, formatRunModelLine: oH, formatRunTaskLine: iH, hiddenManagerRunCount: lH, isManagerRunLive: uH, managerBusy: xf, managerRunTone: cH, managerStatusClock: dH, managerStatusLabel: fH, managerToolStatusLabel: hH, managerToolTone: pH, managerToolTraceItems: mH, toolTraceSummary: gH } = u1e({
       managerRuns: Fe,
-      visibleRunLimit: kRe
+      visibleRunLimit: wRe
     }), Mf = Hme({
       selectedSessionId: he,
       effectiveContext: Zs,
@@ -69995,7 +69969,7 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
       return Bm.set(S, H), H;
     }
     function UE(S = "") {
-      const R = S === "turns" ? TRe : n0, H = Number(Nn.value[S]);
+      const R = S === "turns" ? SRe : n0, H = Number(Nn.value[S]);
       return Number.isFinite(H) && H > 0 ? Math.floor(H) : R;
     }
     function yH(S = "") {
@@ -70147,7 +70121,7 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
       };
     }
     const Rf = bpe({
-      throttleMs: IRe,
+      throttleMs: ARe,
       resolveText: async (S) => {
         const R = await Pf([{
           id: S.key,
@@ -71345,7 +71319,7 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
       const ge = Number(R);
       await Fy(H, (Number.isFinite(ge) ? Math.floor(ge) : (await vv(H, Number.POSITIVE_INFINITY))?.order) ?? -1);
     }
-    const { discardMemoryDraft: SC, enterMemoryEditMode: UK, formatMemoryFileMeta: qK, invalidateMemoryFileRecordLoad: Aw, loadMemoryFileIntoEditor: AC, loadSelectedMemoryFileRecord: HK, memoryFileStatusLabel: KK, previewMemoryDraft: WK, saveSelectedMemoryFile: zK, selectMemoryFile: VK } = h1e({
+    const { discardMemoryDraft: SC, enterMemoryEditMode: UK, formatMemoryFileMeta: qK, invalidateMemoryFileRecordLoad: Aw, loadMemoryFileIntoEditor: AC, loadSelectedMemoryFileRecord: HK, memoryFileStatusLabel: KK, previewMemoryDraft: WK, saveSelectedMemoryFile: zK, selectMemoryFile: VK } = c1e({
       memoryEditorBaseContent: dn,
       memoryEditorDocumentAvailable: qE,
       memoryEditorDraft: At,
@@ -72541,7 +72515,7 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
       "data-chat-font-size": a.value.chatFontSize,
       style: kn(sn.value)
     }, [
-      p("section", fRe, [
+      p("section", uRe, [
         ye.value === "home" ? (L(), Qt(bge, {
           key: 0,
           dark: fn.value,
@@ -72567,8 +72541,8 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
           onToggleTheme: R[3] || (R[3] = (H) => fn.value = !fn.value),
           onBack: R[4] || (R[4] = (H) => ye.value = "home")
         }, null, 8, ["dark"])) : ve("", !0),
-        ye.value === "chat" ? (L(), Qt(c1e, { key: 2 })) : ve("", !0),
-        ye.value === "settings" ? (L(), Qt(LPe, { key: 3 })) : ve("", !0)
+        ye.value === "chat" ? (L(), Qt(i1e, { key: 2 })) : ve("", !0),
+        ye.value === "settings" ? (L(), Qt(RPe, { key: 3 })) : ve("", !0)
       ]),
       be.value ? (L(), O("div", {
         key: be.value.id,
@@ -72576,7 +72550,7 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
         role: "status",
         "aria-live": "polite"
       }, z(be.value.message), 3)) : ve("", !0),
-      Ya.value ? (L(), Qt(bPe, {
+      Ya.value ? (L(), Qt(vPe, {
         key: 1,
         tab: Ys.value,
         "onUpdate:tab": R[5] || (R[5] = (H) => Ys.value = H),
@@ -72602,20 +72576,20 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
         key: 2,
         class: "character-worldbook-picker-overlay",
         onClick: en(pC, ["self"])
-      }, [p("section", hRe, [
+      }, [p("section", cRe, [
         p("header", null, [R[11] || (R[11] = p("strong", null, "选择角色世界书", -1)), p("button", {
           type: "button",
           class: "worldbook-picker-close",
           "aria-label": "关闭",
           onClick: pC
         })]),
-        v.value ? (L(), O("div", pRe, z(v.value), 1)) : ve("", !0),
-        p("div", mRe, [(L(!0), O(Ve, null, at(w.value, (H) => (L(), O("button", {
+        v.value ? (L(), O("div", dRe, z(v.value), 1)) : ve("", !0),
+        p("div", fRe, [(L(!0), O(Ve, null, at(w.value, (H) => (L(), O("button", {
           key: H,
           type: "button",
           disabled: P.value,
           onClick: (ge) => rK(H)
-        }, z(H), 9, gRe))), 128))])
+        }, z(H), 9, hRe))), 128))])
       ])])) : ve("", !0),
       (L(), Qt(n2, { to: "body" }, [ee.value ? (L(), O("div", {
         key: 0,
@@ -72632,20 +72606,20 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
         tabindex: "-1",
         onSubmit: en(eu, ["prevent"])
       }, [
-        p("header", vRe, [p("div", null, [p("strong", yRe, z(ee.value.title), 1)]), p("button", {
+        p("header", pRe, [p("div", null, [p("strong", mRe, z(ee.value.title), 1)]), p("button", {
           type: "button",
           class: "tavern-dialog-close",
           "aria-label": "关闭",
           onClick: R[7] || (R[7] = (H) => ya())
         })]),
-        p("div", _Re, [ee.value.message ? (L(), O("p", bRe, z(ee.value.message), 1)) : ve("", !0), ee.value.kind === "prompt" ? (L(), O("label", wRe, [Mn(p("input", {
+        p("div", gRe, [ee.value.message ? (L(), O("p", vRe, z(ee.value.message), 1)) : ve("", !0), ee.value.kind === "prompt" ? (L(), O("label", yRe, [Mn(p("input", {
           ref_key: "tavernDialogInputRef",
           ref: et,
           "onUpdate:modelValue": R[8] || (R[8] = (H) => ee.value.inputValue = H),
           type: "text",
           placeholder: ee.value.placeholder
-        }, null, 8, SRe), [[Ka, ee.value.inputValue]])])) : ve("", !0)]),
-        p("footer", ARe, [ee.value.kind !== "alert" ? (L(), O("button", {
+        }, null, 8, _Re), [[Ka, ee.value.inputValue]])])) : ve("", !0)]),
+        p("footer", bRe, [ee.value.kind !== "alert" ? (L(), O("button", {
           key: 0,
           ref_key: "tavernDialogCancelRef",
           ref: Ht,
@@ -72659,7 +72633,7 @@ var dRe = ["data-chat-font-size"], fRe = { class: "xb-os-stage" }, hRe = { class
           class: "tavern-dialog-button primary"
         }, z(tu.value), 513)])
       ], 34)], 34)) : ve("", !0)]))
-    ], 14, dRe));
+    ], 14, lRe));
   }
-}), CRe = ERe;
-T8(CRe).mount("#app");
+}), TRe = kRe;
+T8(TRe).mount("#app");

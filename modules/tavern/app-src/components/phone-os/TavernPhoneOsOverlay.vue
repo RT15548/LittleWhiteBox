@@ -92,7 +92,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleDocumentKeydown)
       :class="[`is-${phone.os.presentationMode.value}`]"
       role="dialog"
       aria-modal="true"
-      aria-label="小白 Phone OS"
+      aria-label="手机系统"
       tabindex="-1"
       @pointerdown="handleBackdropPointerDown"
     >
@@ -106,10 +106,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleDocumentKeydown)
       >
         <TavernPhoneSystemBar
           :mode="phone.os.presentationMode.value"
-          :app-name="phone.os.activeApp.value?.name"
           :is-home="phone.os.isHome.value"
           @close="phone.os.closePhone"
-          @home="phone.os.home"
         />
         <main class="tavern-phone-screen">
           <Transition

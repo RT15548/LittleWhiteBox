@@ -48,8 +48,7 @@ function previewText(message: TavernCommunicationMessageRecord | null, thread: T
   <section class="tavern-phone-app tavern-phone-thread-list">
     <header class="tavern-phone-app-head tavern-phone-messages-head">
       <div>
-        <span class="tavern-phone-overline">PRIVATE MESSAGES</span>
-        <h2>消息</h2>
+        <h2>信息</h2>
       </div>
       <button
         type="button"

@@ -17,9 +17,12 @@ function appBadge(app: TavernPhoneAppDefinition): number {
 </script>
 
 <template>
-  <section class="tavern-phone-home">
+  <section
+    class="tavern-phone-home"
+    :class="{ 'has-character-wallpaper': !!characterAvatar }"
+  >
     <div
-      class="tavern-phone-home-atmosphere"
+      class="tavern-phone-wallpaper"
       aria-hidden="true"
     >
       <img
@@ -27,12 +30,7 @@ function appBadge(app: TavernPhoneAppDefinition): number {
         :src="characterAvatar"
         alt=""
       >
-      <i />
-    </div>
-    <div class="tavern-phone-home-copy">
-      <span>PRIVATE STORY DEVICE</span>
-      <h2>小白</h2>
-      <p>属于这段故事的随身入口</p>
+      <span />
     </div>
     <div
       class="tavern-phone-app-grid"
@@ -63,11 +61,11 @@ function appBadge(app: TavernPhoneAppDefinition): number {
       </button>
     </div>
     <div
-      class="tavern-phone-home-signature"
+      v-if="apps.length"
+      class="tavern-phone-page-indicator"
       aria-hidden="true"
     >
-      <i />
-      <span>每段故事，都有自己的入口</span>
+      <i class="active" />
     </div>
   </section>
 </template>

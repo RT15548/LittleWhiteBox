@@ -23,30 +23,30 @@
     overflow: hidden;
     overscroll-behavior: contain;
     background:
-        radial-gradient(circle at 50% 46%, rgba(255, 246, 226, 0.08), transparent 34%),
-        rgba(15, 13, 12, 0.64);
-    backdrop-filter: blur(11px) saturate(0.78);
+        radial-gradient(circle at 50% 44%, rgba(140, 158, 181, 0.12), transparent 36%),
+        rgba(7, 9, 12, 0.72);
+    backdrop-filter: blur(14px) saturate(0.72);
     padding: max(10px, env(safe-area-inset-top, 0px)) 12px max(10px, env(safe-area-inset-bottom, 0px));
     outline: none;
 }
 
 .tavern-phone-device {
     position: relative;
-    width: min(404px, calc(100vw - 28px));
-    height: min(820px, calc(100dvh - 22px));
+    width: min(398px, calc(100vw - 28px));
+    height: min(824px, calc(100dvh - 22px));
     max-height: 96dvh;
     isolation: isolate;
-    border: 1px solid rgba(255, 255, 255, 0.19);
-    border-radius: 45px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 48px;
     background:
-        linear-gradient(112deg, rgba(255, 255, 255, 0.18), transparent 12% 76%, rgba(255, 255, 255, 0.10)),
-        linear-gradient(155deg, #393b3f 0%, #17181a 18%, #090a0b 60%, #292b2f 100%);
+        linear-gradient(112deg, rgba(255, 255, 255, 0.24), transparent 11% 78%, rgba(255, 255, 255, 0.12)),
+        linear-gradient(155deg, #4b4d50 0%, #202225 17%, #090a0c 60%, #303236 100%);
     box-shadow:
         0 44px 110px rgba(0, 0, 0, 0.52),
         0 16px 38px rgba(0, 0, 0, 0.36),
         inset 0 0 0 1px rgba(255, 255, 255, 0.08),
-        inset 0 0 0 3px rgba(0, 0, 0, 0.70);
-    padding: 7px;
+        inset 0 0 0 3px rgba(0, 0, 0, 0.76);
+    padding: 6px;
     transform-origin: 50% 108%;
 }
 
@@ -56,10 +56,10 @@
     height: 100%;
     min-height: 0;
     display: grid;
-    grid-template-rows: 44px minmax(0, 1fr) 22px;
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 38px;
+    border-radius: 41px;
     background: var(--phone-os-screen);
     color: var(--phone-os-ink);
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.84);
@@ -71,11 +71,11 @@
     position: absolute;
     inset: 1px 1px auto;
     z-index: 30;
-    height: 18%;
-    border-radius: 37px 37px 48% 45%;
-    background: linear-gradient(130deg, rgba(255, 255, 255, 0.10), transparent 38% 100%);
+    height: 12%;
+    border-radius: 40px 40px 52% 48%;
+    background: linear-gradient(130deg, rgba(255, 255, 255, 0.08), transparent 42% 100%);
     pointer-events: none;
-    opacity: 0.42;
+    opacity: 0.28;
 }
 
 .tavern-phone-side-button {
@@ -120,48 +120,20 @@
 .tavern-phone-side-button-volume-down::before {right: 19px;}
 
 .tavern-phone-systembar {
-    position: relative;
+    position: absolute;
+    inset: 0 0 auto;
     z-index: 35;
+    height: 42px;
     min-width: 0;
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    display: flex;
     align-items: center;
-    gap: 8px;
-    background: color-mix(in srgb, var(--phone-os-screen) 92%, transparent);
-    padding: 4px 11px 0 16px;
+    justify-content: flex-end;
+    background: color-mix(in srgb, var(--phone-os-screen) 86%, transparent);
+    backdrop-filter: blur(16px) saturate(1.12);
+    padding: 4px 10px 0 12px;
 }
 
-.tavern-phone-brand-mark {
-    justify-self: start;
-    color: var(--phone-os-muted);
-    font: 760 10px/1 var(--phone-os-font);
-    letter-spacing: 0.13em;
-}
-
-.tavern-phone-system-home {
-    justify-self: start;
-    width: 34px;
-    height: 34px;
-    display: grid;
-    place-items: center;
-    border: 0;
-    border-radius: 50%;
-    background: var(--phone-os-surface-soft);
-    color: var(--phone-os-ink);
-    padding: 0;
-}
-
-.tavern-phone-system-home .material-symbols-rounded {font-size: 18px;}
-
-.tavern-phone-system-title {
-    max-width: 150px;
-    overflow: hidden;
-    color: var(--phone-os-ink);
-    font: 670 11px/1 var(--phone-os-font);
-    letter-spacing: 0.02em;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
+.tavern-phone-systembar.is-home {background: linear-gradient(180deg, rgba(5, 8, 12, 0.28), transparent); backdrop-filter: none;}
 
 .tavern-phone-system-actions,
 .tavern-phone-system-icons {
@@ -170,8 +142,9 @@
     align-items: center;
 }
 
-.tavern-phone-system-actions {gap: 7px;}
-.tavern-phone-system-icons {gap: 6px; color: var(--phone-os-ink);}
+.tavern-phone-system-actions {gap: 8px;}
+.tavern-phone-system-icons {gap: 6px; color: var(--phone-os-ink); filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.16));}
+.tavern-phone-systembar.is-home .tavern-phone-system-icons {color: #fff;}
 
 .tavern-phone-signal {
     height: 11px;
@@ -222,21 +195,21 @@
 }
 
 .tavern-phone-system-close {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
     display: grid;
     place-items: center;
     border: 0;
     border-radius: 50%;
-    background: var(--phone-os-surface-soft);
+    background: color-mix(in srgb, var(--phone-os-surface) 72%, transparent);
     color: var(--phone-os-ink);
     padding: 0;
 }
 
-.tavern-phone-system-close .material-symbols-rounded {font-size: 23px;}
+.tavern-phone-system-close .material-symbols-rounded {font-size: 21px;}
+.tavern-phone-systembar.is-home .tavern-phone-system-close {background: rgba(9, 12, 16, 0.22); color: #fff; backdrop-filter: blur(12px);}
 
-.tavern-phone-device .tavern-phone-system-close:hover:not(:disabled),
-.tavern-phone-device .tavern-phone-system-home:hover:not(:disabled) {
+.tavern-phone-device .tavern-phone-system-close:hover:not(:disabled) {
     border-color: transparent;
     background: color-mix(in srgb, var(--phone-os-blue) 10%, var(--phone-os-surface-soft));
     color: var(--phone-os-ink);
@@ -252,12 +225,17 @@
 }
 
 .tavern-phone-system-navigation {
-    position: relative;
+    position: absolute;
+    inset: auto 0 0;
     z-index: 35;
+    height: 24px;
     display: grid;
     place-items: center;
-    background: var(--phone-os-screen);
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--phone-os-screen) 88%, transparent) 58%);
+    pointer-events: none;
 }
+
+.tavern-phone-system-navigation.is-home {background: linear-gradient(180deg, transparent, rgba(4, 7, 10, 0.24));}
 
 .tavern-phone-home-control {
     width: 142px;
@@ -267,6 +245,7 @@
     border: 0;
     background: transparent;
     padding: 0;
+    pointer-events: auto;
 }
 
 .tavern-phone-home-control span {
@@ -278,6 +257,11 @@
     transition: width 0.18s ease, opacity 0.18s ease;
 }
 
+.tavern-phone-system-navigation.is-home .tavern-phone-home-control span {
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.32);
+}
+
 .tavern-phone-home-control:not(:disabled):hover span {width: 124px; opacity: 1;}
 .tavern-phone-device .tavern-phone-home-control:hover:not(:disabled) {
     border-color: transparent;
@@ -287,7 +271,6 @@
 .tavern-phone-home-control:disabled {cursor: default; opacity: 0.76;}
 
 .tavern-phone-system-close:focus-visible,
-.tavern-phone-system-home:focus-visible,
 .tavern-phone-side-button-power:focus-visible,
 .tavern-phone-home-control:focus-visible,
 .tavern-phone-app-icon-button:focus-visible,

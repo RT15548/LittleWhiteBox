@@ -1203,7 +1203,9 @@ test('tavern phone OS drives registered apps through a generic definition contra
     const appStageSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneAppStage.vue');
     const deviceFrameSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneDeviceFrame.vue');
     const homeSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneHome.vue');
+    const systemNavigationSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneSystemNavigation.vue');
     const messagesAppSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesApp.vue');
+    const messagesThreadListSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesThreadList.vue');
     const viewportSource = readRepoFile('modules/tavern/app-src/features/phone-os/useTavernPhoneViewport.ts');
     const mobileSource = readRepoFile('modules/tavern/app-src/styles/phone-os/mobile.css');
 
@@ -1247,6 +1249,12 @@ test('tavern phone OS drives registered apps through a generic definition contra
     assert.doesNotMatch(appStageSource, /TAVERN_PHONE_MESSAGES_APP_ID|TavernMessagesApp/);
     assert.match(homeSource, /unref\(app\.badge\)/);
     assert.doesNotMatch(homeSource, /app\.id === 'messages'|unreadTotal/);
+    assert.match(homeSource, /tavern-phone-wallpaper/);
+    assert.match(homeSource, /tavern-phone-app-grid/);
+    assert.match(homeSource, /tavern-phone-page-indicator/);
+    assert.doesNotMatch(homeSource, /PRIVATE STORY DEVICE|属于这段故事的随身入口|每段故事，都有自己的入口/);
+    assert.doesNotMatch(messagesThreadListSource, /PRIVATE MESSAGES/);
+    assert.match(systemNavigationSource, /:class="\{ 'is-home': isHome \}"/);
     assert.match(messagesAppSource, /TavernMessagesThreadList/);
     assert.match(messagesAppSource, /TavernMessagesConversation/);
     assert.match(messagesAppSource, /<KeepAlive>/);
@@ -1255,6 +1263,7 @@ test('tavern phone OS drives registered apps through a generic definition contra
     assert.match(mobileSource, /\.tavern-phone-device\.is-mobile-fullscreen/);
     assert.match(mobileSource, /border-radius: 0/);
     assert.match(mobileSource, /--phone-viewport-offset-top/);
+    assert.doesNotMatch(mobileSource, /tavern-phone-system-navigation \{display: none/);
     assert.match(deviceFrameSource, /viewportOffsetTop/);
     assert.match(deviceFrameSource, /viewportOffsetLeft/);
     assert.match(viewportSource, /pointer: coarse/);
