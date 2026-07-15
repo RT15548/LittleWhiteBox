@@ -51,8 +51,8 @@ import type {
     TavernCharacterArchiveRecord,
 } from '../shared/character-archive-types';
 import {
-    appendPendingTavernCommunicationMessage,
-    completeTavernCommunicationExchange,
+    appendSentTavernCommunicationMessage,
+    completeTavernCommunicationReply,
     createTavernCommunicationContact,
     listTavernCommunicationContacts,
     listTavernCommunicationMessages,
@@ -247,13 +247,17 @@ async function seedArchiveSource() {
         name: 'Phone Contact',
         source: 'manual',
     });
-    const phoneMessage = await appendPendingTavernCommunicationMessage({
+    const phoneMessage = await appendSentTavernCommunicationMessage({
         sessionId: a1.id,
         threadId: thread.id,
         content: 'phone hello',
     });
-    await completeTavernCommunicationExchange({ pendingMessage: phoneMessage, replies: ['phone reply'] });
-    await appendPendingTavernCommunicationMessage({
+    await completeTavernCommunicationReply({
+        userMessage: phoneMessage.message,
+        replyRequestId: phoneMessage.replyRequest.id,
+        replies: ['phone reply'],
+    });
+    await appendSentTavernCommunicationMessage({
         sessionId: a1.id,
         threadId: thread.id,
         content: 'phone interrupted',
@@ -485,9 +489,10 @@ test('tavern character archive restore replaces only the current character and r
         [
             ['phone hello', 'sent'],
             ['phone reply', 'sent'],
-            ['phone interrupted', 'failed'],
+            ['phone interrupted', 'sent'],
         ],
     );
+    assert.equal(restoredPhoneThreads[0]?.replyRequest?.status, 'failed');
     assert.equal((await tavernManagerTaskSnapshotsTable.get('restore-job-test-run-a-1'))?.sessionId, restoredA1);
     assert.equal((await tavernTaskSnapshotsTable.get([restoredA1, 2]))?.tasks[0]?.sessionId, restoredA1);
     assert.deepEqual((await tavernTaskFingerprintStatesTable.get(restoredA1))?.abandonedFingerprints, ['fp-abandoned']);

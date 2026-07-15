@@ -38,8 +38,6 @@ function initial(name = ''): string {
 
 function previewText(message: TavernCommunicationMessageRecord | null, thread: TavernCommunicationThreadRecord | null): string {
     if (!message) {return '轻触开始对话';}
-    if (message.status === 'failed') {return '发送失败，轻触查看';}
-    if (message.status === 'pending') {return '正在发送…';}
     if (message.role === 'user' && thread?.lastResult === 'unavailable') {return '暂时无法联系到对方';}
     if (message.role === 'user' && thread?.lastResult === 'silent') {return `你：${message.content} · 未回复`;}
     return `${message.role === 'user' ? '你：' : ''}${message.content}`;

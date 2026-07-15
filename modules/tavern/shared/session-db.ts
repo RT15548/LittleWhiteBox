@@ -110,7 +110,22 @@ export interface TavernMessageRecord {
 
 export type TavernCommunicationContactSource = 'character' | 'memory' | 'manual';
 export type TavernCommunicationMessageRole = 'user' | 'contact';
-export type TavernCommunicationMessageStatus = 'pending' | 'sent' | 'failed';
+export type TavernCommunicationMessageStatus = 'sent';
+export type TavernCommunicationReplyRequestStatus = 'pending' | 'failed';
+
+export const TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR = '回复请求已中断，请重试。';
+export const TAVERN_COMMUNICATION_REPLY_LEASE_MS = 90_000;
+
+export interface TavernCommunicationReplyRequestRecord {
+    id: string;
+    userSequence: number;
+    anchorOrder: number;
+    status: TavernCommunicationReplyRequestStatus;
+    error?: string;
+    createdAt: number;
+    updatedAt: number;
+    leaseExpiresAt: number;
+}
 
 export interface TavernCommunicationContactRecord {
     sessionId: string;
@@ -131,6 +146,7 @@ export interface TavernCommunicationThreadRecord {
     summarizedThroughSequence?: number;
     unreadCount: number;
     lastResult?: 'reply' | 'silent' | 'unavailable';
+    replyRequest?: TavernCommunicationReplyRequestRecord;
     createdAt: number;
     updatedAt: number;
 }
@@ -147,7 +163,6 @@ export interface TavernCommunicationMessageRecord {
     updatedAt: number;
     provider?: string;
     model?: string;
-    error?: string;
 }
 
 export interface TavernCommunicationSnapshotRecord {
@@ -789,18 +804,31 @@ function cloneSerializable<T>(value: T, fallback: T): T {
     }
 }
 
+function cloneStableCommunicationThread(
+    thread: TavernCommunicationThreadRecord,
+    sessionId: string,
+): TavernCommunicationThreadRecord {
+    const cloned = cloneSerializable(thread, thread);
+    return {
+        ...cloned,
+        sessionId,
+        ...(cloned.replyRequest?.status === 'pending' ? {
+            replyRequest: {
+                ...cloned.replyRequest,
+                status: 'failed' as const,
+                error: TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
+            },
+        } : {}),
+    };
+}
+
 function cloneStableCommunicationMessage(
     message: TavernCommunicationMessageRecord,
     sessionId: string,
 ): TavernCommunicationMessageRecord {
-    const cloned = cloneSerializable(message, message);
     return {
-        ...cloned,
+        ...cloneSerializable(message, message),
         sessionId,
-        ...(cloned.status === 'pending' ? {
-            status: 'failed' as const,
-            error: '发送已中断，请轻触重试。',
-        } : {}),
     };
 }
 
@@ -1212,10 +1240,9 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                     ...cloneSerializable(contact, contact),
                     sessionId: nextSessionId,
                 }))) : 0,
-                communicationThreads.length ? tavernCommunicationThreadsTable.bulkPut(communicationThreads.map((thread) => ({
-                    ...cloneSerializable(thread, thread),
-                    sessionId: nextSessionId,
-                }))) : 0,
+                communicationThreads.length ? tavernCommunicationThreadsTable.bulkPut(communicationThreads.map((thread) => (
+                    cloneStableCommunicationThread(thread, nextSessionId)
+                ))) : 0,
                 communicationMessages.length ? tavernCommunicationMessagesTable.bulkPut(communicationMessages.map((message) => (
                     cloneStableCommunicationMessage(message, nextSessionId)
                 ))) : 0,
@@ -1223,7 +1250,7 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                     ...cloneSerializable(snapshot, snapshot),
                     sessionId: nextSessionId,
                     contacts: (snapshot.contacts || []).map((contact) => ({ ...cloneSerializable(contact, contact), sessionId: nextSessionId })),
-                    threads: (snapshot.threads || []).map((thread) => ({ ...cloneSerializable(thread, thread), sessionId: nextSessionId })),
+                    threads: (snapshot.threads || []).map((thread) => cloneStableCommunicationThread(thread, nextSessionId)),
                     messages: (snapshot.messages || []).map((message) => cloneStableCommunicationMessage(message, nextSessionId)),
                 }))) : 0,
             ]);

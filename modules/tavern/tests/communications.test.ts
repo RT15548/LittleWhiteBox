@@ -8,28 +8,34 @@ import db, {
     deleteTavernSession,
     appendTavernMessage,
     tavernCommunicationSnapshotsTable,
+    tavernCommunicationThreadsTable,
 } from '../shared/session-db';
 import {
-    appendPendingTavernCommunicationMessage,
-    completeTavernCommunicationExchange,
+    appendSentTavernCommunicationMessage,
+    completeTavernCommunicationReply,
     createTavernCommunicationContact,
     describeTavernCommunicationRestoreImpact,
-    failTavernCommunicationMessage,
+    failTavernCommunicationReplyRequest,
     listTavernCommunicationContacts,
     listTavernCommunicationMessages,
     listTavernCommunicationTimelineEvents,
     listTavernCommunicationThreads,
     markTavernCommunicationThreadRead,
     reconcileTavernCommunicationContacts,
-    recoverInterruptedTavernCommunicationMessages,
+    recoverInterruptedTavernCommunicationReplyRequests,
     restoreTavernCommunicationsToFloor,
-    retryFailedTavernCommunicationMessage,
+    retryTavernCommunicationReplyRequest,
     saveTavernCommunicationSnapshot,
+    touchTavernCommunicationReplyRequest,
     trimTavernCommunicationSnapshotsFromFloor,
 } from '../shared/communications';
 import { buildTavernMessagesRequestMessages } from '../app-src/features/phone-os/apps/messages/tavern-messages-context';
 import { buildTavernAutomaticCommunicationContacts } from '../app-src/features/phone-os/apps/messages/tavern-messages-contacts';
 import { buildTavernPhonePromptMessages } from '../app-src/features/phone-os/apps/messages/tavern-messages-prompt';
+import {
+    extractBalancedJsonObjects,
+    parseTavernPhoneReply,
+} from '../app-src/features/phone-os/apps/messages/tavern-messages-response';
 import { XBTavernWorldPosition, type ActivatedWorldEntry } from '../shared/message-assembler';
 
 function activatedPhoneWorldEntry(content: string, position: XBTavernWorldPosition, depth = 0): ActivatedWorldEntry {
@@ -49,6 +55,59 @@ function activatedPhoneWorldEntry(content: string, position: XBTavernWorldPositi
         contentChars: content.length,
     };
 }
+
+function longPhonePromptValue(label: string): string {
+    return `${label}_START\n{{${label}_PLACEHOLDER}}\n${'x'.repeat(12_050)}\n${label}_END`;
+}
+
+type PreparedPhoneReplyRequest = Awaited<ReturnType<typeof appendSentTavernCommunicationMessage>>;
+
+function completePhoneReply(
+    prepared: PreparedPhoneReplyRequest,
+    input: Omit<Parameters<typeof completeTavernCommunicationReply>[0], 'userMessage' | 'replyRequestId'> = {},
+) {
+    return completeTavernCommunicationReply({
+        ...input,
+        userMessage: prepared.message,
+        replyRequestId: prepared.replyRequest.id,
+    });
+}
+
+function failPhoneReply(
+    prepared: PreparedPhoneReplyRequest,
+    error: unknown,
+) {
+    return failTavernCommunicationReplyRequest(prepared.message, prepared.replyRequest.id, error);
+}
+
+test('phone reply parser skips ordinary JSON and uses the first protocol-valid balanced object', () => {
+    const value = [
+        '前置说明里有一个坏花括号：{not json}',
+        '普通上下文对象：{"note":"不是短信协议"}',
+        '```json',
+        '{"result":"reply","messages":["字符串里的 { 花括号 } 不截断"],"summary":"已回复"}',
+        '```',
+        '尾部还有 {"ignored":true}',
+    ].join('\n');
+
+    assert.deepEqual(extractBalancedJsonObjects(value), [{ note: '不是短信协议' }, {
+        result: 'reply',
+        messages: ['字符串里的 { 花括号 } 不截断'],
+        summary: '已回复',
+    }, { ignored: true }]);
+    assert.deepEqual(parseTavernPhoneReply(value), {
+        result: 'reply',
+        messages: ['字符串里的 { 花括号 } 不截断'],
+        summary: '已回复',
+    });
+});
+
+test('phone reply parser rejects prose when no complete valid JSON object exists', () => {
+    assert.throws(
+        () => parseTavernPhoneReply('前缀 {"note":"只是普通对象"}，后面也没有短信协议。'),
+        /短信协议/,
+    );
+});
 
 test('phone contact discovery only exposes active NPC memory files', () => {
     const contacts = buildTavernAutomaticCommunicationContacts([
@@ -90,12 +149,12 @@ test('phone contact reconciliation preserves valid threads and removes experimen
         memoryPath: 'memory/characters/艾琳.md',
         source: 'memory',
     });
-    await appendPendingTavernCommunicationMessage({
+    await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: existingNpc.thread.id,
         content: '保留这条通讯',
     });
-    await appendPendingTavernCommunicationMessage({
+    await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: legacyManual.thread.id,
         content: '删除这条通讯',
@@ -122,6 +181,41 @@ test('phone contact reconciliation preserves valid threads and removes experimen
     assert.deepEqual(await listTavernCommunicationMessages(session.id, legacyManual.thread.id), []);
 });
 
+test('phone persistence rejects a second pending reply request in the same thread', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Phone concurrent send' });
+    const { thread } = await createTavernCommunicationContact({
+        sessionId: session.id,
+        name: '并发联系人',
+        source: 'manual',
+    });
+
+    const results = await Promise.allSettled([
+        appendSentTavernCommunicationMessage({ sessionId: session.id, threadId: thread.id, content: '第一条并发消息' }),
+        appendSentTavernCommunicationMessage({ sessionId: session.id, threadId: thread.id, content: '第二条并发消息' }),
+    ]);
+
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    assert.match(String(rejected?.reason?.message || rejected?.reason || ''), /communication_reply_request_pending/);
+    const messages = await listTavernCommunicationMessages(session.id, thread.id);
+    const storedThread = (await listTavernCommunicationThreads(session.id))[0];
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0]?.status, 'sent');
+    assert.equal(storedThread?.replyRequest?.status, 'pending');
+    assert.equal(storedThread?.replyRequest?.userSequence, messages[0]?.sequence);
+    assert.equal(await recoverInterruptedTavernCommunicationReplyRequests(session.id), 0);
+    await assert.rejects(
+        appendSentTavernCommunicationMessage({
+            sessionId: session.id,
+            threadId: thread.id,
+            content: '另一标签页不能借恢复逻辑覆盖活跃请求',
+        }),
+        /communication_reply_request_pending/,
+    );
+});
+
 test('phone message replies persist unread state until the thread is opened', async () => {
     await db.delete();
     await db.open();
@@ -131,13 +225,12 @@ test('phone message replies persist unread state until the thread is opened', as
         name: '艾琳',
         source: 'memory',
     });
-    const pending = await appendPendingTavernCommunicationMessage({
+    const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '在吗？',
     });
-    await completeTavernCommunicationExchange({
-        pendingMessage: pending,
+    await completePhoneReply(sent, {
         replies: ['在。', '刚看到。'],
         result: 'reply',
         unreadCountDelta: 2,
@@ -159,13 +252,12 @@ test('phone communications persist independently and anchor to the current Taver
     });
     await appendTavernMessage(session.id, { role: 'user', content: '我走进车站。' });
     await appendTavernMessage(session.id, { role: 'assistant', content: '雨水顺着站台顶棚落下。' });
-    const pending = await appendPendingTavernCommunicationMessage({
+    const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '你在哪？',
     });
-    await completeTavernCommunicationExchange({
-        pendingMessage: pending,
+    await completePhoneReply(sent, {
         replies: ['我还在车站。', '你要过来吗？'],
         result: 'reply',
         summary: '玩家询问位置，艾琳仍在车站。',
@@ -208,13 +300,12 @@ test('silent and unavailable phone results never persist contradictory reply bub
         name: '静默联系人',
         source: 'manual',
     });
-    const pending = await appendPendingTavernCommunicationMessage({
+    const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '在吗？',
     });
-    await completeTavernCommunicationExchange({
-        pendingMessage: pending,
+    await completePhoneReply(sent, {
         result: 'silent',
         replies: ['这条不应该落库'],
         summary: '玩家尝试联系，对方未回复。',
@@ -229,7 +320,7 @@ test('silent and unavailable phone results never persist contradictory reply bub
     assert.equal(storedThread?.summary, '玩家尝试联系，对方未回复。');
 });
 
-test('failed phone messages retry without duplicating the user bubble and reanchor to the current story floor', async () => {
+test('failed phone reply requests preserve the sent user bubble and retry its original anchor', async () => {
     await db.delete();
     await db.open();
     const session = await createTavernSession({ title: 'Phone retry' });
@@ -238,24 +329,36 @@ test('failed phone messages retry without duplicating the user bubble and reanch
         name: '伊芙',
         source: 'manual',
     });
-    const pending = await appendPendingTavernCommunicationMessage({
+    const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '重试这一条',
     });
-    const failed = await failTavernCommunicationMessage(pending, new Error('network'));
-    assert.ok(failed);
-    const latestMain = await appendTavernMessage(session.id, { role: 'user', content: '剧情已经继续。' });
-    const retried = await retryFailedTavernCommunicationMessage(failed);
+    assert.equal((await listTavernCommunicationMessages(session.id, thread.id))[0]?.status, 'sent');
+    assert.equal((await listTavernCommunicationThreads(session.id))[0]?.replyRequest?.status, 'pending');
+    const failedThread = await failPhoneReply(sent, new Error('network'));
+    assert.equal(sent.message.status, 'sent');
+    assert.equal(failedThread?.replyRequest?.status, 'failed');
+    await appendTavernMessage(session.id, { role: 'user', content: '剧情已经继续。' });
+    const retried = await retryTavernCommunicationReplyRequest(session.id, thread.id);
     const messages = await listTavernCommunicationMessages(session.id, thread.id);
 
-    assert.equal(retried.sequence, failed.sequence);
-    assert.equal(retried.anchorOrder, latestMain.order);
-    assert.equal(retried.status, 'pending');
+    assert.equal(retried.message.sequence, sent.message.sequence);
+    assert.equal(retried.message.anchorOrder, sent.message.anchorOrder);
+    assert.equal(retried.message.status, 'sent');
+    assert.equal(retried.replyRequest.status, 'pending');
+    assert.equal(retried.replyRequest.anchorOrder, sent.message.anchorOrder);
+    assert.notEqual(retried.replyRequest.id, sent.replyRequest.id);
+    assert.equal(await completeTavernCommunicationReply({
+        userMessage: sent.message,
+        replyRequestId: sent.replyRequest.id,
+        replies: ['旧尝试的迟到回复'],
+    }), null);
     assert.equal(messages.length, 1);
+    assert.equal(messages[0]?.status, 'sent');
 });
 
-test('retrying an older failed phone message moves it after later exchanges without overwriting them', async () => {
+test('sending after a failed reply request keeps the earlier message and starts a new request', async () => {
     await db.delete();
     await db.open();
     const session = await createTavernSession({ title: 'Phone retry after later messages' });
@@ -264,47 +367,30 @@ test('retrying an older failed phone message moves it after later exchanges with
         name: '伊芙',
         source: 'manual',
     });
-    const firstPending = await appendPendingTavernCommunicationMessage({
+    const first = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '较早失败消息',
     });
-    const firstFailed = await failTavernCommunicationMessage(firstPending, new Error('network'));
-    assert.ok(firstFailed);
-    const laterPending = await appendPendingTavernCommunicationMessage({
+    await failPhoneReply(first, new Error('network'));
+    const later = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '后续正常消息',
     });
-    await completeTavernCommunicationExchange({
-        pendingMessage: laterPending,
+    await completePhoneReply(later, {
         replies: ['后续正常回复'],
     });
 
-    const retried = await retryFailedTavernCommunicationMessage(firstFailed);
-    assert.equal(retried.sequence, 3);
     assert.deepEqual(
         (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => [message.sequence, message.content, message.status]),
         [
+            [0, '较早失败消息', 'sent'],
             [1, '后续正常消息', 'sent'],
             [2, '后续正常回复', 'sent'],
-            [3, '较早失败消息', 'pending'],
         ],
     );
-
-    await completeTavernCommunicationExchange({
-        pendingMessage: retried,
-        replies: ['重试后的回复'],
-    });
-    assert.deepEqual(
-        (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => [message.sequence, message.content]),
-        [
-            [1, '后续正常消息'],
-            [2, '后续正常回复'],
-            [3, '较早失败消息'],
-            [4, '重试后的回复'],
-        ],
-    );
+    assert.equal((await listTavernCommunicationThreads(session.id))[0]?.replyRequest, undefined);
 });
 
 test('phone communication snapshots restore and trim with accepted floors', async () => {
@@ -317,19 +403,19 @@ test('phone communication snapshots restore and trim with accepted floors', asyn
         source: 'manual',
     });
     await saveTavernCommunicationSnapshot(session.id, -1);
-    const first = await appendPendingTavernCommunicationMessage({
+    const first = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '第一条',
     });
-    await completeTavernCommunicationExchange({ pendingMessage: first, replies: ['收到'] });
+    await completePhoneReply(first, { replies: ['收到'] });
     await saveTavernCommunicationSnapshot(session.id, 2);
-    const second = await appendPendingTavernCommunicationMessage({
+    const second = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '第二条',
     });
-    await completeTavernCommunicationExchange({ pendingMessage: second, replies: ['稍后见'] });
+    await completePhoneReply(second, { replies: ['稍后见'] });
 
     const impact = await describeTavernCommunicationRestoreImpact(session.id, 2);
     assert.equal(impact.changed, true);
@@ -341,7 +427,7 @@ test('phone communication snapshots restore and trim with accepted floors', asyn
         (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => message.content),
         ['第一条', '收到'],
     );
-    assert.deepEqual(await completeTavernCommunicationExchange({ pendingMessage: second, replies: ['迟到回复'] }), []);
+    assert.equal(await completePhoneReply(second, { replies: ['迟到回复'] }), null);
     assert.deepEqual(
         (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => message.content),
         ['第一条', '收到'],
@@ -368,7 +454,7 @@ test('phone snapshots skip empty and unchanged state while rollback impact inclu
     assert.equal(impact.targetMessageCount, 0);
 });
 
-test('phone snapshots, recovery, and branching never preserve orphan pending messages', async () => {
+test('phone snapshots, recovery, and branching turn interrupted reply requests into retryable failures', async () => {
     await db.delete();
     await db.open();
     const session = await createTavernSession({ title: 'Phone interrupted' });
@@ -377,25 +463,49 @@ test('phone snapshots, recovery, and branching never preserve orphan pending mes
         name: '中断联系人',
         source: 'manual',
     });
-    const pending = await appendPendingTavernCommunicationMessage({
+    const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '这条请求会中断。',
     });
     const snapshot = await saveTavernCommunicationSnapshot(session.id, 1);
-    assert.equal(snapshot?.messages[0]?.status, 'failed');
+    assert.equal(snapshot?.messages[0]?.status, 'sent');
+    assert.equal(snapshot?.threads[0]?.replyRequest?.status, 'failed');
 
     const branch = await branchTavernSession(session.id);
     assert.ok(branch);
     const branchThread = (await listTavernCommunicationThreads(branch?.id || ''))[0];
-    assert.deepEqual(
-        (await listTavernCommunicationMessages(branch?.id || '', branchThread?.id || '')).map((message) => message.status),
-        ['failed'],
-    );
+    assert.equal((await listTavernCommunicationMessages(branch?.id || '', branchThread?.id || ''))[0]?.status, 'sent');
+    assert.equal(branchThread?.replyRequest?.status, 'failed');
 
-    assert.equal(await recoverInterruptedTavernCommunicationMessages(session.id), 1);
-    assert.equal((await listTavernCommunicationMessages(session.id, thread.id))[0]?.status, 'failed');
-    assert.deepEqual(await completeTavernCommunicationExchange({ pendingMessage: pending, replies: ['迟到回复'] }), []);
+    assert.equal(await recoverInterruptedTavernCommunicationReplyRequests(session.id), 0);
+    const pendingThread = (await listTavernCommunicationThreads(session.id))[0];
+    assert.ok(pendingThread?.replyRequest);
+    await tavernCommunicationThreadsTable.put({
+        ...pendingThread!,
+        replyRequest: {
+            ...pendingThread!.replyRequest!,
+            leaseExpiresAt: 0,
+        },
+    });
+    assert.equal(await touchTavernCommunicationReplyRequest({
+        sessionId: session.id,
+        threadId: thread.id,
+        replyRequestId: sent.replyRequest.id,
+    }), true);
+    assert.equal(await recoverInterruptedTavernCommunicationReplyRequests(session.id), 0);
+    const renewedThread = (await listTavernCommunicationThreads(session.id))[0];
+    await tavernCommunicationThreadsTable.put({
+        ...renewedThread!,
+        replyRequest: {
+            ...renewedThread!.replyRequest!,
+            leaseExpiresAt: 0,
+        },
+    });
+    assert.equal(await recoverInterruptedTavernCommunicationReplyRequests(session.id), 1);
+    assert.equal((await listTavernCommunicationMessages(session.id, thread.id))[0]?.status, 'sent');
+    assert.equal((await listTavernCommunicationThreads(session.id))[0]?.replyRequest?.status, 'failed');
+    assert.equal(await completePhoneReply(sent, { replies: ['迟到回复'] }), null);
 });
 
 test('reopening a phone thread after the main story advances creates a new timeline anchor', async () => {
@@ -404,20 +514,20 @@ test('reopening a phone thread after the main story advances creates a new timel
     const session = await createTavernSession({ title: 'Phone timeline anchors' });
     const contact = await createTavernCommunicationContact({ sessionId: session.id, name: '艾琳', source: 'manual' });
     await appendTavernMessage(session.id, { role: 'assistant', content: '第一处剧情位置。' });
-    const first = await appendPendingTavernCommunicationMessage({
+    const first = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: contact.thread.id,
         content: '第一段通讯。',
     });
-    await completeTavernCommunicationExchange({ pendingMessage: first, replies: ['第一段回复。'] });
+    await completePhoneReply(first, { replies: ['第一段回复。'] });
     await appendTavernMessage(session.id, { role: 'user', content: '剧情继续。' });
     await appendTavernMessage(session.id, { role: 'assistant', content: '抵达第二处位置。' });
-    const second = await appendPendingTavernCommunicationMessage({
+    const second = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: contact.thread.id,
         content: '第二段通讯。',
     });
-    await completeTavernCommunicationExchange({ pendingMessage: second, replies: ['第二段回复。'] });
+    await completePhoneReply(second, { replies: ['第二段回复。'] });
 
     assert.deepEqual(
         (await listTavernCommunicationMessages(session.id, contact.thread.id)).map((message) => message.anchorOrder),
@@ -449,13 +559,12 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
         memoryPath: 'memory/characters/艾琳.md',
         source: 'memory',
     });
-    const earlier = await appendPendingTavernCommunicationMessage({
+    const earlier = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: contact.thread.id,
         content: '之前的手机消息。',
     });
-    await completeTavernCommunicationExchange({
-        pendingMessage: earlier,
+    await completePhoneReply(earlier, {
         replies: ['之前的手机回复。'],
         summary: '艾琳答应保持联系。',
     });
@@ -465,21 +574,22 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
             content: `main-history-${order}`,
         });
     }
-    const pending = await appendPendingTavernCommunicationMessage({
+    const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: contact.thread.id,
         content: '现在剧情进行到哪里了？',
     });
     const currentThread = (await listTavernCommunicationThreads(session.id))
         .find((thread) => thread.id === contact.thread.id) || contact.thread;
+    const fullContactProfile = longPhonePromptValue('CONTEXT_CONTACT');
     const requestMessages = await buildTavernMessagesRequestMessages({
         sessionId: session.id,
         contextSnapshot: session.contextSnapshot || {},
         contact: contact.contact,
-        contactProfile: 'CONTACT_MEMORY_MARKER',
+        contactProfile: fullContactProfile,
         thread: currentThread,
         communicationMessages: await listTavernCommunicationMessages(session.id, contact.thread.id),
-        pendingMessage: pending,
+        userMessage: sent.message,
     });
     const raw = JSON.stringify(requestMessages);
     const roleMessage = requestMessages[0];
@@ -495,7 +605,8 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
     assert.match(settingMessage?.content || '', /^<setting>/);
     assert.match(settingMessage?.content || '', /<character_card>[\s\S]*## Character\n艾琳[\s\S]*## User\n玩家/);
     assert.doesNotMatch(settingMessage?.content || '', /## Description/);
-    assert.match(raw, /CONTACT_MEMORY_MARKER/);
+    assert.match(raw, /CONTEXT_CONTACT_END/);
+    assert.match(raw, /\{\{CONTEXT_CONTACT_PLACEHOLDER\}\}/);
     assert.doesNotMatch(raw, /NORMAL_MAIN_CHARACTER_CARD/);
     assert.match(raw, /之前的手机消息/);
     assert.match(raw, /之前的手机回复/);
@@ -570,6 +681,66 @@ test('phone prompt keeps the full contact memory once and excludes it from relat
     assert.equal(messages.at(-1)?.role, 'user');
 });
 
+test('phone prompt preserves full source content and placeholders beyond twelve thousand characters', () => {
+    const contact = {
+        id: 'contact-full',
+        sessionId: 'session-1',
+        name: '完整联系人',
+        memoryPath: 'memory/characters/完整联系人.md',
+        source: 'memory' as const,
+        createdAt: 1,
+        updatedAt: 1,
+    };
+    const values = Object.fromEntries([
+        'PERSONA',
+        'WORLD',
+        'HISTORY',
+        'STATE',
+        'CONTACT',
+        'RELATED',
+        'STATUS',
+        'SPATIAL',
+        'QUEST',
+        'DEPTH_ONE',
+    ].map((label) => [label, longPhonePromptValue(label)]));
+    const messages = buildTavernPhonePromptMessages({
+        context: { user: { name: '玩家', persona: values.PERSONA } },
+        contact,
+        contactProfile: values.CONTACT,
+        thread: {
+            id: 'thread-full',
+            sessionId: 'session-1',
+            contactId: contact.id,
+            unreadCount: 0,
+            createdAt: 1,
+            updatedAt: 1,
+        },
+        communicationMessages: [],
+        mainHistory: [{ role: 'assistant', content: values.HISTORY }],
+        incomingMessage: '在吗？',
+        anchorOrder: 1,
+        memoryContext: {
+            memoryFiles: [
+                { path: 'memory/state.md', content: values.STATE },
+                { path: 'memory/characters/相关人物.md', content: values.RELATED },
+            ],
+            statusPanelYaml: values.STATUS,
+            spatialState: values.SPATIAL,
+            questHooks: [values.QUEST],
+        },
+        activatedWorldEntries: [
+            activatedPhoneWorldEntry(values.WORLD, XBTavernWorldPosition.before),
+            activatedPhoneWorldEntry(values.DEPTH_ONE, XBTavernWorldPosition.atDepth, 1),
+        ],
+    });
+    const raw = JSON.stringify(messages);
+
+    Object.keys(values).forEach((label) => {
+        assert.match(raw, new RegExp(`${label}_END`));
+        assert.match(raw, new RegExp(`\\{\\{${label}_PLACEHOLDER\\}\\}`));
+    });
+});
+
 test('phone prompt omits the optional current-state envelope when every source is empty', () => {
     const contact = {
         id: 'contact-empty',
@@ -614,12 +785,12 @@ test('session branching clones phone state and session deletion cascades it', as
         name: '米娅',
         source: 'manual',
     });
-    const pending = await appendPendingTavernCommunicationMessage({
+    const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '晚上见。',
     });
-    await completeTavernCommunicationExchange({ pendingMessage: pending, replies: ['好。'] });
+    await completePhoneReply(sent, { replies: ['好。'] });
     await saveTavernCommunicationSnapshot(session.id, 1);
 
     const branch = await branchTavernSession(session.id);
@@ -633,13 +804,13 @@ test('session branching clones phone state and session deletion cascades it', as
         ['晚上见。', '好。'],
     );
 
-    const latePending = await appendPendingTavernCommunicationMessage({
+    const late = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: thread.id,
         content: '这条不应该在删除后复活。',
     });
     assert.equal(await deleteTavernSession(session.id), 1);
-    assert.deepEqual(await completeTavernCommunicationExchange({ pendingMessage: latePending, replies: ['迟到回复'] }), []);
+    assert.equal(await completePhoneReply(late, { replies: ['迟到回复'] }), null);
     assert.deepEqual(await listTavernCommunicationContacts(session.id), []);
     assert.deepEqual(await listTavernCommunicationThreads(session.id), []);
 });

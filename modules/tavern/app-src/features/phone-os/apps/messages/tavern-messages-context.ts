@@ -32,8 +32,8 @@ import {
     buildTavernPhoneThreadContextMessage,
 } from './tavern-messages-prompt';
 
-function normalizeText(value: unknown, limit = 12000): string {
-    return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, limit);
+function normalizeIncomingMessage(value: unknown): string {
+    return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, 2000);
 }
 
 const PHONE_ACTIVATION_PRESET: TavernChatPromptPresetBundle = {
@@ -95,15 +95,15 @@ export async function buildTavernMessagesRequestMessages(input: {
     contactProfile: string;
     thread: TavernCommunicationThreadRecord;
     communicationMessages: TavernCommunicationMessageRecord[];
-    pendingMessage: TavernCommunicationMessageRecord;
+    userMessage: TavernCommunicationMessageRecord;
 }): Promise<XbTavernMessage[]> {
     const session = await getTavernSession(input.sessionId);
     if (!session) {throw new Error('当前手机通讯会话不存在。');}
     const sessionState = normalizeTavernSessionState(session.state || {});
     const runtime = resolveTavernSessionContractRuntime(normalizeTavernSessionContract(sessionState.contract));
-    const incomingMessage = normalizeText(input.pendingMessage.content, 2000);
-    const anchorOrder = Number.isInteger(Number(input.pendingMessage.anchorOrder))
-        ? Number(input.pendingMessage.anchorOrder)
+    const incomingMessage = normalizeIncomingMessage(input.userMessage.content);
+    const anchorOrder = Number.isInteger(Number(input.userMessage.anchorOrder))
+        ? Number(input.userMessage.anchorOrder)
         : -1;
     const historyWindow = await loadTavernPromptHistoryWindow({
         sessionId: input.sessionId,
@@ -114,7 +114,7 @@ export async function buildTavernMessagesRequestMessages(input: {
     const baseContext = buildContactContext({
         context: input.contextSnapshot,
         contact: input.contact,
-        profile: normalizeText(input.contactProfile, 12000),
+        profile: input.contactProfile,
     });
     const mainHistory = buildContextHistory(historyWindow.historyMessages);
     const phoneThreadContext = buildTavernPhoneThreadContextMessage({
@@ -124,6 +124,7 @@ export async function buildTavernMessagesRequestMessages(input: {
         incomingMessage,
         anchorOrder,
         includeIncoming: false,
+        excludeUserSequence: input.userMessage.sequence,
     });
     const contextForBuild: XbTavernContext = {
         ...baseContext,
@@ -172,12 +173,13 @@ export async function buildTavernMessagesRequestMessages(input: {
     return buildTavernPhonePromptMessages({
         context: contextForBuild,
         contact: input.contact,
-        contactProfile: normalizeText(input.contactProfile, 12000),
+        contactProfile: input.contactProfile,
         thread: input.thread,
         communicationMessages: input.communicationMessages,
         mainHistory,
         incomingMessage,
         anchorOrder,
+        incomingUserSequence: input.userMessage.sequence,
         memoryContext,
         activatedWorldEntries: brain.buildResult.activatedWorldEntries,
     });

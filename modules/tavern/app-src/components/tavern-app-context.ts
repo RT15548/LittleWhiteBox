@@ -418,7 +418,7 @@ export interface TavernMessagesContext {
     openContact: TavernCommand<[contactId: string], Promise<boolean | undefined>>;
     prepareMessages: TavernCommand<[], Promise<void>>;
     refreshPhone: TavernCommand<[], Promise<void>>;
-    retryMessage: TavernCommand<[message: TavernCommunicationMessageRecord], Promise<void>>;
+    retryReplyRequest: TavernCommand<[], Promise<void>>;
     searchQuery: Ref<string>;
     sendBlockedReason: TavernReadable<string>;
     sendMessage: TavernCommand<[contentOverride?: string], Promise<void>>;

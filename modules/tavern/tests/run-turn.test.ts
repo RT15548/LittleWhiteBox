@@ -63,8 +63,8 @@ import { getTavilySearchToolDefinition, TAVILY_TOOL_NAME } from '../../agent-cor
 import { executeTavernTaskTool } from '../shared/tasks';
 import { executeTavernStatusTool, TAVERN_STATUS_TOOL_NAMES } from '../shared/status-state';
 import {
-    appendPendingTavernCommunicationMessage,
-    completeTavernCommunicationExchange,
+    appendSentTavernCommunicationMessage,
+    completeTavernCommunicationReply,
     createTavernCommunicationContact,
 } from '../shared/communications';
 import { createXbTavernAgentRuntime, EMPTY_XB_TAVERN_CAPABILITY_REGISTRY } from '../app-src/runtime/agent-runtime';
@@ -5610,13 +5610,14 @@ test('phone timeline events stay at their anchor and leave the main prompt with 
         name: '艾琳',
         source: 'manual',
     });
-    const pending = await appendPendingTavernCommunicationMessage({
+    const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: contact.thread.id,
         content: 'ANCHOR_PHONE_USER',
     });
-    await completeTavernCommunicationExchange({
-        pendingMessage: pending,
+    await completeTavernCommunicationReply({
+        userMessage: sent.message,
+        replyRequestId: sent.replyRequest.id,
         replies: ['ANCHOR_PHONE_REPLY'],
     });
     const agentConfig = {
@@ -5673,13 +5674,14 @@ test('accepted-turn manager receives phone events anchored immediately before th
         name: '艾琳',
         source: 'manual',
     });
-    const pending = await appendPendingTavernCommunicationMessage({
+    const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: contact.thread.id,
         content: 'MANAGER_PHONE_USER',
     });
-    await completeTavernCommunicationExchange({
-        pendingMessage: pending,
+    await completeTavernCommunicationReply({
+        userMessage: sent.message,
+        replyRequestId: sent.replyRequest.id,
         replies: ['MANAGER_PHONE_REPLY'],
     });
     const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '继续剧情。' });

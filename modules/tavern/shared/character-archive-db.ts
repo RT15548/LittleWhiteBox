@@ -20,8 +20,9 @@ import db, {
     tavernCommunicationMessagesTable,
     tavernCommunicationSnapshotsTable,
     tavernCommunicationThreadsTable,
-    type TavernCommunicationMessageRecord,
+    TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
     type TavernCommunicationSnapshotRecord,
+    type TavernCommunicationThreadRecord,
     type TavernManagerMemorySnapshotRecord,
     type TavernManagerStateSnapshotRecord,
     type TavernManagerTaskSnapshotRecord,
@@ -445,11 +446,14 @@ function remapArchiveRecord(
         const snapshot = record as unknown as TavernManagerTaskSnapshotRecord;
         record.beforeTasks = (snapshot.beforeTasks || []).map((task) => remapTask(task, options.mapSessionId, options.mapManagerRunId));
     }
-    if (table === 'communicationMessages') {
-        const message = record as unknown as TavernCommunicationMessageRecord;
-        if (message.status === 'pending') {
-            record.status = 'failed';
-            record.error = '发送已中断，请轻触重试。';
+    if (table === 'communicationThreads') {
+        const thread = record as unknown as TavernCommunicationThreadRecord;
+        if (thread.replyRequest?.status === 'pending') {
+            record.replyRequest = {
+                ...thread.replyRequest,
+                status: 'failed',
+                error: TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
+            };
         }
     }
     if (table === 'communicationSnapshots') {
@@ -461,14 +465,17 @@ function remapArchiveRecord(
         record.threads = (snapshot.threads || []).map((thread) => ({
             ...thread,
             sessionId: options.mapSessionId(thread.sessionId),
+            ...(thread.replyRequest?.status === 'pending' ? {
+                replyRequest: {
+                    ...thread.replyRequest,
+                    status: 'failed' as const,
+                    error: TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
+                },
+            } : {}),
         }));
         record.messages = (snapshot.messages || []).map((message) => ({
             ...message,
             sessionId: options.mapSessionId(message.sessionId),
-            ...(message.status === 'pending' ? {
-                status: 'failed' as const,
-                error: '发送已中断，请轻触重试。',
-            } : {}),
         }));
     }
     return { table, record } as unknown as TavernCharacterArchiveRecord;

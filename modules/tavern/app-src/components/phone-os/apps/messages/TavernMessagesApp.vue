@@ -41,9 +41,11 @@ const hasKnownRoute = computed(() => (
         :can-send="phone.messages.canSend.value"
         :status="phone.messages.status.value"
         :last-result="phone.messages.activeThread.value?.lastResult"
+        :reply-request="phone.messages.activeThread.value?.replyRequest"
+        :retry-blocked-reason="phone.messages.sendBlockedReason.value"
         :blocked-reason="phone.messages.sendBlockedReason.value"
         @back="phone.os.back"
-        @retry="phone.messages.retryMessage"
+        @retry="phone.messages.retryReplyRequest"
         @send="phone.messages.sendMessage()"
       />
     </KeepAlive>

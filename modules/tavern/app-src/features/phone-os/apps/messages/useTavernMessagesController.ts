@@ -1,16 +1,17 @@
-import { computed, ref, watch, type ComputedRef, type Ref } from 'vue';
+import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from 'vue';
 import {
-    appendPendingTavernCommunicationMessage,
-    completeTavernCommunicationExchange,
-    failTavernCommunicationMessage,
+    appendSentTavernCommunicationMessage,
+    completeTavernCommunicationReply,
+    failTavernCommunicationReplyRequest,
     getTavernCommunicationThreadForContact,
     listTavernCommunicationContacts,
     listTavernCommunicationMessages,
     listTavernCommunicationThreads,
     markTavernCommunicationThreadRead,
     reconcileTavernCommunicationContacts,
-    recoverInterruptedTavernCommunicationMessages,
-    retryFailedTavernCommunicationMessage,
+    recoverInterruptedTavernCommunicationReplyRequests,
+    retryTavernCommunicationReplyRequest,
+    touchTavernCommunicationReplyRequest,
 } from '../../../../../shared/communications';
 import {
     getTavernMemoryFile,
@@ -26,6 +27,7 @@ import type {
 import { runTavernOnce } from '../../../../runtime/run-once';
 import { buildTavernAutomaticCommunicationContacts } from './tavern-messages-contacts';
 import { buildTavernMessagesRequestMessages } from './tavern-messages-context';
+import { parseTavernPhoneReply } from './tavern-messages-response';
 
 export interface TavernPhoneControllerOptions {
     selectedSessionId: Ref<string>;
@@ -42,12 +44,6 @@ export interface TavernPhoneControllerOptions {
     isThreadVisible?: (sessionId: string, threadId: string) => boolean;
 }
 
-interface TavernPhoneReplyPayload {
-    result: 'reply' | 'silent' | 'unavailable';
-    messages: string[];
-    summary?: string;
-}
-
 interface TavernPhoneSendTask {
     sessionId: string;
     contextSnapshot: XbTavernContext;
@@ -60,52 +56,15 @@ function normalizeText(value: unknown, limit = 4000): string {
     return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, limit);
 }
 
+function phoneReplyErrorText(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error || 'communication_reply_failed');
+    if (message === 'communication_reply_request_pending') {return '对方仍在回复上一条消息。';}
+    if (message === 'communication_reply_completion_not_applied') {return '这次回复请求已失效，请重新获取。';}
+    return message;
+}
+
 function cloneSerializable<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function extractJsonObject(value = ''): Record<string, unknown> | null {
-    const text = String(value || '').trim();
-    const direct = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-    const candidates = [direct];
-    const start = direct.indexOf('{');
-    const end = direct.lastIndexOf('}');
-    if (start >= 0 && end > start) {candidates.push(direct.slice(start, end + 1));}
-    for (const candidate of candidates) {
-        try {
-            const parsed = JSON.parse(candidate);
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                return parsed as Record<string, unknown>;
-            }
-        } catch {
-            // Try the next bounded JSON candidate.
-        }
-    }
-    return null;
-}
-
-function parsePhoneReply(value = ''): TavernPhoneReplyPayload {
-    const parsed = extractJsonObject(value);
-    if (!parsed) {
-        const fallback = normalizeText(value, 500);
-        if (!fallback) {throw new Error('对方没有返回可读消息。');}
-        return { result: 'reply', messages: [fallback] };
-    }
-    const result = parsed.result === 'silent' || parsed.result === 'unavailable' ? parsed.result : 'reply';
-    const sourceMessages = Array.isArray(parsed.messages)
-        ? parsed.messages
-        : typeof parsed.reply === 'string'
-            ? [parsed.reply]
-            : [];
-    const messages = result === 'reply'
-        ? sourceMessages.map((item) => normalizeText(item, 500)).filter(Boolean).slice(0, 3)
-        : [];
-    if (result === 'reply' && !messages.length) {
-        throw new Error('对方没有返回可读消息。');
-    }
-    const normalizedSummary = typeof parsed.summary === 'string' ? normalizeText(parsed.summary, 200) : '';
-    const summary = normalizedSummary || undefined;
-    return { result, messages, summary };
 }
 
 export function useTavernMessagesController(options: TavernPhoneControllerOptions) {
@@ -122,10 +81,16 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
     const searchQuery = ref('');
     const isSending = ref(false);
     const sendingSessionId = ref('');
-    const activePending = ref<{ sessionId: string; threadId: string; sequence: number } | null>(null);
+    const activeReplyRequest = ref<{
+        sessionId: string;
+        threadId: string;
+        userSequence: number;
+        replyRequestId: string;
+    } | null>(null);
     let refreshSequence = 0;
     let openContactSequence = 0;
     let sessionChangeSequence = 0;
+    let interruptedRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const activeContact = computed(() => contacts.value.find((contact) => contact.id === activeContactId.value) || null);
     const activeThread = computed(() => threads.value.find((thread) => thread.id === activeThreadId.value) || null);
@@ -140,9 +105,12 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         }).map((contact) => contact.id);
     });
     const conversationSending = computed(() => (
-        isSending.value
-        && sendingSessionId.value === String(options.selectedSessionId.value || '').trim()
-        && activePending.value?.threadId === activeThreadId.value
+        activeThread.value?.replyRequest?.status === 'pending'
+        || (
+            isSending.value
+            && sendingSessionId.value === String(options.selectedSessionId.value || '').trim()
+            && activeReplyRequest.value?.threadId === activeThreadId.value
+        )
     ));
     const sendBlockedReason = computed(() => {
         if (!options.selectedSessionId.value) {return '请先进入一个会话。';}
@@ -152,6 +120,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         }
         if (options.memoryEditorMode.value === 'edit') {return '请先退出记忆编辑，再发送手机消息。';}
         if (options.characterArchiveBusy.value) {return '角色档案正在同步，暂时不能发送手机消息。';}
+        if (activeThread.value?.replyRequest?.status === 'pending') {return '对方正在回复上一条消息。';}
         if (isSending.value) {return '正在等待对方回复。';}
         return '';
     });
@@ -175,10 +144,41 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         };
     });
 
+    function clearInterruptedRecoveryTimer() {
+        if (interruptedRecoveryTimer !== null) {
+            clearTimeout(interruptedRecoveryTimer);
+            interruptedRecoveryTimer = null;
+        }
+    }
+
+    function scheduleInterruptedRecovery(
+        sessionId: string,
+        sessionThreads: TavernCommunicationThreadRecord[],
+    ) {
+        clearInterruptedRecoveryTimer();
+        const pendingLeaseExpirations = sessionThreads
+            .filter((thread) => thread.replyRequest?.status === 'pending')
+            .map((thread) => Number(thread.replyRequest?.leaseExpiresAt) || 0);
+        if (!pendingLeaseExpirations.length) {return;}
+        const nextExpiration = Math.min(...pendingLeaseExpirations);
+        const delay = Math.max(0, nextExpiration - Date.now() + 50);
+        interruptedRecoveryTimer = setTimeout(() => {
+            interruptedRecoveryTimer = null;
+            void (async () => {
+                if (sessionId !== String(options.selectedSessionId.value || '').trim()) {return;}
+                await recoverInterruptedReplyRequests(sessionId);
+                if (sessionId === String(options.selectedSessionId.value || '').trim()) {
+                    await refreshPhone();
+                }
+            })();
+        }, delay);
+    }
+
     async function refreshPhone() {
         const requestSequence = ++refreshSequence;
         const sessionId = String(options.selectedSessionId.value || '').trim();
         if (!sessionId) {
+            clearInterruptedRecoveryTimer();
             contacts.value = [];
             threads.value = [];
             messages.value = [];
@@ -218,21 +218,22 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         threadSearchText.value = Object.fromEntries(previewEntries.map((entry) => [entry.threadId, entry.searchText]));
         activeThreadId.value = nextActiveThreadId;
         messages.value = nextMessages;
+        scheduleInterruptedRecovery(sessionId, nextThreads);
     }
 
-    async function recoverInterruptedMessages(sessionId: string) {
-        const active = activePending.value;
+    async function recoverInterruptedReplyRequests(sessionId: string) {
+        const active = activeReplyRequest.value;
         if (isSending.value && sendingSessionId.value === sessionId && !active) {return;}
-        await recoverInterruptedTavernCommunicationMessages(
+        await recoverInterruptedTavernCommunicationReplyRequests(
             sessionId,
-            active?.sessionId === sessionId ? { threadId: active.threadId, sequence: active.sequence } : undefined,
+            active?.sessionId === sessionId ? active.replyRequestId : '',
         );
     }
 
     async function prepareMessages() {
         status.value = '';
         const sessionId = String(options.selectedSessionId.value || '').trim();
-        if (sessionId) {await recoverInterruptedMessages(sessionId);}
+        if (sessionId) {await recoverInterruptedReplyRequests(sessionId);}
         await refreshPhone();
     }
 
@@ -289,7 +290,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
 
     async function buildPhoneMessages(
         task: TavernPhoneSendTask,
-        pendingMessage: TavernCommunicationMessageRecord,
+        userMessage: TavernCommunicationMessageRecord,
     ) {
         const history = await listTavernCommunicationMessages(task.sessionId, task.thread.id);
         const contactMemory = task.contact.memoryPath
@@ -299,10 +300,10 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
             sessionId: task.sessionId,
             contextSnapshot: task.contextSnapshot,
             contact: task.contact,
-            contactProfile: normalizeText(contactMemory?.content || '', 12000),
+            contactProfile: String(contactMemory?.content || ''),
             thread: task.thread,
             communicationMessages: history,
-            pendingMessage,
+            userMessage,
         });
     }
 
@@ -311,45 +312,62 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
             && threadId === activeThreadId.value;
     }
 
-    async function runPendingMessage(
+    async function runReplyRequest(
         task: TavernPhoneSendTask,
-        preparePending: () => Promise<TavernCommunicationMessageRecord>,
+        prepareRequest: () => Promise<{
+            message: TavernCommunicationMessageRecord;
+            replyRequest: { id: string; userSequence: number };
+        }>,
     ) {
         isSending.value = true;
         sendingSessionId.value = task.sessionId;
-        status.value = `${task.contact.name}正在输入…`;
-        let pending: TavernCommunicationMessageRecord | null = null;
+        status.value = '';
+        let userMessage: TavernCommunicationMessageRecord | null = null;
+        let replyRequestId = '';
+        let replyHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
         try {
-            pending = await preparePending();
-            if (pending.sessionId !== task.sessionId || pending.threadId !== task.thread.id) {
+            const prepared = await prepareRequest();
+            userMessage = prepared.message;
+            replyRequestId = prepared.replyRequest.id;
+            if (userMessage.sessionId !== task.sessionId || userMessage.threadId !== task.thread.id) {
                 throw new Error('communication_send_task_mismatch');
             }
-            activePending.value = {
-                sessionId: pending.sessionId,
-                threadId: pending.threadId,
-                sequence: pending.sequence,
+            activeReplyRequest.value = {
+                sessionId: userMessage.sessionId,
+                threadId: userMessage.threadId,
+                userSequence: prepared.replyRequest.userSequence,
+                replyRequestId,
             };
+            replyHeartbeatTimer = setInterval(() => {
+                void touchTavernCommunicationReplyRequest({
+                    sessionId: userMessage!.sessionId,
+                    threadId: userMessage!.threadId,
+                    replyRequestId,
+                }).catch((): void => {});
+            }, 20_000);
             await refreshPhone();
             const result = await runTavernOnce({
                 agentConfig: task.agentConfig,
-                messages: await buildPhoneMessages(task, pending),
+                messages: await buildPhoneMessages(task, userMessage),
                 tools: [],
                 toolChoice: 'none',
             });
-            const payload = parsePhoneReply(result.text);
-            await completeTavernCommunicationExchange({
-                pendingMessage: pending,
+            const payload = parseTavernPhoneReply(result.text);
+            const completion = await completeTavernCommunicationReply({
+                userMessage,
+                replyRequestId,
                 replies: payload.messages,
                 result: payload.result,
                 summary: payload.summary,
                 provider: result.provider,
                 model: result.model,
                 unreadCountDelta: payload.result === 'reply'
-                    && !options.isThreadVisible?.(task.sessionId, pending.threadId)
+                    && !options.isThreadVisible?.(task.sessionId, userMessage.threadId)
                     ? payload.messages.length
                     : 0,
             });
-            if (isTaskVisible(task, pending.threadId)) {
+            if (completion === null) {throw new Error('communication_reply_completion_not_applied');}
+            if (isTaskVisible(task, userMessage.threadId)) {
                 status.value = payload.result === 'unavailable'
                     ? '暂时无法联系到对方'
                     : payload.result === 'silent'
@@ -357,14 +375,17 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
                         : '';
             }
         } catch (error) {
-            if (pending) {await failTavernCommunicationMessage(pending, error);}
-            if (isTaskVisible(task, pending?.threadId || task.thread.id)) {
-                status.value = error instanceof Error ? error.message : String(error || '发送失败');
+            const failedRequest = userMessage
+                ? await failTavernCommunicationReplyRequest(userMessage, replyRequestId, error)
+                : null;
+            if (isTaskVisible(task, userMessage?.threadId || task.thread.id)) {
+                status.value = failedRequest ? '' : phoneReplyErrorText(error);
             }
         } finally {
+            if (replyHeartbeatTimer !== null) {clearInterval(replyHeartbeatTimer);}
             isSending.value = false;
             sendingSessionId.value = '';
-            activePending.value = null;
+            activeReplyRequest.value = null;
             await refreshPhone();
         }
     }
@@ -381,24 +402,23 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         if (!content || !contact || !thread) {return;}
         const task = createSendTask(contact, thread);
         draft.value = '';
-        await runPendingMessage(task, () => appendPendingTavernCommunicationMessage({
+        await runReplyRequest(task, () => appendSentTavernCommunicationMessage({
             sessionId: task.sessionId,
             threadId: task.thread.id,
             content,
         }));
     }
 
-    async function retryMessage(message: TavernCommunicationMessageRecord) {
-        if (message.status !== 'failed') {return;}
+    async function retryReplyRequest() {
         const blocked = sendBlockedReason.value;
         const contact = activeContact.value;
         const thread = activeThread.value;
-        if (blocked || !contact || !thread || message.threadId !== thread.id) {
+        if (blocked || !contact || !thread || thread.replyRequest?.status !== 'failed') {
             status.value = blocked || '当前短信线程已经变化，无法重试。';
             return;
         }
         const task = createSendTask(contact, thread);
-        await runPendingMessage(task, () => retryFailedTavernCommunicationMessage(message));
+        await runReplyRequest(task, () => retryTavernCommunicationReplyRequest(task.sessionId, task.thread.id));
     }
 
     watch(options.selectedSessionId, (value) => {
@@ -414,7 +434,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         status.value = '';
         const sessionId = String(value || '').trim();
         void (async () => {
-            if (sessionId) {await recoverInterruptedMessages(sessionId);}
+            if (sessionId) {await recoverInterruptedReplyRequests(sessionId);}
             if (requestSequence !== sessionChangeSequence || sessionId !== String(options.selectedSessionId.value || '').trim()) {return;}
             await refreshPhone();
         })();
@@ -427,6 +447,10 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         files: options.memoryFiles.value.map((file) => [file.path, file.status]),
     }), () => {
         if (options.selectedSessionId.value) {void refreshPhone();}
+    });
+
+    onScopeDispose(() => {
+        clearInterruptedRecoveryTimer();
     });
 
     return {
@@ -447,7 +471,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         openContact,
         prepareMessages,
         refreshPhone,
-        retryMessage,
+        retryReplyRequest,
         searchQuery,
         sendBlockedReason,
         sendMessage,

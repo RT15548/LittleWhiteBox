@@ -1141,9 +1141,11 @@ test('tavern edit and delete route accepted rollback through its feature boundar
     assert.doesNotMatch(appSource, /restoreMemoryStateBeforeMessage|memoryRollbackNoticeForFloor/);
 });
 
-test('tavern phone pending work participates in chat and archive lifecycle guards', () => {
+test('tavern phone reply work participates in chat and archive lifecycle guards', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const phoneControllerSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/useTavernMessagesController.ts');
+    const communicationSource = readRepoFile('modules/tavern/shared/communications.ts');
+    const conversationSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesConversation.vue');
 
     assert.match(appSource, /function isPhoneSendingForSession\(sessionId = selectedSessionId\.value\)/);
     assert.match(appSource, /phoneContext\.messages\.isSending\.value && phoneContext\.messages\.sendingSessionId\.value === id/);
@@ -1151,16 +1153,28 @@ test('tavern phone pending work participates in chat and archive lifecycle guard
     assert.match(appSource, /async function backupSelectedCharacterArchive\(\) \{[\s\S]*if \(phoneContext\.messages\.isSending\.value\)/);
     assert.match(appSource, /async function restoreSelectedCharacterArchive\(\) \{[\s\S]*if \(phoneContext\.messages\.isSending\.value\)/);
     assert.match(appSource, /async function removeSession\(sessionId: string, event\?: Event\) \{[\s\S]*isPhoneSendingForSession\(sessionId\)/);
-    assert.match(phoneControllerSource, /recoverInterruptedTavernCommunicationMessages/);
+    assert.match(phoneControllerSource, /recoverInterruptedTavernCommunicationReplyRequests/);
     assert.match(phoneControllerSource, /isSending\.value && sendingSessionId\.value === sessionId && !active/);
     assert.match(phoneControllerSource, /interface TavernPhoneSendTask \{[\s\S]*sessionId: string;[\s\S]*contextSnapshot: XbTavernContext;[\s\S]*agentConfig: Record<string, unknown>;/);
     assert.match(phoneControllerSource, /contextSnapshot: cloneSerializable\(options\.effectiveContext\.value \|\| \{\}\)/);
     assert.match(phoneControllerSource, /sendingSessionId\.value = task\.sessionId/);
     assert.match(phoneControllerSource, /agentConfig: task\.agentConfig/);
-    assert.match(phoneControllerSource, /messages: await buildPhoneMessages\(task, pending\)/);
+    assert.match(phoneControllerSource, /messages: await buildPhoneMessages\(task, userMessage\)/);
     assert.match(phoneControllerSource, /sessionId: task\.sessionId/);
     assert.match(phoneControllerSource, /options\.memoryEditorMode\.value === 'edit'/);
     assert.match(phoneControllerSource, /options\.characterArchiveBusy\.value/);
+    assert.doesNotMatch(phoneControllerSource, /appendPendingTavernCommunicationMessage|failTavernCommunicationMessage|retryFailedTavernCommunicationMessage/);
+    assert.doesNotMatch(phoneControllerSource, /正在输入…/);
+    assert.match(communicationSource, /thread\.replyRequest\?\.status === 'pending'[\s\S]*communication_reply_request_pending/);
+    assert.match(communicationSource, /id: createId\('communication-reply-request'\)/);
+    assert.match(communicationSource, /replyRequest\.id !== replyRequestId/);
+    assert.match(communicationSource, /leaseExpiresAt: timestamp \+ TAVERN_COMMUNICATION_REPLY_LEASE_MS/);
+    assert.match(communicationSource, /Number\(thread\.replyRequest\?\.leaseExpiresAt\) <= timestamp/);
+    assert.match(phoneControllerSource, /touchTavernCommunicationReplyRequest/);
+    assert.match(phoneControllerSource, /active\.replyRequestId/);
+    assert.match(phoneControllerSource, /const completion = await completeTavernCommunicationReply[\s\S]*completion === null/);
+    assert.match(conversationSource, /:disabled="!!retryBlockedReason"/);
+    assert.match(conversationSource, /<small v-if="retryBlockedReason">/);
     assert.doesNotMatch(phoneControllerSource, /getTavernMemoryFile\(sessionId, 'memory\/state\.md'\)/);
 });
 
@@ -1168,6 +1182,7 @@ test('tavern phone context uses its own preset and timeline-anchored main-story 
     const phoneControllerSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/useTavernMessagesController.ts');
     const phoneContextSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/tavern-messages-context.ts');
     const phonePromptSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/tavern-messages-prompt.ts');
+    const phoneResponseSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/tavern-messages-response.ts');
     const phoneShellSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneSystemBar.vue');
     const phoneConversationSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesConversation.vue');
     const phoneContactListSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesThreadList.vue');
@@ -1187,6 +1202,14 @@ test('tavern phone context uses its own preset and timeline-anchored main-story 
     assert.match(phonePromptSource, /<current_state_and_memory>/);
     assert.match(phonePromptSource, /buildTavernPhoneThreadContextMessage/);
     assert.match(phonePromptSource, /isContactMemoryFile/);
+    assert.match(phoneResponseSource, /findBalancedJsonObjectEnd/);
+    assert.match(phoneResponseSource, /extractBalancedJsonObjects/);
+    assert.match(phoneResponseSource, /for \(const parsed of extractBalancedJsonObjects\(value\)\)/);
+    assert.match(phoneResponseSource, /JSON\.parse\(text\.slice\(start, end \+ 1\)\)/);
+    assert.doesNotMatch(phoneResponseSource, /indexOf\('\{'\)|lastIndexOf\('\}'\)|replace\(\/\^```/);
+    assert.doesNotMatch(phonePromptSource, /12000|slice\(0, 12000\)/);
+    assert.doesNotMatch(phoneContextSource, /contactProfile:\s*normalize|normalizeText\(input\.contactProfile/);
+    assert.doesNotMatch(phoneControllerSource, /normalizeText\(contactMemory\?\.content/);
     assert.doesNotMatch(phoneContextSource, /buildNativeChatPrompt|refreshRuntimeChatPresetFromHost/);
     assert.doesNotMatch(phoneContextSource, /new Date|Date\.now|formatTimestamp|sent_at=/);
     assert.match(communicationSource, /anchorOrder/);

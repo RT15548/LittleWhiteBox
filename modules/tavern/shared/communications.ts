@@ -5,16 +5,18 @@ import db, {
     tavernCommunicationThreadsTable,
     getLatestTavernMessage,
     tavernSessionsTable,
+    TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
+    TAVERN_COMMUNICATION_REPLY_LEASE_MS,
     type TavernCommunicationContactRecord,
     type TavernCommunicationContactSource,
     type TavernCommunicationMessageRecord,
+    type TavernCommunicationReplyRequestRecord,
     type TavernCommunicationSnapshotRecord,
     type TavernCommunicationThreadRecord,
 } from './session-db';
 import type { XbTavernHistoryMessage } from './message-assembler';
 
 export const TAVERN_COMMUNICATION_BASELINE_FLOOR = -1;
-export const TAVERN_COMMUNICATION_INTERRUPTED_ERROR = '发送已中断，请轻触重试。';
 
 function now(): number {
     return Date.now();
@@ -47,12 +49,16 @@ function normalizeContactSource(value: unknown): TavernCommunicationContactSourc
     return value === 'character' || value === 'memory' ? value : 'manual';
 }
 
-function normalizeArchivedMessage(message: TavernCommunicationMessageRecord): TavernCommunicationMessageRecord {
-    if (message.status !== 'pending') {return cloneSerializable(message);}
+function normalizeArchivedThread(thread: TavernCommunicationThreadRecord): TavernCommunicationThreadRecord {
+    const cloned = cloneSerializable(thread);
+    if (cloned.replyRequest?.status !== 'pending') {return cloned;}
     return {
-        ...cloneSerializable(message),
-        status: 'failed',
-        error: TAVERN_COMMUNICATION_INTERRUPTED_ERROR,
+        ...cloned,
+        replyRequest: {
+            ...cloned.replyRequest,
+            status: 'failed',
+            error: TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
+        },
     };
 }
 
@@ -78,6 +84,13 @@ function communicationStateFingerprint(input: {
             thread.summarizedThroughSequence ?? null,
             thread.unreadCount,
             thread.lastResult || '',
+            thread.replyRequest?.id || '',
+            thread.replyRequest?.userSequence ?? null,
+            thread.replyRequest?.anchorOrder ?? null,
+            thread.replyRequest?.status || '',
+            thread.replyRequest?.error || '',
+            thread.replyRequest?.createdAt ?? null,
+            thread.replyRequest?.updatedAt ?? null,
             thread.createdAt,
             thread.updatedAt,
         ]),
@@ -92,7 +105,6 @@ function communicationStateFingerprint(input: {
             message.updatedAt,
             message.provider || '',
             message.model || '',
-            message.error || '',
         ]),
     });
 }
@@ -341,11 +353,14 @@ export async function createTavernCommunicationContact(input: {
     );
 }
 
-export async function appendPendingTavernCommunicationMessage(input: {
+export async function appendSentTavernCommunicationMessage(input: {
     sessionId: string;
     threadId: string;
     content: string;
-}): Promise<TavernCommunicationMessageRecord> {
+}): Promise<{
+    message: TavernCommunicationMessageRecord;
+    replyRequest: TavernCommunicationReplyRequestRecord;
+}> {
     const sessionId = String(input.sessionId || '').trim();
     const threadId = String(input.threadId || '').trim();
     const content = normalizeMessageText(input.content);
@@ -362,6 +377,11 @@ export async function appendPendingTavernCommunicationMessage(input: {
         tavernCommunicationThreadsTable,
         tavernSessionsTable,
         async () => {
+            const thread = await tavernCommunicationThreadsTable.get([sessionId, threadId]);
+            if (!thread) {throw new Error('communication_thread_required');}
+            if (thread.replyRequest?.status === 'pending') {
+                throw new Error('communication_reply_request_pending');
+            }
             const existing = await listTavernCommunicationMessages(sessionId, threadId);
             const sequence = existing.reduce((max, message) => Math.max(max, message.sequence), -1) + 1;
             const record: TavernCommunicationMessageRecord = {
@@ -371,31 +391,43 @@ export async function appendPendingTavernCommunicationMessage(input: {
                 anchorOrder,
                 role: 'user',
                 content,
+                status: 'sent',
+                createdAt: timestamp,
+                updatedAt: timestamp,
+            };
+            const replyRequest: TavernCommunicationReplyRequestRecord = {
+                id: createId('communication-reply-request'),
+                userSequence: sequence,
+                anchorOrder,
                 status: 'pending',
                 createdAt: timestamp,
                 updatedAt: timestamp,
+                leaseExpiresAt: timestamp + TAVERN_COMMUNICATION_REPLY_LEASE_MS,
             };
             await tavernCommunicationMessagesTable.put(record);
             await tavernCommunicationThreadsTable.update([sessionId, threadId], {
                 lastResult: undefined,
+                replyRequest,
                 updatedAt: timestamp,
             });
             await tavernSessionsTable.update(sessionId, { updatedAt: timestamp });
-            return record;
+            return { message: record, replyRequest };
         },
     );
 }
 
-export async function completeTavernCommunicationExchange(input: {
-    pendingMessage: TavernCommunicationMessageRecord;
+export async function completeTavernCommunicationReply(input: {
+    userMessage: TavernCommunicationMessageRecord;
+    replyRequestId: string;
     replies?: string[];
     result?: 'reply' | 'silent' | 'unavailable';
     summary?: string;
     provider?: string;
     model?: string;
     unreadCountDelta?: number;
-}): Promise<TavernCommunicationMessageRecord[]> {
-    const pending = input.pendingMessage;
+}): Promise<TavernCommunicationMessageRecord[] | null> {
+    const userMessage = input.userMessage;
+    const replyRequestId = String(input.replyRequestId || '').trim();
     const timestamp = now();
     const normalizedReplies = (input.replies || []).map(normalizeMessageText).filter(Boolean).slice(0, 3);
     const result = input.result || (normalizedReplies.length ? 'reply' : 'silent');
@@ -408,25 +440,29 @@ export async function completeTavernCommunicationExchange(input: {
         tavernSessionsTable,
         async () => {
             const current = await tavernCommunicationMessagesTable.get([
-                pending.sessionId,
-                pending.threadId,
-                pending.sequence,
+                userMessage.sessionId,
+                userMessage.threadId,
+                userMessage.sequence,
             ]);
-            if (!current || current.status !== 'pending' || current.content !== pending.content) {
-                return [];
+            const currentThread = current
+                ? await tavernCommunicationThreadsTable.get([current.sessionId, current.threadId])
+                : null;
+            const replyRequest = currentThread?.replyRequest;
+            if (
+                !current
+                || current.role !== 'user'
+                || current.status !== 'sent'
+                || current.content !== userMessage.content
+                || replyRequest?.status !== 'pending'
+                || replyRequest.id !== replyRequestId
+                || replyRequest.userSequence !== current.sequence
+                || replyRequest.anchorOrder !== current.anchorOrder
+            ) {
+                return null;
             }
-            const currentThread = await tavernCommunicationThreadsTable.get([current.sessionId, current.threadId]);
-            const sent: TavernCommunicationMessageRecord = {
-                ...current,
-                status: 'sent',
-                updatedAt: timestamp,
-                provider: String(input.provider || ''),
-                model: String(input.model || ''),
-                error: '',
-            };
-            await tavernCommunicationMessagesTable.put(sent);
-            const records: TavernCommunicationMessageRecord[] = [sent];
-            let sequence = current.sequence + 1;
+            const existing = await listTavernCommunicationMessages(current.sessionId, current.threadId);
+            const records: TavernCommunicationMessageRecord[] = [];
+            let sequence = existing.reduce((max, message) => Math.max(max, message.sequence), -1) + 1;
             for (const content of replies) {
                 const reply: TavernCommunicationMessageRecord = {
                     sessionId: current.sessionId,
@@ -436,26 +472,26 @@ export async function completeTavernCommunicationExchange(input: {
                     role: 'contact',
                     content,
                     status: 'sent',
-                    createdAt: timestamp + sequence - current.sequence,
-                    updatedAt: timestamp + sequence - current.sequence,
+                    createdAt: timestamp + records.length,
+                    updatedAt: timestamp + records.length,
                     provider: String(input.provider || ''),
                     model: String(input.model || ''),
                 };
                 records.push(reply);
                 sequence += 1;
             }
-            if (records.length > 1) {
-                await tavernCommunicationMessagesTable.bulkPut(records.slice(1));
-            }
+            if (records.length) {await tavernCommunicationMessagesTable.bulkPut(records);}
+            const summarizedThroughSequence = records.at(-1)?.sequence ?? current.sequence;
             await tavernCommunicationThreadsTable.update([current.sessionId, current.threadId], {
                 lastResult: result,
+                replyRequest: undefined,
                 unreadCount: Math.max(
                     0,
                     (Number(currentThread?.unreadCount) || 0) + Math.max(0, Number(input.unreadCountDelta) || 0),
                 ),
                 ...(summary === undefined ? {} : {
                     summary,
-                    summarizedThroughSequence: summary ? sequence - 1 : undefined,
+                    summarizedThroughSequence: summary ? summarizedThroughSequence : undefined,
                 }),
                 updatedAt: timestamp,
             });
@@ -482,48 +518,51 @@ export async function markTavernCommunicationThreadRead(
     });
 }
 
-export async function failTavernCommunicationMessage(
-    message: TavernCommunicationMessageRecord,
+export async function failTavernCommunicationReplyRequest(
+    userMessage: TavernCommunicationMessageRecord,
+    replyRequestId: string,
     error: unknown,
-): Promise<TavernCommunicationMessageRecord | null> {
+): Promise<TavernCommunicationThreadRecord | null> {
+    replyRequestId = String(replyRequestId || '').trim();
     const timestamp = now();
     return await db.transaction(
         'rw',
-        tavernCommunicationMessagesTable,
         tavernCommunicationThreadsTable,
         tavernSessionsTable,
         async () => {
-            const current = await tavernCommunicationMessagesTable.get([
-                message.sessionId,
-                message.threadId,
-                message.sequence,
-            ]);
-            if (!current || current.status !== 'pending' || current.content !== message.content) {return null;}
-            const failed: TavernCommunicationMessageRecord = {
+            const thread = await tavernCommunicationThreadsTable.get([userMessage.sessionId, userMessage.threadId]);
+            const current = thread?.replyRequest;
+            if (
+                !thread
+                || current?.status !== 'pending'
+                || current.id !== replyRequestId
+                || current.userSequence !== userMessage.sequence
+                || current.anchorOrder !== userMessage.anchorOrder
+            ) {return null;}
+            const failed: TavernCommunicationReplyRequestRecord = {
                 ...current,
                 status: 'failed',
-                error: error instanceof Error ? error.message : String(error || 'communication_send_failed'),
+                error: error instanceof Error ? error.message : String(error || 'communication_reply_failed'),
                 updatedAt: timestamp,
             };
-            await tavernCommunicationMessagesTable.put(failed);
-            await tavernCommunicationThreadsTable.update([message.sessionId, message.threadId], { updatedAt: timestamp });
-            await tavernSessionsTable.update(message.sessionId, { updatedAt: timestamp });
-            return failed;
+            const next = { ...thread, replyRequest: failed, updatedAt: timestamp };
+            await tavernCommunicationThreadsTable.put(next);
+            await tavernSessionsTable.update(userMessage.sessionId, { updatedAt: timestamp });
+            return next;
         },
     );
 }
 
-export async function retryFailedTavernCommunicationMessage(
-    message: TavernCommunicationMessageRecord,
-): Promise<TavernCommunicationMessageRecord> {
-    if (message.status !== 'failed') {return message;}
-    const sessionId = String(message.sessionId || '').trim();
-    const threadId = String(message.threadId || '').trim();
+export async function retryTavernCommunicationReplyRequest(
+    sessionId = '',
+    threadId = '',
+): Promise<{
+    message: TavernCommunicationMessageRecord;
+    replyRequest: TavernCommunicationReplyRequestRecord;
+}> {
+    sessionId = String(sessionId || '').trim();
+    threadId = String(threadId || '').trim();
     if (!sessionId || !threadId) {throw new Error('communication_retry_unavailable');}
-    const latestMainMessage = await getLatestTavernMessage(sessionId);
-    const anchorOrder = Number.isInteger(Number(latestMainMessage?.order))
-        ? Number(latestMainMessage?.order)
-        : TAVERN_COMMUNICATION_BASELINE_FLOOR;
     const timestamp = now();
     return await db.transaction(
         'rw',
@@ -531,65 +570,92 @@ export async function retryFailedTavernCommunicationMessage(
         tavernCommunicationThreadsTable,
         tavernSessionsTable,
         async () => {
-            const current = await tavernCommunicationMessagesTable.get([sessionId, threadId, message.sequence]);
-            if (!current || current.status !== 'failed' || current.content !== message.content) {
+            const thread = await tavernCommunicationThreadsTable.get([sessionId, threadId]);
+            const failedRequest = thread?.replyRequest;
+            if (!thread || failedRequest?.status !== 'failed') {
                 throw new Error('communication_retry_unavailable');
             }
-            const threadMessages = await listTavernCommunicationMessages(sessionId, threadId);
-            const nextSequence = threadMessages
-                .filter((item) => item.sequence !== current.sequence)
-                .reduce((max, item) => Math.max(max, item.sequence), -1) + 1;
-            const pending: TavernCommunicationMessageRecord = {
-                ...current,
-                sequence: nextSequence,
-                anchorOrder,
+            const message = await tavernCommunicationMessagesTable.get([
+                sessionId,
+                threadId,
+                failedRequest.userSequence,
+            ]);
+            if (
+                !message
+                || message.role !== 'user'
+                || message.status !== 'sent'
+                || message.anchorOrder !== failedRequest.anchorOrder
+            ) {throw new Error('communication_retry_unavailable');}
+            const replyRequest: TavernCommunicationReplyRequestRecord = {
+                id: createId('communication-reply-request'),
+                userSequence: failedRequest.userSequence,
+                anchorOrder: failedRequest.anchorOrder,
                 status: 'pending',
                 createdAt: timestamp,
                 updatedAt: timestamp,
-                provider: '',
-                model: '',
-                error: '',
+                leaseExpiresAt: timestamp + TAVERN_COMMUNICATION_REPLY_LEASE_MS,
             };
-            if (nextSequence !== current.sequence) {
-                await tavernCommunicationMessagesTable.delete([sessionId, threadId, current.sequence]);
-            }
-            await tavernCommunicationMessagesTable.put(pending);
             await tavernCommunicationThreadsTable.update([sessionId, threadId], {
                 lastResult: undefined,
+                replyRequest,
                 updatedAt: timestamp,
             });
             await tavernSessionsTable.update(sessionId, { updatedAt: timestamp });
-            return pending;
+            return { message, replyRequest };
         },
     );
 }
 
-export async function recoverInterruptedTavernCommunicationMessages(
+export async function touchTavernCommunicationReplyRequest(input: {
+    sessionId: string;
+    threadId: string;
+    replyRequestId: string;
+}): Promise<boolean> {
+    const sessionId = String(input.sessionId || '').trim();
+    const threadId = String(input.threadId || '').trim();
+    const replyRequestId = String(input.replyRequestId || '').trim();
+    if (!sessionId || !threadId || !replyRequestId) {return false;}
+    const timestamp = now();
+    return await db.transaction('rw', tavernCommunicationThreadsTable, async () => {
+        const thread = await tavernCommunicationThreadsTable.get([sessionId, threadId]);
+        const replyRequest = thread?.replyRequest;
+        if (!thread || replyRequest?.status !== 'pending' || replyRequest.id !== replyRequestId) {return false;}
+        await tavernCommunicationThreadsTable.put({
+            ...thread,
+            replyRequest: {
+                ...replyRequest,
+                leaseExpiresAt: timestamp + TAVERN_COMMUNICATION_REPLY_LEASE_MS,
+            },
+        });
+        return true;
+    });
+}
+
+export async function recoverInterruptedTavernCommunicationReplyRequests(
     sessionId = '',
-    exclude?: { threadId: string; sequence: number },
+    excludeReplyRequestId = '',
 ): Promise<number> {
     const id = String(sessionId || '').trim();
     if (!id) {return 0;}
     return await db.transaction(
         'rw',
-        tavernCommunicationMessagesTable,
         tavernCommunicationThreadsTable,
         tavernSessionsTable,
         async () => {
-            const pending = (await tavernCommunicationMessagesTable.where('status').equals('pending').toArray())
-                .filter((message) => message.sessionId === id)
-                .filter((message) => !exclude || message.threadId !== exclude.threadId || message.sequence !== exclude.sequence);
-            if (!pending.length) {return 0;}
             const timestamp = now();
-            await tavernCommunicationMessagesTable.bulkPut(pending.map((message) => ({
-                ...message,
-                status: 'failed' as const,
-                error: TAVERN_COMMUNICATION_INTERRUPTED_ERROR,
-                updatedAt: timestamp,
-            })));
-            const threadIds = [...new Set(pending.map((message) => message.threadId))];
-            await Promise.all(threadIds.map((threadId) => tavernCommunicationThreadsTable.update([id, threadId], {
-                lastResult: undefined,
+            const pending = (await tavernCommunicationThreadsTable.where('sessionId').equals(id).toArray())
+                .filter((thread) => thread.replyRequest?.status === 'pending')
+                .filter((thread) => !excludeReplyRequestId || thread.replyRequest?.id !== excludeReplyRequestId)
+                .filter((thread) => Number(thread.replyRequest?.leaseExpiresAt) <= timestamp);
+            if (!pending.length) {return 0;}
+            await tavernCommunicationThreadsTable.bulkPut(pending.map((thread) => ({
+                ...thread,
+                replyRequest: {
+                    ...thread.replyRequest!,
+                    status: 'failed' as const,
+                    error: TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
+                    updatedAt: timestamp,
+                },
                 updatedAt: timestamp,
             })));
             await tavernSessionsTable.update(id, { updatedAt: timestamp });
@@ -609,19 +675,20 @@ export async function saveTavernCommunicationSnapshot(
         listTavernCommunicationThreads(id),
         listSessionMessages(id),
     ]);
-    const archivedMessages = messages.map(normalizeArchivedMessage);
+    const archivedThreads = threads.map(normalizeArchivedThread);
+    const archivedMessages = cloneSerializable(messages);
     const normalizedFloor = Number.isFinite(Number(floor))
         ? Math.floor(Number(floor))
         : TAVERN_COMMUNICATION_BASELINE_FLOOR;
     const effective = await getTavernCommunicationSnapshotAtOrBefore(id, normalizedFloor);
-    const currentFingerprint = communicationStateFingerprint({ contacts, threads, messages: archivedMessages });
-    if (!contacts.length && !threads.length && !archivedMessages.length && !effective) {return null;}
+    const currentFingerprint = communicationStateFingerprint({ contacts, threads: archivedThreads, messages: archivedMessages });
+    if (!contacts.length && !archivedThreads.length && !archivedMessages.length && !effective) {return null;}
     if (effective && communicationStateFingerprint(effective) === currentFingerprint) {return null;}
     const snapshot: TavernCommunicationSnapshotRecord = {
         sessionId: id,
         floor: normalizedFloor,
         contacts: cloneSerializable(contacts),
-        threads: cloneSerializable(threads),
+        threads: archivedThreads,
         messages: archivedMessages,
         createdAt: now(),
     };

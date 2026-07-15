@@ -3,6 +3,7 @@ import { nextTick, onActivated, onDeactivated, ref, watch } from 'vue';
 import type {
     TavernCommunicationContactRecord,
     TavernCommunicationMessageRecord,
+    TavernCommunicationReplyRequestRecord,
 } from '../../../../../shared/session-db';
 
 const props = defineProps<{
@@ -12,13 +13,15 @@ const props = defineProps<{
     canSend: boolean;
     status: string;
     lastResult?: 'reply' | 'silent' | 'unavailable';
+    replyRequest?: TavernCommunicationReplyRequestRecord;
+    retryBlockedReason: string;
     blockedReason: string;
 }>();
 
 const draft = defineModel<string>('draft', { required: true });
 const emit = defineEmits<{
     (event: 'back'): void;
-    (event: 'retry', message: TavernCommunicationMessageRecord): void;
+    (event: 'retry'): void;
     (event: 'send'): void;
 }>();
 
@@ -51,7 +54,7 @@ function handleMessageScroll() {
 }
 
 watch(
-    () => `${props.messages.length}:${props.sending}:${props.messages.at(-1)?.updatedAt || 0}`,
+    () => `${props.messages.length}:${props.sending}:${props.messages.at(-1)?.updatedAt || 0}:${props.replyRequest?.updatedAt || 0}`,
     async () => {
         await nextTick();
         if (shouldFollowLatest || props.sending) {
@@ -122,25 +125,9 @@ onActivated(async () => {
         v-for="message in messages"
         :key="`${message.threadId}:${message.sequence}`"
         class="tavern-phone-message-row"
-        :class="[
-          `is-${message.role}`,
-          `is-${message.status}`,
-        ]"
+        :class="`is-${message.role}`"
       >
         <span class="tavern-phone-message-bubble">{{ message.content }}</span>
-        <button
-          v-if="message.status === 'failed'"
-          type="button"
-          class="tavern-phone-message-meta"
-          aria-label="重新发送这条消息"
-          @click="emit('retry', message)"
-        >
-          发送失败 · 重新发送
-        </button>
-        <span
-          v-else-if="message.status === 'pending'"
-          class="tavern-phone-message-meta"
-        >发送中</span>
       </div>
       <div
         v-if="sending"
@@ -150,7 +137,22 @@ onActivated(async () => {
         <span><i /><i /><i /></span>
       </div>
       <div
-        v-if="!sending && (status || lastResult === 'silent' || lastResult === 'unavailable')"
+        v-if="!sending && replyRequest?.status === 'failed'"
+        class="tavern-phone-thread-status is-error"
+        role="status"
+      >
+        <span>{{ replyRequest.error || '没有取得对方回复' }}</span>
+        <button
+          type="button"
+          :disabled="!!retryBlockedReason"
+          @click="emit('retry')"
+        >
+          重新获取回复
+        </button>
+        <small v-if="retryBlockedReason">{{ retryBlockedReason }}</small>
+      </div>
+      <div
+        v-else-if="!sending && (status || lastResult === 'silent' || lastResult === 'unavailable')"
         class="tavern-phone-thread-status"
       >
         {{ status || (lastResult === 'unavailable' ? '暂时无法联系到对方' : '对方暂时没有回复') }}
