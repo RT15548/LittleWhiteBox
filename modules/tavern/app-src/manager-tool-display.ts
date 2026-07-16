@@ -1,5 +1,5 @@
 import type { XbTavernMessage } from '../shared/message-assembler';
-import type { TavernManagerMessageRecord } from '../shared/session-db';
+import type { TavernAssistantChatMessageRecord } from '../shared/session-db';
 
 export interface ManagerToolCallDisplayItem {
     id: string;
@@ -7,12 +7,12 @@ export interface ManagerToolCallDisplayItem {
     argumentsText: string;
     resultText: string;
     ok: boolean;
-    toolMessage?: TavernManagerMessageRecord;
+    toolMessage?: TavernAssistantChatMessageRecord;
 }
 
 export interface ManagerToolRoundDisplayItem {
-    assistantMessage: TavernManagerMessageRecord;
-    toolMessages: TavernManagerMessageRecord[];
+    assistantMessage: TavernAssistantChatMessageRecord;
+    toolMessages: TavernAssistantChatMessageRecord[];
     calls: ManagerToolCallDisplayItem[];
 }
 
@@ -20,7 +20,7 @@ export interface ManagerMessageDisplayItem {
     kind: 'message';
     key: string;
     anchorKey: string;
-    message: TavernManagerMessageRecord;
+    message: TavernAssistantChatMessageRecord;
 }
 
 export interface ManagerToolTurnDisplayItem {
@@ -28,8 +28,8 @@ export interface ManagerToolTurnDisplayItem {
     key: string;
     anchorKey: string;
     rounds: ManagerToolRoundDisplayItem[];
-    assistantMessage: TavernManagerMessageRecord;
-    toolMessages: TavernManagerMessageRecord[];
+    assistantMessage: TavernAssistantChatMessageRecord;
+    toolMessages: TavernAssistantChatMessageRecord[];
     calls: ManagerToolCallDisplayItem[];
 }
 
@@ -89,11 +89,11 @@ function shortText(value = '', limit = 180) {
     return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
-function managerMessageKey(message: Pick<TavernManagerMessageRecord, 'sessionId' | 'order'>) {
+function managerMessageKey(message: Pick<TavernAssistantChatMessageRecord, 'sessionId' | 'order'>) {
     return `manager:${message.sessionId}:${message.order}`;
 }
 
-function managerMessageHasToolCalls(message: TavernManagerMessageRecord | XbTavernMessage | null | undefined): boolean {
+function managerMessageHasToolCalls(message: TavernAssistantChatMessageRecord | XbTavernMessage | null | undefined): boolean {
     if (!message || typeof message !== 'object') { return false; }
     const record = message as unknown as Record<string, unknown>;
     if (record.error === true || ['aborted', 'error'].includes(String(record.finishReason || '').trim())) {
@@ -103,7 +103,7 @@ function managerMessageHasToolCalls(message: TavernManagerMessageRecord | XbTave
         || (Array.isArray(record.tool_calls) && record.tool_calls.length > 0);
 }
 
-function normalizeManagerToolCalls(message: TavernManagerMessageRecord | XbTavernMessage | null | undefined) {
+function normalizeManagerToolCalls(message: TavernAssistantChatMessageRecord | XbTavernMessage | null | undefined) {
     const record = message && typeof message === 'object' ? message as unknown as Record<string, unknown> : {};
     const source = Array.isArray(record.toolCalls) && record.toolCalls.length
         ? record.toolCalls
@@ -121,52 +121,33 @@ function normalizeManagerToolCalls(message: TavernManagerMessageRecord | XbTaver
             return {
                 id,
                 name,
-                argumentsText: shortText(argumentsText, 320),
+                argumentsText,
             };
         })
         .filter((toolCall: { name: string }) => toolCall.name);
 }
 
-function parseManagerToolJson(value: unknown): Record<string, unknown> {
-    if (!value || typeof value !== 'string') { return {}; }
-    try {
-        const parsed = JSON.parse(value);
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-    } catch {
-        return {};
-    }
-}
-
-function summarizeManagerToolResult(message: TavernManagerMessageRecord | undefined): string {
+function summarizeManagerToolResult(message: TavernAssistantChatMessageRecord | undefined): string {
     if (!message) { return '等待工具返回。'; }
     const display = String(message.toolDisplay || '').trim();
     if (display) { return shortText(display, 360); }
-    const parsed = parseManagerToolJson(message.content);
-    const summary = String(parsed.summary || parsed.message || parsed.error || '').trim();
-    if (summary) { return shortText(summary, 360); }
-    const path = String(parsed.path || parsed.filePath || parsed.docId || '').trim();
-    const changed = parsed.changed === true ? '已变更' : parsed.changed === false ? '无变化' : '';
-    const ok = parsed.ok === false ? '失败' : parsed.ok === true ? '成功' : '';
-    const compact = [ok, changed, path].filter(Boolean).join(' · ');
-    if (compact) { return compact; }
-    return shortText(String(message.content || '').trim(), 360) || '工具已返回。';
+    return message.error ? '工具执行失败。' : '工具已返回。';
 }
 
 function buildManagerToolRoundDisplayItem(
-    assistantMessage: TavernManagerMessageRecord,
-    toolMessages: TavernManagerMessageRecord[],
+    assistantMessage: TavernAssistantChatMessageRecord,
+    toolMessages: TavernAssistantChatMessageRecord[],
 ): ManagerToolRoundDisplayItem {
     const calls = normalizeManagerToolCalls(assistantMessage).map((toolCall: { id: string; name: string; argumentsText: string }): ManagerToolCallDisplayItem => {
         const toolMessage = toolMessages.find((message) => (
             String(message.toolCallId || (message as unknown as Record<string, unknown>).tool_call_id || '') === toolCall.id
         ));
-        const parsed = parseManagerToolJson(toolMessage?.content);
         return {
             id: toolCall.id,
             name: toolMessage?.toolName || toolCall.name,
             argumentsText: toolCall.argumentsText,
             resultText: summarizeManagerToolResult(toolMessage),
-            ok: parsed.ok !== false && !toolMessage?.error,
+            ok: !toolMessage?.error,
             toolMessage,
         };
     });
@@ -191,7 +172,7 @@ function buildManagerToolTurnDisplayItem(rounds: ManagerToolRoundDisplayItem[]):
     };
 }
 
-export function buildManagerChatDisplayItems(messages: TavernManagerMessageRecord[]): ManagerChatDisplayItem[] {
+export function buildManagerChatDisplayItems(messages: TavernAssistantChatMessageRecord[]): ManagerChatDisplayItem[] {
     const sorted = [...messages].sort((left, right) => left.order - right.order);
     const items: ManagerChatDisplayItem[] = [];
     for (let index = 0; index < sorted.length; index += 1) {
@@ -206,7 +187,7 @@ export function buildManagerChatDisplayItems(messages: TavernManagerMessageRecor
                 && managerMessageHasToolCalls(sorted[nextIndex])
             ) {
                 const assistantMessage = sorted[nextIndex];
-                const toolMessages: TavernManagerMessageRecord[] = [];
+                const toolMessages: TavernAssistantChatMessageRecord[] = [];
                 nextIndex += 1;
                 while (nextIndex < sorted.length && sorted[nextIndex]?.role === 'tool') {
                     toolMessages.push(sorted[nextIndex]);

@@ -1,5 +1,4 @@
 import { createAgentAdapter, resolveActiveProviderConfig } from '../../../agent-core/provider-config.js';
-import * as contextTokens from '../../../agent-core/runtime/context-tokens.js';
 import { createLightBrakeController } from '../../../agent-core/runtime/light-brake.js';
 import {
     buildProviderAssistantToolCallMessage,
@@ -24,20 +23,17 @@ import { buildTavernCommunicationEvidenceAtAnchor } from '../../shared/communica
 import {
     clearTavernManagerRunSnapshots,
     createTavernManagerRun,
-    deleteTavernManagerMessages,
-    appendTavernManagerMessage,
     getTavernMessage,
     getTavernSession,
     listPendingAcceptedTurnManagerRuns,
     listTavernManagerMemorySnapshots,
-    listTavernManagerMessages,
     listTavernManagerRuns,
     rollbackManagerRunMemoryWrites,
     rollbackManagerRunsForMessageRange,
     touchRunningTavernManagerRun,
     updateTavernManagerRun,
-    type TavernManagerMessageRecord,
     type TavernManagerRunRecord,
+    type TavernMaintenanceRunTrigger,
     type TavernMessageRecord,
 } from '../../shared/session-db';
 import { TAVERN_MANAGER_HEARTBEAT_INTERVAL_MS } from '../../shared/manager-run-liveness';
@@ -76,15 +72,8 @@ import {
 
 const ACCEPTED_TURN_MANAGER_TRIGGER = 'accepted_turn';
 const TAVERN_MANAGER_TIMEOUT_MS = 5 * 60 * 1000;
-const resolveConversationTokens = (contextTokens as unknown as {
-    resolveConversationTokens: (input: {
-        messages?: XbTavernMessage[];
-        tools?: unknown[] | null;
-        providerConfig?: Record<string, unknown>;
-    }) => Promise<number>;
-}).resolveConversationTokens;
 
-type TavernManagerStreamSnapshot = {
+export type TavernManagerStreamSnapshot = {
     text?: string;
     thoughts?: Array<{ label?: string; text?: string }>;
     toolCalls?: unknown[];
@@ -148,60 +137,6 @@ export interface XbTavernManagerScheduleResult {
     managerStatus: TavernManagerRunRecord['status'];
 }
 
-export interface XbTavernManagerChatInput {
-    sessionId: string;
-    agentConfig: Record<string, unknown>;
-    question: string;
-    history?: TavernManagerMessageRecord[];
-    turn?: number;
-    trigger?: string;
-    assistantPreset?: TavernAssistantPreset;
-    contextSnapshot?: XbTavernContext;
-    signal?: AbortSignal;
-    executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
-    onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
-    onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
-}
-
-export interface XbTavernManagerChatResult {
-    ok: boolean;
-    managerRun: TavernManagerRunRecord;
-    text: string;
-    provider: string;
-    model: string;
-    changedFiles: string[];
-    changedStates: string[];
-    changedTasks: string[];
-    protocolMessages: XbTavernMessage[];
-    error?: string;
-}
-
-export interface XbTavernManagerCompactionSnapshot {
-    currentTokens: number;
-    yieldTokens?: number;
-    triggerTokens: number;
-    status: string;
-    preservedTurns?: number;
-}
-
-export interface EnsureTavernManagerChatBudgetInput {
-    sessionId: string;
-    agentConfig: Record<string, unknown>;
-    assistantPreset?: TavernAssistantPreset;
-    contextSnapshot?: XbTavernContext;
-    question: string;
-    history?: TavernManagerMessageRecord[];
-    signal?: AbortSignal;
-    onCompactionStart?: (snapshot: XbTavernManagerCompactionSnapshot) => void;
-    onCompactionProgress?: (snapshot: XbTavernManagerCompactionSnapshot) => void;
-    onCompactionComplete?: (snapshot: XbTavernManagerCompactionSnapshot) => void;
-    onCompactionUnable?: (snapshot: XbTavernManagerCompactionSnapshot) => void;
-}
-
-export const TAVERN_MANAGER_MAX_CONTEXT_TOKENS = 188000;
-export const TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS = 158000;
-export const TAVERN_MANAGER_DEFAULT_PRESERVED_TURNS = 2;
-export const TAVERN_MANAGER_MIN_PRESERVED_TURNS = 1;
 
 const activeAutoManagerRuns = new Map<string, {
     controller: AbortController;
@@ -209,7 +144,41 @@ const activeAutoManagerRuns = new Map<string, {
     userOrder: number;
     assistantOrder: number;
 }>();
+const sessionStateWriteTails = new Map<string, Promise<void>>();
 export const MAX_MANAGER_TOOL_ROUNDS = 48;
+
+async function withSessionStateWriteLock<T>(sessionId = '', operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return await operation();}
+    const previous = sessionStateWriteTails.get(id) || Promise.resolve();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {release = resolve;});
+    const tail = previous.catch(() => {}).then(() => gate);
+    sessionStateWriteTails.set(id, tail);
+    await previous.catch(() => {});
+    try {
+        throwIfManagerAborted(signal);
+        return await operation();
+    } finally {
+        release();
+        if (sessionStateWriteTails.get(id) === tail) {
+            sessionStateWriteTails.delete(id);
+        }
+    }
+}
+
+function isStateWritingTool(toolName = ''): boolean {
+    const name = String(toolName || '').trim();
+    return [
+        TAVERN_SOURCE_FILE_TOOL_NAMES.WRITE,
+        TAVERN_SOURCE_FILE_TOOL_NAMES.EDIT,
+        TAVERN_STATE_TOOL_NAMES.PATCH,
+        TAVERN_STATE_TOOL_NAMES.EDIT_SCENE,
+        TAVERN_STATUS_TOOL_NAMES.INIT,
+        TAVERN_STATUS_TOOL_NAMES.PATCH,
+        TAVERN_TASK_TOOL_NAMES.PATCH,
+    ].includes(name as never);
+}
 
 function normalizeText(value: unknown = '', limit = 4000): string {
     const text = String(value || '').trim();
@@ -292,7 +261,7 @@ function parseManagerToolArguments(toolCall: { name?: string; arguments?: unknow
     }
 }
 
-function buildManagerSystemPrompt(
+export function buildManagerSystemPrompt(
     assistantPreset: TavernAssistantPreset | undefined,
     options: {
         includeMemory?: boolean;
@@ -308,7 +277,7 @@ function buildManagerSystemPrompt(
     return buildTavernManagerSystemPrompt(assistantPreset, options).trim();
 }
 
-function isManagerWebSearchEnabled(agentConfig: Record<string, unknown> = {}): boolean {
+export function isManagerWebSearchEnabled(agentConfig: Record<string, unknown> = {}): boolean {
     return isTavilyConfigured(agentConfig);
 }
 
@@ -316,7 +285,7 @@ function resolveSessionContractRuntime(contract?: Partial<TavernSessionContract>
     return resolveTavernSessionContractRuntime(contract);
 }
 
-function buildResidentMemoryBlock(memoryFiles: Array<{ path: string; status: string; updatedAt: number; content: string }>): string {
+export function buildResidentMemoryBlock(memoryFiles: Array<{ path: string; status: string; updatedAt: number; content: string }>): string {
     const stateFile = memoryFiles.find((file) => file.path === 'memory/state.md');
     const blocks = [
         stateFile ? ['[Global memory state.md]', stateFile.content].join('\n') : '[Global memory state.md]\nNo state.md file.',
@@ -394,40 +363,8 @@ function buildAutoManagerUserPrompt(input: {
     return blocks.join('\n');
 }
 
-function buildChatManagerUserPrompt(input: {
-    question: string;
-    memoryFiles: Array<{ path: string; status: string; updatedAt: number; content: string }>;
-}): string {
-    return [
-        buildResidentMemoryBlock(input.memoryFiles),
-        '',
-        '[Current manager-chat question]',
-        input.question,
-    ].join('\n');
-}
-
 function buildInputSummary(input: { trigger?: string; turn?: number; userOrder?: number; assistantOrder?: number; text?: string }): string {
-    if (String(input.trigger || '') === 'manager_chat') {
-        return `manager chat; turn ${Math.max(0, Number(input.turn) || 0)}; question ${String(input.text || '').length} chars`;
-    }
     return `turn ${Math.max(0, Number(input.turn) || 0)}; messages ${Number(input.userOrder)}/${Number(input.assistantOrder)}; user ${String(input.text || '').length} chars`;
-}
-
-function normalizeReplayManagerToolCalls(toolCalls: Array<{ id?: string; name?: string; arguments?: string }> = []): Array<{ id?: string; name?: string; arguments?: string }> {
-    const seen = new Set<string>();
-    return (Array.isArray(toolCalls) ? toolCalls : [])
-        .map((toolCall) => ({
-            id: String(toolCall?.id || ''),
-            name: String(toolCall?.name || '').trim(),
-            arguments: String(toolCall?.arguments || '{}'),
-        }))
-        .filter((toolCall) => {
-            if (!toolCall.name) {return false;}
-            const key = `${toolCall.id}\u0000${toolCall.name}\u0000${toolCall.arguments}`;
-            if (seen.has(key)) {return false;}
-            seen.add(key);
-            return true;
-        });
 }
 
 async function runManagerOnceWithAdapter(
@@ -676,7 +613,7 @@ function throwIfManagerAborted(signal?: AbortSignal) {
     throw error;
 }
 
-async function runManagerAgentWithTools(input: {
+export async function runSharedManagerToolLoop(input: {
     sessionId: string;
     agentConfig: Record<string, unknown>;
     caller: 'auto' | 'chat';
@@ -692,6 +629,7 @@ async function runManagerAgentWithTools(input: {
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
     onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
     onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
+    onStateChanged?: (changes: { changedFiles: string[]; changedStates: string[]; changedTasks: string[] }) => void;
 }): Promise<{
     text: string;
     provider: string;
@@ -896,7 +834,7 @@ async function runManagerAgentWithTools(input: {
             } else if (input.caller === 'auto' && !isAutoManagerToolAllowed(toolCall.name, input.sessionContract)) {
                 toolResult = buildDeniedAutoManagerToolResult(toolCall.name, input.sessionContract);
             } else if (isSourceFileToolName(toolCall.name)) {
-                toolResult = await executeTavernSourceFileTool(input.sessionId, toolCall.name, args, {
+                const executeTool = () => executeTavernSourceFileTool(input.sessionId, toolCall.name, args, {
                     caller: input.caller,
                     managerRunId: input.managerRunId,
                     turn: input.turn,
@@ -905,30 +843,42 @@ async function runManagerAgentWithTools(input: {
                     beforeWriteGuard: input.beforeWriteGuard,
                     contextSnapshot: input.contextSnapshot,
                 });
+                toolResult = isStateWritingTool(toolCall.name)
+                    ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
+                    : await executeTool();
             } else if (isStateToolName(toolCall.name)) {
-                toolResult = await executeTavernStateTool(input.sessionId, toolCall.name, args, {
+                const executeTool = () => executeTavernStateTool(input.sessionId, toolCall.name, args, {
                     caller: input.caller,
                     managerRunId: input.managerRunId,
                     sourceUserOrder: input.userOrder,
                     sourceAssistantOrder: input.assistantOrder,
                     beforeWriteGuard: input.beforeWriteGuard,
                 });
+                toolResult = isStateWritingTool(toolCall.name)
+                    ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
+                    : await executeTool();
             } else if (isStatusToolName(toolCall.name)) {
-                toolResult = await executeTavernStatusTool(input.sessionId, toolCall.name, args, {
+                const executeTool = () => executeTavernStatusTool(input.sessionId, toolCall.name, args, {
                     caller: input.caller,
                     managerRunId: input.managerRunId,
                     sourceUserOrder: input.userOrder,
                     sourceAssistantOrder: input.assistantOrder,
                     beforeWriteGuard: input.beforeWriteGuard,
                 });
+                toolResult = isStateWritingTool(toolCall.name)
+                    ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
+                    : await executeTool();
             } else if (isTaskToolName(toolCall.name)) {
-                toolResult = await executeTavernTaskTool(input.sessionId, toolCall.name, args, {
+                const executeTool = () => executeTavernTaskTool(input.sessionId, toolCall.name, args, {
                     caller: input.caller,
                     managerRunId: input.managerRunId,
                     sourceUserOrder: input.userOrder,
                     sourceAssistantOrder: input.assistantOrder,
                     beforeWriteGuard: input.beforeWriteGuard,
                 });
+                toolResult = isStateWritingTool(toolCall.name)
+                    ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
+                    : await executeTool();
             } else if (isWebSearchToolName(toolCall.name)) {
                 toolResult = await runTavilySearchTool(input.agentConfig, args, {
                     signal: input.signal,
@@ -954,6 +904,13 @@ async function runManagerAgentWithTools(input: {
             if (toolResult.changed && resultTaskKey) {
                 changedTasks.add(resultTaskKey);
             }
+            if (toolResult.changed) {
+                input.onStateChanged?.({
+                    changedFiles: [...changedFiles],
+                    changedStates: [...changedStates],
+                    changedTasks: [...changedTasks],
+                });
+            }
             Object.assign(traceEntry, {
                 status: 'resolved',
                 ok: toolResult.ok,
@@ -974,6 +931,7 @@ async function runManagerAgentWithTools(input: {
             }) as unknown as XbTavernMessage;
             toolMessage.toolCallId = String(toolCall.id || '');
             toolMessage.toolDisplay = summarizeToolResult(toolResult);
+            toolMessage.error = toolResult.ok !== true;
             input.messages.push(toolMessage);
             protocolMessages.push(toolMessage);
             emitProtocolEvent({ type: 'tool_result', message: toolMessage });
@@ -1075,7 +1033,7 @@ async function resolveManagerSourceMessagesByOrder(sessionId = '', userOrder = -
 async function createOrUpdateManagerRun(input: {
     managerRunId?: string;
     sessionId: string;
-    trigger: string;
+    trigger: TavernMaintenanceRunTrigger;
     turn: number;
     userOrder?: number;
     assistantOrder?: number;
@@ -1194,71 +1152,10 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
     ];
 }
 
-async function buildChatManagerMessages(input: {
-    sessionId: string;
-    question: string;
-    agentConfig?: Record<string, unknown>;
-    assistantPreset?: TavernAssistantPreset;
-    contextSnapshot?: XbTavernContext;
-    history?: TavernManagerMessageRecord[];
-}): Promise<XbTavernMessage[]> {
-    await ensureTavernMemoryDefaults(input.sessionId);
-    const memoryFiles = await listTavernMemoryFiles(input.sessionId, { includeStale: true });
-    const history = Array.isArray(input.history) ? input.history : await listTavernManagerMessages(input.sessionId);
-    const messages: XbTavernMessage[] = [{
-        role: 'system',
-        content: buildManagerSystemPrompt(input.assistantPreset, {
-            workMode: 'manual-chat',
-            includeQuestOrchestration: true,
-            includeWebSearch: isManagerWebSearchEnabled(input.agentConfig || {}),
-            playerName: String(input.contextSnapshot?.user?.name || '').trim(),
-        }),
-    }];
-    history.forEach((message) => {
-        const canReplayToolCalls = message.role === 'assistant'
-            && message.error !== true
-            && !['aborted', 'error'].includes(String(message.finishReason || '').trim());
-        const toolCalls = canReplayToolCalls && Array.isArray(message.toolCalls)
-            ? normalizeReplayManagerToolCalls(message.toolCalls)
-            : [];
-        messages.push({
-            role: message.role,
-            content: String(message.content || ''),
-            ...(message.name ? { name: message.name } : {}),
-            ...(Array.isArray(message.thoughts) ? { thoughts: message.thoughts } : {}),
-            ...('providerPayload' in message ? { providerPayload: message.providerPayload } : {}),
-            ...(toolCalls.length ? {
-                toolCalls,
-                tool_calls: toolCalls.map((toolCall) => ({
-                    id: toolCall.id || '',
-                    type: 'function',
-                    function: {
-                        name: toolCall.name || '',
-                        arguments: toolCall.arguments || '{}',
-                    },
-                })),
-            } : {}),
-            ...(message.role === 'tool' ? {
-                tool_call_id: message.toolCallId || '',
-                toolName: message.toolName || '',
-                toolDisplay: message.toolDisplay,
-            } : {}),
-        });
-    });
-    messages.push({
-        role: 'user',
-        content: buildChatManagerUserPrompt({
-            question: input.question,
-            memoryFiles,
-        }),
-    });
-    return messages;
-}
-
 async function runManagerTask(input: {
     sessionId: string;
     agentConfig: Record<string, unknown>;
-    trigger: string;
+    trigger: TavernMaintenanceRunTrigger;
     turn: number;
     messages: XbTavernMessage[];
     managerRunId?: string;
@@ -1314,7 +1211,7 @@ async function runManagerTask(input: {
         input.onProtocolEvent?.(event);
     };
     try {
-        const result = await runManagerAgentWithTools({
+        const result = await runSharedManagerToolLoop({
             sessionId: input.sessionId,
             agentConfig: input.agentConfig,
             caller: input.caller,
@@ -1409,180 +1306,6 @@ async function runManagerTask(input: {
     }
 }
 
-export function splitTavernManagerMessagesIntoTurns(messages: TavernManagerMessageRecord[] = []): TavernManagerMessageRecord[][] {
-    const turns: TavernManagerMessageRecord[][] = [];
-    let currentTurn: TavernManagerMessageRecord[] = [];
-    (messages || []).forEach((message) => {
-        if (!message || !['user', 'assistant', 'tool'].includes(message.role)) {return;}
-        if (message.role === 'user' && currentTurn.length) {
-            turns.push(currentTurn);
-            currentTurn = [message];
-            return;
-        }
-        currentTurn.push(message);
-    });
-    if (currentTurn.length) {
-        turns.push(currentTurn);
-    }
-    return turns.filter((turn) => turn.length);
-}
-
-async function appendAcceptedTurnProtocolMessages(input: {
-    sessionId: string;
-    messages?: XbTavernMessage[];
-    provider?: string;
-    model?: string;
-}) {
-    const sessionId = String(input.sessionId || '').trim();
-    if (!sessionId || !Array.isArray(input.messages) || !input.messages.length) {return;}
-    for (const message of input.messages) {
-        const hasToolCalls = (Array.isArray(message.toolCalls) && message.toolCalls.length)
-            || (Array.isArray(message.tool_calls) && message.tool_calls.length);
-        const isToolProtocol = message.role === 'tool' || (message.role === 'assistant' && hasToolCalls);
-        if (!isToolProtocol) {continue;}
-        await appendTavernManagerMessage(sessionId, {
-            role: message.role,
-            content: String(message.content || ''),
-            name: message.name,
-            thoughts: message.thoughts,
-            providerPayload: message.providerPayload,
-            toolCalls: normalizeReplayManagerToolCalls(message.toolCalls || (message.tool_calls || []).map((toolCall) => ({
-                id: String(toolCall?.id || ''),
-                name: String(toolCall?.function?.name || ''),
-                arguments: String(toolCall?.function?.arguments || '{}'),
-            }))),
-            toolCallId: message.toolCallId || message.tool_call_id,
-            toolName: message.toolName,
-            toolDisplay: message.toolDisplay,
-            provider: message.role === 'assistant' ? input.provider : undefined,
-            model: message.role === 'assistant' ? input.model : undefined,
-            error: false,
-        });
-    }
-}
-
-function throwIfAborted(signal?: AbortSignal) {
-    if (!signal?.aborted) {return;}
-    const error = new Error('manager_chat_compaction_aborted');
-    error.name = 'AbortError';
-    throw error;
-}
-
-async function estimateManagerChatTokens(input: {
-    sessionId: string;
-    agentConfig: Record<string, unknown>;
-    assistantPreset?: TavernAssistantPreset;
-    contextSnapshot?: XbTavernContext;
-    question: string;
-    history?: TavernManagerMessageRecord[];
-}): Promise<number> {
-    const providerConfig = resolveActiveProviderConfig(input.agentConfig || {}, {
-        role: 'delegate',
-        timeoutMs: TAVERN_MANAGER_TIMEOUT_MS,
-    });
-    const messages = await buildChatManagerMessages(input);
-    return await resolveConversationTokens({
-        messages,
-        tools: getTavernManagerToolDefinitions({
-            webSearchEnabled: isManagerWebSearchEnabled(input.agentConfig),
-        }),
-        providerConfig,
-    });
-}
-
-export async function ensureTavernManagerChatBudget(input: EnsureTavernManagerChatBudgetInput): Promise<{
-    compacted: boolean;
-    currentTokens: number;
-    history: TavernManagerMessageRecord[];
-    preservedTurns?: number;
-}> {
-    const sessionId = String(input.sessionId || '').trim();
-    if (!sessionId) {
-        return { compacted: false, currentTokens: 0, history: [] };
-    }
-    throwIfAborted(input.signal);
-    const usesProvidedHistory = Array.isArray(input.history);
-    let history = usesProvidedHistory
-        ? [...input.history].sort((left, right) => left.order - right.order)
-        : await listTavernManagerMessages(sessionId);
-    let currentTokens = await estimateManagerChatTokens({
-        sessionId,
-        agentConfig: input.agentConfig,
-        assistantPreset: input.assistantPreset,
-        contextSnapshot: input.contextSnapshot,
-        question: input.question,
-        history,
-    });
-    if (currentTokens <= TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS) {
-        return { compacted: false, currentTokens, history };
-    }
-    input.onCompactionStart?.({
-        currentTokens,
-        triggerTokens: TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS,
-        status: '正在释放较早管理员对话，只保留最近管理上下文...',
-    });
-
-    for (const preservedTurns of [TAVERN_MANAGER_DEFAULT_PRESERVED_TURNS, TAVERN_MANAGER_MIN_PRESERVED_TURNS]) {
-        throwIfAborted(input.signal);
-        const turns = splitTavernManagerMessagesIntoTurns(history);
-        const archiveCount = Math.max(0, turns.length - Math.min(preservedTurns, turns.length));
-        if (archiveCount > 0) {
-            input.onCompactionProgress?.({
-                currentTokens,
-                triggerTokens: TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS,
-                preservedTurns,
-                status: `正在只保留最近 ${preservedTurns} 轮管理员上下文...`,
-            });
-            const removedOrders = turns
-                .slice(0, archiveCount)
-                .flat()
-                .map((message) => message.order);
-            if (removedOrders.length) {
-                await deleteTavernManagerMessages(sessionId, removedOrders);
-            }
-            history = usesProvidedHistory
-                ? history.filter((message) => !removedOrders.includes(message.order))
-                : await listTavernManagerMessages(sessionId);
-        }
-        const nextTokens = await estimateManagerChatTokens({
-            sessionId,
-            agentConfig: input.agentConfig,
-            assistantPreset: input.assistantPreset,
-            contextSnapshot: input.contextSnapshot,
-            question: input.question,
-            history,
-        });
-        currentTokens = nextTokens;
-        const status = nextTokens <= TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS
-            ? `已只保留最近 ${preservedTurns} 轮管理员上下文。`
-            : '最近管理员上下文仍然过长，继续收缩...';
-        input.onCompactionProgress?.({
-            currentTokens,
-            yieldTokens: nextTokens,
-            triggerTokens: TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS,
-            preservedTurns,
-            status,
-        });
-        if (nextTokens <= TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS) {
-            input.onCompactionComplete?.({
-                currentTokens,
-                yieldTokens: nextTokens,
-                triggerTokens: TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS,
-                preservedTurns,
-                status,
-            });
-            return { compacted: true, currentTokens: nextTokens, history, preservedTurns };
-        }
-    }
-
-    input.onCompactionUnable?.({
-        currentTokens,
-        triggerTokens: TAVERN_MANAGER_SUMMARY_TRIGGER_TOKENS,
-        status: '当前管理员这一轮上下文本身已经过长，无法继续自动收缩。',
-    });
-    return { compacted: false, currentTokens, history };
-}
-
 export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput): Promise<XbTavernManagerRunResult> {
     const sessionId = String(input.sessionId || '').trim();
     if (!sessionId) {throw new Error('manager_session_required');}
@@ -1673,14 +1396,6 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             onProtocolEvent: input.onProtocolEvent,
         });
         if (!result.ok) {
-            if (!input.signal?.aborted) {
-                await appendAcceptedTurnProtocolMessages({
-                    sessionId,
-                    messages: result.protocolMessages,
-                    provider: result.managerRun.provider,
-                    model: result.managerRun.model,
-                });
-            }
             return {
                 ok: false,
                 managerRun: result.managerRun,
@@ -1716,12 +1431,6 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
                 });
             }
         }
-        await appendAcceptedTurnProtocolMessages({
-            sessionId,
-            messages: result.protocolMessages,
-            provider: completedRun.provider,
-            model: completedRun.model,
-        });
         return {
             ok: true,
             managerRun: completedRun,
@@ -1748,53 +1457,6 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             error: errorText,
         };
     }
-}
-
-export async function runXbTavernManagerChat(input: XbTavernManagerChatInput): Promise<XbTavernManagerChatResult> {
-    const sessionId = String(input.sessionId || '').trim();
-    const question = String(input.question || '').trim();
-    if (!sessionId) {throw new Error('manager_session_required');}
-    if (!question) {throw new Error('manager_question_required');}
-    const history = Array.isArray(input.history) ? input.history : await listTavernManagerMessages(sessionId);
-    const messages = await buildChatManagerMessages({
-        sessionId,
-        question,
-        agentConfig: input.agentConfig,
-        assistantPreset: input.assistantPreset,
-        contextSnapshot: input.contextSnapshot,
-        history,
-    });
-    const result = await runManagerTask({
-        sessionId,
-        agentConfig: input.agentConfig,
-        trigger: input.trigger || 'manager_chat',
-        turn: Math.max(0, Number(input.turn) || 0),
-        inputSummary: buildInputSummary({
-            trigger: 'manager_chat',
-            turn: input.turn,
-            text: question,
-        }),
-        messages,
-        caller: 'chat',
-        requireChangedFiles: false,
-        contextSnapshot: input.contextSnapshot,
-        signal: input.signal,
-        executeManagerOnce: input.executeManagerOnce,
-        onStreamProgress: input.onStreamProgress,
-        onProtocolEvent: input.onProtocolEvent,
-    });
-    return {
-        ok: result.ok,
-        managerRun: result.managerRun,
-        text: result.text,
-        provider: result.provider,
-        model: result.model,
-        changedFiles: result.changedFiles,
-        changedStates: result.changedStates,
-        changedTasks: result.changedTasks,
-        protocolMessages: result.protocolMessages,
-        error: result.error,
-    };
 }
 
 export async function markXbTavernManagerTurnPending(input: XbTavernManagerRunInput & {

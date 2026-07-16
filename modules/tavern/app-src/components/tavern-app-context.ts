@@ -16,7 +16,7 @@ import type {
 } from '../../shared/runtime-events';
 import type {
     TavernAssistantPresetRecord,
-    TavernManagerMessageRecord,
+    TavernAssistantChatMessageRecord,
     TavernManagerRunRecord,
     TavernMemoryFileListEntry,
     TavernMemoryFileRecord,
@@ -307,6 +307,8 @@ export interface TavernManagerCompactionOverlay {
     resolved?: boolean;
     status?: string;
     currentTokens?: number;
+    fixedTokens?: number;
+    historyTokens?: number;
     triggerTokens?: number;
     yieldTokens?: number;
 }
@@ -472,13 +474,16 @@ export interface TavernPhoneContext {
 
 export interface TavernManagerContext {
     activeMemoryFiles: TavernReadable<TavernMemoryIndexFileEntry[]>;
+    assistantChatContextLabel: TavernReadable<string>;
+    canClearAssistantChat: TavernReadable<boolean>;
     archivedManagerRuns: TavernReadable<TavernManagerRunRecord[]>;
-    canEditManagerMessage: TavernCommand<[message: TavernManagerMessageRecord], boolean>;
-    canRerunManagerMessage: TavernCommand<[message: TavernManagerMessageRecord], boolean>;
+    canEditManagerMessage: TavernCommand<[message: TavernAssistantChatMessageRecord], boolean>;
+    clearAssistantChatHistory: TavernCommand<[], Promise<void>>;
+    canRerunManagerMessage: TavernCommand<[message: TavernAssistantChatMessageRecord], boolean>;
     canSendManagerMessage: TavernReadable<boolean>;
-    copyManagerMessage: TavernCommand<[message: TavernManagerMessageRecord], Promise<void>>;
+    copyManagerMessage: TavernCommand<[message: TavernAssistantChatMessageRecord], Promise<void>>;
     currentManagerWorkRun: TavernReadable<TavernManagerRunRecord | null>;
-    deleteManagerMessageTurn: TavernCommand<[message: TavernManagerMessageRecord], Promise<void>>;
+    deleteManagerMessageTurn: TavernCommand<[message: TavernAssistantChatMessageRecord], Promise<void>>;
     editingMessageDraft: Ref<string>;
     enhanceManagerMarkdown: TavernCommand;
     formatRunActivityLine: TavernCommand<[run: TavernManagerRunRecord], string>;
@@ -490,20 +495,20 @@ export interface TavernManagerContext {
     formatRunTaskLine: TavernCommand<[run: TavernManagerRunRecord], string>;
     handleManagerComposeKeydown: TavernCommand<[event: KeyboardEvent]>;
     handleEditInput: TavernCommand<[event: Event]>;
-    handleManagerEditKeydown: TavernCommand<[event: KeyboardEvent, message: TavernManagerMessageRecord]>;
+    handleManagerEditKeydown: TavernCommand<[event: KeyboardEvent, message: TavernAssistantChatMessageRecord]>;
     handleManagerScroll: TavernCommand;
     handleManagerSubmit: TavernCommand<[], Promise<void>>;
     handleManagerTouchMove: TavernCommand<[event: TouchEvent]>;
     handleManagerTouchStart: TavernCommand<[event: TouchEvent]>;
     handleManagerWheel: TavernCommand<[event: WheelEvent]>;
     hiddenManagerRunCount: TavernReadable<number>;
-    isEditingManagerMessage: TavernCommand<[message: TavernManagerMessageRecord], boolean>;
-    isEditingManagerMessageDirty: TavernCommand<[message: TavernManagerMessageRecord], boolean>;
+    isEditingManagerMessage: TavernCommand<[message: TavernAssistantChatMessageRecord], boolean>;
+    isEditingManagerMessageDirty: TavernCommand<[message: TavernAssistantChatMessageRecord], boolean>;
     isManagerAssistantCancelling: Ref<boolean>;
     isManagerAssistantRunning: Ref<boolean>;
     isManagerRunRetrying: TavernCommand<[run: TavernManagerRunRecord | null | undefined], boolean>;
     liveManagerChatDisplayItems: TavernReadable<ManagerChatDisplayItem[]>;
-    managerActionFeedback: TavernCommand<[message: TavernManagerMessageRecord, action: string], string>;
+    managerActionFeedback: TavernCommand<[message: TavernAssistantChatMessageRecord, action: string], string>;
     managerAutoScroll: Ref<boolean>;
     managerBusy: TavernReadable<boolean>;
     managerCompactionOverlay: Ref<TavernManagerCompactionOverlay | null>;
@@ -511,7 +516,7 @@ export interface TavernManagerContext {
     managerInputDraft: Ref<string>;
     managerInputStatus: Ref<string>;
     managerMessageWindow: TavernReadable<TavernMessageWindowState>;
-    managerPendingUserMessage: TavernReadable<TavernManagerMessageRecord | null>;
+    managerPendingUserMessage: TavernReadable<TavernAssistantChatMessageRecord | null>;
     managerRuns: Ref<TavernManagerRunRecord[]>;
     managerRunTone: TavernCommand<[runOrStatus: TavernManagerRunRecord | string], string>;
     managerScrollControlsActive: Ref<boolean>;
@@ -528,14 +533,14 @@ export interface TavernManagerContext {
     memoryIndexStatusLine: TavernReadable<string>;
     retryManagerRun: TavernCommand<[run: TavernManagerRunRecord], Promise<void>>;
     revealOlderManagerMessages: TavernCommand<[force?: boolean], boolean>;
-    rerunFromManagerMessage: TavernCommand<[message: TavernManagerMessageRecord], Promise<void>>;
-    saveEditManagerMessage: TavernCommand<[message: TavernManagerMessageRecord, options?: { rerun?: boolean }], Promise<void>>;
+    rerunFromManagerMessage: TavernCommand<[message: TavernAssistantChatMessageRecord], Promise<void>>;
+    saveEditManagerMessage: TavernCommand<[message: TavernAssistantChatMessageRecord, options?: { rerun?: boolean }], Promise<void>>;
     scrollManagerToBottom: TavernCommand<[force?: boolean, options?: { collapseWindow?: boolean; revealHelpers?: boolean }]>;
     scrollManagerToTop: TavernCommand;
     selectedMemoryFile: TavernReadable<TavernMemoryFileRecord | null>;
     showManagerScrollBottom: Ref<boolean>;
     showManagerScrollTop: Ref<boolean>;
-    startEditManagerMessage: TavernCommand<[message: TavernManagerMessageRecord]>;
+    startEditManagerMessage: TavernCommand<[message: TavernAssistantChatMessageRecord]>;
     toolTraceSummary: TavernCommand<[value: unknown], string>;
     updateManagerScrollButtons: TavernCommand;
     visibleManagerChatItems: TavernReadable<ManagerChatDisplayItem[]>;

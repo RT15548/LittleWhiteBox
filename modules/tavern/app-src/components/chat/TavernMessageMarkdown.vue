@@ -13,6 +13,8 @@ const props = defineProps<{
 const chat = useTavernChatContext();
 const markdownRoot = ref<HTMLElement | null>(null);
 let renderedHtml = '';
+let renderedSignature = '';
+let renderedPhase = '';
 
 function enhanceRenderedMarkdown() {
     const root = markdownRoot.value;
@@ -24,10 +26,12 @@ function renderMarkdown() {
     const root = markdownRoot.value;
     if (!root) {return;}
     const html = props.html || '';
-    if (html !== renderedHtml) {
+    if (html !== renderedHtml || props.signature !== renderedSignature || props.phase !== renderedPhase) {
         chat.releaseMarkdownRootResources(root);
         patchTavernMarkdownRoot(root, html);
         renderedHtml = html;
+        renderedSignature = props.signature;
+        renderedPhase = props.phase;
     }
     void nextTick(enhanceRenderedMarkdown);
 }

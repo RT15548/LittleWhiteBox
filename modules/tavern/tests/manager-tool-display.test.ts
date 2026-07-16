@@ -7,7 +7,7 @@ import {
     managerToolTurnPreview,
     managerToolTurnSummary,
 } from '../app-src/manager-tool-display';
-import type { TavernManagerMessageRecord } from '../shared/session-db';
+import type { TavernAssistantChatMessageRecord as TavernManagerMessageRecord } from '../shared/session-db';
 
 function managerMessage(patch: Partial<TavernManagerMessageRecord> & Pick<TavernManagerMessageRecord, 'order' | 'role'>): TavernManagerMessageRecord {
     return {

@@ -1,12 +1,14 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import Dexie from '../../../libs/dexie.mjs';
 
 import db, {
     appendTavernMessage,
-    appendTavernManagerMessage,
+    appendTavernAssistantChatMessage as appendTavernManagerMessage,
     appendTavernStructuredStatePatch,
     branchTavernSession,
+    clearTavernAssistantChatMessages,
     createTavernSession,
     countTavernMessagesInRange,
     deleteTavernSession,
@@ -16,12 +18,12 @@ import db, {
     getActiveTavernPresetId,
     getSelectedTavernSessionId,
     getLatestTavernAssistantOrder,
-    getLatestTavernManagerMessage,
+    getLatestTavernAssistantChatMessage as getLatestTavernManagerMessage,
     getLatestTavernMessage,
     getTavernSession,
     getTavernMessage,
     getLatestTavernUserMessageAtOrBefore,
-    listTavernManagerMessages,
+    listTavernAssistantChatMessages as listTavernManagerMessages,
     listTavernManagerMemorySnapshots,
     listLatestTavernMessages,
     listLatestTavernMessagesWithCount,
@@ -37,6 +39,7 @@ import db, {
     loadActiveTavernPreset,
     mergeWorldEntryStates,
     normalizeTavernSessionState,
+    replaceTavernAssistantChatMessages,
     replaceTavernSessionState,
     rollbackManagerRunsForMessageRange,
     rollbackManagerStateRunsForMessageRange,
@@ -44,7 +47,7 @@ import db, {
     setActiveTavernPresetId,
     tavernAssistantPresetsTable,
     tavernManagerMemorySnapshotsTable,
-    tavernManagerMessagesTable,
+    tavernAssistantChatMessagesTable as tavernManagerMessagesTable,
     tavernManagerRunsTable,
     tavernManagerStateSnapshotsTable,
     tavernManagerTaskSnapshotsTable,
@@ -58,7 +61,7 @@ import db, {
     tavernTaskSnapshotsTable,
     tavernTasksTable,
     touchRunningTavernManagerRun,
-    updateTavernManagerMessage,
+    updateTavernAssistantChatMessage as updateTavernManagerMessage,
     updateTavernMessage,
     updateTavernManagerRun,
     updateTavernSessionState,
@@ -78,10 +81,10 @@ import {
     MAX_MANAGER_TOOL_ROUNDS,
     cancelAndRollbackXbTavernManagersForMessageRange,
     describeXbTavernManagerRollbackImpactForMessageRange,
-    runXbTavernManagerChat,
     runXbTavernManagerAfterTurn,
     runPendingAcceptedTurnManager,
 } from '../app-src/runtime/manager';
+import { runXbTavernAssistantChat as runXbTavernManagerChat } from '../app-src/runtime/assistant-chat-runner';
 import { rollbackImpactLines } from '../app-src/features/accepted-rollback/accepted-rollback';
 import {
     buildDefaultTavernCharacterMemoryContent,
@@ -5501,7 +5504,7 @@ test('tavern manager chat returns segmented protocol messages and keeps final te
 
     assert.equal(result.ok, true);
     assert.equal(result.text, '结论：北门仍然半开，没有新的异常。');
-    assert.equal(result.managerRun.outputText, '结论：北门仍然半开，没有新的异常。');
+    assert.equal((await listTavernManagerRuns(session.id)).length, 0);
     assert.deepEqual(result.protocolMessages.map((message) => message.role), ['assistant', 'tool', 'assistant', 'tool', 'assistant']);
     assert.equal(result.protocolMessages[0]?.content, '我先读一下记忆档案。');
     assert.equal(result.protocolMessages[2]?.content, '再核对一下地图。');
@@ -5744,7 +5747,7 @@ test('tavern manager uses session toolResponses when runner supports session too
     assert.equal(calls, 2);
 });
 
-test('accepted-turn tavern manager emits segmented protocol events and persists tool protocol for replay', async () => {
+test('accepted-turn tavern manager emits segmented protocol events without polluting assistant chat history', async () => {
     await db.delete();
     await db.open();
 
@@ -5795,10 +5798,7 @@ test('accepted-turn tavern manager emits segmented protocol events and persists 
     assert.equal(result.managerRun.outputText, '已确认北门路线，没有额外冲突需要记录。');
     assert.equal(calls, 2);
     const stored = await listTavernManagerMessages(session.id);
-    assert.deepEqual(stored.map((message) => message.role), ['assistant', 'tool']);
-    assert.equal(stored[0]?.toolCalls?.[0]?.name, 'MapAtlasRead');
-    assert.equal(stored[1]?.toolName, 'MapAtlasRead');
-    assert.match(stored[1]?.content || '', /"ok":\s*true/);
+    assert.deepEqual(stored, []);
     assert.deepEqual(protocolEvents, [
         'clear_stream_draft',
         'assistant_tool_round',
@@ -5808,7 +5808,7 @@ test('accepted-turn tavern manager emits segmented protocol events and persists 
     ]);
 });
 
-test('pending accepted-turn manager persists tool protocol messages for replay', async () => {
+test('pending accepted-turn manager keeps its protocol out of assistant chat history', async () => {
     await db.delete();
     await db.open();
 
@@ -5858,10 +5858,7 @@ test('pending accepted-turn manager persists tool protocol messages for replay',
 
     assert.equal(result?.ok, true);
     assert.equal(calls, 2);
-    assert.deepEqual(stored.map((message) => message.role), ['assistant', 'tool']);
-    assert.equal(stored[0]?.toolCalls?.[0]?.name, 'MapAtlasRead');
-    assert.equal(stored[1]?.toolName, 'MapAtlasRead');
-    assert.match(stored[1]?.content || '', /"ok":\s*true/);
+    assert.deepEqual(stored, []);
 });
 
 test('accepted-turn tavern manager prompts for global and character memory without turn-note coverage', async () => {
@@ -6729,7 +6726,7 @@ test('tavern manager keeps auto run completed when a non-critical tool call fail
     assert.equal((runs[0]?.toolTrace as Array<{ ok?: boolean }>).some((item) => item.ok === false), true);
 });
 
-test('tavern manager chat carries persisted manager history and can read RP raw text through Read', async () => {
+test('tavern assistant chat carries only its own persisted history and can read RP raw text through Read', async () => {
     await db.delete();
     await db.open();
 
@@ -6779,12 +6776,16 @@ test('tavern manager chat carries persisted manager history and can read RP raw 
     assert.match(firstRoundMessages, /先前答：还在试探阶段/);
     assert.match(firstRoundMessages, /继续看原文，帮我判断/);
     assert.equal(toolNames.includes('Read'), true);
-    const run = (await listTavernManagerRuns(session.id))[0];
-    assert.equal(Array.isArray(run?.toolTrace), true);
-    assert.equal((run?.toolTrace as Array<{ name?: string }>)[0]?.name, 'Read');
+    assert.deepEqual(await listTavernManagerRuns(session.id), []);
+    assert.equal(result.protocolMessages.some((message) => (
+        message.role === 'assistant' && message.toolCalls?.[0]?.name === 'Read'
+    )), true);
+    assert.equal(result.protocolMessages.some((message) => (
+        message.role === 'tool' && message.toolName === 'Read'
+    )), true);
 });
 
-test('tavern manager chat treats local tool failures as recoverable trace items', async () => {
+test('tavern assistant chat keeps local tool failures in chat protocol without creating a work run', async () => {
     await db.delete();
     await db.open();
 
@@ -6816,11 +6817,12 @@ test('tavern manager chat treats local tool failures as recoverable trace items'
     assert.equal(result.ok, true);
     assert.equal(result.error, undefined);
     assert.equal((await listTavernMemoryFiles(session.id)).some((file) => file.path.startsWith('memory/turns/')), false);
-    const run = (await listTavernManagerRuns(session.id))[0];
-    assert.equal(run?.status, 'completed');
-    assert.match(run?.outputText || '', /不能直接写/);
-    assert.equal((run?.toolTrace as Array<{ ok?: boolean; error?: string }>)?.[0]?.ok, false);
-    assert.equal((run?.toolTrace as Array<{ ok?: boolean; error?: string }>)?.[0]?.error, 'memory_path_invalid');
+    assert.deepEqual(await listTavernManagerRuns(session.id), []);
+    const toolResult = JSON.parse(result.protocolMessages.find((message) => message.role === 'tool')?.content || '{}');
+    assert.equal(result.protocolMessages.find((message) => message.role === 'tool')?.error, true);
+    assert.equal(toolResult.ok, false);
+    assert.equal(toolResult.error, 'memory_path_invalid');
+    assert.match(result.text, /不能直接写/);
 });
 
 test('tavern manager chat returns invalid tool arguments without executing the tool', async () => {
@@ -6899,7 +6901,51 @@ test('tavern manager chat keeps protocol messages when aborted after a tool resu
     assert.deepEqual(result.protocolMessages.map((message) => message.role), ['assistant', 'tool']);
     assert.equal(result.protocolMessages[0]?.toolCalls?.[0]?.name, 'MapInspect');
     assert.match(result.protocolMessages[1]?.content || '', /"ok": true/);
-    assert.equal(result.managerRun.status, 'cancelled');
+    assert.equal((await listTavernManagerRuns(session.id)).length, 0);
+});
+
+test('tavern assistant chat completes an interrupted multi-tool protocol and preserves successful writes', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Manager partial write abort' });
+    const controller = new AbortController();
+    let toolResults = 0;
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '写入后停止。',
+        signal: controller.signal,
+        executeManagerOnce: async () => ({
+            text: '先更新，再读取。',
+            toolCalls: [{
+                id: 'write-before-abort',
+                name: 'Write',
+                arguments: {
+                    filePath: 'memory/state.md',
+                    content: '# 会话记忆\n\n已经真实写入。',
+                },
+            }, {
+                id: 'read-after-abort',
+                name: 'Read',
+                arguments: { filePath: 'memory/state.md' },
+            }],
+        }),
+        onProtocolEvent: (event) => {
+            if (event.type !== 'tool_result') {return;}
+            toolResults += 1;
+            if (toolResults === 1) {controller.abort();}
+        },
+    });
+
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.changedFiles, ['memory/state.md']);
+    assert.deepEqual(result.protocolMessages.map((message) => message.role), ['assistant', 'tool', 'tool']);
+    const interrupted = JSON.parse(result.protocolMessages[2]?.content || '{}');
+    assert.equal(result.protocolMessages[2]?.toolCallId, 'read-after-abort');
+    assert.equal(interrupted.changed, false);
+    assert.match(interrupted.error, /manager_aborted/);
+    assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /已经真实写入/);
 });
 
 test('tavern manager chat injects a light brake after repeated MapPatch failures', async () => {
@@ -7003,6 +7049,27 @@ test('tavern manager messages are session-scoped', async () => {
     assert.deepEqual((await listTavernManagerMessages(second.id)).map((message) => message.content), ['B-1']);
 });
 
+test('assistant chat replaces an old turn with a new user message in one transaction', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Atomic assistant rerun' });
+    await appendTavernManagerMessage(session.id, { role: 'user', content: '保留轮。' });
+    await appendTavernManagerMessage(session.id, { role: 'assistant', content: '保留回复。' });
+    const oldUser = await appendTavernManagerMessage(session.id, { role: 'user', content: '旧问题。' });
+    const oldAssistant = await appendTavernManagerMessage(session.id, { role: 'assistant', content: '旧回复。' });
+
+    const [replacement] = await replaceTavernAssistantChatMessages(
+        session.id,
+        [oldUser.order, oldAssistant.order],
+        [{ role: 'user', content: '新问题。' }],
+    );
+    const stored = await listTavernManagerMessages(session.id);
+
+    assert.equal(replacement.order, oldUser.order);
+    assert.deepEqual(stored.map((message) => message.content), ['保留轮。', '保留回复。', '新问题。']);
+});
+
 test('tavern manager message update reuses one timestamp for row and session', async () => {
     await db.delete();
     await db.open();
@@ -7099,4 +7166,138 @@ test('tavern manager chat does not replay stale tool drafts from errored history
     assert.equal(result.ok, true);
     assert.equal(!!assistantReplay, true);
     assert.equal(Array.isArray(assistantReplay?.tool_calls) && assistantReplay.tool_calls.length > 0, false);
+});
+
+test('assistant chat clearing is session-scoped and preserves maintenance records and factual memory', async () => {
+    await db.delete();
+    await db.open();
+
+    const first = await createTavernSession({ title: 'Clear assistant chat' });
+    const second = await createTavernSession({ title: 'Keep another assistant chat' });
+    await appendTavernManagerMessage(first.id, { role: 'user', content: '第一轮。' });
+    await appendTavernManagerMessage(first.id, { role: 'assistant', content: '第一轮回复。' });
+    await appendTavernManagerMessage(second.id, { role: 'user', content: '第二个会话。' });
+    await createTavernManagerRun({
+        sessionId: first.id,
+        turn: 1,
+        trigger: 'after_turn',
+        status: 'completed',
+    });
+    await writeTavernMemoryFile(first.id, 'memory/state.md', '# 会话记忆\n\n已经落地的事实。');
+
+    assert.equal(await clearTavernAssistantChatMessages(first.id), 2);
+    assert.deepEqual(await listTavernManagerMessages(first.id), []);
+    assert.deepEqual((await listTavernManagerMessages(second.id)).map((message) => message.content), ['第二个会话。']);
+    assert.equal((await listTavernManagerRuns(first.id)).length, 1);
+    assert.match((await getTavernMemoryFile(first.id, 'memory/state.md'))?.content || '', /已经落地的事实/);
+});
+
+test('maintenance run storage rejects legacy manual-chat triggers', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Maintenance trigger boundary' });
+    await assert.rejects(
+        createTavernManagerRun({
+            sessionId: session.id,
+            trigger: 'manager_chat',
+        } as never),
+        /maintenance_run_trigger_invalid/,
+    );
+    const run = await createTavernManagerRun({
+        sessionId: session.id,
+        trigger: 'after_turn',
+    });
+    await assert.rejects(
+        updateTavernManagerRun(run.id, { trigger: 'manager_chat' } as never),
+        /maintenance_run_trigger_invalid/,
+    );
+    assert.deepEqual((await listTavernManagerRuns(session.id)).map((item) => item.id), [run.id]);
+});
+
+test('database v13 discards polluted manager chat data and legacy chat runs while preserving maintenance', async () => {
+    await db.delete();
+    const legacyDb = new Dexie('LittleWhiteBox_Tavern');
+    const legacyRuntime = legacyDb as unknown as {
+        table: (name: string) => {
+            put: (record: Record<string, unknown>) => Promise<unknown>;
+            bulkPut: (records: Array<Record<string, unknown>>) => Promise<unknown>;
+        };
+        close: () => void;
+    };
+    legacyDb.version(12).stores({
+        sessions: 'id, updatedAt',
+        managerMessages: '[sessionId+order], sessionId, order',
+        managerRuns: 'id, sessionId, status, turn, updatedAt',
+        managerMemorySnapshots: '[managerRunId+path], managerRunId, sessionId, path, updatedAt',
+        managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
+        managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
+        statePatches: 'id, sessionId, managerRunId, updatedAt',
+        tasks: '[sessionId+id], sessionId, sourceManagerRunId, updatedAt',
+    });
+    await legacyDb.open();
+    await legacyRuntime.table('sessions').put({ id: 'legacy-session', updatedAt: 1 });
+    await legacyRuntime.table('managerMessages').put({
+        sessionId: 'legacy-session',
+        order: 0,
+        role: 'user',
+        content: '被自动维护污染的旧聊天。',
+    });
+    await legacyRuntime.table('managerRuns').bulkPut([{
+        id: 'maintenance-run',
+        sessionId: 'legacy-session',
+        trigger: 'accepted_turn',
+        status: 'completed',
+        turn: 1,
+        updatedAt: 2,
+    }, {
+        id: 'manual-chat-run',
+        sessionId: 'legacy-session',
+        trigger: 'manager_chat',
+        status: 'completed',
+        turn: 1,
+        updatedAt: 3,
+    }]);
+    await legacyRuntime.table('managerMemorySnapshots').put({
+        managerRunId: 'manual-chat-run',
+        sessionId: 'legacy-session',
+        path: 'memory/state.md',
+        updatedAt: 3,
+    });
+    await legacyRuntime.table('managerStateSnapshots').put({
+        managerRunId: 'manual-chat-run',
+        sessionId: 'legacy-session',
+        docType: 'tavern.map',
+        docId: 'main',
+        updatedAt: 3,
+    });
+    await legacyRuntime.table('managerTaskSnapshots').put({
+        managerRunId: 'manual-chat-run',
+        sessionId: 'legacy-session',
+        updatedAt: 3,
+    });
+    await legacyRuntime.table('statePatches').put({
+        id: 'legacy-patch',
+        sessionId: 'legacy-session',
+        managerRunId: 'manual-chat-run',
+        updatedAt: 3,
+    });
+    await legacyRuntime.table('tasks').put({
+        sessionId: 'legacy-session',
+        id: 'legacy-task',
+        sourceManagerRunId: 'manual-chat-run',
+        updatedAt: 3,
+    });
+    legacyRuntime.close();
+
+    await db.open();
+    const runtimeDb = db as unknown as { tables: Array<{ name: string }> };
+    assert.equal(runtimeDb.tables.some((table) => table.name === 'managerMessages'), false);
+    assert.deepEqual(await listTavernManagerMessages('legacy-session'), []);
+    assert.deepEqual((await listTavernManagerRuns('legacy-session')).map((run) => run.id), ['maintenance-run']);
+    assert.equal(await tavernManagerMemorySnapshotsTable.where('managerRunId').equals('manual-chat-run').count(), 0);
+    assert.equal(await tavernManagerStateSnapshotsTable.where('managerRunId').equals('manual-chat-run').count(), 0);
+    assert.equal(await tavernManagerTaskSnapshotsTable.where('managerRunId').equals('manual-chat-run').count(), 0);
+    assert.equal((await tavernStatePatchesTable.get('legacy-patch'))?.managerRunId, '');
+    assert.equal((await tavernTasksTable.get(['legacy-session', 'legacy-task']))?.sourceManagerRunId, '');
 });

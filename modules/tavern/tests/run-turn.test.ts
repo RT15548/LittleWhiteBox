@@ -56,9 +56,9 @@ import {
 } from '../app-src/runtime/run-once';
 import {
     runXbTavernManagerAfterTurn,
-    runXbTavernManagerChat,
     type XbTavernManagerOnceOptions,
 } from '../app-src/runtime/manager';
+import { runXbTavernAssistantChat as runXbTavernManagerChat } from '../app-src/runtime/assistant-chat-runner';
 import { getTavilySearchToolDefinition, TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
 import { executeTavernTaskTool } from '../shared/tasks';
 import { executeTavernStatusTool, TAVERN_STATUS_TOOL_NAMES } from '../shared/status-state';

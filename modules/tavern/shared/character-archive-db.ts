@@ -1,6 +1,6 @@
 import db, {
     tavernManagerMemorySnapshotsTable,
-    tavernManagerMessagesTable,
+    tavernAssistantChatMessagesTable,
     tavernManagerRunsTable,
     tavernManagerStateSnapshotsTable,
     tavernManagerTaskSnapshotsTable,
@@ -78,7 +78,7 @@ type ArchiveTableMap = Record<TavernCharacterArchiveTable, {
 const archiveTables: ArchiveTableMap = {
     sessions: { table: tavernSessionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'characterKey' },
     messages: { table: tavernMessagesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
-    managerMessages: { table: tavernManagerMessagesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    assistantChatMessages: { table: tavernAssistantChatMessagesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     managerRuns: { table: tavernManagerRunsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     memoryFiles: { table: tavernMemoryFilesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     memorySnapshots: { table: tavernMemorySnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
@@ -399,6 +399,9 @@ function remapArchiveRecord(
         record.managerRunId = options.mapManagerRunId(String(record.managerRunId || ''));
     }
     if (table === 'managerRuns') {
+        if (!['accepted_turn', 'after_turn'].includes(String(record.trigger || ''))) {
+            throw new Error('archive_maintenance_run_trigger_invalid');
+        }
         record.id = options.mapManagerRunId(String(record.id || ''));
     }
     if (table === 'statePatches') {
@@ -407,7 +410,7 @@ function remapArchiveRecord(
     if (table === 'tasks' && record.sourceManagerRunId) {
         record.sourceManagerRunId = options.mapManagerRunId(String(record.sourceManagerRunId || ''));
     }
-    if ((table === 'messages' || table === 'managerMessages') && record.contextSnapshot) {
+    if ((table === 'messages' || table === 'assistantChatMessages') && record.contextSnapshot) {
         record.contextSnapshot = remapContextCharacterKey(record.contextSnapshot, options.characterKey);
     }
     if (table === 'memorySnapshots') {
@@ -535,7 +538,7 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
         'rw',
         tavernSessionsTable,
         tavernMessagesTable,
-        tavernManagerMessagesTable,
+        tavernAssistantChatMessagesTable,
         tavernManagerRunsTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
@@ -571,7 +574,7 @@ async function promoteTempArchiveToCharacter(tempCharacterKey = '', characterKey
         'rw',
         tavernSessionsTable,
         tavernMessagesTable,
-        tavernManagerMessagesTable,
+        tavernAssistantChatMessagesTable,
         tavernManagerRunsTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,

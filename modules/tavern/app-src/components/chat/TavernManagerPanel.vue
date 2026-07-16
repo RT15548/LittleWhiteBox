@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, watch } from 'vue';
+import TavernAssistantToolTurn from './TavernAssistantToolTurn.vue';
 import TavernScrollControls from '../TavernScrollControls.vue';
-import { useTavernChatContext, useTavernManagerContext, useTavernShellContext } from '../tavern-app-context';
+import { useTavernChatContext, useTavernManagerContext, useTavernSessionContext, useTavernShellContext } from '../tavern-app-context';
 import { useTavernEphemeralDisclosureScope } from '../useTavernEphemeralDisclosureScope';
-import type { ManagerChatDisplayItem, ManagerMessageDisplayItem, ManagerToolTurnDisplayItem } from '../../manager-tool-display';
 import type { TavernManagerRunRecord } from '../../../shared/session-db';
 
 const emit = defineEmits<{
@@ -13,6 +13,7 @@ const emit = defineEmits<{
 const shell = useTavernShellContext();
 const chat = useTavernChatContext();
 const manager = useTavernManagerContext();
+const session = useTavernSessionContext();
 const {
     activeView,
     homeThemeDark,
@@ -31,10 +32,13 @@ const {
 } = chat;
 const {
     activeMemoryFiles,
+    assistantChatContextLabel,
     archivedManagerRuns,
+    canClearAssistantChat,
     canEditManagerMessage,
     canRerunManagerMessage,
     canSendManagerMessage,
+    clearAssistantChatHistory,
     copyManagerMessage,
     currentManagerWorkRun,
     deleteManagerMessageTurn,
@@ -78,8 +82,6 @@ const {
     managerToolStatusLabel,
     managerToolTone,
     managerToolTraceItems,
-    managerToolTurnPreview,
-    managerToolTurnSummary,
     memoryFileDisplayName,
     memoryFiles,
     memoryIndexStatusLine,
@@ -111,7 +113,7 @@ function setManagerComposeTextareaRef(element: Element | null) {
 }
 
 function handleManagerWorkBandToggle(event: Event) {
-    managerDisclosure.setOpenFromEvent(managerDisclosureId('work-band'), event);
+    managerWorkDisclosure.setOpenFromEvent(managerDisclosureId('work-band'), event);
     void nextTick(() => {
         enhanceManagerMarkdown();
         updateManagerScrollButtons();
@@ -122,7 +124,8 @@ function openContractModal() {
     emit('open-contract');
 }
 
-const managerDisclosure = useTavernEphemeralDisclosureScope();
+const managerWorkDisclosure = useTavernEphemeralDisclosureScope();
+const assistantChatDisclosure = useTavernEphemeralDisclosureScope();
 
 function managerMarkdownSignature(text = '') {
     return markdownSignature([
@@ -136,17 +139,8 @@ function managerDisclosureId(kind: string, ...parts: Array<string | number | und
     return `manager:${kind}:${parts.map((part) => String(part ?? '')).join(':')}`;
 }
 
-function isManagerMessageDisplayItem(item: ManagerChatDisplayItem): item is ManagerMessageDisplayItem {
-    return item.kind === 'message';
-}
-
-function isManagerToolTurnDisplayItem(item: ManagerChatDisplayItem): item is ManagerToolTurnDisplayItem {
-    return item.kind === 'tool-turn';
-}
-
-const managerChatMessageItems = computed(() => visibleManagerChatItems.value.filter(isManagerMessageDisplayItem));
-const liveManagerChatMessageItems = computed(() => liveManagerChatDisplayItems.value.filter(isManagerMessageDisplayItem));
-const liveManagerToolTurnItems = computed(() => liveManagerChatDisplayItems.value.filter(isManagerToolTurnDisplayItem));
+const managerChatMessageItems = computed(() => visibleManagerChatItems.value);
+const liveManagerChatMessageItems = computed(() => liveManagerChatDisplayItems.value);
 const pendingManagerUserRenderState = computed(() => {
     const text = String(managerPendingUserMessage.value?.content || '').trim();
     return {
@@ -154,22 +148,19 @@ const pendingManagerUserRenderState = computed(() => {
         signature: managerMarkdownSignature(`${text}\u0000pending-user`),
     };
 });
-const currentLiveManagerToolTurn = computed(() => liveManagerToolTurnItems.value[0] || null);
 const currentManagerTraceItems = computed(() => (
     currentManagerWorkRun.value ? managerToolTraceItems(currentManagerWorkRun.value.toolTrace) : []
 ));
 const managerWorkVisible = computed(() => Boolean(
     memoryFiles.value.length
     || managerRuns.value.length
-    || currentLiveManagerToolTurn.value
 ));
 const managerWorkHistoryTotal = computed(() => archivedManagerRuns.value.length + hiddenManagerRunCount.value);
 
 function managerRunKindLabel(run: TavernManagerRunRecord | null | undefined) {
     if (!run) {return '工作记录';}
     if (['accepted_turn', 'after_turn'].includes(run.trigger)) {return '已接受回合维护';}
-    if (run.trigger === 'manager_chat') {return '助手问答';}
-    return '运行记录';
+    return '自动维护';
 }
 
 function compactManagerRunLine(line = '') {
@@ -209,36 +200,51 @@ function managerWorkMetricLine(run: TavernManagerRunRecord | null | undefined) {
 const managerWorkBandKindLabel = computed(() => (
     currentManagerWorkRun.value
         ? managerRunKindLabel(currentManagerWorkRun.value)
-        : currentLiveManagerToolTurn.value ? '助手问答' : '工作记录'
+        : '工作记录'
 ));
 const managerWorkBandSummaryLine = computed(() => (
     currentManagerWorkRun.value
         ? managerWorkSummaryLine(currentManagerWorkRun.value)
-        : currentLiveManagerToolTurn.value
-            ? `运行中 · 工具准备中 · ${managerToolTurnPreview(currentLiveManagerToolTurn.value)}`
-            : managerWorkSummaryLine(null)
+        : managerWorkSummaryLine(null)
 ));
 const managerWorkBandMetricLine = computed(() => (
     currentManagerWorkRun.value
         ? managerWorkMetricLine(currentManagerWorkRun.value)
-        : currentLiveManagerToolTurn.value
-            ? managerToolTurnSummary(currentLiveManagerToolTurn.value)
-            : managerWorkMetricLine(null)
+        : managerWorkMetricLine(null)
 ));
+
+watch(
+    () => `${currentManagerWorkRun.value?.id || ''}:${currentManagerWorkRun.value?.status || ''}`,
+    (next, previous) => {
+        if (next === previous) {return;}
+        const status = String(currentManagerWorkRun.value?.status || '');
+        if (['pending', 'queued', 'running'].includes(status)) {
+            managerWorkDisclosure.setOpen(managerDisclosureId('work-band'), true);
+            return;
+        }
+        managerWorkDisclosure.reset();
+    },
+);
 
 watch(
     [activeView, chatFocus],
     ([view, focus]) => {
         if (view !== 'chat' || focus !== 'manager') {
-            managerDisclosure.reset();
+            managerWorkDisclosure.reset();
+            assistantChatDisclosure.reset();
         }
     },
 );
 
 watch(
     () => `${managerMessageWindow.value.startIndex}:${managerMessageWindow.value.visibleCount}`,
-    () => managerDisclosure.reset(),
+    () => assistantChatDisclosure.reset(),
 );
+
+watch(session.selectedSessionId, () => {
+    managerWorkDisclosure.reset();
+    assistantChatDisclosure.reset();
+});
 </script>
 
 <template>
@@ -247,6 +253,16 @@ watch(
     :aria-hidden="chatFocus === 'chat'"
   >
     <header class="manager-head">
+      <div class="manager-chat-toolbar">
+        <span title="主动聊天历史估算 / 自动压缩阈值">{{ assistantChatContextLabel }}</span>
+        <button
+          type="button"
+          :disabled="!canClearAssistantChat"
+          @click="clearAssistantChatHistory"
+        >
+          清空对话
+        </button>
+      </div>
       <div class="manager-head-actions">
         <button
           type="button"
@@ -273,7 +289,7 @@ watch(
       v-if="managerWorkVisible"
       :ref="setManagerWorkRef"
       class="manager-work-band"
-      :open="managerDisclosure.isOpen(managerDisclosureId('work-band'))"
+      :open="managerWorkDisclosure.isOpen(managerDisclosureId('work-band'))"
       @toggle="handleManagerWorkBandToggle"
     >
       <summary>
@@ -282,7 +298,7 @@ watch(
         <em>{{ managerWorkBandMetricLine }}</em>
       </summary>
       <div
-        v-if="managerDisclosure.isOpen(managerDisclosureId('work-band'))"
+        v-if="managerWorkDisclosure.isOpen(managerDisclosureId('work-band'))"
         class="manager-work-band-body"
       >
         <section
@@ -341,33 +357,6 @@ watch(
         </section>
 
         <section
-          v-if="currentLiveManagerToolTurn && !currentManagerTraceItems.length"
-          class="manager-work-section manager-work-live-draft"
-        >
-          <div class="manager-work-section-head">
-            <strong>工具准备中</strong>
-            <small>{{ managerToolTurnSummary(currentLiveManagerToolTurn) }}</small>
-          </div>
-          <p v-if="currentLiveManagerToolTurn.assistantMessage.content">
-            {{ currentLiveManagerToolTurn.assistantMessage.content }}
-          </p>
-          <div class="manager-tool-list">
-            <div
-              v-for="call in currentLiveManagerToolTurn.calls"
-              :key="call.id"
-              class="manager-tool-item is-running"
-            >
-              <div class="manager-tool-head">
-                <span>{{ call.name }}</span>
-                <em>准备中</em>
-              </div>
-              <small v-if="call.argumentsText">{{ call.argumentsText }}</small>
-              <p>{{ call.resultText }}</p>
-            </div>
-          </div>
-        </section>
-
-        <section
           v-if="currentManagerWorkRun && currentManagerTraceItems.length"
           class="manager-work-section manager-work-tools"
         >
@@ -389,12 +378,12 @@ watch(
               <details
                 v-if="tool.thoughts.length"
                 class="manager-tool-thoughts"
-                :open="managerDisclosure.isOpen(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.id))"
-                @toggle="managerDisclosure.setOpenFromEvent(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.id), $event)"
+                :open="managerWorkDisclosure.isOpen(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.id))"
+                @toggle="managerWorkDisclosure.setOpenFromEvent(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.id), $event)"
               >
                 <summary>{{ thoughtSummaryLabel(tool.thoughts, false) }}</summary>
                 <template
-                  v-if="managerDisclosure.isOpen(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.id))"
+                  v-if="managerWorkDisclosure.isOpen(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.id))"
                 >
                   <div
                     v-for="(thought, thoughtIndex) in tool.thoughts"
@@ -427,14 +416,14 @@ watch(
         <details
           v-if="managerWorkHistoryTotal"
           class="manager-work-history"
-          :open="managerDisclosure.isOpen(managerDisclosureId('work-history'))"
-          @toggle="managerDisclosure.setOpenFromEvent(managerDisclosureId('work-history'), $event)"
+          :open="managerWorkDisclosure.isOpen(managerDisclosureId('work-history'))"
+          @toggle="managerWorkDisclosure.setOpenFromEvent(managerDisclosureId('work-history'), $event)"
         >
           <summary>
             <strong>历史记录</strong>
             <span>{{ managerWorkHistoryTotal }} 条</span>
           </summary>
-          <template v-if="managerDisclosure.isOpen(managerDisclosureId('work-history'))">
+          <template v-if="managerWorkDisclosure.isOpen(managerDisclosureId('work-history'))">
             <div
               v-for="run in archivedManagerRuns"
               :key="run.id"
@@ -475,6 +464,9 @@ watch(
           <small>
             {{ managerCompactionOverlay.currentTokens }} / {{ managerCompactionOverlay.triggerTokens || '...' }}
             <span v-if="managerCompactionOverlay.yieldTokens"> → {{ managerCompactionOverlay.yieldTokens }}</span>
+            <span v-if="managerCompactionOverlay.fixedTokens">
+              · 固定 {{ managerCompactionOverlay.fixedTokens }} + 对话 {{ managerCompactionOverlay.historyTokens || 0 }}
+            </span>
           </small>
         </div>
         <div
@@ -541,6 +533,28 @@ watch(
             </div>
             <div
               v-if="!isEditingManagerMessage(item.message)"
+              class="manager-message-thoughts"
+            >
+              <details
+                v-if="item.message.thoughts?.length"
+                :open="assistantChatDisclosure.isOpen(managerDisclosureId('chat-thoughts', item.key))"
+                @toggle="assistantChatDisclosure.setOpenFromEvent(managerDisclosureId('chat-thoughts', item.key), $event)"
+              >
+                <summary>{{ thoughtSummaryLabel(item.message.thoughts, false) }}</summary>
+                <div v-if="assistantChatDisclosure.isOpen(managerDisclosureId('chat-thoughts', item.key))">
+                  <div
+                    v-for="(thought, thoughtIndex) in item.message.thoughts"
+                    :key="`${item.key}:thought:${thoughtIndex}`"
+                    class="chat-thought-block"
+                  >
+                    <strong>{{ thought.label || `思考 ${thoughtIndex + 1}` }}</strong>
+                    <pre>{{ thought.text }}</pre>
+                  </div>
+                </div>
+              </details>
+            </div>
+            <div
+              v-if="!isEditingManagerMessage(item.message)"
               :key="`history-message:${item.key}:${managerMarkdownSignature(item.message.content)}`"
               class="xb-tavern-markdown"
               :data-markdown-signature="managerMarkdownSignature(item.message.content)"
@@ -591,6 +605,14 @@ watch(
               </button>
             </div>
           </article>
+          <TavernAssistantToolTurn
+            v-else
+            :item="item"
+            :open="assistantChatDisclosure.isOpen(managerDisclosureId('chat-tool-turn', item.key))"
+            :render-markdown="renderChatMarkdown"
+            :markdown-signature="managerMarkdownSignature"
+            @toggle="assistantChatDisclosure.setOpen(managerDisclosureId('chat-tool-turn', item.key), $event)"
+          />
         </template>
 
         <article
@@ -631,6 +653,13 @@ watch(
               v-html="renderChatMarkdown(item.message.content)"
             />
           </article>
+          <TavernAssistantToolTurn
+            v-else
+            :item="item"
+            live
+            :render-markdown="renderChatMarkdown"
+            :markdown-signature="managerMarkdownSignature"
+          />
         </template>
 
         <article
@@ -646,7 +675,7 @@ watch(
         </article>
 
         <p
-          v-if="!managerChatMessageItems.length && !managerPendingUserMessage"
+          v-if="!managerChatMessageItems.length && !managerPendingUserMessage && !liveManagerChatMessageItems.length && !isManagerAssistantRunning"
           data-manager-anchor-key="empty"
           class="chat-empty"
         >

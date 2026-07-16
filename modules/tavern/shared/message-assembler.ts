@@ -36,6 +36,7 @@ export interface XbTavernMessage {
     role: XbTavernRole;
     content: string;
     name?: string;
+    error?: boolean;
     thoughts?: Array<{ label?: string; text?: string }>;
     providerPayload?: unknown;
     tool_calls?: Array<{

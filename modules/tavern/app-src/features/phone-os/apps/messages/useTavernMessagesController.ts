@@ -51,9 +51,6 @@ export interface TavernPhoneControllerOptions {
     agentConfig: Ref<Record<string, unknown>>;
     chatRunning: Ref<boolean>;
     chatCancelling: Ref<boolean>;
-    managerBusy: ComputedRef<boolean>;
-    managerAssistantRunning: Ref<boolean>;
-    managerAssistantCancelling: Ref<boolean>;
     memoryEditorMode: Ref<'preview' | 'edit'>;
     characterArchiveBusy: ComputedRef<boolean>;
     requestHost: TavernHostRequest;
@@ -139,9 +136,6 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
     const sendBlockedReason = computed(() => {
         if (!options.selectedSessionId.value) {return '请先进入一个会话。';}
         if (options.chatRunning.value || options.chatCancelling.value) {return '角色正在回复，暂时不能发送手机消息。';}
-        if (options.managerBusy.value || options.managerAssistantRunning.value || options.managerAssistantCancelling.value) {
-            return '助手正在维护档案，暂时不能发送手机消息。';
-        }
         if (options.memoryEditorMode.value === 'edit') {return '请先退出记忆编辑，再发送手机消息。';}
         if (options.characterArchiveBusy.value) {return '角色档案正在同步，暂时不能发送手机消息。';}
         if (activeThread.value?.replyRequest?.status === 'pending') {return '对方正在回复上一条消息。';}

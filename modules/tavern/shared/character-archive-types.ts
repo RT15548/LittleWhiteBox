@@ -1,6 +1,6 @@
 import type {
     TavernManagerMemorySnapshotRecord,
-    TavernManagerMessageRecord,
+    TavernAssistantChatMessageRecord,
     TavernManagerRunRecord,
     TavernManagerStateSnapshotRecord,
     TavernManagerTaskSnapshotRecord,
@@ -94,7 +94,7 @@ export interface TavernCharacterArchiveProgress {
 export const TAVERN_CHARACTER_ARCHIVE_TABLES = [
     'sessions',
     'messages',
-    'managerMessages',
+    'assistantChatMessages',
     'managerRuns',
     'memoryFiles',
     'memorySnapshots',
@@ -119,7 +119,7 @@ export type TavernCharacterArchiveTable = typeof TAVERN_CHARACTER_ARCHIVE_TABLES
 export type TavernCharacterArchiveRecordPayload = {
     sessions: TavernSessionRecord;
     messages: TavernMessageRecord;
-    managerMessages: TavernManagerMessageRecord;
+    assistantChatMessages: TavernAssistantChatMessageRecord;
     managerRuns: TavernManagerRunRecord;
     memoryFiles: TavernMemoryFileRecord;
     memorySnapshots: TavernMemorySnapshotRecord;

@@ -37,21 +37,24 @@ function normalizeTraceThoughts(value: unknown): Array<{ label?: string; text?: 
 
 export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
     const managerStatusClock = ref(Date.now());
-    const latestManagerRun = computed(() => options.managerRuns.value[0] || null);
+    const maintenanceRuns = computed(() => options.managerRuns.value.filter((run) => (
+        ['accepted_turn', 'after_turn'].includes(String(run.trigger || ''))
+    )));
+    const latestManagerRun = computed(() => maintenanceRuns.value[0] || null);
     const currentManagerWorkRun = computed(() => (
-        options.managerRuns.value.find((run) => isManagerRunActive(run)) || latestManagerRun.value
+        maintenanceRuns.value.find((run) => isManagerRunActive(run)) || latestManagerRun.value
     ));
     const archivedManagerRuns = computed(() => {
         const currentId = String(currentManagerWorkRun.value?.id || '');
-        return options.managerRuns.value
+        return maintenanceRuns.value
             .filter((run) => String(run.id || '') !== currentId)
             .slice(0, options.visibleRunLimit);
     });
     const hiddenManagerRunCount = computed(() => {
         const currentCount = currentManagerWorkRun.value ? 1 : 0;
-        return Math.max(0, options.managerRuns.value.length - currentCount - archivedManagerRuns.value.length);
+        return Math.max(0, maintenanceRuns.value.length - currentCount - archivedManagerRuns.value.length);
     });
-    const managerBusy = computed(() => options.managerRuns.value.some((run) => isManagerRunActive(run)));
+    const managerBusy = computed(() => maintenanceRuns.value.some((run) => isManagerRunActive(run)));
     function formatDurationAgo(timestamp = 0) {
         const elapsed = Math.max(0, managerStatusClock.value - Number(timestamp || 0));
         if (!timestamp || elapsed < 3000) {return '刚刚';}
@@ -160,7 +163,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         const source = Number.isInteger(userOrder) && userOrder >= 0 && Number.isInteger(assistantOrder) && assistantOrder >= 0
             ? `原文 ${userOrder + 1}-${assistantOrder + 1} 楼`
             : '';
-        const trigger = ['accepted_turn', 'after_turn'].includes(run.trigger) ? '已接受回合维护' : run.trigger === 'manager_chat' ? '助手聊天' : String(run.trigger || '');
+        const trigger = ['accepted_turn', 'after_turn'].includes(run.trigger) ? '已接受回合维护' : String(run.trigger || '');
         return [roleTurn, source, trigger].filter(Boolean).join(' · ');
     }
 
