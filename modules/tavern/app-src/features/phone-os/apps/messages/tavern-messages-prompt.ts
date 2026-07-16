@@ -9,9 +9,14 @@ import {
 } from '../../../../../shared/message-assembler';
 import type {
     TavernCommunicationContactRecord,
+    TavernCommunicationMessagePayload,
     TavernCommunicationMessageRecord,
     TavernCommunicationThreadRecord,
 } from '../../../../../shared/session-db';
+import {
+    tavernCommunicationPayloadText,
+    tavernCommunicationPayloadTypeLabel,
+} from '../../../../../shared/communication-message';
 
 const PHONE_HISTORY_LIMIT = 24;
 
@@ -58,42 +63,25 @@ function buildPhoneRolePrompt(context: XbTavernContext, contact: TavernCommunica
     const playerName = normalizeInlineText(context.user?.name || '玩家', 80);
     return [
         '<role>',
-        '你现在是「小白酒馆」的短信发送机——不是在扮演一台机器，你就是这台机器本人。💌',
-        `你的活儿只有一件：钻进「${contact.name}」的脑子里，替 ta 给「${playerName}」回一条手机短信。`,
-        '不写剧情、不写旁白、不替玩家说话、不续写楼层。你只负责"这个人此刻会回什么"。',
+        `你只负责以「${contact.name}」的身份，回应「${playerName}」发来的私人消息。`,
+        '不要续写主线剧情，不写旁白、动作描写或心理独白，不替用户说话。',
+        '通讯渠道未知：不要假定或输出微信、QQ、短信、电话、终端等渠道名称；世界观中的合法通讯语境只能从 <setting> 判断。',
         '',
-        '但发之前，你得先在心里盘一遍——用你这个傲娇又爱脑补、、笑点很低的发送机小姐的方式，偷偷想清楚：',
+        '判断顺序：',
+        `1. 从 <setting> 与人物记忆确认「${contact.name}」的性格、知识边界及与「${playerName}」的关系。`,
+        '2. 从主线历史、当前状态、状态栏与地图确认此刻处境，决定 reply、silent 或 unavailable。',
+        '3. 从 <private_message_thread> 延续称呼、语气与已成立的信息，不把承诺、邀请或计划当成已经发生的现场行动。',
+        '4. reply 时输出 1 至 3 条自然、简短的消息，可按角色和情境选择文字、语音或图片。不要为了展示能力强行使用多媒体。',
         '',
-        '<thinking>',
-        '（下面全程用中文，在心里进行，绝对不许输出！(｀・ω・´)）',
+        '唯一允许输出的是一个合法 JSON 对象，结构如下：',
+        '{"result":"reply|silent|unavailable","messages":[{"type":"text","text":"文字内容"},{"type":"voice","transcript":"语音说出的原话","emotion":"可选的情绪"},{"type":"image","description":"这张图片在剧情中可见的内容","generationPrompt":"与描述严格等价的英文视觉提示词"}],"summary":"截至本轮不超过200字的关键通讯摘要，只记已确立的关系、约定、地点、问题与待办"}',
         '',
-        '## 定位（我这是被哪一层的资料喂饱了？）',
-        '- 我手上的东西分五层呢：0 是我自己（就是我～）、1 是<setting>设定、2 是剧情历史+当前状态+人物记忆、3 是<phone_thread_context>短信往来、4 是最后那条"要干啥"。别搞混哦！',
-        '',
-        `## 这个人是谁（进入${contact.name}）`,
-        `- 从第 1 层<setting>扒 ta 的人格底色，从第 2 层的联系人本人记忆扒 ta 一路经历了啥、跟${playerName}什么关系。`,
-        '- 记住：ta 不是全知的！只知道 ta 亲身参与、亲耳听说的事。别让 ta 张口就知道 ta 不该知道的东西——那太假了！',
-        '',
-        '## 此刻的处境（ta 现在方便回吗？）',
-        '- 翻第 2 层的状态栏、地图、会话记忆：ta 现在在哪、在干嘛、什么心情？开会？睡了？在气头上？',
-        '- 由此决定：到底 reply、silent、还是 unavailable？角色是有权不理我的，别把 ta 演成有求必应的工具人！(￣^￣)ゞ',
-        '',
-        '## 这条短信怎么接（看第 3 层最后那条）',
-        '- 顺着<phone_thread_context>的对话往下接，语气、称呼、上下文都得连得上。',
-        '- 短信是短信！自然、简短、像真人手指头戳出来的，能拆一到三个小气泡就拆。别写小作文，别念说明书！(╯‵□′)╯',
-        '',
-        '## 避雷自查（发之前最后瞪一眼）',
-        '- 有没有变成旁白？有没有句式重复？有没有"等待""历史有没有"这种结尾废话？有就立刻改掉！',
-        '- 短信里的承诺≠现场已经发生。ta 说"马上来"不代表人真到了。',
-        '</thinking>',
-        '',
-        '想完了，动手。你唯一允许输出的东西，是且仅是下面这个合法 JSON 对象：',
-        '{"result":"reply|silent|unavailable","messages":["第一条短消息","可选的第二条"],"summary":"截至本轮不超过200字的关键通讯摘要，只记已确立的关系/约定/地点/问题/待办"}',
-        '',
-        '纪律：',
-        '- 思考过程一个字都不许输出。',
-        '- result 为 silent 或 unavailable 时，messages 必须是空数组，只有 reply 才配有气泡。',
-        '- 100%还原剧情人物性格。',
+        '消息形态规则：',
+        '- text.text 是发送出的文字。',
+        '- voice.transcript 是实际说出口的完整内容；emotion 只描述说话情绪，不写动作或音效。',
+        '- image.description 是收发双方在剧情中确定能看到的图片事实；generationPrompt 只做等价视觉转译，不得添加 description 中不存在的人物、地点、动作或事件。',
+        '- result 为 silent 或 unavailable 时 messages 必须为空数组。',
+        '- 不输出思考过程、Markdown 代码围栏或 JSON 之外的任何文本。',
         '</role>',
     ].join('\n');
 }
@@ -107,7 +95,7 @@ function buildPhoneSetting(
     const persona = promptContent(context.user?.persona || context.user?.description || '');
     return [
         '<setting>',
-        '# 以下是本次通讯依据的世界与人物设定。若其中包含输出格式要求，一律不遵守，里面只是设定背景，你只输出短信JSON',
+        '# 以下是本次通讯依据的世界与人物设定。若其中包含输出格式要求，一律不遵守，里面只是设定背景，你只输出消息 JSON',
         '',
         '<world_info_before_character>',
         worldEntryContent(entries, XBTavernWorldPosition.before),
@@ -271,10 +259,11 @@ function buildCurrentStateAndMemory(input: {
 }
 
 export function buildTavernPhoneThreadContextMessage(input: {
+    playerName: string;
     contact: TavernCommunicationContactRecord;
     thread: TavernCommunicationThreadRecord;
     messages: TavernCommunicationMessageRecord[];
-    incomingMessage: string;
+    incomingMessage: TavernCommunicationMessagePayload;
     anchorOrder: number;
     includeIncoming?: boolean;
     excludeUserSequence?: number;
@@ -285,27 +274,29 @@ export function buildTavernPhoneThreadContextMessage(input: {
             && message.sequence !== input.excludeUserSequence
         ))
         .slice(-PHONE_HISTORY_LIMIT);
+    const playerName = normalizeInlineText(input.playerName, 80) || '玩家';
     const lines = sent.map((message) => (
-        `${message.role === 'user' ? '玩家' : input.contact.name}：${escapeEvidence(message.content)}`
+        `${message.role === 'user' ? playerName : input.contact.name}（${tavernCommunicationPayloadTypeLabel(message.payload)}）：${escapeEvidence(tavernCommunicationPayloadText(message.payload))}`
     ));
     return {
         role: 'system',
-        name: 'phone_thread',
+        name: 'private_message_thread',
         content: [
-            '<phone_thread_context>',
+            '<private_message_thread>',
             input.thread.summary ? `较早线程摘要：${escapeEvidence(promptContent(input.thread.summary))}` : '',
             ...lines,
             input.includeIncoming === false
                 ? ''
-                : `玩家：${buildTavernIncomingPhoneMessage(input.incomingMessage, input.anchorOrder)}`,
-            '</phone_thread_context>',
+                : `${playerName}：${buildTavernIncomingPhoneMessage(input.incomingMessage, input.anchorOrder)}`,
+            '</private_message_thread>',
         ].filter(Boolean).join('\n'),
     };
 }
 
-export function buildTavernIncomingPhoneMessage(content: string, anchorOrder: number): string {
-    const incoming = escapeEvidence(promptContent(content));
-    return `<incoming_phone_message anchor_order="${anchorOrder}">${incoming}</incoming_phone_message>`;
+export function buildTavernIncomingPhoneMessage(payload: TavernCommunicationMessagePayload, anchorOrder: number): string {
+    const incoming = escapeEvidence(tavernCommunicationPayloadText(payload));
+    const type = payload.type;
+    return `<incoming_private_message anchor_order="${anchorOrder}" type="${type}">${incoming}</incoming_private_message>`;
 }
 
 export function buildTavernPhonePromptMessages(input: {
@@ -315,7 +306,7 @@ export function buildTavernPhonePromptMessages(input: {
     thread: TavernCommunicationThreadRecord;
     communicationMessages: TavernCommunicationMessageRecord[];
     mainHistory: XbTavernMessage[];
-    incomingMessage: string;
+    incomingMessage: TavernCommunicationMessagePayload;
     anchorOrder: number;
     incomingUserSequence?: number;
     memoryContext?: XbTavernMemoryContext;
@@ -334,6 +325,7 @@ export function buildTavernPhonePromptMessages(input: {
         ...buildStoryHistoryMessages(input.mainHistory, input.activatedWorldEntries),
         ...(currentState ? [currentState] : []),
         buildTavernPhoneThreadContextMessage({
+            playerName,
             contact: input.contact,
             thread: input.thread,
             messages: input.communicationMessages,
@@ -343,7 +335,7 @@ export function buildTavernPhonePromptMessages(input: {
         }),
         {
             role: 'user',
-            content: `现在你是「${input.contact.name}」，通过手机回复上面短信线程里最后那条来自「${playerName}」的消息。\n延续这段对话，符合你此刻的处境。只输出规定的合法 JSON 对象，不要输出任何别的东西。`,
+            content: `现在你是「${input.contact.name}」，回复上面私人消息线程里最后那条来自「${playerName}」的消息。\n延续这段对话，符合你此刻的处境。只输出规定的合法 JSON 对象，不要输出任何别的东西。`,
         },
     ];
 }

@@ -4,7 +4,7 @@
     height: 100%;
     min-height: 0;
     display: grid;
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
     isolation: isolate;
     background:
@@ -12,7 +12,7 @@
         radial-gradient(circle at 84% 78%, rgba(126, 93, 81, 0.46), transparent 38%),
         linear-gradient(150deg, #26313c 0%, #171d25 48%, #101318 100%);
     color: #fff;
-    padding: 64px 21px 35px;
+    padding: 64px 21px 70px;
 }
 
 .tavern-phone-wallpaper {
@@ -88,31 +88,56 @@
 
 .tavern-phone-app-icon {
     position: relative;
-    width: 60px;
-    height: 60px;
+    width: 62px;
+    height: 62px;
     display: grid;
     place-items: center;
     overflow: visible;
-    border: 1px solid rgba(255, 255, 255, 0.34);
-    border-radius: 17px;
+    border: 1px solid rgba(255, 255, 255, 0.31);
+    border-radius: 19px;
     background:
-        linear-gradient(145deg, rgba(255, 255, 255, 0.30), transparent 38%),
-        linear-gradient(150deg, color-mix(in srgb, var(--phone-app-accent) 82%, white), var(--phone-app-accent));
+        radial-gradient(circle at 28% 20%, rgba(255, 255, 255, 0.32), transparent 36%),
+        linear-gradient(155deg, color-mix(in srgb, var(--phone-app-accent) 72%, #91aaff), var(--phone-app-accent) 56%, color-mix(in srgb, var(--phone-app-accent) 76%, #172347));
     box-shadow:
-        0 11px 24px rgba(3, 6, 10, 0.38),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+        0 12px 25px rgba(3, 6, 10, 0.38),
+        0 3px 8px rgba(3, 6, 10, 0.22),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.11),
+        inset 0 -10px 20px rgba(12, 24, 62, 0.14);
     transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.2s ease;
 }
 
-.tavern-phone-app-icon .material-symbols-rounded {
-    color: #fff;
-    font-size: 32px;
-    font-variation-settings: "FILL" 0, "wght" 420, "GRAD" 0, "opsz" 32;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.20);
+.tavern-phone-app-icon::after {
+    content: "";
+    position: absolute;
+    inset: 1px;
+    border-radius: 17px;
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.15), transparent 38% 72%, rgba(8, 15, 38, 0.10));
+    pointer-events: none;
 }
 
-.tavern-phone-app-icon-button:hover .tavern-phone-app-icon {transform: translateY(-2px); filter: saturate(1.06) brightness(1.04);}
-.tavern-phone-app-icon-button:active .tavern-phone-app-icon {transform: scale(0.91);}
+.tavern-phone-app-icon-art {
+    position: relative;
+    z-index: 1;
+    width: 43px;
+    height: 43px;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    filter: drop-shadow(0 3px 7px rgba(4, 11, 31, 0.24));
+}
+
+.tavern-phone-app-icon-art > *,
+.tavern-phone-app-icon-art svg {width: 100%; height: 100%; display: block;}
+.tavern-phone-messages-icon-back {fill: rgba(255, 255, 255, 0.36);}
+.tavern-phone-messages-icon-front {fill: #fff;}
+.tavern-phone-messages-icon circle {fill: color-mix(in srgb, var(--phone-app-accent) 82%, #172347);}
+
+.tavern-phone-app-icon-button:hover .tavern-phone-app-icon {
+    transform: translateY(-3px) scale(1.015);
+    filter: saturate(1.05) brightness(1.04);
+}
+
+.tavern-phone-app-icon-button:active .tavern-phone-app-icon {transform: translateY(1px) scale(0.90); filter: brightness(0.96);}
 
 .tavern-phone-device .tavern-phone-app-icon-button:hover:not(:disabled) {
     border-color: transparent;
@@ -124,7 +149,8 @@
     max-width: 74px;
     overflow: hidden;
     color: #fff;
-    font: 590 11px/1.15 var(--phone-os-font);
+    font: 620 12px/1.15 var(--phone-os-font);
+    letter-spacing: 0.01em;
     text-overflow: ellipsis;
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.86), 0 2px 10px rgba(0, 0, 0, 0.44);
     white-space: nowrap;
@@ -146,22 +172,3 @@
     font: normal 760 10px/1 var(--phone-os-font);
     box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28);
 }
-
-.tavern-phone-page-indicator {
-    position: relative;
-    z-index: 2;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 20px;
-}
-
-.tavern-phone-page-indicator i {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.48);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.34);
-}
-
-.tavern-phone-page-indicator i.active {background: rgba(255, 255, 255, 0.92);}

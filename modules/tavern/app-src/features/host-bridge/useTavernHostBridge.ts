@@ -17,6 +17,11 @@ export type TavernHostMessageData = {
 };
 
 export type TavernHostMessageHandler = (data: TavernHostMessageData) => boolean | void;
+export type TavernHostRequest = (
+    type: string,
+    payload?: Record<string, unknown>,
+    requestOptions?: { signal?: AbortSignal; requestId?: string },
+) => Promise<Record<string, unknown>>;
 
 export interface TavernHostBridgeOptions {
     onHostRequestResolved?: (type: string) => void;

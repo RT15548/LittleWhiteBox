@@ -177,14 +177,13 @@ LittleWhiteBox/
 │   │   ├── ena-planner.html                # 剧情规划 UI
 │   │   └── ena-planner.js                  # 剧情规划主逻辑（发送前拦截，用户输入增强）
 │   │
-│   ├── fourth-wall/                       # 四次元壁功能：消息增强、图像、语音、提示词
+│   ├── fourth-wall/                       # 四次元壁产品层：消息增强、媒体协议与提示词
 │   │   ├── fourth-wall.html                # 四次元壁 UI
 │   │   ├── fourth-wall.js                  # 四次元壁主逻辑
-│   │   ├── fw-image.js                     # 图像逻辑
+│   │   ├── fw-image-protocol.js            # `[img:]` 提示协议与 iframe 消息适配；生成能力归 draw
 │   │   ├── fw-message-enhancer.js          # 消息增强逻辑
 │   │   ├── fw-prompt.js                    # 提示词构造
-│   │   ├── fw-voice.js                     # 语音常量/指南
-│   │   └── fw-voice-runtime.js             # 语音运行时（合成/播放互斥）
+│   │   └── fw-voice.js                     # 四次元壁语音输出格式指南；播放能力归 tts
 │   │
 │   ├── ebook/                             # 小白电纸书 App：书架、书本入口、创作台、章节阅读器
 │   │   ├── ebook.html                      # 电纸书 iframe 入口，加载 dist/ebook-app.js
@@ -227,8 +226,11 @@ LittleWhiteBox/
 │   │   │   ├── draw-common.js              # 占位符、锚点、角色 Prompt、图片 DOM 渲染与错误分类
 │   │   │   ├── draw-llm.js                 # 共享 LLM 调用封装
 │   │   │   ├── draw-settings.js            # 共享 LLM/角色/世界书设置读写，不初始化 Provider 专属 Prompt
+│   │   │   ├── generated-image-runtime.js  # 不可变生成计划、参数感知缓存、同请求合并与消费者级取消
+│   │   │   ├── generation-fingerprint.js    # 稳定序列化与非敏感生成配置哈希
 │   │   │   ├── gallery-cache.js            # 共用图库缓存；聊天 `[image:slot]` 与电纸书 `[ebook-image:slot]` 共用 previews
 │   │   │   ├── scene-planner.js            # Provider 无关的 LLM 场景规划调用与解析
+│   │   │   ├── serial-image-request-queue.js # Provider 级串行与安全冷却原语
 │   │   │   └── worldbook-processor.js      # 世界书上下文处理
 │   │   └── providers/                     # 具体画图后端 Provider
 │   │       ├── novelai/                   # NovelAI Provider
@@ -366,6 +368,7 @@ LittleWhiteBox/
 │   │   ├── tts-free-provider.js            # 免费通道
 │   │   ├── tts-overlay.html                # TTS iframe 设置页
 │   │   ├── tts-panel.js                    # 浮动面板逻辑
+│   │   ├── tts-playback-runtime.js         # 消息气泡等入口共用的互斥播放、停止与资源回收
 │   │   ├── tts-player.js                   # 播放器
 │   │   ├── tts-text.js                     # 文本处理
 │   │   ├── tts-voices.js                   # 音色数据

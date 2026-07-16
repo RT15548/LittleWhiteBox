@@ -44,9 +44,16 @@ const hasKnownRoute = computed(() => (
         :reply-request="phone.messages.activeThread.value?.replyRequest"
         :retry-blocked-reason="phone.messages.sendBlockedReason.value"
         :blocked-reason="phone.messages.sendBlockedReason.value"
+        :image-states="phone.messages.imageStates.value"
+        :voice-states="phone.messages.voiceStates.value"
         @back="phone.os.back"
         @retry="phone.messages.retryReplyRequest"
         @send="phone.messages.sendMessage()"
+        @ensure-image="phone.messages.ensureImageAsset"
+        @retry-image="phone.messages.retryImageAsset"
+        @cancel-image="phone.messages.cancelImageAsset"
+        @release-image="phone.messages.releaseImageAsset"
+        @toggle-voice="phone.messages.toggleVoicePlayback"
       />
     </KeepAlive>
   </Transition>

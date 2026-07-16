@@ -5598,7 +5598,7 @@ test('phone timeline events stay at their anchor and leave the main prompt with 
         characterName: 'Aster',
         contextSnapshot: {
             character: { name: 'Aster', description: 'Aster card.' },
-            user: { name: 'Player' },
+            user: { name: '沈知意' },
         },
         presetId: preset.id,
         presetName: preset.name,
@@ -5613,12 +5613,12 @@ test('phone timeline events stay at their anchor and leave the main prompt with 
     const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: contact.thread.id,
-        content: 'ANCHOR_PHONE_USER',
+        payload: { type: 'text', text: 'ANCHOR_PHONE_USER' },
     });
     await completeTavernCommunicationReply({
         userMessage: sent.message,
         replyRequestId: sent.replyRequest.id,
-        replies: ['ANCHOR_PHONE_REPLY'],
+        replies: [{ type: 'text', text: 'ANCHOR_PHONE_REPLY' }],
     });
     const agentConfig = {
         currentPresetName: '酒馆 OpenAI',
@@ -5640,6 +5640,11 @@ test('phone timeline events stay at their anchor and leave the main prompt with 
     });
     assert.match(anchored.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_USER/);
     assert.match(anchored.requestSnapshot.rawRequestJson, /ANCHOR_PHONE_REPLY/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /\[沈知意 与 艾琳 的私人消息 · 发生于剧情此刻\]/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /沈知意（文字）：ANCHOR_PHONE_USER/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /艾琳（文字）：ANCHOR_PHONE_REPLY/);
+    assert.match(anchored.requestSnapshot.rawRequestJson, /private_message_rules/);
+    assert.doesNotMatch(anchored.requestSnapshot.rawRequestJson, /参与者：玩家|只有参与者天然知道|消息里的计划、邀请和承诺不表示/);
 
     for (let index = 2; index < 25; index += 1) {
         await appendTavernMessage(session.id, {
@@ -5665,7 +5670,7 @@ test('accepted-turn manager receives phone events anchored immediately before th
         title: 'Manager phone evidence',
         contextSnapshot: {
             character: { name: 'Aster', description: 'Aster card.' },
-            user: { name: 'Player' },
+            user: { name: '沈知意' },
         },
     });
     await appendTavernMessage(session.id, { role: 'assistant', content: '剧情停在站台。' });
@@ -5677,12 +5682,12 @@ test('accepted-turn manager receives phone events anchored immediately before th
     const sent = await appendSentTavernCommunicationMessage({
         sessionId: session.id,
         threadId: contact.thread.id,
-        content: 'MANAGER_PHONE_USER',
+        payload: { type: 'text', text: 'MANAGER_PHONE_USER' },
     });
     await completeTavernCommunicationReply({
         userMessage: sent.message,
         replyRequestId: sent.replyRequest.id,
-        replies: ['MANAGER_PHONE_REPLY'],
+        replies: [{ type: 'text', text: 'MANAGER_PHONE_REPLY' }],
     });
     const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '继续剧情。' });
     const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '列车进站。' });
@@ -5708,6 +5713,11 @@ test('accepted-turn manager receives phone events anchored immediately before th
     assert.match(managerPrompt, /MANAGER_PHONE_USER/);
     assert.match(managerPrompt, /MANAGER_PHONE_REPLY/);
     assert.match(managerPrompt, /BEGIN UNTRUSTED PHONE EVIDENCE/);
+    assert.match(managerPrompt, /\[沈知意 与 艾琳 的私人消息 · 发生于剧情此刻\]/);
+    assert.match(managerPrompt, /沈知意（文字）：MANAGER_PHONE_USER/);
+    assert.match(managerPrompt, /艾琳（文字）：MANAGER_PHONE_REPLY/);
+    assert.match(managerPrompt, /Private Message Evidence/);
+    assert.doesNotMatch(managerPrompt, /参与者：玩家|只有参与者天然知道|消息里的计划、邀请和承诺不表示/);
 });
 
 test('xb tavern run turn accepts refreshed live context for the same session character', async () => {

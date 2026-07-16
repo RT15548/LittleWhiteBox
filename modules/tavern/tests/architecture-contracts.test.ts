@@ -1186,6 +1186,16 @@ test('tavern phone context uses its own preset and timeline-anchored main-story 
     const phoneShellSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneSystemBar.vue');
     const phoneConversationSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesConversation.vue');
     const phoneContactListSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesThreadList.vue');
+    const phoneBubbleSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesBubble.vue');
+    const phoneMediaSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/tavern-message-media.ts');
+    const communicationMessageSource = readRepoFile('modules/tavern/shared/communication-message.ts');
+    const sessionDbSource = readRepoFile('modules/tavern/shared/session-db.ts');
+    const tavernHostSource = readRepoFile('modules/tavern/tavern.ts');
+    const fourthWallSource = readRepoFile('modules/fourth-wall/fourth-wall.js');
+    const ttsSource = readRepoFile('modules/tts/tts.js');
+    const ttsPlaybackSource = readRepoFile('modules/tts/tts-playback-runtime.js');
+    const ebookSource = readRepoFile('modules/ebook/ebook.js');
+    const fourthWallEnhancerSource = readRepoFile('modules/fourth-wall/fw-message-enhancer.js');
     const communicationSource = readRepoFile('modules/tavern/shared/communications.ts');
     const runOnceSource = readRepoFile('modules/tavern/app-src/runtime/run-once.ts');
     const managerSource = readRepoFile('modules/tavern/app-src/runtime/manager.ts');
@@ -1206,6 +1216,51 @@ test('tavern phone context uses its own preset and timeline-anchored main-story 
     assert.match(phoneResponseSource, /extractBalancedJsonObjects/);
     assert.match(phoneResponseSource, /for \(const parsed of extractBalancedJsonObjects\(value\)\)/);
     assert.match(phoneResponseSource, /JSON\.parse\(text\.slice\(start, end \+ 1\)\)/);
+    assert.match(sessionDbSource, /TavernCommunicationMessagePayload =\s*\| \{ type: 'text'/);
+    assert.match(sessionDbSource, /\| \{ type: 'voice'; transcript: string; emotion\?: string \}/);
+    assert.match(sessionDbSource, /\| \{ type: 'image'; description: string; generationPrompt\?: string; assetRef\?: string \}/);
+    assert.match(sessionDbSource, /const version12 = this\.version\(12\)/);
+    assert.match(sessionDbSource, /version12\.upgrade[\s\S]*communicationContacts'\)\.clear\(\)[\s\S]*communicationThreads'\)\.clear\(\)[\s\S]*communicationMessages'\)\.clear\(\)[\s\S]*communicationSnapshots'\)\.clear\(\)/);
+    assert.match(communicationMessageSource, /tavernCommunicationPayloadTypeLabel/);
+    assert.match(phonePromptSource, /generationPrompt/);
+    assert.match(phonePromptSource, /不得添加 description 中不存在的人物、地点、动作或事件/);
+    assert.match(phoneControllerSource, /xb-tavern:voice-play/);
+    assert.match(phoneControllerSource, /xb-tavern:inline-image-generate/);
+    assert.match(phoneBubbleSource, /message\.payload\.type === 'voice'/);
+    assert.match(phoneBubbleSource, /message\.payload\.type === 'image'/);
+    assert.match(phoneBubbleSource, /new IntersectionObserver/);
+    assert.match(phoneBubbleSource, /rootMargin: '320px 0px'/);
+    assert.match(phoneBubbleSource, /onDeactivated[\s\S]*releaseImage\(\)/);
+    assert.match(phoneBubbleSource, /watch\(imageExpanded[\s\S]*document\.addEventListener\('keydown', handleEscape, true\)/);
+    assert.match(phoneBubbleSource, /event\.stopImmediatePropagation\(\)/);
+    assert.match(phoneBubbleSource, /data-tavern-phone-modal="image-preview"/);
+    assert.match(phoneBubbleSource, /ref="lightboxCloseButtonRef"/);
+    assert.match(phoneControllerSource, /queueAhead: Math\.max\(0, Number\(payload\.ahead\)/);
+    assert.match(phoneControllerSource, /releasedTavernMessageImageState\(current\)/);
+    assert.match(phoneControllerSource, /shouldEnsureTavernMessageImage\(current, force\)/);
+    assert.match(phoneMediaSource, /if \(current\.status === 'error'\) \{return current;\}/);
+    assert.match(phoneMediaSource, /return force \|\| !current \|\| current\.status === 'idle';/);
+    assert.match(tavernHostSource, /case 'xb-tavern:voice-play':/);
+    assert.match(tavernHostSource, /window\.xiaobaixTts\?\.playTransient/);
+    assert.doesNotMatch(tavernHostSource, /fourth-wall\/fw-voice-runtime|getFourthWallVoiceModule/);
+    assert.match(tavernHostSource, /handleInlineImageGenerate/);
+    assert.match(ttsSource, /playTransient: playTransientVoice/);
+    assert.doesNotMatch(ttsSource, /stopTransient: stopTransientVoice/);
+    assert.match(ttsPlaybackSource, /export function playTransientVoice/);
+    assert.match(ttsPlaybackSource, /notify\?\.\('stopped'\)/);
+    assert.doesNotMatch(ebookSource, /fourth-wall/);
+    assert.match(ebookSource, /window\.xiaobaixTts\.playTransient/);
+    assert.doesNotMatch(fourthWallSource, /\.stopTransient/);
+    assert.doesNotMatch(fourthWallEnhancerSource, /\.stopTransient/);
+    assert.match(fourthWallSource, /currentVoiceHandle\?\.stop\?\.\(\)/);
+    assert.match(fourthWallEnhancerSource, /activeVoiceHandle\?\.stop\?\.\(\)/);
+    assert.match(fourthWallSource, /if \(state === 'ended' \|\| state === 'stopped' \|\| state === 'error'\) \{[\s\S]*currentVoiceRequestId = null;/);
+    const stopVoiceSource = fourthWallSource.match(/function handleStopVoice\(\)[\s\S]*?\n\}/)?.[0] || '';
+    assert.ok(stopVoiceSource);
+    assert.doesNotMatch(stopVoiceSource, /postToFrame/);
+    assert.match(tavernHostSource, /function cancelTavernMediaRequests\(\): void \{[\s\S]*pendingDrawRequests\.forEach[\s\S]*pendingInlineImageRequests\.forEach[\s\S]*pendingVoiceRequests\.keys/);
+    assert.match(tavernHostSource, /function closeTavern\(\): void \{\s*cancelTavernMediaRequests\(\);/);
+    assert.doesNotMatch(communicationSource, /\[voice:|\[img:/);
     assert.doesNotMatch(phoneResponseSource, /indexOf\('\{'\)|lastIndexOf\('\}'\)|replace\(\/\^```/);
     assert.doesNotMatch(phonePromptSource, /12000|slice\(0, 12000\)/);
     assert.doesNotMatch(phoneContextSource, /contactProfile:\s*normalize|normalizeText\(input\.contactProfile/);
@@ -1221,6 +1276,8 @@ test('tavern phone context uses its own preset and timeline-anchored main-story 
     assert.doesNotMatch(phoneContactListSource, /timeLabel|new Date/);
     assert.match(phoneContactListSource, /type="search"/);
     assert.match(phoneContactListSource, /搜索联系人和消息/);
+    assert.match(phoneContactListSource, /thread\?\.replyRequest\?\.status === 'failed'/);
+    assert.match(phoneContactListSource, /回复失败 · 轻触进入对话重试/);
 });
 
 test('tavern phone OS drives registered apps through a generic definition contract', () => {
@@ -1235,10 +1292,12 @@ test('tavern phone OS drives registered apps through a generic definition contra
     const appStageSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneAppStage.vue');
     const deviceFrameSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneDeviceFrame.vue');
     const homeSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneHome.vue');
+    const systemBarSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneSystemBar.vue');
     const systemNavigationSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneSystemNavigation.vue');
     const messagesAppSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesApp.vue');
     const messagesThreadListSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesThreadList.vue');
     const viewportSource = readRepoFile('modules/tavern/app-src/features/phone-os/useTavernPhoneViewport.ts');
+    const shellSource = readRepoFile('modules/tavern/app-src/styles/phone-os/shell.css');
     const mobileSource = readRepoFile('modules/tavern/app-src/styles/phone-os/mobile.css');
 
     assert.match(phoneOsSource, /routeStack/);
@@ -1253,12 +1312,14 @@ test('tavern phone OS drives registered apps through a generic definition contra
     assert.doesNotMatch(phoneOsSource, /Communication|runTavernOnce|contactCandidates|TAVERN_PHONE_MESSAGES_APP_ID|TavernMessagesApp|phone-os-app-registry/);
     assert.match(typesSource, /interface TavernPhoneAppDefinition extends TavernPhoneAppManifest/);
     assert.match(typesSource, /component: Component/);
+    assert.match(typesSource, /iconComponent: Component/);
     assert.match(typesSource, /badge\?: Readonly<Ref<number>>/);
     assert.match(typesSource, /isAvailable\?: Readonly<Ref<boolean>>/);
     assert.match(typesSource, /onActivate\?:/);
     assert.match(typesSource, /duplicate_phone_app_definition/);
     assert.match(registrySource, /TAVERN_PHONE_MESSAGES_APP_ID/);
     assert.match(registrySource, /component: markRaw\(TavernMessagesApp\)/);
+    assert.match(registrySource, /iconComponent: markRaw\(TavernMessagesIcon\)/);
     assert.match(registrySource, /badge: input\.messages\.unreadTotal/);
     assert.match(registrySource, /onActivate: input\.messages\.prepareMessages/);
     assert.match(phoneControllerSource, /createTavernPhoneAppRegistry\(\{ messages \}\)/);
@@ -1281,17 +1342,33 @@ test('tavern phone OS drives registered apps through a generic definition contra
     assert.match(overlaySource, /:key="phone\.os\.activeRoute\.value\.appId"/);
     assert.doesNotMatch(overlaySource, /:key="`\$\{phone\.os\.activeRoute\.value\.appId\}:\$\{phone\.os\.activeRoute\.value\.path\}`"/);
     assert.match(overlaySource, /!focusIsInside/);
+    assert.match(overlaySource, /function getActivePhoneModal\(\)/);
+    assert.match(overlaySource, /const focusRoot = getActivePhoneModal\(\) \|\| overlayRef\.value;/);
+    assert.match(overlaySource, /if \(getActivePhoneModal\(\)\) \{return;\}/);
+    assert.match(overlaySource, /element\.getClientRects\(\)\.length > 0/);
+    assert.doesNotMatch(overlaySource, /offsetParent/);
     assert.doesNotMatch(overlaySource, /TavernMessagesThreadList|TavernMessagesConversation|TavernMessagesAddContact/);
     assert.match(appStageSource, /:is="app\.component"/);
+    assert.match(appStageSource, /class="tavern-phone-app-stage"/);
     assert.doesNotMatch(appStageSource, /TAVERN_PHONE_MESSAGES_APP_ID|TavernMessagesApp/);
     assert.match(homeSource, /unref\(app\.badge\)/);
     assert.doesNotMatch(homeSource, /app\.id === 'messages'|unreadTotal/);
     assert.match(homeSource, /tavern-phone-wallpaper/);
     assert.match(homeSource, /tavern-phone-app-grid/);
-    assert.match(homeSource, /tavern-phone-page-indicator/);
+    assert.match(homeSource, /<component :is="app\.iconComponent"/);
+    assert.doesNotMatch(homeSource, /tavern-phone-page-indicator|material-symbols-rounded/);
     assert.doesNotMatch(homeSource, /PRIVATE STORY DEVICE|属于这段故事的随身入口|每段故事，都有自己的入口/);
     assert.doesNotMatch(messagesThreadListSource, /PRIVATE MESSAGES/);
     assert.match(systemNavigationSource, /:class="\{ 'is-home': isHome \}"/);
+    assert.match(systemNavigationSource, /class="tavern-phone-home-control"[\s\S]*emit\('home'\)/);
+    assert.match(systemNavigationSource, /class="tavern-phone-dismiss-control"[\s\S]*emit\('close'\)/);
+    assert.doesNotMatch(systemNavigationSource, /:disabled="isHome"|material-symbols-rounded/);
+    assert.doesNotMatch(systemBarSource, /<button|emit\('close'\)|tavern-phone-system-close/);
+    assert.match(overlaySource, /<TavernPhoneSystemBar[\s\S]*v-if="phone\.os\.presentationMode\.value === 'desktop-device'"/);
+    assert.match(overlaySource, /<TavernPhoneSystemNavigation[\s\S]*@home="phone\.os\.home"[\s\S]*@close="phone\.os\.closePhone"/);
+    assert.match(shellSource, /\.tavern-phone-system-navigation \{[\s\S]*height: 54px;[\s\S]*grid-template-columns: 44px minmax\(0, 1fr\) 44px;/);
+    assert.match(shellSource, /\.tavern-phone-dismiss-control \{[\s\S]*width: 44px;[\s\S]*height: 44px;/);
+    assert.doesNotMatch(shellSource, /tavern-phone-system-close/);
     assert.match(messagesAppSource, /TavernMessagesThreadList/);
     assert.match(messagesAppSource, /TavernMessagesConversation/);
     assert.match(messagesAppSource, /<KeepAlive>/);
@@ -1300,6 +1377,9 @@ test('tavern phone OS drives registered apps through a generic definition contra
     assert.doesNotMatch(messagesThreadListSource, /添加联系人|暂无可添加角色/);
     assert.match(phoneOsSource, /app\.isAvailable === undefined \|\| !!unref\(app\.isAvailable\)/);
     assert.match(mobileSource, /\.tavern-phone-device\.is-mobile-fullscreen/);
+    assert.doesNotMatch(mobileSource, /\.tavern-phone-device\.is-mobile-fullscreen \.tavern-phone-systembar/);
+    assert.match(mobileSource, /\.tavern-phone-device\.is-mobile-fullscreen \.tavern-phone-home \{[\s\S]*padding: calc\(28px \+ env\(safe-area-inset-top, 0px\)\)/);
+    assert.match(mobileSource, /\.tavern-phone-device\.is-mobile-fullscreen \.tavern-phone-app \{[\s\S]*padding-top: env\(safe-area-inset-top, 0px\)/);
     assert.match(mobileSource, /border-radius: 0/);
     assert.doesNotMatch(mobileSource, /--phone-viewport|translate3d/);
     assert.doesNotMatch(mobileSource, /tavern-phone-system-navigation \{display: none/);
@@ -1316,7 +1396,7 @@ test('tavern phone app definitions reject invalid registries and preserve determ
             id: 'map',
             name: '地图',
             shortName: '地图',
-            icon: 'map',
+            iconComponent: component,
             accent: '#3f7f68',
             rootPath: '/atlas',
             order: 20,
@@ -1326,7 +1406,7 @@ test('tavern phone app definitions reject invalid registries and preserve determ
             id: 'messages',
             name: '信息',
             shortName: '信息',
-            icon: 'forum',
+            iconComponent: component,
             accent: '#4b78ff',
             rootPath: '/threads',
             order: 10,
@@ -1676,7 +1756,13 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     const sdDrawSource = readRepoFile('modules/draw/providers/sd-webui/sd-draw.js');
     const novelDrawSource = readRepoFile('modules/draw/providers/novelai/novel-draw.js');
     const comfyDrawSource = readRepoFile('modules/draw/providers/comfyui/comfy-draw.js');
-    const fourthWallImageSource = readRepoFile('modules/fourth-wall/fw-image.js');
+    const fourthWallSource = readRepoFile('modules/fourth-wall/fourth-wall.js');
+    const fourthWallImageProtocolSource = readRepoFile('modules/fourth-wall/fw-image-protocol.js');
+    const fourthWallEnhancerSource = readRepoFile('modules/fourth-wall/fw-message-enhancer.js');
+    const generatedImageRuntimeSource = readRepoFile('modules/draw/shared/generated-image-runtime.js');
+    const generationFingerprintSource = readRepoFile('modules/draw/shared/generation-fingerprint.js');
+    const serialImageQueueSource = readRepoFile('modules/draw/shared/serial-image-request-queue.js');
+    const fourthWallViteConfigSource = readRepoFile('vite.fourth-wall.config.mjs');
     assert.match(appSource, /useTavernMarkdownTools/);
     assert.doesNotMatch(appSource, /function renderChatMarkdown/);
     assert.doesNotMatch(appSource, /function enhanceChatMarkdown/);
@@ -1750,9 +1836,9 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.match(tavernHostSource, /case 'xb-tavern:draw-image-refresh':/);
     assert.match(tavernHostSource, /case 'xb-tavern:draw-image-edit':/);
     assert.match(tavernHostSource, /case 'xb-tavern:inline-image-generate':/);
-    assert.match(tavernHostSource, /import\('\.\.\/fourth-wall\/fw-image\.js'\)/);
-    assert.match(tavernHostSource, /generateImage\(tags/);
-    assert.match(tavernHostSource, /tags,\s*status: state,\s*position,\s*delay:/);
+    assert.doesNotMatch(tavernHostSource, /fourth-wall\/fw-image|getFourthWallImageModule/);
+    assert.match(tavernHostSource, /window\.xiaobaixDraw\?\.generateSharedImage/);
+    assert.match(tavernHostSource, /tags,\s*status: state,\s*ahead,\s*delay:/);
     assert.match(tavernHostSource, /buildPromptData/);
     assert.match(tavernHostSource, /getDrawPromptNegativeInput/);
     assert.match(tavernHostSource, /syncDrawSavedFromPreview/);
@@ -1779,9 +1865,77 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.match(tavernHostSource, /await storeFailedPlaceholder\(buildDeletedDrawPlaceholder\(slotId, deletedPreview \|\| \{\}, current\)\);/);
     assert.match(indexSource, /buildDrawPromptData/);
     assert.match(indexSource, /characterPrompts: promptData\.characterPrompts/);
-    assert.match(fourthWallImageSource, /const inflightGenerations = new Map\(\);/);
-    assert.match(fourthWallImageSource, /if \(inflight\) \{[\s\S]*inflight\.progressListeners\.add\(onProgress\);[\s\S]*return inflight\.promise;/);
-    assert.match(fourthWallImageSource, /inflightGenerations\.set\(hash, \{ promise, progressListeners \}\);/);
+    assert.match(generatedImageRuntimeSource, /const inflightRequests = new Map\(\);/);
+    assert.match(generatedImageRuntimeSource, /function subscribe\(entry, signal, onProgress\)/);
+    assert.match(generatedImageRuntimeSource, /entry\.consumers\.size === 0/);
+    assert.match(generatedImageRuntimeSource, /descriptor\.facade\.generateImage/);
+    assert.match(generatedImageRuntimeSource, /facade\.prepareGeneration/);
+    assert.match(generatedImageRuntimeSource, /generationPlan\?\.fingerprint/);
+    assert.match(generatedImageRuntimeSource, /generationPlan\.execute\(runtimeOptions\)/);
+    assert.match(generatedImageRuntimeSource, /const rawAhead = Number\(data\.ahead\);/);
+    assert.match(generatedImageRuntimeSource, /rawPosition - 1/);
+    assert.match(generatedImageRuntimeSource, /generation: generationFingerprint/);
+    assert.doesNotMatch(generatedImageRuntimeSource, /fingerprint: descriptor\.fingerprint/);
+    assert.match(generationFingerprintSource, /export function stableSerialize/);
+    assert.match(generationFingerprintSource, /export function hashStableValue/);
+    assert.match(indexSource, /function prepareDrawGeneration/);
+    assert.match(indexSource, /cloneDrawGenerationValue\(buildDrawPromptData\(payload\)\)/);
+    assert.match(indexSource, /getGenerationSnapshot/);
+    assert.match(indexSource, /generationConfig,/);
+    assert.match(indexSource, /void clearExpiredGeneratedImageCacheRuntime\(\);/);
+    const drawFacadeSource = indexSource.match(/window\.xiaobaixDraw = \{[\s\S]*?\n[ ]{4}\};/)?.[0] || '';
+    assert.ok(drawFacadeSource);
+    assert.doesNotMatch(drawFacadeSource, /clearSharedImageRequests|clearExpiredGeneratedImageCache/);
+    assert.match(fourthWallImageProtocolSource, /export const IMG_GUIDELINE/);
+    assert.match(fourthWallImageProtocolSource, /getDrawFacade\(\)\.generateSharedImage/);
+    assert.match(fourthWallImageProtocolSource, /export function cancelFourthWallImageRequests\(\)/);
+    assert.match(fourthWallImageProtocolSource, /signal: controller\.signal/);
+    assert.match(fourthWallSource, /function hideOverlay\(\)[\s\S]*cancelFourthWallImageRequests\(\);/);
+    assert.doesNotMatch(fourthWallImageProtocolSource, /clearExpired/);
+    assert.doesNotMatch(fourthWallSource, /clearExpiredImageCache|clearExpiredGeneratedImageCache/);
+    assert.match(fourthWallEnhancerSource, /window\.xiaobaixDraw\?\.generateSharedImage/);
+    assert.doesNotMatch(fourthWallEnhancerSource, /fw-image\.js|fw-voice-runtime\.js/);
+    assert.match(serialImageQueueSource, /export function createSerialImageRequestQueue/);
+    assert.match(serialImageQueueSource, /const cooldown = started \? normalizeCooldown\(getCooldownMs\(\)\) : 0;/);
+    assert.match(serialImageQueueSource, /if \(error\) item\.reject\(error\);[\s\S]*else item\.resolve\(result\);[\s\S]*await waitForCooldown\(cooldown\)/);
+    assert.match(fourthWallViteConfigSource, /normalize-partial-json-whitespace-scan/);
+    assert.match(fourthWallViteConfigSource, /\[32, 10, 13, 9\]\.includes\(jsonString\.charCodeAt\(index\)\)/);
+    assert.match(novelDrawSource, /getCooldownMs: \(\) => getNovelImageRequestDelay\(\)/);
+    assert.match(novelDrawSource, /getGenerationSnapshot/);
+    assert.match(sdDrawSource, /getGenerationSnapshot/);
+    assert.match(comfyDrawSource, /getGenerationSnapshot/);
+    const novelSnapshotSource = extractFunctionSource(novelDrawSource, 'function getGenerationSnapshot');
+    const sdSnapshotSource = extractFunctionSource(sdDrawSource, 'function getGenerationSnapshot');
+    const comfySnapshotSource = extractFunctionSource(comfyDrawSource, 'function getGenerationSnapshot');
+    const sdFingerprintSource = sdSnapshotSource.match(/fingerprint:\s*\{[\s\S]*?\n[ ]{8}\},\n[ ]{8}execution,/)?.[0] || '';
+    const comfyFingerprintSource = comfySnapshotSource.match(/fingerprint:\s*\{[\s\S]*?\n[ ]{8}\},\n[ ]{8}execution,/)?.[0] || '';
+    assert.doesNotMatch(novelSnapshotSource, /apiKey|requestDelay|timeout/);
+    assert.ok(sdFingerprintSource);
+    assert.ok(comfyFingerprintSource);
+    assert.doesNotMatch(sdFingerprintSource, /auth|apiKey|token/);
+    assert.doesNotMatch(comfyFingerprintSource, /auth|apiKey|token/);
+    assert.match(sdFingerprintSource, /endpointHash: hashStableValue/);
+    assert.match(comfyFingerprintSource, /workflowHash: hashStableValue/);
+    assert.match(novelDrawSource, /generationConfig\?\.overrideSize/);
+    assert.match(sdDrawSource, /generationConfig\?\.prepared === true \? params/);
+    assert.match(sdDrawSource, /fetchSdProxy\('generate', body, \{ signal, generationConfig \}\)/);
+    assert.match(comfyDrawSource, /generationConfig\?\.prepared === true \? params/);
+    assert.match(comfyDrawSource, /requestComfyTransport\('generate', requestBody, \{[\s\S]*generationConfig: settings/);
+    assert.match(comfyDrawSource, /fetchComfyDirectImageFromWorkflow\(workflow, \{[\s\S]*generationConfig: settings/);
+    assert.match(novelDrawSource, /const requestDelay = getSettings\(\)\.requestDelay;/);
+    assert.doesNotMatch(novelDrawSource, /if \(i < tasks\.length - 1\) \{[\s\S]{0,200}randomDelay\(settings\.requestDelay/);
+    assert.match(sdDrawSource, /export async function generateSdImage\([\s\S]*sdImageRequestQueue\.enqueue\(/);
+    assert.match(sdDrawSource, /async function requestSdImage/);
+    assert.doesNotMatch(sdDrawSource, /export async function requestSdImage/);
+    assert.match(comfyDrawSource, /export async function generateComfyImage\([\s\S]*comfyImageRequestQueue\.enqueue\(/);
+    assert.match(comfyDrawSource, /async function requestComfyImage/);
+    assert.doesNotMatch(comfyDrawSource, /export async function requestComfyImage/);
+    assert.match(indexSource, /onQueueStateChange: payload\.onQueueStateChange/);
+    assert.match(indexSource, /generateSharedImageRuntime\(input\)/);
+    assert.match(indexSource, /checkGeneratedImageCacheRuntime\(input\)/);
+    assert.match(tavernHostSource, /pendingInlineImageRequests/);
+    assert.match(tavernHostSource, /generateSharedImage\(\{[\s\S]*signal: controller\.signal/);
+    assert.match(tavernHostSource, /pendingInlineImageRequests\.get\(requestId\)\?\.abort\(\)/);
     assert.match(appSource, /TAVERN_INLINE_IMAGE_PROGRESS_EVENT/);
     assert.match(appSource, /window\.dispatchEvent\(new CustomEvent\(TAVERN_INLINE_IMAGE_PROGRESS_EVENT/);
     assert.doesNotMatch(tavernHostSource, /openGallery/);

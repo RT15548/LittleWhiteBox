@@ -18,6 +18,9 @@ import {
     listTavernMemoryFiles,
 } from '../../../../../shared/memory-files';
 import type { XbTavernContext } from '../../../../../shared/message-assembler';
+import {
+    tavernCommunicationMessageSearchText,
+} from '../../../../../shared/communication-message';
 import type {
     TavernCommunicationContactRecord,
     TavernCommunicationMessageRecord,
@@ -28,6 +31,18 @@ import { runTavernOnce } from '../../../../runtime/run-once';
 import { buildTavernAutomaticCommunicationContacts } from './tavern-messages-contacts';
 import { buildTavernMessagesRequestMessages } from './tavern-messages-context';
 import { parseTavernPhoneReply } from './tavern-messages-response';
+import type {
+    TavernHostMessageHandler,
+    TavernHostRequest,
+} from '../../../host-bridge/useTavernHostBridge';
+import {
+    idleTavernMessageVoiceState,
+    releasedTavernMessageImageState,
+    shouldEnsureTavernMessageImage,
+    tavernCommunicationMediaKey,
+    type TavernMessageImageState,
+    type TavernMessageVoiceState,
+} from './tavern-message-media';
 
 export interface TavernPhoneControllerOptions {
     selectedSessionId: Ref<string>;
@@ -41,8 +56,13 @@ export interface TavernPhoneControllerOptions {
     managerAssistantCancelling: Ref<boolean>;
     memoryEditorMode: Ref<'preview' | 'edit'>;
     characterArchiveBusy: ComputedRef<boolean>;
+    requestHost: TavernHostRequest;
+    addHostMessageHandler: (handler: TavernHostMessageHandler) => () => void;
     isThreadVisible?: (sessionId: string, threadId: string) => boolean;
 }
+
+const TAVERN_MESSAGE_VOICE_TIMEOUT_MS = 120_000;
+const TAVERN_MESSAGE_IMAGE_TIMEOUT_MS = 300_000;
 
 interface TavernPhoneSendTask {
     sessionId: string;
@@ -78,6 +98,8 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
     const draft = ref('');
     const draftsByThread = ref<Record<string, string>>({});
     const status = ref('');
+    const imageStates = ref<Record<string, TavernMessageImageState>>({});
+    const voiceStates = ref<Record<string, TavernMessageVoiceState>>({});
     const searchQuery = ref('');
     const isSending = ref(false);
     const sendingSessionId = ref('');
@@ -91,6 +113,8 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
     let openContactSequence = 0;
     let sessionChangeSequence = 0;
     let interruptedRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+    const imageRequests = new Map<string, { key: string; controller: AbortController }>();
+    let activeVoiceRequest: { key: string; requestId: string; controller: AbortController } | null = null;
 
     const activeContact = computed(() => contacts.value.find((contact) => contact.id === activeContactId.value) || null);
     const activeThread = computed(() => threads.value.find((thread) => thread.id === activeThreadId.value) || null);
@@ -202,7 +226,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
             return {
                 threadId: thread.id,
                 preview: threadMessages.at(-1) || null,
-                searchText: threadMessages.map((message) => message.content).join('\n').toLocaleLowerCase('zh-CN'),
+                searchText: threadMessages.map(tavernCommunicationMessageSearchText).join('\n').toLocaleLowerCase('zh-CN'),
             };
         }));
         const nextActiveThreadId = nextThreads.some((thread) => thread.id === activeThreadId.value)
@@ -278,7 +302,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         thread: TavernCommunicationThreadRecord,
     ): TavernPhoneSendTask {
         const sessionId = String(options.selectedSessionId.value || '').trim();
-        if (!sessionId) {throw new Error('当前手机通讯会话不存在。');}
+        if (!sessionId) {throw new Error('当前私人消息会话不存在。');}
         return {
             sessionId,
             contextSnapshot: cloneSerializable(options.effectiveContext.value || {}),
@@ -405,16 +429,189 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         await runReplyRequest(task, () => appendSentTavernCommunicationMessage({
             sessionId: task.sessionId,
             threadId: task.thread.id,
-            content,
+            payload: { type: 'text', text: content },
         }));
     }
+
+    function updateImageState(key: string, patch: TavernMessageImageState) {
+        imageStates.value = { ...imageStates.value, [key]: patch };
+    }
+
+    function removeImageState(key: string) {
+        if (!(key in imageStates.value)) {return;}
+        const next = { ...imageStates.value };
+        delete next[key];
+        imageStates.value = next;
+    }
+
+    function updateVoiceState(key: string, patch: TavernMessageVoiceState) {
+        voiceStates.value = { ...voiceStates.value, [key]: patch };
+    }
+
+    function stopVoicePlayback() {
+        const active = activeVoiceRequest;
+        if (!active) {return;}
+        activeVoiceRequest = null;
+        active.controller.abort();
+        updateVoiceState(active.key, idleTavernMessageVoiceState());
+    }
+
+    async function toggleVoicePlayback(message: TavernCommunicationMessageRecord) {
+        if (message.payload.type !== 'voice') {return;}
+        const key = tavernCommunicationMediaKey(message);
+        if (activeVoiceRequest?.key === key) {
+            stopVoicePlayback();
+            return;
+        }
+        stopVoicePlayback();
+        const controller = new AbortController();
+        const requestId = `phone-voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        activeVoiceRequest = { key, requestId, controller };
+        updateVoiceState(key, { status: 'loading' });
+        let timedOut = false;
+        const timeoutId = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, TAVERN_MESSAGE_VOICE_TIMEOUT_MS);
+        try {
+            const response = await options.requestHost('xb-tavern:voice-play', {
+                text: message.payload.transcript,
+                emotion: message.payload.emotion || '',
+            }, { requestId, signal: controller.signal });
+            if (activeVoiceRequest?.key === key) {
+                activeVoiceRequest = null;
+                updateVoiceState(key, String(response.state || '') === 'stopped'
+                    ? idleTavernMessageVoiceState()
+                    : { ...voiceStates.value[key], status: 'ended' });
+            }
+        } catch (error) {
+            if (controller.signal.aborted && !timedOut) {return;}
+            if (activeVoiceRequest?.key === key) {activeVoiceRequest = null;}
+            updateVoiceState(key, {
+                status: 'error',
+                error: timedOut
+                    ? '语音准备超时，请重新播放'
+                    : error instanceof Error ? error.message.replace(/^xb-tavern:voice-play:\s*/, '') : '语音播放失败',
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
+    function abortImageRequestsForKey(key: string) {
+        for (const [requestId, request] of imageRequests) {
+            if (request.key !== key) {continue;}
+            imageRequests.delete(requestId);
+            request.controller.abort();
+        }
+    }
+
+    function releaseImageAsset(message: TavernCommunicationMessageRecord) {
+        if (message.payload.type !== 'image') {return;}
+        const key = tavernCommunicationMediaKey(message);
+        const current = imageStates.value[key];
+        abortImageRequestsForKey(key);
+        const released = releasedTavernMessageImageState(current);
+        if (!released) {
+            removeImageState(key);
+            return;
+        }
+        updateImageState(key, released);
+    }
+
+    function cancelImageAsset(message: TavernCommunicationMessageRecord) {
+        if (message.payload.type !== 'image') {return;}
+        const key = tavernCommunicationMediaKey(message);
+        abortImageRequestsForKey(key);
+        updateImageState(key, { status: 'error', error: '已取消图片生成' });
+    }
+
+    async function ensureImageAsset(message: TavernCommunicationMessageRecord, force = false) {
+        if (message.payload.type !== 'image') {return;}
+        const key = tavernCommunicationMediaKey(message);
+        const current = imageStates.value[key];
+        if (!shouldEnsureTavernMessageImage(current, force)) {return;}
+        abortImageRequestsForKey(key);
+        const requestId = `phone-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const controller = new AbortController();
+        imageRequests.set(requestId, { key, controller });
+        updateImageState(key, { status: 'generating' });
+        let timedOut = false;
+        const timeoutId = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, TAVERN_MESSAGE_IMAGE_TIMEOUT_MS);
+        try {
+            const response = await options.requestHost('xb-tavern:inline-image-generate', {
+                tags: message.payload.generationPrompt || message.payload.description,
+            }, { requestId, signal: controller.signal });
+            const result = response.result && typeof response.result === 'object'
+                ? response.result as Record<string, unknown>
+                : {};
+            const base64 = String(result.base64 || '').trim();
+            if (!base64) {throw new Error('图片生成结果为空');}
+            const url = /^data:image\//i.test(base64) ? base64 : `data:image/png;base64,${base64}`;
+            updateImageState(key, { status: 'ready', url });
+        } catch (error) {
+            if (controller.signal.aborted && !timedOut) {return;}
+            if (!imageRequests.has(requestId)) {return;}
+            updateImageState(key, {
+                status: 'error',
+                error: timedOut
+                    ? '图片生成超时，请重试'
+                    : error instanceof Error
+                    ? error.message.replace(/^xb-tavern:inline-image-generate:\s*/, '')
+                    : '图片生成失败',
+            });
+        } finally {
+            clearTimeout(timeoutId);
+            imageRequests.delete(requestId);
+        }
+    }
+
+    function retryImageAsset(message: TavernCommunicationMessageRecord) {
+        return ensureImageAsset(message, true);
+    }
+
+    const removeMediaHostHandler = options.addHostMessageHandler((data) => {
+        const payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+        const requestId = String(payload.requestId || '');
+        if (data.type === 'xb-tavern:inline-image-progress') {
+            const request = imageRequests.get(requestId);
+            if (!request) {return false;}
+            const rawStatus = String(payload.status || 'generating');
+            const status = ['queued', 'waiting', 'generating'].includes(rawStatus)
+                ? rawStatus as TavernMessageImageState['status']
+                : 'generating';
+            updateImageState(request.key, {
+                status,
+                queueAhead: Math.max(0, Number(payload.ahead) || 0) || undefined,
+                waitSeconds: Math.max(0, Number(payload.delay) || 0) || undefined,
+            });
+            return true;
+        }
+        if (data.type === 'xb-tavern:voice-progress') {
+            if (!activeVoiceRequest || requestId !== activeVoiceRequest.requestId) {return false;}
+            const rawStatus = String(payload.status || 'loading');
+            if (rawStatus === 'loading') {
+                updateVoiceState(activeVoiceRequest.key, { status: 'loading' });
+            } else if (rawStatus === 'playing') {
+                updateVoiceState(activeVoiceRequest.key, {
+                    status: 'playing',
+                    duration: Math.max(0, Number(payload.duration) || 0) || undefined,
+                });
+            }
+            return true;
+        }
+        return false;
+    });
 
     async function retryReplyRequest() {
         const blocked = sendBlockedReason.value;
         const contact = activeContact.value;
         const thread = activeThread.value;
         if (blocked || !contact || !thread || thread.replyRequest?.status !== 'failed') {
-            status.value = blocked || '当前短信线程已经变化，无法重试。';
+            status.value = blocked || '当前消息线程已经变化，无法重试。';
             return;
         }
         const task = createSendTask(contact, thread);
@@ -432,6 +629,11 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         draftsByThread.value = {};
         searchQuery.value = '';
         status.value = '';
+        stopVoicePlayback();
+        imageRequests.forEach((request) => request.controller.abort());
+        imageRequests.clear();
+        imageStates.value = {};
+        voiceStates.value = {};
         const sessionId = String(value || '').trim();
         void (async () => {
             if (sessionId) {await recoverInterruptedReplyRequests(sessionId);}
@@ -451,6 +653,10 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
 
     onScopeDispose(() => {
         clearInterruptedRecoveryTimer();
+        removeMediaHostHandler();
+        stopVoicePlayback();
+        imageRequests.forEach((request) => request.controller.abort());
+        imageRequests.clear();
     });
 
     return {
@@ -464,6 +670,7 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         draft,
         draftsByThread,
         filteredContactIds,
+        imageStates,
         isSending,
         sendingSessionId,
         messages,
@@ -472,6 +679,9 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         prepareMessages,
         refreshPhone,
         retryReplyRequest,
+        retryImageAsset,
+        cancelImageAsset,
+        releaseImageAsset,
         searchQuery,
         sendBlockedReason,
         sendMessage,
@@ -480,5 +690,8 @@ export function useTavernMessagesController(options: TavernPhoneControllerOption
         threadSearchText,
         threads,
         unreadTotal,
+        ensureImageAsset,
+        toggleVoicePlayback,
+        voiceStates,
     };
 }

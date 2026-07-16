@@ -8,6 +8,7 @@ import { TtsStorage } from "../../core/server-storage.js";
 import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
 import { extractSpeakText, parseTtsSegments, DEFAULT_SKIP_TAGS, normalizeEmotion, splitTtsSegmentsForFree } from "./tts-text.js";
 import { TtsPlayer } from "./tts-player.js";
+import { playTransientVoice, stopTransientVoice } from "./tts-playback-runtime.js";
 import { synthesizeV3, FREE_DEFAULT_VOICE } from "./tts-api.js";
 import { 
     ensureTtsPanel, 
@@ -1375,6 +1376,7 @@ export async function initTts() {
         closeSettings,
         player,
         synthesize: synthesizeForExternal,
+        playTransient: playTransientVoice,
         speak: async (text, options = {}) => {
             if (!isModuleEnabled()) return;
             
@@ -1528,6 +1530,7 @@ export function cleanupTts() {
     afterAiGateDispose?.();
     afterAiGateDispose = null;
     clearAllFreeQueues();
+    stopTransientVoice();
     cleanupNovelDrawObserver();
     cleanupDirectiveObserver();
     if (player) {

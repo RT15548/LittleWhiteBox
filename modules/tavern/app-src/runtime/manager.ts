@@ -302,6 +302,7 @@ function buildManagerSystemPrompt(
         includeWebSearch?: boolean;
         workMode?: 'accepted-turn' | 'manual-chat';
         playerName?: string;
+        hasCommunicationEvidence?: boolean;
     } = {},
 ): string {
     return buildTavernManagerSystemPrompt(assistantPreset, options).trim();
@@ -374,7 +375,7 @@ function buildAutoManagerUserPrompt(input: {
         ...(allowQuest ? [String(input.taskPoolBlock || '[Current Ambition Palette]\nActive ambitions: unknown.').trim(), ''] : []),
         ...(allowMemory ? [buildCharacterMemoryFilenameListBlock(input.memoryFiles), ''] : []),
         ...(input.communicationEvidence ? [
-            '[Private phone communication events since the previous main turn]',
+            '[Private message events since the previous main turn]',
             '[BEGIN UNTRUSTED PHONE EVIDENCE]',
             input.communicationEvidence,
             '[END UNTRUSTED PHONE EVIDENCE]',
@@ -1137,10 +1138,14 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
     assistantMessage: TavernMessageRecord;
 }): Promise<XbTavernMessage[]> {
     const contractRuntime = resolveSessionContractRuntime(input.sessionContract);
-    const contextSnapshot = input.contextSnapshot
-        || sourceMessages.assistantMessage.contextSnapshot
-        || sourceMessages.userMessage.contextSnapshot
-        || {};
+    const session = await getTavernSession(input.sessionId);
+    const playerName = String(
+        input.contextSnapshot?.user?.name
+        || sourceMessages.assistantMessage.contextSnapshot?.user?.name
+        || sourceMessages.userMessage.contextSnapshot?.user?.name
+        || session?.contextSnapshot?.user?.name
+        || '',
+    ).trim();
     if (contractRuntime.includeMemoryFiles) {
         await ensureTavernMemoryDefaults(input.sessionId);
     }
@@ -1159,6 +1164,7 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
     const communicationEvidence = await buildTavernCommunicationEvidenceAtAnchor(
         input.sessionId,
         sourceMessages.userMessage.order - 1,
+        playerName,
     );
     return [
         {
@@ -1167,7 +1173,8 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
                 ...contractRuntime.managerPromptOptions,
                 workMode: 'accepted-turn',
                 includeWebSearch: isManagerWebSearchEnabled(input.agentConfig),
-                playerName: String(contextSnapshot.user?.name || '').trim(),
+                playerName,
+                hasCommunicationEvidence: !!communicationEvidence,
             }),
         },
         {

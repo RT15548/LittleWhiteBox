@@ -1,5 +1,6 @@
 import { markRaw } from 'vue';
 import TavernMessagesApp from '../../components/phone-os/apps/messages/TavernMessagesApp.vue';
+import TavernMessagesIcon from '../../components/phone-os/apps/messages/TavernMessagesIcon.vue';
 import type { useTavernMessagesController } from './apps/messages/useTavernMessagesController';
 import {
     defineTavernPhoneApps,
@@ -17,7 +18,7 @@ export function createTavernPhoneAppRegistry(input: {
             id: TAVERN_PHONE_MESSAGES_APP_ID,
             name: '信息',
             shortName: '信息',
-            icon: 'forum',
+            iconComponent: markRaw(TavernMessagesIcon),
             accent: '#4b78ff',
             rootPath: '/threads',
             order: 10,

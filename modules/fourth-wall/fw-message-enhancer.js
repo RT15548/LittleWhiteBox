@@ -9,9 +9,6 @@ import { xbLog } from "../../core/debug-core.js";
 import { initAfterAiGate, notifyAfterAiHint, registerAfterAiHandler } from "../../core/after-ai-gate.js";
 import { getContext } from "../../../../../extensions.js";
 
-import { generateImage, clearQueue } from "./fw-image.js";
-import { synthesizeAndPlay, stopCurrent as stopCurrentVoice } from "./fw-voice-runtime.js";
-
 // ════════════════════════════════════════════
 // State
 // ════════════════════════════════════════════════════════════════════════════
@@ -24,6 +21,13 @@ let novelDrawObserver = null;
 let afterAiGateDispose = null;
 let runtimeActive = false;
 let enhancerInitialized = false;
+let activeVoiceHandle = null;
+const activeImageControllers = new Set();
+
+function cancelActiveImageRequests() {
+    activeImageControllers.forEach(controller => controller.abort());
+    activeImageControllers.clear();
+}
 
 export function setMessageEnhancerRuntimeActive(active) {
     runtimeActive = !!active;
@@ -85,7 +89,7 @@ export async function initMessageEnhancer() {
     initNovelDrawObserver();
 
     events.on(event_types.CHAT_CHANGED, () => {
-        clearQueue();
+        cancelActiveImageRequests();
         setTimeout(processAllMessages, 150);
     });
 
@@ -113,9 +117,9 @@ export function cleanupMessageEnhancer() {
     events.cleanup();
     afterAiGateDispose?.();
     afterAiGateDispose = null;
-    clearQueue();
-
-    stopCurrentVoice();
+    cancelActiveImageRequests();
+    activeVoiceHandle?.stop?.();
+    activeVoiceHandle = null;
 
     if (imageObserver) {
         imageObserver.disconnect();
@@ -423,22 +427,29 @@ async function loadImage(slot, tags) {
     // eslint-disable-next-line no-unsanitized/property
     slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-spinner"></i> 检查缓存...</div>`;
 
+    const controller = new AbortController();
+    activeImageControllers.add(controller);
     try {
-        const base64 = await generateImage(tags, (status, position, delay) => {
-            switch (status) {
-                case 'queued':
-                    // eslint-disable-next-line no-unsanitized/property
-                    slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-clock"></i> 排队中 #${position}</div>`;
-                    break;
-                case 'generating':
-                    // eslint-disable-next-line no-unsanitized/property
-                    slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-palette"></i> 生成中${position > 0 ? ` (${position} 排队)` : ''}...</div>`;
-                    break;
-                case 'waiting':
-                    // eslint-disable-next-line no-unsanitized/property
-                    slot.innerHTML = `<div class="xb-img-loading"><i class="fa-solid fa-clock"></i> 排队中 #${position} (${delay}s)</div>`;
-                    break;
-            }
+        const generateSharedImage = window.xiaobaixDraw?.generateSharedImage;
+        if (typeof generateSharedImage !== 'function') throw new Error('画图共享运行时未初始化');
+        const base64 = await generateSharedImage({
+            prompt: tags,
+            cacheNamespace: 'fourth-wall',
+            signal: controller.signal,
+            onProgress(status, ahead) {
+                switch (status) {
+                    case 'queued':
+                        // eslint-disable-next-line no-unsanitized/property
+                        slot.innerHTML = ahead > 0
+                            ? `<div class="xb-img-loading"><i class="fa-solid fa-clock"></i> 前方 ${ahead} 张</div>`
+                            : '<div class="xb-img-loading"><i class="fa-solid fa-clock"></i> 已进入队列</div>';
+                        break;
+                    case 'generating':
+                        // eslint-disable-next-line no-unsanitized/property
+                        slot.innerHTML = '<div class="xb-img-loading"><i class="fa-solid fa-palette"></i> 生成中...</div>';
+                        break;
+                }
+            },
         });
 
         if (base64) renderImage(slot, base64, false);
@@ -447,7 +458,7 @@ async function loadImage(slot, tags) {
         slot.dataset.loaded = '1';
         slot.dataset.loading = '';
 
-        if (err.message === '队列已清空') {
+        if (err?.name === 'AbortError') {
             // eslint-disable-next-line no-unsanitized/property
             slot.innerHTML = `<div class="xb-img-placeholder"><i class="fa-regular fa-image"></i><span>滚动加载</span></div>`;
             slot.dataset.loading = '';
@@ -458,6 +469,8 @@ async function loadImage(slot, tags) {
         // eslint-disable-next-line no-unsanitized/property
         slot.innerHTML = `<div class="xb-img-error"><i class="fa-solid fa-exclamation-triangle"></i><div>${escapeHtml(err?.message || '失败')}</div><button class="xb-img-retry" data-tags="${encodeURIComponent(tags)}">重试</button></div>`;
         bindRetryButton(slot);
+    } finally {
+        activeImageControllers.delete(controller);
     }
 }
 
@@ -519,7 +532,8 @@ function hydrateVoiceSlots(container) {
             if (bubble.classList.contains('loading')) return;
 
             if (bubble.classList.contains('playing')) {
-                stopCurrentVoice();
+                activeVoiceHandle?.stop?.();
+                activeVoiceHandle = null;
                 bubble.classList.remove('playing');
                 return;
             }
@@ -532,7 +546,14 @@ function hydrateVoiceSlots(container) {
             bubble.classList.add('loading');
             bubble.classList.remove('error');
 
-            synthesizeAndPlay(text, emotion, {
+            const playTransient = window.xiaobaixTts?.playTransient;
+            if (typeof playTransient !== 'function') {
+                bubble.classList.remove('loading', 'playing');
+                bubble.classList.add('error');
+                return;
+            }
+            let handle = null;
+            handle = playTransient(text, emotion, {
                 onState(state, info) {
                     switch (state) {
                         case 'loading':
@@ -546,15 +567,18 @@ function hydrateVoiceSlots(container) {
                         case 'ended':
                         case 'stopped':
                             bubble.classList.remove('loading', 'playing');
+                            if (activeVoiceHandle === handle) activeVoiceHandle = null;
                             break;
                         case 'error':
                             bubble.classList.remove('loading', 'playing');
                             bubble.classList.add('error');
+                            if (activeVoiceHandle === handle) activeVoiceHandle = null;
                             setTimeout(() => bubble.classList.remove('error'), 3000);
                             break;
                     }
                 },
             });
+            activeVoiceHandle = handle;
         };
     });
 }

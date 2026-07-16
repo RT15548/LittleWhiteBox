@@ -8,7 +8,6 @@ import {
     getDisplayPreviewForSlot,
     importPortablePreviews,
 } from '../draw/shared/gallery-cache.js';
-import { synthesizeAndPlay } from '../fourth-wall/fw-voice-runtime.js';
 
 const SOURCE_HOST = 'xb-ebook-host';
 const SOURCE_APP = 'xb-ebook-app';
@@ -345,7 +344,7 @@ function getTtsStatus() {
         : !!facade;
     return {
         enabled,
-        ready: enabled && typeof facade?.synthesize === 'function',
+        ready: enabled && typeof facade?.playTransient === 'function',
         playing: !!activeTtsPlayback,
     };
 }
@@ -373,7 +372,7 @@ async function handleTtsPlay(payload = {}) {
             playbackId,
             stop: null,
         };
-        const handle = synthesizeAndPlay(text, '', {
+        const handle = window.xiaobaixTts.playTransient(text, '', {
             requestId: playbackId,
             onState: (state, info = {}) => {
                 if (activeTtsPlayback?.playbackId !== playbackId && !['ended', 'error', 'stopped'].includes(state)) {

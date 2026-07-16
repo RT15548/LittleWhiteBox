@@ -24,16 +24,24 @@ function focusPhoneElement(element: HTMLElement | null | undefined) {
     }
 }
 
+function getActivePhoneModal(): HTMLElement | null {
+    const modals = Array.from(document.querySelectorAll<HTMLElement>('[data-tavern-phone-modal]'))
+        .filter((element) => element.getClientRects().length > 0);
+    return modals.at(-1) || null;
+}
+
 function getPhoneFocusableElements(): HTMLElement[] {
-    if (!overlayRef.value) {return [];}
-    return Array.from(overlayRef.value.querySelectorAll<HTMLElement>(
+    const focusRoot = getActivePhoneModal() || overlayRef.value;
+    if (!focusRoot) {return [];}
+    return Array.from(focusRoot.querySelectorAll<HTMLElement>(
         'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
-    )).filter((element) => element.offsetParent !== null);
+    )).filter((element) => element.getClientRects().length > 0);
 }
 
 function handleDocumentKeydown(event: KeyboardEvent) {
     if (!phone.os.isOpen.value) {return;}
     if (event.key === 'Escape') {
+        if (getActivePhoneModal()) {return;}
         event.preventDefault();
         phone.os.backOrClose();
         return;
@@ -101,9 +109,8 @@ onUnmounted(() => document.removeEventListener('keydown', handleDocumentKeydown)
         @close="phone.os.closePhone"
       >
         <TavernPhoneSystemBar
-          :mode="phone.os.presentationMode.value"
+          v-if="phone.os.presentationMode.value === 'desktop-device'"
           :is-home="phone.os.isHome.value"
-          @close="phone.os.closePhone"
         />
         <main class="tavern-phone-screen">
           <Transition
@@ -141,6 +148,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleDocumentKeydown)
         <TavernPhoneSystemNavigation
           :is-home="phone.os.isHome.value"
           @home="phone.os.home"
+          @close="phone.os.closePhone"
         />
       </TavernPhoneDeviceFrame>
     </div>

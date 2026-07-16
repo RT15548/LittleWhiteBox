@@ -1,6 +1,9 @@
+import { normalizeTavernCommunicationMessagePayload } from '../../../../../shared/communication-message';
+import type { TavernCommunicationMessagePayload } from '../../../../../shared/session-db';
+
 export interface TavernPhoneReplyPayload {
     result: 'reply' | 'silent' | 'unavailable';
-    messages: string[];
+    messages: TavernCommunicationMessagePayload[];
     summary?: string;
 }
 
@@ -48,6 +51,7 @@ export function extractBalancedJsonObjects(value: unknown): Record<string, unkno
             const parsed = JSON.parse(text.slice(start, end + 1));
             if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
                 objects.push(parsed as Record<string, unknown>);
+                start = end;
             }
         } catch {
             // Continue scanning for the next complete object.
@@ -58,12 +62,14 @@ export function extractBalancedJsonObjects(value: unknown): Record<string, unkno
 
 function parseTavernPhoneReplyObject(parsed: Record<string, unknown>): TavernPhoneReplyPayload | null {
     if (parsed.result !== 'reply' && parsed.result !== 'silent' && parsed.result !== 'unavailable') {return null;}
-    if (!Array.isArray(parsed.messages) || !parsed.messages.every((item) => typeof item === 'string')) {return null;}
+    if (!Array.isArray(parsed.messages)) {return null;}
     if (parsed.summary !== undefined && typeof parsed.summary !== 'string') {return null;}
     const result = parsed.result;
     if (result !== 'reply' && parsed.messages.length) {return null;}
+    const normalizedMessages = parsed.messages.map(normalizeTavernCommunicationMessagePayload);
+    if (normalizedMessages.some((message) => !message)) {return null;}
     const messages = result === 'reply'
-        ? parsed.messages.map((item) => normalizeText(item, 500)).filter(Boolean).slice(0, 3)
+        ? normalizedMessages.slice(0, 3) as TavernCommunicationMessagePayload[]
         : [];
     if (result === 'reply' && !messages.length) {return null;}
     const normalizedSummary = typeof parsed.summary === 'string' ? normalizeText(parsed.summary, 200) : '';
@@ -79,5 +85,5 @@ export function parseTavernPhoneReply(value: unknown): TavernPhoneReplyPayload {
         const payload = parseTavernPhoneReplyObject(parsed);
         if (payload) {return payload;}
     }
-    throw new Error('对方没有返回符合短信协议的合法 JSON 回复。');
+    throw new Error('对方没有返回符合消息协议的合法 JSON 回复。');
 }

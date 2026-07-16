@@ -832,10 +832,9 @@ export function useTavernMarkdownTools(options: TavernMarkdownToolsOptions) {
     }
 
     function formatInlineImageProgress(status = '', payload: Record<string, unknown> = {}) {
-        const queuePosition = Math.max(0, Math.floor(Number(payload.position) || 0));
+        const ahead = Math.max(0, Math.floor(Number(payload.ahead) || 0));
         const cooldownSeconds = Math.max(0, Math.floor(Number(payload.delay) || 0));
         if (status === 'queued') {
-            const ahead = Math.max(0, queuePosition - 1);
             return ahead > 0 ? `排队中，前面还有 ${ahead} 张` : '排队中';
         }
         if (status === 'generating') {

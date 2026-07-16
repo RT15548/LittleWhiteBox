@@ -98,7 +98,7 @@ export function rollbackImpactLines(impact: AcceptedStateRollbackImpact): string
     if (impact.memory.changed) {restoreTargets.push('会话记忆');}
     if (impact.tasks.changed) {restoreTargets.push('野望调色盘');}
     if (impact.status.changed) {restoreTargets.push('状态栏');}
-    if (impact.communications.changed) {restoreTargets.push('手机通讯');}
+    if (impact.communications.changed) {restoreTargets.push('私人消息');}
     if (restoreTargets.length) {
         lines.push(`${joinRollbackTargets(restoreTargets)}会恢复到${target}。`);
     }

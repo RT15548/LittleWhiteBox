@@ -40,6 +40,10 @@ import type {
     TavernPhoneOsRoute,
     TavernPhonePresentationMode,
 } from '../features/phone-os/phone-os-types';
+import type {
+    TavernMessageImageState,
+    TavernMessageVoiceState,
+} from '../features/phone-os/apps/messages/tavern-message-media';
 export type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 
 export type TavernReadable<T> = Ref<T> | ComputedRef<T>;
@@ -412,6 +416,7 @@ export interface TavernMessagesContext {
     draft: Ref<string>;
     draftsByThread: Ref<Record<string, string>>;
     filteredContactIds: TavernReadable<string[]>;
+    imageStates: Ref<Record<string, TavernMessageImageState>>;
     isSending: Ref<boolean>;
     markActiveThreadRead: TavernCommand<[threadId?: string], Promise<void>>;
     messages: Ref<TavernCommunicationMessageRecord[]>;
@@ -419,6 +424,9 @@ export interface TavernMessagesContext {
     prepareMessages: TavernCommand<[], Promise<void>>;
     refreshPhone: TavernCommand<[], Promise<void>>;
     retryReplyRequest: TavernCommand<[], Promise<void>>;
+    retryImageAsset: TavernCommand<[message: TavernCommunicationMessageRecord], Promise<void>>;
+    cancelImageAsset: TavernCommand<[message: TavernCommunicationMessageRecord], void>;
+    releaseImageAsset: TavernCommand<[message: TavernCommunicationMessageRecord], void>;
     searchQuery: Ref<string>;
     sendBlockedReason: TavernReadable<string>;
     sendMessage: TavernCommand<[contentOverride?: string], Promise<void>>;
@@ -428,6 +436,9 @@ export interface TavernMessagesContext {
     threadSearchText: Ref<Record<string, string>>;
     threads: Ref<TavernCommunicationThreadRecord[]>;
     unreadTotal: TavernReadable<number>;
+    ensureImageAsset: TavernCommand<[message: TavernCommunicationMessageRecord, force?: boolean], Promise<void>>;
+    toggleVoicePlayback: TavernCommand<[message: TavernCommunicationMessageRecord], Promise<void>>;
+    voiceStates: Ref<Record<string, TavernMessageVoiceState>>;
 }
 
 export interface TavernPhoneOsContext {

@@ -11,7 +11,7 @@ import db, {
     tavernCommunicationThreadsTable,
 } from '../shared/session-db';
 import {
-    appendSentTavernCommunicationMessage,
+    appendSentTavernCommunicationMessage as appendSentTavernCommunicationPayload,
     completeTavernCommunicationReply,
     createTavernCommunicationContact,
     describeTavernCommunicationRestoreImpact,
@@ -29,6 +29,7 @@ import {
     touchTavernCommunicationReplyRequest,
     trimTavernCommunicationSnapshotsFromFloor,
 } from '../shared/communications';
+import { tavernCommunicationPayloadText } from '../shared/communication-message';
 import { buildTavernMessagesRequestMessages } from '../app-src/features/phone-os/apps/messages/tavern-messages-context';
 import { buildTavernAutomaticCommunicationContacts } from '../app-src/features/phone-os/apps/messages/tavern-messages-contacts';
 import { buildTavernPhonePromptMessages } from '../app-src/features/phone-os/apps/messages/tavern-messages-prompt';
@@ -60,6 +61,18 @@ function longPhonePromptValue(label: string): string {
     return `${label}_START\n{{${label}_PLACEHOLDER}}\n${'x'.repeat(12_050)}\n${label}_END`;
 }
 
+function textPayload(text: string) {
+    return { type: 'text' as const, text };
+}
+
+function appendSentTavernCommunicationMessage(input: { sessionId: string; threadId: string; content: string }) {
+    return appendSentTavernCommunicationPayload({
+        sessionId: input.sessionId,
+        threadId: input.threadId,
+        payload: textPayload(input.content),
+    });
+}
+
 type PreparedPhoneReplyRequest = Awaited<ReturnType<typeof appendSentTavernCommunicationMessage>>;
 
 function completePhoneReply(
@@ -68,6 +81,9 @@ function completePhoneReply(
 ) {
     return completeTavernCommunicationReply({
         ...input,
+        ...(input.replies ? {
+            replies: input.replies.map((reply) => typeof reply === 'string' ? textPayload(reply) : reply),
+        } : {}),
         userMessage: prepared.message,
         replyRequestId: prepared.replyRequest.id,
     });
@@ -83,29 +99,55 @@ function failPhoneReply(
 test('phone reply parser skips ordinary JSON and uses the first protocol-valid balanced object', () => {
     const value = [
         '前置说明里有一个坏花括号：{not json}',
-        '普通上下文对象：{"note":"不是短信协议"}',
+        '普通上下文对象：{"note":"不是消息协议"}',
         '```json',
-        '{"result":"reply","messages":["字符串里的 { 花括号 } 不截断"],"summary":"已回复"}',
+        '{"result":"reply","messages":[{"type":"text","text":"字符串里的 { 花括号 } 不截断"}],"summary":"已回复"}',
         '```',
         '尾部还有 {"ignored":true}',
     ].join('\n');
 
-    assert.deepEqual(extractBalancedJsonObjects(value), [{ note: '不是短信协议' }, {
+    assert.deepEqual(extractBalancedJsonObjects(value), [{ note: '不是消息协议' }, {
         result: 'reply',
-        messages: ['字符串里的 { 花括号 } 不截断'],
+        messages: [{ type: 'text', text: '字符串里的 { 花括号 } 不截断' }],
         summary: '已回复',
     }, { ignored: true }]);
     assert.deepEqual(parseTavernPhoneReply(value), {
         result: 'reply',
-        messages: ['字符串里的 { 花括号 } 不截断'],
+        messages: [{ type: 'text', text: '字符串里的 { 花括号 } 不截断' }],
         summary: '已回复',
     });
 });
 
+test('phone reply parser accepts text, voice, and image payloads without inventing a channel', () => {
+    const payload = parseTavernPhoneReply(JSON.stringify({
+        result: 'reply',
+        messages: [
+            { type: 'text', text: '你先别过来。' },
+            { type: 'voice', transcript: '雨太大了，我去接你。', emotion: '担心' },
+            {
+                type: 'image',
+                description: '车站入口被暴雨淹没的现场照片。',
+                generationPrompt: 'flooded station entrance, heavy rain, night, documentary photo',
+            },
+        ],
+    }));
+
+    assert.deepEqual(payload.messages, [
+        { type: 'text', text: '你先别过来。' },
+        { type: 'voice', transcript: '雨太大了，我去接你。', emotion: '担心' },
+        {
+            type: 'image',
+            description: '车站入口被暴雨淹没的现场照片。',
+            generationPrompt: 'flooded station entrance, heavy rain, night, documentary photo',
+        },
+    ]);
+    assert.equal(JSON.stringify(payload).includes('channel'), false);
+});
+
 test('phone reply parser rejects prose when no complete valid JSON object exists', () => {
     assert.throws(
-        () => parseTavernPhoneReply('前缀 {"note":"只是普通对象"}，后面也没有短信协议。'),
-        /短信协议/,
+        () => parseTavernPhoneReply('前缀 {"note":"只是普通对象"}，后面也没有消息协议。'),
+        /消息协议/,
     );
 });
 
@@ -176,7 +218,7 @@ test('phone contact reconciliation preserves valid threads and removes experimen
     ]);
     assert.equal(contacts.find((contact) => contact.name === '艾琳')?.id, existingNpc.contact.id);
     assert.equal(threads.length, 2);
-    assert.equal((await listTavernCommunicationMessages(session.id, existingNpc.thread.id))[0]?.content, '保留这条通讯');
+    assert.equal(tavernCommunicationPayloadText((await listTavernCommunicationMessages(session.id, existingNpc.thread.id))[0]!.payload), '保留这条通讯');
     assert.deepEqual(await listTavernCommunicationMessages(session.id, legacyCharacter.thread.id), []);
     assert.deepEqual(await listTavernCommunicationMessages(session.id, legacyManual.thread.id), []);
 });
@@ -258,7 +300,14 @@ test('phone communications persist independently and anchor to the current Taver
         content: '你在哪？',
     });
     await completePhoneReply(sent, {
-        replies: ['我还在车站。', '你要过来吗？'],
+        replies: [
+            { type: 'voice', transcript: '我还在车站。', emotion: '急促' },
+            {
+                type: 'image',
+                description: '车站入口被暴雨淹没的现场照片。',
+                generationPrompt: 'flooded station entrance, heavy rain, documentary photo',
+            },
+        ],
         result: 'reply',
         summary: '玩家询问位置，艾琳仍在车站。',
         provider: 'test',
@@ -270,21 +319,30 @@ test('phone communications persist independently and anchor to the current Taver
     const messages = await listTavernCommunicationMessages(session.id, thread.id);
     assert.equal(contacts[0]?.id, contact.id);
     assert.equal(threads[0]?.contactId, contact.id);
-    assert.deepEqual(messages.map((message) => [message.role, message.content, message.status]), [
-        ['user', '你在哪？', 'sent'],
-        ['contact', '我还在车站。', 'sent'],
-        ['contact', '你要过来吗？', 'sent'],
+    assert.deepEqual(messages.map((message) => [message.role, message.payload, message.status]), [
+        ['user', { type: 'text', text: '你在哪？' }, 'sent'],
+        ['contact', { type: 'voice', transcript: '我还在车站。', emotion: '急促' }, 'sent'],
+        ['contact', {
+            type: 'image',
+            description: '车站入口被暴雨淹没的现场照片。',
+            generationPrompt: 'flooded station entrance, heavy rain, documentary photo',
+        }, 'sent'],
     ]);
     assert.deepEqual(messages.map((message) => message.anchorOrder), [1, 1, 1]);
 
     const events = await listTavernCommunicationTimelineEvents(session.id, {
         fromAnchorOrder: 1,
         toAnchorOrder: 1,
+        playerName: '林晚',
     });
     assert.equal(events.length, 1);
     assert.equal(events[0]?.anchorOrder, 1);
-    assert.match(String(events[0]?.content || ''), /私人手机通讯/);
-    assert.match(String(events[0]?.content || ''), /艾琳：我还在车站/);
+    assert.match(String(events[0]?.content || ''), /^\[林晚 与 艾琳 的私人消息 · 发生于剧情此刻\]/);
+    assert.match(String(events[0]?.content || ''), /林晚（文字）：你在哪？/);
+    assert.match(String(events[0]?.content || ''), /艾琳（语音）：我还在车站/);
+    assert.match(String(events[0]?.content || ''), /艾琳（图片）：车站入口被暴雨淹没的现场照片/);
+    assert.doesNotMatch(String(events[0]?.content || ''), /flooded station entrance/);
+    assert.doesNotMatch(String(events[0]?.content || ''), /参与者：|只有参与者天然知道|不表示对应现场行动已经完成|phone_communication_event|私人短信|玩家：/);
     assert.deepEqual(await listTavernCommunicationTimelineEvents(session.id, {
         fromAnchorOrder: 2,
         toAnchorOrder: 5,
@@ -312,7 +370,7 @@ test('silent and unavailable phone results never persist contradictory reply bub
     });
 
     assert.deepEqual(
-        (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => [message.role, message.content]),
+        (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => [message.role, tavernCommunicationPayloadText(message.payload)]),
         [['user', '在吗？']],
     );
     const storedThread = (await listTavernCommunicationThreads(session.id))[0];
@@ -383,7 +441,7 @@ test('sending after a failed reply request keeps the earlier message and starts 
     });
 
     assert.deepEqual(
-        (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => [message.sequence, message.content, message.status]),
+        (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => [message.sequence, tavernCommunicationPayloadText(message.payload), message.status]),
         [
             [0, '较早失败消息', 'sent'],
             [1, '后续正常消息', 'sent'],
@@ -424,12 +482,12 @@ test('phone communication snapshots restore and trim with accepted floors', asyn
 
     await restoreTavernCommunicationsToFloor(session.id, 2);
     assert.deepEqual(
-        (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => message.content),
+        (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => tavernCommunicationPayloadText(message.payload)),
         ['第一条', '收到'],
     );
     assert.equal(await completePhoneReply(second, { replies: ['迟到回复'] }), null);
     assert.deepEqual(
-        (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => message.content),
+        (await listTavernCommunicationMessages(session.id, thread.id)).map((message) => tavernCommunicationPayloadText(message.payload)),
         ['第一条', '收到'],
     );
     assert.equal(await trimTavernCommunicationSnapshotsFromFloor(session.id, 2), 1);
@@ -597,7 +655,7 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
     const storyOpenIndex = requestMessages.findIndex((message) => message.content.startsWith('<story_history>'));
     const storyCloseIndex = requestMessages.findIndex((message) => message.content === '</story_history>');
     const currentStateIndex = requestMessages.findIndex((message) => message.content.startsWith('<current_state_and_memory>'));
-    const phoneThreadIndex = requestMessages.findIndex((message) => message.name === 'phone_thread');
+    const privateMessageThreadIndex = requestMessages.findIndex((message) => message.name === 'private_message_thread');
     const finalInstruction = requestMessages.at(-1);
 
     assert.match(roleMessage?.content || '', /^<role>/);
@@ -618,7 +676,7 @@ test('phone generation uses the anchored Tavern history window and five-layer pr
     assert.equal(raw.match(/现在剧情进行到哪里了/g)?.length, 1);
     assert.ok(storyOpenIndex >= 0 && storyOpenIndex < storyCloseIndex);
     assert.ok(storyCloseIndex < currentStateIndex);
-    assert.ok(currentStateIndex < phoneThreadIndex);
+    assert.ok(currentStateIndex < privateMessageThreadIndex);
     assert.equal(finalInstruction?.role, 'user');
     assert.match(finalInstruction?.content || '', /现在你是「艾琳」/);
     assert.doesNotMatch(finalInstruction?.content || '', /现在剧情进行到哪里了/);
@@ -650,7 +708,7 @@ test('phone prompt keeps the full contact memory once and excludes it from relat
         thread,
         communicationMessages: [],
         mainHistory: [],
-        incomingMessage: '找米娅。',
+        incomingMessage: textPayload('找米娅。'),
         anchorOrder: 8,
         memoryContext: {
             memoryFiles: [
@@ -677,7 +735,7 @@ test('phone prompt keeps the full contact memory once and excludes it from relat
     assert.match(currentState, /WORLD_DEPTH_ONE_MARKER/);
     assert.doesNotMatch(currentState, /WORLD_DEPTH_FOUR_MARKER/);
     assert.ok(messages.findIndex((message) => message.content.includes('WORLD_DEPTH_FOUR_MARKER')) < messages.findIndex((message) => message.content === '</story_history>'));
-    assert.equal(raw.match(/<incoming_phone_message/g)?.length, 1);
+    assert.equal(raw.match(/<incoming_private_message/g)?.length, 1);
     assert.equal(messages.at(-1)?.role, 'user');
 });
 
@@ -717,7 +775,7 @@ test('phone prompt preserves full source content and placeholders beyond twelve 
         },
         communicationMessages: [],
         mainHistory: [{ role: 'assistant', content: values.HISTORY }],
-        incomingMessage: '在吗？',
+        incomingMessage: textPayload('在吗？'),
         anchorOrder: 1,
         memoryContext: {
             memoryFiles: [
@@ -766,14 +824,14 @@ test('phone prompt omits the optional current-state envelope when every source i
         },
         communicationMessages: [],
         mainHistory: [],
-        incomingMessage: '在吗？',
+        incomingMessage: textPayload('在吗？'),
         anchorOrder: 0,
         memoryContext: {},
         activatedWorldEntries: [],
     });
 
     assert.equal(messages.some((message) => message.content.includes('<current_state_and_memory>')), false);
-    assert.equal(JSON.stringify(messages).match(/<incoming_phone_message/g)?.length, 1);
+    assert.equal(JSON.stringify(messages).match(/<incoming_private_message/g)?.length, 1);
 });
 
 test('session branching clones phone state and session deletion cascades it', async () => {
@@ -800,7 +858,7 @@ test('session branching clones phone state and session deletion cascades it', as
     const branchThreads = await listTavernCommunicationThreads(branchId);
     assert.equal(branchContacts[0]?.name, '米娅');
     assert.deepEqual(
-        (await listTavernCommunicationMessages(branchId, branchThreads[0]?.id || '')).map((message) => message.content),
+        (await listTavernCommunicationMessages(branchId, branchThreads[0]?.id || '')).map((message) => tavernCommunicationPayloadText(message.payload)),
         ['晚上见。', '好。'],
     );
 

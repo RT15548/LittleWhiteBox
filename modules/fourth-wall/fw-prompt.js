@@ -4,7 +4,7 @@
 
 import { executeSlashCommand } from "../../core/slash-command.js";
 import { getContext } from "../../../../../extensions.js";
-import { IMG_GUIDELINE } from "./fw-image.js";
+import { IMG_GUIDELINE } from "./fw-image-protocol.js";
 import { VOICE_GUIDELINE } from "./fw-voice.js";
 
 // ════════════════════════════════════════════════════════════════════════════

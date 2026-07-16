@@ -1085,6 +1085,8 @@ const phoneContext = useTavernPhoneController({
     managerAssistantCancelling: isManagerAssistantCancelling,
     memoryEditorMode,
     characterArchiveBusy: computed(() => characterArchiveSyncState.value.busy),
+    requestHost,
+    addHostMessageHandler: hostBridge.addMessageHandler,
 }) satisfies TavernPhoneContext;
 
 function isPhoneSendingForSession(sessionId = selectedSessionId.value): boolean {

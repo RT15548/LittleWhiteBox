@@ -5,6 +5,7 @@ import type {
     TavernCommunicationMessageRecord,
     TavernCommunicationThreadRecord,
 } from '../../../../../shared/session-db';
+import { tavernCommunicationMessagePreviewText } from '../../../../../shared/communication-message';
 
 const props = defineProps<{
     contacts: TavernCommunicationContactRecord[];
@@ -37,10 +38,12 @@ function initial(name = ''): string {
 }
 
 function previewText(message: TavernCommunicationMessageRecord | null, thread: TavernCommunicationThreadRecord | null): string {
+    if (thread?.replyRequest?.status === 'failed') {return '回复失败 · 轻触进入对话重试';}
     if (!message) {return '轻触开始对话';}
     if (message.role === 'user' && thread?.lastResult === 'unavailable') {return '暂时无法联系到对方';}
-    if (message.role === 'user' && thread?.lastResult === 'silent') {return `你：${message.content} · 未回复`;}
-    return `${message.role === 'user' ? '你：' : ''}${message.content}`;
+    const content = tavernCommunicationMessagePreviewText(message);
+    if (message.role === 'user' && thread?.lastResult === 'silent') {return `你：${content} · 未回复`;}
+    return `${message.role === 'user' ? '你：' : ''}${content}`;
 }
 
 </script>
@@ -95,7 +98,10 @@ function previewText(message: TavernCommunicationMessageRecord | null, thread: T
               :aria-label="`${row.thread.unreadCount} 条未读消息`"
             >{{ row.thread.unreadCount > 99 ? '99+' : row.thread.unreadCount }}</i>
           </span>
-          <span class="tavern-phone-thread-preview">{{ previewText(row.preview, row.thread) }}</span>
+          <span
+            class="tavern-phone-thread-preview"
+            :class="{ 'is-error': row.thread?.replyRequest?.status === 'failed' }"
+          >{{ previewText(row.preview, row.thread) }}</span>
         </span>
         <svg
           class="tavern-phone-chevron"

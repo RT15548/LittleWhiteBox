@@ -15,6 +15,12 @@ import db, {
     type TavernCommunicationThreadRecord,
 } from './session-db';
 import type { XbTavernHistoryMessage } from './message-assembler';
+import {
+    normalizeTavernCommunicationMessagePayload,
+    tavernCommunicationPayloadFingerprint,
+    tavernCommunicationPayloadText,
+    tavernCommunicationPayloadTypeLabel,
+} from './communication-message';
 
 export const TAVERN_COMMUNICATION_BASELINE_FLOOR = -1;
 
@@ -35,10 +41,6 @@ function cloneSerializable<T>(value: T): T {
 
 function normalizeInlineText(value: unknown, limit = 120): string {
     return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
-}
-
-function normalizeMessageText(value: unknown): string {
-    return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, 4000);
 }
 
 function normalizeThreadSummary(value: unknown): string {
@@ -99,7 +101,7 @@ function communicationStateFingerprint(input: {
             message.sequence,
             message.anchorOrder,
             message.role,
-            message.content,
+            tavernCommunicationPayloadFingerprint(message.payload),
             message.status,
             message.createdAt,
             message.updatedAt,
@@ -356,16 +358,16 @@ export async function createTavernCommunicationContact(input: {
 export async function appendSentTavernCommunicationMessage(input: {
     sessionId: string;
     threadId: string;
-    content: string;
+    payload: unknown;
 }): Promise<{
     message: TavernCommunicationMessageRecord;
     replyRequest: TavernCommunicationReplyRequestRecord;
 }> {
     const sessionId = String(input.sessionId || '').trim();
     const threadId = String(input.threadId || '').trim();
-    const content = normalizeMessageText(input.content);
+    const payload = normalizeTavernCommunicationMessagePayload(input.payload);
     if (!sessionId || !threadId) {throw new Error('communication_thread_required');}
-    if (!content) {throw new Error('communication_message_required');}
+    if (!payload) {throw new Error('communication_message_required');}
     const timestamp = now();
     const latestMessage = await getLatestTavernMessage(sessionId);
     const anchorOrder = Number.isInteger(Number(latestMessage?.order))
@@ -390,7 +392,7 @@ export async function appendSentTavernCommunicationMessage(input: {
                 sequence,
                 anchorOrder,
                 role: 'user',
-                content,
+                payload,
                 status: 'sent',
                 createdAt: timestamp,
                 updatedAt: timestamp,
@@ -419,7 +421,7 @@ export async function appendSentTavernCommunicationMessage(input: {
 export async function completeTavernCommunicationReply(input: {
     userMessage: TavernCommunicationMessageRecord;
     replyRequestId: string;
-    replies?: string[];
+    replies?: unknown[];
     result?: 'reply' | 'silent' | 'unavailable';
     summary?: string;
     provider?: string;
@@ -429,7 +431,10 @@ export async function completeTavernCommunicationReply(input: {
     const userMessage = input.userMessage;
     const replyRequestId = String(input.replyRequestId || '').trim();
     const timestamp = now();
-    const normalizedReplies = (input.replies || []).map(normalizeMessageText).filter(Boolean).slice(0, 3);
+    const normalizedReplies = (input.replies || [])
+        .map(normalizeTavernCommunicationMessagePayload)
+        .filter((payload): payload is NonNullable<typeof payload> => !!payload)
+        .slice(0, 3);
     const result = input.result || (normalizedReplies.length ? 'reply' : 'silent');
     const replies = result === 'reply' ? normalizedReplies : [];
     const summary = input.summary === undefined ? undefined : (normalizeThreadSummary(input.summary) || undefined);
@@ -452,7 +457,7 @@ export async function completeTavernCommunicationReply(input: {
                 !current
                 || current.role !== 'user'
                 || current.status !== 'sent'
-                || current.content !== userMessage.content
+                || tavernCommunicationPayloadFingerprint(current.payload) !== tavernCommunicationPayloadFingerprint(userMessage.payload)
                 || replyRequest?.status !== 'pending'
                 || replyRequest.id !== replyRequestId
                 || replyRequest.userSequence !== current.sequence
@@ -463,14 +468,14 @@ export async function completeTavernCommunicationReply(input: {
             const existing = await listTavernCommunicationMessages(current.sessionId, current.threadId);
             const records: TavernCommunicationMessageRecord[] = [];
             let sequence = existing.reduce((max, message) => Math.max(max, message.sequence), -1) + 1;
-            for (const content of replies) {
+            for (const payload of replies) {
                 const reply: TavernCommunicationMessageRecord = {
                     sessionId: current.sessionId,
                     threadId: current.threadId,
                     sequence,
                     anchorOrder: current.anchorOrder,
                     role: 'contact',
-                    content,
+                    payload,
                     status: 'sent',
                     createdAt: timestamp + records.length,
                     updatedAt: timestamp + records.length,
@@ -794,27 +799,24 @@ function escapeCommunicationEvidence(value: unknown): string {
 }
 
 function buildCommunicationTimelineEventContent(input: {
-    anchorOrder: number;
+    playerName: string;
     contactName: string;
     messages: TavernCommunicationMessageRecord[];
 }): string {
+    const playerName = normalizeInlineText(input.playerName, 120) || '用户';
     const contactName = normalizeInlineText(input.contactName, 120) || '联系人';
     const lines = input.messages.map((message) => (
-        `${message.role === 'user' ? '玩家' : contactName}：${escapeCommunicationEvidence(message.content)}`
+        `${message.role === 'user' ? playerName : contactName}（${tavernCommunicationPayloadTypeLabel(message.payload)}）：${escapeCommunicationEvidence(tavernCommunicationPayloadText(message.payload))}`
     ));
     return [
-        `<phone_communication_event anchor_order="${input.anchorOrder}" visibility="private">`,
-        `参与者：玩家、${escapeCommunicationEvidence(contactName)}`,
-        '这是在该剧情位置已经发生的私人手机通讯。只有参与者天然知道消息内容。',
-        '消息里的计划、邀请和承诺不表示对应现场行动已经完成。',
+        `[${escapeCommunicationEvidence(playerName)} 与 ${escapeCommunicationEvidence(contactName)} 的私人消息 · 发生于剧情此刻]`,
         ...lines,
-        '</phone_communication_event>',
     ].join('\n');
 }
 
 export async function listTavernCommunicationTimelineEvents(
     sessionId = '',
-    options: { fromAnchorOrder?: number; toAnchorOrder?: number } = {},
+    options: { fromAnchorOrder?: number; toAnchorOrder?: number; playerName?: string } = {},
 ): Promise<TavernCommunicationTimelineEvent[]> {
     const id = String(sessionId || '').trim();
     if (!id) {return [];}
@@ -853,7 +855,7 @@ export async function listTavernCommunicationTimelineEvents(
             if (!first || !thread || !contact) {return null;}
             const sorted = [...rows].sort((left, right) => left.sequence - right.sequence);
             const content = buildCommunicationTimelineEventContent({
-                anchorOrder: first.anchorOrder,
+                playerName: options.playerName || '',
                 contactName: contact.name,
                 messages: sorted,
             });
@@ -866,7 +868,7 @@ export async function listTavernCommunicationTimelineEvents(
                 content,
                 message: {
                     role: 'system',
-                    name: 'phone_communication',
+                    name: 'private_message',
                     content,
                 },
             };
@@ -878,10 +880,12 @@ export async function listTavernCommunicationTimelineEvents(
 export async function buildTavernCommunicationEvidenceAtAnchor(
     sessionId = '',
     anchorOrder = TAVERN_COMMUNICATION_BASELINE_FLOOR,
+    playerName = '',
 ): Promise<string> {
     const events = await listTavernCommunicationTimelineEvents(sessionId, {
         fromAnchorOrder: anchorOrder,
         toAnchorOrder: anchorOrder,
+        playerName,
     });
     return events.map((event) => event.content).join('\n\n');
 }

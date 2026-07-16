@@ -59,6 +59,7 @@ import {
     listTavernCommunicationThreads,
     saveTavernCommunicationSnapshot,
 } from '../shared/communications';
+import { tavernCommunicationPayloadText } from '../shared/communication-message';
 
 const identityCodec: TavernCharacterArchiveJsonlCodec = {
     gzip: async (bytes) => bytes,
@@ -250,17 +251,17 @@ async function seedArchiveSource() {
     const phoneMessage = await appendSentTavernCommunicationMessage({
         sessionId: a1.id,
         threadId: thread.id,
-        content: 'phone hello',
+        payload: { type: 'text', text: 'phone hello' },
     });
     await completeTavernCommunicationReply({
         userMessage: phoneMessage.message,
         replyRequestId: phoneMessage.replyRequest.id,
-        replies: ['phone reply'],
+        replies: [{ type: 'text', text: 'phone reply' }],
     });
     await appendSentTavernCommunicationMessage({
         sessionId: a1.id,
         threadId: thread.id,
-        content: 'phone interrupted',
+        payload: { type: 'text', text: 'phone interrupted' },
     });
     await saveTavernCommunicationSnapshot(a1.id, 1);
     await tavernSessionsTable.update(a1.id, { updatedAt: 1000 });
@@ -485,7 +486,7 @@ test('tavern character archive restore replaces only the current character and r
     const restoredPhoneThreads = await listTavernCommunicationThreads(restoredA1);
     assert.equal(restoredPhoneContacts[0]?.name, 'Phone Contact');
     assert.deepEqual(
-        (await listTavernCommunicationMessages(restoredA1, restoredPhoneThreads[0]?.id || '')).map((message) => [message.content, message.status]),
+        (await listTavernCommunicationMessages(restoredA1, restoredPhoneThreads[0]?.id || '')).map((message) => [tavernCommunicationPayloadText(message.payload), message.status]),
         [
             ['phone hello', 'sent'],
             ['phone reply', 'sent'],

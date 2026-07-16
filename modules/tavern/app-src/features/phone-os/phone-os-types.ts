@@ -17,7 +17,7 @@ export interface TavernPhoneAppManifest {
     id: string;
     name: string;
     shortName: string;
-    icon: string;
+    iconComponent: Component;
     accent: string;
     rootPath: string;
     order: number;
@@ -38,7 +38,7 @@ export function defineTavernPhoneApps(
     const normalized = definitions.map((definition) => {
         const id = String(definition.id || '').trim();
         const rootPath = String(definition.rootPath || '').trim();
-        if (!id || !rootPath.startsWith('/') || !definition.component) {
+        if (!id || !rootPath.startsWith('/') || !definition.component || !definition.iconComponent) {
             throw new Error('invalid_phone_app_definition');
         }
         if (ids.has(id)) {throw new Error(`duplicate_phone_app_definition:${id}`);}

@@ -47,10 +47,9 @@ function appBadge(app: TavernPhoneAppDefinition): number {
           class="tavern-phone-app-icon"
           :style="{ '--phone-app-accent': app.accent }"
         >
-          <span
-            class="material-symbols-rounded"
-            aria-hidden="true"
-          >{{ app.icon }}</span>
+          <span class="tavern-phone-app-icon-art">
+            <component :is="app.iconComponent" />
+          </span>
           <i
             v-if="appBadge(app)"
             class="tavern-phone-app-badge"
@@ -59,13 +58,6 @@ function appBadge(app: TavernPhoneAppDefinition): number {
         </span>
         <strong>{{ app.shortName }}</strong>
       </button>
-    </div>
-    <div
-      v-if="apps.length"
-      class="tavern-phone-page-indicator"
-      aria-hidden="true"
-    >
-      <i class="active" />
     </div>
   </section>
 </template>

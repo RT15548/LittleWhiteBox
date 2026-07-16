@@ -364,8 +364,28 @@ function buildActionCheckCapabilities(runtime: TavernSessionContractRuntime): {
     };
 }
 
-function buildRuntimeProtocolMessages(runtime: TavernSessionContractRuntime): XbTavernMessage[] {
-    return runtime.includeActionChecks ? [buildActionCheckProtocolMessage()] : [];
+function buildPhoneCommunicationProtocolMessage(): XbTavernMessage {
+    return {
+        role: 'system',
+        name: 'private_message_protocol',
+        content: [
+            '<private_message_rules>',
+            '标有“私人消息 · 发生于剧情此刻”的历史片段，是在对应剧情位置已经发生的私人通讯。',
+            '默认只有片段中点名的参与者知道消息内容。',
+            '消息里的计划、邀请和承诺只表示通讯事实；除非后续剧情明确确认，不得视为对应现场行动已经完成。',
+            '</private_message_rules>',
+        ].join('\n'),
+    };
+}
+
+function buildRuntimeProtocolMessages(
+    runtime: TavernSessionContractRuntime,
+    options: { includePhoneCommunication?: boolean } = {},
+): XbTavernMessage[] {
+    return [
+        ...(runtime.includeActionChecks ? [buildActionCheckProtocolMessage()] : []),
+        ...(options.includePhoneCommunication ? [buildPhoneCommunicationProtocolMessage()] : []),
+    ];
 }
 
 function buildChanceEncounterDepthEntries(event: TavernChanceEncounterRuntimeEvent | null | undefined): XbTavernRuntimeState['runtimeDepthEntries'] {
@@ -1700,6 +1720,7 @@ export function buildContextHistory(
 async function loadCommunicationEventsForHistory(
     sessionId = '',
     messages: TavernMessageRecord[] = [],
+    playerName = '',
 ): Promise<TavernCommunicationTimelineEvent[]> {
     const sorted = [...messages].sort((left, right) => left.order - right.order);
     const firstOrder = sorted[0]?.order;
@@ -1708,7 +1729,11 @@ async function loadCommunicationEventsForHistory(
         ? Number(firstOrder)
         : -1;
     const toAnchorOrder = Number.isInteger(Number(lastOrder)) ? Number(lastOrder) : -1;
-    return listTavernCommunicationTimelineEvents(sessionId, { fromAnchorOrder, toAnchorOrder });
+    return listTavernCommunicationTimelineEvents(sessionId, {
+        fromAnchorOrder,
+        toAnchorOrder,
+        playerName,
+    });
 }
 
 function findCompletedAssistantForUser(messages: TavernMessageRecord[] = [], userIndex = -1): TavernMessageRecord | null {
@@ -2017,7 +2042,11 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
     const communicationEvents = session
         ? await runTavernStage(
             'simulate_phone_timeline',
-            () => loadCommunicationEventsForHistory(session.id, contextWindow?.historyMessages || []),
+            () => loadCommunicationEventsForHistory(
+                session.id,
+                contextWindow?.historyMessages || [],
+                liveContext.user?.name || '',
+            ),
         )
         : [];
     const contextForBuildRaw: XbTavernContext = {
@@ -2067,7 +2096,9 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         }
         : undefined;
     const filteredMemoryContext = filterMemoryContextByRuntime(memoryContext, sessionContractRuntime);
-    const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime);
+    const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
+        includePhoneCommunication: communicationEvents.length > 0,
+    });
     const brain = await runTavernStage('simulate_brain_build', () => buildXbTavernBrainAsync({
         context: contextForBuild,
         chatPreset,
@@ -2555,7 +2586,11 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     const historyMessages = contextWindow.historyMessages;
     const communicationEvents = await runTavernStage(
         'turn_phone_timeline',
-        () => loadCommunicationEventsForHistory(baseSession.id, historyMessages),
+        () => loadCommunicationEventsForHistory(
+            baseSession.id,
+            historyMessages,
+            liveContext.user?.name || '',
+        ),
     );
     const cooldownMessages = reusedUserMessage
         ? await listLatestTavernUserMessagesBefore(baseSession.id, reusedUserMessage.order, RANDOM_ENCOUNTER_COOLDOWN_TURNS)
@@ -2620,7 +2655,9 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         }
         : undefined;
     const filteredMemoryContext = filterMemoryContextByRuntime(memoryContext, sessionContractRuntime);
-    const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime);
+    const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
+        includePhoneCommunication: communicationEvents.length > 0,
+    });
     const brain = await runTavernStage('turn_brain_build', () => buildXbTavernBrainAsync({
         context: contextForBuild,
         chatPreset,

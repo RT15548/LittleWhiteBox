@@ -5,6 +5,12 @@ import type {
     TavernCommunicationMessageRecord,
     TavernCommunicationReplyRequestRecord,
 } from '../../../../../shared/session-db';
+import {
+    tavernCommunicationMediaKey,
+    type TavernMessageImageState,
+    type TavernMessageVoiceState,
+} from '../../../../features/phone-os/apps/messages/tavern-message-media';
+import TavernMessagesBubble from './TavernMessagesBubble.vue';
 
 const props = defineProps<{
     contact: TavernCommunicationContactRecord;
@@ -16,6 +22,8 @@ const props = defineProps<{
     replyRequest?: TavernCommunicationReplyRequestRecord;
     retryBlockedReason: string;
     blockedReason: string;
+    imageStates: Record<string, TavernMessageImageState>;
+    voiceStates: Record<string, TavernMessageVoiceState>;
 }>();
 
 const draft = defineModel<string>('draft', { required: true });
@@ -23,6 +31,11 @@ const emit = defineEmits<{
     (event: 'back'): void;
     (event: 'retry'): void;
     (event: 'send'): void;
+    (event: 'ensure-image', message: TavernCommunicationMessageRecord): void;
+    (event: 'retry-image', message: TavernCommunicationMessageRecord): void;
+    (event: 'cancel-image', message: TavernCommunicationMessageRecord): void;
+    (event: 'release-image', message: TavernCommunicationMessageRecord): void;
+    (event: 'toggle-voice', message: TavernCommunicationMessageRecord): void;
 }>();
 
 const scrollRef = ref<HTMLElement | null>(null);
@@ -127,7 +140,16 @@ onActivated(async () => {
         class="tavern-phone-message-row"
         :class="`is-${message.role}`"
       >
-        <span class="tavern-phone-message-bubble">{{ message.content }}</span>
+        <TavernMessagesBubble
+          :message="message"
+          :image-state="imageStates[tavernCommunicationMediaKey(message)]"
+          :voice-state="voiceStates[tavernCommunicationMediaKey(message)]"
+          @ensure-image="emit('ensure-image', $event)"
+          @retry-image="emit('retry-image', $event)"
+          @cancel-image="emit('cancel-image', $event)"
+          @release-image="emit('release-image', $event)"
+          @toggle-voice="emit('toggle-voice', $event)"
+        />
       </div>
       <div
         v-if="sending"

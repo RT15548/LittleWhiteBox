@@ -112,6 +112,10 @@ export type TavernCommunicationContactSource = 'character' | 'memory' | 'manual'
 export type TavernCommunicationMessageRole = 'user' | 'contact';
 export type TavernCommunicationMessageStatus = 'sent';
 export type TavernCommunicationReplyRequestStatus = 'pending' | 'failed';
+export type TavernCommunicationMessagePayload =
+    | { type: 'text'; text: string }
+    | { type: 'voice'; transcript: string; emotion?: string }
+    | { type: 'image'; description: string; generationPrompt?: string; assetRef?: string };
 
 export const TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR = '回复请求已中断，请重试。';
 export const TAVERN_COMMUNICATION_REPLY_LEASE_MS = 90_000;
@@ -157,7 +161,7 @@ export interface TavernCommunicationMessageRecord {
     sequence: number;
     anchorOrder: number;
     role: TavernCommunicationMessageRole;
-    content: string;
+    payload: TavernCommunicationMessagePayload;
     status: TavernCommunicationMessageStatus;
     createdAt: number;
     updatedAt: number;
@@ -714,6 +718,39 @@ class TavernDatabase extends Dexie {
             communicationThreads: '[sessionId+id], sessionId, contactId, updatedAt',
             communicationMessages: '[sessionId+threadId+sequence], sessionId, threadId, sequence, status, updatedAt',
             communicationSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+        });
+        const version12 = this.version(12) as unknown as TavernDexieVersionWithUpgrade;
+        version12.stores({
+            sessions: 'id, updatedAt, characterKey, characterName',
+            messages: '[sessionId+order], sessionId, order',
+            managerMessages: '[sessionId+order], sessionId, order',
+            meta: 'key',
+            presets: 'id, updatedAt, sourcePresetId',
+            managerRuns: 'id, sessionId, status, turn, updatedAt',
+            memoryFiles: '[sessionId+path], sessionId, path, status, updatedAt',
+            memoryStateSnapshots: null,
+            memorySnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            memoryIndexes: '[sessionId+kind], sessionId, kind, status, updatedAt',
+            assistantPresets: 'id, updatedAt',
+            managerMemorySnapshots: '[managerRunId+path], managerRunId, sessionId, path, updatedAt',
+            stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
+            statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
+            managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
+            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
+            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
+            taskFingerprintStates: 'sessionId, updatedAt',
+            communicationContacts: '[sessionId+id], sessionId, updatedAt',
+            communicationThreads: '[sessionId+id], sessionId, contactId, updatedAt',
+            communicationMessages: '[sessionId+threadId+sequence], sessionId, threadId, sequence, status, updatedAt',
+            communicationSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+        });
+        version12.upgrade(async (transaction: TavernDexieUpgradeTransaction) => {
+            await transaction.table('communicationContacts').clear();
+            await transaction.table('communicationThreads').clear();
+            await transaction.table('communicationMessages').clear();
+            await transaction.table('communicationSnapshots').clear();
         });
     }
 }

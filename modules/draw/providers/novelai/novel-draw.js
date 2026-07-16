@@ -30,6 +30,7 @@ import {
     normalizeSharedCacheDays,
 } from '../../shared/draw-settings.js';
 import { fetchDrawLlmModels, getLastDrawLlmRequestSnapshot, normalizeDrawLlmApi } from '../../shared/draw-llm.js';
+import { createSerialImageRequestQueue } from '../../shared/serial-image-request-queue.js';
 import {
     loadTagGuide,
     loadPromptTemplates,
@@ -191,9 +192,10 @@ let touchState = null;
 let settingsCache = null;
 let settingsLoaded = false;
 let generationJobs = new Map();
-let imageRequestQueue = [];
-let activeImageRequest = null;
-let imageRequestSeq = 0;
+const novelImageRequestQueue = createSerialImageRequestQueue({
+    createAbortError: () => new NovelDrawError('已取消', ErrorType.UNKNOWN),
+    getCooldownMs: () => getNovelImageRequestDelay(),
+});
 let ensureNovelDrawPanelRef = null;
 let overlayResizeHandler = null;
 let afterAiGateDispose = null;
@@ -358,9 +360,22 @@ function findLastAIMessageId() {
 }
 
 function randomDelay(min, max) {
-    const safeMin = (min > 0) ? min : DEFAULT_SETTINGS.requestDelay.min;
-    const safeMax = (max > 0) ? max : DEFAULT_SETTINGS.requestDelay.max;
-    return safeMin + Math.random() * (safeMax - safeMin);
+    const configuredMin = Number(min);
+    const configuredMax = Number(max);
+    const safeMin = Number.isFinite(configuredMin) && configuredMin > 0
+        ? configuredMin
+        : DEFAULT_SETTINGS.requestDelay.min;
+    const safeMax = Number.isFinite(configuredMax) && configuredMax > 0
+        ? configuredMax
+        : DEFAULT_SETTINGS.requestDelay.max;
+    const lower = Math.min(safeMin, safeMax);
+    const upper = Math.max(safeMin, safeMax);
+    return lower + Math.random() * (upper - lower);
+}
+
+function getNovelImageRequestDelay() {
+    const requestDelay = getSettings().requestDelay;
+    return randomDelay(requestDelay?.min, requestDelay?.max);
 }
 
 function showToast(message, type = 'success', duration = 2500) {
@@ -645,62 +660,8 @@ function releaseGenerationJob(job) {
     }
 }
 
-function notifyQueuedImageRequests() {
-    imageRequestQueue.forEach((item, index) => {
-        const ahead = (activeImageRequest ? 1 : 0) + index;
-        if (ahead > 0) {
-            item.onQueued?.({ ahead, position: ahead + 1 });
-        }
-    });
-}
-
-function pumpImageRequestQueue() {
-    if (activeImageRequest || imageRequestQueue.length === 0) return;
-
-    const item = imageRequestQueue.shift();
-    activeImageRequest = item;
-    notifyQueuedImageRequests();
-
-    Promise.resolve()
-        .then(async () => {
-            if (item.signal?.aborted) throw new NovelDrawError('已取消', ErrorType.UNKNOWN);
-            item.onStart?.();
-            return await item.run();
-        })
-        .then(item.resolve)
-        .catch(item.reject)
-        .finally(() => {
-            if (activeImageRequest === item) {
-                activeImageRequest = null;
-            }
-            notifyQueuedImageRequests();
-            pumpImageRequestQueue();
-        });
-}
-
-function enqueueImageRequest(run, { signal, onQueued, onStart } = {}) {
-    return new Promise((resolve, reject) => {
-        if (signal?.aborted) {
-            reject(new NovelDrawError('已取消', ErrorType.UNKNOWN));
-            return;
-        }
-
-        const item = { id: ++imageRequestSeq, run, signal, onQueued, onStart, resolve, reject };
-
-        signal?.addEventListener('abort', () => {
-            if (activeImageRequest === item) return;
-            const idx = imageRequestQueue.indexOf(item);
-            if (idx >= 0) {
-                imageRequestQueue.splice(idx, 1);
-                notifyQueuedImageRequests();
-                reject(new NovelDrawError('已取消', ErrorType.UNKNOWN));
-            }
-        }, { once: true });
-
-        imageRequestQueue.push(item);
-        notifyQueuedImageRequests();
-        pumpImageRequestQueue();
-    });
+function enqueueImageRequest(run, options = {}) {
+    return novelImageRequestQueue.enqueue(run, options);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -957,6 +918,18 @@ function getSettings() {
         settingsCache.selectedPromptPresetId = id1;
     }
     return settingsCache;
+}
+
+function getGenerationSnapshot() {
+    const settings = getSettings();
+    const overrideSize = String(settings.overrideSize || 'default');
+    return {
+        fingerprint: {
+            version: 1,
+            overrideSize,
+        },
+        execution: Object.freeze({ overrideSize }),
+    };
 }
 
 function cloneSettingsObject(obj) {
@@ -1478,16 +1451,17 @@ function buildNovelAIRequestBody({ scene, characterPrompts, negativePrompt, para
     };
 }
 
-async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, signal, onQueueStateChange }) {
+async function generateNovelImage({ scene, characterPrompts, negativePrompt, params, generationConfig, signal, onQueueStateChange }) {
     return await enqueueImageRequest(async () => {
         const settings = getSettings();
         if (!settings.apiKey) throw new NovelDrawError('请先配置 API Key', ErrorType.AUTH);
 
         const finalParams = { ...params };
 
-        if (settings.overrideSize && settings.overrideSize !== 'default') {
+        const overrideSize = String(generationConfig?.overrideSize ?? settings.overrideSize ?? 'default');
+        if (overrideSize !== 'default') {
             const { SIZE_OPTIONS } = await import('./floating-panel.js');
-            const sizeOpt = SIZE_OPTIONS.find(o => o.value === settings.overrideSize);
+            const sizeOpt = SIZE_OPTIONS.find(o => o.value === overrideSize);
             if (sizeOpt && sizeOpt.width && sizeOpt.height) {
                 finalParams.width = sizeOpt.width;
                 finalParams.height = sizeOpt.height;
@@ -1533,6 +1507,7 @@ async function generateNovelImage({ scene, characterPrompts, negativePrompt, par
         signal,
         onQueued: (data) => onQueueStateChange?.('queued', data),
         onStart: () => onQueueStateChange?.('start'),
+        onCooldown: (data) => onQueueStateChange?.('cooldown', data),
     });
 }
 
@@ -2633,6 +2608,13 @@ async function generateImagesFromText(options = {}) {
                         if (queueState === 'start') {
                             options.onStateChange?.('progress', { current: i + 1, total: tasks.length });
                         }
+                        if (queueState === 'cooldown' && i < tasks.length - 1) {
+                            options.onStateChange?.('cooldown', {
+                                duration: queueData.duration,
+                                nextIndex: i + 2,
+                                total: tasks.length,
+                            });
+                        }
                     },
                 });
                 const imgId = generateImgId();
@@ -2686,16 +2668,7 @@ async function generateImagesFromText(options = {}) {
                     error: errorType,
                 });
             }
-
             if (signal.aborted) break;
-            if (i < tasks.length - 1) {
-                const delay = randomDelay(settings.requestDelay?.min, settings.requestDelay?.max);
-                options.onStateChange?.('cooldown', { duration: delay, nextIndex: i + 2, total: tasks.length });
-                await new Promise(resolve => {
-                    const tid = setTimeout(resolve, delay);
-                    signal.addEventListener('abort', () => { clearTimeout(tid); resolve(); }, { once: true });
-                });
-            }
         }
 
         options.onStateChange?.('success', { success: successCount, total: tasks.length, aborted: signal.aborted });
@@ -2878,6 +2851,13 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
                         if (queueState === 'start') {
                             onStateChange?.('progress', { current: i + 1, total: tasks.length });
                         }
+                        if (queueState === 'cooldown' && i < tasks.length - 1) {
+                            onStateChange?.('cooldown', {
+                                duration: queueData.duration,
+                                nextIndex: i + 2,
+                                total: tasks.length,
+                            });
+                        }
                     }
                 });
                 const imgId = generateImgId();
@@ -2981,16 +2961,6 @@ async function generateAndInsertImages({ messageId, onStateChange, skipLock = fa
             } catch (e) {
                 requiresFinalDomSync = true;
                 console.warn('[NovelDraw] 增量渲染失败, 继续生成:', e);
-            }
-
-            if (i < tasks.length - 1) {
-                const delay = randomDelay(settings.requestDelay?.min, settings.requestDelay?.max);
-                onStateChange?.('cooldown', { duration: delay, nextIndex: i + 2, total: tasks.length });
-
-                await new Promise(r => {
-                    const tid = setTimeout(r, delay);
-                    signal.addEventListener('abort', () => { clearTimeout(tid); r(); }, { once: true });
-                });
             }
         }
 
@@ -4025,6 +3995,7 @@ export async function initNovelDraw() {
 
     window.xiaobaixNovelDraw = {
         getSettings,
+        getGenerationSnapshot,
         saveSettings,
         getQuickSettings,
         updateQuickSettings,
@@ -4073,8 +4044,7 @@ export async function cleanupNovelDraw() {
 
     abortGeneration();
     generationJobs.clear();
-    imageRequestQueue = [];
-    activeImageRequest = null;
+    novelImageRequestQueue.clear();
 
     window.removeEventListener('message', handleFrameMessage);
     // 移除事件委托监听器（防止累积泄漏）

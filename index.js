@@ -27,6 +27,12 @@ import { initNovelDraw, cleanupNovelDraw } from "./modules/draw/providers/novela
 import { initSdDraw, cleanupSdDraw } from "./modules/draw/providers/sd-webui/sd-draw.js";
 import { initComfyDraw, cleanupComfyDraw } from "./modules/draw/providers/comfyui/comfy-draw.js";
 import { setupDrawGenerateInterceptor } from "./modules/draw/shared/draw-common.js";
+import {
+    checkGeneratedImageCache as checkGeneratedImageCacheRuntime,
+    clearExpiredGeneratedImageCache as clearExpiredGeneratedImageCacheRuntime,
+    clearSharedImageRequests as clearSharedImageRequestsRuntime,
+    generateSharedImage as generateSharedImageRuntime,
+} from "./modules/draw/shared/generated-image-runtime.js";
 import "./modules/story-summary/story-summary.js";
 import "./modules/story-outline/story-outline.js";
 import { initTts, cleanupTts } from "./modules/tts/tts.js";
@@ -156,6 +162,7 @@ function migrateDrawProviderSettings(targetSettings) {
 }
 
 async function cleanupDrawProvider(provider = settings.drawProvider) {
+    clearSharedImageRequestsRuntime();
     const normalized = normalizeDrawProvider(provider);
     if (normalized === 'novelai') {
         try { await cleanupNovelDraw(); } catch (e) { }
@@ -200,10 +207,24 @@ function installDrawFacade() {
         return null;
     }
 
+    function getDrawProviderFacade(provider) {
+        if (provider === 'novelai') return window.xiaobaixNovelDraw;
+        if (provider === 'sdwebui') return window.xiaobaixSdDraw;
+        if (provider === 'comfyui') return window.xiaobaixComfyDraw;
+        return null;
+    }
+
     function normalizeCharacterPrompts(value) {
         return Array.isArray(value)
             ? value.filter(item => item && typeof item === 'object')
             : [];
+    }
+
+    function cloneDrawGenerationValue(value) {
+        if (typeof structuredClone === 'function') {
+            try { return structuredClone(value); } catch { }
+        }
+        return JSON.parse(JSON.stringify(value));
     }
 
     function buildDrawPromptData(input = {}) {
@@ -265,6 +286,68 @@ function installDrawFacade() {
         };
     }
 
+    function prepareDrawGeneration(input = {}) {
+        const provider = normalizeDrawProvider(settings.drawProvider);
+        const payload = typeof input === 'string' ? { prompt: input } : (input || {});
+        const promptData = cloneDrawGenerationValue(buildDrawPromptData(payload));
+        const providerFacade = getDrawProviderFacade(provider);
+        const providerSnapshot = providerFacade?.getGenerationSnapshot?.(payload) || {};
+        const providerConfig = cloneDrawGenerationValue(providerSnapshot.fingerprint || null);
+        const generationConfig = providerSnapshot.execution || null;
+        return {
+            fingerprint: {
+                version: 1,
+                provider,
+                promptData,
+                providerConfig,
+            },
+            async execute({ signal, onQueueStateChange } = {}) {
+                if (provider === 'novelai') {
+                    const novelDraw = window.xiaobaixNovelDraw;
+                    if (!novelDraw?.generateNovelImage) throw new Error('NovelAI 画图模块未初始化');
+                    if (!promptData.hasParamsPreset) throw new Error('无可用的 NovelAI 参数预设');
+                    return novelDraw.generateNovelImage({
+                        scene: promptData.positive || promptData.tags || '',
+                        characterPrompts: promptData.characterPrompts || [],
+                        negativePrompt: promptData.negativePrompt || '',
+                        params: promptData.params || {},
+                        generationConfig,
+                        signal,
+                        onQueueStateChange,
+                    });
+                }
+
+                if (provider === 'sdwebui') {
+                    const sdDraw = window.xiaobaixSdDraw;
+                    if (!sdDraw?.generateSdImage) throw new Error('SD WebUI 画图模块未初始化');
+                    return sdDraw.generateSdImage({
+                        prompt: promptData.positive || promptData.tags || '',
+                        negativePrompt: promptData.negativePrompt || '',
+                        params: promptData.params || {},
+                        generationConfig,
+                        signal,
+                        onQueueStateChange,
+                    });
+                }
+
+                if (provider === 'comfyui') {
+                    const comfyDraw = window.xiaobaixComfyDraw;
+                    if (!comfyDraw?.generateComfyImage) throw new Error('ComfyUI 画图模块未初始化');
+                    return comfyDraw.generateComfyImage({
+                        prompt: promptData.positive || promptData.tags || '',
+                        negativePrompt: promptData.negativePrompt || '',
+                        params: promptData.params || {},
+                        generationConfig,
+                        signal,
+                        onQueueStateChange,
+                    });
+                }
+
+                throw new Error('未启用画图后端');
+            },
+        };
+    }
+
     window.xiaobaixDraw = {
         getProvider() {
             return normalizeDrawProvider(settings.drawProvider);
@@ -285,47 +368,22 @@ function installDrawFacade() {
         buildPromptData(input = {}) {
             return buildDrawPromptData(input);
         },
+        prepareGeneration(input = {}) {
+            return prepareDrawGeneration(input);
+        },
         async generateImage(input = {}) {
-            const provider = normalizeDrawProvider(settings.drawProvider);
             const payload = typeof input === 'string' ? { prompt: input } : (input || {});
-            const promptData = buildDrawPromptData(payload);
-
-            if (provider === 'novelai') {
-                const novelDraw = window.xiaobaixNovelDraw;
-                if (!novelDraw?.generateNovelImage) throw new Error('NovelAI 画图模块未初始化');
-                if (!promptData.hasParamsPreset) throw new Error('无可用的 NovelAI 参数预设');
-                return novelDraw.generateNovelImage({
-                    scene: promptData.positive || promptData.tags || '',
-                    characterPrompts: promptData.characterPrompts || [],
-                    negativePrompt: promptData.negativePrompt || '',
-                    params: promptData.params || {},
-                    signal: payload.signal,
-                });
-            }
-
-            if (provider === 'sdwebui') {
-                const sdDraw = window.xiaobaixSdDraw;
-                if (!sdDraw?.generateSdImage) throw new Error('SD WebUI 画图模块未初始化');
-                return sdDraw.generateSdImage({
-                    prompt: promptData.positive || promptData.tags || '',
-                    negativePrompt: promptData.negativePrompt || '',
-                    params: promptData.params || {},
-                    signal: payload.signal,
-                });
-            }
-
-            if (provider === 'comfyui') {
-                const comfyDraw = window.xiaobaixComfyDraw;
-                if (!comfyDraw?.generateComfyImage) throw new Error('ComfyUI 画图模块未初始化');
-                return comfyDraw.generateComfyImage({
-                    prompt: promptData.positive || promptData.tags || '',
-                    negativePrompt: promptData.negativePrompt || '',
-                    params: promptData.params || {},
-                    signal: payload.signal,
-                });
-            }
-
-            throw new Error('未启用画图后端');
+            const plan = prepareDrawGeneration(payload);
+            return await plan.execute({
+                signal: payload.signal,
+                onQueueStateChange: payload.onQueueStateChange,
+            });
+        },
+        generateSharedImage(input = {}) {
+            return generateSharedImageRuntime(input);
+        },
+        checkGeneratedImageCache(input = {}) {
+            return checkGeneratedImageCacheRuntime(input);
         },
         async generateImagesFromText(input = {}) {
             const provider = normalizeDrawProvider(settings.drawProvider);
@@ -339,6 +397,7 @@ function installDrawFacade() {
             return generateImagesFromText(input || {});
         },
     };
+    void clearExpiredGeneratedImageCacheRuntime();
 }
 
 if (migrateDrawProviderSettings(settings)) {

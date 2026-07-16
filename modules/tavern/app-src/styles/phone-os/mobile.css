@@ -26,28 +26,19 @@
 
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-glass::after {display: none;}
 
-.tavern-phone-device.is-mobile-fullscreen .tavern-phone-systembar {
-    height: calc(44px + env(safe-area-inset-top, 0px));
-    padding: max(5px, env(safe-area-inset-top, 0px)) 8px 2px 14px;
-}
-
-.tavern-phone-device.is-mobile-fullscreen .tavern-phone-system-close {
-    width: 34px;
-    height: 34px;
-}
-
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-system-navigation {
-    height: calc(24px + env(safe-area-inset-bottom, 0px));
+    height: calc(58px + env(safe-area-inset-bottom, 0px));
     align-items: start;
+    padding: 5px 10px calc(5px + env(safe-area-inset-bottom, 0px));
 }
 
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {
-    padding: calc(62px + env(safe-area-inset-top, 0px)) 22px calc(35px + env(safe-area-inset-bottom, 0px));
+    padding: calc(28px + env(safe-area-inset-top, 0px)) 22px calc(66px + env(safe-area-inset-bottom, 0px));
 }
 
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app {
-    padding-top: calc(44px + env(safe-area-inset-top, 0px));
-    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px));
 }
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-message-scroll {padding-bottom: 18px;}
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-composer {padding-bottom: 9px;}
@@ -55,7 +46,7 @@
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-imessage-field textarea {font-size: 16px;}
 
 @media (max-width: 380px), (max-height: 690px) {
-    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {padding-top: calc(56px + env(safe-area-inset-top, 0px));}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {padding-top: calc(22px + env(safe-area-inset-top, 0px));}
     .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-grid {gap: 20px 10px;}
     .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-icon {width: 54px; height: 54px; border-radius: 17px;}
     .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-head {padding-top: 9px;}

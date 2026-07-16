@@ -1,5 +1,8 @@
 import { buildXbTavernBrainAsync } from '../../../../../shared/brain';
 import {
+    tavernCommunicationPayloadText,
+} from '../../../../../shared/communication-message';
+import {
     type TavernChatPromptPresetBundle,
     type XbTavernContext,
     type XbTavernMemoryContext,
@@ -38,7 +41,7 @@ function normalizeIncomingMessage(value: unknown): string {
 
 const PHONE_ACTIVATION_PRESET: TavernChatPromptPresetBundle = {
     id: 'littlewhitebox-phone-channel',
-    name: '小白酒馆手机通讯',
+    name: '小白酒馆私人消息',
     source: 'littlewhitebox',
     selected: true,
     sections: [],
@@ -98,10 +101,13 @@ export async function buildTavernMessagesRequestMessages(input: {
     userMessage: TavernCommunicationMessageRecord;
 }): Promise<XbTavernMessage[]> {
     const session = await getTavernSession(input.sessionId);
-    if (!session) {throw new Error('当前手机通讯会话不存在。');}
+    if (!session) {throw new Error('当前私人消息会话不存在。');}
     const sessionState = normalizeTavernSessionState(session.state || {});
     const runtime = resolveTavernSessionContractRuntime(normalizeTavernSessionContract(sessionState.contract));
-    const incomingMessage = normalizeIncomingMessage(input.userMessage.content);
+    const incomingMessage = normalizeIncomingMessage(tavernCommunicationPayloadText(input.userMessage.payload));
+    const incomingPayload = input.userMessage.payload.type === 'text'
+        ? { type: 'text' as const, text: incomingMessage }
+        : input.userMessage.payload;
     const anchorOrder = Number.isInteger(Number(input.userMessage.anchorOrder))
         ? Number(input.userMessage.anchorOrder)
         : -1;
@@ -118,10 +124,11 @@ export async function buildTavernMessagesRequestMessages(input: {
     });
     const mainHistory = buildContextHistory(historyWindow.historyMessages);
     const phoneThreadContext = buildTavernPhoneThreadContextMessage({
+        playerName: String(baseContext.user?.name || '玩家'),
         contact: input.contact,
         thread: input.thread,
         messages: input.communicationMessages,
-        incomingMessage,
+        incomingMessage: incomingPayload,
         anchorOrder,
         includeIncoming: false,
         excludeUserSequence: input.userMessage.sequence,
@@ -161,7 +168,7 @@ export async function buildTavernMessagesRequestMessages(input: {
         ...(questHooks.length ? { questHooks } : {}),
         ...(statusState?.document ? { statusPanelYaml: buildTavernStatusPanelYaml(statusState.status) } : {}),
     }, runtime);
-    const currentUserMessage = buildTavernIncomingPhoneMessage(incomingMessage, anchorOrder);
+    const currentUserMessage = buildTavernIncomingPhoneMessage(incomingPayload, anchorOrder);
     const brain = await buildXbTavernBrainAsync({
         context: contextForBuild,
         chatPreset: PHONE_ACTIVATION_PRESET,
@@ -177,7 +184,7 @@ export async function buildTavernMessagesRequestMessages(input: {
         thread: input.thread,
         communicationMessages: input.communicationMessages,
         mainHistory,
-        incomingMessage,
+        incomingMessage: incomingPayload,
         anchorOrder,
         incomingUserSequence: input.userMessage.sequence,
         memoryContext,
