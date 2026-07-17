@@ -106,6 +106,7 @@ import type { TavernSubstituteParamsItem, TavernSubstituteParamsOptions, TavernS
 import {
     buildContextHistory,
     deriveTavernSessionStateFromMessagesAsync,
+    resumeQueuedAcceptedTurnManagers,
     resolveTavernContextWindow,
     simulateXbTavernRequest,
     type TavernBuildNativeChatPromptRuntime,
@@ -2418,6 +2419,10 @@ function summarizeArchiveCounts(counts = createEmptyTavernCharacterArchiveCounts
 
 async function backupSelectedCharacterArchive() {
     if (characterArchiveSyncState.value.busy) {return;}
+    if (managerBusy.value || isManagerAssistantRunning.value) {
+        showTavernToast('档案正在维护，完成后再备份角色档案。', { tone: 'warning', durationMs: 3000 });
+        return;
+    }
     if (phoneContext.messages.isSending.value) {
         warnPhoneWorkInProgress('手机消息正在等待回复，稍后再备份角色档案。');
         return;
@@ -2539,6 +2544,10 @@ async function backupSelectedCharacterArchive() {
 
 async function restoreSelectedCharacterArchive() {
     if (characterArchiveSyncState.value.busy) {return;}
+    if (managerBusy.value || isManagerAssistantRunning.value) {
+        showTavernToast('档案正在维护，完成后再恢复角色档案。', { tone: 'warning', durationMs: 3000 });
+        return;
+    }
     if (phoneContext.messages.isSending.value) {
         warnPhoneWorkInProgress('手机消息正在等待回复，稍后再恢复角色档案。');
         return;
@@ -2836,6 +2845,17 @@ async function refreshManagerRecords(sessionId = selectedSessionId.value) {
     statusStateDocument.value = statusState.document;
     statusStatePatches.value = statusState.patches;
     statusFieldDeltas.value = statusState.fieldDeltas;
+    resumeQueuedAcceptedTurnManagers({
+        sessionId: id,
+        agentConfig: agentConfig.value,
+        assistantPreset: activeAssistantPreset.value,
+        sessionContract: sessionContract.value,
+        onManagerRunSaved: async (sessionId) => {
+            if (sessionId === selectedSessionId.value) {
+                await refreshManagerRecords(sessionId);
+            }
+        },
+    });
     if (!memoryFiles.value.some((file) => file.path === selectedMemoryFilePath.value)) {
         if (memoryEditorDirty.value && selectedMemoryFilePath.value) {
             memoryEditorStatus.value = '当前档案已变化，草稿仍保留';
@@ -3592,6 +3612,8 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rollback
     drawContext.cancelJob(messageKey(message));
     const updated = await updateTavernMessage(message.sessionId, message.order, {
         content: regexedContent,
+    }, {
+        incrementTimelineRevision: true,
     });
     if (updated && shouldRollbackState) {
         await cancelAcceptedRollbackManagersBeforeMessage(message.sessionId, message.order);

@@ -1688,7 +1688,7 @@ test('tavern manager display projection stays out of the app controller', () => 
     assert.doesNotMatch(managerDisplaySource, /managerStatusLine/);
 });
 
-test('tavern accepted-turn manager maintenance runs in background after the next user send starts', () => {
+test('tavern accepted-turn manager uses an unconfirmed candidate and a persistent ordered queue', () => {
     const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
     const sessionSource = readRepoFile('modules/tavern/app-src/features/session/useTavernSessionController.ts');
     const runOnceSource = readRepoFile('modules/tavern/app-src/runtime/run-once.ts');
@@ -1697,32 +1697,36 @@ test('tavern accepted-turn manager maintenance runs in background after the next
     const sessionDbSource = readRepoFile('modules/tavern/shared/session-db.ts');
     const displaySource = readRepoFile('modules/tavern/app-src/components/chat/useTavernManagerDisplay.ts');
     const panelSource = readRepoFile('modules/tavern/app-src/components/chat/TavernManagerPanel.vue');
-    const schedulerStart = runOnceSource.indexOf('function schedulePendingAcceptedTurnManager');
+    const schedulerStart = runOnceSource.indexOf('function scheduleQueuedAcceptedTurnManager');
     const runTurnStart = runOnceSource.indexOf('export async function runXbTavernTurn');
     const schedulerSource = runOnceSource.slice(schedulerStart, runTurnStart);
     const runTurnSource = runOnceSource.slice(runTurnStart);
     const productionRunTurnCall = chatRunSource.match(/const result = await runXbTavernTurn\(\{[\s\S]*?runManager: true,[\s\S]*?onManagerRunSaved:[\s\S]*?\n[ ]{12}\}\);/);
     const removeSessionBody = sessionSource.match(/async function removeSession\(sessionId: string\) \{[\s\S]*?const removed = await deleteTavernSession\(id\);/);
 
-    assert.match(runOnceSource, /markXbTavernManagerTurnPending/);
-    assert.match(runOnceSource, /runPendingAcceptedTurnManager/);
-    assert.match(runOnceSource, /const pendingAcceptedTurnManagerQueues = new Map<string, Promise<void>>\(\);/);
-    assert.match(runOnceSource, /function schedulePendingAcceptedTurnManager/);
+    assert.match(runOnceSource, /markXbTavernManagerTurnCandidate/);
+    assert.match(runOnceSource, /runNextQueuedAcceptedTurnManager/);
+    assert.match(runOnceSource, /const queuedAcceptedTurnManagerWorkers = new Map<string, Promise<void>>\(\);/);
+    assert.match(runOnceSource, /function scheduleQueuedAcceptedTurnManager/);
     assert.doesNotMatch(runOnceSource, /markPendingAcceptedTurnManagersFailed/);
     assert.doesNotMatch(runOnceSource, /listPendingAcceptedTurnManagerRuns/);
     assert.doesNotMatch(schedulerSource, /status: 'failed'/);
-    assert.match(schedulerSource, /runPendingAcceptedTurnManager\(\{/);
+    assert.match(schedulerSource, /for \(;;\)[\s\S]*runNextQueuedAcceptedTurnManager\(\{/);
     assert.doesNotMatch(schedulerSource, /signal: input\.signal/);
     assert.doesNotMatch(runOnceSource, /scheduleXbTavernManagerAfterTurn/);
-    assert.doesNotMatch(runTurnSource, /await runPendingAcceptedTurnManager/);
-    assert.match(runTurnSource, /if \(input\.runManager === true && persistedSessionContractRuntime\.hasAutomaticManagerWork\)[\s\S]*schedulePendingAcceptedTurnManager\(\{[\s\S]*\}\);\s*\}\s*await saveAcceptedStateSnapshot\(baseSession\.id\);/);
+    assert.doesNotMatch(runTurnSource, /await runNextQueuedAcceptedTurnManager/);
+    assert.match(runTurnSource, /appendTavernUserMessageAndConfirmManagerCandidate\([\s\S]*confirmManagerCandidate:[\s\S]*scheduleQueuedAcceptedTurnManager\(\{/);
+    assert.match(schedulerSource, /completeAcceptedTurnManagerRunWithSnapshot\(\{[\s\S]*managerRunId: result\.managerRun\.id[\s\S]*leaseOwnerId:/);
+    assert.match(schedulerSource, /recoverInterruptedAcceptedTurnManagerRuns/);
+    assert.match(schedulerSource, /getAcceptedTurnManagerQueueState/);
+    assert.doesNotMatch(schedulerSource, /targetManagerRunId/);
     assert.ok(productionRunTurnCall);
     assert.doesNotMatch(productionRunTurnCall[0], /executeManagerOnce/);
     assert.ok(removeSessionBody);
     assert.match(removeSessionBody[0], /await options\.cancelAndRollbackManagersForSession\(id\);[\s\S]*const removed = await deleteTavernSession\(id\);/);
-    assert.doesNotMatch(removeSessionBody[0], /waitForPendingAcceptedTurnManagers/);
+    assert.doesNotMatch(removeSessionBody[0], /waitForQueuedAcceptedTurnManagers/);
     assert.match(runOnceSource, /await saveAcceptedStateSnapshot\(baseSession\.id\);/);
-    assert.match(runOnceSource, /markXbTavernManagerTurnPending\(\{[\s\S]*assistantMessage[\s\S]*turn: nextTurn/);
+    assert.match(runOnceSource, /markXbTavernManagerTurnCandidate\(\{[\s\S]*assistantMessage[\s\S]*turn: nextTurn/);
     assert.match(managerSource, /const TAVERN_MANAGER_TIMEOUT_MS = 5 \* 60 \* 1000;/);
     assert.doesNotMatch(managerSource, /15 \* 60 \* 1000/);
     assert.match(managerSource, /await input\.onManagerRunSaved\?\.\(managerRun\);\s*try \{/);
@@ -1731,14 +1735,21 @@ test('tavern accepted-turn manager maintenance runs in background after the next
     assert.match(memoryFilesSource, /export async function ensureTavernMemoryDefaults[\s\S]*if \(!await tavernSessionsTable\.get\(id\)\) \{throw new Error\('memory_session_missing'\);\}[\s\S]*tavernMemoryFilesTable\.bulkPut\(files\)/);
     assert.match(managerSource, /const ACCEPTED_TURN_MANAGER_TRIGGER = 'accepted_turn';/);
     assert.doesNotMatch(managerSource, /scheduleXbTavernManagerAfterTurn|managerQueues|settleTavernManagersForSession/);
-    assert.match(managerSource, /status: 'pending'[\s\S]*等待用户继续后维护上一条已接受回复/);
-    assert.match(managerSource, /listPendingAcceptedTurnManagerRuns/);
-    assert.match(managerSource, /abortedByCurrentTurnSignal[\s\S]*restorePendingAcceptedTurnAfterCurrentAbort/);
-    assert.match(managerSource, /manager_pending_interrupted_by_current_turn_abort/);
+    assert.match(managerSource, /putTavernManagerCandidate/);
+    assert.match(managerSource, /claimNextQueuedAcceptedTurnManagerRun/);
+    assert.match(managerSource, /TAVERN_MANAGER_LEASE_DURATION_MS = 30000/);
+    assert.match(managerSource, /assertRunningTavernManagerRunLease/);
+    assert.match(managerSource, /abortedByCurrentTurnSignal[\s\S]*restoreQueuedAcceptedTurnAfterCurrentAbort/);
+    assert.match(managerSource, /manager_queue_interrupted_by_current_turn_abort/);
+    assert.doesNotMatch(managerSource, /getLatestTavernAssistantOrder|manager_timeline_advanced/);
     assert.match(sessionDbSource, /clearTavernManagerRunSnapshots/);
-    assert.match(sessionDbSource, /export type TavernManagerRunStatus = 'pending' \| 'queued'/);
-    assert.match(sessionDbSource, /run\.trigger === 'accepted_turn' && run\.status === 'pending'/);
-    assert.match(displaySource, /pending: '待维护'/);
+    assert.match(sessionDbSource, /managerCandidates: 'sessionId, assistantOrder, updatedAt'/);
+    assert.match(sessionDbSource, /leaseOwnerId/);
+    assert.match(sessionDbSource, /leaseExpiresAt/);
+    assert.match(sessionDbSource, /appendTavernUserMessageAndConfirmManagerCandidate/);
+    assert.match(sessionDbSource, /confirmedByUserOrder: order/);
+    assert.match(sessionDbSource, /run\.trigger === 'accepted_turn' && run\.status === 'queued'/);
+    assert.match(displaySource, /queued: '排队中'/);
     assert.match(panelSource, /'已接受回合维护'/);
 });
 

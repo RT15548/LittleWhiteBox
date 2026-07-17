@@ -1,6 +1,7 @@
 import type {
     TavernManagerMemorySnapshotRecord,
     TavernAssistantChatMessageRecord,
+    TavernManagerCandidateRecord,
     TavernManagerRunRecord,
     TavernManagerStateSnapshotRecord,
     TavernManagerTaskSnapshotRecord,
@@ -96,6 +97,7 @@ export const TAVERN_CHARACTER_ARCHIVE_TABLES = [
     'messages',
     'assistantChatMessages',
     'managerRuns',
+    'managerCandidates',
     'memoryFiles',
     'memorySnapshots',
     'memoryIndexes',
@@ -121,6 +123,7 @@ export type TavernCharacterArchiveRecordPayload = {
     messages: TavernMessageRecord;
     assistantChatMessages: TavernAssistantChatMessageRecord;
     managerRuns: TavernManagerRunRecord;
+    managerCandidates: TavernManagerCandidateRecord;
     memoryFiles: TavernMemoryFileRecord;
     memorySnapshots: TavernMemorySnapshotRecord;
     memoryIndexes: TavernMemoryIndexRecord;

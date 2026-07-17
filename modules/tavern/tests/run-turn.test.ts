@@ -7,6 +7,7 @@ import db, {
     createTavernManagerRun,
     createTavernSession,
     deleteTavernMessages,
+    getTavernManagerCandidate,
     getTavernSession,
     listTavernManagerMemorySnapshots,
     listTavernManagerRuns,
@@ -19,6 +20,7 @@ import {
     getTavernMemoryFile,
     getTavernMemoryIndex,
     getTavernManagerToolDefinitions,
+    listTavernMemorySnapshots,
     writeTavernMemoryFile,
 } from '../shared/memory-files';
 import { executeTavernStateTool } from '../shared/structured-state';
@@ -48,7 +50,7 @@ import {
     simulateXbTavernRequest as simulateXbTavernRequestRuntime,
     TAVERN_LOCAL_PROMPT_MESSAGES,
     trimFinalAssistantMessageEnd,
-    waitForPendingAcceptedTurnManagers,
+    waitForQueuedAcceptedTurnManagers,
     type XbTavernRunTurnInput,
     type XbTavernSimulateRequestInput,
     type XbTavernRunResult,
@@ -73,7 +75,7 @@ import type { TavernApplyRegexItem } from '../shared/regex';
 import type { TavernSubstituteParamsItem } from '../shared/substitute-params';
 
 async function resetDb() {
-    await waitForPendingAcceptedTurnManagers();
+    await waitForQueuedAcceptedTurnManagers();
     await db.delete();
     await db.open();
 }
@@ -582,7 +584,7 @@ test('xb tavern run turn sends only the latest quest hook first to ST-native mem
     assert.doesNotMatch(memoryPrompt, /旧码头的名字还挂在雨里/);
 });
 
-test('xb tavern pending accepted-turn manager runs independently from the current send signal', async () => {
+test('xb tavern queued accepted-turn manager runs independently from the current send signal', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     const managerContract = mergeTavernSessionContract(undefined, {
@@ -611,8 +613,10 @@ test('xb tavern pending accepted-turn manager runs independently from the curren
         },
     });
 
-    assert.equal(first.managerStatus, 'pending');
-    assert.ok(first.managerRunId);
+    assert.equal(first.managerStatus, '');
+    assert.equal(first.managerRunId, '');
+    const firstCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.ok(firstCandidate);
     const controller = new AbortController();
     let managerCalls = 0;
     let managerSignalAbortedAfterCurrentAbort = false;
@@ -671,15 +675,15 @@ test('xb tavern pending accepted-turn manager runs independently from the curren
 
     assert.equal(result.error, '已停止生成。');
     let runs = await listTavernManagerRuns(first.sessionId);
-    assert.equal(runs.find((run) => run.id === first.managerRunId)?.status, 'running');
+    assert.equal(runs.find((run) => run.id === firstCandidate?.id)?.status, 'running');
     releaseManager();
-    await waitForPendingAcceptedTurnManagers(first.sessionId);
+    await waitForQueuedAcceptedTurnManagers(first.sessionId);
     assert.equal(managerSignalAbortedAfterCurrentAbort, false);
     assert.equal(managerCalls, 1);
     assert.doesNotMatch((await getTavernMemoryFile(first.sessionId, 'memory/state.md'))?.content || '', /pending 维护被当前停止打断/);
     runs = await listTavernManagerRuns(first.sessionId);
-    assert.equal(runs.find((run) => run.id === first.managerRunId)?.status, 'completed');
-    assert.deepEqual(await listTavernManagerMemorySnapshots(first.managerRunId), []);
+    assert.equal(runs.find((run) => run.id === firstCandidate?.id)?.status, 'completed');
+    assert.deepEqual(await listTavernManagerMemorySnapshots(firstCandidate?.id || ''), []);
 
     const next = await runXbTavernTurn({
         sessionId: first.sessionId,
@@ -706,10 +710,13 @@ test('xb tavern pending accepted-turn manager runs independently from the curren
         },
     });
     assert.equal(next.error, undefined);
-    assert.equal(next.managerStatus, 'pending');
+    assert.equal(next.managerStatus, '');
+    assert.equal(next.managerRunId, '');
     runs = await listTavernManagerRuns(first.sessionId);
-    assert.equal(runs.find((run) => run.id === first.managerRunId)?.status, 'completed');
-    assert.equal(runs.find((run) => run.id === next.managerRunId)?.status, 'pending');
+    assert.equal(runs.find((run) => run.id === firstCandidate?.id)?.status, 'completed');
+    const nextCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.equal(nextCandidate?.userOrder, next.userMessage.order);
+    assert.equal(nextCandidate?.assistantOrder, next.assistantMessage?.order);
 });
 
 test('xb tavern session author note reaches native prompt for real and simulated requests', async () => {
@@ -2110,7 +2117,7 @@ test('xb tavern rerun regenerates assistant action checks cleanly instead of reu
     assert.equal(getActionCheckEvents(messages[1]?.runtimeEvents).length, 0);
 });
 
-test('xb tavern run turn does not block RP and supersedes a maintenance write after the timeline advances', async () => {
+test('xb tavern run turn does not block RP and completes its fixed pair after the timeline advances', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     let managerProvider = '';
@@ -2192,11 +2199,12 @@ test('xb tavern run turn does not block RP and supersedes a maintenance write af
     });
 
     const pendingRuns = await listTavernManagerRuns(first.sessionId);
-    assert.equal(first.managerStatus, 'pending', JSON.stringify(pendingRuns[0] || null));
-    assert.ok(first.managerRunId);
+    assert.equal(first.managerStatus, '');
+    assert.equal(first.managerRunId, '');
     assert.equal(managerCalls, 0);
-    assert.equal(pendingRuns[0]?.status, 'pending');
-    assert.equal(pendingRuns[0]?.trigger, 'accepted_turn');
+    assert.deepEqual(pendingRuns, []);
+    const firstCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.ok(firstCandidate);
 
     let markManagerStarted!: () => void;
     const managerStarted = new Promise<void>((resolve) => {
@@ -2292,15 +2300,15 @@ test('xb tavern run turn does not block RP and supersedes a maintenance write af
     });
 
     await managerStarted;
-    const sawRunningStatusBeforeRpCompleted = managerRunStatuses.includes(`${first.managerRunId}:running`);
+    const sawRunningStatusBeforeRpCompleted = managerRunStatuses.includes(`${firstCandidate?.id}:running`);
     const result = await turnPromise;
-    assert.equal(result.managerStatus, 'pending');
-    assert.ok(result.managerRunId);
+    assert.equal(result.managerStatus, 'queued');
+    assert.equal(result.managerRunId, firstCandidate?.id);
     assert.equal(managerCalls, 1);
     releaseManager();
-    await waitForPendingAcceptedTurnManagers(result.sessionId);
+    await waitForQueuedAcceptedTurnManagers(result.sessionId);
     assert.equal(sawRunningStatusBeforeRpCompleted, true);
-    assert.equal(managerCalls, 1);
+    assert.equal(managerCalls, 2);
     assert.equal(managerProvider, 'sillytavern-openai-compatible');
     assert.match(managerPrompt, /# Backstage Manager — LittleWhiteTavern/);
     assert.match(managerPrompt, /main chat handles immersive roleplay/i);
@@ -2347,14 +2355,105 @@ test('xb tavern run turn does not block RP and supersedes a maintenance write af
     assert.doesNotMatch(managerPrompt, /MemoryEdit `edits` 必须是真正的非空数组/);
     const memoryFiles = (await getTavernMemoryIndex(result.sessionId))?.files || [];
     assert.equal(memoryFiles.some((file) => file.path === 'memory/state.md'), true);
-    assert.doesNotMatch((await getTavernMemoryFile(result.sessionId, 'memory/state.md'))?.content || '', /两人决定去码头/);
+    assert.match((await getTavernMemoryFile(result.sessionId, 'memory/state.md'))?.content || '', /两人决定去码头/);
+    const acceptedMemoryFloors = (await listTavernMemorySnapshots(result.sessionId)).map((snapshot) => snapshot.floor);
+    assert.equal(acceptedMemoryFloors.includes(first.assistantMessage?.order || -1), true);
+    assert.equal(acceptedMemoryFloors.includes(result.assistantMessage?.order || -1), false);
     const runs = await listTavernManagerRuns(result.sessionId);
-    const completed = runs.find((run) => run.id === first.managerRunId);
-    assert.equal(completed?.status, 'superseded');
-    assert.equal(completed?.error, 'manager_timeline_advanced');
-    const nextPending = runs.find((run) => run.id === result.managerRunId);
-    assert.equal(nextPending?.status, 'pending');
-    assert.equal(nextPending?.trigger, 'accepted_turn');
+    const completed = runs.find((run) => run.id === firstCandidate?.id);
+    assert.equal(completed?.status, 'completed');
+    assert.equal(completed?.error, '');
+    assert.equal(completed?.confirmedByUserOrder, result.userMessage.order);
+    const nextCandidate = await getTavernManagerCandidate(result.sessionId);
+    assert.equal(nextCandidate?.userOrder, result.userMessage.order);
+    assert.equal(nextCandidate?.assistantOrder, result.assistantMessage?.order);
+});
+
+test('rapid RP turns preserve every confirmed manager pair in strict story order', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const managerContract = mergeTavernSessionContract(undefined, { memoryArchiving: true });
+    let managerCalls = 0;
+    let markManagerStarted!: () => void;
+    const managerStarted = new Promise<void>((resolve) => {markManagerStarted = resolve;});
+    let releaseFirstManager!: () => void;
+    const firstManagerGate = new Promise<void>((resolve) => {releaseFirstManager = resolve;});
+    const executeManagerOnce = async () => {
+        managerCalls += 1;
+        if (managerCalls === 1) {
+            markManagerStarted();
+            await firstManagerGate;
+        }
+        return { text: `维护完成 ${managerCalls}。`, provider: 'fake-manager', model: 'manager-model' };
+    };
+    const contextSnapshot = {
+        character: { characterKey: 'char-fast-queue', name: 'Aster' },
+    };
+
+    const first = await runXbTavernTurn({
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        runtimeState: { contract: managerContract },
+        currentUserMessage: 'U0',
+        runManager: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'A1',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+        executeManagerOnce,
+    });
+    const firstCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.equal(firstCandidate?.assistantOrder, 1);
+
+    const secondPromise = runXbTavernTurn({
+        sessionId: first.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'U2',
+        runManager: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'A3',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+        executeManagerOnce,
+    });
+    await managerStarted;
+    const second = await secondPromise;
+    assert.equal(second.managerRunId, firstCandidate?.id);
+
+    const secondCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.equal(secondCandidate?.assistantOrder, 3);
+    const third = await runXbTavernTurn({
+        sessionId: first.sessionId,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'U4',
+        runManager: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'A5',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+        executeManagerOnce,
+    });
+    assert.equal(third.managerRunId, secondCandidate?.id);
+
+    let runs = await listTavernManagerRuns(first.sessionId);
+    assert.equal(runs.find((run) => run.assistantOrder === 1)?.status, 'running');
+    assert.equal(runs.find((run) => run.assistantOrder === 3)?.status, 'queued');
+    releaseFirstManager();
+    await waitForQueuedAcceptedTurnManagers(first.sessionId);
+
+    runs = await listTavernManagerRuns(first.sessionId);
+    assert.equal(managerCalls, 2);
+    assert.deepEqual(
+        runs.filter((run) => [1, 3].includes(run.assistantOrder))
+            .sort((left, right) => left.assistantOrder - right.assistantOrder)
+            .map((run) => [run.assistantOrder, run.confirmedByUserOrder, run.status]),
+        [[1, 2, 'completed'], [3, 4, 'completed']],
+    );
 });
 
 test('tavern manager prompt strips unauthorized module rules cleanly', () => {
@@ -2402,7 +2501,7 @@ test('tavern manager prompt strips unauthorized module rules cleanly', () => {
     assert.doesNotMatch(questOnly, /## Map/);
 });
 
-test('xb tavern pending accepted-turn manager failure does not block the next RP send', async () => {
+test('xb tavern queued accepted-turn manager failure does not block the next RP send', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     let managerCalls = 0;
@@ -2423,8 +2522,10 @@ test('xb tavern pending accepted-turn manager failure does not block the next RP
         },
     });
 
-    assert.equal(first.managerStatus, 'pending');
+    assert.equal(first.managerStatus, '');
     assert.equal(managerCalls, 0);
+    const firstCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.ok(firstCandidate);
 
     let markManagerStarted!: () => void;
     const managerStarted = new Promise<void>((resolve) => {
@@ -2459,19 +2560,21 @@ test('xb tavern pending accepted-turn manager failure does not block the next RP
     const second = await turnPromise;
     assert.equal(second.error, undefined);
     assert.equal(second.assistantMessage?.content, '她低声说，别让第三个人知道。');
-    assert.equal(second.managerStatus, 'pending');
+    assert.equal(second.managerStatus, 'queued');
+    assert.equal(second.managerRunId, firstCandidate?.id);
     assert.equal(managerCalls, 1);
     releaseManager();
-    await waitForPendingAcceptedTurnManagers(first.sessionId);
+    await waitForQueuedAcceptedTurnManagers(first.sessionId);
     const runs = await listTavernManagerRuns(first.sessionId);
-    const failed = runs.find((run) => run.id === first.managerRunId);
+    const failed = runs.find((run) => run.id === firstCandidate?.id);
     assert.equal(failed?.status, 'failed');
     assert.equal(failed?.error, 'manager_pre_send_failed');
-    const nextPending = runs.find((run) => run.id === second.managerRunId);
-    assert.equal(nextPending?.status, 'pending');
+    const nextCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.equal(nextCandidate?.userOrder, second.userMessage.order);
+    assert.equal(nextCandidate?.assistantOrder, second.assistantMessage?.order);
 });
 
-test('xb tavern reroll cancels pending accepted-turn manager work without calling the manager API', async () => {
+test('xb tavern reroll replaces the unconfirmed manager candidate without calling the manager API', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     let managerCalls = 0;
@@ -2492,7 +2595,9 @@ test('xb tavern reroll cancels pending accepted-turn manager work without callin
             return { text: '不应该维护旧候选。' };
         },
     });
-    assert.equal(first.managerStatus, 'pending');
+    assert.equal(first.managerStatus, '');
+    const firstCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.ok(firstCandidate);
 
     const rerun = await runXbTavernTurn({
         sessionId: first.sessionId,
@@ -2514,14 +2619,14 @@ test('xb tavern reroll cancels pending accepted-turn manager work without callin
         },
     });
 
-    assert.equal(rerun.managerStatus, 'pending');
+    assert.equal(rerun.managerStatus, '');
     assert.equal(managerCalls, 0);
     const runs = await listTavernManagerRuns(first.sessionId);
-    const oldPending = runs.find((run) => run.id === first.managerRunId);
-    assert.equal(oldPending?.status, 'cancelled');
-    assert.equal(oldPending?.error, 'manager_source_messages_superseded');
-    assert.equal(runs[0]?.id, rerun.managerRunId);
-    assert.equal(runs[0]?.status, 'pending');
+    assert.deepEqual(runs, []);
+    const rerunCandidate = await getTavernManagerCandidate(first.sessionId);
+    assert.ok(rerunCandidate);
+    assert.notEqual(rerunCandidate?.id, firstCandidate?.id);
+    assert.equal(rerunCandidate?.assistantOrder, rerun.assistantMessage?.order);
     const messages = await listTavernMessages(first.sessionId);
     assert.deepEqual(messages.map((message) => message.content), ['试一次。', '最终保留回复。']);
 });

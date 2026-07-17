@@ -168,7 +168,7 @@ function mergeTaskRollbackError(existing = '', conflicts: string[] = []): string
     return `${prefix}${merged.join(',')}`;
 }
 
-async function taskPoolHash(sessionId = ''): Promise<string> {
+export async function getTavernTaskPoolHash(sessionId = ''): Promise<string> {
     const [tasks, fingerprints] = await Promise.all([
         listTavernTasks(sessionId, { includeAbandoned: true, includeCompleted: true }),
         getAbandonedTaskFingerprints(sessionId),
@@ -380,7 +380,7 @@ export async function updateTavernManagerTaskSnapshotAfter(managerRunId = '', se
     const snapshot = await ensureTavernManagerTaskSnapshot(managerRunId, sessionId);
     if (!snapshot) {return null;}
     await tavernManagerTaskSnapshotsTable.update(snapshot.managerRunId, {
-        afterHash: await taskPoolHash(snapshot.sessionId),
+        afterHash: await getTavernTaskPoolHash(snapshot.sessionId),
         updatedAt: now(),
     });
     return await tavernManagerTaskSnapshotsTable.get(snapshot.managerRunId) || null;
@@ -414,7 +414,7 @@ export async function rollbackManagerRunTaskWrites(managerRunId = ''): Promise<{
         });
         return { rolledBack: 0, conflicts: [], skipped: 1 };
     }
-    const currentHash = await taskPoolHash(snapshot.sessionId);
+    const currentHash = await getTavernTaskPoolHash(snapshot.sessionId);
     if (currentHash !== snapshot.afterHash) {
         await tavernManagerTaskSnapshotsTable.update(runId, {
             rollbackStatus: 'conflict',

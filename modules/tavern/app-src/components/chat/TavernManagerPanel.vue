@@ -219,7 +219,7 @@ watch(
     (next, previous) => {
         if (next === previous) {return;}
         const status = String(currentManagerWorkRun.value?.status || '');
-        if (['pending', 'queued', 'running'].includes(status)) {
+        if (['queued', 'running'].includes(status)) {
             managerWorkDisclosure.setOpen(managerDisclosureId('work-band'), true);
             return;
         }

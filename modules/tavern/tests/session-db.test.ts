@@ -5,11 +5,13 @@ import Dexie from '../../../libs/dexie.mjs';
 
 import db, {
     appendTavernMessage,
+    appendTavernUserMessageAndConfirmManagerCandidate,
     appendTavernAssistantChatMessage as appendTavernManagerMessage,
     appendTavernStructuredStatePatch,
     branchTavernSession,
     clearTavernAssistantChatMessages,
     createTavernSession,
+    claimNextQueuedAcceptedTurnManagerRun,
     countTavernMessagesInRange,
     deleteTavernSession,
     deleteTavernMessages,
@@ -21,6 +23,8 @@ import db, {
     getLatestTavernAssistantChatMessage as getLatestTavernManagerMessage,
     getLatestTavernMessage,
     getTavernSession,
+    getTavernManagerCandidate,
+    getAcceptedTurnManagerQueueState,
     getTavernMessage,
     getLatestTavernUserMessageAtOrBefore,
     listTavernAssistantChatMessages as listTavernManagerMessages,
@@ -70,6 +74,7 @@ import db, {
     getTavernStructuredStateDocument,
     listTavernStructuredStatePatches,
     putTavernStructuredStateDocument,
+    putTavernManagerCandidate,
     type TavernStructuredStateDocumentRecord,
 } from '../shared/session-db';
 import { DEFAULT_XB_TAVERN_PRESET_ID, createDefaultXbTavernPreset } from '../shared/presets';
@@ -83,7 +88,8 @@ import {
     cancelAndRollbackXbTavernManagersForMessageRange,
     describeXbTavernManagerRollbackImpactForMessageRange,
     runXbTavernManagerAfterTurn,
-    runPendingAcceptedTurnManager,
+    runNextQueuedAcceptedTurnManager,
+    recoverInterruptedAcceptedTurnManagerRuns,
 } from '../app-src/runtime/manager';
 import { runXbTavernAssistantChat as runXbTavernManagerChat } from '../app-src/runtime/assistant-chat-runner';
 import { rollbackImpactLines } from '../app-src/features/accepted-rollback/accepted-rollback';
@@ -141,6 +147,7 @@ import {
     trimTavernTaskSnapshotsFromFloor,
 } from '../shared/tasks';
 import {
+    completeAcceptedTurnManagerRunWithSnapshot,
     resolveTavernAcceptedStateSnapshotDomains,
     saveAcceptedStateSnapshot,
 } from '../shared/accepted-state';
@@ -434,6 +441,60 @@ test('branchTavernSession clones a complete archive without selecting the branch
     assert.equal((await listTavernMessages(session.id)).length, sourceCounts[0].length);
 });
 
+test('branchTavernSession preserves queued work without inventing a live lease', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Queue branch' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: 'U0' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: 'A1' });
+    await putTavernManagerCandidate({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+    });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        status: 'queued',
+    });
+    const branch = await branchTavernSession(session.id);
+    assert.ok(branch);
+    const runs = await listTavernManagerRuns(branch.id);
+    assert.equal(runs.find((run) => run.status === 'queued')?.leaseOwnerId, '');
+    assert.equal((await getTavernManagerCandidate(branch.id))?.assistantOrder, assistant.order);
+});
+
+test('branchTavernSession refuses to copy a manager run before its writes are accepted', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Unaccepted branch' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: 'U0' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: 'A1' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', 'accepted', { source: 'user' });
+    const run = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        status: 'running',
+        leaseOwnerId: 'other-tab',
+        leaseExpiresAt: Date.now() + 30000,
+    });
+    const partialWrite = await executeTavernMemoryTool(session.id, 'MemoryWrite', {
+        filePath: 'memory/state.md',
+        content: 'unaccepted partial write',
+    }, { caller: 'auto', managerRunId: run.id });
+    assert.equal(partialWrite.ok, true);
+
+    await assert.rejects(branchTavernSession(session.id), /manager_branch_unaccepted_writes/);
+    assert.equal((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content, 'unaccepted partial write');
+});
+
 test('tavern message indexed helpers read latest, direct, recent, and range windows', async () => {
     await db.delete();
     await db.open();
@@ -468,6 +529,242 @@ test('tavern message indexed helpers read latest, direct, recent, and range wind
     assert.deepEqual(rangeWithCount.messages.map((message) => message.order), [2, 3]);
     assert.equal(rangeWithCount.total, 4);
     assert.deepEqual((await listTavernMessagesInRange(session.id, 4, Number.POSITIVE_INFINITY)).map((message) => message.order), [4, 5]);
+});
+
+test('manager candidates become fixed queued pairs only when the next user message is atomically stored', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Confirmed manager queue' });
+    const user0 = await appendTavernMessage(session.id, { role: 'user', content: '第 1 楼。' });
+    const assistant1 = await appendTavernMessage(session.id, { role: 'assistant', content: '第 2 楼。' });
+    const firstCandidate = await putTavernManagerCandidate({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user0.order,
+        assistantOrder: assistant1.order,
+        inputSummary: 'pair 0-1',
+    });
+
+    assert.deepEqual(await listTavernManagerRuns(session.id), []);
+    const firstConfirmation = await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: '第 3 楼。',
+    }, { confirmManagerCandidate: true });
+    assert.equal(firstConfirmation.userMessage.order, 2);
+    assert.equal(firstConfirmation.managerRun?.id, firstCandidate.id);
+    assert.equal(firstConfirmation.managerRun?.status, 'queued');
+    assert.equal(firstConfirmation.managerRun?.userOrder, 0);
+    assert.equal(firstConfirmation.managerRun?.assistantOrder, 1);
+    assert.equal(firstConfirmation.managerRun?.confirmedByUserOrder, 2);
+    assert.equal(await getTavernManagerCandidate(session.id), null);
+
+    const assistant3 = await appendTavernMessage(session.id, { role: 'assistant', content: '第 4 楼。' });
+    await putTavernManagerCandidate({
+        sessionId: session.id,
+        turn: 2,
+        userOrder: firstConfirmation.userMessage.order,
+        assistantOrder: assistant3.order,
+        inputSummary: 'pair 2-3',
+    });
+    const editedUser2 = await updateTavernMessage(session.id, firstConfirmation.userMessage.order, {
+        content: '第 3 楼，编辑但不重复发送。',
+    }, { incrementTimelineRevision: true });
+    assert.equal(editedUser2?.timelineRevision, 2);
+
+    const secondConfirmation = await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: '第 5 楼。',
+    }, { confirmManagerCandidate: true });
+    assert.equal(secondConfirmation.managerRun?.userOrder, 2);
+    assert.equal(secondConfirmation.managerRun?.assistantOrder, 3);
+    assert.equal(secondConfirmation.managerRun?.confirmedByUserOrder, 4);
+    assert.equal(secondConfirmation.managerRun?.sourceUserRevision, 2);
+    const runs = await listTavernManagerRuns(session.id);
+    assert.deepEqual(runs.map((run) => run.assistantOrder).sort((left, right) => left - right), [1, 3]);
+});
+
+test('accepted-turn queue claims one oldest pair per session and never runs two pairs concurrently', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Serial manager claims' });
+    const user0 = await appendTavernMessage(session.id, { role: 'user', content: 'U0' });
+    const assistant1 = await appendTavernMessage(session.id, { role: 'assistant', content: 'A1' });
+    await putTavernManagerCandidate({ sessionId: session.id, turn: 1, userOrder: user0.order, assistantOrder: assistant1.order });
+    const user2 = (await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: 'U2',
+    }, { confirmManagerCandidate: true })).userMessage;
+    const assistant3 = await appendTavernMessage(session.id, { role: 'assistant', content: 'A3' });
+    await putTavernManagerCandidate({ sessionId: session.id, turn: 2, userOrder: user2.order, assistantOrder: assistant3.order });
+    await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: 'U4',
+    }, { confirmManagerCandidate: true });
+
+    const firstClaim = await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'worker-a' });
+    assert.equal(firstClaim?.assistantOrder, 1);
+    assert.equal(firstClaim?.status, 'running');
+    assert.equal(await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'worker-b' }), null);
+    await updateTavernManagerRun(firstClaim?.id || '', { status: 'completed' });
+    const secondClaim = await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'worker-b' });
+    assert.equal(secondClaim?.assistantOrder, 3);
+    assert.equal(secondClaim?.status, 'running');
+});
+
+test('concurrent tabs recover one expired accepted-turn lease as exactly one queued replacement', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Lease recovery' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: 'U0' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: 'A1' });
+    const interrupted = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'running',
+        leaseOwnerId: 'dead-worker',
+        leaseExpiresAt: Date.now() - 1,
+    });
+
+    const recoveredByTabs = await Promise.all([
+        recoverInterruptedAcceptedTurnManagerRuns({ sessionId: session.id }),
+        recoverInterruptedAcceptedTurnManagerRuns({ sessionId: session.id }),
+    ]);
+    const replacements = recoveredByTabs.flat();
+    const oldRun = await tavernManagerRunsTable.get(interrupted.id);
+    const queue = await getAcceptedTurnManagerQueueState(session.id);
+
+    assert.equal(oldRun?.status, 'failed');
+    assert.equal(oldRun?.error, 'manager_worker_interrupted');
+    assert.equal(replacements.length, 1);
+    assert.equal(replacements[0]?.status, 'queued');
+    assert.equal(replacements[0]?.assistantOrder, assistant.order);
+    assert.equal((await listTavernManagerRuns(session.id)).filter((run) => run.status === 'queued').length, 1);
+    assert.deepEqual(queue, { queued: 1, running: 0, nextLeaseExpiresAt: 0 });
+});
+
+test('accepted-turn completion snapshots only the run delta and atomically releases its lease', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Atomic accepted snapshot' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: 'U0' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: 'A1' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n基线。', { source: 'user' });
+    await saveTavernMemorySnapshot(session.id, assistant.order);
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    let round = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async () => {
+            round += 1;
+            if (round === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'write-state',
+                        name: 'Write',
+                        arguments: {
+                            filePath: 'memory/state.md',
+                            content: '# 会话记忆\n\n本轮维护。',
+                        },
+                    }],
+                };
+            }
+            return { text: '维护完成。' };
+        },
+    });
+    assert.equal(result?.ok, true);
+    assert.equal(result?.managerRun.status, 'running');
+    assert.deepEqual(result?.changedFiles, ['memory/state.md']);
+
+    const laterUser = await appendTavernMessage(session.id, { role: 'user', content: 'U2' });
+    const laterAssistant = await appendTavernMessage(session.id, { role: 'assistant', content: 'A3' });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 2,
+        userOrder: laterUser.order,
+        assistantOrder: laterAssistant.order,
+        status: 'queued',
+    });
+    assert.equal(await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'other-tab' }), null);
+    await writeTavernMemoryFile(session.id, 'memory/characters/后来者.md', '# 后来者\n\n这是后发生的并发修改。', { source: 'user' });
+    await assert.rejects(completeAcceptedTurnManagerRunWithSnapshot({
+        sessionId: session.id,
+        managerRunId: result?.managerRun.id || '',
+        floor: assistant.order,
+        domains: ['memory'],
+        leaseOwnerId: 'wrong-owner',
+    }), /manager_lease_lost/);
+    assert.equal((await tavernManagerRunsTable.get(result?.managerRun.id || ''))?.status, 'running');
+    const completed = await completeAcceptedTurnManagerRunWithSnapshot({
+        sessionId: session.id,
+        managerRunId: result?.managerRun.id || '',
+        floor: assistant.order,
+        domains: ['memory'],
+        leaseOwnerId: String(result?.managerRun.leaseOwnerId || ''),
+    });
+    const snapshot = (await listTavernMemorySnapshots(session.id)).find((item) => item.floor === assistant.order);
+
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.leaseOwnerId, '');
+    assert.match(snapshot?.files.find((entry) => entry.path === 'memory/state.md')?.file.content || '', /本轮维护/);
+    assert.equal(snapshot?.files.some((entry) => entry.path === 'memory/characters/后来者.md'), false);
+    assert.ok(await getTavernMemoryFile(session.id, 'memory/characters/后来者.md'));
+    const nextClaim = await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'other-tab' });
+    assert.equal(nextClaim?.assistantOrder, laterAssistant.order);
+    await updateTavernManagerRun(nextClaim?.id || '', { status: 'failed', leaseOwnerId: '', leaseExpiresAt: 0 });
+});
+
+test('a confirmed manager pair refuses an explicit later edit of its own source message', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Manager source revision' });
+    const user0 = await appendTavernMessage(session.id, { role: 'user', content: '原始用户楼。' });
+    const assistant1 = await appendTavernMessage(session.id, { role: 'assistant', content: '原始助手楼。' });
+    await putTavernManagerCandidate({ sessionId: session.id, turn: 1, userOrder: user0.order, assistantOrder: assistant1.order });
+    await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: '确认上一对。',
+    }, { confirmManagerCandidate: true });
+    await updateTavernMessage(session.id, assistant1.order, {
+        content: '被明确编辑后的助手楼。',
+    }, { incrementTimelineRevision: true });
+
+    let managerCalls = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async () => {
+            managerCalls += 1;
+            return { text: '不应执行。' };
+        },
+    });
+
+    assert.equal(managerCalls, 0);
+    assert.equal(result?.ok, false);
+    assert.equal(result?.managerRun.status, 'superseded');
+    assert.equal(result?.error, 'manager_source_messages_changed');
 });
 
 test('tavern latest assistant order ignores non-assistant and error messages', async () => {
@@ -971,6 +1268,35 @@ test('tavern manager run heartbeat only touches active running runs', async () =
     assert.equal(afterTerminalHeartbeat?.status, 'completed');
     assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'completed');
     assert.equal(completed?.status, 'completed');
+});
+
+test('limited manager history always includes every queued and running record', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Visible active queue' });
+    const running = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: 0,
+        assistantOrder: 1,
+        status: 'running',
+        leaseOwnerId: 'old-worker',
+        leaseExpiresAt: Date.now() + 30000,
+    });
+    for (let index = 0; index < 24; index += 1) {
+        await createTavernManagerRun({
+            sessionId: session.id,
+            turn: index + 2,
+            userOrder: index * 2 + 2,
+            assistantOrder: index * 2 + 3,
+            status: index < 3 ? 'queued' : 'completed',
+        });
+    }
+
+    const visible = await listTavernManagerRuns(session.id, { limit: 18 });
+    assert.ok(visible.some((run) => run.id === running.id));
+    assert.equal(visible.filter((run) => run.status === 'queued').length, 3);
 });
 
 test('tavern memory files are scoped markdown sources with derived index', async () => {
@@ -5942,7 +6268,7 @@ test('accepted-turn tavern manager emits segmented protocol events without pollu
     ]);
 });
 
-test('pending accepted-turn manager keeps its protocol out of assistant chat history', async () => {
+test('queued accepted-turn manager keeps its protocol out of assistant chat history', async () => {
     await db.delete();
     await db.open();
 
@@ -5955,11 +6281,11 @@ test('pending accepted-turn manager keeps its protocol out of assistant chat his
         userOrder: userMessage.order,
         assistantOrder: assistantMessage.order,
         trigger: 'accepted_turn',
-        status: 'pending',
+        status: 'queued',
     });
     let calls = 0;
     const executeManagerOnce = Object.assign(async (
-        options: Parameters<NonNullable<Parameters<typeof runPendingAcceptedTurnManager>[0]['executeManagerOnce']>>[0],
+        options: Parameters<NonNullable<Parameters<typeof runNextQueuedAcceptedTurnManager>[0]['executeManagerOnce']>>[0],
     ) => {
         calls += 1;
         if (calls === 1) {
@@ -5981,9 +6307,9 @@ test('pending accepted-turn manager keeps its protocol out of assistant chat his
             model: 'memory-model',
             text: '已确认北门位置。',
         };
-    }, { supportsSessionToolLoop: true }) as Parameters<typeof runPendingAcceptedTurnManager>[0]['executeManagerOnce'];
+    }, { supportsSessionToolLoop: true }) as Parameters<typeof runNextQueuedAcceptedTurnManager>[0]['executeManagerOnce'];
 
-    const result = await runPendingAcceptedTurnManager({
+    const result = await runNextQueuedAcceptedTurnManager({
         sessionId: session.id,
         agentConfig: {},
         executeManagerOnce,
@@ -6431,9 +6757,9 @@ test('tavern manager cancellation aborts an active auto run and rolls back writt
         userOrder: userMessage.order,
         assistantOrder: assistantMessage.order,
         trigger: 'accepted_turn',
-        status: 'pending',
+        status: 'queued',
     });
-    const running = runPendingAcceptedTurnManager({
+    const running = runNextQueuedAcceptedTurnManager({
         sessionId: session.id,
         agentConfig: {},
         executeManagerOnce: async () => {
@@ -6458,8 +6784,7 @@ test('tavern manager cancellation aborts an active auto run and rolls back writt
     });
 
     await secondRoundSeen;
-    const rollback = await cancelAndRollbackXbTavernManagersForMessageRange(session.id, assistantMessage.order);
-    assert.equal(rollback.rolledBack, 1);
+    await cancelAndRollbackXbTavernManagersForMessageRange(session.id, assistantMessage.order);
     assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /会被取消/);
     releaseSecondRound();
     const completed = await running;
@@ -6510,7 +6835,7 @@ test('tavern manager rollback uses snapshots even when changedFiles were not fin
     assert.equal((await listTavernManagerRuns(session.id))[0]?.status, 'rolled_back');
 });
 
-test('tavern manager rollback cancels pending accepted-turn runs without rollback writes', async () => {
+test('tavern manager rollback cancels queued accepted-turn runs without rollback writes', async () => {
     await db.delete();
     await db.open();
 
@@ -6523,7 +6848,7 @@ test('tavern manager rollback cancels pending accepted-turn runs without rollbac
         userOrder: userMessage.order,
         assistantOrder: assistantMessage.order,
         trigger: 'accepted_turn',
-        status: 'pending',
+        status: 'queued',
     });
 
     const rollback = await rollbackManagerRunsForMessageRange(session.id, assistantMessage.order);
@@ -6536,7 +6861,7 @@ test('tavern manager rollback cancels pending accepted-turn runs without rollbac
     assert.equal(updated?.error, 'manager_source_messages_superseded');
 });
 
-test('rollback impact treats pending accepted-turn runs as cancellable work, not state rollback', async () => {
+test('rollback impact treats queued accepted-turn runs as cancellable work, not state rollback', async () => {
     await db.delete();
     await db.open();
 
@@ -6550,7 +6875,7 @@ test('rollback impact treats pending accepted-turn runs as cancellable work, not
         userOrder: userMessage.order,
         assistantOrder: assistantMessage.order,
         trigger: 'accepted_turn',
-        status: 'pending',
+        status: 'queued',
     });
 
     const [memoryImpact, taskImpact, managerImpact] = await Promise.all([
@@ -7349,7 +7674,7 @@ test('maintenance run storage rejects legacy manual-chat triggers', async () => 
     assert.deepEqual((await listTavernManagerRuns(session.id)).map((item) => item.id), [run.id]);
 });
 
-test('database v13 discards polluted manager chat data and legacy chat runs while preserving maintenance', async () => {
+test('database v14 resets the test-line maintenance model instead of preserving obsolete runs', async () => {
     await db.delete();
     const legacyDb = new Dexie('LittleWhiteBox_Tavern');
     const legacyRuntime = legacyDb as unknown as {
@@ -7428,7 +7753,7 @@ test('database v13 discards polluted manager chat data and legacy chat runs whil
     const runtimeDb = db as unknown as { tables: Array<{ name: string }> };
     assert.equal(runtimeDb.tables.some((table) => table.name === 'managerMessages'), false);
     assert.deepEqual(await listTavernManagerMessages('legacy-session'), []);
-    assert.deepEqual((await listTavernManagerRuns('legacy-session')).map((run) => run.id), ['maintenance-run']);
+    assert.deepEqual(await listTavernManagerRuns('legacy-session'), []);
     assert.equal(await tavernManagerMemorySnapshotsTable.where('managerRunId').equals('manual-chat-run').count(), 0);
     assert.equal(await tavernManagerStateSnapshotsTable.where('managerRunId').equals('manual-chat-run').count(), 0);
     assert.equal(await tavernManagerTaskSnapshotsTable.where('managerRunId').equals('manual-chat-run').count(), 0);

@@ -9,11 +9,13 @@ import db, {
     appendTavernMessage,
     createTavernManagerRun,
     createTavernSession,
+    getTavernManagerCandidate,
     getSelectedTavernSessionId,
     listTavernAssistantChatMessages as listTavernManagerMessages,
     listTavernManagerRuns,
     listTavernMessages,
     listTavernSessions,
+    putTavernManagerCandidate,
     tavernManagerMemorySnapshotsTable,
     tavernManagerStateSnapshotsTable,
     tavernManagerTaskSnapshotsTable,
@@ -60,6 +62,7 @@ import {
     saveTavernCommunicationSnapshot,
 } from '../shared/communications';
 import { tavernCommunicationPayloadText } from '../shared/communication-message';
+import { executeTavernMemoryTool } from '../shared/memory-files';
 
 const identityCodec: TavernCharacterArchiveJsonlCodec = {
     gzip: async (bytes) => bytes,
@@ -104,6 +107,13 @@ async function seedArchiveSource() {
         assistantOrder: 1,
         trigger: 'after_turn',
         status: 'completed',
+    });
+    await putTavernManagerCandidate({
+        sessionId: a1.id,
+        turn: 12,
+        userOrder: 22,
+        assistantOrder: 23,
+        inputSummary: 'archive candidate',
     });
     await tavernMemoryFilesTable.put({
         sessionId: a1.id,
@@ -333,6 +343,32 @@ test('tavern character archive backup includes only the current character and cr
     assert(records.some((row) => row.table === 'communicationSnapshots'));
 });
 
+test('tavern character archive refuses every session when another tab has an unaccepted manager write', async () => {
+    const { a2 } = await seedArchiveSource();
+    const run = await createTavernManagerRun({
+        sessionId: a2.id,
+        turn: 1,
+        userOrder: 0,
+        assistantOrder: 1,
+        status: 'running',
+        leaseOwnerId: 'other-tab',
+        leaseExpiresAt: Date.now() + 30000,
+    });
+    const partialWrite = await executeTavernMemoryTool(a2.id, 'MemoryWrite', {
+        filePath: 'memory/state.md',
+        content: 'unaccepted archive write',
+    }, { caller: 'auto', managerRunId: run.id });
+    assert.equal(partialWrite.ok, true);
+    const written: TavernCharacterArchiveRecord[] = [];
+
+    await assert.rejects(exportTavernCharacterArchive({
+        archiveId: 'archive-busy-test',
+        character: { characterKey: 'char-a', name: 'Aster', avatar: '', nativeCharacterId: '0' },
+        writer: { write: async (record) => {written.push(record);} },
+    }), /manager_archive_unaccepted_writes/);
+    assert.equal(written.length, 0);
+});
+
 test('tavern character archive part filenames are scoped by archive id', () => {
     const previous = buildTavernCharacterArchivePartFilename('hash-a', 'archive-old', 1);
     const next = buildTavernCharacterArchivePartFilename('hash-a', 'archive-new', 1);
@@ -459,6 +495,7 @@ test('tavern character archive restore replaces only the current character and r
     await db.open();
     await createTavernSession({ id: 'old-a', title: 'old', characterKey: 'char-a', characterName: 'Aster' });
     await appendTavernMessage('old-a', { role: 'user', content: 'old local message' });
+    await putTavernManagerCandidate({ sessionId: 'old-a', turn: 1, userOrder: 0, assistantOrder: 1 });
     await createTavernSession({ id: 'keep-b', title: 'keep', characterKey: 'char-b', characterName: 'Beryl' });
     await appendTavernMessage('keep-b', { role: 'user', content: 'keep me' });
 
@@ -473,9 +510,13 @@ test('tavern character archive restore replaces only the current character and r
     assert.deepEqual(charBSessions.map((session) => session.id), ['keep-b']);
     assert.equal((await listTavernMessages('keep-b'))[0]?.content, 'keep me');
     assert.equal((await listTavernMessages('old-a')).length, 0);
+    assert.equal(await getTavernManagerCandidate('old-a'), null);
     assert.equal((await listTavernMessages(restoredA1)).length, 24);
     assert.equal((await listTavernManagerMessages(restoredA1))[0]?.content, 'manager says hi');
     assert.equal((await listTavernManagerRuns(restoredA1))[0]?.id, 'restore-job-test-run-a-1');
+    const restoredCandidate = await getTavernManagerCandidate(restoredA1);
+    assert.match(restoredCandidate?.id || '', /^restore-job-test-manager-candidate-/);
+    assert.equal(restoredCandidate?.assistantOrder, 23);
     assert.equal((await tavernMemoryFilesTable.get([restoredA1, 'memory/state.md']))?.content, 'memory for a');
     assert.equal((await tavernStateDocumentsTable.get([restoredA1, 'tavern.map', 'map-main']))?.digest, 'map-digest');
     assert.equal((await tavernTasksTable.get([restoredA1, 'task-a-1']))?.sourceManagerRunId, 'restore-job-test-run-a-1');
@@ -499,6 +540,27 @@ test('tavern character archive restore replaces only the current character and r
     assert.deepEqual((await tavernTaskFingerprintStatesTable.get(restoredA1))?.abandonedFingerprints, ['fp-abandoned']);
     assert.equal(await getSelectedTavernSessionId(), restoredA2);
     assert.equal(result.selectedSessionId, restoredA2);
+});
+
+test('tavern character archive rejects live manager records instead of restoring partial writes', async () => {
+    await seedArchiveSource();
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const liveRecords = records.map((row) => row.table === 'managerRuns'
+        ? {
+            ...row,
+            record: {
+                ...row.record,
+                status: 'running' as const,
+                leaseOwnerId: 'archived-tab',
+                leaseExpiresAt: Date.now() + 60000,
+            },
+        }
+        : row) as TavernCharacterArchiveRecord[];
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(restoreFromRecords(manifest, liveRecords), /archive_manager_run_unaccepted/);
+    assert.equal((await listTavernSessions()).length, 0);
 });
 
 test('tavern character archive restore failure leaves the current local archive unchanged', async () => {

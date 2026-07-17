@@ -41,9 +41,16 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         ['accepted_turn', 'after_turn'].includes(String(run.trigger || ''))
     )));
     const latestManagerRun = computed(() => maintenanceRuns.value[0] || null);
-    const currentManagerWorkRun = computed(() => (
-        maintenanceRuns.value.find((run) => isManagerRunActive(run)) || latestManagerRun.value
-    ));
+    const currentManagerWorkRun = computed(() => {
+        const active = maintenanceRuns.value
+            .filter((run) => isManagerRunActive(run))
+            .sort((left, right) => {
+                if (left.status !== right.status) {return left.status === 'running' ? -1 : 1;}
+                return Number(left.assistantOrder) - Number(right.assistantOrder)
+                    || Number(left.createdAt) - Number(right.createdAt);
+            });
+        return active[0] || latestManagerRun.value;
+    });
     const archivedManagerRuns = computed(() => {
         const currentId = String(currentManagerWorkRun.value?.id || '');
         return maintenanceRuns.value
@@ -81,8 +88,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
 
     function managerStatusLabel(status = '') {
         const labels: Record<string, string> = {
-            pending: '待维护',
-            queued: '排队',
+            queued: '排队中',
             running: '运行中',
             completed: '完成',
             failed: '失败',
@@ -102,14 +108,13 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
             if (silentMs > 9000) {return 'warn';}
         }
         if (['failed', 'rolled_back'].includes(status)) {return 'danger';}
-        if (['pending', 'cancelled', 'superseded'].includes(status)) {return 'muted';}
+        if (['cancelled', 'superseded'].includes(status)) {return 'muted';}
         if (['queued', 'running'].includes(status)) {return 'active';}
         if (status === 'completed') {return 'done';}
         return 'neutral';
     }
 
     function formatRunModelLine(run: TavernManagerRunRecord) {
-        if (run.status === 'pending') {return '等待用户继续';}
         if (run.status === 'queued') {return '等待后台模型';}
         if (run.status === 'running') {return '后台模型运行中';}
         const provider = String(run.provider || '').trim();
@@ -120,9 +125,6 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
     function formatRunActivityLine(run: TavernManagerRunRecord) {
         const status = String(run.status || '');
         const updatedAt = Number(run.updatedAt) || Number(run.createdAt) || 0;
-        if (status === 'pending') {
-            return `待用户继续后维护 · 建立于 ${formatDurationAgo(run.createdAt)}`;
-        }
         if (status === 'queued') {
             return `等待开始 · 建立于 ${formatDurationAgo(run.createdAt)}`;
         }
@@ -146,8 +148,12 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
             manager_aborted: '本次后台工作已停止，系统没有采用这次结果。',
             manager_source_messages_changed: '源楼层已失效，系统没有采用这次结果。',
             manager_epoch_expired: '后台工作已过期，系统没有采用这次结果。',
+            manager_worker_interrupted: '后台页面中断，系统已撤回未完成写入并重新排队。',
         };
         if (/工具轮次达到上限/.test(error)) {return `原因：${error} 系统没有采用这次结果。`;}
+        if (error.startsWith('manager_accepted_snapshot_failed:')) {
+            return '原因：维护结果未能安全写入剧情快照，系统已撤回本轮写入。';
+        }
         if (error && labels[error]) {return `原因：${labels[error]}`;}
         if (run.status === 'rolled_back') {return '原因：本次结果已撤回，当前记忆、地图和事件保持上一版。';}
         if (error) {return `原因：${error}`;}
@@ -169,7 +175,6 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
 
     function formatRunMemoryLine(run: TavernManagerRunRecord) {
         const files = Array.isArray(run.changedFiles) ? run.changedFiles : [];
-        if (run.status === 'pending') {return '记忆：等待用户继续后维护';}
         if (run.status === 'queued') {return '记忆：等待开始';}
         if (run.status === 'running') {return '记忆：正在整理';}
         if (run.status === 'failed') {return files.length ? `记忆：已写入 ${files.length} 份档案，但本轮失败` : '记忆：未完成';}
@@ -181,7 +186,6 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
 
     function formatRunMapLine(run: TavernManagerRunRecord) {
         const states = Array.isArray(run.changedStates) ? run.changedStates : [];
-        if (run.status === 'pending') {return '地图：等待用户继续后维护';}
         if (run.status === 'queued') {return '地图：等待开始';}
         if (run.status === 'running') {return '地图：正在判断本轮有没有空间变化';}
         if (run.status === 'failed') {return states.length ? `地图：已写入 ${states.length} 份状态，但本轮失败` : '地图：未完成';}
@@ -193,7 +197,6 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
 
     function formatRunTaskLine(run: TavernManagerRunRecord) {
         const tasks = Array.isArray(run.changedTasks) ? run.changedTasks : [];
-        if (run.status === 'pending') {return '事件：等待用户继续后维护';}
         if (run.status === 'queued') {return '事件：等待开始';}
         if (run.status === 'running') {return '事件：正在判断线索池';}
         if (run.status === 'failed') {return tasks.length ? `事件：已写入 ${tasks.length} 条线索，但本轮失败` : '事件：未完成';}

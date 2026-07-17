@@ -40,6 +40,7 @@ import {
     normalizeTavernRuntimeEvents,
     type TavernRuntimeEvent,
 } from './runtime-events';
+import { assertTavernManagerSnapshotStable } from './manager-snapshot-integrity';
 
 type TavernDexieUpgradeTable = {
     clear: () => Promise<unknown>;
@@ -93,7 +94,7 @@ export interface TavernSessionState {
     [key: string]: unknown;
 }
 
-export type TavernManagerRunStatus = 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'superseded' | 'rolled_back';
+export type TavernManagerRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'superseded' | 'rolled_back';
 
 export interface TavernMessageRecord {
     sessionId: string;
@@ -116,6 +117,7 @@ export interface TavernMessageRecord {
     presetName?: string;
     requestSnapshot?: unknown;
     runtimeEvents?: TavernRuntimeEvent[];
+    timelineRevision?: number;
 }
 
 export type TavernCommunicationContactSource = 'character' | 'memory' | 'manual';
@@ -216,6 +218,12 @@ export interface TavernManagerRunRecord {
     turn: number;
     userOrder: number;
     assistantOrder: number;
+    confirmedByUserOrder?: number;
+    sourceUserCreatedAt?: number;
+    sourceAssistantCreatedAt?: number;
+    sourceUserRevision?: number;
+    sourceAssistantRevision?: number;
+    recoverySourceRunId?: string;
     trigger: TavernMaintenanceRunTrigger;
     status: TavernManagerRunStatus;
     provider?: string;
@@ -227,7 +235,20 @@ export interface TavernManagerRunRecord {
     changedFiles?: string[];
     changedStates?: string[];
     changedTasks?: string[];
+    leaseOwnerId?: string;
+    leaseExpiresAt?: number;
     error?: string;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface TavernManagerCandidateRecord {
+    id: string;
+    sessionId: string;
+    turn: number;
+    userOrder: number;
+    assistantOrder: number;
+    inputSummary?: string;
     createdAt: number;
     updatedAt: number;
 }
@@ -490,6 +511,7 @@ class TavernDatabase extends Dexie {
     meta!: DexieTable<TavernMetaRecord>;
     presets!: DexieTable<TavernPresetRecord>;
     managerRuns!: DexieTable<TavernManagerRunRecord>;
+    managerCandidates!: DexieTable<TavernManagerCandidateRecord>;
     memoryFiles!: DexieTable<TavernMemoryFileRecord>;
     memorySnapshots!: DexieTable<TavernMemorySnapshotRecord>;
     memoryIndexes!: DexieTable<TavernMemoryIndexRecord>;
@@ -816,6 +838,46 @@ class TavernDatabase extends Dexie {
                 }
             });
         });
+        const version14 = this.version(14) as unknown as TavernDexieVersionWithUpgrade;
+        version14.stores({
+            sessions: 'id, updatedAt, characterKey, characterName',
+            messages: '[sessionId+order], sessionId, order',
+            assistantChatMessages: '[sessionId+order], sessionId, order',
+            meta: 'key',
+            presets: 'id, updatedAt, sourcePresetId',
+            managerRuns: 'id, sessionId, status, turn, assistantOrder, updatedAt',
+            managerCandidates: 'sessionId, assistantOrder, updatedAt',
+            memoryFiles: '[sessionId+path], sessionId, path, status, updatedAt',
+            memoryStateSnapshots: null,
+            memorySnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            memoryIndexes: '[sessionId+kind], sessionId, kind, status, updatedAt',
+            assistantPresets: 'id, updatedAt',
+            managerMemorySnapshots: '[managerRunId+path], managerRunId, sessionId, path, updatedAt',
+            stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
+            statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
+            managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
+            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
+            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
+            taskFingerprintStates: 'sessionId, updatedAt',
+            communicationContacts: '[sessionId+id], sessionId, updatedAt',
+            communicationThreads: '[sessionId+id], sessionId, contactId, updatedAt',
+            communicationMessages: '[sessionId+threadId+sequence], sessionId, threadId, sequence, status, updatedAt',
+            communicationSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
+        });
+        version14.upgrade(async (transaction: TavernDexieUpgradeTransaction) => {
+            await transaction.table('managerRuns').clear();
+            await transaction.table('managerMemorySnapshots').clear();
+            await transaction.table('managerStateSnapshots').clear();
+            await transaction.table('managerTaskSnapshots').clear();
+            await transaction.table('statePatches').toCollection().modify((patch) => {
+                patch.managerRunId = '';
+            });
+            await transaction.table('tasks').toCollection().modify((task) => {
+                task.sourceManagerRunId = '';
+            });
+        });
     }
 }
 
@@ -827,6 +889,7 @@ export const tavernAssistantChatMessagesTable = db.assistantChatMessages;
 export const tavernMetaTable = db.meta;
 export const tavernPresetsTable = db.presets;
 export const tavernManagerRunsTable = db.managerRuns;
+export const tavernManagerCandidatesTable = db.managerCandidates;
 export const tavernMemoryFilesTable = db.memoryFiles;
 export const tavernMemorySnapshotsTable = db.memorySnapshots;
 export const tavernMemoryIndexesTable = db.memoryIndexes;
@@ -988,11 +1051,12 @@ function normalizeStoredTavernMessageRecord(record: TavernMessageRecord): Tavern
     return {
         ...record,
         runtimeEvents: normalizeMessageRuntimeEvents(record.runtimeEvents),
+        timelineRevision: Math.max(1, Math.floor(Number(record.timelineRevision) || 1)),
     };
 }
 
 function normalizeManagerRunStatus(value: unknown): TavernManagerRunStatus {
-    return ['pending', 'queued', 'running', 'completed', 'failed', 'cancelled', 'superseded', 'rolled_back'].includes(String(value || ''))
+    return ['queued', 'running', 'completed', 'failed', 'cancelled', 'superseded', 'rolled_back'].includes(String(value || ''))
         ? value as TavernManagerRunStatus
         : 'queued';
 }
@@ -1178,6 +1242,7 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
         tavernMessagesTable,
         tavernAssistantChatMessagesTable,
         tavernManagerRunsTable,
+        tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
         tavernManagerTaskSnapshotsTable,
@@ -1197,6 +1262,7 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
         async () => {
             const sourceSession = await tavernSessionsTable.get(sourceSessionId);
             if (!sourceSession) {return null;}
+            const managerCandidate = await tavernManagerCandidatesTable.get(sourceSessionId);
             const [
                 messages,
                 assistantChatMessages,
@@ -1238,6 +1304,13 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 tavernCommunicationMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernCommunicationSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
             ]);
+            assertTavernManagerSnapshotStable({
+                runs: managerRuns,
+                memorySnapshots: managerMemorySnapshots,
+                stateSnapshots: managerStateSnapshots,
+                taskSnapshots: managerTaskSnapshots,
+                statePatches,
+            }, 'manager_branch_unaccepted_writes');
             const session: TavernSessionRecord = {
                 ...cloneSerializable(sourceSession, sourceSession),
                 id: nextSessionId,
@@ -1265,7 +1338,19 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                     ...cloneSerializable(run, run),
                     id: mapManagerRunId(run.id),
                     sessionId: nextSessionId,
+                    recoverySourceRunId: run.recoverySourceRunId ? mapManagerRunId(run.recoverySourceRunId) : undefined,
+                    ...(run.status === 'queued' ? {
+                        leaseOwnerId: '',
+                        leaseExpiresAt: 0,
+                    } : {}),
                 }))) : 0,
+                managerCandidate ? tavernManagerCandidatesTable.put({
+                    ...cloneSerializable(managerCandidate, managerCandidate),
+                    id: createId('manager-candidate'),
+                    sessionId: nextSessionId,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                }) : 0,
                 memoryFiles.length ? tavernMemoryFilesTable.bulkPut(memoryFiles.map((file) => ({
                     ...cloneSerializable(file, file),
                     sessionId: nextSessionId,
@@ -1371,6 +1456,7 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
         tavernMessagesTable,
         tavernAssistantChatMessagesTable,
         tavernManagerRunsTable,
+        tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
         tavernManagerTaskSnapshotsTable,
@@ -1410,10 +1496,12 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
                 tavernCommunicationMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernCommunicationSnapshotsTable.where('sessionId').equals(id).toArray(),
             ]);
+            const managerCandidate = await tavernManagerCandidatesTable.get(id);
             await Promise.all([
                 messages.length ? tavernMessagesTable.bulkDelete(messages.map((message) => [message.sessionId, message.order])) : 0,
                 assistantChatMessages.length ? tavernAssistantChatMessagesTable.bulkDelete(assistantChatMessages.map((message) => [message.sessionId, message.order])) : 0,
                 runs.length ? tavernManagerRunsTable.bulkDelete(runs.map((run) => run.id)) : 0,
+                managerCandidate ? tavernManagerCandidatesTable.delete(id) : 0,
                 snapshots.length ? tavernManagerMemorySnapshotsTable.bulkDelete(snapshots.map((snapshot) => [snapshot.managerRunId, snapshot.path])) : 0,
                 stateSnapshots.length ? tavernManagerStateSnapshotsTable.bulkDelete(stateSnapshots.map((snapshot) => [snapshot.managerRunId, snapshot.docType, snapshot.docId])) : 0,
                 taskRunSnapshots.length ? tavernManagerTaskSnapshotsTable.bulkDelete(taskRunSnapshots.map((snapshot) => snapshot.managerRunId)) : 0,
@@ -1536,6 +1624,37 @@ export async function updateTavernSessionSnapshot(sessionId = '', patch: {
     return await getTavernSession(id);
 }
 
+function buildTavernMessageRecord(
+    sessionId: string,
+    order: number,
+    message: TavernAppendMessageInput,
+    timestamp: number,
+): TavernMessageRecord {
+    return {
+        sessionId,
+        order,
+        role: String(message.role || ''),
+        content: String(message.content || ''),
+        name: message.name ? String(message.name) : undefined,
+        error: message.error === true,
+        createdAt: timestamp,
+        provider: 'provider' in message ? String(message.provider || '') : undefined,
+        model: 'model' in message ? String(message.model || '') : undefined,
+        finishReason: 'finishReason' in message ? String(message.finishReason || '') : undefined,
+        thoughts: 'thoughts' in message ? cloneSerializable(message.thoughts, undefined) : undefined,
+        providerPayload: 'providerPayload' in message ? cloneSerializable(message.providerPayload, undefined) : undefined,
+        contextSnapshot: 'contextSnapshot' in message ? cloneSerializable(message.contextSnapshot, undefined) : undefined,
+        buildSnapshot: 'buildSnapshot' in message ? cloneSerializable(message.buildSnapshot, undefined) : undefined,
+        chatPresetId: 'chatPresetId' in message ? String(message.chatPresetId || '') : String(message.presetId || ''),
+        chatPresetName: 'chatPresetName' in message ? String(message.chatPresetName || '') : String(message.presetName || ''),
+        presetId: 'presetId' in message ? String(message.presetId || '') : undefined,
+        presetName: 'presetName' in message ? String(message.presetName || '') : undefined,
+        requestSnapshot: 'requestSnapshot' in message ? cloneSerializable(message.requestSnapshot, undefined) : undefined,
+        runtimeEvents: 'runtimeEvents' in message ? normalizeMessageRuntimeEvents(message.runtimeEvents) : [],
+        timelineRevision: 1,
+    };
+}
+
 export async function appendTavernMessage(sessionId: string, message: TavernAppendMessageInput): Promise<TavernMessageRecord> {
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('session_required');}
@@ -1544,33 +1663,216 @@ export async function appendTavernMessage(sessionId: string, message: TavernAppe
     await db.transaction('rw', tavernMessagesTable, tavernSessionsTable, async () => {
         const latest = await getLatestTavernMessage(id);
         const order = (latest ? Math.floor(Number(latest.order)) : -1) + 1;
-        record = {
-            sessionId: id,
-            order,
-            role: String(message.role || ''),
-            content: String(message.content || ''),
-            name: message.name ? String(message.name) : undefined,
-            error: message.error === true,
-            createdAt: timestamp,
-            provider: 'provider' in message ? String(message.provider || '') : undefined,
-            model: 'model' in message ? String(message.model || '') : undefined,
-            finishReason: 'finishReason' in message ? String(message.finishReason || '') : undefined,
-            thoughts: 'thoughts' in message ? cloneSerializable(message.thoughts, undefined) : undefined,
-            providerPayload: 'providerPayload' in message ? cloneSerializable(message.providerPayload, undefined) : undefined,
-            contextSnapshot: 'contextSnapshot' in message ? cloneSerializable(message.contextSnapshot, undefined) : undefined,
-            buildSnapshot: 'buildSnapshot' in message ? cloneSerializable(message.buildSnapshot, undefined) : undefined,
-            chatPresetId: 'chatPresetId' in message ? String(message.chatPresetId || '') : String(message.presetId || ''),
-            chatPresetName: 'chatPresetName' in message ? String(message.chatPresetName || '') : String(message.presetName || ''),
-            presetId: 'presetId' in message ? String(message.presetId || '') : undefined,
-            presetName: 'presetName' in message ? String(message.presetName || '') : undefined,
-            requestSnapshot: 'requestSnapshot' in message ? cloneSerializable(message.requestSnapshot, undefined) : undefined,
-            runtimeEvents: 'runtimeEvents' in message ? normalizeMessageRuntimeEvents(message.runtimeEvents) : [],
-        };
+        record = buildTavernMessageRecord(id, order, message, timestamp);
         await tavernMessagesTable.put(record);
         await tavernSessionsTable.update(id, { updatedAt: timestamp });
     });
     if (!record) {throw new Error('message_append_failed');}
     return normalizeStoredTavernMessageRecord(record);
+}
+
+export async function putTavernManagerCandidate(input: {
+    sessionId: string;
+    turn: number;
+    userOrder: number;
+    assistantOrder: number;
+    inputSummary?: string;
+}): Promise<TavernManagerCandidateRecord> {
+    const sessionId = String(input.sessionId || '').trim();
+    if (!sessionId) {throw new Error('manager_session_required');}
+    const timestamp = now();
+    const record: TavernManagerCandidateRecord = {
+        id: createId('manager-candidate'),
+        sessionId,
+        turn: Math.max(0, Math.floor(Number(input.turn) || 0)),
+        userOrder: Math.floor(Number(input.userOrder)),
+        assistantOrder: Math.floor(Number(input.assistantOrder)),
+        inputSummary: String(input.inputSummary || ''),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
+    return await db.transaction('rw', tavernManagerCandidatesTable, tavernSessionsTable, async () => {
+        if (!await tavernSessionsTable.get(sessionId)) {throw new Error('manager_session_missing');}
+        await tavernManagerCandidatesTable.put(record);
+        await tavernSessionsTable.update(sessionId, { updatedAt: timestamp });
+        return record;
+    });
+}
+
+export async function getTavernManagerCandidate(sessionId = ''): Promise<TavernManagerCandidateRecord | null> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return null;}
+    return await tavernManagerCandidatesTable.get(id) || null;
+}
+
+export async function deleteTavernManagerCandidateForMessageRange(sessionId = '', fromOrder = 0): Promise<boolean> {
+    const id = String(sessionId || '').trim();
+    const order = Number(fromOrder);
+    if (!id || !Number.isFinite(order)) {return false;}
+    return await db.transaction('rw', tavernManagerCandidatesTable, tavernSessionsTable, async () => {
+        const candidate = await tavernManagerCandidatesTable.get(id);
+        if (!candidate || (candidate.userOrder < order && candidate.assistantOrder < order)) {return false;}
+        await tavernManagerCandidatesTable.delete(id);
+        await tavernSessionsTable.update(id, { updatedAt: now() });
+        return true;
+    });
+}
+
+export async function appendTavernUserMessageAndConfirmManagerCandidate(
+    sessionId: string,
+    message: TavernAppendMessageInput,
+    options: { confirmManagerCandidate?: boolean } = {},
+): Promise<{ userMessage: TavernMessageRecord; managerRun: TavernManagerRunRecord | null }> {
+    const id = String(sessionId || '').trim();
+    if (!id) {throw new Error('session_required');}
+    if (String(message.role || '') !== 'user') {throw new Error('manager_confirmation_user_required');}
+    const timestamp = now();
+    let userMessage: TavernMessageRecord | null = null;
+    let managerRun: TavernManagerRunRecord | null = null;
+    await db.transaction(
+        'rw',
+        tavernMessagesTable,
+        tavernSessionsTable,
+        tavernManagerCandidatesTable,
+        tavernManagerRunsTable,
+        async () => {
+            const latest = await getLatestTavernMessage(id);
+            const order = (latest ? Math.floor(Number(latest.order)) : -1) + 1;
+            userMessage = buildTavernMessageRecord(id, order, message, timestamp);
+            await tavernMessagesTable.put(userMessage);
+
+            const candidate = await tavernManagerCandidatesTable.get(id);
+            if (candidate) {
+                const [sourceUser, sourceAssistant] = await Promise.all([
+                    tavernMessagesTable.get([id, candidate.userOrder]),
+                    tavernMessagesTable.get([id, candidate.assistantOrder]),
+                ]);
+                const sourceValid = sourceUser?.role === 'user'
+                    && sourceUser.error !== true
+                    && sourceAssistant?.role === 'assistant'
+                    && sourceAssistant.error !== true
+                    && !['aborted', 'error'].includes(String(sourceAssistant.finishReason || '').trim())
+                    && candidate.assistantOrder === order - 1;
+                if (options.confirmManagerCandidate === true && sourceValid) {
+                    managerRun = {
+                        id: candidate.id,
+                        sessionId: id,
+                        turn: candidate.turn,
+                        userOrder: candidate.userOrder,
+                        assistantOrder: candidate.assistantOrder,
+                        confirmedByUserOrder: order,
+                        sourceUserCreatedAt: Number(sourceUser.createdAt),
+                        sourceAssistantCreatedAt: Number(sourceAssistant.createdAt),
+                        sourceUserRevision: Math.max(1, Math.floor(Number(sourceUser.timelineRevision) || 1)),
+                        sourceAssistantRevision: Math.max(1, Math.floor(Number(sourceAssistant.timelineRevision) || 1)),
+                        trigger: 'accepted_turn',
+                        status: 'queued',
+                        inputSummary: String(candidate.inputSummary || ''),
+                        outputText: '已由下一条用户消息确认，等待按剧情顺序维护。',
+                        createdAt: timestamp,
+                        updatedAt: timestamp,
+                    };
+                    await tavernManagerRunsTable.put(managerRun);
+                }
+                await tavernManagerCandidatesTable.delete(id);
+            }
+            await tavernSessionsTable.update(id, { updatedAt: timestamp });
+        },
+    );
+    if (!userMessage) {throw new Error('message_append_failed');}
+    return {
+        userMessage: normalizeStoredTavernMessageRecord(userMessage),
+        managerRun,
+    };
+}
+
+export async function claimNextQueuedAcceptedTurnManagerRun(sessionId = '', options: {
+    leaseOwnerId?: string;
+    leaseDurationMs?: number;
+} = {}): Promise<TavernManagerRunRecord | null> {
+    const id = String(sessionId || '').trim();
+    const leaseOwnerId = String(options.leaseOwnerId || '').trim();
+    if (!id || !leaseOwnerId) {return null;}
+    return await db.transaction('rw', tavernManagerRunsTable, tavernSessionsTable, async () => {
+        const runs = await tavernManagerRunsTable.where('sessionId').equals(id).toArray();
+        const timestamp = now();
+        if (runs.some((run) => run.trigger === 'accepted_turn' && run.status === 'running')) {
+            return null;
+        }
+        const queued = runs
+            .filter((run) => run.trigger === 'accepted_turn' && run.status === 'queued')
+            .sort((left, right) => Number(left.assistantOrder) - Number(right.assistantOrder)
+                || Number(left.createdAt) - Number(right.createdAt))[0];
+        if (!queued) {return null;}
+        const leaseDurationMs = Math.max(5000, Math.floor(Number(options.leaseDurationMs) || 30000));
+        await tavernManagerRunsTable.update(queued.id, {
+            status: 'running',
+            leaseOwnerId,
+            leaseExpiresAt: timestamp + leaseDurationMs,
+            updatedAt: timestamp,
+        });
+        await tavernSessionsTable.update(id, { updatedAt: timestamp });
+        return await tavernManagerRunsTable.get(queued.id) || null;
+    });
+}
+
+export async function getAcceptedTurnManagerQueueState(sessionId = ''): Promise<{
+    queued: number;
+    running: number;
+    nextLeaseExpiresAt: number;
+}> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return { queued: 0, running: 0, nextLeaseExpiresAt: 0 };}
+    const runs = await tavernManagerRunsTable.where('sessionId').equals(id).toArray();
+    const queued = runs.filter((run) => run.trigger === 'accepted_turn' && run.status === 'queued');
+    const running = runs.filter((run) => run.trigger === 'accepted_turn' && run.status === 'running');
+    return {
+        queued: queued.length,
+        running: running.length,
+        nextLeaseExpiresAt: running.reduce((earliest, run) => {
+            const expiresAt = Number(run.leaseExpiresAt) || 0;
+            if (!expiresAt) {return earliest;}
+            return !earliest || expiresAt < earliest ? expiresAt : earliest;
+        }, 0),
+    };
+}
+
+export async function markExpiredAcceptedTurnManagerRunsInterrupted(
+    sessionId = '',
+    observedAt = now(),
+): Promise<TavernManagerRunRecord[]> {
+    const id = String(sessionId || '').trim();
+    const timestamp = Number(observedAt) || now();
+    if (!id) {return [];}
+    return await db.transaction('rw', tavernManagerRunsTable, tavernSessionsTable, async () => {
+        const runs = await tavernManagerRunsTable.where('sessionId').equals(id).toArray();
+        const expired = runs.filter((run) => run.trigger === 'accepted_turn'
+            && run.status === 'running'
+            && Number(run.leaseExpiresAt) <= timestamp);
+        if (!expired.length) {return [];}
+        await Promise.all(expired.map((run) => tavernManagerRunsTable.update(run.id, {
+            status: 'failed',
+            leaseOwnerId: '',
+            leaseExpiresAt: 0,
+            error: 'manager_worker_interrupted',
+            updatedAt: timestamp,
+        })));
+        await tavernSessionsTable.update(id, { updatedAt: timestamp });
+        return (await Promise.all(expired.map((run) => tavernManagerRunsTable.get(run.id))))
+            .filter(Boolean) as TavernManagerRunRecord[];
+    });
+}
+
+export async function assertRunningTavernManagerRunLease(managerRunId = '', leaseOwnerId = ''): Promise<TavernManagerRunRecord> {
+    const id = String(managerRunId || '').trim();
+    const owner = String(leaseOwnerId || '').trim();
+    const run = id ? await (Dexie as unknown as {
+        ignoreTransaction<T>(scope: () => Promise<T>): Promise<T>;
+    }).ignoreTransaction(() => tavernManagerRunsTable.get(id)) : null;
+    if (!run || run.status !== 'running' || !owner || run.leaseOwnerId !== owner || Number(run.leaseExpiresAt) <= now()) {
+        throw new Error('manager_lease_lost');
+    }
+    return run;
 }
 
 export async function updateTavernMessage(
@@ -1592,6 +1894,7 @@ export async function updateTavernMessage(
         | 'model'
         | 'finishReason'
     >>,
+    options: { incrementTimelineRevision?: boolean } = {},
 ): Promise<TavernMessageRecord | null> {
     const id = String(sessionId || '').trim();
     const messageOrder = Number(order);
@@ -1613,6 +1916,9 @@ export async function updateTavernMessage(
     if ('provider' in patch) {update.provider = String(patch.provider || '');}
     if ('model' in patch) {update.model = String(patch.model || '');}
     if ('finishReason' in patch) {update.finishReason = String(patch.finishReason || '');}
+    if (options.incrementTimelineRevision === true) {
+        update.timelineRevision = Math.max(1, Math.floor(Number(existing.timelineRevision) || 1)) + 1;
+    }
     await tavernMessagesTable.update([id, messageOrder], update);
     await tavernSessionsTable.update(id, { updatedAt: now() });
     const updated = await tavernMessagesTable.get([id, messageOrder]);
@@ -2071,6 +2377,12 @@ export async function createTavernManagerRun(input: Partial<TavernManagerRunReco
         turn: Math.max(0, Number(input.turn) || 0),
         userOrder: Number.isInteger(Number(input.userOrder)) ? Number(input.userOrder) : -1,
         assistantOrder: Number.isInteger(Number(input.assistantOrder)) ? Number(input.assistantOrder) : -1,
+        confirmedByUserOrder: Number.isInteger(Number(input.confirmedByUserOrder)) ? Number(input.confirmedByUserOrder) : undefined,
+        sourceUserCreatedAt: Number.isFinite(Number(input.sourceUserCreatedAt)) ? Number(input.sourceUserCreatedAt) : undefined,
+        sourceAssistantCreatedAt: Number.isFinite(Number(input.sourceAssistantCreatedAt)) ? Number(input.sourceAssistantCreatedAt) : undefined,
+        sourceUserRevision: Number.isFinite(Number(input.sourceUserRevision)) ? Number(input.sourceUserRevision) : undefined,
+        sourceAssistantRevision: Number.isFinite(Number(input.sourceAssistantRevision)) ? Number(input.sourceAssistantRevision) : undefined,
+        recoverySourceRunId: String(input.recoverySourceRunId || '').trim() || undefined,
         trigger: trigger as TavernMaintenanceRunTrigger,
         status: normalizeManagerRunStatus(input.status),
         provider: String(input.provider || ''),
@@ -2082,6 +2394,8 @@ export async function createTavernManagerRun(input: Partial<TavernManagerRunReco
         changedFiles: normalizeStringArray(input.changedFiles, 100),
         changedStates: normalizeStringArray(input.changedStates, 100),
         changedTasks: normalizeStringArray(input.changedTasks, 100),
+        leaseOwnerId: String(input.leaseOwnerId || ''),
+        leaseExpiresAt: Math.max(0, Number(input.leaseExpiresAt) || 0),
         error: String(input.error || ''),
         createdAt: Number(input.createdAt) || timestamp,
         updatedAt: timestamp,
@@ -2089,6 +2403,53 @@ export async function createTavernManagerRun(input: Partial<TavernManagerRunReco
     await tavernManagerRunsTable.put(record);
     await tavernSessionsTable.update(sessionId, { updatedAt: timestamp });
     return record;
+}
+
+export async function createRecoveredAcceptedTurnManagerRun(
+    sourceManagerRunId = '',
+): Promise<{ run: TavernManagerRunRecord; created: boolean } | null> {
+    const sourceId = String(sourceManagerRunId || '').trim();
+    if (!sourceId) {return null;}
+    return await db.transaction('rw', tavernManagerRunsTable, tavernSessionsTable, async () => {
+        const source = await tavernManagerRunsTable.get(sourceId);
+        if (!source || source.trigger !== 'accepted_turn') {return null;}
+        const runs = await tavernManagerRunsTable.where('sessionId').equals(source.sessionId).toArray();
+        const existing = runs.find((run) => String(run.recoverySourceRunId || '').trim() === source.id);
+        if (existing) {return { run: existing, created: false };}
+        if (source.status !== 'failed' || source.error !== 'manager_worker_interrupted') {return null;}
+        const timestamp = now();
+        const run: TavernManagerRunRecord = {
+            id: createId('manager-run'),
+            sessionId: source.sessionId,
+            turn: source.turn,
+            userOrder: source.userOrder,
+            assistantOrder: source.assistantOrder,
+            confirmedByUserOrder: source.confirmedByUserOrder,
+            sourceUserCreatedAt: source.sourceUserCreatedAt,
+            sourceAssistantCreatedAt: source.sourceAssistantCreatedAt,
+            sourceUserRevision: source.sourceUserRevision,
+            sourceAssistantRevision: source.sourceAssistantRevision,
+            recoverySourceRunId: source.id,
+            trigger: 'accepted_turn',
+            status: 'queued',
+            provider: '',
+            model: '',
+            inputSummary: String(source.inputSummary || ''),
+            outputText: '上次后台进程中断，任务已恢复队列。',
+            parsedAction: '',
+            changedFiles: [],
+            changedStates: [],
+            changedTasks: [],
+            leaseOwnerId: '',
+            leaseExpiresAt: 0,
+            error: '',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+        };
+        await tavernManagerRunsTable.put(run);
+        await tavernSessionsTable.update(source.sessionId, { updatedAt: timestamp });
+        return { run, created: true };
+    });
 }
 
 export async function updateTavernManagerRun(
@@ -2122,18 +2483,36 @@ export async function updateTavernManagerRun(
     if ('turn' in patch) {update.turn = Math.max(0, Number(patch.turn) || 0);}
     if ('userOrder' in patch) {update.userOrder = Number(patch.userOrder);}
     if ('assistantOrder' in patch) {update.assistantOrder = Number(patch.assistantOrder);}
+    if ('confirmedByUserOrder' in patch) {update.confirmedByUserOrder = Number(patch.confirmedByUserOrder);}
+    if ('sourceUserCreatedAt' in patch) {update.sourceUserCreatedAt = Number(patch.sourceUserCreatedAt);}
+    if ('sourceAssistantCreatedAt' in patch) {update.sourceAssistantCreatedAt = Number(patch.sourceAssistantCreatedAt);}
+    if ('sourceUserRevision' in patch) {update.sourceUserRevision = Number(patch.sourceUserRevision);}
+    if ('sourceAssistantRevision' in patch) {update.sourceAssistantRevision = Number(patch.sourceAssistantRevision);}
+    if ('leaseOwnerId' in patch) {update.leaseOwnerId = String(patch.leaseOwnerId || '');}
+    if ('leaseExpiresAt' in patch) {update.leaseExpiresAt = Math.max(0, Number(patch.leaseExpiresAt) || 0);}
     await tavernManagerRunsTable.update(id, update);
     await tavernSessionsTable.update(existing.sessionId, { updatedAt: now() });
     return await tavernManagerRunsTable.get(id) || null;
 }
 
-export async function touchRunningTavernManagerRun(managerRunId = ''): Promise<TavernManagerRunRecord | null> {
+export async function touchRunningTavernManagerRun(managerRunId = '', options: {
+    leaseOwnerId?: string;
+    leaseDurationMs?: number;
+} = {}): Promise<TavernManagerRunRecord | null> {
     const id = String(managerRunId || '').trim();
     if (!id) {return null;}
     const existing = await tavernManagerRunsTable.get(id);
-    if (!existing || existing.status !== 'running') {return existing || null;}
+    const leaseOwnerId = String(options.leaseOwnerId || '').trim();
+    if (!existing || existing.status !== 'running') {
+        return existing || null;
+    }
+    if (existing.leaseOwnerId && existing.leaseOwnerId !== leaseOwnerId) {return existing;}
     const timestamp = now();
-    await tavernManagerRunsTable.update(id, { updatedAt: timestamp });
+    const leaseDurationMs = Math.max(5000, Math.floor(Number(options.leaseDurationMs) || 30000));
+    await tavernManagerRunsTable.update(id, {
+        ...(existing.leaseOwnerId ? { leaseExpiresAt: timestamp + leaseDurationMs } : {}),
+        updatedAt: timestamp,
+    });
     await tavernSessionsTable.update(existing.sessionId, { updatedAt: timestamp });
     return await tavernManagerRunsTable.get(id) || null;
 }
@@ -2146,23 +2525,14 @@ export async function listTavernManagerRuns(sessionId = '', options: {
     const rows = (await tavernManagerRunsTable.where('sessionId').equals(id).sortBy('updatedAt'))
         .filter((run) => ['accepted_turn', 'after_turn'].includes(String(run.trigger || '')));
     const limit = Math.max(0, Number(options.limit) || 0);
-    return (limit ? rows.slice(-limit) : rows).reverse();
+    if (!limit) {return rows.reverse();}
+    const selected = new Map<string, TavernManagerRunRecord>();
+    rows.slice(-limit).forEach((run) => selected.set(run.id, run));
+    rows.filter((run) => ['queued', 'running'].includes(run.status)).forEach((run) => selected.set(run.id, run));
+    return [...selected.values()].sort((left, right) => Number(right.updatedAt) - Number(left.updatedAt));
 }
 
-export async function listPendingAcceptedTurnManagerRuns(sessionId = ''): Promise<TavernManagerRunRecord[]> {
-    const id = String(sessionId || '').trim();
-    if (!id) {return [];}
-    const rows = await tavernManagerRunsTable.where('sessionId').equals(id).toArray();
-    return rows
-        .filter((run) => run.trigger === 'accepted_turn' && run.status === 'pending')
-        .sort((left, right) => {
-            const assistantDiff = Number(right.assistantOrder) - Number(left.assistantOrder);
-            if (assistantDiff) {return assistantDiff;}
-            return Number(right.updatedAt) - Number(left.updatedAt);
-        });
-}
-
-function hashMemorySnapshot(file?: Pick<TavernMemoryFileRecord, 'content' | 'status' | 'source' | 'staleFromOrder'> | null): string {
+export function hashTavernMemoryRecord(file?: Pick<TavernMemoryFileRecord, 'content' | 'status' | 'source' | 'staleFromOrder'> | null): string {
     const text = JSON.stringify({
         content: String(file?.content || ''),
         status: String(file?.status || ''),
@@ -2187,7 +2557,7 @@ function hashSerializableState(value: unknown): string {
     return hash.toString(16);
 }
 
-function hashStateSnapshot(document?: TavernStructuredStateDocumentRecord | null): string {
+export function hashTavernStateDocument(document?: TavernStructuredStateDocumentRecord | null): string {
     return hashSerializableState(document ? {
         docType: document.docType,
         docId: document.docId,
@@ -2377,7 +2747,7 @@ export async function ensureTavernManagerMemorySnapshot(input: {
         path,
         beforeExists: !!beforeFile,
         beforeFile: beforeFile ? cloneSerializable(beforeFile, undefined) : undefined,
-        beforeHash: hashMemorySnapshot(beforeFile),
+        beforeHash: hashTavernMemoryRecord(beforeFile),
         afterHash: '',
         rollbackStatus: 'pending',
         error: '',
@@ -2401,7 +2771,7 @@ export async function updateTavernManagerMemorySnapshotAfter(input: {
     if (!snapshot) {return null;}
     const afterFile = await tavernMemoryFilesTable.get([sessionId, path]) || null;
     await tavernManagerMemorySnapshotsTable.update([managerRunId, path], {
-        afterHash: hashMemorySnapshot(afterFile),
+        afterHash: hashTavernMemoryRecord(afterFile),
         updatedAt: now(),
     });
     return await tavernManagerMemorySnapshotsTable.get([managerRunId, path]) || null;
@@ -2429,7 +2799,7 @@ export async function ensureTavernManagerStateSnapshot(input: {
         docId,
         beforeExists: !!beforeDocument,
         beforeDocument: beforeDocument ? cloneSerializable(beforeDocument, undefined) : undefined,
-        beforeHash: hashStateSnapshot(beforeDocument),
+        beforeHash: hashTavernStateDocument(beforeDocument),
         afterHash: '',
         rollbackStatus: 'pending',
         error: '',
@@ -2455,7 +2825,7 @@ export async function updateTavernManagerStateSnapshotAfter(input: {
     if (!snapshot) {return null;}
     const afterDocument = await getTavernStructuredStateDocument(sessionId, docType, docId);
     await tavernManagerStateSnapshotsTable.update([managerRunId, docType, docId], {
-        afterHash: hashStateSnapshot(afterDocument),
+        afterHash: hashTavernStateDocument(afterDocument),
         updatedAt: now(),
     });
     return await tavernManagerStateSnapshotsTable.get([managerRunId, docType, docId]) || null;
@@ -2524,7 +2894,7 @@ export async function rollbackManagerRunMemoryWrites(managerRunId = ''): Promise
             });
             continue;
         }
-        if (hashMemorySnapshot(current) !== snapshot.afterHash) {
+        if (hashTavernMemoryRecord(current) !== snapshot.afterHash) {
             conflicts.push(snapshot.path);
             await tavernManagerMemorySnapshotsTable.update([snapshot.managerRunId, snapshot.path], {
                 rollbackStatus: 'conflict',
@@ -2603,7 +2973,7 @@ export async function rollbackManagerRunsForMessageRange(sessionId = '', fromOrd
             continue;
         }
         await updateTavernManagerRun(run.id, {
-            status: ['pending', 'queued', 'running'].includes(run.status) ? 'cancelled' : 'superseded',
+            status: ['queued', 'running'].includes(run.status) ? 'cancelled' : 'superseded',
             error: 'manager_source_messages_superseded',
         });
     }

@@ -48,6 +48,11 @@ test('manager run activity requires a fresh heartbeat', () => {
 
     assert.equal(isTavernManagerRunActive(fresh, now), true);
     assert.equal(isTavernManagerRunActive(expired, now), false);
+    assert.equal(isTavernManagerRunActive(managerRun({
+        id: 'old-queued',
+        status: 'queued',
+        updatedAt: now - TAVERN_MANAGER_HEARTBEAT_TIMEOUT_MS * 10,
+    }), now), true);
     assert.equal(isTavernManagerRunActive(managerRun({ id: 'completed', status: 'completed', updatedAt: now }), now), false);
 });
 
@@ -107,4 +112,30 @@ test('fresh background maintenance still overrides the latest completed run and 
 
     assert.equal(display.currentManagerWorkRun.value?.id, running211.id);
     assert.equal(display.managerBusy.value, true);
+});
+
+test('manager display keeps the running oldest pair ahead of newer queued pairs', () => {
+    const now = 100000;
+    const queued3 = managerRun({
+        id: 'queued-3',
+        status: 'queued',
+        assistantOrder: 3,
+        createdAt: now - 500,
+        updatedAt: now - 500,
+    });
+    const running1 = managerRun({
+        id: 'running-1',
+        status: 'running',
+        assistantOrder: 1,
+        createdAt: now - 5000,
+        updatedAt: now - 1000,
+    });
+    const display = useTavernManagerDisplay({
+        managerRuns: ref([queued3, running1]),
+        visibleRunLimit: 8,
+    });
+    display.managerStatusClock.value = now;
+
+    assert.equal(display.currentManagerWorkRun.value?.id, running1.id);
+    assert.equal(display.archivedManagerRuns.value[0]?.id, queued3.id);
 });

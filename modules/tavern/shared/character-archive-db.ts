@@ -1,6 +1,7 @@
 import db, {
     tavernManagerMemorySnapshotsTable,
     tavernAssistantChatMessagesTable,
+    tavernManagerCandidatesTable,
     tavernManagerRunsTable,
     tavernManagerStateSnapshotsTable,
     tavernManagerTaskSnapshotsTable,
@@ -24,12 +25,14 @@ import db, {
     type TavernCommunicationSnapshotRecord,
     type TavernCommunicationThreadRecord,
     type TavernManagerMemorySnapshotRecord,
+    type TavernManagerRunRecord,
     type TavernManagerStateSnapshotRecord,
     type TavernManagerTaskSnapshotRecord,
     type TavernMemorySnapshotRecord,
     type TavernSessionRecord,
     type TavernStatusSnapshotRecord,
     type TavernStructuredStateDocumentRecord,
+    type TavernStructuredStatePatchRecord,
     type TavernTaskRecord,
     type TavernTaskSnapshotRecord,
 } from './session-db';
@@ -45,6 +48,7 @@ import {
     type TavernCharacterArchiveRestoreSummary,
     type TavernCharacterArchiveTable,
 } from './character-archive-types';
+import { assertTavernManagerSnapshotStable } from './manager-snapshot-integrity';
 
 const RESTORE_TEMP_CHARACTER_PREFIX = '__lwb_restore__';
 const RESTORE_BATCH_SIZE = 500;
@@ -80,6 +84,7 @@ const archiveTables: ArchiveTableMap = {
     messages: { table: tavernMessagesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     assistantChatMessages: { table: tavernAssistantChatMessagesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     managerRuns: { table: tavernManagerRunsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    managerCandidates: { table: tavernManagerCandidatesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     memoryFiles: { table: tavernMemoryFilesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     memorySnapshots: { table: tavernMemorySnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     memoryIndexes: { table: tavernMemoryIndexesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
@@ -142,30 +147,94 @@ function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
         + (Number(counts.communications) || 0);
 }
 
-async function forEachTableSessionRecord<TTable extends TavernCharacterArchiveTable>(
-    table: TTable,
-    sessionId: string,
-    callback: (record: TavernCharacterArchiveRecord<TTable>) => Promise<void>,
-): Promise<void> {
-    const tableInfo = archiveTables[table];
-    let offset = 0;
-    while (true) {
-        const records = await tableInfo.table
-            .where(tableInfo.sessionIndex)
-            .equals(sessionId)
-            .offset(offset)
-            .limit(ARCHIVE_DB_BATCH_SIZE)
-            .toArray();
-        for (const record of records) {
-            const archiveRecord = {
-                table,
-                record: cloneSerializable(record) as TavernCharacterArchiveRecordPayload[TTable],
-            } as TavernCharacterArchiveRecord<TTable>;
-            await callback(archiveRecord);
-        }
-        if (records.length < ARCHIVE_DB_BATCH_SIZE) {break;}
-        offset += records.length;
-    }
+type CapturedCharacterArchiveSession = {
+    session: TavernSessionRecord;
+    records: TavernCharacterArchiveRecord[];
+};
+
+const CHARACTER_ARCHIVE_SESSION_TABLES = TAVERN_CHARACTER_ARCHIVE_TABLES
+    .filter((table) => table !== 'sessions');
+
+function assertCapturedArchiveStateStable(records: Map<TavernCharacterArchiveTable, unknown[]>): void {
+    assertTavernManagerSnapshotStable({
+        runs: records.get('managerRuns') as TavernManagerRunRecord[] || [],
+        memorySnapshots: records.get('managerMemorySnapshots') as TavernManagerMemorySnapshotRecord[] || [],
+        stateSnapshots: records.get('managerStateSnapshots') as TavernManagerStateSnapshotRecord[] || [],
+        taskSnapshots: records.get('managerTaskSnapshots') as TavernManagerTaskSnapshotRecord[] || [],
+        statePatches: records.get('statePatches') as TavernStructuredStatePatchRecord[] || [],
+    }, 'manager_archive_unaccepted_writes');
+}
+
+async function captureCharacterArchiveSession(sessionId = ''): Promise<CapturedCharacterArchiveSession> {
+    const id = String(sessionId || '').trim();
+    if (!id) {throw new Error('archive_session_required');}
+    return await db.transaction(
+        'r',
+        tavernSessionsTable,
+        tavernMessagesTable,
+        tavernAssistantChatMessagesTable,
+        tavernManagerRunsTable,
+        tavernManagerCandidatesTable,
+        tavernManagerMemorySnapshotsTable,
+        tavernManagerStateSnapshotsTable,
+        tavernManagerTaskSnapshotsTable,
+        tavernMemoryFilesTable,
+        tavernMemorySnapshotsTable,
+        tavernMemoryIndexesTable,
+        tavernStateDocumentsTable,
+        tavernStatePatchesTable,
+        tavernTasksTable,
+        tavernTaskSnapshotsTable,
+        tavernStatusSnapshotsTable,
+        tavernTaskFingerprintStatesTable,
+        tavernCommunicationContactsTable,
+        tavernCommunicationThreadsTable,
+        tavernCommunicationMessagesTable,
+        tavernCommunicationSnapshotsTable,
+        async () => {
+            const session = await tavernSessionsTable.get(id);
+            if (!session) {throw new Error('archive_session_missing');}
+            const records = new Map<TavernCharacterArchiveTable, unknown[]>();
+            for (const table of CHARACTER_ARCHIVE_SESSION_TABLES) {
+                const tableInfo = archiveTables[table];
+                records.set(table, await tableInfo.table.where(tableInfo.sessionIndex).equals(id).toArray());
+            }
+            assertCapturedArchiveStateStable(records);
+            return {
+                session: cloneSerializable(session),
+                records: CHARACTER_ARCHIVE_SESSION_TABLES.flatMap((table) => (records.get(table) || []).map((record) => ({
+                    table,
+                    record: cloneSerializable(record) as never,
+                } as TavernCharacterArchiveRecord))),
+            };
+        },
+    );
+}
+
+async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
+    const key = normalizeCharacterKey(characterKey);
+    await db.transaction(
+        'r',
+        tavernSessionsTable,
+        tavernManagerRunsTable,
+        tavernManagerMemorySnapshotsTable,
+        tavernManagerStateSnapshotsTable,
+        tavernManagerTaskSnapshotsTable,
+        tavernStatePatchesTable,
+        async () => {
+            const sessions = await tavernSessionsTable.where('characterKey').equals(key).toArray();
+            for (const session of sessions) {
+                const [runs, memorySnapshots, stateSnapshots, taskSnapshots, statePatches] = await Promise.all([
+                    tavernManagerRunsTable.where('sessionId').equals(session.id).toArray(),
+                    tavernManagerMemorySnapshotsTable.where('sessionId').equals(session.id).toArray(),
+                    tavernManagerStateSnapshotsTable.where('sessionId').equals(session.id).toArray(),
+                    tavernManagerTaskSnapshotsTable.where('sessionId').equals(session.id).toArray(),
+                    tavernStatePatchesTable.where('sessionId').equals(session.id).toArray(),
+                ]);
+                assertTavernManagerSnapshotStable({ runs, memorySnapshots, stateSnapshots, taskSnapshots, statePatches }, 'manager_archive_unaccepted_writes');
+            }
+        },
+    );
 }
 
 export async function listTavernCharacterArchiveSessions(characterKey = ''): Promise<TavernSessionRecord[]> {
@@ -216,6 +285,7 @@ export async function exportTavernCharacterArchive(input: {
     const characterKey = normalizeCharacterKey(input.character.characterKey);
     const counts = emptyCounts();
     const sessionCount = await tavernSessionsTable.where('characterKey').equals(characterKey).count();
+    await assertCharacterArchiveStable(characterKey);
     let rowCount = 0;
     let rawBytes = 0;
     input.onProgress?.({
@@ -228,37 +298,35 @@ export async function exportTavernCharacterArchive(input: {
         rowCount,
     });
 
-    await forEachCharacterArchiveSession(characterKey, sessionCount, async (session, sessionIndex, totalSessions) => {
-        await input.writer.write({ table: 'sessions', record: session });
+    await forEachCharacterArchiveSession(characterKey, sessionCount, async (listedSession, sessionIndex, totalSessions) => {
+        const captured = await captureCharacterArchiveSession(listedSession.id);
+        await input.writer.write({ table: 'sessions', record: captured.session });
         incrementArchiveCounts(counts, 'sessions');
         rowCount += 1;
-        rawBytes += JSON.stringify({ table: 'sessions', record: session }).length + 1;
+        rawBytes += JSON.stringify({ table: 'sessions', record: captured.session }).length + 1;
         input.onProgress?.({
             phase: 'export',
             table: 'sessions',
-            sessionId: session.id,
+            sessionId: captured.session.id,
             sessionIndex,
             sessionCount: totalSessions,
             counts,
             rowCount,
         });
 
-        const tables = TAVERN_CHARACTER_ARCHIVE_TABLES.filter((table) => table !== 'sessions');
-        for (const table of tables) {
-            await forEachTableSessionRecord(table, session.id, async (archiveRecord) => {
-                await input.writer.write(archiveRecord);
-                incrementArchiveCounts(counts, table);
-                rowCount += 1;
-                rawBytes += JSON.stringify(archiveRecord).length + 1;
-                input.onProgress?.({
-                    phase: 'export',
-                    table,
-                    sessionId: session.id,
-                    sessionIndex,
-                    sessionCount: totalSessions,
-                    counts,
-                    rowCount,
-                });
+        for (const archiveRecord of captured.records) {
+            await input.writer.write(archiveRecord);
+            incrementArchiveCounts(counts, archiveRecord.table);
+            rowCount += 1;
+            rawBytes += JSON.stringify(archiveRecord).length + 1;
+            input.onProgress?.({
+                phase: 'export',
+                table: archiveRecord.table,
+                sessionId: captured.session.id,
+                sessionIndex,
+                sessionCount: totalSessions,
+                counts,
+                rowCount,
             });
         }
     });
@@ -403,6 +471,18 @@ function remapArchiveRecord(
             throw new Error('archive_maintenance_run_trigger_invalid');
         }
         record.id = options.mapManagerRunId(String(record.id || ''));
+        if (record.recoverySourceRunId) {
+            record.recoverySourceRunId = options.mapManagerRunId(String(record.recoverySourceRunId));
+        }
+        if (String(record.status || '') === 'running') {
+            throw new Error('archive_manager_run_unaccepted');
+        } else if (String(record.status || '') === 'queued') {
+            record.leaseOwnerId = '';
+            record.leaseExpiresAt = 0;
+        }
+    }
+    if (table === 'managerCandidates') {
+        record.id = options.mapManagerRunId(String(record.id || ''));
     }
     if (table === 'statePatches') {
         record.id = options.mapPatchId(String(record.id || ''));
@@ -540,6 +620,7 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
         tavernMessagesTable,
         tavernAssistantChatMessagesTable,
         tavernManagerRunsTable,
+        tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
         tavernManagerTaskSnapshotsTable,
@@ -576,6 +657,7 @@ async function promoteTempArchiveToCharacter(tempCharacterKey = '', characterKey
         tavernMessagesTable,
         tavernAssistantChatMessagesTable,
         tavernManagerRunsTable,
+        tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
         tavernManagerTaskSnapshotsTable,
@@ -675,6 +757,8 @@ export async function restoreTavernCharacterArchiveFromRecords(input: {
             }
         }
         await flush();
+
+        await assertCharacterArchiveStable(tempCharacterKey);
 
         selectedSessionId = await promoteTempArchiveToCharacter(tempCharacterKey, characterKey, Number(input.manifest.counts?.sessions) || 0);
         input.onProgress?.({
