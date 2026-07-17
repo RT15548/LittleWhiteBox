@@ -9,6 +9,10 @@ import type {
 } from '../../shared/message-assembler';
 import type { ManagerChatDisplayItem } from '../manager-tool-display';
 import type {
+    TavernAssistantChatLiveDraft,
+    TavernAssistantChatLiveToolRound,
+} from '../features/assistant-chat/useTavernAssistantChatLiveController';
+import type {
     TavernSessionContract,
 } from '../../shared/session-contract';
 import type {
@@ -507,7 +511,8 @@ export interface TavernManagerContext {
     isManagerAssistantCancelling: Ref<boolean>;
     isManagerAssistantRunning: Ref<boolean>;
     isManagerRunRetrying: TavernCommand<[run: TavernManagerRunRecord | null | undefined], boolean>;
-    liveManagerChatDisplayItems: TavernReadable<ManagerChatDisplayItem[]>;
+    liveManagerAssistantDraft: TavernReadable<TavernAssistantChatLiveDraft | null>;
+    liveManagerToolRound: TavernReadable<TavernAssistantChatLiveToolRound | null>;
     managerActionFeedback: TavernCommand<[message: TavernAssistantChatMessageRecord, action: string], string>;
     managerAutoScroll: Ref<boolean>;
     managerBusy: TavernReadable<boolean>;
@@ -526,8 +531,6 @@ export interface TavernManagerContext {
     managerToolStatusLabel: TavernCommand<[item: { status?: string; ok?: boolean }], string>;
     managerToolTone: TavernCommand<[item: { status?: string; ok?: boolean }], string>;
     managerToolTraceItems: TavernCommand<[value: unknown], TavernManagerToolTraceItem[]>;
-    managerToolTurnPreview: TavernCommand<[item: ManagerChatDisplayItem], string>;
-    managerToolTurnSummary: TavernCommand<[item: ManagerChatDisplayItem], string>;
     memoryFileDisplayName: TavernCommand<[fileOrPath?: TavernMemoryFileListEntry | TavernMemoryFileRecord | string | null], string>;
     memoryFiles: Ref<TavernMemoryIndexFileEntry[]>;
     memoryIndexStatusLine: TavernReadable<string>;

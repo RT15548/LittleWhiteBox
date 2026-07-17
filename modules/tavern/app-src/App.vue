@@ -15,7 +15,6 @@ import {
     type XbTavernAuthorNote,
     type XbTavernCharacter,
     type XbTavernContext,
-    type XbTavernMessage,
     type XbTavernNativeWorldInfoRuntime,
     type TavernChatPromptPresetBundle,
 } from '../shared/message-assembler';
@@ -28,7 +27,6 @@ import {
 import {
     appendTavernMessage,
     appendTavernAssistantChatMessage,
-    appendTavernAssistantChatMessages,
     branchTavernSession,
     createTavernSession,
     clearTavernAssistantChatMessages,
@@ -50,7 +48,6 @@ import {
     updateTavernMessage,
     updateTavernSessionSnapshot,
     type TavernAssistantChatMessageRecord,
-    type TavernAppendAssistantChatMessageInput,
     type TavernManagerRunRecord,
     type TavernMemoryFileListEntry,
     type TavernMemoryIndexFileEntry,
@@ -115,16 +112,12 @@ import {
 } from './runtime/run-once';
 import {
     buildManagerChatDisplayItems,
-    createManagerStreamToolDraftState,
-    managerToolTurnPreview,
-    managerToolTurnSummary,
     type ManagerChatDisplayItem,
     type ManagerMessageDisplayItem,
 } from './manager-tool-display';
 import {
     cancelAndRollbackXbTavernManagersForMessageRange,
     runXbTavernManagerAfterTurn,
-    type TavernManagerProtocolEvent,
 } from './runtime/manager';
 import { runXbTavernAssistantChat } from './runtime/assistant-chat-runner';
 import { ensureTavernAssistantChatBudget } from './runtime/assistant-chat-context';
@@ -140,6 +133,10 @@ import {
     type TavernRuntimeThoughtProjectionInput,
 } from './features/chat-render/useTavernRuntimeDisplayProjection';
 import { createTavernChatRunState, useTavernChatRunController } from './features/chat-run/useTavernChatRunController';
+import {
+    useTavernAssistantChatLiveController,
+    type TavernAssistantChatLiveRun,
+} from './features/assistant-chat/useTavernAssistantChatLiveController';
 import { useTavernDrawController } from './features/draw/useTavernDrawController';
 import { useTavernPhoneController } from './features/phone-os/useTavernPhoneController';
 import { useTavernHostBridge, type TavernHostMessageData } from './features/host-bridge/useTavernHostBridge';
@@ -334,15 +331,16 @@ const managerChatMessages = ref<TavernAssistantChatMessageRecord[]>([]);
 const managerPendingUserMessage = ref<TavernAssistantChatMessageRecord | null>(null);
 const isManagerAssistantRunning = ref(false);
 const isManagerAssistantCancelling = ref(false);
-interface TavernManagerLiveProtocolState {
-    sessionId: string;
-    messages: TavernAssistantChatMessageRecord[];
-    draft: TavernAssistantChatMessageRecord | null;
-    nextOrder: number;
-}
-
-const LIVE_MANAGER_PROTOCOL_ORDER_BASE = 1000000000;
-const managerLiveProtocolState = ref<TavernManagerLiveProtocolState | null>(null);
+const managerAssistantLiveController = useTavernAssistantChatLiveController({
+    normalizeThoughts: thoughtBlocks,
+    onMessagesPersisted: (sessionId, messages) => {
+        if (selectedSessionId.value !== sessionId || !messages.length) {return;}
+        managerChatMessages.value = [...managerChatMessages.value, ...messages]
+            .sort((left, right) => left.order - right.order);
+    },
+});
+const managerLiveProtocolState = managerAssistantLiveController.assistantDraft;
+const managerLiveToolRound = managerAssistantLiveController.toolRound;
 const managerCompactionOverlay = ref<{
     id: string;
     active: boolean;
@@ -1272,12 +1270,13 @@ const assistantChatHistoryTokens = computed(() => Math.ceil(
 ));
 const assistantChatContextLabel = computed(() => `${Math.round(assistantChatHistoryTokens.value / 1000)}k / 158k`);
 const canClearAssistantChat = computed(() => managerChatMessages.value.length > 0 && !isManagerAssistantRunning.value);
-const liveManagerProtocolMessages = computed(() => {
+const liveManagerAssistantDraft = computed(() => {
     const liveState = managerLiveProtocolState.value;
-    if (!liveState || liveState.sessionId !== selectedSessionId.value) {return [];}
-    return liveState.draft ? [...liveState.messages, liveState.draft] : liveState.messages;
+    return liveState?.sessionId === selectedSessionId.value ? liveState : null;
 });
-const liveManagerChatDisplayItems = computed(() => buildManagerChatDisplayItems(liveManagerProtocolMessages.value));
+const visibleManagerLiveToolRound = computed(() => (
+    managerLiveToolRound.value?.sessionId === selectedSessionId.value ? managerLiveToolRound.value : null
+));
 const visibleManagerPendingUserMessage = computed(() => {
     const pending = managerPendingUserMessage.value;
     if (!pending || pending.sessionId !== selectedSessionId.value) {return null;}
@@ -1297,13 +1296,12 @@ const visibleManagerMarkdownSignature = computed(() => visibleManagerChatItems.v
     .concat(htmlRenderEnabled.value ? 'html-render:on' : 'html-render:off')
     .concat(homeThemeDark.value ? 'theme:dark' : 'theme:light')
     .join('|'));
-const liveManagerMarkdownSignature = computed(() => liveManagerChatDisplayItems.value
-    .map((item) => item.kind === 'message'
-        ? `${item.message.sessionId}:${item.message.order}:${markdownSignature(item.message.content)}`
-        : `${item.key}:${markdownSignature(item.assistantMessage.content)}:${item.calls.map((call) => `${call.id}:${markdownSignature(call.resultText)}`).join(',')}`)
-    .concat(htmlRenderEnabled.value ? 'html-render:on' : 'html-render:off')
-    .concat(homeThemeDark.value ? 'theme:dark' : 'theme:light')
-    .join('|'));
+const liveManagerMarkdownSignature = computed(() => {
+    const draft = liveManagerAssistantDraft.value;
+    return draft
+        ? `${draft.sessionId}:${draft.revision}`
+        : '';
+});
 const managerPendingUserMarkdownSignature = computed(() => {
     const pending = visibleManagerPendingUserMessage.value;
     if (!pending) {return '';}
@@ -3882,42 +3880,6 @@ function scheduleManagerCompactionOverlayHide(delayMs = 3000) {
     }, waitMs);
 }
 
-function createLiveManagerMessage(
-    sessionId: string,
-    patch: Partial<TavernAssistantChatMessageRecord> & Pick<TavernAssistantChatMessageRecord, 'role' | 'content'>,
-): TavernAssistantChatMessageRecord {
-    const liveState = managerLiveProtocolState.value?.sessionId === sessionId
-        ? managerLiveProtocolState.value
-        : {
-            sessionId,
-            messages: [],
-            draft: null,
-            nextOrder: LIVE_MANAGER_PROTOCOL_ORDER_BASE,
-        };
-    const order = liveState.nextOrder;
-    liveState.nextOrder += 1;
-    managerLiveProtocolState.value = liveState;
-    return {
-        sessionId,
-        order,
-        role: patch.role,
-        content: patch.content,
-        name: patch.name,
-        error: patch.error === true,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        provider: patch.provider,
-        model: patch.model,
-        finishReason: patch.finishReason,
-        thoughts: patch.thoughts,
-        providerPayload: patch.providerPayload,
-        toolCalls: patch.toolCalls,
-        toolCallId: patch.toolCallId,
-        toolName: patch.toolName,
-        toolDisplay: patch.toolDisplay,
-    };
-}
-
 function setManagerPendingUserMessage(sessionId: string, content: string) {
     const id = String(sessionId || '').trim();
     const text = String(content || '').trim();
@@ -3928,7 +3890,7 @@ function setManagerPendingUserMessage(sessionId: string, content: string) {
     const now = Date.now();
     managerPendingUserMessage.value = {
         sessionId: id,
-        order: LIVE_MANAGER_PROTOCOL_ORDER_BASE - 1,
+        order: Number.MAX_SAFE_INTEGER,
         role: 'user',
         content: text,
         createdAt: now,
@@ -4128,164 +4090,8 @@ function clearRuntimeAssistantLiveState() {
     chatRunController.clearRuntimeAssistantLiveState();
 }
 
-function ensureManagerLiveProtocolState(sessionId: string) {
-    const id = String(sessionId || '').trim();
-    if (!id) {return null;}
-    if (!managerLiveProtocolState.value || managerLiveProtocolState.value.sessionId !== id) {
-        managerLiveProtocolState.value = {
-            sessionId: id,
-            messages: [],
-            draft: createLiveManagerMessage(id, {
-                role: 'assistant',
-                content: '正在思考...',
-            }),
-            nextOrder: LIVE_MANAGER_PROTOCOL_ORDER_BASE + 1,
-        };
-    }
-    return managerLiveProtocolState.value;
-}
-
 function clearManagerLiveProtocolState(sessionId = '') {
-    const id = String(sessionId || '').trim();
-    if (!id || managerLiveProtocolState.value?.sessionId === id) {
-        managerLiveProtocolState.value = null;
-    }
-}
-
-function setManagerLiveProtocolDraft(
-    sessionId: string,
-    patch: Partial<TavernAssistantChatMessageRecord> & Pick<TavernAssistantChatMessageRecord, 'content'>,
-) {
-    const liveState = ensureManagerLiveProtocolState(sessionId);
-    if (!liveState) {return;}
-    const draft = liveState.draft || createLiveManagerMessage(sessionId, {
-        role: 'assistant',
-        content: patch.content,
-    });
-    liveState.draft = {
-        ...draft,
-        ...patch,
-        role: 'assistant',
-        content: patch.content,
-        updatedAt: Date.now(),
-    };
-}
-
-function normalizeLiveProtocolToolCalls(message: XbTavernMessage): Array<{ id?: string; name?: string; arguments?: string }> {
-    if (Array.isArray(message.toolCalls) && message.toolCalls.length) {
-        return message.toolCalls.map((toolCall) => ({
-            id: typeof toolCall?.id === 'string' ? toolCall.id : '',
-            name: typeof toolCall?.name === 'string' ? toolCall.name : '',
-            arguments: typeof toolCall?.arguments === 'string' ? toolCall.arguments : '{}',
-        }));
-    }
-    if (!Array.isArray(message.tool_calls)) {return [];}
-    return message.tool_calls.map((toolCall) => ({
-        id: typeof toolCall?.id === 'string' ? toolCall.id : '',
-        name: typeof toolCall?.function?.name === 'string' ? toolCall.function.name : '',
-        arguments: typeof toolCall?.function?.arguments === 'string' ? toolCall.function.arguments : '{}',
-    }));
-}
-
-function appendManagerLiveProtocolMessage(sessionId: string, message: XbTavernMessage) {
-    const liveState = ensureManagerLiveProtocolState(sessionId);
-    if (!liveState) {return;}
-    liveState.messages = [...liveState.messages, createLiveManagerMessage(sessionId, {
-        role: message.role,
-        content: String(message.content || ''),
-        error: message.error === true,
-        name: message.name,
-        thoughts: Array.isArray(message.thoughts) ? thoughtBlocks(message.thoughts) : undefined,
-        providerPayload: message.providerPayload,
-        toolCalls: message.role === 'assistant' ? normalizeLiveProtocolToolCalls(message) : undefined,
-        toolCallId: message.role === 'tool' ? String(message.toolCallId || message.tool_call_id || '') : undefined,
-        toolName: message.role === 'tool' ? String(message.toolName || '') : undefined,
-        toolDisplay: message.role === 'tool' ? message.toolDisplay : undefined,
-    })];
-}
-
-function applyManagerProtocolEvent(sessionId: string, event: TavernManagerProtocolEvent) {
-    const id = String(sessionId || '').trim();
-    if (!id) {return;}
-    if (event.type === 'clear_stream_draft') {
-        const liveState = ensureManagerLiveProtocolState(id);
-        if (liveState) {
-            liveState.draft = null;
-        }
-        return;
-    }
-    appendManagerLiveProtocolMessage(id, event.message);
-}
-
-async function appendManagerProtocolMessages(
-    sessionId: string,
-    messages: XbTavernMessage[],
-    fallbackText: string,
-    patch: Pick<TavernAssistantChatMessageRecord, 'provider' | 'model' | 'finishReason' | 'error'>,
-    options: { skip?: number } = {},
-) {
-    const protocolMessages = (Array.isArray(messages) ? messages : []).filter((message) => (
-        message && ['assistant', 'tool'].includes(message.role)
-    )).slice(Math.max(0, Number(options.skip) || 0));
-    const finalMessages: XbTavernMessage[] = protocolMessages.length
-        ? protocolMessages
-        : [{ role: 'assistant' as const, content: fallbackText }];
-    const finalAssistantIndex = [...finalMessages]
-        .map((message, index) => ({ message, index }))
-        .reverse()
-        .find(({ message }) => {
-            const hasToolCalls = (Array.isArray(message.toolCalls) && message.toolCalls.length)
-                || (Array.isArray(message.tool_calls) && message.tool_calls.length);
-            return message.role === 'assistant' && !hasToolCalls;
-        })?.index ?? -1;
-    if (finalAssistantIndex < 0) {
-        finalMessages.push({ role: 'assistant', content: fallbackText });
-    } else if (!String(finalMessages[finalAssistantIndex]?.content || '').trim()) {
-        finalMessages[finalAssistantIndex] = {
-            ...finalMessages[finalAssistantIndex],
-            content: fallbackText,
-        };
-    }
-    const inputs = finalMessages.map((message, index) => {
-        const hasToolCalls = (Array.isArray(message.toolCalls) && message.toolCalls.length)
-            || (Array.isArray(message.tool_calls) && message.tool_calls.length);
-        const isFinalAssistant = message.role === 'assistant' && !hasToolCalls && index === finalMessages.length - 1;
-        return buildManagerProtocolMessageInput(message, {
-            ...patch,
-            contentFallback: isFinalAssistant ? fallbackText : '',
-            finalAssistant: isFinalAssistant,
-        });
-    });
-    return await appendTavernAssistantChatMessages(sessionId, inputs);
-}
-
-function buildManagerProtocolMessageInput(
-    message: XbTavernMessage,
-    patch: Pick<TavernAssistantChatMessageRecord, 'provider' | 'model' | 'finishReason' | 'error'> & {
-        contentFallback?: string;
-        finalAssistant?: boolean;
-    },
-): TavernAppendAssistantChatMessageInput {
-    const hasToolCalls = (Array.isArray(message.toolCalls) && message.toolCalls.length)
-        || (Array.isArray(message.tool_calls) && message.tool_calls.length);
-    const isFinalAssistant = message.role === 'assistant' && !hasToolCalls && patch.finalAssistant === true;
-    return {
-        role: message.role,
-        content: isFinalAssistant
-            ? (String(message.content || '').trim() || String(patch.contentFallback || ''))
-            : String(message.content || ''),
-        name: message.name,
-        thoughts: message.thoughts,
-        providerPayload: message.providerPayload,
-        toolCalls: message.role === 'assistant' ? normalizeLiveProtocolToolCalls(message) : undefined,
-        toolCallId: message.toolCallId || message.tool_call_id,
-        toolName: message.toolName,
-        toolDisplay: message.toolDisplay,
-        provider: message.role === 'assistant' ? patch.provider : undefined,
-        model: message.role === 'assistant' ? patch.model : undefined,
-        finishReason: isFinalAssistant ? patch.finishReason : undefined,
-        error: message.role === 'tool' ? message.error === true : isFinalAssistant ? patch.error : false,
-    };
+    managerAssistantLiveController.clearSession(sessionId);
 }
 
 async function sendManagerQuestion(
@@ -4311,7 +4117,6 @@ async function sendManagerQuestion(
     managerInputStatus.value = '运行中';
     managerAutoScroll.value = true;
     resetManagerMessageWindowState();
-    const managerStreamToolDraftState = createManagerStreamToolDraftState();
     let sourceUserOrder = -1;
     let acceptedFloorAtStart = -1;
     let userMessageAppended = false;
@@ -4319,6 +4124,7 @@ async function sendManagerQuestion(
     let observedChangedFiles: string[] = [];
     let observedChangedStates: string[] = [];
     let observedChangedTasks: string[] = [];
+    let liveRun: TavernAssistantChatLiveRun | null = null;
     try {
         const [latestUserMessage, latestAssistantOrder] = await Promise.all([
             getLatestTavernUserMessageAtOrBefore(managerSessionId, Number.POSITIVE_INFINITY),
@@ -4423,40 +4229,7 @@ async function sendManagerQuestion(
             managerChatMessages.value = [...budget.history, userMessage]
                 .sort((left, right) => left.order - right.order);
         }
-        ensureManagerLiveProtocolState(managerSessionId);
-        let persistedProtocolMessages = 0;
-        let protocolPersistFailed = false;
-        let protocolPersistQueue = Promise.resolve();
-        let pendingProtocolRound: XbTavernMessage[] = [];
-        const queueProtocolMessagePersist = (event: TavernManagerProtocolEvent) => {
-            if (event.type === 'assistant_tool_round') {
-                pendingProtocolRound = [event.message];
-                return;
-            }
-            if (event.type !== 'tool_result' || !pendingProtocolRound.length) {return;}
-            pendingProtocolRound.push(event.message);
-            const expectedToolResults = normalizeLiveProtocolToolCalls(pendingProtocolRound[0]).length;
-            const actualToolResults = pendingProtocolRound.filter((message) => message.role === 'tool').length;
-            if (!expectedToolResults || actualToolResults < expectedToolResults) {return;}
-            const completedRound = pendingProtocolRound;
-            pendingProtocolRound = [];
-            protocolPersistQueue = protocolPersistQueue.then(async () => {
-                if (protocolPersistFailed) {return;}
-                try {
-                    const inputs = completedRound.map((message) => buildManagerProtocolMessageInput(message, {
-                        provider: '',
-                        model: '',
-                        finishReason: '',
-                        error: false,
-                    }));
-                    await appendTavernAssistantChatMessages(managerSessionId, inputs);
-                    persistedProtocolMessages += inputs.length;
-                } catch (error) {
-                    protocolPersistFailed = true;
-                    console.warn('[小白酒馆] 管理员工具轮次实时保存失败', error);
-                }
-            });
-        };
+        liveRun = managerAssistantLiveController.startRun(managerSessionId);
         const result = await runXbTavernAssistantChat({
             sessionId: managerSessionId,
             agentConfig: agentConfig.value,
@@ -4475,19 +4248,8 @@ async function sendManagerQuestion(
                     throw new Error('assistant_timeline_advanced');
                 }
             },
-            onProtocolEvent: (event) => {
-                managerStreamToolDraftState.reset();
-                applyManagerProtocolEvent(managerSessionId, event);
-                queueProtocolMessagePersist(event);
-            },
-            onStreamProgress: (snapshot) => {
-                const streamPatch = managerStreamToolDraftState.update(snapshot);
-                setManagerLiveProtocolDraft(managerSessionId, {
-                    content: streamPatch.content,
-                    thoughts: Array.isArray(snapshot.thoughts) ? thoughtBlocks(snapshot.thoughts) : undefined,
-                    toolCalls: streamPatch.toolCalls,
-                });
-            },
+            onProtocolEvent: liveRun.onProtocolEvent,
+            onStreamProgress: liveRun.onStreamProgress,
         });
         observedChangedFiles = [...(result.changedFiles || [])];
         observedChangedStates = [...(result.changedStates || [])];
@@ -4500,24 +4262,22 @@ async function sendManagerQuestion(
             });
             changesCommitted = true;
         }
-        await protocolPersistQueue;
         const finalText = String(result.text || '').trim()
             || (controller.signal.aborted ? '已停止。' : result.error || '没有返回内容。');
-        await appendManagerProtocolMessages(managerSessionId, result.protocolMessages, finalText, {
+        await liveRun.persistResult(result.protocolMessages, finalText, {
             provider: result.provider,
             model: result.model,
             finishReason: result.ok ? 'stop' : controller.signal.aborted ? 'aborted' : 'error',
             error: result.ok ? false : true,
-        }, { skip: persistedProtocolMessages });
-        clearManagerLiveProtocolState(managerSessionId);
+        });
         await Promise.all([
             refreshAssistantChat(managerSessionId),
             refreshManagerRecords(managerSessionId),
         ]);
+        liveRun.clear();
         managerInputStatus.value = '';
         return true;
     } catch (error) {
-        clearManagerLiveProtocolState(managerSessionId);
         clearManagerPendingUserMessage(managerSessionId);
         if (!changesCommitted && (observedChangedFiles.length || observedChangedStates.length || observedChangedTasks.length)) {
             try {
@@ -4558,9 +4318,9 @@ async function sendManagerQuestion(
             await refreshAssistantChat(managerSessionId);
             managerInputStatus.value = '失败';
         }
+        liveRun?.clear();
         return true;
     } finally {
-        managerStreamToolDraftState.reset();
         if (managerAssistantController.value === controller) {
             managerAssistantController.value = null;
         }
@@ -4671,7 +4431,6 @@ watch([
     () => managerMessageWindow.value.startIndex,
     () => visibleManagerMarkdownSignature.value,
     () => managerPendingUserMarkdownSignature.value,
-    () => liveManagerMarkdownSignature.value,
     () => managerWorkMarkdownSignature.value,
     () => isManagerAssistantRunning.value,
     () => homeThemeDark.value,
@@ -4685,6 +4444,12 @@ watch([
             updateManagerScrollButtons();
         });
     }
+});
+
+watch(() => liveManagerMarkdownSignature.value, () => {
+    if (activeView.value !== 'chat' || chatFocus.value !== 'manager') {return;}
+    scrollManagerToBottom();
+    void nextTick(() => updateManagerScrollButtons());
 });
 
 watch(() => chatMessageWindowLimit.value, () => {
@@ -4920,7 +4685,8 @@ const managerContext = {
     isManagerRunRetrying,
     isManagerAssistantCancelling,
     isManagerAssistantRunning,
-    liveManagerChatDisplayItems,
+    liveManagerAssistantDraft,
+    liveManagerToolRound: visibleManagerLiveToolRound,
     managerActionFeedback,
     managerAutoScroll,
     managerBusy,
@@ -4939,8 +4705,6 @@ const managerContext = {
     managerToolStatusLabel,
     managerToolTone,
     managerToolTraceItems,
-    managerToolTurnPreview,
-    managerToolTurnSummary,
     memoryFileDisplayName,
     memoryFiles,
     memoryIndexStatusLine,

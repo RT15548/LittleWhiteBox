@@ -3,9 +3,6 @@ import assert from 'node:assert/strict';
 
 import {
     buildManagerChatDisplayItems,
-    createManagerStreamToolDraftState,
-    managerToolTurnPreview,
-    managerToolTurnSummary,
 } from '../app-src/manager-tool-display';
 import type { TavernAssistantChatMessageRecord as TavernManagerMessageRecord } from '../shared/session-db';
 
@@ -70,38 +67,6 @@ test('manager chat display groups consecutive tool protocol rounds into one turn
     }
     assert.equal(items[1].rounds.length, 2);
     assert.equal(items[1].calls.length, 2);
-    assert.equal(managerToolTurnSummary(items[1]), '2 轮 · 工具调用 2 次 · 全部成功');
-    assert.equal(managerToolTurnPreview(items[1]), 'Read、Write');
-});
-
-test('manager stream tool draft state preserves draft across thought-only chunks and clears on final text', () => {
-    const state = createManagerStreamToolDraftState();
-    const first = state.update({
-        text: '',
-        toolCallDraft: true,
-        toolCalls: [{ id: 'draft-read', name: 'Read', arguments: '{}' }],
-    });
-    assert.equal(first.content, '正在准备工具调用...');
-    assert.equal(first.toolCalls.length, 1);
-
-    const thoughtOnly = state.update({
-        thoughts: [{ label: '思考', text: '继续拼工具参数。' }],
-    });
-    assert.equal(thoughtOnly.content, '正在准备工具调用...');
-    assert.equal(thoughtOnly.toolCalls.length, 1);
-
-    const stillDraft = state.update({
-        text: '我先查一下。',
-        toolCallDraft: true,
-    });
-    assert.equal(stillDraft.content, '我先查一下。');
-    assert.equal(stillDraft.toolCalls.length, 1);
-
-    const finalText = state.update({
-        text: '已查完，结论如下。',
-    });
-    assert.equal(finalText.content, '已查完，结论如下。');
-    assert.equal(finalText.toolCalls.length, 0);
 });
 
 test('manager chat display treats aborted or errored draft messages as normal messages', () => {

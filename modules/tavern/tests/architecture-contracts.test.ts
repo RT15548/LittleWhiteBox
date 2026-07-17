@@ -1959,12 +1959,16 @@ test('tavern markdown enhancement lives outside the app controller', () => {
     assert.match(managerSource, /htmlRenderEnabled\.value \? 'html-render:on' : 'html-render:off'/);
     assert.match(managerSource, /homeThemeDark\.value \? 'theme:dark' : 'theme:light'/);
     assert.match(managerSource, /history-message:\$\{item\.key\}:\$\{managerMarkdownSignature\(item\.message\.content\)\}/);
-    assert.match(managerSource, /live-message:\$\{item\.key\}:\$\{managerMarkdownSignature\(item\.message\.content\)\}/);
+    assert.match(managerSource, /class="xb-tavern-markdown live-manager-draft"[\s\S]*\{\{ liveManagerAssistantDraft\.content \}\}/);
+    assert.doesNotMatch(managerSource, /live-message:\$\{item\.key\}/);
     assert.match(appSource, /visibleManagerMarkdownSignature[\s\S]*htmlRenderEnabled\.value \? 'html-render:on' : 'html-render:off'/);
     assert.match(appSource, /visibleManagerMarkdownSignature[\s\S]*homeThemeDark\.value \? 'theme:dark' : 'theme:light'/);
-    assert.match(appSource, /liveManagerMarkdownSignature[\s\S]*homeThemeDark\.value \? 'theme:dark' : 'theme:light'/);
+    assert.match(appSource, /const liveManagerMarkdownSignature = computed\(\(\) => \{[\s\S]*\$\{draft\.sessionId\}:\$\{draft\.revision\}/);
+    assert.doesNotMatch(appSource, /liveManagerMarkdownSignature[\s\S]*markdownSignature\(draft\.content\)/);
+    assert.match(managerSource, /:key="`live-assistant:\$\{liveManagerAssistantDraft\.sessionId\}`"/);
+    assert.doesNotMatch(managerSource, /liveManagerAssistantDraft\.revision/);
     assert.match(appSource, /watch\(\[[\s\S]*\(\) => htmlRenderEnabled\.value,[\s\S]*\(\) => homeThemeDark\.value,[\s\S]*enhanceChatMarkdown\(\);/);
-    assert.match(appSource, /watch\(\[[\s\S]*\(\) => liveManagerMarkdownSignature\.value,[\s\S]*\(\) => homeThemeDark\.value,[\s\S]*enhanceManagerMarkdown\(\);/);
+    assert.match(appSource, /watch\(\(\) => liveManagerMarkdownSignature\.value, \(\) => \{[\s\S]*scrollManagerToBottom\(\);[\s\S]*updateManagerScrollButtons\(\)/);
     assert.match(markdownToolsSource, /htmlBlockMode: optionsOverride\.live[\s\S]*\? 'code'[\s\S]*: options\.htmlRenderEnabled\.value \? 'preview' : 'code'/);
     assert.match(markdownToolsSource, /htmlBlockMode: options\.htmlRenderEnabled\.value \? undefined : 'code'/);
     assert.match(markdownToolsSource, /window\.addEventListener\(TAVERN_INLINE_IMAGE_PROGRESS_EVENT/);
@@ -2959,9 +2963,11 @@ test('tavern heavy disclosure details bind to ephemeral state instead of keeping
     const characterSource = readRepoFile('modules/tavern/app-src/components/TavernCharacterWorkspacePanel.vue');
     const conversationSource = readRepoFile('modules/tavern/app-src/components/chat/TavernConversationPanel.vue');
     const managerSource = readRepoFile('modules/tavern/app-src/components/chat/TavernManagerPanel.vue');
-    const assistantToolTurnSource = readRepoFile('modules/tavern/app-src/components/chat/TavernAssistantToolTurn.vue');
+    const assistantToolTurnSource = readRepoFile('modules/tavern/app-src/components/chat/TavernAssistantToolRun.vue');
     const managerToolDisplaySource = readRepoFile('modules/tavern/app-src/manager-tool-display.ts');
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const assistantChatLiveControllerSource = readRepoFile('modules/tavern/app-src/features/assistant-chat/useTavernAssistantChatLiveController.ts');
+    const contextSource = readRepoFile('modules/tavern/app-src/components/tavern-app-context.ts');
     const markdownToolsSource = readRepoFile('modules/tavern/app-src/components/chat/useTavernMarkdownTools.ts');
     assert.doesNotMatch(characterSource, /useTavernEphemeralDisclosureScope|advancedDefinitionDisclosure|class="data-section greeting-picker"/);
     assert.match(characterSource, /const greetingHeaderLabel = computed[\s\S]*`开场白 \$\{index \+ 1\} \/ \$\{total\} - \$\{greetingLabel\(index\)\}`/);
@@ -2977,7 +2983,7 @@ test('tavern heavy disclosure details bind to ephemeral state instead of keeping
     assert.match(managerSource, /v-for="item in managerChatMessageItems"/);
     assert.doesNotMatch(managerSource, /class="manager-work-section manager-work-live-draft"/);
     assert.match(managerSource, /v-if="managerPendingUserMessage"[\s\S]*data-manager-anchor-key="pending:user"/);
-    assert.match(managerSource, /isManagerAssistantRunning && !managerPendingUserMessage && !liveManagerChatMessageItems\.length/);
+    assert.match(managerSource, /isManagerAssistantRunning && !managerPendingUserMessage && !liveManagerToolRound && !liveManagerAssistantDraft/);
     assert.match(appSource, /managerPendingUserMessage: visibleManagerPendingUserMessage/);
     assert.match(managerSource, /function handleManagerWorkBandToggle[\s\S]*enhanceManagerMarkdown\(\)[\s\S]*updateManagerScrollButtons\(\)/);
     assert.match(appSource, /totalItems:\s*\(\) => managerChatDisplayItems\.value\.length/);
@@ -2987,11 +2993,27 @@ test('tavern heavy disclosure details bind to ephemeral state instead of keeping
     assert.match(markdownToolsSource, /managerWorkRef\?: Ref<HTMLElement \| null>/);
     assert.match(markdownToolsSource, /options\.managerScrollRef\.value, options\.managerWorkRef\?\.value/);
     assert.doesNotMatch(managerSource, /class="manager-work-drawer"/);
-    assert.match(managerSource, /<TavernAssistantToolTurn[\s\S]*:open="assistantChatDisclosure\.isOpen/);
-    assert.match(assistantToolTurnSource, /v-if="live \|\| open"/);
+    assert.match(managerSource, /<TavernAssistantToolRun[\s\S]*:open="assistantChatDisclosure\.isOpen/);
+    assert.match(managerSource, /class="manager-chat-log"[\s\S]*class="assistant-tool-run assistant-tool-run-live"/);
+    assert.match(assistantToolTurnSource, /v-if="open"/);
     assert.match(assistantToolTurnSource, /<TavernMessageMarkdown[\s\S]*:signature="markdownSignature\(round\.assistantMessage\.content\)"/);
-    assert.match(assistantToolTurnSource, /watch\(\[\(\) => props\.open, \(\) => props\.live\][\s\S]*openThoughtRounds\.value = new Set/);
+    assert.match(assistantToolTurnSource, /watch\(\(\) => props\.open, \(open\) => \{ if \(!open\) \{openThoughtRounds\.value = new Set/);
     assert.doesNotMatch(managerToolDisplaySource, /JSON\.parse\(/);
+    assert.match(managerSource, /liveManagerToolRound\.value\?\.calls\.slice\(-8\)/);
+    assert.match(assistantChatLiveControllerSource, /function onStreamProgress\(snapshot: TavernManagerStreamSnapshot\)/);
+    assert.match(assistantChatLiveControllerSource, /typeof patch\.content === 'string'/);
+    assert.match(assistantChatLiveControllerSource, /Array\.isArray\(patch\.thoughts\)/);
+    assert.match(assistantChatLiveControllerSource, /toolRound\.value\?\.key === round\.key/);
+    assert.match(assistantChatLiveControllerSource, /let protocolPersistQueue = Promise\.resolve\(\)/);
+    assert.match(appSource, /managerAssistantLiveController\.startRun\(managerSessionId\)/);
+    assert.doesNotMatch(appSource, /managerStreamFlush|pendingProtocolRound|protocolPersistQueue|buildManagerProtocolMessageInput/);
+    assert.doesNotMatch(contextSource, /managerToolTurnPreview|managerToolTurnSummary/);
+    assert.doesNotMatch(appSource, /managerToolTurnPreview|managerToolTurnSummary/);
+    assert.doesNotMatch(appSource, /liveManagerChatDisplayItems|createManagerStreamToolDraftState/);
+    const managerCss = readRepoFile('modules/tavern/app-src/styles/chat/manager.css');
+    assert.match(managerCss, /\.manager-chat-log \{[\s\S]*min-height: max-content;[\s\S]*display: flex;/);
+    assert.match(managerCss, /\.manager-chat-log > \* \{[\s\S]*flex: 0 0 auto;/);
+    assert.doesNotMatch(managerCss, /\.manager-tool-turn|overflow: clip/);
 });
 
 test('tavern maintenance and assistant chat keep separate persistence, runtime, and UI lifecycles', () => {
@@ -3000,6 +3022,7 @@ test('tavern maintenance and assistant chat keep separate persistence, runtime, 
     const assistantContextSource = readRepoFile('modules/tavern/app-src/runtime/assistant-chat-context.ts');
     const sessionDbSource = readRepoFile('modules/tavern/shared/session-db.ts');
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
+    const assistantChatLiveControllerSource = readRepoFile('modules/tavern/app-src/features/assistant-chat/useTavernAssistantChatLiveController.ts');
     const phoneSource = readRepoFile('modules/tavern/app-src/features/phone-os/apps/messages/useTavernMessagesController.ts');
 
     assert.doesNotMatch(maintenanceSource, /TavernAssistantChatMessage|appendTavernAssistantChat|listTavernAssistantChat|deleteTavernAssistantChat/);
@@ -3015,7 +3038,7 @@ test('tavern maintenance and assistant chat keep separate persistence, runtime, 
     assert.match(appSource, /watch\(\(\) => selectedSessionId\.value[\s\S]*managerAssistantController\.value\?\.abort\(\)[\s\S]*clearManagerLiveProtocolState/);
     assert.match(appSource, /pollLiveManagerRecords[\s\S]*refreshManagerRecords\(selectedSessionId\.value\)/);
     assert.match(appSource, /const requestSerial = \+\+managerRecordsRefreshSerial[\s\S]*requestSerial !== managerRecordsRefreshSerial/);
-    assert.match(appSource, /pendingProtocolRound[\s\S]*actualToolResults < expectedToolResults[\s\S]*appendTavernAssistantChatMessages/);
+    assert.match(assistantChatLiveControllerSource, /pendingProtocolRound[\s\S]*actualToolResults < pendingProtocolRound\.expectedToolResults[\s\S]*queueCompletedRound/);
     assert.match(appSource, /onUnmounted\([\s\S]*clearManagerLiveProtocolState\(\)[\s\S]*clearManagerMessageFeedback\(\)/);
     assert.doesNotMatch(phoneSource, /managerBusy|isManagerAssistantRunning/);
 });
