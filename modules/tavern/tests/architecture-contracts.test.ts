@@ -2216,6 +2216,9 @@ test('tavern live stream rendering is frame-batched without bypassing display re
     assert.doesNotMatch(assistantBubbleSource, /runtimeText|runtimeActionCheckEvents|runtimeThoughts/);
     assert.match(assistantBubbleSource, /const renderHtml = computed\(\(\) => chat\.renderChatMarkdown\(renderState\.value\.text, roleplayMarkdownOptions\(\)\)\);/);
     assert.match(assistantBubbleSource, /<TavernMessageMarkdown[\s\S]*:phase="streaming \? 'live' : 'settled'"[\s\S]*:signature="renderState\.signature"/);
+    assert.match(assistantBubbleSource, /const thoughtDefaultOpen = computed\(\(\) => props\.streaming && !contentVisible\.value\);/);
+    assert.match(assistantBubbleSource, /const streamStarted = streaming && !wasStreaming;[\s\S]*thoughtDisclosure\.reset\(\);[\s\S]*const contentStarted = hasContent && \(!hadContent \|\| streamStarted\);[\s\S]*const streamFinished = wasStreaming && !streaming;[\s\S]*thoughtDisclosure\.setOpen\(thoughtDisclosureId\(\), false\);/);
+    assert.doesNotMatch(assistantBubbleSource, /const thoughtDefaultOpen = ref\(props\.streaming\)/);
     assert.match(messageMarkdownSource, /:data-markdown-signature="signature"/);
     assert.match(messageMarkdownSource, /watch\([\s\S]*props\.html[\s\S]*props\.signature[\s\S]*props\.phase[\s\S]*renderMarkdown/);
     assert.match(assistantBubbleSource, /const statusLabel = computed\(\(\) => \{[\s\S]*chat\.runtimeStatusLabel\.value \|\| '同步状态'[\s\S]*chat\.runtimeStatusElapsedSeconds\.value/);

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, watch } from 'vue';
 import TavernMessageEditPanel from './TavernMessageEditPanel.vue';
 import TavernMessageMarkdown from './TavernMessageMarkdown.vue';
 import { useTavernChatContext, useTavernDrawContext, useTavernShellContext } from '../tavern-app-context';
@@ -30,7 +30,6 @@ const draw = useTavernDrawContext();
 const thoughtDisclosure = useTavernEphemeralDisclosureScope();
 const visibleCharacterAvatar = chat.visibleCharacterAvatar;
 const isRunning = chat.isRunning;
-const thoughtDefaultOpen = ref(props.streaming);
 
 const isEditing = computed(() => !!props.message && chat.isEditingMessage(props.message));
 const messageKey = computed(() => props.message ? chat.messageKey(props.message) : props.anchorKey);
@@ -65,6 +64,7 @@ const displayThoughts = computed(() => {
         : chat.displayMessageThoughtBlocks(message);
 });
 const contentVisible = computed(() => !!String(renderState.value.text || '').trim());
+const thoughtDefaultOpen = computed(() => props.streaming && !contentVisible.value);
 const statusLabel = computed(() => {
     const label = chat.runtimeStatusLabel.value || '同步状态';
     const elapsedSeconds = Math.max(0, Math.floor(Number(chat.runtimeStatusElapsedSeconds.value) || 0));
@@ -83,11 +83,6 @@ function roleplayMarkdownOptions() {
     };
 }
 
-watch(() => props.streaming, (streaming) => {
-    if (!streaming) {return;}
-    thoughtDefaultOpen.value = true;
-});
-
 function thoughtDisclosureId() {
     return `chat:thought:${props.anchorKey}`;
 }
@@ -99,6 +94,25 @@ function isThoughtOpen() {
 function setThoughtOpen(event: Event) {
     thoughtDisclosure.setOpenFromEvent(thoughtDisclosureId(), event);
 }
+
+let thoughtAutoCollapsed = false;
+watch(
+    [() => props.anchorKey, () => props.streaming, contentVisible],
+    ([anchorKey, streaming, hasContent], previous) => {
+        const [previousAnchorKey, wasStreaming = false, hadContent = false] = previous || [];
+        const streamStarted = streaming && !wasStreaming;
+        if (anchorKey !== previousAnchorKey || streamStarted) {
+            thoughtDisclosure.reset();
+            thoughtAutoCollapsed = false;
+        }
+        const contentStarted = hasContent && (!hadContent || streamStarted);
+        const streamFinished = wasStreaming && !streaming;
+        if (thoughtAutoCollapsed || (!contentStarted && !streamFinished)) {return;}
+        thoughtDisclosure.setOpen(thoughtDisclosureId(), false);
+        thoughtAutoCollapsed = true;
+    },
+    { immediate: true, flush: 'sync' },
+);
 
 function actionFeedback(action: string) {
     return props.message ? chat.actionFeedback(props.message, action) : '';
