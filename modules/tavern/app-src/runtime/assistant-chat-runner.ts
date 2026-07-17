@@ -19,13 +19,17 @@ export interface XbTavernAssistantChatInput {
     agentConfig: Record<string, unknown>;
     question: string;
     history?: TavernAssistantChatMessageRecord[];
+    preparedMessages?: XbTavernMessage[];
     turn?: number;
+    userOrder?: number;
+    assistantOrder?: number;
     assistantPreset?: TavernAssistantPreset;
     contextSnapshot?: XbTavernContext;
     signal?: AbortSignal;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
     onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
     onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
+    beforeWriteGuard?: () => Promise<void> | void;
 }
 
 export interface XbTavernAssistantChatResult {
@@ -98,17 +102,18 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
     if (!sessionId) {throw new Error('manager_session_required');}
     if (!question) {throw new Error('manager_question_required');}
 
-    const history = Array.isArray(input.history)
-        ? input.history
-        : await listTavernAssistantChatMessages(sessionId);
-    const messages = await buildAssistantChatMessages({
-        sessionId,
-        question,
-        agentConfig: input.agentConfig,
-        assistantPreset: input.assistantPreset,
-        contextSnapshot: input.contextSnapshot,
-        history,
-    });
+    const messages = Array.isArray(input.preparedMessages)
+        ? [...input.preparedMessages]
+        : await buildAssistantChatMessages({
+            sessionId,
+            question,
+            agentConfig: input.agentConfig,
+            assistantPreset: input.assistantPreset,
+            contextSnapshot: input.contextSnapshot,
+            history: Array.isArray(input.history)
+                ? input.history
+                : await listTavernAssistantChatMessages(sessionId),
+        });
     const observedProtocolMessages: XbTavernMessage[] = [];
     const changedFiles = new Set<string>();
     const changedStates = new Set<string>();
@@ -127,6 +132,9 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
             caller: 'chat',
             messages,
             turn: Math.max(0, Number(input.turn) || 0),
+            userOrder: input.userOrder,
+            assistantOrder: input.assistantOrder,
+            beforeWriteGuard: input.beforeWriteGuard,
             contextSnapshot: input.contextSnapshot,
             signal: input.signal,
             executeManagerOnce: input.executeManagerOnce,

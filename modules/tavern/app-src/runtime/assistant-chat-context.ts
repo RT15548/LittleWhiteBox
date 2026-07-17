@@ -170,26 +170,27 @@ function throwIfAssistantChatAborted(signal?: AbortSignal) {
     throw error;
 }
 
-async function estimateAssistantChatTokens(input: {
+async function estimateAssistantChatContext(input: {
     sessionId: string;
     agentConfig: Record<string, unknown>;
     assistantPreset?: TavernAssistantPreset;
     contextSnapshot?: XbTavernContext;
     question: string;
     history?: TavernAssistantChatMessageRecord[];
-}): Promise<number> {
+}): Promise<{ messages: XbTavernMessage[]; tokens: number }> {
     const providerConfig = resolveActiveProviderConfig(input.agentConfig || {}, {
         role: 'delegate',
         timeoutMs: TAVERN_ASSISTANT_CHAT_TIMEOUT_MS,
     });
     const messages = await buildAssistantChatMessages(input);
-    return await resolveConversationTokens({
+    const tokens = await resolveConversationTokens({
         messages,
         tools: getTavernManagerToolDefinitions({
             webSearchEnabled: isManagerWebSearchEnabled(input.agentConfig),
         }),
         providerConfig,
     });
+    return { messages, tokens };
 }
 
 export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssistantChatBudgetInput): Promise<{
@@ -197,18 +198,19 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
     canProceed: boolean;
     currentTokens: number;
     history: TavernAssistantChatMessageRecord[];
+    messages: XbTavernMessage[];
     removedOrders: number[];
     preservedTurns?: number;
 }> {
     const sessionId = String(input.sessionId || '').trim();
     if (!sessionId) {
-        return { compacted: false, canProceed: false, currentTokens: 0, history: [], removedOrders: [] };
+        return { compacted: false, canProceed: false, currentTokens: 0, history: [], messages: [], removedOrders: [] };
     }
     throwIfAssistantChatAborted(input.signal);
     const history = Array.isArray(input.history)
         ? [...input.history].sort((left, right) => left.order - right.order)
         : await listTavernAssistantChatMessages(sessionId);
-    let currentTokens = await estimateAssistantChatTokens({
+    const initialContext = await estimateAssistantChatContext({
         sessionId,
         agentConfig: input.agentConfig,
         assistantPreset: input.assistantPreset,
@@ -216,10 +218,11 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
         question: input.question,
         history,
     });
+    let currentTokens = initialContext.tokens;
     if (currentTokens <= TAVERN_ASSISTANT_CHAT_SUMMARY_TRIGGER_TOKENS) {
-        return { compacted: false, canProceed: true, currentTokens, history, removedOrders: [] };
+        return { compacted: false, canProceed: true, currentTokens, history, messages: initialContext.messages, removedOrders: [] };
     }
-    const fixedTokens = await estimateAssistantChatTokens({
+    const fixedContext = await estimateAssistantChatContext({
         sessionId,
         agentConfig: input.agentConfig,
         assistantPreset: input.assistantPreset,
@@ -227,6 +230,7 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
         question: input.question,
         history: [],
     });
+    const fixedTokens = fixedContext.tokens;
     const historyTokens = Math.max(0, currentTokens - fixedTokens);
     input.onCompactionStart?.({
         currentTokens,
@@ -242,7 +246,7 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
         0,
     ])];
     let hardLimitFallback = currentTokens <= TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS
-        ? { history, currentTokens, preservedTurns: turns.length }
+        ? { history, messages: initialContext.messages, currentTokens, preservedTurns: turns.length }
         : null;
 
     for (const preservedTurns of preservedCandidates) {
@@ -258,7 +262,7 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
                 ? `正在验证只保留最近 ${preservedTurns} 轮助手对话是否可用...`
                 : '正在验证仅保留本轮固定上下文是否可用...',
         });
-        const nextTokens = await estimateAssistantChatTokens({
+        const candidateContext = await estimateAssistantChatContext({
             sessionId,
             agentConfig: input.agentConfig,
             assistantPreset: input.assistantPreset,
@@ -266,6 +270,7 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
             question: input.question,
             history: candidateHistory,
         });
+        const nextTokens = candidateContext.tokens;
         const status = nextTokens <= TAVERN_ASSISTANT_CHAT_SUMMARY_TRIGGER_TOKENS
             ? (preservedTurns > 0
                 ? `已确认只保留最近 ${preservedTurns} 轮助手对话。`
@@ -297,12 +302,18 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
                 canProceed: true,
                 currentTokens: nextTokens,
                 history: candidateHistory,
+                messages: candidateContext.messages,
                 removedOrders,
                 preservedTurns,
             };
         }
         if (!hardLimitFallback && nextTokens <= TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS) {
-            hardLimitFallback = { history: candidateHistory, currentTokens: nextTokens, preservedTurns };
+            hardLimitFallback = {
+                history: candidateHistory,
+                messages: candidateContext.messages,
+                currentTokens: nextTokens,
+                preservedTurns,
+            };
         }
     }
 
@@ -337,6 +348,7 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
             canProceed: true,
             currentTokens: hardLimitFallback.currentTokens,
             history: hardLimitFallback.history,
+            messages: hardLimitFallback.messages,
             removedOrders,
             preservedTurns: hardLimitFallback.preservedTurns,
         };
@@ -349,5 +361,5 @@ export async function ensureTavernAssistantChatBudget(input: EnsureTavernAssista
         triggerTokens: TAVERN_ASSISTANT_CHAT_SUMMARY_TRIGGER_TOKENS,
         status: `即使清空较早助手对话仍超过最大上下文（${TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS}），未删除任何历史。`,
     });
-    return { compacted: false, canProceed: false, currentTokens, history, removedOrders: [] };
+    return { compacted: false, canProceed: false, currentTokens, history, messages: initialContext.messages, removedOrders: [] };
 }

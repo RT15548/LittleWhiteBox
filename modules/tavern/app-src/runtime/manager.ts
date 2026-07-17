@@ -23,6 +23,7 @@ import { buildTavernCommunicationEvidenceAtAnchor } from '../../shared/communica
 import {
     clearTavernManagerRunSnapshots,
     createTavernManagerRun,
+    getLatestTavernAssistantOrder,
     getTavernMessage,
     getTavernSession,
     listPendingAcceptedTurnManagerRuns,
@@ -69,6 +70,7 @@ import {
     resolveTavernToolLoopRequestPlan,
     type TavernToolLoopResponse,
 } from './tool-loop-request';
+import { createTavernStateWriteCasTracker } from './state-write-cas';
 
 const ACCEPTED_TURN_MANAGER_TRIGGER = 'accepted_turn';
 const TAVERN_MANAGER_TIMEOUT_MS = 5 * 60 * 1000;
@@ -490,7 +492,12 @@ function isManagerAbortLike(error: unknown, signal?: AbortSignal): boolean {
 function managerFailureStatus(error: unknown, signal?: AbortSignal): TavernManagerRunRecord['status'] {
     const message = error instanceof Error ? error.message : String(error || '');
     if (isManagerAbortLike(error, signal)) {return 'cancelled';}
-    if (message === 'manager_source_messages_changed') {return 'superseded';}
+    if (
+        message === 'manager_source_messages_changed'
+        || message === 'manager_timeline_advanced'
+        || message === 'assistant_timeline_advanced'
+        || message.startsWith('manager_resource_revision_conflict:')
+    ) {return 'superseded';}
     return 'failed';
 }
 
@@ -664,6 +671,7 @@ export async function runSharedManagerToolLoop(input: {
     const changedFiles = new Set<string>();
     const changedStates = new Set<string>();
     const changedTasks = new Set<string>();
+    const stateWriteCas = await createTavernStateWriteCasTracker(input.sessionId);
     let resultProvider = '';
     let resultModel = '';
     let reminded = false;
@@ -812,6 +820,13 @@ export async function runSharedManagerToolLoop(input: {
         for (const [toolIndex, parsed] of parsedToolCalls.entries()) {
             const { toolCall, parsedArguments } = parsed;
             const args = parsedArguments.args;
+            const beforeToolWrite = async () => {
+                await stateWriteCas.assertCurrent(toolCall.name, args);
+                await input.beforeWriteGuard?.();
+            };
+            const afterToolWrite = async () => {
+                await stateWriteCas.acceptCurrent(toolCall.name, args);
+            };
             throwIfManagerAborted(input.signal);
             const traceEntry: Record<string, unknown> = {
                 id: String(toolCall.id || ''),
@@ -840,7 +855,8 @@ export async function runSharedManagerToolLoop(input: {
                     turn: input.turn,
                     sourceUserOrder: input.userOrder,
                     sourceAssistantOrder: input.assistantOrder,
-                    beforeWriteGuard: input.beforeWriteGuard,
+                    beforeWriteGuard: beforeToolWrite,
+                    afterWriteObserver: afterToolWrite,
                     contextSnapshot: input.contextSnapshot,
                 });
                 toolResult = isStateWritingTool(toolCall.name)
@@ -852,7 +868,8 @@ export async function runSharedManagerToolLoop(input: {
                     managerRunId: input.managerRunId,
                     sourceUserOrder: input.userOrder,
                     sourceAssistantOrder: input.assistantOrder,
-                    beforeWriteGuard: input.beforeWriteGuard,
+                    beforeWriteGuard: beforeToolWrite,
+                    afterWriteObserver: afterToolWrite,
                 });
                 toolResult = isStateWritingTool(toolCall.name)
                     ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
@@ -863,7 +880,8 @@ export async function runSharedManagerToolLoop(input: {
                     managerRunId: input.managerRunId,
                     sourceUserOrder: input.userOrder,
                     sourceAssistantOrder: input.assistantOrder,
-                    beforeWriteGuard: input.beforeWriteGuard,
+                    beforeWriteGuard: beforeToolWrite,
+                    afterWriteObserver: afterToolWrite,
                 });
                 toolResult = isStateWritingTool(toolCall.name)
                     ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
@@ -874,7 +892,8 @@ export async function runSharedManagerToolLoop(input: {
                     managerRunId: input.managerRunId,
                     sourceUserOrder: input.userOrder,
                     sourceAssistantOrder: input.assistantOrder,
-                    beforeWriteGuard: input.beforeWriteGuard,
+                    beforeWriteGuard: beforeToolWrite,
+                    afterWriteObserver: afterToolWrite,
                 });
                 toolResult = isStateWritingTool(toolCall.name)
                     ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
@@ -891,6 +910,13 @@ export async function runSharedManagerToolLoop(input: {
                     changed: false,
                     error: 'manager_tool_not_available',
                 } as TavernMemoryToolResult;
+            }
+            const toolError = String(toolResult.error || '');
+            if (
+                ['manager_timeline_advanced', 'assistant_timeline_advanced'].includes(toolError)
+                || toolError.startsWith('manager_resource_revision_conflict:')
+            ) {
+                throw new Error(toolError);
             }
             const resultPath = 'path' in toolResult ? toolResult.path : '';
             const resultStateKey = 'docType' in toolResult && toolResult.docType ? `${toolResult.docType}/${toolResult.docId || ''}` : '';
@@ -1005,7 +1031,12 @@ async function resolveCurrentManagerSourceMessages(input: XbTavernManagerRunInpu
     userMessage: TavernMessageRecord;
     assistantMessage: TavernMessageRecord;
 }> {
-    return resolveManagerSourceMessagesByOrder(input.sessionId, input.userMessage.order, input.assistantMessage.order);
+    const messages = await resolveManagerSourceMessagesByOrder(input.sessionId, input.userMessage.order, input.assistantMessage.order);
+    const latestAssistantOrder = await getLatestTavernAssistantOrder(input.sessionId);
+    if (latestAssistantOrder !== input.assistantMessage.order) {
+        throw new Error('manager_timeline_advanced');
+    }
+    return messages;
 }
 
 async function resolveManagerSourceMessagesByOrder(sessionId = '', userOrder = -1, assistantOrder = -1): Promise<{
@@ -1408,11 +1439,16 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
         let changedTasks = [...(result.changedTasks || [])];
         let completedRun = result.managerRun;
         if (contractRuntime.includeQuestOrchestration) {
+            const staleTaskCas = await createTavernStateWriteCasTracker(sessionId);
             const abandonedTasks = await abandonStaleTavernTasks(sessionId, currentSourceMessages.assistantMessage.order, {
                 managerRunId: managerRun.id,
                 beforeWriteGuard: async () => {
+                    await staleTaskCas.assertCurrent(TAVERN_TASK_TOOL_NAMES.PATCH, {});
                     throwIfManagerAborted(input.signal);
                     await resolveCurrentManagerSourceMessages(input);
+                },
+                afterWriteObserver: async () => {
+                    await staleTaskCas.acceptCurrent(TAVERN_TASK_TOOL_NAMES.PATCH, {});
                 },
             });
             if (abandonedTasks.length) {

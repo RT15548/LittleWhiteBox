@@ -34,6 +34,7 @@ import {
     clearTavernAssistantChatMessages,
     deleteTavernAssistantChatMessages,
     deleteTavernMessages,
+    getLatestTavernAssistantOrder,
     getLatestTavernUserMessageAtOrBefore,
     getTavernMessage,
     getTavernSession,
@@ -64,7 +65,10 @@ import {
 import { getTavernAtlasStateForSession, getTavernMapStateForSession, type TavernMapStateDocumentItem } from '../shared/structured-state';
 import { getTavernStatusStateForSession, type TavernStatusFieldDeltaMap } from '../shared/status-state';
 import { listTavernTasks } from '../shared/tasks';
-import { saveAcceptedStateSnapshot } from '../shared/accepted-state';
+import {
+    resolveTavernAcceptedStateSnapshotDomains,
+    saveAcceptedStateSnapshot,
+} from '../shared/accepted-state';
 import {
     exportTavernCharacterArchive,
     restoreTavernCharacterArchiveFromRecords,
@@ -728,6 +732,7 @@ let tavernToastTimer: number | null = null;
 let managerRecordsPollTimer: number | null = null;
 let managerRecordsPollRunning = false;
 let assistantChatRefreshSerial = 0;
+let managerRecordsRefreshSerial = 0;
 let sessionContextSyncSequence = 0;
 let initialConfigApplied = false;
 let postReadyStartupStarted = false;
@@ -2772,6 +2777,7 @@ async function refreshAssistantChat(sessionId = selectedSessionId.value) {
 
 async function refreshManagerRecords(sessionId = selectedSessionId.value) {
     reportStartupProgress(95, 'refreshManagerRecords');
+    const requestSerial = ++managerRecordsRefreshSerial;
     const id = String(sessionId || '').trim();
     if (!id) {
         managerRuns.value = [];
@@ -2805,7 +2811,7 @@ async function refreshManagerRecords(sessionId = selectedSessionId.value) {
     const index = rawIndex && rawIndex.status === 'ready' && Array.isArray(rawIndex.files)
         ? rawIndex
         : await rebuildTavernMemoryDerivedIndex(id);
-    if (id !== selectedSessionId.value) {return;}
+    if (requestSerial !== managerRecordsRefreshSerial || id !== selectedSessionId.value) {return;}
     managerRuns.value = runs;
     tavernTasks.value = tasks;
     memoryFiles.value = Array.isArray(index.files) ? index.files.map((file) => ({
@@ -3169,6 +3175,18 @@ async function commitUserAcceptedState(sessionId = selectedSessionId.value, user
         ? Math.floor(explicitOrder)
         : (await getLatestTavernUserMessageAtOrBefore(id, Number.POSITIVE_INFINITY))?.order;
     await saveAcceptedStateSnapshot(id, latestUserOrder ?? -1);
+}
+
+async function commitCurrentAcceptedStateChanges(sessionId: string, changes: {
+    changedFiles?: string[];
+    changedStates?: string[];
+    changedTasks?: string[];
+}) {
+    const id = String(sessionId || '').trim();
+    if (!id) {return;}
+    const domains = resolveTavernAcceptedStateSnapshotDomains(changes);
+    if (!domains.length) {return;}
+    await saveAcceptedStateSnapshot(id, undefined, { domains });
 }
 
 const {
@@ -4294,14 +4312,20 @@ async function sendManagerQuestion(
     managerAutoScroll.value = true;
     resetManagerMessageWindowState();
     const managerStreamToolDraftState = createManagerStreamToolDraftState();
-    let userAcceptedAnchorOrder = -1;
+    let sourceUserOrder = -1;
+    let acceptedFloorAtStart = -1;
     let userMessageAppended = false;
     let changesCommitted = false;
     let observedChangedFiles: string[] = [];
     let observedChangedStates: string[] = [];
     let observedChangedTasks: string[] = [];
     try {
-        userAcceptedAnchorOrder = (await getLatestTavernUserMessageAtOrBefore(managerSessionId, Number.POSITIVE_INFINITY))?.order ?? -1;
+        const [latestUserMessage, latestAssistantOrder] = await Promise.all([
+            getLatestTavernUserMessageAtOrBefore(managerSessionId, Number.POSITIVE_INFINITY),
+            getLatestTavernAssistantOrder(managerSessionId),
+        ]);
+        sourceUserOrder = latestUserMessage?.order ?? -1;
+        acceptedFloorAtStart = latestAssistantOrder ?? -1;
         const historyBeforeTurn = Array.isArray(options.historyBeforeTurn)
             ? [...options.historyBeforeTurn].sort((left, right) => left.order - right.order)
             : await listTavernAssistantChatMessages(managerSessionId);
@@ -4440,8 +4464,17 @@ async function sendManagerQuestion(
             contextSnapshot: managerContextSnapshot,
             question,
             history: budget.history,
+            preparedMessages: budget.messages,
             turn: managerTurn,
+            userOrder: sourceUserOrder,
+            assistantOrder: acceptedFloorAtStart,
             signal: controller.signal,
+            beforeWriteGuard: async () => {
+                const currentAcceptedFloor = await getLatestTavernAssistantOrder(managerSessionId) ?? -1;
+                if (currentAcceptedFloor !== acceptedFloorAtStart) {
+                    throw new Error('assistant_timeline_advanced');
+                }
+            },
             onProtocolEvent: (event) => {
                 managerStreamToolDraftState.reset();
                 applyManagerProtocolEvent(managerSessionId, event);
@@ -4460,7 +4493,11 @@ async function sendManagerQuestion(
         observedChangedStates = [...(result.changedStates || [])];
         observedChangedTasks = [...(result.changedTasks || [])];
         if (observedChangedFiles.length || observedChangedStates.length || observedChangedTasks.length) {
-            await commitUserAcceptedState(managerSessionId, userAcceptedAnchorOrder);
+            await commitCurrentAcceptedStateChanges(managerSessionId, {
+                changedFiles: observedChangedFiles,
+                changedStates: observedChangedStates,
+                changedTasks: observedChangedTasks,
+            });
             changesCommitted = true;
         }
         await protocolPersistQueue;
@@ -4484,7 +4521,11 @@ async function sendManagerQuestion(
         clearManagerPendingUserMessage(managerSessionId);
         if (!changesCommitted && (observedChangedFiles.length || observedChangedStates.length || observedChangedTasks.length)) {
             try {
-                await commitUserAcceptedState(managerSessionId, userAcceptedAnchorOrder);
+                await commitCurrentAcceptedStateChanges(managerSessionId, {
+                    changedFiles: observedChangedFiles,
+                    changedStates: observedChangedStates,
+                    changedTasks: observedChangedTasks,
+                });
                 changesCommitted = true;
             } catch (commitError) {
                 console.error('[小白酒馆] 助手状态已改变，但保存接受状态快照失败', commitError);

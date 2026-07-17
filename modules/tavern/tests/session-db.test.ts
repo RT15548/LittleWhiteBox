@@ -48,6 +48,7 @@ import db, {
     tavernAssistantPresetsTable,
     tavernManagerMemorySnapshotsTable,
     tavernAssistantChatMessagesTable as tavernManagerMessagesTable,
+    tavernCommunicationSnapshotsTable,
     tavernManagerRunsTable,
     tavernManagerStateSnapshotsTable,
     tavernManagerTaskSnapshotsTable,
@@ -139,7 +140,10 @@ import {
     saveTavernTaskSnapshot,
     trimTavernTaskSnapshotsFromFloor,
 } from '../shared/tasks';
-import { saveAcceptedStateSnapshot } from '../shared/accepted-state';
+import {
+    resolveTavernAcceptedStateSnapshotDomains,
+    saveAcceptedStateSnapshot,
+} from '../shared/accepted-state';
 import { retrieveXbTavernMemoryContext } from '../shared/memory-retrieval';
 import * as looseToolArgumentsModule from '../../agent-core/runtime/loose-tool-arguments.js';
 
@@ -4358,6 +4362,77 @@ test('accepted state snapshot saves memory, tasks, and status on the same floor'
     assert.equal((await listTavernStatusSnapshots(session.id))[0]?.floor, 1);
 });
 
+test('domain-scoped accepted snapshots do not overwrite unrelated phone history', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Scoped accepted snapshot' });
+    await appendTavernMessage(session.id, { role: 'user', content: '继续。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '剧情继续。' });
+    await tavernCommunicationSnapshotsTable.put({
+        sessionId: session.id,
+        floor: assistantMessage.order,
+        contacts: [{
+            sessionId: session.id,
+            id: 'contact-before-assistant',
+            name: '旧联系人',
+            source: 'manual',
+            createdAt: 10,
+            updatedAt: 10,
+        }],
+        threads: [],
+        messages: [],
+        createdAt: 10,
+    });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n助手只修改了记忆。', { source: 'manager' });
+
+    const domains = resolveTavernAcceptedStateSnapshotDomains({ changedFiles: ['memory/state.md'] });
+    const saved = await saveAcceptedStateSnapshot(session.id, undefined, { domains });
+    const phoneSnapshot = await tavernCommunicationSnapshotsTable.get([session.id, assistantMessage.order]);
+
+    assert.deepEqual(domains, ['memory']);
+    assert.equal(saved.floor, assistantMessage.order);
+    assert.equal(saved.memorySnapshotSaved, true);
+    assert.equal(saved.communicationSnapshotSaved, false);
+    assert.equal(phoneSnapshot?.createdAt, 10);
+    assert.equal(phoneSnapshot?.contacts[0]?.id, 'contact-before-assistant');
+});
+
+test('status writes can verify the current message timeline inside their atomic transaction', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Atomic status timeline guard' });
+    await appendTavernMessage(session.id, { role: 'user', content: '开始。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '已开始。' });
+    const result = await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.INIT, {
+        document: {
+            meta: { activeSubject: 'user' },
+            subjects: [{
+                id: 'user',
+                name: '玩家',
+                tabs: [{
+                    id: 'overview',
+                    label: '概览',
+                    blocks: [{
+                        id: 'state',
+                        title: '状态',
+                        form: 'text',
+                        fields: [{ id: 'location', name: '位置', value: '入口' }],
+                    }],
+                }],
+            }],
+        },
+    }, {
+        beforeWriteGuard: async () => {
+            assert.equal(await getLatestTavernAssistantOrder(session.id), assistantMessage.order);
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.changed, true);
+});
+
 test('accepted state snapshot can explicitly anchor user-confirmed memory edits to the latest user order', async () => {
     await db.delete();
     await db.open();
@@ -4436,6 +4511,65 @@ test('accepted state snapshot can anchor user-initiated manager chat changes to 
     assert.deepEqual(result.changedFiles, ['memory/state.md']);
     assert.equal(saved.floor, userMessage.order);
     assert.deepEqual((await listTavernMemorySnapshots(session.id)).map((snapshot) => snapshot.floor), [userMessage.order]);
+});
+
+test('assistant chat sends the exact budget-approved messages without rebuilding live context', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Prepared assistant context' });
+    const preparedMessages = [
+        { role: 'system' as const, content: '预算校验通过的固定系统上下文。' },
+        { role: 'user' as const, content: '预算校验通过的固定问题。' },
+    ];
+    let sentMessages: unknown[] = [];
+
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '这个文本只负责满足调用参数，不应触发重建。',
+        preparedMessages,
+        executeManagerOnce: async (options) => {
+            sentMessages = structuredClone(options.messages || []);
+            return { text: '已按校验后的上下文执行。' };
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(sentMessages, preparedMessages);
+});
+
+test('assistant chat rejects a stale memory write after the resource changes externally', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant resource CAS' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n启动时内容。', { source: 'manager' });
+
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '更新状态。',
+        executeManagerOnce: async () => {
+            await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n外部并发更新。', { source: 'user' });
+            return {
+                text: '准备写入旧上下文推导出的内容。',
+                toolCalls: [{
+                    id: 'stale-memory-write',
+                    name: 'Write',
+                    arguments: {
+                        filePath: 'memory/state.md',
+                        content: '# 会话记忆\n\n陈旧助手覆盖。',
+                    },
+                }],
+            };
+        },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'manager_resource_revision_conflict:memory/memory/state.md');
+    assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /外部并发更新/);
+    assert.doesNotMatch((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /陈旧助手覆盖/);
 });
 
 test('accepted state snapshots use floor-aware dedupe for memory, tasks, and status', async () => {

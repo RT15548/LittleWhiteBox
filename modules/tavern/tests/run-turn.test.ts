@@ -2110,7 +2110,7 @@ test('xb tavern rerun regenerates assistant action checks cleanly instead of reu
     assert.equal(getActionCheckEvents(messages[1]?.runtimeEvents).length, 0);
 });
 
-test('xb tavern run turn starts accepted-turn manager work on the next user send without blocking RP', async () => {
+test('xb tavern run turn does not block RP and supersedes a maintenance write after the timeline advances', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();
     let managerProvider = '';
@@ -2300,7 +2300,7 @@ test('xb tavern run turn starts accepted-turn manager work on the next user send
     releaseManager();
     await waitForPendingAcceptedTurnManagers(result.sessionId);
     assert.equal(sawRunningStatusBeforeRpCompleted, true);
-    assert.equal(managerCalls, 2);
+    assert.equal(managerCalls, 1);
     assert.equal(managerProvider, 'sillytavern-openai-compatible');
     assert.match(managerPrompt, /# Backstage Manager — LittleWhiteTavern/);
     assert.match(managerPrompt, /main chat handles immersive roleplay/i);
@@ -2347,10 +2347,11 @@ test('xb tavern run turn starts accepted-turn manager work on the next user send
     assert.doesNotMatch(managerPrompt, /MemoryEdit `edits` 必须是真正的非空数组/);
     const memoryFiles = (await getTavernMemoryIndex(result.sessionId))?.files || [];
     assert.equal(memoryFiles.some((file) => file.path === 'memory/state.md'), true);
+    assert.doesNotMatch((await getTavernMemoryFile(result.sessionId, 'memory/state.md'))?.content || '', /两人决定去码头/);
     const runs = await listTavernManagerRuns(result.sessionId);
     const completed = runs.find((run) => run.id === first.managerRunId);
-    assert.equal(completed?.status, 'completed');
-    assert.equal(completed?.model, 'manager-model');
+    assert.equal(completed?.status, 'superseded');
+    assert.equal(completed?.error, 'manager_timeline_advanced');
     const nextPending = runs.find((run) => run.id === result.managerRunId);
     assert.equal(nextPending?.status, 'pending');
     assert.equal(nextPending?.trigger, 'accepted_turn');

@@ -1432,7 +1432,7 @@ test('tavern data rollback helpers keep paired state writes inside transactions'
     const memorySource = readRepoFile('modules/tavern/shared/memory-files.ts');
     const memoryRetrievalSource = readRepoFile('modules/tavern/shared/memory-retrieval.ts');
 
-    assert.match(acceptedStateSource, /db\.transaction\(\s*'rw'[\s\S]*saveTavernMemorySnapshot\(id, floor\)[\s\S]*saveTavernTaskSnapshot\(id, floor\)/);
+    assert.match(acceptedStateSource, /db\.transaction\(\s*'rw'[\s\S]*async \(\) => \{\s*const floor = await resolveAcceptedSnapshotFloor\(id, floorInput\);[\s\S]*saveTavernMemorySnapshot\(id, floor\)[\s\S]*saveTavernTaskSnapshot\(id, floor\)/);
     assert.match(memoryRetrievalSource, /export function cleanSourceTextForManager[\s\S]*tavern-image\|img\|图片[\s\S]*\\s\*:/);
     const managerCleanBody = memoryRetrievalSource.slice(
         memoryRetrievalSource.indexOf('export function cleanSourceTextForManager'),
@@ -2411,9 +2411,10 @@ test('tavern memory editor actions live outside the app controller', () => {
     assert.match(appSource, /async function commitUserAcceptedState\(sessionId = selectedSessionId\.value, userOrder\?: number\) \{[\s\S]*const explicitOrder = Number\(userOrder\);[\s\S]*getLatestTavernUserMessageAtOrBefore\(id, Number\.POSITIVE_INFINITY\)[\s\S]*await saveAcceptedStateSnapshot\(id, latestUserOrder \?\? -1\);[\s\S]*\}/);
     assert.match(appSource, /commitAcceptedState,/);
     assert.match(appSource, /commitUserAcceptedState,/);
-    assert.match(appSource, /let userAcceptedAnchorOrder = -1;[\s\S]*try \{[\s\S]*userAcceptedAnchorOrder = \(await getLatestTavernUserMessageAtOrBefore\(managerSessionId, Number\.POSITIVE_INFINITY\)\)\?\.order \?\? -1;[\s\S]*appendTavernAssistantChatMessage\(managerSessionId[\s\S]*const budget = await ensureTavernAssistantChatBudget/);
-    assert.match(appSource, /observedChangedFiles = \[\.\.\.\(result\.changedFiles \|\| \[\]\)\][\s\S]*await commitUserAcceptedState\(managerSessionId, userAcceptedAnchorOrder\);[\s\S]*refreshAssistantChat\(managerSessionId\)[\s\S]*refreshManagerRecords\(managerSessionId\)/);
-    assert.match(appSource, /if \(!changesCommitted && \(observedChangedFiles\.length \|\| observedChangedStates\.length \|\| observedChangedTasks\.length\)\)[\s\S]*await commitUserAcceptedState\(managerSessionId, userAcceptedAnchorOrder\)/);
+    assert.match(appSource, /let sourceUserOrder = -1;[\s\S]*let acceptedFloorAtStart = -1;[\s\S]*getLatestTavernUserMessageAtOrBefore\(managerSessionId, Number\.POSITIVE_INFINITY\)[\s\S]*getLatestTavernAssistantOrder\(managerSessionId\)[\s\S]*const budget = await ensureTavernAssistantChatBudget/);
+    assert.match(appSource, /preparedMessages: budget\.messages[\s\S]*beforeWriteGuard:[\s\S]*assistant_timeline_advanced/);
+    assert.match(appSource, /observedChangedFiles = \[\.\.\.\(result\.changedFiles \|\| \[\]\)\][\s\S]*await commitCurrentAcceptedStateChanges\(managerSessionId,[\s\S]*refreshAssistantChat\(managerSessionId\)[\s\S]*refreshManagerRecords\(managerSessionId\)/);
+    assert.match(appSource, /if \(!changesCommitted && \(observedChangedFiles\.length \|\| observedChangedStates\.length \|\| observedChangedTasks\.length\)\)[\s\S]*await commitCurrentAcceptedStateChanges\(managerSessionId/);
 });
 
 test('tavern streaming action-check UI renders from live runtime events and keeps dark card styling aligned', () => {
@@ -3005,7 +3006,7 @@ test('tavern maintenance and assistant chat keep separate persistence, runtime, 
     assert.doesNotMatch(assistantRunnerSource, /createTavernManagerRun|updateTavernManagerRun|managerRun:/);
     assert.match(assistantContextSource, /listTavernAssistantChatMessages/);
     assert.doesNotMatch(assistantContextSource, /deleteTavernAssistantChatMessages/);
-    assert.match(assistantContextSource, /const fixedTokens = await estimateAssistantChatTokens\([\s\S]*history: \[\][\s\S]*TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS[\s\S]*canProceed: false/);
+    assert.match(assistantContextSource, /const fixedContext = await estimateAssistantChatContext\([\s\S]*history: \[\][\s\S]*TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS[\s\S]*canProceed: false/);
     assert.match(sessionDbSource, /version13\.stores\(\{[\s\S]*managerMessages: null,[\s\S]*assistantChatMessages:/);
     assert.match(sessionDbSource, /filter\(\(run\) => !\['accepted_turn', 'after_turn'\]\.includes/);
     assert.match(sessionDbSource, /throw new Error\('maintenance_run_trigger_invalid'\)/);
@@ -3013,6 +3014,7 @@ test('tavern maintenance and assistant chat keep separate persistence, runtime, 
     assert.match(appSource, /appendTavernAssistantChatMessage\(managerSessionId[\s\S]*ensureTavernAssistantChatBudget/);
     assert.match(appSource, /watch\(\(\) => selectedSessionId\.value[\s\S]*managerAssistantController\.value\?\.abort\(\)[\s\S]*clearManagerLiveProtocolState/);
     assert.match(appSource, /pollLiveManagerRecords[\s\S]*refreshManagerRecords\(selectedSessionId\.value\)/);
+    assert.match(appSource, /const requestSerial = \+\+managerRecordsRefreshSerial[\s\S]*requestSerial !== managerRecordsRefreshSerial/);
     assert.match(appSource, /pendingProtocolRound[\s\S]*actualToolResults < expectedToolResults[\s\S]*appendTavernAssistantChatMessages/);
     assert.match(appSource, /onUnmounted\([\s\S]*clearManagerLiveProtocolState\(\)[\s\S]*clearManagerMessageFeedback\(\)/);
     assert.doesNotMatch(phoneSource, /managerBusy|isManagerAssistantRunning/);

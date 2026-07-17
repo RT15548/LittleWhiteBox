@@ -132,6 +132,7 @@ export interface TavernStatusToolOptions {
     sourceUserOrder?: number;
     sourceAssistantOrder?: number;
     beforeWriteGuard?: () => Promise<void> | void;
+    afterWriteObserver?: () => Promise<void> | void;
 }
 
 function now(): number {
@@ -964,7 +965,6 @@ export async function executeTavernStatusTool(
                 warnings: normalized.warnings,
             };
         }
-        await options.beforeWriteGuard?.();
         const timestamp = now();
         const revision = (existing?.revision || 0) + 1;
         normalized.document.meta.revision = revision;
@@ -981,7 +981,8 @@ export async function executeTavernStatusTool(
             createdAt: existing?.createdAt || timestamp,
             updatedAt: timestamp,
         };
-        await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernSessionsTable, async () => {
+        await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernMessagesTable, tavernSessionsTable, async () => {
+            await options.beforeWriteGuard?.();
             await tavernStateDocumentsTable.put(record);
             await appendTavernStructuredStatePatch({
                 sessionId: id,
@@ -999,6 +1000,7 @@ export async function executeTavernStatusTool(
                 afterData: normalized.document,
             });
             await tavernSessionsTable.update(id, { updatedAt: timestamp });
+            await options.afterWriteObserver?.();
         });
         return {
             ok: true,
@@ -1068,7 +1070,6 @@ export async function executeTavernStatusTool(
             changedIds: applied.changedIds,
         };
     }
-    await options.beforeWriteGuard?.();
     const timestamp = now();
     const revision = existing.revision + 1;
     after.meta.revision = revision;
@@ -1080,7 +1081,8 @@ export async function executeTavernStatusTool(
         digest: afterFingerprint,
         updatedAt: timestamp,
     };
-    await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernSessionsTable, async () => {
+    await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernMessagesTable, tavernSessionsTable, async () => {
+        await options.beforeWriteGuard?.();
         await tavernStateDocumentsTable.put(record);
         await appendTavernStructuredStatePatch({
             sessionId: id,
@@ -1098,6 +1100,7 @@ export async function executeTavernStatusTool(
             afterData: after,
         });
         await tavernSessionsTable.update(id, { updatedAt: timestamp });
+        await options.afterWriteObserver?.();
     });
     return {
         ok: true,

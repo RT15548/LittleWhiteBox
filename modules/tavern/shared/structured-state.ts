@@ -3269,6 +3269,7 @@ export async function executeTavernStateTool(
         sourceUserOrder?: number;
         sourceAssistantOrder?: number;
         beforeWriteGuard?: () => Promise<void> | void;
+        afterWriteObserver?: () => Promise<void> | void;
     } = {},
 ): Promise<TavernStateToolResult> {
     const id = String(sessionId || '').trim();
@@ -3555,7 +3556,6 @@ export async function executeTavernStateTool(
             let atlasResult: TavernStateToolResult;
             const timestamp = now();
             if (compiled.effectiveOps.length || atlasPatch.changed) {
-                await options.beforeWriteGuard?.();
                 const currentRevision = Number(existing?.revision) || 0;
                 const nextRevision = currentRevision + 1;
                 const atlasCurrentRevision = Number(atlasRecord?.revision) || 0;
@@ -3565,7 +3565,8 @@ export async function executeTavernStateTool(
                 let effectiveOps = [...compiled.effectiveOps];
                 let removedElements = [...compiled.removedElements];
                 let changedIds = [...compiled.changedIds];
-                await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernSessionsTable, async () => {
+                await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernMessagesTable, tavernSessionsTable, async () => {
+                    await options.beforeWriteGuard?.();
                     if (compiled.effectiveOps.length) {
                         const actorDedupe = await dedupeActorElementsForSavedDocument({
                             sessionId: id,
@@ -3647,6 +3648,7 @@ export async function executeTavernStateTool(
                             removedElements: [],
                         });
                     }
+                    await options.afterWriteObserver?.();
                 });
                 mapResult = {
                     ok: true,
@@ -4112,6 +4114,7 @@ export async function executeTavernStateTool(
                         if (patch.syncedActiveMapDocId) {
                             await setActiveMapDocId(id, patch.syncedActiveMapDocId);
                         }
+                        await options.afterWriteObserver?.();
                         return {
                             ok: true,
                             summary: `Updated ${docType}/${docId} to revision ${saved.revision} with ${patch.appliedCount} applied op(s).`,
@@ -4160,6 +4163,9 @@ export async function executeTavernStateTool(
                         const previousActiveDocId = await getActiveMapDocId(id);
                         const activeDocId = await setActiveMapDocId(id, docId);
                         const warnings = await buildMapAtlasMismatchWarning(id, docId);
+                        if (previousActiveDocId !== activeDocId) {
+                            await options.afterWriteObserver?.();
+                        }
                         return {
                             ok: true,
                             summary: `Activated ${docType}/${docId}.`,
@@ -4205,6 +4211,9 @@ export async function executeTavernStateTool(
                             const previousActiveDocId = await getActiveMapDocId(id);
                             const activeDocId = await setActiveMapDocId(id, docId);
                             activeChanged = previousActiveDocId !== activeDocId;
+                            if (activeChanged) {
+                                await options.afterWriteObserver?.();
+                            }
                         }
                         const activateWarnings = activate && args.dryRun !== true
                             ? await buildMapAtlasMismatchWarning(id, docId)
@@ -4302,6 +4311,7 @@ export async function executeTavernStateTool(
                     const activateWarnings = activate
                         ? await buildMapAtlasMismatchWarning(id, docId)
                         : [];
+                    await options.afterWriteObserver?.();
                     return {
                         ok: true,
                         summary: `Updated ${docType}/${docId} to revision ${saved.revision} with ${patch.appliedCount} applied op(s).`,

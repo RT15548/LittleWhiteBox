@@ -57,7 +57,10 @@ import {
     restoreTavernMemoryToFloor,
     trimTavernMemorySnapshotsFromFloor,
 } from '../../shared/memory-files';
-import { saveAcceptedStateSnapshot } from '../../shared/accepted-state';
+import {
+    resolveTavernAcceptedStateSnapshotDomains,
+    saveAcceptedStateSnapshot,
+} from '../../shared/accepted-state';
 import {
     listTavernCommunicationTimelineEvents,
     restoreTavernCommunicationsToFloor,
@@ -2435,7 +2438,14 @@ function schedulePendingAcceptedTurnManager(input: {
                 },
             });
             if (result?.ok && result.managerRun?.status === 'completed') {
-                await saveAcceptedStateSnapshot(sessionId, result.managerRun.assistantOrder);
+                const domains = resolveTavernAcceptedStateSnapshotDomains({
+                    changedFiles: result.changedFiles,
+                    changedStates: result.changedStates,
+                    changedTasks: result.changedTasks,
+                });
+                if (domains.length) {
+                    await saveAcceptedStateSnapshot(sessionId, undefined, { domains });
+                }
             }
         })
         .catch(async (error): Promise<void> => {

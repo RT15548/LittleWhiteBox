@@ -1274,6 +1274,7 @@ export async function executeTavernSourceFileTool(
         sourceUserOrder?: number;
         sourceAssistantOrder?: number;
         beforeWriteGuard?: () => Promise<void> | void;
+        afterWriteObserver?: () => Promise<void> | void;
         contextSnapshot?: XbTavernContext;
     } = {},
 ): Promise<TavernMemoryToolResult> {
@@ -1460,6 +1461,7 @@ export async function executeTavernMemoryTool(
         sourceUserOrder?: number;
         sourceAssistantOrder?: number;
         beforeWriteGuard?: () => Promise<void> | void;
+        afterWriteObserver?: () => Promise<void> | void;
         contextSnapshot?: XbTavernContext;
     } = {},
 ): Promise<TavernMemoryToolResult> {
@@ -1524,6 +1526,7 @@ export async function executeTavernMemoryTool(
                     if (options.managerRunId) {
                         await updateTavernManagerMemorySnapshotAfter({ managerRunId: options.managerRunId, sessionId: id, path: savedFile.path });
                     }
+                    await options.afterWriteObserver?.();
                     return savedFile;
                 },
             ) as TavernMemoryFileRecord;
@@ -1576,6 +1579,7 @@ export async function executeTavernMemoryTool(
                         if (options.managerRunId) {
                             await updateTavernManagerMemorySnapshotAfter({ managerRunId: options.managerRunId, sessionId: id, path });
                         }
+                        await options.afterWriteObserver?.();
                     },
                 );
                 const saved = await getTavernMemoryFile(id, path);

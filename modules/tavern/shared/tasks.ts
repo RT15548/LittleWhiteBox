@@ -52,6 +52,7 @@ export interface TavernTaskPatchOptions {
     sourceUserOrder?: number;
     sourceAssistantOrder?: number;
     beforeWriteGuard?: () => Promise<void> | void;
+    afterWriteObserver?: () => Promise<void> | void;
 }
 
 function now(): number {
@@ -483,6 +484,7 @@ async function runTaskMutation<T>(sessionId: string, options: TavernTaskPatchOpt
         if (options.managerRunId) {
             await updateTavernManagerTaskSnapshotAfter(options.managerRunId, sessionId);
         }
+        await options.afterWriteObserver?.();
         return result;
     });
 }
@@ -639,6 +641,7 @@ export async function abandonStaleTavernTasks(sessionId = '', assistantOrder = -
     threshold?: number;
     managerRunId?: string;
     beforeWriteGuard?: () => Promise<void> | void;
+    afterWriteObserver?: () => Promise<void> | void;
 } = {}): Promise<TavernTaskRecord[]> {
     const id = String(sessionId || '').trim();
     const order = normalizeOrder(assistantOrder, -1);
@@ -652,6 +655,7 @@ export async function abandonStaleTavernTasks(sessionId = '', assistantOrder = -
         managerRunId: options.managerRunId,
         sourceAssistantOrder: order,
         beforeWriteGuard: options.beforeWriteGuard,
+        afterWriteObserver: options.afterWriteObserver,
     }, async () => {
         const abandoned: TavernTaskRecord[] = [];
         for (const task of stale) {
