@@ -21,6 +21,7 @@ import {
 import { cleanSourceTextForManager } from '../../shared/memory-retrieval';
 import { buildTavernCommunicationEvidenceAtAnchor } from '../../shared/communications';
 import {
+    assertTavernManagerRunSourceMessages,
     assertRunningTavernManagerRunLease,
     clearTavernManagerRunSnapshots,
     claimNextQueuedAcceptedTurnManagerRun,
@@ -37,6 +38,7 @@ import {
     touchRunningTavernManagerRun,
     updateTavernManagerRun,
     type TavernManagerRunRecord,
+    type TavernManagerRunSourceIdentity,
     type TavernMaintenanceRunTrigger,
     type TavernMessageRecord,
 } from '../../shared/session-db';
@@ -121,6 +123,8 @@ export interface XbTavernManagerRunInput {
     managerRunId?: string;
     leaseOwnerId?: string;
     deferCompletion?: boolean;
+    sourceUserMessageId?: string;
+    sourceAssistantMessageId?: string;
     sourceUserCreatedAt?: number;
     sourceAssistantCreatedAt?: number;
     sourceUserRevision?: number;
@@ -599,6 +603,8 @@ async function restoreQueuedAcceptedTurnAfterCurrentAbort(input: {
             input.selected.run.assistantOrder,
         );
         assertManagerSourceIdentity({
+            sourceUserMessageId: input.selected.run.sourceUserMessageId,
+            sourceAssistantMessageId: input.selected.run.sourceAssistantMessageId,
             sourceUserCreatedAt: input.selected.run.sourceUserCreatedAt,
             sourceAssistantCreatedAt: input.selected.run.sourceAssistantCreatedAt,
             sourceUserRevision: input.selected.run.sourceUserRevision,
@@ -1059,30 +1065,33 @@ async function resolveCurrentManagerSourceMessages(input: XbTavernManagerRunInpu
     assistantMessage: TavernMessageRecord;
 }> {
     const messages = await resolveManagerSourceMessagesByOrder(input.sessionId, input.userMessage.order, input.assistantMessage.order);
-    assertManagerSourceIdentity(input, messages);
+    assertManagerSourceIdentity(resolveExpectedManagerSourceIdentity(input), messages);
     return messages;
 }
 
+function resolveExpectedManagerSourceIdentity(input: XbTavernManagerRunInput): TavernManagerRunSourceIdentity {
+    return {
+        sourceUserMessageId: input.sourceUserMessageId || input.userMessage.messageId,
+        sourceAssistantMessageId: input.sourceAssistantMessageId || input.assistantMessage.messageId,
+        sourceUserCreatedAt: input.sourceUserCreatedAt ?? input.userMessage.createdAt,
+        sourceAssistantCreatedAt: input.sourceAssistantCreatedAt ?? input.assistantMessage.createdAt,
+        sourceUserRevision: input.sourceUserRevision ?? input.userMessage.timelineRevision,
+        sourceAssistantRevision: input.sourceAssistantRevision ?? input.assistantMessage.timelineRevision,
+    };
+}
+
 function assertManagerSourceIdentity(
-    expected: Pick<XbTavernManagerRunInput, 'sourceUserCreatedAt' | 'sourceAssistantCreatedAt' | 'sourceUserRevision' | 'sourceAssistantRevision'>,
+    expected: Pick<XbTavernManagerRunInput,
+        | 'sourceUserMessageId'
+        | 'sourceAssistantMessageId'
+        | 'sourceUserCreatedAt'
+        | 'sourceAssistantCreatedAt'
+        | 'sourceUserRevision'
+        | 'sourceAssistantRevision'
+    >,
     messages: { userMessage: TavernMessageRecord; assistantMessage: TavernMessageRecord },
 ): void {
-    const userRevision = Math.max(1, Math.floor(Number(messages.userMessage.timelineRevision) || 1));
-    const assistantRevision = Math.max(1, Math.floor(Number(messages.assistantMessage.timelineRevision) || 1));
-    if (Number.isFinite(Number(expected.sourceUserCreatedAt))
-        && Number(messages.userMessage.createdAt) !== Number(expected.sourceUserCreatedAt)) {
-        throw new Error('manager_source_messages_changed');
-    }
-    if (Number.isFinite(Number(expected.sourceAssistantCreatedAt))
-        && Number(messages.assistantMessage.createdAt) !== Number(expected.sourceAssistantCreatedAt)) {
-        throw new Error('manager_source_messages_changed');
-    }
-    if (Number.isFinite(Number(expected.sourceUserRevision)) && userRevision !== Number(expected.sourceUserRevision)) {
-        throw new Error('manager_source_messages_changed');
-    }
-    if (Number.isFinite(Number(expected.sourceAssistantRevision)) && assistantRevision !== Number(expected.sourceAssistantRevision)) {
-        throw new Error('manager_source_messages_changed');
-    }
+    assertTavernManagerRunSourceMessages(expected, messages);
 }
 
 async function resolveManagerSourceMessagesByOrder(sessionId = '', userOrder = -1, assistantOrder = -1): Promise<{
@@ -1406,6 +1415,7 @@ async function runManagerTask(input: {
 export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput): Promise<XbTavernManagerRunResult> {
     const sessionId = String(input.sessionId || '').trim();
     if (!sessionId) {throw new Error('manager_session_required');}
+    const sourceIdentity = resolveExpectedManagerSourceIdentity(input);
     const contractRuntime = resolveSessionContractRuntime(input.sessionContract);
     if (!contractRuntime.hasAutomaticManagerWork) {
         await assertManagerRunLease(input);
@@ -1423,6 +1433,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
                 turn: input.turn,
                 userOrder: input.userMessage.order,
                 assistantOrder: input.assistantMessage.order,
+                ...sourceIdentity,
                 status: 'completed',
                 inputSummary: 'contract skipped',
                 outputText: '契约未授权后台记忆或地图维护，本轮已跳过。',
@@ -1458,6 +1469,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             turn: input.turn,
             userOrder: input.userMessage.order,
             assistantOrder: input.assistantMessage.order,
+            ...sourceIdentity,
             status: 'queued',
             inputSummary,
         });
@@ -1623,6 +1635,8 @@ export async function recoverInterruptedAcceptedTurnManagerRuns(input: {
         try {
             const sourceMessages = await resolveManagerSourceMessagesByOrder(sessionId, run.userOrder, run.assistantOrder);
             assertManagerSourceIdentity({
+                sourceUserMessageId: run.sourceUserMessageId,
+                sourceAssistantMessageId: run.sourceAssistantMessageId,
                 sourceUserCreatedAt: run.sourceUserCreatedAt,
                 sourceAssistantCreatedAt: run.sourceAssistantCreatedAt,
                 sourceUserRevision: run.sourceUserRevision,
@@ -1703,6 +1717,8 @@ export async function runNextQueuedAcceptedTurnManager(input: Omit<XbTavernManag
             turn: selected.run.turn,
             userMessage: selected.userMessage,
             assistantMessage: selected.assistantMessage,
+            sourceUserMessageId: selected.run.sourceUserMessageId,
+            sourceAssistantMessageId: selected.run.sourceAssistantMessageId,
             sourceUserCreatedAt: selected.run.sourceUserCreatedAt,
             sourceAssistantCreatedAt: selected.run.sourceAssistantCreatedAt,
             sourceUserRevision: selected.run.sourceUserRevision,

@@ -9,6 +9,7 @@ import type { TavernMessageRecord } from '../shared/session-db';
 
 function message(role: TavernMessageRecord['role'], order: number): TavernMessageRecord {
     return {
+        messageId: `message-${order}`,
         sessionId: 'session-1',
         role,
         content: `${role}-${order}`,

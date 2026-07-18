@@ -564,6 +564,8 @@ test('manager candidates become fixed queued pairs only when the next user messa
     assert.equal(firstConfirmation.managerRun?.userOrder, 0);
     assert.equal(firstConfirmation.managerRun?.assistantOrder, 1);
     assert.equal(firstConfirmation.managerRun?.confirmedByUserOrder, 2);
+    assert.equal(firstConfirmation.managerRun?.sourceUserMessageId, user0.messageId);
+    assert.equal(firstConfirmation.managerRun?.sourceAssistantMessageId, assistant1.messageId);
     assert.equal(await getTavernManagerCandidate(session.id), null);
 
     const assistant3 = await appendTavernMessage(session.id, { role: 'assistant', content: '第 4 楼。' });
@@ -632,6 +634,8 @@ test('concurrent tabs recover one expired accepted-turn lease as exactly one que
         turn: 1,
         userOrder: user.order,
         assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
         sourceUserCreatedAt: user.createdAt,
         sourceAssistantCreatedAt: assistant.createdAt,
         sourceUserRevision: user.timelineRevision,
@@ -672,6 +676,8 @@ test('accepted-turn completion snapshots only the run delta and atomically relea
         turn: 1,
         userOrder: user.order,
         assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
         sourceUserCreatedAt: user.createdAt,
         sourceAssistantCreatedAt: assistant.createdAt,
         sourceUserRevision: user.timelineRevision,
@@ -772,6 +778,84 @@ test('a confirmed manager pair refuses an explicit later edit of its own source 
     assert.equal(result?.ok, false);
     assert.equal(result?.managerRun.status, 'superseded');
     assert.equal(result?.error, 'manager_source_messages_changed');
+});
+
+test('a confirmed manager pair rejects ABA source replacement with identical floor metadata', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Manager source ABA' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '原始用户楼。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '原始助手楼。' });
+    await putTavernManagerCandidate({ sessionId: session.id, turn: 1, userOrder: user.order, assistantOrder: assistant.order });
+    await appendTavernUserMessageAndConfirmManagerCandidate(session.id, {
+        role: 'user',
+        content: '确认上一对。',
+    }, { confirmManagerCandidate: true });
+    await tavernMessagesTable.put({
+        ...user,
+        messageId: 'replacement-user-message',
+        content: '同元数据重建的用户楼。',
+    });
+    await tavernMessagesTable.put({
+        ...assistant,
+        messageId: 'replacement-assistant-message',
+        content: '同元数据重建的助手楼。',
+    });
+
+    let managerCalls = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async () => {
+            managerCalls += 1;
+            return { text: '不应执行。' };
+        },
+    });
+
+    assert.equal(managerCalls, 0);
+    assert.equal(result?.managerRun.status, 'superseded');
+    assert.equal(result?.error, 'manager_source_messages_changed');
+});
+
+test('accepted snapshot transaction rejects ABA replacement after manager execution', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Accepted snapshot ABA' });
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '原始用户楼。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '原始助手楼。' });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async () => ({ text: '维护完成。' }),
+    });
+    assert.equal(result?.ok, true);
+    assert.equal(result?.managerRun.status, 'running');
+
+    await tavernMessagesTable.put({ ...user, messageId: 'accepted-replacement-user' });
+    await tavernMessagesTable.put({ ...assistant, messageId: 'accepted-replacement-assistant' });
+    await assert.rejects(completeAcceptedTurnManagerRunWithSnapshot({
+        sessionId: session.id,
+        managerRunId: result?.managerRun.id || '',
+        floor: assistant.order,
+        domains: [],
+        leaseOwnerId: String(result?.managerRun.leaseOwnerId || ''),
+    }), /manager_source_messages_changed/);
+    assert.equal((await tavernManagerRunsTable.get(result?.managerRun.id || ''))?.status, 'running');
 });
 
 test('completed assistant turn counting scans structurally before a boundary without loading message arrays', async () => {
@@ -5280,6 +5364,8 @@ test('manager event snapshot rolls back failed event writes', async () => {
     assert.deepEqual(await listTavernTasks(session.id, { includeCompleted: true, includeAbandoned: true }), []);
     const run = (await listTavernManagerRuns(session.id))[0];
     assert.equal(run?.status, 'rolled_back');
+    assert.equal(run?.sourceUserMessageId, userMessage.messageId);
+    assert.equal(run?.sourceAssistantMessageId, assistantMessage.messageId);
 });
 
 test('manager rollback keeps memory conflict audit when event rollback also succeeds', async () => {
@@ -8006,4 +8092,52 @@ test('database v14 resets the test-line maintenance model instead of preserving 
     assert.equal(await tavernManagerTaskSnapshotsTable.where('managerRunId').equals('manual-chat-run').count(), 0);
     assert.equal((await tavernStatePatchesTable.get('legacy-patch'))?.managerRunId, '');
     assert.equal((await tavernTasksTable.get(['legacy-session', 'legacy-task']))?.sourceManagerRunId, '');
+});
+
+test('database v16 backfills message ids and maintenance source identities', async () => {
+    await db.delete();
+    const legacyDb = new Dexie('LittleWhiteBox_Tavern');
+    const legacyRuntime = legacyDb as unknown as {
+        table: (name: string) => {
+            put: (record: Record<string, unknown>) => Promise<unknown>;
+            bulkPut: (records: Array<Record<string, unknown>>) => Promise<unknown>;
+        };
+        close: () => void;
+    };
+    legacyDb.version(15).stores({
+        sessions: 'id, updatedAt',
+        messages: '[sessionId+order], sessionId, order',
+        managerRuns: 'id, sessionId, status, turn, assistantOrder, [sessionId+assistantOrder], updatedAt',
+    });
+    await legacyDb.open();
+    await legacyRuntime.table('sessions').put({ id: 'v15-session', updatedAt: 1 });
+    await legacyRuntime.table('messages').bulkPut(Array.from({ length: 300 }, (_, order) => ({
+        sessionId: 'v15-session',
+        order,
+        role: order % 2 ? 'assistant' : 'user',
+        content: `旧楼层 ${order}`,
+        createdAt: order + 1,
+        timelineRevision: 1,
+    })));
+    await legacyRuntime.table('managerRuns').put({
+        id: 'v15-run',
+        sessionId: 'v15-session',
+        turn: 1,
+        userOrder: 296,
+        assistantOrder: 297,
+        trigger: 'accepted_turn',
+        status: 'queued',
+        createdAt: 301,
+        updatedAt: 301,
+    });
+    legacyRuntime.close();
+
+    await db.open();
+    const messages = await listTavernMessages('v15-session');
+    const run = await tavernManagerRunsTable.get('v15-run');
+    assert.equal(messages.length, 300);
+    assert.equal(new Set(messages.map((message) => message.messageId)).size, 300);
+    assert.ok(messages.every((message) => !!message.messageId));
+    assert.equal(run?.sourceUserMessageId, messages[296]?.messageId);
+    assert.equal(run?.sourceAssistantMessageId, messages[297]?.messageId);
 });

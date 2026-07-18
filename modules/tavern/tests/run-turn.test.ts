@@ -82,6 +82,7 @@ async function resetDb() {
 
 function makeContextWindowMessage(order: number, role: string, content = `message-${order}`) {
     return {
+        messageId: `window-message-${order}`,
         sessionId: 'window-test',
         order,
         role,
@@ -5612,6 +5613,7 @@ test('xb tavern rerun refuses an already-confirmed pair and never rolls back mem
 test('xb tavern context history filters saved error messages for preview and runtime', () => {
     const history = buildContextHistory([
         {
+            messageId: 'history-message-0',
             sessionId: 'session',
             order: 0,
             role: 'user',
@@ -5619,6 +5621,7 @@ test('xb tavern context history filters saved error messages for preview and run
             createdAt: 1,
         },
         {
+            messageId: 'history-message-1',
             sessionId: 'session',
             order: 1,
             role: 'assistant',
@@ -5627,6 +5630,7 @@ test('xb tavern context history filters saved error messages for preview and run
             createdAt: 2,
         },
         {
+            messageId: 'history-message-2',
             sessionId: 'session',
             order: 2,
             role: 'assistant',

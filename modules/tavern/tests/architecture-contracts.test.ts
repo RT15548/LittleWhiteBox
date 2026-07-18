@@ -1507,7 +1507,14 @@ test('tavern data rollback helpers keep paired state writes inside transactions'
     assert.doesNotMatch(prepareRerollSource, /\.delete\(|\.put\(|\.update\(/);
     assert.match(commitRerollSource, /db\.transaction\(\s*'rw',[\s\S]*isSameTavernMessageIdentity\(currentUser, expectedUser\)[\s\S]*isSameTavernMessageIdentity\(currentAssistant, expectedAssistant\)[\s\S]*tavernMessagesTable\.put\(assistantMessage\)[\s\S]*tavernManagerCandidatesTable\.(?:put|delete)[\s\S]*tavernSessionsTable\.update\(id,/);
     assert.match(sessionDbSource, /messageId: createId\('message'\)/);
-    assert.match(sessionDbSource, /Number\(current\.createdAt\) === Number\(expected\.createdAt\)[\s\S]*expectedMessageId/);
+    assert.match(sessionDbSource, /export interface TavernMessageRecord \{\s*messageId: string;/);
+    assert.doesNotMatch(sessionDbSource, /export interface TavernMessageRecord \{\s*messageId\?: string;/);
+    assert.match(sessionDbSource, /current\.messageId === expected\.messageId[\s\S]*Number\(current\.createdAt\) === Number\(expected\.createdAt\)/);
+    assert.match(sessionDbSource, /this\.version\(16\)[\s\S]*messagesTable\.bulkPut\(messages\)[\s\S]*run\.sourceUserMessageId = userMessageId[\s\S]*run\.sourceAssistantMessageId = assistantMessageId[\s\S]*managerRunsTable\.bulkPut\(managerRuns\)/);
+    assert.match(sessionDbSource, /appendTavernUserMessageAndConfirmManagerCandidate[\s\S]*sourceUserMessageId: sourceUser\.messageId[\s\S]*sourceAssistantMessageId: sourceAssistant\.messageId/);
+    assert.match(managerSource, /assertTavernManagerRunSourceMessages\(expected, messages\)/);
+    assert.match(managerSource, /const sourceIdentity = resolveExpectedManagerSourceIdentity\(input\)[\s\S]*createTavernManagerRun\(\{[\s\S]*\.\.\.sourceIdentity/);
+    assert.match(acceptedStateSource, /db\.transaction\(\s*'rw',[\s\S]*tavernManagerRunsTable,[\s\S]*tavernMessagesTable,[\s\S]*assertTavernManagerRunSourceMessages\(run,/);
     assert.match(sessionDbSource, /managerRuns: 'id, sessionId, status, turn, assistantOrder, \[sessionId\+assistantOrder\], updatedAt'/);
     assert.match(sessionDbSource, /where\('\[sessionId\+assistantOrder\]'\)[\s\S]*\.count\(\) > 0/);
     assert.doesNotMatch(prepareRerollSource, /\.toArray\(\)/);

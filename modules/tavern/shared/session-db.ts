@@ -45,6 +45,7 @@ import { assertTavernManagerSnapshotStable } from './manager-snapshot-integrity'
 type TavernDexieUpgradeTable = {
     clear: () => Promise<unknown>;
     toArray: () => Promise<Record<string, unknown>[]>;
+    bulkPut: (records: Record<string, unknown>[]) => Promise<unknown>;
     bulkDelete: (keys: unknown[]) => Promise<unknown>;
     where: (index: string) => {
         anyOf: (values: unknown[]) => { delete: () => Promise<unknown> };
@@ -104,7 +105,7 @@ export interface TavernTurnStateSnapshot {
 export type TavernManagerRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'superseded' | 'rolled_back';
 
 export interface TavernMessageRecord {
-    messageId?: string;
+    messageId: string;
     sessionId: string;
     order: number;
     role: string;
@@ -228,6 +229,8 @@ export interface TavernManagerRunRecord {
     userOrder: number;
     assistantOrder: number;
     confirmedByUserOrder?: number;
+    sourceUserMessageId?: string;
+    sourceAssistantMessageId?: string;
     sourceUserCreatedAt?: number;
     sourceAssistantCreatedAt?: number;
     sourceUserRevision?: number;
@@ -891,6 +894,33 @@ class TavernDatabase extends Dexie {
         this.version(15).stores({
             managerRuns: 'id, sessionId, status, turn, assistantOrder, [sessionId+assistantOrder], updatedAt',
         });
+        const version16 = this.version(16) as unknown as TavernDexieVersionWithUpgrade;
+        version16.stores({
+            messages: '[sessionId+order], sessionId, order',
+            managerRuns: 'id, sessionId, status, turn, assistantOrder, [sessionId+assistantOrder], updatedAt',
+        });
+        version16.upgrade(async (transaction: TavernDexieUpgradeTransaction) => {
+            const messagesTable = transaction.table('messages');
+            const messages = await messagesTable.toArray();
+            const messageIdsByKey = new Map<string, string>();
+            for (const message of messages) {
+                const messageId = String(message.messageId || '').trim() || createId('message');
+                message.messageId = messageId;
+                messageIdsByKey.set(`${String(message.sessionId || '')}\u0000${Number(message.order)}`, messageId);
+            }
+            if (messages.length) {await messagesTable.bulkPut(messages);}
+
+            const managerRunsTable = transaction.table('managerRuns');
+            const managerRuns = await managerRunsTable.toArray();
+            for (const run of managerRuns) {
+                const sessionId = String(run.sessionId || '');
+                const userMessageId = messageIdsByKey.get(`${sessionId}\u0000${Number(run.userOrder)}`);
+                const assistantMessageId = messageIdsByKey.get(`${sessionId}\u0000${Number(run.assistantOrder)}`);
+                if (userMessageId) {run.sourceUserMessageId = userMessageId;}
+                if (assistantMessageId) {run.sourceAssistantMessageId = assistantMessageId;}
+            }
+            if (managerRuns.length) {await managerRunsTable.bulkPut(managerRuns);}
+        });
     }
 }
 
@@ -1062,9 +1092,11 @@ function normalizeMessageRuntimeEvents(value: unknown): TavernRuntimeEvent[] {
 }
 
 function normalizeStoredTavernMessageRecord(record: TavernMessageRecord): TavernMessageRecord {
+    const messageId = String(record.messageId || '').trim();
+    if (!messageId) {throw new Error('message_id_missing');}
     return {
         ...record,
-        messageId: String(record.messageId || '').trim() || undefined,
+        messageId,
         runtimeEvents: normalizeMessageRuntimeEvents(record.runtimeEvents),
         runtimeStateSnapshot: record.runtimeStateSnapshot
             ? createTavernTurnStateSnapshot(record.runtimeStateSnapshot)
@@ -1738,14 +1770,54 @@ function isSameTavernMessageIdentity(
     current: TavernMessageRecord | null | undefined,
     expected: TavernMessageIdentity,
 ): current is TavernMessageRecord {
-    const expectedMessageId = String(expected.messageId || '').trim();
     return !!current
+        && !!expected.messageId
+        && current.messageId === expected.messageId
         && current.sessionId === expected.sessionId
         && current.order === expected.order
         && current.role === expected.role
         && Number(current.createdAt) === Number(expected.createdAt)
-        && (!expectedMessageId || String(current.messageId || '').trim() === expectedMessageId)
         && normalizedMessageTimelineRevision(current) === normalizedMessageTimelineRevision(expected);
+}
+
+export type TavernManagerRunSourceIdentity = Pick<TavernManagerRunRecord,
+    | 'sourceUserMessageId'
+    | 'sourceAssistantMessageId'
+    | 'sourceUserCreatedAt'
+    | 'sourceAssistantCreatedAt'
+    | 'sourceUserRevision'
+    | 'sourceAssistantRevision'
+>;
+
+export function assertTavernManagerRunSourceMessages(
+    expected: TavernManagerRunSourceIdentity,
+    messages: { userMessage: TavernMessageRecord; assistantMessage: TavernMessageRecord },
+): void {
+    const sourceUserMessageId = String(expected.sourceUserMessageId || '').trim();
+    const sourceAssistantMessageId = String(expected.sourceAssistantMessageId || '').trim();
+    const userRevision = normalizedMessageTimelineRevision(messages.userMessage);
+    const assistantRevision = normalizedMessageTimelineRevision(messages.assistantMessage);
+    if (!sourceUserMessageId
+        || !sourceAssistantMessageId
+        || messages.userMessage.messageId !== sourceUserMessageId
+        || messages.assistantMessage.messageId !== sourceAssistantMessageId
+    ) {
+        throw new Error('manager_source_messages_changed');
+    }
+    if (Number.isFinite(Number(expected.sourceUserCreatedAt))
+        && Number(messages.userMessage.createdAt) !== Number(expected.sourceUserCreatedAt)) {
+        throw new Error('manager_source_messages_changed');
+    }
+    if (Number.isFinite(Number(expected.sourceAssistantCreatedAt))
+        && Number(messages.assistantMessage.createdAt) !== Number(expected.sourceAssistantCreatedAt)) {
+        throw new Error('manager_source_messages_changed');
+    }
+    if (Number.isFinite(Number(expected.sourceUserRevision)) && userRevision !== Number(expected.sourceUserRevision)) {
+        throw new Error('manager_source_messages_changed');
+    }
+    if (Number.isFinite(Number(expected.sourceAssistantRevision)) && assistantRevision !== Number(expected.sourceAssistantRevision)) {
+        throw new Error('manager_source_messages_changed');
+    }
 }
 
 function isSameTavernManagerCandidateIdentity(
@@ -2127,6 +2199,8 @@ export async function appendTavernUserMessageAndConfirmManagerCandidate(
                         userOrder: candidate.userOrder,
                         assistantOrder: candidate.assistantOrder,
                         confirmedByUserOrder: order,
+                        sourceUserMessageId: sourceUser.messageId,
+                        sourceAssistantMessageId: sourceAssistant.messageId,
                         sourceUserCreatedAt: Number(sourceUser.createdAt),
                         sourceAssistantCreatedAt: Number(sourceAssistant.createdAt),
                         sourceUserRevision: Math.max(1, Math.floor(Number(sourceUser.timelineRevision) || 1)),
@@ -2814,6 +2888,8 @@ export async function createTavernManagerRun(input: Partial<TavernManagerRunReco
         userOrder: Number.isInteger(Number(input.userOrder)) ? Number(input.userOrder) : -1,
         assistantOrder: Number.isInteger(Number(input.assistantOrder)) ? Number(input.assistantOrder) : -1,
         confirmedByUserOrder: Number.isInteger(Number(input.confirmedByUserOrder)) ? Number(input.confirmedByUserOrder) : undefined,
+        sourceUserMessageId: String(input.sourceUserMessageId || '').trim() || undefined,
+        sourceAssistantMessageId: String(input.sourceAssistantMessageId || '').trim() || undefined,
         sourceUserCreatedAt: Number.isFinite(Number(input.sourceUserCreatedAt)) ? Number(input.sourceUserCreatedAt) : undefined,
         sourceAssistantCreatedAt: Number.isFinite(Number(input.sourceAssistantCreatedAt)) ? Number(input.sourceAssistantCreatedAt) : undefined,
         sourceUserRevision: Number.isFinite(Number(input.sourceUserRevision)) ? Number(input.sourceUserRevision) : undefined,
@@ -2861,6 +2937,8 @@ export async function createRecoveredAcceptedTurnManagerRun(
             userOrder: source.userOrder,
             assistantOrder: source.assistantOrder,
             confirmedByUserOrder: source.confirmedByUserOrder,
+            sourceUserMessageId: source.sourceUserMessageId,
+            sourceAssistantMessageId: source.sourceAssistantMessageId,
             sourceUserCreatedAt: source.sourceUserCreatedAt,
             sourceAssistantCreatedAt: source.sourceAssistantCreatedAt,
             sourceUserRevision: source.sourceUserRevision,
@@ -2920,6 +2998,8 @@ export async function updateTavernManagerRun(
     if ('userOrder' in patch) {update.userOrder = Number(patch.userOrder);}
     if ('assistantOrder' in patch) {update.assistantOrder = Number(patch.assistantOrder);}
     if ('confirmedByUserOrder' in patch) {update.confirmedByUserOrder = Number(patch.confirmedByUserOrder);}
+    if ('sourceUserMessageId' in patch) {update.sourceUserMessageId = String(patch.sourceUserMessageId || '').trim();}
+    if ('sourceAssistantMessageId' in patch) {update.sourceAssistantMessageId = String(patch.sourceAssistantMessageId || '').trim();}
     if ('sourceUserCreatedAt' in patch) {update.sourceUserCreatedAt = Number(patch.sourceUserCreatedAt);}
     if ('sourceAssistantCreatedAt' in patch) {update.sourceAssistantCreatedAt = Number(patch.sourceAssistantCreatedAt);}
     if ('sourceUserRevision' in patch) {update.sourceUserRevision = Number(patch.sourceUserRevision);}

@@ -134,6 +134,7 @@ test('tavern user turn compacts the loaded tail before reserving USER and AI slo
     state.selectedSessionMessageTotal.value = 10;
     state.selectedSessionMessageWindowOffsetFromEnd.value = 3;
     controller.upsertLoadedSessionMessage({
+        messageId: 'message-10',
         sessionId: 'session-1',
         order: 10,
         role: 'assistant',

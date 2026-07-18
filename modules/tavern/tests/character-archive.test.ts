@@ -467,6 +467,7 @@ test('tavern character archive export handles records beyond one DB page without
         characterName: 'Aster',
     });
     await tavernMessagesTable.bulkPut(Array.from({ length: 505 }, (_, index) => ({
+        messageId: `message-${index}`,
         sessionId: 'paged-session',
         order: index,
         role: index % 2 ? 'assistant' : 'user',

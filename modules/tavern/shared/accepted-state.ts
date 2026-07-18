@@ -1,4 +1,5 @@
 import db, {
+    assertTavernManagerRunSourceMessages,
     hashTavernMemoryRecord,
     hashTavernStateDocument,
     tavernManagerMemorySnapshotsTable,
@@ -86,6 +87,7 @@ export async function completeAcceptedTurnManagerRunWithSnapshot(input: {
     return await db.transaction(
         'rw',
         tavernManagerRunsTable,
+        tavernMessagesTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
         tavernManagerTaskSnapshotsTable,
@@ -105,6 +107,17 @@ export async function completeAcceptedTurnManagerRunWithSnapshot(input: {
             if (Number(run.leaseExpiresAt) <= Date.now()) {
                 throw new Error('manager_lease_lost');
             }
+            const [sourceUserMessage, sourceAssistantMessage] = await Promise.all([
+                tavernMessagesTable.get([sessionId, run.userOrder]),
+                tavernMessagesTable.get([sessionId, run.assistantOrder]),
+            ]);
+            if (!sourceUserMessage || !sourceAssistantMessage) {
+                throw new Error('manager_source_messages_changed');
+            }
+            assertTavernManagerRunSourceMessages(run, {
+                userMessage: sourceUserMessage,
+                assistantMessage: sourceAssistantMessage,
+            });
 
             if (domains.has('memory')) {
                 const [snapshots, managerSnapshots] = await Promise.all([
