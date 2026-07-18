@@ -537,7 +537,7 @@ export interface XbTavernRunTurnInput {
     onLatestAssistantRerollPrepared?: (
         sessionId: string,
         userMessage: TavernMessageRecord,
-        previousAssistantMessage: TavernMessageRecord,
+        previousAssistantMessage: TavernMessageRecord | null,
     ) => void | Promise<void>;
     onAssistantMessageSaved?: (sessionId: string, message: TavernMessageRecord) => void | Promise<void>;
     onManagerRunSaved?: (sessionId: string, managerRunId: string) => void | Promise<void>;
@@ -2612,7 +2612,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
                 },
             } : {}),
         };
-        const committed = rerollPreparation
+        const committed = rerollPreparation?.mode === 'replace_assistant'
             ? await commitTavernLatestAssistantReroll(
                 session.id,
                 rerollPreparation.userMessage,

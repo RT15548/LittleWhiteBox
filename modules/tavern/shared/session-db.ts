@@ -1750,12 +1750,23 @@ export async function appendTavernMessage(sessionId: string, message: TavernAppe
     return normalizeStoredTavernMessageRecord(record);
 }
 
-export interface TavernLatestAssistantRerollPreparation {
+interface TavernLatestAssistantRerollPreparationBase {
     userMessage: TavernMessageRecord;
-    previousAssistantMessage: TavernMessageRecord;
-    candidate: TavernManagerCandidateRecord | null;
     runtimeState: TavernSessionState;
 }
+
+export type TavernLatestAssistantRerollPreparation = TavernLatestAssistantRerollPreparationBase & (
+    | {
+        mode: 'reply_to_user';
+        previousAssistantMessage: null;
+        candidate: null;
+    }
+    | {
+        mode: 'replace_assistant';
+        previousAssistantMessage: TavernMessageRecord;
+        candidate: TavernManagerCandidateRecord | null;
+    }
+);
 
 function normalizedMessageTimelineRevision(message?: Pick<TavernMessageRecord, 'timelineRevision'> | null): number {
     return Math.max(1, Math.floor(Number(message?.timelineRevision) || 1));
@@ -1853,32 +1864,49 @@ export async function prepareTavernLatestAssistantReroll(
         async () => {
             const existingSession = await tavernSessionsTable.get(id);
             if (!existingSession) {throw new Error('session_missing');}
-            const latestAssistant = await getLatestTavernMessage(id);
-            if (!latestAssistant || latestAssistant.role !== 'assistant' || latestAssistant.error) {
+            const latestMessage = await getLatestTavernMessage(id);
+            if (!latestMessage || !['user', 'assistant'].includes(latestMessage.role)) {
                 throw new Error('reroll_latest_assistant_required');
             }
-            const userMessage = await getLatestTavernUserMessageAtOrBefore(id, latestAssistant.order - 1);
+            const mode = latestMessage.role === 'user' ? 'reply_to_user' : 'replace_assistant';
+            const userMessage = mode === 'reply_to_user'
+                ? latestMessage
+                : await getLatestTavernUserMessageAtOrBefore(id, latestMessage.order - 1);
             if (!userMessage
                 || userMessage.error
-                || userMessage.order + 1 !== latestAssistant.order
+                || (mode === 'replace_assistant' && userMessage.order + 1 !== latestMessage.order)
                 || !userMessage.runtimeStateSnapshot
             ) {
                 throw new Error('reroll_latest_pair_invalid');
             }
-            if (await hasTavernManagerRunForAssistant(id, latestAssistant.order)) {
+            if (mode === 'replace_assistant' && await hasTavernManagerRunForAssistant(id, latestMessage.order)) {
                 throw new Error('reroll_latest_pair_already_confirmed');
             }
             const candidate = await tavernManagerCandidatesTable.get(id);
-            if (candidate && (candidate.userOrder !== userMessage.order || candidate.assistantOrder !== latestAssistant.order)) {
+            if (candidate && (mode === 'reply_to_user'
+                || candidate.userOrder !== userMessage.order
+                || candidate.assistantOrder !== latestMessage.order
+            )) {
                 throw new Error('reroll_candidate_mismatch');
             }
             const restoredStateInput: Partial<TavernSessionState> = {
                 ...userMessage.runtimeStateSnapshot,
             };
             const restoredState = buildReplacementTavernSessionState(existingSession, restoredStateInput);
+            const normalizedUserMessage = normalizeStoredTavernMessageRecord(userMessage);
+            if (mode === 'reply_to_user') {
+                return {
+                    mode,
+                    userMessage: normalizedUserMessage,
+                    previousAssistantMessage: null,
+                    candidate: null,
+                    runtimeState: restoredState,
+                };
+            }
             return {
-                userMessage: normalizeStoredTavernMessageRecord(userMessage),
-                previousAssistantMessage: normalizeStoredTavernMessageRecord(latestAssistant),
+                mode,
+                userMessage: normalizedUserMessage,
+                previousAssistantMessage: normalizeStoredTavernMessageRecord(latestMessage),
                 candidate: candidate ? cloneSerializable(candidate, candidate) : null,
                 runtimeState: restoredState,
             };
@@ -1910,6 +1938,50 @@ export interface TavernAssistantResponseCommitOptions {
     managerCandidate?: {
         turn: number;
         inputSummary?: string;
+    };
+}
+
+function buildTavernUserMessageCommitPatch(
+    patch: NonNullable<TavernAssistantResponseCommitOptions['userMessagePatch']>,
+): Partial<TavernMessageRecord> {
+    return {
+        ...('runtimeEvents' in patch ? { runtimeEvents: normalizeMessageRuntimeEvents(patch.runtimeEvents) } : {}),
+        ...('contextSnapshot' in patch ? { contextSnapshot: cloneSerializable(patch.contextSnapshot, undefined) } : {}),
+        ...('buildSnapshot' in patch ? { buildSnapshot: cloneSerializable(patch.buildSnapshot, undefined) } : {}),
+        ...('chatPresetId' in patch ? { chatPresetId: String(patch.chatPresetId || '') } : {}),
+        ...('chatPresetName' in patch ? { chatPresetName: String(patch.chatPresetName || '') } : {}),
+        ...('presetId' in patch ? { presetId: String(patch.presetId || '') } : {}),
+        ...('presetName' in patch ? { presetName: String(patch.presetName || '') } : {}),
+        ...('requestSnapshot' in patch ? { requestSnapshot: cloneSerializable(patch.requestSnapshot, undefined) } : {}),
+    };
+}
+
+function buildTavernAssistantSessionUpdate(
+    existingSession: TavernSessionRecord,
+    state: TavernSessionState,
+    sessionSnapshot: TavernAssistantResponseCommitOptions['sessionSnapshot'],
+    timestamp: number,
+): Partial<TavernSessionRecord> {
+    return {
+        state: cloneSerializable(state, {}),
+        updatedAt: timestamp,
+        contextSnapshot: cloneSerializable(sessionSnapshot?.contextSnapshot ?? existingSession.contextSnapshot, undefined),
+        buildSnapshot: cloneSerializable(
+            sessionSnapshot?.buildSnapshot ?? state.lastBuildSnapshot ?? existingSession.buildSnapshot,
+            undefined,
+        ),
+        chatPresetId: 'chatPresetId' in (sessionSnapshot || {})
+            ? String(sessionSnapshot?.chatPresetId || '')
+            : existingSession.chatPresetId,
+        chatPresetName: 'chatPresetName' in (sessionSnapshot || {})
+            ? String(sessionSnapshot?.chatPresetName || '')
+            : existingSession.chatPresetName,
+        presetId: 'presetId' in (sessionSnapshot || {})
+            ? String(sessionSnapshot?.presetId || '')
+            : existingSession.presetId,
+        presetName: 'presetName' in (sessionSnapshot || {})
+            ? String(sessionSnapshot?.presetName || '')
+            : existingSession.presetName,
     };
 }
 
@@ -1966,6 +2038,12 @@ export async function commitTavernAssistantResponseForLatestUser(
             const state = options.replaceSessionState
                 ? buildReplacementTavernSessionState(existingSession, options.sessionState)
                 : buildUpdatedTavernSessionState(existingSession, options.sessionState);
+            if (options.userMessagePatch) {
+                await tavernMessagesTable.update(
+                    [id, latest.order],
+                    buildTavernUserMessageCommitPatch(options.userMessagePatch),
+                );
+            }
             await tavernMessagesTable.put(assistantMessage);
             let managerCandidate: TavernManagerCandidateRecord | null = null;
             if (options.managerCandidate) {
@@ -1978,11 +2056,10 @@ export async function commitTavernAssistantResponseForLatestUser(
                 );
                 await tavernManagerCandidatesTable.put(managerCandidate);
             }
-            await tavernSessionsTable.update(id, {
-                state: cloneSerializable(state, {}),
-                updatedAt: timestamp,
-                buildSnapshot: cloneSerializable(state.lastBuildSnapshot || existingSession.buildSnapshot, undefined),
-            });
+            await tavernSessionsTable.update(
+                id,
+                buildTavernAssistantSessionUpdate(existingSession, state, options.sessionSnapshot, timestamp),
+            );
             const session = await tavernSessionsTable.get(id);
             if (!session) {throw new Error('session_missing');}
             return {
@@ -2034,7 +2111,6 @@ export async function commitTavernLatestAssistantReroll(
             if (!isSameTavernMessageIdentity(currentUser, expectedUser)
                 || currentUser.error
                 || !isSameTavernMessageIdentity(currentAssistant, expectedAssistant)
-                || currentAssistant.error
             ) {
                 throw new Error('assistant_timeline_advanced');
             }
@@ -2050,17 +2126,10 @@ export async function commitTavernLatestAssistantReroll(
                 ? buildReplacementTavernSessionState(existingSession, options.sessionState)
                 : buildUpdatedTavernSessionState(existingSession, options.sessionState);
             if (options.userMessagePatch) {
-                const patch = options.userMessagePatch;
-                await tavernMessagesTable.update([id, currentUser.order], {
-                    ...('runtimeEvents' in patch ? { runtimeEvents: normalizeMessageRuntimeEvents(patch.runtimeEvents) } : {}),
-                    ...('contextSnapshot' in patch ? { contextSnapshot: cloneSerializable(patch.contextSnapshot, undefined) } : {}),
-                    ...('buildSnapshot' in patch ? { buildSnapshot: cloneSerializable(patch.buildSnapshot, undefined) } : {}),
-                    ...('chatPresetId' in patch ? { chatPresetId: String(patch.chatPresetId || '') } : {}),
-                    ...('chatPresetName' in patch ? { chatPresetName: String(patch.chatPresetName || '') } : {}),
-                    ...('presetId' in patch ? { presetId: String(patch.presetId || '') } : {}),
-                    ...('presetName' in patch ? { presetName: String(patch.presetName || '') } : {}),
-                    ...('requestSnapshot' in patch ? { requestSnapshot: cloneSerializable(patch.requestSnapshot, undefined) } : {}),
-                });
+                await tavernMessagesTable.update(
+                    [id, currentUser.order],
+                    buildTavernUserMessageCommitPatch(options.userMessagePatch),
+                );
             }
             await tavernMessagesTable.put(assistantMessage);
             let managerCandidate: TavernManagerCandidateRecord | null = null;
@@ -2076,27 +2145,10 @@ export async function commitTavernLatestAssistantReroll(
             } else if (currentCandidate) {
                 await tavernManagerCandidatesTable.delete(id);
             }
-            await tavernSessionsTable.update(id, {
-                state: cloneSerializable(state, {}),
-                updatedAt: timestamp,
-                contextSnapshot: cloneSerializable(options.sessionSnapshot?.contextSnapshot ?? existingSession.contextSnapshot, undefined),
-                buildSnapshot: cloneSerializable(
-                    options.sessionSnapshot?.buildSnapshot ?? state.lastBuildSnapshot ?? existingSession.buildSnapshot,
-                    undefined,
-                ),
-                chatPresetId: 'chatPresetId' in (options.sessionSnapshot || {})
-                    ? String(options.sessionSnapshot?.chatPresetId || '')
-                    : existingSession.chatPresetId,
-                chatPresetName: 'chatPresetName' in (options.sessionSnapshot || {})
-                    ? String(options.sessionSnapshot?.chatPresetName || '')
-                    : existingSession.chatPresetName,
-                presetId: 'presetId' in (options.sessionSnapshot || {})
-                    ? String(options.sessionSnapshot?.presetId || '')
-                    : existingSession.presetId,
-                presetName: 'presetName' in (options.sessionSnapshot || {})
-                    ? String(options.sessionSnapshot?.presetName || '')
-                    : existingSession.presetName,
-            });
+            await tavernSessionsTable.update(
+                id,
+                buildTavernAssistantSessionUpdate(existingSession, state, options.sessionSnapshot, timestamp),
+            );
             const session = await tavernSessionsTable.get(id);
             if (!session) {throw new Error('session_missing');}
             return {

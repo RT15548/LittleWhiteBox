@@ -392,8 +392,10 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                 },
                 onLatestAssistantRerollPrepared: async (sessionId, message, previousAssistantMessage) => {
                     options.setSelectedSessionId(sessionId);
-                    rerollPreviousAssistantOrder = previousAssistantMessage.order;
-                    options.pruneLoadedSessionMessagesFromOrder(sessionId, previousAssistantMessage.order);
+                    if (previousAssistantMessage) {
+                        rerollPreviousAssistantOrder = previousAssistantMessage.order;
+                        options.pruneLoadedSessionMessagesFromOrder(sessionId, previousAssistantMessage.order);
+                    }
                     state.runtimeAssistantMessageKey.value = `${message.sessionId}:${Number(message.order) + 1}`;
                     state.runtimeUserMessageVisible.value = true;
                     state.runtimePendingUserMessage.value = '';

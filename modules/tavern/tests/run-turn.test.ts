@@ -5178,6 +5178,90 @@ test('xb tavern run turn can rerun from an existing user without duplicating the
     assert.doesNotMatch(rawMessages, /ignored because reused order wins/);
 });
 
+test('xb tavern reroll replies to an existing user tail without creating a duplicate user', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const contextSnapshot = {
+        character: { characterKey: 'char-1', name: 'Aster' },
+    };
+    const session = await createTavernSession({
+        title: 'Dangling user reroll',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot,
+        state: { turn: 0 },
+    });
+    const user = await appendTavernMessage(session.id, {
+        role: 'user',
+        content: 'Reply to this existing user.',
+        runtimeStateSnapshot: createTavernTurnStateSnapshot((await getTavernSession(session.id))?.state),
+    });
+
+    const result = await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'must not be appended',
+        rerollLatestAssistant: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'Fresh reply.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+
+    assert.equal(result.userMessage.messageId, user.messageId);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => `${message.order}:${message.role}:${message.content}`), [
+        '0:user:Reply to this existing user.',
+        '1:assistant:Fresh reply.',
+    ]);
+});
+
+test('xb tavern reroll replaces a failed assistant tail', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const contextSnapshot = {
+        character: { characterKey: 'char-1', name: 'Aster' },
+    };
+    const session = await createTavernSession({
+        title: 'Failed assistant reroll',
+        characterKey: 'char-1',
+        characterName: 'Aster',
+        contextSnapshot,
+        state: { turn: 0 },
+    });
+    await appendTavernMessage(session.id, {
+        role: 'user',
+        content: 'Retry the failed reply.',
+        runtimeStateSnapshot: createTavernTurnStateSnapshot((await getTavernSession(session.id))?.state),
+    });
+    const failedAssistant = await appendTavernMessage(session.id, {
+        role: 'assistant',
+        content: 'provider_failed',
+        error: true,
+        finishReason: 'error',
+    });
+
+    const result = await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot,
+        preset,
+        currentUserMessage: 'ignored',
+        rerollLatestAssistant: true,
+        executeRunOnce: async (options: TavernRunOnceOptions) => ({
+            text: 'Recovered reply.',
+            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+        }),
+    });
+
+    assert.notEqual(result.assistantMessage?.messageId, failedAssistant.messageId);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => `${message.order}:${message.role}:${message.content}`), [
+        '0:user:Retry the failed reply.',
+        '1:assistant:Recovered reply.',
+    ]);
+});
+
 test('xb tavern discards a late assistant reply when another tab advances the user tail', async () => {
     await resetDb();
     const preset = createDefaultXbTavernPreset();

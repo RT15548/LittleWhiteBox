@@ -799,7 +799,8 @@ test('tavern RP reroll controls always target the database tail pair', () => {
     assert.match(conversationSource, /title="重 roll 最后一轮"[\s\S]*aria-label="重 roll 最后一轮"[\s\S]*@click="rerollLatestAssistant\(\)"/);
     assert.match(assistantBubbleSource, /function rerunMessage\(\) \{[\s\S]*chat\.rerollLatestAssistant\(\);[\s\S]*title="重 roll 最后一轮"[\s\S]*aria-label="重 roll 最后一轮"/);
     assert.match(runtimeSource, /input\.rerollLatestAssistant[\s\S]*prepareTavernLatestAssistantReroll\(baseSession\.id\)/);
-    assert.match(sessionDbSource, /const latestAssistant = await getLatestTavernMessage\(id\);[\s\S]*latestAssistant\.role !== 'assistant'[\s\S]*getLatestTavernUserMessageAtOrBefore\(id, latestAssistant\.order - 1\)/);
+    assert.match(sessionDbSource, /const latestMessage = await getLatestTavernMessage\(id\);[\s\S]*\['user', 'assistant'\]\.includes\(latestMessage\.role\)[\s\S]*latestMessage\.role === 'user' \? 'reply_to_user' : 'replace_assistant'[\s\S]*getLatestTavernUserMessageAtOrBefore\(id, latestMessage\.order - 1\)/);
+    assert.match(runtimeSource, /rerollPreparation\?\.mode === 'replace_assistant'[\s\S]*commitTavernLatestAssistantReroll\([\s\S]*commitTavernAssistantResponseForLatestUser\(/);
     assert.doesNotMatch(combinedSource, /reuseUserMessageOrder|resolveTavernRerunUserMessage|rerunFromMessage|canRerunMessage|tavern-rerun/);
 });
 
@@ -1505,7 +1506,7 @@ test('tavern data rollback helpers keep paired state writes inside transactions'
     );
     assert.match(prepareRerollSource, /db\.transaction\(\s*'r',[\s\S]*runtimeState: restoredState/);
     assert.doesNotMatch(prepareRerollSource, /\.delete\(|\.put\(|\.update\(/);
-    assert.match(commitRerollSource, /db\.transaction\(\s*'rw',[\s\S]*isSameTavernMessageIdentity\(currentUser, expectedUser\)[\s\S]*isSameTavernMessageIdentity\(currentAssistant, expectedAssistant\)[\s\S]*tavernMessagesTable\.put\(assistantMessage\)[\s\S]*tavernManagerCandidatesTable\.(?:put|delete)[\s\S]*tavernSessionsTable\.update\(id,/);
+    assert.match(commitRerollSource, /db\.transaction\(\s*'rw',[\s\S]*isSameTavernMessageIdentity\(currentUser, expectedUser\)[\s\S]*isSameTavernMessageIdentity\(currentAssistant, expectedAssistant\)[\s\S]*tavernMessagesTable\.put\(assistantMessage\)[\s\S]*tavernManagerCandidatesTable\.(?:put|delete)[\s\S]*tavernSessionsTable\.update\([\s\S]*buildTavernAssistantSessionUpdate/);
     assert.match(sessionDbSource, /messageId: createId\('message'\)/);
     assert.match(sessionDbSource, /export interface TavernMessageRecord \{\s*messageId: string;/);
     assert.doesNotMatch(sessionDbSource, /export interface TavernMessageRecord \{\s*messageId\?: string;/);
@@ -2350,7 +2351,7 @@ test('tavern draw jobs are message-queued and route progress by host request', (
     assert.match(appSource, /async function deleteMessageTurn\(message: TavernMessageRecord\) \{[\s\S]*const fromOrder = Math\.min\(\.\.\.ordersToDelete\);[\s\S]*drawContext\.cancelJobsForMessageRange\(message\.sessionId, fromOrder\);/);
     assert.match(appSource, /async function rerollLatestAssistant\(\) \{[\s\S]*await runOnce\(\{ rerollLatestAssistant: true \}\);/);
     assert.match(appSource, /cancelDrawJobsForMessageRange: drawContext\.cancelJobsForMessageRange/);
-    assert.match(chatRunSource, /onLatestAssistantRerollPrepared: async \(sessionId, message, previousAssistantMessage\) => \{[\s\S]*rerollPreviousAssistantOrder = previousAssistantMessage\.order;[\s\S]*options\.pruneLoadedSessionMessagesFromOrder\(sessionId, previousAssistantMessage\.order\);/);
+    assert.match(chatRunSource, /onLatestAssistantRerollPrepared: async \(sessionId, message, previousAssistantMessage\) => \{[\s\S]*if \(previousAssistantMessage\) \{[\s\S]*rerollPreviousAssistantOrder = previousAssistantMessage\.order;[\s\S]*options\.pruneLoadedSessionMessagesFromOrder\(sessionId, previousAssistantMessage\.order\);/);
     assert.match(chatRunSource, /onAssistantMessageSaved: async \(sessionId, message\) => \{[\s\S]*rerollPreviousAssistantOrder !== null[\s\S]*options\.cancelDrawJobsForMessageRange\(sessionId, rerollPreviousAssistantOrder\);/);
     assert.match(appSource, /async function saveEditMessage\(message: TavernMessageRecord[\s\S]*drawContext\.cancelJob\(messageKey\(message\)\);[\s\S]*const updated = await updateTavernMessage/);
 
@@ -2573,7 +2574,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.doesNotMatch(appSource, /let suppressNextChatWindowLimitReload = false;/);
     assert.match(sessionSource, /let suppressNextChatWindowLimitReloadPending = false;/);
     assert.doesNotMatch(chatRunSource, /followRunAtBottom|setSuppressNextChatWindowLimitReload|options\.chatAutoScroll/);
-    assert.match(chatRunSource, /const isRerollRun = runOptions\.rerollLatestAssistant === true;[\s\S]*await options\.resetChatMessageWindowForUserTurn\(\{ rerollLatestAssistant: isRerollRun \}\);[\s\S]*options\.compactLoadedSessionMessageWindow\(isRerollRun \? 1 : 2\);[\s\S]*onLatestAssistantRerollPrepared:[\s\S]*previousAssistantMessage\.order[\s\S]*options\.pruneLoadedSessionMessagesFromOrder/);
+    assert.match(chatRunSource, /const isRerollRun = runOptions\.rerollLatestAssistant === true;[\s\S]*await options\.resetChatMessageWindowForUserTurn\(\{ rerollLatestAssistant: isRerollRun \}\);[\s\S]*options\.compactLoadedSessionMessageWindow\(isRerollRun \? 1 : 2\);[\s\S]*onLatestAssistantRerollPrepared:[\s\S]*if \(previousAssistantMessage\)[\s\S]*options\.pruneLoadedSessionMessagesFromOrder/);
     assert.doesNotMatch(chatRunSource, /onLatestAssistantRerollPrepared:[\s\S]{0,700}loadSelectedSessionMessageWindow/);
     assert.match(chatRunSource, /catch \(error\) \{[\s\S]*if \(isRerollRun && options\.selectedSessionId\.value\)[\s\S]*loadSelectedSessionMessageWindow/);
     assert.match(appSource, /watch\(\[\s*\(\) => chatMessageWindowLimit\.value,[\s\S]*\(\) => selectedSessionMessageWindowOffsetFromEnd\.value,[\s\S]*sessionController\.handleChatMessageWindowStateChanged\(\);/);
