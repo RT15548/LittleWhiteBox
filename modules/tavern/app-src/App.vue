@@ -4,6 +4,7 @@ import {
     getMessageWindow,
     normalizeHiddenOutsideCount,
     normalizeMessageLoadBatchSize,
+    TAVERN_CHAT_MESSAGE_WINDOW_MAX,
 } from './message-window';
 import { normalizeTavernDisplaySettings, type TavernDisplaySettings } from '../shared/settings';
 import { TAVERN_INLINE_IMAGE_PROGRESS_EVENT, useTavernMarkdownTools } from './components/chat/useTavernMarkdownTools';
@@ -31,7 +32,6 @@ import {
     createTavernSession,
     clearTavernAssistantChatMessages,
     deleteTavernAssistantChatMessages,
-    deleteTavernMessages,
     getLatestTavernAssistantOrder,
     getLatestTavernUserMessageAtOrBefore,
     getTavernMessage,
@@ -39,10 +39,9 @@ import {
     listTavernAssistantChatMessages,
     listTavernManagerRuns,
     listTavernMessageOrdersFrom,
-    listTavernMessages,
     normalizeTavernSessionState,
     replaceTavernAssistantChatMessages,
-    replaceTavernSessionState,
+    truncateTavernMessagesAndReplaceSessionState,
     updateTavernSessionState,
     updateTavernAssistantChatMessage,
     updateTavernMessage,
@@ -105,12 +104,11 @@ import type { TavernApplyRegexItem, TavernApplyRegexResult } from '../shared/reg
 import type { TavernSubstituteParamsItem, TavernSubstituteParamsOptions, TavernSubstituteParamsResult } from '../shared/substitute-params';
 import {
     buildContextHistory,
-    deriveTavernSessionStateFromMessagesAsync,
     resumeQueuedAcceptedTurnManagers,
-    resolveTavernContextWindow,
     simulateXbTavernRequest,
     type TavernBuildNativeChatPromptRuntime,
 } from './runtime/run-once';
+import { resolveTavernHistoryBoundaryState } from './runtime/history-boundary-state';
 import {
     buildManagerChatDisplayItems,
     type ManagerChatDisplayItem,
@@ -289,7 +287,6 @@ const sessionState = createTavernSessionState();
 const {
     chatMessages,
     currentAssistantFloor,
-    latestSessionMessage,
     loadedSessionMessageEndOrder,
     loadedSessionMessageStartOrder,
     loadedSessionMessages,
@@ -297,6 +294,7 @@ const {
     selectedSessionId,
     selectedSessionLatestAssistantOrder,
     selectedSessionMessageTotal,
+    selectedSessionMessageWindowOffsetFromEnd,
     sessionMessageCounts,
     sessions,
     visibleChatMessages,
@@ -448,6 +446,9 @@ const chatScrollPane = useTavernScrollPane({
     totalItems: () => selectedSessionMessageTotal.value,
     defaultLimit: hiddenOutsideCount,
     loadBatchSize,
+    maxWindowLimit: TAVERN_CHAT_MESSAGE_WINDOW_MAX,
+    windowOffsetFromEnd: selectedSessionMessageWindowOffsetFromEnd,
+    isWindowPinned: () => isRoleplayMessageEditing(),
 });
 const managerScrollPane = useTavernScrollPane({
     totalItems: () => managerChatDisplayItems.value.length,
@@ -468,6 +469,7 @@ const managerScrollControlsActive = managerScrollPane.scrollControlsActive;
 const chatMessageWindowLimit = chatScrollPane.messageWindowLimit;
 const managerMessageWindowLimit = managerScrollPane.messageWindowLimit;
 const editingMessageKey = ref('');
+const editingManagerMessageKey = ref('');
 const editingMessageDraft = ref('');
 const showPromptInspector = ref(false);
 const promptInspectorTab = ref<'history' | 'simulate'>('history');
@@ -1331,7 +1333,7 @@ const chatSubtitle = computed(() => {
 });
 const canSendMessage = computed(() => !isCancellingRun.value && (
     isRunning.value
-    || (!isPhoneSendingForSession() && !selectedSessionCharacterError.value && !!currentUserMessage.value.trim())
+    || (!isRoleplayMessageEditing() && !isPhoneSendingForSession() && !selectedSessionCharacterError.value && !!currentUserMessage.value.trim())
 ));
 const canSendManagerMessage = computed(() => !isManagerAssistantCancelling.value && (
     isManagerAssistantRunning.value
@@ -1566,7 +1568,7 @@ function runtimeDisplayRegexCacheKey(
         actionCheckSignature?: string;
     },
 ) {
-    const latestOrder = latestSessionMessage.value?.order ?? -1;
+    const latestOrder = selectedSessionLatestAssistantOrder.value;
     return [
         'runtime',
         kind,
@@ -2879,31 +2881,6 @@ async function pollLiveManagerRecords() {
     }
 }
 
-async function rebuildSelectedSessionRuntimeState() {
-    if (!selectedSessionId.value) {return;}
-    const currentSessionState = normalizeTavernSessionState(selectedSession.value?.state || {});
-    const messages = await listTavernMessages(selectedSessionId.value);
-    const runtimeContext = await resolveRuntimeContextForSession(selectedSessionId.value);
-    const state = await deriveTavernSessionStateFromMessagesAsync({
-        messages,
-        contextSnapshot: runtimeContext,
-        chatPreset: runtimeChatPreset.value,
-        historyMode: historyMode.value,
-        diagnostics: diagnostics.value,
-        applySubstituteParams: applyTavernSubstituteParams,
-        getNativeWorldInfoRuntime: getNativeWorldbookRuntime,
-    });
-    await replaceTavernSessionState(selectedSessionId.value, {
-        ...state,
-        contract: currentSessionState.contract,
-        contextWindowStartOrder: resolveTavernContextWindow({
-            messages,
-            contextWindowStartOrder: currentSessionState.contextWindowStartOrder,
-        }).contextWindowStartOrder,
-    });
-    await refreshSessions();
-}
-
 function resetSessionPreviewState() {
     simulateRequestSequence += 1;
     chatRunController.resetChatRunPreviewState();
@@ -2920,17 +2897,25 @@ function resetSessionPreviewState() {
     clearMarkdownCache();
 }
 
-const resetChatMessageWindowState = chatScrollPane.resetWindowState;
+function resetChatMessageWindowState() {
+    chatScrollPane.resetWindowState(true);
+}
 const resetManagerMessageWindowState = managerScrollPane.resetWindowState;
 const revealOlderChatMessages = chatScrollPane.revealOlderMessages;
+const revealNewerChatMessages = chatScrollPane.revealNewerMessages;
 const revealOlderManagerMessages = managerScrollPane.revealOlderMessages;
 
-function resetChatMessageWindowForUserTurn() {
+async function resetChatMessageWindowForUserTurn(options: { rerollLatestAssistant?: boolean } = {}) {
     const defaultLimit = normalizeHiddenOutsideCount(hiddenOutsideCount.value);
-    if (chatMessageWindowLimit.value !== defaultLimit) {
+    const windowChanged = chatMessageWindowLimit.value !== defaultLimit
+        || selectedSessionMessageWindowOffsetFromEnd.value !== 0;
+    if (windowChanged) {
         sessionController.suppressNextChatWindowLimitReload();
     }
     resetChatMessageWindowState();
+    if (windowChanged && options.rerollLatestAssistant !== true && selectedSessionId.value) {
+        await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
+    }
 }
 
 function getCharacterGreetingOptions(character: XbTavernCharacter = {}) {
@@ -3083,6 +3068,10 @@ async function finishPendingCharacterSession() {
 }
 
 async function selectCharacterAndCreateSession(characterKey: string) {
+    if (isRunning.value || isCancellingRun.value) {
+        showTavernToast('角色正在回复，完成或停止后再切换会话', { tone: 'info', durationMs: 2600 });
+        return;
+    }
     const targetKey = String(characterKey || '').trim();
     if (!targetKey || pendingCharacterSessionKey.value) {return;}
     const wasPreviewed = targetKey === String(selectedCharacterPreviewKey.value || '').trim();
@@ -3105,6 +3094,11 @@ async function selectCharacterAndCreateSession(characterKey: string) {
 }
 
 async function selectSession(sessionId: string) {
+    if (isRunning.value || isCancellingRun.value) {
+        showTavernToast('角色正在回复，完成或停止后再切换会话', { tone: 'info', durationMs: 2600 });
+        return;
+    }
+    editingMessageKey.value = '';
     await sessionController.selectSession(sessionId);
 }
 
@@ -3355,13 +3349,9 @@ function canEditManagerMessage(message: TavernAssistantChatMessageRecord) {
         && ['user', 'assistant'].includes(message.role);
 }
 
-function canRerunMessage(message: TavernMessageRecord) {
-    if (isRunning.value || isPhoneSendingForSession(message.sessionId)) {return false;}
-    if (!['user', 'assistant'].includes(message.role)) {return false;}
-    const latest = latestSessionMessage.value;
-    return !!latest
-        && latest.sessionId === message.sessionId
-        && ['user', 'assistant'].includes(latest.role);
+function canRerunLatestAssistant() {
+    if (isRunning.value || isRoleplayMessageEditing() || !selectedSessionId.value) {return false;}
+    return !isPhoneSendingForSession(selectedSessionId.value);
 }
 
 function findManagerTurnUserMessage(
@@ -3391,8 +3381,12 @@ function isEditingMessage(message: TavernMessageRecord) {
     return editingMessageKey.value === messageKey(message);
 }
 
+function isRoleplayMessageEditing() {
+    return !!editingMessageKey.value;
+}
+
 function isEditingManagerMessage(message: TavernAssistantChatMessageRecord) {
-    return editingMessageKey.value === managerMessageKey(message);
+    return editingManagerMessageKey.value === managerMessageKey(message);
 }
 
 function isEditingManagerMessageDirty(message: TavernAssistantChatMessageRecord) {
@@ -3512,12 +3506,14 @@ async function copyManagerMessage(message: TavernAssistantChatMessageRecord) {
 
 function startEditMessage(message: TavernMessageRecord) {
     if (!canEditMessage(message)) {return;}
+    editingManagerMessageKey.value = '';
     editingMessageKey.value = messageKey(message);
 }
 
 function startEditManagerMessage(message: TavernAssistantChatMessageRecord) {
     if (!canEditManagerMessage(message)) {return;}
-    editingMessageKey.value = managerMessageKey(message);
+    editingMessageKey.value = '';
+    editingManagerMessageKey.value = managerMessageKey(message);
     editingMessageDraft.value = message.content || '';
     void nextTick(() => {
         const textarea = managerScrollRef.value?.querySelector<HTMLTextAreaElement>(`[data-manager-message-editor="${managerMessageKey(message)}"]`);
@@ -3529,7 +3525,11 @@ function startEditManagerMessage(message: TavernAssistantChatMessageRecord) {
 }
 
 function cancelEditMessage() {
-    editingMessageKey.value = '';
+    if (editingManagerMessageKey.value) {
+        editingManagerMessageKey.value = '';
+    } else {
+        editingMessageKey.value = '';
+    }
     editingMessageDraft.value = '';
     void nextTick(() => {
         enhanceChatMarkdown();
@@ -3589,7 +3589,9 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rollback
         return;
     }
     if (content === String(message.content || '').trim()) {
-        cancelEditMessage();
+        if (editingMessageKey.value === messageKey(message)) {
+            editingMessageKey.value = '';
+        }
         return;
     }
     if (shouldRollbackState) {
@@ -3615,21 +3617,24 @@ async function saveEditMessage(message: TavernMessageRecord, options: { rollback
     }, {
         incrementTimelineRevision: true,
     });
-    if (updated && shouldRollbackState) {
+    if (!updated) {
+        flashMessageAction(message, 'edit', false);
+        return;
+    }
+    if (shouldRollbackState) {
         await cancelAcceptedRollbackManagersBeforeMessage(message.sessionId, message.order);
         await restoreAcceptedStateBeforeMessage(message.sessionId, message.order);
     }
-    if (updated && selectedSessionId.value) {
-        await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
+    if (selectedSessionId.value === message.sessionId) {
+        await loadSelectedSessionMessageWindow({ sessionId: message.sessionId });
         if (shouldRollbackState) {
-            await refreshManagerRecords(selectedSessionId.value);
+            await refreshManagerRecords(message.sessionId);
         }
     }
-    cancelEditMessage();
-    flashMessageAction(updated || message, 'edit', !!updated);
-    if (updated && shouldRollbackState) {
-        await rebuildSelectedSessionRuntimeState();
+    if (editingMessageKey.value === messageKey(message)) {
+        editingMessageKey.value = '';
     }
+    flashMessageAction(updated, 'edit', true);
 }
 
 async function saveEditManagerMessage(message: TavernAssistantChatMessageRecord, options: { rerun?: boolean } = {}) {
@@ -3692,18 +3697,37 @@ async function deleteMessageTurn(message: TavernMessageRecord) {
         confirmText: '删除',
         tone: 'danger',
     })) {return;}
+    let boundaryState: Awaited<ReturnType<typeof resolveTavernHistoryBoundaryState>>;
+    try {
+        const session = await getTavernSession(message.sessionId);
+        if (!session) {throw new Error('session_missing');}
+        boundaryState = await resolveTavernHistoryBoundaryState({
+            sessionId: message.sessionId,
+            boundaryOrder: fromOrder,
+            currentState: session.state,
+        });
+    } catch (error) {
+        console.error('[小白酒馆] 删除边界状态解析失败', error);
+        showTavernToast('无法读取删除边界，剧情楼层未删除。', {
+            tone: 'warning',
+            durationMs: 7000,
+        });
+        flashMessageAction(message, 'delete', false);
+        return;
+    }
     drawContext.cancelJobsForMessageRange(message.sessionId, fromOrder);
     await cancelAcceptedRollbackManagersBeforeMessage(message.sessionId, fromOrder);
-    const deleted = await deleteTavernMessages(message.sessionId, ordersToDelete);
+    const mutation = await truncateTavernMessagesAndReplaceSessionState(message.sessionId, fromOrder, boundaryState);
+    if (!mutation.session) {throw new Error('session_missing');}
+    const deleted = mutation.deleted;
     if (deleted > 0) {
         await restoreAcceptedStateBeforeMessage(message.sessionId, fromOrder);
     }
-    if (selectedSessionId.value) {
-        await loadSelectedSessionMessageWindow({ sessionId: selectedSessionId.value });
-        await refreshManagerRecords(selectedSessionId.value);
-    }
-    if (deleted > 0) {
-        await rebuildSelectedSessionRuntimeState();
+    if (selectedSessionId.value === message.sessionId) {
+        resetChatMessageWindowState();
+        await loadSelectedSessionMessageWindow({ sessionId: message.sessionId });
+        await refreshManagerRecords(message.sessionId);
+        if (deleted > 0) {await refreshSessionRecord(message.sessionId);}
     }
     if (editingMessageKey.value.startsWith(`${message.sessionId}:`)) {
         cancelEditMessage();
@@ -3711,27 +3735,9 @@ async function deleteMessageTurn(message: TavernMessageRecord) {
     flashMessageAction(message, 'delete', deleted > 0);
 }
 
-async function rerunFromMessage(message: TavernMessageRecord) {
-    if (!canRerunMessage(message)) {
-        flashMessageAction(message, 'rerun', false);
-        return;
-    }
-    const latest = latestSessionMessage.value;
-    const userMessage = latest?.role === 'user'
-        ? latest
-        : latest
-            ? await getLatestTavernUserMessageAtOrBefore(latest.sessionId, latest.order)
-            : null;
-    if (!userMessage) {
-        flashMessageAction(message, 'rerun', false);
-        return;
-    }
-    drawContext.cancelJobsForMessageRange(message.sessionId, userMessage.order + 1);
-    flashMessageAction(message, 'rerun', true);
-    await runOnce({
-        messageText: userMessage.content,
-        reuseUserMessageOrder: userMessage.order,
-    });
+async function rerollLatestAssistant() {
+    if (!canRerunLatestAssistant()) {return;}
+    await runOnce({ rerollLatestAssistant: true });
 }
 
 function findManagerDeleteOrders(message: TavernAssistantChatMessageRecord) {
@@ -3779,7 +3785,7 @@ async function deleteManagerMessageTurn(message: TavernAssistantChatMessageRecor
     if (selectedSessionId.value === message.sessionId) {
         managerChatMessages.value = await listTavernAssistantChatMessages(message.sessionId);
     }
-    if (editingMessageKey.value.startsWith(`manager:${message.sessionId}:`)) {
+    if (editingManagerMessageKey.value.startsWith(`manager:${message.sessionId}:`)) {
         cancelEditMessage();
     }
     flashManagerMessageAction(message, 'delete', deleted > 0);
@@ -3927,8 +3933,8 @@ function clearManagerPendingUserMessage(sessionId = '') {
     }
 }
 
-function shouldRunTavernSlashCommand(text: string, options: { reuseUserMessageOrder?: number } = {}) {
-    return !Number.isFinite(Number(options.reuseUserMessageOrder)) && text.trim().startsWith('/');
+function shouldRunTavernSlashCommand(text: string, options: { rerollLatestAssistant?: boolean } = {}) {
+    return options.rerollLatestAssistant !== true && text.trim().startsWith('/');
 }
 
 function isTavernWorldbookCacheResetCommand(text: string): boolean {
@@ -3984,7 +3990,7 @@ function normalizeSlashPipeForMessage(value: unknown): string {
     }
 }
 
-async function resolveSlashCommandMessageText(messageText: string, options: { reuseUserMessageOrder?: number } = {}): Promise<string> {
+async function resolveSlashCommandMessageText(messageText: string, options: { rerollLatestAssistant?: boolean } = {}): Promise<string> {
     if (!shouldRunTavernSlashCommand(messageText, options)) {
         return messageText;
     }
@@ -4093,6 +4099,10 @@ function cancelActiveRun() {
 }
 
 function handleChatSubmit() {
+    if (!isRunning.value && isRoleplayMessageEditing()) {
+        showTavernToast('先保存或取消当前楼层编辑', { tone: 'info', durationMs: 2200 });
+        return;
+    }
     if (!isRunning.value && isPhoneSendingForSession()) {
         warnPhoneWorkInProgress();
         return;
@@ -4101,6 +4111,10 @@ function handleChatSubmit() {
 }
 
 async function runOnce(options: Parameters<typeof chatRunController.runOnce>[0] = {}) {
+    if (!isRunning.value && isRoleplayMessageEditing()) {
+        showTavernToast('先保存或取消当前楼层编辑', { tone: 'info', durationMs: 2200 });
+        return;
+    }
     if (!isRunning.value && isPhoneSendingForSession()) {
         warnPhoneWorkInProgress();
         return;
@@ -4397,7 +4411,7 @@ async function clearAssistantChatHistory() {
     managerInputStatus.value = '';
     managerAutoScroll.value = true;
     resetManagerMessageWindowState();
-    if (editingMessageKey.value.startsWith(`manager:${sessionId}:`)) {
+    if (editingManagerMessageKey.value.startsWith(`manager:${sessionId}:`)) {
         cancelEditMessage();
     }
     clearManagerMessageFeedback(sessionId);
@@ -4432,7 +4446,7 @@ watch([
     () => chatFocus.value,
     () => selectedSessionId.value,
     () => currentNativeCharacterId.value,
-    () => latestSessionMessage.value?.order ?? -1,
+    () => selectedSessionLatestAssistantOrder.value,
     () => roleLabel('assistant'),
 ], () => {
     syncRuntimeDisplayProjectionRequests();
@@ -4474,19 +4488,25 @@ watch(() => liveManagerMarkdownSignature.value, () => {
     void nextTick(() => updateManagerScrollButtons());
 });
 
-watch(() => chatMessageWindowLimit.value, () => {
-    sessionController.handleChatMessageWindowLimitChanged();
+watch([
+    () => chatMessageWindowLimit.value,
+    () => selectedSessionMessageWindowOffsetFromEnd.value,
+], () => {
+    sessionController.handleChatMessageWindowStateChanged();
 });
 
 watch(() => selectedSessionId.value, (nextSessionId, previousSessionId) => {
     if (previousSessionId && previousSessionId !== nextSessionId) {
+        if (editingMessageKey.value.startsWith(`${previousSessionId}:`)) {
+            editingMessageKey.value = '';
+        }
         managerAssistantController.value?.abort();
         clearManagerCompactionOverlayHideTimer();
         managerCompactionOverlay.value = null;
         clearManagerLiveProtocolState(previousSessionId);
         clearManagerPendingUserMessage(previousSessionId);
         clearManagerMessageFeedback(previousSessionId);
-        if (editingMessageKey.value.startsWith(`manager:${previousSessionId}:`)) {
+        if (editingManagerMessageKey.value.startsWith(`manager:${previousSessionId}:`)) {
             cancelEditMessage();
         }
         managerInputStatus.value = '';
@@ -4610,7 +4630,7 @@ const chatContext = {
     actionFeedback,
     cancelEditMessage,
     canEditMessage,
-    canRerunMessage,
+    canRerunLatestAssistant,
     canSendMessage,
     currentAuthorNote,
     chatAutoScroll,
@@ -4648,8 +4668,9 @@ const chatContext = {
     messageKey,
     normalizeTavernSessionState,
     renderChatMarkdown,
-    rerunFromMessage,
+    rerollLatestAssistant,
     revealOlderChatMessages,
+    revealNewerChatMessages,
     releaseMarkdownRootResources,
     roleLabel,
     runtimeStatusElapsedSeconds,

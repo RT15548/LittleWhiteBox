@@ -12,6 +12,9 @@ export interface TavernScrollPaneOptions {
     totalItems: () => number;
     defaultLimit?: number | Ref<number>;
     loadBatchSize?: number | Ref<number>;
+    maxWindowLimit?: number | Ref<number>;
+    windowOffsetFromEnd?: Ref<number>;
+    isWindowPinned?: () => boolean;
 }
 
 export interface TavernScrollToBottomOptions {
@@ -51,11 +54,20 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     const bottomLockThresholdPx = 48;
     const viewportAnchorSelector = '[data-chat-anchor-key], [data-manager-anchor-key]';
 
-    function resetWindowState() {
+    function windowPinned() {
+        return options.isWindowPinned?.() === true;
+    }
+
+    function resetWindowState(force = false) {
+        if (!force && windowPinned()) {return false;}
         const state = { uiMessageWindowLimit: messageWindowLimit.value };
         resetMessageWindow(state, { defaultLimit: normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT) });
         messageWindowLimit.value = Number(state.uiMessageWindowLimit || AGENT_MESSAGE_WINDOW_DEFAULT);
+        if (options.windowOffsetFromEnd) {
+            options.windowOffsetFromEnd.value = 0;
+        }
         topRevealAutoBlocked = false;
+        return true;
     }
 
     function clearViewportPreservationFrames() {
@@ -212,6 +224,15 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         }
     }
 
+    function preserveNextWindowMutation() {
+        const snapshot = captureViewportPreservation();
+        if (!snapshot) {return;}
+        const token = viewportPreservationToken + 1;
+        viewportPreservationToken = token;
+        activeViewportPreservation = { token, snapshot };
+        clearViewportPreservationFrames();
+    }
+
     function stickToBottom() {
         const node = scrollRef.value;
         if (!node) {return false;}
@@ -273,19 +294,53 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     }, { flush: 'post' });
 
     function revealOlderMessages(force = false) {
+        if (windowPinned()) {return false;}
         const node = scrollRef.value;
         if (!force && autoScroll.value !== false) {return false;}
         if (!force && topRevealAutoBlocked) {return false;}
         if (!node || (!force && node.scrollTop > 64)) {return false;}
+        const total = Math.max(0, Math.floor(Number(options.totalItems()) || 0));
+        const offsetFromEnd = Math.max(0, Math.floor(Number(options.windowOffsetFromEnd?.value) || 0));
+        const availableBefore = Math.max(0, total - offsetFromEnd - messageWindowLimit.value);
+        if (!availableBefore) {return false;}
         const state = { uiMessageWindowLimit: messageWindowLimit.value };
-        if (!expandMessageWindow(state, options.totalItems(), {
+        const expanded = expandMessageWindow(state, total - offsetFromEnd, {
             defaultLimit: normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT),
             chunk: normalizeMessageLoadBatchSize(unref(options.loadBatchSize), AGENT_MESSAGE_WINDOW_CHUNK),
-        })) {return false;}
-        preserveNextPrepend();
-        messageWindowLimit.value = Number(state.uiMessageWindowLimit || messageWindowLimit.value);
+            maxLimit: unref(options.maxWindowLimit),
+        });
+        const shifted = !expanded && !!options.windowOffsetFromEnd;
+        if (!expanded && !shifted) {return false;}
+        if (expanded) {preserveNextPrepend();}
+        else {preserveNextWindowMutation();}
+        if (expanded) {
+            messageWindowLimit.value = Number(state.uiMessageWindowLimit || messageWindowLimit.value);
+        } else if (options.windowOffsetFromEnd) {
+            options.windowOffsetFromEnd.value = offsetFromEnd + Math.min(
+                availableBefore,
+                normalizeMessageLoadBatchSize(unref(options.loadBatchSize), AGENT_MESSAGE_WINDOW_CHUNK),
+            );
+        }
         autoScroll.value = false;
         topRevealAutoBlocked = true;
+        return true;
+    }
+
+    function revealNewerMessages(force = false) {
+        if (windowPinned()) {return false;}
+        const offsetRef = options.windowOffsetFromEnd;
+        const offsetFromEnd = Math.max(0, Math.floor(Number(offsetRef?.value) || 0));
+        if (!offsetRef || !offsetFromEnd) {return false;}
+        const node = scrollRef.value;
+        if (!node) {return false;}
+        if (!force && node.scrollHeight - node.clientHeight - node.scrollTop > 64) {return false;}
+        preserveNextWindowMutation();
+        offsetRef.value = Math.max(
+            0,
+            offsetFromEnd - normalizeMessageLoadBatchSize(unref(options.loadBatchSize), AGENT_MESSAGE_WINDOW_CHUNK),
+        );
+        autoScroll.value = false;
+        topRevealAutoBlocked = false;
         return true;
     }
 
@@ -321,15 +376,18 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     }
 
     function collapseMessageWindowIfBottom(force = false) {
+        if (windowPinned()) {return false;}
         const defaultLimit = normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT);
-        if (messageWindowLimit.value <= defaultLimit) {return false;}
+        const offsetFromEnd = Math.max(0, Math.floor(Number(options.windowOffsetFromEnd?.value) || 0));
+        if (messageWindowLimit.value <= defaultLimit && !offsetFromEnd) {return false;}
+        if (!force && offsetFromEnd) {return false;}
         if (!force && !isNearBottom(8)) {return false;}
         resetWindowState();
         return true;
     }
 
     watch(() => normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT), () => {
-        if (autoScroll.value === false) {return;}
+        if (autoScroll.value === false || windowPinned()) {return;}
         resetWindowState();
     });
 
@@ -398,6 +456,11 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         if (revealOlderMessages()) {return;}
         const atBottom = isNearBottom();
         if (atBottom) {
+            const offsetFromEnd = Math.max(0, Math.floor(Number(options.windowOffsetFromEnd?.value) || 0));
+            if (offsetFromEnd) {
+                autoScroll.value = false;
+                if (revealNewerMessages()) {return;}
+            }
             autoScroll.value = true;
             collapseMessageWindowIfBottom();
         } else {
@@ -506,6 +569,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
         messageWindowLimit,
         resetWindowState,
         revealOlderMessages,
+        revealNewerMessages,
         updateScrollButtons,
         isNearBottom,
         collapseMessageWindowIfBottom,

@@ -127,7 +127,7 @@ function canEdit() {
 }
 
 function canRerun() {
-    return !!props.message && chat.canRerunMessage(props.message);
+    return !!props.message && chat.canRerunLatestAssistant();
 }
 
 function isDrawing() {
@@ -157,9 +157,7 @@ function startEdit() {
 }
 
 function rerunMessage() {
-    if (props.message) {
-        void chat.rerunFromMessage(props.message);
-    }
+    void chat.rerollLatestAssistant();
 }
 
 function deleteMessage() {
@@ -323,7 +321,7 @@ function deleteMessage() {
     </details>
 
     <TavernMessageMarkdown
-      v-show="!isEditing && contentVisible"
+      v-if="!isEditing && contentVisible"
       :action-check-groups="renderState.actionCheckGroups || undefined"
       :html="renderHtml"
       :phase="streaming ? 'live' : 'settled'"

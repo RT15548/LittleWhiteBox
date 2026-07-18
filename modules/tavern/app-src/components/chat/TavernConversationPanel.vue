@@ -30,7 +30,7 @@ const {
     actionFeedback,
     cancelEditMessage,
     canEditMessage,
-    canRerunMessage,
+    canRerunLatestAssistant,
     canSendMessage,
     chatComposeTextareaRef,
     chatFocus,
@@ -58,8 +58,9 @@ const {
     htmlRenderEnabled,
     messageKey,
     renderChatMarkdown,
-    rerunFromMessage,
+    rerollLatestAssistant,
     revealOlderChatMessages,
+    revealNewerChatMessages,
     roleLabel,
     runtimePendingUserMessage,
     runtimeAssistantMessageKey,
@@ -476,11 +477,11 @@ watch(isMobileActionTrayViewport, (isMobile) => {
                     </button>
                     <button
                       type="button"
-                      :disabled="!canRerunMessage(message)"
+                      :disabled="!canRerunLatestAssistant()"
                       :class="actionFeedback(message, 'rerun')"
                       title="重 roll 最后一轮"
                       aria-label="重 roll 最后一轮"
-                      @click="rerunFromMessage(message)"
+                      @click="rerollLatestAssistant()"
                     >
                       <svg
                         aria-hidden="true"
@@ -599,6 +600,18 @@ watch(isMobileActionTrayViewport, (isMobile) => {
                 v-html="renderRoleplayMarkdown(pendingUserRenderState.text)"
               />
             </div>
+          </div>
+          <div
+            v-if="chatMessageWindow.hiddenAfter"
+            class="chat-history-gate chat-history-gate-newer"
+            :data-chat-anchor-key="`gate:newer:${chatMessageWindow.hiddenAfter}`"
+            role="button"
+            tabindex="0"
+            @click="revealNewerChatMessages(true)"
+            @keydown.enter.prevent="revealNewerChatMessages(true)"
+            @keydown.space.prevent="revealNewerChatMessages(true)"
+          >
+            展开较新记录 {{ chatMessageWindow.hiddenAfter }} 条
           </div>
           <p
             v-if="!chatMessages.length && !isRunning"

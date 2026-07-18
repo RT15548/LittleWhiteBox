@@ -301,6 +301,7 @@ export interface TavernMemoryDirectoryGroup {
 export interface TavernMessageWindowState {
     startIndex: number;
     hiddenBefore: number;
+    hiddenAfter: number;
     visibleCount: number;
 }
 
@@ -349,7 +350,7 @@ export interface TavernChatContext {
     actionFeedback: TavernCommand<[message: TavernMessageRecord, action: string], string>;
     cancelEditMessage: TavernCommand;
     canEditMessage: TavernCommand<[message: TavernMessageRecord], boolean>;
-    canRerunMessage: TavernCommand<[message: TavernMessageRecord], boolean>;
+    canRerunLatestAssistant: TavernCommand<[], boolean>;
     canSendMessage: TavernReadable<boolean>;
     currentAuthorNote: TavernReadable<XbTavernAuthorNote>;
     chatAutoScroll: Ref<boolean>;
@@ -387,8 +388,9 @@ export interface TavernChatContext {
     messageKey: TavernCommand<[message: TavernMessageRecord], string>;
     normalizeTavernSessionState: TavernCommand<[value?: unknown], { turn?: number }>;
     renderChatMarkdown: TavernCommand<[text?: string, options?: { roleplay?: boolean; userName?: string; characterName?: string }], string>;
-    rerunFromMessage: TavernCommand<[message: TavernMessageRecord], Promise<void>>;
+    rerollLatestAssistant: TavernCommand<[], Promise<void>>;
     revealOlderChatMessages: TavernCommand<[force?: boolean], boolean>;
+    revealNewerChatMessages: TavernCommand<[force?: boolean], boolean>;
     roleLabel: TavernCommand<[role?: string], string>;
     runtimePendingUserMessage: Ref<string>;
     runtimeStatusElapsedSeconds: Ref<number>;

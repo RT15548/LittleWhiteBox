@@ -11,7 +11,10 @@ import db, {
     branchTavernSession,
     clearTavernAssistantChatMessages,
     createTavernSession,
+    createTavernTurnStateSnapshot,
     claimNextQueuedAcceptedTurnManagerRun,
+    commitTavernLatestAssistantReroll,
+    countCompletedTavernAssistantTurnsBefore,
     countTavernMessagesInRange,
     deleteTavernSession,
     deleteTavernMessages,
@@ -59,13 +62,16 @@ import db, {
     tavernMemoryFilesTable,
     tavernMemoryIndexesTable,
     tavernMemorySnapshotsTable,
+    tavernMessagesTable,
     tavernStateDocumentsTable,
     tavernStatePatchesTable,
     tavernStatusSnapshotsTable,
+    tavernSessionsTable,
     tavernTaskFingerprintStatesTable,
     tavernTaskSnapshotsTable,
     tavernTasksTable,
     touchRunningTavernManagerRun,
+    truncateTavernMessagesAndReplaceSessionState,
     updateTavernAssistantChatMessage as updateTavernManagerMessage,
     updateTavernMessage,
     updateTavernManagerRun,
@@ -75,6 +81,7 @@ import db, {
     listTavernStructuredStatePatches,
     putTavernStructuredStateDocument,
     putTavernManagerCandidate,
+    prepareTavernLatestAssistantReroll,
     type TavernStructuredStateDocumentRecord,
 } from '../shared/session-db';
 import { DEFAULT_XB_TAVERN_PRESET_ID, createDefaultXbTavernPreset } from '../shared/presets';
@@ -767,6 +774,25 @@ test('a confirmed manager pair refuses an explicit later edit of its own source 
     assert.equal(result?.error, 'manager_source_messages_changed');
 });
 
+test('completed assistant turn counting scans structurally before a boundary without loading message arrays', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Structural turn count' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '角色开场白，不是完成轮次。' });
+    await appendTavernMessage(session.id, { role: 'user', content: '一。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '完成一。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '重复助手楼，不重复计数。' });
+    await appendTavernMessage(session.id, { role: 'user', content: '二。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '失败。', error: true });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '完成二。' });
+    const boundary = await appendTavernMessage(session.id, { role: 'user', content: '边界。' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: '边界之后。' });
+
+    assert.equal(await countCompletedTavernAssistantTurnsBefore(session.id, boundary.order), 2);
+    assert.equal(await countCompletedTavernAssistantTurnsBefore(session.id), 3);
+});
+
 test('tavern latest assistant order ignores non-assistant and error messages', async () => {
     await db.delete();
     await db.open();
@@ -975,6 +1001,18 @@ test('tavern session db deletes sessions with related records', async () => {
     assert.equal((await listTavernStructuredStatePatches({ sessionId: session.id })).length, 0);
     assert.equal((await listTavernMemoryFiles(session.id, { includeStale: true })).length, 0);
     await assert.rejects(() => ensureTavernMemoryDefaults(session.id), /memory_session_missing/);
+    await assert.rejects(
+        appendTavernMessage(session.id, { role: 'assistant', content: '迟到的主剧情回复。' }),
+        /session_missing/,
+    );
+    await assert.rejects(
+        appendTavernUserMessageAndConfirmManagerCandidate(session.id, { role: 'user', content: '迟到的用户消息。' }),
+        /session_missing/,
+    );
+    await assert.rejects(
+        appendTavernManagerMessage(session.id, { role: 'assistant', content: '迟到的助手回复。' }),
+        /session_missing/,
+    );
     assert.equal((await listTavernMemoryFiles(session.id, { includeStale: true })).length, 0);
     assert.equal(await getSelectedTavernSessionId(), other.id);
 });
@@ -1004,6 +1042,211 @@ test('tavern session db updates and deletes message records by order', async () 
     assert.deepEqual(messages.map((message) => `${message.order}:${message.content}`), [
         '0:Edited user.',
         '2:Next user.',
+    ]);
+});
+
+test('tavern timeline truncation deletes messages and replaces session state atomically', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({
+        title: 'Atomic timeline truncation',
+        state: {
+            turn: 9,
+            worldEntryStates: { future: { stickyUntilTurn: 99 } },
+            nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+        },
+    });
+    for (let order = 0; order < 4; order += 1) {
+        await appendTavernMessage(session.id, {
+            role: order % 2 ? 'assistant' : 'user',
+            content: `message-${order}`,
+        });
+    }
+
+    const result = await truncateTavernMessagesAndReplaceSessionState(session.id, 2, {
+        turn: 1,
+        contextWindowStartOrder: 0,
+        worldEntryStates: { boundary: { cooldownUntilTurn: 3 } },
+        nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+    });
+
+    assert.equal(result.deleted, 2);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.order), [0, 1]);
+    assert.equal(result.session?.state?.turn, 1);
+    assert.deepEqual(result.session?.state?.worldEntryStates, { boundary: { cooldownUntilTurn: 3 } });
+
+    await appendTavernMessage(session.id, { role: 'user', content: 'message-2-again' });
+    await appendTavernMessage(session.id, { role: 'assistant', content: 'message-3-again' });
+    const failSessionUpdate = () => {
+        throw new Error('forced_session_update_failure');
+    };
+    const sessionUpdatingHook = (tavernSessionsTable as unknown as {
+        hook(type: 'updating'): {
+            subscribe(listener: () => void): void;
+            unsubscribe(listener: () => void): void;
+        };
+    }).hook('updating');
+    sessionUpdatingHook.subscribe(failSessionUpdate);
+    try {
+        await assert.rejects(
+            truncateTavernMessagesAndReplaceSessionState(session.id, 2, { turn: 2 }),
+            /forced_session_update_failure/,
+        );
+    } finally {
+        sessionUpdatingHook.unsubscribe(failSessionUpdate);
+    }
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.order), [0, 1, 2, 3]);
+    assert.equal((await getTavernSession(session.id))?.state?.turn, 1);
+
+    const noMessages = await truncateTavernMessagesAndReplaceSessionState(session.id, 99, { turn: 2 });
+    assert.equal(noMessages.deleted, 0);
+    assert.equal(noMessages.session?.state?.turn, 2);
+
+    assert.deepEqual(
+        await truncateTavernMessagesAndReplaceSessionState('missing-session', 0, { turn: 3 }),
+        { deleted: 0, session: null },
+    );
+});
+
+test('latest assistant reroll keeps the old pair until an atomic replacement and rejects ABA reuse', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({
+        title: 'Latest assistant reroll',
+        state: {
+            turn: 4,
+            activeMapDocId: 'scene-old',
+            contract: mergeTavernSessionContract(undefined, {
+                memoryArchiving: true,
+                cartographyEngine: true,
+            }),
+            worldEntryStates: { old: { stickyUntilTurn: 8 } },
+            nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+        },
+    });
+    const user = await appendTavernMessage(session.id, {
+        role: 'user',
+        content: '最后一轮用户消息。',
+        runtimeStateSnapshot: {
+            turn: 4,
+            contextWindowStartOrder: 0,
+            worldEntryStates: { checkpoint: { stickyUntilTurn: 7 } },
+            nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+        },
+    });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '旧回复。' });
+    const oldCandidate = await putTavernManagerCandidate({
+        sessionId: session.id,
+        turn: 5,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+    });
+    await updateTavernSessionState(session.id, {
+        turn: 99,
+        activeMapDocId: 'scene-new',
+        contract: mergeTavernSessionContract(undefined, { cartographyEngine: false }),
+        worldEntryStates: { polluted: { stickyUntilTurn: 100 } },
+    });
+
+    const prepared = await prepareTavernLatestAssistantReroll(session.id);
+    assert.equal(prepared.userMessage.order, user.order);
+    assert.equal(prepared.previousAssistantMessage.order, assistant.order);
+    assert.equal(prepared.candidate?.id, oldCandidate.id);
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), ['最后一轮用户消息。', '旧回复。']);
+    assert.equal((await getTavernManagerCandidate(session.id))?.id, oldCandidate.id);
+    assert.equal((await getTavernSession(session.id))?.state?.turn, 99);
+    assert.equal(prepared.runtimeState.turn, 4);
+    assert.deepEqual(prepared.runtimeState.worldEntryStates, { checkpoint: { stickyUntilTurn: 7 } });
+    assert.equal(prepared.runtimeState.activeMapDocId, 'scene-new');
+    assert.equal(prepared.runtimeState.contract?.cartographyEngine, false);
+
+    const failSessionUpdate = () => {
+        throw new Error('forced_reroll_commit_failure');
+    };
+    const sessionUpdatingHook = (tavernSessionsTable as unknown as {
+        hook(type: 'updating'): {
+            subscribe(listener: () => void): void;
+            unsubscribe(listener: () => void): void;
+        };
+    }).hook('updating');
+    sessionUpdatingHook.subscribe(failSessionUpdate);
+    try {
+        await assert.rejects(
+            commitTavernLatestAssistantReroll(
+                session.id,
+                prepared.userMessage,
+                prepared.previousAssistantMessage,
+                prepared.candidate,
+                { role: 'assistant', content: '不会落库。' },
+                { sessionState: { turn: 5 }, replaceSessionState: true },
+            ),
+            /forced_reroll_commit_failure/,
+        );
+    } finally {
+        sessionUpdatingHook.unsubscribe(failSessionUpdate);
+    }
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), ['最后一轮用户消息。', '旧回复。']);
+    assert.equal((await getTavernManagerCandidate(session.id))?.id, oldCandidate.id);
+    assert.equal((await getTavernSession(session.id))?.state?.turn, 99);
+
+    const committed = await commitTavernLatestAssistantReroll(
+        session.id,
+        prepared.userMessage,
+        prepared.previousAssistantMessage,
+        prepared.candidate,
+        { role: 'assistant', content: '新回复。' },
+        {
+            sessionState: {
+                turn: 5,
+                worldEntryStates: { checkpoint: { stickyUntilTurn: 7 } },
+                nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
+            },
+            replaceSessionState: true,
+            managerCandidate: { turn: 5, inputSummary: 'replacement' },
+        },
+    );
+    assert.equal(committed.assistantMessage.order, assistant.order);
+    assert.notEqual(committed.assistantMessage.messageId, assistant.messageId);
+    assert.notEqual(committed.managerCandidate?.id, oldCandidate.id);
+    assert.equal((await getTavernManagerCandidate(session.id))?.assistantOrder, assistant.order);
+
+    const secondPreparation = await prepareTavernLatestAssistantReroll(session.id);
+    await deleteTavernMessages(session.id, [secondPreparation.userMessage.order, secondPreparation.previousAssistantMessage.order]);
+    const replacementUser = await appendTavernMessage(session.id, {
+        role: 'user',
+        content: '删除后复用相同 order 的新 USER。',
+        runtimeStateSnapshot: createTavernTurnStateSnapshot(secondPreparation.runtimeState),
+    });
+    const replacementAssistant = await appendTavernMessage(session.id, { role: 'assistant', content: '删除后复用相同 order 的新 AI。' });
+    await tavernMessagesTable.update([session.id, replacementUser.order], {
+        createdAt: secondPreparation.userMessage.createdAt,
+    });
+    await tavernMessagesTable.update([session.id, replacementAssistant.order], {
+        createdAt: secondPreparation.previousAssistantMessage.createdAt,
+    });
+    const recreatedUser = await getTavernMessage(session.id, replacementUser.order);
+    const recreatedAssistant = await getTavernMessage(session.id, replacementAssistant.order);
+    assert.equal(recreatedUser?.order, secondPreparation.userMessage.order);
+    assert.equal(recreatedUser?.createdAt, secondPreparation.userMessage.createdAt);
+    assert.equal(recreatedUser?.timelineRevision, secondPreparation.userMessage.timelineRevision);
+    assert.notEqual(recreatedUser?.messageId, secondPreparation.userMessage.messageId);
+    assert.equal(recreatedAssistant?.createdAt, secondPreparation.previousAssistantMessage.createdAt);
+    assert.equal(recreatedAssistant?.timelineRevision, secondPreparation.previousAssistantMessage.timelineRevision);
+    assert.notEqual(recreatedAssistant?.messageId, secondPreparation.previousAssistantMessage.messageId);
+    await assert.rejects(
+        commitTavernLatestAssistantReroll(
+            session.id,
+            secondPreparation.userMessage,
+            secondPreparation.previousAssistantMessage,
+            secondPreparation.candidate,
+            { role: 'assistant', content: '迟到回复。' },
+            { sessionState: { turn: 5 }, replaceSessionState: true },
+        ),
+        /assistant_timeline_advanced/,
+    );
+    assert.deepEqual((await listTavernMessages(session.id)).map((message) => message.content), [
+        '删除后复用相同 order 的新 USER。',
+        '删除后复用相同 order 的新 AI。',
     ]);
 });
 
@@ -7751,6 +7994,10 @@ test('database v14 resets the test-line maintenance model instead of preserving 
 
     await db.open();
     const runtimeDb = db as unknown as { tables: Array<{ name: string }> };
+    const managerRunSchema = (tavernManagerRunsTable as unknown as {
+        schema: { idxByName: Record<string, unknown> };
+    }).schema;
+    assert.ok(managerRunSchema.idxByName['[sessionId+assistantOrder]']);
     assert.equal(runtimeDb.tables.some((table) => table.name === 'managerMessages'), false);
     assert.deepEqual(await listTavernManagerMessages('legacy-session'), []);
     assert.deepEqual(await listTavernManagerRuns('legacy-session'), []);

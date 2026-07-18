@@ -1,5 +1,6 @@
 export const AGENT_MESSAGE_WINDOW_DEFAULT = 5;
 export const AGENT_MESSAGE_WINDOW_CHUNK = 20;
+export const TAVERN_CHAT_MESSAGE_WINDOW_MAX = 60;
 
 function normalizePositiveInteger(value: unknown, fallback: number) {
     const number = Number(value);
@@ -31,6 +32,7 @@ export function getMessageWindow(state: { uiMessageWindowLimit?: number } = {}, 
     return {
         startIndex,
         hiddenBefore: startIndex,
+        hiddenAfter: 0,
         visibleCount: total - startIndex,
         limit,
         total,
@@ -40,12 +42,16 @@ export function getMessageWindow(state: { uiMessageWindowLimit?: number } = {}, 
 export function expandMessageWindow(state: { uiMessageWindowLimit?: number } = {}, totalItems = 0, options: {
     defaultLimit?: number;
     chunk?: number;
+    maxLimit?: number;
 } = {}) {
     const total = Math.max(0, Number(totalItems) || 0);
     const current = getMessageWindow(state, total, options);
     if (!current.hiddenBefore) {return false;}
     const chunk = normalizeMessageLoadBatchSize(options.chunk, AGENT_MESSAGE_WINDOW_CHUNK);
-    state.uiMessageWindowLimit = Math.min(total, current.limit + chunk);
+    const maxLimit = normalizePositiveInteger(options.maxLimit, total || current.limit + chunk);
+    const nextLimit = Math.min(total, maxLimit, current.limit + chunk);
+    if (nextLimit <= current.limit) {return false;}
+    state.uiMessageWindowLimit = nextLimit;
     return true;
 }
 

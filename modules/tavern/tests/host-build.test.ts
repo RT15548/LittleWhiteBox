@@ -546,9 +546,11 @@ test('tavern slash command bridge executes through native SillyTavern STscript',
     assert.match(slashSource, /pipe/);
     assert.match(appSource, /function shouldRunTavernSlashCommand/);
     assert.match(appSource, /async function resolveSlashCommandMessageText/);
-    assert.match(appSource, /reuseUserMessageOrder/);
+    assert.match(appSource, /rerollLatestAssistant/);
     assert.match(chatRunSource, /messageText = await options\.resolveSlashCommandMessageText\(messageText, runOptions\);/);
-    assert.match(chatRunSource, /reuseUserMessageOrder/);
+    assert.match(chatRunSource, /rerollLatestAssistant/);
+    assert.doesNotMatch(appSource, /reuseUserMessageOrder/);
+    assert.doesNotMatch(chatRunSource, /reuseUserMessageOrder/);
 });
 
 test('tavern message assembler can render native worldbook prompt blocks directly', () => {

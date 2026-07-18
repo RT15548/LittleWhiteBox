@@ -94,9 +94,17 @@ export interface TavernSessionState {
     [key: string]: unknown;
 }
 
+export interface TavernTurnStateSnapshot {
+    turn: number;
+    contextWindowStartOrder: number;
+    worldEntryStates: Record<string, XbTavernWorldEntryState>;
+    nativeWorldInfoTimedState: XbTavernNativeWorldInfoTimedState;
+}
+
 export type TavernManagerRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'superseded' | 'rolled_back';
 
 export interface TavernMessageRecord {
+    messageId?: string;
     sessionId: string;
     order: number;
     role: string;
@@ -117,6 +125,7 @@ export interface TavernMessageRecord {
     presetName?: string;
     requestSnapshot?: unknown;
     runtimeEvents?: TavernRuntimeEvent[];
+    runtimeStateSnapshot?: TavernTurnStateSnapshot;
     timelineRevision?: number;
 }
 
@@ -448,6 +457,7 @@ export type TavernAppendMessageInput = XbTavernMessage & {
     presetName?: string;
     requestSnapshot?: unknown;
     runtimeEvents?: TavernRuntimeEvent[];
+    runtimeStateSnapshot?: TavernTurnStateSnapshot;
 };
 
 export type TavernAppendAssistantChatMessageInput = {
@@ -878,6 +888,9 @@ class TavernDatabase extends Dexie {
                 task.sourceManagerRunId = '';
             });
         });
+        this.version(15).stores({
+            managerRuns: 'id, sessionId, status, turn, assistantOrder, [sessionId+assistantOrder], updatedAt',
+        });
     }
 }
 
@@ -915,6 +928,7 @@ type DexieRangeCollection<T> = {
     limit(count: number): DexieRangeCollection<T>;
     first(): Promise<T | undefined>;
     count(): Promise<number>;
+    each(callback: (value: T) => void): Promise<void>;
     toArray(): Promise<T[]>;
     primaryKeys(): Promise<unknown[]>;
 };
@@ -1050,7 +1064,11 @@ function normalizeMessageRuntimeEvents(value: unknown): TavernRuntimeEvent[] {
 function normalizeStoredTavernMessageRecord(record: TavernMessageRecord): TavernMessageRecord {
     return {
         ...record,
+        messageId: String(record.messageId || '').trim() || undefined,
         runtimeEvents: normalizeMessageRuntimeEvents(record.runtimeEvents),
+        runtimeStateSnapshot: record.runtimeStateSnapshot
+            ? createTavernTurnStateSnapshot(record.runtimeStateSnapshot)
+            : undefined,
         timelineRevision: Math.max(1, Math.floor(Number(record.timelineRevision) || 1)),
     };
 }
@@ -1132,6 +1150,16 @@ export function normalizeTavernSessionState(value: unknown): TavernSessionState 
         nativeWorldInfoTimedState: normalizeNativeWorldInfoTimedState(source.nativeWorldInfoTimedState),
     };
     return state;
+}
+
+export function createTavernTurnStateSnapshot(value: unknown): TavernTurnStateSnapshot {
+    const state = normalizeTavernSessionState(value);
+    return {
+        turn: Math.max(0, Math.floor(Number(state.turn) || 0)),
+        contextWindowStartOrder: Math.max(0, Math.floor(Number(state.contextWindowStartOrder) || 0)),
+        worldEntryStates: cloneSerializable(state.worldEntryStates || {}, {}),
+        nativeWorldInfoTimedState: cloneSerializable(state.nativeWorldInfoTimedState || { sticky: {}, cooldown: {} }, { sticky: {}, cooldown: {} }),
+    };
 }
 
 function hasOwnStateField(value: unknown, key: keyof TavernSessionState): boolean {
@@ -1540,9 +1568,22 @@ export async function updateTavernSessionState(sessionId = '', patch: Partial<Ta
     const existing = await getTavernSession(id);
     if (!existing) {return null;}
     const timestamp = now();
+    const state = buildUpdatedTavernSessionState(existing, patch);
+    await tavernSessionsTable.update(id, {
+        state: cloneSerializable(state, {}),
+        updatedAt: timestamp,
+        buildSnapshot: cloneSerializable(patch.lastBuildSnapshot || existing.buildSnapshot, undefined),
+    });
+    return await getTavernSession(id);
+}
+
+function buildUpdatedTavernSessionState(
+    existing: TavernSessionRecord,
+    patch: Partial<TavernSessionState>,
+): TavernSessionState {
     const currentState = normalizeTavernSessionState(existing.state || {});
     const patchState = normalizeTavernSessionState(patch);
-    const state: TavernSessionState = {
+    return {
         ...currentState,
         ...patch,
         turn: Math.max(0, Number(patch.turn ?? currentState.turn) || 0),
@@ -1557,12 +1598,6 @@ export async function updateTavernSessionState(sessionId = '', patch: Partial<Ta
             ? patchState.activeMapDocId
             : currentState.activeMapDocId,
     };
-    await tavernSessionsTable.update(id, {
-        state: cloneSerializable(state, {}),
-        updatedAt: timestamp,
-        buildSnapshot: cloneSerializable(patch.lastBuildSnapshot || existing.buildSnapshot, undefined),
-    });
-    return await getTavernSession(id);
 }
 
 export async function replaceTavernSessionState(sessionId = '', stateInput: Partial<TavernSessionState> = {}): Promise<TavernSessionRecord | null> {
@@ -1571,9 +1606,22 @@ export async function replaceTavernSessionState(sessionId = '', stateInput: Part
     const existing = await getTavernSession(id);
     if (!existing) {return null;}
     const timestamp = now();
+    const state = buildReplacementTavernSessionState(existing, stateInput);
+    await tavernSessionsTable.update(id, {
+        state: cloneSerializable(state, {}),
+        updatedAt: timestamp,
+        buildSnapshot: cloneSerializable(state.lastBuildSnapshot || existing.buildSnapshot, undefined),
+    });
+    return await getTavernSession(id);
+}
+
+function buildReplacementTavernSessionState(
+    existing: TavernSessionRecord,
+    stateInput: Partial<TavernSessionState>,
+): TavernSessionState {
     const currentState = normalizeTavernSessionState(existing.state || {});
     const normalized = normalizeTavernSessionState(stateInput);
-    const state: TavernSessionState = {
+    return {
         ...stateInput,
         turn: Math.max(0, Number(normalized.turn) || 0),
         activeMapDocId: hasOwnStateField(stateInput, 'activeMapDocId')
@@ -1585,12 +1633,6 @@ export async function replaceTavernSessionState(sessionId = '', stateInput: Part
         worldEntryStates: normalized.worldEntryStates || {},
         nativeWorldInfoTimedState: normalized.nativeWorldInfoTimedState,
     };
-    await tavernSessionsTable.update(id, {
-        state: cloneSerializable(state, {}),
-        updatedAt: timestamp,
-        buildSnapshot: cloneSerializable(state.lastBuildSnapshot || existing.buildSnapshot, undefined),
-    });
-    return await getTavernSession(id);
 }
 
 export async function updateTavernSessionSnapshot(sessionId = '', patch: {
@@ -1631,6 +1673,7 @@ function buildTavernMessageRecord(
     timestamp: number,
 ): TavernMessageRecord {
     return {
+        messageId: createId('message'),
         sessionId,
         order,
         role: String(message.role || ''),
@@ -1651,6 +1694,9 @@ function buildTavernMessageRecord(
         presetName: 'presetName' in message ? String(message.presetName || '') : undefined,
         requestSnapshot: 'requestSnapshot' in message ? cloneSerializable(message.requestSnapshot, undefined) : undefined,
         runtimeEvents: 'runtimeEvents' in message ? normalizeMessageRuntimeEvents(message.runtimeEvents) : [],
+        runtimeStateSnapshot: 'runtimeStateSnapshot' in message
+            ? createTavernTurnStateSnapshot(message.runtimeStateSnapshot)
+            : undefined,
         timelineRevision: 1,
     };
 }
@@ -1661,6 +1707,7 @@ export async function appendTavernMessage(sessionId: string, message: TavernAppe
     const timestamp = now();
     let record: TavernMessageRecord | null = null;
     await db.transaction('rw', tavernMessagesTable, tavernSessionsTable, async () => {
+        if (!await tavernSessionsTable.get(id)) {throw new Error('session_missing');}
         const latest = await getLatestTavernMessage(id);
         const order = (latest ? Math.floor(Number(latest.order)) : -1) + 1;
         record = buildTavernMessageRecord(id, order, message, timestamp);
@@ -1669,6 +1716,324 @@ export async function appendTavernMessage(sessionId: string, message: TavernAppe
     });
     if (!record) {throw new Error('message_append_failed');}
     return normalizeStoredTavernMessageRecord(record);
+}
+
+export interface TavernLatestAssistantRerollPreparation {
+    userMessage: TavernMessageRecord;
+    previousAssistantMessage: TavernMessageRecord;
+    candidate: TavernManagerCandidateRecord | null;
+    runtimeState: TavernSessionState;
+}
+
+function normalizedMessageTimelineRevision(message?: Pick<TavernMessageRecord, 'timelineRevision'> | null): number {
+    return Math.max(1, Math.floor(Number(message?.timelineRevision) || 1));
+}
+
+type TavernMessageIdentity = Pick<
+    TavernMessageRecord,
+    'messageId' | 'sessionId' | 'order' | 'role' | 'createdAt' | 'timelineRevision'
+>;
+
+function isSameTavernMessageIdentity(
+    current: TavernMessageRecord | null | undefined,
+    expected: TavernMessageIdentity,
+): current is TavernMessageRecord {
+    const expectedMessageId = String(expected.messageId || '').trim();
+    return !!current
+        && current.sessionId === expected.sessionId
+        && current.order === expected.order
+        && current.role === expected.role
+        && Number(current.createdAt) === Number(expected.createdAt)
+        && (!expectedMessageId || String(current.messageId || '').trim() === expectedMessageId)
+        && normalizedMessageTimelineRevision(current) === normalizedMessageTimelineRevision(expected);
+}
+
+function isSameTavernManagerCandidateIdentity(
+    current: TavernManagerCandidateRecord | null | undefined,
+    expected: TavernManagerCandidateRecord | null | undefined,
+): boolean {
+    if (!current || !expected) {return !current && !expected;}
+    return current.id === expected.id
+        && current.sessionId === expected.sessionId
+        && current.userOrder === expected.userOrder
+        && current.assistantOrder === expected.assistantOrder
+        && Number(current.createdAt) === Number(expected.createdAt);
+}
+
+async function hasTavernManagerRunForAssistant(sessionId: string, assistantOrder: number): Promise<boolean> {
+    return await tavernManagerRunsTable
+        .where('[sessionId+assistantOrder]')
+        .equals([sessionId, assistantOrder])
+        .count() > 0;
+}
+
+export async function prepareTavernLatestAssistantReroll(
+    sessionId = '',
+): Promise<TavernLatestAssistantRerollPreparation> {
+    const id = String(sessionId || '').trim();
+    if (!id) {throw new Error('reroll_session_required');}
+    return await db.transaction(
+        'r',
+        tavernMessagesTable,
+        tavernSessionsTable,
+        tavernManagerCandidatesTable,
+        tavernManagerRunsTable,
+        async () => {
+            const existingSession = await tavernSessionsTable.get(id);
+            if (!existingSession) {throw new Error('session_missing');}
+            const latestAssistant = await getLatestTavernMessage(id);
+            if (!latestAssistant || latestAssistant.role !== 'assistant' || latestAssistant.error) {
+                throw new Error('reroll_latest_assistant_required');
+            }
+            const userMessage = await getLatestTavernUserMessageAtOrBefore(id, latestAssistant.order - 1);
+            if (!userMessage
+                || userMessage.error
+                || userMessage.order + 1 !== latestAssistant.order
+                || !userMessage.runtimeStateSnapshot
+            ) {
+                throw new Error('reroll_latest_pair_invalid');
+            }
+            if (await hasTavernManagerRunForAssistant(id, latestAssistant.order)) {
+                throw new Error('reroll_latest_pair_already_confirmed');
+            }
+            const candidate = await tavernManagerCandidatesTable.get(id);
+            if (candidate && (candidate.userOrder !== userMessage.order || candidate.assistantOrder !== latestAssistant.order)) {
+                throw new Error('reroll_candidate_mismatch');
+            }
+            const restoredStateInput: Partial<TavernSessionState> = {
+                ...userMessage.runtimeStateSnapshot,
+            };
+            const restoredState = buildReplacementTavernSessionState(existingSession, restoredStateInput);
+            return {
+                userMessage: normalizeStoredTavernMessageRecord(userMessage),
+                previousAssistantMessage: normalizeStoredTavernMessageRecord(latestAssistant),
+                candidate: candidate ? cloneSerializable(candidate, candidate) : null,
+                runtimeState: restoredState,
+            };
+        },
+    );
+}
+
+export interface TavernAssistantResponseCommitOptions {
+    sessionState: Partial<TavernSessionState>;
+    replaceSessionState?: boolean;
+    userMessagePatch?: Partial<Pick<TavernMessageRecord,
+        | 'runtimeEvents'
+        | 'contextSnapshot'
+        | 'buildSnapshot'
+        | 'chatPresetId'
+        | 'chatPresetName'
+        | 'presetId'
+        | 'presetName'
+        | 'requestSnapshot'
+    >>;
+    sessionSnapshot?: Partial<Pick<TavernSessionRecord,
+        | 'contextSnapshot'
+        | 'buildSnapshot'
+        | 'chatPresetId'
+        | 'chatPresetName'
+        | 'presetId'
+        | 'presetName'
+    >>;
+    managerCandidate?: {
+        turn: number;
+        inputSummary?: string;
+    };
+}
+
+function buildTavernAssistantManagerCandidate(
+    sessionId: string,
+    userOrder: number,
+    assistantOrder: number,
+    input: NonNullable<TavernAssistantResponseCommitOptions['managerCandidate']>,
+    timestamp: number,
+): TavernManagerCandidateRecord {
+    return {
+        id: createId('manager-candidate'),
+        sessionId,
+        turn: Math.max(0, Math.floor(Number(input.turn) || 0)),
+        userOrder,
+        assistantOrder,
+        inputSummary: String(input.inputSummary || ''),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+    };
+}
+
+export async function commitTavernAssistantResponseForLatestUser(
+    sessionId: string,
+    expectedUser: TavernMessageIdentity,
+    message: TavernAppendMessageInput,
+    options: TavernAssistantResponseCommitOptions,
+): Promise<{
+    assistantMessage: TavernMessageRecord;
+    session: TavernSessionRecord;
+    managerCandidate: TavernManagerCandidateRecord | null;
+}> {
+    const id = String(sessionId || '').trim();
+    if (!id || expectedUser.sessionId !== id || expectedUser.role !== 'user') {
+        throw new Error('assistant_expected_user_invalid');
+    }
+    if (String(message.role || '') !== 'assistant') {throw new Error('assistant_message_required');}
+    const timestamp = now();
+    return await db.transaction(
+        'rw',
+        tavernMessagesTable,
+        tavernSessionsTable,
+        tavernManagerCandidatesTable,
+        async () => {
+            const existingSession = await tavernSessionsTable.get(id);
+            if (!existingSession) {throw new Error('session_missing');}
+            const latest = await getLatestTavernMessage(id);
+            if (!isSameTavernMessageIdentity(latest, expectedUser) || latest.error) {
+                throw new Error('assistant_timeline_advanced');
+            }
+            const existingCandidate = await tavernManagerCandidatesTable.get(id);
+            if (existingCandidate) {throw new Error('assistant_candidate_conflict');}
+            const assistantMessage = buildTavernMessageRecord(id, latest.order + 1, message, timestamp);
+            const state = options.replaceSessionState
+                ? buildReplacementTavernSessionState(existingSession, options.sessionState)
+                : buildUpdatedTavernSessionState(existingSession, options.sessionState);
+            await tavernMessagesTable.put(assistantMessage);
+            let managerCandidate: TavernManagerCandidateRecord | null = null;
+            if (options.managerCandidate) {
+                managerCandidate = buildTavernAssistantManagerCandidate(
+                    id,
+                    latest.order,
+                    assistantMessage.order,
+                    options.managerCandidate,
+                    timestamp,
+                );
+                await tavernManagerCandidatesTable.put(managerCandidate);
+            }
+            await tavernSessionsTable.update(id, {
+                state: cloneSerializable(state, {}),
+                updatedAt: timestamp,
+                buildSnapshot: cloneSerializable(state.lastBuildSnapshot || existingSession.buildSnapshot, undefined),
+            });
+            const session = await tavernSessionsTable.get(id);
+            if (!session) {throw new Error('session_missing');}
+            return {
+                assistantMessage: normalizeStoredTavernMessageRecord(assistantMessage),
+                session,
+                managerCandidate,
+            };
+        },
+    );
+}
+
+export async function commitTavernLatestAssistantReroll(
+    sessionId: string,
+    expectedUser: TavernMessageIdentity,
+    expectedAssistant: TavernMessageIdentity,
+    expectedCandidate: TavernManagerCandidateRecord | null,
+    message: TavernAppendMessageInput,
+    options: TavernAssistantResponseCommitOptions,
+): Promise<{
+    assistantMessage: TavernMessageRecord;
+    session: TavernSessionRecord;
+    managerCandidate: TavernManagerCandidateRecord | null;
+}> {
+    const id = String(sessionId || '').trim();
+    if (!id
+        || expectedUser.sessionId !== id
+        || expectedUser.role !== 'user'
+        || expectedAssistant.sessionId !== id
+        || expectedAssistant.role !== 'assistant'
+        || expectedUser.order + 1 !== expectedAssistant.order
+    ) {
+        throw new Error('reroll_expected_pair_invalid');
+    }
+    if (String(message.role || '') !== 'assistant') {throw new Error('assistant_message_required');}
+    const timestamp = now();
+    return await db.transaction(
+        'rw',
+        tavernMessagesTable,
+        tavernSessionsTable,
+        tavernManagerCandidatesTable,
+        tavernManagerRunsTable,
+        async () => {
+            const existingSession = await tavernSessionsTable.get(id);
+            if (!existingSession) {throw new Error('session_missing');}
+            const [currentUser, currentAssistant] = await Promise.all([
+                tavernMessagesTable.get([id, expectedUser.order]),
+                getLatestTavernMessage(id),
+            ]);
+            if (!isSameTavernMessageIdentity(currentUser, expectedUser)
+                || currentUser.error
+                || !isSameTavernMessageIdentity(currentAssistant, expectedAssistant)
+                || currentAssistant.error
+            ) {
+                throw new Error('assistant_timeline_advanced');
+            }
+            if (await hasTavernManagerRunForAssistant(id, currentAssistant.order)) {
+                throw new Error('reroll_latest_pair_already_confirmed');
+            }
+            const currentCandidate = await tavernManagerCandidatesTable.get(id) || null;
+            if (!isSameTavernManagerCandidateIdentity(currentCandidate, expectedCandidate)) {
+                throw new Error('assistant_candidate_conflict');
+            }
+            const assistantMessage = buildTavernMessageRecord(id, currentAssistant.order, message, timestamp);
+            const state = options.replaceSessionState
+                ? buildReplacementTavernSessionState(existingSession, options.sessionState)
+                : buildUpdatedTavernSessionState(existingSession, options.sessionState);
+            if (options.userMessagePatch) {
+                const patch = options.userMessagePatch;
+                await tavernMessagesTable.update([id, currentUser.order], {
+                    ...('runtimeEvents' in patch ? { runtimeEvents: normalizeMessageRuntimeEvents(patch.runtimeEvents) } : {}),
+                    ...('contextSnapshot' in patch ? { contextSnapshot: cloneSerializable(patch.contextSnapshot, undefined) } : {}),
+                    ...('buildSnapshot' in patch ? { buildSnapshot: cloneSerializable(patch.buildSnapshot, undefined) } : {}),
+                    ...('chatPresetId' in patch ? { chatPresetId: String(patch.chatPresetId || '') } : {}),
+                    ...('chatPresetName' in patch ? { chatPresetName: String(patch.chatPresetName || '') } : {}),
+                    ...('presetId' in patch ? { presetId: String(patch.presetId || '') } : {}),
+                    ...('presetName' in patch ? { presetName: String(patch.presetName || '') } : {}),
+                    ...('requestSnapshot' in patch ? { requestSnapshot: cloneSerializable(patch.requestSnapshot, undefined) } : {}),
+                });
+            }
+            await tavernMessagesTable.put(assistantMessage);
+            let managerCandidate: TavernManagerCandidateRecord | null = null;
+            if (options.managerCandidate) {
+                managerCandidate = buildTavernAssistantManagerCandidate(
+                    id,
+                    currentUser.order,
+                    assistantMessage.order,
+                    options.managerCandidate,
+                    timestamp,
+                );
+                await tavernManagerCandidatesTable.put(managerCandidate);
+            } else if (currentCandidate) {
+                await tavernManagerCandidatesTable.delete(id);
+            }
+            await tavernSessionsTable.update(id, {
+                state: cloneSerializable(state, {}),
+                updatedAt: timestamp,
+                contextSnapshot: cloneSerializable(options.sessionSnapshot?.contextSnapshot ?? existingSession.contextSnapshot, undefined),
+                buildSnapshot: cloneSerializable(
+                    options.sessionSnapshot?.buildSnapshot ?? state.lastBuildSnapshot ?? existingSession.buildSnapshot,
+                    undefined,
+                ),
+                chatPresetId: 'chatPresetId' in (options.sessionSnapshot || {})
+                    ? String(options.sessionSnapshot?.chatPresetId || '')
+                    : existingSession.chatPresetId,
+                chatPresetName: 'chatPresetName' in (options.sessionSnapshot || {})
+                    ? String(options.sessionSnapshot?.chatPresetName || '')
+                    : existingSession.chatPresetName,
+                presetId: 'presetId' in (options.sessionSnapshot || {})
+                    ? String(options.sessionSnapshot?.presetId || '')
+                    : existingSession.presetId,
+                presetName: 'presetName' in (options.sessionSnapshot || {})
+                    ? String(options.sessionSnapshot?.presetName || '')
+                    : existingSession.presetName,
+            });
+            const session = await tavernSessionsTable.get(id);
+            if (!session) {throw new Error('session_missing');}
+            return {
+                assistantMessage: normalizeStoredTavernMessageRecord(assistantMessage),
+                session,
+                managerCandidate,
+            };
+        },
+    );
 }
 
 export async function putTavernManagerCandidate(input: {
@@ -1736,6 +2101,7 @@ export async function appendTavernUserMessageAndConfirmManagerCandidate(
         tavernManagerCandidatesTable,
         tavernManagerRunsTable,
         async () => {
+            if (!await tavernSessionsTable.get(id)) {throw new Error('session_missing');}
             const latest = await getLatestTavernMessage(id);
             const order = (latest ? Math.floor(Number(latest.order)) : -1) + 1;
             userMessage = buildTavernMessageRecord(id, order, message, timestamp);
@@ -1893,6 +2259,7 @@ export async function updateTavernMessage(
         | 'provider'
         | 'model'
         | 'finishReason'
+        | 'runtimeStateSnapshot'
     >>,
     options: { incrementTimelineRevision?: boolean } = {},
 ): Promise<TavernMessageRecord | null> {
@@ -1916,6 +2283,11 @@ export async function updateTavernMessage(
     if ('provider' in patch) {update.provider = String(patch.provider || '');}
     if ('model' in patch) {update.model = String(patch.model || '');}
     if ('finishReason' in patch) {update.finishReason = String(patch.finishReason || '');}
+    if ('runtimeStateSnapshot' in patch) {
+        update.runtimeStateSnapshot = patch.runtimeStateSnapshot
+            ? createTavernTurnStateSnapshot(patch.runtimeStateSnapshot)
+            : undefined;
+    }
     if (options.incrementTimelineRevision === true) {
         update.timelineRevision = Math.max(1, Math.floor(Number(existing.timelineRevision) || 1)) + 1;
     }
@@ -1942,6 +2314,41 @@ export async function deleteTavernMessages(sessionId = '', orders: number[] = []
         await tavernSessionsTable.update(id, { updatedAt: now() });
     });
     return existingKeys.length;
+}
+
+export async function truncateTavernMessagesAndReplaceSessionState(
+    sessionId = '',
+    fromOrder = 0,
+    stateInput: Partial<TavernSessionState> = {},
+): Promise<{ deleted: number; session: TavernSessionRecord | null }> {
+    const id = String(sessionId || '').trim();
+    const firstDeletedOrder = Math.max(0, Math.floor(Number(fromOrder) || 0));
+    if (!id) {return { deleted: 0, session: null };}
+    return await db.transaction('rw', tavernMessagesTable, tavernSessionsTable, async () => {
+        const existingSession = await tavernSessionsTable.get(id);
+        if (!existingSession) {return { deleted: 0, session: null };}
+        const keys = await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+            .where('[sessionId+order]')
+            .between([id, firstDeletedOrder], [id, DexieRangeKeys.maxKey], true, true)
+            .primaryKeys();
+        const messageKeys = keys
+            .filter((key): key is [string, number] => Array.isArray(key) && key[0] === id && Number.isInteger(Number(key[1])))
+            .map((key) => [id, Number(key[1])] as [string, number]);
+        const state = buildReplacementTavernSessionState(existingSession, stateInput);
+        if (messageKeys.length) {
+            await tavernMessagesTable.bulkDelete(messageKeys);
+        }
+        const timestamp = now();
+        await tavernSessionsTable.update(id, {
+            state: cloneSerializable(state, {}),
+            updatedAt: timestamp,
+            buildSnapshot: cloneSerializable(state.lastBuildSnapshot || existingSession.buildSnapshot, undefined),
+        });
+        return {
+            deleted: messageKeys.length,
+            session: await tavernSessionsTable.get(id) || null,
+        };
+    });
 }
 
 export async function listTavernMessages(sessionId = ''): Promise<TavernMessageRecord[]> {
@@ -2194,6 +2601,34 @@ export async function countTavernMessagesInRange(
         .count();
 }
 
+export async function countCompletedTavernAssistantTurnsBefore(
+    sessionId = '',
+    beforeOrder = Number.POSITIVE_INFINITY,
+): Promise<number> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return 0;}
+    const finiteBefore = Number.isFinite(Number(beforeOrder));
+    const boundary = Math.floor(Number(beforeOrder) || 0);
+    if (finiteBefore && boundary <= 0) {return 0;}
+    const upperOrder = finiteBefore ? boundary - 1 : DexieRangeKeys.maxKey;
+    let hasPendingUser = false;
+    let completedTurns = 0;
+    await (tavernMessagesTable as unknown as DexieRangeTable<TavernMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, DexieRangeKeys.minKey], [id, upperOrder], true, true)
+        .each((message) => {
+            if (message.role === 'user' && message.error !== true) {
+                hasPendingUser = true;
+                return;
+            }
+            if (hasPendingUser && message.role === 'assistant' && message.error !== true) {
+                completedTurns += 1;
+                hasPendingUser = false;
+            }
+        });
+    return completedTurns;
+}
+
 export async function countTavernMessages(sessionId = ''): Promise<number> {
     const id = String(sessionId || '').trim();
     if (!id) {return 0;}
@@ -2252,6 +2687,7 @@ export async function replaceTavernAssistantChatMessages(
     const timestamp = now();
     let records: TavernAssistantChatMessageRecord[] = [];
     await db.transaction('rw', tavernAssistantChatMessagesTable, tavernSessionsTable, async () => {
+        if (!await tavernSessionsTable.get(id)) {throw new Error('session_missing');}
         if (uniqueDeleteOrders.length) {
             await tavernAssistantChatMessagesTable.bulkDelete(uniqueDeleteOrders.map((order) => [id, order]));
         }

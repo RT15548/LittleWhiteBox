@@ -32,33 +32,23 @@ import {
     type TavernSessionContractRuntime,
 } from '../../shared/session-contract';
 import {
-    appendTavernMessage,
     appendTavernUserMessageAndConfirmManagerCandidate,
+    commitTavernAssistantResponseForLatestUser,
+    commitTavernLatestAssistantReroll,
     createTavernSession,
-    deleteTavernMessages,
     getAcceptedTurnManagerQueueState,
-    getTavernMessage,
     getTavernSession,
-    listLatestTavernMessagesWithCount,
     listLatestTavernUserMessagesBefore,
-    listTavernMessageOrdersFrom,
-    listTavernMessagesInRange,
-    listTavernMessagesInRangeWithCount,
     mergeWorldEntryStates,
+    createTavernTurnStateSnapshot,
     normalizeTavernSessionState,
-    replaceTavernSessionState,
+    prepareTavernLatestAssistantReroll,
     updateTavernMessage,
-    updateTavernSessionState,
     updateTavernSessionSnapshot,
     type TavernMessageRecord,
     type TavernSessionRecord,
     type TavernSessionState,
 } from '../../shared/session-db';
-import {
-    rebuildTavernMemoryDerivedIndex,
-    restoreTavernMemoryToFloor,
-    trimTavernMemorySnapshotsFromFloor,
-} from '../../shared/memory-files';
 import {
     completeAcceptedTurnManagerRunWithSnapshot,
     resolveTavernAcceptedStateSnapshotDomains,
@@ -66,16 +56,10 @@ import {
 } from '../../shared/accepted-state';
 import {
     listTavernCommunicationTimelineEvents,
-    restoreTavernCommunicationsToFloor,
-    trimTavernCommunicationSnapshotsFromFloor,
     type TavernCommunicationTimelineEvent,
 } from '../../shared/communications';
-import {
-    getLatestQuestHooksForPrompt,
-    restoreTavernTasksToFloor,
-    trimTavernTaskSnapshotsFromFloor,
-} from '../../shared/tasks';
-import { buildXbTavernBrain, buildXbTavernBrainAsync } from '../../shared/brain';
+import { getLatestQuestHooksForPrompt } from '../../shared/tasks';
+import { buildXbTavernBrainAsync } from '../../shared/brain';
 import {
     ACTION_CHECK_TOOL_NAME,
     buildActionCheckProtocolMessage,
@@ -122,9 +106,7 @@ import { getTavernStatusStateForSession, type TavernStatusDocument } from '../..
 import { buildTavernStatusPanelYaml } from '../../shared/status-prompt';
 import { createXbTavernAgentRuntime } from './agent-runtime';
 import {
-    cancelAndRollbackXbTavernManagersForMessageRange,
     failAndRollbackAcceptedTurnManagerRun,
-    markXbTavernManagerTurnCandidate,
     recoverInterruptedAcceptedTurnManagerRuns,
     runNextQueuedAcceptedTurnManager,
     type XbTavernManagerOnceOptions,
@@ -137,194 +119,20 @@ import {
     resolveTavernToolLoopRequestPlan,
     type TavernToolLoopResponse,
 } from './tool-loop-request';
+import {
+    loadTavernPromptHistoryWindow,
+    stripTavernImageMarkers,
+} from './prompt-history-window';
 
-const TAVERN_IMAGE_MARKER_REGEX = /\[tavern-image:[a-z0-9\-_]+\]/gi;
-const TAVERN_INLINE_IMAGE_TOKEN_REGEX = /\[(?:img|图片)\s*:\s*[^\]]+\]/gi;
+export {
+    loadTavernPromptHistoryWindow,
+    resolveTavernContextWindow,
+    TAVERN_CONTEXT_WINDOW_MAX,
+    TAVERN_CONTEXT_WINDOW_MIN_SAFE,
+    TAVERN_CONTEXT_WINDOW_RETAIN,
+} from './prompt-history-window';
+
 const MAX_ACTION_CHECK_ROUNDS = 8;
-export const TAVERN_CONTEXT_WINDOW_MAX = 20;
-export const TAVERN_CONTEXT_WINDOW_RETAIN = 10;
-export const TAVERN_CONTEXT_WINDOW_MIN_SAFE = 5;
-
-function stripTavernImageMarkers(text = ''): string {
-    return String(text || '')
-        .replace(TAVERN_IMAGE_MARKER_REGEX, '')
-        .replace(TAVERN_INLINE_IMAGE_TOKEN_REGEX, '')
-        .trim();
-}
-
-function isUsableContextWindowMessage(message: TavernMessageRecord): boolean {
-    return !message.error && !!stripTavernImageMarkers(message.content);
-}
-
-function hasUsableCurrentUserMessage(text = ''): boolean {
-    return !!stripTavernImageMarkers(text);
-}
-
-export interface TavernContextWindowResolution {
-    contextWindowStartOrder: number;
-    historyMessages: TavernMessageRecord[];
-    usableHistoryCount: number;
-    windowHistoryCount: number;
-    currentUserCount: number;
-}
-
-export function resolveTavernContextWindow(input: {
-    messages?: TavernMessageRecord[];
-    contextWindowStartOrder?: unknown;
-    currentUserMessage?: string;
-} = {}): TavernContextWindowResolution {
-    const sorted = [...(input.messages || [])].sort((left, right) => left.order - right.order);
-    const usableMessages = sorted.filter(isUsableContextWindowMessage);
-    const currentUserCount = hasUsableCurrentUserMessage(input.currentUserMessage || '') ? 1 : 0;
-    let startOrder = Math.max(0, Math.floor(Number(input.contextWindowStartOrder) || 0));
-
-    if (!usableMessages.length || usableMessages.length < TAVERN_CONTEXT_WINDOW_MIN_SAFE) {
-        startOrder = 0;
-    } else if (usableMessages.length + currentUserCount <= TAVERN_CONTEXT_WINDOW_MAX) {
-        startOrder = 0;
-    } else if (startOrder > 0) {
-        let windowUsableMessages = usableMessages.filter((message) => message.order >= startOrder);
-        const exactStartExists = usableMessages.some((message) => message.order === startOrder);
-        if (!exactStartExists && windowUsableMessages.length) {
-            startOrder = windowUsableMessages[0].order;
-            windowUsableMessages = usableMessages.filter((message) => message.order >= startOrder);
-        }
-        if (windowUsableMessages.length < TAVERN_CONTEXT_WINDOW_MIN_SAFE) {
-            startOrder = usableMessages[Math.max(0, usableMessages.length - TAVERN_CONTEXT_WINDOW_RETAIN)]?.order || 0;
-        }
-    }
-
-    let windowUsableMessages = startOrder > 0
-        ? usableMessages.filter((message) => message.order >= startOrder)
-        : usableMessages;
-    if (windowUsableMessages.length + currentUserCount > TAVERN_CONTEXT_WINDOW_MAX) {
-        const retainHistoryCount = Math.max(0, TAVERN_CONTEXT_WINDOW_RETAIN - currentUserCount);
-        startOrder = retainHistoryCount > 0
-            ? windowUsableMessages.slice(-retainHistoryCount)[0]?.order || 0
-            : 0;
-        windowUsableMessages = startOrder > 0
-            ? usableMessages.filter((message) => message.order >= startOrder)
-            : usableMessages;
-    }
-
-    const historyMessages = startOrder > 0
-        ? sorted.filter((message) => message.order >= startOrder)
-        : sorted;
-    return {
-        contextWindowStartOrder: startOrder,
-        historyMessages,
-        usableHistoryCount: usableMessages.length,
-        windowHistoryCount: windowUsableMessages.length,
-        currentUserCount,
-    };
-}
-
-async function listAllTavernMessagesInRangePaged(
-    sessionId = '',
-    startOrder = 0,
-    endOrder = Number.POSITIVE_INFINITY,
-): Promise<TavernMessageRecord[]> {
-    const pageSize = 1000;
-    const messages: TavernMessageRecord[] = [];
-    let offset = 0;
-    while (true) {
-        const page = await listTavernMessagesInRange(sessionId, startOrder, endOrder, pageSize, offset);
-        messages.push(...page);
-        if (page.length < pageSize) {break;}
-        offset += pageSize;
-    }
-    return messages;
-}
-
-function countUsableContextWindowMessages(messages: TavernMessageRecord[]) {
-    return messages.filter(isUsableContextWindowMessage).length;
-}
-
-export async function loadTavernPromptHistoryWindow(input: {
-    sessionId: string;
-    contextWindowStartOrder?: unknown;
-    currentUserMessage?: string;
-    beforeOrder?: number;
-}): Promise<TavernContextWindowResolution> {
-    const sessionId = String(input.sessionId || '').trim();
-    if (!sessionId) {
-        return resolveTavernContextWindow({
-            messages: [],
-            contextWindowStartOrder: input.contextWindowStartOrder,
-            currentUserMessage: input.currentUserMessage,
-        });
-    }
-    const finiteBefore = Number.isFinite(Number(input.beforeOrder));
-    const beforeOrder = finiteBefore ? Math.floor(Number(input.beforeOrder) || 0) : Number.POSITIVE_INFINITY;
-    if (finiteBefore && beforeOrder <= 0) {
-        return resolveTavernContextWindow({
-            messages: [],
-            contextWindowStartOrder: input.contextWindowStartOrder,
-            currentUserMessage: input.currentUserMessage,
-        });
-    }
-    const endOrder = finiteBefore ? beforeOrder - 1 : Number.POSITIVE_INFINITY;
-    const startOrder = Math.max(0, Math.floor(Number(input.contextWindowStartOrder) || 0));
-    const currentUserCount = hasUsableCurrentUserMessage(input.currentUserMessage || '') ? 1 : 0;
-    const targetUsable = Math.max(TAVERN_CONTEXT_WINDOW_MAX, TAVERN_CONTEXT_WINDOW_RETAIN + currentUserCount);
-    const pageSize = Math.max(TAVERN_CONTEXT_WINDOW_MAX * 3, 60);
-
-    if (startOrder > 0) {
-        const range = await listTavernMessagesInRangeWithCount(sessionId, startOrder, endOrder, pageSize, 0);
-        if (range.total <= pageSize) {
-            const resolved = resolveTavernContextWindow({
-                messages: range.messages,
-                contextWindowStartOrder: startOrder,
-                currentUserMessage: input.currentUserMessage,
-            });
-            if (resolved.contextWindowStartOrder >= startOrder) {
-                return resolved;
-            }
-        }
-    }
-
-    const collected = new Map<number, TavernMessageRecord>();
-    let offset = 0;
-    let finiteRangeTotal: number | null = null;
-    let finiteRangeLoadedFromEnd = 0;
-    let total = 0;
-    while (true) {
-        let page: { messages: TavernMessageRecord[]; total: number };
-        if (finiteBefore) {
-            if (finiteRangeTotal === null) {
-                const probe = await listTavernMessagesInRangeWithCount(sessionId, 0, endOrder, 1, 0);
-                finiteRangeTotal = probe.total;
-            }
-            const remaining = Math.max(0, finiteRangeTotal - finiteRangeLoadedFromEnd);
-            const limit = Math.min(pageSize, remaining);
-            const offsetFromStart = Math.max(0, finiteRangeTotal - finiteRangeLoadedFromEnd - limit);
-            page = limit > 0
-                ? await listTavernMessagesInRangeWithCount(sessionId, 0, endOrder, limit, offsetFromStart)
-                : { messages: [], total: finiteRangeTotal };
-            finiteRangeLoadedFromEnd += page.messages.length;
-        } else {
-            page = await listLatestTavernMessagesWithCount(sessionId, pageSize, offset);
-            offset += pageSize;
-        }
-        total = page.total;
-        page.messages.forEach((message) => collected.set(message.order, message));
-        const messages = [...collected.values()].sort((left, right) => left.order - right.order);
-        if (messages.length >= total || countUsableContextWindowMessages(messages) >= targetUsable) {
-            return resolveTavernContextWindow({
-                messages,
-                contextWindowStartOrder: startOrder,
-                currentUserMessage: input.currentUserMessage,
-            });
-        }
-        if (!page.messages.length) {
-            return resolveTavernContextWindow({
-                messages,
-                contextWindowStartOrder: startOrder,
-                currentUserMessage: input.currentUserMessage,
-            });
-        }
-    }
-}
 
 function isRandomEncounterCooldownActive(messages: TavernMessageRecord[] = []): boolean {
     if (RANDOM_ENCOUNTER_COOLDOWN_TURNS <= 0) {return false;}
@@ -726,9 +534,14 @@ export interface XbTavernRunTurnInput {
     onStreamProgress?: (snapshot: TavernRunStreamSnapshot) => void;
     onRuntimeStatus?: (snapshot: TavernRunStatusSnapshot) => void;
     onUserMessageSaved?: (sessionId: string, message: TavernMessageRecord) => void | Promise<void>;
+    onLatestAssistantRerollPrepared?: (
+        sessionId: string,
+        userMessage: TavernMessageRecord,
+        previousAssistantMessage: TavernMessageRecord,
+    ) => void | Promise<void>;
     onAssistantMessageSaved?: (sessionId: string, message: TavernMessageRecord) => void | Promise<void>;
     onManagerRunSaved?: (sessionId: string, managerRunId: string) => void | Promise<void>;
-    reuseUserMessageOrder?: number;
+    rerollLatestAssistant?: boolean;
     runManager?: boolean;
     generationTrigger?: string;
     executeRunOnce?: TavernRunOnceExecutor;
@@ -933,16 +746,6 @@ function notifyRunStatus(callback: ((snapshot: TavernRunStatusSnapshot) => void)
     } catch (error) {
         console.warn('[小白酒馆] run status callback failed', error);
     }
-}
-
-async function persistRunSessionState(
-    sessionId: string,
-    state: Partial<TavernSessionState>,
-    options: { replace?: boolean } = {},
-): Promise<TavernSessionRecord | null> {
-    return options.replace
-        ? await replaceTavernSessionState(sessionId, state)
-        : await updateTavernSessionState(sessionId, state);
 }
 
 function hasUsableTavernContext(context?: XbTavernContext | null): boolean {
@@ -1744,174 +1547,6 @@ async function loadCommunicationEventsForHistory(
     });
 }
 
-function findCompletedAssistantForUser(messages: TavernMessageRecord[] = [], userIndex = -1): TavernMessageRecord | null {
-    if (userIndex < 0) {return null;}
-    for (let index = userIndex + 1; index < messages.length; index += 1) {
-        const message = messages[index];
-        if (message.role === 'user') {break;}
-        if (message.role === 'assistant' && !message.error && String(message.content || '').trim()) {
-            return message;
-        }
-    }
-    return null;
-}
-
-export function deriveTavernSessionStateFromMessages(input: {
-    messages?: TavernMessageRecord[];
-    contextSnapshot?: XbTavernContext;
-    chatPreset?: TavernChatPromptPresetBundle;
-    preset?: TavernChatPromptPresetBundle;
-    historyMode?: XbTavernRuntimeState['historyMode'];
-    diagnostics?: TavernDiagnostics;
-}): TavernSessionState {
-    const chatPreset = resolveInputChatPreset(input);
-    const sorted = [...(input.messages || [])].sort((left, right) => left.order - right.order);
-    const contextSnapshot = input.contextSnapshot || {};
-    const priorMessages: TavernMessageRecord[] = [];
-    let turn = 0;
-    let lastBuildSnapshot: XbTavernBuildSnapshot | undefined;
-    let lastRequestSnapshot: unknown;
-    let lastProvider = '';
-    let lastModel = '';
-
-    sorted.forEach((message, index) => {
-        const cleanContent = stripTavernImageMarkers(message.content);
-        if (message.role !== 'user' || message.error || !cleanContent) {
-            priorMessages.push(message);
-            return;
-        }
-        const assistant = findCompletedAssistantForUser(sorted, index);
-        if (assistant) {
-            const brain = buildXbTavernBrain({
-                context: {
-                    ...contextSnapshot,
-                    history: buildContextHistory(priorMessages),
-                },
-                chatPreset,
-                currentUserMessage: cleanContent,
-                historyMode: input.historyMode || 'raw',
-                turn,
-                entryStates: {},
-                diagnostics: input.diagnostics || {},
-            });
-            turn += 1;
-            lastBuildSnapshot = brain.buildSnapshot;
-            lastRequestSnapshot = assistant.requestSnapshot || message.requestSnapshot;
-            lastProvider = String(assistant.provider || '');
-            lastModel = String(assistant.model || '');
-        }
-        priorMessages.push(message);
-    });
-
-    const lastMessage = sorted[sorted.length - 1];
-    return {
-        turn,
-        worldEntryStates: {},
-        nativeWorldInfoTimedState: { sticky: {}, cooldown: {} },
-        lastBuildSnapshot,
-        lastRequestSnapshot,
-        lastProvider,
-        lastModel,
-        lastError: lastMessage?.error ? String(lastMessage.content || '') : '',
-    };
-}
-
-export async function deriveTavernSessionStateFromMessagesAsync(input: {
-    messages?: TavernMessageRecord[];
-    contextSnapshot?: XbTavernContext;
-    chatPreset?: TavernChatPromptPresetBundle;
-    preset?: TavernChatPromptPresetBundle;
-    historyMode?: XbTavernRuntimeState['historyMode'];
-    diagnostics?: TavernDiagnostics;
-    applySubstituteParams?: TavernApplySubstituteParams;
-    getNativeWorldInfoRuntime?: TavernGetNativeWorldInfoRuntime;
-}): Promise<TavernSessionState> {
-    if (!input.applySubstituteParams && !input.getNativeWorldInfoRuntime) {
-        return deriveTavernSessionStateFromMessages(input);
-    }
-    const chatPreset = resolveInputChatPreset(input);
-    const sorted = [...(input.messages || [])].sort((left, right) => left.order - right.order);
-    const contextSnapshot = input.contextSnapshot || {};
-    const substituteOptions = buildSubstituteParamsOptions(contextSnapshot);
-    const priorMessages: TavernMessageRecord[] = [];
-    let turn = 0;
-    let worldEntryStates: NonNullable<TavernSessionState['worldEntryStates']> = {};
-    let nativeWorldInfoTimedState: XbTavernNativeWorldInfoTimedState = { sticky: {}, cooldown: {} };
-    let lastBuildSnapshot: XbTavernBuildSnapshot | undefined;
-    let lastRequestSnapshot: unknown;
-    let lastProvider = '';
-    let lastModel = '';
-
-    for (let index = 0; index < sorted.length; index += 1) {
-        const message = sorted[index];
-        const cleanContent = stripTavernImageMarkers(message.content);
-        if (message.role !== 'user' || message.error || !cleanContent) {
-            priorMessages.push(message);
-            continue;
-        }
-        const assistant = findCompletedAssistantForUser(sorted, index);
-        if (assistant) {
-            const trigger = String(
-                (assistant.buildSnapshot as { nativeWorldInfo?: { trigger?: string } } | undefined)?.nativeWorldInfo?.trigger
-                || (message.buildSnapshot as { nativeWorldInfo?: { trigger?: string } } | undefined)?.nativeWorldInfo?.trigger
-                || 'normal',
-            );
-            const contextBase = {
-                ...contextSnapshot,
-                worldSettings: {
-                    ...(contextSnapshot.worldSettings || {}),
-                    trigger,
-                },
-                history: buildContextHistory(priorMessages),
-            };
-            const nativeContext = await injectNativeWorldInfoRuntime({
-                getNativeWorldInfoRuntime: input.getNativeWorldInfoRuntime,
-                context: contextBase,
-                currentUserMessage: cleanContent,
-                trigger,
-                timedState: nativeWorldInfoTimedState,
-            });
-            nativeWorldInfoTimedState = nativeContext.timedState;
-            const contextForBuild = await substituteContextWorldEntriesForPrompt({
-                applySubstituteParams: input.applySubstituteParams,
-                context: nativeContext.context,
-                options: substituteOptions,
-            });
-            const brain = await buildXbTavernBrainAsync({
-                context: contextForBuild,
-                chatPreset,
-                currentUserMessage: cleanContent,
-                historyMode: input.historyMode || 'raw',
-                turn,
-                entryStates: worldEntryStates,
-                diagnostics: input.diagnostics || {},
-            });
-            worldEntryStates = mergeWorldEntryStates(
-                worldEntryStates,
-                brain.buildResult.meta.worldEntryStateUpdates,
-            );
-            turn += 1;
-            lastBuildSnapshot = brain.buildSnapshot;
-            lastRequestSnapshot = assistant.requestSnapshot || message.requestSnapshot;
-            lastProvider = String(assistant.provider || '');
-            lastModel = String(assistant.model || '');
-        }
-        priorMessages.push(message);
-    }
-
-    const lastMessage = sorted[sorted.length - 1];
-    return {
-        turn,
-        worldEntryStates,
-        nativeWorldInfoTimedState,
-        lastBuildSnapshot,
-        lastRequestSnapshot,
-        lastProvider,
-        lastModel,
-        lastError: lastMessage?.error ? String(lastMessage.content || '') : '',
-    };
-}
-
 async function ensureRunSession(input: XbTavernRunTurnInput, buildSnapshot?: XbTavernBuildSnapshot): Promise<TavernSessionRecord> {
     const existing = await getTavernSession(input.sessionId || '');
     if (existing) {return existing;}
@@ -2533,60 +2168,33 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     const baseSession = await ensureRunSession(input);
     const liveContext = resolveSessionContext(baseSession, input.contextSnapshot);
     assertUsableTavernContext(liveContext);
-    const reusedOrder = Number(input.reuseUserMessageOrder);
-    const reusedCandidate = Number.isInteger(reusedOrder) && reusedOrder >= 0
-        ? await getTavernMessage(baseSession.id, reusedOrder)
+    const rerollPreparation = input.rerollLatestAssistant
+        ? await prepareTavernLatestAssistantReroll(baseSession.id)
         : null;
-    const reusedUserMessage = reusedCandidate?.role === 'user' && !reusedCandidate.error ? reusedCandidate : null;
-    if (reusedUserMessage) {
-        const changedOrder = reusedUserMessage.order + 1;
-        await cancelAndRollbackXbTavernManagersForMessageRange(baseSession.id, changedOrder);
-        await restoreTavernMemoryToFloor(baseSession.id, changedOrder - 1);
-        await restoreTavernTasksToFloor(baseSession.id, changedOrder - 1);
-        await restoreTavernCommunicationsToFloor(baseSession.id, changedOrder - 1);
-        await trimTavernMemorySnapshotsFromFloor(baseSession.id, changedOrder);
-        await trimTavernTaskSnapshotsFromFloor(baseSession.id, changedOrder);
-        await trimTavernCommunicationSnapshotsFromFloor(baseSession.id, changedOrder);
-        await rebuildTavernMemoryDerivedIndex(baseSession.id);
-        await deleteTavernMessages(baseSession.id, await listTavernMessageOrdersFrom(baseSession.id, changedOrder));
-    }
-    const persistedSessionState = normalizeTavernSessionState(baseSession.state || input.runtimeState || {});
+    const persistedSessionState = normalizeTavernSessionState(
+        rerollPreparation?.runtimeState || baseSession.state || input.runtimeState || {},
+    );
     const persistedSessionContract = resolveSessionContract(persistedSessionState);
     const persistedSessionContractRuntime = resolveTavernSessionContractRuntime(persistedSessionContract);
     const turnDiagnostics: TavernDiagnostics = {
         ...(input.diagnostics || {}),
     };
-    if (!reusedUserMessage) {
+    const reusedUserMessage = rerollPreparation?.userMessage || null;
+    const sessionState = normalizeRuntimeSessionStateWithContract(persistedSessionState, persistedSessionState.contract);
+    if (rerollPreparation) {
+        await notifyRunCallback(() => input.onLatestAssistantRerollPrepared?.(
+            baseSession.id,
+            rerollPreparation.userMessage,
+            rerollPreparation.previousAssistantMessage,
+        ));
+    } else {
         await saveAcceptedStateSnapshot(baseSession.id);
     }
     notifyRunStatus(input.onRuntimeStatus, '整理历史');
-    const rebuildHistoryMessages = reusedUserMessage
-        ? await listAllTavernMessagesInRangePaged(baseSession.id, 0, reusedUserMessage.order - 1)
-        : null;
-    const rebuiltSessionState = reusedUserMessage
-        ? await deriveTavernSessionStateFromMessagesAsync({
-            messages: rebuildHistoryMessages || [],
-            contextSnapshot: liveContext,
-            chatPreset: input.chatPreset,
-            historyMode: input.historyMode || 'raw',
-            diagnostics: turnDiagnostics,
-            applySubstituteParams: input.applySubstituteParams,
-            getNativeWorldInfoRuntime: input.getNativeWorldInfoRuntime,
-        })
-        : null;
-    const sessionState = reusedUserMessage
-        ? normalizeRuntimeSessionStateWithContract(
-            {
-                ...rebuiltSessionState,
-                contextWindowStartOrder: persistedSessionState.contextWindowStartOrder,
-            },
-            persistedSessionState.contract,
-        )
-        : persistedSessionState;
     const sessionContract = resolveSessionContract(sessionState);
     const sessionContractRuntime = resolveTavernSessionContractRuntime(sessionContract);
     const actionCheckCapabilities = buildActionCheckCapabilities(sessionContractRuntime);
-    const shouldReplaceSessionState = !!reusedUserMessage;
+    const shouldReplaceSessionState = !!rerollPreparation;
     const rawCurrentUserMessage = String(reusedUserMessage?.content || input.currentUserMessage || '');
     const initialPresetId = String(chatPreset.id || baseSession.chatPresetId || baseSession.presetId || '');
     const initialPresetName = String(chatPreset.name || baseSession.chatPresetName || baseSession.presetName || '');
@@ -2597,6 +2205,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         const appended = await appendTavernUserMessageAndConfirmManagerCandidate(baseSession.id, {
             role: 'user',
             content: rawCurrentUserMessage,
+            runtimeStateSnapshot: createTavernTurnStateSnapshot(persistedSessionState),
             contextSnapshot: liveContext,
             chatPresetId: initialPresetId,
             chatPresetName: initialPresetName,
@@ -2814,14 +2423,17 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         runtimeProtocolMessages,
         diagnostics: turnDiagnostics,
     });
-    const session = await updateTavernSessionSnapshot(baseSession.id, {
+    const sessionSnapshot = {
         contextSnapshot: liveContext,
         buildSnapshot,
         chatPresetId: String(chatPreset.id || baseSession.chatPresetId || baseSession.presetId || ''),
         chatPresetName: String(chatPreset.name || baseSession.chatPresetName || baseSession.presetName || ''),
         presetId: String(chatPreset.id || baseSession.presetId || ''),
         presetName: String(chatPreset.name || baseSession.presetName || ''),
-    }) || baseSession;
+    };
+    const session = rerollPreparation
+        ? baseSession
+        : await updateTavernSessionSnapshot(baseSession.id, sessionSnapshot) || baseSession;
     let latestStreamText = '';
     let sawStreamProgress = false;
     const handleStreamProgress = (snapshot: TavernRunStreamSnapshot) => {
@@ -2866,25 +2478,30 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
     }
     const presetId = String(chatPreset.id || session.chatPresetId || session.presetId || '');
     const presetName = String(chatPreset.name || session.chatPresetName || session.presetName || '');
-    if (userMessage) {
-        const existingEncounter = getChanceEncounterEvent(userMessage.runtimeEvents);
+    const existingEncounter = getChanceEncounterEvent(userMessage?.runtimeEvents);
+    const userMessagePatch = {
+        contextSnapshot: liveContext,
+        buildSnapshot,
+        chatPresetId: presetId,
+        chatPresetName: presetName,
+        presetId,
+        presetName,
+        requestSnapshot,
+        runtimeEvents: !existingEncounter && chanceEncounterEvent
+            ? [chanceEncounterEvent]
+            : userMessage?.runtimeEvents || [],
+    };
+    if (userMessage && !rerollPreparation) {
         userMessage = await updateTavernMessage(session.id, userMessage.order, {
-            contextSnapshot: liveContext,
-            buildSnapshot,
-            chatPresetId: presetId,
-            chatPresetName: presetName,
-            presetId,
-            presetName,
-            requestSnapshot,
-            runtimeEvents: !existingEncounter && chanceEncounterEvent
-                ? [chanceEncounterEvent]
-                : userMessage.runtimeEvents || [],
+            ...userMessagePatch,
         }) || userMessage;
     }
     if (!userMessage) {
         throw new Error('user_message_save_failed');
     }
-    await notifyRunCallback(() => input.onUserMessageSaved?.(session.id, userMessage));
+    if (!rerollPreparation) {
+        await notifyRunCallback(() => input.onUserMessageSaved?.(session.id, userMessage));
+    }
 
     try {
         const executeRunOnce = input.executeRunOnce || createDefaultTavernRunOnceExecutor(input.agentConfig);
@@ -2946,7 +2563,28 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             ...result.requestSnapshot,
             regexApplications,
         };
-        const assistantMessage = await appendTavernMessage(session.id, {
+        const nextTurn = Number(sessionState.turn || 0) + 1;
+        const nextSessionState = {
+            turn: nextTurn,
+            contextWindowStartOrder: contextWindow.contextWindowStartOrder,
+            worldEntryStates: mergeBuildWorldEntryStateUpdates(sessionState, buildResult, shouldReplaceSessionState),
+            nativeWorldInfoTimedState: contextForBuild.nativeWorldInfo
+                ? nativeContext.timedState
+                : normalizeNativeWorldInfoTimedState(sessionState.nativeWorldInfoTimedState),
+            lastBuildSnapshot: buildSnapshot,
+            lastRequestSnapshot: assistantRequestSnapshot,
+            lastProvider: result.provider || '',
+            lastModel: result.model || '',
+        } satisfies Partial<TavernSessionState>;
+        const assistantFinishReason = String(result.finishReason || '').trim();
+        if (rerollPreparation && ['aborted', 'error'].includes(assistantFinishReason)) {
+            throw new Error(assistantFinishReason === 'aborted'
+                ? '已停止重 roll，原回复已保留。'
+                : '重 roll 未完成，原回复已保留。');
+        }
+        const canRunManager = input.runManager === true
+            && !['aborted', 'error'].includes(assistantFinishReason);
+        const assistantMessageInput = {
             role: 'assistant',
             content: normalizedOutput.text,
             thoughts: reasoningRegex.thoughts,
@@ -2962,40 +2600,35 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             model: result.model || '',
             finishReason: result.finishReason || '',
             runtimeEvents: assistantRuntimeEvents,
-        });
-        await notifyRunCallback(() => input.onAssistantMessageSaved?.(session.id, assistantMessage));
-        const nextTurn = Number(sessionState.turn || 0) + 1;
-        await persistRunSessionState(session.id, {
-            turn: nextTurn,
-            contextWindowStartOrder: contextWindow.contextWindowStartOrder,
-            worldEntryStates: mergeBuildWorldEntryStateUpdates(sessionState, buildResult, shouldReplaceSessionState),
-            nativeWorldInfoTimedState: contextForBuild.nativeWorldInfo
-                ? nativeContext.timedState
-                : normalizeNativeWorldInfoTimedState(sessionState.nativeWorldInfoTimedState),
-            lastBuildSnapshot: buildSnapshot,
-            lastRequestSnapshot: assistantRequestSnapshot,
-            lastProvider: result.provider || '',
-            lastModel: result.model || '',
-        }, {
-            replace: shouldReplaceSessionState,
-        });
-        const assistantFinishReason = String(result.finishReason || '').trim();
-        const canRunManager = input.runManager === true
-            && !assistantMessage.error
-            && !['aborted', 'error'].includes(assistantFinishReason);
-        if (canRunManager && sessionContractRuntime.hasAutomaticManagerWork) {
-            await markXbTavernManagerTurnCandidate({
-                sessionId: session.id,
-                agentConfig: input.agentConfig,
+        } as const;
+        const commitOptions = {
+            sessionState: nextSessionState,
+            replaceSessionState: shouldReplaceSessionState,
+            ...(rerollPreparation ? { userMessagePatch, sessionSnapshot } : {}),
+            ...(canRunManager && sessionContractRuntime.hasAutomaticManagerWork ? {
+                managerCandidate: {
+                    turn: nextTurn,
+                    inputSummary: `turn ${nextTurn}; messages ${userMessage.order}/${userMessage.order + 1}; user ${userMessage.content.length} chars`,
+                },
+            } : {}),
+        };
+        const committed = rerollPreparation
+            ? await commitTavernLatestAssistantReroll(
+                session.id,
+                rerollPreparation.userMessage,
+                rerollPreparation.previousAssistantMessage,
+                rerollPreparation.candidate,
+                assistantMessageInput,
+                commitOptions,
+            )
+            : await commitTavernAssistantResponseForLatestUser(
+                session.id,
                 userMessage,
-                assistantMessage,
-                turn: nextTurn,
-                assistantPreset: input.assistantPreset,
-                sessionContract,
-                contextSnapshot: liveContext,
-                executeManagerOnce: input.executeManagerOnce,
-            });
-        }
+                assistantMessageInput,
+                commitOptions,
+            );
+        const assistantMessage = committed.assistantMessage;
+        await notifyRunCallback(() => input.onAssistantMessageSaved?.(session.id, assistantMessage));
         return {
             sessionId: session.id,
             userMessage,
@@ -3012,6 +2645,11 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             managerStatus: confirmedManagerStatus,
         };
     } catch (error) {
+        if (rerollPreparation) {throw error;}
+        const commitError = error instanceof Error ? error.message : String(error || '');
+        if (['assistant_timeline_advanced', 'assistant_candidate_conflict'].includes(commitError)) {
+            throw error;
+        }
         const failedRequestSnapshot = (error as { requestSnapshot?: TavernRequestSnapshot } | null)?.requestSnapshot;
         if (failedRequestSnapshot) {
             requestSnapshot = {
@@ -3038,37 +2676,43 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             if (partialRegex.text !== partialText) {
                 input.onStreamProgress?.({ text: partialRegex.text });
             }
-            const errorMessage = await appendTavernMessage(session.id, {
-                role: 'assistant',
-                content: partialRegex.text,
-                error: false,
-                contextSnapshot: liveContext,
-                buildSnapshot,
-                chatPresetId: presetId,
-                chatPresetName: presetName,
-                presetId,
-                presetName,
-                requestSnapshot,
-                provider: requestSnapshot.provider,
-                model: requestSnapshot.model,
-                finishReason: 'aborted',
-            });
-            await notifyRunCallback(() => input.onAssistantMessageSaved?.(session.id, errorMessage));
             const nextTurn = Number(sessionState.turn || 0) + 1;
-            await persistRunSessionState(session.id, {
-                turn: nextTurn,
-                contextWindowStartOrder: contextWindow.contextWindowStartOrder,
-                worldEntryStates: mergeBuildWorldEntryStateUpdates(sessionState, buildResult, shouldReplaceSessionState),
-                nativeWorldInfoTimedState: contextForBuild.nativeWorldInfo
-                    ? nativeContext.timedState
-                    : normalizeNativeWorldInfoTimedState(sessionState.nativeWorldInfoTimedState),
-                lastBuildSnapshot: buildSnapshot,
-                lastRequestSnapshot: requestSnapshot,
-                lastProvider: requestSnapshot.provider,
-                lastModel: requestSnapshot.model,
-            }, {
-                replace: shouldReplaceSessionState,
-            });
+            const committed = await commitTavernAssistantResponseForLatestUser(
+                session.id,
+                userMessage,
+                {
+                    role: 'assistant',
+                    content: partialRegex.text,
+                    error: false,
+                    contextSnapshot: liveContext,
+                    buildSnapshot,
+                    chatPresetId: presetId,
+                    chatPresetName: presetName,
+                    presetId,
+                    presetName,
+                    requestSnapshot,
+                    provider: requestSnapshot.provider,
+                    model: requestSnapshot.model,
+                    finishReason: 'aborted',
+                },
+                {
+                    replaceSessionState: shouldReplaceSessionState,
+                    sessionState: {
+                        turn: nextTurn,
+                        contextWindowStartOrder: contextWindow.contextWindowStartOrder,
+                        worldEntryStates: mergeBuildWorldEntryStateUpdates(sessionState, buildResult, shouldReplaceSessionState),
+                        nativeWorldInfoTimedState: contextForBuild.nativeWorldInfo
+                            ? nativeContext.timedState
+                            : normalizeNativeWorldInfoTimedState(sessionState.nativeWorldInfoTimedState),
+                        lastBuildSnapshot: buildSnapshot,
+                        lastRequestSnapshot: requestSnapshot,
+                        lastProvider: requestSnapshot.provider,
+                        lastModel: requestSnapshot.model,
+                    },
+                },
+            );
+            const errorMessage = committed.assistantMessage;
+            await notifyRunCallback(() => input.onAssistantMessageSaved?.(session.id, errorMessage));
             return {
                 sessionId: session.id,
                 userMessage,
@@ -3086,35 +2730,41 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             };
         }
         const errorText = formatTavernRunErrorMessage(error instanceof Error ? error.message : String(error || 'run_failed'));
-        const errorMessage = await appendTavernMessage(session.id, {
-            role: 'assistant',
-            content: aborted ? '已停止生成。' : errorText,
-            error: true,
-            contextSnapshot: liveContext,
-            buildSnapshot,
-            chatPresetId: presetId,
-            chatPresetName: presetName,
-            presetId,
-            presetName,
-            requestSnapshot,
-            provider: requestSnapshot.provider,
-            model: requestSnapshot.model,
-            finishReason: aborted ? 'aborted' : 'error',
-        });
+        const committed = await commitTavernAssistantResponseForLatestUser(
+            session.id,
+            userMessage,
+            {
+                role: 'assistant',
+                content: aborted ? '已停止生成。' : errorText,
+                error: true,
+                contextSnapshot: liveContext,
+                buildSnapshot,
+                chatPresetId: presetId,
+                chatPresetName: presetName,
+                presetId,
+                presetName,
+                requestSnapshot,
+                provider: requestSnapshot.provider,
+                model: requestSnapshot.model,
+                finishReason: aborted ? 'aborted' : 'error',
+            },
+            {
+                replaceSessionState: shouldReplaceSessionState,
+                sessionState: {
+                    turn: Number(sessionState.turn || 0),
+                    contextWindowStartOrder: contextWindow.contextWindowStartOrder,
+                    worldEntryStates: shouldReplaceSessionState ? sessionState.worldEntryStates || {} : {},
+                    nativeWorldInfoTimedState: normalizeNativeWorldInfoTimedState(sessionState.nativeWorldInfoTimedState),
+                    lastBuildSnapshot: buildSnapshot,
+                    lastRequestSnapshot: requestSnapshot,
+                    lastProvider: requestSnapshot.provider,
+                    lastModel: requestSnapshot.model,
+                    lastError: aborted ? '已停止生成。' : errorText,
+                },
+            },
+        );
+        const errorMessage = committed.assistantMessage;
         await notifyRunCallback(() => input.onAssistantMessageSaved?.(session.id, errorMessage));
-        await persistRunSessionState(session.id, {
-            turn: Number(sessionState.turn || 0),
-            contextWindowStartOrder: contextWindow.contextWindowStartOrder,
-            worldEntryStates: shouldReplaceSessionState ? sessionState.worldEntryStates || {} : {},
-            nativeWorldInfoTimedState: normalizeNativeWorldInfoTimedState(sessionState.nativeWorldInfoTimedState),
-            lastBuildSnapshot: buildSnapshot,
-            lastRequestSnapshot: requestSnapshot,
-            lastProvider: requestSnapshot.provider,
-            lastModel: requestSnapshot.model,
-            lastError: aborted ? '已停止生成。' : errorText,
-        }, {
-            replace: shouldReplaceSessionState,
-        });
         return {
             sessionId: session.id,
             userMessage,

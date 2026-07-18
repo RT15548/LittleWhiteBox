@@ -32,7 +32,6 @@ import {
     listTavernManagerMemorySnapshots,
     listTavernManagerRuns,
     markExpiredAcceptedTurnManagerRunsInterrupted,
-    putTavernManagerCandidate,
     rollbackManagerRunMemoryWrites,
     rollbackManagerRunsForMessageRange,
     touchRunningTavernManagerRun,
@@ -1575,24 +1574,6 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             error: errorText,
         };
     }
-}
-
-export async function markXbTavernManagerTurnCandidate(input: XbTavernManagerRunInput): Promise<void> {
-    const sessionId = String(input.sessionId || '').trim();
-    if (!sessionId) {throw new Error('manager_session_required');}
-    await putTavernManagerCandidate({
-        sessionId,
-        turn: input.turn,
-        userOrder: input.userMessage.order,
-        assistantOrder: input.assistantMessage.order,
-        inputSummary: buildInputSummary({
-            trigger: ACCEPTED_TURN_MANAGER_TRIGGER,
-            turn: input.turn,
-            userOrder: input.userMessage.order,
-            assistantOrder: input.assistantMessage.order,
-            text: input.userMessage.content,
-        }),
-    });
 }
 
 export async function failAndRollbackAcceptedTurnManagerRun(
