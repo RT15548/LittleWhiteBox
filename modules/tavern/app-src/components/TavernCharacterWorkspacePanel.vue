@@ -598,6 +598,10 @@ watch(
                 <dt>状态</dt>
                 <dd>{{ characterArchiveSyncState.result.counts.stateDocuments }}</dd>
               </div>
+              <div>
+                <dt>经济</dt>
+                <dd>{{ characterArchiveSyncState.result.counts.economy }}</dd>
+              </div>
             </dl>
           </div>
         </section>

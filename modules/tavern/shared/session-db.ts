@@ -41,6 +41,10 @@ import {
     type TavernRuntimeEvent,
 } from './runtime-events';
 import { assertTavernManagerSnapshotStable } from './manager-snapshot-integrity';
+import type {
+    TavernEconomyAccountRecord,
+    TavernEconomyTransactionRecord,
+} from './economy/economy-types';
 
 type TavernDexieUpgradeTable = {
     clear: () => Promise<unknown>;
@@ -489,6 +493,8 @@ class TavernDatabase extends Dexie {
     communicationThreads!: DexieTable<TavernCommunicationThreadRecord>;
     communicationMessages!: DexieTable<TavernCommunicationMessageRecord>;
     communicationSnapshots!: DexieTable<TavernCommunicationSnapshotRecord>;
+    economyAccounts!: DexieTable<TavernEconomyAccountRecord>;
+    economyTransactions!: DexieTable<TavernEconomyTransactionRecord>;
 
     constructor() {
         super('LittleWhiteBox_Tavern');
@@ -849,6 +855,10 @@ class TavernDatabase extends Dexie {
                 }
             });
         });
+        this.version(18).stores({
+            economyAccounts: '[sessionId+id], sessionId, kind, updatedAt',
+            economyTransactions: '[sessionId+id], sessionId, &[sessionId+idempotencyKey], &[sessionId+reversalOfTransactionId], &[sessionId+ledgerOrder], [sessionId+anchorOrder+ledgerOrder], createdAt, anchorOrder, ledgerOrder',
+        });
     }
 }
 
@@ -874,6 +884,8 @@ export const tavernCommunicationContactsTable = db.communicationContacts;
 export const tavernCommunicationThreadsTable = db.communicationThreads;
 export const tavernCommunicationMessagesTable = db.communicationMessages;
 export const tavernCommunicationSnapshotsTable = db.communicationSnapshots;
+export const tavernEconomyAccountsTable = db.economyAccounts;
+export const tavernEconomyTransactionsTable = db.economyTransactions;
 
 type DexieRangeCollection<T> = {
     reverse(): DexieRangeCollection<T>;
@@ -1230,6 +1242,8 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
         tavernCommunicationThreadsTable,
         tavernCommunicationMessagesTable,
         tavernCommunicationSnapshotsTable,
+        tavernEconomyAccountsTable,
+        tavernEconomyTransactionsTable,
         async () => {
             const sourceSession = await tavernSessionsTable.get(sourceSessionId);
             if (!sourceSession) {return null;}
@@ -1250,6 +1264,8 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 communicationThreads,
                 communicationMessages,
                 communicationSnapshots,
+                economyAccounts,
+                economyTransactions,
             ] = await Promise.all([
                 tavernMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernAssistantChatMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
@@ -1266,6 +1282,8 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 tavernCommunicationThreadsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernCommunicationMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernCommunicationSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernEconomyAccountsTable.where('sessionId').equals(sourceSessionId).toArray(),
+                tavernEconomyTransactionsTable.where('sessionId').equals(sourceSessionId).toArray(),
             ]);
             assertTavernManagerSnapshotStable({
                 runs: managerRuns,
@@ -1385,6 +1403,14 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                     threads: (snapshot.threads || []).map((thread) => cloneStableCommunicationThread(thread, nextSessionId)),
                     messages: (snapshot.messages || []).map((message) => cloneStableCommunicationMessage(message, nextSessionId)),
                 }))) : 0,
+                economyAccounts.length ? tavernEconomyAccountsTable.bulkPut(economyAccounts.map((account) => ({
+                    ...cloneSerializable(account, account),
+                    sessionId: nextSessionId,
+                }))) : 0,
+                economyTransactions.length ? tavernEconomyTransactionsTable.bulkPut(economyTransactions.map((transaction) => ({
+                    ...cloneSerializable(transaction, transaction),
+                    sessionId: nextSessionId,
+                }))) : 0,
             ]);
             return session;
         },
@@ -1415,9 +1441,11 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
         tavernCommunicationThreadsTable,
         tavernCommunicationMessagesTable,
         tavernCommunicationSnapshotsTable,
+        tavernEconomyAccountsTable,
+        tavernEconomyTransactionsTable,
         tavernMetaTable,
         async () => {
-            const [messages, assistantChatMessages, runs, snapshots, stateSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches, statusSnapshots, communicationContacts, communicationThreads, communicationMessages, communicationSnapshots] = await Promise.all([
+            const [messages, assistantChatMessages, runs, snapshots, stateSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches, statusSnapshots, communicationContacts, communicationThreads, communicationMessages, communicationSnapshots, economyAccounts, economyTransactions] = await Promise.all([
                 tavernMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernAssistantChatMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernManagerRunsTable.where('sessionId').equals(id).toArray(),
@@ -1433,6 +1461,8 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
                 tavernCommunicationThreadsTable.where('sessionId').equals(id).toArray(),
                 tavernCommunicationMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernCommunicationSnapshotsTable.where('sessionId').equals(id).toArray(),
+                tavernEconomyAccountsTable.where('sessionId').equals(id).toArray(),
+                tavernEconomyTransactionsTable.where('sessionId').equals(id).toArray(),
             ]);
             const managerCandidate = await tavernManagerCandidatesTable.get(id);
             await Promise.all([
@@ -1452,6 +1482,8 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
                 communicationThreads.length ? tavernCommunicationThreadsTable.bulkDelete(communicationThreads.map((thread) => [thread.sessionId, thread.id])) : 0,
                 communicationMessages.length ? tavernCommunicationMessagesTable.bulkDelete(communicationMessages.map((message) => [message.sessionId, message.threadId, message.sequence])) : 0,
                 communicationSnapshots.length ? tavernCommunicationSnapshotsTable.bulkDelete(communicationSnapshots.map((snapshot) => [snapshot.sessionId, snapshot.floor])) : 0,
+                economyAccounts.length ? tavernEconomyAccountsTable.bulkDelete(economyAccounts.map((account) => [account.sessionId, account.id])) : 0,
+                economyTransactions.length ? tavernEconomyTransactionsTable.bulkDelete(economyTransactions.map((transaction) => [transaction.sessionId, transaction.id])) : 0,
             ]);
             await tavernSessionsTable.delete(id);
             const selected = await tavernMetaTable.get('selectedSessionId');

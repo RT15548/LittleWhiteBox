@@ -35,6 +35,10 @@ import type {
 } from '../../shared/session-db';
 import type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 import type { TavernCharacterArchiveProgress } from '../../shared/character-archive-types';
+import type {
+    TavernEconomyTransactionCursor,
+    TavernEconomyTransactionRecord,
+} from '../../shared/economy/economy-types';
 import type { TavernMapStateDocumentItem } from '../../shared/structured-state';
 import type { TavernStatusFieldDeltaMap } from '../../shared/status-state';
 import type { TavernDrawContext } from '../features/draw/useTavernDrawController';
@@ -468,13 +472,33 @@ export interface TavernPhoneOsContext {
     transitionDirection: Ref<'forward' | 'back' | 'home'>;
 }
 
+export interface TavernWalletContext {
+    balance: Ref<number>;
+    balanceError: Ref<string>;
+    balanceLoading: Ref<boolean>;
+    balanceReady: Ref<boolean>;
+    error: Ref<string>;
+    hasMore: TavernReadable<boolean>;
+    ledgerLoading: Ref<boolean>;
+    loadMore: TavernCommand<[], Promise<void>>;
+    loadMoreError: Ref<string>;
+    loadingMore: Ref<boolean>;
+    nextCursor: Ref<TavernEconomyTransactionCursor | null>;
+    prepareWallet: TavernCommand<[], Promise<void>>;
+    refreshBalance: TavernCommand<[], Promise<void>>;
+    refreshWallet: TavernCommand<[], Promise<void>>;
+    transactions: Ref<TavernEconomyTransactionRecord[]>;
+}
+
 export interface TavernPhoneContext {
     isConversationVisible: TavernCommand<[sessionId?: string, threadId?: string], boolean>;
     messages: TavernMessagesContext;
     openContact: TavernCommand<[contactId: string], Promise<void>>;
     openPhone: TavernCommand<[], Promise<void>>;
+    openWallet: TavernCommand;
     os: TavernPhoneOsContext;
     showMessageThreads: TavernCommand;
+    wallet: TavernWalletContext;
 }
 
 export interface TavernManagerContext {

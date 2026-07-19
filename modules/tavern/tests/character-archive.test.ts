@@ -25,6 +25,8 @@ import db, {
     tavernSessionsTable,
     tavernStateDocumentsTable,
     tavernStatePatchesTable,
+    tavernEconomyAccountsTable,
+    tavernEconomyTransactionsTable,
 } from '../shared/session-db';
 import {
     exportTavernCharacterArchive,
@@ -44,10 +46,18 @@ import {
     downloadTavernCharacterArchiveFile,
     downloadTavernCharacterArchiveManifest,
 } from '../shared/character-archive-server-storage';
-import type {
-    TavernCharacterArchiveManifest,
-    TavernCharacterArchiveRecord,
+import {
+    CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION,
+    type TavernCharacterArchiveManifest,
+    type TavernCharacterArchiveRecord,
 } from '../shared/character-archive-types';
+import {
+    postTavernEconomyTransaction,
+} from '../shared/economy/economy-service';
+import {
+    TAVERN_PLAYER_ACCOUNT_ID,
+    TAVERN_SYSTEM_SINK_ACCOUNT_ID,
+} from '../shared/economy/economy-types';
 import {
     appendSentTavernCommunicationMessage,
     completeTavernCommunicationReply,
@@ -64,6 +74,21 @@ const identityCodec: TavernCharacterArchiveJsonlCodec = {
     gzip: async (bytes) => bytes,
     ungzip: async (bytes) => bytes,
 };
+
+async function spendArchiveWallet(sessionId: string, idempotencyKey: string, amount: number, anchorOrder = 0) {
+    return await postTavernEconomyTransaction({
+        sessionId,
+        idempotencyKey,
+        fromAccountId: TAVERN_PLAYER_ACCOUNT_ID,
+        toAccountId: TAVERN_SYSTEM_SINK_ACCOUNT_ID,
+        amount,
+        kind: 'archive_test_spend',
+        title: '归档测试支出',
+        sourceDomain: 'test',
+        sourceId: idempotencyKey,
+        anchorOrder,
+    });
+}
 
 async function seedArchiveSource() {
     await db.delete();
@@ -94,6 +119,9 @@ async function seedArchiveSource() {
     }
     await appendTavernMessage(a2.id, { role: 'user', content: 'latest user' });
     await appendTavernMessage(b1.id, { role: 'user', content: 'other character message' });
+    await spendArchiveWallet(a1.id, 'archive:a1-spend', 15, 1);
+    await spendArchiveWallet(a2.id, 'archive:a2-spend', 5);
+    await spendArchiveWallet(b1.id, 'archive:b1-spend', 7);
     await appendTavernManagerMessage(a1.id, { role: 'assistant', content: 'manager says hi' });
     const run = await createTavernManagerRun({
         id: 'run-a-1',
@@ -258,7 +286,7 @@ async function buildArchive(characterKey = 'char-a', targetRawBytes = 420) {
     });
     const writerResult = await writer.close();
     const manifest: TavernCharacterArchiveManifest = {
-        version: 2,
+        version: CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION,
         archiveId,
         complete: true,
         exportedAt: summary.exportedAt,
@@ -291,6 +319,7 @@ test('tavern character archive backup includes only the current character and cr
     assert.equal(manifest.counts.memoryFiles, 1);
     assert.equal(manifest.counts.stateDocuments, 5);
     assert.equal(manifest.counts.communications, 6);
+    assert.equal(manifest.counts.economy, 10);
     assert(uploadedParts.every((part) => part.filename.includes('_archive-test_part_')));
     assert(!records.some((row) => JSON.stringify(row.record).includes('char-b')));
     assert(!records.some((row) => JSON.stringify(row.record).includes('b-session-1')));
@@ -298,6 +327,8 @@ test('tavern character archive backup includes only the current character and cr
     assert(records.some((row) => row.table === 'communicationThreads'));
     assert(records.some((row) => row.table === 'communicationMessages'));
     assert(records.some((row) => row.table === 'communicationSnapshots'));
+    assert.equal(records.filter((row) => row.table === 'economyAccounts').length, 6);
+    assert.equal(records.filter((row) => row.table === 'economyTransactions').length, 4);
 });
 
 test('tavern character archive refuses every session when another tab has an unaccepted manager write', async () => {
@@ -460,9 +491,11 @@ test('tavern character archive restore replaces only the current character and r
     await db.open();
     await createTavernSession({ id: 'old-a', title: 'old', characterKey: 'char-a', characterName: 'Aster' });
     await appendTavernMessage('old-a', { role: 'user', content: 'old local message' });
+    await spendArchiveWallet('old-a', 'archive:old-a-spend', 3);
     await putTavernManagerCandidate({ sessionId: 'old-a', turn: 1, userOrder: 0, assistantOrder: 1 });
     await createTavernSession({ id: 'keep-b', title: 'keep', characterKey: 'char-b', characterName: 'Beryl' });
     await appendTavernMessage('keep-b', { role: 'user', content: 'keep me' });
+    await spendArchiveWallet('keep-b', 'archive:keep-b-spend', 9);
 
     const result = await restoreFromRecords(manifest, records);
     const sessions = await listTavernSessions();
@@ -476,6 +509,10 @@ test('tavern character archive restore replaces only the current character and r
     assert.equal((await listTavernMessages('keep-b'))[0]?.content, 'keep me');
     assert.equal((await listTavernMessages('old-a')).length, 0);
     assert.equal(await getTavernManagerCandidate('old-a'), null);
+    assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals('old-a').count(), 0);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('old-a').count(), 0);
+    assert.equal((await tavernEconomyAccountsTable.get(['keep-b', TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 91);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('keep-b').count(), 2);
     assert.equal((await listTavernMessages(restoredA1)).length, 24);
     assert.equal((await listTavernManagerMessages(restoredA1))[0]?.content, 'manager says hi');
     assert.equal((await listTavernManagerRuns(restoredA1))[0]?.id, 'restore-job-test-run-a-1');
@@ -499,8 +536,27 @@ test('tavern character archive restore replaces only the current character and r
         ],
     );
     assert.equal(restoredPhoneThreads[0]?.replyRequest?.status, 'failed');
+    assert.equal((await tavernEconomyAccountsTable.get([restoredA1, TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 85);
+    assert.equal((await tavernEconomyAccountsTable.get([restoredA2, TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 95);
+    assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals(restoredA1).count(), 3);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(restoredA1).count(), 2);
+    assert.equal((await tavernEconomyTransactionsTable.where('[sessionId+idempotencyKey]').equals([
+        restoredA1,
+        'archive:a1-spend',
+    ]).toArray())[0]?.sourceId, 'archive:a1-spend');
     assert.equal(await getSelectedTavernSessionId(), restoredA2);
     assert.equal(result.selectedSessionId, restoredA2);
+});
+
+test('tavern character archive accepts only the current v3 protocol', async () => {
+    await seedArchiveSource();
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const retiredV2Manifest = {
+        ...manifest,
+        version: 2,
+    } as unknown as TavernCharacterArchiveManifest;
+
+    await assert.rejects(restoreFromRecords(retiredV2Manifest, records), /archive_version_unsupported:2/);
 });
 
 test('tavern character archive rejects live manager records instead of restoring partial writes', async () => {
@@ -525,13 +581,31 @@ test('tavern character archive rejects live manager records instead of restoring
 });
 
 test('tavern character archive restore failure leaves the current local archive unchanged', async () => {
-    await seedArchiveSource();
+    const { a1 } = await seedArchiveSource();
+    await tavernMessagesTable.bulkPut(Array.from({ length: 500 }, (_, offset) => ({
+        messageId: `archive-failure-message-${offset}`,
+        sessionId: a1.id,
+        order: offset + 24,
+        role: offset % 2 ? 'assistant' : 'user',
+        content: `archive failure message ${offset}`,
+        createdAt: offset + 100,
+        timelineRevision: 1,
+    })));
     const { manifest, records } = await buildArchive('char-a', 500);
     await db.delete();
     await db.open();
     await createTavernSession({ id: 'old-a', title: 'old', characterKey: 'char-a', characterName: 'Aster' });
     await appendTavernMessage('old-a', { role: 'user', content: 'old local message' });
+    await spendArchiveWallet('old-a', 'archive:failure-old-a', 2);
     await createTavernSession({ id: 'keep-b', title: 'keep', characterKey: 'char-b', characterName: 'Beryl' });
+    await spendArchiveWallet('keep-b', 'archive:failure-keep-b', 4);
+    const firstEconomyRecordIndex = records.findIndex((record) => record.table === 'economyTransactions');
+    assert(firstEconomyRecordIndex >= 0);
+    const stagedRecords = [
+        records[firstEconomyRecordIndex],
+        ...records.filter((_record, index) => index !== firstEconomyRecordIndex).slice(0, 499),
+    ];
+    assert.equal(stagedRecords.length, 500);
 
     await assert.rejects(
         restoreTavernCharacterArchiveFromRecords({
@@ -539,7 +613,7 @@ test('tavern character archive restore failure leaves the current local archive 
             characterKey: 'char-a',
             jobId: 'bad-job',
             recordBatches: (async function* batches() {
-                yield records.slice(0, 3);
+                yield stagedRecords;
                 throw new Error('archive_part_sha256_mismatch:part-2.jsonl.gz');
             })(),
         }),
@@ -551,6 +625,82 @@ test('tavern character archive restore failure leaves the current local archive 
     assert(sessions.some((session) => session.id === 'keep-b' && session.characterKey === 'char-b'));
     assert.equal((await listTavernMessages('old-a'))[0]?.content, 'old local message');
     assert(!sessions.some((session) => session.id.startsWith('restore-bad-job-')));
+    assert.equal((await tavernEconomyAccountsTable.get(['old-a', TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 98);
+    assert.equal((await tavernEconomyAccountsTable.get(['keep-b', TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 96);
+    const allEconomyAccounts = await (tavernEconomyAccountsTable as unknown as {
+        toArray(): Promise<Array<{ sessionId: string }>>;
+    }).toArray();
+    const allEconomyTransactions = await (tavernEconomyTransactionsTable as unknown as {
+        toArray(): Promise<Array<{ sessionId: string }>>;
+    }).toArray();
+    assert(!allEconomyAccounts.some((account) => account.sessionId.startsWith('restore-bad-job-')));
+    assert(!allEconomyTransactions.some((transaction) => transaction.sessionId.startsWith('restore-bad-job-')));
+});
+
+test('tavern character archive rejects a normally-ended incomplete stream before promotion', async () => {
+    await seedArchiveSource();
+    const { manifest, records } = await buildArchive('char-a', 500);
+    await db.delete();
+    await db.open();
+    await createTavernSession({ id: 'old-a', title: 'old', characterKey: 'char-a', characterName: 'Aster' });
+    await appendTavernMessage('old-a', { role: 'user', content: 'keep local archive' });
+
+    await assert.rejects(
+        restoreTavernCharacterArchiveFromRecords({
+            manifest,
+            characterKey: 'char-a',
+            jobId: 'incomplete-job',
+            recordBatches: (async function* batches() {
+                yield records.slice(0, 1);
+            })(),
+        }),
+        /archive_row_count_mismatch/,
+    );
+
+    assert.equal((await listTavernMessages('old-a'))[0]?.content, 'keep local archive');
+    assert(!((await listTavernSessions()).some((session) => session.id.startsWith('restore-incomplete-job-'))));
+});
+
+test('tavern character archive cleans session-scoped temp rows that have no restored session', async () => {
+    await seedArchiveSource();
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const economyAccount = records.find((record) => record.table === 'economyAccounts');
+    assert(economyAccount);
+    const orphanManifest: TavernCharacterArchiveManifest = {
+        ...manifest,
+        counts: {
+            sessions: 0,
+            messages: 0,
+            memoryFiles: 0,
+            stateDocuments: 0,
+            communications: 0,
+            economy: 1,
+        },
+        parts: [{
+            ...manifest.parts[0],
+            index: 1,
+            rowCount: 1,
+        }],
+    };
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(
+        restoreTavernCharacterArchiveFromRecords({
+            manifest: orphanManifest,
+            characterKey: 'char-a',
+            jobId: 'orphan-job',
+            recordBatches: (async function* batches() {
+                yield [economyAccount];
+            })(),
+        }),
+        /archive_session_reference_missing/,
+    );
+
+    const accounts = await (tavernEconomyAccountsTable as unknown as {
+        toArray(): Promise<Array<{ sessionId: string }>>;
+    }).toArray();
+    assert(!accounts.some((account) => account.sessionId.startsWith('restore-orphan-job-')));
 });
 
 test('tavern character archive can restore an empty archive by clearing only the current character', async () => {
@@ -558,10 +708,12 @@ test('tavern character archive can restore an empty archive by clearing only the
     await db.open();
     await createTavernSession({ id: 'old-a', title: 'old', characterKey: 'char-a', characterName: 'Aster' });
     await appendTavernMessage('old-a', { role: 'user', content: 'old local message' });
+    await spendArchiveWallet('old-a', 'archive:empty-old-a', 6);
     await createTavernSession({ id: 'keep-b', title: 'keep', characterKey: 'char-b', characterName: 'Beryl' });
     await appendTavernMessage('keep-b', { role: 'user', content: 'keep me' });
+    await spendArchiveWallet('keep-b', 'archive:empty-keep-b', 8);
     const manifest: TavernCharacterArchiveManifest = {
-        version: 2,
+        version: CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION,
         archiveId: 'empty-archive',
         complete: true,
         exportedAt: 123,
@@ -571,6 +723,8 @@ test('tavern character archive can restore an empty archive by clearing only the
             messages: 0,
             memoryFiles: 0,
             stateDocuments: 0,
+            communications: 0,
+            economy: 0,
         },
         parts: [],
     };
@@ -590,6 +744,10 @@ test('tavern character archive can restore an empty archive by clearing only the
     assert(!sessions.some((session) => session.characterKey === 'char-a'));
     assert(sessions.some((session) => session.id === 'keep-b' && session.characterKey === 'char-b'));
     assert.equal((await listTavernMessages('keep-b'))[0]?.content, 'keep me');
+    assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals('old-a').count(), 0);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('old-a').count(), 0);
+    assert.equal((await tavernEconomyAccountsTable.get(['keep-b', TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 92);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('keep-b').count(), 2);
 });
 
 test('tavern character archive downloads bypass the user file cache', async () => {

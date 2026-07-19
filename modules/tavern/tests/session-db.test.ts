@@ -56,6 +56,8 @@ import db, {
     tavernManagerMemorySnapshotsTable,
     tavernAssistantChatMessagesTable as tavernManagerMessagesTable,
     tavernCommunicationSnapshotsTable,
+    tavernEconomyAccountsTable,
+    tavernEconomyTransactionsTable,
     tavernManagerRunsTable,
     tavernManagerStateSnapshotsTable,
     tavernMemoryFilesTable,
@@ -80,6 +82,7 @@ import db, {
     prepareTavernLatestAssistantReroll,
     type TavernStructuredStateDocumentRecord,
 } from '../shared/session-db';
+import { ensureTavernEconomy } from '../shared/economy/economy-service';
 import { DEFAULT_XB_TAVERN_PRESET_ID, createDefaultXbTavernPreset } from '../shared/presets';
 import { DEFAULT_TAVERN_SESSION_CONTRACT, mergeTavernSessionContract } from '../shared/session-contract';
 import { buildXbTavernMessages, createXbTavernBuildSnapshot } from '../shared/message-assembler';
@@ -6511,6 +6514,14 @@ test('rollback impact reports status-only manager writes as state rollback', asy
         memory: { changed: false, currentFileCount: 0, targetFileCount: 0, changedPaths: [] },
         status: { changed: true, currentExists: true, targetExists: false },
         communications: { changed: false, currentMessageCount: 0, targetMessageCount: 0 },
+        economy: {
+            changed: false,
+            targetFloor: assistantMessage.order - 1,
+            transactionCount: 0,
+            affectedAccountCount: 0,
+            currentPlayerBalance: 0,
+            targetPlayerBalance: 0,
+        },
         managers: managerImpact,
         willRollbackState: true,
         willCancelWork: false,
@@ -7367,6 +7378,10 @@ test('database v17 drops the legacy ambition task domain without compatibility r
     for (const tableName of ['tasks', 'taskSnapshots', 'managerTaskSnapshots', 'taskFingerprintStates']) {
         assert.equal(tableNames.has(tableName), false);
     }
+    assert.equal(tableNames.has('economyAccounts'), true);
+    assert.equal(tableNames.has('economyTransactions'), true);
+    assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals('v16-task-session').count(), 0);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('v16-task-session').count(), 0);
     const session = await tavernSessionsTable.get('v16-task-session');
     const run = await tavernManagerRunsTable.get('v16-task-run');
     assert.equal(session?.state?.turn, 7);
@@ -7379,4 +7394,8 @@ test('database v17 drops the legacy ambition task domain without compatibility r
     assert.deepEqual(run.toolTrace, [
         { id: 'current-read', name: 'Read', ok: true, path: 'memory/state.md' },
     ]);
+    const economy = await ensureTavernEconomy('v16-task-session');
+    assert.equal(economy.playerBalance, 100);
+    assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals('v16-task-session').count(), 3);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('v16-task-session').count(), 1);
 });

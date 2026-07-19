@@ -1,5 +1,6 @@
 import {
     TAVERN_PHONE_MESSAGES_APP_ID,
+    TAVERN_PHONE_WALLET_APP_ID,
 } from './phone-os-types';
 import { createTavernPhoneAppRegistry } from './phone-os-app-registry';
 import { useTavernPhoneOsController } from './useTavernPhoneOsController';
@@ -7,8 +8,10 @@ import {
     useTavernMessagesController,
     type TavernPhoneControllerOptions,
 } from './apps/messages/useTavernMessagesController';
+import { useTavernWalletController } from './apps/wallet/useTavernWalletController';
 
 const MESSAGES_THREADS_PATH = '/threads';
+const WALLET_LEDGER_PATH = '/ledger';
 
 export function useTavernPhoneController(options: TavernPhoneControllerOptions) {
     let contactNavigationSequence = 0;
@@ -22,19 +25,27 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
                 && route.params?.threadId === threadId;
         },
     });
+    const wallet = useTavernWalletController({
+        selectedSessionId: options.selectedSessionId,
+    });
     os = useTavernPhoneOsController({
-        apps: createTavernPhoneAppRegistry({ messages }),
+        apps: createTavernPhoneAppRegistry({ messages, wallet }),
         selectedSessionId: options.selectedSessionId,
     });
 
     async function openPhone() {
         os.openPhone();
+        if (os.isOpen.value) {await wallet.refreshBalance();}
     }
 
     function showMessageThreads() {
         contactNavigationSequence += 1;
         messages.status.value = '';
         os.replaceAppRoute(TAVERN_PHONE_MESSAGES_APP_ID, MESSAGES_THREADS_PATH);
+    }
+
+    function openWallet() {
+        os.replaceAppRoute(TAVERN_PHONE_WALLET_APP_ID, WALLET_LEDGER_PATH);
     }
 
     async function openContact(contactId: string) {
@@ -67,7 +78,9 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         messages,
         openContact,
         openPhone,
+        openWallet,
         os,
         showMessageThreads,
+        wallet,
     };
 }

@@ -16,5 +16,6 @@
 @import './styles/phone-os/shell.css';
 @import './styles/phone-os/home.css';
 @import './styles/phone-os/messages.css';
+@import './styles/phone-os/wallet.css';
 @import './styles/phone-os/transitions.css';
 @import './styles/phone-os/mobile.css';

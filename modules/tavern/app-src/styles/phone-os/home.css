@@ -132,6 +132,11 @@
 .tavern-phone-messages-icon-highlight {fill: rgba(255, 255, 255, 0.34);}
 .tavern-phone-messages-icon-line {fill: color-mix(in srgb, var(--phone-app-accent) 88%, #183a8f);}
 .tavern-phone-messages-icon-line.is-short {opacity: 0.76;}
+.tavern-phone-wallet-icon-back {fill: color-mix(in srgb, var(--phone-app-accent) 70%, #6f4316);}
+.tavern-phone-wallet-icon-fold {fill: rgba(255, 248, 229, 0.96);}
+.tavern-phone-wallet-icon-pocket {fill: color-mix(in srgb, var(--phone-app-accent) 88%, #7b4f17);}
+.tavern-phone-wallet-icon-coin {fill: #fff4ce; stroke: rgba(103, 65, 16, 0.32); stroke-width: 1;}
+.tavern-phone-wallet-icon-glint {fill: rgba(255, 255, 255, 0.28);}
 
 .tavern-phone-app-icon-button:hover .tavern-phone-app-icon {
     transform: translateY(-3px) scale(1.015);

@@ -10,6 +10,12 @@
     --phone-os-line: rgba(28, 31, 38, 0.11);
     --phone-os-danger: #c94d43;
     --phone-os-shadow: rgba(12, 13, 16, 0.38);
+    --phone-wallet-gold: #bf8127;
+    --phone-wallet-gold-deep: #77501d;
+    --phone-wallet-gold-action: #77501d;
+    --phone-wallet-gold-soft: #f1d49b;
+    --phone-wallet-paper: #f4efe3;
+    --phone-wallet-ink: #2d281f;
     --phone-os-font: var(--xb-font-ui);
 }
 .xb-os-shell.theme-dark .tavern-phone-device {
@@ -21,4 +27,10 @@
     --phone-os-muted: #a2a2a7;
     --phone-os-line: rgba(255, 255, 255, 0.11);
     --phone-os-shadow: rgba(0, 0, 0, 0.58);
+    --phone-wallet-gold: #d2a04b;
+    --phone-wallet-gold-deep: #ddb76f;
+    --phone-wallet-gold-action: #8b652b;
+    --phone-wallet-gold-soft: #f0ce8c;
+    --phone-wallet-paper: #24211b;
+    --phone-wallet-ink: #f2e9d8;
 }

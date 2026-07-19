@@ -17,6 +17,8 @@ import db, {
     tavernCommunicationMessagesTable,
     tavernCommunicationSnapshotsTable,
     tavernCommunicationThreadsTable,
+    tavernEconomyAccountsTable,
+    tavernEconomyTransactionsTable,
     TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
     type TavernCommunicationSnapshotRecord,
     type TavernCommunicationThreadRecord,
@@ -47,6 +49,15 @@ import { assertTavernManagerSnapshotStable } from './manager-snapshot-integrity'
 const RESTORE_TEMP_CHARACTER_PREFIX = '__lwb_restore__';
 const RESTORE_BATCH_SIZE = 500;
 const ARCHIVE_DB_BATCH_SIZE = 500;
+const ARCHIVE_COUNT_FIELDS = [
+    'sessions',
+    'messages',
+    'memoryFiles',
+    'stateDocuments',
+    'communications',
+    'economy',
+] as const satisfies readonly (keyof TavernCharacterArchiveCounts)[];
+const ARCHIVE_TABLE_NAMES = new Set<string>(TAVERN_CHARACTER_ARCHIVE_TABLES);
 
 type ArchiveWritable = {
     write(record: TavernCharacterArchiveRecord): Promise<void>;
@@ -56,7 +67,7 @@ interface ArchiveRuntimeTable {
     where(index: string): {
         equals(value: unknown): ArchiveRuntimeCollection;
     };
-    bulkPut(records: unknown[]): Promise<unknown>;
+    bulkAdd(records: unknown[]): Promise<unknown>;
     bulkDelete(keys: unknown[]): Promise<unknown>;
 }
 
@@ -91,6 +102,8 @@ const archiveTables: ArchiveTableMap = {
     communicationThreads: { table: tavernCommunicationThreadsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     communicationMessages: { table: tavernCommunicationMessagesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     communicationSnapshots: { table: tavernCommunicationSnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    economyAccounts: { table: tavernEconomyAccountsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    economyTransactions: { table: tavernEconomyTransactionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
 };
 
 function now(): number {
@@ -124,6 +137,7 @@ function incrementArchiveCounts(counts: TavernCharacterArchiveCounts, table: Tav
     if (table === 'memoryFiles') {counts.memoryFiles += 1;}
     if (table === 'stateDocuments') {counts.stateDocuments += 1;}
     if (table.startsWith('communication')) {counts.communications = (Number(counts.communications) || 0) + 1;}
+    if (table.startsWith('economy')) {counts.economy += 1;}
 }
 
 function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
@@ -132,7 +146,8 @@ function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
         + (Number(counts.messages) || 0)
         + (Number(counts.memoryFiles) || 0)
         + (Number(counts.stateDocuments) || 0)
-        + (Number(counts.communications) || 0);
+        + (Number(counts.communications) || 0)
+        + (Number(counts.economy) || 0);
 }
 
 type CapturedCharacterArchiveSession = {
@@ -174,6 +189,8 @@ async function captureCharacterArchiveSession(sessionId = ''): Promise<CapturedC
         tavernCommunicationThreadsTable,
         tavernCommunicationMessagesTable,
         tavernCommunicationSnapshotsTable,
+        tavernEconomyAccountsTable,
+        tavernEconomyTransactionsTable,
         async () => {
             const session = await tavernSessionsTable.get(id);
             if (!session) {throw new Error('archive_session_missing');}
@@ -327,7 +344,25 @@ export async function exportTavernCharacterArchive(input: {
     };
 }
 
-function validateRestoreManifest(manifest: TavernCharacterArchiveManifest, characterKey = '') {
+function validateManifestCounts(manifest: TavernCharacterArchiveManifest): TavernCharacterArchiveCounts {
+    if (!manifest.counts || typeof manifest.counts !== 'object' || Array.isArray(manifest.counts)) {
+        throw new Error('archive_manifest_counts_invalid');
+    }
+    const counts = emptyCounts();
+    for (const field of ARCHIVE_COUNT_FIELDS) {
+        const value = Number(manifest.counts[field]);
+        if (!Number.isSafeInteger(value) || value < 0) {
+            throw new Error(`archive_manifest_count_invalid:${field}`);
+        }
+        counts[field] = value;
+    }
+    return counts;
+}
+
+function validateRestoreManifest(manifest: TavernCharacterArchiveManifest, characterKey = ''): {
+    expectedCounts: TavernCharacterArchiveCounts;
+    expectedRowCount: number;
+} {
     const key = normalizeCharacterKey(characterKey);
     if (!manifest || typeof manifest !== 'object') {throw new Error('archive_manifest_invalid');}
     if (manifest.complete !== true) {throw new Error('archive_manifest_incomplete');}
@@ -340,15 +375,45 @@ function validateRestoreManifest(manifest: TavernCharacterArchiveManifest, chara
     if (!Array.isArray(manifest.parts)) {
         throw new Error('archive_parts_missing');
     }
-    if (!manifest.parts.length && totalManifestCount(manifest) > 0) {
+    const expectedCounts = validateManifestCounts(manifest);
+    if (!manifest.parts.length && totalManifestCount({ ...manifest, counts: expectedCounts }) > 0) {
         throw new Error('archive_parts_missing');
     }
-    const expectedIndexes = manifest.parts.map((part) => Number(part.index)).sort((left, right) => left - right);
+    let expectedRowCount = 0;
+    const expectedIndexes = manifest.parts.map((part) => {
+        if (!part || typeof part !== 'object') {throw new Error('archive_part_manifest_invalid');}
+        const index = Number(part.index);
+        const rowCount = Number(part.rowCount);
+        const rawBytes = Number(part.rawBytes);
+        const compressedBytes = Number(part.compressedBytes);
+        if (!Number.isSafeInteger(index) || index <= 0) {throw new Error('archive_part_index_invalid');}
+        if (!Number.isSafeInteger(rowCount) || rowCount <= 0) {throw new Error(`archive_part_row_count_invalid:${index}`);}
+        if (!Number.isSafeInteger(rawBytes) || rawBytes <= 0) {throw new Error(`archive_part_raw_bytes_invalid:${index}`);}
+        if (!Number.isSafeInteger(compressedBytes) || compressedBytes <= 0) {throw new Error(`archive_part_compressed_bytes_invalid:${index}`);}
+        if (!String(part.filename || '').trim() || !String(part.sha256 || '').trim()) {
+            throw new Error(`archive_part_identity_invalid:${index}`);
+        }
+        expectedRowCount += rowCount;
+        if (!Number.isSafeInteger(expectedRowCount)) {throw new Error('archive_row_count_invalid');}
+        return index;
+    }).sort((left, right) => left - right);
     expectedIndexes.forEach((index, offset) => {
         if (index !== offset + 1) {
             throw new Error('archive_parts_incomplete');
         }
     });
+    return { expectedCounts, expectedRowCount };
+}
+
+function assertArchiveCountsMatch(
+    actual: TavernCharacterArchiveCounts,
+    expected: TavernCharacterArchiveCounts,
+): void {
+    for (const field of ARCHIVE_COUNT_FIELDS) {
+        if (actual[field] !== expected[field]) {
+            throw new Error(`archive_count_mismatch:${field}:${actual[field]}:${expected[field]}`);
+        }
+    }
 }
 
 function buildTempCharacterKey(jobId = '', characterKey = ''): string {
@@ -422,22 +487,30 @@ function remapArchiveRecord(
         mapPatchId: (value?: string) => string;
     },
 ): TavernCharacterArchiveRecord {
+    if (!input || typeof input !== 'object' || !ARCHIVE_TABLE_NAMES.has(String(input.table || ''))) {
+        throw new Error(`archive_table_unsupported:${String(input?.table || '')}`);
+    }
+    if (!input.record || typeof input.record !== 'object' || Array.isArray(input.record)) {
+        throw new Error(`archive_record_invalid:${input.table}`);
+    }
     const record = cloneSerializable(input.record) as unknown as Record<string, unknown>;
     const table = input.table;
     if (table === 'sessions') {
+        const sessionId = options.mapSessionId(String(record.id || ''));
+        if (!sessionId) {throw new Error('archive_session_id_invalid');}
         return {
             table,
             record: {
                 ...record,
-                id: options.mapSessionId(String(record.id || '')),
+                id: sessionId,
                 characterKey: options.tempCharacterKey,
                 contextSnapshot: remapContextCharacterKey(record.contextSnapshot, options.characterKey),
             } as TavernCharacterArchiveRecordPayload['sessions'],
         };
     }
-    if ('sessionId' in record) {
-        record.sessionId = options.mapSessionId(String(record.sessionId || ''));
-    }
+    const sessionId = options.mapSessionId(String(record.sessionId || ''));
+    if (!sessionId) {throw new Error(`archive_record_session_missing:${table}`);}
+    record.sessionId = sessionId;
     if ('managerRunId' in record && record.managerRunId) {
         record.managerRunId = options.mapManagerRunId(String(record.managerRunId || ''));
     }
@@ -572,8 +645,14 @@ async function deleteArchiveForCharacterKey(characterKey = ''): Promise<number> 
     return deletedCount;
 }
 
-async function cleanupTempRestoreArchive(tempCharacterKey = ''): Promise<void> {
+async function cleanupTempRestoreArchive(
+    tempCharacterKey = '',
+    mappedSessionIds: Iterable<string> = [],
+): Promise<void> {
     await deleteArchiveForCharacterKey(tempCharacterKey);
+    for (const sessionId of new Set(Array.from(mappedSessionIds, (value) => String(value || '').trim()).filter(Boolean))) {
+        await deleteArchiveForSessionId(sessionId);
+    }
 }
 
 async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): Promise<void> {
@@ -597,11 +676,13 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
         tavernCommunicationThreadsTable,
         tavernCommunicationMessagesTable,
         tavernCommunicationSnapshotsTable,
+        tavernEconomyAccountsTable,
+        tavernEconomyTransactionsTable,
         async () => {
             for (const table of TAVERN_CHARACTER_ARCHIVE_TABLES) {
                 const rows = batch.filter((record) => record.table === table).map((record) => record.record);
                 if (rows.length) {
-                    await archiveTables[table].table.bulkPut(rows);
+                    await archiveTables[table].table.bulkAdd(rows);
                 }
             }
         },
@@ -630,10 +711,14 @@ async function promoteTempArchiveToCharacter(tempCharacterKey = '', characterKey
         tavernCommunicationThreadsTable,
         tavernCommunicationMessagesTable,
         tavernCommunicationSnapshotsTable,
+        tavernEconomyAccountsTable,
+        tavernEconomyTransactionsTable,
         tavernMetaTable,
         async () => {
             const tempSessionCount = await tavernSessionsTable.where('characterKey').equals(tempCharacterKey).count();
-            if (!tempSessionCount && expectedSessionCount > 0) {throw new Error('archive_restore_no_sessions');}
+            if (tempSessionCount !== expectedSessionCount) {
+                throw new Error(`archive_restore_session_count_mismatch:${tempSessionCount}:${expectedSessionCount}`);
+            }
             await deleteArchiveForCharacterKey(characterKey);
             while (true) {
                 const tempSessions = await (tavernSessionsTable as unknown as ArchiveRuntimeTable)
@@ -671,7 +756,7 @@ export async function restoreTavernCharacterArchiveFromRecords(input: {
     }) => void;
 }): Promise<TavernCharacterArchiveRestoreSummary> {
     const characterKey = normalizeCharacterKey(input.characterKey);
-    validateRestoreManifest(input.manifest, characterKey);
+    const { expectedCounts, expectedRowCount } = validateRestoreManifest(input.manifest, characterKey);
     const jobId = String(input.jobId || '').trim() || createRestoreJobId();
     const tempCharacterKey = buildTempCharacterKey(jobId, characterKey);
     const mapper = createRestoreIdMapper(jobId);
@@ -679,6 +764,7 @@ export async function restoreTavernCharacterArchiveFromRecords(input: {
     let rowCount = 0;
     let pendingBatch: TavernCharacterArchiveRecord[] = [];
     let selectedSessionId = '';
+    const stagedSessionIds = new Set<string>();
 
     const flush = async () => {
         if (!pendingBatch.length) {return;}
@@ -697,6 +783,11 @@ export async function restoreTavernCharacterArchiveFromRecords(input: {
                     mapManagerRunId: mapper.mapManagerRunId,
                     mapPatchId: mapper.mapPatchId,
                 });
+                if (remapped.table === 'sessions') {
+                    const sessionId = String(remapped.record.id || '').trim();
+                    if (stagedSessionIds.has(sessionId)) {throw new Error(`archive_session_duplicate:${sessionId}`);}
+                    stagedSessionIds.add(sessionId);
+                }
                 incrementArchiveCounts(counts, remapped.table);
                 rowCount += 1;
                 pendingBatch.push(remapped);
@@ -714,9 +805,22 @@ export async function restoreTavernCharacterArchiveFromRecords(input: {
         }
         await flush();
 
+        if (rowCount !== expectedRowCount) {
+            throw new Error(`archive_row_count_mismatch:${rowCount}:${expectedRowCount}`);
+        }
+        assertArchiveCountsMatch(counts, expectedCounts);
+        if (stagedSessionIds.size !== expectedCounts.sessions) {
+            throw new Error(`archive_session_count_mismatch:${stagedSessionIds.size}:${expectedCounts.sessions}`);
+        }
+        for (const sessionId of mapper.sessionIds.values()) {
+            if (!stagedSessionIds.has(sessionId)) {
+                throw new Error(`archive_session_reference_missing:${sessionId}`);
+            }
+        }
+
         await assertCharacterArchiveStable(tempCharacterKey);
 
-        selectedSessionId = await promoteTempArchiveToCharacter(tempCharacterKey, characterKey, Number(input.manifest.counts?.sessions) || 0);
+        selectedSessionId = await promoteTempArchiveToCharacter(tempCharacterKey, characterKey, expectedCounts.sessions);
         input.onProgress?.({
             phase: 'promote',
             table: '',
@@ -725,7 +829,7 @@ export async function restoreTavernCharacterArchiveFromRecords(input: {
             selectedSessionId,
         });
     } catch (error) {
-        await cleanupTempRestoreArchive(tempCharacterKey).catch((_error: unknown): void => undefined);
+        await cleanupTempRestoreArchive(tempCharacterKey, mapper.sessionIds.values()).catch((_error: unknown): void => undefined);
         throw error;
     }
 

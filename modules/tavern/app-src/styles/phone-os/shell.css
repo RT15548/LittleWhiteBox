@@ -127,13 +127,65 @@
     min-width: 0;
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
     background: color-mix(in srgb, var(--phone-os-screen) 86%, transparent);
     backdrop-filter: blur(16px) saturate(1.12);
     padding: 4px 15px 0 14px;
 }
 
 .tavern-phone-systembar.is-home {background: linear-gradient(180deg, rgba(5, 8, 12, 0.28), transparent); backdrop-filter: none;}
+
+.tavern-phone-wallet-status {
+    min-width: 0;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--phone-wallet-gold-deep);
+    padding: 0 8px 0 5px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.tavern-phone-wallet-status span {
+    width: 19px;
+    height: 19px;
+    display: grid;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--phone-wallet-gold) 64%, transparent);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--phone-wallet-gold-soft) 38%, transparent);
+    font: 760 11px/1 Georgia, serif;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 40%, transparent);
+}
+
+.tavern-phone-wallet-status strong {
+    max-width: 88px;
+    overflow: hidden;
+    font: 720 11px/1 var(--phone-os-font);
+    letter-spacing: 0.01em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tavern-phone-systembar.is-home .tavern-phone-wallet-status {color: #fff;}
+.tavern-phone-systembar.is-home .tavern-phone-wallet-status span {
+    border-color: rgba(255, 255, 255, 0.34);
+    background: rgba(8, 11, 15, 0.22);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.tavern-phone-device .tavern-phone-wallet-status:hover:not(:disabled) {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--phone-wallet-gold) 12%, transparent);
+    color: var(--phone-wallet-gold-deep);
+}
+.tavern-phone-systembar.is-home .tavern-phone-wallet-status:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+.tavern-phone-wallet-status:active {transform: scale(0.94);}
 
 .tavern-phone-system-icons {
     display: flex;
@@ -340,6 +392,7 @@
 .tavern-phone-dismiss-control:active::before {transform: scale(0.88);}
 
 .tavern-phone-side-button-power:focus-visible,
+.tavern-phone-wallet-status:focus-visible,
 .tavern-phone-home-control:focus-visible,
 .tavern-phone-dismiss-control:focus-visible,
 .tavern-phone-app-icon-button:focus-visible,
