@@ -235,6 +235,7 @@ async function getOrCreateAccount(
 
 async function postTransactionInCurrentDbTransaction(
     input: NormalizedTransactionInput,
+    options: { touchSessionOnCreate: boolean },
 ): Promise<TavernEconomyTransactionRecord> {
     const existing = await getTransactionByIdempotencyKey(input.sessionId, input.idempotencyKey);
     if (existing) {return assertIdempotentTransaction(existing, input);}
@@ -284,6 +285,9 @@ async function postTransactionInCurrentDbTransaction(
     await (tavernEconomyTransactionsTable as unknown as {
         add(record: TavernEconomyTransactionRecord): Promise<unknown>;
     }).add(transaction);
+    if (options.touchSessionOnCreate) {
+        await tavernSessionsTable.update(input.sessionId, { updatedAt: timestamp });
+    }
     return transaction;
 }
 
@@ -324,7 +328,9 @@ async function ensureEconomyInCurrentDbTransaction(sessionId: string): Promise<T
         getOrCreateAccount(sessionId, TAVERN_SYSTEM_MINT_ACCOUNT_ID, timestamp),
         getOrCreateAccount(sessionId, TAVERN_SYSTEM_SINK_ACCOUNT_ID, timestamp),
     ]);
-    const openingTransaction = await postTransactionInCurrentDbTransaction(openingInput);
+    const openingTransaction = await postTransactionInCurrentDbTransaction(openingInput, {
+        touchSessionOnCreate: false,
+    });
     return {
         playerBalance: openingTransaction.playerBalanceAfter,
         openingTransaction,
@@ -358,7 +364,9 @@ export async function postTavernEconomyTransaction(
         tavernEconomyTransactionsTable,
         async () => {
             await ensureEconomyInCurrentDbTransaction(normalized.sessionId);
-            return await postTransactionInCurrentDbTransaction(normalized);
+            return await postTransactionInCurrentDbTransaction(normalized, {
+                touchSessionOnCreate: true,
+            });
         },
     );
 }
@@ -407,7 +415,9 @@ export async function reverseTavernEconomyTransaction(
                 }
                 throwTavernEconomyError('economy_transaction_already_reversed', original.id);
             }
-            return await postTransactionInCurrentDbTransaction(normalized);
+            return await postTransactionInCurrentDbTransaction(normalized, {
+                touchSessionOnCreate: true,
+            });
         },
     );
 }

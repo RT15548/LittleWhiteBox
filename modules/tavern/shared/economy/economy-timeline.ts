@@ -1,6 +1,7 @@
 import db, {
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
+    tavernSessionsTable,
 } from '../session-db';
 import { throwTavernEconomyError } from './economy-errors';
 import {
@@ -99,6 +100,7 @@ export async function restoreTavernEconomyToFloor(
     const floor = normalizeTargetFloor(targetFloor);
     return await db.transaction(
         'rw',
+        tavernSessionsTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
         async () => {
@@ -144,6 +146,7 @@ export async function restoreTavernEconomyToFloor(
             await tavernEconomyTransactionsTable.bulkDelete(
                 transactions.map((transaction) => [transaction.sessionId, transaction.id]),
             );
+            await tavernSessionsTable.update(id, { updatedAt: timestamp });
             return {
                 ...impact,
                 deletedTransactionIds: transactions.map((transaction) => transaction.id),

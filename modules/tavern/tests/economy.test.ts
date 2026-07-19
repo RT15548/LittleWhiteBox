@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import Dexie from '../../../libs/dexie.mjs';
 
 import db, {
     branchTavernSession,
@@ -8,6 +9,7 @@ import db, {
     deleteTavernSession,
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
+    tavernSessionsTable,
 } from '../shared/session-db';
 import {
     ensureTavernEconomy,
@@ -47,6 +49,44 @@ function playerSpendInput(sessionId: string, idempotencyKey: string, amount: num
         anchorOrder,
     };
 }
+
+test('database v18 adds empty economy storage and existing sessions open lazily', async () => {
+    await db.delete();
+    const legacyDb = new Dexie('LittleWhiteBox_Tavern');
+    const legacyRuntime = legacyDb as unknown as {
+        table: (name: string) => {
+            put: (record: Record<string, unknown>) => Promise<unknown>;
+        };
+        close: () => void;
+    };
+    legacyDb.version(17).stores({
+        sessions: 'id, updatedAt',
+    });
+    await legacyDb.open();
+    await legacyRuntime.table('sessions').put({
+        id: 'v17-economy-session',
+        title: 'Existing v17 session',
+        characterKey: '',
+        characterName: '',
+        createdAt: 1,
+        updatedAt: 1,
+        state: { turn: 0 },
+    });
+    legacyRuntime.close();
+
+    await db.open();
+    const runtimeDb = db as unknown as { tables: Array<{ name: string }> };
+    const tableNames = new Set(runtimeDb.tables.map((table) => table.name));
+    assert.equal(tableNames.has('economyAccounts'), true);
+    assert.equal(tableNames.has('economyTransactions'), true);
+    assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals('v17-economy-session').count(), 0);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('v17-economy-session').count(), 0);
+
+    const economy = await ensureTavernEconomy('v17-economy-session');
+    assert.equal(economy.playerBalance, 100);
+    assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals('v17-economy-session').count(), 3);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('v17-economy-session').count(), 1);
+});
 
 test('economy opens once per session and keeps identical idempotency keys session-scoped', async () => {
     await db.delete();
@@ -142,6 +182,59 @@ test('economy posts atomically, retries once, and rejects conflicts or partial i
     assert.equal(secondPage.playerBalance, 85);
     assert.equal(secondPage.transactions[0]?.kind, 'opening_grant');
     assert.equal(secondPage.nextCursor, null);
+});
+
+test('economy touches the session only for newly committed ledger changes', async () => {
+    await db.delete();
+    await db.open();
+    const originalDateNow = Date.now;
+    let timestamp = 1_725_100_000_000;
+    Date.now = () => timestamp;
+    try {
+        const session = await createTavernSession({ title: 'Economy session activity' });
+
+        timestamp += 1_000;
+        const opening = await ensureTavernEconomy(session.id);
+        assert.equal(opening.created, true);
+        assert.equal((await tavernSessionsTable.get(session.id))?.updatedAt, session.updatedAt);
+
+        const input = playerSpendInput(session.id, 'session-touch-spend', 15, 2);
+        timestamp += 1_000;
+        const purchase = await postTavernEconomyTransaction(input);
+        assert.equal((await tavernSessionsTable.get(session.id))?.updatedAt, timestamp);
+
+        timestamp += 1_000;
+        const purchaseRetry = await postTavernEconomyTransaction(input);
+        assert.equal(purchaseRetry.id, purchase.id);
+        assert.equal((await tavernSessionsTable.get(session.id))?.updatedAt, timestamp - 1_000);
+
+        const reversalInput = {
+            sessionId: session.id,
+            transactionId: purchase.id,
+            idempotencyKey: 'session-touch-refund',
+            anchorOrder: 3,
+        };
+        timestamp += 1_000;
+        const reversal = await reverseTavernEconomyTransaction(reversalInput);
+        assert.equal((await tavernSessionsTable.get(session.id))?.updatedAt, timestamp);
+
+        timestamp += 1_000;
+        const reversalRetry = await reverseTavernEconomyTransaction(reversalInput);
+        assert.equal(reversalRetry.id, reversal.id);
+        assert.equal((await tavernSessionsTable.get(session.id))?.updatedAt, timestamp - 1_000);
+
+        timestamp += 1_000;
+        const restore = await restoreTavernEconomyToFloor(session.id, 2);
+        assert.equal(restore.changed, true);
+        assert.equal((await tavernSessionsTable.get(session.id))?.updatedAt, timestamp);
+
+        timestamp += 1_000;
+        const restoreRetry = await restoreTavernEconomyToFloor(session.id, 2);
+        assert.equal(restoreRetry.changed, false);
+        assert.equal((await tavernSessionsTable.get(session.id))?.updatedAt, timestamp - 1_000);
+    } finally {
+        Date.now = originalDateNow;
+    }
 });
 
 test('economy ledger order stays causal within one millisecond and rejects anchor regressions', async () => {
