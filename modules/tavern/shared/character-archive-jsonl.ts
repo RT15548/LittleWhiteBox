@@ -1,6 +1,7 @@
-import type {
-    TavernCharacterArchivePartManifest,
-    TavernCharacterArchiveRecord,
+import {
+    TAVERN_CHARACTER_ARCHIVE_TABLES,
+    type TavernCharacterArchivePartManifest,
+    type TavernCharacterArchiveRecord,
 } from './character-archive-types';
 
 const DEFAULT_TARGET_PART_RAW_BYTES = 64 * 1024 * 1024;
@@ -10,6 +11,7 @@ const DEFAULT_SHA256_YIELD_BLOCKS = 65536;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const tavernCharacterArchiveTableNames = new Set<string>(TAVERN_CHARACTER_ARCHIVE_TABLES);
 const SHA256_INITIAL_HASH = [
     0x6a09e667,
     0xbb67ae85,
@@ -71,12 +73,15 @@ export function encodeTavernCharacterArchiveRecord(record: TavernCharacterArchiv
     return textEncoder.encode(`${JSON.stringify(record)}\n`);
 }
 
-function parseTavernCharacterArchiveJsonlLine(line = ''): TavernCharacterArchiveRecord | null {
+function parseTavernCharacterArchiveJsonlLine(line: string): TavernCharacterArchiveRecord | null {
     const trimmed = line.trim();
     if (!trimmed) {return null;}
     const parsed = JSON.parse(trimmed) as TavernCharacterArchiveRecord;
     if (!parsed || typeof parsed !== 'object' || typeof parsed.table !== 'string' || !('record' in parsed)) {
         throw new Error('archive_jsonl_record_invalid');
+    }
+    if (!tavernCharacterArchiveTableNames.has(parsed.table)) {
+        throw new Error(`archive_jsonl_table_unsupported:${parsed.table}`);
     }
     return parsed;
 }
@@ -131,7 +136,9 @@ export function* parseTavernCharacterArchiveJsonlBatches(
     }
 }
 
-export function parseTavernCharacterArchiveJsonl(bytes: Uint8Array): TavernCharacterArchiveRecord[] {
+export function parseTavernCharacterArchiveJsonl(
+    bytes: Uint8Array,
+): TavernCharacterArchiveRecord[] {
     const rows: TavernCharacterArchiveRecord[] = [];
     for (const batch of parseTavernCharacterArchiveJsonlBatches(bytes)) {
         rows.push(...batch);

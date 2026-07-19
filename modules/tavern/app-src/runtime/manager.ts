@@ -54,15 +54,6 @@ import {
     TAVERN_STATUS_TOOL_NAMES,
     type TavernStatusToolResult,
 } from '../../shared/status-state';
-import {
-    abandonStaleTavernTasks,
-    buildTavernTaskPoolPromptBlock,
-    executeTavernTaskTool,
-    listTavernManagerTaskSnapshots,
-    rollbackManagerRunTaskWrites,
-    TAVERN_TASK_TOOL_NAMES,
-    type TavernTaskToolResult,
-} from '../../shared/tasks';
 import { resolveTavernSessionContractRuntime, type TavernSessionContract, type TavernSessionContractRuntime } from '../../shared/session-contract';
 import {
     buildDeniedAutoManagerToolResult,
@@ -143,7 +134,6 @@ export interface XbTavernManagerRunResult {
     managerRun: TavernManagerRunRecord;
     changedFiles?: string[];
     changedStates?: string[];
-    changedTasks?: string[];
     protocolMessages?: XbTavernMessage[];
     error?: string;
 }
@@ -186,7 +176,6 @@ function isStateWritingTool(toolName = ''): boolean {
         TAVERN_STATE_TOOL_NAMES.EDIT_SCENE,
         TAVERN_STATUS_TOOL_NAMES.INIT,
         TAVERN_STATUS_TOOL_NAMES.PATCH,
-        TAVERN_TASK_TOOL_NAMES.PATCH,
     ].includes(name as never);
 }
 
@@ -277,7 +266,6 @@ export function buildManagerSystemPrompt(
         includeMemory?: boolean;
         includeCartography?: boolean;
         includeStatus?: boolean;
-        includeQuestOrchestration?: boolean;
         includeWebSearch?: boolean;
         workMode?: 'accepted-turn' | 'manual-chat';
         playerName?: string;
@@ -338,20 +326,17 @@ function buildAutoManagerUserPrompt(input: {
     memoryFiles: Array<{ path: string; status: string; updatedAt: number; content: string }>;
     atlasWorldBlock?: string;
     statusPanelBlock?: string;
-    taskPoolBlock?: string;
     communicationEvidence?: string;
     runtime: TavernSessionContractRuntime;
 }): string {
     const allowMemory = input.runtime.managerPromptOptions.includeMemory;
     const allowMap = input.runtime.managerPromptOptions.includeCartography;
     const allowStatus = input.runtime.managerPromptOptions.includeStatus;
-    const allowQuest = input.runtime.managerPromptOptions.includeQuestOrchestration;
 
     const blocks = [
         ...(allowMemory ? [buildResidentMemoryBlock(input.memoryFiles), ''] : []),
         ...(allowMap ? [String(input.atlasWorldBlock || '[Map atlas world]\nnull').trim(), ''] : []),
         ...(allowStatus ? [String(input.statusPanelBlock || '[Status panel full document]\nnull').trim(), ''] : []),
-        ...(allowQuest ? [String(input.taskPoolBlock || '[Current Ambition Palette]\nActive ambitions: unknown.').trim(), ''] : []),
         ...(allowMemory ? [buildCharacterMemoryFilenameListBlock(input.memoryFiles), ''] : []),
         ...(input.communicationEvidence ? [
             '[Private message events since the previous main turn]',
@@ -430,7 +415,7 @@ function summarizeToolArguments(args: Record<string, unknown> = {}): string {
         .join('; ');
 }
 
-function summarizeToolResult(result: TavernMemoryToolResult | TavernStateToolResult | TavernStatusToolResult | TavernTaskToolResult): string {
+function summarizeToolResult(result: TavernMemoryToolResult | TavernStateToolResult | TavernStatusToolResult): string {
     const summary = normalizeText(result.summary || result.error || '', 360);
     if (result.ok !== false) {return summary;}
     const details = (result as { details?: unknown }).details;
@@ -448,10 +433,6 @@ function summarizeToolResult(result: TavernMemoryToolResult | TavernStateToolRes
 
 function isStateToolName(name = ''): boolean {
     return Object.values(TAVERN_STATE_TOOL_NAMES).includes(name as typeof TAVERN_STATE_TOOL_NAMES[keyof typeof TAVERN_STATE_TOOL_NAMES]);
-}
-
-function isTaskToolName(name = ''): boolean {
-    return Object.values(TAVERN_TASK_TOOL_NAMES).includes(name as typeof TAVERN_TASK_TOOL_NAMES[keyof typeof TAVERN_TASK_TOOL_NAMES]);
 }
 
 function isStatusToolName(name = ''): boolean {
@@ -509,34 +490,27 @@ function managerFailureStatus(error: unknown, signal?: AbortSignal): TavernManag
     return 'failed';
 }
 
-async function rollbackManagerRunIfWroteMemory(managerRunId = ''): Promise<{
+async function rollbackManagerRunWritesIfNeeded(managerRunId = ''): Promise<{
     managerRun: TavernManagerRunRecord | null;
     conflicts: string[];
 } | null> {
-    const [memorySnapshots, taskSnapshots] = await Promise.all([
-        listTavernManagerMemorySnapshots(managerRunId),
-        listTavernManagerTaskSnapshots(managerRunId),
-    ]);
+    const memorySnapshots = await listTavernManagerMemorySnapshots(managerRunId);
     const hasMemoryWrites = memorySnapshots.some((snapshot) => String(snapshot.afterHash || '').trim());
-    const hasTaskWrites = taskSnapshots.some((snapshot) => String(snapshot.afterHash || '').trim());
     const statusResult = await rollbackStatusStateForManagerRun(managerRunId);
     const hasStatusWrites = statusResult.rolledBack > 0 || statusResult.skipped > 0 || statusResult.conflicts.length > 0;
-    if (!hasMemoryWrites && !hasTaskWrites && !hasStatusWrites) {
+    if (!hasMemoryWrites && !hasStatusWrites) {
         return null;
     }
     const memoryResult = hasMemoryWrites
         ? await rollbackManagerRunMemoryWrites(managerRunId)
         : { rolledBack: 0, conflicts: [], skipped: 0 };
-    const taskResult = hasTaskWrites
-        ? await rollbackManagerRunTaskWrites(managerRunId)
-        : { rolledBack: 0, conflicts: [], skipped: 0 };
-    const conflicts = [...memoryResult.conflicts, ...taskResult.conflicts, ...statusResult.conflicts];
+    const conflicts = [...memoryResult.conflicts, ...statusResult.conflicts];
     const run = await updateTavernManagerRun(managerRunId, {});
     if (run && conflicts.length) {
         await updateTavernManagerRun(managerRunId, {
             error: mergeRollbackRunError(run.error, conflicts),
         });
-    } else if (run && hasStatusWrites && !hasMemoryWrites && !hasTaskWrites) {
+    } else if (run && hasStatusWrites && !hasMemoryWrites) {
         await updateTavernManagerRun(managerRunId, {
             status: 'rolled_back',
             error: '',
@@ -579,7 +553,7 @@ async function restoreQueuedAcceptedTurnAfterCurrentAbort(input: {
             error: interrupted.error || 'manager_lease_lost',
         };
     }
-    const rollback = await rollbackManagerRunIfWroteMemory(runId);
+    const rollback = await rollbackManagerRunWritesIfNeeded(runId);
     if (!rollback?.conflicts.length) {
         await rebuildTavernMemoryDerivedIndexForLiveSession(input.selected.run.sessionId);
     }
@@ -635,7 +609,6 @@ async function restoreQueuedAcceptedTurnAfterCurrentAbort(input: {
         toolTrace: undefined,
         changedFiles: [],
         changedStates: [],
-        changedTasks: [],
         error: 'manager_queue_interrupted_by_current_turn_abort',
     }) || input.selected.run;
     await input.onManagerRunSaved?.(queuedAgain);
@@ -669,7 +642,7 @@ export async function runSharedManagerToolLoop(input: {
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
     onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
     onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
-    onStateChanged?: (changes: { changedFiles: string[]; changedStates: string[]; changedTasks: string[] }) => void;
+    onStateChanged?: (changes: { changedFiles: string[]; changedStates: string[] }) => void;
 }): Promise<{
     text: string;
     provider: string;
@@ -677,7 +650,6 @@ export async function runSharedManagerToolLoop(input: {
     toolTrace: Array<Record<string, unknown>>;
     changedFiles: string[];
     changedStates: string[];
-    changedTasks: string[];
     protocolMessages: XbTavernMessage[];
 }> {
     const providerConfig = resolveActiveProviderConfig(input.agentConfig || {}, {
@@ -703,7 +675,6 @@ export async function runSharedManagerToolLoop(input: {
     const protocolMessages: XbTavernMessage[] = [];
     const changedFiles = new Set<string>();
     const changedStates = new Set<string>();
-    const changedTasks = new Set<string>();
     const stateWriteCas = await createTavernStateWriteCasTracker(input.sessionId);
     let resultProvider = '';
     let resultModel = '';
@@ -807,7 +778,6 @@ export async function runSharedManagerToolLoop(input: {
                 toolTrace,
                 changedFiles: [...changedFiles],
                 changedStates: [...changedStates],
-                changedTasks: [...changedTasks],
                 protocolMessages: [
                     ...protocolMessages,
                     finalAssistantMessage,
@@ -876,7 +846,7 @@ export async function runSharedManagerToolLoop(input: {
             };
             toolTrace.push(traceEntry);
             await persistRunningManagerToolTrace(input.managerRunId, toolTrace);
-            let toolResult: TavernMemoryToolResult | TavernStateToolResult | TavernStatusToolResult | TavernTaskToolResult;
+            let toolResult: TavernMemoryToolResult | TavernStateToolResult | TavernStatusToolResult;
             if (!parsedArguments.ok) {
                 toolResult = parsedArguments.result!;
             } else if (input.caller === 'auto' && !isAutoManagerToolAllowed(toolCall.name, input.sessionContract)) {
@@ -919,18 +889,6 @@ export async function runSharedManagerToolLoop(input: {
                 toolResult = isStateWritingTool(toolCall.name)
                     ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
                     : await executeTool();
-            } else if (isTaskToolName(toolCall.name)) {
-                const executeTool = () => executeTavernTaskTool(input.sessionId, toolCall.name, args, {
-                    caller: input.caller,
-                    managerRunId: input.managerRunId,
-                    sourceUserOrder: input.userOrder,
-                    sourceAssistantOrder: input.assistantOrder,
-                    beforeWriteGuard: beforeToolWrite,
-                    afterWriteObserver: afterToolWrite,
-                });
-                toolResult = isStateWritingTool(toolCall.name)
-                    ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
-                    : await executeTool();
             } else if (isWebSearchToolName(toolCall.name)) {
                 toolResult = await runTavilySearchTool(input.agentConfig, args, {
                     signal: input.signal,
@@ -953,28 +911,23 @@ export async function runSharedManagerToolLoop(input: {
             }
             const resultPath = 'path' in toolResult ? toolResult.path : '';
             const resultStateKey = 'docType' in toolResult && toolResult.docType ? `${toolResult.docType}/${toolResult.docId || ''}` : '';
-            const resultTaskKey = 'eventId' in toolResult && toolResult.eventId ? `event/${toolResult.eventId}` : '';
             if (toolResult.changed && resultPath) {
                 changedFiles.add(resultPath);
             }
             if (toolResult.changed && resultStateKey) {
                 changedStates.add(resultStateKey);
             }
-            if (toolResult.changed && resultTaskKey) {
-                changedTasks.add(resultTaskKey);
-            }
             if (toolResult.changed) {
                 input.onStateChanged?.({
                     changedFiles: [...changedFiles],
                     changedStates: [...changedStates],
-                    changedTasks: [...changedTasks],
                 });
             }
             Object.assign(traceEntry, {
                 status: 'resolved',
                 ok: toolResult.ok,
                 args: summarizeToolArguments(args),
-                path: resultPath || resultStateKey || resultTaskKey,
+                path: resultPath || resultStateKey,
                 summary: summarizeToolResult(toolResult),
                 error: toolResult.error || '',
                 finishedAt: Date.now(),
@@ -1214,9 +1167,6 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
     const statusState = contractRuntime.includeStatusStates
         ? await getTavernStatusStateForSession(input.sessionId)
         : null;
-    const taskPoolBlock = contractRuntime.includeQuestOrchestration
-        ? await buildTavernTaskPoolPromptBlock(input.sessionId)
-        : '';
     const communicationEvidence = await buildTavernCommunicationEvidenceAtAnchor(
         input.sessionId,
         sourceMessages.userMessage.order - 1,
@@ -1242,7 +1192,6 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
                 memoryFiles,
                 atlasWorldBlock: atlasState ? buildAtlasWorldBlock(atlasState.document?.data || null) : '',
                 statusPanelBlock: statusState ? buildStatusPanelBlock(statusState.status, !!statusState.document) : '',
-                taskPoolBlock,
                 communicationEvidence,
                 runtime: contractRuntime,
             }),
@@ -1281,7 +1230,6 @@ async function runManagerTask(input: {
     toolTrace: Array<Record<string, unknown>>;
     changedFiles: string[];
     changedStates: string[];
-    changedTasks: string[];
     protocolMessages: XbTavernMessage[];
     error?: string;
 }> {
@@ -1303,7 +1251,6 @@ async function runManagerTask(input: {
     let toolTrace: Array<Record<string, unknown>> = [];
     let changedFiles: string[] = [];
     let changedStates: string[] = [];
-    let changedTasks: string[] = [];
     let protocolMessages: XbTavernMessage[] = [];
     const stopHeartbeat = startManagerRunHeartbeat(managerRun.id, input.leaseOwnerId, input.signal);
     const relayProtocolEvent = (event: TavernManagerProtocolEvent) => {
@@ -1336,16 +1283,15 @@ async function runManagerTask(input: {
         toolTrace = result.toolTrace;
         changedFiles = result.changedFiles;
         changedStates = result.changedStates;
-        changedTasks = result.changedTasks;
         protocolMessages = result.protocolMessages.length ? result.protocolMessages : protocolMessages;
         if (input.requireChangedFiles && !changedFiles.length) {
             throw new Error('manager_memory_tool_required');
         }
         await rebuildTavernMemoryDerivedIndexForLiveSession(input.sessionId);
         await input.beforeCompletionGuard?.();
-        const changedCount = changedFiles.length + changedStates.length + changedTasks.length;
+        const changedCount = changedFiles.length + changedStates.length;
         const defaultOutput = changedCount
-            ? `已维护 ${changedFiles.length} 个记忆文件、${changedStates.length} 份结构化状态、${changedTasks.length} 条野望。`
+            ? `已维护 ${changedFiles.length} 个记忆文件、${changedStates.length} 份结构化状态。`
             : '已检查并回复。';
         const completed = await finalizeManagerRun(managerRun, {
             status: input.deferCompletion ? 'running' : 'completed',
@@ -1356,7 +1302,6 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
-            changedTasks,
             ...(input.deferCompletion ? {} : { leaseOwnerId: '', leaseExpiresAt: 0 }),
             error: '',
         });
@@ -1369,7 +1314,6 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
-            changedTasks,
             protocolMessages,
         };
     } catch (error) {
@@ -1383,13 +1327,12 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
-            changedTasks,
             leaseOwnerId: '',
             leaseExpiresAt: 0,
             error: errorText,
         });
         const rolledBack = input.caller === 'auto' || ['cancelled', 'superseded'].includes(status)
-            ? await rollbackManagerRunIfWroteMemory(managerRun.id)
+            ? await rollbackManagerRunWritesIfNeeded(managerRun.id)
             : null;
         if (!rolledBack?.conflicts.length) {
             await rebuildTavernMemoryDerivedIndexForLiveSession(input.sessionId);
@@ -1403,7 +1346,6 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
-            changedTasks,
             protocolMessages,
             error: errorText,
         };
@@ -1444,7 +1386,6 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             managerRun: skipped!,
             changedFiles: [],
             changedStates: [],
-            changedTasks: [],
             protocolMessages: [],
         };
     }
@@ -1527,45 +1468,12 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
         }
         await resolveCurrentManagerSourceMessages(input);
         const changedFiles = [...(result.changedFiles || [])];
-        let changedTasks = [...(result.changedTasks || [])];
-        let completedRun = result.managerRun;
-        if (contractRuntime.includeQuestOrchestration) {
-            const staleTaskCas = await createTavernStateWriteCasTracker(sessionId);
-            const abandonedTasks = await abandonStaleTavernTasks(sessionId, currentSourceMessages.assistantMessage.order, {
-                managerRunId: managerRun.id,
-                beforeWriteGuard: async () => {
-                    await assertManagerRunLease(input);
-                    await staleTaskCas.assertCurrent(TAVERN_TASK_TOOL_NAMES.PATCH, {});
-                    throwIfManagerAborted(input.signal);
-                    await resolveCurrentManagerSourceMessages(input);
-                },
-                afterWriteObserver: async () => {
-                    await staleTaskCas.acceptCurrent(TAVERN_TASK_TOOL_NAMES.PATCH, {});
-                },
-            });
-            if (abandonedTasks.length) {
-                changedTasks = [...new Set([
-                    ...changedTasks,
-                    ...abandonedTasks.map((task) => `event/${task.id}`),
-                ])];
-                const staleSummary = `系统已放弃 ${abandonedTasks.length} 条过期野望。`;
-                const outputText = String(completedRun.outputText || '').trim();
-                completedRun = await finalizeManagerRun(completedRun, {
-                    outputText: outputText && outputText !== '已检查并回复。'
-                        ? `${outputText}\n${staleSummary}`
-                        : staleSummary,
-                    parsedAction: 'manager_state_updated',
-                    changedTasks,
-                });
-            }
-        }
         await assertManagerRunLease(input);
         return {
             ok: true,
-            managerRun: completedRun,
+            managerRun: result.managerRun,
             changedFiles,
             changedStates: result.changedStates,
-            changedTasks,
             protocolMessages: result.protocolMessages,
         };
     } catch (error) {
@@ -1575,7 +1483,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             status,
             error: errorText,
         });
-        const rolledBack = await rollbackManagerRunIfWroteMemory(managerRun.id);
+        const rolledBack = await rollbackManagerRunWritesIfNeeded(managerRun.id);
         if (!rolledBack?.conflicts.length) {
             await rebuildTavernMemoryDerivedIndexForLiveSession(sessionId);
         }
@@ -1600,7 +1508,7 @@ export async function failAndRollbackAcceptedTurnManagerRun(
         leaseExpiresAt: 0,
         error,
     });
-    const rollback = await rollbackManagerRunIfWroteMemory(runId);
+    const rollback = await rollbackManagerRunWritesIfNeeded(runId);
     const run = rollback?.managerRun || await updateTavernManagerRun(runId, {});
     const finalError = rollback?.conflicts.length
         ? mergeRollbackRunError(error, rollback.conflicts)
@@ -1767,14 +1675,13 @@ export async function describeXbTavernManagerRollbackImpactForMessageRange(sessi
     affectedRuns: number;
     pendingRuns: number;
     writtenMemoryFiles: number;
-    writtenTaskRuns: number;
     writtenStatusPatches: number;
     hasWrittenState: boolean;
 }> {
     const id = String(sessionId || '').trim();
     const order = Number(fromOrder);
     if (!id || !Number.isFinite(order)) {
-        return { affectedRuns: 0, pendingRuns: 0, writtenMemoryFiles: 0, writtenTaskRuns: 0, writtenStatusPatches: 0, hasWrittenState: false };
+        return { affectedRuns: 0, pendingRuns: 0, writtenMemoryFiles: 0, writtenStatusPatches: 0, hasWrittenState: false };
     }
     const runs = (await listTavernManagerRuns(id))
         .filter((run) => ['accepted_turn', 'after_turn'].includes(run.trigger)
@@ -1782,25 +1689,19 @@ export async function describeXbTavernManagerRollbackImpactForMessageRange(sessi
     const statusImpact = await describeStatusStateRollbackImpactForMessageRange(id, order);
     let pendingRuns = 0;
     let writtenMemoryFiles = 0;
-    let writtenTaskRuns = 0;
     for (const run of runs) {
         if (['queued', 'running'].includes(run.status)) {
             pendingRuns += 1;
         }
         const memorySnapshots = await listTavernManagerMemorySnapshots(run.id);
-        const taskSnapshots = await listTavernManagerTaskSnapshots(run.id);
         writtenMemoryFiles += memorySnapshots.filter((snapshot) => String(snapshot.afterHash || '').trim()).length;
-        if (taskSnapshots.some((snapshot) => String(snapshot.afterHash || '').trim())) {
-            writtenTaskRuns += 1;
-        }
     }
     return {
         affectedRuns: runs.length,
         pendingRuns,
         writtenMemoryFiles,
-        writtenTaskRuns,
         writtenStatusPatches: statusImpact.writtenStatusPatches,
-        hasWrittenState: writtenMemoryFiles > 0 || writtenTaskRuns > 0 || statusImpact.changed,
+        hasWrittenState: writtenMemoryFiles > 0 || statusImpact.changed,
     };
 }
 
@@ -1824,21 +1725,10 @@ export async function cancelAndRollbackXbTavernManagersForMessageRange(sessionId
     });
     const memory = await rollbackManagerRunsForMessageRange(id, order);
     const status = await rollbackStatusStateForMessageRange(id, order);
-    let taskRolledBack = 0;
-    let taskSkipped = 0;
-    const taskConflicts: string[] = [];
-    for (const runId of memory.runIds) {
-        const taskSnapshots = await listTavernManagerTaskSnapshots(runId);
-        if (!taskSnapshots.some((snapshot) => String(snapshot.afterHash || '').trim())) {continue;}
-        const result = await rollbackManagerRunTaskWrites(runId);
-        taskRolledBack += result.rolledBack;
-        taskSkipped += result.skipped;
-        taskConflicts.push(...result.conflicts);
-    }
     return {
         runIds: [...new Set([...memory.runIds, ...status.runIds])],
-        rolledBack: memory.rolledBack + taskRolledBack + status.rolledBack,
-        conflicts: [...memory.conflicts, ...taskConflicts, ...status.conflicts],
-        skipped: memory.skipped + taskSkipped + status.skipped,
+        rolledBack: memory.rolledBack + status.rolledBack,
+        conflicts: [...memory.conflicts, ...status.conflicts],
+        skipped: memory.skipped + status.skipped,
     };
 }

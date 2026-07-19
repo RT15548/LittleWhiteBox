@@ -29,7 +29,6 @@ import type {
     TavernSessionRecord,
     TavernStructuredStateDocumentRecord,
     TavernStructuredStatePatchRecord,
-    TavernTaskRecord,
     TavernCommunicationContactRecord,
     TavernCommunicationMessageRecord,
     TavernCommunicationThreadRecord,
@@ -498,7 +497,6 @@ export interface TavernManagerContext {
     formatRunMapLine: TavernCommand<[run: TavernManagerRunRecord], string>;
     formatRunMemoryLine: TavernCommand<[run: TavernManagerRunRecord], string>;
     formatRunModelLine: TavernCommand<[run: TavernManagerRunRecord], string>;
-    formatRunTaskLine: TavernCommand<[run: TavernManagerRunRecord], string>;
     handleManagerComposeKeydown: TavernCommand<[event: KeyboardEvent]>;
     handleEditInput: TavernCommand<[event: Event]>;
     handleManagerEditKeydown: TavernCommand<[event: KeyboardEvent, message: TavernAssistantChatMessageRecord]>;
@@ -585,7 +583,7 @@ export interface TavernMemoryContext {
     stateMemoryFile: Ref<TavernMemoryFileRecord | null>;
 }
 
-export type TavernChatWorkspacePanelKey = 'map' | 'status' | 'memory' | 'event';
+export type TavernChatWorkspacePanelKey = 'map' | 'status' | 'memory';
 
 export interface TavernWorkspaceContext {
     activeMemoryFiles: TavernReadable<TavernMemoryIndexFileEntry[]>;
@@ -606,7 +604,6 @@ export interface TavernWorkspaceContext {
     saveSessionContract: TavernCommand<[nextContract?: Partial<TavernSessionContract>], Promise<TavernSessionRecord | null>>;
     sessionContract: TavernReadable<TavernSessionContract>;
     stateMemoryFile: Ref<TavernMemoryFileRecord | null>;
-    tavernTasks: Ref<TavernTaskRecord[]>;
     visibleUserAvatar: TavernReadable<string>;
 }
 

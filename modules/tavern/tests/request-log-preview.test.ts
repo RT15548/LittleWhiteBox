@@ -22,7 +22,7 @@ test('request log preview splits top-level request fields around messages in sou
         model: 'claude-opus-4-6',
         temperature: 0.8,
         messages: [{ role: 'user', content: 'Hello' }],
-        tools: [{ name: 'EventPatch' }],
+        tools: [{ name: 'StatusPatch' }],
         stream: true,
     }));
 
@@ -97,7 +97,7 @@ test('request log preview renders message content and meta without html strings'
             {
                 role: 'assistant',
                 content: null,
-                tool_calls: [{ id: 'call-1', function: { name: 'EventInspect' } }],
+                tool_calls: [{ id: 'call-1', function: { name: 'StatusRead' } }],
             },
         ],
     }));

@@ -142,54 +142,6 @@ test('xb tavern preset labels are debug metadata only', () => {
     assert.deepEqual(JSON.parse(result.meta.rawMessagesJson), result.messages);
 });
 
-test('quest hooks are injected before session memory without a heading', () => {
-    const result = buildXbTavernMessages({}, {
-        sections: [{
-            id: 'main',
-            placement: 'top',
-            role: 'system',
-            content: 'Main prompt.',
-        }],
-    }, {
-        currentUserMessage: '继续。',
-        memoryContext: {
-            questHooks: ['莉娜似乎在刻意避开某个码头名字。'],
-            memoryFiles: [{
-                path: 'memory/state.md',
-                title: '会话记忆',
-                content: '码头仍是当前压力点。',
-            }],
-        },
-    });
-    const memoryContent = result.messages.map((message) => message.content).find((content) => content.includes('码头仍是当前压力点。')) || '';
-    assert.ok(memoryContent.startsWith('莉娜似乎在刻意避开某个码头名字。\n\n## 会话记忆'));
-    assert.doesNotMatch(memoryContent, /任务|目标|完成/);
-});
-
-test('quest hooks survive memory depth injection before memory content', () => {
-    const result = buildXbTavernMessages({}, {
-        sections: [{
-            id: 'main',
-            label: 'Main',
-            placement: 'top',
-            role: 'system',
-            content: 'Main prompt.',
-        }],
-    }, {
-        currentUserMessage: '继续。',
-        memoryContext: {
-            questHooks: ['旧码头的名字让莉娜短暂停顿。'],
-            memoryFiles: [{
-                path: 'memory/state.md',
-                title: '会话记忆',
-                content: '玩家正在查旧码头。',
-            }],
-        },
-    });
-    const content = result.messages.map((message) => message.content).join('\n\n');
-    assert.match(content, /旧码头的名字让莉娜短暂停顿。\n\n## 会话记忆[\s\S]*玩家正在查旧码头。/);
-});
-
 test('xb tavern assembler uses native worldbook prompt blocks as the rendered truth', () => {
     const result = buildXbTavernMessages({
         character: { name: 'Aster', description: 'Pilot.' },

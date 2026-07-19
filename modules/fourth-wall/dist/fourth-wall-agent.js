@@ -18460,24 +18460,6 @@ var lr = {
     "dryRun",
     "ops"
   ],
-  EventInspect: [
-    "mode",
-    "eventId",
-    "id",
-    "status",
-    "limit",
-    "offset"
-  ],
-  EventPatch: [
-    "op",
-    "eventId",
-    "id",
-    "title",
-    "vision",
-    "doneWhen",
-    "hookForModel",
-    "status"
-  ],
   MemoryRead: [
     "filePath",
     "path",

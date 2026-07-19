@@ -2,23 +2,17 @@ import {
     tavernMemoryFilesTable,
     tavernSessionsTable,
     tavernStateDocumentsTable,
-    tavernTaskFingerprintStatesTable,
-    tavernTasksTable,
     type TavernMemoryFileRecord,
     type TavernStructuredStateDocumentRecord,
-    type TavernTaskFingerprintStateRecord,
-    type TavernTaskRecord,
 } from '../../shared/session-db';
 import { normalizeTavernMemoryPath, TAVERN_SOURCE_FILE_TOOL_NAMES } from '../../shared/memory-files';
 import { TAVERN_STATE_TOOL_NAMES } from '../../shared/structured-state';
 import { TAVERN_STATUS_DOC_ID, TAVERN_STATUS_DOC_TYPE, TAVERN_STATUS_TOOL_NAMES } from '../../shared/status-state';
-import { TAVERN_TASK_TOOL_NAMES } from '../../shared/tasks';
 
 type TavernStateWriteResource =
     | { kind: 'memory'; path: string }
     | { kind: 'state'; key: string }
-    | { kind: 'state-domain'; key: 'structured-state' }
-    | { kind: 'tasks'; key: 'tasks' };
+    | { kind: 'state-domain'; key: 'structured-state' };
 
 function stableJson(value: unknown): string {
     if (Array.isArray(value)) {return `[${value.map(stableJson).join(',')}]`;}
@@ -65,13 +59,6 @@ function structuredStateDomainFingerprint(
     });
 }
 
-function taskFingerprint(tasks: TavernTaskRecord[], state: TavernTaskFingerprintStateRecord | null | undefined): string {
-    return stableJson({
-        tasks: [...tasks].sort((left, right) => left.id.localeCompare(right.id)),
-        abandonedFingerprints: [...(state?.abandonedFingerprints || [])].sort(),
-    });
-}
-
 function normalizeStateKey(docType = '', docId = ''): string {
     const type = String(docType || '').trim();
     const id = String(docId || '').trim() || 'main';
@@ -92,9 +79,6 @@ function resolveToolResources(toolName = '', args: Record<string, unknown> = {})
     if ([TAVERN_STATUS_TOOL_NAMES.INIT, TAVERN_STATUS_TOOL_NAMES.PATCH].includes(name as never)) {
         return [{ kind: 'state', key: normalizeStateKey(TAVERN_STATUS_DOC_TYPE, TAVERN_STATUS_DOC_ID) }];
     }
-    if (name === TAVERN_TASK_TOOL_NAMES.PATCH) {
-        return [{ kind: 'tasks', key: 'tasks' }];
-    }
     return [];
 }
 
@@ -108,7 +92,6 @@ export async function createTavernStateWriteCasTracker(sessionId = ''): Promise<
     const memoryVersions = new Map<string, string>();
     const stateVersions = new Map<string, string>();
     let structuredStateDomainVersion = '';
-    let tasksVersion = '';
 
     async function readMemoryVersion(path: string): Promise<string> {
         return memoryFingerprint(await tavernMemoryFilesTable.get([id, path]) || null);
@@ -128,26 +111,15 @@ export async function createTavernStateWriteCasTracker(sessionId = ''): Promise<
         return structuredStateDomainFingerprint(documents, session?.state?.activeMapDocId);
     }
 
-    async function readTasksVersion(): Promise<string> {
-        const [tasks, state] = await Promise.all([
-            tavernTasksTable.where('sessionId').equals(id).toArray(),
-            tavernTaskFingerprintStatesTable.get(id),
-        ]);
-        return taskFingerprint(tasks, state || null);
-    }
-
     if (id) {
-        const [memoryFiles, stateDocuments, tasks, taskState, session] = await Promise.all([
+        const [memoryFiles, stateDocuments, session] = await Promise.all([
             tavernMemoryFilesTable.where('sessionId').equals(id).toArray(),
             tavernStateDocumentsTable.where('sessionId').equals(id).toArray(),
-            tavernTasksTable.where('sessionId').equals(id).toArray(),
-            tavernTaskFingerprintStatesTable.get(id),
             tavernSessionsTable.get(id),
         ]);
         memoryFiles.forEach((file) => memoryVersions.set(file.path, memoryFingerprint(file)));
         stateDocuments.forEach((document) => stateVersions.set(normalizeStateKey(document.docType, document.docId), stateFingerprint(document)));
         structuredStateDomainVersion = structuredStateDomainFingerprint(stateDocuments, session?.state?.activeMapDocId);
-        tasksVersion = taskFingerprint(tasks, taskState || null);
     }
 
     async function assertResource(resource: TavernStateWriteResource): Promise<void> {
@@ -171,9 +143,6 @@ export async function createTavernStateWriteCasTracker(sessionId = ''): Promise<
             }
             return;
         }
-        if (await readTasksVersion() !== tasksVersion) {
-            throw new Error('manager_resource_revision_conflict:tasks');
-        }
     }
 
     async function acceptResource(resource: TavernStateWriteResource): Promise<void> {
@@ -192,7 +161,6 @@ export async function createTavernStateWriteCasTracker(sessionId = ''): Promise<
             structuredStateDomainVersion = await readStructuredStateDomainVersion();
             return;
         }
-        tasksVersion = await readTasksVersion();
     }
 
     return {

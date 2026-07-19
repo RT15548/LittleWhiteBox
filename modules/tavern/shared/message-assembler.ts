@@ -431,7 +431,6 @@ export interface XbTavernMemoryContext {
     structuredStates?: XbTavernStructuredStateSummary[];
     spatialState?: string;
     statusPanelYaml?: string;
-    questHooks?: string[];
 }
 
 export interface XbTavernStructuredStateSummary {
@@ -1711,13 +1710,7 @@ function buildMemoryBlock(memoryContext: XbTavernMemoryContext = {}): string {
     const memoryFiles = Array.isArray(memoryContext.memoryFiles) ? memoryContext.memoryFiles : [];
     const spatialState = normalizeText(memoryContext.spatialState);
     const statusPanelYaml = normalizeText(memoryContext.statusPanelYaml);
-    const questHooks = Array.isArray(memoryContext.questHooks)
-        ? memoryContext.questHooks.map((hook) => normalizeText(hook)).filter(Boolean)
-        : [];
     const sections: string[] = [];
-    if (questHooks.length) {
-        sections.push(questHooks.join('\n'));
-    }
 
     const stateContent = normalizeText(memoryFiles.find((file) => file.path === 'memory/state.md')?.content || '');
     if (stateContent) {

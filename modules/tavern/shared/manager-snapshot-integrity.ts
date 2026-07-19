@@ -2,7 +2,6 @@ import type {
     TavernManagerMemorySnapshotRecord,
     TavernManagerRunRecord,
     TavernManagerStateSnapshotRecord,
-    TavernManagerTaskSnapshotRecord,
     TavernStructuredStatePatchRecord,
 } from './session-db';
 
@@ -10,7 +9,6 @@ export interface TavernManagerSnapshotIntegrityInput {
     runs?: TavernManagerRunRecord[];
     memorySnapshots?: TavernManagerMemorySnapshotRecord[];
     stateSnapshots?: TavernManagerStateSnapshotRecord[];
-    taskSnapshots?: TavernManagerTaskSnapshotRecord[];
     statePatches?: TavernStructuredStatePatchRecord[];
 }
 
@@ -40,9 +38,6 @@ export function findUnacceptedTavernManagerMutationRunIds(
         if (snapshotContainsUnacceptedWrite(snapshot, terminalRunIds)) {unsettled.add(snapshot.managerRunId);}
     }
     for (const snapshot of input.stateSnapshots || []) {
-        if (snapshotContainsUnacceptedWrite(snapshot, terminalRunIds)) {unsettled.add(snapshot.managerRunId);}
-    }
-    for (const snapshot of input.taskSnapshots || []) {
         if (snapshotContainsUnacceptedWrite(snapshot, terminalRunIds)) {unsettled.add(snapshot.managerRunId);}
     }
     for (const patch of input.statePatches || []) {

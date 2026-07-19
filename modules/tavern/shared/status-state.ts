@@ -11,7 +11,7 @@ import db, {
     type TavernStructuredStateDocumentRecord,
     type TavernStructuredStatePatchRecord,
 } from './session-db';
-import { resolveAcceptedSnapshotFloor } from './tasks';
+import { resolveTavernAcceptedSnapshotFloor } from './accepted-snapshot-floor';
 import { canonicalMaterialSymbolName, normalizeMaterialSymbolName } from './status-material-symbols';
 
 export const TAVERN_STATUS_DOC_TYPE = 'tavern.status' as const;
@@ -495,7 +495,7 @@ export async function saveTavernStatusSnapshot(sessionId = '', floorInput?: numb
     return await db.transaction('rw', tavernMessagesTable, tavernStateDocumentsTable, tavernStatusSnapshotsTable, async () => {
         const current = await getStatusRecord(id);
         if (!current) {return null;}
-        const floor = await resolveAcceptedSnapshotFloor(id, floorInput);
+        const floor = await resolveTavernAcceptedSnapshotFloor(id, floorInput);
         const currentFingerprint = statusRecordFingerprint(current);
         const effective = await getLatestTavernStatusSnapshot(id, floor);
         if (effective && statusSnapshotFingerprint(effective) === currentFingerprint) {

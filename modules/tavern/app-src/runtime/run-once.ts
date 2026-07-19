@@ -58,7 +58,6 @@ import {
     listTavernCommunicationTimelineEvents,
     type TavernCommunicationTimelineEvent,
 } from '../../shared/communications';
-import { getLatestQuestHooksForPrompt } from '../../shared/tasks';
 import { buildXbTavernBrainAsync } from '../../shared/brain';
 import {
     ACTION_CHECK_TOOL_NAME,
@@ -220,13 +219,7 @@ function buildMemoryPromptContent(memoryContext: XbTavernMemoryContext = {}): st
     const memoryFiles = Array.isArray(memoryContext.memoryFiles) ? memoryContext.memoryFiles : [];
     const spatialState = String(memoryContext.spatialState || '').trim();
     const statusPanelYaml = String(memoryContext.statusPanelYaml || '').trim();
-    const questHooks = Array.isArray(memoryContext.questHooks)
-        ? memoryContext.questHooks.map((hook) => String(hook || '').trim()).filter(Boolean)
-        : [];
     const sections: string[] = [];
-    if (questHooks.length) {
-        sections.push(questHooks.join('\n'));
-    }
     const stateFile = memoryFiles.find((file) => String(file.path || '') === 'memory/state.md');
     const stateContent = String(stateFile?.content || '').trim();
     if (stateContent) {
@@ -813,7 +806,7 @@ function filterMemoryContextByRuntime(
     runtime: TavernSessionContractRuntime,
 ): XbTavernMemoryContext | undefined {
     if (!memoryContext) {return memoryContext;}
-    if (!runtime.includeMemoryFiles && !runtime.includeStructuredStates && !runtime.includeStatusStates && !runtime.includeQuestOrchestration) {
+    if (!runtime.includeMemoryFiles && !runtime.includeStructuredStates && !runtime.includeStatusStates) {
         return {};
     }
     const filtered: XbTavernMemoryContext = {};
@@ -828,9 +821,6 @@ function filterMemoryContextByRuntime(
     }
     if (runtime.includeStatusStates && memoryContext.statusPanelYaml) {
         filtered.statusPanelYaml = memoryContext.statusPanelYaml;
-    }
-    if (runtime.includeQuestOrchestration && Array.isArray(memoryContext.questHooks)) {
-        filtered.questHooks = memoryContext.questHooks;
     }
     return filtered;
 }
@@ -1724,17 +1714,13 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
             includeStructuredStates: sessionContractRuntime.includeStructuredStates,
         }))
         : undefined;
-    const simulateQuestHooks = session && sessionContractRuntime.includeQuestOrchestration
-        ? await runTavernStage('simulate_quest_hook_retrieval', () => getLatestQuestHooksForPrompt(session.id, 1))
-        : [];
     const statusPromptContext = session
         ? await runTavernStage('simulate_status_panel_prompt', () => buildStatusPanelPromptContext(session.id, sessionContractRuntime))
         : { statusPanelYaml: '' };
     const statusPanelYaml = statusPromptContext.statusPanelYaml;
-    const memoryContext: XbTavernMemoryContext | undefined = retrievedMemoryContext || simulateQuestHooks.length || statusPanelYaml
+    const memoryContext: XbTavernMemoryContext | undefined = retrievedMemoryContext || statusPanelYaml
         ? {
             ...(retrievedMemoryContext || {}),
-            ...(simulateQuestHooks.length ? { questHooks: simulateQuestHooks } : {}),
             ...(statusPanelYaml ? { statusPanelYaml } : {}),
         }
         : undefined;
@@ -2097,7 +2083,6 @@ function scheduleQueuedAcceptedTurnManager(input: {
                     const domains = resolveTavernAcceptedStateSnapshotDomains({
                         changedFiles: result.changedFiles,
                         changedStates: result.changedStates,
-                        changedTasks: result.changedTasks,
                     });
                     try {
                         const completed = await completeAcceptedTurnManagerRunWithSnapshot({
@@ -2323,16 +2308,11 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             includeStructuredStates: sessionContractRuntime.includeStructuredStates,
         }))
         : undefined;
-    const questHooks = sessionContractRuntime.includeQuestOrchestration
-        // RP gets only the freshest one. The event panel may show more, but prompt hooks should stay soft and sparse.
-        ? await runTavernStage('turn_quest_hook_retrieval', () => getLatestQuestHooksForPrompt(baseSession.id, 1))
-        : [];
     const statusPromptContext = await runTavernStage('turn_status_panel_prompt', () => buildStatusPanelPromptContext(baseSession.id, sessionContractRuntime));
     const statusPanelYaml = statusPromptContext.statusPanelYaml;
-    const memoryContext: XbTavernMemoryContext | undefined = retrievedMemoryContext || questHooks.length || statusPanelYaml
+    const memoryContext: XbTavernMemoryContext | undefined = retrievedMemoryContext || statusPanelYaml
         ? {
             ...(retrievedMemoryContext || {}),
-            ...(questHooks.length ? { questHooks } : {}),
             ...(statusPanelYaml ? { statusPanelYaml } : {}),
         }
         : undefined;

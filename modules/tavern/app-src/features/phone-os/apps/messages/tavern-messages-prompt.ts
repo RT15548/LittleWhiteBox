@@ -210,8 +210,6 @@ function buildCurrentStateAndMemory(input: {
 }): XbTavernMessage | null {
     const memoryFiles = Array.isArray(input.memoryContext?.memoryFiles) ? input.memoryContext.memoryFiles : [];
     const sections: string[] = [];
-    const questHooks = (input.memoryContext?.questHooks || []).map((hook) => promptContent(hook)).filter(hasPromptContent);
-    if (questHooks.length) {sections.push(questHooks.join('\n'));}
 
     const stateMemory = promptContent(memoryFiles.find((file) => file.path === 'memory/state.md')?.content || '');
     if (hasPromptContent(stateMemory)) {sections.push(`## 会话记忆\n${stateMemory}`);}

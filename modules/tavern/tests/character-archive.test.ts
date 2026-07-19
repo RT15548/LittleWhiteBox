@@ -18,7 +18,6 @@ import db, {
     putTavernManagerCandidate,
     tavernManagerMemorySnapshotsTable,
     tavernManagerStateSnapshotsTable,
-    tavernManagerTaskSnapshotsTable,
     tavernMemoryFilesTable,
     tavernMemoryIndexesTable,
     tavernMemorySnapshotsTable,
@@ -26,9 +25,6 @@ import db, {
     tavernSessionsTable,
     tavernStateDocumentsTable,
     tavernStatePatchesTable,
-    tavernTaskFingerprintStatesTable,
-    tavernTasksTable,
-    tavernTaskSnapshotsTable,
 } from '../shared/session-db';
 import {
     exportTavernCharacterArchive,
@@ -215,44 +211,6 @@ async function seedArchiveSource() {
         createdAt: 11,
         updatedAt: 12,
     });
-    await tavernTasksTable.put({
-        id: 'task-a-1',
-        sessionId: a1.id,
-        status: 'active',
-        title: '找线索',
-        vision: '调查大厅',
-        doneWhen: '找到钥匙',
-        hookForModel: '继续调查',
-        fingerprint: 'fp-a',
-        createdOrder: 1,
-        updatedOrder: 2,
-        sourceManagerRunId: run.id,
-        createdAt: 13,
-        updatedAt: 14,
-    });
-    await tavernTaskSnapshotsTable.put({
-        sessionId: a1.id,
-        floor: 2,
-        tasks: [await tavernTasksTable.get([a1.id, 'task-a-1'])].filter(Boolean) as never,
-        abandonedFingerprints: ['old-fp'],
-        createdAt: 15,
-    });
-    await tavernManagerTaskSnapshotsTable.put({
-        managerRunId: run.id,
-        sessionId: a1.id,
-        beforeTasks: [await tavernTasksTable.get([a1.id, 'task-a-1'])].filter(Boolean) as never,
-        beforeFingerprints: ['old-fp'],
-        beforeHash: 'before-task',
-        afterHash: 'after-task',
-        rollbackStatus: 'pending',
-        createdAt: 16,
-        updatedAt: 17,
-    });
-    await tavernTaskFingerprintStatesTable.put({
-        sessionId: a1.id,
-        abandonedFingerprints: ['fp-abandoned'],
-        updatedAt: 18,
-    });
     const { thread } = await createTavernCommunicationContact({
         sessionId: a1.id,
         name: 'Phone Contact',
@@ -300,7 +258,7 @@ async function buildArchive(characterKey = 'char-a', targetRawBytes = 420) {
     });
     const writerResult = await writer.close();
     const manifest: TavernCharacterArchiveManifest = {
-        version: 1,
+        version: 2,
         archiveId,
         complete: true,
         exportedAt: summary.exportedAt,
@@ -332,7 +290,6 @@ test('tavern character archive backup includes only the current character and cr
     assert.equal(manifest.counts.messages, 25);
     assert.equal(manifest.counts.memoryFiles, 1);
     assert.equal(manifest.counts.stateDocuments, 5);
-    assert.equal(manifest.counts.tasks, 1);
     assert.equal(manifest.counts.communications, 6);
     assert(uploadedParts.every((part) => part.filename.includes('_archive-test_part_')));
     assert(!records.some((row) => JSON.stringify(row.record).includes('char-b')));
@@ -457,6 +414,13 @@ test('tavern character archive JSONL parser streams decoder chunks across multib
     assert.deepEqual(parsedRows.map((row) => row.record.content), rows.map((row) => row.record.content));
 });
 
+test('tavern character archive JSONL parser rejects unknown tables', () => {
+    assert.throws(
+        () => parseTavernCharacterArchiveJsonl(textToBytes(JSON.stringify({ table: 'unknownDomain', record: {} }))),
+        /archive_jsonl_table_unsupported:unknownDomain/,
+    );
+});
+
 test('tavern character archive export handles records beyond one DB page without skipping', async () => {
     await db.delete();
     await db.open();
@@ -520,7 +484,6 @@ test('tavern character archive restore replaces only the current character and r
     assert.equal(restoredCandidate?.assistantOrder, 23);
     assert.equal((await tavernMemoryFilesTable.get([restoredA1, 'memory/state.md']))?.content, 'memory for a');
     assert.equal((await tavernStateDocumentsTable.get([restoredA1, 'tavern.map', 'map-main']))?.digest, 'map-digest');
-    assert.equal((await tavernTasksTable.get([restoredA1, 'task-a-1']))?.sourceManagerRunId, 'restore-job-test-run-a-1');
     assert.equal((await tavernStatePatchesTable.get('restore-job-test-patch-a-1'))?.managerRunId, 'restore-job-test-run-a-1');
     assert.equal((await tavernManagerMemorySnapshotsTable.get(['restore-job-test-run-a-1', 'memory/state.md']))?.sessionId, restoredA1);
     assert.equal((await tavernManagerStateSnapshotsTable.get(['restore-job-test-run-a-1', 'tavern.map', 'map-main']))?.sessionId, restoredA1);
@@ -536,9 +499,6 @@ test('tavern character archive restore replaces only the current character and r
         ],
     );
     assert.equal(restoredPhoneThreads[0]?.replyRequest?.status, 'failed');
-    assert.equal((await tavernManagerTaskSnapshotsTable.get('restore-job-test-run-a-1'))?.sessionId, restoredA1);
-    assert.equal((await tavernTaskSnapshotsTable.get([restoredA1, 2]))?.tasks[0]?.sessionId, restoredA1);
-    assert.deepEqual((await tavernTaskFingerprintStatesTable.get(restoredA1))?.abandonedFingerprints, ['fp-abandoned']);
     assert.equal(await getSelectedTavernSessionId(), restoredA2);
     assert.equal(result.selectedSessionId, restoredA2);
 });
@@ -601,7 +561,7 @@ test('tavern character archive can restore an empty archive by clearing only the
     await createTavernSession({ id: 'keep-b', title: 'keep', characterKey: 'char-b', characterName: 'Beryl' });
     await appendTavernMessage('keep-b', { role: 'user', content: 'keep me' });
     const manifest: TavernCharacterArchiveManifest = {
-        version: 1,
+        version: 2,
         archiveId: 'empty-archive',
         complete: true,
         exportedAt: 123,
@@ -611,7 +571,6 @@ test('tavern character archive can restore an empty archive by clearing only the
             messages: 0,
             memoryFiles: 0,
             stateDocuments: 0,
-            tasks: 0,
         },
         parts: [],
     };

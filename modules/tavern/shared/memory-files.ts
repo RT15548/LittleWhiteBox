@@ -3,7 +3,6 @@ import { getTavilySearchToolDefinition } from '../../agent-core/tavily-search.js
 
 import { getTavernManagerStateToolDefinitions } from './structured-state';
 import { getTavernStatusToolDefinitions } from './status-state';
-import { getTavernTaskToolDefinitions } from './tasks';
 import type { XbTavernContext, XbTavernWorldBook, XbTavernWorldEntry } from './message-assembler';
 import db, {
     getTavernMessage,
@@ -1410,7 +1409,6 @@ export function getTavernManagerToolDefinitions(options: { webSearchEnabled?: bo
         ...getTavernSourceFileToolDefinitions(),
         ...getTavernManagerStateToolDefinitions(),
         ...getTavernStatusToolDefinitions(),
-        ...getTavernTaskToolDefinitions(),
     ];
     if (options.webSearchEnabled) {
         definitions.push(getTavilySearchToolDefinition() as TavernManagerToolDefinition);

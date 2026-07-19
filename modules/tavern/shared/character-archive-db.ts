@@ -4,7 +4,6 @@ import db, {
     tavernManagerCandidatesTable,
     tavernManagerRunsTable,
     tavernManagerStateSnapshotsTable,
-    tavernManagerTaskSnapshotsTable,
     tavernMemoryFilesTable,
     tavernMemoryIndexesTable,
     tavernMemorySnapshotsTable,
@@ -14,9 +13,6 @@ import db, {
     tavernStateDocumentsTable,
     tavernStatePatchesTable,
     tavernStatusSnapshotsTable,
-    tavernTaskFingerprintStatesTable,
-    tavernTasksTable,
-    tavernTaskSnapshotsTable,
     tavernCommunicationContactsTable,
     tavernCommunicationMessagesTable,
     tavernCommunicationSnapshotsTable,
@@ -27,16 +23,14 @@ import db, {
     type TavernManagerMemorySnapshotRecord,
     type TavernManagerRunRecord,
     type TavernManagerStateSnapshotRecord,
-    type TavernManagerTaskSnapshotRecord,
     type TavernMemorySnapshotRecord,
     type TavernSessionRecord,
     type TavernStatusSnapshotRecord,
     type TavernStructuredStateDocumentRecord,
     type TavernStructuredStatePatchRecord,
-    type TavernTaskRecord,
-    type TavernTaskSnapshotRecord,
 } from './session-db';
 import {
+    CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION,
     createEmptyTavernCharacterArchiveCounts,
     TAVERN_CHARACTER_ARCHIVE_TABLES,
     type TavernCharacterArchiveCharacter,
@@ -93,10 +87,6 @@ const archiveTables: ArchiveTableMap = {
     statePatches: { table: tavernStatePatchesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     statusSnapshots: { table: tavernStatusSnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     managerStateSnapshots: { table: tavernManagerStateSnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
-    tasks: { table: tavernTasksTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
-    taskSnapshots: { table: tavernTaskSnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
-    managerTaskSnapshots: { table: tavernManagerTaskSnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
-    taskFingerprintStates: { table: tavernTaskFingerprintStatesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     communicationContacts: { table: tavernCommunicationContactsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     communicationThreads: { table: tavernCommunicationThreadsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     communicationMessages: { table: tavernCommunicationMessagesTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
@@ -133,7 +123,6 @@ function incrementArchiveCounts(counts: TavernCharacterArchiveCounts, table: Tav
     if (table === 'messages') {counts.messages += 1;}
     if (table === 'memoryFiles') {counts.memoryFiles += 1;}
     if (table === 'stateDocuments') {counts.stateDocuments += 1;}
-    if (table === 'tasks') {counts.tasks += 1;}
     if (table.startsWith('communication')) {counts.communications = (Number(counts.communications) || 0) + 1;}
 }
 
@@ -143,7 +132,6 @@ function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
         + (Number(counts.messages) || 0)
         + (Number(counts.memoryFiles) || 0)
         + (Number(counts.stateDocuments) || 0)
-        + (Number(counts.tasks) || 0)
         + (Number(counts.communications) || 0);
 }
 
@@ -160,7 +148,6 @@ function assertCapturedArchiveStateStable(records: Map<TavernCharacterArchiveTab
         runs: records.get('managerRuns') as TavernManagerRunRecord[] || [],
         memorySnapshots: records.get('managerMemorySnapshots') as TavernManagerMemorySnapshotRecord[] || [],
         stateSnapshots: records.get('managerStateSnapshots') as TavernManagerStateSnapshotRecord[] || [],
-        taskSnapshots: records.get('managerTaskSnapshots') as TavernManagerTaskSnapshotRecord[] || [],
         statePatches: records.get('statePatches') as TavernStructuredStatePatchRecord[] || [],
     }, 'manager_archive_unaccepted_writes');
 }
@@ -177,16 +164,12 @@ async function captureCharacterArchiveSession(sessionId = ''): Promise<CapturedC
         tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
-        tavernManagerTaskSnapshotsTable,
         tavernMemoryFilesTable,
         tavernMemorySnapshotsTable,
         tavernMemoryIndexesTable,
         tavernStateDocumentsTable,
         tavernStatePatchesTable,
-        tavernTasksTable,
-        tavernTaskSnapshotsTable,
         tavernStatusSnapshotsTable,
-        tavernTaskFingerprintStatesTable,
         tavernCommunicationContactsTable,
         tavernCommunicationThreadsTable,
         tavernCommunicationMessagesTable,
@@ -219,19 +202,17 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
         tavernManagerRunsTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
-        tavernManagerTaskSnapshotsTable,
         tavernStatePatchesTable,
         async () => {
             const sessions = await tavernSessionsTable.where('characterKey').equals(key).toArray();
             for (const session of sessions) {
-                const [runs, memorySnapshots, stateSnapshots, taskSnapshots, statePatches] = await Promise.all([
+                const [runs, memorySnapshots, stateSnapshots, statePatches] = await Promise.all([
                     tavernManagerRunsTable.where('sessionId').equals(session.id).toArray(),
                     tavernManagerMemorySnapshotsTable.where('sessionId').equals(session.id).toArray(),
                     tavernManagerStateSnapshotsTable.where('sessionId').equals(session.id).toArray(),
-                    tavernManagerTaskSnapshotsTable.where('sessionId').equals(session.id).toArray(),
                     tavernStatePatchesTable.where('sessionId').equals(session.id).toArray(),
                 ]);
-                assertTavernManagerSnapshotStable({ runs, memorySnapshots, stateSnapshots, taskSnapshots, statePatches }, 'manager_archive_unaccepted_writes');
+                assertTavernManagerSnapshotStable({ runs, memorySnapshots, stateSnapshots, statePatches }, 'manager_archive_unaccepted_writes');
             }
         },
     );
@@ -350,7 +331,9 @@ function validateRestoreManifest(manifest: TavernCharacterArchiveManifest, chara
     const key = normalizeCharacterKey(characterKey);
     if (!manifest || typeof manifest !== 'object') {throw new Error('archive_manifest_invalid');}
     if (manifest.complete !== true) {throw new Error('archive_manifest_incomplete');}
-    if (manifest.version !== 1) {throw new Error(`archive_version_unsupported:${String(manifest.version)}`);}
+    if (manifest.version !== CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION) {
+        throw new Error(`archive_version_unsupported:${String(manifest.version)}`);
+    }
     if (String(manifest.character?.characterKey || '').trim() !== key) {
         throw new Error('archive_character_mismatch');
     }
@@ -429,14 +412,6 @@ function remapStateDocument<T extends TavernStructuredStateDocumentRecord | unde
     };
 }
 
-function remapTask(task: TavernTaskRecord, mapSessionId: (value?: string) => string, mapManagerRunId: (value?: string) => string): TavernTaskRecord {
-    return {
-        ...task,
-        sessionId: mapSessionId(task.sessionId),
-        sourceManagerRunId: task.sourceManagerRunId ? mapManagerRunId(task.sourceManagerRunId) : task.sourceManagerRunId,
-    };
-}
-
 function remapArchiveRecord(
     input: TavernCharacterArchiveRecord,
     options: {
@@ -487,9 +462,6 @@ function remapArchiveRecord(
     if (table === 'statePatches') {
         record.id = options.mapPatchId(String(record.id || ''));
     }
-    if (table === 'tasks' && record.sourceManagerRunId) {
-        record.sourceManagerRunId = options.mapManagerRunId(String(record.sourceManagerRunId || ''));
-    }
     if ((table === 'messages' || table === 'assistantChatMessages') && record.contextSnapshot) {
         record.contextSnapshot = remapContextCharacterKey(record.contextSnapshot, options.characterKey);
     }
@@ -520,14 +492,6 @@ function remapArchiveRecord(
         if (snapshot.document) {
             record.document = remapStateDocument(snapshot.document, options.mapSessionId);
         }
-    }
-    if (table === 'taskSnapshots') {
-        const snapshot = record as unknown as TavernTaskSnapshotRecord;
-        record.tasks = (snapshot.tasks || []).map((task) => remapTask(task, options.mapSessionId, options.mapManagerRunId));
-    }
-    if (table === 'managerTaskSnapshots') {
-        const snapshot = record as unknown as TavernManagerTaskSnapshotRecord;
-        record.beforeTasks = (snapshot.beforeTasks || []).map((task) => remapTask(task, options.mapSessionId, options.mapManagerRunId));
     }
     if (table === 'communicationThreads') {
         const thread = record as unknown as TavernCommunicationThreadRecord;
@@ -623,16 +587,12 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
         tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
-        tavernManagerTaskSnapshotsTable,
         tavernMemoryFilesTable,
         tavernMemorySnapshotsTable,
         tavernMemoryIndexesTable,
         tavernStateDocumentsTable,
         tavernStatePatchesTable,
         tavernStatusSnapshotsTable,
-        tavernTasksTable,
-        tavernTaskSnapshotsTable,
-        tavernTaskFingerprintStatesTable,
         tavernCommunicationContactsTable,
         tavernCommunicationThreadsTable,
         tavernCommunicationMessagesTable,
@@ -660,16 +620,12 @@ async function promoteTempArchiveToCharacter(tempCharacterKey = '', characterKey
         tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
-        tavernManagerTaskSnapshotsTable,
         tavernMemoryFilesTable,
         tavernMemorySnapshotsTable,
         tavernMemoryIndexesTable,
         tavernStateDocumentsTable,
         tavernStatePatchesTable,
         tavernStatusSnapshotsTable,
-        tavernTasksTable,
-        tavernTaskSnapshotsTable,
-        tavernTaskFingerprintStatesTable,
         tavernCommunicationContactsTable,
         tavernCommunicationThreadsTable,
         tavernCommunicationMessagesTable,

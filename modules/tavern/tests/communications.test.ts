@@ -758,7 +758,6 @@ test('phone prompt preserves full source content and placeholders beyond twelve 
         'RELATED',
         'STATUS',
         'SPATIAL',
-        'QUEST',
         'DEPTH_ONE',
     ].map((label) => [label, longPhonePromptValue(label)]));
     const messages = buildTavernPhonePromptMessages({
@@ -784,7 +783,6 @@ test('phone prompt preserves full source content and placeholders beyond twelve 
             ],
             statusPanelYaml: values.STATUS,
             spatialState: values.SPATIAL,
-            questHooks: [values.QUEST],
         },
         activatedWorldEntries: [
             activatedPhoneWorldEntry(values.WORLD, XBTavernWorldPosition.before),

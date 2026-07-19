@@ -62,7 +62,6 @@ import {
 } from '../app-src/runtime/manager';
 import { runXbTavernAssistantChat as runXbTavernManagerChat } from '../app-src/runtime/assistant-chat-runner';
 import { getTavilySearchToolDefinition, TAVILY_TOOL_NAME } from '../../agent-core/tavily-search.js';
-import { executeTavernTaskTool } from '../shared/tasks';
 import { executeTavernStatusTool, TAVERN_STATUS_TOOL_NAMES } from '../shared/status-state';
 import {
     appendSentTavernCommunicationMessage,
@@ -520,69 +519,6 @@ test('xb tavern run turn sends the same ST-native prompt shape used by simulatio
     assert.match(nativeInput?.chancePrompt || '', /Chance Encounter Triggered/);
     assert.match(nativeInput?.actionCheckPrompt || '', /Runtime Protocol: Action Checks/);
     assert.equal(getChanceEncounterEvent(result.userMessage.runtimeEvents)?.label, CHANCE_ENCOUNTER_LABEL);
-});
-
-test('xb tavern run turn sends only the latest quest hook first to ST-native memory prompt', async () => {
-    await resetDb();
-    const preset = createDefaultXbTavernPreset();
-    const session = await createTavernSession({
-        title: 'Native quest hook',
-        characterKey: 'char-quest-native',
-        characterName: 'Aster',
-        contextSnapshot: {
-            character: { characterKey: 'char-quest-native', name: 'Aster', description: 'Pilot.' },
-        },
-        state: {
-            contract: mergeTavernSessionContract(undefined, {
-                questOrchestration: true,
-            }),
-        },
-    });
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'old-hook',
-        title: '旧线索',
-        vision: '旧线索远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '旧码头的名字还挂在雨里。',
-    }, { sourceAssistantOrder: 5 });
-    await executeTavernTaskTool(session.id, 'EventPatch', {
-        op: 'upsert-vision',
-        eventId: 'latest-hook',
-        title: '最新线',
-        vision: '最新线索远景',
-        doneWhen: '角色当场说出答案。',
-        hookForModel: '莉娜听见旧码头时短暂停顿。',
-    }, { sourceAssistantOrder: 7 });
-    let memoryPrompt = '';
-
-    await runXbTavernTurn({
-        sessionId: session.id,
-        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
-        contextSnapshot: session.contextSnapshot || {},
-        preset,
-        currentUserMessage: '继续。',
-        applyRegex: identityApplyRegex,
-        applySubstituteParams: identityApplySubstituteParams,
-        buildNativeChatPrompt: async (input) => {
-            memoryPrompt = input.memoryPrompt || '';
-            return {
-                source: 'test-native-builder',
-                promptMessageCount: 1,
-                messages: [{ role: 'assistant', content: 'Native answer.' }],
-            };
-        },
-        executeRunOnce: async (options: TavernRunOnceOptions) => ({
-            text: 'Native answer.',
-            provider: 'fake-provider',
-            model: 'fake-model',
-            requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
-        }),
-    });
-
-    assert.equal(memoryPrompt.startsWith('莉娜听见旧码头时短暂停顿。'), true);
-    assert.doesNotMatch(memoryPrompt, /^##/);
-    assert.doesNotMatch(memoryPrompt, /旧码头的名字还挂在雨里/);
 });
 
 test('xb tavern queued accepted-turn manager runs independently from the current send signal', async () => {
@@ -2490,20 +2426,6 @@ test('tavern manager prompt strips unauthorized module rules cleanly', () => {
     assert.doesNotMatch(mapOnly, /memory\/session\.md/);
     assert.doesNotMatch(mapOnly, /校正记忆/);
 
-    const questOnly = buildTavernManagerSystemPrompt({}, {
-        includeMemory: false,
-        includeCartography: false,
-        includeQuestOrchestration: true,
-    });
-    assert.match(questOnly, /## Events \(Ambition Palette\)/);
-    assert.match(questOnly, /grand goals they could choose to chase/);
-    assert.match(questOnly, /big, distant END/);
-    assert.match(questOnly, /fuck yes, let's do that/);
-    assert.match(questOnly, /If nothing genuinely grand comes, leave it empty/);
-    assert.doesNotMatch(questOnly, /"op":"upsert-vision"|hookForModel|doneWhen.*objective completion condition/);
-    assert.doesNotMatch(questOnly, /MemoryWrite/);
-    assert.doesNotMatch(questOnly, /## Structured State/);
-    assert.doesNotMatch(questOnly, /## Map/);
 });
 
 test('xb tavern queued accepted-turn manager failure does not block the next RP send', async () => {

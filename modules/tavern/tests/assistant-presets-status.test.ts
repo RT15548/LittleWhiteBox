@@ -41,7 +41,6 @@ test('manager system prompt includes status rules only when status is authorized
         includeMemory: true,
         includeCartography: false,
         includeStatus: true,
-        includeQuestOrchestration: false,
         workMode: 'accepted-turn',
         playerName: 'Mira',
     });
@@ -78,7 +77,6 @@ test('manager system prompt includes status rules only when status is authorized
         includeMemory: true,
         includeCartography: false,
         includeStatus: false,
-        includeQuestOrchestration: false,
     });
     assert.doesNotMatch(withoutStatus, /## Status Panel/);
     assert.doesNotMatch(withoutStatus, /<状态栏设定>/);

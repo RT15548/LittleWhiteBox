@@ -155,7 +155,7 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
             return '原因：维护结果未能安全写入剧情快照，系统已撤回本轮写入。';
         }
         if (error && labels[error]) {return `原因：${labels[error]}`;}
-        if (run.status === 'rolled_back') {return '原因：本次结果已撤回，当前记忆、地图和事件保持上一版。';}
+        if (run.status === 'rolled_back') {return '原因：本次结果已撤回，当前记忆、地图和状态栏保持上一版。';}
         if (error) {return `原因：${error}`;}
         return '';
     }
@@ -193,17 +193,6 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         if (run.status === 'rolled_back') {return '地图：未采用，已撤回本轮更新';}
         if (states.length) {return `地图：已更新 ${states.length} 份状态`;}
         return '地图：本轮没有明确空间变化，未更新';
-    }
-
-    function formatRunTaskLine(run: TavernManagerRunRecord) {
-        const tasks = Array.isArray(run.changedTasks) ? run.changedTasks : [];
-        if (run.status === 'queued') {return '事件：等待开始';}
-        if (run.status === 'running') {return '事件：正在判断线索池';}
-        if (run.status === 'failed') {return tasks.length ? `事件：已写入 ${tasks.length} 条线索，但本轮失败` : '事件：未完成';}
-        if (['cancelled', 'superseded'].includes(run.status)) {return '事件：已停止，未采用本轮结果';}
-        if (run.status === 'rolled_back') {return '事件：未采用，已撤回本轮更新';}
-        if (tasks.length) {return `事件：已更新 ${tasks.length} 条线索`;}
-        return '事件：本轮没有新线索';
     }
 
     function toolTraceSummary(value: unknown) {
@@ -288,7 +277,6 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         formatRunMapLine,
         formatRunMemoryLine,
         formatRunModelLine,
-        formatRunTaskLine,
         hiddenManagerRunCount,
         isManagerRunActive,
         managerBusy,

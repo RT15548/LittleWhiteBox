@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import TavernAtlasPanel from '../TavernAtlasPanel.vue';
-import TavernEventPanel from '../TavernEventPanel.vue';
 import TavernMapPanel from '../TavernMapPanel.vue';
 import TavernMemoryEditor from '../TavernMemoryEditor.vue';
 import TavernStatusPanel from '../TavernStatusPanel.vue';
-import { useTavernMemoryContext, useTavernSessionContext, useTavernShellContext, useTavernWorkspaceContext } from '../tavern-app-context';
+import { useTavernMemoryContext, useTavernShellContext, useTavernWorkspaceContext } from '../tavern-app-context';
 import { useMobileSheetDrag } from './useMobileSheetDrag';
 import { buildSeedLabelId, createSeedMapDocument, isSeedLabelId } from '../../../shared/map-state-seed';
 import { isMapExitSemantic } from '../../../shared/map-material-symbols';
@@ -21,7 +20,6 @@ const emit = defineEmits<{
 }>();
 
 const memory = useTavernMemoryContext();
-const session = useTavernSessionContext();
 const shell = useTavernShellContext();
 const workspace = useTavernWorkspaceContext();
 const {
@@ -72,11 +70,7 @@ const {
     sessionContract,
     statusFieldDeltas,
     statusStateDocument,
-    tavernTasks,
 } = workspace;
-const {
-    currentAssistantFloor,
-} = session;
 
 const mapWorkspaceView = ref<'scene' | 'world'>('scene');
 const mapPreviewDocId = ref('');
@@ -313,13 +307,6 @@ function selectDirectoryMemoryFile(path: string) {
       >
         记忆
       </button>
-      <button
-        type="button"
-        :class="{ active: chatWorkspacePanel === 'event' }"
-        @click="chatWorkspacePanel = 'event'"
-      >
-        事件
-      </button>
     </div>
     <section
       v-if="chatWorkspacePanel === 'map'"
@@ -552,11 +539,5 @@ function selectDirectoryMemoryFile(path: string) {
         @save="saveSelectedMemoryFile"
       />
     </section>
-    <TavernEventPanel
-      v-else-if="chatWorkspacePanel === 'event'"
-      :tasks="tavernTasks"
-      :enabled="sessionContract.questOrchestration"
-      :assistant-floor="currentAssistantFloor"
-    />
   </aside>
 </template>

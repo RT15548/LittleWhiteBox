@@ -246,7 +246,6 @@ export interface TavernManagerRunRecord {
     toolTrace?: unknown;
     changedFiles?: string[];
     changedStates?: string[];
-    changedTasks?: string[];
     leaseOwnerId?: string;
     leaseExpiresAt?: number;
     error?: string;
@@ -269,7 +268,6 @@ export type TavernMemoryFileStatus = 'active' | 'stale';
 export type TavernMemoryIndexStatus = 'ready' | 'stale' | 'failed';
 export type TavernStructuredStateStatus = 'active' | 'stale';
 export type TavernStructuredStateDocType = 'tavern.map' | 'tavern.atlas' | 'tavern.status';
-export type TavernTaskStatus = 'active' | 'completed' | 'abandoned';
 
 export interface TavernMemoryFileRecord {
     sessionId: string;
@@ -379,59 +377,12 @@ export interface TavernManagerStateSnapshotRecord {
     updatedAt: number;
 }
 
-export interface TavernTaskRecord {
-    id: string;
-    sessionId: string;
-    status: TavernTaskStatus;
-    title: string;
-    vision: string;
-    doneWhen: string;
-    hookForModel: string;
-    fingerprint: string;
-    createdOrder: number;
-    updatedOrder: number;
-    completedOrder?: number;
-    abandonedOrder?: number;
-    sourceManagerRunId?: string;
-    createdAt: number;
-    updatedAt: number;
-}
-
-export interface TavernTaskSnapshotRecord {
-    sessionId: string;
-    floor: number;
-    tasks: TavernTaskRecord[];
-    abandonedFingerprints: string[];
-    createdAt: number;
-}
-
 export interface TavernStatusSnapshotRecord {
     sessionId: string;
     floor: number;
     document?: TavernStructuredStateDocumentRecord;
     digest: string;
     createdAt: number;
-}
-
-export type TavernManagerTaskSnapshotStatus = 'pending' | 'rolled_back' | 'conflict' | 'skipped';
-
-export interface TavernManagerTaskSnapshotRecord {
-    managerRunId: string;
-    sessionId: string;
-    beforeTasks: TavernTaskRecord[];
-    beforeFingerprints: string[];
-    beforeHash: string;
-    afterHash?: string;
-    rollbackStatus: TavernManagerTaskSnapshotStatus;
-    error?: string;
-    createdAt: number;
-    updatedAt: number;
-}
-
-export interface TavernTaskFingerprintStateRecord {
-    sessionId: string;
-    abandonedFingerprints: string[];
-    updatedAt: number;
 }
 
 export interface TavernMemoryIndexRecord {
@@ -533,11 +484,7 @@ class TavernDatabase extends Dexie {
     stateDocuments!: DexieTable<TavernStructuredStateDocumentRecord>;
     statePatches!: DexieTable<TavernStructuredStatePatchRecord>;
     managerStateSnapshots!: DexieTable<TavernManagerStateSnapshotRecord>;
-    tasks!: DexieTable<TavernTaskRecord>;
-    taskSnapshots!: DexieTable<TavernTaskSnapshotRecord>;
     statusSnapshots!: DexieTable<TavernStatusSnapshotRecord>;
-    managerTaskSnapshots!: DexieTable<TavernManagerTaskSnapshotRecord>;
-    taskFingerprintStates!: DexieTable<TavernTaskFingerprintStateRecord>;
     communicationContacts!: DexieTable<TavernCommunicationContactRecord>;
     communicationThreads!: DexieTable<TavernCommunicationThreadRecord>;
     communicationMessages!: DexieTable<TavernCommunicationMessageRecord>;
@@ -642,10 +589,6 @@ class TavernDatabase extends Dexie {
             stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
             statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
             managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
-            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
-            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
-            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
-            taskFingerprintStates: 'sessionId, updatedAt',
         });
         this.version(7).stores({
             sessions: 'id, updatedAt, characterId, characterName',
@@ -663,10 +606,6 @@ class TavernDatabase extends Dexie {
             stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
             statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
             managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
-            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
-            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
-            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
-            taskFingerprintStates: 'sessionId, updatedAt',
         });
         this.version(8).stores({
             sessions: 'id, updatedAt, characterKey, characterName',
@@ -684,10 +623,6 @@ class TavernDatabase extends Dexie {
             stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
             statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
             managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
-            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
-            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
-            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
-            taskFingerprintStates: 'sessionId, updatedAt',
         });
         this.version(9).stores({
             sessions: 'id, updatedAt, characterKey, characterName',
@@ -705,11 +640,7 @@ class TavernDatabase extends Dexie {
             stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
             statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
             managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
-            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
-            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
             statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
-            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
-            taskFingerprintStates: 'sessionId, updatedAt',
         });
         const version10 = this.version(10) as unknown as TavernDexieVersionWithUpgrade;
         version10.stores({
@@ -728,17 +659,7 @@ class TavernDatabase extends Dexie {
             stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
             statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
             managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
-            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
-            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
             statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
-            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
-            taskFingerprintStates: 'sessionId, updatedAt',
-        });
-        version10.upgrade(async (transaction: TavernDexieUpgradeTransaction) => {
-            await transaction.table('tasks').clear();
-            await transaction.table('taskSnapshots').clear();
-            await transaction.table('managerTaskSnapshots').clear();
-            await transaction.table('taskFingerprintStates').clear();
         });
         this.version(11).stores({
             sessions: 'id, updatedAt, characterKey, characterName',
@@ -756,11 +677,7 @@ class TavernDatabase extends Dexie {
             stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
             statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
             managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
-            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
-            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
             statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
-            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
-            taskFingerprintStates: 'sessionId, updatedAt',
             communicationContacts: '[sessionId+id], sessionId, updatedAt',
             communicationThreads: '[sessionId+id], sessionId, contactId, updatedAt',
             communicationMessages: '[sessionId+threadId+sequence], sessionId, threadId, sequence, status, updatedAt',
@@ -783,11 +700,7 @@ class TavernDatabase extends Dexie {
             stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
             statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
             managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
-            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
-            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
             statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
-            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
-            taskFingerprintStates: 'sessionId, updatedAt',
             communicationContacts: '[sessionId+id], sessionId, updatedAt',
             communicationThreads: '[sessionId+id], sessionId, contactId, updatedAt',
             communicationMessages: '[sessionId+threadId+sequence], sessionId, threadId, sequence, status, updatedAt',
@@ -817,11 +730,7 @@ class TavernDatabase extends Dexie {
             stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
             statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
             managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
-            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
-            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
             statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
-            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
-            taskFingerprintStates: 'sessionId, updatedAt',
             communicationContacts: '[sessionId+id], sessionId, updatedAt',
             communicationThreads: '[sessionId+id], sessionId, contactId, updatedAt',
             communicationMessages: '[sessionId+threadId+sequence], sessionId, threadId, sequence, status, updatedAt',
@@ -838,16 +747,10 @@ class TavernDatabase extends Dexie {
             await transaction.table('managerRuns').bulkDelete(legacyRunIds);
             await transaction.table('managerMemorySnapshots').where('managerRunId').anyOf(legacyRunIds).delete();
             await transaction.table('managerStateSnapshots').where('managerRunId').anyOf(legacyRunIds).delete();
-            await transaction.table('managerTaskSnapshots').where('managerRunId').anyOf(legacyRunIds).delete();
             const legacyRunIdSet = new Set(legacyRunIds);
             await transaction.table('statePatches').toCollection().modify((patch) => {
                 if (legacyRunIdSet.has(String(patch.managerRunId || ''))) {
                     patch.managerRunId = '';
-                }
-            });
-            await transaction.table('tasks').toCollection().modify((task) => {
-                if (legacyRunIdSet.has(String(task.sourceManagerRunId || ''))) {
-                    task.sourceManagerRunId = '';
                 }
             });
         });
@@ -869,11 +772,7 @@ class TavernDatabase extends Dexie {
             stateDocuments: '[sessionId+docType+docId], sessionId, docType, docId, status, updatedAt',
             statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, updatedAt',
             managerStateSnapshots: '[managerRunId+docType+docId], managerRunId, sessionId, docType, docId, updatedAt',
-            tasks: '[sessionId+id], sessionId, status, fingerprint, updatedOrder, updatedAt',
-            taskSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
             statusSnapshots: '[sessionId+floor], sessionId, floor, createdAt',
-            managerTaskSnapshots: 'managerRunId, sessionId, updatedAt',
-            taskFingerprintStates: 'sessionId, updatedAt',
             communicationContacts: '[sessionId+id], sessionId, updatedAt',
             communicationThreads: '[sessionId+id], sessionId, contactId, updatedAt',
             communicationMessages: '[sessionId+threadId+sequence], sessionId, threadId, sequence, status, updatedAt',
@@ -883,12 +782,8 @@ class TavernDatabase extends Dexie {
             await transaction.table('managerRuns').clear();
             await transaction.table('managerMemorySnapshots').clear();
             await transaction.table('managerStateSnapshots').clear();
-            await transaction.table('managerTaskSnapshots').clear();
             await transaction.table('statePatches').toCollection().modify((patch) => {
                 patch.managerRunId = '';
-            });
-            await transaction.table('tasks').toCollection().modify((task) => {
-                task.sourceManagerRunId = '';
             });
         });
         this.version(15).stores({
@@ -921,6 +816,39 @@ class TavernDatabase extends Dexie {
             }
             if (managerRuns.length) {await managerRunsTable.bulkPut(managerRuns);}
         });
+        const version17 = this.version(17) as unknown as TavernDexieVersionWithUpgrade;
+        version17.stores({
+            tasks: null,
+            taskSnapshots: null,
+            managerTaskSnapshots: null,
+            taskFingerprintStates: null,
+        });
+        version17.upgrade(async (transaction: TavernDexieUpgradeTransaction) => {
+            await transaction.table('sessions').toCollection().modify((session) => {
+                const state = session.state && typeof session.state === 'object' && !Array.isArray(session.state)
+                    ? session.state as Record<string, unknown>
+                    : null;
+                const contract = state?.contract && typeof state.contract === 'object' && !Array.isArray(state.contract)
+                    ? state.contract as Record<string, unknown>
+                    : null;
+                if (contract) {delete contract.questOrchestration;}
+            });
+            await transaction.table('managerRuns').toCollection().modify((run) => {
+                delete run.changedTasks;
+                if (!Array.isArray(run.toolTrace)) {return;}
+                const filteredTrace = run.toolTrace.filter((item) => {
+                    const name = item && typeof item === 'object' && !Array.isArray(item)
+                        ? String((item as Record<string, unknown>).name || '').trim()
+                        : '';
+                    return name !== 'EventInspect' && name !== 'EventPatch';
+                });
+                if (filteredTrace.length) {
+                    run.toolTrace = filteredTrace;
+                } else {
+                    delete run.toolTrace;
+                }
+            });
+        });
     }
 }
 
@@ -941,11 +869,7 @@ export const tavernManagerMemorySnapshotsTable = db.managerMemorySnapshots;
 export const tavernStateDocumentsTable = db.stateDocuments;
 export const tavernStatePatchesTable = db.statePatches;
 export const tavernManagerStateSnapshotsTable = db.managerStateSnapshots;
-export const tavernTasksTable = db.tasks;
-export const tavernTaskSnapshotsTable = db.taskSnapshots;
 export const tavernStatusSnapshotsTable = db.statusSnapshots;
-export const tavernManagerTaskSnapshotsTable = db.managerTaskSnapshots;
-export const tavernTaskFingerprintStatesTable = db.taskFingerprintStates;
 export const tavernCommunicationContactsTable = db.communicationContacts;
 export const tavernCommunicationThreadsTable = db.communicationThreads;
 export const tavernCommunicationMessagesTable = db.communicationMessages;
@@ -1272,15 +1196,6 @@ function cloneBranchMemorySnapshotFiles(files: TavernMemorySnapshotFileEntry[] =
     }));
 }
 
-function cloneBranchTask(task: TavernTaskRecord, sessionId = '', mapManagerRunId: (managerRunId?: string) => string): TavernTaskRecord {
-    const cloned = cloneSerializable(task, task);
-    return {
-        ...cloned,
-        sessionId,
-        sourceManagerRunId: cloned.sourceManagerRunId ? mapManagerRunId(cloned.sourceManagerRunId) : cloned.sourceManagerRunId,
-    };
-}
-
 export async function branchTavernSession(sessionId = ''): Promise<TavernSessionRecord | null> {
     const sourceSessionId = String(sessionId || '').trim();
     if (!sourceSessionId) {return null;}
@@ -1305,16 +1220,12 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
         tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
-        tavernManagerTaskSnapshotsTable,
         tavernMemoryFilesTable,
         tavernMemorySnapshotsTable,
         tavernMemoryIndexesTable,
         tavernStateDocumentsTable,
         tavernStatePatchesTable,
-        tavernTasksTable,
-        tavernTaskSnapshotsTable,
         tavernStatusSnapshotsTable,
-        tavernTaskFingerprintStatesTable,
         tavernCommunicationContactsTable,
         tavernCommunicationThreadsTable,
         tavernCommunicationMessagesTable,
@@ -1329,16 +1240,12 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 managerRuns,
                 managerMemorySnapshots,
                 managerStateSnapshots,
-                managerTaskSnapshots,
                 memoryFiles,
                 memorySnapshots,
                 memoryIndexes,
                 stateDocuments,
                 statePatches,
-                tasks,
-                taskSnapshots,
                 statusSnapshots,
-                fingerprintStates,
                 communicationContacts,
                 communicationThreads,
                 communicationMessages,
@@ -1349,16 +1256,12 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 tavernManagerRunsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernManagerMemorySnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernManagerStateSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
-                tavernManagerTaskSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernMemoryFilesTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernMemorySnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernMemoryIndexesTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernStateDocumentsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernStatePatchesTable.where('sessionId').equals(sourceSessionId).toArray(),
-                tavernTasksTable.where('sessionId').equals(sourceSessionId).toArray(),
-                tavernTaskSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernStatusSnapshotsTable.where('sessionId').equals(sourceSessionId).toArray(),
-                tavernTaskFingerprintStatesTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernCommunicationContactsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernCommunicationThreadsTable.where('sessionId').equals(sourceSessionId).toArray(),
                 tavernCommunicationMessagesTable.where('sessionId').equals(sourceSessionId).toArray(),
@@ -1368,7 +1271,6 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                 runs: managerRuns,
                 memorySnapshots: managerMemorySnapshots,
                 stateSnapshots: managerStateSnapshots,
-                taskSnapshots: managerTaskSnapshots,
                 statePatches,
             }, 'manager_branch_unaccepted_writes');
             const session: TavernSessionRecord = {
@@ -1456,12 +1358,6 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                         }
                         : undefined,
                 }))) : 0,
-                tasks.length ? tavernTasksTable.bulkPut(tasks.map((task) => cloneBranchTask(task, nextSessionId, mapManagerRunId))) : 0,
-                taskSnapshots.length ? tavernTaskSnapshotsTable.bulkPut(taskSnapshots.map((snapshot) => ({
-                    ...cloneSerializable(snapshot, snapshot),
-                    sessionId: nextSessionId,
-                    tasks: (snapshot.tasks || []).map((task) => cloneBranchTask(task, nextSessionId, mapManagerRunId)),
-                }))) : 0,
                 statusSnapshots.length ? tavernStatusSnapshotsTable.bulkPut(statusSnapshots.map((snapshot) => ({
                     ...cloneSerializable(snapshot, snapshot),
                     sessionId: nextSessionId,
@@ -1471,16 +1367,6 @@ export async function branchTavernSession(sessionId = ''): Promise<TavernSession
                             sessionId: nextSessionId,
                         }
                         : undefined,
-                }))) : 0,
-                managerTaskSnapshots.length ? tavernManagerTaskSnapshotsTable.bulkPut(managerTaskSnapshots.map((snapshot) => ({
-                    ...cloneSerializable(snapshot, snapshot),
-                    managerRunId: mapManagerRunId(snapshot.managerRunId),
-                    sessionId: nextSessionId,
-                    beforeTasks: (snapshot.beforeTasks || []).map((task) => cloneBranchTask(task, nextSessionId, mapManagerRunId)),
-                }))) : 0,
-                fingerprintStates.length ? tavernTaskFingerprintStatesTable.bulkPut(fingerprintStates.map((state) => ({
-                    ...cloneSerializable(state, state),
-                    sessionId: nextSessionId,
                 }))) : 0,
                 communicationContacts.length ? tavernCommunicationContactsTable.bulkPut(communicationContacts.map((contact) => ({
                     ...cloneSerializable(contact, contact),
@@ -1519,38 +1405,30 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
         tavernManagerCandidatesTable,
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
-        tavernManagerTaskSnapshotsTable,
         tavernMemoryFilesTable,
         tavernMemorySnapshotsTable,
         tavernMemoryIndexesTable,
         tavernStateDocumentsTable,
         tavernStatePatchesTable,
-        tavernTasksTable,
-        tavernTaskSnapshotsTable,
         tavernStatusSnapshotsTable,
-        tavernTaskFingerprintStatesTable,
         tavernCommunicationContactsTable,
         tavernCommunicationThreadsTable,
         tavernCommunicationMessagesTable,
         tavernCommunicationSnapshotsTable,
         tavernMetaTable,
         async () => {
-            const [messages, assistantChatMessages, runs, snapshots, stateSnapshots, taskRunSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches, tasks, taskSnapshots, statusSnapshots, fingerprintStates, communicationContacts, communicationThreads, communicationMessages, communicationSnapshots] = await Promise.all([
+            const [messages, assistantChatMessages, runs, snapshots, stateSnapshots, files, memorySnapshots, indexes, stateDocuments, statePatches, statusSnapshots, communicationContacts, communicationThreads, communicationMessages, communicationSnapshots] = await Promise.all([
                 tavernMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernAssistantChatMessagesTable.where('sessionId').equals(id).toArray(),
                 tavernManagerRunsTable.where('sessionId').equals(id).toArray(),
                 tavernManagerMemorySnapshotsTable.where('sessionId').equals(id).toArray(),
                 tavernManagerStateSnapshotsTable.where('sessionId').equals(id).toArray(),
-                tavernManagerTaskSnapshotsTable.where('sessionId').equals(id).toArray(),
                 tavernMemoryFilesTable.where('sessionId').equals(id).toArray(),
                 tavernMemorySnapshotsTable.where('sessionId').equals(id).toArray(),
                 tavernMemoryIndexesTable.where('sessionId').equals(id).toArray(),
                 tavernStateDocumentsTable.where('sessionId').equals(id).toArray(),
                 tavernStatePatchesTable.where('sessionId').equals(id).toArray(),
-                tavernTasksTable.where('sessionId').equals(id).toArray(),
-                tavernTaskSnapshotsTable.where('sessionId').equals(id).toArray(),
                 tavernStatusSnapshotsTable.where('sessionId').equals(id).toArray(),
-                tavernTaskFingerprintStatesTable.where('sessionId').equals(id).toArray(),
                 tavernCommunicationContactsTable.where('sessionId').equals(id).toArray(),
                 tavernCommunicationThreadsTable.where('sessionId').equals(id).toArray(),
                 tavernCommunicationMessagesTable.where('sessionId').equals(id).toArray(),
@@ -1564,16 +1442,12 @@ export async function deleteTavernSession(sessionId = ''): Promise<number> {
                 managerCandidate ? tavernManagerCandidatesTable.delete(id) : 0,
                 snapshots.length ? tavernManagerMemorySnapshotsTable.bulkDelete(snapshots.map((snapshot) => [snapshot.managerRunId, snapshot.path])) : 0,
                 stateSnapshots.length ? tavernManagerStateSnapshotsTable.bulkDelete(stateSnapshots.map((snapshot) => [snapshot.managerRunId, snapshot.docType, snapshot.docId])) : 0,
-                taskRunSnapshots.length ? tavernManagerTaskSnapshotsTable.bulkDelete(taskRunSnapshots.map((snapshot) => snapshot.managerRunId)) : 0,
                 files.length ? tavernMemoryFilesTable.bulkDelete(files.map((file) => [file.sessionId, file.path])) : 0,
                 memorySnapshots.length ? tavernMemorySnapshotsTable.bulkDelete(memorySnapshots.map((snapshot) => [snapshot.sessionId, snapshot.floor])) : 0,
                 indexes.length ? tavernMemoryIndexesTable.bulkDelete(indexes.map((index) => [index.sessionId, index.kind])) : 0,
                 stateDocuments.length ? tavernStateDocumentsTable.bulkDelete(stateDocuments.map((document) => [document.sessionId, document.docType, document.docId])) : 0,
                 statePatches.length ? tavernStatePatchesTable.bulkDelete(statePatches.map((patch) => patch.id)) : 0,
-                tasks.length ? tavernTasksTable.bulkDelete(tasks.map((task) => [task.sessionId, task.id])) : 0,
-                taskSnapshots.length ? tavernTaskSnapshotsTable.bulkDelete(taskSnapshots.map((snapshot) => [snapshot.sessionId, snapshot.floor])) : 0,
                 statusSnapshots.length ? tavernStatusSnapshotsTable.bulkDelete(statusSnapshots.map((snapshot) => [snapshot.sessionId, snapshot.floor])) : 0,
-                fingerprintStates.length ? tavernTaskFingerprintStatesTable.bulkDelete(fingerprintStates.map((state) => state.sessionId)) : 0,
                 communicationContacts.length ? tavernCommunicationContactsTable.bulkDelete(communicationContacts.map((contact) => [contact.sessionId, contact.id])) : 0,
                 communicationThreads.length ? tavernCommunicationThreadsTable.bulkDelete(communicationThreads.map((thread) => [thread.sessionId, thread.id])) : 0,
                 communicationMessages.length ? tavernCommunicationMessagesTable.bulkDelete(communicationMessages.map((message) => [message.sessionId, message.threadId, message.sequence])) : 0,
@@ -2957,7 +2831,6 @@ export async function createTavernManagerRun(input: Partial<TavernManagerRunReco
         toolTrace: 'toolTrace' in input ? cloneSerializable(input.toolTrace, undefined) : undefined,
         changedFiles: normalizeStringArray(input.changedFiles, 100),
         changedStates: normalizeStringArray(input.changedStates, 100),
-        changedTasks: normalizeStringArray(input.changedTasks, 100),
         leaseOwnerId: String(input.leaseOwnerId || ''),
         leaseExpiresAt: Math.max(0, Number(input.leaseExpiresAt) || 0),
         error: String(input.error || ''),
@@ -3005,7 +2878,6 @@ export async function createRecoveredAcceptedTurnManagerRun(
             parsedAction: '',
             changedFiles: [],
             changedStates: [],
-            changedTasks: [],
             leaseOwnerId: '',
             leaseExpiresAt: 0,
             error: '',
@@ -3045,7 +2917,6 @@ export async function updateTavernManagerRun(
     if ('toolTrace' in patch) {update.toolTrace = cloneSerializable(patch.toolTrace, undefined);}
     if ('changedFiles' in patch) {update.changedFiles = normalizeStringArray(patch.changedFiles, 100);}
     if ('changedStates' in patch) {update.changedStates = normalizeStringArray(patch.changedStates, 100);}
-    if ('changedTasks' in patch) {update.changedTasks = normalizeStringArray(patch.changedTasks, 100);}
     if ('turn' in patch) {update.turn = Math.max(0, Number(patch.turn) || 0);}
     if ('userOrder' in patch) {update.userOrder = Number(patch.userOrder);}
     if ('assistantOrder' in patch) {update.assistantOrder = Number(patch.assistantOrder);}
@@ -3418,14 +3289,13 @@ export async function clearTavernManagerRunSnapshots(managerRunId = ''): Promise
         listTavernManagerMemorySnapshots(id),
         listTavernManagerStateSnapshots(id),
     ]);
-    await db.transaction('rw', tavernManagerMemorySnapshotsTable, tavernManagerStateSnapshotsTable, tavernManagerTaskSnapshotsTable, async () => {
+    await db.transaction('rw', tavernManagerMemorySnapshotsTable, tavernManagerStateSnapshotsTable, async () => {
         if (memorySnapshots.length) {
             await tavernManagerMemorySnapshotsTable.bulkDelete(memorySnapshots.map((snapshot) => [snapshot.managerRunId, snapshot.path]));
         }
         if (stateSnapshots.length) {
             await tavernManagerStateSnapshotsTable.bulkDelete(stateSnapshots.map((snapshot) => [snapshot.managerRunId, snapshot.docType, snapshot.docId]));
         }
-        await tavernManagerTaskSnapshotsTable.delete(id);
     });
 }
 

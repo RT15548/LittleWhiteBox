@@ -56,11 +56,9 @@ import {
     type TavernStructuredStateDocumentRecord,
     type TavernStructuredStatePatchRecord,
     type TavernSessionRecord,
-    type TavernTaskRecord,
 } from '../shared/session-db';
 import { getTavernAtlasStateForSession, getTavernMapStateForSession, type TavernMapStateDocumentItem } from '../shared/structured-state';
 import { getTavernStatusStateForSession, type TavernStatusFieldDeltaMap } from '../shared/status-state';
-import { listTavernTasks } from '../shared/tasks';
 import {
     resolveTavernAcceptedStateSnapshotDomains,
     saveAcceptedStateSnapshot,
@@ -84,6 +82,7 @@ import {
     uploadTavernCharacterArchiveManifest,
 } from '../shared/character-archive-server-storage';
 import {
+    CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION,
     createEmptyTavernCharacterArchiveCounts,
     type TavernCharacterArchiveManifest,
     type TavernCharacterArchiveProgress,
@@ -300,7 +299,6 @@ const {
     visibleChatMessages,
 } = sessionState;
 const managerRuns = ref<TavernManagerRunRecord[]>([]);
-const tavernTasks = ref<TavernTaskRecord[]>([]);
 const memoryFiles = ref<TavernMemoryIndexFileEntry[]>([]);
 const memoryIndex = ref<TavernMemoryIndexRecord | null>(null);
 const selectedMemoryFilePath = ref('');
@@ -1076,7 +1074,6 @@ const {
     formatRunMapLine,
     formatRunMemoryLine,
     formatRunModelLine,
-    formatRunTaskLine,
     hiddenManagerRunCount,
     isManagerRunActive,
     managerBusy,
@@ -2414,7 +2411,6 @@ function summarizeArchiveCounts(counts = createEmptyTavernCharacterArchiveCounts
         `${counts.messages} 条消息`,
         `${counts.memoryFiles} 份记忆`,
         `${counts.stateDocuments} 份地图/图鉴`,
-        `${counts.tasks} 个任务`,
         `${Number(counts.communications) || 0} 条通讯数据`,
     ].join('，');
 }
@@ -2508,7 +2504,7 @@ async function backupSelectedCharacterArchive() {
         });
         const writerResult = await writer.close();
         const manifest: TavernCharacterArchiveManifest = {
-            version: 1,
+            version: CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION,
             archiveId,
             complete: true,
             exportedAt: summary.exportedAt,
@@ -2572,7 +2568,11 @@ async function restoreSelectedCharacterArchive() {
                 });
             },
         });
-        if (manifest.complete !== true || manifest.version !== 1 || String(manifest.character?.characterKey || '').trim() !== characterKey) {
+        if (
+            manifest.complete !== true
+            || manifest.version !== CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION
+            || String(manifest.character?.characterKey || '').trim() !== characterKey
+        ) {
             throw new Error('archive_manifest_mismatch');
         }
         const confirmed = await confirmTavernDialog({
@@ -2790,7 +2790,6 @@ async function refreshManagerRecords(sessionId = selectedSessionId.value) {
     const id = String(sessionId || '').trim();
     if (!id) {
         managerRuns.value = [];
-        tavernTasks.value = [];
         memoryFiles.value = [];
         memoryIndex.value = null;
         invalidateMemoryFileRecordLoad();
@@ -2808,9 +2807,8 @@ async function refreshManagerRecords(sessionId = selectedSessionId.value) {
         selectedMemoryFilePath.value = '';
         return;
     }
-    const [runs, tasks, rawIndex, mapState, atlasState, statusState, nextStateFile] = await Promise.all([
+    const [runs, rawIndex, mapState, atlasState, statusState, nextStateFile] = await Promise.all([
         listTavernManagerRuns(id, { limit: 18 }),
-        listTavernTasks(id, { includeCompleted: true }),
         getTavernMemoryIndex(id),
         getTavernMapStateForSession(id),
         getTavernAtlasStateForSession(id),
@@ -2822,7 +2820,6 @@ async function refreshManagerRecords(sessionId = selectedSessionId.value) {
         : await rebuildTavernMemoryDerivedIndex(id);
     if (requestSerial !== managerRecordsRefreshSerial || id !== selectedSessionId.value) {return;}
     managerRuns.value = runs;
-    tavernTasks.value = tasks;
     memoryFiles.value = Array.isArray(index.files) ? index.files.map((file) => ({
         path: String(file.path || ''),
         status: file.status === 'stale' ? 'stale' : 'active',
@@ -3192,7 +3189,6 @@ async function commitUserAcceptedState(sessionId = selectedSessionId.value, user
 async function commitCurrentAcceptedStateChanges(sessionId: string, changes: {
     changedFiles?: string[];
     changedStates?: string[];
-    changedTasks?: string[];
 }) {
     const id = String(sessionId || '').trim();
     if (!id) {return;}
@@ -4159,7 +4155,6 @@ async function sendManagerQuestion(
     let changesCommitted = false;
     let observedChangedFiles: string[] = [];
     let observedChangedStates: string[] = [];
-    let observedChangedTasks: string[] = [];
     let liveRun: TavernAssistantChatLiveRun | null = null;
     try {
         const [latestUserMessage, latestAssistantOrder] = await Promise.all([
@@ -4289,12 +4284,10 @@ async function sendManagerQuestion(
         });
         observedChangedFiles = [...(result.changedFiles || [])];
         observedChangedStates = [...(result.changedStates || [])];
-        observedChangedTasks = [...(result.changedTasks || [])];
-        if (observedChangedFiles.length || observedChangedStates.length || observedChangedTasks.length) {
+        if (observedChangedFiles.length || observedChangedStates.length) {
             await commitCurrentAcceptedStateChanges(managerSessionId, {
                 changedFiles: observedChangedFiles,
                 changedStates: observedChangedStates,
-                changedTasks: observedChangedTasks,
             });
             changesCommitted = true;
         }
@@ -4315,12 +4308,11 @@ async function sendManagerQuestion(
         return true;
     } catch (error) {
         clearManagerPendingUserMessage(managerSessionId);
-        if (!changesCommitted && (observedChangedFiles.length || observedChangedStates.length || observedChangedTasks.length)) {
+        if (!changesCommitted && (observedChangedFiles.length || observedChangedStates.length)) {
             try {
                 await commitCurrentAcceptedStateChanges(managerSessionId, {
                     changedFiles: observedChangedFiles,
                     changedStates: observedChangedStates,
-                    changedTasks: observedChangedTasks,
                 });
                 changesCommitted = true;
             } catch (commitError) {
@@ -4713,7 +4705,6 @@ const managerContext = {
     formatRunMapLine,
     formatRunMemoryLine,
     formatRunModelLine,
-    formatRunTaskLine,
     handleEditInput,
     handleManagerComposeKeydown,
     handleManagerEditKeydown,
@@ -4821,7 +4812,6 @@ const workspaceContext = {
     saveSessionContract,
     sessionContract,
     stateMemoryFile,
-    tavernTasks,
     visibleUserAvatar,
 } satisfies TavernWorkspaceContext;
 

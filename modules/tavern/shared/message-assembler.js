@@ -1162,11 +1162,7 @@ function buildMemoryBlock(memoryContext = {}) {
   const memoryFiles = Array.isArray(memoryContext.memoryFiles) ? memoryContext.memoryFiles : [];
   const spatialState = normalizeText(memoryContext.spatialState);
   const statusPanelYaml = normalizeText(memoryContext.statusPanelYaml);
-  const questHooks = Array.isArray(memoryContext.questHooks) ? memoryContext.questHooks.map((hook) => normalizeText(hook)).filter(Boolean) : [];
   const sections = [];
-  if (questHooks.length) {
-    sections.push(questHooks.join("\n"));
-  }
   const stateContent = normalizeText(memoryFiles.find((file) => file.path === "memory/state.md")?.content || "");
   if (stateContent) {
     sections.push(`## \u4F1A\u8BDD\u8BB0\u5FC6

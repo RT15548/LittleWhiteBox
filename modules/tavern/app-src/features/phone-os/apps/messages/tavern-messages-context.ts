@@ -27,7 +27,6 @@ import {
 } from '../../../../../shared/session-contract';
 import { getTavernStatusStateForSession } from '../../../../../shared/status-state';
 import { buildTavernStatusPanelYaml } from '../../../../../shared/status-prompt';
-import { getLatestQuestHooksForPrompt } from '../../../../../shared/tasks';
 import { buildContextHistory, loadTavernPromptHistoryWindow } from '../../../../runtime/run-once';
 import {
     buildTavernIncomingPhoneMessage,
@@ -64,9 +63,6 @@ function filterMemoryContext(
     }
     if (runtime.includeStatusStates && memoryContext.statusPanelYaml) {
         filtered.statusPanelYaml = memoryContext.statusPanelYaml;
-    }
-    if (runtime.includeQuestOrchestration && Array.isArray(memoryContext.questHooks)) {
-        filtered.questHooks = memoryContext.questHooks;
     }
     return filtered;
 }
@@ -157,15 +153,11 @@ export async function buildTavernMessagesRequestMessages(input: {
             includeStructuredStates: runtime.includeStructuredStates,
         })
         : undefined;
-    const questHooks = runtime.includeQuestOrchestration
-        ? await getLatestQuestHooksForPrompt(input.sessionId, 1)
-        : [];
     const statusState = runtime.includeStatusStates
         ? await getTavernStatusStateForSession(input.sessionId)
         : null;
     const memoryContext = filterMemoryContext({
         ...(retrievedMemory || {}),
-        ...(questHooks.length ? { questHooks } : {}),
         ...(statusState?.document ? { statusPanelYaml: buildTavernStatusPanelYaml(statusState.status) } : {}),
     }, runtime);
     const currentUserMessage = buildTavernIncomingPhoneMessage(incomingPayload, anchorOrder);

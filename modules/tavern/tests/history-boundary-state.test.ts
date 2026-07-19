@@ -23,7 +23,6 @@ test('history boundary restoration uses the clicked checkpoint and leaves later 
                 statusPanel: true,
                 actionChecks: true,
                 randomEncounters: true,
-                questOrchestration: true,
             },
             worldEntryStates: { current: { stickyUntilTurn: 999 } },
             nativeWorldInfoTimedState: {

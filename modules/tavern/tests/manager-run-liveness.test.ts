@@ -28,7 +28,6 @@ function managerRun(patch: Partial<TavernManagerRunRecord> & Pick<TavernManagerR
         toolTrace: patch.toolTrace,
         changedFiles: patch.changedFiles,
         changedStates: patch.changedStates,
-        changedTasks: patch.changedTasks,
         error: patch.error,
     };
 }

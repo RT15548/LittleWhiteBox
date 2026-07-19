@@ -19,7 +19,6 @@ interface TavernManagerPromptOptions extends Partial<TavernContractManagerPrompt
     includeMemory?: boolean;
     includeCartography?: boolean;
     includeStatus?: boolean;
-    includeQuestOrchestration?: boolean;
     includeWebSearch?: boolean;
     workMode?: 'accepted-turn' | 'manual-chat';
     playerName?: string;
@@ -31,7 +30,6 @@ function normalizeManagerPromptOptions(options: TavernManagerPromptOptions = {})
         includeMemory: options.includeMemory !== false,
         includeCartography: options.includeCartography !== false,
         includeStatus: options.includeStatus !== false,
-        includeQuestOrchestration: options.includeQuestOrchestration === true,
     };
 }
 
@@ -95,7 +93,7 @@ function buildPhoneCommunicationEvidenceSection(options: TavernManagerPromptOpti
 }
 
 function buildWhatYouHaveSection(options: TavernManagerPromptOptions = {}): string {
-    const { includeMemory, includeCartography, includeStatus, includeQuestOrchestration } = normalizeManagerPromptOptions(options);
+    const { includeMemory, includeCartography, includeStatus } = normalizeManagerPromptOptions(options);
     if (options.workMode === 'manual-chat') {
         const manualInjected = [
             '- The current manager-chat question — your processing target.',
@@ -105,7 +103,6 @@ function buildWhatYouHaveSection(options: TavernManagerPromptOptions = {}): stri
             includeMemory ? '- A specific character\'s full file → Read `memory/characters/<name>.md`.' : '',
             includeCartography ? '- Map atlas `world` or a specific scene map → MapAtlasRead / MapSceneRead.' : '',
             includeStatus ? '- Status panel full document → StatusRead.' : '',
-            includeQuestOrchestration ? '- Ambition palette current contents → EventInspect.' : '',
             '- Verify what actually happened in the RP → Grep/Read under `chat/`.',
         ].filter(Boolean);
         return [
@@ -125,7 +122,6 @@ function buildWhatYouHaveSection(options: TavernManagerPromptOptions = {}): stri
         includeMemory ? '- Global memory `state.md` in full.' : '',
         includeCartography ? '- Map atlas `world` (place hierarchy, routes, scene links, actor locations including current player position).' : '',
         includeStatus ? '- Status panel full document.' : '',
-        includeQuestOrchestration ? '- Ambition palette current contents.' : '',
         includeMemory ? '- Character memory **filename list only** (not file contents).' : '',
     ].filter(Boolean);
     const whenNeeded = [
@@ -147,7 +143,7 @@ function buildWhatYouHaveSection(options: TavernManagerPromptOptions = {}): stri
 }
 
 function buildToolsSection(options: TavernManagerPromptOptions = {}): string {
-    const { includeMemory, includeCartography, includeStatus, includeQuestOrchestration } = normalizeManagerPromptOptions(options);
+    const { includeMemory, includeCartography, includeStatus } = normalizeManagerPromptOptions(options);
     const fileTools = includeMemory ? [
         'File operations (memory maintenance & source verification):',
         '- **LS** — list directory contents',
@@ -177,11 +173,6 @@ function buildToolsSection(options: TavernManagerPromptOptions = {}): string {
         '- **StatusPatch** — add, remove, or change values within existing blocks',
         '',
     ] : [];
-    const eventTools = includeQuestOrchestration ? [
-        'Event operations:',
-        '- **EventInspect** — view the ambition palette',
-        '- **EventPatch** — maintain ambitions',
-    ] : [];
     const webTools = options.includeWebSearch ? [
         'Web research:',
         '- **web_search** — use Tavily for real-world facts, public references, time-sensitive information, or outside background that is not available in chat, worldbooks, memory, map, or status records.',
@@ -197,17 +188,15 @@ function buildToolsSection(options: TavernManagerPromptOptions = {}): string {
         ...fileTools,
         ...mapTools,
         ...statusTools,
-        ...eventTools,
     ].join('\n').trim();
 }
 
 function buildGeneralRulesSection(options: TavernManagerPromptOptions = {}): string {
-    const { includeMemory, includeCartography, includeStatus, includeQuestOrchestration } = normalizeManagerPromptOptions(options);
+    const { includeMemory, includeCartography, includeStatus } = normalizeManagerPromptOptions(options);
     const domains = [
         includeMemory ? 'memory is textual facts' : '',
         includeCartography ? 'map is spatial records' : '',
         includeStatus ? 'status panel is UI state' : '',
-        includeQuestOrchestration ? 'events are future directions' : '',
     ].filter(Boolean).join(', ');
     return [
         '## General Rules',
@@ -402,35 +391,8 @@ function buildStatusSection(statusPrompt: string): string {
     ].join('\n');
 }
 
-function buildEventsSection(): string {
-    return [
-        '---',
-        '',
-        '## Events (Ambition Palette)',
-        '',
-        'Offer the player 2-4 grand goals they could choose to chase. Each is a big, distant END the player would actively WANT — not a summary of the past, not a prediction of the next beat. This is the only thing this tool does.',
-        '',
-        'What makes an ambition land:',
-        '- It sits far beyond where the plot is already heading — not the next turn or two the player can already see coming, but a large-scale end they haven\'t even glimpsed yet. Zoom out past this scene: mine the worldbook, the wider setting, the whole arc. Big. Distant.',
-        '- It burns with a drive: revenge, hunger, ambition, desire, possession. Not a neutral to-do item — something the player craves.',
-        '- It shows a concrete, vivid endgame they can already picture — a moment, a confrontation, a triumph, a person in their arms or under their heel.',
-        '- Seeing it should trigger "fuck yes, let\'s do that." If it reads like a task list or a background errand, it failed.',
-        '- It grows straight out of what\'s already established, and there\'s already a scent of a way in (a letter, a secret, a weakness you glimpsed).',
-        '',
-        'Match the story\'s raw appetite. In erotic, violent, political, or horror stories, the goals carry the same lust, cruelty, and edge — never sanitize a sharp story into a safe mystery hook.',
-        '',
-        'Give 2-4 ambitions pointing DIFFERENT ways (one revenge, one escape, one conquest — not three shades of the same). This is rare and precious: most turns, change nothing. If nothing genuinely grand comes, leave it empty.',
-        '',
-        'Maintenance: complete an ambition when the RP reaches its doneWhen; abandon one the plot has killed or the player has refused; otherwise leave it alone.',
-        '',
-        'Tools:',
-        '- EventInspect to view the current palette.',
-        '- EventPatch to add, complete, or abandon ambitions.',
-    ].join('\n');
-}
-
 function buildHowToWorkSection(options: TavernManagerPromptOptions = {}): string {
-    const { includeMemory, includeCartography, includeStatus, includeQuestOrchestration } = normalizeManagerPromptOptions(options);
+    const { includeMemory, includeCartography, includeStatus } = normalizeManagerPromptOptions(options);
     const modeOpening = options.workMode === 'manual-chat'
         ? '- Manual chat: identify whether the user wants an answer, a diagnosis, or an actual record change. Answer the question first; write only when a change is requested or a real error or omission is verified.'
         : '- Accepted-turn maintenance: inspect the just-accepted RP turn and decide which enabled domains changed materially. An enabled domain may be deliberately left unchanged.';
@@ -438,7 +400,6 @@ function buildHowToWorkSection(options: TavernManagerPromptOptions = {}): string
         includeMemory ? '- Memory — leave the Markdown more accurate, consolidated, current, and retrievable; never treat the turn itself as a reason to append.' : '',
         includeCartography ? '- Map — maintain one coherent spatial model of confirmed places, connections, geometry, and actor locations; do not decorate the map with narrative detail.' : '',
         includeStatus ? '- Status Panel — maintain the user\'s current visible UI state; it is not a history log.' : '',
-        includeQuestOrchestration ? '- Events — maintain a small, stable palette of distant ambitions; do not generate a new direction just because another turn occurred.' : '',
     ].filter(Boolean);
     const memoryMaintenance = includeMemory ? [
         '',
@@ -501,7 +462,7 @@ function buildFixedManagerSystemPrompt(
     input: Partial<TavernAssistantPreset> = {},
     options: TavernManagerPromptOptions = {},
 ): string {
-    const { includeMemory, includeCartography, includeStatus, includeQuestOrchestration } = normalizeManagerPromptOptions(options);
+    const { includeMemory, includeCartography, includeStatus } = normalizeManagerPromptOptions(options);
     const statePrompt = normalizeText(input.statePrompt) || buildDefaultStateMemoryPrompt();
     const characterPrompt = normalizeText(input.characterPrompt) || buildDefaultCharacterMemoryPrompt();
     const statusPrompt = normalizeText(input.statusPrompt) || buildDefaultStatusPanelPrompt();
@@ -517,7 +478,6 @@ function buildFixedManagerSystemPrompt(
         includeMemory ? buildMemorySection(statePrompt, characterPrompt) : '',
         includeCartography ? buildMapSection() : '',
         includeStatus ? buildStatusSection(statusPrompt) : '',
-        includeQuestOrchestration ? buildEventsSection() : '',
         buildHowToWorkSection(options),
         buildHowToReplySection(options),
     ]);

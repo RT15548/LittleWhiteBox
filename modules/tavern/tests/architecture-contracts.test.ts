@@ -167,26 +167,6 @@ test('tavern module is lazy-loaded so host import failures stay isolated', () =>
     assert.match(indexSource, /await openTavernSafely\(\);/);
 });
 
-test('tavern event panel renders title-based directions without user hooks', () => {
-    const eventPanelSource = readRepoFile('modules/tavern/app-src/components/TavernEventPanel.vue');
-    const eventPanelCss = readRepoFile('modules/tavern/app-src/styles/chat/memory-editor.css');
-
-    assert.match(eventPanelSource, /function eventTitle\(task: TavernTaskRecord\)/);
-    assert.match(eventPanelSource, /String\(task\.title \|\| task\.vision \|\| '未命名野望'\)/);
-    assert.match(eventPanelSource, /const completedPreviewTasks = computed\(\(\) => completedTasks\.value\.slice\(0, 3\)\)/);
-    assert.match(eventPanelSource, /野望调色盘/);
-    assert.match(eventPanelSource, /class="tavern-event-vision-entry"/);
-    assert.match(eventPanelSource, /task\.vision/);
-    assert.match(eventPanelSource, /class="tavern-event-done-token"/);
-    assert.match(eventPanelSource, /v-for="task in completedPreviewTasks"/);
-    assert.doesNotMatch(eventPanelSource, /hookForUser/);
-    assert.doesNotMatch(eventPanelSource, /task\.current|task\.horizon|tavern-event-current-text|tavern-event-horizon/);
-    assert.doesNotMatch(eventPanelCss, /tavern-event-hook/);
-    assert.match(eventPanelCss, /\.tavern-chat\.xb-page \.tavern-event-vision-entry/);
-    assert.match(eventPanelCss, /\.tavern-chat\.xb-page \.tavern-event-done-token/);
-    assert.match(eventPanelCss, /\.tavern-chat\.xb-page \.tavern-event-completed-more/);
-});
-
 test('tavern startup posts frame-ready before heavy app tasks and prewarms host config', () => {
     const appSource = readRepoFile('modules/tavern/app-src/App.vue');
     const chatRunSource = readRepoFile('modules/tavern/app-src/features/chat-run/useTavernChatRunController.ts');
@@ -1162,19 +1142,17 @@ test('tavern edit and delete route accepted rollback through its feature boundar
     assert.doesNotMatch(appSource, /async function describeAcceptedStateRollbackImpact/);
     assert.doesNotMatch(appSource, /function rollbackImpactLines\(impact: AcceptedStateRollbackImpact\)/);
     assert.doesNotMatch(appSource, /describeTavernMemoryRestoreImpact|restoreTavernMemoryToFloor|trimTavernMemorySnapshotsFromFloor/);
-    assert.doesNotMatch(appSource, /describeTavernTaskRestoreImpact|restoreTavernTasksToFloor|trimTavernTaskSnapshotsFromFloor/);
     assert.doesNotMatch(appSource, /describeXbTavernManagerRollbackImpactForMessageRange/);
     assert.match(rollbackSource, /export async function cancelAcceptedRollbackManagersBeforeMessage/);
     assert.match(rollbackSource, /export async function restoreAcceptedStateBeforeMessage/);
     assert.match(rollbackSource, /export async function describeAcceptedStateRollbackImpact/);
     assert.match(rollbackSource, /export function rollbackImpactLines/);
-    assert.match(rollbackSource, /memory:[\s\S]*tasks:[\s\S]*status:[\s\S]*managers:/);
+    assert.match(rollbackSource, /memory:[\s\S]*status:[\s\S]*managers:/);
     assert.match(rollbackSource, /describeTavernStatusRestoreImpact/);
     assert.match(rollbackSource, /restoreTavernStatusToFloor/);
     assert.match(rollbackSource, /trimTavernStatusSnapshotsFromFloor/);
     assert.match(rollbackSource, /willRollbackState:[\s\S]*willCancelWork:/);
     assert.doesNotMatch(rollbackSource, /export async function rollbackAcceptedStateBeforeMessage/);
-    assert.doesNotMatch(rollbackSource, /export async function restoreAcceptedMemoryAndTaskStateBeforeMessage/);
     assert.doesNotMatch(appSource, /acceptedStateRollbackNoticeForFloor/);
     assert.doesNotMatch(appSource, /restoreMemoryStateBeforeMessage|memoryRollbackNoticeForFloor/);
 });
@@ -1475,11 +1453,10 @@ test('tavern data rollback helpers keep paired state writes inside transactions'
     const managerSource = readRepoFile('modules/tavern/app-src/runtime/manager.ts');
     const runOnceSource = readRepoFile('modules/tavern/app-src/runtime/run-once.ts');
     const sessionDbSource = readRepoFile('modules/tavern/shared/session-db.ts');
-    const taskSource = readRepoFile('modules/tavern/shared/tasks.ts');
     const memorySource = readRepoFile('modules/tavern/shared/memory-files.ts');
     const memoryRetrievalSource = readRepoFile('modules/tavern/shared/memory-retrieval.ts');
 
-    assert.match(acceptedStateSource, /db\.transaction\(\s*'rw'[\s\S]*async \(\) => \{\s*const floor = await resolveAcceptedSnapshotFloor\(id, floorInput\);[\s\S]*saveTavernMemorySnapshot\(id, floor\)[\s\S]*saveTavernTaskSnapshot\(id, floor\)/);
+    assert.match(acceptedStateSource, /db\.transaction\(\s*'rw'[\s\S]*async \(\) => \{\s*const floor = await resolveTavernAcceptedSnapshotFloor\(id, floorInput\);[\s\S]*saveTavernMemorySnapshot\(id, floor\)[\s\S]*saveTavernStatusSnapshot\(id, floor\)/);
     assert.match(memoryRetrievalSource, /export function cleanSourceTextForManager[\s\S]*tavern-image\|img\|图片[\s\S]*\\s\*:/);
     const managerCleanBody = memoryRetrievalSource.slice(
         memoryRetrievalSource.indexOf('export function cleanSourceTextForManager'),
@@ -1494,14 +1471,12 @@ test('tavern data rollback helpers keep paired state writes inside transactions'
     assert.match(managerSource, /userMessage\?\.role === 'user'[\s\S]*userMessage\.error !== true/);
     assert.match(managerSource, /assistantMessage\?\.role === 'assistant'[\s\S]*assistantMessage\.error !== true[\s\S]*finishReason/);
     assert.doesNotMatch(managerSource, /function hasFailedTool|manager_memory_tool_failed/);
-    assert.match(taskSource, /db\.transaction\('rw', tavernTasksTable, tavernTaskFingerprintStatesTable, tavernManagerTaskSnapshotsTable/);
-    assert.match(taskSource, /ensureTavernManagerTaskSnapshot\(options\.managerRunId, sessionId\)[\s\S]*const result = await mutate\(\)[\s\S]*updateTavernManagerTaskSnapshotAfter\(options\.managerRunId, sessionId\)/);
     assert.match(memorySource, /db\.transaction\(\s*'rw'[\s\S]*ensureTavernManagerMemorySnapshot\(\{ managerRunId: options\.managerRunId, sessionId: id, path \}\)[\s\S]*writeTavernMemoryFile\(id, path/);
     assert.match(memorySource, /updateTavernManagerMemorySnapshotAfter\(\{ managerRunId: options\.managerRunId, sessionId: id, path/);
     assert.match(runOnceSource, /prepareTavernLatestAssistantReroll\(baseSession\.id\)/);
     assert.match(runOnceSource, /commitTavernAssistantResponseForLatestUser\(/);
     assert.match(runOnceSource, /commitTavernLatestAssistantReroll\(/);
-    assert.doesNotMatch(runOnceSource, /rollbackTavernManagerRun|restoreTavernMemorySnapshot|restoreTavernTaskSnapshot|restoreTavernCommunicationSnapshot|restoreTavernStatusSnapshot|deleteAcceptedStateSnapshots/);
+    assert.doesNotMatch(runOnceSource, /rollbackTavernManagerRun|restoreTavernMemorySnapshot|restoreTavernCommunicationSnapshot|restoreTavernStatusSnapshot|deleteAcceptedStateSnapshots/);
     assert.match(sessionDbSource, /export async function truncateTavernMessagesAndReplaceSessionState\([\s\S]*db\.transaction\('rw', tavernMessagesTable, tavernSessionsTable,[\s\S]*tavernMessagesTable\.bulkDelete\(messageKeys\)[\s\S]*tavernSessionsTable\.update\(id,/);
     const prepareRerollSource = sessionDbSource.slice(
         sessionDbSource.indexOf('export async function prepareTavernLatestAssistantReroll'),
@@ -1751,7 +1726,6 @@ test('tavern manager display projection stays out of the app controller', () => 
         'formatRunMapLine',
         'formatRunMemoryLine',
         'formatRunModelLine',
-        'formatRunTaskLine',
         'managerRunTone',
         'managerToolTraceItems',
         'toolTraceSummary',
@@ -2509,7 +2483,7 @@ test('tavern memory editor actions live outside the app controller', () => {
     assert.match(appSource, /let sourceUserOrder = -1;[\s\S]*let acceptedFloorAtStart = -1;[\s\S]*getLatestTavernUserMessageAtOrBefore\(managerSessionId, Number\.POSITIVE_INFINITY\)[\s\S]*getLatestTavernAssistantOrder\(managerSessionId\)[\s\S]*const budget = await ensureTavernAssistantChatBudget/);
     assert.match(appSource, /preparedMessages: budget\.messages[\s\S]*beforeWriteGuard:[\s\S]*assistant_timeline_advanced/);
     assert.match(appSource, /observedChangedFiles = \[\.\.\.\(result\.changedFiles \|\| \[\]\)\][\s\S]*await commitCurrentAcceptedStateChanges\(managerSessionId,[\s\S]*refreshAssistantChat\(managerSessionId\)[\s\S]*refreshManagerRecords\(managerSessionId\)/);
-    assert.match(appSource, /if \(!changesCommitted && \(observedChangedFiles\.length \|\| observedChangedStates\.length \|\| observedChangedTasks\.length\)\)[\s\S]*await commitCurrentAcceptedStateChanges\(managerSessionId/);
+    assert.match(appSource, /if \(!changesCommitted && \(observedChangedFiles\.length \|\| observedChangedStates\.length\)\)[\s\S]*await commitCurrentAcceptedStateChanges\(managerSessionId/);
 });
 
 test('tavern streaming action-check UI renders from live runtime events and keeps dark card styling aligned', () => {
@@ -2712,18 +2686,17 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.doesNotMatch(layoutCss, /@media \(max-width: 980px\) \{[\s\S]*\.chat-head-actions button:last-child \{[\s\S]*display: none;/);
     assert.match(layoutCss, /\.chat-head \{[\s\S]*justify-content: space-between;/);
     assert.match(conversationPanelSource, /<header class="chat-head">[\s\S]*class="chat-head-main"[\s\S]*class="xb-workspace-controller chat-layout-controller"[\s\S]*chatLayout === 'chat'[\s\S]*chatLayout === 'balanced'[\s\S]*chatLayout === 'editor'[\s\S]*class="chat-head-actions"/);
-    assert.match(chatPageSource, /class="chat-mobile-context-row"[\s\S]*title="地图"[\s\S]*>\s*地图\s*<\/button>[\s\S]*title="记忆"[\s\S]*>\s*记忆\s*<\/button>[\s\S]*title="事件"[\s\S]*>\s*事件\s*<\/button>[\s\S]*title="档案"[\s\S]*>\s*档案\s*<\/button>/);
+    assert.match(chatPageSource, /class="chat-mobile-context-row"[\s\S]*title="地图"[\s\S]*>\s*地图\s*<\/button>[\s\S]*title="记忆"[\s\S]*>\s*记忆\s*<\/button>[\s\S]*title="档案"[\s\S]*>\s*档案\s*<\/button>/);
     assert.doesNotMatch(chatPageSource, /📓 记忆|🧭 事件|📋 档案/);
     assert.doesNotMatch(conversationPanelSource, /title="事件"/);
     assert.match(contractModalSource, /契约[\s\S]*玩家 — 代理人誓约[\s\S]*在故事里，定义你的代理人被允许做什么。[\s\S]*别忘记添加可执行工具的分身模型。/);
     assert.match(sessionContractSource, /key: 'memoryArchiving'[\s\S]*icon: '📓'[\s\S]*title: '记忆存档'/);
     assert.match(sessionContractSource, /key: 'statusPanel'[\s\S]*icon: '📋'[\s\S]*title: '角色档案'/);
-    assert.match(sessionContractSource, /key: 'questOrchestration'[\s\S]*icon: '🧭'[\s\S]*title: '织线者'/);
     assert.doesNotMatch(sessionContractSource, /key: 'memoryArchiving'[\s\S]*icon: '🧠'|key: 'statusPanel'[\s\S]*icon: '档'/);
     assert.match(contractModalSource, /封印中\.\.\.[\s\S]*封存誓约[\s\S]*项授权已启用/);
     assert.doesNotMatch(chatPageSource, /class="chat-mobile-context-row"[\s\S]*title="请求日志"/);
     assert.doesNotMatch(chatPageSource, /class="chat-mobile-context-row"[\s\S]*>\s*会话\s*</);
-    assert.match(contextSource, /export type TavernChatWorkspacePanelKey = 'map' \| 'status' \| 'memory' \| 'event';/);
+    assert.match(contextSource, /export type TavernChatWorkspacePanelKey = 'map' \| 'status' \| 'memory';/);
     assert.match(appSource, /const chatWorkspacePanel = ref<TavernChatWorkspacePanelKey>\('map'\);/);
     assert.match(chatPageSource, /:class="\{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'map' \}"/);
     assert.match(chatPageSource, /:class="\{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'memory' \}"/);
@@ -2776,7 +2749,7 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(conversationPanelSource, /v-if="sessionArchiveOpen"[\s\S]*class="character-session-archive-overlay chat-session-archive-overlay"[\s\S]*v-for="archivedSession in currentChatCharacterSessions"[\s\S]*@click="openArchivedSession\(archivedSession\.id\)"/);
     assert.match(managerPanelSource, /v-model="managerInputDraft"[\s\S]*rows="1"/);
     assert.match(workspacePanelSource, /<button[\s\S]*chatWorkspacePanel === 'map'[\s\S]*>\s*地图\s*<\/button>/);
-    assert.match(workspacePanelSource, /chatWorkspacePanel === 'map'[\s\S]*>\s*地图\s*<\/button>[\s\S]*chatWorkspacePanel === 'status'[\s\S]*>\s*状态\s*<\/button>[\s\S]*chatWorkspacePanel === 'memory'[\s\S]*>\s*记忆\s*<\/button>[\s\S]*chatWorkspacePanel === 'event'[\s\S]*>\s*事件\s*<\/button>/);
+    assert.match(workspacePanelSource, /chatWorkspacePanel === 'map'[\s\S]*>\s*地图\s*<\/button>[\s\S]*chatWorkspacePanel === 'status'[\s\S]*>\s*状态\s*<\/button>[\s\S]*chatWorkspacePanel === 'memory'[\s\S]*>\s*记忆\s*<\/button>/);
     assert.match(workspacePanelSource, /<TavernStatusPanel[\s\S]*:document="statusStateDocument"[\s\S]*:field-deltas="statusFieldDeltas"[\s\S]*:enabled="sessionContract\.statusPanel"/);
     assert.match(workspacePanelSource, /class="tavern-map-viewport"[\s\S]*class="tavern-map-inline-switcher"[\s\S]*场景图[\s\S]*世界图/);
     assert.match(workspacePanelSource, /class="tavern-map-viewport"[\s\S]*<TavernAtlasPanel[\s\S]*display-mode="graph"/);

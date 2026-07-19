@@ -39,7 +39,6 @@ export interface XbTavernAssistantChatResult {
     model: string;
     changedFiles: string[];
     changedStates: string[];
-    changedTasks: string[];
     protocolMessages: XbTavernMessage[];
     error?: string;
 }
@@ -117,7 +116,6 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
     const observedProtocolMessages: XbTavernMessage[] = [];
     const changedFiles = new Set<string>();
     const changedStates = new Set<string>();
-    const changedTasks = new Set<string>();
     const relayProtocolEvent = (event: TavernManagerProtocolEvent) => {
         if (event.type !== 'clear_stream_draft') {
             observedProtocolMessages.push(event.message);
@@ -143,12 +141,10 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
             onStateChanged: (changes) => {
                 changes.changedFiles.forEach((path) => changedFiles.add(path));
                 changes.changedStates.forEach((key) => changedStates.add(key));
-                changes.changedTasks.forEach((key) => changedTasks.add(key));
             },
         });
         result.changedFiles.forEach((path) => changedFiles.add(path));
         result.changedStates.forEach((key) => changedStates.add(key));
-        result.changedTasks.forEach((key) => changedTasks.add(key));
         try {
             await rebuildTavernMemoryDerivedIndex(sessionId);
         } catch (error) {
@@ -159,7 +155,6 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
                 model: result.model,
                 changedFiles: [...changedFiles],
                 changedStates: [...changedStates],
-                changedTasks: [...changedTasks],
                 protocolMessages: result.protocolMessages.length ? result.protocolMessages : observedProtocolMessages,
                 error: error instanceof Error ? error.message : String(error || 'assistant_chat_index_rebuild_failed'),
             };
@@ -171,7 +166,6 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
             model: result.model,
             changedFiles: [...changedFiles],
             changedStates: [...changedStates],
-            changedTasks: [...changedTasks],
             protocolMessages: result.protocolMessages.length ? result.protocolMessages : observedProtocolMessages,
         };
     } catch (error) {
@@ -184,7 +178,6 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
             model: '',
             changedFiles: [...changedFiles],
             changedStates: [...changedStates],
-            changedTasks: [...changedTasks],
             protocolMessages: completeInterruptedAssistantProtocol(observedProtocolMessages, errorText),
             error: errorText,
         };

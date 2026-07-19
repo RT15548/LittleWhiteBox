@@ -99,7 +99,6 @@ export async function buildAssistantChatMessages(input: {
         role: 'system',
         content: buildManagerSystemPrompt(input.assistantPreset, {
             workMode: 'manual-chat',
-            includeQuestOrchestration: true,
             includeWebSearch: isManagerWebSearchEnabled(input.agentConfig || {}),
             playerName: String(input.contextSnapshot?.user?.name || '').trim(),
         }),

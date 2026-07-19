@@ -50,7 +50,6 @@ const {
     formatRunMapLine,
     formatRunMemoryLine,
     formatRunModelLine,
-    formatRunTaskLine,
     handleEditInput,
     handleManagerComposeKeydown,
     handleManagerEditKeydown,
@@ -168,13 +167,10 @@ function compactManagerRunLine(line = '') {
     return String(line || '')
         .replace(/^记忆：/, '记忆')
         .replace(/^地图：/, '地图')
-        .replace(/^事件：/, '事件')
         .replace(/本轮没有明确空间变化，未更新/g, '无变化')
-        .replace(/本轮没有新线索/g, '无变化')
         .replace(/没有写入文件/g, '无变化')
         .replace(/份档案/g, '')
         .replace(/份状态/g, '')
-        .replace(/条线索/g, '')
         .trim();
 }
 
@@ -186,7 +182,6 @@ function managerWorkSummaryLine(run: TavernManagerRunRecord | null | undefined) 
         `${managerStatusLabel(run.status)} · ${formatRunInputLine(run)}`,
         compactManagerRunLine(formatRunMemoryLine(run)),
         compactManagerRunLine(formatRunMapLine(run)),
-        compactManagerRunLine(formatRunTaskLine(run)),
     ].filter(Boolean).join(' · ');
 }
 
@@ -322,7 +317,6 @@ watch(session.selectedSessionId, () => {
           <div class="manager-work-status-grid">
             <p>{{ formatRunMemoryLine(currentManagerWorkRun) }}</p>
             <p>{{ formatRunMapLine(currentManagerWorkRun) }}</p>
-            <p>{{ formatRunTaskLine(currentManagerWorkRun) }}</p>
           </div>
           <p v-if="currentManagerWorkRun.outputText">
             结果：{{ shortText(currentManagerWorkRun.outputText, 180) }}

@@ -4,7 +4,6 @@ import type {
     TavernManagerCandidateRecord,
     TavernManagerRunRecord,
     TavernManagerStateSnapshotRecord,
-    TavernManagerTaskSnapshotRecord,
     TavernMemoryFileRecord,
     TavernMemoryIndexRecord,
     TavernMemorySnapshotRecord,
@@ -13,9 +12,6 @@ import type {
     TavernStatusSnapshotRecord,
     TavernStructuredStateDocumentRecord,
     TavernStructuredStatePatchRecord,
-    TavernTaskFingerprintStateRecord,
-    TavernTaskRecord,
-    TavernTaskSnapshotRecord,
     TavernCommunicationContactRecord,
     TavernCommunicationMessageRecord,
     TavernCommunicationSnapshotRecord,
@@ -51,7 +47,6 @@ export interface TavernCharacterArchiveCounts {
     messages: number;
     memoryFiles: number;
     stateDocuments: number;
-    tasks: number;
     communications?: number;
 }
 
@@ -64,8 +59,10 @@ export interface TavernCharacterArchivePartManifest {
     sha256: string;
 }
 
+export const CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION = 2 as const;
+
 export interface TavernCharacterArchiveManifest {
-    version: 1;
+    version: typeof CURRENT_TAVERN_CHARACTER_ARCHIVE_VERSION;
     archiveId: string;
     complete: true;
     exportedAt: number;
@@ -106,10 +103,6 @@ export const TAVERN_CHARACTER_ARCHIVE_TABLES = [
     'statePatches',
     'statusSnapshots',
     'managerStateSnapshots',
-    'tasks',
-    'taskSnapshots',
-    'managerTaskSnapshots',
-    'taskFingerprintStates',
     'communicationContacts',
     'communicationThreads',
     'communicationMessages',
@@ -132,10 +125,6 @@ export type TavernCharacterArchiveRecordPayload = {
     statePatches: TavernStructuredStatePatchRecord;
     statusSnapshots: TavernStatusSnapshotRecord;
     managerStateSnapshots: TavernManagerStateSnapshotRecord;
-    tasks: TavernTaskRecord;
-    taskSnapshots: TavernTaskSnapshotRecord;
-    managerTaskSnapshots: TavernManagerTaskSnapshotRecord;
-    taskFingerprintStates: TavernTaskFingerprintStateRecord;
     communicationContacts: TavernCommunicationContactRecord;
     communicationThreads: TavernCommunicationThreadRecord;
     communicationMessages: TavernCommunicationMessageRecord;
@@ -171,7 +160,6 @@ export function createEmptyTavernCharacterArchiveCounts(): TavernCharacterArchiv
         messages: 0,
         memoryFiles: 0,
         stateDocuments: 0,
-        tasks: 0,
         communications: 0,
     };
 }

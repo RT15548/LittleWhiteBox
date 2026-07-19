@@ -672,16 +672,6 @@ onUnmounted(() => {
         <button
           type="button"
           class="chat-mobile-context-button"
-          :class="{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'event' }"
-          title="事件"
-          aria-label="事件"
-          @click="toggleMobileWorkspacePanel('event')"
-        >
-          事件
-        </button>
-        <button
-          type="button"
-          class="chat-mobile-context-button"
           :class="{ 'is-active': mobileChatPanel === 'workspace' && chatWorkspacePanel === 'status' }"
           title="档案"
           aria-label="档案"
