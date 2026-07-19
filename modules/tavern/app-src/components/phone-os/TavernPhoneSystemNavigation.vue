@@ -47,8 +47,7 @@ const emit = defineEmits<{
         viewBox="0 0 24 24"
         aria-hidden="true"
       >
-        <path d="m6.5 9.25 5.5 5.5 5.5-5.5" />
-        <path d="M8.25 18.5h7.5" />
+        <path d="m7.25 9.25 4.75 4.75 4.75-4.75" />
       </svg>
     </button>
   </footer>

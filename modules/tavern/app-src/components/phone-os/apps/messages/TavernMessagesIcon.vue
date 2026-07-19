@@ -5,27 +5,28 @@
     aria-hidden="true"
   >
     <path
-      class="tavern-phone-messages-icon-back"
-      d="M26.5 12.5h18c7.18 0 12.5 5.14 12.5 12.06v7.88c0 6.92-5.32 12.06-12.5 12.06h-3.18l-7.74 6.28c-1.52 1.23-3.8.15-3.8-1.8V44.5H26.5C19.32 44.5 14 39.36 14 32.44v-7.88c0-6.92 5.32-12.06 12.5-12.06Z"
+      class="tavern-phone-messages-icon-shell"
+      d="M11 9.5h42A7.5 7.5 0 0 1 60.5 17v25A7.5 7.5 0 0 1 53 49.5H30.2L18.7 58a2.15 2.15 0 0 1-3.45-1.73V49.5H11A7.5 7.5 0 0 1 3.5 42V17A7.5 7.5 0 0 1 11 9.5Z"
     />
     <path
-      class="tavern-phone-messages-icon-front"
-      d="M10.5 21.5h20C38.25 21.5 44 26.98 44 34.36v6.28C44 48.02 38.25 53.5 30.5 53.5h-8.34l-6.92 5.15c-1.5 1.12-3.64.04-3.64-1.83V53.4C5.12 52.83 0 47.75 0 40.64v-6.28C0 26.98 5.75 21.5 13.5 21.5h-3Z"
+      class="tavern-phone-messages-icon-highlight"
+      d="M11.5 12.5h41A5.5 5.5 0 0 1 58 18v2.25c-8.75-3.52-18.45-5.3-29.1-5.3-9.15 0-16.95 1.22-23.4 3.65V18a5.5 5.5 0 0 1 6-5.5Z"
     />
-    <circle
-      cx="15.5"
-      cy="37.5"
-      r="2.25"
+    <rect
+      class="tavern-phone-messages-icon-line"
+      x="14"
+      y="23"
+      width="36"
+      height="5"
+      rx="2.5"
     />
-    <circle
-      cx="23"
-      cy="37.5"
-      r="2.25"
-    />
-    <circle
-      cx="30.5"
-      cy="37.5"
-      r="2.25"
+    <rect
+      class="tavern-phone-messages-icon-line is-short"
+      x="14"
+      y="34"
+      width="25"
+      height="5"
+      rx="2.5"
     />
   </svg>
 </template>

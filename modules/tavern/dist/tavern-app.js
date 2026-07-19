@@ -561,9 +561,9 @@ var D2 = class {
       if (s && (l = uW[t])) return l;
       if (t === "hasOwnProperty") return fW;
     }
-    const i = Reflect.get(e, t, /* @__PURE__ */ lr(e) ? e : n);
+    const i = Reflect.get(e, t, /* @__PURE__ */ or(e) ? e : n);
     if ((Ai(t) ? L2.has(t) : dW(t)) || (r || wa(e, "get", t), a)) return i;
-    if (/* @__PURE__ */ lr(i)) {
+    if (/* @__PURE__ */ or(i)) {
       const l = s && mT(t) ? i : i.value;
       return r && An(l) ? /* @__PURE__ */ B0(l) : l;
     }
@@ -578,9 +578,9 @@ var D2 = class {
     const s = Ot(e) && mT(t);
     if (!this._isShallow) {
       const o = /* @__PURE__ */ Go(a);
-      if (!/* @__PURE__ */ Ys(n) && !/* @__PURE__ */ Go(n) && (a = /* @__PURE__ */ yn(a), n = /* @__PURE__ */ yn(n)), !s && /* @__PURE__ */ lr(a) && !/* @__PURE__ */ lr(n)) return o || (a.value = n), !0;
+      if (!/* @__PURE__ */ Ys(n) && !/* @__PURE__ */ Go(n) && (a = /* @__PURE__ */ yn(a), n = /* @__PURE__ */ yn(n)), !s && /* @__PURE__ */ or(a) && !/* @__PURE__ */ or(n)) return o || (a.value = n), !0;
     }
-    const i = s ? Number(t) < e.length : Sn(e, t), l = Reflect.set(e, t, n, /* @__PURE__ */ lr(e) ? e : r);
+    const i = s ? Number(t) < e.length : Sn(e, t), l = Reflect.set(e, t, n, /* @__PURE__ */ or(e) ? e : r);
     return e === /* @__PURE__ */ yn(r) && (i ? ba(n, a) && Mo(e, "set", t, n, a) : Mo(e, "add", t, n)), l;
   }
   deleteProperty(e, t) {
@@ -752,7 +752,7 @@ function U0(e) {
 }
 var ki = (e) => An(e) ? /* @__PURE__ */ wT(e) : e, qd = (e) => An(e) ? /* @__PURE__ */ B0(e) : e;
 // @__NO_SIDE_EFFECTS__
-function lr(e) {
+function or(e) {
   return e ? e.__v_isRef === !0 : !1;
 }
 // @__NO_SIDE_EFFECTS__
@@ -760,7 +760,7 @@ function ie(e) {
   return TW(e, !1);
 }
 function TW(e, t) {
-  return /* @__PURE__ */ lr(e) ? e : new IW(e, t);
+  return /* @__PURE__ */ or(e) ? e : new IW(e, t);
 }
 var IW = class {
   constructor(e, t) {
@@ -775,13 +775,13 @@ var IW = class {
   }
 };
 function k(e) {
-  return /* @__PURE__ */ lr(e) ? e.value : e;
+  return /* @__PURE__ */ or(e) ? e.value : e;
 }
 var EW = {
   get: (e, t, n) => t === "__v_raw" ? e : k(Reflect.get(e, t, n)),
   set: (e, t, n, r) => {
     const a = e[t];
-    return /* @__PURE__ */ lr(a) && !/* @__PURE__ */ lr(n) ? (a.value = n, !0) : Reflect.set(e, t, n, r);
+    return /* @__PURE__ */ or(a) && !/* @__PURE__ */ or(n) ? (a.value = n, !0) : Reflect.set(e, t, n, r);
   }
 };
 function q2(e) {
@@ -834,8 +834,8 @@ function PW(e, t = !1, n = Cu) {
 function NW(e, t, n = _n) {
   const { immediate: r, deep: a, once: s, scheduler: i, augmentJob: l, call: o } = n, u = (N) => a ? N : /* @__PURE__ */ Ys(N) || a === !1 || a === 0 ? Ro(N, 1) : Ro(N);
   let c, d, h, m, y = !1, _ = !1;
-  if (/* @__PURE__ */ lr(e) ? (d = () => e.value, y = /* @__PURE__ */ Ys(e)) : /* @__PURE__ */ Zu(e) ? (d = () => u(e), y = !0) : Ot(e) ? (_ = !0, y = e.some((N) => /* @__PURE__ */ Zu(N) || /* @__PURE__ */ Ys(N)), d = () => e.map((N) => {
-    if (/* @__PURE__ */ lr(N)) return N.value;
+  if (/* @__PURE__ */ or(e) ? (d = () => e.value, y = /* @__PURE__ */ Ys(e)) : /* @__PURE__ */ Zu(e) ? (d = () => u(e), y = !0) : Ot(e) ? (_ = !0, y = e.some((N) => /* @__PURE__ */ Zu(N) || /* @__PURE__ */ Ys(N)), d = () => e.map((N) => {
+    if (/* @__PURE__ */ or(N)) return N.value;
     if (/* @__PURE__ */ Zu(N)) return u(N);
     if (en(N)) return o ? o(N, 2) : N();
   })) : en(e) ? t ? d = o ? () => o(e, 2) : e : d = () => {
@@ -900,7 +900,7 @@ function NW(e, t, n = _n) {
 }
 function Ro(e, t = 1 / 0, n) {
   if (t <= 0 || !An(e) || e.__v_skip || (n = n || /* @__PURE__ */ new Map(), (n.get(e) || 0) >= t)) return e;
-  if (n.set(e, t), t--, /* @__PURE__ */ lr(e)) Ro(e.value, t, n);
+  if (n.set(e, t), t--, /* @__PURE__ */ or(e)) Ro(e.value, t, n);
   else if (Ot(e)) for (let r = 0; r < e.length; r++) Ro(e[r], t, n);
   else if (df(e) || Ed(e)) e.forEach((r) => {
     Ro(r, t, n);
@@ -1429,14 +1429,14 @@ function mp(e, t, n, r, a = !1) {
   if (u != null && u !== o) {
     if (Bx(t), qn(u))
       c[u] = null, m(u) && (d[u] = null);
-    else if (/* @__PURE__ */ lr(u)) {
+    else if (/* @__PURE__ */ or(u)) {
       const _ = t;
       y(u, _.k) && (u.value = null), _.k && (c[_.k] = null);
     }
   }
   if (en(o)) Em(o, l, 12, [i, c]);
   else {
-    const _ = qn(o), C = /* @__PURE__ */ lr(o);
+    const _ = qn(o), C = /* @__PURE__ */ or(o);
     if (_ || C) {
       const T = () => {
         if (e.f) {
@@ -1793,7 +1793,7 @@ function s8(e, t, n = no) {
   for (const r in e) {
     const a = e[r];
     let s;
-    An(a) ? "default" in a ? s = pp(a.from || r, a.default, !0) : s = pp(a.from || r) : s = pp(a), /* @__PURE__ */ lr(s) ? Object.defineProperty(t, r, {
+    An(a) ? "default" in a ? s = pp(a.from || r, a.default, !0) : s = pp(a.from || r) : s = pp(a), /* @__PURE__ */ or(s) ? Object.defineProperty(t, r, {
       enumerable: !0,
       configurable: !0,
       get: () => s.value,
@@ -2713,7 +2713,7 @@ function Kd(e) {
 function Il(e, t) {
   return e.type === t.type && e.key === t.key;
 }
-var IL = ({ key: e }) => e ?? null, Uv = ({ ref: e, ref_key: t, ref_for: n }) => (typeof e == "number" && (e = "" + e), e != null ? qn(e) || /* @__PURE__ */ lr(e) || en(e) ? {
+var IL = ({ key: e }) => e ?? null, Uv = ({ ref: e, ref_key: t, ref_for: n }) => (typeof e == "number" && (e = "" + e), e != null ? qn(e) || /* @__PURE__ */ or(e) || en(e) ? {
   i: ua,
   r: e,
   k: t,
@@ -2805,7 +2805,7 @@ function Jo(e, t, n = !1, r = !1) {
 function zs(e = " ", t = 0) {
   return pn(sb, null, e, t);
 }
-function ir(e, t) {
+function dr(e, t) {
   const n = pn(Bv, null, e);
   return n.staticCount = t, n;
 }
@@ -11138,7 +11138,7 @@ function By(e, t, n) {
     for (var r = 0, a = t.length, s; r < a; r++) (s || !(r in t)) && (s || (s = Array.prototype.slice.call(t, 0, r)), s[r] = t[r]);
   return e.concat(s || Array.prototype.slice.call(t));
 }
-var ia = typeof globalThis < "u" ? globalThis : typeof self < "u" ? self : typeof window < "u" ? window : globalThis, Xr = Object.keys, or = Array.isArray;
+var ia = typeof globalThis < "u" ? globalThis : typeof self < "u" ? self : typeof window < "u" ? window : globalThis, Xr = Object.keys, ir = Array.isArray;
 typeof Promise < "u" && !ia.Promise && (ia.Promise = Promise);
 function Ps(e, t) {
   return typeof t != "object" || Xr(t).forEach(function(n) {
@@ -11220,12 +11220,12 @@ function Es(e, t, n) {
       var s = t.indexOf(".");
       if (s !== -1) {
         var i = t.substr(0, s), l = t.substr(s + 1);
-        if (l === "") n === void 0 ? or(e) && !isNaN(parseInt(i)) ? e.splice(i, 1) : delete e[i] : e[i] = n;
+        if (l === "") n === void 0 ? ir(e) && !isNaN(parseInt(i)) ? e.splice(i, 1) : delete e[i] : e[i] = n;
         else {
           var o = e[i];
           (!o || !es(e, i)) && (o = e[i] = {}), Es(o, l, n);
         }
-      } else n === void 0 ? or(e) && !isNaN(parseInt(t)) ? e.splice(t, 1) : delete e[t] : e[t] = n;
+      } else n === void 0 ? ir(e) && !isNaN(parseInt(t)) ? e.splice(t, 1) : delete e[t] : e[t] = n;
     }
 }
 function z9(e, t) {
@@ -11282,7 +11282,7 @@ function uA(e) {
   if (!e || typeof e != "object") return e;
   var t = _p.get(e);
   if (t) return t;
-  if (or(e)) {
+  if (ir(e)) {
     t = [], _p.set(e, t);
     for (var n = 0, r = e.length; n < r; ++n) t.push(uA(e[n]));
   } else if (hD.has(e.constructor)) t = e;
@@ -11311,7 +11311,7 @@ var sd = {};
 function No(e) {
   var t, n, r, a;
   if (arguments.length === 1) {
-    if (or(e)) return e.slice();
+    if (ir(e)) return e.slice();
     if (this === sd && typeof e == "string") return [e];
     if (a = j9(e)) {
       for (n = []; r = a.next(), !r.done; ) n.push(r.value);
@@ -12034,7 +12034,7 @@ var TD = (function() {
     }).then(n);
   }, e.prototype.where = function(t) {
     if (typeof t == "string") return new this.db.WhereClause(this, t);
-    if (or(t)) return new this.db.WhereClause(this, "[".concat(t.join("+"), "]"));
+    if (ir(t)) return new this.db.WhereClause(this, "[".concat(t.join("+"), "]"));
     var n = Xr(t);
     if (n.length === 1) return this.where(n[0]).equals(t[n[0]]);
     var r = this.schema.indexes.concat(this.schema.primKey).filter(function(c) {
@@ -12063,7 +12063,7 @@ var TD = (function() {
       var h = c[0], m = c[1], y = s[d], _ = t[d];
       return [h || y, h || !y ? hc(m, y && y.multi ? function(C) {
         var T = Wo(C, d);
-        return or(T) && T.some(function(w) {
+        return ir(T) && T.some(function(w) {
           return i(_, w);
         });
       } : function(C) {
@@ -12086,7 +12086,7 @@ var TD = (function() {
   }, e.prototype.toCollection = function() {
     return new this.db.Collection(new this.db.WhereClause(this));
   }, e.prototype.orderBy = function(t) {
-    return new this.db.Collection(new this.db.WhereClause(this, or(t) ? "[".concat(t.join("+"), "]") : t));
+    return new this.db.Collection(new this.db.WhereClause(this, ir(t) ? "[".concat(t.join("+"), "]") : t));
   }, e.prototype.reverse = function() {
     return this.toCollection().reverse();
   }, e.prototype.mapToClass = function(t) {
@@ -12143,7 +12143,7 @@ var TD = (function() {
       return o;
     });
   }, e.prototype.update = function(t, n) {
-    if (typeof t == "object" && !or(t)) {
+    if (typeof t == "object" && !ir(t)) {
       var r = Wo(t, this.schema.primKey.keyPath);
       return r === void 0 ? vr(new Bt.InvalidArgument("Given object does not contain its primary key")) : this.where(":id").equals(r).modify(n);
     } else return this.where(":id").equals(t).modify(n);
@@ -12335,7 +12335,7 @@ function Rm(e) {
   function i(l) {
     Xr(l).forEach(function(o) {
       var u = l[o];
-      if (or(u)) s(o, l[o][0], l[o][1]);
+      if (ir(u)) s(o, l[o][0], l[o][1]);
       else if (u === "asap") var c = s(o, Mm, function() {
         for (var h = arguments.length, m = new Array(h); h--; ) m[h] = arguments[h];
         c.subscribers.forEach(function(y) {
@@ -12441,7 +12441,7 @@ var A7 = (function() {
     var n;
     if (this.add !== void 0) {
       var r = this.add;
-      if (or(r)) return By(By([], or(t) ? t : [], !0), r, !0).sort();
+      if (ir(r)) return By(By([], ir(t) ? t : [], !0), r, !0).sort();
       if (typeof r == "number") return (Number(t) || 0) + r;
       if (typeof r == "bigint") try {
         return BigInt(t) + r;
@@ -12452,7 +12452,7 @@ var A7 = (function() {
     }
     if (this.remove !== void 0) {
       var a = this.remove;
-      if (or(a)) return or(t) ? t.filter(function(i) {
+      if (ir(a)) return ir(t) ? t.filter(function(i) {
         return !a.includes(i);
       }).sort() : [];
       if (typeof a == "number") return Number(t) - a;
@@ -13259,7 +13259,7 @@ function O7(e, t, n) {
         tables: m.map(function(y) {
           return h.objectStore(y);
         }).map(function(y) {
-          var _ = y.keyPath, C = y.autoIncrement, T = or(_), w = _ == null, P = {}, N = {
+          var _ = y.keyPath, C = y.autoIncrement, T = ir(_), w = _ == null, P = {}, N = {
             name: y.name,
             primaryKey: {
               name: null,
@@ -13276,7 +13276,7 @@ function O7(e, t, n) {
             }).map(function(v) {
               var S = v.name, b = v.unique, E = v.multiEntry, I = v.keyPath, M = {
                 name: S,
-                compound: or(I),
+                compound: ir(I),
                 keyPath: I,
                 unique: b,
                 multiEntry: E,
@@ -13725,7 +13725,7 @@ function MD(e) {
   return e.split(",").map(function(t, n) {
     t = t.trim();
     var r = t.replace(/([&*]|\+\+)/g, ""), a = /^\[/.test(r) ? r.match(/^\[(.*)\]$/)[1].split("+") : r;
-    return _A(r, a || null, /\&/.test(t), /\*/.test(t), /\+\+/.test(t), or(a), n === 0);
+    return _A(r, a || null, /\&/.test(t), /\*/.test(t), /\+\+/.test(t), ir(a), n === 0);
   });
 }
 var J7 = (function() {
@@ -14103,7 +14103,7 @@ function AA(e) {
   function s(i) {
     return function(l) {
       var o = i(l), u = o.value;
-      return o.done ? u : !u || typeof u.then != "function" ? or(u) ? Promise.all(u).then(r, a) : r(u) : u.then(r, a);
+      return o.done ? u : !u || typeof u.then != "function" ? ir(u) ? Promise.all(u).then(r, a) : r(u) : u.then(r, a);
     };
   }
   return s(t)();
@@ -14157,7 +14157,7 @@ function RD(e, t, n, r, a) {
   });
 }
 function Wg(e, t, n) {
-  for (var r = or(e) ? e.slice() : [e], a = 0; a < n; ++a) r.push(t);
+  for (var r = ir(e) ? e.slice() : [e], a = 0; a < n; ++a) r.push(t);
   return r;
 }
 function rJ(e) {
@@ -14456,7 +14456,7 @@ var lJ = {
           }, N = P(""), v = P(":dels"), S = y.type, b = y.type === "deleteRange" ? [y.range] : y.type === "delete" ? [y.keys] : y.values.length < 50 ? [mI(i, y).filter(function(F) {
             return F;
           }), y.values] : [], E = b[0], I = b[1], M = y.trans._cache;
-          if (or(E)) {
+          if (ir(E)) {
             N.addKeys(E);
             var x = S === "delete" || E.length === I.length ? PD(E, M) : null;
             x || v.addKeys(E), (x || I) && uJ(P, s, x, I);
@@ -14546,7 +14546,7 @@ function uJ(e, t, n, r) {
       return u != null ? s.extractKey(u) : null;
     }
     var o = function(u) {
-      return s.multiEntry && or(u) ? u.forEach(function(c) {
+      return s.multiEntry && ir(u) ? u.forEach(function(c) {
         return i.addKey(c);
       }) : i.addKey(u);
     };
@@ -14563,9 +14563,9 @@ function n1(e, t, n) {
   var r = t.keys ? t.keys.length : "values" in t && t.values ? t.values.length : 1;
   if (n.numFailures === r) return null;
   var a = tn({}, t);
-  return or(a.keys) && (a.keys = a.keys.filter(function(s, i) {
+  return ir(a.keys) && (a.keys = a.keys.filter(function(s, i) {
     return !(i in n.failures);
-  })), "values" in a && or(a.values) && (a.values = a.values.filter(function(s, i) {
+  })), "values" in a && ir(a.values) && (a.values = a.values.filter(function(s, i) {
     return !(i in n.failures);
   })), a;
 }
@@ -14587,7 +14587,7 @@ function r1(e, t, n, r, a, s) {
         var P = y.values[w], N = u(P);
         if (!T.hasKey(N)) {
           var v = c(P);
-          (l && or(v) ? v.some(function(M) {
+          (l && ir(v) ? v.some(function(M) {
             return RS(M, o);
           }) : RS(v, o)) && (T.addKey(N), C.push(P));
         }
@@ -31844,7 +31844,7 @@ async function ak(e) {
 function fee(e) {
   return typeof e != "object" || e === null ? "" : `; props: [${Object.getOwnPropertyNames(e).map((t) => `"${t}"`).join(", ")}]`;
 }
-var cr = class {
+var ur = class {
   constructor(e) {
     this._client = e;
   }
@@ -31918,7 +31918,7 @@ ${i}
 ${d}`);
   }
   return i;
-}, xt = /* @__PURE__ */ pee(WF), zF = class extends cr {
+}, xt = /* @__PURE__ */ pee(WF), zF = class extends ur {
   create(e, t) {
     const { betas: n, ...r } = e;
     return this._client.post("/v1/environments?beta=true", {
@@ -31986,7 +31986,7 @@ function GF(e, t) {
 function mee(e) {
   return ty(e) ? { "x-stainless-helper": e[Ep] } : {};
 }
-var JF = class extends cr {
+var JF = class extends ur {
   list(e = {}, t) {
     const { betas: n, ...r } = e ?? {};
     return this._client.getAPIList("/v1/files?beta=true", Ym, {
@@ -32032,7 +32032,7 @@ var JF = class extends cr {
       ])
     }, this._client));
   }
-}, YF = class extends cr {
+}, YF = class extends ur {
   retrieve(e, t = {}, n) {
     const { betas: r } = t ?? {};
     return this._client.get(xt`/v1/models/${e}?beta=true`, {
@@ -32048,7 +32048,7 @@ var JF = class extends cr {
       headers: at([{ ...n?.toString() != null ? { "anthropic-beta": n?.toString() } : void 0 }, t?.headers])
     });
   }
-}, jF = class extends cr {
+}, jF = class extends ur {
   create(e, t) {
     const { betas: n, ...r } = e;
     return this._client.post("/v1/user_profiles?beta=true", {
@@ -32087,7 +32087,7 @@ var JF = class extends cr {
       headers: at([{ "anthropic-beta": [...r ?? [], "user-profiles-2026-03-24"].toString() }, n?.headers])
     });
   }
-}, XF = class extends cr {
+}, XF = class extends ur {
   list(e, t = {}, n) {
     const { betas: r, ...a } = t ?? {};
     return this._client.getAPIList(xt`/v1/agents/${e}/versions?beta=true`, rs, {
@@ -32096,7 +32096,7 @@ var JF = class extends cr {
       headers: at([{ "anthropic-beta": [...r ?? [], "managed-agents-2026-04-01"].toString() }, n?.headers])
     });
   }
-}, nE = class extends cr {
+}, nE = class extends ur {
   constructor() {
     super(...arguments), this.versions = new XF(this._client);
   }
@@ -32141,7 +32141,7 @@ var JF = class extends cr {
   }
 };
 nE.Versions = XF;
-var QF = class extends cr {
+var QF = class extends ur {
   create(e, t, n) {
     const { view: r, betas: a, ...s } = t;
     return this._client.post(xt`/v1/memory_stores/${e}/memories?beta=true`, {
@@ -32184,7 +32184,7 @@ var QF = class extends cr {
       headers: at([{ "anthropic-beta": [...s ?? [], "managed-agents-2026-04-01"].toString() }, n?.headers])
     });
   }
-}, ZF = class extends cr {
+}, ZF = class extends ur {
   retrieve(e, t, n) {
     const { memory_store_id: r, betas: a, ...s } = t;
     return this._client.get(xt`/v1/memory_stores/${r}/memory_versions/${e}?beta=true`, {
@@ -32208,7 +32208,7 @@ var QF = class extends cr {
       headers: at([{ "anthropic-beta": [...a ?? [], "managed-agents-2026-04-01"].toString() }, n?.headers])
     });
   }
-}, Db = class extends cr {
+}, Db = class extends ur {
   constructor() {
     super(...arguments), this.memories = new QF(this._client), this.memoryVersions = new ZF(this._client);
   }
@@ -33042,7 +33042,7 @@ var iB = class oB {
       throw n.abort(), typeof globalThis.navigator < "u" && globalThis.navigator.product === "ReactNative" ? new Yt("The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api") : new Yt("Attempted to iterate over a response with no body");
     return new oB(ZI(t.body), n);
   }
-}, lB = class extends cr {
+}, lB = class extends ur {
   create(e, t) {
     const { betas: n, ...r } = e;
     return this._client.post("/v1/messages/batches?beta=true", {
@@ -33106,7 +33106,7 @@ var iB = class oB {
   "claude-2.0": "July 21st, 2025",
   "claude-3-7-sonnet-latest": "February 19th, 2026",
   "claude-3-7-sonnet-20250219": "February 19th, 2026"
-}, Aee = ["claude-mythos-preview", "claude-opus-4-6"], jm = class extends cr {
+}, Aee = ["claude-mythos-preview", "claude-opus-4-6"], jm = class extends ur {
   constructor() {
     super(...arguments), this.batches = new lB(this._client);
   }
@@ -33168,7 +33168,7 @@ function dR(e) {
 jm.Batches = lB;
 jm.BetaToolRunner = sB;
 jm.ToolError = aB;
-var uB = class extends cr {
+var uB = class extends ur {
   list(e, t = {}, n) {
     const { betas: r, ...a } = t ?? {};
     return this._client.getAPIList(xt`/v1/sessions/${e}/events?beta=true`, rs, {
@@ -33193,7 +33193,7 @@ var uB = class extends cr {
       stream: !0
     });
   }
-}, cB = class extends cr {
+}, cB = class extends ur {
   retrieve(e, t, n) {
     const { session_id: r, betas: a } = t;
     return this._client.get(xt`/v1/sessions/${r}/resources/${e}?beta=true`, {
@@ -33232,7 +33232,7 @@ var uB = class extends cr {
       headers: at([{ "anthropic-beta": [...r ?? [], "managed-agents-2026-04-01"].toString() }, n?.headers])
     });
   }
-}, Ob = class extends cr {
+}, Ob = class extends ur {
   constructor() {
     super(...arguments), this.events = new uB(this._client), this.resources = new cB(this._client);
   }
@@ -33284,7 +33284,7 @@ var uB = class extends cr {
 };
 Ob.Events = uB;
 Ob.Resources = cB;
-var dB = class extends cr {
+var dB = class extends ur {
   create(e, t = {}, n) {
     const { betas: r, ...a } = t ?? {};
     return this._client.post(xt`/v1/skills/${e}/versions?beta=true`, tE({
@@ -33315,7 +33315,7 @@ var dB = class extends cr {
       headers: at([{ "anthropic-beta": [...a ?? [], "skills-2025-10-02"].toString() }, n?.headers])
     });
   }
-}, rE = class extends cr {
+}, rE = class extends ur {
   constructor() {
     super(...arguments), this.versions = new dB(this._client);
   }
@@ -33351,7 +33351,7 @@ var dB = class extends cr {
   }
 };
 rE.Versions = dB;
-var fB = class extends cr {
+var fB = class extends ur {
   create(e, t, n) {
     const { betas: r, ...a } = t;
     return this._client.post(xt`/v1/vaults/${e}/credentials?beta=true`, {
@@ -33397,7 +33397,7 @@ var fB = class extends cr {
       headers: at([{ "anthropic-beta": [...a ?? [], "managed-agents-2026-04-01"].toString() }, n?.headers])
     });
   }
-}, aE = class extends cr {
+}, aE = class extends ur {
   constructor() {
     super(...arguments), this.credentials = new fB(this._client);
   }
@@ -33448,7 +33448,7 @@ var fB = class extends cr {
   }
 };
 aE.Credentials = fB;
-var ai = class extends cr {
+var ai = class extends ur {
   constructor() {
     super(...arguments), this.models = new YF(this._client), this.messages = new jm(this._client), this.agents = new nE(this._client), this.environments = new zF(this._client), this.sessions = new Ob(this._client), this.vaults = new aE(this._client), this.memoryStores = new Db(this._client), this.files = new JF(this._client), this.skills = new rE(this._client), this.userProfiles = new jF(this._client);
   }
@@ -33463,7 +33463,7 @@ ai.MemoryStores = Db;
 ai.Files = JF;
 ai.Skills = rE;
 ai.UserProfiles = jF;
-var hB = class extends cr {
+var hB = class extends ur {
   create(e, t) {
     const { betas: n, ...r } = e;
     return this._client.post("/v1/complete", {
@@ -33850,7 +33850,7 @@ var Tee = class ok {
   toReadableStream() {
     return new hm(this[Symbol.asyncIterator].bind(this), this.controller).toReadableStream();
   }
-}, gB = class extends cr {
+}, gB = class extends ur {
   create(e, t) {
     return this._client.post("/v1/messages/batches", {
       body: e,
@@ -33882,7 +33882,7 @@ var Tee = class ok {
       __binaryResponse: !0
     })._thenUnwrap((r, a) => iB.fromResponse(a.response, a.controller));
   }
-}, sE = class extends cr {
+}, sE = class extends ur {
   constructor() {
     super(...arguments), this.batches = new gB(this._client);
   }
@@ -33935,7 +33935,7 @@ Please migrate to a newer model. Visit https://docs.anthropic.com/en/docs/resour
   "claude-sonnet-4-20250514": "June 15th, 2026"
 }, Iee = ["claude-mythos-preview", "claude-opus-4-6"];
 sE.Batches = gB;
-var vB = class extends cr {
+var vB = class extends ur {
   retrieve(e, t = {}, n) {
     const { betas: r } = t ?? {};
     return this._client.get(xt`/v1/models/${e}`, {
@@ -44599,7 +44599,7 @@ var wv, Wb = class {
   nextPageRequestOptions() {
     return null;
   }
-}, ur = class extends Wb {
+}, lr = class extends Wb {
   constructor(e, t, n, r) {
     super(e, t, n, r), this.data = n.data || [], this.has_more = n.has_more || !1;
   }
@@ -44847,7 +44847,7 @@ ${d}`);
   return i;
 }, Me = /* @__PURE__ */ pue(Q4), Z4 = class extends it {
   list(e, t = {}, n) {
-    return this._client.getAPIList(Me`/chat/completions/${e}/messages`, ur, {
+    return this._client.getAPIList(Me`/chat/completions/${e}/messages`, lr, {
       query: t,
       ...n,
       __security: { bearerAuth: !0 }
@@ -45668,7 +45668,7 @@ var Cue = class Bk extends lU {
     });
   }
   list(e = {}, t) {
-    return this._client.getAPIList("/chat/completions", ur, {
+    return this._client.getAPIList("/chat/completions", lr, {
       query: e,
       ...t,
       __security: { bearerAuth: !0 }
@@ -45718,7 +45718,7 @@ var uU = class extends it {
     });
   }
   list(e = {}, t) {
-    return this._client.getAPIList("/organization/admin_api_keys", ur, {
+    return this._client.getAPIList("/organization/admin_api_keys", lr, {
       query: e,
       ...t,
       __security: { adminAPIKeyAuth: !0 }
@@ -46652,7 +46652,7 @@ var LU = class extends it {
     });
   }
   list(e = {}, t) {
-    return this._client.getAPIList("/batches", ur, {
+    return this._client.getAPIList("/batches", lr, {
       query: e,
       ...t,
       __security: { bearerAuth: !0 }
@@ -46689,7 +46689,7 @@ var LU = class extends it {
     });
   }
   list(e = {}, t) {
-    return this._client.getAPIList("/assistants", ur, {
+    return this._client.getAPIList("/assistants", lr, {
       query: e,
       ...t,
       headers: At([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
@@ -46809,7 +46809,7 @@ var qU = class extends it {
     });
   }
   list(e, t = {}, n) {
-    return this._client.getAPIList(Me`/threads/${e}/messages`, ur, {
+    return this._client.getAPIList(Me`/threads/${e}/messages`, lr, {
       query: t,
       ...n,
       headers: At([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
@@ -46836,7 +46836,7 @@ var qU = class extends it {
   }
   list(e, t, n) {
     const { thread_id: r, ...a } = t;
-    return this._client.getAPIList(Me`/threads/${r}/runs/${e}/steps`, ur, {
+    return this._client.getAPIList(Me`/threads/${r}/runs/${e}/steps`, lr, {
       query: a,
       ...n,
       headers: At([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
@@ -47275,7 +47275,7 @@ var CE = class extends it {
     });
   }
   list(e, t = {}, n) {
-    return this._client.getAPIList(Me`/threads/${e}/runs`, ur, {
+    return this._client.getAPIList(Me`/threads/${e}/runs`, lr, {
       query: t,
       ...n,
       headers: At([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
@@ -47459,7 +47459,7 @@ var KU = class extends it {
     });
   }
   list(e, t = {}, n) {
-    return this._client.getAPIList(Me`/containers/${e}/files`, ur, {
+    return this._client.getAPIList(Me`/containers/${e}/files`, lr, {
       query: t,
       ...n,
       __security: { bearerAuth: !0 }
@@ -47493,7 +47493,7 @@ var ME = class extends it {
     });
   }
   list(e = {}, t) {
-    return this._client.getAPIList("/containers", ur, {
+    return this._client.getAPIList("/containers", lr, {
       query: e,
       ...t,
       __security: { bearerAuth: !0 }
@@ -47600,7 +47600,7 @@ var VU = class extends it {
   }
   list(e, t, n) {
     const { eval_id: r, ...a } = t;
-    return this._client.getAPIList(Me`/evals/${r}/runs/${e}/output_items`, ur, {
+    return this._client.getAPIList(Me`/evals/${r}/runs/${e}/output_items`, lr, {
       query: a,
       ...n,
       __security: { bearerAuth: !0 }
@@ -47625,7 +47625,7 @@ var VU = class extends it {
     });
   }
   list(e, t = {}, n) {
-    return this._client.getAPIList(Me`/evals/${e}/runs`, ur, {
+    return this._client.getAPIList(Me`/evals/${e}/runs`, lr, {
       query: t,
       ...n,
       __security: { bearerAuth: !0 }
@@ -47672,7 +47672,7 @@ var NE = class extends it {
     });
   }
   list(e = {}, t) {
-    return this._client.getAPIList("/evals", ur, {
+    return this._client.getAPIList("/evals", lr, {
       query: e,
       ...t,
       __security: { bearerAuth: !0 }
@@ -47701,7 +47701,7 @@ var JU = class extends it {
     });
   }
   list(e = {}, t) {
-    return this._client.getAPIList("/files", ur, {
+    return this._client.getAPIList("/files", lr, {
       query: e,
       ...t,
       __security: { bearerAuth: !0 }
@@ -47792,7 +47792,7 @@ var XU = class extends it {
 LE.Permissions = XU;
 var QU = class extends it {
   list(e, t = {}, n) {
-    return this._client.getAPIList(Me`/fine_tuning/jobs/${e}/checkpoints`, ur, {
+    return this._client.getAPIList(Me`/fine_tuning/jobs/${e}/checkpoints`, lr, {
       query: t,
       ...n,
       __security: { bearerAuth: !0 }
@@ -47816,7 +47816,7 @@ var QU = class extends it {
     });
   }
   list(e = {}, t) {
-    return this._client.getAPIList("/fine_tuning/jobs", ur, {
+    return this._client.getAPIList("/fine_tuning/jobs", lr, {
       query: e,
       ...t,
       __security: { bearerAuth: !0 }
@@ -47829,7 +47829,7 @@ var QU = class extends it {
     });
   }
   listEvents(e, t = {}, n) {
-    return this._client.getAPIList(Me`/fine_tuning/jobs/${e}/events`, ur, {
+    return this._client.getAPIList(Me`/fine_tuning/jobs/${e}/events`, lr, {
       query: t,
       ...n,
       __security: { bearerAuth: !0 }
@@ -48213,7 +48213,7 @@ function Fue(e, t) {
 }
 var oq = class extends it {
   list(e, t = {}, n) {
-    return this._client.getAPIList(Me`/responses/${e}/input_items`, ur, {
+    return this._client.getAPIList(Me`/responses/${e}/input_items`, lr, {
       query: t,
       ...n,
       __security: { bearerAuth: !0 }
@@ -48314,7 +48314,7 @@ var uq = class extends it {
     });
   }
   list(e, t = {}, n) {
-    return this._client.getAPIList(Me`/skills/${e}/versions`, ur, {
+    return this._client.getAPIList(Me`/skills/${e}/versions`, lr, {
       query: t,
       ...n,
       __security: { bearerAuth: !0 }
@@ -48354,7 +48354,7 @@ var Qb = class extends it {
     });
   }
   list(e = {}, t) {
-    return this._client.getAPIList("/skills", ur, {
+    return this._client.getAPIList("/skills", lr, {
       query: e,
       ...t,
       __security: { bearerAuth: !0 }
@@ -48443,7 +48443,7 @@ var Bue = async (e) => {
   }
   listFiles(e, t, n) {
     const { vector_store_id: r, ...a } = t;
-    return this._client.getAPIList(Me`/vector_stores/${r}/file_batches/${e}/files`, ur, {
+    return this._client.getAPIList(Me`/vector_stores/${r}/file_batches/${e}/files`, lr, {
       query: a,
       ...n,
       headers: At([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
@@ -48521,7 +48521,7 @@ var Bue = async (e) => {
     });
   }
   list(e, t = {}, n) {
-    return this._client.getAPIList(Me`/vector_stores/${e}/files`, ur, {
+    return this._client.getAPIList(Me`/vector_stores/${e}/files`, lr, {
       query: t,
       ...n,
       headers: At([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
@@ -48616,7 +48616,7 @@ var Bue = async (e) => {
     });
   }
   list(e = {}, t) {
-    return this._client.getAPIList("/vector_stores", ur, {
+    return this._client.getAPIList("/vector_stores", lr, {
       query: e,
       ...t,
       headers: At([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
@@ -58359,7 +58359,7 @@ var gge = {
       src: e.imageState.url,
       alt: e.message.payload.description
     }, null, 8, Ige)], 8, Tge)) : h.value !== "error" ? ($(), D("span", Ege, [
-      E[7] || (E[7] = ir('<span class="tavern-phone-image-placeholder-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z"></path><circle cx="9" cy="9" r="1.6"></circle><path d="m5 17 4.5-4 3.2 2.8 2.4-2.2L20 18"></path></svg></span>', 1)),
+      E[7] || (E[7] = dr('<span class="tavern-phone-image-placeholder-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z"></path><circle cx="9" cy="9" r="1.6"></circle><path d="m5 17 4.5-4 3.2 2.8 2.4-2.2L20 18"></path></svg></span>', 1)),
       p("small", null, W(y.value), 1),
       h.value !== "idle" ? ($(), D("button", {
         key: 0,
@@ -58746,7 +58746,32 @@ var gge = {
   "aria-hidden": "true"
 };
 function gve(e, t) {
-  return $(), D("svg", mve, [...t[0] || (t[0] = [ir('<path class="tavern-phone-messages-icon-back" d="M26.5 12.5h18c7.18 0 12.5 5.14 12.5 12.06v7.88c0 6.92-5.32 12.06-12.5 12.06h-3.18l-7.74 6.28c-1.52 1.23-3.8.15-3.8-1.8V44.5H26.5C19.32 44.5 14 39.36 14 32.44v-7.88c0-6.92 5.32-12.06 12.5-12.06Z"></path><path class="tavern-phone-messages-icon-front" d="M10.5 21.5h20C38.25 21.5 44 26.98 44 34.36v6.28C44 48.02 38.25 53.5 30.5 53.5h-8.34l-6.92 5.15c-1.5 1.12-3.64.04-3.64-1.83V53.4C5.12 52.83 0 47.75 0 40.64v-6.28C0 26.98 5.75 21.5 13.5 21.5h-3Z"></path><circle cx="15.5" cy="37.5" r="2.25"></circle><circle cx="23" cy="37.5" r="2.25"></circle><circle cx="30.5" cy="37.5" r="2.25"></circle>', 5)])]);
+  return $(), D("svg", mve, [...t[0] || (t[0] = [
+    p("path", {
+      class: "tavern-phone-messages-icon-shell",
+      d: "M11 9.5h42A7.5 7.5 0 0 1 60.5 17v25A7.5 7.5 0 0 1 53 49.5H30.2L18.7 58a2.15 2.15 0 0 1-3.45-1.73V49.5H11A7.5 7.5 0 0 1 3.5 42V17A7.5 7.5 0 0 1 11 9.5Z"
+    }, null, -1),
+    p("path", {
+      class: "tavern-phone-messages-icon-highlight",
+      d: "M11.5 12.5h41A5.5 5.5 0 0 1 58 18v2.25c-8.75-3.52-18.45-5.3-29.1-5.3-9.15 0-16.95 1.22-23.4 3.65V18a5.5 5.5 0 0 1 6-5.5Z"
+    }, null, -1),
+    p("rect", {
+      class: "tavern-phone-messages-icon-line",
+      x: "14",
+      y: "23",
+      width: "36",
+      height: "5",
+      rx: "2.5"
+    }, null, -1),
+    p("rect", {
+      class: "tavern-phone-messages-icon-line is-short",
+      x: "14",
+      y: "34",
+      width: "25",
+      height: "5",
+      rx: "2.5"
+    }, null, -1)
+  ])]);
 }
 var vve = /* @__PURE__ */ wH(pve, [["render", gve]]);
 function yve(e) {
@@ -60227,7 +60252,7 @@ var oye = ["title", "aria-label"], lye = {
         title: e.dark ? "切换到白天" : "切换到夜间",
         "aria-label": e.dark ? "切换到白天" : "切换到夜间",
         onClick: a[4] || (a[4] = (s) => n("toggleTheme"))
-      }, [e.dark ? ($(), D("svg", lye, [...a[11] || (a[11] = [ir('<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>', 9)])])) : ($(), D("span", uye, "☾"))], 8, oye),
+      }, [e.dark ? ($(), D("svg", lye, [...a[11] || (a[11] = [dr('<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>', 9)])])) : ($(), D("span", uye, "☾"))], 8, oye),
       e.includeHome && e.homeLast ? ($(), D("button", {
         key: 4,
         type: "button",
@@ -60288,7 +60313,7 @@ var oye = ["title", "aria-label"], lye = {
         class: "about-return-inline",
         onClick: n[1] || (n[1] = (r) => t.$emit("back"))
       }, " RETURN TO INDEX "),
-      n[2] || (n[2] = ir('<section class="about-title-block"><h1 class="about-title"> 小白酒馆 </h1><div class="about-sub"> A CLEANER WAY TO ROLEPLAY </div></section><section class="manifesto-body"><p class="intro-dropcap"> 当你与角色聊到数十万字，故事不该被界面拖慢。小白酒馆重写了渲染层，长对话里依然顺滑。 </p><p>但流畅只是基础。我们真正想做的，是给角色扮演多配一位后台帮手。它不替代记忆，而是替你打理那些容易散落的线索。</p><div class="feature-block"><h3>I. 幕后代理与双面板</h3><p>舞台前，你与角色保持沉浸的互动；舞台后，一个 Agent 静静旁观对话。需要时翻转面板进入助手聊天，直接找它梳理线索、讨论伏笔设定，不必出戏去打扰剧情里的角色。</p></div><div class="feature-block"><h3>II. 自动演进的可视化世界</h3><p>代理在后台帮你整理剧情脉络、归档阶段事件。基于这套结构化数据，系统支撑起了可视化的空间地图与任务线索。你去过的地点、展开的事件，会在台面下慢慢生长。这块还在持续演进。</p></div><div class="feature-block"><h3>III. 依然是你的酒馆</h3><p>这套基建扎根在你熟悉的土壤上。角色卡、世界书、聊天预设、正则，全部直连酒馆本体。你可以在这里调取和修改旧设定，也能在请求日志里，清楚看到代理发出的每一条真实记录。</p></div><div class="feature-block quiet"><p>放下那些拥挤的参数窗口，选一张卡片，把心思还给故事本身。</p></div></section>', 2))
+      n[2] || (n[2] = dr('<section class="about-title-block"><h1 class="about-title"> 小白酒馆 </h1><div class="about-sub"> A CLEANER WAY TO ROLEPLAY </div></section><section class="manifesto-body"><p class="intro-dropcap"> 当你与角色聊到数十万字，故事不该被界面拖慢。小白酒馆重写了渲染层，长对话里依然顺滑。 </p><p>但流畅只是基础。我们真正想做的，是给角色扮演多配一位后台帮手。它不替代记忆，而是替你打理那些容易散落的线索。</p><div class="feature-block"><h3>I. 幕后代理与双面板</h3><p>舞台前，你与角色保持沉浸的互动；舞台后，一个 Agent 静静旁观对话。需要时翻转面板进入助手聊天，直接找它梳理线索、讨论伏笔设定，不必出戏去打扰剧情里的角色。</p></div><div class="feature-block"><h3>II. 自动演进的可视化世界</h3><p>代理在后台帮你整理剧情脉络、归档阶段事件。基于这套结构化数据，系统支撑起了可视化的空间地图与任务线索。你去过的地点、展开的事件，会在台面下慢慢生长。这块还在持续演进。</p></div><div class="feature-block"><h3>III. 依然是你的酒馆</h3><p>这套基建扎根在你熟悉的土壤上。角色卡、世界书、聊天预设、正则，全部直连酒馆本体。你可以在这里调取和修改旧设定，也能在请求日志里，清楚看到代理发出的每一条真实记录。</p></div><div class="feature-block quiet"><p>放下那些拥挤的参数窗口，选一张卡片，把心思还给故事本身。</p></div></section>', 2))
     ]));
   }
 }), hye = fye, pye = { class: "tavern-home xb-page home-command-center" }, mye = { class: "home-hero home-command-hero" }, gye = { class: "home-brand-panel" }, vye = { class: "home-version-line" }, yye = { class: "home-enter-desktop" }, _ye = { class: "home-enter-mobile-label" }, bye = { class: "home-enter-mobile-title" }, wye = { class: "home-command-panel home-menu-panel" }, Sye = { class: "home-menu-mobile-footer" }, Aye = /* @__PURE__ */ ln({
@@ -61197,7 +61222,7 @@ var Eye = {
           "aria-label": "删除",
           disabled: !S.value || S.value.id === k("littlewhitebox-assistant-default"),
           onClick: G[1] || (G[1] = (...le) => k(h) && k(h)(...le))
-        }, [...G[6] || (G[6] = [ir('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>', 1)])], 8, bbe),
+        }, [...G[6] || (G[6] = [dr('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>', 1)])], 8, bbe),
         p("button", {
           type: "button",
           class: "assistant-preset-tool icon-button",
@@ -61286,7 +61311,7 @@ var Eye = {
       }, [...G[12] || (G[12] = [p("svg", {
         viewBox: "0 0 24 24",
         "aria-hidden": "true"
-      }, [p("path", { d: "M6 6l12 12" }), p("path", { d: "M18 6 6 18" })], -1)])])]), G[14] || (G[14] = ir('<div class="assistant-preset-help-body"><section><h4>状态栏是什么</h4><p>状态栏是小白自动维护的可变 UI 面板。生成后的状态栏会自动注入聊天上下文，类似酒馆变量一样给后续回复使用；但你不需要定义它每轮怎么更新，也不需要定义结构化模板，你需要在这里大白话提要求。</p></section><section><h4>这里写什么</h4><p>这里只写“你希望状态栏长什么样”：分几页、每页有哪些区块、每个区块用什么类型、哪些条目允许动态增加。</p></section><section><h4>类型说明</h4><p>文本：适合姓名、身份、当前地点、当前目标这类一句话信息。</p><p>数值：适合力量、体质、好感度、理智、体力这类会变化的数。可以提出范围，也可以提出显示方式：</p><ul><li>进度条：适合体力、理智、好感度这类有上下限的数值。</li><li>百分比：适合成功率、掌控度、污染度这类天然按百分比看的数值。</li><li>点阵：适合少量格数资源，例如行动点、弹药、护盾层数。</li><li>普通数字：适合金币、天数、次数这类不适合画条的数值。</li></ul><p>标签：适合动态增删的状态，例如受伤、疲惫、恐惧、中毒、隐匿、祝福。标签不需要固定数量。</p><p>物品：适合装备、背包、线索、钥匙、消耗品。可以要求带数量、部位、用途、来历；也可以要求用列表或格子展示。</p></section><section><h4>结构变更</h4><p>分页、区块和类型属于状态栏骨架。修改这些要求后，助手会按当前预设重新构建骨架，并尽量保留仍适用的旧值。日常出现的新 NPC、新状态或新物品，应作为字段加入现有关系、状态或物品区块；不会为每个新 NPC 动态创建分页。</p></section></div>', 1))], 32)])) : me("", !0)
+      }, [p("path", { d: "M6 6l12 12" }), p("path", { d: "M18 6 6 18" })], -1)])])]), G[14] || (G[14] = dr('<div class="assistant-preset-help-body"><section><h4>状态栏是什么</h4><p>状态栏是小白自动维护的可变 UI 面板。生成后的状态栏会自动注入聊天上下文，类似酒馆变量一样给后续回复使用；但你不需要定义它每轮怎么更新，也不需要定义结构化模板，你需要在这里大白话提要求。</p></section><section><h4>这里写什么</h4><p>这里只写“你希望状态栏长什么样”：分几页、每页有哪些区块、每个区块用什么类型、哪些条目允许动态增加。</p></section><section><h4>类型说明</h4><p>文本：适合姓名、身份、当前地点、当前目标这类一句话信息。</p><p>数值：适合力量、体质、好感度、理智、体力这类会变化的数。可以提出范围，也可以提出显示方式：</p><ul><li>进度条：适合体力、理智、好感度这类有上下限的数值。</li><li>百分比：适合成功率、掌控度、污染度这类天然按百分比看的数值。</li><li>点阵：适合少量格数资源，例如行动点、弹药、护盾层数。</li><li>普通数字：适合金币、天数、次数这类不适合画条的数值。</li></ul><p>标签：适合动态增删的状态，例如受伤、疲惫、恐惧、中毒、隐匿、祝福。标签不需要固定数量。</p><p>物品：适合装备、背包、线索、钥匙、消耗品。可以要求带数量、部位、用途、来历；也可以要求用列表或格子展示。</p></section><section><h4>结构变更</h4><p>分页、区块和类型属于状态栏骨架。修改这些要求后，助手会按当前预设重新构建骨架，并尽量保留仍适用的旧值。日常出现的新 NPC、新状态或新物品，应作为字段加入现有关系、状态或物品区块；不会为每个新 NPC 动态创建分页。</p></section></div>', 1))], 32)])) : me("", !0)
     ], 512)), [[gi, k(a) === "assistantPreset"]]);
   }
 }), TH = Rbe, Pbe = { class: "panel step-panel base-settings-workspace" }, Nbe = {
@@ -61471,7 +61496,7 @@ var ewe = { class: "panel-head preset-page-head" }, twe = { class: "panel-pills"
           readonly: ""
         }, null, 8, gwe)])]),
         p("div", vwe, [p("label", ywe, [se[12] || (se[12] = p("span", null, "检索条目", -1)), Un(p("input", {
-          "onUpdate:modelValue": se[2] || (se[2] = (ye) => /* @__PURE__ */ lr(P) ? P.value = ye : null),
+          "onUpdate:modelValue": se[2] || (se[2] = (ye) => /* @__PURE__ */ or(P) ? P.value = ye : null),
           type: "search",
           placeholder: "按名称、消息身份或内容搜索"
         }, null, 512), [[Is, k(P)]])]), p("p", null, " 显示 " + W(Math.min(k(i).length, k(N))) + " / " + W(k(i).length) + "，共 " + W(k(C).length) + " 条 ", 1)]),
@@ -62685,7 +62710,7 @@ var xSe = ["data-chat-anchor-key", "data-chat-streaming"], MSe = { class: "bubbl
         onSubmit: De[28] || (De[28] = Zt((...Re) => k(F) && k(F)(...Re), ["prevent"]))
       }, [Un(p("textarea", {
         ref: kt,
-        "onUpdate:modelValue": De[25] || (De[25] = (Re) => /* @__PURE__ */ lr(b) ? b.value = Re : null),
+        "onUpdate:modelValue": De[25] || (De[25] = (Re) => /* @__PURE__ */ or(b) ? b.value = Re : null),
         rows: "1",
         placeholder: "对角色说一句话...",
         onInput: De[26] || (De[26] = (...Re) => k(L) && k(L)(...Re)),
@@ -63046,7 +63071,7 @@ var xSe = ["data-chat-anchor-key", "data-chat-streaming"], MSe = { class: "bubbl
         }, [
           p("div", UAe, [p("strong", null, W(Re.message.role === "user" ? k(T)("user") : "助手"), 1), p("small", null, W(k(h)(Re.message.createdAt)), 1)]),
           k(Ae)(Re.message) ? ($(), D("div", qAe, [Un(p("textarea", {
-            "onUpdate:modelValue": De[7] || (De[7] = (tt) => /* @__PURE__ */ lr(U) ? U.value = tt : null),
+            "onUpdate:modelValue": De[7] || (De[7] = (tt) => /* @__PURE__ */ or(U) ? U.value = tt : null),
             class: "message-edit-box",
             rows: "6",
             "data-manager-message-editor": `manager:${Re.message.sessionId}:${Re.message.order}`,
@@ -63183,7 +63208,7 @@ var xSe = ["data-chat-anchor-key", "data-chat-streaming"], MSe = { class: "bubbl
         onSubmit: De[18] || (De[18] = Zt((...Re) => k(K) && k(K)(...Re), ["prevent"]))
       }, [Un(p("textarea", {
         ref: He,
-        "onUpdate:modelValue": De[15] || (De[15] = (Re) => /* @__PURE__ */ lr(Ue) ? Ue.value = Re : null),
+        "onUpdate:modelValue": De[15] || (De[15] = (Re) => /* @__PURE__ */ or(Ue) ? Ue.value = Re : null),
         rows: "1",
         placeholder: "和助手说一句话...",
         disabled: k(ee),
@@ -63261,7 +63286,7 @@ var xSe = ["data-chat-anchor-key", "data-chat-streaming"], MSe = { class: "bubbl
           value: xe.key
         }, W(xe.label), 9, Ake))), 128))], 512), [[pz, x.value]])]),
         p("label", kke, [Un(p("input", {
-          "onUpdate:modelValue": Ee[1] || (Ee[1] = (xe) => /* @__PURE__ */ lr(C) ? C.value = xe : null),
+          "onUpdate:modelValue": Ee[1] || (Ee[1] = (xe) => /* @__PURE__ */ or(C) ? C.value = xe : null),
           type: "search",
           "aria-label": "筛选正则",
           placeholder: "名称、匹配式或替换文本"
@@ -63316,7 +63341,7 @@ var xSe = ["data-chat-anchor-key", "data-chat-streaming"], MSe = { class: "bubbl
             title: "删除",
             "aria-label": "删除",
             onClick: Zt((ne) => k(r)(K), ["stop"])
-          }, [...Ee[17] || (Ee[17] = [ir('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>', 1)])], 8, Fke)])
+          }, [...Ee[17] || (Ee[17] = [dr('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>', 1)])], 8, Fke)])
         ], 42, Nke))), 128)),
         xe.hiddenCount ? ($(), D("button", {
           key: 0,
@@ -65268,7 +65293,7 @@ var KIe = {
       const ce = x.value.length;
       ce && (u.value = (u.value + z + ce) % ce, i.value += 1, oe());
     }
-    function dr() {
+    function cr() {
       M.value = !M.value;
     }
     function xa() {
@@ -65484,13 +65509,13 @@ var KIe = {
               width: "40",
               height: "20",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[9] || (ce[9] = [ir('<rect width="40" height="20" fill="#4a3018"></rect><rect x="0" y="0" width="20" height="10" fill="#583c22"></rect><rect x="20" y="10" width="20" height="10" fill="#54371e"></rect><path d="M0 10 H40 M0 20 H40 M20 0 V10 M0 10 V20 M40 10 V20" stroke="#1a0e05" stroke-width="1.4" fill="none" opacity="0.9"></path><path d="M0 1 H20 M20 11 H40" stroke="#74543a" stroke-width="0.9" fill="none" opacity="0.7"></path><path d="M3 4 Q8 3 12 5 T18 4 M23 14 Q28 13 32 15 T38 14" stroke="#3b2412" stroke-width="0.6" fill="none"></path><circle cx="2" cy="2" r="0.8" fill="#1a0e05"></circle><circle cx="18" cy="2" r="0.8" fill="#1a0e05"></circle><circle cx="22" cy="12" r="0.8" fill="#1a0e05"></circle><circle cx="38" cy="12" r="0.8" fill="#1a0e05"></circle>', 10)])], 8, uEe),
+            }, [...ce[9] || (ce[9] = [dr('<rect width="40" height="20" fill="#4a3018"></rect><rect x="0" y="0" width="20" height="10" fill="#583c22"></rect><rect x="20" y="10" width="20" height="10" fill="#54371e"></rect><path d="M0 10 H40 M0 20 H40 M20 0 V10 M0 10 V20 M40 10 V20" stroke="#1a0e05" stroke-width="1.4" fill="none" opacity="0.9"></path><path d="M0 1 H20 M20 11 H40" stroke="#74543a" stroke-width="0.9" fill="none" opacity="0.7"></path><path d="M3 4 Q8 3 12 5 T18 4 M23 14 Q28 13 32 15 T38 14" stroke="#3b2412" stroke-width="0.6" fill="none"></path><circle cx="2" cy="2" r="0.8" fill="#1a0e05"></circle><circle cx="18" cy="2" r="0.8" fill="#1a0e05"></circle><circle cx="22" cy="12" r="0.8" fill="#1a0e05"></circle><circle cx="38" cy="12" r="0.8" fill="#1a0e05"></circle>', 10)])], 8, uEe),
             p("pattern", {
               id: C("mat-stone"),
               width: "48",
               height: "48",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[10] || (ce[10] = [ir('<rect width="48" height="48" fill="#52535e"></rect><path d="M0 0 H28 V22 H0 Z" fill="#5a5b66"></path><path d="M28 0 H48 V26 H28 Z" fill="#4d4e58"></path><path d="M0 22 H22 V48 H0 Z" fill="#4f5059"></path><path d="M22 26 H48 V48 H22 Z" fill="#585964"></path><path d="M28 0 V22 H0 M22 22 V48 M22 26 H48" stroke="#2c2d36" stroke-width="2" fill="none"></path><path d="M0 1 H27 M0 23 H21" stroke="#73747f" stroke-width="0.8" opacity="0.6" fill="none"></path>', 7)])], 8, cEe),
+            }, [...ce[10] || (ce[10] = [dr('<rect width="48" height="48" fill="#52535e"></rect><path d="M0 0 H28 V22 H0 Z" fill="#5a5b66"></path><path d="M28 0 H48 V26 H28 Z" fill="#4d4e58"></path><path d="M0 22 H22 V48 H0 Z" fill="#4f5059"></path><path d="M22 26 H48 V48 H22 Z" fill="#585964"></path><path d="M28 0 V22 H0 M22 22 V48 M22 26 H48" stroke="#2c2d36" stroke-width="2" fill="none"></path><path d="M0 1 H27 M0 23 H21" stroke="#73747f" stroke-width="0.8" opacity="0.6" fill="none"></path>', 7)])], 8, cEe),
             p("pattern", {
               id: C("mat-tile"),
               width: "32",
@@ -65530,79 +65555,79 @@ var KIe = {
               width: "24",
               height: "24",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[12] || (ce[12] = [ir('<rect width="24" height="24" fill="#7a1f30"></rect><rect width="24" height="24" fill="#8a2438" opacity="0.5"></rect><path d="M12 2 L22 12 L12 22 L2 12 Z" fill="none" stroke="#c9a24a" stroke-width="1.2" opacity="0.7"></path><path d="M12 7 L17 12 L12 17 L7 12 Z" fill="#5e1624" opacity="0.6"></path><path d="M0 0 H24 M0 24 H24" stroke="#5e1624" stroke-width="1.5"></path>', 5)])], 8, fEe),
+            }, [...ce[12] || (ce[12] = [dr('<rect width="24" height="24" fill="#7a1f30"></rect><rect width="24" height="24" fill="#8a2438" opacity="0.5"></rect><path d="M12 2 L22 12 L12 22 L2 12 Z" fill="none" stroke="#c9a24a" stroke-width="1.2" opacity="0.7"></path><path d="M12 7 L17 12 L12 17 L7 12 Z" fill="#5e1624" opacity="0.6"></path><path d="M0 0 H24 M0 24 H24" stroke="#5e1624" stroke-width="1.5"></path>', 5)])], 8, fEe),
             p("pattern", {
               id: C("mat-bed-sheet"),
               width: "48",
               height: "48",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[13] || (ce[13] = [ir('<rect width="48" height="48" fill="#e8e3dc"></rect><rect width="48" height="48" fill="#f2eee8" opacity="0.5"></rect><path d="M0 14 Q12 8 24 14 T48 14" stroke="#d2ccc2" stroke-width="3" fill="none" opacity="0.6"></path><path d="M0 30 Q14 36 28 30 T48 32" stroke="#d2ccc2" stroke-width="3" fill="none" opacity="0.6"></path><path d="M0 12 Q12 6 24 12 T48 12" stroke="#fbf8f3" stroke-width="1.5" fill="none" opacity="0.7"></path><path d="M0 28 Q14 34 28 28 T48 30" stroke="#fbf8f3" stroke-width="1.5" fill="none" opacity="0.7"></path><path d="M6 44 Q20 40 34 44 M14 4 Q28 0 42 4" stroke="#dcd6cc" stroke-width="0.8" fill="none" opacity="0.4"></path>', 7)])], 8, hEe),
+            }, [...ce[13] || (ce[13] = [dr('<rect width="48" height="48" fill="#e8e3dc"></rect><rect width="48" height="48" fill="#f2eee8" opacity="0.5"></rect><path d="M0 14 Q12 8 24 14 T48 14" stroke="#d2ccc2" stroke-width="3" fill="none" opacity="0.6"></path><path d="M0 30 Q14 36 28 30 T48 32" stroke="#d2ccc2" stroke-width="3" fill="none" opacity="0.6"></path><path d="M0 12 Q12 6 24 12 T48 12" stroke="#fbf8f3" stroke-width="1.5" fill="none" opacity="0.7"></path><path d="M0 28 Q14 34 28 28 T48 30" stroke="#fbf8f3" stroke-width="1.5" fill="none" opacity="0.7"></path><path d="M6 44 Q20 40 34 44 M14 4 Q28 0 42 4" stroke="#dcd6cc" stroke-width="0.8" fill="none" opacity="0.4"></path>', 7)])], 8, hEe),
             p("pattern", {
               id: C("mat-fabric"),
               width: "16",
               height: "16",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[14] || (ce[14] = [ir('<rect width="16" height="16" fill="#6b5b73"></rect><rect width="16" height="16" fill="#74647c" opacity="0.4"></rect><path d="M0 4 H16 M0 12 H16" stroke="#5a4b62" stroke-width="2" opacity="0.5"></path><path d="M4 0 V16 M12 0 V16" stroke="#5a4b62" stroke-width="2" opacity="0.5"></path><path d="M0 3 H16 M3 0 V16" stroke="#857391" stroke-width="0.6" opacity="0.5"></path><circle cx="2" cy="2" r="0.7" fill="#857391" opacity="0.5"></circle><circle cx="10" cy="8" r="0.7" fill="#5a4b62" opacity="0.6"></circle>', 7)])], 8, pEe),
+            }, [...ce[14] || (ce[14] = [dr('<rect width="16" height="16" fill="#6b5b73"></rect><rect width="16" height="16" fill="#74647c" opacity="0.4"></rect><path d="M0 4 H16 M0 12 H16" stroke="#5a4b62" stroke-width="2" opacity="0.5"></path><path d="M4 0 V16 M12 0 V16" stroke="#5a4b62" stroke-width="2" opacity="0.5"></path><path d="M0 3 H16 M3 0 V16" stroke="#857391" stroke-width="0.6" opacity="0.5"></path><circle cx="2" cy="2" r="0.7" fill="#857391" opacity="0.5"></circle><circle cx="10" cy="8" r="0.7" fill="#5a4b62" opacity="0.6"></circle>', 7)])], 8, pEe),
             p("pattern", {
               id: C("mat-tatami"),
               width: "80",
               height: "40",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[15] || (ce[15] = [ir('<rect width="80" height="40" fill="#c9b878"></rect><rect width="80" height="40" fill="#d3c282" opacity="0.4"></rect><path d="M0 4 H80 M0 8 H80 M0 12 H80 M0 16 H80 M0 20 H80 M0 24 H80 M0 28 H80 M0 32 H80 M0 36 H80" stroke="#b3a268" stroke-width="0.8" opacity="0.6"></path><path d="M0 4 H80 M0 12 H80 M0 20 H80 M0 28 H80 M0 36 H80" stroke="#dcca8a" stroke-width="0.5" opacity="0.5"></path><rect x="0" y="0" width="80" height="40" fill="none" stroke="#2a2620" stroke-width="2.5"></rect><path d="M40 0 V40" stroke="#2a2620" stroke-width="2.5" opacity="0.9"></path>', 6)])], 8, mEe),
+            }, [...ce[15] || (ce[15] = [dr('<rect width="80" height="40" fill="#c9b878"></rect><rect width="80" height="40" fill="#d3c282" opacity="0.4"></rect><path d="M0 4 H80 M0 8 H80 M0 12 H80 M0 16 H80 M0 20 H80 M0 24 H80 M0 28 H80 M0 32 H80 M0 36 H80" stroke="#b3a268" stroke-width="0.8" opacity="0.6"></path><path d="M0 4 H80 M0 12 H80 M0 20 H80 M0 28 H80 M0 36 H80" stroke="#dcca8a" stroke-width="0.5" opacity="0.5"></path><rect x="0" y="0" width="80" height="40" fill="none" stroke="#2a2620" stroke-width="2.5"></rect><path d="M40 0 V40" stroke="#2a2620" stroke-width="2.5" opacity="0.9"></path>', 6)])], 8, mEe),
             p("pattern", {
               id: C("mat-sand"),
               width: "40",
               height: "40",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[16] || (ce[16] = [ir('<rect width="40" height="40" fill="#e0cb96"></rect><rect width="40" height="40" fill="#ead7a4" opacity="0.4"></rect><path d="M0 10 Q10 7 20 10 T40 10" stroke="#d3bd84" stroke-width="1.2" fill="none" opacity="0.5"></path><path d="M0 26 Q12 23 24 26 T40 27" stroke="#d3bd84" stroke-width="1.2" fill="none" opacity="0.5"></path><circle cx="6" cy="6" r="0.8" fill="#c2a96e"></circle><circle cx="22" cy="14" r="0.6" fill="#fff" opacity="0.7"></circle><circle cx="30" cy="8" r="0.7" fill="#c2a96e"></circle><circle cx="14" cy="30" r="0.8" fill="#c2a96e"></circle><circle cx="34" cy="32" r="0.6" fill="#fff" opacity="0.6"></circle><circle cx="4" cy="34" r="0.7" fill="#c2a96e"></circle>', 10)])], 8, gEe),
+            }, [...ce[16] || (ce[16] = [dr('<rect width="40" height="40" fill="#e0cb96"></rect><rect width="40" height="40" fill="#ead7a4" opacity="0.4"></rect><path d="M0 10 Q10 7 20 10 T40 10" stroke="#d3bd84" stroke-width="1.2" fill="none" opacity="0.5"></path><path d="M0 26 Q12 23 24 26 T40 27" stroke="#d3bd84" stroke-width="1.2" fill="none" opacity="0.5"></path><circle cx="6" cy="6" r="0.8" fill="#c2a96e"></circle><circle cx="22" cy="14" r="0.6" fill="#fff" opacity="0.7"></circle><circle cx="30" cy="8" r="0.7" fill="#c2a96e"></circle><circle cx="14" cy="30" r="0.8" fill="#c2a96e"></circle><circle cx="34" cy="32" r="0.6" fill="#fff" opacity="0.6"></circle><circle cx="4" cy="34" r="0.7" fill="#c2a96e"></circle>', 10)])], 8, gEe),
             p("pattern", {
               id: C("mat-marble"),
               width: "80",
               height: "80",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[17] || (ce[17] = [ir('<rect width="80" height="80" fill="#eef0f3"></rect><rect width="80" height="80" fill="#f6f7fa" opacity="0.5"></rect><path d="M0 20 Q20 10 35 28 T70 32 Q78 36 80 30" stroke="#c2c7d0" stroke-width="1.5" fill="none" opacity="0.7"></path><path d="M10 0 Q24 22 18 44 T30 80" stroke="#cdd2da" stroke-width="1.2" fill="none" opacity="0.6"></path><path d="M50 0 Q58 18 72 24 T80 60" stroke="#c2c7d0" stroke-width="1" fill="none" opacity="0.5"></path><path d="M0 55 Q22 50 40 62 T80 58" stroke="#d6dae1" stroke-width="0.8" fill="none" opacity="0.5"></path><path d="M30 30 q8 6 4 16 M60 40 q-6 8 2 14" stroke="#b8bdc7" stroke-width="0.6" fill="none" opacity="0.4"></path>', 7)])], 8, vEe),
+            }, [...ce[17] || (ce[17] = [dr('<rect width="80" height="80" fill="#eef0f3"></rect><rect width="80" height="80" fill="#f6f7fa" opacity="0.5"></rect><path d="M0 20 Q20 10 35 28 T70 32 Q78 36 80 30" stroke="#c2c7d0" stroke-width="1.5" fill="none" opacity="0.7"></path><path d="M10 0 Q24 22 18 44 T30 80" stroke="#cdd2da" stroke-width="1.2" fill="none" opacity="0.6"></path><path d="M50 0 Q58 18 72 24 T80 60" stroke="#c2c7d0" stroke-width="1" fill="none" opacity="0.5"></path><path d="M0 55 Q22 50 40 62 T80 58" stroke="#d6dae1" stroke-width="0.8" fill="none" opacity="0.5"></path><path d="M30 30 q8 6 4 16 M60 40 q-6 8 2 14" stroke="#b8bdc7" stroke-width="0.6" fill="none" opacity="0.4"></path>', 7)])], 8, vEe),
             p("pattern", {
               id: C("mat-blood"),
               width: "40",
               height: "40",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[18] || (ce[18] = [ir('<rect width="40" height="40" fill="#5a0c14"></rect><ellipse cx="14" cy="12" rx="11" ry="8" fill="#3d070e"></ellipse><ellipse cx="30" cy="28" rx="9" ry="11" fill="#48090f"></ellipse><ellipse cx="20" cy="22" rx="6" ry="4" fill="#6e1018" opacity="0.7"></ellipse><circle cx="34" cy="8" r="2" fill="#3d070e"></circle><circle cx="6" cy="32" r="2.5" fill="#3d070e"></circle>', 6)])], 8, yEe),
+            }, [...ce[18] || (ce[18] = [dr('<rect width="40" height="40" fill="#5a0c14"></rect><ellipse cx="14" cy="12" rx="11" ry="8" fill="#3d070e"></ellipse><ellipse cx="30" cy="28" rx="9" ry="11" fill="#48090f"></ellipse><ellipse cx="20" cy="22" rx="6" ry="4" fill="#6e1018" opacity="0.7"></ellipse><circle cx="34" cy="8" r="2" fill="#3d070e"></circle><circle cx="6" cy="32" r="2.5" fill="#3d070e"></circle>', 6)])], 8, yEe),
             p("pattern", {
               id: C("mat-water"),
               width: "44",
               height: "24",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[19] || (ce[19] = [ir('<rect width="44" height="24" fill="#1f5f7a"></rect><rect width="44" height="24" fill="#2a7396" opacity="0.5"></rect><path d="M0 6 Q11 2 22 6 T44 6" stroke="#7fd0e8" stroke-width="1.2" fill="none" opacity="0.55"></path><path d="M0 16 Q11 12 22 16 T44 16" stroke="#5bb6d6" stroke-width="1" fill="none" opacity="0.4"></path><path d="M0 21 Q11 18 22 21 T44 21" stroke="#9fe0f2" stroke-width="0.8" fill="none" opacity="0.3"></path>', 5)])], 8, _Ee),
+            }, [...ce[19] || (ce[19] = [dr('<rect width="44" height="24" fill="#1f5f7a"></rect><rect width="44" height="24" fill="#2a7396" opacity="0.5"></rect><path d="M0 6 Q11 2 22 6 T44 6" stroke="#7fd0e8" stroke-width="1.2" fill="none" opacity="0.55"></path><path d="M0 16 Q11 12 22 16 T44 16" stroke="#5bb6d6" stroke-width="1" fill="none" opacity="0.4"></path><path d="M0 21 Q11 18 22 21 T44 21" stroke="#9fe0f2" stroke-width="0.8" fill="none" opacity="0.3"></path>', 5)])], 8, _Ee),
             p("pattern", {
               id: C("mat-grass"),
               width: "28",
               height: "28",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[20] || (ce[20] = [ir('<rect width="28" height="28" fill="#2f5226"></rect><rect width="28" height="28" fill="#37602c" opacity="0.5"></rect><path d="M4 26 Q3 18 5 14 M4 26 Q6 19 8 16" stroke="#4a7a38" stroke-width="1.1" fill="none"></path><path d="M16 28 Q15 20 17 15 M16 28 Q18 21 21 17" stroke="#3f6b30" stroke-width="1.1" fill="none"></path><path d="M24 26 Q23 20 25 16" stroke="#54883f" stroke-width="1" fill="none"></path><circle cx="10" cy="8" r="1" fill="#54883f" opacity="0.6"></circle><circle cx="22" cy="6" r="1" fill="#4a7a38" opacity="0.6"></circle>', 7)])], 8, bEe),
+            }, [...ce[20] || (ce[20] = [dr('<rect width="28" height="28" fill="#2f5226"></rect><rect width="28" height="28" fill="#37602c" opacity="0.5"></rect><path d="M4 26 Q3 18 5 14 M4 26 Q6 19 8 16" stroke="#4a7a38" stroke-width="1.1" fill="none"></path><path d="M16 28 Q15 20 17 15 M16 28 Q18 21 21 17" stroke="#3f6b30" stroke-width="1.1" fill="none"></path><path d="M24 26 Q23 20 25 16" stroke="#54883f" stroke-width="1" fill="none"></path><circle cx="10" cy="8" r="1" fill="#54883f" opacity="0.6"></circle><circle cx="22" cy="6" r="1" fill="#4a7a38" opacity="0.6"></circle>', 7)])], 8, bEe),
             p("pattern", {
               id: C("mat-dirt"),
               width: "36",
               height: "36",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[21] || (ce[21] = [ir('<rect width="36" height="36" fill="#5a4226"></rect><rect width="36" height="36" fill="#634a2c" opacity="0.4"></rect><circle cx="8" cy="10" r="2" fill="#6e5536" opacity="0.7"></circle><circle cx="26" cy="14" r="1.6" fill="#4a3420" opacity="0.8"></circle><circle cx="16" cy="26" r="2.4" fill="#6e5536" opacity="0.6"></circle><circle cx="31" cy="30" r="1.3" fill="#4a3420"></circle><circle cx="4" cy="28" r="1.2" fill="#73593a" opacity="0.6"></circle><path d="M12 6 q4 2 8 1 M20 32 q4 1 8 -1" stroke="#4a3420" stroke-width="0.8" fill="none" opacity="0.5"></path>', 8)])], 8, wEe),
+            }, [...ce[21] || (ce[21] = [dr('<rect width="36" height="36" fill="#5a4226"></rect><rect width="36" height="36" fill="#634a2c" opacity="0.4"></rect><circle cx="8" cy="10" r="2" fill="#6e5536" opacity="0.7"></circle><circle cx="26" cy="14" r="1.6" fill="#4a3420" opacity="0.8"></circle><circle cx="16" cy="26" r="2.4" fill="#6e5536" opacity="0.6"></circle><circle cx="31" cy="30" r="1.3" fill="#4a3420"></circle><circle cx="4" cy="28" r="1.2" fill="#73593a" opacity="0.6"></circle><path d="M12 6 q4 2 8 1 M20 32 q4 1 8 -1" stroke="#4a3420" stroke-width="0.8" fill="none" opacity="0.5"></path>', 8)])], 8, wEe),
             p("pattern", {
               id: C("mat-snow"),
               width: "36",
               height: "36",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[22] || (ce[22] = [ir('<rect width="36" height="36" fill="#dfe7f0"></rect><ellipse cx="12" cy="14" rx="9" ry="6" fill="#c4d2e2" opacity="0.6"></ellipse><ellipse cx="28" cy="26" rx="8" ry="5" fill="#cdd9e8" opacity="0.5"></ellipse><circle cx="6" cy="6" r="1" fill="#fff"></circle><circle cx="22" cy="8" r="1.2" fill="#fff"></circle><circle cx="30" cy="14" r="0.9" fill="#fff"></circle><circle cx="14" cy="28" r="1.1" fill="#fff"></circle><circle cx="32" cy="32" r="0.9" fill="#fff"></circle>', 8)])], 8, SEe),
+            }, [...ce[22] || (ce[22] = [dr('<rect width="36" height="36" fill="#dfe7f0"></rect><ellipse cx="12" cy="14" rx="9" ry="6" fill="#c4d2e2" opacity="0.6"></ellipse><ellipse cx="28" cy="26" rx="8" ry="5" fill="#cdd9e8" opacity="0.5"></ellipse><circle cx="6" cy="6" r="1" fill="#fff"></circle><circle cx="22" cy="8" r="1.2" fill="#fff"></circle><circle cx="30" cy="14" r="0.9" fill="#fff"></circle><circle cx="14" cy="28" r="1.1" fill="#fff"></circle><circle cx="32" cy="32" r="0.9" fill="#fff"></circle>', 8)])], 8, SEe),
             p("pattern", {
               id: C("mat-metal"),
               width: "40",
               height: "40",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[23] || (ce[23] = [ir('<rect width="40" height="40" fill="#3d4148"></rect><path d="M0 5 H40 M0 13 H40 M0 21 H40 M0 29 H40 M0 37 H40" stroke="#4a4f57" stroke-width="0.6" opacity="0.5"></path><path d="M0 2 H40" stroke="#5c626c" stroke-width="0.5" opacity="0.4"></path><rect x="2" y="2" width="36" height="36" rx="3" fill="none" stroke="#2a2d33" stroke-width="2"></rect><circle cx="6" cy="6" r="1.8" fill="#5c626c"></circle><circle cx="34" cy="6" r="1.8" fill="#5c626c"></circle><circle cx="6" cy="34" r="1.8" fill="#5c626c"></circle><circle cx="34" cy="34" r="1.8" fill="#5c626c"></circle><circle cx="6" cy="6" r="0.7" fill="#23262b"></circle><circle cx="34" cy="6" r="0.7" fill="#23262b"></circle>', 10)])], 8, AEe),
+            }, [...ce[23] || (ce[23] = [dr('<rect width="40" height="40" fill="#3d4148"></rect><path d="M0 5 H40 M0 13 H40 M0 21 H40 M0 29 H40 M0 37 H40" stroke="#4a4f57" stroke-width="0.6" opacity="0.5"></path><path d="M0 2 H40" stroke="#5c626c" stroke-width="0.5" opacity="0.4"></path><rect x="2" y="2" width="36" height="36" rx="3" fill="none" stroke="#2a2d33" stroke-width="2"></rect><circle cx="6" cy="6" r="1.8" fill="#5c626c"></circle><circle cx="34" cy="6" r="1.8" fill="#5c626c"></circle><circle cx="6" cy="34" r="1.8" fill="#5c626c"></circle><circle cx="34" cy="34" r="1.8" fill="#5c626c"></circle><circle cx="6" cy="6" r="0.7" fill="#23262b"></circle><circle cx="34" cy="6" r="0.7" fill="#23262b"></circle>', 10)])], 8, AEe),
             p("pattern", {
               id: C("mat-rune"),
               width: "48",
               height: "48",
               patternUnits: "userSpaceOnUse"
-            }, [...ce[24] || (ce[24] = [ir('<rect width="48" height="48" fill="#2a1840"></rect><circle cx="24" cy="24" r="18" fill="none" stroke="#7b4fd0" stroke-width="1" opacity="0.7"></circle><circle cx="24" cy="24" r="12" fill="none" stroke="#9a6ff0" stroke-width="0.8" opacity="0.55"></circle><path d="M24 6 L24 42 M6 24 L42 24 M11 11 L37 37 M37 11 L11 37" stroke="#8a5fe0" stroke-width="0.6" fill="none" opacity="0.4"></path><path d="M24 14 l4 6 l-8 0 z M20 28 l8 0 l-4 6 z" fill="#c9a8ff" opacity="0.6"></path><circle cx="24" cy="24" r="2" fill="#d9c0ff" opacity="0.8"></circle>', 6)])], 8, kEe),
+            }, [...ce[24] || (ce[24] = [dr('<rect width="48" height="48" fill="#2a1840"></rect><circle cx="24" cy="24" r="18" fill="none" stroke="#7b4fd0" stroke-width="1" opacity="0.7"></circle><circle cx="24" cy="24" r="12" fill="none" stroke="#9a6ff0" stroke-width="0.8" opacity="0.55"></circle><path d="M24 6 L24 42 M6 24 L42 24 M11 11 L37 37 M37 11 L11 37" stroke="#8a5fe0" stroke-width="0.6" fill="none" opacity="0.4"></path><path d="M24 14 l4 6 l-8 0 z M20 28 l8 0 l-4 6 z" fill="#c9a8ff" opacity="0.6"></path><circle cx="24" cy="24" r="2" fill="#d9c0ff" opacity="0.8"></circle>', 6)])], 8, kEe),
             p("radialGradient", { id: C("grad-warm") }, [...ce[25] || (ce[25] = [
               p("stop", {
                 offset: "0%",
@@ -65939,7 +65964,7 @@ var KIe = {
           "aria-expanded": M.value,
           title: M.value ? "收起地图更新提示" : "显示地图更新提示",
           "aria-label": "切换地图更新提示",
-          onClick: dr
+          onClick: cr
         }, " ! ", 8, sCe), M.value ? ($(), D("button", {
           key: 0,
           type: "button",
@@ -66709,7 +66734,7 @@ var $xe = { class: "tavern-workspace-panel" }, Lxe = { class: "tavern-workspace-
           He[14] || (He[14] = p("i", { "aria-hidden": "true" }, null, -1))
         ], 10, Gxe),
         p("aside", Jxe, [k(x).length ? ($(), D("label", Yxe, [Un(p("input", {
-          "onUpdate:modelValue": He[11] || (He[11] = (Qe) => /* @__PURE__ */ lr(R) ? R.value = Qe : null),
+          "onUpdate:modelValue": He[11] || (He[11] = (Qe) => /* @__PURE__ */ or(R) ? R.value = Qe : null),
           type: "search",
           placeholder: "检索档案"
         }, null, 512), [[Is, k(R)]])])) : me("", !0), k(x).length ? ($(), D("div", jxe, [($(!0), D(Ge, null, nt(k(w), (Qe) => ($(), D("div", {
@@ -66731,7 +66756,7 @@ var $xe = { class: "tavern-workspace-panel" }, Lxe = { class: "tavern-workspace-
         }, [p("span", tMe, "再显示 " + W(Math.min(Qe.hiddenCount, Qe.key === "turns" ? k(T) : k(C))) + " 个", 1)], 8, eMe)) : me("", !0)])]))), 128)), k(R) && !k(w).length ? ($(), D("p", nMe, " 没有匹配的记忆档案。 ")) : me("", !0)])) : ($(), D("p", rMe, " 还没有记忆档案。 "))]),
         pn(NCe, {
           draft: k(v),
-          "onUpdate:draft": He[12] || (He[12] = (Qe) => /* @__PURE__ */ lr(v) ? v.value = Qe : null),
+          "onUpdate:draft": He[12] || (He[12] = (Qe) => /* @__PURE__ */ or(v) ? v.value = Qe : null),
           "document-available": k(N),
           "read-only": k(E),
           dirty: k(P),
@@ -67478,7 +67503,7 @@ var $xe = { class: "tavern-workspace-panel" }, Lxe = { class: "tavern-workspace-
       }, [...a[3] || (a[3] = [p("svg", {
         viewBox: "0 0 24 24",
         "aria-hidden": "true"
-      }, [p("path", { d: "m6.5 9.25 5.5 5.5 5.5-5.5" }), p("path", { d: "M8.25 18.5h7.5" })], -1)])])
+      }, [p("path", { d: "m7.25 9.25 4.75 4.75 4.75-4.75" })], -1)])])
     ], 2));
   }
 }), vRe = gRe, yRe = { class: "tavern-phone-screen" }, _Re = {
@@ -67844,7 +67869,7 @@ var $xe = { class: "tavern-workspace-panel" }, Lxe = { class: "tavern-workspace-
           title: k(d) ? "切换到白天" : "切换到夜间",
           "aria-label": k(d) ? "切换到白天" : "切换到夜间",
           onClick: ae[1] || (ae[1] = (be) => d.value = !k(d))
-        }, [k(d) ? ($(), D("svg", kRe, [...ae[21] || (ae[21] = [ir('<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>', 9)])])) : ($(), D("span", TRe, "☾"))], 8, ARe),
+        }, [k(d) ? ($(), D("svg", kRe, [...ae[21] || (ae[21] = [dr('<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>', 9)])])) : ($(), D("span", TRe, "☾"))], 8, ARe),
         p("button", {
           type: "button",
           class: "home-icon-button page-home-button",
@@ -70452,22 +70477,22 @@ function w$e(e) {
   function Ec(J) {
     return Mi.value.get(J) ?? -1;
   }
-  function dr() {
+  function cr() {
     return Jr(o.value.promptManager);
   }
   function xa() {
-    return Jr(dr().rawPreset);
+    return Jr(cr().rawPreset);
   }
   function Os() {
-    const J = xa(), ue = dr();
+    const J = xa(), ue = cr();
     return (Array.isArray(J.prompts) ? J.prompts : Array.isArray(ue.prompts) ? ue.prompts : []).map((Se) => Jr(Se)).filter((Se) => String(Se.identifier || Se.id || "").trim());
   }
   function co() {
-    const J = xa(), ue = dr();
+    const J = xa(), ue = cr();
     return (Array.isArray(J.prompt_order) ? J.prompt_order : Array.isArray(ue.promptOrder) ? ue.promptOrder : []).map((Se) => Jr(Se));
   }
   function ol() {
-    const J = dr(), ue = Array.isArray(J.activeOrder) ? J.activeOrder.map((ot) => Jr(ot)) : [];
+    const J = cr(), ue = Array.isArray(J.activeOrder) ? J.activeOrder.map((ot) => Jr(ot)) : [];
     if (ue.length) return ue;
     const Se = String(J.activeCharacterId ?? "").trim();
     if (!Se) return [];
@@ -70475,7 +70500,7 @@ function w$e(e) {
     return Array.isArray(We?.order) ? We.order.map((ot) => Jr(ot)) : [];
   }
   function Ri() {
-    return String(dr().activeCharacterId ?? "").trim();
+    return String(cr().activeCharacterId ?? "").trim();
   }
   function Fs(J = {}, ue = {}) {
     const Se = dh(J);
@@ -70993,7 +71018,7 @@ function w$e(e) {
     }), We.prompts = ot, hg(We);
   }
   function Lf(J) {
-    const ue = So(xa()), Se = dr(), We = co().map((Mt) => ({ ...Mt })), ot = String(Se.activeCharacterId ?? "").trim();
+    const ue = So(xa()), Se = cr(), We = co().map((Mt) => ({ ...Mt })), ot = String(Se.activeCharacterId ?? "").trim();
     if (!ot) {
       d.value = "未读取到当前角色顺序，请刷新后再保存";
       return;
@@ -71548,7 +71573,7 @@ var S$e = ["data-chat-font-size"], A$e = { class: "xb-os-stage" }, k$e = { class
       totalItems: () => Pw.value.length,
       defaultLimit: i,
       loadBatchSize: l
-    }), Ci = Vn.scrollRef, va = Vn.contentRef, xi = pr.scrollRef, Tc = Vn.autoScroll, za = pr.autoScroll, Mi = Vn.showScrollTop, Ic = Vn.showScrollBottom, Zr = Vn.scrollControlsActive, Wr = pr.showScrollTop, Mf = pr.showScrollBottom, au = pr.scrollControlsActive, su = Vn.messageWindowLimit, Ec = pr.messageWindowLimit, dr = /* @__PURE__ */ ie(""), xa = /* @__PURE__ */ ie(""), Os = /* @__PURE__ */ ie(""), co = /* @__PURE__ */ ie(!1), ol = /* @__PURE__ */ ie("history"), Ri = /* @__PURE__ */ ie(""), Fs = /* @__PURE__ */ ie(""), z = /* @__PURE__ */ ie(""), ce = /* @__PURE__ */ ie(""), re = /* @__PURE__ */ ie({}), Ze = /* @__PURE__ */ ie({}), ft = /* @__PURE__ */ ie(null), Ct = /* @__PURE__ */ ie(null), Nt = /* @__PURE__ */ ie(null), Ft = /* @__PURE__ */ ie(null), un = /* @__PURE__ */ ie(null), Rr = /* @__PURE__ */ ie(null), Tn = /* @__PURE__ */ ie(!1), er = X(() => ({
+    }), Ci = Vn.scrollRef, va = Vn.contentRef, xi = pr.scrollRef, Tc = Vn.autoScroll, za = pr.autoScroll, Mi = Vn.showScrollTop, Ic = Vn.showScrollBottom, Zr = Vn.scrollControlsActive, Wr = pr.showScrollTop, Mf = pr.showScrollBottom, au = pr.scrollControlsActive, su = Vn.messageWindowLimit, Ec = pr.messageWindowLimit, cr = /* @__PURE__ */ ie(""), xa = /* @__PURE__ */ ie(""), Os = /* @__PURE__ */ ie(""), co = /* @__PURE__ */ ie(!1), ol = /* @__PURE__ */ ie("history"), Ri = /* @__PURE__ */ ie(""), Fs = /* @__PURE__ */ ie(""), z = /* @__PURE__ */ ie(""), ce = /* @__PURE__ */ ie(""), re = /* @__PURE__ */ ie({}), Ze = /* @__PURE__ */ ie({}), ft = /* @__PURE__ */ ie(null), Ct = /* @__PURE__ */ ie(null), Nt = /* @__PURE__ */ ie(null), Ft = /* @__PURE__ */ ie(null), un = /* @__PURE__ */ ie(null), Rr = /* @__PURE__ */ ie(null), Tn = /* @__PURE__ */ ie(!1), er = X(() => ({
       "--xb-host-main-font-size": h.value,
       "--xb-host-prose-line-height": m.value
     }));
@@ -73321,7 +73346,7 @@ var S$e = ["data-chat-font-size"], A$e = { class: "xb-os-stage" }, k$e = { class
         });
         return;
       }
-      dr.value = "", await wn.selectSession(A);
+      cr.value = "", await wn.selectSession(A);
     }
     async function PK(A, O) {
       if (O?.stopPropagation(), Ma(A)) {
@@ -73509,10 +73534,10 @@ var S$e = ["data-chat-font-size"], A$e = { class: "xb-os-stage" }, k$e = { class
       return yt.value || Ma(A.sessionId) || !["user", "assistant"].includes(A.role) ? !1 : !!_x(A, [...He.value].sort((O, H) => O.order - H.order));
     }
     function wx(A) {
-      return dr.value === oi(A);
+      return cr.value === oi(A);
     }
     function Xf() {
-      return !!dr.value;
+      return !!cr.value;
     }
     function Sx(A) {
       return xa.value === jf(A);
@@ -73587,16 +73612,16 @@ var S$e = ["data-chat-font-size"], A$e = { class: "xb-os-stage" }, k$e = { class
       po(A, "copy", await kx(A.content || ""));
     }
     function ZK(A) {
-      Jw(A) && (xa.value = "", dr.value = oi(A));
+      Jw(A) && (xa.value = "", cr.value = oi(A));
     }
     function e6(A) {
-      Yw(A) && (dr.value = "", xa.value = jf(A), Os.value = A.content || "", $t(() => {
+      Yw(A) && (cr.value = "", xa.value = jf(A), Os.value = A.content || "", $t(() => {
         const O = xi.value?.querySelector(`[data-manager-message-editor="${jf(A)}"]`);
         O && (Xw(O), O.focus(), O.setSelectionRange(O.value.length, O.value.length));
       }));
     }
     function Fi() {
-      xa.value ? xa.value = "" : dr.value = "", Os.value = "", $t(() => {
+      xa.value ? xa.value = "" : cr.value = "", Os.value = "", $t(() => {
         Cc(), xc();
       });
     }
@@ -73636,7 +73661,7 @@ var S$e = ["data-chat-font-size"], A$e = { class: "xb-os-stage" }, k$e = { class
         return;
       }
       if (H === String(A.content || "").trim()) {
-        dr.value === oi(A) && (dr.value = "");
+        cr.value === oi(A) && (cr.value = "");
         return;
       }
       if (ge) {
@@ -73658,7 +73683,7 @@ var S$e = ["data-chat-font-size"], A$e = { class: "xb-os-stage" }, k$e = { class
         _u(A, "edit", !1);
         return;
       }
-      ge && (await q$(A.sessionId, A.order), await H$(A.sessionId, A.order)), Q.value === A.sessionId && (await Lc({ sessionId: A.sessionId }), ge && await Oi(A.sessionId)), dr.value === oi(A) && (dr.value = ""), _u(lt, "edit", !0);
+      ge && (await q$(A.sessionId, A.order), await H$(A.sessionId, A.order)), Q.value === A.sessionId && (await Lc({ sessionId: A.sessionId }), ge && await Oi(A.sessionId)), cr.value === oi(A) && (cr.value = ""), _u(lt, "edit", !0);
     }
     async function Tx(A, O = {}) {
       if (!Yw(A)) return;
@@ -73725,7 +73750,7 @@ var S$e = ["data-chat-font-size"], A$e = { class: "xb-os-stage" }, k$e = { class
       const Tt = await gY(A.sessionId, ge, lt);
       if (!Tt.session) throw new Error("session_missing");
       const zt = Tt.deleted;
-      zt > 0 && await H$(A.sessionId, ge), Q.value === A.sessionId && (Gf(), await Lc({ sessionId: A.sessionId }), await Oi(A.sessionId), zt > 0 && await cx(A.sessionId)), dr.value.startsWith(`${A.sessionId}:`) && Fi(), _u(A, "delete", zt > 0);
+      zt > 0 && await H$(A.sessionId, ge), Q.value === A.sessionId && (Gf(), await Lc({ sessionId: A.sessionId }), await Oi(A.sessionId), zt > 0 && await cx(A.sessionId)), cr.value.startsWith(`${A.sessionId}:`) && Fi(), _u(A, "delete", zt > 0);
     }
     async function o6() {
       yx() && await Ex({ rerollLatestAssistant: !0 });
@@ -74199,7 +74224,7 @@ var S$e = ["data-chat-font-size"], A$e = { class: "xb-os-stage" }, k$e = { class
     }), ut([() => su.value, () => ke.value], () => {
       wn.handleChatMessageWindowStateChanged();
     }), ut(() => Q.value, (A, O) => {
-      O && O !== A && (dr.value.startsWith(`${O}:`) && (dr.value = ""), ft.value?.abort(), nh(), zn.value = null, eS(O), Oc(O), jw(O), xa.value.startsWith(`manager:${O}:`) && Fi(), ze.value = ""), Gf(), Eg(), Tc.value = !0, za.value = !0, pa.value = "", Ca.value = {}, $t(() => {
+      O && O !== A && (cr.value.startsWith(`${O}:`) && (cr.value = ""), ft.value?.abort(), nh(), zn.value = null, eS(O), Oc(O), jw(O), xa.value.startsWith(`manager:${O}:`) && Fi(), ze.value = ""), Gf(), Eg(), Tc.value = !0, za.value = !0, pa.value = "", Ca.value = {}, $t(() => {
         eh(), th(!0);
       });
     }), ut([

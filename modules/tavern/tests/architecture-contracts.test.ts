@@ -1334,7 +1334,9 @@ test('tavern phone OS drives registered apps through a generic definition contra
     const systemNavigationSource = readRepoFile('modules/tavern/app-src/components/phone-os/TavernPhoneSystemNavigation.vue');
     const messagesAppSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesApp.vue');
     const messagesThreadListSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesThreadList.vue');
+    const messagesIconSource = readRepoFile('modules/tavern/app-src/components/phone-os/apps/messages/TavernMessagesIcon.vue');
     const viewportSource = readRepoFile('modules/tavern/app-src/features/phone-os/useTavernPhoneViewport.ts');
+    const homeStyleSource = readRepoFile('modules/tavern/app-src/styles/phone-os/home.css');
     const shellSource = readRepoFile('modules/tavern/app-src/styles/phone-os/shell.css');
     const mobileSource = readRepoFile('modules/tavern/app-src/styles/phone-os/mobile.css');
 
@@ -1406,6 +1408,11 @@ test('tavern phone OS drives registered apps through a generic definition contra
     assert.match(overlaySource, /<TavernPhoneSystemNavigation[\s\S]*@home="phone\.os\.home"[\s\S]*@close="phone\.os\.closePhone"/);
     assert.match(shellSource, /\.tavern-phone-system-navigation \{[\s\S]*height: 54px;[\s\S]*grid-template-columns: 44px minmax\(0, 1fr\) 44px;/);
     assert.match(shellSource, /\.tavern-phone-dismiss-control \{[\s\S]*width: 44px;[\s\S]*height: 44px;/);
+    assert.match(shellSource, /\.tavern-phone-dismiss-control::before \{[\s\S]*width: 30px;[\s\S]*height: 30px;[\s\S]*border-radius: 50%;/);
+    assert.match(mobileSource, /\.tavern-phone-device\.is-mobile-fullscreen \.tavern-phone-dismiss-control::before \{[\s\S]*width: 28px;[\s\S]*height: 28px;/);
+    assert.match(messagesIconSource, /tavern-phone-messages-icon-shell[\s\S]*tavern-phone-messages-icon-line/);
+    assert.doesNotMatch(messagesIconSource, /tavern-phone-messages-icon-back|tavern-phone-messages-icon-front/);
+    assert.match(homeStyleSource, /\.tavern-phone-app-icon-art \{[\s\S]*width: 39px;[\s\S]*height: 39px;/);
     assert.doesNotMatch(shellSource, /tavern-phone-system-close/);
     assert.match(messagesAppSource, /TavernMessagesThreadList/);
     assert.match(messagesAppSource, /TavernMessagesConversation/);
