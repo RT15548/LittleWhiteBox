@@ -10,6 +10,7 @@ import {
     isAutoManagerToolAllowed,
     resolveTavernAutoManagerToolPolicy,
 } from '../app-src/runtime/contract-policy';
+import { TAVERN_TASK_TOOL_NAMES } from '../shared/tasks/task-tools';
 
 test('tavern contract runtime resolves module capabilities without leaking reserved toggles', () => {
     const memoryOnly = resolveTavernSessionContractRuntime(mergeTavernSessionContract(undefined, {
@@ -128,13 +129,22 @@ test('tavern auto manager tool policy keeps read tools and module-specific write
         cartographyEngine: false,
         statusPanel: false,
     }));
-    assert.deepEqual(disabled.allowedToolNames, ['LS', 'Grep', 'Read', 'web_search']);
+    assert.deepEqual(disabled.allowedToolNames, [
+        'LS',
+        'Grep',
+        'Read',
+        'web_search',
+        ...Object.values(TAVERN_TASK_TOOL_NAMES),
+    ]);
     assert.equal(isAutoManagerToolAllowed('Write', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('MapPatch', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('MapSceneEdit', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('StatusPatch', disabled.runtime.contract), false);
     assert.equal(isAutoManagerToolAllowed('Read', disabled.runtime.contract), true);
     assert.equal(isAutoManagerToolAllowed('web_search', disabled.runtime.contract), true);
+    Object.values(TAVERN_TASK_TOOL_NAMES).forEach((toolName) => {
+        assert.equal(isAutoManagerToolAllowed(toolName, disabled.runtime.contract), true);
+    });
 
     const memoryDenied = buildDeniedAutoManagerToolResult('Write', disabled.runtime.contract);
     assert.equal(memoryDenied.ok, false);

@@ -9,6 +9,7 @@ import {
     type TavernPhoneControllerOptions,
 } from './apps/messages/useTavernMessagesController';
 import { useTavernWalletController } from './apps/wallet/useTavernWalletController';
+import { useTavernTasksController } from './apps/tasks/useTavernTasksController';
 
 const MESSAGES_THREADS_PATH = '/threads';
 const WALLET_LEDGER_PATH = '/ledger';
@@ -28,8 +29,18 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
     const wallet = useTavernWalletController({
         selectedSessionId: options.selectedSessionId,
     });
+    const tasks = useTavernTasksController({
+        selectedSessionId: options.selectedSessionId,
+        effectiveContext: options.effectiveContext,
+        agentConfig: options.agentConfig,
+        chatRunning: options.chatRunning,
+        chatCancelling: options.chatCancelling,
+        memoryEditorMode: options.memoryEditorMode,
+        characterArchiveBusy: options.characterArchiveBusy,
+        onEconomyChanged: wallet.refreshBalance,
+    });
     os = useTavernPhoneOsController({
-        apps: createTavernPhoneAppRegistry({ messages, wallet }),
+        apps: createTavernPhoneAppRegistry({ messages, wallet, tasks }),
         selectedSessionId: options.selectedSessionId,
     });
 
@@ -81,6 +92,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         openWallet,
         os,
         showMessageThreads,
+        tasks,
         wallet,
     };
 }

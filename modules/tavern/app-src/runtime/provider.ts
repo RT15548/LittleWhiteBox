@@ -1,4 +1,12 @@
+import { normalizeAgentConfig } from '../../../agent-core/config.js';
 import { resolveActiveProviderConfig } from '../../../agent-core/provider-config.js';
+
+export type XbTavernProviderRole = 'main' | 'delegate';
+
+export interface XbTavernProviderResolveOptions {
+    role?: XbTavernProviderRole;
+    timeoutMs?: number;
+}
 
 export interface XbTavernResolvedProvider {
     currentPresetName: string;
@@ -38,9 +46,34 @@ export function getXbTavernProviderLabel(provider = ''): string {
     return PROVIDER_LABELS[provider] || provider || '未配置';
 }
 
-export function resolveXbTavernProviderConfig(agentConfig: Record<string, unknown> = {}): XbTavernResolvedProvider {
-    const providerConfig = resolveActiveProviderConfig(agentConfig || {}, {
-        timeoutMs: 15 * 60 * 1000,
+export function resolveXbTavernProviderConfig(
+    agentConfig: Record<string, unknown> = {},
+    options: XbTavernProviderResolveOptions = {},
+): XbTavernResolvedProvider {
+    const role = options.role === 'delegate' ? 'delegate' : 'main';
+    const normalizedAgentConfig = normalizeAgentConfig(agentConfig || {});
+    if (role === 'delegate' && normalizedAgentConfig.delegateConfigured !== true) {
+        return {
+            currentPresetName: String(normalizedAgentConfig.delegatePresetName || ''),
+            provider: '',
+            providerLabel: getXbTavernProviderLabel(''),
+            baseUrl: '',
+            model: '',
+            apiKey: '',
+            temperature: 0.2,
+            maxTokens: null,
+            timeoutMs: Number(options.timeoutMs) || 15 * 60 * 1000,
+            toolMode: 'native',
+            readiness: {
+                ok: false,
+                missing: ['分身模型'],
+                message: '请先在 API 配置里配置分身模型。',
+            },
+        };
+    }
+    const providerConfig = resolveActiveProviderConfig(normalizedAgentConfig, {
+        ...(role === 'delegate' ? { role: 'delegate' as const } : {}),
+        timeoutMs: Number(options.timeoutMs) || 15 * 60 * 1000,
     });
     const provider = String(providerConfig.provider || '');
     const model = String(providerConfig.model || '').trim();
@@ -49,7 +82,9 @@ export function resolveXbTavernProviderConfig(agentConfig: Record<string, unknow
     if (!model) {missing.push('模型');}
     if (!isSillyTavernProvider(provider) && !apiKey) {missing.push('API Key');}
     const message = missing.length
-        ? `请先在 API 配置里选择模型/填写 Key：缺少 ${missing.join('、')}`
+        ? role === 'delegate'
+            ? `请先在 API 配置里配置分身模型：缺少 ${missing.join('、')}`
+            : `请先在 API 配置里选择模型/填写 Key：缺少 ${missing.join('、')}`
         : 'API 配置可用';
     return {
         currentPresetName: String(providerConfig.currentPresetName || ''),
@@ -72,8 +107,11 @@ export function resolveXbTavernProviderConfig(agentConfig: Record<string, unknow
     };
 }
 
-export function assertXbTavernProviderReady(agentConfig: Record<string, unknown> = {}): XbTavernResolvedProvider {
-    const resolved = resolveXbTavernProviderConfig(agentConfig);
+export function assertXbTavernProviderReady(
+    agentConfig: Record<string, unknown> = {},
+    options: XbTavernProviderResolveOptions = {},
+): XbTavernResolvedProvider {
+    const resolved = resolveXbTavernProviderConfig(agentConfig, options);
     if (!resolved.readiness.ok) {
         throw new Error(resolved.readiness.message);
     }

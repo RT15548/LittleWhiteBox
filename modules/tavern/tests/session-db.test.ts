@@ -56,6 +56,8 @@ import db, {
     tavernManagerMemorySnapshotsTable,
     tavernAssistantChatMessagesTable as tavernManagerMessagesTable,
     tavernCommunicationSnapshotsTable,
+    tavernEconomyAccountsTable,
+    tavernEconomyTransactionsTable,
     tavernManagerRunsTable,
     tavernManagerStateSnapshotsTable,
     tavernMemoryFilesTable,
@@ -66,6 +68,7 @@ import db, {
     tavernStatePatchesTable,
     tavernStatusSnapshotsTable,
     tavernSessionsTable,
+    tavernTaskVersionsTable,
     touchRunningTavernManagerRun,
     truncateTavernMessagesAndReplaceSessionState,
     updateTavernAssistantChatMessage as updateTavernManagerMessage,
@@ -144,11 +147,66 @@ import {
     saveAcceptedStateSnapshot,
 } from '../shared/accepted-state';
 import { retrieveXbTavernMemoryContext } from '../shared/memory-retrieval';
+import { replaceTavernTaskBoard } from '../shared/tasks/task-board';
+import {
+    acceptTavernTaskListing,
+    getCurrentTavernTask,
+    getTavernTaskPlayerBalance,
+} from '../shared/tasks/task-service';
+import { TAVERN_TASK_TOOL_NAMES } from '../shared/tasks/task-tools';
+import type { TavernTaskListing, TavernTaskVersionRecord } from '../shared/tasks/task-types';
 import * as looseToolArgumentsModule from '../../agent-core/runtime/loose-tool-arguments.js';
 
 const { repairLooseToolArguments } = looseToolArgumentsModule as unknown as {
     repairLooseToolArguments: (text: string, toolName?: string) => string;
 };
+
+function managerTaskListings(): TavernTaskListing[] {
+    const rows = [
+        ['E', 10],
+        ['D', 25],
+        ['C', 60],
+        ['B', 180],
+        ['A', 400],
+        ['S', 900],
+    ] as const;
+    return rows.map(([grade, reward], index) => ({
+        id: `manager-listing-${index + 1}`,
+        grade,
+        tags: [`manager-tag-${index + 1}`],
+        title: `自动维护委托 ${index + 1}`,
+        issuer: {
+            id: `manager-issuer-${index + 1}`,
+            name: `陌生发布者 ${index + 1}`,
+            description: `发布者描述 ${index + 1}`,
+        },
+        hook: `异常钩子 ${index + 1}`,
+        objective: `完成自动维护目标 ${index + 1}`,
+        location: `地点 ${index + 1}`,
+        risk: `风险 ${index + 1}`,
+        reward,
+    }));
+}
+
+async function createAcceptedManagerTask(sessionId: string, suffix: string): Promise<TavernTaskVersionRecord> {
+    const board = await replaceTavernTaskBoard({
+        sessionId,
+        expectedRevision: 0,
+        anchorOrder: -1,
+        generationId: `manager-board-${suffix}`,
+        listings: managerTaskListings(),
+    });
+    return await acceptTavernTaskListing({
+        sessionId,
+        boardId: board.generationId,
+        boardRevision: board.revision,
+        listingId: board.listings[2].id,
+        anchorOrder: -1,
+        actionId: `manager-accept-${suffix}`,
+        taskId: `manager-task-${suffix}`,
+        playerName: '测试玩家',
+    });
+}
 
 test('tavern session db stores independent sessions and messages', async () => {
     await db.delete();
@@ -673,6 +731,163 @@ test('accepted-turn completion snapshots only the run delta and atomically relea
     const nextClaim = await claimNextQueuedAcceptedTurnManagerRun(session.id, { leaseOwnerId: 'other-tab' });
     assert.equal(nextClaim?.assistantOrder, laterAssistant.order);
     await updateTavernManagerRun(nextClaim?.id || '', { status: 'failed', leaseOwnerId: '', leaseExpiresAt: 0 });
+});
+
+test('accepted task completion stays staged until manager acceptance atomically settles the escrow', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Atomic accepted task settlement' });
+    const task = await createAcceptedManagerTask(session.id, 'success');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '我把目标完整交给了发布者。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '发布者验收后确认委托完成。' });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    let round = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async (options) => {
+            round += 1;
+            if (round === 1) {
+                assert.equal((options.tools || []).some((tool) => (
+                    (tool as { function?: { name?: string } }).function?.name === TAVERN_TASK_TOOL_NAMES.COMPLETE
+                )), true);
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'complete-formal-task',
+                        name: TAVERN_TASK_TOOL_NAMES.COMPLETE,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision,
+                            resultSummary: '发布者已验收目标并确认交付。',
+                        },
+                    }],
+                };
+            }
+            return { text: '正式任务已确认完成。' };
+        },
+    });
+
+    assert.equal(result?.ok, true);
+    assert.equal(result?.managerRun.status, 'running');
+    assert.equal(result?.stagedTaskActions?.length, 1);
+    assert.deepEqual(result?.changedStates, []);
+    assert.deepEqual(result?.managerRun.changedStates, []);
+    assert.equal((await getCurrentTavernTask(session.id, task.taskId))?.status, 'active');
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, task.escrowAccountId]))?.balance, task.reward);
+    const transactionCountBefore = await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count();
+    assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 1);
+
+    await tavernSessionsTable.update(session.id, { updatedAt: 1 });
+    const completed = await completeAcceptedTurnManagerRunWithSnapshot({
+        sessionId: session.id,
+        managerRunId: result?.managerRun.id || '',
+        floor: assistant.order,
+        domains: [],
+        stagedTaskActions: result?.stagedTaskActions,
+        leaseOwnerId: String(result?.managerRun.leaseOwnerId || ''),
+    });
+    const settled = await getCurrentTavernTask(session.id, task.taskId);
+
+    assert.equal(completed.status, 'completed');
+    assert.equal(settled?.status, 'completed');
+    assert.equal(settled?.revision, 2);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100 + task.reward);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, task.escrowAccountId]))?.balance, 0);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), transactionCountBefore + 1);
+    assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 2);
+    assert.ok(Number((await getTavernSession(session.id))?.updatedAt) > 1);
+});
+
+test('accepted snapshot conflict rolls back a staged task settlement and its ledger write', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Rejected accepted task settlement' });
+    const task = await createAcceptedManagerTask(session.id, 'snapshot-conflict');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '我声称已经完成目标。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '发布者在现场完成了验收。' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n验收前。', { source: 'user' });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    let round = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: {},
+        executeManagerOnce: async () => {
+            round += 1;
+            if (round === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'complete-before-conflict',
+                        name: TAVERN_TASK_TOOL_NAMES.COMPLETE,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision,
+                            resultSummary: '现场验收已经完成。',
+                        },
+                    }, {
+                        id: 'write-before-conflict',
+                        name: 'Write',
+                        arguments: {
+                            filePath: 'memory/state.md',
+                            content: '# 会话记忆\n\n管理员记录了验收。',
+                        },
+                    }],
+                };
+            }
+            return { text: '验收记录与任务结算均已暂存。' };
+        },
+    });
+    assert.equal(result?.ok, true);
+    assert.equal(result?.managerRun.status, 'running');
+    assert.equal(result?.stagedTaskActions?.length, 1);
+    const transactionCountBefore = await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count();
+
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n另一处并发修改。', { source: 'user' });
+    await assert.rejects(completeAcceptedTurnManagerRunWithSnapshot({
+        sessionId: session.id,
+        managerRunId: result?.managerRun.id || '',
+        floor: assistant.order,
+        domains: ['memory'],
+        stagedTaskActions: result?.stagedTaskActions,
+        leaseOwnerId: String(result?.managerRun.leaseOwnerId || ''),
+    }), /manager_resource_revision_conflict:memory\/memory\/state\.md/);
+
+    const current = await getCurrentTavernTask(session.id, task.taskId);
+    assert.equal(current?.status, 'active');
+    assert.equal(current?.revision, 1);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, task.escrowAccountId]))?.balance, task.reward);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), transactionCountBefore);
+    assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 1);
+    assert.equal((await tavernManagerRunsTable.get(result?.managerRun.id || ''))?.status, 'running');
 });
 
 test('a confirmed manager pair refuses an explicit later edit of its own source message', async () => {
@@ -6511,6 +6726,13 @@ test('rollback impact reports status-only manager writes as state rollback', asy
         memory: { changed: false, currentFileCount: 0, targetFileCount: 0, changedPaths: [] },
         status: { changed: true, currentExists: true, targetExists: false },
         communications: { changed: false, currentMessageCount: 0, targetMessageCount: 0 },
+        tasks: {
+            changed: false,
+            targetFloor: assistantMessage.order - 1,
+            deletedVersionCount: 0,
+            affectedTaskCount: 0,
+            clearedBoard: false,
+        },
         economy: {
             changed: false,
             targetFloor: assistantMessage.order - 1,

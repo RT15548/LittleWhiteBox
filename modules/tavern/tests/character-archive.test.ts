@@ -27,6 +27,8 @@ import db, {
     tavernStatePatchesTable,
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
+    tavernTaskBoardsTable,
+    tavernTaskVersionsTable,
 } from '../shared/session-db';
 import {
     exportTavernCharacterArchive,
@@ -58,6 +60,12 @@ import {
     TAVERN_PLAYER_ACCOUNT_ID,
     TAVERN_SYSTEM_SINK_ACCOUNT_ID,
 } from '../shared/economy/economy-types';
+import { replaceTavernTaskBoard } from '../shared/tasks/task-board';
+import {
+    publishTavernTask,
+    updateTavernTaskCandidates,
+} from '../shared/tasks/task-service';
+import { TAVERN_TASK_CURRENT_MARKER } from '../shared/tasks/task-types';
 import {
     appendSentTavernCommunicationMessage,
     completeTavernCommunicationReply,
@@ -87,6 +95,68 @@ async function spendArchiveWallet(sessionId: string, idempotencyKey: string, amo
         sourceDomain: 'test',
         sourceId: idempotencyKey,
         anchorOrder,
+    });
+}
+
+async function seedArchiveTasks(sessionId: string, prefix = 'archive') {
+    const generationId = `${prefix}-board-1`;
+    const taskId = `${prefix}-published-task`;
+    const listingBlueprints = [
+        ['E', 10, '替钟表匠送一枚停摆齿轮'],
+        ['D', 30, '查清夜班渡船少掉的一名乘客'],
+        ['C', 80, '护送一箱会模仿哭声的矿石'],
+        ['B', 180, '替死人签收一只封蜡箱'],
+        ['A', 420, '从无主领馆取回失踪印玺'],
+        ['S', 900, '阻止天空列车驶入废弃站台'],
+    ] as const;
+    await replaceTavernTaskBoard({
+        sessionId,
+        generationId,
+        expectedRevision: 0,
+        anchorOrder: 23,
+        listings: listingBlueprints.map(([grade, reward, title], index) => ({
+            id: `${prefix}-listing-${index + 1}`,
+            grade,
+            tags: index % 2 ? ['调查'] : ['委托'],
+            title,
+            issuer: {
+                id: `${prefix}-issuer-${index + 1}`,
+                name: `陌生委托人 ${index + 1}`,
+                description: '只在地下委托终端留下单向联络暗号。',
+            },
+            hook: '委托表面简单，但有一条刻意被遮住的附注。',
+            objective: `完成第 ${index + 1} 项可执行目标并带回可信结果。`,
+            location: `旧城区 ${index + 1} 号节点`,
+            risk: '不得把委托内容交给无关人物。',
+            reward,
+        })),
+        generatedAt: 20,
+    });
+    const published = await publishTavernTask({
+        sessionId,
+        taskId,
+        actionId: `${prefix}-publish-action`,
+        title: '寻找不留下倒影的向导',
+        objective: '带领委托人穿过镜廊并确认出口仍然存在。',
+        requirements: '不得破坏镜廊内的任何镜面。',
+        location: '北门镜廊',
+        risk: '向导可能在途中失去自己的倒影。',
+        reward: 60,
+        grade: 'CUSTOM',
+        tags: ['公开招募', '向导'],
+        anchorOrder: 23,
+    });
+    await updateTavernTaskCandidates({
+        sessionId,
+        taskId,
+        expectedRevision: published.revision,
+        actionId: `${prefix}-candidate-action`,
+        candidates: [
+            { id: `${prefix}-candidate-1`, name: '弥娅', description: '被协会除名的前遗物鉴定师', pitch: '她声称不需要进入目标建筑。', capability: '远程鉴定与伪造手续', risk: '拒绝解释自己为何认识保管人' },
+            { id: `${prefix}-candidate-2`, name: '壳匠', description: '以替身机关代替本人行动的工匠', pitch: '愿意先交一具试作替身。', capability: '机关侦察与危险路径试探', risk: '替身偶尔会隐瞒见闻' },
+            { id: `${prefix}-candidate-3`, name: '无灯修女', description: '从不携带光源的地下引路人', pitch: '她熟悉镜廊关闭后的第二条路。', capability: '黑暗环境导航与异常规避', risk: '要求带走途中发现的一件无名遗物' },
+        ],
+        anchorOrder: 24,
     });
 }
 
@@ -260,6 +330,8 @@ async function seedArchiveSource() {
         payload: { type: 'text', text: 'phone interrupted' },
     });
     await saveTavernCommunicationSnapshot(a1.id, 1);
+    await seedArchiveTasks(a1.id);
+    await seedArchiveTasks(b1.id, 'other-character');
     await tavernSessionsTable.update(a1.id, { updatedAt: 1000 });
     await tavernSessionsTable.update(a2.id, { updatedAt: 3000 });
     await tavernSessionsTable.update(b1.id, { updatedAt: 4000 });
@@ -319,7 +391,8 @@ test('tavern character archive backup includes only the current character and cr
     assert.equal(manifest.counts.memoryFiles, 1);
     assert.equal(manifest.counts.stateDocuments, 5);
     assert.equal(manifest.counts.communications, 6);
-    assert.equal(manifest.counts.economy, 10);
+    assert.equal(manifest.counts.economy, 12);
+    assert.equal(manifest.counts.tasks, 3);
     assert(uploadedParts.every((part) => part.filename.includes('_archive-test_part_')));
     assert(!records.some((row) => JSON.stringify(row.record).includes('char-b')));
     assert(!records.some((row) => JSON.stringify(row.record).includes('b-session-1')));
@@ -327,8 +400,14 @@ test('tavern character archive backup includes only the current character and cr
     assert(records.some((row) => row.table === 'communicationThreads'));
     assert(records.some((row) => row.table === 'communicationMessages'));
     assert(records.some((row) => row.table === 'communicationSnapshots'));
-    assert.equal(records.filter((row) => row.table === 'economyAccounts').length, 6);
-    assert.equal(records.filter((row) => row.table === 'economyTransactions').length, 4);
+    assert.equal(records.filter((row) => row.table === 'economyAccounts').length, 7);
+    assert.equal(records.filter((row) => row.table === 'economyTransactions').length, 5);
+    assert.equal(records.filter((row) => row.table === 'taskBoards').length, 1);
+    assert.equal(records.filter((row) => row.table === 'taskVersions').length, 2);
+    assert.equal(
+        (records.find((row) => row.table === 'taskVersions' && Number((row.record as { revision?: number }).revision) === 2)?.record as { candidates?: unknown[] } | undefined)?.candidates?.length,
+        3,
+    );
 });
 
 test('tavern character archive refuses every session when another tab has an unaccepted manager write', async () => {
@@ -536,27 +615,53 @@ test('tavern character archive restore replaces only the current character and r
         ],
     );
     assert.equal(restoredPhoneThreads[0]?.replyRequest?.status, 'failed');
-    assert.equal((await tavernEconomyAccountsTable.get([restoredA1, TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 85);
+    assert.equal((await tavernEconomyAccountsTable.get([restoredA1, TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 25);
     assert.equal((await tavernEconomyAccountsTable.get([restoredA2, TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 95);
-    assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals(restoredA1).count(), 3);
-    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(restoredA1).count(), 2);
+    assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals(restoredA1).count(), 4);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(restoredA1).count(), 3);
     assert.equal((await tavernEconomyTransactionsTable.where('[sessionId+idempotencyKey]').equals([
         restoredA1,
         'archive:a1-spend',
     ]).toArray())[0]?.sourceId, 'archive:a1-spend');
+    const restoredTaskBoard = await tavernTaskBoardsTable.get(restoredA1);
+    const restoredTaskVersions = await tavernTaskVersionsTable.where('sessionId').equals(restoredA1).toArray();
+    assert.equal(restoredTaskBoard?.generationId, 'archive-board-1');
+    assert.equal(restoredTaskBoard?.listings.length, 6);
+    assert.equal(restoredTaskBoard?.listings[3]?.title, '替死人签收一只封蜡箱');
+    assert.equal(restoredTaskVersions.length, 2);
+    assert.equal(restoredTaskVersions.find((version) => version.currentMarker === TAVERN_TASK_CURRENT_MARKER)?.revision, 2);
+    const restoredCurrentTask = restoredTaskVersions.find((version) => version.currentMarker === TAVERN_TASK_CURRENT_MARKER);
+    const restoredEscrow = await tavernEconomyAccountsTable.get([restoredA1, restoredCurrentTask?.escrowAccountId || '']);
+    assert.equal(restoredEscrow?.kind, 'escrow');
+    assert.equal(restoredEscrow?.balance, 60);
+    const restoredTaskFundingRows = await tavernEconomyTransactionsTable
+        .where('sessionId')
+        .equals(restoredA1)
+        .toArray();
+    assert.equal(restoredTaskFundingRows.filter((transaction) => transaction.kind === 'task_escrow').length, 1);
+    const restoredTaskFunding = restoredTaskFundingRows.find((transaction) => transaction.kind === 'task_escrow');
+    assert.equal(restoredTaskFunding?.sourceDomain, 'tasks');
+    assert.equal(restoredTaskFunding?.sourceId, restoredCurrentTask?.taskId);
+    assert.equal(restoredTaskFunding?.fromAccountId, TAVERN_PLAYER_ACCOUNT_ID);
+    assert.equal(restoredTaskFunding?.toAccountId, restoredCurrentTask?.escrowAccountId);
+    assert.equal(restoredTaskFunding?.amount, restoredCurrentTask?.reward);
+    assert.deepEqual(
+        restoredTaskVersions.find((version) => version.revision === 2)?.candidates.map((candidate) => candidate.name),
+        ['弥娅', '壳匠', '无灯修女'],
+    );
     assert.equal(await getSelectedTavernSessionId(), restoredA2);
     assert.equal(result.selectedSessionId, restoredA2);
 });
 
-test('tavern character archive accepts only the current v3 protocol', async () => {
+test('tavern character archive accepts only the current v4 protocol', async () => {
     await seedArchiveSource();
     const { manifest, records } = await buildArchive('char-a', 500);
-    const retiredV2Manifest = {
+    const retiredV3Manifest = {
         ...manifest,
-        version: 2,
+        version: 3,
     } as unknown as TavernCharacterArchiveManifest;
 
-    await assert.rejects(restoreFromRecords(retiredV2Manifest, records), /archive_version_unsupported:2/);
+    await assert.rejects(restoreFromRecords(retiredV3Manifest, records), /archive_version_unsupported:3/);
 });
 
 test('tavern character archive rejects live manager records instead of restoring partial writes', async () => {
@@ -675,6 +780,7 @@ test('tavern character archive cleans session-scoped temp rows that have no rest
             stateDocuments: 0,
             communications: 0,
             economy: 1,
+            tasks: 0,
         },
         parts: [{
             ...manifest.parts[0],
@@ -725,6 +831,7 @@ test('tavern character archive can restore an empty archive by clearing only the
             stateDocuments: 0,
             communications: 0,
             economy: 0,
+            tasks: 0,
         },
         parts: [],
     };

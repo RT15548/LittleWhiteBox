@@ -19,6 +19,8 @@ import db, {
     tavernCommunicationThreadsTable,
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
+    tavernTaskBoardsTable,
+    tavernTaskVersionsTable,
     TAVERN_COMMUNICATION_REPLY_INTERRUPTED_ERROR,
     type TavernCommunicationSnapshotRecord,
     type TavernCommunicationThreadRecord,
@@ -56,6 +58,7 @@ const ARCHIVE_COUNT_FIELDS = [
     'stateDocuments',
     'communications',
     'economy',
+    'tasks',
 ] as const satisfies readonly (keyof TavernCharacterArchiveCounts)[];
 const ARCHIVE_TABLE_NAMES = new Set<string>(TAVERN_CHARACTER_ARCHIVE_TABLES);
 
@@ -104,6 +107,8 @@ const archiveTables: ArchiveTableMap = {
     communicationSnapshots: { table: tavernCommunicationSnapshotsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     economyAccounts: { table: tavernEconomyAccountsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
     economyTransactions: { table: tavernEconomyTransactionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    taskBoards: { table: tavernTaskBoardsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
+    taskVersions: { table: tavernTaskVersionsTable as unknown as ArchiveRuntimeTable, sessionIndex: 'sessionId' },
 };
 
 function now(): number {
@@ -138,6 +143,7 @@ function incrementArchiveCounts(counts: TavernCharacterArchiveCounts, table: Tav
     if (table === 'stateDocuments') {counts.stateDocuments += 1;}
     if (table.startsWith('communication')) {counts.communications = (Number(counts.communications) || 0) + 1;}
     if (table.startsWith('economy')) {counts.economy += 1;}
+    if (table.startsWith('task')) {counts.tasks += 1;}
 }
 
 function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
@@ -147,7 +153,8 @@ function totalManifestCount(manifest: TavernCharacterArchiveManifest): number {
         + (Number(counts.memoryFiles) || 0)
         + (Number(counts.stateDocuments) || 0)
         + (Number(counts.communications) || 0)
-        + (Number(counts.economy) || 0);
+        + (Number(counts.economy) || 0)
+        + (Number(counts.tasks) || 0);
 }
 
 type CapturedCharacterArchiveSession = {
@@ -191,6 +198,8 @@ async function captureCharacterArchiveSession(sessionId = ''): Promise<CapturedC
         tavernCommunicationSnapshotsTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
+        tavernTaskBoardsTable,
+        tavernTaskVersionsTable,
         async () => {
             const session = await tavernSessionsTable.get(id);
             if (!session) {throw new Error('archive_session_missing');}
@@ -678,6 +687,8 @@ async function writeArchiveRecordBatch(batch: TavernCharacterArchiveRecord[]): P
         tavernCommunicationSnapshotsTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
+        tavernTaskBoardsTable,
+        tavernTaskVersionsTable,
         async () => {
             for (const table of TAVERN_CHARACTER_ARCHIVE_TABLES) {
                 const rows = batch.filter((record) => record.table === table).map((record) => record.record);
@@ -713,6 +724,8 @@ async function promoteTempArchiveToCharacter(tempCharacterKey = '', characterKey
         tavernCommunicationSnapshotsTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
+        tavernTaskBoardsTable,
+        tavernTaskVersionsTable,
         tavernMetaTable,
         async () => {
             const tempSessionCount = await tavernSessionsTable.where('characterKey').equals(tempCharacterKey).count();

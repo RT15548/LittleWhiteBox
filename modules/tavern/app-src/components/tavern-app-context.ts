@@ -51,6 +51,13 @@ import type {
     TavernMessageImageState,
     TavernMessageVoiceState,
 } from '../features/phone-os/apps/messages/tavern-message-media';
+import type { TavernTaskPublishDraft } from '../features/phone-os/apps/tasks/useTavernTasksController';
+import type {
+    TavernTaskBoardRecord,
+    TavernTaskCandidate,
+    TavernTaskListing,
+    TavernTaskVersionRecord,
+} from '../../shared/tasks/task-types';
 export type { TavernDisplaySettings, TavernUserOption } from '../../shared/settings';
 
 export type TavernReadable<T> = Ref<T> | ComputedRef<T>;
@@ -490,6 +497,46 @@ export interface TavernWalletContext {
     transactions: Ref<TavernEconomyTransactionRecord[]>;
 }
 
+export interface TavernTasksContext {
+    acceptListing: TavernCommand<[listing: TavernTaskListing], Promise<TavernTaskVersionRecord | null>>;
+    actionError: Ref<string>;
+    actionKey: Ref<string>;
+    activeTasks: TavernReadable<TavernTaskVersionRecord[]>;
+    board: Ref<TavernTaskBoardRecord | null>;
+    boardError: Ref<string>;
+    boardRefreshing: Ref<boolean>;
+    cancelTransientRequests: TavernCommand;
+    candidateError: Ref<string>;
+    candidateTaskId: Ref<string>;
+    dataError: Ref<string>;
+    dataLoading: Ref<boolean>;
+    historyTasks: TavernReadable<TavernTaskVersionRecord[]>;
+    interactionBlockedReason: TavernReadable<string>;
+    isListingAccepted: TavernCommand<[listing: TavernTaskListing], boolean>;
+    loadMoreTaskTimeline: TavernCommand<[], Promise<void>>;
+    loadTaskDetail: TavernCommand<[taskId?: string, reset?: boolean], Promise<void>>;
+    prepareTasks: TavernCommand<[], Promise<void>>;
+    publishDraft: Ref<TavernTaskPublishDraft>;
+    publishDraftTask: TavernCommand<[], Promise<TavernTaskVersionRecord | null>>;
+    publishedTasks: TavernReadable<TavernTaskVersionRecord[]>;
+    recruitTaskCandidates: TavernCommand<[task: TavernTaskVersionRecord], Promise<TavernTaskVersionRecord | null>>;
+    refreshTaskBoard: TavernCommand<[], Promise<void>>;
+    refreshTaskData: TavernCommand<[], Promise<void>>;
+    selectedTask: Ref<TavernTaskVersionRecord | null>;
+    selectCandidate: TavernCommand<[
+        task: TavernTaskVersionRecord,
+        candidate: TavernTaskCandidate,
+    ], Promise<TavernTaskVersionRecord | null>>;
+    taskById: TavernCommand<[taskId?: string], TavernTaskVersionRecord | null>;
+    tasks: Ref<TavernTaskVersionRecord[]>;
+    taskTimeline: Ref<TavernTaskVersionRecord[]>;
+    timelineError: Ref<string>;
+    timelineHasMore: Ref<boolean>;
+    timelineLoading: Ref<boolean>;
+    timelineLoadingMore: Ref<boolean>;
+    withdrawTask: TavernCommand<[task: TavernTaskVersionRecord], Promise<TavernTaskVersionRecord | null>>;
+}
+
 export interface TavernPhoneContext {
     isConversationVisible: TavernCommand<[sessionId?: string, threadId?: string], boolean>;
     messages: TavernMessagesContext;
@@ -498,6 +545,7 @@ export interface TavernPhoneContext {
     openWallet: TavernCommand;
     os: TavernPhoneOsContext;
     showMessageThreads: TavernCommand;
+    tasks: TavernTasksContext;
     wallet: TavernWalletContext;
 }
 

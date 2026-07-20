@@ -12,9 +12,12 @@ import db, {
     tavernCommunicationMessagesTable,
     tavernCommunicationSnapshotsTable,
     tavernCommunicationThreadsTable,
+    tavernEconomyAccountsTable,
+    tavernEconomyTransactionsTable,
     tavernSessionsTable,
     tavernStateDocumentsTable,
     tavernStatusSnapshotsTable,
+    tavernTaskVersionsTable,
     type TavernMemorySnapshotRecord,
     type TavernManagerRunRecord,
     type TavernStatusSnapshotRecord,
@@ -24,6 +27,8 @@ import { saveTavernCommunicationSnapshot } from './communications';
 import { saveTavernMemorySnapshot } from './memory-files';
 import { saveTavernStatusSnapshot } from './status-state';
 import { resolveTavernAcceptedSnapshotFloor, TAVERN_ACCEPTED_BASELINE_FLOOR } from './accepted-snapshot-floor';
+import { commitTavernTaskStagedActionsInCurrentDbTransaction } from './tasks/task-service';
+import type { TavernTaskStagedAction } from './tasks/task-types';
 
 export type TavernAcceptedStateSnapshotDomain = 'memory' | 'status' | 'communications';
 
@@ -62,6 +67,7 @@ export async function completeAcceptedTurnManagerRunWithSnapshot(input: {
     managerRunId: string;
     floor: number;
     domains?: TavernAcceptedStateSnapshotDomain[];
+    stagedTaskActions?: TavernTaskStagedAction[];
     leaseOwnerId: string;
 }): Promise<TavernManagerRunRecord> {
     const sessionId = String(input.sessionId || '').trim();
@@ -82,6 +88,9 @@ export async function completeAcceptedTurnManagerRunWithSnapshot(input: {
         tavernMemorySnapshotsTable,
         tavernStatusSnapshotsTable,
         tavernStateDocumentsTable,
+        tavernTaskVersionsTable,
+        tavernEconomyAccountsTable,
+        tavernEconomyTransactionsTable,
         tavernSessionsTable,
         async () => {
             const run = await tavernManagerRunsTable.get(managerRunId);
@@ -102,6 +111,15 @@ export async function completeAcceptedTurnManagerRunWithSnapshot(input: {
                 userMessage: sourceUserMessage,
                 assistantMessage: sourceAssistantMessage,
             });
+
+            const stagedTaskActions = Array.isArray(input.stagedTaskActions) ? input.stagedTaskActions : [];
+            if (stagedTaskActions.length) {
+                await commitTavernTaskStagedActionsInCurrentDbTransaction({
+                    sessionId,
+                    actions: stagedTaskActions,
+                    touchSession: false,
+                });
+            }
 
             if (domains.has('memory')) {
                 const [snapshots, managerSnapshots] = await Promise.all([

@@ -3621,6 +3621,9 @@ async function handleIframeMessage(event) {
                 delegateConfig: patch.delegateConfig && typeof patch.delegateConfig === 'object'
                     ? patch.delegateConfig
                     : current.delegateConfig,
+                delegateConfigured: typeof patch.delegateConfigured === 'boolean'
+                    ? patch.delegateConfigured
+                    : current.delegateConfigured,
                 presets: patch.presets && typeof patch.presets === 'object'
                     ? patch.presets
                     : current.presets,

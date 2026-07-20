@@ -15,6 +15,7 @@ import {
     type ReverseTavernEconomyTransactionInput,
     type TavernEconomyAccountKind,
     type TavernEconomyAccountRecord,
+    type TavernEconomyCurrentTransactionOptions,
     type TavernEconomySummary,
     type TavernEconomyTransactionPage,
     type TavernEconomyTransactionRecord,
@@ -76,6 +77,7 @@ export function tavernEconomyAccountKind(accountId = ''): TavernEconomyAccountKi
     if (id === TAVERN_PLAYER_ACCOUNT_ID) {return 'player';}
     if (id === TAVERN_SYSTEM_MINT_ACCOUNT_ID || id === TAVERN_SYSTEM_SINK_ACCOUNT_ID) {return 'system';}
     if (/^contact:[^:\s][^\s]*$/u.test(id)) {return 'contact';}
+    if (/^counterparty:[^:\s][^\s]*$/u.test(id)) {return 'counterparty';}
     if (/^escrow:[^:\s][^\s]*$/u.test(id)) {return 'escrow';}
     throwTavernEconomyError('economy_account_id_invalid', id);
 }
@@ -139,7 +141,7 @@ function normalizeTransactionInput(
 }
 
 function accountCanOverdraw(account: TavernEconomyAccountRecord): boolean {
-    return account.kind === 'system' || account.kind === 'contact';
+    return account.kind === 'system' || account.kind === 'contact' || account.kind === 'counterparty';
 }
 
 function assertSafeBalance(value: number): number {
@@ -179,15 +181,34 @@ async function getLatestTransaction(sessionId: string): Promise<TavernEconomyTra
         .first() || null;
 }
 
-async function nextLedgerOrder(input: NormalizedTransactionInput): Promise<number> {
+async function getHighestAnchorTransaction(sessionId: string): Promise<TavernEconomyTransactionRecord | null> {
+    return await (tavernEconomyTransactionsTable as unknown as EconomyRangeTable<TavernEconomyTransactionRecord>)
+        .where('[sessionId+anchorOrder+ledgerOrder]')
+        .between(
+            [sessionId, -1, 0],
+            [sessionId, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
+            true,
+            true,
+        )
+        .reverse()
+        .first() || null;
+}
+
+async function nextLedgerOrder(
+    input: NormalizedTransactionInput,
+    options: { allowDelayedAnchorCommit?: boolean } = {},
+): Promise<number> {
     const latest = await getLatestTransaction(input.sessionId);
     if (!latest) {return 0;}
-    const latestAnchorOrder = normalizeAnchorOrder(latest.anchorOrder);
-    if (input.anchorOrder < latestAnchorOrder) {
-        throwTavernEconomyError(
-            'economy_anchor_order_regression',
-            `${input.anchorOrder}<${latestAnchorOrder}`,
-        );
+    if (!options.allowDelayedAnchorCommit) {
+        const highestAnchor = await getHighestAnchorTransaction(input.sessionId);
+        const highestAnchorOrder = normalizeAnchorOrder(highestAnchor?.anchorOrder ?? latest.anchorOrder);
+        if (input.anchorOrder < highestAnchorOrder) {
+            throwTavernEconomyError(
+                'economy_anchor_order_regression',
+                `${input.anchorOrder}<${highestAnchorOrder}`,
+            );
+        }
     }
     const ledgerOrder = normalizeLedgerOrder(latest.ledgerOrder) + 1;
     return normalizeLedgerOrder(ledgerOrder);
@@ -235,12 +256,15 @@ async function getOrCreateAccount(
 
 async function postTransactionInCurrentDbTransaction(
     input: NormalizedTransactionInput,
-    options: { touchSessionOnCreate: boolean },
+    options: {
+        touchSessionOnCreate: boolean;
+        allowDelayedAnchorCommit?: boolean;
+    },
 ): Promise<TavernEconomyTransactionRecord> {
     const existing = await getTransactionByIdempotencyKey(input.sessionId, input.idempotencyKey);
     if (existing) {return assertIdempotentTransaction(existing, input);}
 
-    const ledgerOrder = await nextLedgerOrder(input);
+    const ledgerOrder = await nextLedgerOrder(input, options);
     const timestamp = now();
     const [fromAccount, toAccount, playerAccount] = await Promise.all([
         getOrCreateAccount(input.sessionId, input.fromAccountId, timestamp),
@@ -353,72 +377,90 @@ export async function getTavernPlayerBalance(sessionId = ''): Promise<number> {
     return (await ensureTavernEconomy(sessionId)).playerBalance;
 }
 
+/**
+ * Posts a ledger entry inside the caller's active Dexie transaction.
+ * The caller must include sessions, economyAccounts and economyTransactions
+ * in that transaction. This is intentionally narrow so another domain can
+ * commit its own state and the corresponding wallet fact atomically.
+ */
+export async function postTavernEconomyTransactionInCurrentDbTransaction(
+    input: PostTavernEconomyTransactionInput,
+    options: TavernEconomyCurrentTransactionOptions = {},
+): Promise<TavernEconomyTransactionRecord> {
+    const normalized = normalizeTransactionInput(input);
+    await ensureEconomyInCurrentDbTransaction(normalized.sessionId);
+    return await postTransactionInCurrentDbTransaction(normalized, {
+        touchSessionOnCreate: options.touchSessionOnCreate !== false,
+        allowDelayedAnchorCommit: options.allowDelayedAnchorCommit === true,
+    });
+}
+
 export async function postTavernEconomyTransaction(
     input: PostTavernEconomyTransactionInput,
 ): Promise<TavernEconomyTransactionRecord> {
-    const normalized = normalizeTransactionInput(input);
     return await db.transaction(
         'rw',
         tavernSessionsTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
-        async () => {
-            await ensureEconomyInCurrentDbTransaction(normalized.sessionId);
-            return await postTransactionInCurrentDbTransaction(normalized, {
-                touchSessionOnCreate: true,
-            });
-        },
+        async () => postTavernEconomyTransactionInCurrentDbTransaction(input),
     );
 }
 
-export async function reverseTavernEconomyTransaction(
+export async function reverseTavernEconomyTransactionInCurrentDbTransaction(
     input: ReverseTavernEconomyTransactionInput,
+    options: TavernEconomyCurrentTransactionOptions = {},
 ): Promise<TavernEconomyTransactionRecord> {
     const sessionId = normalizeSessionId(input.sessionId);
     const transactionId = normalizeText(input.transactionId, 180);
     if (!transactionId) {throwTavernEconomyError('economy_transaction_missing');}
     const anchorOrder = normalizeAnchorOrder(input.anchorOrder);
+    await ensureEconomyInCurrentDbTransaction(sessionId);
+    const original = await tavernEconomyTransactionsTable.get([sessionId, transactionId]);
+    if (!original) {throwTavernEconomyError('economy_transaction_missing', transactionId);}
+    if (anchorOrder < original.anchorOrder) {
+        throwTavernEconomyError('economy_reversal_anchor_invalid', original.id);
+    }
+    const idempotencyKey = normalizeText(input.idempotencyKey, 220) || `economy:reverse:${original.id}`;
+    const normalized = normalizeTransactionInput({
+        sessionId,
+        idempotencyKey,
+        fromAccountId: original.toAccountId,
+        toAccountId: original.fromAccountId,
+        amount: original.amount,
+        kind: normalizeText(input.kind, 100) || 'reversal',
+        title: normalizeText(input.title, 140) || `退款 · ${original.title}`,
+        note: normalizeText(input.note, 1200) || `冲正交易 ${original.id}`,
+        sourceDomain: normalizeText(input.sourceDomain, 100) || original.sourceDomain,
+        sourceId: normalizeText(input.sourceId, 180) || original.sourceId,
+        anchorOrder,
+    }, { reversalOfTransactionId: original.id });
+    const existingReversals = await tavernEconomyTransactionsTable
+        .where('[sessionId+reversalOfTransactionId]')
+        .equals([sessionId, original.id])
+        .toArray();
+    const existingReversal = existingReversals[0];
+    if (existingReversal) {
+        if (existingReversal.idempotencyKey === idempotencyKey) {
+            return assertIdempotentTransaction(existingReversal, normalized);
+        }
+        throwTavernEconomyError('economy_transaction_already_reversed', original.id);
+    }
+    return await postTransactionInCurrentDbTransaction(normalized, {
+        touchSessionOnCreate: options.touchSessionOnCreate !== false,
+        allowDelayedAnchorCommit: options.allowDelayedAnchorCommit === true,
+    });
+}
+
+export async function reverseTavernEconomyTransaction(
+    input: ReverseTavernEconomyTransactionInput,
+): Promise<TavernEconomyTransactionRecord> {
     return await db.transaction(
         'rw',
         tavernSessionsTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
-        async () => {
-            await ensureEconomyInCurrentDbTransaction(sessionId);
-            const original = await tavernEconomyTransactionsTable.get([sessionId, transactionId]);
-            if (!original) {throwTavernEconomyError('economy_transaction_missing', transactionId);}
-            if (anchorOrder < original.anchorOrder) {
-                throwTavernEconomyError('economy_reversal_anchor_invalid', original.id);
-            }
-            const idempotencyKey = normalizeText(input.idempotencyKey, 220) || `economy:reverse:${original.id}`;
-            const normalized = normalizeTransactionInput({
-                sessionId,
-                idempotencyKey,
-                fromAccountId: original.toAccountId,
-                toAccountId: original.fromAccountId,
-                amount: original.amount,
-                kind: normalizeText(input.kind, 100) || 'reversal',
-                title: normalizeText(input.title, 140) || `退款 · ${original.title}`,
-                note: normalizeText(input.note, 1200) || `冲正交易 ${original.id}`,
-                sourceDomain: normalizeText(input.sourceDomain, 100) || original.sourceDomain,
-                sourceId: normalizeText(input.sourceId, 180) || original.sourceId,
-                anchorOrder,
-            }, { reversalOfTransactionId: original.id });
-            const existingReversals = await tavernEconomyTransactionsTable
-                .where('[sessionId+reversalOfTransactionId]')
-                .equals([sessionId, original.id])
-                .toArray();
-            const existingReversal = existingReversals[0];
-            if (existingReversal) {
-                if (existingReversal.idempotencyKey === idempotencyKey) {
-                    return assertIdempotentTransaction(existingReversal, normalized);
-                }
-                throwTavernEconomyError('economy_transaction_already_reversed', original.id);
-            }
-            return await postTransactionInCurrentDbTransaction(normalized, {
-                touchSessionOnCreate: true,
-            });
-        },
+        async () => reverseTavernEconomyTransactionInCurrentDbTransaction(input),
     );
 }
 

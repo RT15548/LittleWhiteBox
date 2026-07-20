@@ -3,21 +3,27 @@ import TavernMessagesApp from '../../components/phone-os/apps/messages/TavernMes
 import TavernMessagesIcon from '../../components/phone-os/apps/messages/TavernMessagesIcon.vue';
 import TavernWalletApp from '../../components/phone-os/apps/wallet/TavernWalletApp.vue';
 import TavernWalletIcon from '../../components/phone-os/apps/wallet/TavernWalletIcon.vue';
+import TavernTasksApp from '../../components/phone-os/apps/tasks/TavernTasksApp.vue';
+import TavernTasksIcon from '../../components/phone-os/apps/tasks/TavernTasksIcon.vue';
 import type { useTavernMessagesController } from './apps/messages/useTavernMessagesController';
 import type { useTavernWalletController } from './apps/wallet/useTavernWalletController';
+import type { useTavernTasksController } from './apps/tasks/useTavernTasksController';
 import {
     defineTavernPhoneApps,
     TAVERN_PHONE_MESSAGES_APP_ID,
+    TAVERN_PHONE_TASKS_APP_ID,
     TAVERN_PHONE_WALLET_APP_ID,
     type TavernPhoneAppDefinition,
 } from './phone-os-types';
 
 type TavernMessagesController = ReturnType<typeof useTavernMessagesController>;
 type TavernWalletController = ReturnType<typeof useTavernWalletController>;
+type TavernTasksController = ReturnType<typeof useTavernTasksController>;
 
 export function createTavernPhoneAppRegistry(input: {
     messages: Pick<TavernMessagesController, 'prepareMessages' | 'unreadTotal'>;
     wallet: Pick<TavernWalletController, 'prepareWallet'>;
+    tasks: Pick<TavernTasksController, 'prepareTasks' | 'cancelTransientRequests'>;
 }): readonly TavernPhoneAppDefinition[] {
     return defineTavernPhoneApps([
         {
@@ -42,6 +48,23 @@ export function createTavernPhoneAppRegistry(input: {
             order: 20,
             component: markRaw(TavernWalletApp),
             onActivate: input.wallet.prepareWallet,
+        },
+        {
+            id: TAVERN_PHONE_TASKS_APP_ID,
+            name: '任务',
+            shortName: '任务',
+            iconComponent: markRaw(TavernTasksIcon),
+            accent: '#71834d',
+            rootPath: '/board',
+            order: 30,
+            component: markRaw(TavernTasksApp),
+            onActivate: async () => {
+                await Promise.all([
+                    input.tasks.prepareTasks(),
+                    input.wallet.prepareWallet(),
+                ]);
+            },
+            onDeactivate: input.tasks.cancelTransientRequests,
         },
     ]);
 }

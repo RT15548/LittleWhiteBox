@@ -56,6 +56,18 @@ import {
 } from '../../shared/status-state';
 import { resolveTavernSessionContractRuntime, type TavernSessionContract, type TavernSessionContractRuntime } from '../../shared/session-contract';
 import {
+    createTavernTaskStagingContext,
+    hasMaintainableTavernTasksAtAnchor,
+    listTavernTasksAtAnchor,
+} from '../../shared/tasks/task-service';
+import {
+    executeTavernTaskTool,
+    getTavernTaskToolDefinitions,
+    isTavernTaskToolName,
+    type TavernTaskToolResult,
+} from '../../shared/tasks/task-tools';
+import type { TavernTaskStagedAction, TavernTaskStagingContext } from '../../shared/tasks/task-types';
+import {
     buildDeniedAutoManagerToolResult,
     filterAutoManagerToolDefinitions,
     isAutoManagerToolAllowed,
@@ -67,6 +79,7 @@ import {
     type TavernToolLoopResponse,
 } from './tool-loop-request';
 import { createTavernStateWriteCasTracker } from './state-write-cas';
+import { buildTavernManagerTaskContextBlock } from './task-context';
 
 const ACCEPTED_TURN_MANAGER_TRIGGER = 'accepted_turn';
 const TAVERN_MANAGER_TIMEOUT_MS = 5 * 60 * 1000;
@@ -134,6 +147,7 @@ export interface XbTavernManagerRunResult {
     managerRun: TavernManagerRunRecord;
     changedFiles?: string[];
     changedStates?: string[];
+    stagedTaskActions?: TavernTaskStagedAction[];
     protocolMessages?: XbTavernMessage[];
     error?: string;
 }
@@ -267,6 +281,7 @@ export function buildManagerSystemPrompt(
         includeCartography?: boolean;
         includeStatus?: boolean;
         includeWebSearch?: boolean;
+        includeTasks?: boolean;
         workMode?: 'accepted-turn' | 'manual-chat';
         playerName?: string;
         hasCommunicationEvidence?: boolean;
@@ -327,6 +342,7 @@ function buildAutoManagerUserPrompt(input: {
     atlasWorldBlock?: string;
     statusPanelBlock?: string;
     communicationEvidence?: string;
+    taskContext?: string;
     runtime: TavernSessionContractRuntime;
 }): string {
     const allowMemory = input.runtime.managerPromptOptions.includeMemory;
@@ -345,6 +361,7 @@ function buildAutoManagerUserPrompt(input: {
             '[END UNTRUSTED PHONE EVIDENCE]',
             '',
         ] : []),
+        ...(input.taskContext ? [input.taskContext, ''] : []),
         '[Current turn user message]',
         '[BEGIN UNTRUSTED RP EVIDENCE — USER]',
         cleanSourceTextForManager(input.userMessage.content),
@@ -415,7 +432,7 @@ function summarizeToolArguments(args: Record<string, unknown> = {}): string {
         .join('; ');
 }
 
-function summarizeToolResult(result: TavernMemoryToolResult | TavernStateToolResult | TavernStatusToolResult): string {
+function summarizeToolResult(result: TavernMemoryToolResult | TavernStateToolResult | TavernStatusToolResult | TavernTaskToolResult): string {
     const summary = normalizeText(result.summary || result.error || '', 360);
     if (result.ok !== false) {return summary;}
     const details = (result as { details?: unknown }).details;
@@ -650,6 +667,7 @@ export async function runSharedManagerToolLoop(input: {
     toolTrace: Array<Record<string, unknown>>;
     changedFiles: string[];
     changedStates: string[];
+    stagedTaskActions: TavernTaskStagedAction[];
     protocolMessages: XbTavernMessage[];
 }> {
     const providerConfig = resolveActiveProviderConfig(input.agentConfig || {}, {
@@ -665,9 +683,18 @@ export async function runSharedManagerToolLoop(input: {
         || ((options: XbTavernManagerOnceOptions) => runManagerOnceWithAdapter(defaultAdapter!, providerConfig, options));
     const supportsSessionToolLoop = !!defaultAdapter?.supportsSessionToolLoop
         || (input.executeManagerOnce as { supportsSessionToolLoop?: boolean } | undefined)?.supportsSessionToolLoop === true;
-    const managerToolDefinitions = getTavernManagerToolDefinitions({
-        webSearchEnabled: isManagerWebSearchEnabled(input.agentConfig),
-    });
+    const taskStagingContext: TavernTaskStagingContext | null = input.caller === 'auto'
+        && Number.isInteger(Number(input.assistantOrder))
+        ? await createTavernTaskStagingContext(input.sessionId, Number(input.assistantOrder))
+        : null;
+    const hasActiveTaskAtSource = !!taskStagingContext
+        && [...taskStagingContext.projected.values()].some((task) => task.status === 'active');
+    const managerToolDefinitions = [
+        ...getTavernManagerToolDefinitions({
+            webSearchEnabled: isManagerWebSearchEnabled(input.agentConfig),
+        }),
+        ...(hasActiveTaskAtSource ? getTavernTaskToolDefinitions() : []),
+    ];
     const tools = input.caller === 'auto'
         ? filterAutoManagerToolDefinitions(managerToolDefinitions, input.sessionContract)
         : managerToolDefinitions;
@@ -778,6 +805,9 @@ export async function runSharedManagerToolLoop(input: {
                 toolTrace,
                 changedFiles: [...changedFiles],
                 changedStates: [...changedStates],
+                stagedTaskActions: taskStagingContext
+                    ? taskStagingContext.actions.map((action) => ({ ...action }))
+                    : [],
                 protocolMessages: [
                     ...protocolMessages,
                     finalAssistantMessage,
@@ -846,7 +876,7 @@ export async function runSharedManagerToolLoop(input: {
             };
             toolTrace.push(traceEntry);
             await persistRunningManagerToolTrace(input.managerRunId, toolTrace);
-            let toolResult: TavernMemoryToolResult | TavernStateToolResult | TavernStatusToolResult;
+            let toolResult: TavernMemoryToolResult | TavernStateToolResult | TavernStatusToolResult | TavernTaskToolResult;
             if (!parsedArguments.ok) {
                 toolResult = parsedArguments.result!;
             } else if (input.caller === 'auto' && !isAutoManagerToolAllowed(toolCall.name, input.sessionContract)) {
@@ -889,6 +919,13 @@ export async function runSharedManagerToolLoop(input: {
                 toolResult = isStateWritingTool(toolCall.name)
                     ? await withSessionStateWriteLock(input.sessionId, executeTool, input.signal)
                     : await executeTool();
+            } else if (isTavernTaskToolName(toolCall.name) && taskStagingContext) {
+                await beforeToolWrite();
+                toolResult = await executeTavernTaskTool(toolCall.name, args, {
+                    caller: input.caller,
+                    stagingContext: taskStagingContext,
+                    actionId: `${String(input.managerRunId || 'manager')}:${String(toolCall.id || `${round}-${toolIndex}`)}`,
+                });
             } else if (isWebSearchToolName(toolCall.name)) {
                 toolResult = await runTavilySearchTool(input.agentConfig, args, {
                     signal: input.signal,
@@ -910,14 +947,18 @@ export async function runSharedManagerToolLoop(input: {
                 throw new Error(toolError);
             }
             const resultPath = 'path' in toolResult ? toolResult.path : '';
-            const resultStateKey = 'docType' in toolResult && toolResult.docType ? `${toolResult.docType}/${toolResult.docId || ''}` : '';
+            const resultTaskKey = 'taskId' in toolResult && toolResult.taskId ? `tavern.task/${toolResult.taskId}` : '';
+            const resultStateKey = 'docType' in toolResult && toolResult.docType
+                ? `${toolResult.docType}/${toolResult.docId || ''}`
+                : '';
+            const resultTracePath = resultPath || resultStateKey || resultTaskKey;
             if (toolResult.changed && resultPath) {
                 changedFiles.add(resultPath);
             }
             if (toolResult.changed && resultStateKey) {
                 changedStates.add(resultStateKey);
             }
-            if (toolResult.changed) {
+            if (toolResult.changed && (resultPath || resultStateKey)) {
                 input.onStateChanged?.({
                     changedFiles: [...changedFiles],
                     changedStates: [...changedStates],
@@ -927,7 +968,7 @@ export async function runSharedManagerToolLoop(input: {
                 status: 'resolved',
                 ok: toolResult.ok,
                 args: summarizeToolArguments(args),
-                path: resultPath || resultStateKey,
+                path: resultTracePath,
                 summary: summarizeToolResult(toolResult),
                 error: toolResult.error || '',
                 finishedAt: Date.now(),
@@ -1172,6 +1213,11 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
         sourceMessages.userMessage.order - 1,
         playerName,
     );
+    const tasksAtSource = await listTavernTasksAtAnchor(input.sessionId, sourceMessages.assistantMessage.order);
+    const taskContext = buildTavernManagerTaskContextBlock(
+        tasksAtSource,
+        sourceMessages.assistantMessage.order,
+    );
     return [
         {
             role: 'system',
@@ -1181,6 +1227,7 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
                 includeWebSearch: isManagerWebSearchEnabled(input.agentConfig),
                 playerName,
                 hasCommunicationEvidence: !!communicationEvidence,
+                includeTasks: !!taskContext,
             }),
         },
         {
@@ -1193,6 +1240,7 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
                 atlasWorldBlock: atlasState ? buildAtlasWorldBlock(atlasState.document?.data || null) : '',
                 statusPanelBlock: statusState ? buildStatusPanelBlock(statusState.status, !!statusState.document) : '',
                 communicationEvidence,
+                taskContext,
                 runtime: contractRuntime,
             }),
         },
@@ -1230,6 +1278,7 @@ async function runManagerTask(input: {
     toolTrace: Array<Record<string, unknown>>;
     changedFiles: string[];
     changedStates: string[];
+    stagedTaskActions: TavernTaskStagedAction[];
     protocolMessages: XbTavernMessage[];
     error?: string;
 }> {
@@ -1251,6 +1300,7 @@ async function runManagerTask(input: {
     let toolTrace: Array<Record<string, unknown>> = [];
     let changedFiles: string[] = [];
     let changedStates: string[] = [];
+    let stagedTaskActions: TavernTaskStagedAction[] = [];
     let protocolMessages: XbTavernMessage[] = [];
     const stopHeartbeat = startManagerRunHeartbeat(managerRun.id, input.leaseOwnerId, input.signal);
     const relayProtocolEvent = (event: TavernManagerProtocolEvent) => {
@@ -1283,15 +1333,23 @@ async function runManagerTask(input: {
         toolTrace = result.toolTrace;
         changedFiles = result.changedFiles;
         changedStates = result.changedStates;
+        stagedTaskActions = result.stagedTaskActions;
         protocolMessages = result.protocolMessages.length ? result.protocolMessages : protocolMessages;
         if (input.requireChangedFiles && !changedFiles.length) {
             throw new Error('manager_memory_tool_required');
         }
         await rebuildTavernMemoryDerivedIndexForLiveSession(input.sessionId);
         await input.beforeCompletionGuard?.();
-        const changedCount = changedFiles.length + changedStates.length;
+        const taskActionCount = stagedTaskActions.length;
+        const changedStructuredStateCount = changedStates.length;
+        const changedCount = changedFiles.length + changedStructuredStateCount + taskActionCount;
+        const changedTargets = [
+            changedFiles.length ? `${changedFiles.length} 个记忆文件` : '',
+            changedStructuredStateCount ? `${changedStructuredStateCount} 份结构化状态` : '',
+            taskActionCount ? `${taskActionCount} 次正式任务变更` : '',
+        ].filter(Boolean);
         const defaultOutput = changedCount
-            ? `已维护 ${changedFiles.length} 个记忆文件、${changedStates.length} 份结构化状态。`
+            ? `已维护 ${changedTargets.join('、')}。`
             : '已检查并回复。';
         const completed = await finalizeManagerRun(managerRun, {
             status: input.deferCompletion ? 'running' : 'completed',
@@ -1314,6 +1372,7 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
+            stagedTaskActions,
             protocolMessages,
         };
     } catch (error) {
@@ -1346,6 +1405,7 @@ async function runManagerTask(input: {
             toolTrace,
             changedFiles,
             changedStates,
+            stagedTaskActions: [],
             protocolMessages,
             error: errorText,
         };
@@ -1359,7 +1419,8 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
     if (!sessionId) {throw new Error('manager_session_required');}
     const sourceIdentity = resolveExpectedManagerSourceIdentity(input);
     const contractRuntime = resolveSessionContractRuntime(input.sessionContract);
-    if (!contractRuntime.hasAutomaticManagerWork) {
+    const hasTaskWork = await hasMaintainableTavernTasksAtAnchor(sessionId, input.assistantMessage.order);
+    if (!contractRuntime.hasAutomaticManagerWork && !hasTaskWork) {
         await assertManagerRunLease(input);
         const skipped = input.managerRunId
             ? await updateTavernManagerRun(input.managerRunId, {
@@ -1474,6 +1535,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             managerRun: result.managerRun,
             changedFiles,
             changedStates: result.changedStates,
+            stagedTaskActions: result.stagedTaskActions,
             protocolMessages: result.protocolMessages,
         };
     } catch (error) {

@@ -2413,6 +2413,7 @@ function summarizeArchiveCounts(counts = createEmptyTavernCharacterArchiveCounts
         `${counts.stateDocuments} 份地图/图鉴`,
         `${Number(counts.communications) || 0} 条通讯数据`,
         `${Number(counts.economy) || 0} 条经济数据`,
+        `${Number(counts.tasks) || 0} 条任务数据`,
     ].join('，');
 }
 

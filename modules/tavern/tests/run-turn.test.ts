@@ -72,6 +72,10 @@ import { createXbTavernAgentRuntime, EMPTY_XB_TAVERN_CAPABILITY_REGISTRY } from 
 import { resolveXbTavernProviderConfig } from '../app-src/runtime/provider';
 import type { TavernApplyRegexItem } from '../shared/regex';
 import type { TavernSubstituteParamsItem } from '../shared/substitute-params';
+import { replaceTavernTaskBoard } from '../shared/tasks/task-board';
+import { acceptTavernTaskListing } from '../shared/tasks/task-service';
+import { TAVERN_TASK_TOOL_NAMES } from '../shared/tasks/task-tools';
+import type { TavernTaskListing, TavernTaskVersionRecord } from '../shared/tasks/task-types';
 
 async function resetDb() {
     await waitForQueuedAcceptedTurnManagers();
@@ -123,6 +127,53 @@ function withDefaultNativePromptHooks<T extends XbTavernRunTurnInput | XbTavernS
         buildNativeChatPrompt: createLocalTestNativePrompt(),
         ...input,
     };
+}
+
+function runTurnTaskListings(): TavernTaskListing[] {
+    const rows = [
+        ['E', 10],
+        ['D', 25],
+        ['C', 60],
+        ['B', 180],
+        ['A', 400],
+        ['S', 900],
+    ] as const;
+    return rows.map(([grade, reward], index) => ({
+        id: `runtime-listing-${index + 1}`,
+        grade,
+        tags: [`runtime-tag-${index + 1}`],
+        title: `运行时委托 ${index + 1}`,
+        issuer: {
+            id: `runtime-issuer-${index + 1}`,
+            name: `陌生发布者 ${index + 1}`,
+            description: `发布者描述 ${index + 1}`,
+        },
+        hook: `异常钩子 ${index + 1}`,
+        objective: `完成运行时目标 ${index + 1}`,
+        location: `地点 ${index + 1}`,
+        risk: `风险 ${index + 1}`,
+        reward,
+    }));
+}
+
+async function createRunTurnActiveTask(sessionId: string, suffix: string): Promise<TavernTaskVersionRecord> {
+    const board = await replaceTavernTaskBoard({
+        sessionId,
+        expectedRevision: 0,
+        anchorOrder: -1,
+        generationId: `runtime-board-${suffix}`,
+        listings: runTurnTaskListings(),
+    });
+    return await acceptTavernTaskListing({
+        sessionId,
+        boardId: board.generationId,
+        boardRevision: board.revision,
+        listingId: board.listings[2].id,
+        anchorOrder: -1,
+        actionId: `runtime-accept-${suffix}`,
+        taskId: `runtime-task-${suffix}`,
+        playerName: '测试玩家',
+    });
 }
 
 function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTavernRunResult> {
@@ -655,6 +706,84 @@ test('xb tavern queued accepted-turn manager runs independently from the current
     const nextCandidate = await getTavernManagerCandidate(first.sessionId);
     assert.equal(nextCandidate?.userOrder, next.userMessage.order);
     assert.equal(nextCandidate?.assistantOrder, next.assistantMessage?.order);
+});
+
+test('active formal tasks still create and run an accepted manager when every contract domain is disabled', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const disabledContract = mergeTavernSessionContract(undefined, {
+        memoryArchiving: false,
+        cartographyEngine: false,
+        statusPanel: false,
+        actionChecks: false,
+        randomEncounters: false,
+    });
+    const session = await createTavernSession({
+        title: 'Task-only accepted manager',
+        characterKey: 'char-task-only',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-task-only', name: 'Aster', description: 'A courier.' },
+            user: { name: '测试玩家' },
+        },
+        state: { contract: disabledContract },
+    });
+    const task = await createRunTurnActiveTask(session.id, 'task-only-manager');
+    let managerCalls = 0;
+    let managerPrompt = '';
+    let managerToolNames: string[] = [];
+    const executeManagerOnce = async (options: XbTavernManagerOnceOptions) => {
+        managerCalls += 1;
+        managerPrompt = JSON.stringify(options.messages);
+        managerToolNames = (options.tools || [])
+            .map((tool) => String((tool as { function?: { name?: string } }).function?.name || ''))
+            .filter(Boolean);
+        return {
+            text: '本轮任务证据不足，无需改变任务。',
+            provider: 'fake-provider',
+            model: 'fake-model',
+        };
+    };
+    const executeRunOnce = async (options: TavernRunOnceOptions) => ({
+        text: '剧情继续。',
+        provider: 'fake-provider',
+        model: 'fake-model',
+        requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, options.messages),
+    });
+
+    const first = await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '先观察交付地点。',
+        runManager: true,
+        executeRunOnce,
+        executeManagerOnce,
+    });
+    const candidate = await getTavernManagerCandidate(session.id);
+    assert.ok(candidate);
+    assert.equal(candidate?.assistantOrder, first.assistantMessage?.order);
+    assert.equal(managerCalls, 0);
+
+    await runXbTavernTurn({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '继续潜入。',
+        runManager: true,
+        executeRunOnce,
+        executeManagerOnce,
+    });
+    await waitForQueuedAcceptedTurnManagers(session.id);
+
+    const completedRun = (await listTavernManagerRuns(session.id)).find((run) => run.id === candidate?.id);
+    const taskToolNames = new Set<string>(Object.values(TAVERN_TASK_TOOL_NAMES));
+    assert.equal(managerCalls, 1);
+    assert.equal(completedRun?.status, 'completed');
+    assert.match(managerPrompt, new RegExp(task.taskId));
+    assert.deepEqual(managerToolNames.filter((name) => taskToolNames.has(name)).sort(), [...taskToolNames].sort());
 });
 
 test('xb tavern session author note reaches native prompt for real and simulated requests', async () => {
@@ -4037,6 +4166,99 @@ test('xb tavern provider resolver reports shared API readiness and request audit
     assert.equal(ready.currentPresetName, '酒馆 Claude');
     assert.equal(ready.providerLabel, '酒馆 Claude');
 
+    const onlyMainConfig = {
+        currentPresetName: '主剧情',
+        presets: {
+            主剧情: {
+                provider: 'sillytavern-claude',
+                modelConfigs: {
+                    'sillytavern-claude': { model: 'ready-main-model' },
+                },
+            },
+        },
+    };
+    const onlyMainDelegate = resolveXbTavernProviderConfig(onlyMainConfig, { role: 'delegate' });
+    assert.equal(onlyMainDelegate.readiness.ok, false);
+    assert.deepEqual(onlyMainDelegate.readiness.missing, ['分身模型']);
+    assert.match(onlyMainDelegate.readiness.message, /配置分身模型/);
+    assert.equal(onlyMainDelegate.provider, '');
+    assert.equal(onlyMainDelegate.model, '');
+
+    const emptyDelegate = resolveXbTavernProviderConfig({
+        ...onlyMainConfig,
+        delegateConfig: {},
+        delegateConfigured: true,
+    }, { role: 'delegate' });
+    assert.equal(emptyDelegate.readiness.ok, false);
+    assert.deepEqual(emptyDelegate.readiness.missing, ['分身模型']);
+    assert.match(emptyDelegate.readiness.message, /配置分身模型/);
+    assert.equal(emptyDelegate.provider, '');
+    assert.equal(emptyDelegate.model, '');
+
+    const delegate = resolveXbTavernProviderConfig({
+        currentPresetName: '主剧情',
+        delegatePresetName: '任务分身',
+        presets: {
+            主剧情: {
+                provider: 'sillytavern-claude',
+                modelConfigs: {
+                    'sillytavern-claude': { model: 'main-story-model' },
+                },
+            },
+            任务分身: {
+                provider: 'sillytavern-google',
+                modelConfigs: {
+                    'sillytavern-google': { model: 'delegate-task-model' },
+                },
+            },
+        },
+        delegateConfig: {
+            provider: 'sillytavern-google',
+            modelConfigs: {
+                'sillytavern-google': { model: 'delegate-task-model' },
+            },
+        },
+    }, { role: 'delegate' });
+    assert.equal(delegate.readiness.ok, true);
+    assert.equal(delegate.currentPresetName, '任务分身');
+    assert.equal(delegate.provider, 'sillytavern-google');
+    assert.equal(delegate.model, 'delegate-task-model');
+    const delegateSnapshot = buildTavernRequestSnapshot({}, [{ role: 'user', content: 'Generate tasks.' }], {
+        resolvedProviderConfig: delegate,
+    });
+    assert.equal(delegateSnapshot.apiPresetName, '任务分身');
+    assert.equal(delegateSnapshot.provider, 'sillytavern-google');
+    assert.equal(delegateSnapshot.model, 'delegate-task-model');
+
+    const incompleteDelegate = resolveXbTavernProviderConfig({
+        currentPresetName: '主剧情',
+        delegatePresetName: '任务分身',
+        presets: {
+            主剧情: {
+                provider: 'sillytavern-claude',
+                modelConfigs: {
+                    'sillytavern-claude': { model: 'ready-main-model' },
+                },
+            },
+            任务分身: {
+                provider: 'openai-compatible',
+                modelConfigs: {
+                    'openai-compatible': { model: '', apiKey: '' },
+                },
+            },
+        },
+        delegateConfig: {
+            provider: 'openai-compatible',
+            modelConfigs: {
+                'openai-compatible': { model: '', apiKey: '' },
+            },
+        },
+    }, { role: 'delegate' });
+    assert.equal(incompleteDelegate.readiness.ok, false);
+    assert.deepEqual(incompleteDelegate.readiness.missing, ['模型', 'API Key']);
+    assert.match(incompleteDelegate.readiness.message, /配置分身模型/);
+    assert.notEqual(incompleteDelegate.model, 'ready-main-model');
+
     const snapshot = buildTavernRequestSnapshot({
         currentPresetName: '酒馆 Claude',
         presets: {
@@ -4107,6 +4329,58 @@ test('xb tavern simulated request builds raw API JSON without saving chat messag
     assert.match(result.requestSnapshot.rawRequestJson, /"stream": true/);
     assert.match(result.requestSnapshot.rawRequestJson, /只模拟，不发送。/);
     assert.deepEqual(await listTavernMessages(session.id), []);
+});
+
+test('formal tasks enter both local and ST-native depth-1 prompts while board candidates stay out', async () => {
+    await resetDb();
+    const preset = createDefaultXbTavernPreset();
+    const session = await createTavernSession({
+        title: 'Formal task prompt',
+        characterKey: 'char-task-prompt',
+        characterName: 'Aster',
+        contextSnapshot: {
+            character: { characterKey: 'char-task-prompt', name: 'Aster', description: 'A careful courier.' },
+            user: { name: '测试玩家' },
+        },
+        presetId: preset.id,
+        presetName: preset.name,
+    });
+    const task = await createRunTurnActiveTask(session.id, 'prompt');
+    let nativeDepthPrompts: Array<{ layer?: string; depth?: number; role?: string; content?: string }> = [];
+    const result = await simulateXbTavernRequest({
+        sessionId: session.id,
+        agentConfig: {
+            currentPresetName: '酒馆 OpenAI',
+            presets: {
+                '酒馆 OpenAI': {
+                    provider: 'sillytavern-openai-compatible',
+                    modelConfigs: {
+                        'sillytavern-openai-compatible': { model: 'gpt-test' },
+                    },
+                },
+            },
+        },
+        contextSnapshot: session.contextSnapshot || {},
+        preset,
+        currentUserMessage: '查看当前目标。',
+        buildNativeChatPrompt: async (input) => {
+            nativeDepthPrompts = input.runtimeDepthPrompts;
+            return {
+                source: 'test-native-task-prompt',
+                promptMessageCount: input[TAVERN_LOCAL_PROMPT_MESSAGES]?.length || 0,
+                messages: input[TAVERN_LOCAL_PROMPT_MESSAGES] || [],
+            };
+        },
+    });
+
+    const taskDepth = (nativeDepthPrompts || []).find((entry) => entry.layer === 'runtime-task');
+    assert.equal(taskDepth?.depth, 1);
+    assert.equal(taskDepth?.role, 'system');
+    assert.match(String(taskDepth?.content || ''), new RegExp(task.taskId));
+    assert.match(String(taskDepth?.content || ''), /完成运行时目标 3/);
+    assert.match(result.buildSnapshot.rawMessagesJson, /<active_phone_tasks>/);
+    assert.match(result.requestSnapshot.rawRequestJson, /完成运行时目标 3/);
+    assert.doesNotMatch(result.requestSnapshot.rawRequestJson, /完成运行时目标 1|完成运行时目标 2|完成运行时目标 4/);
 });
 
 test('xb tavern world entry substitution skips null worldbook records', async () => {
@@ -4561,6 +4835,44 @@ test('xb tavern manager web search uses the shared Tavily tool definition', () =
     assert.deepEqual(webSearch, getTavilySearchToolDefinition());
 });
 
+test('assistant manual chat receives formal tasks as read-only context without task mutation tools', async () => {
+    await resetDb();
+    const session = await createTavernSession({
+        title: 'Read-only assistant tasks',
+        contextSnapshot: {
+            character: { characterKey: 'char-task-chat', name: 'Aster' },
+            user: { name: '测试玩家' },
+        },
+    });
+    const task = await createRunTurnActiveTask(session.id, 'manual-chat');
+    let requestMessages = '';
+    let toolNames: string[] = [];
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: { provider: 'fake-provider', model: 'fake-model' },
+        contextSnapshot: session.contextSnapshot || {},
+        question: '我现在接了什么任务？',
+        executeManagerOnce: async (options) => {
+            requestMessages = JSON.stringify(options.messages);
+            toolNames = (options.tools || [])
+                .map((tool) => String((tool as { function?: { name?: string } }).function?.name || ''))
+                .filter(Boolean);
+            return {
+                text: '你正在处理一项正式委托。',
+                provider: 'fake-provider',
+                model: 'fake-model',
+            };
+        },
+    });
+
+    assert.equal(result.ok, true);
+    assert.match(requestMessages, /formal_phone_tasks_read_only/);
+    assert.match(requestMessages, new RegExp(task.taskId));
+    assert.match(requestMessages, /不得据此执行任务状态变化、托管、付款或退款/);
+    const taskToolNames = new Set<string>(Object.values(TAVERN_TASK_TOOL_NAMES));
+    assert.deepEqual(toolNames.filter((name) => taskToolNames.has(name)), []);
+});
+
 test('xb tavern assistant manual chat exposes and executes web_search from shared API config', async () => {
     await resetDb();
     const session = await createTavernSession({
@@ -4803,6 +5115,29 @@ test('xb tavern direct runtime fails before provider call when shared API config
             messages: [{ role: 'user', content: 'Hello.' }],
         }),
         /请先在 API 配置里选择模型\/填写 Key/,
+    );
+});
+
+test('xb tavern delegate runtime refuses to inherit a configured main provider', async () => {
+    await assert.rejects(
+        () => runTavernOnce({
+            agentConfig: {
+                currentPresetName: '主剧情',
+                presets: {
+                    主剧情: {
+                        provider: 'sillytavern-claude',
+                        modelConfigs: {
+                            'sillytavern-claude': {
+                                model: 'ready-main-model',
+                            },
+                        },
+                    },
+                },
+            },
+            providerRole: 'delegate',
+            messages: [{ role: 'user', content: 'Generate tasks.' }],
+        }),
+        /配置分身模型/,
     );
 });
 

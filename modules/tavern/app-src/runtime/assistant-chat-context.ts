@@ -16,6 +16,10 @@ import {
     buildResidentMemoryBlock,
     isManagerWebSearchEnabled,
 } from './manager.js';
+import {
+    buildTavernAssistantTaskContextMessage,
+    loadTavernTaskPromptState,
+} from './task-context.js';
 
 const TAVERN_ASSISTANT_CHAT_TIMEOUT_MS = 5 * 60 * 1000;
 const resolveConversationTokens = (contextTokens as unknown as {
@@ -93,16 +97,21 @@ export async function buildAssistantChatMessages(input: {
     history?: TavernAssistantChatMessageRecord[];
 }): Promise<XbTavernMessage[]> {
     await ensureTavernMemoryDefaults(input.sessionId);
-    const memoryFiles = await listTavernMemoryFiles(input.sessionId, { includeStale: true });
-    const history = Array.isArray(input.history) ? input.history : await listTavernAssistantChatMessages(input.sessionId);
+    const [memoryFiles, history, tasks] = await Promise.all([
+        listTavernMemoryFiles(input.sessionId, { includeStale: true }),
+        Array.isArray(input.history) ? input.history : listTavernAssistantChatMessages(input.sessionId),
+        loadTavernTaskPromptState(input.sessionId),
+    ]);
+    const taskContextMessage = buildTavernAssistantTaskContextMessage(tasks);
     const messages: XbTavernMessage[] = [{
         role: 'system',
         content: buildManagerSystemPrompt(input.assistantPreset, {
             workMode: 'manual-chat',
             includeWebSearch: isManagerWebSearchEnabled(input.agentConfig || {}),
+            includeTasks: !!taskContextMessage,
             playerName: String(input.contextSnapshot?.user?.name || '').trim(),
         }),
-    }];
+    }, ...(taskContextMessage ? [taskContextMessage] : [])];
     history.forEach((message) => {
         const canReplayToolCalls = message.role === 'assistant'
             && message.error !== true

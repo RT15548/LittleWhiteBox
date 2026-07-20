@@ -178,6 +178,29 @@ function normalizeDelegateConfig(input = {}, fallbackPreset = buildDefaultPreset
     };
 }
 
+function resolveDelegateConfigured(input = {}, presets = {}, currentPresetName = DEFAULT_PRESET_NAME, delegatePresetName = currentPresetName) {
+    if (input?.delegateConfigured === false) {
+        return false;
+    }
+    if (delegatePresetName !== currentPresetName) {
+        return true;
+    }
+
+    const source = input?.delegateConfig;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) {
+        return false;
+    }
+    const hasExplicitSource = (typeof source.provider === 'string' && source.provider.trim())
+        || (source.modelConfigs && typeof source.modelConfigs === 'object' && Object.keys(source.modelConfigs).length);
+    if (!hasExplicitSource) return false;
+    if (input?.delegateConfigured === true) return true;
+
+    const currentPreset = presets[currentPresetName] || buildDefaultPreset();
+    const inheritedConfig = buildDefaultDelegateConfig(currentPreset);
+    const explicitConfig = normalizeDelegateConfig(source, currentPreset);
+    return JSON.stringify(explicitConfig) !== JSON.stringify(inheritedConfig);
+}
+
 function resolveLegacyTavilyValue(input = {}, legacyPresetName, currentPresetName, fieldName, normalizeValue) {
     const direct = normalizeValue(input?.[fieldName]);
     if (direct) return direct;
@@ -247,6 +270,7 @@ export function normalizeAgentSettings(saved = {}, options = {}) {
     const delegatePresetName = resolveDelegatePresetName(presets, saved.delegatePresetName, currentPresetName);
     const delegateFallbackPreset = presets[delegatePresetName] || presets[currentPresetName] || buildDefaultPreset();
     const delegateConfig = normalizeDelegateConfig(saved.delegateConfig, delegateFallbackPreset);
+    const delegateConfigured = resolveDelegateConfigured(saved, presets, currentPresetName, delegatePresetName);
     const tavilySettings = resolveGlobalTavilySettings(saved, legacyPresetName, currentPresetName);
 
     return {
@@ -256,6 +280,7 @@ export function normalizeAgentSettings(saved = {}, options = {}) {
         currentPresetName,
         delegatePresetName,
         delegateConfig,
+        delegateConfigured,
         presets,
         tavilyApiKey: tavilySettings.tavilyApiKey,
         tavilyBaseUrl: tavilySettings.tavilyBaseUrl,
@@ -272,6 +297,7 @@ export function normalizeAgentConfig(config = {}) {
     const currentPreset = presets[currentPresetName] || buildDefaultPreset();
     const delegateFallbackPreset = presets[delegatePresetName] || currentPreset;
     const delegateConfig = normalizeDelegateConfig(config.delegateConfig, delegateFallbackPreset);
+    const delegateConfigured = resolveDelegateConfigured(config, presets, currentPresetName, delegatePresetName);
     const tavilySettings = resolveGlobalTavilySettings(config, legacyPresetName, currentPresetName);
 
     return {
@@ -280,6 +306,7 @@ export function normalizeAgentConfig(config = {}) {
         currentPresetName,
         delegatePresetName,
         delegateConfig,
+        delegateConfigured,
         presetDraftName: normalizePresetName(config.presetDraftName || currentPresetName),
         presetNames: Object.keys(presets),
         presets,

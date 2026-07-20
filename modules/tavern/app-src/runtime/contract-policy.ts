@@ -8,6 +8,7 @@ import { TAVILY_TOOL_NAME } from '../../../agent-core/tavily-search.js';
 import { TAVERN_SOURCE_FILE_TOOL_NAMES, type TavernMemoryToolResult } from '../../shared/memory-files';
 import { TAVERN_STATE_TOOL_NAMES, type TavernStateToolResult } from '../../shared/structured-state';
 import { TAVERN_STATUS_TOOL_NAMES, type TavernStatusToolResult } from '../../shared/status-state';
+import { TAVERN_TASK_TOOL_NAMES } from '../../shared/tasks/task-tools';
 
 const SOURCE_READ_TOOL_NAMES: string[] = [
     TAVERN_SOURCE_FILE_TOOL_NAMES.LS,
@@ -26,6 +27,7 @@ const MODEL_STATE_TOOL_NAMES: string[] = [
     TAVERN_STATE_TOOL_NAMES.EDIT_SCENE,
 ];
 const STATUS_TOOL_NAMES: string[] = Object.values(TAVERN_STATUS_TOOL_NAMES);
+const TASK_TOOL_NAMES: string[] = Object.values(TAVERN_TASK_TOOL_NAMES);
 
 export interface TavernAutoManagerToolPolicy {
     runtime: TavernSessionContractRuntime;
@@ -54,7 +56,7 @@ export function resolveTavernAutoManagerToolPolicy(
     contract?: Partial<TavernSessionContract> | null,
 ): TavernAutoManagerToolPolicy {
     const runtime = resolveTavernSessionContractRuntime(contract);
-    const allowedToolNames: string[] = [...SOURCE_READ_TOOL_NAMES];
+    const allowedToolNames: string[] = [...SOURCE_READ_TOOL_NAMES, ...TASK_TOOL_NAMES];
     if (runtime.includeMemoryFiles) {
         allowedToolNames.push(...SOURCE_WRITE_TOOL_NAMES);
     }

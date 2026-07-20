@@ -858,6 +858,7 @@ export function createAgentSettingsPanel(deps = {}) {
             currentPresetName: config?.currentPresetName || DEFAULT_PRESET_NAME,
             delegatePresetName: config?.delegatePresetName || config?.currentPresetName || DEFAULT_PRESET_NAME,
             delegateConfig: config?.delegateConfig || {},
+            delegateConfigured: config?.delegateConfigured === true,
             presets: config?.presets || {},
         };
     }
@@ -893,6 +894,7 @@ export function createAgentSettingsPanel(deps = {}) {
             currentPresetName: nextPresetName,
             delegatePresetName: resolveExistingPresetName(draft.delegatePresetName, nextPresetName),
             delegateConfig: buildDelegateConfigFromDraft(draft),
+            delegateConfigured: options.configureDelegate === true || state.config?.delegateConfigured === true,
             presets: nextPresets,
         });
         state.configDraft = buildDraftFromPreset(nextPresetName, nextPreset, state.config);
@@ -1210,7 +1212,10 @@ export function createAgentSettingsPanel(deps = {}) {
         });
 
         root.querySelector('#xb-assistant-delegate-save')?.addEventListener('click', () => {
-            saveConfigFromForm(root, { requestPrefix: 'save-delegate-config' });
+            saveConfigFromForm(root, {
+                requestPrefix: 'save-delegate-config',
+                configureDelegate: true,
+            });
         });
 
         root.querySelector('#xb-assistant-delete-preset').addEventListener('click', () => {

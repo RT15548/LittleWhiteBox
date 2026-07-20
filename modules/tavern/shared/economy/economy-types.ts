@@ -4,7 +4,21 @@ export const TAVERN_SYSTEM_SINK_ACCOUNT_ID = 'system:sink' as const;
 export const TAVERN_ECONOMY_OPENING_GRANT = 100 as const;
 export const TAVERN_ECONOMY_OPENING_IDEMPOTENCY_KEY = 'economy:opening-grant:v1' as const;
 
-export type TavernEconomyAccountKind = 'player' | 'system' | 'contact' | 'escrow';
+export type TavernEconomyAccountKind = 'player' | 'system' | 'contact' | 'counterparty' | 'escrow';
+
+export interface TavernEconomyCurrentTransactionOptions {
+    touchSessionOnCreate?: boolean;
+    /**
+     * A staged domain fact may be committed after a newer wallet fact while
+     * retaining the narrative floor where the fact was observed. This is
+     * intentionally opt-in for internal atomic domain commits only.
+     */
+    allowDelayedAnchorCommit?: boolean;
+}
+
+export interface TavernEconomyRestoreCurrentTransactionOptions {
+    touchSessionOnChange?: boolean;
+}
 
 export interface TavernEconomyAccountRecord {
     sessionId: string;

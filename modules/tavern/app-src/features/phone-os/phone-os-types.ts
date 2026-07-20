@@ -2,6 +2,7 @@ import type { Component, Ref } from 'vue';
 
 export const TAVERN_PHONE_MESSAGES_APP_ID = 'messages';
 export const TAVERN_PHONE_WALLET_APP_ID = 'wallet';
+export const TAVERN_PHONE_TASKS_APP_ID = 'tasks';
 
 export type TavernPhonePresentationMode = 'desktop-device' | 'mobile-fullscreen';
 

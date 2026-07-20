@@ -8,6 +8,7 @@ import {
     TAVERN_PLAYER_ACCOUNT_ID,
     type TavernEconomyRestoreImpact,
     type TavernEconomyRestoreResult,
+    type TavernEconomyRestoreCurrentTransactionOptions,
     type TavernEconomyTransactionRecord,
 } from './economy-types';
 
@@ -64,6 +65,25 @@ function affectedAccountIds(transactions: TavernEconomyTransactionRecord[]): Set
     return new Set(transactions.flatMap((transaction) => [transaction.fromAccountId, transaction.toAccountId]));
 }
 
+async function rebuildRetainedPlayerBalances(sessionId: string, expectedBalance: number): Promise<void> {
+    const retained = await tavernEconomyTransactionsTable.where('sessionId').equals(sessionId).toArray();
+    retained.sort((left, right) => left.ledgerOrder - right.ledgerOrder);
+    let playerBalance = 0;
+    const changed: TavernEconomyTransactionRecord[] = [];
+    for (const transaction of retained) {
+        if (transaction.toAccountId === TAVERN_PLAYER_ACCOUNT_ID) {playerBalance += transaction.amount;}
+        if (transaction.fromAccountId === TAVERN_PLAYER_ACCOUNT_ID) {playerBalance -= transaction.amount;}
+        if (!Number.isSafeInteger(playerBalance)) {throwTavernEconomyError('economy_balance_overflow');}
+        if (transaction.playerBalanceAfter !== playerBalance) {
+            changed.push({ ...transaction, playerBalanceAfter: playerBalance });
+        }
+    }
+    if (playerBalance !== expectedBalance) {
+        throwTavernEconomyError('economy_account_state_invalid', TAVERN_PLAYER_ACCOUNT_ID);
+    }
+    if (changed.length) {await tavernEconomyTransactionsTable.bulkPut(changed);}
+}
+
 export async function describeTavernEconomyRestoreImpact(
     sessionId = '',
     targetFloor = -1,
@@ -103,54 +123,66 @@ export async function restoreTavernEconomyToFloor(
         tavernSessionsTable,
         tavernEconomyAccountsTable,
         tavernEconomyTransactionsTable,
-        async () => {
-            const transactions = await listTransactionsAfterFloor(id, floor);
-            const accountIds = affectedAccountIds(transactions);
-            const playerAccount = await tavernEconomyAccountsTable.get([id, TAVERN_PLAYER_ACCOUNT_ID]);
-            const currentPlayerBalance = Number(playerAccount?.balance) || 0;
-            const impact: TavernEconomyRestoreImpact = {
-                changed: transactions.length > 0,
-                targetFloor: floor,
-                transactionCount: transactions.length,
-                affectedAccountCount: accountIds.size,
-                currentPlayerBalance,
-                targetPlayerBalance: currentPlayerBalance - playerDelta(transactions),
-            };
-            if (!transactions.length) {
-                return { ...impact, deletedTransactionIds: [] };
-            }
-
-            const balanceDeltas = new Map<string, number>();
-            for (const transaction of transactions) {
-                balanceDeltas.set(
-                    transaction.fromAccountId,
-                    (balanceDeltas.get(transaction.fromAccountId) || 0) + transaction.amount,
-                );
-                balanceDeltas.set(
-                    transaction.toAccountId,
-                    (balanceDeltas.get(transaction.toAccountId) || 0) - transaction.amount,
-                );
-            }
-            const timestamp = Date.now();
-            const accounts = await Promise.all(Array.from(accountIds).map(async (accountId) => {
-                const account = await tavernEconomyAccountsTable.get([id, accountId]);
-                if (!account) {throwTavernEconomyError('economy_account_missing', accountId);}
-                const balance = account.balance + (balanceDeltas.get(accountId) || 0);
-                if (!Number.isSafeInteger(balance)) {throwTavernEconomyError('economy_balance_overflow', accountId);}
-                if ((account.kind === 'player' || account.kind === 'escrow') && balance < 0) {
-                    throwTavernEconomyError('economy_balance_insufficient', accountId);
-                }
-                return { ...account, balance, updatedAt: timestamp };
-            }));
-            await tavernEconomyAccountsTable.bulkPut(accounts);
-            await tavernEconomyTransactionsTable.bulkDelete(
-                transactions.map((transaction) => [transaction.sessionId, transaction.id]),
-            );
-            await tavernSessionsTable.update(id, { updatedAt: timestamp });
-            return {
-                ...impact,
-                deletedTransactionIds: transactions.map((transaction) => transaction.id),
-            };
-        },
+        async () => restoreTavernEconomyToFloorInCurrentDbTransaction(id, floor),
     );
+}
+
+/** Caller must include sessions, economyAccounts and economyTransactions in the active transaction. */
+export async function restoreTavernEconomyToFloorInCurrentDbTransaction(
+    sessionId = '',
+    targetFloor = -1,
+    options: TavernEconomyRestoreCurrentTransactionOptions = {},
+): Promise<TavernEconomyRestoreResult> {
+    const id = normalizeSessionId(sessionId);
+    const floor = normalizeTargetFloor(targetFloor);
+    const transactions = await listTransactionsAfterFloor(id, floor);
+    const accountIds = affectedAccountIds(transactions);
+    const playerAccount = await tavernEconomyAccountsTable.get([id, TAVERN_PLAYER_ACCOUNT_ID]);
+    const currentPlayerBalance = Number(playerAccount?.balance) || 0;
+    const impact: TavernEconomyRestoreImpact = {
+        changed: transactions.length > 0,
+        targetFloor: floor,
+        transactionCount: transactions.length,
+        affectedAccountCount: accountIds.size,
+        currentPlayerBalance,
+        targetPlayerBalance: currentPlayerBalance - playerDelta(transactions),
+    };
+    if (!transactions.length) {
+        return { ...impact, deletedTransactionIds: [] };
+    }
+
+    const balanceDeltas = new Map<string, number>();
+    for (const transaction of transactions) {
+        balanceDeltas.set(
+            transaction.fromAccountId,
+            (balanceDeltas.get(transaction.fromAccountId) || 0) + transaction.amount,
+        );
+        balanceDeltas.set(
+            transaction.toAccountId,
+            (balanceDeltas.get(transaction.toAccountId) || 0) - transaction.amount,
+        );
+    }
+    const timestamp = Date.now();
+    const accounts = await Promise.all(Array.from(accountIds).map(async (accountId) => {
+        const account = await tavernEconomyAccountsTable.get([id, accountId]);
+        if (!account) {throwTavernEconomyError('economy_account_missing', accountId);}
+        const balance = account.balance + (balanceDeltas.get(accountId) || 0);
+        if (!Number.isSafeInteger(balance)) {throwTavernEconomyError('economy_balance_overflow', accountId);}
+        if ((account.kind === 'player' || account.kind === 'escrow') && balance < 0) {
+            throwTavernEconomyError('economy_balance_insufficient', accountId);
+        }
+        return { ...account, balance, updatedAt: timestamp };
+    }));
+    await tavernEconomyAccountsTable.bulkPut(accounts);
+    await tavernEconomyTransactionsTable.bulkDelete(
+        transactions.map((transaction) => [transaction.sessionId, transaction.id]),
+    );
+    await rebuildRetainedPlayerBalances(id, impact.targetPlayerBalance);
+    if (options.touchSessionOnChange !== false) {
+        await tavernSessionsTable.update(id, { updatedAt: timestamp });
+    }
+    return {
+        ...impact,
+        deletedTransactionIds: transactions.map((transaction) => transaction.id),
+    };
 }

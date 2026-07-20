@@ -15,10 +15,11 @@ import {
     trimTavernCommunicationSnapshotsFromFloor,
 } from '../../../shared/communications';
 import {
-    describeTavernEconomyRestoreImpact,
-    restoreTavernEconomyToFloor,
-} from '../../../shared/economy/economy-timeline';
+    describeTavernTasksAndEconomyRestoreImpact,
+    restoreTavernTasksAndEconomyToFloor,
+} from '../../../shared/tasks/task-timeline';
 import type { TavernEconomyRestoreImpact } from '../../../shared/economy/economy-types';
+import type { TavernTaskRestoreImpact } from '../../../shared/tasks/task-types';
 import {
     cancelAndRollbackXbTavernManagersForMessageRange,
     describeXbTavernManagerRollbackImpactForMessageRange,
@@ -29,6 +30,7 @@ export type AcceptedStateRollbackImpact = {
     memory: { changed: boolean; currentFileCount: number; targetFileCount: number; changedPaths: string[] };
     status: { changed: boolean; currentExists: boolean; targetExists: boolean };
     communications: { changed: boolean; currentMessageCount: number; targetMessageCount: number };
+    tasks: TavernTaskRestoreImpact;
     economy: TavernEconomyRestoreImpact;
     managers: {
         affectedRuns: number;
@@ -52,7 +54,7 @@ export async function restoreAcceptedStateBeforeMessage(sessionId = '', changedO
     await restoreTavernMemoryToFloor(id, order - 1);
     await restoreTavernStatusToFloor(id, order - 1);
     await restoreTavernCommunicationsToFloor(id, order - 1);
-    await restoreTavernEconomyToFloor(id, order - 1);
+    await restoreTavernTasksAndEconomyToFloor(id, order - 1);
     await trimTavernMemorySnapshotsFromFloor(id, order);
     await trimTavernStatusSnapshotsFromFloor(id, order);
     await trimTavernCommunicationSnapshotsFromFloor(id, order);
@@ -61,11 +63,11 @@ export async function restoreAcceptedStateBeforeMessage(sessionId = '', changedO
 
 export async function describeAcceptedStateRollbackImpact(sessionId: string, changedOrder: number): Promise<AcceptedStateRollbackImpact> {
     const targetFloor = Number(changedOrder) - 1;
-    const [memory, status, communications, economy, managers] = await Promise.all([
+    const [memory, status, communications, tasksAndEconomy, managers] = await Promise.all([
         describeTavernMemoryRestoreImpact(sessionId, targetFloor),
         describeTavernStatusRestoreImpact(sessionId, targetFloor),
         describeTavernCommunicationRestoreImpact(sessionId, targetFloor),
-        describeTavernEconomyRestoreImpact(sessionId, targetFloor),
+        describeTavernTasksAndEconomyRestoreImpact(sessionId, targetFloor),
         describeXbTavernManagerRollbackImpactForMessageRange(sessionId, changedOrder),
     ]);
     return {
@@ -73,9 +75,14 @@ export async function describeAcceptedStateRollbackImpact(sessionId: string, cha
         memory,
         status,
         communications,
-        economy,
+        tasks: tasksAndEconomy.tasks,
+        economy: tasksAndEconomy.economy,
         managers,
-        willRollbackState: memory.changed || status.changed || communications.changed || economy.changed,
+        willRollbackState: memory.changed
+            || status.changed
+            || communications.changed
+            || tasksAndEconomy.tasks.changed
+            || tasksAndEconomy.economy.changed,
         willCancelWork: managers.pendingRuns > 0,
     };
 }
@@ -96,6 +103,7 @@ export function rollbackImpactLines(impact: AcceptedStateRollbackImpact): string
     if (impact.memory.changed) {restoreTargets.push('会话记忆');}
     if (impact.status.changed) {restoreTargets.push('状态栏');}
     if (impact.communications.changed) {restoreTargets.push('私人消息');}
+    if (impact.tasks.changed) {restoreTargets.push('任务状态');}
     if (impact.economy.changed) {restoreTargets.push('钱包流水');}
     if (restoreTargets.length) {
         lines.push(`${joinRollbackTargets(restoreTargets)}会恢复到${target}。`);

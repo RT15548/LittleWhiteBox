@@ -28,6 +28,50 @@ test('assistant config preserves explicit jsApiPermission', () => {
     assert.equal(config.jsApiPermission, 'allow');
 });
 
+test('assistant config distinguishes inherited delegate defaults from an explicit delegate setup', () => {
+    const onlyMain = {
+        currentPresetName: '主助手',
+        presets: {
+            主助手: {
+                provider: 'openai-compatible',
+                modelConfigs: {
+                    'openai-compatible': {
+                        baseUrl: 'https://main.example/v1',
+                        model: 'main-model',
+                        apiKey: 'main-key',
+                    },
+                },
+            },
+        },
+    };
+    const inherited = normalizeAgentSettings(onlyMain);
+    assert.equal(inherited.delegateConfigured, false);
+    assert.equal(normalizeAgentConfig(inherited).delegateConfigured, false);
+
+    const explicitEmpty = normalizeAgentConfig({
+        ...onlyMain,
+        delegateConfigured: true,
+        delegateConfig: {},
+    });
+    assert.equal(explicitEmpty.delegateConfigured, false);
+
+    const explicit = normalizeAgentConfig({
+        ...onlyMain,
+        delegateConfigured: true,
+        delegateConfig: {
+            provider: 'openai-compatible',
+            modelConfigs: {
+                'openai-compatible': {
+                    baseUrl: 'https://main.example/v1',
+                    model: 'main-model',
+                    apiKey: 'main-key',
+                },
+            },
+        },
+    });
+    assert.equal(explicit.delegateConfigured, true);
+});
+
 test('assistant config can route delegates to a separate preset', () => {
     const config = normalizeAgentConfig({
         currentPresetName: '主助手',

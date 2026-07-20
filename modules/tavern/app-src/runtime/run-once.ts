@@ -103,6 +103,7 @@ import {
 } from '../../shared/memory-retrieval';
 import { getTavernStatusStateForSession, type TavernStatusDocument } from '../../shared/status-state';
 import { buildTavernStatusPanelYaml } from '../../shared/status-prompt';
+import { hasMaintainableTavernTasksAtAnchor } from '../../shared/tasks/task-service';
 import { createXbTavernAgentRuntime } from './agent-runtime';
 import {
     failAndRollbackAcceptedTurnManagerRun,
@@ -111,7 +112,12 @@ import {
     type XbTavernManagerOnceOptions,
     type XbTavernManagerOnceResult,
 } from './manager';
-import { assertXbTavernProviderReady, resolveXbTavernProviderConfig } from './provider';
+import {
+    assertXbTavernProviderReady,
+    resolveXbTavernProviderConfig,
+    type XbTavernProviderRole,
+    type XbTavernResolvedProvider,
+} from './provider';
 import {
     applyTavernToolLoopRequestPlan,
     buildGoogleSessionToolLoopSendPayload,
@@ -122,6 +128,7 @@ import {
     loadTavernPromptHistoryWindow,
     stripTavernImageMarkers,
 } from './prompt-history-window';
+import { buildTavernStoryTaskDepthEntries } from './task-context';
 
 export {
     loadTavernPromptHistoryWindow,
@@ -416,6 +423,7 @@ export interface TavernRunStatusSnapshot {
 export interface TavernRunOnceOptions {
     agentConfig: Record<string, unknown>;
     messages: XbTavernMessage[];
+    providerRole?: XbTavernProviderRole;
     chatPreset?: TavernChatPromptPresetBundle;
     regexApplications?: TavernRegexApplicationSummary;
     tools?: unknown[];
@@ -504,6 +512,7 @@ export type TavernBuildNativeChatPromptRuntime = (input: {
     memoryPrompt?: string;
     chancePrompt?: string;
     actionCheckPrompt?: string;
+    runtimeDepthPrompts?: XbTavernRuntimeState['runtimeDepthEntries'];
     [TAVERN_LOCAL_PROMPT_MESSAGES]?: XbTavernMessage[];
 }) => Promise<{
     messages?: XbTavernMessage[];
@@ -604,6 +613,7 @@ async function applyNativeChatPromptBuild(input: {
     signal?: AbortSignal;
     memoryContext?: XbTavernMemoryContext;
     chancePrompt?: string;
+    runtimeDepthPrompts?: XbTavernRuntimeState['runtimeDepthEntries'];
     runtimeProtocolMessages?: XbTavernMessage[];
     diagnostics?: TavernDiagnostics;
 }): Promise<{ buildResult: XbTavernMessageBuildResult; buildSnapshot: XbTavernBuildSnapshot }> {
@@ -620,6 +630,7 @@ async function applyNativeChatPromptBuild(input: {
         memoryPrompt: buildMemoryPromptContent(input.memoryContext),
         chancePrompt: input.chancePrompt || '',
         actionCheckPrompt: joinPromptMessages(input.runtimeProtocolMessages || []),
+        runtimeDepthPrompts: input.runtimeDepthPrompts || [],
         [TAVERN_LOCAL_PROMPT_MESSAGES]: input.baseBuildResult.messages,
     }));
     const nativeMessages = Array.isArray(nativePrompt?.messages) ? nativePrompt.messages : [];
@@ -1361,9 +1372,10 @@ export function buildTavernRequestSnapshot(
         regexApplications?: TavernRegexApplicationSummary;
         requestTask?: Record<string, unknown> | null;
         promptDiagnostics?: Record<string, unknown> | null;
+        resolvedProviderConfig?: XbTavernResolvedProvider;
     } = {},
 ): TavernRequestSnapshot {
-    const providerConfig = resolveXbTavernProviderConfig(agentConfig);
+    const providerConfig = override.resolvedProviderConfig || resolveXbTavernProviderConfig(agentConfig);
     const requestInspection = override.requestInspection || null;
     const requestInspectionError = String(override.requestInspectionError || '').trim();
     const chatPresetName = String(override.chatPreset?.name || '').trim();
@@ -1469,6 +1481,7 @@ async function inspectTavernRequest(input: {
         adapter,
         providerConfig,
         requestSnapshot: buildTavernRequestSnapshot(input.agentConfig, requestPlan.requestMessages, {
+            resolvedProviderConfig: providerConfig,
             provider: String(requestInspection?.provider || providerConfig.provider || ''),
             model: String(requestInspection?.model || providerConfig.model || ''),
             requestInspection,
@@ -1564,7 +1577,9 @@ async function ensureRunSession(input: XbTavernRunTurnInput, buildSnapshot?: XbT
 }
 
 export async function runTavernOnce(options: TavernRunOnceOptions): Promise<TavernRunOnceResult> {
-    const providerConfig = assertXbTavernProviderReady(options.agentConfig);
+    const providerConfig = assertXbTavernProviderReady(options.agentConfig, {
+        role: options.providerRole,
+    });
     const adapter = createAgentAdapter(providerConfig as unknown as Record<string, unknown>, {
         missingApiKeyMessage: '请先在 API 配置里选择模型/填写 Key。',
     }) as TavernChatAdapter;
@@ -1599,6 +1614,7 @@ async function runTavernOnceWithAdapter(
         const requestInspection = (error as { requestInspection?: TavernRequestInspection } | null)?.requestInspection;
         if (requestInspection && error && typeof error === 'object') {
             (error as { requestSnapshot?: TavernRequestSnapshot }).requestSnapshot = buildTavernRequestSnapshot(options.agentConfig, inspected.snapshotMessages, {
+                resolvedProviderConfig: inspected.providerConfig,
                 provider: String(requestInspection.provider || inspected.providerConfig.provider || ''),
                 model: String(requestInspection.model || inspected.providerConfig.model || ''),
                 requestInspection,
@@ -1627,6 +1643,7 @@ async function runTavernOnceWithAdapter(
         providerPayload: result?.providerPayload,
         toolCalls,
         requestSnapshot: buildTavernRequestSnapshot(options.agentConfig, inspected.snapshotMessages, {
+            resolvedProviderConfig: inspected.providerConfig,
             provider,
             model,
             requestInspection: finalInspection,
@@ -1725,6 +1742,11 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         }
         : undefined;
     const filteredMemoryContext = filterMemoryContextByRuntime(memoryContext, sessionContractRuntime);
+    const taskDepthEntries = session
+        ? await runTavernStage('simulate_task_context', () => buildTavernStoryTaskDepthEntries(session.id, {
+            atAnchorOrder: contextWindow?.historyMessages.at(-1)?.order ?? -1,
+        }))
+        : [];
     const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
         includePhoneCommunication: communicationEvents.length > 0,
     });
@@ -1736,6 +1758,7 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         turn: sessionState.turn,
         entryStates: sessionState.worldEntryStates,
         memoryContext: filteredMemoryContext,
+        runtimeDepthEntries: taskDepthEntries,
         runtimeProtocolMessages,
         diagnostics: input.diagnostics || {},
         regexApplications,
@@ -1805,6 +1828,7 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
         currentUserMessage: nativePromptConversation.currentUserMessage,
         generationType: String(input.generationTrigger || 'normal'),
         memoryContext: filteredMemoryContext,
+        runtimeDepthPrompts: taskDepthEntries,
         runtimeProtocolMessages,
         diagnostics: input.diagnostics,
     });
@@ -2090,6 +2114,7 @@ function scheduleQueuedAcceptedTurnManager(input: {
                             managerRunId: result.managerRun.id,
                             floor: result.managerRun.assistantOrder,
                             domains,
+                            stagedTaskActions: result.stagedTaskActions,
                             leaseOwnerId: String(result.managerRun.leaseOwnerId || ''),
                         });
                         await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, completed.id));
@@ -2160,7 +2185,6 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         rerollPreparation?.runtimeState || baseSession.state || input.runtimeState || {},
     );
     const persistedSessionContract = resolveSessionContract(persistedSessionState);
-    const persistedSessionContractRuntime = resolveTavernSessionContractRuntime(persistedSessionContract);
     const turnDiagnostics: TavernDiagnostics = {
         ...(input.diagnostics || {}),
     };
@@ -2197,7 +2221,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             presetId: initialPresetId,
             presetName: initialPresetName,
         }, {
-            confirmManagerCandidate: input.runManager === true && persistedSessionContractRuntime.hasAutomaticManagerWork,
+            confirmManagerCandidate: input.runManager === true,
         });
         userMessage = appended.userMessage;
         const confirmedManagerRun = appended.managerRun;
@@ -2207,7 +2231,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         if (confirmedManagerRun) {
             await notifyRunCallback(() => input.onManagerRunSaved?.(baseSession.id, confirmedManagerRun.id));
         }
-        if (input.runManager === true && persistedSessionContractRuntime.hasAutomaticManagerWork) {
+        if (input.runManager === true && confirmedManagerRun) {
             scheduleQueuedAcceptedTurnManager({
                 sessionId: baseSession.id,
                 agentConfig: input.agentConfig,
@@ -2317,6 +2341,9 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         }
         : undefined;
     const filteredMemoryContext = filterMemoryContextByRuntime(memoryContext, sessionContractRuntime);
+    const taskDepthEntries = await runTavernStage('turn_task_context', () => buildTavernStoryTaskDepthEntries(baseSession.id, {
+        atAnchorOrder: userMessage?.order ?? contextWindow.historyMessages.at(-1)?.order ?? -1,
+    }));
     const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
         includePhoneCommunication: communicationEvents.length > 0,
     });
@@ -2328,7 +2355,10 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         turn: sessionState.turn,
         entryStates: sessionState.worldEntryStates,
         memoryContext: filteredMemoryContext,
-        runtimeDepthEntries: buildChanceEncounterDepthEntries(chanceEncounterEvent),
+        runtimeDepthEntries: [
+            ...taskDepthEntries,
+            ...buildChanceEncounterDepthEntries(chanceEncounterEvent),
+        ],
         runtimeProtocolMessages,
         diagnostics: turnDiagnostics,
         regexApplications,
@@ -2400,6 +2430,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         signal: input.signal,
         memoryContext: filteredMemoryContext,
         chancePrompt: chanceEncounterEvent ? buildChanceEncounterPromptMessage().content : '',
+        runtimeDepthPrompts: taskDepthEntries,
         runtimeProtocolMessages,
         diagnostics: turnDiagnostics,
     });
@@ -2564,6 +2595,9 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         }
         const canRunManager = input.runManager === true
             && !['aborted', 'error'].includes(assistantFinishReason);
+        const hasTaskManagerWork = canRunManager
+            ? await hasMaintainableTavernTasksAtAnchor(session.id, userMessage.order + 1)
+            : false;
         const assistantMessageInput = {
             role: 'assistant',
             content: normalizedOutput.text,
@@ -2585,7 +2619,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
             sessionState: nextSessionState,
             replaceSessionState: shouldReplaceSessionState,
             ...(rerollPreparation ? { userMessagePatch, sessionSnapshot } : {}),
-            ...(canRunManager && sessionContractRuntime.hasAutomaticManagerWork ? {
+            ...(canRunManager && (sessionContractRuntime.hasAutomaticManagerWork || hasTaskManagerWork) ? {
                 managerCandidate: {
                     turn: nextTurn,
                     inputSummary: `turn ${nextTurn}; messages ${userMessage.order}/${userMessage.order + 1}; user ${userMessage.content.length} chars`,
