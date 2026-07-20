@@ -81,6 +81,7 @@ import db, {
     putTavernStructuredStateDocument,
     putTavernManagerCandidate,
     prepareTavernLatestAssistantReroll,
+    queueAcceptedTurnManagerRetry,
     type TavernStructuredStateDocumentRecord,
 } from '../shared/session-db';
 import { DEFAULT_XB_TAVERN_PRESET_ID, createDefaultXbTavernPreset } from '../shared/presets';
@@ -97,6 +98,10 @@ import {
     runNextQueuedAcceptedTurnManager,
     recoverInterruptedAcceptedTurnManagerRuns,
 } from '../app-src/runtime/manager';
+import {
+    resumeQueuedAcceptedTurnManagers,
+    waitForQueuedAcceptedTurnManagers,
+} from '../app-src/runtime/run-once';
 import { runXbTavernAssistantChat as runXbTavernManagerChat } from '../app-src/runtime/assistant-chat-runner';
 import { rollbackImpactLines } from '../app-src/features/accepted-rollback/accepted-rollback';
 import {
@@ -152,6 +157,7 @@ import {
     acceptTavernTaskListing,
     getCurrentTavernTask,
     getTavernTaskPlayerBalance,
+    progressTavernTask,
 } from '../shared/tasks/task-service';
 import { TAVERN_TASK_TOOL_NAMES } from '../shared/tasks/task-tools';
 import type { TavernTaskListing, TavernTaskVersionRecord } from '../shared/tasks/task-types';
@@ -192,7 +198,8 @@ async function createAcceptedManagerTask(sessionId: string, suffix: string): Pro
     const board = await replaceTavernTaskBoard({
         sessionId,
         expectedRevision: 0,
-        anchorOrder: -1,
+        expectedEpoch: 1,
+        boundary: null,
         generationId: `manager-board-${suffix}`,
         listings: managerTaskListings(),
     });
@@ -200,8 +207,9 @@ async function createAcceptedManagerTask(sessionId: string, suffix: string): Pro
         sessionId,
         boardId: board.generationId,
         boardRevision: board.revision,
+        boardEpoch: board.epoch,
         listingId: board.listings[2].id,
-        anchorOrder: -1,
+        boundary: null,
         actionId: `manager-accept-${suffix}`,
         taskId: `manager-task-${suffix}`,
         playerName: '测试玩家',
@@ -811,6 +819,232 @@ test('accepted task completion stays staged until manager acceptance atomically 
     assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), transactionCountBefore + 1);
     assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 2);
     assert.ok(Number((await getTavernSession(session.id))?.updatedAt) > 1);
+});
+
+test('manager task action ids stay unique when Google reuses a provider tool id across rounds', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Manager tool id rounds' });
+    const task = await createAcceptedManagerTask(session.id, 'google-tool-id');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '任务出现阶段性进展。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '随后任务完成并通过验收。' });
+    await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        status: 'queued',
+    });
+    let round = 0;
+    const result = await runNextQueuedAcceptedTurnManager({
+        sessionId: session.id,
+        agentConfig: { delegateConfigured: true },
+        executeManagerOnce: async () => {
+            round += 1;
+            if (round === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'google-tool-1',
+                        name: TAVERN_TASK_TOOL_NAMES.PROGRESS,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision,
+                            progressSummary: '先完成了阶段目标。',
+                        },
+                    }],
+                };
+            }
+            if (round === 2) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'google-tool-1',
+                        name: TAVERN_TASK_TOOL_NAMES.COMPLETE,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision + 1,
+                            resultSummary: '最终目标也已完成。',
+                        },
+                    }],
+                };
+            }
+            return { text: '维护完成。' };
+        },
+    });
+    const actions = result?.stagedTaskActions || [];
+    assert.equal(actions.length, 2);
+    assert.equal(new Set(actions.map((action) => action.actionId)).size, 2);
+    assert.match(actions[0].actionId, /:1:0:google-tool-1$/);
+    assert.match(actions[1].actionId, /:2:0:google-tool-1$/);
+});
+
+test('manual accepted-turn retry is queued and commits task settlement with a domain change event', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Manual manager retry' });
+    const task = await createAcceptedManagerTask(session.id, 'manual-retry');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '请重试维护。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '任务已完成。' });
+    const source = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        trigger: 'accepted_turn',
+        status: 'failed',
+        error: 'provider_failed',
+    });
+    const queued = await queueAcceptedTurnManagerRetry(source.id);
+    assert.equal(queued?.status, 'queued');
+    assert.equal(queued?.recoverySourceRunId, source.id);
+    let round = 0;
+    const domainChanges: Array<{ tasksChanged: boolean; economyChanged: boolean }> = [];
+    resumeQueuedAcceptedTurnManagers({
+        sessionId: session.id,
+        agentConfig: { delegateConfigured: true },
+        sessionContract: DEFAULT_TAVERN_SESSION_CONTRACT,
+        executeManagerOnce: async () => {
+            round += 1;
+            if (round === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'google-tool-1',
+                        name: TAVERN_TASK_TOOL_NAMES.COMPLETE,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision,
+                            resultSummary: '重试后完成。',
+                        },
+                    }],
+                };
+            }
+            return { text: '维护完成。' };
+        },
+        onManagerRunSaved: (_sessionId, _runId, change) => {
+            if (change) {domainChanges.push(change);}
+        },
+    });
+    await waitForQueuedAcceptedTurnManagers(session.id);
+
+    const retry = (await listTavernManagerRuns(session.id)).find((run) => run.recoverySourceRunId === source.id);
+    assert.equal(retry?.status, 'completed');
+    assert.equal((await getCurrentTavernTask(session.id, task.taskId))?.status, 'completed');
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100 + task.reward);
+    assert.deepEqual(domainChanges, [{ tasksChanged: true, economyChanged: true }]);
+});
+
+test('manual accepted-turn retry failure does not fake task or wallet completion', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Manual manager retry conflict' });
+    const task = await createAcceptedManagerTask(session.id, 'manual-retry-conflict');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '请重试维护。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '任务等待再次确认。' });
+    const source = await createTavernManagerRun({
+        sessionId: session.id,
+        turn: 1,
+        userOrder: user.order,
+        assistantOrder: assistant.order,
+        sourceUserMessageId: user.messageId,
+        sourceAssistantMessageId: assistant.messageId,
+        sourceUserCreatedAt: user.createdAt,
+        sourceAssistantCreatedAt: assistant.createdAt,
+        sourceUserRevision: user.timelineRevision,
+        sourceAssistantRevision: assistant.timelineRevision,
+        trigger: 'accepted_turn',
+        status: 'failed',
+        error: 'provider_failed',
+    });
+    await queueAcceptedTurnManagerRetry(source.id);
+    let round = 0;
+    resumeQueuedAcceptedTurnManagers({
+        sessionId: session.id,
+        agentConfig: { delegateConfigured: true },
+        sessionContract: DEFAULT_TAVERN_SESSION_CONTRACT,
+        executeManagerOnce: async () => {
+            round += 1;
+            if (round === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'google-tool-1',
+                        name: TAVERN_TASK_TOOL_NAMES.COMPLETE,
+                        arguments: {
+                            taskId: task.taskId,
+                            revision: task.revision,
+                            resultSummary: '这次提交会被并发版本拒绝。',
+                        },
+                    }],
+                };
+            }
+            const current = await getCurrentTavernTask(session.id, task.taskId);
+            await progressTavernTask({
+                sessionId: session.id,
+                taskId: task.taskId,
+                expectedRevision: current?.revision || 0,
+                expectedVersionId: current?.versionId || '',
+                progressSummary: '并发修改先落地。',
+                anchorOrder: assistant.order + 1,
+                actionId: 'concurrent-progress-before-commit',
+            });
+            return { text: '维护完成，但提交前版本已变化。' };
+        },
+    });
+    await waitForQueuedAcceptedTurnManagers(session.id);
+
+    const retry = (await listTavernManagerRuns(session.id)).find((run) => run.recoverySourceRunId === source.id);
+    const current = await getCurrentTavernTask(session.id, task.taskId);
+    assert.equal(retry?.status, 'failed');
+    assert.equal(current?.status, 'active');
+    assert.equal(current?.progressSummary, '并发修改先落地。');
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, task.escrowAccountId]))?.balance, task.reward);
+});
+
+test('automatic manager blocks before provider or task tools when the delegate model is not configured', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Manager delegate gate' });
+    const task = await createAcceptedManagerTask(session.id, 'delegate-gate');
+    const user = await appendTavernMessage(session.id, { role: 'user', content: '不要借用主模型维护。' });
+    const assistant = await appendTavernMessage(session.id, { role: 'assistant', content: '任务仍保持进行中。' });
+    const result = await runXbTavernManagerAfterTurn({
+        sessionId: session.id,
+        agentConfig: {
+            currentPresetName: '主剧情',
+            presets: {
+                主剧情: {
+                    provider: 'sillytavern-claude',
+                    modelConfigs: {
+                        'sillytavern-claude': { model: 'main-story-model' },
+                    },
+                },
+            },
+        },
+        userMessage: user,
+        assistantMessage: assistant,
+        turn: 1,
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.error || '', /请先配置分身模型/);
+    assert.equal((await getCurrentTavernTask(session.id, task.taskId))?.status, 'active');
+    assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 1);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
+    assert.equal((await tavernEconomyAccountsTable.get([session.id, task.escrowAccountId]))?.balance, task.reward);
 });
 
 test('accepted snapshot conflict rolls back a staged task settlement and its ledger write', async () => {

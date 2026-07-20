@@ -12,11 +12,12 @@ const WALLET_TRANSACTION_PAGE_SIZE = 18;
 
 export interface TavernWalletControllerOptions {
     selectedSessionId: Ref<string>;
+    isLedgerVisible?: (sessionId: string) => boolean;
 }
 
 function walletErrorText(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error || 'economy_wallet_load_failed');
-    if (message.startsWith('economy_session_missing')) {return '当前会话已经不存在。';}
+    if (message.startsWith('economy_session_missing')) {return '这段剧情已经不存在。';}
     if (message.startsWith('economy_account_state_invalid')) {return '钱包账本状态异常，暂时无法读取。';}
     return '钱包暂时无法读取，请稍后重试。';
 }
@@ -34,6 +35,7 @@ export function useTavernWalletController(options: TavernWalletControllerOptions
     const error = ref('');
     let walletReadSequence = 0;
     let ledgerRequestSequence = 0;
+    let mutationRevision = 0;
 
     const hasMore = computed(() => !!nextCursor.value);
 
@@ -54,11 +56,13 @@ export function useTavernWalletController(options: TavernWalletControllerOptions
         loadingMore.value = false;
         loadMoreError.value = '';
         error.value = '';
+        mutationRevision += 1;
     }
 
     async function refreshBalance(): Promise<void> {
         const sessionId = currentSessionId();
         const requestSequence = ++walletReadSequence;
+        const readMutationRevision = mutationRevision;
         if (!sessionId) {
             resetWalletState();
             return;
@@ -67,11 +71,19 @@ export function useTavernWalletController(options: TavernWalletControllerOptions
         balanceError.value = '';
         try {
             const nextBalance = await getTavernPlayerBalance(sessionId);
-            if (requestSequence !== walletReadSequence || sessionId !== currentSessionId()) {return;}
+            if (
+                requestSequence !== walletReadSequence
+                || sessionId !== currentSessionId()
+                || readMutationRevision !== mutationRevision
+            ) {return;}
             balance.value = nextBalance;
             balanceReady.value = true;
         } catch (cause) {
-            if (requestSequence !== walletReadSequence || sessionId !== currentSessionId()) {return;}
+            if (
+                requestSequence !== walletReadSequence
+                || sessionId !== currentSessionId()
+                || readMutationRevision !== mutationRevision
+            ) {return;}
             balanceReady.value = false;
             balanceError.value = walletErrorText(cause);
         } finally {
@@ -83,6 +95,7 @@ export function useTavernWalletController(options: TavernWalletControllerOptions
         const sessionId = currentSessionId();
         const requestSequence = ++ledgerRequestSequence;
         const readSequence = ++walletReadSequence;
+        const readMutationRevision = mutationRevision;
         if (!sessionId) {
             resetWalletState();
             return;
@@ -101,6 +114,7 @@ export function useTavernWalletController(options: TavernWalletControllerOptions
                 requestSequence !== ledgerRequestSequence
                 || readSequence !== walletReadSequence
                 || sessionId !== currentSessionId()
+                || readMutationRevision !== mutationRevision
             ) {return;}
             balance.value = page.playerBalance;
             balanceReady.value = true;
@@ -127,6 +141,7 @@ export function useTavernWalletController(options: TavernWalletControllerOptions
         const sessionId = currentSessionId();
         const cursor = nextCursor.value;
         const requestSequence = ledgerRequestSequence;
+        const readMutationRevision = mutationRevision;
         if (!sessionId || !cursor || ledgerLoading.value || loadingMore.value) {return;}
         loadingMore.value = true;
         loadMoreError.value = '';
@@ -135,7 +150,11 @@ export function useTavernWalletController(options: TavernWalletControllerOptions
                 limit: WALLET_TRANSACTION_PAGE_SIZE,
                 before: cursor,
             });
-            if (requestSequence !== ledgerRequestSequence || sessionId !== currentSessionId()) {return;}
+            if (
+                requestSequence !== ledgerRequestSequence
+                || sessionId !== currentSessionId()
+                || readMutationRevision !== mutationRevision
+            ) {return;}
             const existingIds = new Set(transactions.value.map((transaction) => transaction.id));
             transactions.value = [
                 ...transactions.value,
@@ -143,7 +162,11 @@ export function useTavernWalletController(options: TavernWalletControllerOptions
             ];
             nextCursor.value = page.nextCursor;
         } catch (cause) {
-            if (requestSequence !== ledgerRequestSequence || sessionId !== currentSessionId()) {return;}
+            if (
+                requestSequence !== ledgerRequestSequence
+                || sessionId !== currentSessionId()
+                || readMutationRevision !== mutationRevision
+            ) {return;}
             loadMoreError.value = walletErrorText(cause);
         } finally {
             if (requestSequence === ledgerRequestSequence) {loadingMore.value = false;}
@@ -152,6 +175,17 @@ export function useTavernWalletController(options: TavernWalletControllerOptions
 
     async function prepareWallet(): Promise<void> {
         await refreshWallet();
+    }
+
+    async function refreshAfterEconomyDomainChange(): Promise<void> {
+        const sessionId = currentSessionId();
+        if (!sessionId) {return;}
+        mutationRevision += 1;
+        if (options.isLedgerVisible?.(sessionId)) {
+            await refreshWallet();
+            return;
+        }
+        await refreshBalance();
     }
 
     watch(options.selectedSessionId, resetWalletState);
@@ -170,6 +204,7 @@ export function useTavernWalletController(options: TavernWalletControllerOptions
         nextCursor,
         prepareWallet,
         refreshBalance,
+        refreshAfterEconomyDomainChange,
         refreshWallet,
         transactions,
     };

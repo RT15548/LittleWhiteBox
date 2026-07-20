@@ -1,16 +1,24 @@
 import db, {
+    tavernMessagesTable,
     tavernSessionsTable,
     tavernTaskBoardsTable,
 } from '../session-db';
 import {
     normalizeTavernTaskAnchorOrder,
+    normalizeTavernTaskBoardRecord,
     normalizeTavernTaskListings,
     parseTavernTaskBoardResponse,
     throwTavernTaskError,
     type TavernTaskBoardRecord,
+    type TavernTaskBoardState,
+    type TavernTaskExpectedPhoneBoundary,
     type TavernTaskListing,
     type TaskBoardParseOptions,
 } from './task-types';
+import {
+    assertTavernTaskPhoneBoundaryInCurrentTransaction,
+    tavernTaskPhoneBoundaryAnchorOrder,
+} from './task-phone-boundary';
 
 export { parseTavernTaskBoardResponse, parseTavernTaskCandidatesResponse } from './task-types';
 
@@ -36,10 +44,19 @@ function expectedRevision(value: unknown): number {
     return revision;
 }
 
+function expectedEpoch(value: unknown): number {
+    const epoch = Number(value);
+    if (!Number.isSafeInteger(epoch) || epoch < 1) {
+        throwTavernTaskError('task_board_epoch_invalid', String(value));
+    }
+    return epoch;
+}
+
 export interface ReplaceTavernTaskBoardInput {
     sessionId: string;
     expectedRevision: number;
-    anchorOrder: number;
+    expectedEpoch: number;
+    boundary: TavernTaskExpectedPhoneBoundary;
     listings: TavernTaskListing[];
     generationId?: string;
     generatedAt?: number;
@@ -47,7 +64,24 @@ export interface ReplaceTavernTaskBoardInput {
 
 export async function getTavernTaskBoard(value = ''): Promise<TavernTaskBoardRecord | null> {
     const id = sessionId(value);
-    return await tavernTaskBoardsTable.get(id) || null;
+    const record = await tavernTaskBoardsTable.get(id);
+    return record || null;
+}
+
+export async function getTavernTaskBoardState(value = ''): Promise<TavernTaskBoardState> {
+    const id = sessionId(value);
+    return await db.transaction('r', tavernSessionsTable, tavernTaskBoardsTable, async () => {
+        const [session, record] = await Promise.all([
+            tavernSessionsTable.get(id),
+            tavernTaskBoardsTable.get(id),
+        ]);
+        if (!session) {throwTavernTaskError('task_session_missing', id);}
+        return {
+            board: record || null,
+            revision: Number(record?.revision) || 0,
+            epoch: Math.max(1, Math.floor(Number(session.taskBoardEpoch) || 1)),
+        };
+    });
 }
 
 /**
@@ -58,7 +92,8 @@ export async function getTavernTaskBoard(value = ''): Promise<TavernTaskBoardRec
 export async function replaceTavernTaskBoard(input: ReplaceTavernTaskBoardInput): Promise<TavernTaskBoardRecord> {
     const id = sessionId(input.sessionId);
     const expected = expectedRevision(input.expectedRevision);
-    const anchorOrder = normalizeTavernTaskAnchorOrder(input.anchorOrder);
+    const expectedEpochValue = expectedEpoch(input.expectedEpoch);
+    const anchorOrder = normalizeTavernTaskAnchorOrder(tavernTaskPhoneBoundaryAnchorOrder(input.boundary));
     const listings = normalizeTavernTaskListings(input.listings, { min: 6, max: 6 });
     const generationId = String(input.generationId || '').trim() || createId('task-board');
     const generatedAt = Number(input.generatedAt ?? now());
@@ -67,6 +102,7 @@ export async function replaceTavernTaskBoard(input: ReplaceTavernTaskBoardInput)
     }
     return await db.transaction(
         'rw',
+        tavernMessagesTable,
         tavernSessionsTable,
         tavernTaskBoardsTable,
         async () => {
@@ -75,20 +111,27 @@ export async function replaceTavernTaskBoard(input: ReplaceTavernTaskBoardInput)
                 tavernTaskBoardsTable.get(id),
             ]);
             if (!session) {throwTavernTaskError('task_session_missing', id);}
+            await assertTavernTaskPhoneBoundaryInCurrentTransaction(id, input.boundary);
             const currentRevision = Number(current?.revision) || 0;
+            const currentEpoch = Math.max(1, Math.floor(Number(session.taskBoardEpoch) || 1));
             if (currentRevision !== expected) {
                 throwTavernTaskError('task_board_revision_conflict', `${expected}:${currentRevision}`);
             }
-            const record: TavernTaskBoardRecord = {
+            if (currentEpoch !== expectedEpochValue) {
+                throwTavernTaskError('task_board_epoch_conflict', `${expectedEpochValue}:${currentEpoch}`);
+            }
+            const nextEpoch = currentEpoch + 1;
+            const record = normalizeTavernTaskBoardRecord({
                 sessionId: id,
                 generationId,
                 revision: currentRevision + 1,
+                epoch: nextEpoch,
                 anchorOrder,
                 listings,
                 generatedAt,
-            };
+            });
             await tavernTaskBoardsTable.put(record);
-            await tavernSessionsTable.update(id, { updatedAt: now() });
+            await tavernSessionsTable.update(id, { taskBoardEpoch: nextEpoch, updatedAt: now() });
             return record;
         },
     );

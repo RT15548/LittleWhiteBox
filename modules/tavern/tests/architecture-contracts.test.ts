@@ -1350,7 +1350,6 @@ test('tavern data rollback helpers keep paired state writes inside transactions'
     assert.doesNotMatch(managerCleanBody, /applyMemoryTextFilterRules|<state>|<status|tts/);
     assert.match(managerSource, /async function resolveCurrentManagerSourceMessages/);
     assert.match(managerSource, /const currentSourceMessages = await resolveCurrentManagerSourceMessages\(input\)/);
-    assert.match(managerSource, /buildAutoManagerMessages\(input, currentSourceMessages\)/);
     assert.doesNotMatch(managerSource, /cleanSourceTextForManager\((?:userMessage|assistantMessage)\.content\) === cleanSourceTextForManager\(input\.(?:userMessage|assistantMessage)\.content\)/);
     assert.doesNotMatch(managerSource, /\.(?:content)\s*===\s*input\.(?:userMessage|assistantMessage)\.content/);
     assert.match(managerSource, /userMessage\?\.role === 'user'[\s\S]*userMessage\.error !== true/);

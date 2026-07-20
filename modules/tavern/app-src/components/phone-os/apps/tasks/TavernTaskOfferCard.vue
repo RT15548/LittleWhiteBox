@@ -42,7 +42,7 @@ const emit = defineEmits<{
       </span>
     </span>
     <span class="tavern-task-ticket-reward">
-      <small>ESCROW</small>
+      <small>报酬</small>
       <strong>{{ tavernTaskRewardLabel(listing.reward) }}</strong>
       <span>小白币</span>
       <i v-if="accepted">已接取</i>

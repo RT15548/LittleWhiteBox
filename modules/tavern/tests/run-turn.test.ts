@@ -160,7 +160,8 @@ async function createRunTurnActiveTask(sessionId: string, suffix: string): Promi
     const board = await replaceTavernTaskBoard({
         sessionId,
         expectedRevision: 0,
-        anchorOrder: -1,
+        expectedEpoch: 1,
+        boundary: null,
         generationId: `runtime-board-${suffix}`,
         listings: runTurnTaskListings(),
     });
@@ -168,8 +169,9 @@ async function createRunTurnActiveTask(sessionId: string, suffix: string): Promi
         sessionId,
         boardId: board.generationId,
         boardRevision: board.revision,
+        boardEpoch: board.epoch,
         listingId: board.listings[2].id,
-        anchorOrder: -1,
+        boundary: null,
         actionId: `runtime-accept-${suffix}`,
         taskId: `runtime-task-${suffix}`,
         playerName: '测试玩家',

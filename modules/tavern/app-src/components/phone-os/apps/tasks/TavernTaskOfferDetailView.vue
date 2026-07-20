@@ -65,7 +65,7 @@ const emit = defineEmits<{
             <p>{{ listing.risk }}</p>
           </section>
           <section>
-            <span>ISSUER</span>
+            <span>发布者</span>
             <p>{{ listing.issuer.description }}</p>
           </section>
         </div>
@@ -107,7 +107,7 @@ const emit = defineEmits<{
       >
         {{ accepted ? '已经接取' : busy ? '正在提交' : '接取这份委托' }}
       </button>
-      <small>{{ accepted ? '正式任务已进入进行中。' : '接取后，发布者的报酬会进入任务托管。' }}</small>
+      <small>{{ accepted ? '这份委托已进入进行中。' : '接取后，发布者的报酬会进入任务托管。' }}</small>
     </footer>
   </section>
 </template>

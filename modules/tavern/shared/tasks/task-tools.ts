@@ -149,7 +149,7 @@ export async function executeTavernTaskTool(
             revision: result.version.revision,
             status: result.version.status,
             summary: result.changed
-                ? `${result.version.title} 已更新为 ${result.version.status}（REV ${result.version.revision}）。`
+                ? `${result.version.title} 的任务状态已更新。`
                 : `${result.version.title} 没有新的任务变化。`,
         };
     } catch (error) {

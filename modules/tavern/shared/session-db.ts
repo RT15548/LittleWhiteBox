@@ -86,6 +86,8 @@ export interface TavernSessionRecord {
     presetId?: string;
     presetName?: string;
     summary?: string;
+    /** Monotonic task-board CAS epoch; never decremented by timeline rollback. */
+    taskBoardEpoch: number;
     state?: TavernSessionState;
 }
 
@@ -869,6 +871,25 @@ class TavernDatabase extends Dexie {
             taskBoards: 'sessionId, generationId, revision, anchorOrder, generatedAt',
             taskVersions: '[sessionId+taskId+revision], sessionId, taskId, revision, &[sessionId+actionId], &[sessionId+taskId+currentMarker], [sessionId+currentMarker], [sessionId+status+currentMarker], [sessionId+anchorOrder], [sessionId+sourceBoardId+sourceListingId], updatedAt',
         });
+        const version20 = this.version(20) as unknown as TavernDexieVersionWithUpgrade;
+        version20.stores({
+            taskBoards: 'sessionId, generationId, revision, epoch, anchorOrder, generatedAt',
+            taskVersions: '[sessionId+taskId+revision], sessionId, taskId, revision, versionId, &[sessionId+actionId], &[sessionId+taskId+currentMarker], [sessionId+currentMarker], [sessionId+currentMarker+updatedAt], [sessionId+status+currentMarker], [sessionId+status+currentMarker+updatedAt], [sessionId+issuer.kind+currentMarker+updatedAt], [sessionId+issuer.kind+status+currentMarker+updatedAt], [sessionId+taskId+anchorOrder+revision], [sessionId+anchorOrder], [sessionId+sourceBoardId+sourceListingId], updatedAt',
+        });
+        version20.upgrade(async (transaction: TavernDexieUpgradeTransaction) => {
+            const sessionsTable = transaction.table('sessions');
+            const taskBoardsTable = transaction.table('taskBoards');
+            const taskVersionsTable = transaction.table('taskVersions');
+            const economyAccountsTable = transaction.table('economyAccounts');
+            const economyTransactionsTable = transaction.table('economyTransactions');
+            await taskBoardsTable.clear();
+            await taskVersionsTable.clear();
+            await economyAccountsTable.clear();
+            await economyTransactionsTable.clear();
+            await sessionsTable.toCollection().modify((session) => {
+                session.taskBoardEpoch = 1;
+            });
+        });
     }
 }
 
@@ -914,6 +935,7 @@ type DexieRangeCollection<T> = {
 type DexieRangeTable<T> = {
     where(index: string): {
         between(lower: unknown, upper: unknown, includeLower?: boolean, includeUpper?: boolean): DexieRangeCollection<T>;
+        equals(value: unknown): DexieRangeCollection<T>;
     };
 };
 
@@ -1179,6 +1201,7 @@ export async function createTavernSession(input: Partial<TavernSessionRecord> = 
         presetId: String(input.presetId || ''),
         presetName: String(input.presetName || ''),
         summary: String(input.summary || ''),
+        taskBoardEpoch: Math.max(1, Math.floor(Number(input.taskBoardEpoch) || 1)),
         state: cloneSerializable(normalizeTavernSessionState(input.state || {}), {}),
     };
     await db.transaction('rw', tavernSessionsTable, tavernMetaTable, tavernStateDocumentsTable, async () => {
@@ -2914,8 +2937,11 @@ export async function createRecoveredAcceptedTurnManagerRun(
     return await db.transaction('rw', tavernManagerRunsTable, tavernSessionsTable, async () => {
         const source = await tavernManagerRunsTable.get(sourceId);
         if (!source || source.trigger !== 'accepted_turn') {return null;}
-        const runs = await tavernManagerRunsTable.where('sessionId').equals(source.sessionId).toArray();
-        const existing = runs.find((run) => String(run.recoverySourceRunId || '').trim() === source.id);
+        const existing = await (tavernManagerRunsTable as unknown as DexieRangeTable<TavernManagerRunRecord>)
+            .where('[sessionId+assistantOrder]')
+            .equals([source.sessionId, source.assistantOrder])
+            .filter((run) => String(run.recoverySourceRunId || '').trim() === source.id)
+            .first();
         if (existing) {return { run: existing, created: false };}
         if (source.status !== 'failed' || source.error !== 'manager_worker_interrupted') {return null;}
         const timestamp = now();
@@ -2952,6 +2978,69 @@ export async function createRecoveredAcceptedTurnManagerRun(
         await tavernSessionsTable.update(source.sessionId, { updatedAt: timestamp });
         return { run, created: true };
     });
+}
+
+export async function queueAcceptedTurnManagerRetry(
+    sourceManagerRunId = '',
+): Promise<TavernManagerRunRecord | null> {
+    const sourceId = String(sourceManagerRunId || '').trim();
+    if (!sourceId) {return null;}
+    return await db.transaction(
+        'rw',
+        tavernManagerRunsTable,
+        tavernMessagesTable,
+        tavernSessionsTable,
+        async () => {
+            const source = await tavernManagerRunsTable.get(sourceId);
+            if (!source || !['accepted_turn', 'after_turn'].includes(source.trigger)) {return null;}
+            if (source.status !== 'failed') {return null;}
+            const [userMessage, assistantMessage] = await Promise.all([
+                tavernMessagesTable.get([source.sessionId, source.userOrder]),
+                tavernMessagesTable.get([source.sessionId, source.assistantOrder]),
+            ]);
+            if (!userMessage || !assistantMessage) {throw new Error('manager_source_messages_changed');}
+            assertTavernManagerRunSourceMessages(source, { userMessage, assistantMessage });
+            const existing = await (tavernManagerRunsTable as unknown as DexieRangeTable<TavernManagerRunRecord>)
+                .where('[sessionId+assistantOrder]')
+                .equals([source.sessionId, source.assistantOrder])
+                .filter((run) => run.recoverySourceRunId === source.id && ['queued', 'running'].includes(run.status))
+                .first();
+            if (existing) {return existing;}
+            const timestamp = now();
+            const run: TavernManagerRunRecord = {
+                id: createId('manager-run'),
+                sessionId: source.sessionId,
+                turn: source.turn,
+                userOrder: source.userOrder,
+                assistantOrder: source.assistantOrder,
+                confirmedByUserOrder: source.confirmedByUserOrder,
+                sourceUserMessageId: userMessage.messageId,
+                sourceAssistantMessageId: assistantMessage.messageId,
+                sourceUserCreatedAt: Number(userMessage.createdAt),
+                sourceAssistantCreatedAt: Number(assistantMessage.createdAt),
+                sourceUserRevision: Math.max(1, Math.floor(Number(userMessage.timelineRevision) || 1)),
+                sourceAssistantRevision: Math.max(1, Math.floor(Number(assistantMessage.timelineRevision) || 1)),
+                recoverySourceRunId: source.id,
+                trigger: 'accepted_turn',
+                status: 'queued',
+                provider: '',
+                model: '',
+                inputSummary: String(source.inputSummary || ''),
+                outputText: '已加入维护队列。',
+                parsedAction: '',
+                changedFiles: [],
+                changedStates: [],
+                leaseOwnerId: '',
+                leaseExpiresAt: 0,
+                error: '',
+                createdAt: timestamp,
+                updatedAt: timestamp,
+            };
+            await tavernManagerRunsTable.put(run);
+            await tavernSessionsTable.update(source.sessionId, { updatedAt: timestamp });
+            return run;
+        },
+    );
 }
 
 export async function updateTavernManagerRun(

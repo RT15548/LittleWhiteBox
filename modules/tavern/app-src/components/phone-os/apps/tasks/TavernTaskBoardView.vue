@@ -24,11 +24,11 @@ const emit = defineEmits<{
     <div class="tavern-task-board-status">
       <span>
         <i :class="{ 'is-live': !!board }" />
-        RELAY {{ board ? `R${board.revision}` : 'OFFLINE' }}
+        {{ board ? '委托板已连接' : '等待刷新' }}
       </span>
       <button
         type="button"
-        :disabled="refreshing"
+        :disabled="refreshing || loading"
         @click="emit('refresh')"
       >
         <svg
@@ -43,7 +43,7 @@ const emit = defineEmits<{
       class="tavern-task-inline-alert"
       role="status"
     >
-      <strong>链路噪声</strong>
+      <strong>暂时无法刷新</strong>
       <p>{{ error }}</p>
     </div>
     <div
@@ -77,7 +77,7 @@ const emit = defineEmits<{
       <p>刷新终端后，符合当前世界的六份候选委托会出现在这里。</p>
       <button
         type="button"
-        :disabled="refreshing"
+        :disabled="refreshing || loading"
         @click="emit('refresh')"
       >
         {{ refreshing ? '正在扫描' : '启动扫描' }}

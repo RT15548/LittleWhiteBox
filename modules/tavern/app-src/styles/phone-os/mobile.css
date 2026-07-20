@@ -26,11 +26,6 @@
 
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-glass::after {display: none;}
 
-.tavern-phone-device.is-mobile-fullscreen .tavern-phone-systembar {
-    height: calc(42px + env(safe-area-inset-top, 0px));
-    padding-top: calc(4px + env(safe-area-inset-top, 0px));
-}
-
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-system-navigation {
     height: calc(58px + env(safe-area-inset-bottom, 0px));
     align-items: start;
@@ -48,11 +43,11 @@
 }
 
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {
-    padding: calc(58px + env(safe-area-inset-top, 0px)) 22px calc(66px + env(safe-area-inset-bottom, 0px));
+    padding: calc(28px + env(safe-area-inset-top, 0px)) 22px calc(66px + env(safe-area-inset-bottom, 0px));
 }
 
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app {
-    padding-top: calc(42px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px));
 }
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-message-scroll {padding-bottom: 18px;}
@@ -61,7 +56,7 @@
 .tavern-phone-device.is-mobile-fullscreen .tavern-phone-imessage-field textarea {font-size: 16px;}
 
 @media (max-width: 380px), (max-height: 690px) {
-    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {padding-top: calc(52px + env(safe-area-inset-top, 0px));}
+    .tavern-phone-device.is-mobile-fullscreen .tavern-phone-home {padding-top: calc(22px + env(safe-area-inset-top, 0px));}
     .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-grid {gap: 20px 10px;}
     .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-icon {width: 54px; height: 54px; border-radius: 17px;}
     .tavern-phone-device.is-mobile-fullscreen .tavern-phone-app-icon-art {width: 34px; height: 34px;}

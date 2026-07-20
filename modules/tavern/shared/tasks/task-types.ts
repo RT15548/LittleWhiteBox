@@ -59,9 +59,17 @@ export interface TavernTaskBoardRecord {
     sessionId: string;
     generationId: string;
     revision: number;
+    /** Session-owned, monotonically increasing CAS epoch. */
+    epoch: number;
     anchorOrder: number;
     listings: TavernTaskListing[];
     generatedAt: number;
+}
+
+export interface TavernTaskBoardState {
+    board: TavernTaskBoardRecord | null;
+    revision: number;
+    epoch: number;
 }
 
 export interface TavernTaskCandidate {
@@ -77,6 +85,8 @@ export interface TavernTaskVersionRecord {
     sessionId: string;
     taskId: string;
     revision: number;
+    /** Non-reusable identity for this incarnation of the version. */
+    versionId: string;
     currentMarker?: typeof TAVERN_TASK_CURRENT_MARKER;
     actionId: string;
 
@@ -102,6 +112,7 @@ export interface TavernTaskVersionRecord {
     sourceBoardId?: string;
     sourceListingId?: string;
     sourceBoardRevision?: number;
+    sourceBoardEpoch?: number;
     anchorOrder: number;
     createdAt: number;
     updatedAt: number;
@@ -111,6 +122,8 @@ export interface TavernTaskStagedAction {
     actionId: string;
     taskId: string;
     expectedRevision: number;
+    expectedVersionId: string;
+    resultVersionId?: string;
     kind: Extract<TavernTaskMutationKind, 'progress' | 'complete' | 'fail'>;
     anchorOrder: number;
     progressSummary?: string;
@@ -124,6 +137,20 @@ export interface TavernTaskStagingContext {
     projected: Map<string, TavernTaskVersionRecord>;
     projectedByAction: Map<string, TavernTaskVersionRecord>;
 }
+
+export interface TavernTaskAnchorSnapshot {
+    sessionId: string;
+    anchorOrder: number;
+    tasks: TavernTaskVersionRecord[];
+}
+
+export interface TavernTaskPhoneBoundary {
+    messageId: string;
+    order: number;
+    timelineRevision: number;
+}
+
+export type TavernTaskExpectedPhoneBoundary = TavernTaskPhoneBoundary | null;
 
 export interface TavernTaskRestoreImpact {
     changed: boolean;
@@ -139,6 +166,8 @@ export type TavernTaskErrorCode =
     | 'task_board_missing'
     | 'task_board_revision_invalid'
     | 'task_board_revision_conflict'
+    | 'task_board_epoch_invalid'
+    | 'task_board_epoch_conflict'
     | 'task_board_generation_conflict'
     | 'task_board_empty'
     | 'task_board_payload_invalid'
@@ -153,6 +182,8 @@ export type TavernTaskErrorCode =
     | 'task_missing'
     | 'task_revision_invalid'
     | 'task_revision_conflict'
+    | 'task_version_id_invalid'
+    | 'task_version_conflict'
     | 'task_status_invalid'
     | 'task_candidate_missing'
     | 'task_candidate_invalid'
@@ -165,6 +196,7 @@ export type TavernTaskErrorCode =
     | 'task_reward_invalid'
     | 'task_anchor_order_invalid'
     | 'task_anchor_order_regression'
+    | 'task_timeline_conflict'
     | 'task_transition_invalid'
     | 'task_player_only'
     | 'task_task_not_recruiting'
@@ -191,8 +223,9 @@ export interface AcceptTavernTaskListingInput {
     boardId?: string;
     generationId?: string;
     boardRevision: number;
+    boardEpoch: number;
     listingId: string;
-    anchorOrder: number;
+    boundary: TavernTaskExpectedPhoneBoundary;
     actionId: string;
     taskId?: string;
     playerName?: string;
@@ -206,7 +239,7 @@ export interface PublishTavernTaskInput {
     location: string;
     risk?: string;
     reward: number;
-    anchorOrder: number;
+    boundary: TavernTaskExpectedPhoneBoundary;
     actionId: string;
     taskId?: string;
     playerName?: string;
@@ -218,8 +251,9 @@ export interface UpdateTavernTaskCandidatesInput {
     sessionId: string;
     taskId: string;
     expectedRevision: number;
+    expectedVersionId: string;
     candidates: TavernTaskCandidate[];
-    anchorOrder: number;
+    boundary: TavernTaskExpectedPhoneBoundary;
     actionId: string;
 }
 
@@ -227,8 +261,9 @@ export interface SelectTavernTaskCandidateInput {
     sessionId: string;
     taskId: string;
     expectedRevision: number;
+    expectedVersionId: string;
     candidateId: string;
-    anchorOrder: number;
+    boundary: TavernTaskExpectedPhoneBoundary;
     actionId: string;
 }
 
@@ -236,7 +271,8 @@ export interface CancelTavernTaskInput {
     sessionId: string;
     taskId: string;
     expectedRevision: number;
-    anchorOrder: number;
+    expectedVersionId: string;
+    boundary: TavernTaskExpectedPhoneBoundary;
     actionId: string;
 }
 
@@ -244,6 +280,7 @@ export interface ProgressTavernTaskInput {
     sessionId: string;
     taskId: string;
     expectedRevision: number;
+    expectedVersionId: string;
     progressSummary: string;
     anchorOrder: number;
     actionId: string;
@@ -253,6 +290,7 @@ export interface CompleteTavernTaskInput {
     sessionId: string;
     taskId: string;
     expectedRevision: number;
+    expectedVersionId: string;
     resultSummary: string;
     anchorOrder: number;
     actionId: string;
@@ -262,6 +300,7 @@ export interface FailTavernTaskInput {
     sessionId: string;
     taskId: string;
     expectedRevision: number;
+    expectedVersionId: string;
     resultSummary: string;
     anchorOrder: number;
     actionId: string;
@@ -596,12 +635,14 @@ export function normalizeTavernTaskBoardRecord(record: TavernTaskBoardRecord): T
     const sessionId = sessionIdentifier(record.sessionId);
     const generationId = text(record.generationId, 180, true);
     const revision = positiveSafeInteger(record.revision, 'task_board_revision_invalid');
+    const epoch = positiveSafeInteger(record.epoch, 'task_board_epoch_invalid');
     const anchorOrder = normalizeTavernTaskAnchorOrder(record.anchorOrder);
     const generatedAt = positiveSafeInteger(record.generatedAt, 'task_board_payload_invalid');
     return {
         sessionId,
         generationId,
         revision,
+        epoch,
         anchorOrder,
         listings: normalizeTavernTaskListings(record.listings, {
             min: DEFAULT_BOARD_MIN_LISTINGS,
@@ -666,6 +707,7 @@ export function normalizeTavernTaskVersionRecord(record: TavernTaskVersionRecord
         sessionId: sessionIdentifier(record.sessionId),
         taskId: text(record.taskId, 180, true),
         revision: positiveSafeInteger(record.revision, 'task_revision_invalid'),
+        versionId: text(record.versionId, 220, true),
         ...(currentMarker ? { currentMarker } : {}),
         actionId: text(record.actionId, 220, true),
         status: record.status,
@@ -693,6 +735,9 @@ export function normalizeTavernTaskVersionRecord(record: TavernTaskVersionRecord
         ...(record.sourceBoardRevision === undefined
             ? {}
             : { sourceBoardRevision: positiveSafeInteger(record.sourceBoardRevision, 'task_board_revision_invalid') }),
+        ...(record.sourceBoardEpoch === undefined
+            ? {}
+            : { sourceBoardEpoch: positiveSafeInteger(record.sourceBoardEpoch, 'task_board_epoch_invalid') }),
         anchorOrder: normalizeTavernTaskAnchorOrder(record.anchorOrder),
         createdAt: positiveSafeInteger(record.createdAt, 'task_response_invalid'),
         updatedAt: positiveSafeInteger(record.updatedAt, 'task_response_invalid'),

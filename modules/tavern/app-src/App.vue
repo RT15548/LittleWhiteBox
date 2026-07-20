@@ -40,6 +40,7 @@ import {
     listTavernManagerRuns,
     listTavernMessageOrdersFrom,
     normalizeTavernSessionState,
+    queueAcceptedTurnManagerRetry,
     replaceTavernAssistantChatMessages,
     truncateTavernMessagesAndReplaceSessionState,
     updateTavernSessionState,
@@ -105,6 +106,7 @@ import {
     buildContextHistory,
     resumeQueuedAcceptedTurnManagers,
     simulateXbTavernRequest,
+    type TavernAcceptedTurnDomainChange,
     type TavernBuildNativeChatPromptRuntime,
 } from './runtime/run-once';
 import { resolveTavernHistoryBoundaryState } from './runtime/history-boundary-state';
@@ -115,7 +117,6 @@ import {
 } from './manager-tool-display';
 import {
     cancelAndRollbackXbTavernManagersForMessageRange,
-    runXbTavernManagerAfterTurn,
 } from './runtime/manager';
 import { runXbTavernAssistantChat } from './runtime/assistant-chat-runner';
 import { ensureTavernAssistantChatBudget } from './runtime/assistant-chat-context';
@@ -1212,6 +1213,26 @@ const memoryDirectoryGroups = computed(() => {
         hiddenCount: Math.max(0, filtered.length - files.length),
     }];
 });
+
+async function handleManagerDomainChange(sessionId: string, change: TavernAcceptedTurnDomainChange) {
+    if (sessionId !== selectedSessionId.value) {return;}
+    await Promise.all([
+        change.tasksChanged ? phoneContext.tasks.refreshAfterTaskDomainChange() : Promise.resolve(),
+        change.economyChanged ? phoneContext.wallet.refreshAfterEconomyDomainChange() : Promise.resolve(),
+    ]);
+}
+
+async function handleManagerRunSaved(
+    sessionId: string,
+    _managerRunId: string,
+    domainChange?: TavernAcceptedTurnDomainChange,
+) {
+    if (sessionId !== selectedSessionId.value) {return;}
+    await refreshManagerRecords(sessionId);
+    if (domainChange && (domainChange.tasksChanged || domainChange.economyChanged)) {
+        await handleManagerDomainChange(sessionId, domainChange);
+    }
+}
 const memoryEditorDocumentAvailable = computed(() => !!selectedMemoryFileEntry.value || !!memoryEditorLoadedPath.value);
 const memoryEditorReadOnly = computed(() => (
     isRunning.value
@@ -2851,11 +2872,7 @@ async function refreshManagerRecords(sessionId = selectedSessionId.value) {
         agentConfig: agentConfig.value,
         assistantPreset: activeAssistantPreset.value,
         sessionContract: sessionContract.value,
-        onManagerRunSaved: async (sessionId) => {
-            if (sessionId === selectedSessionId.value) {
-                await refreshManagerRecords(sessionId);
-            }
-        },
+        onManagerRunSaved: handleManagerRunSaved,
     });
     if (!memoryFiles.value.some((file) => file.path === selectedMemoryFilePath.value)) {
         if (memoryEditorDirty.value && selectedMemoryFilePath.value) {
@@ -3246,27 +3263,19 @@ async function retryManagerRun(run: TavernManagerRunRecord) {
     retryingManagerRunId.value = runId;
     managerActionStatus.value = '记忆正在重试。';
     try {
-        const [userMessage, assistantMessage] = await Promise.all([
-            getTavernMessage(selectedSessionId.value, run.userOrder),
-            getTavernMessage(selectedSessionId.value, run.assistantOrder),
-        ]);
-        const validUserMessage = userMessage?.role === 'user' ? userMessage : null;
-        const validAssistantMessage = assistantMessage?.role === 'assistant' && !assistantMessage.error ? assistantMessage : null;
-        if (!validUserMessage || !validAssistantMessage) {
-            managerActionStatus.value = '原文楼层不存在，无法重试。';
-            await refreshManagerRecords(selectedSessionId.value);
+        const queued = await queueAcceptedTurnManagerRetry(run.id);
+        if (!queued) {
+            managerActionStatus.value = '这次维护无法重新入队。';
             return;
         }
-        const result = await runXbTavernManagerAfterTurn({
+        resumeQueuedAcceptedTurnManagers({
             sessionId: selectedSessionId.value,
             agentConfig: agentConfig.value,
-            userMessage: validUserMessage,
-            assistantMessage: validAssistantMessage,
-            turn: run.turn,
             assistantPreset: activeAssistantPreset.value,
             sessionContract: sessionContract.value,
+            onManagerRunSaved: handleManagerRunSaved,
         });
-        managerActionStatus.value = result.ok ? '' : `失败：${result.error || 'manager_retry_failed'}`;
+        managerActionStatus.value = '已加入维护队列。';
     } catch (error) {
         managerActionStatus.value = error instanceof Error ? error.message : String(error || 'manager_retry_failed');
     } finally {
@@ -4075,6 +4084,7 @@ const chatRunController = useTavernChatRunController({
     prepareAssistantMessageDisplay,
     pruneLoadedSessionMessagesFromOrder,
     refreshManagerRecords,
+    onManagerDomainChange: handleManagerDomainChange,
     refreshRuntimeChatPresetFromHost,
     refreshSessionRecord,
     preserveDetachedChatScroll: preserveChatViewportDuringMutation,

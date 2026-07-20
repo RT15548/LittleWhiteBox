@@ -1,4 +1,4 @@
-import { createAgentAdapter, resolveActiveProviderConfig } from '../../../agent-core/provider-config.js';
+import { createAgentAdapter } from '../../../agent-core/provider-config.js';
 import { createLightBrakeController } from '../../../agent-core/runtime/light-brake.js';
 import {
     buildProviderAssistantToolCallMessage,
@@ -56,9 +56,9 @@ import {
 } from '../../shared/status-state';
 import { resolveTavernSessionContractRuntime, type TavernSessionContract, type TavernSessionContractRuntime } from '../../shared/session-contract';
 import {
-    createTavernTaskStagingContext,
-    hasMaintainableTavernTasksAtAnchor,
-    listTavernTasksAtAnchor,
+    createTavernTaskStagingContextFromSnapshot,
+    hasMaintainableTavernTasksInAnchorSnapshot,
+    loadTavernTaskAnchorSnapshot,
 } from '../../shared/tasks/task-service';
 import {
     executeTavernTaskTool,
@@ -66,13 +66,17 @@ import {
     isTavernTaskToolName,
     type TavernTaskToolResult,
 } from '../../shared/tasks/task-tools';
-import type { TavernTaskStagedAction, TavernTaskStagingContext } from '../../shared/tasks/task-types';
+import type { TavernTaskAnchorSnapshot, TavernTaskStagedAction, TavernTaskStagingContext } from '../../shared/tasks/task-types';
 import {
     buildDeniedAutoManagerToolResult,
     filterAutoManagerToolDefinitions,
     isAutoManagerToolAllowed,
 } from './contract-policy';
-import { getXbTavernProviderLabel } from './provider';
+import {
+    getXbTavernProviderLabel,
+    resolveXbTavernProviderConfig,
+    TAVERN_DELEGATE_REQUIRED_MESSAGE,
+} from './provider';
 import {
     applyTavernToolLoopRequestPlan,
     resolveTavernToolLoopRequestPlan,
@@ -660,6 +664,7 @@ export async function runSharedManagerToolLoop(input: {
     onStreamProgress?: (snapshot: TavernManagerStreamSnapshot) => void;
     onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
     onStateChanged?: (changes: { changedFiles: string[]; changedStates: string[] }) => void;
+    taskSourceSnapshot?: TavernTaskAnchorSnapshot;
 }): Promise<{
     text: string;
     provider: string;
@@ -670,22 +675,29 @@ export async function runSharedManagerToolLoop(input: {
     stagedTaskActions: TavernTaskStagedAction[];
     protocolMessages: XbTavernMessage[];
 }> {
-    const providerConfig = resolveActiveProviderConfig(input.agentConfig || {}, {
+    const providerConfig = resolveXbTavernProviderConfig(input.agentConfig || {}, {
         role: 'delegate',
         timeoutMs: TAVERN_MANAGER_TIMEOUT_MS,
     });
+    if (!providerConfig.readiness.ok && !input.executeManagerOnce) {
+        throw new Error(TAVERN_DELEGATE_REQUIRED_MESSAGE);
+    }
     const defaultAdapter = input.executeManagerOnce
         ? null
-        : createAgentAdapter(providerConfig, {
+        : createAgentAdapter(providerConfig as unknown as Record<string, unknown>, {
             missingApiKeyMessage: '请先在 API 配置里填写记忆管理员 API。',
         }) as { chat: (task: Record<string, unknown>) => Promise<Record<string, unknown>>; supportsSessionToolLoop?: boolean };
     const executeManagerOnce = input.executeManagerOnce
-        || ((options: XbTavernManagerOnceOptions) => runManagerOnceWithAdapter(defaultAdapter!, providerConfig, options));
+        || ((options: XbTavernManagerOnceOptions) => runManagerOnceWithAdapter(
+            defaultAdapter!,
+            providerConfig as unknown as Record<string, unknown>,
+            options,
+        ));
     const supportsSessionToolLoop = !!defaultAdapter?.supportsSessionToolLoop
         || (input.executeManagerOnce as { supportsSessionToolLoop?: boolean } | undefined)?.supportsSessionToolLoop === true;
     const taskStagingContext: TavernTaskStagingContext | null = input.caller === 'auto'
-        && Number.isInteger(Number(input.assistantOrder))
-        ? await createTavernTaskStagingContext(input.sessionId, Number(input.assistantOrder))
+        && input.taskSourceSnapshot
+        ? createTavernTaskStagingContextFromSnapshot(input.taskSourceSnapshot)
         : null;
     const hasActiveTaskAtSource = !!taskStagingContext
         && [...taskStagingContext.projected.values()].some((task) => task.status === 'active');
@@ -773,7 +785,7 @@ export async function runSharedManagerToolLoop(input: {
         resultModel = String(result.model || resultModel || providerConfig.model || '');
         const resultRecord = result as unknown as Record<string, unknown>;
         const resultThoughts = normalizeManagerThoughtBlocks(result.thoughts?.length ? result.thoughts : streamThoughts);
-        const toolCalls = resolveResultToolCalls(resultRecord, providerConfig, {
+        const toolCalls = resolveResultToolCalls(resultRecord, providerConfig as unknown as Record<string, unknown>, {
             fallbackPrefix: 'tavern-manager-tool',
         });
         if (!toolCalls.length) {
@@ -924,7 +936,7 @@ export async function runSharedManagerToolLoop(input: {
                 toolResult = await executeTavernTaskTool(toolCall.name, args, {
                     caller: input.caller,
                     stagingContext: taskStagingContext,
-                    actionId: `${String(input.managerRunId || 'manager')}:${String(toolCall.id || `${round}-${toolIndex}`)}`,
+                    actionId: `${String(input.managerRunId || 'manager')}:${round}:${toolIndex}:${String(toolCall.id || 'no-provider-id')}`,
                 });
             } else if (isWebSearchToolName(toolCall.name)) {
                 toolResult = await runTavilySearchTool(input.agentConfig, args, {
@@ -1121,7 +1133,7 @@ async function createOrUpdateManagerRun(input: {
     agentConfig: Record<string, unknown>;
     leaseOwnerId?: string;
 }): Promise<TavernManagerRunRecord> {
-    const providerConfig = resolveActiveProviderConfig(input.agentConfig || {}, {
+    const providerConfig = resolveXbTavernProviderConfig(input.agentConfig || {}, {
         role: 'delegate',
         timeoutMs: TAVERN_MANAGER_TIMEOUT_MS,
     });
@@ -1186,7 +1198,7 @@ async function rebuildTavernMemoryDerivedIndexForLiveSession(sessionId = ''): Pr
 async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMessages: {
     userMessage: TavernMessageRecord;
     assistantMessage: TavernMessageRecord;
-}): Promise<XbTavernMessage[]> {
+}, taskSourceSnapshot: TavernTaskAnchorSnapshot): Promise<XbTavernMessage[]> {
     const contractRuntime = resolveSessionContractRuntime(input.sessionContract);
     const session = await getTavernSession(input.sessionId);
     const playerName = String(
@@ -1213,9 +1225,8 @@ async function buildAutoManagerMessages(input: XbTavernManagerRunInput, sourceMe
         sourceMessages.userMessage.order - 1,
         playerName,
     );
-    const tasksAtSource = await listTavernTasksAtAnchor(input.sessionId, sourceMessages.assistantMessage.order);
     const taskContext = buildTavernManagerTaskContextBlock(
-        tasksAtSource,
+        taskSourceSnapshot.tasks,
         sourceMessages.assistantMessage.order,
     );
     return [
@@ -1269,6 +1280,7 @@ async function runManagerTask(input: {
     userOrder?: number;
     assistantOrder?: number;
     onProtocolEvent?: (event: TavernManagerProtocolEvent) => void;
+    taskSourceSnapshot?: TavernTaskAnchorSnapshot;
 }): Promise<{
     ok: boolean;
     managerRun: TavernManagerRunRecord;
@@ -1326,6 +1338,7 @@ async function runManagerTask(input: {
             executeManagerOnce: input.executeManagerOnce,
             onStreamProgress: input.onStreamProgress,
             onProtocolEvent: relayProtocolEvent,
+            taskSourceSnapshot: input.taskSourceSnapshot,
         });
         resultText = result.text;
         resultProvider = result.provider || resultProvider;
@@ -1419,7 +1432,10 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
     if (!sessionId) {throw new Error('manager_session_required');}
     const sourceIdentity = resolveExpectedManagerSourceIdentity(input);
     const contractRuntime = resolveSessionContractRuntime(input.sessionContract);
-    const hasTaskWork = await hasMaintainableTavernTasksAtAnchor(sessionId, input.assistantMessage.order);
+    const taskSourceSnapshot = await loadTavernTaskAnchorSnapshot(sessionId, {
+        anchorOrder: input.assistantMessage.order,
+    });
+    const hasTaskWork = hasMaintainableTavernTasksInAnchorSnapshot(taskSourceSnapshot);
     if (!contractRuntime.hasAutomaticManagerWork && !hasTaskWork) {
         await assertManagerRunLease(input);
         const skipped = input.managerRunId
@@ -1488,7 +1504,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             assistantOrder: currentSourceMessages.assistantMessage.order,
             text: currentSourceMessages.userMessage.content,
         });
-        const messages = await buildAutoManagerMessages(input, currentSourceMessages);
+        const messages = await buildAutoManagerMessages(input, currentSourceMessages, taskSourceSnapshot);
         const result = await runManagerTask({
             sessionId,
             agentConfig: input.agentConfig,
@@ -1518,6 +1534,7 @@ export async function runXbTavernManagerAfterTurn(input: XbTavernManagerRunInput
             signal: input.signal,
             executeManagerOnce: input.executeManagerOnce,
             onProtocolEvent: input.onProtocolEvent,
+            taskSourceSnapshot,
         });
         if (!result.ok) {
             return {

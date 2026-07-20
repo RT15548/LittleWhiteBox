@@ -1,4 +1,3 @@
-import { resolveActiveProviderConfig } from '../../../agent-core/provider-config.js';
 import * as contextTokens from '../../../agent-core/runtime/context-tokens.js';
 import type { XbTavernContext, XbTavernMessage } from '../../shared/message-assembler';
 import type { TavernAssistantPreset } from '../../shared/assistant-presets';
@@ -20,6 +19,7 @@ import {
     buildTavernAssistantTaskContextMessage,
     loadTavernTaskPromptState,
 } from './task-context.js';
+import { resolveXbTavernProviderConfig } from './provider.js';
 
 const TAVERN_ASSISTANT_CHAT_TIMEOUT_MS = 5 * 60 * 1000;
 const resolveConversationTokens = (contextTokens as unknown as {
@@ -186,7 +186,7 @@ async function estimateAssistantChatContext(input: {
     question: string;
     history?: TavernAssistantChatMessageRecord[];
 }): Promise<{ messages: XbTavernMessage[]; tokens: number }> {
-    const providerConfig = resolveActiveProviderConfig(input.agentConfig || {}, {
+    const providerConfig = resolveXbTavernProviderConfig(input.agentConfig || {}, {
         role: 'delegate',
         timeoutMs: TAVERN_ASSISTANT_CHAT_TIMEOUT_MS,
     });
@@ -196,7 +196,7 @@ async function estimateAssistantChatContext(input: {
         tools: getTavernManagerToolDefinitions({
             webSearchEnabled: isManagerWebSearchEnabled(input.agentConfig),
         }),
-        providerConfig,
+        providerConfig: providerConfig as unknown as Record<string, unknown>,
     });
     return { messages, tokens };
 }

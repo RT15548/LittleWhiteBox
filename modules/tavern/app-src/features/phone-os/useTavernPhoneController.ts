@@ -10,6 +10,7 @@ import {
 } from './apps/messages/useTavernMessagesController';
 import { useTavernWalletController } from './apps/wallet/useTavernWalletController';
 import { useTavernTasksController } from './apps/tasks/useTavernTasksController';
+import { useTavernPhoneDomainSync } from './useTavernPhoneDomainSync';
 
 const MESSAGES_THREADS_PATH = '/threads';
 const WALLET_LEDGER_PATH = '/ledger';
@@ -28,6 +29,7 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
     });
     const wallet = useTavernWalletController({
         selectedSessionId: options.selectedSessionId,
+        isLedgerVisible: (sessionId) => os?.isAppRouteVisible(sessionId, TAVERN_PHONE_WALLET_APP_ID, WALLET_LEDGER_PATH) === true,
     });
     const tasks = useTavernTasksController({
         selectedSessionId: options.selectedSessionId,
@@ -37,11 +39,16 @@ export function useTavernPhoneController(options: TavernPhoneControllerOptions) 
         chatCancelling: options.chatCancelling,
         memoryEditorMode: options.memoryEditorMode,
         characterArchiveBusy: options.characterArchiveBusy,
-        onEconomyChanged: wallet.refreshBalance,
+        onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
     });
     os = useTavernPhoneOsController({
         apps: createTavernPhoneAppRegistry({ messages, wallet, tasks }),
         selectedSessionId: options.selectedSessionId,
+    });
+    useTavernPhoneDomainSync({
+        selectedSessionId: options.selectedSessionId,
+        onTasksChanged: tasks.refreshAfterTaskDomainChange,
+        onEconomyChanged: wallet.refreshAfterEconomyDomainChange,
     });
 
     async function openPhone() {

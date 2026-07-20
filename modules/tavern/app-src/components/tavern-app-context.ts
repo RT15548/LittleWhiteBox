@@ -493,6 +493,7 @@ export interface TavernWalletContext {
     nextCursor: Ref<TavernEconomyTransactionCursor | null>;
     prepareWallet: TavernCommand<[], Promise<void>>;
     refreshBalance: TavernCommand<[], Promise<void>>;
+    refreshAfterEconomyDomainChange: TavernCommand<[], Promise<void>>;
     refreshWallet: TavernCommand<[], Promise<void>>;
     transactions: Ref<TavernEconomyTransactionRecord[]>;
 }
@@ -510,10 +511,17 @@ export interface TavernTasksContext {
     candidateTaskId: Ref<string>;
     dataError: Ref<string>;
     dataLoading: Ref<boolean>;
+    detailError: Ref<string>;
+    detailLoading: Ref<boolean>;
+    detailResolved: Ref<boolean>;
+    historyError: Ref<string>;
+    historyHasMore: Ref<boolean>;
+    historyLoadingMore: Ref<boolean>;
     historyTasks: TavernReadable<TavernTaskVersionRecord[]>;
     interactionBlockedReason: TavernReadable<string>;
     isListingAccepted: TavernCommand<[listing: TavernTaskListing], boolean>;
     loadMoreTaskTimeline: TavernCommand<[], Promise<void>>;
+    loadMoreHistory: TavernCommand<[], Promise<void>>;
     loadTaskDetail: TavernCommand<[taskId?: string, reset?: boolean], Promise<void>>;
     prepareTasks: TavernCommand<[], Promise<void>>;
     publishDraft: Ref<TavernTaskPublishDraft>;
@@ -521,6 +529,7 @@ export interface TavernTasksContext {
     publishedTasks: TavernReadable<TavernTaskVersionRecord[]>;
     recruitTaskCandidates: TavernCommand<[task: TavernTaskVersionRecord], Promise<TavernTaskVersionRecord | null>>;
     refreshTaskBoard: TavernCommand<[], Promise<void>>;
+    refreshAfterTaskDomainChange: TavernCommand<[], Promise<void>>;
     refreshTaskData: TavernCommand<[], Promise<void>>;
     selectedTask: Ref<TavernTaskVersionRecord | null>;
     selectCandidate: TavernCommand<[

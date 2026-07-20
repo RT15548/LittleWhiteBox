@@ -20,7 +20,7 @@ const emit = defineEmits<{ (event: 'load-more'): void }>();
 <template>
   <section class="tavern-task-timeline">
     <header>
-      <span>VERSION CHAIN</span>
+      <span>进展记录</span>
       <strong>任务记录</strong>
     </header>
     <div
@@ -32,13 +32,12 @@ const emit = defineEmits<{ (event: 'load-more'): void }>();
     <ol v-else-if="versions.length">
       <li
         v-for="version in versions"
-        :key="version.revision"
+        :key="version.versionId"
         :class="`is-${tavernTaskStatusTone(version.status)}`"
       >
         <i />
         <div>
           <span>
-            <b>R{{ version.revision }}</b>
             <strong>{{ tavernTaskStatusLabel(version.status) }}</strong>
             <time>{{ tavernTaskTimestampLabel(version.updatedAt) }}</time>
           </span>
@@ -60,7 +59,7 @@ const emit = defineEmits<{ (event: 'load-more'): void }>();
       :disabled="loadingMore"
       @click="emit('load-more')"
     >
-      {{ loadingMore ? '读取中' : '读取更早版本' }}
+      {{ loadingMore ? '读取中' : '查看更早记录' }}
     </button>
   </section>
 </template>

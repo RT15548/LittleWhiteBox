@@ -1,6 +1,7 @@
 import db, {
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
+    tavernMessagesTable,
     tavernSessionsTable,
     tavernTaskBoardsTable,
     tavernTaskVersionsTable,
@@ -33,12 +34,17 @@ import {
     type PublishTavernTaskInput,
     type SelectTavernTaskCandidateInput,
     type TavernTaskParty,
+    type TavernTaskAnchorSnapshot,
     type TavernTaskStagedAction,
     type TavernTaskStagingContext,
     type TavernTaskStatus,
     type TavernTaskVersionRecord,
     type UpdateTavernTaskCandidatesInput,
 } from './task-types';
+import {
+    assertTavernTaskPhoneBoundaryInCurrentTransaction,
+    tavernTaskPhoneBoundaryAnchorOrder,
+} from './task-phone-boundary';
 
 const TASK_TEXT_LIMIT = 8_000;
 const ECONOMY_ACCOUNT_ID_MAX_LENGTH = 180;
@@ -51,6 +57,7 @@ type TaskRangeCollection<T> = {
     reverse(): TaskRangeCollection<T>;
     offset(count: number): TaskRangeCollection<T>;
     limit(count: number): TaskRangeCollection<T>;
+    first(): Promise<T | undefined>;
     toArray(): Promise<T[]>;
 };
 
@@ -105,6 +112,22 @@ function normalizeRevision(value: unknown): number {
         throwTavernTaskError('task_revision_invalid', String(value));
     }
     return revision;
+}
+
+function normalizeVersionId(value: unknown): string {
+    const versionId = String(value ?? '').trim();
+    if (!versionId || versionId.length > 220) {
+        throwTavernTaskError('task_version_id_invalid', versionId);
+    }
+    return versionId;
+}
+
+function normalizeBoardEpoch(value: unknown): number {
+    const epoch = Number(value);
+    if (!Number.isSafeInteger(epoch) || epoch < 1) {
+        throwTavernTaskError('task_board_epoch_invalid', String(value));
+    }
+    return epoch;
 }
 
 function normalizeText(value: unknown, limit = TASK_TEXT_LIMIT, required = false): string {
@@ -181,6 +204,7 @@ async function assertMutationReplayPredecessor(
         sessionId: string;
         taskId: string;
         expectedRevision: number;
+        expectedVersionId: string;
         predecessorStatus: Extract<TavernTaskStatus, 'recruiting' | 'active'>;
         actionId: string;
     },
@@ -200,6 +224,7 @@ async function assertMutationReplayPredecessor(
         || predecessor.sessionId !== options.sessionId
         || predecessor.taskId !== options.taskId
         || predecessor.revision !== options.expectedRevision
+        || predecessor.versionId !== options.expectedVersionId
         || predecessor.status !== options.predecessorStatus
     ) {
         throwTavernTaskError('task_action_conflict', options.actionId);
@@ -223,11 +248,15 @@ async function requireCurrentVersionInTransaction(
     sessionId: string,
     taskId: string,
     expectedRevision: number,
+    expectedVersionId: string,
 ): Promise<TavernTaskVersionRecord> {
     const current = await getCurrentVersionInTransaction(sessionId, taskId);
     if (!current) {throwTavernTaskError('task_missing', taskId);}
     if (current.revision !== expectedRevision) {
         throwTavernTaskError('task_revision_conflict', `${expectedRevision}:${current.revision}`);
+    }
+    if (current.versionId !== expectedVersionId) {
+        throwTavernTaskError('task_version_conflict', `${expectedVersionId}:${current.versionId}`);
     }
     return current;
 }
@@ -238,6 +267,7 @@ function buildNextVersion(
     anchorOrder: number,
     patch: Partial<TavernTaskVersionRecord>,
     timestamp = now(),
+    versionId = createId('task-version'),
 ): TavernTaskVersionRecord {
     if (anchorOrder < current.anchorOrder) {
         throwTavernTaskError(
@@ -251,6 +281,7 @@ function buildNextVersion(
         sessionId: current.sessionId,
         taskId: current.taskId,
         revision: current.revision + 1,
+        versionId,
         currentMarker: TAVERN_TASK_CURRENT_MARKER,
         actionId,
         anchorOrder,
@@ -304,10 +335,88 @@ async function runTaskWriteTransaction<T>(callback: () => Promise<T>): Promise<T
     );
 }
 
+async function runPhoneTaskWriteTransaction<T>(callback: () => Promise<T>): Promise<T> {
+    return await db.transaction(
+        'rw',
+        tavernMessagesTable,
+        tavernSessionsTable,
+        tavernTaskBoardsTable,
+        tavernTaskVersionsTable,
+        tavernEconomyAccountsTable,
+        tavernEconomyTransactionsTable,
+        callback,
+    );
+}
+
 export interface ListCurrentTavernTasksOptions {
     statuses?: TavernTaskStatus[];
     issuerKind?: TavernTaskParty['kind'];
+    offset?: number;
     limit?: number;
+}
+
+function normalizeListWindow(options: ListCurrentTavernTasksOptions): { offset: number; limit: number } {
+    return {
+        offset: Math.max(0, Math.floor(Number(options.offset) || 0)),
+        limit: Math.max(0, Math.min(500, Math.floor(Number(options.limit) || 0))),
+    };
+}
+
+function sortTaskRows(rows: TavernTaskVersionRecord[]): TavernTaskVersionRecord[] {
+    return rows.sort((left, right) => right.updatedAt - left.updatedAt || left.taskId.localeCompare(right.taskId));
+}
+
+function filterTaskRows(
+    rows: TavernTaskVersionRecord[],
+    options: ListCurrentTavernTasksOptions,
+): TavernTaskVersionRecord[] {
+    const statuses = new Set(options.statuses || []);
+    const { offset, limit } = normalizeListWindow(options);
+    const filtered = sortTaskRows(rows
+        .filter((row) => !statuses.size || statuses.has(row.status))
+        .filter((row) => !options.issuerKind || row.issuer.kind === options.issuerKind));
+    return filtered.slice(offset, limit ? offset + limit : undefined);
+}
+
+async function listIndexedCurrentTaskRows(
+    sessionId: string,
+    options: ListCurrentTavernTasksOptions,
+): Promise<TavernTaskVersionRecord[]> {
+    const statuses = [...new Set(options.statuses || [])];
+    const { offset, limit } = normalizeListWindow(options);
+    const readLimit = limit ? offset + limit : 0;
+    const table = tavernTaskVersionsTable as unknown as TaskRangeTable<TavernTaskVersionRecord>;
+    const readRange = async (index: string, lower: unknown[], upper: unknown[]) => {
+        let range = table.where(index).between(lower, upper, true, true).reverse();
+        if (readLimit) {range = range.limit(readLimit);}
+        return await range.toArray();
+    };
+    const issuerKind = options.issuerKind;
+    if (statuses.length) {
+        const rows = await Promise.all(statuses.map((status) => issuerKind
+            ? readRange(
+                '[sessionId+issuer.kind+status+currentMarker+updatedAt]',
+                [sessionId, issuerKind, status, TAVERN_TASK_CURRENT_MARKER, Number.MIN_SAFE_INTEGER],
+                [sessionId, issuerKind, status, TAVERN_TASK_CURRENT_MARKER, Number.MAX_SAFE_INTEGER],
+            )
+            : readRange(
+                '[sessionId+status+currentMarker+updatedAt]',
+                [sessionId, status, TAVERN_TASK_CURRENT_MARKER, Number.MIN_SAFE_INTEGER],
+                [sessionId, status, TAVERN_TASK_CURRENT_MARKER, Number.MAX_SAFE_INTEGER],
+            )));
+        return rows.flat();
+    }
+    return issuerKind
+        ? await readRange(
+            '[sessionId+issuer.kind+currentMarker+updatedAt]',
+            [sessionId, issuerKind, TAVERN_TASK_CURRENT_MARKER, Number.MIN_SAFE_INTEGER],
+            [sessionId, issuerKind, TAVERN_TASK_CURRENT_MARKER, Number.MAX_SAFE_INTEGER],
+        )
+        : await readRange(
+            '[sessionId+currentMarker+updatedAt]',
+            [sessionId, TAVERN_TASK_CURRENT_MARKER, Number.MIN_SAFE_INTEGER],
+            [sessionId, TAVERN_TASK_CURRENT_MARKER, Number.MAX_SAFE_INTEGER],
+        );
 }
 
 export async function listCurrentTavernTasks(
@@ -315,17 +424,52 @@ export async function listCurrentTavernTasks(
     options: ListCurrentTavernTasksOptions = {},
 ): Promise<TavernTaskVersionRecord[]> {
     const sessionId = normalizeSessionId(value);
-    const statuses = new Set(options.statuses || []);
-    const limit = Math.max(0, Math.min(500, Math.floor(Number(options.limit) || 0)));
-    const rows = await tavernTaskVersionsTable
+    return clone(filterTaskRows(await listIndexedCurrentTaskRows(sessionId, options), options));
+}
+
+export async function loadTavernTaskAnchorSnapshot(
+    value = '',
+    boundary: { anchorOrder: number },
+): Promise<TavernTaskAnchorSnapshot> {
+    const sessionId = normalizeSessionId(value);
+    const anchorOrder = normalizeTavernTaskAnchorOrder(boundary.anchorOrder);
+    const currentRows = await tavernTaskVersionsTable
         .where('[sessionId+currentMarker]')
         .equals([sessionId, TAVERN_TASK_CURRENT_MARKER])
         .toArray();
-    const filtered = rows
-        .filter((row) => !statuses.size || statuses.has(row.status))
-        .filter((row) => !options.issuerKind || row.issuer.kind === options.issuerKind)
-        .sort((left, right) => right.updatedAt - left.updatedAt || left.taskId.localeCompare(right.taskId));
-    return clone(limit ? filtered.slice(0, limit) : filtered);
+    const table = tavernTaskVersionsTable as unknown as TaskRangeTable<TavernTaskVersionRecord>;
+    const tasks = (await Promise.all(currentRows.map(async (current) => {
+        if (current.anchorOrder <= anchorOrder) {return current;}
+        return await table
+            .where('[sessionId+taskId+anchorOrder+revision]')
+            .between(
+                [sessionId, current.taskId, -1, 0],
+                [sessionId, current.taskId, anchorOrder, Number.MAX_SAFE_INTEGER],
+                true,
+                true,
+            )
+            .reverse()
+            .first();
+    }))).filter((row): row is TavernTaskVersionRecord => !!row);
+    return clone({
+        sessionId,
+        anchorOrder,
+        tasks: sortTaskRows(tasks),
+    });
+}
+
+export function listTavernTasksFromAnchorSnapshot(
+    snapshot: TavernTaskAnchorSnapshot,
+    options: ListCurrentTavernTasksOptions = {},
+): TavernTaskVersionRecord[] {
+    normalizeSessionId(snapshot?.sessionId || '');
+    normalizeTavernTaskAnchorOrder(snapshot?.anchorOrder);
+    if (!Array.isArray(snapshot?.tasks)) {throwTavernTaskError('task_staging_invalid', 'snapshot');}
+    return clone(filterTaskRows(snapshot.tasks, options));
+}
+
+export function hasMaintainableTavernTasksInAnchorSnapshot(snapshot: TavernTaskAnchorSnapshot): boolean {
+    return listTavernTasksFromAnchorSnapshot(snapshot, { statuses: ['active'], limit: 1 }).length > 0;
 }
 
 export async function listTavernTasksAtAnchor(
@@ -335,26 +479,16 @@ export async function listTavernTasksAtAnchor(
 ): Promise<TavernTaskVersionRecord[]> {
     const sessionId = normalizeSessionId(value);
     const anchorOrder = normalizeTavernTaskAnchorOrder(anchorValue);
-    const statuses = new Set(options.statuses || []);
-    const limit = Math.max(0, Math.min(500, Math.floor(Number(options.limit) || 0)));
-    const rows = await (tavernTaskVersionsTable as unknown as TaskRangeTable<TavernTaskVersionRecord>)
-        .where('[sessionId+anchorOrder]')
-        .between([sessionId, -1], [sessionId, anchorOrder], true, true)
-        .toArray();
-    const latestByTask = new Map<string, TavernTaskVersionRecord>();
-    for (const row of rows) {
-        const current = latestByTask.get(row.taskId);
-        if (!current || row.revision > current.revision) {latestByTask.set(row.taskId, row);}
-    }
-    const filtered = [...latestByTask.values()]
-        .filter((row) => !statuses.size || statuses.has(row.status))
-        .filter((row) => !options.issuerKind || row.issuer.kind === options.issuerKind)
-        .sort((left, right) => right.updatedAt - left.updatedAt || left.taskId.localeCompare(right.taskId));
-    return clone(limit ? filtered.slice(0, limit) : filtered);
+    return listTavernTasksFromAnchorSnapshot(
+        await loadTavernTaskAnchorSnapshot(sessionId, { anchorOrder }),
+        options,
+    );
 }
 
 export async function hasMaintainableTavernTasksAtAnchor(value = '', anchorValue = -1): Promise<boolean> {
-    return (await listTavernTasksAtAnchor(value, anchorValue, { statuses: ['active'], limit: 1 })).length > 0;
+    return hasMaintainableTavernTasksInAnchorSnapshot(await loadTavernTaskAnchorSnapshot(value, {
+        anchorOrder: anchorValue,
+    }));
 }
 
 export async function getCurrentTavernTask(value = '', taskValue = ''): Promise<TavernTaskVersionRecord | null> {
@@ -403,13 +537,20 @@ export async function acceptTavernTaskListing(input: AcceptTavernTaskListingInpu
     const boardId = String(input.boardId || input.generationId || '').trim();
     const listingId = String(input.listingId || '').trim();
     const boardRevision = Number(input.boardRevision);
-    const anchorOrder = normalizeTavernTaskAnchorOrder(input.anchorOrder);
+    const boardEpoch = normalizeBoardEpoch(input.boardEpoch);
+    const anchorOrder = normalizeTavernTaskAnchorOrder(tavernTaskPhoneBoundaryAnchorOrder(input.boundary));
     if (!boardId) {throwTavernTaskError('task_board_generation_conflict');}
     if (!listingId) {throwTavernTaskError('task_listing_missing');}
     if (!Number.isSafeInteger(boardRevision) || boardRevision <= 0) {
         throwTavernTaskError('task_board_revision_invalid', String(input.boardRevision));
     }
-    return await runTaskWriteTransaction(async () => {
+    return await runPhoneTaskWriteTransaction(async () => {
+        // The request may be an idempotent replay, but it still belongs to the
+        // phone timeline captured by the caller.  Check that timeline before
+        // accepting the replay so a delayed response cannot be reported as a
+        // successful write after a rollback/replacement.
+        await assertSessionExists(sessionId);
+        await assertTavernTaskPhoneBoundaryInCurrentTransaction(sessionId, input.boundary);
         const replay = await findActionVersion(sessionId, actionId);
         if (replay) {
             assertActionReplay(replay,
@@ -417,6 +558,7 @@ export async function acceptTavernTaskListing(input: AcceptTavernTaskListingInpu
                 && replay.sourceBoardId === boardId
                 && replay.sourceListingId === listingId
                 && replay.sourceBoardRevision === boardRevision
+                && replay.sourceBoardEpoch === boardEpoch
                 && replay.revision === 1
                 && replay.assignee?.kind === 'player'
                 && replay.assignee.name === (normalizeText(input.playerName, 120) || '玩家')
@@ -424,7 +566,8 @@ export async function acceptTavernTaskListing(input: AcceptTavernTaskListingInpu
             actionId);
             return clone(replay);
         }
-        await assertSessionExists(sessionId);
+        const session = await tavernSessionsTable.get(sessionId);
+        if (!session) {throwTavernTaskError('task_session_missing', sessionId);}
         const board = await tavernTaskBoardsTable.get(sessionId);
         if (!board) {throwTavernTaskError('task_board_missing', sessionId);}
         if (board.generationId !== boardId) {
@@ -432,6 +575,16 @@ export async function acceptTavernTaskListing(input: AcceptTavernTaskListingInpu
         }
         if (board.revision !== boardRevision) {
             throwTavernTaskError('task_board_revision_conflict', `${boardRevision}:${board.revision}`);
+        }
+        if (board.epoch !== boardEpoch) {
+            throwTavernTaskError('task_board_epoch_conflict', `${boardEpoch}:${board.epoch}`);
+        }
+        const sessionEpoch = Math.max(1, Math.floor(Number(session.taskBoardEpoch) || 1));
+        if (sessionEpoch !== boardEpoch) {
+            throwTavernTaskError('task_board_epoch_conflict', `${boardEpoch}:${sessionEpoch}`);
+        }
+        if (anchorOrder < board.anchorOrder) {
+            throwTavernTaskError('task_anchor_order_regression', `${anchorOrder}<${board.anchorOrder}`);
         }
         const listing = board.listings.find((item) => item.id === listingId);
         if (!listing) {throwTavernTaskError('task_listing_missing', listingId);}
@@ -448,6 +601,7 @@ export async function acceptTavernTaskListing(input: AcceptTavernTaskListingInpu
             sessionId,
             taskId,
             revision: 1,
+            versionId: createId('task-version'),
             currentMarker: TAVERN_TASK_CURRENT_MARKER,
             actionId,
             status: 'active',
@@ -474,6 +628,7 @@ export async function acceptTavernTaskListing(input: AcceptTavernTaskListingInpu
             sourceBoardId: boardId,
             sourceListingId: listingId,
             sourceBoardRevision: boardRevision,
+            sourceBoardEpoch: boardEpoch,
             anchorOrder,
             createdAt: timestamp,
             updatedAt: timestamp,
@@ -500,7 +655,7 @@ export async function acceptTavernTaskListing(input: AcceptTavernTaskListingInpu
 export async function publishTavernTask(input: PublishTavernTaskInput): Promise<TavernTaskVersionRecord> {
     const sessionId = normalizeSessionId(input.sessionId);
     const actionId = normalizeActionId(input.actionId);
-    const anchorOrder = normalizeTavernTaskAnchorOrder(input.anchorOrder);
+    const anchorOrder = normalizeTavernTaskAnchorOrder(tavernTaskPhoneBoundaryAnchorOrder(input.boundary));
     const reward = normalizeTavernTaskReward(input.reward);
     const title = normalizeText(input.title, 180, true);
     const objective = normalizeText(input.objective, TASK_TEXT_LIMIT, true);
@@ -509,7 +664,9 @@ export async function publishTavernTask(input: PublishTavernTaskInput): Promise<
     const risk = normalizeText(input.risk, 2_000);
     const grade = normalizeTavernTaskGrade(input.grade || 'CUSTOM');
     const tags = normalizeTavernTaskTags(input.tags || []);
-    return await runTaskWriteTransaction(async () => {
+    return await runPhoneTaskWriteTransaction(async () => {
+        await assertSessionExists(sessionId);
+        await assertTavernTaskPhoneBoundaryInCurrentTransaction(sessionId, input.boundary);
         const replay = await findActionVersion(sessionId, actionId);
         if (replay) {
             assertActionReplay(replay,
@@ -530,7 +687,6 @@ export async function publishTavernTask(input: PublishTavernTaskInput): Promise<
             actionId);
             return clone(replay);
         }
-        await assertSessionExists(sessionId);
         const taskId = normalizeTaskId(input.taskId || createId('task'));
         if (await getCurrentVersionInTransaction(sessionId, taskId)) {
             throwTavernTaskError('task_action_conflict', taskId);
@@ -541,6 +697,7 @@ export async function publishTavernTask(input: PublishTavernTaskInput): Promise<
             sessionId,
             taskId,
             revision: 1,
+            versionId: createId('task-version'),
             currentMarker: TAVERN_TASK_CURRENT_MARKER,
             actionId,
             status: 'recruiting',
@@ -584,6 +741,7 @@ type MutationCommitResult = { version: TavernTaskVersionRecord; changed: boolean
 
 interface TaskMutationCommitOptions {
     allowDelayedAnchorCommit?: boolean;
+    resultVersionId?: string;
 }
 
 async function updateCandidatesInCurrentTransaction(input: UpdateTavernTaskCandidatesInput): Promise<MutationCommitResult> {
@@ -591,7 +749,8 @@ async function updateCandidatesInCurrentTransaction(input: UpdateTavernTaskCandi
     const taskId = normalizeTaskId(input.taskId);
     const actionId = normalizeActionId(input.actionId);
     const expectedRevision = normalizeRevision(input.expectedRevision);
-    const anchorOrder = normalizeTavernTaskAnchorOrder(input.anchorOrder);
+    const expectedVersionId = normalizeVersionId(input.expectedVersionId);
+    const anchorOrder = normalizeTavernTaskAnchorOrder(tavernTaskPhoneBoundaryAnchorOrder(input.boundary));
     const candidates = normalizeTavernTaskCandidates(input.candidates, {
         min: 3,
         max: 4,
@@ -603,6 +762,7 @@ async function updateCandidatesInCurrentTransaction(input: UpdateTavernTaskCandi
             sessionId,
             taskId,
             expectedRevision,
+            expectedVersionId,
             predecessorStatus: 'recruiting',
             actionId,
         });
@@ -613,7 +773,7 @@ async function updateCandidatesInCurrentTransaction(input: UpdateTavernTaskCandi
         actionId);
         return { version: clone(replay), changed: false };
     }
-    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision);
+    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision, expectedVersionId);
     if (current.status !== 'recruiting') {throwTavernTaskError('task_task_not_recruiting', current.status);}
     if (current.issuer.kind !== 'player') {throwTavernTaskError('task_player_only', taskId);}
     const version = buildNextVersion(current, actionId, anchorOrder, { candidates });
@@ -622,8 +782,9 @@ async function updateCandidatesInCurrentTransaction(input: UpdateTavernTaskCandi
 }
 
 export async function updateTavernTaskCandidates(input: UpdateTavernTaskCandidatesInput): Promise<TavernTaskVersionRecord> {
-    return await runTaskWriteTransaction(async () => {
+    return await runPhoneTaskWriteTransaction(async () => {
         await assertSessionExists(normalizeSessionId(input.sessionId));
+        await assertTavernTaskPhoneBoundaryInCurrentTransaction(input.sessionId, input.boundary);
         const result = await updateCandidatesInCurrentTransaction(input);
         if (result.changed) {await touchSession(input.sessionId);}
         return result.version;
@@ -635,7 +796,8 @@ async function selectCandidateInCurrentTransaction(input: SelectTavernTaskCandid
     const taskId = normalizeTaskId(input.taskId);
     const actionId = normalizeActionId(input.actionId);
     const expectedRevision = normalizeRevision(input.expectedRevision);
-    const anchorOrder = normalizeTavernTaskAnchorOrder(input.anchorOrder);
+    const expectedVersionId = normalizeVersionId(input.expectedVersionId);
+    const anchorOrder = normalizeTavernTaskAnchorOrder(tavernTaskPhoneBoundaryAnchorOrder(input.boundary));
     const candidateId = String(input.candidateId || '').trim();
     if (!candidateId) {throwTavernTaskError('task_candidate_missing');}
     const replay = await findActionVersion(sessionId, actionId);
@@ -644,6 +806,7 @@ async function selectCandidateInCurrentTransaction(input: SelectTavernTaskCandid
             sessionId,
             taskId,
             expectedRevision,
+            expectedVersionId,
             predecessorStatus: 'recruiting',
             actionId,
         });
@@ -668,7 +831,7 @@ async function selectCandidateInCurrentTransaction(input: SelectTavernTaskCandid
         actionId);
         return { version: clone(replay), changed: false };
     }
-    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision);
+    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision, expectedVersionId);
     if (current.status !== 'recruiting') {throwTavernTaskError('task_task_not_recruiting', current.status);}
     if (current.issuer.kind !== 'player') {throwTavernTaskError('task_player_only', taskId);}
     const candidate = current.candidates.find((item) => item.id === candidateId);
@@ -693,8 +856,9 @@ async function selectCandidateInCurrentTransaction(input: SelectTavernTaskCandid
 }
 
 export async function selectTavernTaskCandidate(input: SelectTavernTaskCandidateInput): Promise<TavernTaskVersionRecord> {
-    return await runTaskWriteTransaction(async () => {
+    return await runPhoneTaskWriteTransaction(async () => {
         await assertSessionExists(normalizeSessionId(input.sessionId));
+        await assertTavernTaskPhoneBoundaryInCurrentTransaction(input.sessionId, input.boundary);
         const result = await selectCandidateInCurrentTransaction(input);
         if (result.changed) {await touchSession(input.sessionId);}
         return result.version;
@@ -706,13 +870,15 @@ async function cancelTaskInCurrentTransaction(input: CancelTavernTaskInput): Pro
     const taskId = normalizeTaskId(input.taskId);
     const actionId = normalizeActionId(input.actionId);
     const expectedRevision = normalizeRevision(input.expectedRevision);
-    const anchorOrder = normalizeTavernTaskAnchorOrder(input.anchorOrder);
+    const expectedVersionId = normalizeVersionId(input.expectedVersionId);
+    const anchorOrder = normalizeTavernTaskAnchorOrder(tavernTaskPhoneBoundaryAnchorOrder(input.boundary));
     const replay = await findActionVersion(sessionId, actionId);
     if (replay) {
         await assertMutationReplayPredecessor(replay, {
             sessionId,
             taskId,
             expectedRevision,
+            expectedVersionId,
             predecessorStatus: 'recruiting',
             actionId,
         });
@@ -722,7 +888,7 @@ async function cancelTaskInCurrentTransaction(input: CancelTavernTaskInput): Pro
         actionId);
         return { version: clone(replay), changed: false };
     }
-    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision);
+    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision, expectedVersionId);
     if (current.status !== 'recruiting') {throwTavernTaskError('task_task_not_recruiting', current.status);}
     if (current.issuer.kind !== 'player') {throwTavernTaskError('task_player_only', taskId);}
     const funding = await findFundingTransaction(sessionId, taskId);
@@ -747,8 +913,9 @@ async function cancelTaskInCurrentTransaction(input: CancelTavernTaskInput): Pro
 }
 
 export async function cancelTavernTask(input: CancelTavernTaskInput): Promise<TavernTaskVersionRecord> {
-    return await runTaskWriteTransaction(async () => {
+    return await runPhoneTaskWriteTransaction(async () => {
         await assertSessionExists(normalizeSessionId(input.sessionId));
+        await assertTavernTaskPhoneBoundaryInCurrentTransaction(input.sessionId, input.boundary);
         const result = await cancelTaskInCurrentTransaction(input);
         if (result.changed) {await touchSession(input.sessionId);}
         return result.version;
@@ -757,11 +924,15 @@ export async function cancelTavernTask(input: CancelTavernTaskInput): Promise<Ta
 
 export const withdrawTavernTask = cancelTavernTask;
 
-async function progressTaskInCurrentTransaction(input: ProgressTavernTaskInput): Promise<MutationCommitResult> {
+async function progressTaskInCurrentTransaction(
+    input: ProgressTavernTaskInput,
+    options: TaskMutationCommitOptions = {},
+): Promise<MutationCommitResult> {
     const sessionId = normalizeSessionId(input.sessionId);
     const taskId = normalizeTaskId(input.taskId);
     const actionId = normalizeActionId(input.actionId);
     const expectedRevision = normalizeRevision(input.expectedRevision);
+    const expectedVersionId = normalizeVersionId(input.expectedVersionId);
     const anchorOrder = normalizeTavernTaskAnchorOrder(input.anchorOrder);
     const progressSummary = normalizeText(input.progressSummary, TASK_TEXT_LIMIT, true);
     const replay = await findActionVersion(sessionId, actionId);
@@ -770,6 +941,7 @@ async function progressTaskInCurrentTransaction(input: ProgressTavernTaskInput):
             sessionId,
             taskId,
             expectedRevision,
+            expectedVersionId,
             predecessorStatus: 'active',
             actionId,
         });
@@ -780,10 +952,17 @@ async function progressTaskInCurrentTransaction(input: ProgressTavernTaskInput):
         actionId);
         return { version: clone(replay), changed: false };
     }
-    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision);
+    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision, expectedVersionId);
     if (current.status !== 'active') {throwTavernTaskError('task_task_not_active', current.status);}
     if (current.progressSummary === progressSummary) {return { version: clone(current), changed: false };}
-    const version = buildNextVersion(current, actionId, anchorOrder, { progressSummary });
+    const version = buildNextVersion(
+        current,
+        actionId,
+        anchorOrder,
+        { progressSummary },
+        now(),
+        options.resultVersionId ? normalizeVersionId(options.resultVersionId) : undefined,
+    );
     await appendVersionInTransaction(current, version);
     return { version: clone(version), changed: true };
 }
@@ -812,6 +991,7 @@ async function completeTaskInCurrentTransaction(
     const taskId = normalizeTaskId(input.taskId);
     const actionId = normalizeActionId(input.actionId);
     const expectedRevision = normalizeRevision(input.expectedRevision);
+    const expectedVersionId = normalizeVersionId(input.expectedVersionId);
     const anchorOrder = normalizeTavernTaskAnchorOrder(input.anchorOrder);
     const resultSummary = normalizeText(input.resultSummary, TASK_TEXT_LIMIT, true);
     const replay = await findActionVersion(sessionId, actionId);
@@ -820,6 +1000,7 @@ async function completeTaskInCurrentTransaction(
             sessionId,
             taskId,
             expectedRevision,
+            expectedVersionId,
             predecessorStatus: 'active',
             actionId,
         });
@@ -830,7 +1011,7 @@ async function completeTaskInCurrentTransaction(
         actionId);
         return { version: clone(replay), changed: false };
     }
-    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision);
+    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision, expectedVersionId);
     if (current.status !== 'active') {throwTavernTaskError('task_task_not_active', current.status);}
     await postTavernEconomyTransactionInCurrentDbTransaction({
         sessionId,
@@ -852,7 +1033,7 @@ async function completeTaskInCurrentTransaction(
         status: 'completed',
         resultSummary,
         progressSummary: current.progressSummary || '任务已完成',
-    });
+    }, now(), options.resultVersionId ? normalizeVersionId(options.resultVersionId) : undefined);
     await appendVersionInTransaction(current, version);
     return { version: clone(version), changed: true };
 }
@@ -874,6 +1055,7 @@ async function failTaskInCurrentTransaction(
     const taskId = normalizeTaskId(input.taskId);
     const actionId = normalizeActionId(input.actionId);
     const expectedRevision = normalizeRevision(input.expectedRevision);
+    const expectedVersionId = normalizeVersionId(input.expectedVersionId);
     const anchorOrder = normalizeTavernTaskAnchorOrder(input.anchorOrder);
     const resultSummary = normalizeText(input.resultSummary, TASK_TEXT_LIMIT, true);
     const replay = await findActionVersion(sessionId, actionId);
@@ -882,6 +1064,7 @@ async function failTaskInCurrentTransaction(
             sessionId,
             taskId,
             expectedRevision,
+            expectedVersionId,
             predecessorStatus: 'active',
             actionId,
         });
@@ -892,7 +1075,7 @@ async function failTaskInCurrentTransaction(
         actionId);
         return { version: clone(replay), changed: false };
     }
-    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision);
+    const current = await requireCurrentVersionInTransaction(sessionId, taskId, expectedRevision, expectedVersionId);
     if (current.status !== 'active') {throwTavernTaskError('task_task_not_active', current.status);}
     const funding = await findFundingTransaction(sessionId, taskId);
     await reverseTavernEconomyTransactionInCurrentDbTransaction({
@@ -912,7 +1095,7 @@ async function failTaskInCurrentTransaction(
     const version = buildNextVersion(current, actionId, anchorOrder, {
         status: 'failed',
         resultSummary,
-    });
+    }, now(), options.resultVersionId ? normalizeVersionId(options.resultVersionId) : undefined);
     await appendVersionInTransaction(current, version);
     return { version: clone(version), changed: true };
 }
@@ -931,18 +1114,27 @@ export async function createTavernTaskStagingContext(value: string, anchorValue:
     const anchorOrder = normalizeTavernTaskAnchorOrder(anchorValue);
     await assertSessionExists(sessionId);
     const current = await listTavernTasksAtAnchor(sessionId, anchorOrder);
+    return createTavernTaskStagingContextFromSnapshot({ sessionId, anchorOrder, tasks: current });
+}
+
+export function createTavernTaskStagingContextFromSnapshot(
+    snapshot: TavernTaskAnchorSnapshot,
+): TavernTaskStagingContext {
+    const sessionId = normalizeSessionId(snapshot?.sessionId || '');
+    const anchorOrder = normalizeTavernTaskAnchorOrder(snapshot?.anchorOrder);
+    if (!Array.isArray(snapshot?.tasks)) {throwTavernTaskError('task_staging_invalid', 'snapshot');}
     return {
         sessionId,
         anchorOrder,
         actions: [],
-        projected: new Map(current.map((task) => [task.taskId, clone(task)])),
+        projected: new Map(snapshot.tasks.map((task) => [task.taskId, clone(task)])),
         projectedByAction: new Map(),
     };
 }
 
 export function applyTavernTaskStagedAction(
     context: TavernTaskStagingContext,
-    input: TavernTaskStagedAction,
+    input: Omit<TavernTaskStagedAction, 'expectedVersionId' | 'resultVersionId'>,
 ): { version: TavernTaskVersionRecord; changed: boolean } {
     normalizeSessionId(context?.sessionId || '');
     if (
@@ -988,6 +1180,7 @@ export function applyTavernTaskStagedAction(
         actionId,
         taskId,
         expectedRevision,
+        expectedVersionId: current.versionId,
         kind: input.kind,
         anchorOrder,
     };
@@ -1005,6 +1198,7 @@ export function applyTavernTaskStagedAction(
         };
     }
     const projected = buildNextVersion(current, actionId, anchorOrder, patch);
+    action.resultVersionId = projected.versionId;
     context.actions.push(action);
     context.projected.set(taskId, clone(projected));
     context.projectedByAction.set(actionId, clone(projected));
@@ -1032,10 +1226,11 @@ export async function commitTavernTaskStagedActionsInCurrentDbTransaction(input:
                 sessionId,
                 taskId: action.taskId,
                 expectedRevision: action.expectedRevision,
+                expectedVersionId: action.expectedVersionId,
                 progressSummary: action.progressSummary || '',
                 anchorOrder: action.anchorOrder,
                 actionId: action.actionId,
-            });
+            }, { resultVersionId: action.resultVersionId });
             versions.push(result.version);
             changed ||= result.changed;
             continue;
@@ -1045,10 +1240,11 @@ export async function commitTavernTaskStagedActionsInCurrentDbTransaction(input:
                 sessionId,
                 taskId: action.taskId,
                 expectedRevision: action.expectedRevision,
+                expectedVersionId: action.expectedVersionId,
                 resultSummary: action.resultSummary || '',
                 anchorOrder: action.anchorOrder,
                 actionId: action.actionId,
-            }, { allowDelayedAnchorCommit: true });
+            }, { allowDelayedAnchorCommit: true, resultVersionId: action.resultVersionId });
             versions.push(result.version);
             changed ||= result.changed;
             continue;
@@ -1058,10 +1254,11 @@ export async function commitTavernTaskStagedActionsInCurrentDbTransaction(input:
                 sessionId,
                 taskId: action.taskId,
                 expectedRevision: action.expectedRevision,
+                expectedVersionId: action.expectedVersionId,
                 resultSummary: action.resultSummary || '',
                 anchorOrder: action.anchorOrder,
                 actionId: action.actionId,
-            }, { allowDelayedAnchorCommit: true });
+            }, { allowDelayedAnchorCommit: true, resultVersionId: action.resultVersionId });
             versions.push(result.version);
             changed ||= result.changed;
             continue;

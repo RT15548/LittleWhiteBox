@@ -6,6 +6,7 @@ import type {
 import {
     tavernTaskCounterparty,
     tavernTaskDirectionLabel,
+    tavernTaskGradeLabel,
     tavernTaskRewardLabel,
     tavernTaskStatusLabel,
     tavernTaskStatusTone,
@@ -15,6 +16,9 @@ import TavernTaskTimeline from './TavernTaskTimeline.vue';
 
 defineProps<{
     task: TavernTaskVersionRecord | null;
+    detailLoading: boolean;
+    detailError: string;
+    detailResolved: boolean;
     timeline: TavernTaskVersionRecord[];
     timelineLoading: boolean;
     timelineLoadingMore: boolean;
@@ -50,10 +54,10 @@ const emit = defineEmits<{
         ><path d="m15 4-8 8 8 8" /></svg>
       </button>
       <div>
-        <span>FORMAL RECORD</span>
-        <strong>正式任务</strong>
+        <span>任务详情</span>
+        <strong>委托记录</strong>
       </div>
-      <b v-if="task">{{ task.grade }}</b>
+      <b v-if="task">{{ tavernTaskGradeLabel(task.grade) }}</b>
       <span v-else />
     </header>
     <div
@@ -65,15 +69,14 @@ const emit = defineEmits<{
           <span>{{ tavernTaskDirectionLabel(task) }}</span>
           <i :class="`is-${tavernTaskStatusTone(task.status)}`">{{ tavernTaskStatusLabel(task.status) }}</i>
           <h2>{{ task.title }}</h2>
-          <small>{{ task.taskId }}</small>
         </header>
         <div class="tavern-task-formal-summary">
           <div>
-            <span>ESCROW</span>
+            <span>报酬</span>
             <strong>{{ tavernTaskRewardLabel(task.reward) }} <i>◈</i></strong>
           </div>
           <div>
-            <span>COUNTERPARTY</span>
+            <span>委托方</span>
             <strong>{{ tavernTaskCounterparty(task) }}</strong>
           </div>
         </div>
@@ -103,7 +106,7 @@ const emit = defineEmits<{
       >
         <header>
           <div>
-            <span>RECRUITMENT CHANNEL</span>
+            <span>招募进度</span>
             <strong>应征者</strong>
           </div>
           <button
@@ -154,17 +157,25 @@ const emit = defineEmits<{
       />
     </div>
     <div
-      v-else-if="timelineLoading"
+      v-else-if="detailLoading"
       class="tavern-task-skeleton-list is-detail"
       aria-label="正在读取任务"
     >
       <span /><span /><span />
     </div>
     <div
-      v-else
+      v-else-if="detailError"
+      class="tavern-task-empty"
+      role="status"
+    >
+      <strong>任务暂时无法读取</strong>
+      <p>{{ detailError }}</p>
+    </div>
+    <div
+      v-else-if="detailResolved"
       class="tavern-task-empty"
     >
-      <strong>找不到这份正式任务</strong>
+      <strong>找不到这份委托</strong>
       <p>它可能已被其他时间线替换，返回列表重新读取。</p>
     </div>
   </section>

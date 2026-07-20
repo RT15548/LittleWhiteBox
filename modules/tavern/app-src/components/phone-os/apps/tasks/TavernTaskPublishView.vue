@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { resolveTavernTaskPublishAvailability } from '../../../../features/phone-os/apps/tasks/tavern-task-publish-state';
 import type { TavernTaskPublishDraft } from '../../../../features/phone-os/apps/tasks/useTavernTasksController';
 
 const props = defineProps<{
@@ -18,23 +19,19 @@ const emit = defineEmits<{
     (event: 'submit'): void;
 }>();
 
-const escrowAmount = computed(() => {
-    const value = Number(draft.value.reward);
-    return Number.isSafeInteger(value) && value > 0 ? value : 0;
-});
-const insufficientFunds = computed(() => (
-    props.balanceReady
-    && escrowAmount.value > 0
-    && escrowAmount.value > props.balance
-));
+const availability = computed(() => resolveTavernTaskPublishAvailability({
+    balance: props.balance,
+    balanceError: props.balanceError,
+    balanceLoading: props.balanceLoading,
+    balanceReady: props.balanceReady,
+    blockedReason: props.blockedReason,
+    busy: props.busy,
+    reward: draft.value.reward,
+}));
+const escrowAmount = computed(() => availability.value.escrowAmount);
+const insufficientFunds = computed(() => availability.value.insufficientFunds);
 const balanceAfterPayment = computed(() => props.balance - escrowAmount.value);
-const canSubmit = computed(() => (
-    !props.busy
-    && !props.blockedReason
-    && props.balanceReady
-    && escrowAmount.value > 0
-    && !insufficientFunds.value
-));
+const canSubmit = computed(() => availability.value.canSubmit);
 const missingBalance = computed(() => Math.max(0, escrowAmount.value - props.balance));
 
 function formatCoins(value: number): string {
@@ -61,10 +58,10 @@ function submit(): void {
         ><path d="m15 4-8 8 8 8" /></svg>
       </button>
       <div>
-        <span>ISSUER CONSOLE</span>
+        <span>发布委托</span>
         <strong>发布委托</strong>
       </div>
-      <b>CUSTOM</b>
+      <b>自定义</b>
     </header>
     <form
       class="tavern-task-publish-form"
@@ -75,7 +72,7 @@ function submit(): void {
         :class="{ 'is-insufficient': insufficientFunds }"
       >
         <header>
-          <span>PAYMENT ESCROW</span>
+          <span>报酬托管</span>
           <small>发布即冻结</small>
         </header>
         <dl>

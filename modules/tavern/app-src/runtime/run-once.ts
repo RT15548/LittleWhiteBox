@@ -542,7 +542,11 @@ export interface XbTavernRunTurnInput {
         previousAssistantMessage: TavernMessageRecord | null,
     ) => void | Promise<void>;
     onAssistantMessageSaved?: (sessionId: string, message: TavernMessageRecord) => void | Promise<void>;
-    onManagerRunSaved?: (sessionId: string, managerRunId: string) => void | Promise<void>;
+    onManagerRunSaved?: (
+        sessionId: string,
+        managerRunId: string,
+        domainChange?: TavernAcceptedTurnDomainChange,
+    ) => void | Promise<void>;
     rerollLatestAssistant?: boolean;
     runManager?: boolean;
     generationTrigger?: string;
@@ -556,6 +560,11 @@ export interface XbTavernRunTurnInput {
     rerollRuntimeEvents?: boolean;
     actionCheckRoll?: () => number;
     actionCheckPercentRoll?: () => number;
+}
+
+export interface TavernAcceptedTurnDomainChange {
+    tasksChanged: boolean;
+    economyChanged: boolean;
 }
 
 export interface XbTavernRunResult {
@@ -1744,7 +1753,7 @@ export async function simulateXbTavernRequest(input: XbTavernSimulateRequestInpu
     const filteredMemoryContext = filterMemoryContextByRuntime(memoryContext, sessionContractRuntime);
     const taskDepthEntries = session
         ? await runTavernStage('simulate_task_context', () => buildTavernStoryTaskDepthEntries(session.id, {
-            atAnchorOrder: contextWindow?.historyMessages.at(-1)?.order ?? -1,
+            atAnchorOrder: (contextWindow?.historyMessages.at(-1)?.order ?? -1) + 1,
         }))
         : [];
     const runtimeProtocolMessages = buildRuntimeProtocolMessages(sessionContractRuntime, {
@@ -2067,7 +2076,11 @@ function scheduleQueuedAcceptedTurnManager(input: {
     assistantPreset?: TavernAssistantPreset;
     sessionContract: TavernSessionContract;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
-    onManagerRunSaved?: (sessionId: string, managerRunId: string) => void | Promise<void>;
+    onManagerRunSaved?: (
+        sessionId: string,
+        managerRunId: string,
+        domainChange?: TavernAcceptedTurnDomainChange,
+    ) => void | Promise<void>;
 }): void {
     const sessionId = String(input.sessionId || '').trim();
     if (!sessionId) {return;}
@@ -2117,7 +2130,11 @@ function scheduleQueuedAcceptedTurnManager(input: {
                             stagedTaskActions: result.stagedTaskActions,
                             leaseOwnerId: String(result.managerRun.leaseOwnerId || ''),
                         });
-                        await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, completed.id));
+                        const stagedTaskActions = result.stagedTaskActions || [];
+                        await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, completed.id, {
+                            tasksChanged: stagedTaskActions.length > 0,
+                            economyChanged: stagedTaskActions.some((action) => action.kind === 'complete' || action.kind === 'fail'),
+                        }));
                     } catch (error) {
                         const errorText = error instanceof Error ? error.message : String(error || 'manager_accepted_snapshot_failed');
                         const failed = await failAndRollbackAcceptedTurnManagerRun(
@@ -2152,7 +2169,11 @@ export function resumeQueuedAcceptedTurnManagers(input: {
     assistantPreset?: TavernAssistantPreset;
     sessionContract: TavernSessionContract;
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
-    onManagerRunSaved?: (sessionId: string, managerRunId: string) => void | Promise<void>;
+    onManagerRunSaved?: (
+        sessionId: string,
+        managerRunId: string,
+        domainChange?: TavernAcceptedTurnDomainChange,
+    ) => void | Promise<void>;
 }): void {
     scheduleQueuedAcceptedTurnManager(input);
 }

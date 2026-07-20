@@ -2,6 +2,7 @@ import { normalizeAgentConfig } from '../../../agent-core/config.js';
 import { resolveActiveProviderConfig } from '../../../agent-core/provider-config.js';
 
 export type XbTavernProviderRole = 'main' | 'delegate';
+export const TAVERN_DELEGATE_REQUIRED_MESSAGE = '请先配置分身模型。';
 
 export interface XbTavernProviderResolveOptions {
     role?: XbTavernProviderRole;
@@ -67,7 +68,7 @@ export function resolveXbTavernProviderConfig(
             readiness: {
                 ok: false,
                 missing: ['分身模型'],
-                message: '请先在 API 配置里配置分身模型。',
+                message: TAVERN_DELEGATE_REQUIRED_MESSAGE,
             },
         };
     }

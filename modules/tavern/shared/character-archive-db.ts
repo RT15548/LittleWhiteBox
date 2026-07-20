@@ -47,6 +47,18 @@ import {
     type TavernCharacterArchiveTable,
 } from './character-archive-types';
 import { assertTavernManagerSnapshotStable } from './manager-snapshot-integrity';
+import {
+    TAVERN_PLAYER_ACCOUNT_ID,
+    type TavernEconomyAccountRecord,
+    type TavernEconomyTransactionRecord,
+} from './economy/economy-types';
+import {
+    TAVERN_TASK_CURRENT_MARKER,
+    normalizeTavernTaskVersionRecord,
+    type TavernTaskBoardRecord,
+    type TavernTaskParty,
+    type TavernTaskVersionRecord,
+} from './tasks/task-types';
 
 const RESTORE_TEMP_CHARACTER_PREFIX = '__lwb_restore__';
 const RESTORE_BATCH_SIZE = 500;
@@ -220,6 +232,103 @@ async function captureCharacterArchiveSession(sessionId = ''): Promise<CapturedC
     );
 }
 
+function taskPartyAccountId(party: TavernTaskParty | undefined): string {
+    if (!party) {return '';}
+    return party.kind === 'player' ? TAVERN_PLAYER_ACCOUNT_ID : `counterparty:${party.id}`;
+}
+
+function assertTaskEconomyArchiveStable(input: {
+    session: TavernSessionRecord;
+    board: TavernTaskBoardRecord | null;
+    versions: TavernTaskVersionRecord[];
+    accounts: TavernEconomyAccountRecord[];
+    transactions: TavernEconomyTransactionRecord[];
+}): void {
+    const sessionId = input.session.id;
+    const sessionEpoch = Number(input.session.taskBoardEpoch);
+    if (!Number.isSafeInteger(sessionEpoch) || sessionEpoch < 1) {
+        throw new Error(`archive_task_board_epoch_invalid:${sessionId}`);
+    }
+    if (input.board && (input.board.sessionId !== sessionId || input.board.epoch !== sessionEpoch)) {
+        throw new Error(`archive_task_board_epoch_mismatch:${sessionId}`);
+    }
+    const accounts = new Map(input.accounts.map((account) => [account.id, account]));
+    for (const account of input.accounts) {
+        if (account.sessionId !== sessionId) {throw new Error(`archive_economy_session_mismatch:${sessionId}`);}
+    }
+    for (const transaction of input.transactions) {
+        if (transaction.sessionId !== sessionId) {throw new Error(`archive_economy_session_mismatch:${sessionId}`);}
+        if (!accounts.has(transaction.fromAccountId) || !accounts.has(transaction.toAccountId)) {
+            throw new Error(`archive_economy_account_missing:${sessionId}:${transaction.id}`);
+        }
+    }
+    const taskTransactions = input.transactions.filter((transaction) => transaction.sourceDomain === 'tasks');
+    const versionsByTask = new Map<string, TavernTaskVersionRecord[]>();
+    const versionIds = new Set<string>();
+    for (const rawVersion of input.versions) {
+        const version = normalizeTavernTaskVersionRecord(rawVersion);
+        if (version.sessionId !== sessionId) {throw new Error(`archive_task_session_mismatch:${sessionId}`);}
+        if (versionIds.has(version.versionId)) {throw new Error(`archive_task_version_id_duplicate:${version.versionId}`);}
+        versionIds.add(version.versionId);
+        const rows = versionsByTask.get(version.taskId) || [];
+        rows.push(version);
+        versionsByTask.set(version.taskId, rows);
+    }
+    const knownTaskIds = new Set(versionsByTask.keys());
+    if (taskTransactions.some((transaction) => !knownTaskIds.has(transaction.sourceId))) {
+        throw new Error(`archive_task_transaction_orphan:${sessionId}`);
+    }
+    for (const [taskId, rows] of versionsByTask) {
+        rows.sort((left, right) => left.revision - right.revision);
+        if (rows.some((row, index) => row.taskId !== taskId || row.revision !== index + 1)) {
+            throw new Error(`archive_task_version_chain_invalid:${taskId}`);
+        }
+        const currentRows = rows.filter((row) => row.currentMarker === TAVERN_TASK_CURRENT_MARKER);
+        const current = rows.at(-1)!;
+        if (currentRows.length !== 1 || currentRows[0].versionId !== current.versionId) {
+            throw new Error(`archive_task_current_marker_invalid:${taskId}`);
+        }
+        if (rows.some((row) => row.escrowAccountId !== current.escrowAccountId || row.reward !== current.reward)) {
+            throw new Error(`archive_task_immutable_fields_changed:${taskId}`);
+        }
+        const escrow = accounts.get(current.escrowAccountId);
+        if (!escrow || escrow.kind !== 'escrow') {throw new Error(`archive_task_escrow_missing:${taskId}`);}
+        const transactions = taskTransactions.filter((transaction) => transaction.sourceId === taskId);
+        const fundingRows = transactions.filter((transaction) => transaction.kind === 'task_escrow');
+        if (fundingRows.length !== 1) {throw new Error(`archive_task_funding_invalid:${taskId}`);}
+        const funding = fundingRows[0];
+        if (
+            funding.amount !== current.reward
+            || funding.toAccountId !== current.escrowAccountId
+            || funding.fromAccountId !== taskPartyAccountId(current.issuer)
+        ) {throw new Error(`archive_task_funding_invalid:${taskId}`);}
+        const settlements = transactions.filter((transaction) => transaction.kind === 'task_reward');
+        const refunds = transactions.filter((transaction) => transaction.kind === 'task_refund');
+        if (current.status === 'completed') {
+            if (
+                settlements.length !== 1
+                || refunds.length !== 0
+                || settlements[0].fromAccountId !== current.escrowAccountId
+                || settlements[0].toAccountId !== taskPartyAccountId(current.assignee)
+                || settlements[0].amount !== current.reward
+                || escrow.balance !== 0
+            ) {throw new Error(`archive_task_settlement_invalid:${taskId}`);}
+        } else if (current.status === 'failed' || current.status === 'cancelled') {
+            if (
+                refunds.length !== 1
+                || settlements.length !== 0
+                || refunds[0].fromAccountId !== current.escrowAccountId
+                || refunds[0].toAccountId !== taskPartyAccountId(current.issuer)
+                || refunds[0].amount !== current.reward
+                || refunds[0].reversalOfTransactionId !== funding.id
+                || escrow.balance !== 0
+            ) {throw new Error(`archive_task_refund_invalid:${taskId}`);}
+        } else if (settlements.length !== 0 || refunds.length !== 0 || escrow.balance !== current.reward) {
+            throw new Error(`archive_task_escrow_state_invalid:${taskId}`);
+        }
+    }
+}
+
 async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
     const key = normalizeCharacterKey(characterKey);
     await db.transaction(
@@ -229,16 +338,31 @@ async function assertCharacterArchiveStable(characterKey = ''): Promise<void> {
         tavernManagerMemorySnapshotsTable,
         tavernManagerStateSnapshotsTable,
         tavernStatePatchesTable,
+        tavernEconomyAccountsTable,
+        tavernEconomyTransactionsTable,
+        tavernTaskBoardsTable,
+        tavernTaskVersionsTable,
         async () => {
             const sessions = await tavernSessionsTable.where('characterKey').equals(key).toArray();
             for (const session of sessions) {
-                const [runs, memorySnapshots, stateSnapshots, statePatches] = await Promise.all([
+                const [runs, memorySnapshots, stateSnapshots, statePatches, accounts, transactions, board, versions] = await Promise.all([
                     tavernManagerRunsTable.where('sessionId').equals(session.id).toArray(),
                     tavernManagerMemorySnapshotsTable.where('sessionId').equals(session.id).toArray(),
                     tavernManagerStateSnapshotsTable.where('sessionId').equals(session.id).toArray(),
                     tavernStatePatchesTable.where('sessionId').equals(session.id).toArray(),
+                    tavernEconomyAccountsTable.where('sessionId').equals(session.id).toArray(),
+                    tavernEconomyTransactionsTable.where('sessionId').equals(session.id).toArray(),
+                    tavernTaskBoardsTable.get(session.id),
+                    tavernTaskVersionsTable.where('sessionId').equals(session.id).toArray(),
                 ]);
                 assertTavernManagerSnapshotStable({ runs, memorySnapshots, stateSnapshots, statePatches }, 'manager_archive_unaccepted_writes');
+                assertTaskEconomyArchiveStable({
+                    session,
+                    board: board || null,
+                    versions,
+                    accounts,
+                    transactions,
+                });
             }
         },
     );

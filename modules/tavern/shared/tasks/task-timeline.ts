@@ -111,12 +111,13 @@ async function restoreTavernTasksToFloorInCurrentDbTransaction(input: {
 }): Promise<TavernTaskRestoreImpact> {
     const sessionId = normalizeSessionId(input.sessionId);
     const targetFloor = normalizeTavernTaskAnchorOrder(input.targetFloor);
-    if (!await tavernSessionsTable.get(sessionId)) {throwTavernTaskError('task_session_missing', sessionId);}
-    const [board, allVersions, futureVersions] = await Promise.all([
+    const [session, board, allVersions, futureVersions] = await Promise.all([
+        tavernSessionsTable.get(sessionId),
         tavernTaskBoardsTable.get(sessionId),
         tavernTaskVersionsTable.where('sessionId').equals(sessionId).toArray(),
         listFutureVersions(sessionId, targetFloor),
     ]);
+    if (!session) {throwTavernTaskError('task_session_missing', sessionId);}
     const clearedBoard = !!board && board.anchorOrder > targetFloor;
     const affectedTaskIds = new Set(futureVersions.map((version) => version.taskId));
     if (futureVersions.length) {
@@ -136,9 +137,17 @@ async function restoreTavernTasksToFloorInCurrentDbTransaction(input: {
             }
         }
     }
-    if (clearedBoard) {await tavernTaskBoardsTable.delete(sessionId);}
+    const nextBoardEpoch = Math.max(1, Math.floor(Number(session.taskBoardEpoch) || 1)) + 1;
+    if (clearedBoard) {
+        await tavernTaskBoardsTable.delete(sessionId);
+    } else if (board) {
+        await tavernTaskBoardsTable.put({ ...board, epoch: nextBoardEpoch });
+    }
+    await tavernSessionsTable.update(sessionId, { taskBoardEpoch: nextBoardEpoch });
     const impact: TavernTaskRestoreImpact = {
-        changed: clearedBoard || futureVersions.length > 0,
+        // Advancing the epoch changes the task-domain CAS state even when there
+        // was no board row or task version to remove.
+        changed: true,
         targetFloor,
         deletedVersionCount: futureVersions.length,
         affectedTaskCount: affectedTaskIds.size,

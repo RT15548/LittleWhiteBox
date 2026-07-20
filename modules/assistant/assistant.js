@@ -263,6 +263,7 @@ function buildRuntimeConfig() {
         currentPresetName: settings.currentPresetName || DEFAULT_PRESET_NAME,
         delegatePresetName: settings.delegatePresetName || settings.currentPresetName || DEFAULT_PRESET_NAME,
         delegateConfig: settings.delegateConfig || {},
+        delegateConfigured: settings.delegateConfigured === true,
         presetNames: Object.keys(settings.presets || {}),
         presets: settings.presets || {},
         tavilyApiKey: settings.tavilyApiKey || '',

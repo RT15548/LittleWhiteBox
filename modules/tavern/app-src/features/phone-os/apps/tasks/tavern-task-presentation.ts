@@ -45,6 +45,10 @@ export function tavernTaskRewardLabel(reward: number): string {
     return Math.max(0, Math.floor(Number(reward) || 0)).toLocaleString('zh-CN');
 }
 
+export function tavernTaskGradeLabel(grade: TavernTaskGrade): string {
+    return grade === 'CUSTOM' ? '自定义' : grade;
+}
+
 export function tavernTaskTimestampLabel(timestamp: number): string {
     const value = Number(timestamp);
     if (!Number.isFinite(value) || value <= 0) {return '时间未知';}

@@ -109,6 +109,7 @@ onUnmounted(() => document.removeEventListener('keydown', handleDocumentKeydown)
         @close="phone.os.closePhone"
       >
         <TavernPhoneSystemBar
+          v-if="phone.os.presentationMode.value === 'desktop-device'"
           :is-home="phone.os.isHome.value"
           :wallet-balance="phone.wallet.balance.value"
           :wallet-loading="phone.wallet.balanceLoading.value"

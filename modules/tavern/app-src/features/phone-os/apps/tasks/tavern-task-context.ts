@@ -34,6 +34,7 @@ const TASK_ACTIVATION_PRESET: TavernChatPromptPresetBundle = {
     selected: true,
     sections: [],
 };
+const TASK_KNOWN_NAME_TERMINAL_LIMIT = 12;
 
 export interface TavernTaskPromptLayers {
     context: XbTavernContext;
@@ -70,7 +71,7 @@ export async function buildTavernTaskPromptLayers(input: {
         },
         history,
     };
-    const [stateMemory, memoryContext, statusState, memoryFiles, contacts, tasks, brain] = await Promise.all([
+    const [stateMemory, memoryContext, statusState, memoryFiles, contacts, liveTasks, terminalTasks, brain] = await Promise.all([
         getTavernMemoryFile(input.sessionId, 'memory/state.md'),
         retrieveXbTavernMemoryContext({
             sessionId: input.sessionId,
@@ -82,7 +83,11 @@ export async function buildTavernTaskPromptLayers(input: {
         getTavernStatusStateForSession(input.sessionId),
         listTavernMemoryFiles(input.sessionId),
         listTavernCommunicationContacts(input.sessionId),
-        listCurrentTavernTasks(input.sessionId),
+        listCurrentTavernTasks(input.sessionId, { statuses: ['active', 'recruiting'] }),
+        listCurrentTavernTasks(input.sessionId, {
+            statuses: ['completed', 'failed', 'cancelled'],
+            limit: TASK_KNOWN_NAME_TERMINAL_LIMIT,
+        }),
         buildXbTavernBrainAsync({
             context: contextForActivation,
             chatPreset: TASK_ACTIVATION_PRESET,
@@ -96,7 +101,7 @@ export async function buildTavernTaskPromptLayers(input: {
         contextForActivation.user?.name,
         contextForActivation.character?.name,
         ...contacts.map((contact) => contact.name),
-        ...tasks.flatMap((task) => [
+        ...[...liveTasks, ...terminalTasks].flatMap((task) => [
             task.issuer.kind === 'world' ? task.issuer.name : '',
             task.assignee?.kind === 'world' ? task.assignee.name : '',
         ]),

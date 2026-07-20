@@ -17,6 +17,7 @@ import {
     runXbTavernTurn,
     type TavernRunStatusLabel,
     type TavernBuildNativeChatPromptRuntime,
+    type TavernAcceptedTurnDomainChange,
     type TavernRunStreamSnapshot,
 } from '../../runtime/run-once';
 
@@ -72,6 +73,7 @@ export interface TavernChatRunControllerOptions {
     prepareAssistantMessageDisplay: (message: TavernMessageRecord) => Promise<void>;
     pruneLoadedSessionMessagesFromOrder: (sessionId?: string, fromOrder?: number) => number;
     refreshManagerRecords: (sessionId?: string) => Promise<unknown>;
+    onManagerDomainChange?: (sessionId: string, change: TavernAcceptedTurnDomainChange) => Promise<unknown>;
     refreshRuntimeChatPresetFromHost: () => Promise<TavernChatPromptPresetBundle>;
     refreshSessionRecord: (sessionId: string) => Promise<unknown>;
     preserveDetachedChatScroll: <T>(mutation: () => T) => T;
@@ -416,8 +418,11 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                     });
                     options.updateChatScrollButtons();
                 },
-                onManagerRunSaved: async (sessionId) => {
+                onManagerRunSaved: async (sessionId, _managerRunId, domainChange) => {
                     await options.refreshManagerRecords(sessionId);
+                    if (domainChange && (domainChange.tasksChanged || domainChange.economyChanged)) {
+                        await options.onManagerDomainChange?.(sessionId, domainChange);
+                    }
                 },
             });
             options.setSelectedSessionId(result.sessionId);

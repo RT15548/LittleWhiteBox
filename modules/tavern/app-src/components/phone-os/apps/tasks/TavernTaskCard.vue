@@ -3,6 +3,7 @@ import type { TavernTaskVersionRecord } from '../../../../../shared/tasks/task-t
 import {
     tavernTaskCounterparty,
     tavernTaskDirectionLabel,
+    tavernTaskGradeLabel,
     tavernTaskRewardLabel,
     tavernTaskStatusLabel,
     tavernTaskStatusTone,
@@ -30,9 +31,13 @@ const emit = defineEmits<{
       <b :class="`is-${tavernTaskStatusTone(task.status)}`">{{ tavernTaskStatusLabel(task.status) }}</b>
     </span>
     <strong>{{ task.title }}</strong>
-    <p>{{ task.progressSummary || task.resultSummary || task.objective }}</p>
+    <p>
+      {{ ['completed', 'failed', 'cancelled'].includes(task.status)
+        ? (task.resultSummary || task.progressSummary || task.objective)
+        : (task.progressSummary || task.resultSummary || task.objective) }}
+    </p>
     <span class="tavern-task-card-foot">
-      <small>{{ task.grade }} · {{ tavernTaskCounterparty(task) }}</small>
+      <small>{{ tavernTaskGradeLabel(task.grade) }} · {{ tavernTaskCounterparty(task) }}</small>
       <span>
         <b>{{ tavernTaskRewardLabel(task.reward) }}</b>
         <i>◈</i>

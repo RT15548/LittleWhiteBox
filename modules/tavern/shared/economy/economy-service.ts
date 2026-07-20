@@ -327,7 +327,7 @@ async function ensureEconomyInCurrentDbTransaction(sessionId: string): Promise<T
         amount: TAVERN_ECONOMY_OPENING_GRANT,
         kind: 'opening_grant',
         title: '首次开户',
-        note: '当前会话的初始小白币',
+        note: '启程时收到的初始小白币',
         sourceDomain: 'economy',
         sourceId: 'opening-grant',
         anchorOrder: -1,

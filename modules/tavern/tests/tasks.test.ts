@@ -4,31 +4,37 @@ import assert from 'node:assert/strict';
 import Dexie from '../../../libs/dexie.mjs';
 
 import db, {
+    appendTavernMessage,
     branchTavernSession,
     createTavernSession,
     deleteTavernSession,
+    getLatestTavernMessage,
+    deleteTavernMessages,
+    updateTavernMessage,
     tavernEconomyAccountsTable,
     tavernEconomyTransactionsTable,
     tavernSessionsTable,
     tavernTaskBoardsTable,
     tavernTaskVersionsTable,
 } from '../shared/session-db';
-import { replaceTavernTaskBoard } from '../shared/tasks/task-board';
+import { replaceTavernTaskBoard as replaceTavernTaskBoardRaw } from '../shared/tasks/task-board';
 import {
-    acceptTavernTaskListing,
+    acceptTavernTaskListing as acceptTavernTaskListingRaw,
     applyTavernTaskStagedAction,
-    cancelTavernTask,
+    cancelTavernTask as cancelTavernTaskRaw,
     commitTavernTaskStagingContext,
-    completeTavernTask,
+    completeTavernTask as completeTavernTaskRaw,
     createTavernTaskStagingContext,
-    failTavernTask,
+    failTavernTask as failTavernTaskRaw,
     getCurrentTavernTask,
     getTavernTaskPlayerBalance,
-    progressTavernTask,
-    publishTavernTask,
-    selectTavernTaskCandidate,
-    updateTavernTaskCandidates,
+    loadTavernTaskAnchorSnapshot,
+    progressTavernTask as progressTavernTaskRaw,
+    publishTavernTask as publishTavernTaskRaw,
+    selectTavernTaskCandidate as selectTavernTaskCandidateRaw,
+    updateTavernTaskCandidates as updateTavernTaskCandidatesRaw,
 } from '../shared/tasks/task-service';
+import { captureTavernTaskPhoneBoundary } from '../shared/tasks/task-phone-boundary';
 import {
     describeTavernTasksAndEconomyRestoreImpact,
     restoreTavernTasksAndEconomyToFloor,
@@ -37,6 +43,7 @@ import {
     generateTavernTaskRecipe,
     parseTavernTaskBoardResponse,
     parseTavernTaskCandidatesResponse,
+    type TavernTaskExpectedPhoneBoundary,
     type TavernTaskListing,
 } from '../shared/tasks/task-types';
 import {
@@ -46,6 +53,118 @@ import {
     TAVERN_PLAYER_ACCOUNT_ID,
     TAVERN_SYSTEM_SINK_ACCOUNT_ID,
 } from '../shared/economy/economy-types';
+
+type TestPhoneBoundaryInput<T extends { boundary: TavernTaskExpectedPhoneBoundary }> = Omit<T, 'boundary'> & {
+    anchorOrder?: number;
+    boundary?: TavernTaskExpectedPhoneBoundary;
+};
+
+async function phoneBoundaryForTest(input: {
+    sessionId: string;
+    anchorOrder?: number;
+    boundary?: TavernTaskExpectedPhoneBoundary;
+}): Promise<TavernTaskExpectedPhoneBoundary> {
+    if (Object.prototype.hasOwnProperty.call(input, 'boundary')) {return input.boundary ?? null;}
+    const desiredAnchor = Math.max(0, Math.floor(Number(input.anchorOrder) || 0));
+    let latest = await getLatestTavernMessage(input.sessionId);
+    while (Number(latest?.order ?? -1) + 1 < desiredAnchor) {
+        const nextOrder = Number(latest?.order ?? -1) + 1;
+        latest = await appendTavernMessage(input.sessionId, {
+            role: nextOrder % 2 === 0 ? 'user' : 'assistant',
+            content: `任务测试剧情 ${nextOrder}`,
+        });
+    }
+    if (Number(latest?.order ?? -1) + 1 !== desiredAnchor) {
+        throw new Error(`test_phone_boundary_regression:${desiredAnchor}`);
+    }
+    return await captureTavernTaskPhoneBoundary(input.sessionId);
+}
+
+type OptionalEpochBoardInput = Omit<
+    TestPhoneBoundaryInput<Parameters<typeof replaceTavernTaskBoardRaw>[0]>,
+    'expectedEpoch'
+> & {
+    expectedEpoch?: number;
+};
+
+async function replaceTavernTaskBoard(input: OptionalEpochBoardInput) {
+    const session = await tavernSessionsTable.get(input.sessionId);
+    const { anchorOrder: _anchorOrder, boundary: _boundary, ...rest } = input;
+    return await replaceTavernTaskBoardRaw({
+        ...rest,
+        boundary: await phoneBoundaryForTest(input),
+        expectedEpoch: input.expectedEpoch ?? Math.max(1, Number(session?.taskBoardEpoch) || 1),
+    });
+}
+
+type OptionalBoardEpochAcceptInput = Omit<
+    TestPhoneBoundaryInput<Parameters<typeof acceptTavernTaskListingRaw>[0]>,
+    'boardEpoch'
+> & {
+    boardEpoch?: number;
+};
+
+async function acceptTavernTaskListing(input: OptionalBoardEpochAcceptInput) {
+    const board = await tavernTaskBoardsTable.get(input.sessionId);
+    const { anchorOrder: _anchorOrder, boundary: _boundary, ...rest } = input;
+    return await acceptTavernTaskListingRaw({
+        ...rest,
+        boundary: await phoneBoundaryForTest(input),
+        boardEpoch: input.boardEpoch ?? Number(board?.epoch),
+    });
+}
+
+type OptionalVersionId<T extends { expectedVersionId: string }> = Omit<T, 'expectedVersionId'> & {
+    expectedVersionId?: string;
+};
+
+async function withCurrentVersionId<T extends { sessionId: string; taskId: string; expectedVersionId?: string }>(input: T) {
+    const current = await getCurrentTavernTask(input.sessionId, input.taskId);
+    return { ...input, expectedVersionId: input.expectedVersionId ?? current?.versionId ?? '' };
+}
+
+async function updateTavernTaskCandidates(
+    input: TestPhoneBoundaryInput<OptionalVersionId<Parameters<typeof updateTavernTaskCandidatesRaw>[0]>>,
+) {
+    const withVersion = await withCurrentVersionId(input);
+    const { anchorOrder: _anchorOrder, boundary: _boundary, ...rest } = withVersion;
+    return await updateTavernTaskCandidatesRaw({ ...rest, boundary: await phoneBoundaryForTest(input) });
+}
+
+async function selectTavernTaskCandidate(
+    input: TestPhoneBoundaryInput<OptionalVersionId<Parameters<typeof selectTavernTaskCandidateRaw>[0]>>,
+) {
+    const withVersion = await withCurrentVersionId(input);
+    const { anchorOrder: _anchorOrder, boundary: _boundary, ...rest } = withVersion;
+    return await selectTavernTaskCandidateRaw({ ...rest, boundary: await phoneBoundaryForTest(input) });
+}
+
+async function cancelTavernTask(
+    input: TestPhoneBoundaryInput<OptionalVersionId<Parameters<typeof cancelTavernTaskRaw>[0]>>,
+) {
+    const withVersion = await withCurrentVersionId(input);
+    const { anchorOrder: _anchorOrder, boundary: _boundary, ...rest } = withVersion;
+    return await cancelTavernTaskRaw({ ...rest, boundary: await phoneBoundaryForTest(input) });
+}
+
+async function publishTavernTask(
+    input: TestPhoneBoundaryInput<Parameters<typeof publishTavernTaskRaw>[0]>,
+) {
+    const { anchorOrder: _anchorOrder, boundary: _boundary, ...rest } = input;
+    return await publishTavernTaskRaw({ ...rest, boundary: await phoneBoundaryForTest(input) });
+}
+
+async function progressTavernTask(input: OptionalVersionId<Parameters<typeof progressTavernTaskRaw>[0]>) {
+    return await progressTavernTaskRaw(await withCurrentVersionId(input));
+}
+
+async function completeTavernTask(input: OptionalVersionId<Parameters<typeof completeTavernTaskRaw>[0]>) {
+    return await completeTavernTaskRaw(await withCurrentVersionId(input));
+}
+
+async function failTavernTask(input: OptionalVersionId<Parameters<typeof failTavernTaskRaw>[0]>) {
+    return await failTavernTaskRaw(await withCurrentVersionId(input));
+}
 
 function boardListings(): TavernTaskListing[] {
     const rows = [
@@ -155,7 +274,7 @@ test('task board and candidate response protocols enforce their stable boundarie
     ]);
 });
 
-test('database v19 adds empty current task storage to a v18 database', async () => {
+test('database upgrade creates current task storage and clears pre-v20 economy data', async () => {
     await db.delete();
     const legacyDb = new Dexie('LittleWhiteBox_Tavern');
     const legacyRuntime = legacyDb as unknown as {
@@ -208,8 +327,70 @@ test('database v19 adds empty current task storage to a v18 database', async () 
     assert.equal(names.has('taskVersions'), true);
     assert.equal((await (tavernTaskBoardsTable as unknown as { toArray(): Promise<unknown[]> }).toArray()).length, 0);
     assert.equal((await (tavernTaskVersionsTable as unknown as { toArray(): Promise<unknown[]> }).toArray()).length, 0);
-    assert.equal((await tavernEconomyAccountsTable.get(['v18-task-session', TAVERN_PLAYER_ACCOUNT_ID]))?.balance, 42);
+    assert.equal((await tavernSessionsTable.get('v18-task-session'))?.taskBoardEpoch, 1);
+    assert.equal(await tavernEconomyAccountsTable.get(['v18-task-session', TAVERN_PLAYER_ACCOUNT_ID]), undefined);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('v18-task-session').count(), 0);
+    assert.equal(await getTavernTaskPlayerBalance('v18-task-session'), 100);
     assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('v18-task-session').count(), 1);
+});
+
+test('database v20 hard-cuts v19 task and economy data at the upgrade boundary', async () => {
+    await db.delete();
+    const legacyDb = new Dexie('LittleWhiteBox_Tavern');
+    const legacyRuntime = legacyDb as unknown as {
+        table(name: string): { put(record: Record<string, unknown>): Promise<unknown> };
+        close(): void;
+    };
+    legacyDb.version(19).stores({
+        sessions: 'id, updatedAt',
+        taskBoards: 'sessionId, generationId, revision, anchorOrder, generatedAt',
+        taskVersions: '[sessionId+taskId+revision], sessionId, taskId, revision, &[sessionId+actionId], &[sessionId+taskId+currentMarker], [sessionId+currentMarker], [sessionId+status+currentMarker], [sessionId+anchorOrder], [sessionId+sourceBoardId+sourceListingId], updatedAt',
+    });
+    await legacyDb.open();
+    await legacyRuntime.table('sessions').put({
+        id: 'v19-task-session',
+        title: 'v19 session',
+        createdAt: 1,
+        updatedAt: 1,
+    });
+    await legacyRuntime.table('taskBoards').put({
+        sessionId: 'v19-task-session',
+        generationId: 'v19-board',
+        revision: 1,
+        anchorOrder: 0,
+        listings: boardListings(),
+        generatedAt: 1,
+    });
+    await legacyRuntime.table('taskVersions').put({
+        sessionId: 'v19-task-session',
+        taskId: 'v19-task',
+        revision: 1,
+        currentMarker: 'current',
+        actionId: 'v19-action',
+        status: 'active',
+        title: '旧任务',
+        objective: '验证一次性升级边界',
+        issuer: { id: 'issuer', kind: 'npc', name: '委托人' },
+        assignee: { id: 'player', kind: 'player', name: '玩家' },
+        candidates: [],
+        reward: 10,
+        escrowAccountId: 'escrow:task:v19-task',
+        anchorOrder: 0,
+        createdAt: 1,
+        updatedAt: 1,
+    });
+    legacyRuntime.close();
+
+    await db.open();
+    const migratedSession = await tavernSessionsTable.get('v19-task-session');
+    const migratedBoard = await tavernTaskBoardsTable.get('v19-task-session');
+    const migratedVersion = await tavernTaskVersionsTable.get(['v19-task-session', 'v19-task', 1]);
+    assert.equal(migratedSession?.taskBoardEpoch, 1);
+    assert.equal(migratedBoard, undefined);
+    assert.equal(migratedVersion, undefined);
+    assert.equal(await tavernEconomyAccountsTable.where('sessionId').equals('v19-task-session').count(), 0);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals('v19-task-session').count(), 0);
+    assert.equal(await getTavernTaskPlayerBalance('v19-task-session'), 100);
 });
 
 test('task board replacement is strict and CAS-protected', async () => {
@@ -239,6 +420,122 @@ test('task board replacement is strict and CAS-protected', async () => {
         listings: boardListings().slice(0, 5),
     }), /task_board_payload_invalid/);
     assert.equal((await tavernTaskBoardsTable.get(session.id))?.generationId, 'board-one');
+});
+
+test('task board epoch rejects a stale refresh after rollback recreates the same revision', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Task board ABA' });
+    const first = await replaceTavernTaskBoard({
+        sessionId: session.id,
+        expectedRevision: 0,
+        anchorOrder: 2,
+        generationId: 'board-before-rollback',
+        listings: boardListings(),
+    });
+    const staleBoundary = await captureTavernTaskPhoneBoundary(session.id);
+    await restoreTavernTasksAndEconomyToFloor(session.id, 1);
+    const epochAfterRollback = Number((await tavernSessionsTable.get(session.id))?.taskBoardEpoch);
+    const replacement = await replaceTavernTaskBoard({
+        sessionId: session.id,
+        expectedRevision: 0,
+        expectedEpoch: epochAfterRollback,
+        anchorOrder: 2,
+        generationId: 'board-after-rollback',
+        listings: boardListings().map((listing) => ({ ...listing, title: `${listing.title} 新` })),
+    });
+    assert.equal(replacement.revision, first.revision);
+    assert.notEqual(replacement.epoch, first.epoch);
+
+    await assert.rejects(replaceTavernTaskBoardRaw({
+        sessionId: session.id,
+        expectedRevision: first.revision,
+        expectedEpoch: first.epoch,
+        boundary: staleBoundary,
+        generationId: 'late-old-refresh',
+        listings: boardListings(),
+    }), /task_board_epoch_conflict/);
+    assert.equal((await tavernTaskBoardsTable.get(session.id))?.generationId, replacement.generationId);
+});
+
+test('an empty task board rollback still advances its epoch and rejects a stale rev0 refresh', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Empty task board rollback' });
+    const staleBoundary = await captureTavernTaskPhoneBoundary(session.id);
+    const epochBeforeRollback = Number((await tavernSessionsTable.get(session.id))?.taskBoardEpoch);
+
+    const restored = await restoreTavernTasksAndEconomyToFloor(session.id, 0);
+    assert.equal(restored.tasks.clearedBoard, false);
+    const epochAfterRollback = Number((await tavernSessionsTable.get(session.id))?.taskBoardEpoch);
+    assert.equal(epochAfterRollback, epochBeforeRollback + 1);
+
+    await assert.rejects(replaceTavernTaskBoardRaw({
+        sessionId: session.id,
+        expectedRevision: 0,
+        expectedEpoch: epochBeforeRollback,
+        boundary: staleBoundary,
+        generationId: 'stale-empty-board-refresh',
+        listings: boardListings(),
+    }), /task_board_epoch_conflict/);
+    assert.equal(await tavernTaskBoardsTable.get(session.id), undefined);
+});
+
+test('a stale board refresh is rejected when the latest message keeps its floor but changes identity', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Board message identity ABA' });
+    const original = await appendTavernMessage(session.id, { role: 'user', content: '原始剧情边界' });
+    const staleBoundary = await captureTavernTaskPhoneBoundary(session.id);
+    await deleteTavernMessages(session.id, [original.order]);
+    const replacement = await appendTavernMessage(session.id, { role: 'user', content: '替换后的剧情边界' });
+    assert.equal(replacement.order, original.order);
+    assert.equal(replacement.timelineRevision, original.timelineRevision);
+    assert.notEqual(replacement.messageId, original.messageId);
+
+    await assert.rejects(replaceTavernTaskBoardRaw({
+        sessionId: session.id,
+        expectedRevision: 0,
+        expectedEpoch: 1,
+        boundary: staleBoundary,
+        generationId: 'stale-message-identity-board',
+        listings: boardListings(),
+    }), /task_timeline_conflict/);
+    assert.equal(await tavernTaskBoardsTable.get(session.id), undefined);
+});
+
+test('a stale publish after the latest message revision changes leaves task and wallet facts untouched', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Publish message revision CAS' });
+    assert.equal(await getTavernTaskPlayerBalance(session.id), 100);
+    const source = await appendTavernMessage(session.id, { role: 'user', content: '发布前剧情' });
+    const staleBoundary = await captureTavernTaskPhoneBoundary(session.id);
+    const revised = await updateTavernMessage(
+        session.id,
+        source.order,
+        { content: '发布前剧情（修订）' },
+        { incrementTimelineRevision: true },
+    );
+    assert.equal(revised?.messageId, source.messageId);
+    assert.equal(revised?.timelineRevision, source.timelineRevision + 1);
+    const versionCountBefore = await tavernTaskVersionsTable.where('sessionId').equals(session.id).count();
+    const transactionCountBefore = await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count();
+    const balanceBefore = await getTavernTaskPlayerBalance(session.id);
+
+    await assert.rejects(publishTavernTask({
+        sessionId: session.id,
+        taskId: 'stale-publish-task',
+        actionId: 'stale-publish-after-message-revision',
+        title: '迟到发布',
+        objective: '不能越过剧情修订冻结钱包。',
+        location: '测试区',
+        reward: 20,
+        boundary: staleBoundary,
+    }), /task_timeline_conflict/);
+    assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), versionCountBefore);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), transactionCountBefore);
+    assert.equal(await getTavernTaskPlayerBalance(session.id), balanceBefore);
 });
 
 test('task records preserve session identifiers longer than the display id limit', async () => {
@@ -297,8 +594,122 @@ test('accepting a listing atomically locks world money without mutating the boar
     assert.equal((await tavernTaskBoardsTable.get(session.id))?.listings.length, 6);
     assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 1);
     assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), 2);
-    await assert.rejects(acceptTavernTaskListing({ ...input, anchorOrder: 2 }), /task_action_conflict/);
-    await assert.rejects(acceptTavernTaskListing({ ...input, actionId: 'second-action', taskId: 'second-task' }), /task_listing_already_accepted/);
+    const laterBoundary = await phoneBoundaryForTest({ sessionId: session.id, anchorOrder: 2 });
+    await assert.rejects(acceptTavernTaskListing({ ...input, boundary: laterBoundary }), /task_action_conflict/);
+    await assert.rejects(acceptTavernTaskListing({
+        ...input,
+        boundary: laterBoundary,
+        actionId: 'second-action',
+        taskId: 'second-task',
+    }), /task_listing_already_accepted/);
+});
+
+test('accepting before the board boundary fails without creating task or wallet facts', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Task board anchor guard' });
+    const board = await replaceTavernTaskBoard({
+        sessionId: session.id,
+        expectedRevision: 0,
+        anchorOrder: 2,
+        generationId: 'future-board',
+        listings: boardListings(),
+    });
+    const transactionCount = await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count();
+    await deleteTavernMessages(session.id, [1]);
+    const earlierBoundary = await captureTavernTaskPhoneBoundary(session.id);
+    await assert.rejects(acceptTavernTaskListingRaw({
+        sessionId: session.id,
+        boardId: board.generationId,
+        boardRevision: board.revision,
+        boardEpoch: board.epoch,
+        listingId: board.listings[0].id,
+        boundary: earlierBoundary,
+        actionId: 'accept-before-board',
+        taskId: 'task-before-board',
+    }), /task_anchor_order_regression/);
+    assert.equal(await tavernTaskVersionsTable.where('sessionId').equals(session.id).count(), 0);
+    assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), transactionCount);
+});
+
+test('phone boundary hides a task from the previous assistant floor and reveals it at the next floor', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Task phone boundary' });
+    const board = await replaceTavernTaskBoard({
+        sessionId: session.id,
+        expectedRevision: 0,
+        anchorOrder: 2,
+        generationId: 'phone-boundary-board',
+        listings: boardListings(),
+    });
+    const task = await acceptTavernTaskListing({
+        sessionId: session.id,
+        boardId: board.generationId,
+        boardRevision: board.revision,
+        listingId: board.listings[0].id,
+        anchorOrder: 2,
+        actionId: 'phone-boundary-accept',
+        taskId: 'phone-boundary-task',
+    });
+    const previousFloor = await loadTavernTaskAnchorSnapshot(session.id, { anchorOrder: 1 });
+    const nextFloor = await loadTavernTaskAnchorSnapshot(session.id, { anchorOrder: 2 });
+    assert.equal(previousFloor.tasks.some((row) => row.taskId === task.taskId), false);
+    assert.equal(nextFloor.tasks.some((row) => row.taskId === task.taskId), true);
+});
+
+test('task version id rejects a stale mutation after rollback rebuilds the same revision', async () => {
+    await db.delete();
+    await db.open();
+    const session = await createTavernSession({ title: 'Task revision ABA' });
+    const board = await replaceTavernTaskBoard({
+        sessionId: session.id,
+        expectedRevision: 0,
+        anchorOrder: 0,
+        generationId: 'task-revision-aba-board',
+        listings: boardListings(),
+    });
+    const accepted = await acceptTavernTaskListing({
+        sessionId: session.id,
+        boardId: board.generationId,
+        boardRevision: board.revision,
+        listingId: board.listings[0].id,
+        anchorOrder: 0,
+        actionId: 'accept-revision-aba',
+        taskId: 'task-revision-aba',
+    });
+    const oldRevisionTwo = await progressTavernTask({
+        sessionId: session.id,
+        taskId: accepted.taskId,
+        expectedRevision: accepted.revision,
+        progressSummary: '旧时间线的第二版',
+        anchorOrder: 1,
+        actionId: 'old-revision-two',
+    });
+    await restoreTavernTasksAndEconomyToFloor(session.id, 0);
+    const restored = await getCurrentTavernTask(session.id, accepted.taskId);
+    const rebuiltRevisionTwo = await progressTavernTaskRaw({
+        sessionId: session.id,
+        taskId: accepted.taskId,
+        expectedRevision: restored?.revision || 0,
+        expectedVersionId: restored?.versionId || '',
+        progressSummary: '新时间线的第二版',
+        anchorOrder: 1,
+        actionId: 'rebuilt-revision-two',
+    });
+    assert.equal(rebuiltRevisionTwo.revision, oldRevisionTwo.revision);
+    assert.notEqual(rebuiltRevisionTwo.versionId, oldRevisionTwo.versionId);
+
+    await assert.rejects(progressTavernTaskRaw({
+        sessionId: session.id,
+        taskId: accepted.taskId,
+        expectedRevision: oldRevisionTwo.revision,
+        expectedVersionId: oldRevisionTwo.versionId,
+        progressSummary: '迟到的旧响应',
+        anchorOrder: 2,
+        actionId: 'late-old-revision-two',
+    }), /task_version_conflict/);
+    assert.equal((await getCurrentTavernTask(session.id, accepted.taskId))?.versionId, rebuiltRevisionTwo.versionId);
 });
 
 test('player publishing, candidate CAS and settlement have no partial writes', async () => {
@@ -696,8 +1107,10 @@ test('delayed staged settlement keeps its evidence floor across newer wallet act
     assert.equal((await tavernSessionsTable.get(session.id))?.updatedAt, 1);
     assert.equal(await tavernEconomyTransactionsTable.where('sessionId').equals(session.id).count(), transactions.length);
 
+    const boardEpochBeforeRestore = Number((await tavernSessionsTable.get(session.id))?.taskBoardEpoch);
     const restored = await restoreTavernTasksAndEconomyToFloor(session.id, 2);
-    assert.equal(restored.tasks.changed, false);
+    assert.equal(restored.tasks.changed, true);
+    assert.ok(Number((await tavernSessionsTable.get(session.id))?.taskBoardEpoch) > boardEpochBeforeRestore);
     assert.equal(restored.economy.transactionCount, 1);
     assert.equal(await tavernEconomyTransactionsTable.get([session.id, laterSpend.id]), undefined);
     const retainedSettlement = settlement

@@ -24,7 +24,7 @@ const balanceLabel = computed(() => {
     />
     <div class="tavern-wallet-card-heading">
       <span class="tavern-wallet-card-seal">◈</span>
-      <span>当前会话</span>
+      <span>本段旅程</span>
     </div>
     <div class="tavern-wallet-card-balance">
       <strong :class="{ 'is-loading': loading }">{{ balanceLabel }}</strong>

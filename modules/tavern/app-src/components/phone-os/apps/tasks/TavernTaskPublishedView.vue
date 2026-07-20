@@ -13,7 +13,7 @@ const emit = defineEmits<{
   <section class="tavern-task-root-view">
     <div class="tavern-task-published-actions">
       <div>
-        <span>ISSUER CONSOLE</span>
+        <span>发布须知</span>
         <p>报酬会在发布时立即进入托管。</p>
       </div>
       <button

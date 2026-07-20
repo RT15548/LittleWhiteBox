@@ -61,6 +61,7 @@ import {
     TAVERN_SYSTEM_SINK_ACCOUNT_ID,
 } from '../shared/economy/economy-types';
 import { replaceTavernTaskBoard } from '../shared/tasks/task-board';
+import { captureTavernTaskPhoneBoundary } from '../shared/tasks/task-phone-boundary';
 import {
     publishTavernTask,
     updateTavernTaskCandidates,
@@ -101,6 +102,7 @@ async function spendArchiveWallet(sessionId: string, idempotencyKey: string, amo
 async function seedArchiveTasks(sessionId: string, prefix = 'archive') {
     const generationId = `${prefix}-board-1`;
     const taskId = `${prefix}-published-task`;
+    const boundary = await captureTavernTaskPhoneBoundary(sessionId);
     const listingBlueprints = [
         ['E', 10, '替钟表匠送一枚停摆齿轮'],
         ['D', 30, '查清夜班渡船少掉的一名乘客'],
@@ -113,7 +115,8 @@ async function seedArchiveTasks(sessionId: string, prefix = 'archive') {
         sessionId,
         generationId,
         expectedRevision: 0,
-        anchorOrder: 23,
+        expectedEpoch: 1,
+        boundary,
         listings: listingBlueprints.map(([grade, reward, title], index) => ({
             id: `${prefix}-listing-${index + 1}`,
             grade,
@@ -144,19 +147,20 @@ async function seedArchiveTasks(sessionId: string, prefix = 'archive') {
         reward: 60,
         grade: 'CUSTOM',
         tags: ['公开招募', '向导'],
-        anchorOrder: 23,
+        boundary,
     });
     await updateTavernTaskCandidates({
         sessionId,
         taskId,
         expectedRevision: published.revision,
+        expectedVersionId: published.versionId,
         actionId: `${prefix}-candidate-action`,
         candidates: [
             { id: `${prefix}-candidate-1`, name: '弥娅', description: '被协会除名的前遗物鉴定师', pitch: '她声称不需要进入目标建筑。', capability: '远程鉴定与伪造手续', risk: '拒绝解释自己为何认识保管人' },
             { id: `${prefix}-candidate-2`, name: '壳匠', description: '以替身机关代替本人行动的工匠', pitch: '愿意先交一具试作替身。', capability: '机关侦察与危险路径试探', risk: '替身偶尔会隐瞒见闻' },
             { id: `${prefix}-candidate-3`, name: '无灯修女', description: '从不携带光源的地下引路人', pitch: '她熟悉镜廊关闭后的第二条路。', capability: '黑暗环境导航与异常规避', risk: '要求带走途中发现的一件无名遗物' },
         ],
-        anchorOrder: 24,
+        boundary,
     });
 }
 
@@ -494,6 +498,7 @@ test('tavern character archive JSONL parser yields bounded batches', () => {
             characterName: 'Aster',
             createdAt: index,
             updatedAt: index,
+            taskBoardEpoch: 1,
         },
     }));
     const raw = textToBytes(rows.map((row) => JSON.stringify(row)).join('\n'));
@@ -653,15 +658,37 @@ test('tavern character archive restore replaces only the current character and r
     assert.equal(result.selectedSessionId, restoredA2);
 });
 
-test('tavern character archive accepts only the current v4 protocol', async () => {
+test('tavern character archive accepts only the current v5 protocol', async () => {
     await seedArchiveSource();
     const { manifest, records } = await buildArchive('char-a', 500);
-    const retiredV3Manifest = {
+    const retiredV4Manifest = {
         ...manifest,
-        version: 3,
+        version: 4,
     } as unknown as TavernCharacterArchiveManifest;
 
-    await assert.rejects(restoreFromRecords(retiredV3Manifest, records), /archive_version_unsupported:3/);
+    await assert.rejects(restoreFromRecords(retiredV4Manifest, records), /archive_version_unsupported:4/);
+});
+
+test('tavern character archive rejects broken task funding before promotion', async () => {
+    await seedArchiveSource();
+    const { manifest, records } = await buildArchive('char-a', 500);
+    const brokenRecords = records.map((row) => {
+        if (row.table !== 'economyTransactions' || String((row.record as { kind?: string }).kind || '') !== 'task_escrow') {
+            return row;
+        }
+        return {
+            ...row,
+            record: {
+                ...row.record,
+                amount: Number((row.record as { amount?: number }).amount) + 1,
+            },
+        } as TavernCharacterArchiveRecord;
+    });
+    await db.delete();
+    await db.open();
+
+    await assert.rejects(restoreFromRecords(manifest, brokenRecords), /archive_task_funding_invalid/);
+    assert.equal((await listTavernSessions()).length, 0);
 });
 
 test('tavern character archive rejects live manager records instead of restoring partial writes', async () => {

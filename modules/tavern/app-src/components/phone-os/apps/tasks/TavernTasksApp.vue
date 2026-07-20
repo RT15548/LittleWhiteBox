@@ -69,8 +69,8 @@ const dialogTitle = computed(() => {
     return '撤回这份委托？';
 });
 const dialogMessage = computed(() => {
-    if (dialog.value?.kind === 'accept') {return '接取会创建一份正式任务，候选票据本身不会直接进入剧情。';}
-    if (dialog.value?.kind === 'publish') {return '确认后任务进入招募中，报酬会从钱包转入独立托管账户。';}
+    if (dialog.value?.kind === 'accept') {return '接取后，这份委托会进入你的进行中任务。';}
+    if (dialog.value?.kind === 'publish') {return '确认后任务进入招募中，报酬会由钱包托管，直到任务结算或撤回。';}
     if (dialog.value?.kind === 'select') {return '选定后任务立刻进入进行中，不能再撤回取回托管报酬。';}
     return '只有尚未选定执行人的任务可以撤回，全部托管报酬会退回钱包。';
 });
@@ -184,7 +184,7 @@ watch(dialog, (current) => {
     >
       <header class="tavern-tasks-head">
         <div>
-          <span>PRIVATE COMMISSION RELAY</span>
+          <span>私人委托</span>
           <h2>委托终端</h2>
         </div>
         <i aria-hidden="true"><b /><b /><b /></i>
@@ -238,7 +238,11 @@ watch(dialog, (current) => {
         <TavernTaskHistoryView
           v-else
           :tasks="phone.tasks.historyTasks.value"
+          :loading-more="phone.tasks.historyLoadingMore.value"
+          :has-more="phone.tasks.historyHasMore.value"
+          :error="phone.tasks.historyError.value"
           @open="openTask"
+          @load-more="phone.tasks.loadMoreHistory"
         />
       </KeepAlive>
     </section>
@@ -273,6 +277,9 @@ watch(dialog, (current) => {
       v-else-if="taskId"
       key="task-formal-detail"
       :task="phone.tasks.selectedTask.value"
+      :detail-loading="phone.tasks.detailLoading.value"
+      :detail-error="phone.tasks.detailError.value"
+      :detail-resolved="phone.tasks.detailResolved.value"
       :timeline="phone.tasks.taskTimeline.value"
       :timeline-loading="phone.tasks.timelineLoading.value"
       :timeline-loading-more="phone.tasks.timelineLoadingMore.value"
