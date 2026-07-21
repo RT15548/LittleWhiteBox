@@ -14,6 +14,11 @@ type TavernStateWriteResource =
     | { kind: 'state'; key: string }
     | { kind: 'state-domain'; key: 'structured-state' };
 
+export interface TavernAcceptedStateToolWrite {
+    changedFiles: string[];
+    changedStates: string[];
+}
+
 function stableJson(value: unknown): string {
     if (Array.isArray(value)) {return `[${value.map(stableJson).join(',')}]`;}
     if (value && typeof value === 'object') {
@@ -80,6 +85,21 @@ function resolveToolResources(toolName = '', args: Record<string, unknown> = {})
         return [{ kind: 'state', key: normalizeStateKey(TAVERN_STATUS_DOC_TYPE, TAVERN_STATUS_DOC_ID) }];
     }
     return [];
+}
+
+export function resolveTavernAcceptedStateToolWrite(
+    toolName = '',
+    args: Record<string, unknown> = {},
+): TavernAcceptedStateToolWrite {
+    const resources = resolveToolResources(toolName, args);
+    return {
+        changedFiles: resources
+            .filter((resource): resource is Extract<TavernStateWriteResource, { kind: 'memory' }> => resource.kind === 'memory')
+            .map((resource) => resource.path),
+        changedStates: resources
+            .filter((resource): resource is Extract<TavernStateWriteResource, { kind: 'state' }> => resource.kind === 'state')
+            .map((resource) => resource.key),
+    };
 }
 
 export interface TavernStateWriteCasTracker {

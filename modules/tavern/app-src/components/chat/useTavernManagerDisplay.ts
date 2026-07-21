@@ -8,6 +8,7 @@ interface TavernManagerDisplayOptions {
 }
 
 export interface TavernManagerToolTraceDisplayItem {
+    displayKey: string;
     id: string;
     round: number;
     name: string;
@@ -239,8 +240,10 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
                 const thoughtsKey = `${round}\n${JSON.stringify(rawThoughts)}`;
                 const thoughts = rawThoughts.length && !seenThoughts.has(thoughtsKey) ? rawThoughts : [];
                 if (rawThoughts.length) {seenThoughts.add(thoughtsKey);}
+                const id = String(record.id || '');
                 return {
-                    id: String(record.id || `${name}-${index}`),
+                    displayKey: String(record.displayKey || `manager-tool:${round}:${index + 1}:${id || 'missing-id'}`),
+                    id,
                     round,
                     name,
                     status,

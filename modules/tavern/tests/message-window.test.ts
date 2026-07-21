@@ -107,7 +107,7 @@ test('tavern user turn compacts the loaded tail before reserving USER and AI slo
         describeSessionTitle() {return '';},
         invalidateMemoryFileRecordLoad() {},
         openCharacterSettingsWorkspace() {},
-        async refreshManagerRecords() {},
+        async hydrateSessionWorkspace() {},
         reportStartupProgress() {},
         resetChatMessageWindowState() {},
         resetSessionPreviewState() {},
@@ -177,7 +177,7 @@ test('tavern historical reroll rebases detached window totals to the retained ti
         describeSessionTitle() {return '';},
         invalidateMemoryFileRecordLoad() {},
         openCharacterSettingsWorkspace() {},
-        async refreshManagerRecords() {},
+        async hydrateSessionWorkspace() {},
         reportStartupProgress() {},
         resetChatMessageWindowState() {},
         resetSessionPreviewState() {},
@@ -221,7 +221,7 @@ test('tavern message loading clamps an offset invalidated by external tail delet
         describeSessionTitle() {return '';},
         invalidateMemoryFileRecordLoad() {},
         openCharacterSettingsWorkspace() {},
-        async refreshManagerRecords() {},
+        async hydrateSessionWorkspace() {},
         reportStartupProgress() {},
         resetChatMessageWindowState() {},
         resetSessionPreviewState() {},
@@ -299,6 +299,24 @@ test('tavern chat window stays bounded and slides in both directions', () => {
     pane.autoScroll.value = true;
     pane.revealNewerMessages(true);
     assert.equal(offsetFromEnd.value, 0);
+});
+
+test('assistant chat scroll keeps database pagination separate from RP message window state', () => {
+    const pane = useTavernScrollPane({
+        totalItems: () => 200,
+        managesMessageWindow: false,
+    });
+    pane.scrollRef.value = {
+        scrollTop: 0,
+        scrollHeight: 1000,
+        clientHeight: 300,
+    } as HTMLElement;
+    const initialLimit = pane.messageWindowLimit.value;
+
+    assert.equal(pane.revealOlderMessages(true), false);
+    assert.equal(pane.revealNewerMessages(true), false);
+    assert.equal(pane.collapseMessageWindowIfBottom(true), false);
+    assert.equal(pane.messageWindowLimit.value, initialLimit);
 });
 
 test('tavern message editing pins the current window until save or cancel', async () => {

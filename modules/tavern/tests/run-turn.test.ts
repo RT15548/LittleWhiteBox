@@ -2363,11 +2363,8 @@ test('xb tavern run turn does not block RP and completes its fixed pair after th
                 text: '已更新本轮记忆档案。',
             };
         },
-        onManagerRunSaved: async (sessionId, managerRunId) => {
-            const run = (await listTavernManagerRuns(sessionId)).find((item) => item.id === managerRunId);
-            if (run) {
-                managerRunStatuses.push(`${run.id}:${run.status}`);
-            }
+        onManagerRunSaved: async (_sessionId, run) => {
+            managerRunStatuses.push(`${run.id}:${run.status}`);
         },
     });
 

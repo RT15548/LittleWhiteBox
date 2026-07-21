@@ -339,7 +339,8 @@ LittleWhiteBox/
 │   │   ├── env.d.ts                        # Tavern 前端环境类型声明
 │   │   ├── app-src/                       # Tavern Vue 应用源码
 │   │   │   ├── App.vue                     # Tavern 主 Vue 单文件组件
-│   │   │   ├── manager-tool-display.ts     # manager 工具调用展示、流式工具草稿与轮次聚合
+│   │   │   ├── features/assistant-chat/    # 助手聊天的有界历史投影、懒加载详情与轻量 live 状态
+│   │   │   ├── features/manager/           # 自动 manager 的轻量运行同步
 │   │   │   ├── map-display.ts              # 地图/空间状态展示辅助
 │   │   │   ├── runtime/                   # Tavern manager / run-once / provider 等运行时接线
 │   │   │   ├── components/                # Tavern Vue 子组件

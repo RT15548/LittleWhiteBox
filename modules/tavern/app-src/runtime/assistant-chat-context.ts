@@ -2,7 +2,7 @@ import * as contextTokens from '../../../agent-core/runtime/context-tokens.js';
 import type { XbTavernContext, XbTavernMessage } from '../../shared/message-assembler';
 import type { TavernAssistantPreset } from '../../shared/assistant-presets';
 import {
-    ensureTavernMemoryDefaults,
+    ensureTavernMemoryDefaultsInitialized,
     getTavernManagerToolDefinitions,
     listTavernMemoryFiles,
 } from '../../shared/memory-files';
@@ -96,7 +96,7 @@ export async function buildAssistantChatMessages(input: {
     contextSnapshot?: XbTavernContext;
     history?: TavernAssistantChatMessageRecord[];
 }): Promise<XbTavernMessage[]> {
-    await ensureTavernMemoryDefaults(input.sessionId);
+    await ensureTavernMemoryDefaultsInitialized(input.sessionId);
     const [memoryFiles, history, tasks] = await Promise.all([
         listTavernMemoryFiles(input.sessionId, { includeStale: true }),
         Array.isArray(input.history) ? input.history : listTavernAssistantChatMessages(input.sessionId),

@@ -10,6 +10,7 @@ import {
 
 export interface TavernScrollPaneOptions {
     totalItems: () => number;
+    managesMessageWindow?: boolean;
     defaultLimit?: number | Ref<number>;
     loadBatchSize?: number | Ref<number>;
     maxWindowLimit?: number | Ref<number>;
@@ -59,6 +60,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     }
 
     function resetWindowState(force = false) {
+        if (options.managesMessageWindow === false) {return false;}
         if (!force && windowPinned()) {return false;}
         const state = { uiMessageWindowLimit: messageWindowLimit.value };
         resetMessageWindow(state, { defaultLimit: normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT) });
@@ -294,6 +296,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     }, { flush: 'post' });
 
     function revealOlderMessages(force = false) {
+        if (options.managesMessageWindow === false) {return false;}
         if (windowPinned()) {return false;}
         const node = scrollRef.value;
         if (!force && autoScroll.value !== false) {return false;}
@@ -327,6 +330,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     }
 
     function revealNewerMessages(force = false) {
+        if (options.managesMessageWindow === false) {return false;}
         if (windowPinned()) {return false;}
         const offsetRef = options.windowOffsetFromEnd;
         const offsetFromEnd = Math.max(0, Math.floor(Number(offsetRef?.value) || 0));
@@ -376,6 +380,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     }
 
     function collapseMessageWindowIfBottom(force = false) {
+        if (options.managesMessageWindow === false) {return false;}
         if (windowPinned()) {return false;}
         const defaultLimit = normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT);
         const offsetFromEnd = Math.max(0, Math.floor(Number(options.windowOffsetFromEnd?.value) || 0));
@@ -387,6 +392,7 @@ export function useTavernScrollPane(options: TavernScrollPaneOptions) {
     }
 
     watch(() => normalizeHiddenOutsideCount(unref(options.defaultLimit), AGENT_MESSAGE_WINDOW_DEFAULT), () => {
+        if (options.managesMessageWindow === false) {return;}
         if (autoScroll.value === false || windowPinned()) {return;}
         resetWindowState();
     });

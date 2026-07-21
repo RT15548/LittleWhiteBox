@@ -355,7 +355,7 @@ export interface TavernStructuredStatePatchRecord {
     docType: TavernStructuredStateDocType;
     docId: string;
     revision: number;
-    status?: 'active' | 'rolled_back';
+    status: 'active' | 'rolled_back';
     managerRunId?: string;
     sourceUserOrder?: number;
     sourceAssistantOrder?: number;
@@ -889,6 +889,13 @@ class TavernDatabase extends Dexie {
             await sessionsTable.toCollection().modify((session) => {
                 session.taskBoardEpoch = 1;
             });
+        });
+        this.version(21).stores({
+            managerRuns: 'id, sessionId, status, turn, assistantOrder, [sessionId+assistantOrder], [sessionId+updatedAt], [sessionId+status+updatedAt], updatedAt',
+            statePatches: 'id, sessionId, docType, docId, managerRunId, revision, status, [sessionId+status+revision], [sessionId+docType+status+revision], [sessionId+docId+status+revision], [sessionId+docType+docId+status+revision], updatedAt',
+        });
+        this.version(22).stores({
+            managerRuns: 'id, sessionId, status, turn, assistantOrder, [sessionId+assistantOrder], [sessionId+updatedAt], [sessionId+status+updatedAt], [sessionId+status+error+updatedAt], updatedAt',
         });
     }
 }
@@ -2247,13 +2254,20 @@ export async function claimNextQueuedAcceptedTurnManagerRun(sessionId = '', opti
     const leaseOwnerId = String(options.leaseOwnerId || '').trim();
     if (!id || !leaseOwnerId) {return null;}
     return await db.transaction('rw', tavernManagerRunsTable, tavernSessionsTable, async () => {
-        const runs = await tavernManagerRunsTable.where('sessionId').equals(id).toArray();
+        const managerRunTable = tavernManagerRunsTable as unknown as DexieRangeTable<TavernManagerRunRecord>;
+        const runsWithStatus = (status: 'queued' | 'running') => managerRunTable
+            .where('[sessionId+status+updatedAt]')
+            .between([id, status, DexieRangeKeys.minKey], [id, status, DexieRangeKeys.maxKey], true, true);
         const timestamp = now();
-        if (runs.some((run) => run.trigger === 'accepted_turn' && run.status === 'running')) {
+        const running = await runsWithStatus('running')
+            .filter((run) => run.trigger === 'accepted_turn')
+            .first();
+        if (running) {
             return null;
         }
-        const queued = runs
-            .filter((run) => run.trigger === 'accepted_turn' && run.status === 'queued')
+        const queued = (await runsWithStatus('queued')
+            .filter((run) => run.trigger === 'accepted_turn')
+            .toArray())
             .sort((left, right) => Number(left.assistantOrder) - Number(right.assistantOrder)
                 || Number(left.createdAt) - Number(right.createdAt))[0];
         if (!queued) {return null;}
@@ -2276,9 +2290,15 @@ export async function getAcceptedTurnManagerQueueState(sessionId = ''): Promise<
 }> {
     const id = String(sessionId || '').trim();
     if (!id) {return { queued: 0, running: 0, nextLeaseExpiresAt: 0 };}
-    const runs = await tavernManagerRunsTable.where('sessionId').equals(id).toArray();
-    const queued = runs.filter((run) => run.trigger === 'accepted_turn' && run.status === 'queued');
-    const running = runs.filter((run) => run.trigger === 'accepted_turn' && run.status === 'running');
+    const managerRunTable = tavernManagerRunsTable as unknown as DexieRangeTable<TavernManagerRunRecord>;
+    const runsWithStatus = (status: 'queued' | 'running') => managerRunTable
+        .where('[sessionId+status+updatedAt]')
+        .between([id, status, DexieRangeKeys.minKey], [id, status, DexieRangeKeys.maxKey], true, true)
+        .filter((run) => run.trigger === 'accepted_turn');
+    const [queued, running] = await Promise.all([
+        runsWithStatus('queued').toArray(),
+        runsWithStatus('running').toArray(),
+    ]);
     return {
         queued: queued.length,
         running: running.length,
@@ -2298,7 +2318,17 @@ export async function markExpiredAcceptedTurnManagerRunsInterrupted(
     const timestamp = Number(observedAt) || now();
     if (!id) {return [];}
     return await db.transaction('rw', tavernManagerRunsTable, tavernSessionsTable, async () => {
-        const runs = await tavernManagerRunsTable.where('sessionId').equals(id).toArray();
+        const managerRunTable = tavernManagerRunsTable as unknown as DexieRangeTable<TavernManagerRunRecord>;
+        const runs = await managerRunTable
+            .where('[sessionId+status+updatedAt]')
+            .between(
+                [id, 'running', DexieRangeKeys.minKey],
+                [id, 'running', DexieRangeKeys.maxKey],
+                true,
+                true,
+            )
+            .filter((run) => run.trigger === 'accepted_turn')
+            .toArray();
         const expired = runs.filter((run) => run.trigger === 'accepted_turn'
             && run.status === 'running'
             && Number(run.leaseExpiresAt) <= timestamp);
@@ -2314,6 +2344,22 @@ export async function markExpiredAcceptedTurnManagerRunsInterrupted(
         return (await Promise.all(expired.map((run) => tavernManagerRunsTable.get(run.id))))
             .filter(Boolean) as TavernManagerRunRecord[];
     });
+}
+
+export async function listInterruptedAcceptedTurnManagerRuns(sessionId = ''): Promise<TavernManagerRunRecord[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const managerRunTable = tavernManagerRunsTable as unknown as DexieRangeTable<TavernManagerRunRecord>;
+    return await managerRunTable
+        .where('[sessionId+status+error+updatedAt]')
+        .between(
+            [id, 'failed', 'manager_worker_interrupted', DexieRangeKeys.minKey],
+            [id, 'failed', 'manager_worker_interrupted', DexieRangeKeys.maxKey],
+            true,
+            true,
+        )
+        .filter((run) => run.trigger === 'accepted_turn')
+        .toArray();
 }
 
 export async function assertRunningTavernManagerRunLease(managerRunId = '', leaseOwnerId = ''): Promise<TavernManagerRunRecord> {
@@ -2874,6 +2920,123 @@ export async function listTavernAssistantChatMessages(sessionId = ''): Promise<T
     return tavernAssistantChatMessagesTable.where('sessionId').equals(id).sortBy('order');
 }
 
+export async function getTavernAssistantChatMessage(
+    sessionId = '',
+    order = -1,
+): Promise<TavernAssistantChatMessageRecord | null> {
+    const id = String(sessionId || '').trim();
+    const messageOrder = Number(order);
+    if (!id || !Number.isInteger(messageOrder) || messageOrder < 0) {return null;}
+    return await tavernAssistantChatMessagesTable.get([id, messageOrder]) || null;
+}
+
+export async function listTavernAssistantChatMessagesBefore(
+    sessionId = '',
+    beforeOrder = Number.POSITIVE_INFINITY,
+    limit = 32,
+): Promise<TavernAssistantChatMessageRecord[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const finiteBefore = Number.isFinite(Number(beforeOrder));
+    const boundary = Math.floor(Number(beforeOrder) || 0);
+    if (finiteBefore && boundary <= 0) {return [];}
+    const upperOrder = finiteBefore ? boundary : DexieRangeKeys.maxKey;
+    const includeUpper = !finiteBefore;
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(Number(limit) || 32)));
+    const rows = await (tavernAssistantChatMessagesTable as unknown as DexieRangeTable<TavernAssistantChatMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, DexieRangeKeys.minKey], [id, upperOrder], true, includeUpper)
+        .reverse()
+        .limit(safeLimit)
+        .toArray();
+    return rows.reverse();
+}
+
+export async function listTavernAssistantChatMessagesInRange(
+    sessionId = '',
+    startOrder = 0,
+    endOrder = Number.POSITIVE_INFINITY,
+): Promise<TavernAssistantChatMessageRecord[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const start = Math.max(0, Math.floor(Number(startOrder) || 0));
+    const finiteEnd = Number.isFinite(Number(endOrder));
+    const end = finiteEnd ? Math.max(start, Math.floor(Number(endOrder) || start)) : DexieRangeKeys.maxKey;
+    return await (tavernAssistantChatMessagesTable as unknown as DexieRangeTable<TavernAssistantChatMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, start], [id, end], true, true)
+        .toArray();
+}
+
+export async function listTavernAssistantChatMessageOrdersFrom(
+    sessionId = '',
+    startOrder = 0,
+): Promise<number[]> {
+    const id = String(sessionId || '').trim();
+    const start = Math.max(0, Math.floor(Number(startOrder) || 0));
+    if (!id) {return [];}
+    const keys = await (tavernAssistantChatMessagesTable as unknown as DexieRangeTable<TavernAssistantChatMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, start], [id, DexieRangeKeys.maxKey], true, true)
+        .primaryKeys();
+    return keys
+        .map((key) => Array.isArray(key) ? key[1] : undefined)
+        .map((order) => Math.floor(Number(order)))
+        .filter((order) => Number.isInteger(order) && order >= 0);
+}
+
+export async function getLatestTavernAssistantChatUserMessageAtOrBefore(
+    sessionId = '',
+    order = Number.POSITIVE_INFINITY,
+): Promise<TavernAssistantChatMessageRecord | null> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return null;}
+    const finiteOrder = Number.isFinite(Number(order));
+    const upperOrder = finiteOrder ? Math.max(0, Math.floor(Number(order) || 0)) : DexieRangeKeys.maxKey;
+    const message = await (tavernAssistantChatMessagesTable as unknown as DexieRangeTable<TavernAssistantChatMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, DexieRangeKeys.minKey], [id, upperOrder], true, true)
+        .reverse()
+        .filter((item) => item.role === 'user')
+        .first();
+    return message || null;
+}
+
+export async function getNextTavernAssistantChatUserOrderAfter(
+    sessionId = '',
+    order = -1,
+): Promise<number | null> {
+    const id = String(sessionId || '').trim();
+    const afterOrder = Math.floor(Number(order));
+    if (!id || !Number.isInteger(afterOrder)) {return null;}
+    const message = await (tavernAssistantChatMessagesTable as unknown as DexieRangeTable<TavernAssistantChatMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, afterOrder], [id, DexieRangeKeys.maxKey], false, true)
+        .filter((item) => item.role === 'user')
+        .first();
+    return message ? message.order : null;
+}
+
+export async function listTavernAssistantChatMessageOrdersInRange(
+    sessionId = '',
+    startOrder = 0,
+    endOrder = Number.POSITIVE_INFINITY,
+): Promise<number[]> {
+    const id = String(sessionId || '').trim();
+    if (!id) {return [];}
+    const start = Math.max(0, Math.floor(Number(startOrder) || 0));
+    const finiteEnd = Number.isFinite(Number(endOrder));
+    const end = finiteEnd ? Math.max(start, Math.floor(Number(endOrder) || start)) : DexieRangeKeys.maxKey;
+    const keys = await (tavernAssistantChatMessagesTable as unknown as DexieRangeTable<TavernAssistantChatMessageRecord>)
+        .where('[sessionId+order]')
+        .between([id, start], [id, end], true, true)
+        .primaryKeys();
+    return keys
+        .map((key) => Array.isArray(key) ? key[1] : undefined)
+        .map((messageOrder) => Math.floor(Number(messageOrder)))
+        .filter((messageOrder) => Number.isInteger(messageOrder) && messageOrder >= 0);
+}
+
 export async function clearTavernAssistantChatMessages(sessionId = ''): Promise<number> {
     const id = String(sessionId || '').trim();
     if (!id) {return 0;}
@@ -2978,6 +3141,18 @@ export async function createRecoveredAcceptedTurnManagerRun(
         await tavernSessionsTable.update(source.sessionId, { updatedAt: timestamp });
         return { run, created: true };
     });
+}
+
+export async function getRecoveredAcceptedTurnManagerRun(sourceManagerRunId = ''): Promise<TavernManagerRunRecord | null> {
+    const sourceId = String(sourceManagerRunId || '').trim();
+    if (!sourceId) {return null;}
+    const source = await tavernManagerRunsTable.get(sourceId);
+    if (!source || source.trigger !== 'accepted_turn') {return null;}
+    return await (tavernManagerRunsTable as unknown as DexieRangeTable<TavernManagerRunRecord>)
+        .where('[sessionId+assistantOrder]')
+        .equals([source.sessionId, source.assistantOrder])
+        .filter((run) => String(run.recoverySourceRunId || '').trim() === source.id)
+        .first() || null;
 }
 
 export async function queueAcceptedTurnManagerRetry(
@@ -3087,6 +3262,12 @@ export async function updateTavernManagerRun(
     return await tavernManagerRunsTable.get(id) || null;
 }
 
+export async function getTavernManagerRun(managerRunId = ''): Promise<TavernManagerRunRecord | null> {
+    const id = String(managerRunId || '').trim();
+    if (!id) {return null;}
+    return await tavernManagerRunsTable.get(id) || null;
+}
+
 export async function touchRunningTavernManagerRun(managerRunId = '', options: {
     leaseOwnerId?: string;
     leaseDurationMs?: number;
@@ -3105,7 +3286,6 @@ export async function touchRunningTavernManagerRun(managerRunId = '', options: {
         ...(existing.leaseOwnerId ? { leaseExpiresAt: timestamp + leaseDurationMs } : {}),
         updatedAt: timestamp,
     });
-    await tavernSessionsTable.update(existing.sessionId, { updatedAt: timestamp });
     return await tavernManagerRunsTable.get(id) || null;
 }
 
@@ -3114,14 +3294,45 @@ export async function listTavernManagerRuns(sessionId = '', options: {
 } = {}): Promise<TavernManagerRunRecord[]> {
     const id = String(sessionId || '').trim();
     if (!id) {return [];}
-    const rows = (await tavernManagerRunsTable.where('sessionId').equals(id).sortBy('updatedAt'))
-        .filter((run) => ['accepted_turn', 'after_turn'].includes(String(run.trigger || '')));
-    const limit = Math.max(0, Number(options.limit) || 0);
-    if (!limit) {return rows.reverse();}
-    const selected = new Map<string, TavernManagerRunRecord>();
-    rows.slice(-limit).forEach((run) => selected.set(run.id, run));
-    rows.filter((run) => ['queued', 'running'].includes(run.status)).forEach((run) => selected.set(run.id, run));
-    return [...selected.values()].sort((left, right) => Number(right.updatedAt) - Number(left.updatedAt));
+    const requestedLimit = Number(options.limit);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.floor(requestedLimit)
+        : 0;
+    const isMaintenanceRun = (run: TavernManagerRunRecord) => (
+        run.trigger === 'accepted_turn' || run.trigger === 'after_turn'
+    );
+    const compareNewestFirst = (left: TavernManagerRunRecord, right: TavernManagerRunRecord) => {
+        const updatedAtDelta = Number(right.updatedAt) - Number(left.updatedAt);
+        if (updatedAtDelta) {return updatedAtDelta;}
+        if (left.id === right.id) {return 0;}
+        return left.id < right.id ? 1 : -1;
+    };
+    const managerRunTable = tavernManagerRunsTable as unknown as DexieRangeTable<TavernManagerRunRecord>;
+    const latestRange = () => managerRunTable
+        .where('[sessionId+updatedAt]')
+        .between([id, DexieRangeKeys.minKey], [id, DexieRangeKeys.maxKey], true, true)
+        .reverse()
+        .filter(isMaintenanceRun);
+
+    if (!limit) {
+        return await latestRange().toArray();
+    }
+
+    return await db.transaction('r', tavernManagerRunsTable, async () => {
+        const activeRange = (status: 'queued' | 'running') => managerRunTable
+            .where('[sessionId+status+updatedAt]')
+            .between([id, status, DexieRangeKeys.minKey], [id, status, DexieRangeKeys.maxKey], true, true)
+            .filter(isMaintenanceRun)
+            .toArray();
+        const [latest, queued, running] = await Promise.all([
+            latestRange().limit(limit).toArray(),
+            activeRange('queued'),
+            activeRange('running'),
+        ]);
+        const selected = new Map<string, TavernManagerRunRecord>();
+        [...latest, ...queued, ...running].forEach((run) => selected.set(run.id, run));
+        return [...selected.values()].sort(compareNewestFirst);
+    });
 }
 
 export function hashTavernMemoryRecord(file?: Pick<TavernMemoryFileRecord, 'content' | 'status' | 'source' | 'staleFromOrder'> | null): string {
@@ -3312,12 +3523,55 @@ export async function listTavernStructuredStatePatches(input: {
     if (!sessionId) {return [];}
     const docType = String(input.docType || '').trim();
     const docId = String(input.docId || '').trim();
-    const rows = await tavernStatePatchesTable.where('sessionId').equals(sessionId).sortBy('revision');
-    const filtered = rows.filter((row) => (!docType || row.docType === docType)
-        && (!docId || row.docId === docId)
-        && (input.includeRolledBack || row.status !== 'rolled_back'));
-    const limit = Math.max(0, Number(input.limit) || 0);
-    return limit ? filtered.slice(-limit) : filtered;
+    const requestedLimit = Number(input.limit);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? Math.floor(requestedLimit)
+        : 0;
+    const prefix = [sessionId];
+    let index = '[sessionId+status+revision]';
+    if (docType && docId) {
+        index = '[sessionId+docType+docId+status+revision]';
+        prefix.push(docType, docId);
+    } else if (docType) {
+        index = '[sessionId+docType+status+revision]';
+        prefix.push(docType);
+    } else if (docId) {
+        index = '[sessionId+docId+status+revision]';
+        prefix.push(docId);
+    }
+    const statePatchTable = tavernStatePatchesTable as unknown as DexieRangeTable<TavernStructuredStatePatchRecord>;
+    const loadStatus = (status: TavernStructuredStatePatchRecord['status']) => {
+        const rows = statePatchTable
+            .where(index)
+            .between(
+                [...prefix, status, DexieRangeKeys.minKey],
+                [...prefix, status, DexieRangeKeys.maxKey],
+                true,
+                true,
+            );
+        return limit ? rows.reverse().limit(limit).toArray() : rows.toArray();
+    };
+    const compareOldestFirst = (
+        left: TavernStructuredStatePatchRecord,
+        right: TavernStructuredStatePatchRecord,
+    ) => {
+        const revisionDelta = Number(left.revision) - Number(right.revision);
+        if (revisionDelta) {return revisionDelta;}
+        if (left.id === right.id) {return 0;}
+        return left.id < right.id ? -1 : 1;
+    };
+    return await db.transaction('r', tavernStatePatchesTable, async () => {
+        const statuses: TavernStructuredStatePatchRecord['status'][] = input.includeRolledBack
+            ? ['active', 'rolled_back']
+            : ['active'];
+        const branches = await Promise.all(statuses.map(loadStatus));
+        const rows = branches.flat();
+        if (!limit) {return rows.sort(compareOldestFirst);}
+        return rows
+            .sort((left, right) => compareOldestFirst(right, left))
+            .slice(0, limit)
+            .sort(compareOldestFirst);
+    });
 }
 
 export async function ensureTavernManagerMemorySnapshot(input: {

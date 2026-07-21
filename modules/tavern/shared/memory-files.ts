@@ -295,16 +295,26 @@ function defaultMemoryFiles(sessionId = '', characterName = ''): TavernMemoryFil
     ];
 }
 
-export async function ensureTavernMemoryDefaults(sessionId = '', options: { characterName?: string } = {}): Promise<TavernMemoryFileRecord[]> {
+export async function ensureTavernMemoryDefaultsInitialized(
+    sessionId = '',
+    options: { characterName?: string } = {},
+): Promise<boolean> {
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('memory_session_required');}
     if (!await tavernSessionsTable.get(id)) {throw new Error('memory_session_missing');}
-    const existing = await tavernMemoryFilesTable.where('sessionId').equals(id).toArray();
-    if (existing.length) {return existing.sort((left, right) => left.path.localeCompare(right.path));}
+    const existing = await tavernMemoryFilesTable.where('sessionId').equals(id).first();
+    if (existing) {return false;}
     const files = defaultMemoryFiles(id, options.characterName);
     await tavernMemoryFilesTable.bulkPut(files);
     await tavernSessionsTable.update(id, { updatedAt: now() });
-    return files;
+    await markTavernMemoryIndexStale(id);
+    return true;
+}
+
+export async function ensureTavernMemoryDefaults(sessionId = '', options: { characterName?: string } = {}): Promise<TavernMemoryFileRecord[]> {
+    const id = String(sessionId || '').trim();
+    await ensureTavernMemoryDefaultsInitialized(id, options);
+    return await tavernMemoryFilesTable.where('sessionId').equals(id).sortBy('path');
 }
 
 export async function listTavernMemoryFiles(sessionId = '', options: {
@@ -454,17 +464,32 @@ export async function listTavernMemorySnapshots(sessionId = ''): Promise<TavernM
         .sort((left, right) => left.floor - right.floor || left.createdAt - right.createdAt);
 }
 
+interface TavernMemorySnapshotFloorTable {
+    where(index: string): {
+        between(lower: unknown, upper: unknown, includeLower?: boolean, includeUpper?: boolean): {
+            last(): Promise<TavernMemorySnapshotRecord | undefined>;
+        };
+    };
+}
+
 export async function getLatestTavernMemorySnapshot(
     sessionId = '',
     targetFloor = Number.POSITIVE_INFINITY,
 ): Promise<TavernMemorySnapshotRecord | null> {
     const id = String(sessionId || '').trim();
     const floor = Number(targetFloor);
-    if (!id) {return null;}
-    const snapshots = await listTavernMemorySnapshots(id);
-    return snapshots
-        .filter((snapshot) => Number(snapshot.floor) <= floor || floor === Number.POSITIVE_INFINITY)
-        .sort((left, right) => Number(right.floor) - Number(left.floor) || Number(right.createdAt) - Number(left.createdAt))[0]
+    if (!id || (!Number.isFinite(floor) && floor !== Number.POSITIVE_INFINITY)) {return null;}
+    const upperFloor = floor === Number.POSITIVE_INFINITY ? Number.MAX_SAFE_INTEGER : floor;
+    const table = tavernMemorySnapshotsTable as unknown as TavernMemorySnapshotFloorTable;
+    return await table
+        .where('[sessionId+floor]')
+        .between(
+            [id, Number.MIN_SAFE_INTEGER],
+            [id, upperFloor],
+            true,
+            true,
+        )
+        .last()
         || null;
 }
 
@@ -1465,7 +1490,7 @@ export async function executeTavernMemoryTool(
 ): Promise<TavernMemoryToolResult> {
     const id = String(sessionId || '').trim();
     if (!id) {return { ok: false, summary: '缺少 sessionId。', error: 'memory_session_required' };}
-    await ensureTavernMemoryDefaults(id);
+    await ensureTavernMemoryDefaultsInitialized(id);
     try {
         if (toolName === TAVERN_MEMORY_TOOL_NAMES.LIST) {
             const files = await listTavernMemoryFiles(id, { includeStale: true });
@@ -1510,6 +1535,7 @@ export async function executeTavernMemoryTool(
                 'rw',
                 tavernMemoryFilesTable,
                 tavernMemoryIndexesTable,
+                tavernMemorySnapshotsTable,
                 tavernManagerMemorySnapshotsTable,
                 tavernMessagesTable,
                 tavernSessionsTable,
@@ -1563,6 +1589,7 @@ export async function executeTavernMemoryTool(
                     'rw',
                     tavernMemoryFilesTable,
                     tavernMemoryIndexesTable,
+                    tavernMemorySnapshotsTable,
                     tavernManagerMemorySnapshotsTable,
                     tavernMessagesTable,
                     tavernSessionsTable,

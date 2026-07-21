@@ -39,7 +39,8 @@ test('chat run releases its lifecycle when async window reset fails', async () =
         async persistSelectedSessionId() {},
         async prepareAssistantMessageDisplay() {},
         pruneLoadedSessionMessagesFromOrder() {return 0;},
-        async refreshManagerRecords() {},
+        async onManagerRunSaved() {},
+        onManagerProgress() {},
         async refreshRuntimeChatPresetFromHost() {
             return { id: 'preset', name: 'Preset', sections: [] as Array<Record<string, unknown>> };
         },

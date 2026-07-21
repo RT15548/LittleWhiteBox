@@ -43,7 +43,7 @@ export interface TavernSessionControllerOptions {
     describeSessionTitle: (session?: TavernSessionRecord | null) => string;
     invalidateMemoryFileRecordLoad: () => void;
     openCharacterSettingsWorkspace: () => void;
-    refreshManagerRecords: (sessionId?: string) => Promise<unknown>;
+    hydrateSessionWorkspace: (sessionId?: string) => Promise<unknown>;
     reportStartupProgress: (percent: number, action: string) => void;
     resetChatMessageWindowState: () => void;
     resetSessionPreviewState: () => void;
@@ -349,7 +349,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
             await persistSelectedSessionId('');
         }
         if (clearOptions.refreshManager) {
-            await options.refreshManagerRecords('');
+            await options.hydrateSessionWorkspace('');
         }
     }
 
@@ -364,7 +364,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
             await persistSelectedSessionId('');
         }
         await loadSelectedSessionMessageWindow();
-        await options.refreshManagerRecords(state.selectedSessionId.value);
+        await options.hydrateSessionWorkspace(state.selectedSessionId.value);
         if (state.selectedSessionId.value) {
             void options.syncSessionCharacterContextSafely({ sessionId: state.selectedSessionId.value });
         }
@@ -381,7 +381,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         options.applySessionSnapshotContext(session);
         await persistSelectedSessionId(id);
         await loadSelectedSessionMessageWindow({ reset: true, sessionId: id });
-        await options.refreshManagerRecords(id);
+        await options.hydrateSessionWorkspace(id);
         void options.syncSessionCharacterContextSafely({ sessionId: id, force: true });
         options.activeView.value = 'chat';
         options.chatFocus.value = 'chat';

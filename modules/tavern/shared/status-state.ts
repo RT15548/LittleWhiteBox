@@ -520,17 +520,32 @@ export async function listTavernStatusSnapshots(sessionId = ''): Promise<TavernS
         .sort((left, right) => left.floor - right.floor || left.createdAt - right.createdAt);
 }
 
+interface TavernStatusSnapshotFloorTable {
+    where(index: string): {
+        between(lower: unknown, upper: unknown, includeLower?: boolean, includeUpper?: boolean): {
+            last(): Promise<TavernStatusSnapshotRecord | undefined>;
+        };
+    };
+}
+
 export async function getLatestTavernStatusSnapshot(
     sessionId = '',
     targetFloor = Number.POSITIVE_INFINITY,
 ): Promise<TavernStatusSnapshotRecord | null> {
     const id = String(sessionId || '').trim();
     const floor = Number(targetFloor);
-    if (!id) {return null;}
-    const snapshots = await listTavernStatusSnapshots(id);
-    return snapshots
-        .filter((snapshot) => Number(snapshot.floor) <= floor || floor === Number.POSITIVE_INFINITY)
-        .sort((left, right) => Number(right.floor) - Number(left.floor) || Number(right.createdAt) - Number(left.createdAt))[0]
+    if (!id || (!Number.isFinite(floor) && floor !== Number.POSITIVE_INFINITY)) {return null;}
+    const upperFloor = floor === Number.POSITIVE_INFINITY ? Number.MAX_SAFE_INTEGER : floor;
+    const table = tavernStatusSnapshotsTable as unknown as TavernStatusSnapshotFloorTable;
+    return await table
+        .where('[sessionId+floor]')
+        .between(
+            [id, Number.MIN_SAFE_INTEGER],
+            [id, upperFloor],
+            true,
+            true,
+        )
+        .last()
         || null;
 }
 
@@ -981,7 +996,7 @@ export async function executeTavernStatusTool(
             createdAt: existing?.createdAt || timestamp,
             updatedAt: timestamp,
         };
-        await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernMessagesTable, tavernSessionsTable, async () => {
+        await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernStatusSnapshotsTable, tavernMessagesTable, tavernSessionsTable, async () => {
             await options.beforeWriteGuard?.();
             await tavernStateDocumentsTable.put(record);
             await appendTavernStructuredStatePatch({
@@ -1081,7 +1096,7 @@ export async function executeTavernStatusTool(
         digest: afterFingerprint,
         updatedAt: timestamp,
     };
-    await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernMessagesTable, tavernSessionsTable, async () => {
+    await db.transaction('rw', tavernStateDocumentsTable, tavernStatePatchesTable, tavernStatusSnapshotsTable, tavernMessagesTable, tavernSessionsTable, async () => {
         await options.beforeWriteGuard?.();
         await tavernStateDocumentsTable.put(record);
         await appendTavernStructuredStatePatch({

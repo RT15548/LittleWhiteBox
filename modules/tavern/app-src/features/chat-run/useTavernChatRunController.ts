@@ -4,6 +4,7 @@ import type { TavernApplyRegex } from '../../../shared/regex';
 import type { TavernActionCheckRuntimeEvent } from '../../../shared/runtime-events';
 import {
     normalizeTavernSessionState,
+    type TavernManagerRunRecord,
     type TavernMessageRecord,
     type TavernSessionRecord,
 } from '../../../shared/session-db';
@@ -17,9 +18,9 @@ import {
     runXbTavernTurn,
     type TavernRunStatusLabel,
     type TavernBuildNativeChatPromptRuntime,
-    type TavernAcceptedTurnDomainChange,
     type TavernRunStreamSnapshot,
 } from '../../runtime/run-once';
+import type { TavernManagerLiveProgress } from '../../runtime/manager';
 
 export interface TavernChatRunOptions {
     messageText?: string;
@@ -72,8 +73,8 @@ export interface TavernChatRunControllerOptions {
     persistSelectedSessionId: (sessionId: string) => Promise<unknown>;
     prepareAssistantMessageDisplay: (message: TavernMessageRecord) => Promise<void>;
     pruneLoadedSessionMessagesFromOrder: (sessionId?: string, fromOrder?: number) => number;
-    refreshManagerRecords: (sessionId?: string) => Promise<unknown>;
-    onManagerDomainChange?: (sessionId: string, change: TavernAcceptedTurnDomainChange) => Promise<unknown>;
+    onManagerRunSaved: (sessionId: string, run: TavernManagerRunRecord) => void | Promise<void>;
+    onManagerProgress: (progress: TavernManagerLiveProgress) => void;
     refreshRuntimeChatPresetFromHost: () => Promise<TavernChatPromptPresetBundle>;
     refreshSessionRecord: (sessionId: string) => Promise<unknown>;
     preserveDetachedChatScroll: <T>(mutation: () => T) => T;
@@ -418,12 +419,8 @@ export function useTavernChatRunController(options: TavernChatRunControllerOptio
                     });
                     options.updateChatScrollButtons();
                 },
-                onManagerRunSaved: async (sessionId, _managerRunId, domainChange) => {
-                    await options.refreshManagerRecords(sessionId);
-                    if (domainChange && (domainChange.tasksChanged || domainChange.economyChanged)) {
-                        await options.onManagerDomainChange?.(sessionId, domainChange);
-                    }
-                },
+                onManagerRunSaved: options.onManagerRunSaved,
+                onManagerProgress: options.onManagerProgress,
             });
             options.setSelectedSessionId(result.sessionId);
             flushRuntimeStreamSnapshotNow();

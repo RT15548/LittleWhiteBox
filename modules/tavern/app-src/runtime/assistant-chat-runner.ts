@@ -1,6 +1,7 @@
 import type { XbTavernContext, XbTavernMessage } from '../../shared/message-assembler';
 import type { TavernAssistantPreset } from '../../shared/assistant-presets';
-import { rebuildTavernMemoryDerivedIndex } from '../../shared/memory-files';
+import { captureTavernAssistantAcceptedStateBasis } from '../../shared/accepted-state';
+import { ensureTavernMemoryDefaultsInitialized } from '../../shared/memory-files';
 import {
     listTavernAssistantChatMessages,
     type TavernAssistantChatMessageRecord,
@@ -13,6 +14,7 @@ import {
     type XbTavernManagerOnceResult,
 } from './manager.js';
 import { buildAssistantChatMessages } from './assistant-chat-context.js';
+import { createTavernStateWriteCasTracker } from './state-write-cas';
 
 export interface XbTavernAssistantChatInput {
     sessionId: string;
@@ -101,6 +103,13 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
     if (!sessionId) {throw new Error('manager_session_required');}
     if (!question) {throw new Error('manager_question_required');}
 
+    await ensureTavernMemoryDefaultsInitialized(sessionId);
+    const acceptedStateBasis = await captureTavernAssistantAcceptedStateBasis(
+        sessionId,
+        input.assistantOrder,
+    );
+    const stateWriteCas = await createTavernStateWriteCasTracker(sessionId);
+
     const messages = Array.isArray(input.preparedMessages)
         ? [...input.preparedMessages]
         : await buildAssistantChatMessages({
@@ -133,6 +142,8 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
             userOrder: input.userOrder,
             assistantOrder: input.assistantOrder,
             beforeWriteGuard: input.beforeWriteGuard,
+            acceptedStateBasis,
+            stateWriteCas,
             contextSnapshot: input.contextSnapshot,
             signal: input.signal,
             executeManagerOnce: input.executeManagerOnce,
@@ -145,20 +156,6 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
         });
         result.changedFiles.forEach((path) => changedFiles.add(path));
         result.changedStates.forEach((key) => changedStates.add(key));
-        try {
-            await rebuildTavernMemoryDerivedIndex(sessionId);
-        } catch (error) {
-            return {
-                ok: false,
-                text: result.text,
-                provider: result.provider,
-                model: result.model,
-                changedFiles: [...changedFiles],
-                changedStates: [...changedStates],
-                protocolMessages: result.protocolMessages.length ? result.protocolMessages : observedProtocolMessages,
-                error: error instanceof Error ? error.message : String(error || 'assistant_chat_index_rebuild_failed'),
-            };
-        }
         return {
             ok: true,
             text: result.text,
@@ -169,7 +166,6 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
             protocolMessages: result.protocolMessages.length ? result.protocolMessages : observedProtocolMessages,
         };
     } catch (error) {
-        await rebuildTavernMemoryDerivedIndex(sessionId).catch(() => {});
         const errorText = error instanceof Error ? error.message : String(error || 'assistant_chat_failed');
         return {
             ok: false,

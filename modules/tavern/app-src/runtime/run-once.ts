@@ -45,6 +45,7 @@ import {
     prepareTavernLatestAssistantReroll,
     updateTavernMessage,
     updateTavernSessionSnapshot,
+    type TavernManagerRunRecord,
     type TavernMessageRecord,
     type TavernSessionRecord,
     type TavernSessionState,
@@ -109,6 +110,7 @@ import {
     failAndRollbackAcceptedTurnManagerRun,
     recoverInterruptedAcceptedTurnManagerRuns,
     runNextQueuedAcceptedTurnManager,
+    type TavernManagerLiveProgress,
     type XbTavernManagerOnceOptions,
     type XbTavernManagerOnceResult,
 } from './manager';
@@ -544,9 +546,9 @@ export interface XbTavernRunTurnInput {
     onAssistantMessageSaved?: (sessionId: string, message: TavernMessageRecord) => void | Promise<void>;
     onManagerRunSaved?: (
         sessionId: string,
-        managerRunId: string,
-        domainChange?: TavernAcceptedTurnDomainChange,
+        managerRun: TavernManagerRunRecord,
     ) => void | Promise<void>;
+    onManagerProgress?: (progress: TavernManagerLiveProgress) => void | Promise<void>;
     rerollLatestAssistant?: boolean;
     runManager?: boolean;
     generationTrigger?: string;
@@ -560,11 +562,6 @@ export interface XbTavernRunTurnInput {
     rerollRuntimeEvents?: boolean;
     actionCheckRoll?: () => number;
     actionCheckPercentRoll?: () => number;
-}
-
-export interface TavernAcceptedTurnDomainChange {
-    tasksChanged: boolean;
-    economyChanged: boolean;
 }
 
 export interface XbTavernRunResult {
@@ -2068,9 +2065,7 @@ function resolveRunOnceSessionToolLoopSupport(
     return executeRunOnce?.supportsSessionToolLoop === true;
 }
 
-const queuedAcceptedTurnManagerWorkers = new Map<string, Promise<void>>();
-
-function scheduleQueuedAcceptedTurnManager(input: {
+interface QueuedAcceptedTurnManagerScheduleInput {
     sessionId: string;
     agentConfig: Record<string, unknown>;
     assistantPreset?: TavernAssistantPreset;
@@ -2078,20 +2073,51 @@ function scheduleQueuedAcceptedTurnManager(input: {
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
     onManagerRunSaved?: (
         sessionId: string,
-        managerRunId: string,
-        domainChange?: TavernAcceptedTurnDomainChange,
+        managerRun: TavernManagerRunRecord,
     ) => void | Promise<void>;
-}): void {
+    onManagerProgress?: (progress: TavernManagerLiveProgress) => void | Promise<void>;
+}
+
+const queuedAcceptedTurnManagerWorkers = new Map<string, Promise<void>>();
+const queuedAcceptedTurnManagerRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearQueuedAcceptedTurnManagerRecoveryTimer(sessionId: string): void {
+    const timer = queuedAcceptedTurnManagerRecoveryTimers.get(sessionId);
+    if (!timer) {return;}
+    clearTimeout(timer);
+    queuedAcceptedTurnManagerRecoveryTimers.delete(sessionId);
+}
+
+function scheduleQueuedAcceptedTurnManagerLeaseRecovery(
+    input: QueuedAcceptedTurnManagerScheduleInput,
+    leaseExpiresAt = 0,
+): void {
+    const sessionId = String(input.sessionId || '').trim();
+    if (!sessionId) {return;}
+    clearQueuedAcceptedTurnManagerRecoveryTimer(sessionId);
+    const deadline = Number(leaseExpiresAt) || Date.now() + 30000;
+    const delay = Math.max(250, deadline - Date.now() + 50);
+    const timer = setTimeout(() => {
+        if (queuedAcceptedTurnManagerRecoveryTimers.get(sessionId) !== timer) {return;}
+        queuedAcceptedTurnManagerRecoveryTimers.delete(sessionId);
+        scheduleQueuedAcceptedTurnManager(input);
+    }, delay);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    queuedAcceptedTurnManagerRecoveryTimers.set(sessionId, timer);
+}
+
+function scheduleQueuedAcceptedTurnManager(input: QueuedAcceptedTurnManagerScheduleInput): void {
     const sessionId = String(input.sessionId || '').trim();
     if (!sessionId) {return;}
     if (queuedAcceptedTurnManagerWorkers.has(sessionId)) {return;}
+    clearQueuedAcceptedTurnManagerRecoveryTimer(sessionId);
     const run = Promise.resolve()
         .then(async (): Promise<void> => {
             for (;;) {
                 await recoverInterruptedAcceptedTurnManagerRuns({
                     sessionId,
                     onManagerRunSaved: async (managerRun) => {
-                        await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, managerRun.id));
+                        await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, managerRun));
                     },
                 });
                 const result = await runNextQueuedAcceptedTurnManager({
@@ -2100,18 +2126,18 @@ function scheduleQueuedAcceptedTurnManager(input: {
                     assistantPreset: input.assistantPreset,
                     sessionContract: input.sessionContract,
                     executeManagerOnce: input.executeManagerOnce,
+                    onManagerProgress: input.onManagerProgress,
                     onManagerRunSaved: async (managerRun) => {
-                        await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, managerRun.id));
+                        await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, managerRun));
                     },
                 });
                 if (!result) {
                     const queue = await getAcceptedTurnManagerQueueState(sessionId);
-                    if (!queue.queued && !queue.running) {break;}
-                    const untilLease = queue.nextLeaseExpiresAt
-                        ? Math.max(250, queue.nextLeaseExpiresAt - Date.now())
-                        : 1000;
-                    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(2000, untilLease)));
-                    continue;
+                    if (queue.queued && !queue.running) {continue;}
+                    if (queue.running) {
+                        scheduleQueuedAcceptedTurnManagerLeaseRecovery(input, queue.nextLeaseExpiresAt);
+                    }
+                    break;
                 }
                 if (result.ok && result.managerRun.status === 'completed') {
                     throw new Error('manager_completed_before_accepted_snapshot');
@@ -2130,11 +2156,7 @@ function scheduleQueuedAcceptedTurnManager(input: {
                             stagedTaskActions: result.stagedTaskActions,
                             leaseOwnerId: String(result.managerRun.leaseOwnerId || ''),
                         });
-                        const stagedTaskActions = result.stagedTaskActions || [];
-                        await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, completed.id, {
-                            tasksChanged: stagedTaskActions.length > 0,
-                            economyChanged: stagedTaskActions.some((action) => action.kind === 'complete' || action.kind === 'fail'),
-                        }));
+                        await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, completed));
                     } catch (error) {
                         const errorText = error instanceof Error ? error.message : String(error || 'manager_accepted_snapshot_failed');
                         const failed = await failAndRollbackAcceptedTurnManagerRun(
@@ -2142,7 +2164,7 @@ function scheduleQueuedAcceptedTurnManager(input: {
                             `manager_accepted_snapshot_failed:${errorText}`,
                         );
                         if (failed) {
-                            await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, failed.id));
+                            await notifyRunCallback(() => input.onManagerRunSaved?.(sessionId, failed));
                         }
                     }
                 }
@@ -2155,8 +2177,12 @@ function scheduleQueuedAcceptedTurnManager(input: {
             if (queuedAcceptedTurnManagerWorkers.get(sessionId) === run) {
                 queuedAcceptedTurnManagerWorkers.delete(sessionId);
                 const queue = await getAcceptedTurnManagerQueueState(sessionId).catch(() => ({ queued: 0, running: 0, nextLeaseExpiresAt: 0 }));
-                if (queue.queued || queue.running) {
+                if (queue.queued && !queue.running) {
                     scheduleQueuedAcceptedTurnManager(input);
+                } else if (queue.running) {
+                    scheduleQueuedAcceptedTurnManagerLeaseRecovery(input, queue.nextLeaseExpiresAt);
+                } else {
+                    clearQueuedAcceptedTurnManagerRecoveryTimer(sessionId);
                 }
             }
         });
@@ -2171,9 +2197,9 @@ export function resumeQueuedAcceptedTurnManagers(input: {
     executeManagerOnce?: (options: XbTavernManagerOnceOptions) => Promise<XbTavernManagerOnceResult>;
     onManagerRunSaved?: (
         sessionId: string,
-        managerRunId: string,
-        domainChange?: TavernAcceptedTurnDomainChange,
+        managerRun: TavernManagerRunRecord,
     ) => void | Promise<void>;
+    onManagerProgress?: (progress: TavernManagerLiveProgress) => void | Promise<void>;
 }): void {
     scheduleQueuedAcceptedTurnManager(input);
 }
@@ -2250,7 +2276,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
         confirmedManagerStatus = String(confirmedManagerRun?.status || '');
         await notifyRunCallback(() => input.onUserMessageSaved?.(baseSession.id, userMessage as TavernMessageRecord));
         if (confirmedManagerRun) {
-            await notifyRunCallback(() => input.onManagerRunSaved?.(baseSession.id, confirmedManagerRun.id));
+            await notifyRunCallback(() => input.onManagerRunSaved?.(baseSession.id, confirmedManagerRun));
         }
         if (input.runManager === true && confirmedManagerRun) {
             scheduleQueuedAcceptedTurnManager({
@@ -2259,6 +2285,7 @@ export async function runXbTavernTurn(input: XbTavernRunTurnInput): Promise<XbTa
                 assistantPreset: input.assistantPreset,
                 sessionContract: persistedSessionContract,
                 executeManagerOnce: input.executeManagerOnce,
+                onManagerProgress: input.onManagerProgress,
                 onManagerRunSaved: input.onManagerRunSaved,
             });
         }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, watch } from 'vue';
+import { computed, nextTick, shallowRef, watch } from 'vue';
 import TavernAssistantToolRun from './TavernAssistantToolRun.vue';
+import { loadTavernAssistantToolTurnDetail } from '../../features/assistant-chat/assistant-chat-projection';
 import TavernScrollControls from '../TavernScrollControls.vue';
 import { useTavernChatContext, useTavernManagerContext, useTavernSessionContext, useTavernShellContext } from '../tavern-app-context';
 import { useTavernEphemeralDisclosureScope } from '../useTavernEphemeralDisclosureScope';
@@ -23,7 +24,6 @@ const {
     chatFocus,
     cancelEditMessage,
     formatMessageTime,
-    handleComposeInput,
     htmlRenderEnabled,
     markdownSignature,
     renderChatMarkdown,
@@ -52,6 +52,7 @@ const {
     formatRunModelLine,
     handleEditInput,
     handleManagerComposeKeydown,
+    handleManagerComposeInput,
     handleManagerEditKeydown,
     handleManagerScroll,
     handleManagerSubmit,
@@ -66,12 +67,13 @@ const {
     isManagerRunRetrying,
     liveManagerAssistantDraft,
     liveManagerToolRound,
+    loadManagerMessageThoughts,
     managerActionFeedback,
     managerBusy,
     managerCompactionOverlay,
     managerComposeTextareaRef,
+    managerChatHasMore,
     managerInputDraft,
-    managerMessageWindow,
     managerPendingUserMessage,
     managerRuns,
     managerRunTone,
@@ -141,6 +143,54 @@ function managerDisclosureId(kind: string, ...parts: Array<string | number | und
 
 const managerChatMessageItems = computed(() => visibleManagerChatItems.value);
 const visibleManagerLiveToolCalls = computed(() => liveManagerToolRound.value?.calls.slice(-8) || []);
+const managerMessageThoughts = shallowRef<Record<string, Array<{ label?: string; text: string }>>>({});
+const managerMessageThoughtsLoading = shallowRef<Record<string, true>>({});
+const managerMessageThoughtErrors = shallowRef<Record<string, string>>({});
+
+function releaseManagerMessageThoughts() {
+    managerMessageThoughts.value = {};
+    managerMessageThoughtsLoading.value = {};
+    managerMessageThoughtErrors.value = {};
+}
+
+async function handleManagerMessageThoughtToggle(item: Extract<(typeof managerChatMessageItems.value)[number], { kind: 'message' }>, event: Event) {
+    const disclosureId = managerDisclosureId('chat-thoughts', item.key);
+    const open = Boolean((event.currentTarget as HTMLDetailsElement | null)?.open);
+    assistantChatDisclosure.setOpen(disclosureId, open);
+    if (!open) {
+        const nextThoughts = { ...managerMessageThoughts.value };
+        const nextLoading = { ...managerMessageThoughtsLoading.value };
+        const nextErrors = { ...managerMessageThoughtErrors.value };
+        delete nextThoughts[item.key];
+        delete nextLoading[item.key];
+        delete nextErrors[item.key];
+        managerMessageThoughts.value = nextThoughts;
+        managerMessageThoughtsLoading.value = nextLoading;
+        managerMessageThoughtErrors.value = nextErrors;
+        return;
+    }
+    if (managerMessageThoughts.value[item.key] || managerMessageThoughtsLoading.value[item.key]) {return;}
+    const nextErrors = { ...managerMessageThoughtErrors.value };
+    delete nextErrors[item.key];
+    managerMessageThoughtErrors.value = nextErrors;
+    managerMessageThoughtsLoading.value = { ...managerMessageThoughtsLoading.value, [item.key]: true };
+    try {
+        const thoughts = await loadManagerMessageThoughts(item);
+        if (!assistantChatDisclosure.isOpen(disclosureId)) {return;}
+        managerMessageThoughts.value = { ...managerMessageThoughts.value, [item.key]: thoughts };
+    } catch (error) {
+        if (!assistantChatDisclosure.isOpen(disclosureId)) {return;}
+        console.warn('[小白酒馆] 读取助手思考过程失败', error);
+        managerMessageThoughtErrors.value = {
+            ...managerMessageThoughtErrors.value,
+            [item.key]: '思考过程读取失败。',
+        };
+    } finally {
+        const next = { ...managerMessageThoughtsLoading.value };
+        delete next[item.key];
+        managerMessageThoughtsLoading.value = next;
+    }
+}
 const pendingManagerUserRenderState = computed(() => {
     const text = String(managerPendingUserMessage.value?.content || '').trim();
     return {
@@ -228,18 +278,37 @@ watch(
         if (view !== 'chat' || focus !== 'manager') {
             managerWorkDisclosure.reset();
             assistantChatDisclosure.reset();
+            releaseManagerMessageThoughts();
         }
     },
 );
 
+let previousManagerChatItemKeys = new Set<string>();
 watch(
-    () => `${managerMessageWindow.value.startIndex}:${managerMessageWindow.value.visibleCount}`,
-    () => assistantChatDisclosure.reset(),
+    () => managerChatMessageItems.value.map((item) => item.key),
+    (itemKeys) => {
+        const currentKeys = new Set(itemKeys);
+        if ([...previousManagerChatItemKeys].some((key) => !currentKeys.has(key))) {
+            assistantChatDisclosure.reset();
+        }
+        managerMessageThoughts.value = Object.fromEntries(
+            Object.entries(managerMessageThoughts.value).filter(([key]) => currentKeys.has(key)),
+        );
+        managerMessageThoughtsLoading.value = Object.fromEntries(
+            Object.entries(managerMessageThoughtsLoading.value).filter(([key]) => currentKeys.has(key)),
+        );
+        managerMessageThoughtErrors.value = Object.fromEntries(
+            Object.entries(managerMessageThoughtErrors.value).filter(([key]) => currentKeys.has(key)),
+        );
+        previousManagerChatItemKeys = currentKeys;
+    },
+    { immediate: true },
 );
 
 watch(session.selectedSessionId, () => {
     managerWorkDisclosure.reset();
     assistantChatDisclosure.reset();
+    releaseManagerMessageThoughts();
 });
 </script>
 
@@ -250,7 +319,7 @@ watch(session.selectedSessionId, () => {
   >
     <header class="manager-head">
       <div class="manager-chat-toolbar">
-        <span title="主动聊天历史估算 / 自动压缩阈值">{{ assistantChatContextLabel }}</span>
+        <span title="上次发送上下文预算 / 自动压缩阈值">{{ assistantChatContextLabel }}</span>
         <button
           type="button"
           :disabled="!canClearAssistantChat"
@@ -362,7 +431,7 @@ watch(session.selectedSessionId, () => {
           <div class="manager-tool-list">
             <div
               v-for="tool in currentManagerTraceItems"
-              :key="tool.id"
+              :key="tool.displayKey"
               class="manager-tool-item"
               :class="managerToolTone(tool)"
             >
@@ -373,16 +442,16 @@ watch(session.selectedSessionId, () => {
               <details
                 v-if="tool.thoughts.length"
                 class="manager-tool-thoughts"
-                :open="managerWorkDisclosure.isOpen(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.id))"
-                @toggle="managerWorkDisclosure.setOpenFromEvent(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.id), $event)"
+                :open="managerWorkDisclosure.isOpen(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.displayKey))"
+                @toggle="managerWorkDisclosure.setOpenFromEvent(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.displayKey), $event)"
               >
                 <summary>{{ thoughtSummaryLabel(tool.thoughts, false) }}</summary>
                 <template
-                  v-if="managerWorkDisclosure.isOpen(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.id))"
+                  v-if="managerWorkDisclosure.isOpen(managerDisclosureId('work-tool-thoughts', currentManagerWorkRun.id, tool.displayKey))"
                 >
                   <div
                     v-for="(thought, thoughtIndex) in tool.thoughts"
-                    :key="`${tool.id}-stored-thought-${thoughtIndex}`"
+                    :key="`${tool.displayKey}-stored-thought-${thoughtIndex}`"
                     class="chat-thought-block"
                   >
                     <strong>{{ thought.label }}</strong>
@@ -392,7 +461,7 @@ watch(session.selectedSessionId, () => {
               </details>
               <div
                 v-if="tool.preface"
-                :key="`work-tool-preface:${currentManagerWorkRun.id}:${tool.id}:${managerMarkdownSignature(tool.preface)}`"
+                :key="`work-tool-preface:${currentManagerWorkRun.id}:${tool.displayKey}:${managerMarkdownSignature(tool.preface)}`"
                 class="manager-tool-preface xb-tavern-markdown"
                 :data-markdown-signature="managerMarkdownSignature(tool.preface)"
                 v-html="renderChatMarkdown(tool.preface)"
@@ -466,16 +535,15 @@ watch(session.selectedSessionId, () => {
             </small>
           </div>
           <div
-            v-if="managerMessageWindow.hiddenBefore"
+            v-if="managerChatHasMore"
             class="chat-history-gate manager-history-gate"
-            :data-manager-anchor-key="`gate:${managerMessageWindow.hiddenBefore}`"
             role="button"
             tabindex="0"
-            @click="revealOlderManagerMessages(true)"
-            @keydown.enter.prevent="revealOlderManagerMessages(true)"
-            @keydown.space.prevent="revealOlderManagerMessages(true)"
+            @click="revealOlderManagerMessages()"
+            @keydown.enter.prevent="revealOlderManagerMessages()"
+            @keydown.space.prevent="revealOlderManagerMessages()"
           >
-            展开较早记录 {{ managerMessageWindow.hiddenBefore }} 条
+            展开较早记录
           </div>
           <template
             v-for="item in managerChatMessageItems"
@@ -485,37 +553,37 @@ watch(session.selectedSessionId, () => {
               v-if="item.kind === 'message'"
               :data-manager-anchor-key="item.anchorKey"
               class="manager-card manager-message"
-              :class="item.message.role === 'user' ? 'manager-message-user' : 'manager-message-assistant'"
+              :class="item.role === 'user' ? 'manager-message-user' : 'manager-message-assistant'"
             >
               <div class="manager-run-title">
-                <strong>{{ item.message.role === 'user' ? roleLabel('user') : '助手' }}</strong>
-                <small>{{ formatMessageTime(item.message.createdAt) }}</small>
+                <strong>{{ item.role === 'user' ? roleLabel('user') : '助手' }}</strong>
+                <small>{{ formatMessageTime(item.createdAt) }}</small>
               </div>
               <div
-                v-if="isEditingManagerMessage(item.message)"
+                v-if="isEditingManagerMessage(item)"
                 class="message-edit-panel manager-message-edit-panel"
               >
                 <textarea
                   v-model="editingMessageDraft"
                   class="message-edit-box"
                   rows="6"
-                  :data-manager-message-editor="`manager:${item.message.sessionId}:${item.message.order}`"
+                  :data-manager-message-editor="`manager:${item.sessionId}:${item.order}`"
                   @input="handleEditInput"
-                  @keydown="handleManagerEditKeydown($event, item.message)"
+                  @keydown="handleManagerEditKeydown($event, item)"
                 />
                 <div class="message-edit-actions">
                   <button
                     type="button"
-                    :disabled="!isEditingManagerMessageDirty(item.message)"
-                    @click="saveEditManagerMessage(item.message)"
+                    :disabled="!isEditingManagerMessageDirty(item)"
+                    @click="saveEditManagerMessage(item)"
                   >
-                    {{ item.message.role === 'user' ? '保存' : '保存修改' }}
+                    {{ item.role === 'user' ? '保存' : '保存修改' }}
                   </button>
                   <button
-                    v-if="item.message.role === 'user'"
+                    v-if="item.role === 'user'"
                     type="button"
-                    :disabled="!isEditingManagerMessageDirty(item.message)"
-                    @click="saveEditManagerMessage(item.message, { rerun: true })"
+                    :disabled="!isEditingManagerMessageDirty(item)"
+                    @click="saveEditManagerMessage(item, { rerun: true })"
                   >
                     保存并重发
                   </button>
@@ -528,18 +596,20 @@ watch(session.selectedSessionId, () => {
                 </div>
               </div>
               <div
-                v-if="!isEditingManagerMessage(item.message)"
+                v-if="!isEditingManagerMessage(item)"
                 class="manager-message-thoughts"
               >
                 <details
-                  v-if="item.message.thoughts?.length"
+                  v-if="item.thoughtCount"
                   :open="assistantChatDisclosure.isOpen(managerDisclosureId('chat-thoughts', item.key))"
-                  @toggle="assistantChatDisclosure.setOpenFromEvent(managerDisclosureId('chat-thoughts', item.key), $event)"
+                  @toggle="handleManagerMessageThoughtToggle(item, $event)"
                 >
-                  <summary>{{ thoughtSummaryLabel(item.message.thoughts, false) }}</summary>
+                  <summary>思考过程 · {{ item.thoughtCount }} 段</summary>
                   <div v-if="assistantChatDisclosure.isOpen(managerDisclosureId('chat-thoughts', item.key))">
+                    <small v-if="managerMessageThoughtsLoading[item.key]">正在读取...</small>
+                    <small v-else-if="managerMessageThoughtErrors[item.key]">{{ managerMessageThoughtErrors[item.key] }}</small>
                     <div
-                      v-for="(thought, thoughtIndex) in item.message.thoughts"
+                      v-for="(thought, thoughtIndex) in managerMessageThoughts[item.key] || []"
                       :key="`${item.key}:thought:${thoughtIndex}`"
                       class="chat-thought-block"
                     >
@@ -550,52 +620,52 @@ watch(session.selectedSessionId, () => {
                 </details>
               </div>
               <div
-                v-if="!isEditingManagerMessage(item.message)"
-                :key="`history-message:${item.key}:${managerMarkdownSignature(item.message.content)}`"
+                v-if="!isEditingManagerMessage(item)"
+                :key="`history-message:${item.key}:${managerMarkdownSignature(item.content)}`"
                 class="xb-tavern-markdown"
-                :data-markdown-signature="managerMarkdownSignature(item.message.content)"
-                v-html="renderChatMarkdown(item.message.content)"
+                :data-markdown-signature="managerMarkdownSignature(item.content)"
+                v-html="renderChatMarkdown(item.content)"
               />
               <div
-                v-if="!isEditingManagerMessage(item.message)"
+                v-if="!isEditingManagerMessage(item)"
                 class="message-actions manager-message-actions"
               >
                 <button
                   type="button"
-                  :class="managerActionFeedback(item.message, 'copy')"
+                  :class="managerActionFeedback(item, 'copy')"
                   title="复制"
                   aria-label="复制"
-                  @click="copyManagerMessage(item.message)"
+                  @click="copyManagerMessage(item)"
                 >
-                  {{ managerActionFeedback(item.message, 'copy') === 'success' ? '✓' : managerActionFeedback(item.message, 'copy') === 'error' ? '!' : '⧉' }}
+                  {{ managerActionFeedback(item, 'copy') === 'success' ? '✓' : managerActionFeedback(item, 'copy') === 'error' ? '!' : '⧉' }}
                 </button>
                 <button
                   type="button"
-                  :disabled="!canEditManagerMessage(item.message)"
-                  :class="managerActionFeedback(item.message, 'edit')"
+                  :disabled="!canEditManagerMessage(item)"
+                  :class="managerActionFeedback(item, 'edit')"
                   title="编辑"
                   aria-label="编辑"
-                  @click="startEditManagerMessage(item.message)"
+                  @click="startEditManagerMessage(item)"
                 >
                   ✎
                 </button>
                 <button
                   type="button"
-                  :disabled="!canRerunManagerMessage(item.message)"
-                  :class="managerActionFeedback(item.message, 'rerun')"
+                  :disabled="!canRerunManagerMessage(item)"
+                  :class="managerActionFeedback(item, 'rerun')"
                   title="重 roll 最后一轮"
                   aria-label="重 roll 最后一轮"
-                  @click="rerunFromManagerMessage(item.message)"
+                  @click="rerunFromManagerMessage(item)"
                 >
                   ↻
                 </button>
                 <button
                   type="button"
                   :disabled="isManagerAssistantRunning"
-                  :class="managerActionFeedback(item.message, 'delete')"
+                  :class="managerActionFeedback(item, 'delete')"
                   title="删除"
                   aria-label="删除"
-                  @click="deleteManagerMessageTurn(item.message)"
+                  @click="deleteManagerMessageTurn(item)"
                 >
                   ⌫
                 </button>
@@ -605,6 +675,7 @@ watch(session.selectedSessionId, () => {
               v-else
               :item="item"
               :open="assistantChatDisclosure.isOpen(managerDisclosureId('chat-tool-turn', item.key))"
+              :load-detail="loadTavernAssistantToolTurnDetail"
               :render-markdown="renderChatMarkdown"
               :markdown-signature="managerMarkdownSignature"
               @toggle="assistantChatDisclosure.setOpen(managerDisclosureId('chat-tool-turn', item.key), $event)"
@@ -640,7 +711,7 @@ watch(session.selectedSessionId, () => {
             </p>
             <div
               v-for="call in visibleManagerLiveToolCalls"
-              :key="call.id"
+              :key="call.displayKey"
               class="assistant-tool-run-live-call"
               :class="`is-${call.status}`"
             >
@@ -659,10 +730,10 @@ watch(session.selectedSessionId, () => {
               <strong>助手</strong><small>正在处理</small>
             </div>
             <div
-              v-if="liveManagerAssistantDraft.thoughts.length"
+              v-if="liveManagerAssistantDraft.thoughtCount"
               class="manager-message-thoughts"
             >
-              <small>{{ thoughtSummaryLabel(liveManagerAssistantDraft.thoughts, true) }}</small>
+              <small>正在思考 · {{ liveManagerAssistantDraft.thoughtCount }} 段</small>
             </div>
             <div class="xb-tavern-markdown live-manager-draft">
               {{ liveManagerAssistantDraft.content }}
@@ -688,10 +759,6 @@ watch(session.selectedSessionId, () => {
           >
             还没有和助手对话。
           </p>
-          <div
-            class="chat-compose-spacer"
-            aria-hidden="true"
-          />
         </div>
       </div>
       <TavernScrollControls
@@ -718,8 +785,7 @@ watch(session.selectedSessionId, () => {
             v-model="managerInputDraft"
             rows="1"
             placeholder="和助手说一句话..."
-            :disabled="isManagerAssistantRunning"
-            @input="handleComposeInput"
+            @input="handleManagerComposeInput"
             @keydown="handleManagerComposeKeydown"
           />
           <button

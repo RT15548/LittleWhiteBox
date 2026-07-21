@@ -19,13 +19,20 @@ import db, {
     tavernStatusSnapshotsTable,
     tavernTaskVersionsTable,
     type TavernMemorySnapshotRecord,
+    type TavernMemorySnapshotFileEntry,
     type TavernManagerRunRecord,
+    type TavernStructuredStateDocumentRecord,
     type TavernStatusSnapshotRecord,
     type TavernCommunicationSnapshotRecord,
 } from './session-db';
 import { saveTavernCommunicationSnapshot } from './communications';
-import { saveTavernMemorySnapshot } from './memory-files';
-import { saveTavernStatusSnapshot } from './status-state';
+import { getLatestTavernMemorySnapshot, saveTavernMemorySnapshot } from './memory-files';
+import {
+    getLatestTavernStatusSnapshot,
+    saveTavernStatusSnapshot,
+    TAVERN_STATUS_DOC_ID,
+    TAVERN_STATUS_DOC_TYPE,
+} from './status-state';
 import { resolveTavernAcceptedSnapshotFloor, TAVERN_ACCEPTED_BASELINE_FLOOR } from './accepted-snapshot-floor';
 import { commitTavernTaskStagedActionsInCurrentDbTransaction } from './tasks/task-service';
 import type { TavernTaskStagedAction } from './tasks/task-types';
@@ -34,6 +41,18 @@ export type TavernAcceptedStateSnapshotDomain = 'memory' | 'status' | 'communica
 
 export interface TavernAcceptedStateSnapshotOptions {
     domains?: TavernAcceptedStateSnapshotDomain[];
+}
+
+export interface TavernAssistantAcceptedStateBasis {
+    sessionId: string;
+    floor: number;
+    memoryFiles: TavernMemorySnapshotFileEntry[];
+    statusDocument: TavernStructuredStateDocumentRecord | null;
+}
+
+export interface TavernAssistantAcceptedStateWrite {
+    changedFiles?: string[];
+    changedStates?: string[];
 }
 
 export function resolveTavernAcceptedStateSnapshotDomains(input: {
@@ -60,6 +79,95 @@ function latestSnapshotAtOrBefore<T extends { floor: number; createdAt: number }
         .filter((row) => Number(row.floor) <= floor)
         .sort((left, right) => Number(right.floor) - Number(left.floor) || Number(right.createdAt) - Number(left.createdAt))[0]
         || null;
+}
+
+export async function captureTavernAssistantAcceptedStateBasis(
+    sessionId = '',
+    floorInput?: number,
+): Promise<TavernAssistantAcceptedStateBasis> {
+    const id = String(sessionId || '').trim();
+    if (!id) {throw new Error('assistant_accepted_state_session_required');}
+    return await db.transaction(
+        'r',
+        tavernMessagesTable,
+        tavernMemoryFilesTable,
+        tavernMemorySnapshotsTable,
+        tavernStateDocumentsTable,
+        tavernStatusSnapshotsTable,
+        async () => {
+            const floor = await resolveTavernAcceptedSnapshotFloor(id, floorInput);
+            const [memorySnapshot, statusSnapshot] = await Promise.all([
+                getLatestTavernMemorySnapshot(id, floor),
+                getLatestTavernStatusSnapshot(id, floor),
+            ]);
+            const memoryFiles = memorySnapshot
+                ? memorySnapshot.files
+                : (await tavernMemoryFilesTable.where('sessionId').equals(id).toArray())
+                    .map((file) => ({ path: file.path, file }));
+            const currentStatus = statusSnapshot
+                ? null
+                : await tavernStateDocumentsTable.get([id, TAVERN_STATUS_DOC_TYPE, TAVERN_STATUS_DOC_ID]) || null;
+            return {
+                sessionId: id,
+                floor,
+                memoryFiles: cloneAcceptedStateValue(memoryFiles),
+                statusDocument: cloneAcceptedStateValue(statusSnapshot
+                    ? statusSnapshot.document || null
+                    : currentStatus),
+            };
+        },
+    );
+}
+
+export async function commitTavernAssistantAcceptedStateWriteInCurrentTransaction(
+    basis: TavernAssistantAcceptedStateBasis,
+    change: TavernAssistantAcceptedStateWrite,
+): Promise<void> {
+    const sessionId = String(basis?.sessionId || '').trim();
+    const floor = Math.floor(Number(basis?.floor));
+    if (!sessionId || !Number.isFinite(floor)) {
+        throw new Error('assistant_accepted_state_basis_invalid');
+    }
+    const changedFiles = [...new Set((change.changedFiles || []).map((path) => String(path || '').trim()).filter(Boolean))];
+    const statusChanged = (change.changedStates || []).some((key) => (
+        String(key || '').trim() === `${TAVERN_STATUS_DOC_TYPE}/${TAVERN_STATUS_DOC_ID}`
+    ));
+
+    if (changedFiles.length) {
+        const existing = await tavernMemorySnapshotsTable.get([sessionId, floor]);
+        const files = new Map((existing?.files || basis.memoryFiles).map((entry) => [
+            entry.path,
+            cloneAcceptedStateValue(entry.file),
+        ]));
+        for (const path of changedFiles) {
+            const current = await tavernMemoryFilesTable.get([sessionId, path]) || null;
+            if (current) {files.set(path, cloneAcceptedStateValue(current));}
+            else {files.delete(path);}
+        }
+        await tavernMemorySnapshotsTable.put({
+            sessionId,
+            floor,
+            files: [...files.entries()]
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([path, file]) => ({ path, file })),
+            createdAt: Date.now(),
+        });
+    }
+
+    if (statusChanged) {
+        const current = await tavernStateDocumentsTable.get([
+            sessionId,
+            TAVERN_STATUS_DOC_TYPE,
+            TAVERN_STATUS_DOC_ID,
+        ]) || null;
+        await tavernStatusSnapshotsTable.put({
+            sessionId,
+            floor,
+            document: current ? cloneAcceptedStateValue(current) : undefined,
+            digest: current ? String(current.digest || '') : '',
+            createdAt: Date.now(),
+        });
+    }
 }
 
 export async function completeAcceptedTurnManagerRunWithSnapshot(input: {

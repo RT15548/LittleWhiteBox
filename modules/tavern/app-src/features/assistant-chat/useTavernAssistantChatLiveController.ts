@@ -1,4 +1,4 @@
-import { ref, type Ref } from 'vue';
+import { shallowRef, type ShallowRef } from 'vue';
 import type { XbTavernMessage } from '../../../shared/message-assembler';
 import {
     appendTavernAssistantChatMessages,
@@ -13,14 +13,17 @@ import type {
 export interface TavernAssistantChatLiveDraft {
     sessionId: string;
     content: string;
-    thoughts: Array<{ label?: string; text?: string }>;
+    thoughtCount: number;
     revision: number;
 }
 
-export interface TavernAssistantChatLiveToolCall {
-    id: string;
+export interface TavernAssistantChatLiveToolSummary {
+    displayKey: string;
+    protocolId: string;
     name: string;
     status: 'running' | 'resolved' | 'error';
+    path: string;
+    elapsedMs: number;
     summary: string;
 }
 
@@ -28,8 +31,10 @@ export interface TavernAssistantChatLiveToolRound {
     sessionId: string;
     key: string;
     preface: string;
-    calls: TavernAssistantChatLiveToolCall[];
+    calls: TavernAssistantChatLiveToolSummary[];
 }
+
+export const TAVERN_ASSISTANT_CHAT_LIVE_TOOL_LIMIT = 8;
 
 export interface TavernAssistantChatProtocolResultPatch {
     provider: string;
@@ -43,8 +48,6 @@ export interface TavernAssistantChatLiveControllerOptions {
         sessionId: string,
         messages: TavernAppendAssistantChatMessageInput[],
     ) => Promise<TavernAssistantChatMessageRecord[]>;
-    normalizeThoughts: (value: unknown) => Array<{ label?: string; text?: string }>;
-    onMessagesPersisted?: (sessionId: string, messages: TavernAssistantChatMessageRecord[]) => void;
     minFlushIntervalMs?: number;
 }
 
@@ -58,14 +61,23 @@ export interface TavernAssistantChatLiveRun {
         patch: TavernAssistantChatProtocolResultPatch,
     ) => Promise<TavernAssistantChatMessageRecord[]>;
     flushStreamNow: () => void;
-    waitForProtocolPersistence: () => Promise<void>;
     clear: () => void;
 }
 
 interface PendingProtocolRound {
     key: string;
-    messages: XbTavernMessage[];
     expectedToolResults: number;
+    actualToolResults: number;
+    tools: PendingProtocolTool[];
+}
+
+interface PendingProtocolTool {
+    displayKey: string;
+    protocolId: string;
+    name: string;
+    path: string;
+    startedAt: number;
+    resolved: boolean;
 }
 
 function normalizeProtocolToolCalls(message: XbTavernMessage): Array<{ id?: string; name?: string; arguments?: string }> {
@@ -117,11 +129,10 @@ function buildFinalProtocolInputs(
     messages: XbTavernMessage[],
     fallbackText: string,
     patch: TavernAssistantChatProtocolResultPatch,
-    skip = 0,
 ): TavernAppendAssistantChatMessageInput[] {
     const protocolMessages = (Array.isArray(messages) ? messages : []).filter((message) => (
         message && ['assistant', 'tool'].includes(message.role)
-    )).slice(Math.max(0, Number(skip) || 0));
+    ));
     const finalMessages: XbTavernMessage[] = protocolMessages.length
         ? protocolMessages
         : [{ role: 'assistant', content: fallbackText }];
@@ -153,6 +164,131 @@ function buildFinalProtocolInputs(
     });
 }
 
+function compactText(value: unknown, limit: number): string {
+    const text = typeof value === 'string' || typeof value === 'number'
+        ? String(value).replace(/\s+/g, ' ').trim()
+        : '';
+    if (!text) {return '';}
+    return text.length > limit ? `${text.slice(0, Math.max(1, limit - 1))}…` : text;
+}
+
+function thoughtCount(value: unknown): number {
+    return Array.isArray(value) ? value.length : 0;
+}
+
+function parseSmallJsonRecord(value: unknown): Record<string, unknown> | null {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return value as Record<string, unknown>;
+    }
+    if (typeof value !== 'string' || !value.trim() || value.length > 16_384) {return null;}
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? parsed as Record<string, unknown>
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+function extractJsonStringField(value: string, keys: string[]): string {
+    const prefix = value.slice(0, 16_384);
+    for (const key of keys) {
+        const match = prefix.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 'i'));
+        if (!match?.[1]) {continue;}
+        try {
+            return String(JSON.parse(`"${match[1]}"`));
+        } catch {
+            return match[1];
+        }
+    }
+    return '';
+}
+
+function extractToolPath(value: unknown): string {
+    const record = parseSmallJsonRecord(value);
+    const directPath = compactText(
+        record?.path
+        || record?.filePath
+        || record?.targetPath
+        || record?.sourcePath
+        || record?.docPath,
+        240,
+    );
+    if (directPath) {return directPath;}
+    if (record) {
+        const docType = compactText(record.docType, 80);
+        const docId = compactText(record.docId, 140);
+        if (docType || docId) {return [docType, docId].filter(Boolean).join('/');}
+        const taskId = compactText(record.taskId, 220);
+        if (taskId) {return taskId;}
+    }
+    if (typeof value !== 'string') {return '';}
+    return compactText(extractJsonStringField(value, [
+        'path',
+        'filePath',
+        'targetPath',
+        'sourcePath',
+        'docPath',
+        'taskId',
+    ]), 240);
+}
+
+function normalizeToolDisplay(value: unknown): {
+    path: string;
+    elapsedMs: number;
+    summary: string;
+    status: 'running' | 'resolved' | 'error' | '';
+} {
+    const record = parseSmallJsonRecord(value);
+    const rawStatus = compactText(record?.status, 32).toLowerCase();
+    const startedAt = Math.max(0, Number(record?.startedAt) || 0);
+    const finishedAt = Math.max(0, Number(record?.finishedAt) || 0);
+    const elapsedMs = Math.max(0, Number(record?.elapsedMs) || (
+        startedAt && finishedAt ? finishedAt - startedAt : 0
+    ));
+    return {
+        path: extractToolPath(record),
+        elapsedMs,
+        summary: compactText(
+            record?.summary || record?.message || record?.error || (typeof value === 'string' ? value : ''),
+            360,
+        ),
+        status: rawStatus === 'running'
+            ? 'running'
+            : rawStatus === 'error' || rawStatus === 'failed'
+                ? 'error'
+                : rawStatus === 'resolved' || rawStatus === 'completed'
+                    ? 'resolved'
+                    : '',
+    };
+}
+
+function projectToolResult(
+    message: XbTavernMessage,
+    pendingTool: PendingProtocolTool,
+): TavernAssistantChatLiveToolSummary {
+    const display = normalizeToolDisplay(message.toolDisplay);
+    const resultRecord = parseSmallJsonRecord(message.content);
+    const resultError = compactText(resultRecord?.error, 360);
+    const resultSummary = compactText(resultRecord?.summary, 360);
+    const status = message.error === true || display.status === 'error' || resultRecord?.ok === false
+        ? 'error'
+        : 'resolved';
+    return {
+        displayKey: pendingTool.displayKey,
+        protocolId: pendingTool.protocolId,
+        name: compactText(message.toolName, 120) || pendingTool.name,
+        status,
+        path: display.path || extractToolPath(resultRecord) || pendingTool.path,
+        elapsedMs: display.elapsedMs || Math.max(0, Date.now() - pendingTool.startedAt),
+        summary: display.summary
+            || resultSummary
+            || resultError
+            || (status === 'error' ? '工具执行失败。' : '工具已返回。'),
+    };
+}
+
 function requestFrame(callback: () => void): number {
     if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
         callback();
@@ -167,8 +303,8 @@ function cancelFrame(frame: number) {
 }
 
 export function useTavernAssistantChatLiveController(options: TavernAssistantChatLiveControllerOptions) {
-    const assistantDraft = ref<TavernAssistantChatLiveDraft | null>(null);
-    const toolRound = ref<TavernAssistantChatLiveToolRound | null>(null);
+    const assistantDraft = shallowRef<TavernAssistantChatLiveDraft | null>(null);
+    const toolRound = shallowRef<TavernAssistantChatLiveToolRound | null>(null);
     const appendMessages = options.appendMessages || appendTavernAssistantChatMessages;
     const minFlushIntervalMs = options.minFlushIntervalMs === undefined
         ? 80
@@ -177,14 +313,6 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
     let activeRunId = '';
     let activeRunSessionId = '';
     let activeRunCancelStream: (() => void) | null = null;
-
-    function notifyMessagesPersisted(sessionId: string, messages: TavernAssistantChatMessageRecord[]) {
-        try {
-            options.onMessagesPersisted?.(sessionId, messages);
-        } catch (error) {
-            console.warn('[小白酒馆] 助手消息已保存，但实时界面同步失败', error);
-        }
-    }
 
     function clearVisibleState(runId = '', sessionId = '') {
         if (runId && activeRunId !== runId) {return;}
@@ -216,18 +344,15 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
         assistantDraft.value = {
             sessionId: id,
             content: '正在思考...',
-            thoughts: [],
+            thoughtCount: 0,
             revision: 1,
         };
         toolRound.value = null;
 
         let streamFlushTimer: number | null = null;
         let streamFlushFrame = 0;
-        let pendingStreamPatch: Partial<Pick<TavernAssistantChatLiveDraft, 'content' | 'thoughts'>> | null = null;
+        let pendingStreamPatch: Partial<Pick<TavernAssistantChatLiveDraft, 'content' | 'thoughtCount'>> | null = null;
         let lastStreamFlushAt = 0;
-        let protocolPersistQueue = Promise.resolve();
-        let protocolPersistFailed = false;
-        let persistedProtocolMessages = 0;
         let pendingProtocolRound: PendingProtocolRound | null = null;
         let roundSerial = 0;
 
@@ -246,15 +371,15 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
         }
         activeRunCancelStream = cancelStreamFlush;
 
-        function commitStreamPatch(patch: Partial<Pick<TavernAssistantChatLiveDraft, 'content' | 'thoughts'>>) {
+        function commitStreamPatch(patch: Partial<Pick<TavernAssistantChatLiveDraft, 'content' | 'thoughtCount'>>) {
             if (!isActive()) {return;}
             const previous = assistantDraft.value?.sessionId === id
                 ? assistantDraft.value
-                : { sessionId: id, content: '正在思考...', thoughts: [], revision: 0 };
+                : { sessionId: id, content: '正在思考...', thoughtCount: 0, revision: 0 };
             assistantDraft.value = {
                 ...previous,
                 ...(typeof patch.content === 'string' ? { content: patch.content } : {}),
-                ...(Array.isArray(patch.thoughts) ? { thoughts: patch.thoughts } : {}),
+                ...(typeof patch.thoughtCount === 'number' ? { thoughtCount: patch.thoughtCount } : {}),
                 revision: previous.revision + 1,
             };
         }
@@ -273,7 +398,7 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
             commitStreamPatch(patch);
         }
 
-        function scheduleStreamPatch(patch: Partial<Pick<TavernAssistantChatLiveDraft, 'content' | 'thoughts'>>) {
+        function scheduleStreamPatch(patch: Partial<Pick<TavernAssistantChatLiveDraft, 'content' | 'thoughtCount'>>) {
             pendingStreamPatch = { ...(pendingStreamPatch || {}), ...patch };
             if (streamFlushTimer !== null || streamFlushFrame) {return;}
             const delay = Math.max(0, minFlushIntervalMs - (Date.now() - lastStreamFlushAt));
@@ -292,7 +417,7 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
         }
 
         function onStreamProgress(snapshot: TavernManagerStreamSnapshot) {
-            const patch: Partial<Pick<TavernAssistantChatLiveDraft, 'content' | 'thoughts'>> = {};
+            const patch: Partial<Pick<TavernAssistantChatLiveDraft, 'content' | 'thoughtCount'>> = {};
             const currentContent = typeof pendingStreamPatch?.content === 'string'
                 ? pendingStreamPatch.content
                 : assistantDraft.value?.content || '';
@@ -310,7 +435,7 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
                 patch.content = '正在准备工具调用...';
             }
             if (Array.isArray(snapshot.thoughts)) {
-                patch.thoughts = options.normalizeThoughts(snapshot.thoughts);
+                patch.thoughtCount = thoughtCount(snapshot.thoughts);
             }
             if (!Object.keys(patch).length) {return;}
             scheduleStreamPatch(patch);
@@ -320,38 +445,21 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
             const liveRound = toolRound.value;
             if (!isActive() || !pendingProtocolRound || !liveRound || liveRound.key !== pendingProtocolRound.key) {return;}
             const toolCallId = String(event.message.toolCallId || event.message.tool_call_id || '');
+            const unresolvedTools = pendingProtocolRound.tools.filter((tool) => !tool.resolved);
+            const pendingTool = (toolCallId
+                ? unresolvedTools.find((tool) => tool.protocolId === toolCallId)
+                : unresolvedTools[0])
+                || (unresolvedTools.length === 1 ? unresolvedTools[0] : null);
+            if (!pendingTool) {return;}
+            const summary = projectToolResult(event.message, pendingTool);
             toolRound.value = {
                 ...liveRound,
-                calls: liveRound.calls.map((call) => call.id !== toolCallId ? call : {
+                calls: liveRound.calls.map((call) => call.displayKey !== pendingTool.displayKey ? call : {
                     ...call,
-                    status: event.message.error ? 'error' : 'resolved',
-                    summary: String(event.message.toolDisplay || (event.message.error ? '工具执行失败。' : '工具已返回。')).trim(),
+                    ...summary,
                 }),
             };
-        }
-
-        function queueCompletedRound(round: PendingProtocolRound) {
-            const completedMessages = [...round.messages];
-            protocolPersistQueue = protocolPersistQueue.then(async () => {
-                if (protocolPersistFailed) {return;}
-                try {
-                    const inputs = completedMessages.map((message) => buildProtocolMessageInput(message, {
-                        provider: '',
-                        model: '',
-                        finishReason: '',
-                        error: false,
-                    }));
-                    const persisted = await appendMessages(id, inputs);
-                    persistedProtocolMessages += inputs.length;
-                    notifyMessagesPersisted(id, persisted);
-                    if (isActive() && toolRound.value?.key === round.key) {
-                        toolRound.value = null;
-                    }
-                } catch (error) {
-                    protocolPersistFailed = true;
-                    console.warn('[小白酒馆] 助手工具轮次实时保存失败', error);
-                }
-            });
+            pendingTool.resolved = true;
         }
 
         function onProtocolEvent(event: TavernManagerProtocolEvent) {
@@ -364,9 +472,10 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
             }
             if (event.type === 'final_assistant') {
                 cancelStreamFlush();
+                if (isActive()) {toolRound.value = null;}
                 commitStreamPatch({
                     content: String(event.message.content || '').trim() || '没有返回内容。',
-                    thoughts: Array.isArray(event.message.thoughts) ? options.normalizeThoughts(event.message.thoughts) : [],
+                    thoughtCount: thoughtCount(event.message.thoughts),
                 });
                 return;
             }
@@ -374,38 +483,48 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
                 roundSerial += 1;
                 const key = `${runId}:tool-round:${roundSerial}`;
                 const calls = normalizeProtocolToolCalls(event.message).map((call, index) => ({
-                    id: String(call.id || `tool-${index + 1}`),
-                    name: String(call.name || '工具'),
+                    displayKey: `${key}:call:${index + 1}`,
+                    protocolId: String(call.id || ''),
+                    name: compactText(call.name, 120) || '工具',
                     status: 'running' as const,
+                    path: extractToolPath(call.arguments),
+                    elapsedMs: 0,
                     summary: '等待返回。',
                 }));
                 pendingProtocolRound = {
                     key,
-                    messages: [event.message],
                     expectedToolResults: calls.length,
+                    actualToolResults: 0,
+                    tools: calls.map((call) => ({
+                        displayKey: call.displayKey,
+                        protocolId: call.protocolId,
+                        name: call.name,
+                        path: call.path,
+                        startedAt: Date.now(),
+                        resolved: false,
+                    })),
                 };
                 if (isActive()) {
+                    const previousCalls = toolRound.value?.sessionId === id
+                        ? toolRound.value.calls
+                        : [];
                     toolRound.value = {
                         sessionId: id,
                         key,
-                        preface: String(event.message.content || '').trim(),
-                        calls,
+                        preface: compactText(event.message.content, 600),
+                        calls: [...previousCalls, ...calls].slice(-TAVERN_ASSISTANT_CHAT_LIVE_TOOL_LIMIT),
                     };
                 }
                 return;
             }
             if (!pendingProtocolRound) {return;}
             updateLiveToolResult(event);
-            pendingProtocolRound.messages.push(event.message);
-            const actualToolResults = pendingProtocolRound.messages.filter((message) => message.role === 'tool').length;
-            if (!pendingProtocolRound.expectedToolResults || actualToolResults < pendingProtocolRound.expectedToolResults) {return;}
-            const completedRound = pendingProtocolRound;
+            pendingProtocolRound.actualToolResults += 1;
+            if (
+                !pendingProtocolRound.expectedToolResults
+                || pendingProtocolRound.actualToolResults < pendingProtocolRound.expectedToolResults
+            ) {return;}
             pendingProtocolRound = null;
-            queueCompletedRound(completedRound);
-        }
-
-        async function waitForProtocolPersistence() {
-            await protocolPersistQueue;
         }
 
         async function persistResult(
@@ -413,15 +532,14 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
             fallbackText: string,
             patch: TavernAssistantChatProtocolResultPatch,
         ) {
-            await waitForProtocolPersistence();
-            const inputs = buildFinalProtocolInputs(messages, fallbackText, patch, persistedProtocolMessages);
+            const inputs = buildFinalProtocolInputs(messages, fallbackText, patch);
             const persisted = await appendMessages(id, inputs);
-            notifyMessagesPersisted(id, persisted);
             return persisted;
         }
 
         function clear() {
             cancelStreamFlush();
+            pendingProtocolRound = null;
             clearVisibleState(runId, id);
         }
 
@@ -431,7 +549,6 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
             onStreamProgress,
             persistResult,
             flushStreamNow,
-            waitForProtocolPersistence,
             clear,
         };
     }
@@ -445,8 +562,8 @@ export function useTavernAssistantChatLiveController(options: TavernAssistantCha
     }
 
     return {
-        assistantDraft: assistantDraft as Ref<TavernAssistantChatLiveDraft | null>,
-        toolRound: toolRound as Ref<TavernAssistantChatLiveToolRound | null>,
+        assistantDraft: assistantDraft as ShallowRef<TavernAssistantChatLiveDraft | null>,
+        toolRound: toolRound as ShallowRef<TavernAssistantChatLiveToolRound | null>,
         startRun,
         clearSession,
         cleanup,

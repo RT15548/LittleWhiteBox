@@ -67,7 +67,6 @@ const {
 } = phone;
 const phoneOpen = phone.os.isOpen;
 const {
-    managerMessageWindow,
     managerScrollRef,
     updateManagerScrollButtons,
     visibleManagerChatItems,
@@ -122,8 +121,6 @@ const contractDraftDirty = computed(() => JSON.stringify(contractDraft.value) !=
 const shouldMountChatWorkspace = computed(() => !isMobileChatViewport.value || mobileChatPanel.value === 'workspace');
 const managerPaneVisible = computed(() => activeView.value === 'chat' && chatFocus.value === 'manager');
 const managerScrollAnchorSignature = computed(() => [
-    managerMessageWindow.value.startIndex,
-    managerMessageWindow.value.visibleCount,
     ...visibleManagerChatItems.value.map((item) => `${item.kind}:${item.key}`),
 ].join('|'));
 
