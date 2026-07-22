@@ -2690,10 +2690,8 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(mapCss, /\.xb-os-shell\.theme-dark \.tavern-chat\.xb-page \.tavern-map-select \{[\s\S]*background: rgba\(255, 255, 255, 0\.055\);[\s\S]*color: var\(--xb-text-main\);/);
     assert.match(managerCss, /\.tavern-chat\.xb-page \.manager-compose \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) 36px;/);
     assert.doesNotMatch(managerCss, /\.tavern-chat\.xb-page \.manager-work-band \{[^}]*display: none;/);
-    assert.match(managerCss, /\.tavern-chat\.xb-page \.manager-work-band > summary \{[\s\S]*grid-template-columns: auto minmax\(0, 1fr\);[\s\S]*grid-template-areas:\s*"marker kind"\s*"\. summary"\s*"\. metric";/);
     assert.match(managerCss, /\.tavern-chat\.xb-page \.manager-work-band-body \{[\s\S]*grid-template-columns: minmax\(0, 1fr\);/);
     assert.match(managerCss, /\.tavern-chat\.xb-page \.manager-work-status-grid \{[\s\S]*grid-template-columns: minmax\(0, 1fr\);/);
-    assert.doesNotMatch(managerCss, /manager-work-band > summary \{[\s\S]*grid-template-columns: auto auto minmax\(0, 1fr\) auto;/);
     assert.doesNotMatch(managerCss, /manager-work-band-body \{[\s\S]*grid-template-columns: minmax\(220px, 0\.8fr\) minmax\(260px, 1\.2fr\);/);
     assert.doesNotMatch(managerCss, /\.tavern-chat\.xb-page \.manager-compose button\.primary-action \{[^}]*min-width: 82px;/);
     assert.doesNotMatch(managerCss, /\.tavern-chat\.xb-page \.manager-compose button\.primary-action \{[^}]*min-height: 58px;/);

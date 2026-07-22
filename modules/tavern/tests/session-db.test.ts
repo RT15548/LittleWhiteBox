@@ -5349,7 +5349,6 @@ test('assistant chat commits its status write and accepted floor snapshot togeth
     let managerCalls = 0;
     const result = await runXbTavernManagerChat({
         sessionId: session.id,
-        assistantOrder: assistantMessage.order,
         agentConfig: {},
         question: '把理智更新到 80。',
         preparedMessages: [{ role: 'user', content: '把理智更新到 80。' }],
@@ -5408,7 +5407,6 @@ test('assistant chat snapshots only its written memory file from the captured fl
     let managerCalls = 0;
     const result = await runXbTavernManagerChat({
         sessionId: session.id,
-        assistantOrder: assistantMessage.order,
         agentConfig: {},
         question: '修正会话记忆。',
         preparedMessages: [{ role: 'user', content: '修正会话记忆。' }],
@@ -5452,7 +5450,7 @@ test('assistant accepted writes preserve another accepted writer at the same flo
     const acceptedByManagerPath = 'memory/characters/维护员.md';
     await writeTavernMemoryFile(session.id, acceptedByManagerPath, '# 维护员\n\n初始。', { source: 'manager' });
     await saveAcceptedStateSnapshot(session.id, assistantMessage.order, { domains: ['memory'] });
-    const basis = await captureTavernAssistantAcceptedStateBasis(session.id, assistantMessage.order);
+    const basis = await captureTavernAssistantAcceptedStateBasis(session.id);
 
     await writeTavernMemoryFile(session.id, acceptedByManagerPath, '# 维护员\n\n自动维护已接受。', { source: 'manager' });
     await saveAcceptedStateSnapshot(session.id, assistantMessage.order, { domains: ['memory'] });
@@ -5485,7 +5483,7 @@ test('accepted snapshot observer failure rolls back both the tool write and its 
     await appendTavernMessage(session.id, { role: 'user', content: '开始。' });
     const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '当前剧情锚点。' });
     await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n写入前。', { source: 'manager' });
-    const basis = await captureTavernAssistantAcceptedStateBasis(session.id, assistantMessage.order);
+    const basis = await captureTavernAssistantAcceptedStateBasis(session.id);
 
     const result = await executeTavernSourceFileTool(session.id, 'Write', {
         filePath: 'memory/state.md',
@@ -5515,7 +5513,7 @@ test('assistant accepted writes reject a main-story edit without changing state 
     const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '原始剧情。' });
     const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '当前剧情锚点。' });
     await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n写入前。', { source: 'manager' });
-    const basis = await captureTavernAssistantAcceptedStateBasis(session.id, assistantMessage.order);
+    const basis = await captureTavernAssistantAcceptedStateBasis(session.id);
     await updateTavernMessage(session.id, userMessage.order, { content: '已经编辑的剧情。' }, {
         incrementTimelineRevision: true,
     });
@@ -5539,22 +5537,108 @@ test('assistant accepted writes reject a main-story edit without changing state 
     assert.equal((await listTavernMemorySnapshots(session.id)).length, 0);
 });
 
-test('assistant accepted writes reject a story with a pending user message', async () => {
+test('assistant chat writes against an unchanged pending user story anchor', async () => {
     await db.delete();
     await db.open();
 
     const session = await createTavernSession({ title: 'Assistant pending story guard' });
     await appendTavernMessage(session.id, { role: 'user', content: '第一轮。' });
     const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '第一轮回复。' });
-    await appendTavernMessage(session.id, { role: 'user', content: '正在等待 RP 回复。' });
+    await executeTavernStatusTool(session.id, TAVERN_STATUS_TOOL_NAMES.INIT, {
+        document: {
+            meta: { activeSubject: 'user' },
+            subjects: [{
+                id: 'user',
+                name: '玩家',
+                tabs: [{
+                    id: 'overview',
+                    label: '概览',
+                    blocks: [{
+                        id: 'stats',
+                        title: '属性',
+                        form: 'gauge',
+                        fields: [{ id: 'san', name: '理智', value: 40, max: 100 }],
+                    }],
+                }],
+            }],
+        },
+    });
+    const pendingUserMessage = await appendTavernMessage(session.id, { role: 'user', content: '正在等待 RP 回复。' });
+    let managerCalls = 0;
+    const result = await runXbTavernManagerChat({
+        sessionId: session.id,
+        agentConfig: {},
+        question: '在等待 RP 回复时修正状态。',
+        preparedMessages: [{ role: 'user', content: '在等待 RP 回复时修正状态。' }],
+        executeManagerOnce: async () => {
+            managerCalls += 1;
+            if (managerCalls === 1) {
+                return {
+                    text: '',
+                    toolCalls: [{
+                        id: 'assistant-pending-user-write',
+                        name: TAVERN_STATUS_TOOL_NAMES.PATCH,
+                        arguments: {
+                            ops: [{
+                                op: 'set',
+                                subjectId: 'user',
+                                tabId: 'overview',
+                                blockId: 'stats',
+                                fieldId: 'san',
+                                value: 80,
+                            }],
+                        },
+                    }],
+                };
+            }
+            return { text: '已完成。' };
+        },
+    });
+
+    const snapshot = (await listTavernStatusSnapshots(session.id))
+        .find((item) => item.floor === pendingUserMessage.order);
+    const snapshotDocument = snapshot?.document?.data as {
+        subjects?: Array<{
+            tabs?: Array<{
+                blocks?: Array<{
+                    fields?: Array<{ value?: number }>;
+                }>;
+            }>;
+        }>;
+    } | undefined;
+    const field = snapshotDocument?.subjects?.[0]?.tabs?.[0]?.blocks?.[0]?.fields?.[0];
+    const patches = await listTavernStructuredStatePatches({
+        sessionId: session.id,
+        docType: 'tavern.status',
+        docId: 'main',
+    });
+    const assistantPatch = patches.at(-1);
+    assert.equal(result.ok, true);
+    assert.equal(field?.value, 80);
+    assert.equal(assistantPatch?.sourceUserOrder, pendingUserMessage.order);
+    assert.equal(assistantPatch?.sourceAssistantOrder, assistantMessage.order);
+});
+
+test('assistant accepted writes reject an edited pending user story anchor', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant pending user edit guard' });
+    await appendTavernMessage(session.id, { role: 'user', content: '第一轮。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '第一轮回复。' });
+    const pendingUserMessage = await appendTavernMessage(session.id, { role: 'user', content: '原始待回复内容。' });
     await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n写入前。', { source: 'manager' });
-    const basis = await captureTavernAssistantAcceptedStateBasis(session.id, assistantMessage.order);
+    const basis = await captureTavernAssistantAcceptedStateBasis(session.id);
+    await updateTavernMessage(session.id, pendingUserMessage.order, { content: '已经编辑的待回复内容。' }, {
+        incrementTimelineRevision: true,
+    });
 
     const result = await executeTavernSourceFileTool(session.id, 'Write', {
         filePath: 'memory/state.md',
         content: '# 会话记忆\n\n不应提交。',
     }, {
         caller: 'chat',
+        sourceUserOrder: pendingUserMessage.order,
         sourceAssistantOrder: assistantMessage.order,
         afterWriteObserver: async () => {
             await commitTavernAssistantAcceptedStateWriteInCurrentTransaction(basis, {
@@ -5564,7 +5648,7 @@ test('assistant accepted writes reject a story with a pending user message', asy
     });
 
     assert.equal(result.ok, false);
-    assert.equal(result.error, 'assistant_timeline_unsettled');
+    assert.equal(result.error, 'assistant_timeline_advanced');
     assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /写入前/);
     assert.equal((await listTavernMemorySnapshots(session.id)).length, 0);
 });

@@ -1056,7 +1056,6 @@ export async function runSharedManagerToolLoop(input: {
             const toolError = String(toolResult.error || '');
             if (
                 toolError === 'assistant_timeline_advanced'
-                || toolError === 'assistant_timeline_unsettled'
                 || toolError.startsWith('manager_resource_revision_conflict:')
             ) {
                 throw new Error(toolError);

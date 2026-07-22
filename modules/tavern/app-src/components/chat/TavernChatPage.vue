@@ -14,6 +14,7 @@ import {
     type TavernChatWorkspacePanelKey,
 } from '../tavern-app-context';
 import TavernCharacterWorkspacePanel from '../TavernCharacterWorkspacePanel.vue';
+import TavernAssistantContextButton from './TavernAssistantContextButton.vue';
 import TavernAssistantPresetSettingsPanel from '../settings/TavernAssistantPresetSettingsPanel.vue';
 import TavernBaseSettingsPanel from '../settings/TavernBaseSettingsPanel.vue';
 import TavernChatPresetSettingsPanel from '../settings/TavernChatPresetSettingsPanel.vue';
@@ -67,6 +68,11 @@ const {
 } = phone;
 const phoneOpen = phone.os.isOpen;
 const {
+    assistantChatContextLabel,
+    assistantChatContextUsage,
+    canClearAssistantChat,
+    clearAssistantChatHistory,
+    isManagerAssistantRunning,
     managerScrollRef,
     updateManagerScrollButtons,
     visibleManagerChatItems,
@@ -148,6 +154,11 @@ function closeMobileChatPanel() {
     closeChatAppMenu();
     mobileChatPanel.value = 'none';
     memoryDirectoryOpen.value = false;
+}
+
+async function clearAssistantChatFromTopbar() {
+    closeMobileChatPanel();
+    await clearAssistantChatHistory();
 }
 
 function toggleMobileWorkspacePanel(panel: TavernChatWorkspacePanelKey) {
@@ -546,6 +557,15 @@ onUnmounted(() => {
           <TavernDrawCapsule
             v-if="chatFocus === 'chat'"
             mobile
+          />
+          <TavernAssistantContextButton
+            v-else
+            :label="assistantChatContextLabel"
+            :usage="assistantChatContextUsage"
+            :can-clear="canClearAssistantChat"
+            :busy="isManagerAssistantRunning"
+            mobile
+            @clear="clearAssistantChatFromTopbar"
           />
           <button
             type="button"

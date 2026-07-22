@@ -117,7 +117,10 @@ import {
     prepareXbTavernAssistantChatWriteContext,
     runXbTavernAssistantChat,
 } from './runtime/assistant-chat-runner';
-import { ensureTavernAssistantChatBudget } from './runtime/assistant-chat-context';
+import {
+    ensureTavernAssistantChatBudget,
+    TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS,
+} from './runtime/assistant-chat-context';
 import {
     cancelAcceptedRollbackManagersBeforeMessage,
     describeAcceptedStateRollbackImpact,
@@ -1277,8 +1280,11 @@ const runtimeActionCheckSignature = computed(() => runtimeActionCheckEvents.valu
     ].join(':'))
     .join('|'));
 const assistantChatContextLabel = computed(() => assistantChatBudgetTokens.value === null
-    ? '— / 228k'
-    : `${Math.round(assistantChatBudgetTokens.value / 1000)}k / 228k`);
+    ? `— / ${Math.round(TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS / 1000)}k`
+    : `${Math.round(assistantChatBudgetTokens.value / 1000)}k / ${Math.round(TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS / 1000)}k`);
+const assistantChatContextUsage = computed(() => assistantChatBudgetTokens.value === null
+    ? null
+    : Math.max(0, Math.min(1, assistantChatBudgetTokens.value / TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS)));
 const canClearAssistantChat = computed(() => (
     (managerChatItems.value.length > 0 || managerChatHasMore.value)
     && !isManagerAssistantRunning.value
@@ -4289,8 +4295,6 @@ async function runManagerQuestion(
     isManagerAssistantCancelling.value = false;
     managerInputStatus.value = '运行中';
     managerAutoScroll.value = true;
-    let sourceUserOrder = -1;
-    let acceptedFloorAtStart = -1;
     let userMessageAppended = false;
     let liveRun: TavernAssistantChatLiveRun | null = null;
     let protocolResultPersisted = false;
@@ -4299,16 +4303,13 @@ async function runManagerQuestion(
         && selectedSessionId.value === managerSessionId
     );
     try {
-        const [latestUserMessage, writeContext, storedSession] = await Promise.all([
-            getLatestTavernUserMessageAtOrBefore(managerSessionId, Number.POSITIVE_INFINITY),
+        const [writeContext, storedSession] = await Promise.all([
             prepareXbTavernAssistantChatWriteContext(managerSessionId),
             getTavernSession(managerSessionId),
         ]);
         if (!storedSession) {throw new Error('session_missing');}
         managerTurn = Number(normalizeTavernSessionState(storedSession.state || {}).turn || 0);
         managerContextSnapshot = buildSessionContextSnapshotBase(storedSession);
-        sourceUserOrder = latestUserMessage?.order ?? -1;
-        acceptedFloorAtStart = writeContext.acceptedStateBasis.floor;
         const historyBeforeOrder = Number(options.historyBeforeOrder);
         const historyBeforeTurn = Number.isFinite(historyBeforeOrder)
             ? historyBeforeOrder <= 0
@@ -4428,8 +4429,6 @@ async function runManagerQuestion(
             history: budget.history,
             preparedMessages: budget.messages,
             turn: managerTurn,
-            userOrder: sourceUserOrder,
-            assistantOrder: acceptedFloorAtStart,
             signal: controller.signal,
             writeContext,
             onProtocolEvent: liveRun.onProtocolEvent,
@@ -4897,6 +4896,7 @@ const chatContext = {
 const managerContext = {
     activeMemoryFiles,
     assistantChatContextLabel,
+    assistantChatContextUsage,
     archivedManagerRuns,
     canEditManagerMessage,
     canClearAssistantChat,

@@ -48,7 +48,6 @@ export interface TavernAssistantAcceptedStateBasis {
     sessionId: string;
     floor: number;
     storyTimelineRevision: number;
-    storySettled: boolean;
     storyAnchor: Pick<TavernMessageRecord, 'messageId' | 'order' | 'role' | 'timelineRevision'> | null;
     memoryFiles: TavernMemorySnapshotFileEntry[];
 }
@@ -79,22 +78,19 @@ function cloneAcceptedStateValue<T>(value: T): T {
 
 export async function captureTavernAssistantAcceptedStateBasisInCurrentTransaction(
     sessionId = '',
-    floorInput?: number,
 ): Promise<TavernAssistantAcceptedStateBasis> {
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('assistant_accepted_state_session_required');}
     const session = await tavernSessionsTable.get(id);
     if (!session) {throw new Error('assistant_accepted_state_session_missing');}
-    const floor = await resolveTavernAcceptedSnapshotFloor(id, floorInput);
-    const [latestStoryMessage, memorySnapshot] = await Promise.all([
-        getLatestTavernMessage(id),
-        getLatestTavernMemorySnapshot(id, floor),
-    ]);
+    const latestStoryMessage = await getLatestTavernMessage(id);
+    const floor = latestStoryMessage?.order ?? TAVERN_ACCEPTED_BASELINE_FLOOR;
+    const memorySnapshot = await getLatestTavernMemorySnapshot(id, floor);
     const memoryFiles = memorySnapshot
         ? memorySnapshot.files
         : (await tavernMemoryFilesTable.where('sessionId').equals(id).toArray())
             .map((file) => ({ path: file.path, file }));
-    const storyAnchor = latestStoryMessage?.role === 'assistant' && latestStoryMessage.order === floor
+    const storyAnchor = latestStoryMessage
         ? {
             messageId: latestStoryMessage.messageId,
             order: latestStoryMessage.order,
@@ -106,7 +102,6 @@ export async function captureTavernAssistantAcceptedStateBasisInCurrentTransacti
         sessionId: id,
         floor,
         storyTimelineRevision: normalizedTavernStoryTimelineRevision(session),
-        storySettled: !latestStoryMessage || !!storyAnchor,
         storyAnchor,
         memoryFiles: cloneAcceptedStateValue(memoryFiles),
     };
@@ -114,7 +109,6 @@ export async function captureTavernAssistantAcceptedStateBasisInCurrentTransacti
 
 export async function captureTavernAssistantAcceptedStateBasis(
     sessionId = '',
-    floorInput?: number,
 ): Promise<TavernAssistantAcceptedStateBasis> {
     return await db.transaction(
         'r',
@@ -122,7 +116,7 @@ export async function captureTavernAssistantAcceptedStateBasis(
         tavernMemoryFilesTable,
         tavernMemorySnapshotsTable,
         tavernSessionsTable,
-        () => captureTavernAssistantAcceptedStateBasisInCurrentTransaction(sessionId, floorInput),
+        () => captureTavernAssistantAcceptedStateBasisInCurrentTransaction(sessionId),
     );
 }
 
@@ -136,14 +130,13 @@ export async function assertTavernAssistantAcceptedStateBasisCurrent(
     ) {
         throw new Error('assistant_timeline_advanced');
     }
-    if (!basis.storySettled) {throw new Error('assistant_timeline_unsettled');}
     const latestStoryMessage = await getLatestTavernMessage(sessionId);
     if (!basis.storyAnchor) {
         if (latestStoryMessage) {throw new Error('assistant_timeline_advanced');}
         return;
     }
     if (!latestStoryMessage
-        || latestStoryMessage.role !== 'assistant'
+        || latestStoryMessage.role !== basis.storyAnchor.role
         || latestStoryMessage.messageId !== basis.storyAnchor.messageId
         || latestStoryMessage.order !== basis.storyAnchor.order
         || latestStoryMessage.timelineRevision !== basis.storyAnchor.timelineRevision

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, shallowRef, watch } from 'vue';
+import TavernAssistantContextButton from './TavernAssistantContextButton.vue';
 import TavernAssistantToolRun from './TavernAssistantToolRun.vue';
 import { loadTavernAssistantToolTurnDetail } from '../../features/assistant-chat/assistant-chat-projection';
 import TavernScrollControls from '../TavernScrollControls.vue';
@@ -31,8 +32,8 @@ const {
     thoughtSummaryLabel,
 } = chat;
 const {
-    activeMemoryFiles,
     assistantChatContextLabel,
+    assistantChatContextUsage,
     archivedManagerRuns,
     canClearAssistantChat,
     canEditManagerMessage,
@@ -75,7 +76,6 @@ const {
     managerChatHasMore,
     managerInputDraft,
     managerPendingUserMessage,
-    managerRuns,
     managerRunTone,
     managerScrollControlsActive,
     managerScrollRef,
@@ -84,16 +84,12 @@ const {
     managerToolStatusLabel,
     managerToolTone,
     managerToolTraceItems,
-    memoryFileDisplayName,
-    memoryFiles,
-    memoryIndexStatusLine,
     retryManagerRun,
     revealOlderManagerMessages,
     rerunFromManagerMessage,
     saveEditManagerMessage,
     scrollManagerToBottom,
     scrollManagerToTop,
-    selectedMemoryFile,
     showManagerScrollBottom,
     showManagerScrollTop,
     startEditManagerMessage,
@@ -242,8 +238,7 @@ const currentManagerTraceItems = computed(() => (
     currentManagerWorkRun.value ? managerToolTraceItems(currentManagerWorkRun.value.toolTrace) : []
 ));
 const managerWorkVisible = computed(() => Boolean(
-    memoryFiles.value.length
-    || managerRuns.value.length
+    currentManagerWorkRun.value
 ));
 const managerWorkHistoryTotal = computed(() => archivedManagerRuns.value.length + hiddenManagerRunCount.value);
 
@@ -253,50 +248,74 @@ function managerRunKindLabel(run: TavernManagerRunRecord | null | undefined) {
     return '自动维护';
 }
 
-function compactManagerRunLine(line = '') {
-    return String(line || '')
-        .replace(/^记忆：/, '记忆')
-        .replace(/^地图：/, '地图')
-        .replace(/本轮没有明确空间变化，未更新/g, '无变化')
-        .replace(/没有写入文件/g, '无变化')
-        .replace(/份档案/g, '')
-        .replace(/份状态/g, '')
-        .trim();
+function managerToolActionLabel(name = '') {
+    const toolName = String(name || '').trim();
+    if (/^(read|list)/i.test(toolName)) {return '正在读取资料';}
+    if (/^(write|edit)/i.test(toolName)) {return '正在更新记忆';}
+    if (/status/i.test(toolName)) {return '正在更新状态栏';}
+    if (/map|atlas|scene/i.test(toolName)) {return '正在更新场景地图';}
+    if (/search|tavily/i.test(toolName)) {return '正在搜索资料';}
+    return toolName ? `正在运行 ${toolName}` : '正在处理工具任务';
 }
 
-function managerWorkSummaryLine(run: TavernManagerRunRecord | null | undefined) {
-    if (!run) {
-        return `记忆档案 ${activeMemoryFiles.value.length}/${memoryFiles.value.length} · 最近维护完成 · 当前无后台工作`;
+function managerWorkTitle(run: TavernManagerRunRecord) {
+    if (isManagerRunRetrying(run)) {return '正在重新维护';}
+    const labels: Record<string, string> = {
+        queued: '等待后台维护',
+        running: '正在维护上一轮剧情',
+        completed: '后台维护完成',
+        failed: '后台维护失败',
+        cancelled: '后台维护已停止',
+        superseded: '本次维护已作废',
+        rolled_back: '本次维护未采用',
+    };
+    return labels[String(run.status || '')] || '后台维护';
+}
+
+function managerWorkSummaryLine(run: TavernManagerRunRecord) {
+    if (isManagerRunRetrying(run)) {return '正在重新连接后台模型，等待新的处理结果。';}
+    const status = String(run.status || '');
+    if (status === 'queued') {return '上一轮剧情已经确认，正在等待后台开始。';}
+    if (status === 'running') {
+        const activeTool = [...currentManagerTraceItems.value]
+            .reverse()
+            .find((tool) => tool.status === 'running');
+        if (activeTool) {
+            return [
+                managerToolActionLabel(activeTool.name),
+                activeTool.path ? shortText(activeTool.path, 68) : '',
+            ].filter(Boolean).join(' · ');
+        }
+        if (currentManagerTraceItems.value.length) {return '工具处理完成，正在整理本轮结果。';}
+        return '正在阅读上一轮剧情，判断需要更新哪些内容。';
     }
-    return [
-        `${managerStatusLabel(run.status)} · ${formatRunInputLine(run)}`,
-        compactManagerRunLine(formatRunMemoryLine(run)),
-        compactManagerRunLine(formatRunMapLine(run)),
-    ].filter(Boolean).join(' · ');
+    if (status === 'completed') {
+        const changedFiles = Array.isArray(run.changedFiles) ? run.changedFiles.length : 0;
+        const changedStates = Array.isArray(run.changedStates) ? run.changedStates.length : 0;
+        if (changedFiles && changedStates) {return `已更新 ${changedFiles} 项记忆与 ${changedStates} 项世界状态。`;}
+        if (changedFiles) {return `已更新 ${changedFiles} 项记忆。`;}
+        if (changedStates) {return `已更新 ${changedStates} 项世界状态。`;}
+        return '检查完成，没有需要更新的内容。';
+    }
+    if (status === 'failed') {
+        return shortText(formatRunIssueLine(run).replace(/^原因：/, ''), 100) || '运行失败，展开可查看原因并重试。';
+    }
+    if (status === 'cancelled') {return '后台工作已停止，没有采用未完成的结果。';}
+    if (status === 'superseded') {return '剧情内容已经变化，这次旧结果没有采用。';}
+    if (status === 'rolled_back') {return '本次结果已经撤回，当前状态保持上一版。';}
+    return formatRunActivityLine(run) || '暂无更多信息。';
 }
 
-function managerWorkMetricLine(run: TavernManagerRunRecord | null | undefined) {
-    if (!run) {return memoryIndexStatusLine.value || '当前无后台工作';}
-    return [
-        toolTraceSummary(run.toolTrace),
-        isManagerRunRetrying(run) ? '重试中' : formatRunActivityLine(run),
-    ].filter(Boolean).join(' · ');
-}
-
-const managerWorkBandKindLabel = computed(() => (
-    currentManagerWorkRun.value
-        ? managerRunKindLabel(currentManagerWorkRun.value)
-        : '工作记录'
-));
+const managerWorkBandTone = computed(() => currentManagerWorkRun.value
+    ? managerRunTone(currentManagerWorkRun.value)
+    : 'neutral');
+const managerWorkBandTitle = computed(() => currentManagerWorkRun.value
+    ? managerWorkTitle(currentManagerWorkRun.value)
+    : '后台维护');
 const managerWorkBandSummaryLine = computed(() => (
     currentManagerWorkRun.value
         ? managerWorkSummaryLine(currentManagerWorkRun.value)
-        : managerWorkSummaryLine(null)
-));
-const managerWorkBandMetricLine = computed(() => (
-    currentManagerWorkRun.value
-        ? managerWorkMetricLine(currentManagerWorkRun.value)
-        : managerWorkMetricLine(null)
+        : '当前没有后台工作。'
 ));
 
 watch(
@@ -367,17 +386,14 @@ watch(session.selectedSessionId, () => {
     :aria-hidden="chatFocus === 'chat'"
   >
     <header class="manager-head">
-      <div class="manager-chat-toolbar">
-        <span title="上次发送上下文预算 / 自动压缩阈值">{{ assistantChatContextLabel }}</span>
-        <button
-          type="button"
-          :disabled="!canClearAssistantChat"
-          @click="clearAssistantChatHistory"
-        >
-          清空对话
-        </button>
-      </div>
       <div class="manager-head-actions">
+        <TavernAssistantContextButton
+          :label="assistantChatContextLabel"
+          :usage="assistantChatContextUsage"
+          :can-clear="canClearAssistantChat"
+          :busy="isManagerAssistantRunning"
+          @clear="clearAssistantChatHistory"
+        />
         <button
           type="button"
           class="contract-trigger"
@@ -403,13 +419,19 @@ watch(session.selectedSessionId, () => {
       v-if="managerWorkVisible"
       :ref="setManagerWorkRef"
       class="manager-work-band"
+      :class="`tone-${managerWorkBandTone}`"
       :open="managerWorkDisclosure.isOpen(managerDisclosureId('work-band'))"
       @toggle="handleManagerWorkBandToggle"
     >
       <summary>
-        <strong>{{ managerWorkBandKindLabel }}</strong>
-        <span>{{ managerWorkBandSummaryLine }}</span>
-        <em>{{ managerWorkBandMetricLine }}</em>
+        <span
+          class="manager-work-status-dot"
+          aria-hidden="true"
+        />
+        <span class="manager-work-summary-copy">
+          <strong>{{ managerWorkBandTitle }}</strong>
+          <span>{{ managerWorkBandSummaryLine }}</span>
+        </span>
       </summary>
       <div
         v-if="managerWorkDisclosure.isOpen(managerDisclosureId('work-band'))"
@@ -455,20 +477,6 @@ watch(session.selectedSessionId, () => {
             {{ isManagerRunRetrying(currentManagerWorkRun) ? '重试中' : '重试' }}
           </button>
         </section>
-        <section
-          v-else
-          class="manager-work-section"
-        >
-          <div class="manager-work-section-head">
-            <strong>记忆档案</strong>
-            <small>{{ activeMemoryFiles.length }}/{{ memoryFiles.length }}</small>
-          </div>
-          <p>{{ memoryIndexStatusLine }}</p>
-          <p v-if="selectedMemoryFile">
-            当前打开：{{ memoryFileDisplayName(selectedMemoryFile) }}
-          </p>
-        </section>
-
         <section
           v-if="currentManagerWorkRun && currentManagerTraceItems.length"
           class="manager-work-section manager-work-tools"

@@ -570,6 +570,7 @@ export interface TavernPhoneContext {
 export interface TavernManagerContext {
     activeMemoryFiles: TavernReadable<TavernMemoryIndexFileEntry[]>;
     assistantChatContextLabel: TavernReadable<string>;
+    assistantChatContextUsage: TavernReadable<number | null>;
     canClearAssistantChat: TavernReadable<boolean>;
     archivedManagerRuns: TavernReadable<TavernManagerRunRecord[]>;
     canEditManagerMessage: TavernCommand<[message: TavernAssistantChatMessageUnit], boolean>;

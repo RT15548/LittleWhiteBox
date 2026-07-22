@@ -7,6 +7,8 @@ import {
 } from '../../shared/accepted-state';
 import { ensureTavernMemoryDefaultsInitialized } from '../../shared/memory-files';
 import db, {
+    getLatestTavernAssistantOrder,
+    getLatestTavernUserMessageAtOrBefore,
     listTavernAssistantChatMessages,
     tavernMemoryFilesTable,
     tavernMemorySnapshotsTable,
@@ -31,11 +33,12 @@ import {
 export interface XbTavernAssistantChatWriteContext {
     acceptedStateBasis: TavernAssistantAcceptedStateBasis;
     stateWriteCas: TavernStateWriteCasTracker;
+    sourceUserOrder: number;
+    sourceAssistantOrder: number;
 }
 
 export async function prepareXbTavernAssistantChatWriteContext(
     sessionId = '',
-    assistantOrder?: number,
 ): Promise<XbTavernAssistantChatWriteContext> {
     const id = String(sessionId || '').trim();
     if (!id) {throw new Error('manager_session_required');}
@@ -48,11 +51,18 @@ export async function prepareXbTavernAssistantChatWriteContext(
         tavernStateDocumentsTable,
         tavernSessionsTable,
         async () => {
-            const [acceptedStateBasis, stateWriteCas] = await Promise.all([
-                captureTavernAssistantAcceptedStateBasisInCurrentTransaction(id, assistantOrder),
+            const [acceptedStateBasis, stateWriteCas, latestUserMessage, latestAssistantOrder] = await Promise.all([
+                captureTavernAssistantAcceptedStateBasisInCurrentTransaction(id),
                 createTavernStateWriteCasTrackerInCurrentTransaction(id),
+                getLatestTavernUserMessageAtOrBefore(id, Number.POSITIVE_INFINITY),
+                getLatestTavernAssistantOrder(id),
             ]);
-            return { acceptedStateBasis, stateWriteCas };
+            return {
+                acceptedStateBasis,
+                stateWriteCas,
+                sourceUserOrder: latestUserMessage?.order ?? -1,
+                sourceAssistantOrder: latestAssistantOrder ?? -1,
+            };
         },
     );
 }
@@ -64,8 +74,6 @@ export interface XbTavernAssistantChatInput {
     history?: TavernAssistantChatMessageRecord[];
     preparedMessages?: XbTavernMessage[];
     turn?: number;
-    userOrder?: number;
-    assistantOrder?: number;
     assistantPreset?: TavernAssistantPreset;
     contextSnapshot?: XbTavernContext;
     signal?: AbortSignal;
@@ -145,10 +153,7 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
     if (!sessionId) {throw new Error('manager_session_required');}
     if (!question) {throw new Error('manager_question_required');}
 
-    const writeContext = input.writeContext || await prepareXbTavernAssistantChatWriteContext(
-        sessionId,
-        input.assistantOrder,
-    );
+    const writeContext = input.writeContext || await prepareXbTavernAssistantChatWriteContext(sessionId);
 
     const messages = Array.isArray(input.preparedMessages)
         ? [...input.preparedMessages]
@@ -179,8 +184,8 @@ export async function runXbTavernAssistantChat(input: XbTavernAssistantChatInput
             caller: 'chat',
             messages,
             turn: Math.max(0, Number(input.turn) || 0),
-            userOrder: input.userOrder,
-            assistantOrder: input.assistantOrder,
+            userOrder: writeContext.sourceUserOrder,
+            assistantOrder: writeContext.sourceAssistantOrder,
             beforeWriteGuard: async () => {
                 await assertTavernAssistantAcceptedStateBasisCurrent(writeContext.acceptedStateBasis);
                 await input.beforeWriteGuard?.();
