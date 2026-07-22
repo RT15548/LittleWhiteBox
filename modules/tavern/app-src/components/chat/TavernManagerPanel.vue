@@ -5,7 +5,7 @@ import { loadTavernAssistantToolTurnDetail } from '../../features/assistant-chat
 import TavernScrollControls from '../TavernScrollControls.vue';
 import { useTavernChatContext, useTavernManagerContext, useTavernSessionContext, useTavernShellContext } from '../tavern-app-context';
 import { useTavernEphemeralDisclosureScope } from '../useTavernEphemeralDisclosureScope';
-import type { TavernManagerRunRecord } from '../../../shared/session-db';
+import { getTavernManagerRun, type TavernManagerRunRecord } from '../../../shared/session-db';
 
 const emit = defineEmits<{
     (event: 'open-contract'): void;
@@ -40,7 +40,7 @@ const {
     canSendManagerMessage,
     clearAssistantChatHistory,
     copyManagerMessage,
-    currentManagerWorkRun,
+    currentManagerWorkRun: currentManagerWorkRunSummary,
     deleteManagerMessageTurn,
     editingMessageDraft,
     enhanceManagerMarkdown,
@@ -116,6 +116,12 @@ function setManagerComposeTextareaRef(element: Element | null) {
 
 function handleManagerWorkBandToggle(event: Event) {
     managerWorkDisclosure.setOpenFromEvent(managerDisclosureId('work-band'), event);
+    if ((event.currentTarget as HTMLDetailsElement | null)?.open) {
+        void loadCurrentManagerWorkRunDetail();
+    } else {
+        managerWorkRunDetailRequest += 1;
+        managerWorkRunDetail.value = null;
+    }
     void nextTick(() => {
         enhanceManagerMarkdown();
         updateManagerScrollButtons();
@@ -128,6 +134,40 @@ function openContractModal() {
 
 const managerWorkDisclosure = useTavernEphemeralDisclosureScope();
 const assistantChatDisclosure = useTavernEphemeralDisclosureScope();
+const managerWorkRunDetail = shallowRef<TavernManagerRunRecord | null>(null);
+let managerWorkRunDetailRequest = 0;
+
+const currentManagerWorkRun = computed(() => {
+    const summary = currentManagerWorkRunSummary.value;
+    const detail = managerWorkRunDetail.value;
+    if (!summary || !detail || detail.id !== summary.id || Number(detail.updatedAt) !== Number(summary.updatedAt)) {
+        return summary;
+    }
+    return detail;
+});
+
+async function loadCurrentManagerWorkRunDetail(): Promise<void> {
+    const summary = currentManagerWorkRunSummary.value;
+    if (!summary) {
+        managerWorkRunDetail.value = null;
+        return;
+    }
+    const request = ++managerWorkRunDetailRequest;
+    const detail = await getTavernManagerRun(summary.id);
+    if (request !== managerWorkRunDetailRequest
+        || !managerWorkDisclosure.isOpen(managerDisclosureId('work-band'))
+        || currentManagerWorkRunSummary.value?.id !== summary.id
+    ) {return;}
+    managerWorkRunDetail.value = detail;
+    await nextTick();
+    enhanceManagerMarkdown();
+    updateManagerScrollButtons();
+}
+
+function releaseManagerWorkRunDetail(): void {
+    managerWorkRunDetailRequest += 1;
+    managerWorkRunDetail.value = null;
+}
 
 function managerMarkdownSignature(text = '') {
     return markdownSignature([
@@ -260,12 +300,19 @@ const managerWorkBandMetricLine = computed(() => (
 ));
 
 watch(
-    () => `${currentManagerWorkRun.value?.id || ''}:${currentManagerWorkRun.value?.status || ''}`,
+    () => [
+        currentManagerWorkRunSummary.value?.id || '',
+        currentManagerWorkRunSummary.value?.status || '',
+        Number(currentManagerWorkRunSummary.value?.updatedAt) || 0,
+    ] as const,
     (next, previous) => {
-        if (next === previous) {return;}
-        const status = String(currentManagerWorkRun.value?.status || '');
+        if (next.every((value, index) => value === previous?.[index])) {return;}
+        managerWorkRunDetailRequest += 1;
+        managerWorkRunDetail.value = null;
+        const status = String(currentManagerWorkRunSummary.value?.status || '');
         if (['queued', 'running'].includes(status)) {
             managerWorkDisclosure.setOpen(managerDisclosureId('work-band'), true);
+            void loadCurrentManagerWorkRunDetail();
             return;
         }
         managerWorkDisclosure.reset();
@@ -277,6 +324,7 @@ watch(
     ([view, focus]) => {
         if (view !== 'chat' || focus !== 'manager') {
             managerWorkDisclosure.reset();
+            releaseManagerWorkRunDetail();
             assistantChatDisclosure.reset();
             releaseManagerMessageThoughts();
         }
@@ -306,6 +354,7 @@ watch(
 );
 
 watch(session.selectedSessionId, () => {
+    releaseManagerWorkRunDetail();
     managerWorkDisclosure.reset();
     assistantChatDisclosure.reset();
     releaseManagerMessageThoughts();

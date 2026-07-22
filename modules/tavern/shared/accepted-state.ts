@@ -2,6 +2,7 @@ import db, {
     assertTavernManagerRunSourceMessages,
     hashTavernMemoryRecord,
     hashTavernStateDocument,
+    normalizedTavernStoryTimelineRevision,
     tavernManagerMemorySnapshotsTable,
     tavernManagerRunsTable,
     tavernManagerStateSnapshotsTable,
@@ -46,6 +47,7 @@ export interface TavernAcceptedStateSnapshotOptions {
 export interface TavernAssistantAcceptedStateBasis {
     sessionId: string;
     floor: number;
+    storyTimelineRevision: number;
     memoryFiles: TavernMemorySnapshotFileEntry[];
     statusDocument: TavernStructuredStateDocumentRecord | null;
 }
@@ -74,13 +76,6 @@ function cloneAcceptedStateValue<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function latestSnapshotAtOrBefore<T extends { floor: number; createdAt: number }>(rows: T[], floor: number): T | null {
-    return rows
-        .filter((row) => Number(row.floor) <= floor)
-        .sort((left, right) => Number(right.floor) - Number(left.floor) || Number(right.createdAt) - Number(left.createdAt))[0]
-        || null;
-}
-
 export async function captureTavernAssistantAcceptedStateBasis(
     sessionId = '',
     floorInput?: number,
@@ -94,7 +89,10 @@ export async function captureTavernAssistantAcceptedStateBasis(
         tavernMemorySnapshotsTable,
         tavernStateDocumentsTable,
         tavernStatusSnapshotsTable,
+        tavernSessionsTable,
         async () => {
+            const session = await tavernSessionsTable.get(id);
+            if (!session) {throw new Error('assistant_accepted_state_session_missing');}
             const floor = await resolveTavernAcceptedSnapshotFloor(id, floorInput);
             const [memorySnapshot, statusSnapshot] = await Promise.all([
                 getLatestTavernMemorySnapshot(id, floor),
@@ -110,6 +108,7 @@ export async function captureTavernAssistantAcceptedStateBasis(
             return {
                 sessionId: id,
                 floor,
+                storyTimelineRevision: normalizedTavernStoryTimelineRevision(session),
                 memoryFiles: cloneAcceptedStateValue(memoryFiles),
                 statusDocument: cloneAcceptedStateValue(statusSnapshot
                     ? statusSnapshot.document || null
@@ -128,14 +127,19 @@ export async function commitTavernAssistantAcceptedStateWriteInCurrentTransactio
     if (!sessionId || !Number.isFinite(floor)) {
         throw new Error('assistant_accepted_state_basis_invalid');
     }
+    const session = await tavernSessionsTable.get(sessionId);
+    if (!session
+        || normalizedTavernStoryTimelineRevision(session) !== basis.storyTimelineRevision
+    ) {
+        throw new Error('assistant_timeline_advanced');
+    }
     const changedFiles = [...new Set((change.changedFiles || []).map((path) => String(path || '').trim()).filter(Boolean))];
     const statusChanged = (change.changedStates || []).some((key) => (
         String(key || '').trim() === `${TAVERN_STATUS_DOC_TYPE}/${TAVERN_STATUS_DOC_ID}`
     ));
 
     if (changedFiles.length) {
-        const existing = await tavernMemorySnapshotsTable.get([sessionId, floor]);
-        const files = new Map((existing?.files || basis.memoryFiles).map((entry) => [
+        const files = new Map(basis.memoryFiles.map((entry) => [
             entry.path,
             cloneAcceptedStateValue(entry.file),
         ]));
@@ -144,14 +148,16 @@ export async function commitTavernAssistantAcceptedStateWriteInCurrentTransactio
             if (current) {files.set(path, cloneAcceptedStateValue(current));}
             else {files.delete(path);}
         }
+        const nextFiles = [...files.entries()]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([path, file]) => ({ path, file }));
         await tavernMemorySnapshotsTable.put({
             sessionId,
             floor,
-            files: [...files.entries()]
-                .sort(([left], [right]) => left.localeCompare(right))
-                .map(([path, file]) => ({ path, file })),
+            files: nextFiles,
             createdAt: Date.now(),
         });
+        basis.memoryFiles = cloneAcceptedStateValue(nextFiles);
     }
 
     if (statusChanged) {
@@ -230,11 +236,10 @@ export async function completeAcceptedTurnManagerRunWithSnapshot(input: {
             }
 
             if (domains.has('memory')) {
-                const [snapshots, managerSnapshots] = await Promise.all([
-                    tavernMemorySnapshotsTable.where('sessionId').equals(sessionId).toArray(),
+                const [baseline, managerSnapshots] = await Promise.all([
+                    getLatestTavernMemorySnapshot(sessionId, floor),
                     tavernManagerMemorySnapshotsTable.where('managerRunId').equals(managerRunId).toArray(),
                 ]);
-                const baseline = latestSnapshotAtOrBefore(snapshots, floor);
                 const files = new Map((baseline?.files || []).map((entry) => [entry.path, cloneAcceptedStateValue(entry.file)]));
                 for (const delta of managerSnapshots.filter((snapshot) => !!snapshot.afterHash)) {
                     const path = delta.path;

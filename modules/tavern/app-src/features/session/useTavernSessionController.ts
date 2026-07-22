@@ -36,6 +36,7 @@ export interface TavernSessionControllerOptions {
     selectedCharacterPreviewKey: Ref<string>;
     selectedSessionCharacterError: Ref<string>;
     abortActiveRun: () => void;
+    abortAssistantRunForSession: (sessionId: string) => void;
     applySessionSnapshotContext: (session?: TavernSessionRecord | null) => void;
     cancelAndRollbackManagersForSession: (sessionId: string) => Promise<unknown>;
     cancelDrawJobsForSession: (sessionId: string) => void;
@@ -405,6 +406,7 @@ export function useTavernSessionController(state: TavernSessionState, options: T
         if (isDeletingSelectedSession && options.isRunning.value) {
             options.abortActiveRun();
         }
+        options.abortAssistantRunForSession(id);
         options.cancelDrawJobsForSession(id);
         await options.cancelAndRollbackManagersForSession(id);
         const removed = await deleteTavernSession(id);

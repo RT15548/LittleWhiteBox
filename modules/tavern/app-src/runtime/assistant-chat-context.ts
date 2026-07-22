@@ -54,8 +54,8 @@ export interface EnsureTavernAssistantChatBudgetInput {
     onCompactionUnable?: (snapshot: XbTavernAssistantChatCompactionSnapshot) => void;
 }
 
-export const TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS = 188000;
-export const TAVERN_ASSISTANT_CHAT_SUMMARY_TRIGGER_TOKENS = 158000;
+export const TAVERN_ASSISTANT_CHAT_MAX_CONTEXT_TOKENS = 258000;
+export const TAVERN_ASSISTANT_CHAT_SUMMARY_TRIGGER_TOKENS = 228000;
 export const TAVERN_ASSISTANT_CHAT_DEFAULT_PRESERVED_TURNS = 2;
 export const TAVERN_ASSISTANT_CHAT_MIN_PRESERVED_TURNS = 1;
 

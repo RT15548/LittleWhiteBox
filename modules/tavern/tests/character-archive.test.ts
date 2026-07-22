@@ -498,6 +498,7 @@ test('tavern character archive JSONL parser yields bounded batches', () => {
             characterName: 'Aster',
             createdAt: index,
             updatedAt: index,
+            storyTimelineRevision: 1,
             taskBoardEpoch: 1,
         },
     }));

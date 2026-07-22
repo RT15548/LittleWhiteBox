@@ -206,6 +206,13 @@ export function useTavernManagerDisplay(options: TavernManagerDisplayOptions) {
         }
         if (typeof value === 'object') {
             const record = value as Record<string, unknown>;
+            const total = Math.max(0, Math.floor(Number(record.total) || 0));
+            if (total) {
+                const running = Math.max(0, Math.floor(Number(record.running) || 0));
+                const failed = Math.max(0, Math.floor(Number(record.failed) || 0));
+                if (running) {return `工具调用 ${total} 次 · ${running} 个运行中`;}
+                return failed ? `工具调用 ${total} 次 · ${failed} 次失败` : `工具调用 ${total} 次 · 全部成功`;
+            }
             const counts = ['calls', 'toolCalls', 'steps', 'trace']
                 .map((key) => Array.isArray(record[key]) ? (record[key] as unknown[]).length : 0)
                 .filter((count) => count > 0);

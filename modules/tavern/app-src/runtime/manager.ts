@@ -966,13 +966,13 @@ export async function runSharedManagerToolLoop(input: {
                 await input.beforeWriteGuard?.();
             };
             const afterToolWrite = async () => {
+                await stateWriteCas.acceptCurrent(toolCall.name, args);
                 if (input.acceptedStateBasis) {
                     await commitTavernAssistantAcceptedStateWriteInCurrentTransaction(
                         input.acceptedStateBasis,
                         resolveTavernAcceptedStateToolWrite(toolCall.name, args),
                     );
                 }
-                await stateWriteCas.acceptCurrent(toolCall.name, args);
             };
             throwIfManagerAborted(input.signal);
             const traceEntry: Record<string, unknown> = {

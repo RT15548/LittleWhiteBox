@@ -5470,6 +5470,38 @@ test('accepted snapshot observer failure rolls back both the tool write and its 
     assert.equal((await listTavernMemorySnapshots(session.id)).length, 0);
 });
 
+test('assistant accepted writes reject a main-story edit without changing state or snapshots', async () => {
+    await db.delete();
+    await db.open();
+
+    const session = await createTavernSession({ title: 'Assistant story timeline guard' });
+    const userMessage = await appendTavernMessage(session.id, { role: 'user', content: '原始剧情。' });
+    const assistantMessage = await appendTavernMessage(session.id, { role: 'assistant', content: '当前剧情锚点。' });
+    await writeTavernMemoryFile(session.id, 'memory/state.md', '# 会话记忆\n\n写入前。', { source: 'manager' });
+    const basis = await captureTavernAssistantAcceptedStateBasis(session.id, assistantMessage.order);
+    await updateTavernMessage(session.id, userMessage.order, { content: '已经编辑的剧情。' }, {
+        incrementTimelineRevision: true,
+    });
+
+    const result = await executeTavernSourceFileTool(session.id, 'Write', {
+        filePath: 'memory/state.md',
+        content: '# 会话记忆\n\n不应提交。',
+    }, {
+        caller: 'chat',
+        sourceAssistantOrder: assistantMessage.order,
+        afterWriteObserver: async () => {
+            await commitTavernAssistantAcceptedStateWriteInCurrentTransaction(basis, {
+                changedFiles: ['memory/state.md'],
+            });
+        },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.error, 'assistant_timeline_advanced');
+    assert.match((await getTavernMemoryFile(session.id, 'memory/state.md'))?.content || '', /写入前/);
+    assert.equal((await listTavernMemorySnapshots(session.id)).length, 0);
+});
+
 test('assistant chat sends the exact budget-approved messages without rebuilding live context', async () => {
     await db.delete();
     await db.open();

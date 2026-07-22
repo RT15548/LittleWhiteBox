@@ -6,6 +6,7 @@ import {
     mergePersistedTavernManagerRunProjection,
     mergeTavernManagerRunHistory,
     projectTavernManagerProgress,
+    projectTavernManagerRunListItem,
     shouldReconcileTavernManagerRun,
     tavernManagerRunVersion,
 } from '../app-src/features/manager/manager-run-sync';
@@ -148,6 +149,23 @@ test('manager history keeps every active run and limits only settled history', (
     assert.equal(merged.filter((item) => shouldReconcileTavernManagerRun(item)).length, active.length);
     assert.equal(merged.filter((item) => !shouldReconcileTavernManagerRun(item)).length, 18);
     assert.equal(merged.length, active.length + 18);
+});
+
+test('manager list projection releases full tool payloads while preserving activity counts', () => {
+    const largeThought = 'x'.repeat(100_000);
+    const projected = projectTavernManagerRunListItem(run('completed', {
+        outputText: largeThought,
+        parsedAction: largeThought,
+        toolTrace: [
+            { id: 'tool-1', status: 'resolved', ok: true, thoughts: [{ text: largeThought }] },
+            { id: 'tool-2', status: 'resolved', ok: false, preface: largeThought },
+        ],
+    }));
+
+    assert.deepEqual(projected.toolTrace, { total: 2, failed: 1, running: 0 });
+    assert.equal(projected.outputText?.length, 500);
+    assert.equal(projected.parsedAction, '');
+    assert.equal(JSON.stringify(projected).includes(largeThought), false);
 });
 
 test('late progress cannot revive a terminal manager run', () => {

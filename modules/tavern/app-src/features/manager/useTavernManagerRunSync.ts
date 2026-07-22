@@ -2,7 +2,7 @@ import Dexie from '../../../../../libs/dexie.mjs';
 import { onScopeDispose, watch, type Ref, type ShallowRef } from 'vue';
 import db, {
     getTavernManagerRun,
-    listTavernManagerRuns,
+    listTavernManagerRunSummaries,
     tavernManagerRunsTable,
     type TavernManagerRunRecord,
 } from '../../../shared/session-db';
@@ -10,6 +10,7 @@ import { isTavernManagerRunLiveStatus } from '../../../shared/manager-run-livene
 import {
     findNewlyTerminalTavernManagerRunIds,
     mergeTavernManagerRunHistory,
+    projectTavernManagerRunListItem,
     projectTavernManagerProgress,
     tavernManagerRunVersion,
     type TavernManagerProgressProjection,
@@ -182,9 +183,10 @@ export function useTavernManagerRunSync(options: TavernManagerRunSyncOptions) {
 
     function applyRun(run: TavernManagerRunRecord): TavernManagerRunRecord | null {
         if (!run?.id || run.sessionId !== currentSessionId()) {return null;}
+        const projected = projectTavernManagerRunListItem(run);
         options.managerRuns.value = mergeTavernManagerRunHistory(
             options.managerRuns.value,
-            [run],
+            [projected],
             settledLimit,
         );
         return options.managerRuns.value.find((item) => item.id === run.id) || null;
@@ -334,7 +336,7 @@ export function useTavernManagerRunSync(options: TavernManagerRunSyncOptions) {
             options.managerRuns.value = [];
             return;
         }
-        const runs = await listTavernManagerRuns(id, { limit: settledLimit });
+        const runs = await listTavernManagerRunSummaries(id, { settledLimit });
         if (requestSerial !== historyRefreshSerial || id !== currentSessionId()) {return;}
         options.managerRuns.value = mergeTavernManagerRunHistory(
             options.managerRuns.value.filter((run) => isTavernManagerRunLiveStatus(run.status)),

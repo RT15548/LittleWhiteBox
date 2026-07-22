@@ -190,7 +190,6 @@ test('tavern startup posts frame-ready before heavy app tasks and prewarms host 
     assert.doesNotMatch(appSource, /async function runOnce[\s\S]*const controller = new AbortController\(\);[\s\S]*isRunning\.value = true;[\s\S]*const runtimeContext = await resolveRuntimeContextForSession/);
     assert.match(chatRunSource, /async function runOnce[\s\S]*const controller = new AbortController\(\);[\s\S]*state\.isRunning\.value = true;[\s\S]*const runtimeContext = await options\.resolveRuntimeContextForSession/);
     assert.match(chatRunSource, /const startingSessionId = String\(options\.selectedSessionId\.value \|\| ''\)\.trim\(\);[\s\S]*await options\.resolveSlashCommandMessageText\(messageText, runOptions\);[\s\S]*String\(options\.selectedSessionId\.value \|\| ''\)\.trim\(\) !== startingSessionId/);
-    assert.match(appSource, /async function handleManagerSubmit\(\) \{[\s\S]*isManagerAssistantRunning\.value = true;[\s\S]*managerInputStatus\.value = '准备中';[\s\S]*await sendManagerQuestion\(managerSessionId, text\);/);
     assert.match(htmlSource, /<span class="xb-frame-boot-percent">5%<\/span>/);
     assert.match(htmlSource, /<span class="xb-frame-boot-stage">等待启动<\/span>/);
     assert.match(htmlSource, /<div class="xb-frame-boot-fill"><\/div>/);
@@ -2616,7 +2615,6 @@ test('tavern streaming action-check UI renders from live runtime events and keep
     assert.match(appSource, /async function saveCurrentAuthorNote\(note: XbTavernAuthorNote\)[\s\S]*authorNote: normalized/);
     assert.match(appSource, /async function saveCurrentAuthorNote\(note: XbTavernAuthorNote\)[\s\S]*contextSnapshot: nextContext/);
     assert.match(appSource, /if \(selectedSessionId\.value !== sessionId\) \{return;\}[\s\S]*context\.value = nextContext/);
-    assert.match(appSource, /async function sendManagerQuestion\([\s\S]*const managerSession = sessions\.value\.find\(\(session\) => session\.id === managerSessionId\)[\s\S]*selectedSessionId\.value === managerSessionId \? selectedSession\.value : null[\s\S]*buildSessionContextSnapshotBase\(managerSession\)/);
     assert.doesNotMatch(appSource, /const managerContextSnapshot = \(selectedSession\.value\?\.contextSnapshot \|\| context\.value/);
     assert.match(appSource, /async function rerunFromManagerMessage\([\s\S]*if \(selectedSessionId\.value !== managerSessionId\)[\s\S]*sendManagerQuestion\(managerSessionId/);
     assert.match(conversationPanelSource, /function openSessionArchiveFromComposeMenu\(\) \{[\s\S]*closeComposeMenu\(\);[\s\S]*sessionArchiveOpen\.value = true;[\s\S]*\}/);
@@ -2969,7 +2967,6 @@ test('tavern maintenance and assistant chat keep separate persistence, runtime, 
     assert.match(sessionDbSource, /throw new Error\('maintenance_run_trigger_invalid'\)/);
     assert.match(sessionDbSource, /replaceTavernAssistantChatMessages[\s\S]*db\.transaction\('rw'[\s\S]*bulkDelete[\s\S]*bulkPut/);
     assert.match(appSource, /appendTavernAssistantChatMessage\(managerSessionId[\s\S]*ensureTavernAssistantChatBudget/);
-    assert.match(appSource, /watch\(\(\) => selectedSessionId\.value[\s\S]*managerAssistantController\.value\?\.abort\(\)[\s\S]*clearManagerLiveProtocolState/);
     assert.match(appSource, /onUnmounted\([\s\S]*clearManagerLiveProtocolState\(\)[\s\S]*clearManagerMessageFeedback\(\)/);
     assert.doesNotMatch(phoneSource, /managerBusy|isManagerAssistantRunning/);
 });

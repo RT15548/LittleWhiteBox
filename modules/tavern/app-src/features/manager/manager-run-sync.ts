@@ -1,5 +1,8 @@
 import { isTavernManagerRunLiveStatus } from '../../../shared/manager-run-liveness';
-import type { TavernManagerRunRecord } from '../../../shared/session-db';
+import {
+    projectTavernManagerRunSummary,
+    type TavernManagerRunRecord,
+} from '../../../shared/session-db';
 
 export interface TavernManagerProgressProjection {
     sessionId: string;
@@ -12,6 +15,10 @@ export interface TavernManagerRunVersion {
     id: string;
     status: TavernManagerRunRecord['status'];
     updatedAt: number;
+}
+
+export function projectTavernManagerRunListItem(run: TavernManagerRunRecord): TavernManagerRunRecord {
+    return projectTavernManagerRunSummary(run);
 }
 
 export function tavernManagerRunVersion(

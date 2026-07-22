@@ -43,6 +43,7 @@ import {
     listTavernAssistantChatMessageOrdersInRange,
     listTavernAssistantChatMessagesInRange,
     listTavernMessageOrdersFrom,
+    normalizedTavernStoryTimelineRevision,
     normalizeTavernSessionState,
     queueAcceptedTurnManagerRetry,
     replaceTavernAssistantChatMessages,
@@ -132,6 +133,7 @@ import {
     useTavernAssistantChatLiveController,
     type TavernAssistantChatLiveRun,
 } from './features/assistant-chat/useTavernAssistantChatLiveController';
+import { withTavernAssistantChatRunLock } from './features/assistant-chat/assistant-chat-run-lock';
 import {
     loadTavernAssistantChatUnitPage,
     loadTavernAssistantMessageThoughts,
@@ -478,6 +480,7 @@ const simulateRequestError = ref('');
 const messageActionFeedback = ref<Record<string, 'success' | 'error'>>({});
 const displayRegexCache = ref<Record<string, string>>({});
 const managerAssistantController = ref<AbortController | null>(null);
+const managerAssistantControllersBySession = new Map<string, AbortController>();
 const tavernDialog = ref<TavernDialogState | null>(null);
 const tavernDialogInputRef = ref<HTMLInputElement | null>(null);
 const tavernDialogPanelRef = ref<HTMLElement | null>(null);
@@ -845,6 +848,7 @@ const sessionController = useTavernSessionController(sessionState, {
     selectedCharacterPreviewKey,
     selectedSessionCharacterError,
     applySessionSnapshotContext,
+    abortAssistantRunForSession: (sessionId) => abortManagerAssistantForSession(sessionId),
     cancelAndRollbackManagersForSession: (sessionId) => cancelAndRollbackXbTavernManagersForMessageRange(sessionId, 0),
     cancelDrawJobsForSession: drawContext.cancelJobsForSession,
     confirmDeleteSession: (title) => confirmTavernDialog({
@@ -1272,8 +1276,8 @@ const runtimeActionCheckSignature = computed(() => runtimeActionCheckEvents.valu
     ].join(':'))
     .join('|'));
 const assistantChatContextLabel = computed(() => assistantChatBudgetTokens.value === null
-    ? '— / 158k'
-    : `${Math.round(assistantChatBudgetTokens.value / 1000)}k / 158k`);
+    ? '— / 228k'
+    : `${Math.round(assistantChatBudgetTokens.value / 1000)}k / 228k`);
 const canClearAssistantChat = computed(() => (
     (managerChatItems.value.length > 0 || managerChatHasMore.value)
     && !isManagerAssistantRunning.value
@@ -4261,7 +4265,7 @@ function clearManagerLiveProtocolState(sessionId = '') {
     managerAssistantLiveController.clearSession(sessionId);
 }
 
-async function sendManagerQuestion(
+async function runManagerQuestion(
     managerSessionId: string,
     text: string,
     options: {
@@ -4273,11 +4277,12 @@ async function sendManagerQuestion(
     if (!managerSessionId || !question) {return false;}
     const managerSession = sessions.value.find((session) => session.id === managerSessionId)
         || (selectedSessionId.value === managerSessionId ? selectedSession.value : null);
-    const managerTurn = Number(normalizeTavernSessionState(managerSession?.state || {}).turn || 0);
-    const managerContextSnapshot = managerSession
+    let managerTurn = Number(normalizeTavernSessionState(managerSession?.state || {}).turn || 0);
+    let managerContextSnapshot = managerSession
         ? buildSessionContextSnapshotBase(managerSession)
         : {};
     const controller = new AbortController();
+    managerAssistantControllersBySession.set(managerSessionId, controller);
     managerAssistantController.value = controller;
     isManagerAssistantRunning.value = true;
     isManagerAssistantCancelling.value = false;
@@ -4285,16 +4290,26 @@ async function sendManagerQuestion(
     managerAutoScroll.value = true;
     let sourceUserOrder = -1;
     let acceptedFloorAtStart = -1;
+    let storyTimelineRevisionAtStart = 1;
     let userMessageAppended = false;
     let liveRun: TavernAssistantChatLiveRun | null = null;
     let protocolResultPersisted = false;
+    const ownsManagerUi = () => (
+        managerAssistantController.value === controller
+        && selectedSessionId.value === managerSessionId
+    );
     try {
-        const [latestUserMessage, latestAssistantOrder] = await Promise.all([
+        const [latestUserMessage, latestAssistantOrder, storedSession] = await Promise.all([
             getLatestTavernUserMessageAtOrBefore(managerSessionId, Number.POSITIVE_INFINITY),
             getLatestTavernAssistantOrder(managerSessionId),
+            getTavernSession(managerSessionId),
         ]);
+        if (!storedSession) {throw new Error('session_missing');}
+        managerTurn = Number(normalizeTavernSessionState(storedSession.state || {}).turn || 0);
+        managerContextSnapshot = buildSessionContextSnapshotBase(storedSession);
         sourceUserOrder = latestUserMessage?.order ?? -1;
         acceptedFloorAtStart = latestAssistantOrder ?? -1;
+        storyTimelineRevisionAtStart = normalizedTavernStoryTimelineRevision(storedSession);
         const historyBeforeOrder = Number(options.historyBeforeOrder);
         const historyBeforeTurn = Number.isFinite(historyBeforeOrder)
             ? historyBeforeOrder <= 0
@@ -4325,6 +4340,7 @@ async function sendManagerQuestion(
             history: historyBeforeTurn,
             signal: controller.signal,
             onCompactionStart: (snapshot) => {
+                if (!ownsManagerUi()) {return;}
                 updateManagerCompactionOverlay({
                     id: `manager-compaction-${Date.now()}`,
                     active: true,
@@ -4338,6 +4354,7 @@ async function sendManagerQuestion(
                 });
             },
             onCompactionProgress: (snapshot) => {
+                if (!ownsManagerUi()) {return;}
                 updateManagerCompactionOverlay({
                     currentTokens: snapshot.currentTokens,
                     fixedTokens: snapshot.fixedTokens || 0,
@@ -4348,6 +4365,7 @@ async function sendManagerQuestion(
                 });
             },
             onCompactionComplete: (snapshot) => {
+                if (!ownsManagerUi()) {return;}
                 updateManagerCompactionOverlay({
                     resolved: true,
                     currentTokens: snapshot.currentTokens,
@@ -4360,6 +4378,7 @@ async function sendManagerQuestion(
                 scheduleManagerCompactionOverlayHide();
             },
             onCompactionUnable: (snapshot) => {
+                if (!ownsManagerUi()) {return;}
                 updateManagerCompactionOverlay({
                     resolved: true,
                     currentTokens: snapshot.currentTokens,
@@ -4372,9 +4391,9 @@ async function sendManagerQuestion(
                 scheduleManagerCompactionOverlayHide();
             },
         });
-        assistantChatBudgetTokens.value = budget.currentTokens;
+        if (ownsManagerUi()) {assistantChatBudgetTokens.value = budget.currentTokens;}
         if (!budget.canProceed) {
-            throw new Error('助手上下文超过 188k，当前请求没有发送。');
+            throw new Error('助手上下文超过 258k，当前请求没有发送。');
         }
         const compactedOrders = budget.removedOrders || [];
         if (replaceOrders.length) {
@@ -4414,8 +4433,14 @@ async function sendManagerQuestion(
             assistantOrder: acceptedFloorAtStart,
             signal: controller.signal,
             beforeWriteGuard: async () => {
-                const currentAcceptedFloor = await getLatestTavernAssistantOrder(managerSessionId) ?? -1;
-                if (currentAcceptedFloor !== acceptedFloorAtStart) {
+                const [currentAcceptedFloor, currentSession] = await Promise.all([
+                    getLatestTavernAssistantOrder(managerSessionId),
+                    getTavernSession(managerSessionId),
+                ]);
+                if ((currentAcceptedFloor ?? -1) !== acceptedFloorAtStart
+                    || !currentSession
+                    || normalizedTavernStoryTimelineRevision(currentSession) !== storyTimelineRevisionAtStart
+                ) {
                     throw new Error('assistant_timeline_advanced');
                 }
             },
@@ -4440,12 +4465,14 @@ async function sendManagerQuestion(
         const projectionErrors = projectionResults.filter((item) => item.status === 'rejected');
         if (projectionErrors.length) {
             console.error('[小白酒馆] 助手回复已保存，但页面投影刷新失败', projectionErrors);
-            managerInputStatus.value = '已保存，显示刷新失败';
-            showTavernToast('助手回复已保存，但页面显示刷新失败；重新进入会话会重新读取。', {
-                tone: 'warning',
-                durationMs: 7000,
-            });
-        } else {
+            if (ownsManagerUi()) {
+                managerInputStatus.value = '已保存，显示刷新失败';
+                showTavernToast('助手回复已保存，但页面显示刷新失败；重新进入会话会重新读取。', {
+                    tone: 'warning',
+                    durationMs: 7000,
+                });
+            }
+        } else if (ownsManagerUi()) {
             managerInputStatus.value = result.ok || controller.signal.aborted ? '' : '失败';
         }
         return true;
@@ -4453,7 +4480,7 @@ async function sendManagerQuestion(
         clearManagerPendingUserMessage(managerSessionId);
         if (protocolResultPersisted) {
             console.error('[小白酒馆] 助手回复已保存，后续处理失败', error);
-            managerInputStatus.value = '已保存，刷新失败';
+            if (ownsManagerUi()) {managerInputStatus.value = '已保存，刷新失败';}
             return true;
         }
         if (!userMessageAppended && !options.replaceOrders?.length && selectedSessionId.value === managerSessionId && !managerInputDraft.value.trim()) {
@@ -4461,7 +4488,7 @@ async function sendManagerQuestion(
             void nextTick(() => resizeManagerComposeTextarea());
         }
         if (!userMessageAppended) {
-            managerInputStatus.value = controller.signal.aborted ? '' : '失败';
+            if (ownsManagerUi()) {managerInputStatus.value = controller.signal.aborted ? '' : '失败';}
             return false;
         }
         try {
@@ -4475,7 +4502,7 @@ async function sendManagerQuestion(
                     appendAssistantChatMessageProjection(stoppedMessage);
                     refreshAssistantChatProjectionNonFatal(managerSessionId, '停止记录已保存');
                 }
-                managerInputStatus.value = '';
+                if (ownsManagerUi()) {managerInputStatus.value = '';}
             } else {
                 const errorText = error instanceof Error ? error.message : String(error || 'assistant_failed');
                 const failedMessage = await appendTavernAssistantChatMessage(managerSessionId, {
@@ -4488,22 +4515,66 @@ async function sendManagerQuestion(
                     appendAssistantChatMessageProjection(failedMessage);
                     refreshAssistantChatProjectionNonFatal(managerSessionId, '失败记录已保存');
                 }
-                managerInputStatus.value = '失败';
+                if (ownsManagerUi()) {managerInputStatus.value = '失败';}
             }
         } catch (persistenceError) {
             console.error('[小白酒馆] 助手失败终态记录保存失败', persistenceError);
-            managerInputStatus.value = '失败，记录未保存';
-            showTavernToast('助手运行失败，且失败记录未能保存。', { tone: 'warning', durationMs: 6500 });
+            if (ownsManagerUi()) {
+                managerInputStatus.value = '失败，记录未保存';
+                showTavernToast('助手运行失败，且失败记录未能保存。', { tone: 'warning', durationMs: 6500 });
+            }
         }
         return true;
     } finally {
         liveRun?.clear();
+        if (managerAssistantControllersBySession.get(managerSessionId) === controller) {
+            managerAssistantControllersBySession.delete(managerSessionId);
+        }
         if (managerAssistantController.value === controller) {
             managerAssistantController.value = null;
+            isManagerAssistantCancelling.value = false;
+            isManagerAssistantRunning.value = false;
         }
-        isManagerAssistantCancelling.value = false;
-        isManagerAssistantRunning.value = false;
     }
+}
+
+async function sendManagerQuestion(
+    managerSessionId: string,
+    text: string,
+    options: {
+        historyBeforeOrder?: number;
+        replaceOrders?: number[];
+    } = {},
+): Promise<boolean> {
+    const question = String(text || '').trim();
+    if (!managerSessionId || !question) {return false;}
+    const locked = await withTavernAssistantChatRunLock(
+        managerSessionId,
+        () => runManagerQuestion(managerSessionId, question, options),
+    );
+    if (locked.acquired) {return locked.value;}
+    clearManagerPendingUserMessage(managerSessionId);
+    if (!options.replaceOrders?.length
+        && selectedSessionId.value === managerSessionId
+        && !managerInputDraft.value.trim()
+    ) {
+        managerInputDraft.value = question;
+        void nextTick(() => resizeManagerComposeTextarea());
+    }
+    managerInputStatus.value = '助手正在处理上一条消息';
+    showTavernToast('这个会话的助手正在运行，请等它完成后再发送。', { tone: 'info', durationMs: 3500 });
+    return false;
+}
+
+function abortManagerAssistantForSession(sessionId = ''): void {
+    const id = String(sessionId || '').trim();
+    const controller = managerAssistantControllersBySession.get(id);
+    if (!controller) {return;}
+    if (managerAssistantController.value === controller) {
+        isManagerAssistantCancelling.value = true;
+        managerInputStatus.value = '正在停止...';
+    }
+    controller.abort();
 }
 
 async function handleManagerSubmit() {
@@ -4525,8 +4596,6 @@ async function handleManagerSubmit() {
     managerInputDraft.value = '';
     void nextTick(() => resizeManagerComposeTextarea());
     setManagerPendingUserMessage(managerSessionId, text);
-    isManagerAssistantRunning.value = true;
-    isManagerAssistantCancelling.value = false;
     managerInputStatus.value = '准备中';
     await sendManagerQuestion(managerSessionId, text);
 }
@@ -4645,7 +4714,7 @@ watch(() => selectedSessionId.value, (nextSessionId, previousSessionId) => {
         if (editingMessageKey.value.startsWith(`${previousSessionId}:`)) {
             editingMessageKey.value = '';
         }
-        managerAssistantController.value?.abort();
+        abortManagerAssistantForSession(previousSessionId);
         clearManagerCompactionOverlayHideTimer();
         managerCompactionOverlay.value = null;
         clearManagerLiveProtocolState(previousSessionId);
@@ -5049,7 +5118,8 @@ onUnmounted(() => {
     drawContext.clearCooldownTimer();
     setHostChatCompletionsRequestHeadersProvider(null);
     chatRunController.abortActiveRun();
-    managerAssistantController.value?.abort();
+    managerAssistantControllersBySession.forEach((controller) => controller.abort());
+    managerAssistantControllersBySession.clear();
     managerAssistantController.value = null;
     clearManagerLiveProtocolState();
     clearManagerPendingUserMessage();
