@@ -1179,6 +1179,19 @@ function cleanup() {
     state.variableHistory.clear();
 }
 
+function hasActiveCustomTemplate() {
+    if (!TemplateSettings.get().enabled) return false;
+    const template = TemplateSettings.getCurrentChar();
+    return Boolean(template?.enabled && template.template);
+}
+
+function hasCustomTemplateForMessage(messageId) {
+    if (!TemplateSettings.get().enabled) return false;
+    const message = getContext()?.chat?.[messageId];
+    const template = TemplateSettings.getCharTemplate(utils.getCharAvatar(message));
+    return Boolean(template?.enabled && template.template);
+}
+
 function initTemplateEditor() {
     try { xbLog.info('templateEditor', 'initTemplateEditor'); } catch {}
     
@@ -1262,6 +1275,8 @@ export {
     openEditor,
     cleanup,
     checkEmbeddedTemplate,
+    hasActiveCustomTemplate,
+    hasCustomTemplateForMessage,
     STscript
 };
 

@@ -16,7 +16,7 @@ import {
     extension_prompt_roles,
     getRequestHeaders,
 } from "../../../../../../script.js";
-import { extensionFolderPath } from "../../core/constants.js";
+import { extensionFolderPath, MANAGED_CHAT_SURFACE } from "../../core/constants.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
 import { createModuleEvents } from "../../core/event-manager.js";
 import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
@@ -1295,6 +1295,7 @@ function createSummaryBtn(mesId) {
 }
 
 function addSummaryBtnToMessage(mesId) {
+    if (MANAGED_CHAT_SURFACE) return;
     if (!getSettings().storySummary?.enabled) return;
     const msg = document.querySelector(`#chat .mes[mesid="${mesId}"]`);
     if (!msg || msg.querySelector(".xiaobaix-story-summary-btn")) return;
@@ -1305,7 +1306,17 @@ function addSummaryBtnToMessage(mesId) {
     msg.querySelector(".flex-container.flex1.alignitemscenter")?.appendChild(btn);
 }
 
+export function mountManagedStorySummaryButton(message, mesId) {
+    if (!getSettings().storySummary?.enabled || message.querySelector('.xiaobaix-story-summary-btn')) return;
+    const button = createSummaryBtn(mesId);
+    if (!window.registerButtonToSubContainer?.(mesId, button)) {
+        message.querySelector('.flex-container.flex1.alignitemscenter')?.appendChild(button);
+    }
+    return () => button.remove();
+}
+
 function initButtonsForAll() {
+    if (MANAGED_CHAT_SURFACE) return;
     if (!getSettings().storySummary?.enabled) return;
     $("#chat .mes").each((_, el) => {
         const mesId = el.getAttribute("mesid");
@@ -1314,6 +1325,7 @@ function initButtonsForAll() {
 }
 
 function initButtonForLatestMessage() {
+    if (MANAGED_CHAT_SURFACE) return;
     if (!getSettings().storySummary?.enabled) return;
     const { chat } = getContext();
     const mesId = Array.isArray(chat) ? chat.length - 1 : null;
@@ -2864,6 +2876,7 @@ async function handleMessageUpdated(scheduledChatId) {
 }
 
 function handleMessageRendered(data) {
+    if (MANAGED_CHAT_SURFACE) return;
     const mesId = data?.element ? $(data.element).attr("mesid") : data?.messageId;
     if (mesId != null) addSummaryBtnToMessage(mesId);
     else initButtonsForAll();

@@ -1,7 +1,7 @@
 import { extension_settings, getContext, saveMetadataDebounced } from "../../../../../extensions.js";
 import { saveSettingsDebounced, chat_metadata } from "../../../../../../script.js";
 import { getLocalVariable, setLocalVariable, getGlobalVariable, setGlobalVariable } from "../../../../../variables.js";
-import { extensionFolderPath } from "../../core/constants.js";
+import { MANAGED_CHAT_SURFACE, extensionFolderPath } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 
 const CONFIG = {
@@ -639,6 +639,7 @@ class VariablesPanel {
   removeAllMessageButtons(){ $('#chat .mes .mes_btn.mes_variables_panel').remove(); }
 
   installMessageButtons(){
+    if (MANAGED_CHAT_SURFACE) return;
     const delayedAdd=(id)=> setTimeout(()=>{ if(id!=null) this.addButtonToMessage(id); },120);
     const delayedScan=()=> setTimeout(()=> this.addButtonsToAllMessages(),150);
     this.removeMessageButtonsListeners();
@@ -672,6 +673,27 @@ class VariablesPanel {
 }
 
 let variablesPanelInstance=null;
+
+export function mountManagedVariablesButton(message, messageId) {
+  if (!extension_settings[EXT_ID]?.variablesPanel?.enabled || message.querySelector('.mes_variables_panel')) return;
+  const button=document.createElement('div');
+  button.className='mes_btn mes_variables_panel';
+  button.title='变量面板';
+  button.dataset.mid=messageId;
+  const icon=document.createElement('i');
+  icon.className='fa-solid fa-database';
+  button.appendChild(icon);
+  button.addEventListener('click',(event)=>{
+    event.preventDefault(); event.stopPropagation();
+    void Promise.resolve(variablesPanelInstance || initVariablesPanel())
+      .then(instance=>instance.open())
+      .catch(error=>console.error(`[${CONFIG.extensionName}] 打开失败:`,error));
+  });
+  if (!window.registerButtonToSubContainer?.(messageId,button)) {
+    message.querySelector('.flex-container.flex1.alignitemscenter')?.appendChild(button);
+  }
+  return ()=>button.remove();
+}
 
 export async function initVariablesPanel(){
   try{
