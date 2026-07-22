@@ -58,50 +58,14 @@ function submit(): void {
         ><path d="m15 4-8 8 8 8" /></svg>
       </button>
       <div>
-        <span>发布委托</span>
         <strong>发布委托</strong>
       </div>
-      <b>自定义</b>
+      <span />
     </header>
     <form
       class="tavern-task-publish-form"
       @submit.prevent="submit"
     >
-      <div
-        class="tavern-task-publish-balance"
-        :class="{ 'is-insufficient': insufficientFunds }"
-      >
-        <header>
-          <span>报酬托管</span>
-          <small>发布即冻结</small>
-        </header>
-        <dl>
-          <div>
-            <dt>可用余额</dt>
-            <dd>{{ balanceReady ? formatCoins(balance) : '—' }} <i>◈</i></dd>
-          </div>
-          <div>
-            <dt>托管金额</dt>
-            <dd>{{ escrowAmount ? `− ${formatCoins(escrowAmount)}` : '—' }} <i>◈</i></dd>
-          </div>
-          <div class="is-total">
-            <dt>支付后余额</dt>
-            <dd>{{ balanceReady ? formatCoins(balanceAfterPayment) : '—' }} <i>◈</i></dd>
-          </div>
-        </dl>
-        <p v-if="balanceLoading">
-          正在与钱包核对可用余额…
-        </p>
-        <p v-else-if="balanceError">
-          {{ balanceError }}
-        </p>
-        <p v-else-if="insufficientFunds">
-          余额不足，还差 {{ formatCoins(missingBalance) }} 小白币。
-        </p>
-        <p v-else>
-          托管资金会在撤回、失败或结算时按任务规则原路处理。
-        </p>
-      </div>
       <label>
         <span>任务标题 *</span>
         <input
@@ -132,30 +96,51 @@ function submit(): void {
           placeholder="能力、身份、时间或保密要求"
         />
       </label>
-      <div class="tavern-task-publish-two-column">
+      <label>
+        <span>地点 *</span>
+        <input
+          v-model="draft.location"
+          type="text"
+          maxlength="600"
+          autocomplete="off"
+          placeholder="行动地点"
+          required
+        >
+      </label>
+      <div
+        class="tavern-task-publish-balance"
+        :class="{ 'is-insufficient': insufficientFunds }"
+      >
         <label>
-          <span>地点 *</span>
-          <input
-            v-model="draft.location"
-            type="text"
-            maxlength="600"
-            autocomplete="off"
-            placeholder="行动地点"
-            required
-          >
+          <span>报酬</span>
+          <span class="tavern-task-reward-input">
+            <input
+              v-model="draft.reward"
+              type="number"
+              min="1"
+              step="1"
+              inputmode="numeric"
+              placeholder="100"
+              required
+            >
+            <i>小白币</i>
+          </span>
         </label>
-        <label>
-          <span>托管报酬 *</span>
-          <input
-            v-model="draft.reward"
-            type="number"
-            min="1"
-            step="1"
-            inputmode="numeric"
-            placeholder="100"
-            required
-          >
-        </label>
+        <div class="tavern-task-balance-result">
+          <span>余额 {{ balanceReady ? formatCoins(balance) : '—' }}</span>
+          <strong v-if="balanceReady && escrowAmount && !insufficientFunds">
+            发布后 {{ formatCoins(balanceAfterPayment) }}
+          </strong>
+        </div>
+        <p v-if="balanceLoading">
+          正在读取钱包…
+        </p>
+        <p v-else-if="balanceError">
+          {{ balanceError }}
+        </p>
+        <p v-else-if="insufficientFunds">
+          还差 {{ formatCoins(missingBalance) }} 小白币
+        </p>
       </div>
       <label>
         <span>风险说明</span>
@@ -189,7 +174,7 @@ function submit(): void {
         class="tavern-task-publish-submit"
         :disabled="!canSubmit"
       >
-        {{ busy ? '正在封存委托' : insufficientFunds ? '余额不足' : !balanceReady ? '等待钱包' : !escrowAmount ? '填写托管报酬' : '核对并发布' }}
+        {{ busy ? '正在发布' : insufficientFunds ? '余额不足' : !balanceReady ? '等待钱包' : !escrowAmount ? '填写报酬' : '发布委托' }}
       </button>
     </form>
   </section>

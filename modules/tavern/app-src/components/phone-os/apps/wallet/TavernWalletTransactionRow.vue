@@ -5,7 +5,6 @@ import {
     formatTavernWalletCoins,
     formatTavernWalletTransactionAmount,
     formatTavernWalletTransactionAnchor,
-    formatTavernWalletTransactionSource,
     tavernWalletTransactionDirection,
 } from '../../../../features/phone-os/apps/wallet/tavern-wallet-format';
 
@@ -16,7 +15,6 @@ const props = defineProps<{
 const direction = computed(() => tavernWalletTransactionDirection(props.transaction));
 const amount = computed(() => formatTavernWalletTransactionAmount(props.transaction));
 const anchor = computed(() => formatTavernWalletTransactionAnchor(props.transaction));
-const source = computed(() => formatTavernWalletTransactionSource(props.transaction));
 const balanceAfter = computed(() => formatTavernWalletCoins(props.transaction.playerBalanceAfter));
 </script>
 
@@ -46,7 +44,6 @@ const balanceAfter = computed(() => formatTavernWalletCoins(props.transaction.pl
     </span>
     <span class="tavern-wallet-transaction-copy">
       <strong>{{ transaction.title }}</strong>
-      <span>{{ source }}</span>
       <small>{{ anchor }}</small>
     </span>
     <span class="tavern-wallet-transaction-value">

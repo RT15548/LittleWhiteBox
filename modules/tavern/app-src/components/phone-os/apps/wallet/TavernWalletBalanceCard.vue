@@ -14,24 +14,29 @@ const balanceLabel = computed(() => {
     if (!props.ready) {return '—';}
     return formatTavernWalletCoins(props.balance);
 });
+const balanceSizeClass = computed(() => {
+    const digitCount = balanceLabel.value.replace(/\D/g, '').length;
+    if (digitCount > 11) {return 'is-extra-compact';}
+    if (digitCount > 8) {return 'is-compact';}
+    return '';
+});
 </script>
 
 <template>
   <section class="tavern-wallet-balance-card">
-    <span
-      class="tavern-wallet-card-orbit"
-      aria-hidden="true"
-    />
-    <div class="tavern-wallet-card-heading">
-      <span class="tavern-wallet-card-seal">◈</span>
-      <span>本段旅程</span>
-    </div>
+    <span>可用余额</span>
     <div class="tavern-wallet-card-balance">
-      <strong :class="{ 'is-loading': loading }">{{ balanceLabel }}</strong>
+      <strong
+        :class="[{ 'is-loading': loading }, balanceSizeClass]"
+        :title="ready ? `${balanceLabel} 小白币` : undefined"
+      >{{ balanceLabel }}</strong>
       <span>小白币</span>
     </div>
-    <p :class="{ 'is-error': !!error && !ready }">
-      {{ error && !ready ? error : '剧情中的每一次收入与支出，都会在这里留下不可改写的账目。' }}
+    <p
+      v-if="error && !ready"
+      class="is-error"
+    >
+      {{ error }}
     </p>
   </section>
 </template>

@@ -30,7 +30,6 @@ const emit = defineEmits<{
         ><path d="m15 4-8 8 8 8" /></svg>
       </button>
       <div>
-        <span>BOARD TICKET</span>
         <strong>委托详情</strong>
       </div>
       <b v-if="listing">{{ listing.grade }}</b>
@@ -43,25 +42,24 @@ const emit = defineEmits<{
       <article class="tavern-task-dossier">
         <header>
           <span>{{ listing.issuer.name }}</span>
-          <small>{{ listing.id.slice(-8).toUpperCase() }}</small>
           <h2>{{ listing.title }}</h2>
           <p>{{ listing.hook }}</p>
         </header>
         <div class="tavern-task-dossier-grid">
           <section>
-            <span>OBJECTIVE</span>
+            <span>目标</span>
             <p>{{ listing.objective }}</p>
           </section>
           <section v-if="listing.requirements">
-            <span>REQUIREMENTS</span>
+            <span>要求</span>
             <p>{{ listing.requirements }}</p>
           </section>
           <section>
-            <span>LOCATION</span>
+            <span>地点</span>
             <p>{{ listing.location }}</p>
           </section>
-          <section>
-            <span>RISK NOTE</span>
+          <section v-if="listing.risk">
+            <span>风险</span>
             <p>{{ listing.risk }}</p>
           </section>
           <section>
@@ -69,7 +67,10 @@ const emit = defineEmits<{
             <p>{{ listing.issuer.description }}</p>
           </section>
         </div>
-        <div class="tavern-task-dossier-tags">
+        <div
+          v-if="listing.tags.length"
+          class="tavern-task-dossier-tags"
+        >
           <i
             v-for="tag in listing.tags"
             :key="tag"
@@ -107,7 +108,6 @@ const emit = defineEmits<{
       >
         {{ accepted ? '已经接取' : busy ? '正在提交' : '接取这份委托' }}
       </button>
-      <small>{{ accepted ? '这份委托已进入进行中。' : '接取后，发布者的报酬会进入任务托管。' }}</small>
     </footer>
   </section>
 </template>

@@ -22,10 +22,7 @@ const emit = defineEmits<{
 <template>
   <section class="tavern-task-root-view tavern-task-board-view">
     <div class="tavern-task-board-status">
-      <span>
-        <i :class="{ 'is-live': !!board }" />
-        {{ board ? '委托板已连接' : '等待刷新' }}
-      </span>
+      <strong>{{ board?.listings.length || 0 }} 项委托</strong>
       <button
         type="button"
         :disabled="refreshing || loading"
@@ -35,7 +32,7 @@ const emit = defineEmits<{
           viewBox="0 0 24 24"
           aria-hidden="true"
         ><path d="M19 8a8 8 0 1 0 1 7M19 4v4h-4" /></svg>
-        {{ refreshing ? '扫描中' : '刷新委托' }}
+        {{ refreshing ? '刷新中' : '刷新' }}
       </button>
     </div>
     <div
@@ -73,14 +70,13 @@ const emit = defineEmits<{
       class="tavern-task-empty"
     >
       <span aria-hidden="true"><i /><i /><i /></span>
-      <strong>没有捕获到委托信号</strong>
-      <p>刷新终端后，符合当前世界的六份候选委托会出现在这里。</p>
+      <strong>暂无委托</strong>
       <button
         type="button"
         :disabled="refreshing || loading"
         @click="emit('refresh')"
       >
-        {{ refreshing ? '正在扫描' : '启动扫描' }}
+        {{ refreshing ? '正在刷新' : '刷新委托' }}
       </button>
     </div>
   </section>

@@ -8,7 +8,7 @@
     background: var(--phone-os-screen);
     color: var(--phone-os-ink);
     font-family: var(--phone-os-font);
-    padding: 42px 0 54px;
+    padding: 42px 0 0;
 }
 
 .tavern-phone-thread-list {grid-template-rows: auto auto minmax(0, 1fr);}

@@ -54,13 +54,13 @@ const emit = defineEmits<{
         :disabled="loadingMore"
         @click="emit('load-more')"
       >
-        {{ loadingMore ? '正在翻阅…' : '载入更早流水' }}
+        {{ loadingMore ? '正在载入…' : '更早流水' }}
       </button>
       <p
         v-else
         class="tavern-wallet-ledger-end"
       >
-        已经翻到这本账簿的第一页
+        没有更多流水
       </p>
     </template>
     <div
@@ -68,8 +68,7 @@ const emit = defineEmits<{
       class="tavern-wallet-empty-state"
     >
       <span aria-hidden="true">◈</span>
-      <strong>账簿还是空的</strong>
-      <p>第一笔小白币交易发生后，会安静地记在这里。</p>
+      <strong>暂无流水</strong>
     </div>
   </div>
 </template>

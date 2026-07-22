@@ -48,33 +48,15 @@
 .tavern-tasks-app.has-data-error {grid-template-rows: auto auto auto minmax(0, 1fr);}
 
 .tavern-tasks-head {
-    min-height: 76px;
+    min-height: 68px;
     display: flex;
     align-items: end;
-    justify-content: space-between;
-    gap: 14px;
     border-bottom: 1px solid var(--task-line);
-    background:
-        linear-gradient(110deg, color-mix(in srgb, var(--task-olive) 12%, transparent), transparent 56%),
-        color-mix(in srgb, var(--task-surface) 92%, transparent);
-    padding: 16px 18px 11px;
+    background: color-mix(in srgb, var(--task-surface) 92%, transparent);
+    padding: 14px 18px 11px;
 }
 
-.tavern-tasks-head > div {display: grid; gap: 4px;}
-.tavern-tasks-head span,
-.tavern-task-section-intro > span,
-.tavern-task-published-actions span,
-.tavern-task-detail-head > div span {
-    color: var(--task-olive-strong);
-    font: 720 9px/1 var(--task-mono);
-    letter-spacing: 0.16em;
-}
 .tavern-tasks-head h2 {margin: 0; font: 740 28px/1 var(--phone-os-font); letter-spacing: -0.035em;}
-.tavern-tasks-head > i {width: 45px; height: 30px; display: flex; align-items: end; gap: 4px; border: 1px solid var(--task-line); border-radius: 8px; background: var(--task-surface); padding: 7px 8px; box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 32%, transparent);}
-.tavern-tasks-head > i b {width: 5px; border-radius: 2px 2px 0 0; background: var(--task-olive); box-shadow: 0 0 8px color-mix(in srgb, var(--task-olive) 56%, transparent);}
-.tavern-tasks-head > i b:nth-child(1) {height: 7px; opacity: 0.55;}
-.tavern-tasks-head > i b:nth-child(2) {height: 12px; opacity: 0.76;}
-.tavern-tasks-head > i b:nth-child(3) {height: 17px;}
 
 .tavern-task-tabs {
     display: grid;
@@ -91,11 +73,10 @@
 .tavern-task-tabs button i {min-width: 16px; height: 16px; display: grid; place-items: center; border-radius: 999px; background: color-mix(in srgb, var(--task-olive) 16%, transparent); color: var(--task-olive-strong); padding: 0 4px; font: normal 720 8px/1 var(--task-mono);}
 .tavern-phone-device .tavern-task-tabs button:hover:not(:disabled) {border-color: transparent; background: color-mix(in srgb, var(--task-olive) 9%, transparent); color: var(--task-olive-strong);}
 
-.tavern-task-root-view {min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 12px 13px 25px;}
+.tavern-task-content {min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); overflow: hidden;}
+.tavern-task-root-view {height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; scrollbar-width: thin; padding: 12px 13px 20px;}
 .tavern-task-board-status {display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; padding: 0 3px;}
-.tavern-task-board-status > span {display: flex; align-items: center; gap: 7px; color: var(--task-muted); font: 680 9px/1 var(--task-mono); letter-spacing: 0.08em;}
-.tavern-task-board-status > span i {width: 7px; height: 7px; border-radius: 50%; background: #7f807b; box-shadow: 0 0 0 3px color-mix(in srgb, #7f807b 12%, transparent);}
-.tavern-task-board-status > span i.is-live {background: #6f914e; box-shadow: 0 0 0 3px rgba(111, 145, 78, 0.15), 0 0 9px rgba(111, 145, 78, 0.46);}
+.tavern-task-board-status > strong {color: var(--task-muted); font: 650 10px/1 var(--phone-os-font);}
 .tavern-task-board-status button,
 .tavern-task-published-actions button {min-height: 34px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid color-mix(in srgb, var(--task-olive) 38%, var(--task-line)); border-radius: 10px; background: color-mix(in srgb, var(--task-olive) 9%, var(--task-surface)); color: var(--task-olive-strong); padding: 0 11px; font: 690 10px/1 var(--phone-os-font);}
 .tavern-task-board-status button svg,
@@ -109,44 +90,32 @@
     width: 100%;
     min-width: 0;
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr) auto;
-    gap: 10px;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 11px;
     overflow: hidden;
     border: 1px solid var(--task-line);
-    border-radius: 5px 14px 14px 5px;
-    background:
-        linear-gradient(100deg, color-mix(in srgb, var(--task-olive) 7%, transparent), transparent 42%),
-        var(--task-surface-strong);
+    border-radius: 15px;
+    background: var(--task-surface-strong);
     color: var(--task-ink);
-    padding: 0;
+    padding: 12px 12px 12px 11px;
     text-align: left;
     box-shadow: 0 6px 16px color-mix(in srgb, var(--phone-os-shadow) 8%, transparent);
 }
-.tavern-task-offer-card::before,
-.tavern-task-offer-card::after {content: ""; position: absolute; right: 71px; width: 12px; height: 12px; border: 1px solid var(--task-line); border-radius: 50%; background: var(--task-bg);}
-.tavern-task-offer-card::before {top: -7px;}
-.tavern-task-offer-card::after {bottom: -7px;}
 .tavern-phone-device .tavern-task-offer-card:hover:not(:disabled) {border-color: color-mix(in srgb, var(--task-olive) 42%, var(--task-line)); background: linear-gradient(100deg, color-mix(in srgb, var(--task-olive) 12%, transparent), transparent 48%), var(--task-surface-strong); color: var(--task-ink); transform: translateY(-1px);}
 .tavern-task-offer-card:active {transform: scale(0.985);}
 .tavern-task-offer-card.is-accepted {filter: saturate(0.68); opacity: 0.75;}
-.tavern-task-ticket-rail {display: grid; grid-template-rows: auto minmax(20px, 1fr) auto; place-items: center; gap: 7px; border-right: 1px dashed color-mix(in srgb, var(--task-olive) 46%, var(--task-line)); background: color-mix(in srgb, var(--task-olive) 12%, var(--task-surface)); padding: 10px 6px;}
-.tavern-task-ticket-rail b {width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--task-olive) 45%, var(--task-line)); border-radius: 50%; color: var(--task-olive-strong); font: 780 12px/1 var(--task-mono);}
-.tavern-task-ticket-rail i {width: 1px; height: 100%; background: repeating-linear-gradient(to bottom, var(--task-line) 0 3px, transparent 3px 7px);}
-.tavern-task-ticket-rail small {writing-mode: vertical-rl; color: var(--task-muted); font: 650 7px/1 var(--task-mono); letter-spacing: 0.13em;}
-.tavern-task-ticket-copy {min-width: 0; display: grid; align-content: center; gap: 6px; padding: 11px 0;}
-.tavern-task-ticket-meta {min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--task-muted); font: 560 9px/1 var(--phone-os-font);}
-.tavern-task-ticket-meta strong {overflow: hidden; color: var(--task-olive-strong); text-overflow: ellipsis; white-space: nowrap;}
-.tavern-task-ticket-meta > span {overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
-.tavern-task-ticket-title {overflow: hidden; font: 730 14px/1.2 var(--phone-os-font); text-overflow: ellipsis; white-space: nowrap;}
-.tavern-task-ticket-hook {display: -webkit-box; overflow: hidden; color: var(--task-muted); font: 480 10px/1.35 var(--phone-os-font); -webkit-box-orient: vertical; -webkit-line-clamp: 2;}
-.tavern-task-tag-row,
+.tavern-task-ticket-grade {width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: var(--task-olive-soft); color: var(--task-olive-strong); font: 780 12px/1 var(--task-mono);}
+.tavern-task-ticket-copy {min-width: 0; display: grid; align-content: center; gap: 5px;}
+.tavern-task-ticket-title {display: -webkit-box; overflow: hidden; font: 730 14px/1.24 var(--phone-os-font); -webkit-box-orient: vertical; -webkit-line-clamp: 2;}
+.tavern-task-ticket-copy > small {overflow: hidden; color: color-mix(in srgb, var(--task-muted) 84%, transparent); font: 520 8px/1.2 var(--phone-os-font); text-overflow: ellipsis; white-space: nowrap;}
 .tavern-task-dossier-tags {display: flex; flex-wrap: wrap; gap: 4px;}
-.tavern-task-tag-row i,
 .tavern-task-dossier-tags i {border: 1px solid color-mix(in srgb, var(--task-olive) 26%, var(--task-line)); border-radius: 999px; background: color-mix(in srgb, var(--task-olive) 7%, transparent); color: var(--task-muted); padding: 3px 6px; font: normal 620 7px/1 var(--task-mono);}
-.tavern-task-ticket-reward {min-width: 72px; display: grid; align-content: center; justify-items: end; gap: 3px; border-left: 1px dashed var(--task-line); padding: 10px 10px 10px 8px; text-align: right;}
-.tavern-task-ticket-reward small {color: var(--task-muted); font: 650 7px/1 var(--task-mono); letter-spacing: 0.11em;}
-.tavern-task-ticket-reward strong {max-width: 86px; overflow: hidden; color: var(--task-amber); font: 780 17px/1 var(--task-mono); text-overflow: ellipsis;}
-.tavern-task-ticket-reward span {color: var(--task-muted); font: 560 8px/1 var(--phone-os-font);}
+.tavern-task-ticket-reward {min-width: 66px; display: grid; align-content: center; justify-items: end; gap: 4px; text-align: right;}
+.tavern-task-ticket-reward small {color: var(--task-muted); font: 560 8px/1 var(--phone-os-font);}
+.tavern-task-ticket-reward strong {max-width: 86px; overflow: hidden; color: var(--task-amber); font: 780 17px/1 var(--task-mono); text-overflow: ellipsis; white-space: nowrap;}
+.tavern-task-ticket-reward strong.is-compact {font-size: 14px;}
+.tavern-task-ticket-reward strong.is-dense {font-size: 11.5px; letter-spacing: -0.02em;}
 .tavern-task-ticket-reward > i {margin-top: 4px; border-radius: 4px; background: color-mix(in srgb, var(--task-olive) 14%, transparent); color: var(--task-olive-strong); padding: 3px 5px; font: normal 700 8px/1 var(--phone-os-font);}
 
 .tavern-task-card {position: relative; width: 100%; min-width: 0; display: grid; gap: 8px; overflow: hidden; border: 1px solid var(--task-line); border-radius: 14px; background: var(--task-surface); color: var(--task-ink); padding: 12px 13px 11px; text-align: left; box-shadow: 0 5px 14px color-mix(in srgb, var(--phone-os-shadow) 7%, transparent);}
@@ -156,7 +125,6 @@
 .tavern-task-card.is-muted::before {background: #858a80;}
 .tavern-phone-device .tavern-task-card:hover:not(:disabled) {border-color: color-mix(in srgb, var(--task-olive) 38%, var(--task-line)); background: var(--task-surface-strong); color: var(--task-ink); transform: translateY(-1px);}
 .tavern-task-card-head {display: flex; align-items: center; justify-content: space-between; gap: 8px;}
-.tavern-task-card-head > i {color: var(--task-muted); font: normal 650 8px/1 var(--task-mono); letter-spacing: 0.08em;}
 .tavern-task-card-head > b {border-radius: 999px; background: color-mix(in srgb, var(--task-olive) 12%, transparent); color: var(--task-olive-strong); padding: 4px 7px; font: 690 8px/1 var(--phone-os-font);}
 .tavern-task-card-head > b.is-success {background: rgba(73, 130, 86, 0.12); color: #39744c;}
 .tavern-task-card-head > b.is-danger {background: color-mix(in srgb, var(--task-rust) 12%, transparent); color: var(--task-rust);}
@@ -168,14 +136,9 @@
 .tavern-task-card-foot > span {display: flex; align-items: center; gap: 4px; color: var(--task-amber);}
 .tavern-task-card-foot > span b {font: 760 12px/1 var(--task-mono);}
 .tavern-task-card-foot > span i {font: normal 700 10px/1 Georgia, serif;}
-.tavern-task-card > time {color: color-mix(in srgb, var(--task-muted) 76%, transparent); font: 520 7px/1 var(--task-mono); text-align: right;}
+.tavern-task-card-head > time {color: color-mix(in srgb, var(--task-muted) 76%, transparent); font: 520 8px/1 var(--phone-os-font);}
 
-.tavern-task-section-intro,
-.tavern-task-published-actions {display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 3px 12px; border-bottom: 1px solid var(--task-line); padding: 0 0 10px;}
-.tavern-task-section-intro {display: grid; gap: 5px;}
-.tavern-task-section-intro p,
-.tavern-task-published-actions p {margin: 0; color: var(--task-muted); font: 480 10px/1.4 var(--phone-os-font);}
-.tavern-task-published-actions > div {display: grid; gap: 5px;}
+.tavern-task-published-actions {display: flex; justify-content: flex-end; margin: 0 0 10px;}
 
 .tavern-task-empty {min-height: 210px; display: grid; align-content: center; justify-items: center; gap: 9px; color: var(--task-muted); padding: 24px 22px; text-align: center;}
 .tavern-task-empty > span {width: 66px; height: 50px; display: flex; align-items: end; justify-content: center; gap: 5px; border: 1px solid var(--task-line); border-radius: 8px; background: var(--task-surface); padding: 11px; transform: rotate(-2deg);}
@@ -208,7 +171,7 @@
 .tavern-task-detail-page .tavern-phone-back-button,
 .tavern-task-publish-page .tavern-phone-back-button {color: var(--task-olive-strong);}
 .tavern-task-detail-scroll,
-.tavern-task-publish-form {min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 13px 14px 24px;}
+.tavern-task-publish-form {min-height: 0; overflow: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; scrollbar-width: thin; padding: 13px 14px 24px;}
 
 .tavern-task-dossier,
 .tavern-task-formal-record {position: relative; overflow: hidden; border: 1px solid var(--task-line); border-radius: 5px 17px 17px 5px; background: var(--task-surface-strong); box-shadow: 0 12px 28px color-mix(in srgb, var(--phone-os-shadow) 10%, transparent);}
@@ -236,12 +199,11 @@
 .tavern-task-dossier > footer strong {color: var(--task-amber); font: 780 22px/1 var(--task-mono);}
 .tavern-task-dossier > footer small {font: inherit;}
 
-.tavern-task-action-dock {display: grid; gap: 5px; border-top: 1px solid var(--task-line); background: color-mix(in srgb, var(--task-surface) 94%, transparent); padding: 9px 13px 10px; backdrop-filter: blur(12px);}
+.tavern-task-action-dock {display: grid; border-top: 1px solid var(--task-line); background: color-mix(in srgb, var(--task-surface) 94%, transparent); padding: 9px 13px 10px; backdrop-filter: blur(12px);}
 .tavern-task-action-dock button,
 .tavern-task-publish-submit {min-height: 42px; border: 0; border-radius: 11px; background: linear-gradient(180deg, var(--task-olive), var(--task-olive-strong)); color: #fff; font: 710 12px/1 var(--phone-os-font); box-shadow: 0 7px 16px color-mix(in srgb, var(--task-olive) 24%, transparent);}
 .tavern-task-action-dock button:disabled,
 .tavern-task-publish-submit:disabled {box-shadow: none; filter: saturate(0.4); opacity: 0.55;}
-.tavern-task-action-dock small {color: var(--task-muted); font: 480 8px/1.35 var(--phone-os-font); text-align: center;}
 
 .tavern-task-formal-record > header {grid-template-columns: minmax(0, 1fr) auto; align-items: center;}
 .tavern-task-formal-record > header h2,
@@ -311,25 +273,20 @@
 .tavern-task-timeline-more {width: 100%; min-height: 36px; border: 1px solid var(--task-line); border-radius: 10px; background: var(--task-surface); color: var(--task-olive-strong); font: 660 9px/1 var(--phone-os-font);}
 
 .tavern-task-publish-form {display: grid; align-content: start; gap: 12px;}
-.tavern-task-publish-balance {display: grid; gap: 9px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--task-amber) 34%, var(--task-line)); border-radius: 13px; background: linear-gradient(135deg, color-mix(in srgb, var(--task-amber) 10%, var(--task-surface)), var(--task-surface)); padding: 11px 12px 10px; transition: border-color 0.16s ease, box-shadow 0.16s ease;}
-.tavern-task-publish-balance > header {display: flex; align-items: center; justify-content: space-between; gap: 10px;}
-.tavern-task-publish-balance > header span {color: var(--task-amber); font: 750 8px/1 var(--task-mono); letter-spacing: 0.12em;}
-.tavern-task-publish-balance > header small {color: var(--task-muted); font: 620 8px/1 var(--phone-os-font);}
-.tavern-task-publish-balance dl {display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; overflow: hidden; border: 1px solid var(--task-line); border-radius: 9px; background: color-mix(in srgb, var(--task-surface-strong) 86%, transparent);}
-.tavern-task-publish-balance dl > div {display: grid; gap: 6px; min-width: 0; padding: 9px 8px 8px; border-right: 1px solid var(--task-line);}
-.tavern-task-publish-balance dl > div:last-child {border-right: 0;}
-.tavern-task-publish-balance dt {color: var(--task-muted); font: 620 7px/1 var(--task-mono); letter-spacing: 0.04em;}
-.tavern-task-publish-balance dd {min-width: 0; margin: 0; overflow: hidden; color: var(--task-ink); font: 760 13px/1 var(--task-mono); text-overflow: ellipsis; white-space: nowrap;}
-.tavern-task-publish-balance dd i {color: var(--task-amber); font: normal 700 9px/1 Georgia, serif;}
-.tavern-task-publish-balance .is-total {background: color-mix(in srgb, var(--task-amber) 9%, transparent);}
-.tavern-task-publish-balance .is-total dd {color: var(--task-amber);}
-.tavern-task-publish-balance > p {margin: 0; color: var(--task-muted); font: 500 8px/1.4 var(--phone-os-font);}
+.tavern-task-publish-balance {display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 9px 12px; border: 1px solid color-mix(in srgb, var(--task-amber) 34%, var(--task-line)); border-radius: 13px; background: linear-gradient(135deg, color-mix(in srgb, var(--task-amber) 9%, var(--task-surface)), var(--task-surface)); padding: 11px 12px; transition: border-color 0.16s ease, box-shadow 0.16s ease;}
+.tavern-task-publish-balance > label {min-width: 0; display: grid; gap: 6px;}
+.tavern-task-reward-input {position: relative; display: block; min-width: 0;}
+.tavern-task-reward-input input {padding-right: 64px; font-variant-numeric: tabular-nums;}
+.tavern-task-reward-input i {position: absolute; inset: 50% 11px auto auto; color: var(--task-muted); font: normal 600 9px/1 var(--phone-os-font); transform: translateY(-50%); pointer-events: none;}
+.tavern-task-balance-result {display: grid; justify-items: end; gap: 7px; padding-bottom: 7px; white-space: nowrap;}
+.tavern-task-balance-result span {color: var(--task-muted); font: 560 9px/1 var(--phone-os-font);}
+.tavern-task-balance-result strong {color: var(--task-amber); font: 720 10px/1 var(--phone-os-font);}
+.tavern-task-publish-balance > p {grid-column: 1 / -1; margin: 0; color: var(--task-muted); font: 540 9px/1.4 var(--phone-os-font);}
 .tavern-task-publish-balance.is-insufficient {border-color: color-mix(in srgb, var(--task-rust) 72%, var(--task-line)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--task-rust) 9%, transparent);}
-.tavern-task-publish-balance.is-insufficient .is-total dd,
+.tavern-task-publish-balance.is-insufficient .tavern-task-balance-result strong,
 .tavern-task-publish-balance.is-insufficient > p {color: var(--task-rust);}
-.tavern-task-publish-form > label,
-.tavern-task-publish-two-column label {display: grid; gap: 6px;}
-.tavern-task-publish-form label > span {color: var(--task-olive-strong); font: 680 9px/1 var(--task-mono); letter-spacing: 0.04em;}
+.tavern-task-publish-form > label {display: grid; gap: 6px;}
+.tavern-task-publish-form label > span:first-child {color: var(--task-olive-strong); font: 680 9px/1 var(--task-mono); letter-spacing: 0.04em;}
 .tavern-task-publish-form input,
 .tavern-task-publish-form textarea {width: 100%; min-width: 0; border: 1px solid var(--task-line); border-radius: 10px; outline: 0; background: var(--task-surface); color: var(--task-ink); padding: 10px 11px; font: 500 12px/1.45 var(--phone-os-font); resize: vertical; transition: border-color 0.14s ease, box-shadow 0.14s ease;}
 .tavern-task-publish-form input {min-height: 42px; resize: none;}
@@ -337,7 +294,6 @@
 .tavern-task-publish-form textarea:focus {border-color: color-mix(in srgb, var(--task-olive) 62%, var(--task-line)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--task-olive) 11%, transparent);}
 .tavern-task-publish-form input::placeholder,
 .tavern-task-publish-form textarea::placeholder {color: color-mix(in srgb, var(--task-muted) 76%, transparent);}
-.tavern-task-publish-two-column {display: grid; grid-template-columns: minmax(0, 1fr) 112px; gap: 9px;}
 .tavern-task-publish-submit {margin-top: 2px;}
 
 .tavern-task-dialog-backdrop {position: fixed; z-index: 12060; inset: 0; display: grid; place-items: center; background: rgba(5, 7, 5, 0.82); padding: max(18px, env(safe-area-inset-top)) 18px max(22px, env(safe-area-inset-bottom)); backdrop-filter: blur(16px) saturate(0.72);}
@@ -349,7 +305,7 @@
 .tavern-task-dialog header strong {font: 730 20px/1.16 var(--xb-font-ui);}
 .tavern-task-dialog > p {margin: 0; color: #aeb5a7; padding: 14px 18px 5px 22px; font: 500 11px/1.55 var(--xb-font-ui);}
 .tavern-task-dialog ul {display: grid; gap: 0; margin: 8px 18px 5px 22px; border: 1px solid rgba(190, 207, 171, 0.14); border-radius: 10px; background: rgba(255, 255, 255, 0.035); padding: 4px 10px; list-style: none;}
-.tavern-task-dialog li {overflow: hidden; border-bottom: 1px dashed rgba(190, 207, 171, 0.12); color: #d7dccf; padding: 8px 0; font: 560 10px/1.35 var(--xb-font-mono); text-overflow: ellipsis; white-space: nowrap;}
+.tavern-task-dialog li {display: -webkit-box; overflow: hidden; border-bottom: 1px dashed rgba(190, 207, 171, 0.12); color: #d7dccf; padding: 8px 0; font: 560 10px/1.35 var(--xb-font-mono); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2;}
 .tavern-task-dialog li:last-child {border-bottom: 0;}
 .tavern-task-dialog > .tavern-task-inline-alert {margin: 9px 18px 0 22px;}
 .tavern-task-dialog footer {display: grid; grid-template-columns: 1fr 1.2fr; gap: 8px; padding: 14px 18px 18px 22px;}
@@ -363,10 +319,12 @@
     .tavern-tasks-head h2 {font-size: 25px;}
     .tavern-task-tabs button {font-size: 10px;}
     .tavern-task-root-view {padding-right: 10px; padding-left: 10px;}
-    .tavern-task-offer-card {grid-template-columns: 39px minmax(0, 1fr) 65px; gap: 8px;}
-    .tavern-task-ticket-reward {min-width: 65px; padding-right: 7px;}
+    .tavern-task-offer-card {grid-template-columns: 32px minmax(0, 1fr) 62px; gap: 8px; padding-right: 10px; padding-left: 9px;}
+    .tavern-task-ticket-grade {width: 32px; height: 32px;}
+    .tavern-task-ticket-reward {min-width: 62px;}
     .tavern-task-ticket-title {font-size: 13px;}
-    .tavern-task-publish-two-column {grid-template-columns: 1fr;}
+    .tavern-task-publish-balance {grid-template-columns: 1fr;}
+    .tavern-task-balance-result {grid-template-columns: 1fr auto; justify-items: initial; padding-bottom: 0;}
 }
 
 .tavern-phone-device.is-mobile-fullscreen .tavern-task-publish-form input,

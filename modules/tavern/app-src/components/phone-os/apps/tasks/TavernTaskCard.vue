@@ -2,8 +2,6 @@
 import type { TavernTaskVersionRecord } from '../../../../../shared/tasks/task-types';
 import {
     tavernTaskCounterparty,
-    tavernTaskDirectionLabel,
-    tavernTaskGradeLabel,
     tavernTaskRewardLabel,
     tavernTaskStatusLabel,
     tavernTaskStatusTone,
@@ -27,8 +25,8 @@ const emit = defineEmits<{
     @click="emit('open')"
   >
     <span class="tavern-task-card-head">
-      <i>{{ tavernTaskDirectionLabel(task) }}</i>
       <b :class="`is-${tavernTaskStatusTone(task.status)}`">{{ tavernTaskStatusLabel(task.status) }}</b>
+      <time>{{ tavernTaskTimestampLabel(task.updatedAt) }}</time>
     </span>
     <strong>{{ task.title }}</strong>
     <p>
@@ -37,12 +35,11 @@ const emit = defineEmits<{
         : (task.progressSummary || task.resultSummary || task.objective) }}
     </p>
     <span class="tavern-task-card-foot">
-      <small>{{ tavernTaskGradeLabel(task.grade) }} · {{ tavernTaskCounterparty(task) }}</small>
+      <small>{{ tavernTaskCounterparty(task) }}</small>
       <span>
         <b>{{ tavernTaskRewardLabel(task.reward) }}</b>
         <i>◈</i>
       </span>
     </span>
-    <time>{{ tavernTaskTimestampLabel(task.updatedAt) }}</time>
   </button>
 </template>

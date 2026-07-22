@@ -8,14 +8,10 @@ const emit = defineEmits<{ (event: 'open', task: TavernTaskVersionRecord): void 
 
 <template>
   <section class="tavern-task-root-view">
-    <div class="tavern-task-section-intro">
-      <span>LIVE OPERATIONS</span>
-      <p>你承接的工作与已经选定执行人的发布任务。</p>
-    </div>
     <TavernTaskList
       :tasks="tasks"
       empty-title="目前没有进行中的任务"
-      empty-copy="从委托板接取一份工作，或发布任务并选定应征者。"
+      empty-copy="接取或发布的任务会出现在这里。"
       @open="emit('open', $event)"
     />
   </section>

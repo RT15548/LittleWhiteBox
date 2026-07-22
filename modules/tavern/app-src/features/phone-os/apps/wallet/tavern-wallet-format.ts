@@ -41,16 +41,3 @@ export function formatTavernWalletTransactionAnchor(
     if (transaction.anchorOrder < 0) {return `会话开户 · ${time}`;}
     return `第 ${transaction.anchorOrder + 1} 楼 · ${time}`;
 }
-
-export function formatTavernWalletTransactionSource(
-    transaction: TavernEconomyTransactionRecord,
-): string {
-    if (transaction.note) {return transaction.note;}
-    const labels: Record<string, string> = {
-        economy: '小白经济系统',
-        tasks: '任务',
-        intel: '偷窥情报',
-        communications: '信息',
-    };
-    return labels[transaction.sourceDomain] || transaction.sourceDomain || '剧情交易';
-}

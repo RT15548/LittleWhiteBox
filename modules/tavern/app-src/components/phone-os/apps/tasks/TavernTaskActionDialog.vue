@@ -56,7 +56,6 @@ onBeforeUnmount(() => {
         :class="`is-${tone || 'default'}`"
       >
         <header>
-          <span>COMMISSION TERMINAL</span>
           <strong id="tavern-task-dialog-title">{{ title }}</strong>
         </header>
         <p>{{ message }}</p>
@@ -83,7 +82,7 @@ onBeforeUnmount(() => {
             :disabled="busy"
             @click="emit('cancel')"
           >
-            返回核对
+            取消
           </button>
           <button
             type="button"

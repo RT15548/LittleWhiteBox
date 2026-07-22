@@ -9,11 +9,7 @@ const phone = useTavernPhoneContext();
 <template>
   <section class="tavern-phone-app tavern-wallet-app">
     <header class="tavern-phone-app-head tavern-wallet-head">
-      <div>
-        <span>剧情资产账本</span>
-        <h2>钱包</h2>
-      </div>
-      <i aria-hidden="true">◈</i>
+      <h2>钱包</h2>
     </header>
     <div class="tavern-wallet-scroll">
       <TavernWalletBalanceCard
@@ -24,10 +20,7 @@ const phone = useTavernPhoneContext();
       />
       <section class="tavern-wallet-ledger">
         <header>
-          <div>
-            <span>Ledger</span>
-            <h3>最近流水</h3>
-          </div>
+          <h3>流水</h3>
           <small>{{ phone.wallet.transactions.value.length }} 笔</small>
         </header>
         <div

@@ -16,13 +16,9 @@ const emit = defineEmits<{
 
 <template>
   <section class="tavern-task-root-view">
-    <div class="tavern-task-section-intro">
-      <span>最近记录</span>
-      <p>已经完成、失败或撤回的任务会按时间保留在这里。</p>
-    </div>
     <TavernTaskList
       :tasks="tasks"
-      empty-title="记录柜还是空的"
+      empty-title="暂无任务记录"
       empty-copy="任务结束后，会出现在这里。"
       @open="emit('open', $event)"
     />

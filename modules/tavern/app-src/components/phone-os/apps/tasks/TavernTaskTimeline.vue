@@ -20,8 +20,7 @@ const emit = defineEmits<{ (event: 'load-more'): void }>();
 <template>
   <section class="tavern-task-timeline">
     <header>
-      <span>进展记录</span>
-      <strong>任务记录</strong>
+      <strong>进展</strong>
     </header>
     <div
       v-if="loading"

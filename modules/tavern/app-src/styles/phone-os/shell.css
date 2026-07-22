@@ -56,7 +56,7 @@
     height: 100%;
     min-height: 0;
     display: grid;
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 41px;
@@ -248,6 +248,8 @@
     z-index: 4;
     min-width: 0;
     min-height: 0;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
     background: var(--phone-os-screen);
 }
@@ -257,26 +259,28 @@
     height: 100%;
     min-width: 0;
     min-height: 0;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
 }
 
 .tavern-phone-system-navigation {
-    position: absolute;
-    inset: auto 0 0;
+    position: relative;
     z-index: 35;
     height: 54px;
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr) 44px;
     align-items: center;
     gap: 4px;
-    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--phone-os-screen) 94%, transparent) 34%);
+    border-top: 1px solid color-mix(in srgb, var(--phone-os-line) 66%, transparent);
+    background: color-mix(in srgb, var(--phone-os-screen) 94%, transparent);
     padding: 5px 10px 5px;
     backdrop-filter: blur(14px) saturate(1.08);
 }
 
 .tavern-phone-system-navigation.is-home {
-    background: linear-gradient(180deg, transparent, rgba(4, 7, 10, 0.54) 48%);
-    backdrop-filter: none;
+    border-top-color: rgba(255, 255, 255, 0.08);
+    background: #0b0d11;
 }
 
 .tavern-phone-system-navigation-spacer {width: 44px; height: 44px;}

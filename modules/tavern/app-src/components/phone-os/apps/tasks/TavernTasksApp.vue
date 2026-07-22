@@ -41,9 +41,9 @@ type TaskDialogState =
 const phone = useTavernPhoneContext();
 const dialog = ref<TaskDialogState | null>(null);
 const rootTabs: Array<{ path: TavernTaskRootPath; label: string; count: () => number }> = [
-    { path: TAVERN_TASK_BOARD_PATH, label: '委托板', count: () => phone.tasks.board.value?.listings.length || 0 },
+    { path: TAVERN_TASK_BOARD_PATH, label: '委托', count: () => phone.tasks.board.value?.listings.length || 0 },
     { path: TAVERN_TASK_ACTIVE_PATH, label: '进行中', count: () => phone.tasks.activeTasks.value.length },
-    { path: TAVERN_TASK_PUBLISHED_PATH, label: '我发布的', count: () => phone.tasks.publishedTasks.value.length },
+    { path: TAVERN_TASK_PUBLISHED_PATH, label: '发布', count: () => phone.tasks.publishedTasks.value.length },
     { path: TAVERN_TASK_HISTORY_PATH, label: '记录', count: () => phone.tasks.historyTasks.value.length },
 ];
 
@@ -183,11 +183,7 @@ watch(dialog, (current) => {
       :class="{ 'has-data-error': !!phone.tasks.dataError.value }"
     >
       <header class="tavern-tasks-head">
-        <div>
-          <span>私人委托</span>
-          <h2>委托终端</h2>
-        </div>
-        <i aria-hidden="true"><b /><b /><b /></i>
+        <h2>任务</h2>
       </header>
       <nav
         class="tavern-task-tabs"
@@ -213,38 +209,40 @@ watch(dialog, (current) => {
         <strong>任务记录读取失败</strong>
         <p>{{ phone.tasks.dataError.value }}</p>
       </div>
-      <KeepAlive>
-        <TavernTaskBoardView
-          v-if="activePath === TAVERN_TASK_BOARD_PATH"
-          :board="phone.tasks.board.value"
-          :loading="phone.tasks.dataLoading.value"
-          :refreshing="phone.tasks.boardRefreshing.value"
-          :error="phone.tasks.boardError.value"
-          :is-accepted="phone.tasks.isListingAccepted"
-          @refresh="phone.tasks.refreshTaskBoard"
-          @open="openListing"
-        />
-        <TavernTaskActiveView
-          v-else-if="activePath === TAVERN_TASK_ACTIVE_PATH"
-          :tasks="phone.tasks.activeTasks.value"
-          @open="openTask"
-        />
-        <TavernTaskPublishedView
-          v-else-if="activePath === TAVERN_TASK_PUBLISHED_PATH"
-          :tasks="phone.tasks.publishedTasks.value"
-          @open="openTask"
-          @publish="openPublisher"
-        />
-        <TavernTaskHistoryView
-          v-else
-          :tasks="phone.tasks.historyTasks.value"
-          :loading-more="phone.tasks.historyLoadingMore.value"
-          :has-more="phone.tasks.historyHasMore.value"
-          :error="phone.tasks.historyError.value"
-          @open="openTask"
-          @load-more="phone.tasks.loadMoreHistory"
-        />
-      </KeepAlive>
+      <div class="tavern-task-content">
+        <KeepAlive>
+          <TavernTaskBoardView
+            v-if="activePath === TAVERN_TASK_BOARD_PATH"
+            :board="phone.tasks.board.value"
+            :loading="phone.tasks.dataLoading.value"
+            :refreshing="phone.tasks.boardRefreshing.value"
+            :error="phone.tasks.boardError.value"
+            :is-accepted="phone.tasks.isListingAccepted"
+            @refresh="phone.tasks.refreshTaskBoard"
+            @open="openListing"
+          />
+          <TavernTaskActiveView
+            v-else-if="activePath === TAVERN_TASK_ACTIVE_PATH"
+            :tasks="phone.tasks.activeTasks.value"
+            @open="openTask"
+          />
+          <TavernTaskPublishedView
+            v-else-if="activePath === TAVERN_TASK_PUBLISHED_PATH"
+            :tasks="phone.tasks.publishedTasks.value"
+            @open="openTask"
+            @publish="openPublisher"
+          />
+          <TavernTaskHistoryView
+            v-else
+            :tasks="phone.tasks.historyTasks.value"
+            :loading-more="phone.tasks.historyLoadingMore.value"
+            :has-more="phone.tasks.historyHasMore.value"
+            :error="phone.tasks.historyError.value"
+            @open="openTask"
+            @load-more="phone.tasks.loadMoreHistory"
+          />
+        </KeepAlive>
+      </div>
     </section>
 
     <TavernTaskOfferDetailView

@@ -54,8 +54,7 @@ const emit = defineEmits<{
         ><path d="m15 4-8 8 8 8" /></svg>
       </button>
       <div>
-        <span>任务详情</span>
-        <strong>委托记录</strong>
+        <strong>任务详情</strong>
       </div>
       <b v-if="task">{{ tavernTaskGradeLabel(task.grade) }}</b>
       <span v-else />
@@ -86,13 +85,18 @@ const emit = defineEmits<{
             <dt>要求</dt><dd>{{ task.requirements }}</dd>
           </div>
           <div><dt>地点</dt><dd>{{ task.location }}</dd></div>
-          <div><dt>风险</dt><dd>{{ task.risk || '未记录额外风险' }}</dd></div>
+          <div v-if="task.risk">
+            <dt>风险</dt><dd>{{ task.risk }}</dd>
+          </div>
           <div><dt>当前进度</dt><dd>{{ task.progressSummary || '尚未开始' }}</dd></div>
           <div v-if="task.resultSummary">
             <dt>结算结果</dt><dd>{{ task.resultSummary }}</dd>
           </div>
         </dl>
-        <div class="tavern-task-dossier-tags">
+        <div
+          v-if="task.tags.length"
+          class="tavern-task-dossier-tags"
+        >
           <i
             v-for="tag in task.tags"
             :key="tag"
@@ -105,10 +109,7 @@ const emit = defineEmits<{
         class="tavern-task-recruitment"
       >
         <header>
-          <div>
-            <span>招募进度</span>
-            <strong>应征者</strong>
-          </div>
+          <strong>应征者</strong>
           <button
             type="button"
             :disabled="candidateBusy || actionBusy"

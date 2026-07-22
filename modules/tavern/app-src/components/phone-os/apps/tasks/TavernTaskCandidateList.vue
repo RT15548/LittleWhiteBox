@@ -47,6 +47,6 @@ const emit = defineEmits<{
     class="tavern-task-candidates-empty"
   >
     <strong>目前没有合适的应征者</strong>
-    <p>空结果也是有效结果；可以稍后重新发起招募，或在选人前撤回委托。</p>
+    <p>稍后可以重新招募。</p>
   </div>
 </template>

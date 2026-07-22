@@ -8,53 +8,38 @@
 .tavern-wallet-head {
     position: relative;
     z-index: 2;
-    align-items: center;
-    padding-bottom: 10px;
+    min-height: 68px;
+    align-items: end;
+    border-bottom: 1px solid color-mix(in srgb, var(--phone-wallet-gold) 16%, var(--phone-os-line));
+    padding: 14px 18px 11px;
 }
 
-.tavern-wallet-head > div {gap: 3px;}
-.tavern-wallet-head span {
-    color: var(--phone-wallet-gold-deep);
-    font: 680 10px/1 var(--phone-os-font);
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-}
-.tavern-wallet-head h2 {font-family: "Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif; font-weight: 720;}
-.tavern-wallet-head > i {
-    width: 35px;
-    height: 35px;
-    display: grid;
-    place-items: center;
-    border: 1px solid color-mix(in srgb, var(--phone-wallet-gold) 40%, var(--phone-os-line));
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--phone-wallet-gold-soft) 22%, var(--phone-os-surface));
-    color: var(--phone-wallet-gold-deep);
-    font: normal 760 16px/1 Georgia, serif;
-    box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--phone-wallet-gold) 5%, transparent);
-}
+.tavern-wallet-head h2 {font: 740 28px/1 var(--phone-os-font); letter-spacing: -0.035em;}
 
 .tavern-wallet-scroll {
     min-height: 0;
     overflow: auto;
     overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
-    padding: 4px 15px 24px;
+    padding: 12px 15px 20px;
 }
 
 .tavern-wallet-balance-card {
     position: relative;
-    min-height: 202px;
+    min-height: 144px;
     display: grid;
-    align-content: space-between;
+    align-content: start;
     overflow: hidden;
     border: 1px solid rgba(255, 246, 220, 0.42);
-    border-radius: 26px;
+    border-radius: 23px;
     background:
         linear-gradient(135deg, rgba(255, 255, 255, 0.26), transparent 31%),
         radial-gradient(circle at 84% 12%, rgba(255, 238, 190, 0.34), transparent 30%),
         linear-gradient(145deg, #d6a64f 0%, #b97822 48%, #724817 100%);
     color: #fffaf0;
-    padding: 19px 20px 18px;
+    padding: 18px 19px;
     box-shadow:
         0 20px 36px rgba(91, 55, 14, 0.22),
         0 5px 12px rgba(75, 47, 14, 0.16),
@@ -72,106 +57,63 @@
     mix-blend-mode: soft-light;
 }
 
-.tavern-wallet-balance-card::after {
-    content: "";
-    position: absolute;
-    right: -50px;
-    bottom: -72px;
-    z-index: -1;
-    width: 190px;
-    height: 190px;
-    border: 1px solid rgba(255, 244, 212, 0.20);
-    border-radius: 50%;
-    box-shadow: inset 0 0 0 16px rgba(255, 244, 212, 0.035), inset 0 0 0 36px rgba(255, 244, 212, 0.025);
-}
+.tavern-wallet-balance-card > span {font: 650 11px/1 var(--phone-os-font); letter-spacing: 0.04em; opacity: 0.78;}
 
-.tavern-wallet-card-orbit {
-    position: absolute;
-    top: 41px;
-    right: 28px;
-    width: 58px;
-    height: 58px;
-    border: 1px solid rgba(255, 247, 221, 0.27);
-    border-radius: 50%;
-}
-.tavern-wallet-card-orbit::before,
-.tavern-wallet-card-orbit::after {
-    content: "";
-    position: absolute;
-    border-radius: 50%;
-}
-.tavern-wallet-card-orbit::before {inset: 7px; border: 1px dashed rgba(255, 247, 221, 0.25);}
-.tavern-wallet-card-orbit::after {inset: 20px; background: rgba(255, 249, 230, 0.82); box-shadow: 0 0 18px rgba(255, 241, 195, 0.30);}
-
-.tavern-wallet-card-heading {display: flex; align-items: center; gap: 8px; font: 650 11px/1 var(--phone-os-font); letter-spacing: 0.08em;}
-.tavern-wallet-card-seal {
-    width: 24px;
-    height: 24px;
-    display: grid;
-    place-items: center;
-    border: 1px solid rgba(255, 249, 231, 0.48);
-    border-radius: 50%;
-    background: rgba(70, 41, 12, 0.14);
-    font: 760 12px/1 Georgia, serif;
-}
-
-.tavern-wallet-card-balance {display: flex; align-items: baseline; gap: 10px; margin-top: 24px;}
+.tavern-wallet-card-balance {display: flex; align-items: baseline; gap: 9px; margin-top: 36px;}
 .tavern-wallet-card-balance strong {
-    max-width: 250px;
+    max-width: calc(100% - 54px);
     overflow: hidden;
-    font: 720 53px/0.92 "Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif;
+    font: 730 48px/0.92 "Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif;
+    font-variant-numeric: tabular-nums;
     letter-spacing: -0.045em;
     text-overflow: ellipsis;
     text-shadow: 0 3px 14px rgba(80, 44, 7, 0.22);
     white-space: nowrap;
 }
 .tavern-wallet-card-balance strong.is-loading {letter-spacing: 0.08em; opacity: 0.78;}
-.tavern-wallet-card-balance span {font: 650 13px/1 var(--phone-os-font); letter-spacing: 0.06em; opacity: 0.88;}
-.tavern-wallet-balance-card > p {max-width: 260px; margin: 25px 0 0; color: rgba(255, 250, 239, 0.78); font: 510 11px/1.5 var(--phone-os-font);}
+.tavern-wallet-card-balance strong.is-compact {font-size: 38px;}
+.tavern-wallet-card-balance strong.is-extra-compact {font-size: 30px; letter-spacing: -0.035em;}
+.tavern-wallet-card-balance span {font: 650 12px/1 var(--phone-os-font); opacity: 0.84;}
+.tavern-wallet-balance-card > p {margin: 12px 0 0; color: rgba(255, 250, 239, 0.9); font: 560 10px/1.4 var(--phone-os-font);}
 .tavern-wallet-balance-card > p.is-error {color: rgba(255, 250, 239, 0.94);}
 
 .tavern-wallet-ledger {
-    margin-top: 22px;
-    border-top: 1px solid color-mix(in srgb, var(--phone-wallet-gold) 23%, var(--phone-os-line));
-    padding-top: 17px;
+    margin-top: 19px;
 }
-.tavern-wallet-ledger > header {display: flex; align-items: end; justify-content: space-between; gap: 12px; margin: 0 3px 11px;}
-.tavern-wallet-ledger > header > div {display: grid; gap: 2px;}
-.tavern-wallet-ledger > header span {color: var(--phone-wallet-gold-deep); font: 700 9px/1 var(--phone-os-font); letter-spacing: 0.18em; text-transform: uppercase;}
-.tavern-wallet-ledger h3 {margin: 0; color: var(--phone-wallet-ink); font: 710 20px/1.1 "Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif; letter-spacing: -0.02em;}
+.tavern-wallet-ledger > header {display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 3px 10px;}
+.tavern-wallet-ledger h3 {margin: 0; color: var(--phone-wallet-ink); font: 710 17px/1.1 var(--phone-os-font); letter-spacing: -0.01em;}
 .tavern-wallet-ledger > header small {color: var(--phone-os-muted); font: 560 10px/1 var(--phone-os-font);}
 
-.tavern-wallet-transaction-list {display: grid; gap: 9px;}
+.tavern-wallet-transaction-list {display: grid; gap: 8px;}
 .tavern-wallet-transaction-row {
     min-width: 0;
     display: grid;
-    grid-template-columns: 40px minmax(0, 1fr) auto;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 11px;
+    gap: 10px;
     border: 1px solid color-mix(in srgb, var(--phone-wallet-gold) 11%, var(--phone-os-line));
-    border-radius: 17px;
+    border-radius: 15px;
     background:
         linear-gradient(90deg, color-mix(in srgb, var(--phone-wallet-paper) 36%, transparent), transparent 36%),
         var(--phone-os-surface);
-    padding: 11px 12px 11px 10px;
+    padding: 10px 11px 10px 9px;
     box-shadow: 0 5px 14px color-mix(in srgb, var(--phone-os-shadow) 7%, transparent);
 }
 .tavern-wallet-transaction-mark {
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     display: grid;
     place-items: center;
     border: 1px solid color-mix(in srgb, var(--phone-wallet-gold) 24%, transparent);
-    border-radius: 13px;
+    border-radius: 12px;
     background: color-mix(in srgb, var(--phone-wallet-gold-soft) 24%, var(--phone-os-surface-soft));
     color: var(--phone-wallet-gold-deep);
 }
 .tavern-wallet-transaction-mark svg {width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;}
 .tavern-wallet-transaction-row.is-expense .tavern-wallet-transaction-mark {border-color: color-mix(in srgb, #b96c54 22%, transparent); background: color-mix(in srgb, #c98066 12%, var(--phone-os-surface-soft)); color: #a45c46;}
 .tavern-wallet-transaction-row.is-transfer .tavern-wallet-transaction-mark {border-color: var(--phone-os-line); background: var(--phone-os-surface-soft); color: var(--phone-os-muted);}
-.tavern-wallet-transaction-copy {min-width: 0; display: grid; gap: 3px;}
+.tavern-wallet-transaction-copy {min-width: 0; display: grid; gap: 5px;}
 .tavern-wallet-transaction-copy strong {overflow: hidden; color: var(--phone-wallet-ink); font: 670 13px/1.2 var(--phone-os-font); text-overflow: ellipsis; white-space: nowrap;}
-.tavern-wallet-transaction-copy > span {overflow: hidden; color: var(--phone-os-muted); font: 500 10px/1.25 var(--phone-os-font); text-overflow: ellipsis; white-space: nowrap;}
 .tavern-wallet-transaction-copy small {color: color-mix(in srgb, var(--phone-os-muted) 82%, transparent); font: 510 9px/1.2 var(--phone-os-font);}
 .tavern-wallet-transaction-value {display: grid; justify-items: end; gap: 5px; text-align: right;}
 .tavern-wallet-transaction-value strong {color: #39744d; font: 730 14px/1 var(--phone-os-font); font-variant-numeric: tabular-nums;}
@@ -204,7 +146,6 @@
 .tavern-wallet-empty-state {min-height: 190px; display: grid; align-content: center; justify-items: center; gap: 8px; color: var(--phone-os-muted); text-align: center; padding: 24px;}
 .tavern-wallet-empty-state > span {width: 46px; height: 46px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--phone-wallet-gold) 34%, var(--phone-os-line)); border-radius: 50%; background: color-mix(in srgb, var(--phone-wallet-gold-soft) 16%, var(--phone-os-surface)); color: var(--phone-wallet-gold-deep); font: 760 18px/1 Georgia, serif;}
 .tavern-wallet-empty-state strong {color: var(--phone-wallet-ink); font: 690 15px/1.2 var(--phone-os-font);}
-.tavern-wallet-empty-state p {max-width: 230px; margin: 0; font: 490 11px/1.5 var(--phone-os-font);}
 
 .tavern-wallet-error {display: grid; justify-items: start; gap: 10px; border: 1px solid color-mix(in srgb, var(--phone-os-danger) 24%, var(--phone-os-line)); border-radius: 16px; background: color-mix(in srgb, var(--phone-os-danger) 6%, var(--phone-os-surface)); padding: 14px;}
 .tavern-wallet-error p {margin: 0; color: var(--phone-os-danger); font: 560 11px/1.45 var(--phone-os-font);}
@@ -218,11 +159,12 @@
 .xb-os-shell.theme-dark .tavern-wallet-transaction-row.is-expense .tavern-wallet-transaction-mark {color: #dd8a74;}
 
 @media (max-height: 720px) {
-    .tavern-wallet-balance-card {min-height: 176px; padding-top: 16px;}
-    .tavern-wallet-card-balance {margin-top: 17px;}
-    .tavern-wallet-card-balance strong {font-size: 45px;}
-    .tavern-wallet-balance-card > p {margin-top: 18px;}
-    .tavern-wallet-ledger {margin-top: 17px;}
+    .tavern-wallet-balance-card {min-height: 132px; padding-top: 16px;}
+    .tavern-wallet-card-balance {margin-top: 29px;}
+    .tavern-wallet-card-balance strong {font-size: 43px;}
+    .tavern-wallet-card-balance strong.is-compact {font-size: 35px;}
+    .tavern-wallet-card-balance strong.is-extra-compact {font-size: 28px;}
+    .tavern-wallet-ledger {margin-top: 15px;}
 }
 
 @media (prefers-reduced-motion: reduce) {
